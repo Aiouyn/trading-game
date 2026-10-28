@@ -19,7 +19,7 @@ function rested(scenario: Partial<Scenario> = {}, policy?: OrderPolicy): { f: Mo
   f.advance();
   return { f, id: Object.keys(me(f).orders)[0]! };
 }
-/** Tests reach the mock's private order map to make a partly filled order (the mock never fills a resting one). */
+/** Tests reach the mock's private order map to set an exact state; the browser gets these through the ?partFill / ?cancelKeep / ?cancelGone hooks (below). */
 const ordersOf = (f: MockFeed) => f as unknown as { orders: Record<string, OpenOrder> };
 afterEach(() => setFeed(null));
 
@@ -99,6 +99,52 @@ describe("BR-6-08 mock cancel", () => {
     expect(site("this.orders = rest;")).toMatch(/\/\/ ENGINE-TBD/);
     expect(site("this.policy.haltedRestingStatus")).toMatch(/\/\/ ENGINE-TBD/);
     expect(readFileSync("src/shell/contracts/orderPolicy.ts", "utf8")).toMatch(/ENGINE-TBD/);
+  });
+});
+
+describe("BR-6-06 / 08 browser hooks (QUAY_HOOKS): ?cancelKeep, ?partFill, ?cancelGone", () => {
+  const held = (f: MockFeed) => Number(me(f).positions.HALC?.qty ?? 0);
+  it("?cancelKeep=QUEUED_AUCTION: ACCEPTED naming the order, which stays open with that status", () => {
+    const { f, id } = rested({ cancelKeep: "QUEUED_AUCTION" });
+    const iid = f.cancel(id);
+    f.advance();
+    expect(last(f)).toMatchObject({ intentId: iid, status: "ACCEPTED", effects: [`order:${id}`] });
+    expect(me(f).orders[id]).toMatchObject({ status: "QUEUED_AUCTION", filled: "0" });
+  });
+  it("?partFill=18: a live priced order rests PARTIAL 18 / 40 with a MAKER fill booked to the position; cancel removes the remainder, the fill stays", () => {
+    const base = held(rested().f);
+    const { f, id } = rested({ partFill: 18 });
+    expect(me(f).orders[id]).toMatchObject({ status: "PARTIAL", filled: "18", qty: "40", avgPrice: "42.10" });
+    expect(me(f).fills.at(-1)).toMatchObject({ orderId: id, qty: "18", price: "42.10", liquidity: "MAKER", side: "BUY" });
+    expect(held(f)).toBe(base + 18);
+    f.cancel(id);
+    f.advance();
+    expect(last(f)).toMatchObject({ status: "ACCEPTED", effects: [`order:${id}`] });
+    expect(me(f).orders[id]).toBeUndefined();
+    expect(held(f)).toBe(base + 18);
+    expect(me(f).fills.filter((x) => x.orderId === id).map((x) => x.qty)).toEqual(["18"]);
+  });
+  it("?partFill: never on a halted asset, and N >= qty does not fill", () => {
+    expect(me(rested({ partFill: 18, halt: "HALC" }).f).orders).toSatisfy((o: Record<string, OpenOrder>) => Object.values(o).every((x) => x.filled === "0"));
+    expect(me(rested({ partFill: 40 }).f).orders).toSatisfy((o: Record<string, OpenOrder>) => Object.values(o).every((x) => x.status === "WORKING"));
+  });
+  it("?cancelGone=1: a fill takes the order on the next tick with no result; the tick after, the cancel finds no order: ACCEPTED, no effects, other orders unchanged", () => {
+    const { f, id } = rested({ cancelGone: true });
+    f.submit({ ...LIMIT, limit: "41.50", qty: "7" });
+    f.advance();
+    const other = Object.keys(me(f).orders).find((k) => k !== id)!;
+    const iid = f.cancel(id);
+    f.advance();
+    expect(me(f).orders[id], "filled in full before the cancel settles").toBeUndefined();
+    expect(me(f).fills.at(-1)).toMatchObject({ orderId: id, qty: "40", liquidity: "MAKER" });
+    expect(me(f).intents.some((i) => i.intentId === iid), "no result yet").toBe(false);
+    const before = JSON.stringify(me(f).orders);
+    f.advance();
+    const r = last(f);
+    expect(r).toMatchObject({ intentId: iid, status: "ACCEPTED" });
+    expect(r.effects ?? []).toEqual([]);
+    expect(JSON.stringify(me(f).orders)).toBe(before);
+    expect(me(f).orders[other]).toBeDefined();
   });
 });
 

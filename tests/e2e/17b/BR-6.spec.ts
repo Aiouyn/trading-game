@@ -1,7 +1,8 @@
 // UI card 6 (17B BR-6) Broker: cancel an open order, end to end against the production build and its mock feed.
-// BR-6-06 / 08 need injected engine states (ack with the order kept, partial fill, absent id) the mock cannot reach from the
-// browser, so they are unit tested (tests/unit/17b/BR-6-*.test.ts(x)). This spec proves the browser side: control and confirm, the cancel
-// intent on the fake clock, pending, ack + focus, reject, halt and feed states, keyboard, axe, layout at 1440 / 520 / 390,
+// BR-6-06 / 08 engine states come from build-gated mock hooks: ?cancelKeep=STATUS (ack with the order kept), ?partFill=N
+// (a partly filled order) and ?cancelGone=1 (a fill takes the order before the cancel settles on an absent id). This spec
+// proves the browser side: control and confirm, the cancel
+// intent on the fake clock, pending, ack + focus, ack with the order kept, partial fill, absent id, reject, halt and feed states, keyboard, axe, layout at 1440 / 520 / 390,
 // cb / hc baselines, reduced motion, FR. Also QA #85 Q1 (no Review on a preview for other inputs) end to end.
 // Shots: SHOTS=1 writes them under tests/e2e/17b/__screenshots__/BR-6 (CI); BR_SHOTS_DIR overrides the folder. The cb / hc
 // list baselines (toHaveScreenshot) are committed under tests/e2e/17b/__screenshots__/BR-6 and compared on every run.
@@ -199,6 +200,81 @@ test("BR-6-03 ?replyMs=2000: a re-press while the reply is held finds no control
   }
   await runUntil(page, async () => (await rows(page).count()) === 0, 12_000);
   expect((await cancelIntents(page)).slice(before.length)).toEqual([{ kind: "mkt.order.cancel", payload: { orderId: id } }]);
+});
+
+const youHold = async (page: Page) => Number((await br(page).getByTestId("br-you-hold").textContent())!.replace(/[^\d]/g, ""));
+
+test("BR-6-06 ?cancelKeep=QUEUED_AUCTION: ACCEPTED with the order still open: the row stays, idle, with the new status; no line", async ({ page }) => {
+  await openPaused(page, "&cancelKeep=QUEUED_AUCTION");
+  await limitOrder(page, "42.10");
+  const r = rows(page).first();
+  await expect(r.getByTestId("br-oo-status")).toHaveText("Working");
+  const before = await cancelIntents(page);
+  const id = await confirmCancel(r);
+  await expect(r.getByTestId("br-oo-cancelling")).toBeVisible();
+  await runUntil(page, async () => (await r.getByTestId("br-oo-cancelling").count()) === 0);
+  expect((await cancelIntents(page)).slice(before.length)).toEqual([{ kind: "mkt.order.cancel", payload: { orderId: id } }]);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(list(page).getByTestId(`br-oo-row-${id}`)).toHaveAttribute("data-status", "QUEUED_AUCTION");
+  await expect(r.getByTestId("br-oo-status")).toHaveText("Waits for reopen");
+  await expect(r).not.toHaveAttribute("aria-busy", "true");
+  await expect(cancelBtn(r)).toBeEnabled();
+  await expect(cancelBtn(r)).not.toHaveAttribute("aria-disabled", "true");
+  await expect(r.getByTestId("br-oo-note")).toHaveCount(0);
+  await expect(list(page).getByTestId("br-oo-line")).toBeEmpty();
+  await expect(list(page).locator("[data-leaving]")).toHaveCount(0);
+  await expect(list(page).getByTestId("br-oo-count")).toHaveText("1");
+});
+
+test("BR-6-08 ?partFill=18: a partly filled row (18 / 40) is removed on ACCEPTED; the 18 filled stay held", async ({ page }) => {
+  await openPaused(page, "&partFill=18");
+  const held0 = await youHold(page);
+  await limitOrder(page, "42.10");
+  const r = rows(page).first();
+  await expect(r.getByTestId("br-oo-status")).toHaveText("Partly filled");
+  await expect(r.getByTestId("br-oo-qty")).toHaveText("18 / 40 filled");
+  await expect(cancelBtn(r)).toHaveAccessibleName("Cancel order: Buy 18 / 40 filled HALC, Limit 42.10");
+  await expect.poll(() => youHold(page)).toBe(held0 + 18);
+  const id = await confirmCancel(r);
+  await runUntil(page, async () => (await list(page).getByTestId(`br-oo-row-${id}`).count()) === 0);
+  await expect(list(page).getByTestId("br-oo-line")).toHaveText("Order cancelled: Buy 18 / 40 filled HALC, Limit 42.10");
+  await expect(list(page).getByTestId("br-oo-empty")).toHaveText("No open orders.");
+  await expect(list(page).locator("#br-oo-title")).toBeFocused();
+  await page.clock.runFor(2_000);
+  expect(await youHold(page), "the filled part stays in holdings").toBe(held0 + 18);
+});
+
+test("BR-6-08 ?cancelGone=1: a fill takes the order first (row drops at once, no ghost); the cancel then finds no order: ACCEPTED, no effects, the other row untouched", async ({ page }) => {
+  await openPaused(page, "&cancelGone=1");
+  const held0 = await youHold(page);
+  await limitOrder(page, "42.10");
+  await limitOrder(page, "41.50", "7");
+  const [gone, other] = [rows(page).nth(1), rows(page).nth(0)];
+  const otherId = await rowId(other);
+  await expect(gone.getByTestId("br-oo-terms")).toHaveText("Limit 42.10");
+  const before = await cancelIntents(page);
+  const id = await confirmCancel(gone);
+  const row = list(page).getByTestId(`br-oo-row-${id}`);
+  const ghost = list(page).getByTestId(`br-oo-leaving-${id}`);
+  const line = list(page).getByTestId("br-oo-line");
+  // Step the clock: the fill removes the row before any result (empty line), then the ACCEPTED fills the line.
+  let leftAt = -1, lineAt = -1;
+  for (let t = 0; t < 16_000 && lineAt < 0; t += 250) {
+    await page.clock.runFor(250);
+    const [rowN, ghostN, text] = [await row.count(), await ghost.count(), (await line.textContent()) ?? ""];
+    expect(ghostN, `no ghost of the filled order at ${t} ms`).toBe(0);
+    if (rowN === 0 && leftAt < 0) { leftAt = t; expect(text, "no outcome before the IntentResult").toBe(""); }
+    if (text !== "") lineAt = t;
+  }
+  expect(leftAt, "the fill removed the row").toBeGreaterThanOrEqual(0);
+  expect(lineAt, "the result came on a later tick than the fill").toBeGreaterThan(leftAt);
+  await expect(line).toHaveText("Order cancelled: Buy 40 HALC, Limit 42.10");
+  expect((await cancelIntents(page)).slice(before.length)).toEqual([{ kind: "mkt.order.cancel", payload: { orderId: id } }]);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(list(page).getByTestId(`br-oo-row-${otherId}`).getByTestId("br-oo-status")).toHaveText("Working");
+  await expect(list(page).getByTestId(`br-oo-row-${otherId}`).getByTestId("br-oo-qty")).toHaveText("7");
+  await expect(cancelBtn(list(page).getByTestId(`br-oo-row-${otherId}`))).toBeFocused();
+  await expect.poll(() => youHold(page), "the 40 filled are held").toBe(held0 + 40);
 });
 
 test("BR-6-07 ?cancelReject=MKT_X: row stays idle with the code alert; next Cancel clears it", async ({ page }, info) => {

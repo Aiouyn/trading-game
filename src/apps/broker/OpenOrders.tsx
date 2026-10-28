@@ -77,8 +77,10 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   const gone = Object.entries(sent).filter(([id]) => !present.has(id)).map(([, s]) => ({ s, r: resultOf(intents, s.intentId) }));
   const lastGone = gone.filter((g) => g.r !== null && g.s.seq > lineFrom).sort((a, b) => b.s.seq - a.s.seq)[0];
   const line = lastGone ? lineText(t, locale, lastGone.s.order, lastGone.r!) : null;
-  // Rows collapsing out (height on --dur-base; instant under reduced motion): accepted this tick, not yet animated.
-  const ghosts = gone.filter((g) => g.r?.status === "ACCEPTED" && g.r.tick === me.tick && !settledGhosts.has(g.s.order.orderId)).map((g) => g.s.order);
+  // Rows collapsing out (height on --dur-base; instant under reduced motion): the cancel removed the order this tick
+  // (ACCEPTED naming it in effects), not yet animated. An order that left before its result (Gap 4: a fill took it, the
+  // cancel then finds no order) already dropped out at once, so it never comes back as a ghost.
+  const ghosts = gone.filter((g) => g.r?.status === "ACCEPTED" && g.r.tick === me.tick && g.r.effects?.includes(`order:${g.s.order.orderId}`) && !settledGhosts.has(g.s.order.orderId)).map((g) => g.s.order);
 
   useEffect(() => {
     const ids = orders.map((o) => o.orderId);

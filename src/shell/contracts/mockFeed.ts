@@ -37,11 +37,21 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   replyMs: number;
   /** `?cancelReject=CODE` (QUAY_HOOKS): every cancel intent is REJECTED with CODE and the order stays (card 6). `reject`
    *  rejects places too, so a list to cancel from needs its own hook. */
-  cancelReject: string | null }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null };
+  cancelReject: string | null;
+  /** `?cancelKeep=STATUS` (QUAY_HOOKS): a cancel is ACCEPTED but the order stays open with STATUS (BR-6-06: Engine may
+   *  answer an accepted cancel with the order still in `me.orders`). */
+  cancelKeep: OpenOrder["status"] | null;
+  /** `?partFill=N` (QUAY_HOOKS): a priced order on a live asset rests with N filled (a MAKER fill at its price, booked
+   *  to the position), status PARTIAL (BR-6-08 partly filled). N must be below the order's qty. */
+  partFill: number | null;
+  /** `?cancelGone=1` (QUAY_HOOKS): the order a cancel targets fills in full on the next tick, before the cancel settles,
+   *  so the cancel settles one tick later on an id that is no longer open (BR-6-08 absent id, Gap 4 race). */
+  cancelGone: boolean }
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false };
+const KEEP_STATUSES: ReadonlySet<string> = new Set<OpenOrder["status"]>(["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"]);
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -54,6 +64,8 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const pledge = /^([A-Z0-9]{1,12}):(\d{1,9})$/.exec(q.get("pledge") ?? "");
   const replyMs = Number(q.get("replyMs"));
   const cancelReject = q.get("cancelReject");
+  const cancelKeep = q.get("cancelKeep");
+  const partFill = Number(q.get("partFill"));
   const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
@@ -66,6 +78,9 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     pledge: pledge && ASSET_BY_ID[pledge[1]!] && Number(pledge[2]) > 0 ? { assetId: pledge[1]!, qty: Number(pledge[2]) } : null,
     replyMs: Number.isSafeInteger(replyMs) && replyMs > 0 && replyMs <= 60_000 ? replyMs : 0,
     cancelReject: code(cancelReject),
+    cancelKeep: cancelKeep && KEEP_STATUSES.has(cancelKeep) ? (cancelKeep as OpenOrder["status"]) : null,
+    partFill: Number.isSafeInteger(partFill) && partFill > 0 ? partFill : null,
+    cancelGone: q.get("cancelGone") === "1",
   };
 }
 
@@ -95,7 +110,7 @@ interface Lot { qty: number; avgCost: number }
 /** Exchange fee, Quant E-96 (2): max(min fee, rate x notional x tier multiplier), rounded half-even to the cent.
  *  Equities and ETFs: taker 3 bp, auction 1 bp, minimum $0.10; tier multiplier 1.0 below $10M notional (every mock order).
  *  The mock fills market orders as takers and queues halted ones for the reopen auction. Limit and stop orders rest and
- *  never fill here, so their preview uses the taker rate too [P]. Bonds (0.5 bp) are not in the mock's asset list. */
+ *  fill only under the `?partFill` / `?cancelGone` hooks, so their preview uses the taker rate too [P]. Bonds (0.5 bp) are not in the mock's asset list. */
 const FEE_BP = { taker: 3, auction: 1 } as const;
 const MIN_FEE_MINOR = 10;
 export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number {
@@ -189,7 +204,12 @@ export class MockFeed {
     const due = this.pending;
     this.pending = [];
     for (const p of due) {
-      if (p.kind === "cancel") { this.settleCancel(p.intentId, p.orderId); continue; }
+      if (p.kind === "cancel") {
+        // ?cancelGone=1: a fill takes the whole order first; the cancel settles next tick on an id no longer open.
+        if (this.scenario.cancelGone && this.orders[p.orderId]) { this.fillRest(p.orderId); this.pending.push(p); continue; }
+        this.settleCancel(p.intentId, p.orderId);
+        continue;
+      }
       const { intentId, draft } = p;
       const a = ASSET_BY_ID[draft.assetId];
       // Halt (Quant E-96 (3), Producer E-98 (1)): a halted asset still takes orders; a market day order is accepted with
@@ -204,8 +224,11 @@ export class MockFeed {
       const orderId = `o-${this.nextId++}`;
       if (draft.type !== "market") {
         // A priced order rests; on a halted asset it rests with the policy's status (E-98 (1)). // ENGINE-TBD
-        const status = this.tradingState(a.assetId) === "HALTED" ? this.policy.haltedRestingStatus : "WORKING";
+        const halted = this.tradingState(a.assetId) === "HALTED";
+        const status = halted ? this.policy.haltedRestingStatus : "WORKING";
         this.orders = { ...this.orders, [orderId]: { orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", ...(draft.limit ? { limit: draft.limit } : {}), ...(draft.stop ? { stop: draft.stop } : {}), tif: draft.tif, status, placedTick: this.tick, avgPrice: fmt(0, a.displayDecimals) } };
+        const part = this.scenario.partFill;
+        if (!halted && part !== null && part < qty) this.restingFill(orderId, part);
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
         continue;
       }
@@ -214,19 +237,37 @@ export class MockFeed {
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
         continue;
       }
-      const s = this.assets.get(a.assetId)!;
-      const px = s.last;
-      const fee = exchangeFeeMinor(px * qty, FEE_BP.taker);
-      const signed = draft.side === "BUY" ? qty : -qty;
-      const lot = this.lots.get(a.assetId) ?? { qty: 0, avgCost: 0 };
-      const nq = lot.qty + signed;
-      const avg = nq === 0 ? 0 : draft.side === "BUY" && lot.qty >= 0 ? Math.round((lot.avgCost * lot.qty + px * qty) / nq) : lot.avgCost;
-      if (nq === 0) this.lots.delete(a.assetId); else this.lots.set(a.assetId, { qty: nq, avgCost: avg });
-      this.cash -= signed * px + fee;
-      const fillId = `x-${this.nextId++}`;
-      this.fills = [...this.fills, <MyFill>{ fillId, tick: this.tick, assetId: a.assetId, orderId, side: draft.side, qty: draft.qty, price: fmt(px, a.displayDecimals), fee: fmt(fee, 2), feeCcy: a.ccy, liquidity: "TAKER", counterpartyKind: "NPC" }].slice(-RING_KEEP);
+      const fillId = this.bookFill(a, orderId, draft.side, qty, this.assets.get(a.assetId)!.last, "TAKER");
       this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`fill:${fillId}`] }].slice(-RING_KEEP);
     }
+  }
+
+  /** One fill: position, cash and `me.fills` (fee at the taker rate [P]; the mock has no maker rate). Returns the fillId. */
+  private bookFill(a: AssetFixture, orderId: string, side: OpenOrder["side"], qty: number, px: number, liquidity: MyFill["liquidity"]): string {
+    const fee = exchangeFeeMinor(px * qty, FEE_BP.taker);
+    const signed = side === "BUY" ? qty : -qty;
+    const lot = this.lots.get(a.assetId) ?? { qty: 0, avgCost: 0 };
+    const nq = lot.qty + signed;
+    const avg = nq === 0 ? 0 : side === "BUY" && lot.qty >= 0 ? Math.round((lot.avgCost * lot.qty + px * qty) / nq) : lot.avgCost;
+    if (nq === 0) this.lots.delete(a.assetId); else this.lots.set(a.assetId, { qty: nq, avgCost: avg });
+    this.cash -= signed * px + fee;
+    const fillId = `x-${this.nextId++}`;
+    this.fills = [...this.fills, <MyFill>{ fillId, tick: this.tick, assetId: a.assetId, orderId, side, qty: String(qty), price: fmt(px, a.displayDecimals), fee: fmt(fee, 2), feeCcy: a.ccy, liquidity, counterpartyKind: "NPC" }].slice(-RING_KEEP);
+    return fillId;
+  }
+  /** A resting order fills `qty` more at its own price (limit, else stop): MAKER. In full it leaves `me.orders`. */
+  private restingFill(orderId: string, qty: number): void {
+    const o = this.orders[orderId]!;
+    const a = ASSET_BY_ID[o.assetId]!;
+    const px = Math.round(Number(o.limit ?? o.stop ?? 0) * 10 ** a.displayDecimals);
+    this.bookFill(a, orderId, o.side, qty, px, "MAKER");
+    const filled = Number(o.filled) + qty;
+    if (filled >= Number(o.qty)) { const { [orderId]: _done, ...open } = this.orders; void _done; this.orders = open; return; }
+    this.orders = { ...this.orders, [orderId]: { ...o, filled: String(filled), status: "PARTIAL", avgPrice: fmt(px, a.displayDecimals) } };
+  }
+  private fillRest(orderId: string): void {
+    const o = this.orders[orderId]!;
+    this.restingFill(orderId, Number(o.qty) - Number(o.filled));
   }
 
   /** A cancel settles on the tick after it was sent (card 6). ACCEPTED removes the order and names it in `effects`. */
@@ -243,6 +284,11 @@ export class MockFeed {
     }
     // Halt / suspension (Gap 2): only the policy's states take a cancel. // ENGINE-TBD
     if (!this.policy.cancelIn.includes(this.tradingState(o.assetId))) return result({ status: "REJECTED", rejectCode: this.policy.cancelClosedCode });
+    // ?cancelKeep=STATUS (BR-6-06): accepted, but the order stays open with STATUS.
+    if (this.scenario.cancelKeep) {
+      this.orders = { ...this.orders, [orderId]: { ...o, status: this.scenario.cancelKeep } };
+      return result({ status: "ACCEPTED", effects: [`order:${orderId}`] });
+    }
     // Partly filled (Gap 3): "removeRemainder" is the only typed rule, so every accepted cancel removes the order;
     // its fills stay in `me.fills` and the position. // ENGINE-TBD
     const { [orderId]: _gone, ...rest } = this.orders;
