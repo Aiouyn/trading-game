@@ -34,6 +34,9 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     pay: P('pay'), cbCredit: P('cbCredit'), cbCreditUnwind: P('cbCreditUnwind'),
     mint: (to: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'mint', to, amt, ccy, code }); return `e${posts.length}`; },
     burn: (from: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'burn', from, amt, ccy, code }); return `e${posts.length}`; },
+    fx: (a: Id, b: Id, c1: string, a1: bigint, c2: string, a2: bigint, code: string) => {
+      posts.push({ op: 'fx', from: a, to: b, amt: a1, ccy: c1, code }, { op: 'fx', from: b, to: a, amt: a2, ccy: c2, code }); return `e${posts.length}`; },
+    position: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
     available: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n, availableQty: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
   };
   const hold = (owner: Id, assetId: string | undefined, amt: bigint, expires: number, ref: Id): Id => {
@@ -46,7 +49,13 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
   };
   const store = {
     get: (t: string, id: string) => tables[t]?.find((r) => r.id === id)?.e, put,
-    iter: (t: string) => (tables[t] ?? []).map((r) => r.e), index: () => [], count: (t: string) => (tables[t] ?? []).length,
+    iter: (t: string) => (tables[t] ?? []).map((r) => r.e), count: (t: string) => (tables[t] ?? []).length,
+    del: (t: string, id: string) => { const rows = tables[t] ?? [], i = rows.findIndex((r) => r.id === id); if (i >= 0) rows.splice(i, 1); },
+    index: (t: string, name: string, key: string) => {   // the table def's own index key (T04-09: pool_order, hook_call, facility, event); others → []
+      const def = [macroTables.poolOrder, macroTables.hookCall, macroTables.facility, macroTables.event].find((d) => d.name === t) as { indexes?: { name: string; key(e: unknown): string | null }[] } | undefined;
+      const ix = def?.indexes?.find((x) => x.name === name);
+      return ix ? (tables[t] ?? []).map((r) => r.e).filter((e) => ix.key(e) === key) : [];
+    },
   };
   const ctx = { get tick() { return tick; }, phase: 'P8', params: createParamsView(MACRO_T04_08_PARAMS), newId: (k: string) => `${k}_${n++}`, store, ledger, holds: hb,
     emit: (kind: string, subjectIds: Id[], payload: unknown, vis: string, partyIds?: Id[]) => { events.push({ kind, subjectIds, payload, vis, ...(partyIds ? { partyIds } : {}) }); },

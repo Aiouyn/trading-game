@@ -162,6 +162,9 @@ export interface AssetPurchaseProgram {
   holdingsCapGdp: number;
   qtRunoffCapPerMonth: number;
   startedTick?: Tick;
+  // T04-09 program progress (unit decision: 04 leaves it implicit). month = first game day of the game month the totals belong to.
+  month?: { start: number; bought: Money; sold: Money; runoff: Money };
+  day?: { gameDay: number; rows: { assetId: string; side: 'BUY' | 'SELL'; face: Qty }[] };   // the day's plan; face = still to trade
 }
 export interface YieldCurveControl { tenorYears: 10; capYield: number; active: boolean; startedTick: Tick }
 export interface FacilityTerms {
@@ -170,7 +173,7 @@ export interface FacilityTerms {
   elaPenaltySpread: number;
   maxTermDays: number;
 }
-export interface SwapLine { counterpartyCbk: string; limit: Money; spread: number; active: boolean; drawn: Money }
+export interface SwapLine { counterpartyCbk: string; limit: Money; spread: number; active: boolean; drawn: Money; calmDays?: number /* T04-09 */ }
 /** §3.6.6 emergency triggers, declaration order (E-100 (c): declared here, re-exported by rules/cb.ts). */
 export type EmergencyTrigger = 'FSI' | 'EQUITY_DROP' | 'INTERBANK' | 'CURRENCY' | 'CRISIS_POLICY';
 export interface CentralBank {
@@ -207,6 +210,7 @@ export interface CentralBank {
   ccybPending: { value: number; effectiveTick: Tick } | null;
   emergencyQuarter: number;        // quarter index of emergencyCountQuarter, quarter = floor(game day / 91)
   pendingEmergency: { tick: Tick; triggers: EmergencyTrigger[] } | null;
+  yccPressureWired?: boolean;      // T04-09 edge 20: the WIRE_ITEM hook of the current under-pressure episode is written
   rrEasingQuarter?: number;       // T04-08 adjustRr: quarter of the last SRL EASING change (at most one per quarter)   // E-100 (c): genesis null; set by T04-06 scheduleEmergency, cleared by the emergency runMeeting
 }
 
