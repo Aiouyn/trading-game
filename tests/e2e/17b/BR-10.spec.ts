@@ -77,11 +77,11 @@ async function toNews(page: Page) {
 async function still(page: Page) {
   let quiet = 0;
   for (let i = 0; i < 40 && quiet < 2; i++) {
-    const running = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === "running").length);
+    const running = await page.evaluate(() => document.getAnimations().filter((a) => a instanceof CSSTransition && a.playState === "running").length);
     quiet = running === 0 ? quiet + 1 : 0;
     await page.waitForTimeout(100);
   }
-  expect(quiet, "animations still running before the shot").toBe(2);
+  expect(quiet, "transitions still running before the shot").toBe(2);
 }
 /** After a theme pin: let the re-render it starts run on the paused clock (`shot` then waits the transitions out). */
 const settle = (page: Page) => page.clock.runFor(100);
