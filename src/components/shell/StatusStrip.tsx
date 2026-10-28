@@ -6,6 +6,7 @@ import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
+import { useNw } from "./useNw";
 import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
@@ -19,15 +20,16 @@ export function StatusStrip() {
   const rank = useShell((s) => s.channels.rank.rank);
   const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
+  const nw = useNw();
   const focusMode = useShell((s) => s.local.focusMode);
   const { day, hhmm } = clockLabel(clock);
   const clockText = clockStrings(useShell((s) => s.prefs.locale)).strip(day, hhmm);
   const release = `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const nw = (
+  const nwChip = (
     <span className="strip-nw" data-testid="strip-nw">
-      <MoneyText amount={me.nw} ctx="chip" /> <PctText value={me.todayPct} />
+      <MoneyText amount={nw} ctx="chip" /> <PctText value={me.todayPct} />
     </span>
   );
   if (focusMode) {
@@ -36,7 +38,7 @@ export function StatusStrip() {
         <span className="num clock">{clockText}</span>
         <TickRing tick={clock.tick} />
         <HaltChip halted={sys.halted} />
-        {nw}
+        {nwChip}
       </header>
     );
   }
@@ -61,7 +63,7 @@ export function StatusStrip() {
         <HaltChip halted={sys.halted} />
         {me.protectionEndsRealMs !== null && <Chip data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</Chip>}
         <Chip tone="acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</Chip>
-        {nw}
+        {nwChip}
         <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>
       </div>
     </header>

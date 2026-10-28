@@ -106,6 +106,10 @@ export const CLOCK_STRINGS: Record<ShellLocale, { strip: (day: number, hhmm: str
 };
 export const clockStrings = (locale: string) => CLOCK_STRINGS[locale === "fr" ? "fr" : "en"];
 
+/** Generic window skeleton (AppSkeleton, Studio Q3): the status line AT reads while a built app's chunk loads. */
+const APP_LOADING: Record<ShellLocale, (app: string) => string> = { en: (app) => `Loading ${app}…`, fr: (app) => `Chargement de ${app}…` };
+export const appLoadingText = (locale: string, app: string) => APP_LOADING[locale === "fr" ? "fr" : "en"](app);
+
 export const GROUP_LABELS = { trade: "Trade", build: "Build", shadow: "Shadow", world: "World", me: "Me" } as const;
 
 // TODO(17A T4): the "Players and companies" group stays empty until a search data source exists (trigger: player/company search source).
