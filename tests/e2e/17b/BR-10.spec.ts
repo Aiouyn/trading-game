@@ -38,6 +38,15 @@ async function toNews(page: Page) {
   await tab(page, "news").click();
   await until(page, async () => (await page.locator('[data-testid="ap-news"], [data-testid="ap-news-error"]').count()) > 0);
 }
+/**
+ * After a theme pin: run the paused clock, then wait out the colour transitions the swap started on every button
+ * (shell.css; CSS transitions run on real time, not the paused clock). Without it a cb / hc shot caught one mid-way,
+ * 1 to 121 pixels off one or two levels, depending on the run.
+ */
+async function settle(page: Page) {
+  await page.clock.runFor(100);
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+}
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const colours = (l: Locator) => l.evaluate((el) => {
   const out = new Set<string>();
@@ -146,7 +155,7 @@ test("BR-10-10 1440: Overview with HALC's position, News, News empty, halted, hc
   expect(await axe(page)).toEqual([]);
 
   await pinHtml(page, "hc", true);
-  await page.clock.runFor(100);
+  await settle(page);
   await noBrass(page);
   await shot(page, "hc");
   expect(await axe(page)).toEqual([]);
@@ -325,7 +334,7 @@ for (const scale of ["1", "2"] as const) {
     if (scale === "1") {
       for (const k of ["cb", "hc"] as const) {
         await pinHtml(page, k, true);
-        await page.clock.runFor(100);
+        await settle(page);
         await noBrass(page);
         await shot(page, `phone-${k}`);
         expect(await axe(page)).toEqual([]);
