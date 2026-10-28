@@ -191,4 +191,4 @@ Tests: `src/engine/trading.test.ts` (23 tests): fills and fees, round-trip accou
 Trading: `config.trading` (`startingCash`, `fees`, `impactY`, `permanentImpactShare`, `maxAdvPerTick`, `closedOrdersKept`) and per-asset `spreadBps`, `advNotional`, `qtyStep`.
 
 
-Everything lives in `WorldConfig` and `AssetDef`. Nothing is hard-coded in `sim.ts`. Tape's balance runs can override any field through `defaultConfig({ ... })`.
+Everything lives in `WorldConfig` and `AssetDef` (`engine-staging/src/engine/types.ts`), with defaults in `defaultConfig` (`engine-staging/src/engine/config.ts`). Tape's balance runs can override any field through `defaultConfig({ ... })`.
