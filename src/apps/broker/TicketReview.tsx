@@ -1,5 +1,5 @@
 "use client";
-// Review / submitting / acked (UI card 4). Review repeats the server's estimate and holds the Broker's only primary
+// Review / submitting / acked (UI cards 4 and 5). Review repeats the server's estimate and holds the Broker's only primary
 // ("Place order"). The acked panel reads our IntentResult (and its MyFill) from `me`: nothing is computed here.
 import { Button } from "@/components/ui/Button";
 import { decText } from "@/apps/portfolio/positions/format";
@@ -48,7 +48,7 @@ export function fillOf(result: IntentResult, fills: readonly MyFill[]): MyFill |
   const ids = (result.effects ?? []).filter((e) => e.startsWith("fill:")).map((e) => e.slice(5));
   return fills.find((f) => ids.includes(f.fillId)) ?? null;
 }
-/** The open order an intent created ("order:{id}"), for the queued-for-reopen label. */
+/** The open order an intent created ("order:{id}"), for the queued-for-reopen label and the resting ack. */
 export function orderIdOf(result: IntentResult): string | null {
   const e = (result.effects ?? []).find((x) => x.startsWith("order:"));
   return e ? e.slice(6) : null;
@@ -61,11 +61,13 @@ export interface AckPanelProps {
   result: IntentResult;
   fill: MyFill | null;
   queued: boolean;
+  /** Card 5: ACCEPTED with `order:{id}` that rests (not queued for reopen): "Order placed. It's in Open orders." */
+  resting: boolean;
   onNew: () => void;
   onEdit: () => void;
 }
 
-export function AckPanel({ t, locale, ticker, result, fill, queued, onNew, onEdit }: AckPanelProps) {
+export function AckPanel({ t, locale, ticker, result, fill, queued, resting, onNew, onEdit }: AckPanelProps) {
   if (result.status === "REJECTED") {
     const code = result.rejectCode ?? "";
     const copy = rejectCopy(t, code, result.rejectParams);
@@ -89,7 +91,7 @@ export function AckPanel({ t, locale, ticker, result, fill, queued, onNew, onEdi
         </>
       ) : (
         <>
-          <p className="br-ack-title" data-testid="br-ack-title">{t.received}</p>
+          <p className="br-ack-title" data-testid="br-ack-title">{resting ? t.restingAck : t.received}</p>
           {queued && <p className="br-queued" data-testid="br-queued">{t.haltedQueued}</p>}
         </>
       )}

@@ -1,8 +1,17 @@
-// Order path for the Broker ticket (UI card 4, Gap 1). The client has no `req` path yet: `FeedTransport` only
+// Order path for the Broker ticket (UI cards 4 and 5, Gap 1). The client has no `req` path yet: `FeedTransport` only
 // subscribes and resyncs. Until 19 `req` lands (SWAP), this file is the one client door to `preview` and `submit`.
 // Engine Dev reviews it alone, so everything it relies on is stated here:
-//  - Draft fields mirror `OrderDraft` (channels.ts, 05 Order): assetId, side BUY|SELL, type, qty (decimal string), tif.
-//    The ticket only builds market/day drafts with a whole-number qty; the type below cannot hold anything else.
+//  - Draft fields mirror `OrderDraft` (channels.ts, 05 Order): assetId, side BUY|SELL, type, qty (decimal string), tif,
+//    and `limit` / `stop` for priced types. The ticket builds day drafts only, with a whole-number qty, of four types
+//    (`DayDraft`): market (no price), limit (`limit`), stop (`stop`), stop_limit (`stop` and `limit`). Each type carries
+//    exactly its own price fields; the types below cannot hold any other combination.
+//  - Prices are `PriceText`: the typed string, format-checked (`^\d+([.,]\d+)?$`) with a decimal comma swapped for a
+//    point. No rounding, no tick-size or band check, no stop-side check: 05 §3.6.5 says a buy stop triggers when the
+//    reference is >= stopPrice and a sell stop when it is <= stopPrice; whether a given stop is on a sensible side, and
+//    every price rule, is the server's to judge (it answers with a reasonCode / rejectCode).
+//  - SWAP (field names): 05 §3.6 `mkt.order.place` names the prices `limitPrice` / `stopPrice` and the types MARKET |
+//    LIMIT | STOP | STOP_LIMIT. This file sends 17 §2.2's `OrderDraft` (`limit` / `stop`, lower-case types) as the 19C
+//    gateway contract; the gateway maps one to the other. packages/engine has no order model yet (core intake only).
 //  - Every value crossing the boundary is parsed: the draft with `orderDraft` before it leaves, the reply with
 //    `previewRes` / an intent id check when it comes back. Nothing here does arithmetic on a contract field.
 //  - The IntentResult is not returned here: it arrives on `me.intents` one tick later, as on the server.
@@ -26,7 +35,11 @@ export type WholeQty = Brand<string, "WholeQty">;
 /** The id `submit` returns; its result arrives as `me.intents[].intentId`. */
 export type IntentId = Brand<string, "IntentId">;
 
+/** A price as typed, format-checked, with "," rewritten to ".": "42,10" -> "42.10". Never parsed to a number. */
+export type PriceText = Brand<string, "PriceText">;
+
 const WHOLE = /^\d+$/;
+const PRICE = /^\d+([.,]\d+)?$/;
 
 /** Non-empty only: the format is the server's to judge (MKT_UNKNOWN_ASSET), not the client's. */
 export function parseAssetId(raw: string): AssetId | null {
@@ -41,17 +54,48 @@ export function parseQtyInput(text: string): QtyInput {
   return WHOLE.test(text) ? { kind: "whole", qty: text as WholeQty } : { kind: "notDigits" };
 }
 
-/** The only draft this ticket can send: market, day, whole quantity. Assignable to `OrderDraft`. */
-export interface MarketDayDraft extends OrderDraft {
+/** What a price box holds. Format only (card 5): digits, optionally one "." or "," and more digits. */
+export type PriceInput = { kind: "empty" } | { kind: "badFormat" } | { kind: "price"; price: PriceText };
+
+export function parsePriceInput(text: string): PriceInput {
+  if (text === "") return { kind: "empty" };
+  return PRICE.test(text) ? { kind: "price", price: text.replace(",", ".") as PriceText } : { kind: "badFormat" };
+}
+
+/** Fields every day draft shares. Assignable to `OrderDraft`. */
+interface DayDraftBase extends OrderDraft {
   readonly assetId: AssetId;
   readonly side: Side;
-  readonly type: "market";
   readonly qty: WholeQty;
   readonly tif: "day";
 }
+export interface MarketDayDraft extends DayDraftBase { readonly type: "market"; readonly limit?: never; readonly stop?: never }
+export interface LimitDayDraft extends DayDraftBase { readonly type: "limit"; readonly limit: PriceText; readonly stop?: never }
+export interface StopDayDraft extends DayDraftBase { readonly type: "stop"; readonly stop: PriceText; readonly limit?: never }
+export interface StopLimitDayDraft extends DayDraftBase { readonly type: "stop_limit"; readonly stop: PriceText; readonly limit: PriceText }
+/** Every draft this ticket can send. */
+export type DayDraft = MarketDayDraft | LimitDayDraft | StopDayDraft | StopLimitDayDraft;
+export type DayOrderType = DayDraft["type"];
+
+/** The type and its prices, without asset, side and qty. */
+export type OrderTerms =
+  | { readonly type: "market" }
+  | { readonly type: "limit"; readonly limit: PriceText }
+  | { readonly type: "stop"; readonly stop: PriceText }
+  | { readonly type: "stop_limit"; readonly stop: PriceText; readonly limit: PriceText };
 
 export function marketDayDraft(assetId: AssetId, side: Side, qty: WholeQty): MarketDayDraft {
   return { assetId, side, type: "market", qty, tif: "day" };
+}
+
+/** A day draft with exactly the terms' price fields (no `stop` on a limit, both on a stop limit). */
+export function dayDraft(assetId: AssetId, side: Side, qty: WholeQty, terms: OrderTerms): DayDraft {
+  switch (terms.type) {
+    case "market": return marketDayDraft(assetId, side, qty);
+    case "limit": return { assetId, side, type: "limit", qty, limit: terms.limit, tif: "day" };
+    case "stop": return { assetId, side, type: "stop", qty, stop: terms.stop, tif: "day" };
+    case "stop_limit": return { assetId, side, type: "stop_limit", qty, stop: terms.stop, limit: terms.limit, tif: "day" };
+  }
 }
 
 /** What a transport must answer. Replies are `unknown` on purpose: they are parsed here, never trusted. */
@@ -90,7 +134,7 @@ function parseIntentId(raw: unknown): IntentId {
   return s as IntentId;
 }
 
-async function call<T>(draft: MarketDayDraft, transport: OrderTransport | null, send: (t: OrderTransport, d: OrderDraft) => unknown, parse: (raw: unknown) => T): Promise<OrderResult<T>> {
+async function call<T>(draft: DayDraft, transport: OrderTransport | null, send: (t: OrderTransport, d: OrderDraft) => unknown, parse: (raw: unknown) => T): Promise<OrderResult<T>> {
   if (!transport) return fail({ kind: "noTransport" });
   try {
     const raw = await send(transport, orderDraft(draft, "draft"));
@@ -102,11 +146,11 @@ async function call<T>(draft: MarketDayDraft, transport: OrderTransport | null, 
 }
 
 /** Advisory estimate (Q14): the placed order re-validates on the server. */
-export function previewOrder(draft: MarketDayDraft, transport: OrderTransport | null = mockTransport()): Promise<OrderResult<PreviewRes>> {
+export function previewOrder(draft: DayDraft, transport: OrderTransport | null = mockTransport()): Promise<OrderResult<PreviewRes>> {
   return call(draft, transport, (t, d) => t.preview(d), (raw) => previewRes(raw, "preview"));
 }
 
 /** Sends the order once. The caller must not call it twice for one Place (17-AT-07). */
-export function placeOrder(draft: MarketDayDraft, transport: OrderTransport | null = mockTransport()): Promise<OrderResult<IntentId>> {
+export function placeOrder(draft: DayDraft, transport: OrderTransport | null = mockTransport()): Promise<OrderResult<IntentId>> {
   return call(draft, transport, (t, d) => t.submit(d), parseIntentId);
 }

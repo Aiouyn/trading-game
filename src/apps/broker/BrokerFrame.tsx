@@ -1,16 +1,19 @@
 "use client";
-// Broker frame (UI card 4, BRK-A): one asset, one side, one whole quantity, market/day. The server previews, the
-// server validates, the server acks; this file only schedules requests and picks which server string to show.
+// Broker frame (UI cards 4 and 5, BRK-A/C): one asset, one side, one whole quantity, one day order of four types
+// (market, limit, stop, stop limit), and the read-only Open orders list. The server previews, the server validates, the
+// server acks; this file only schedules requests and picks which server string to show.
 // Phases: edit -> review -> placed (pending until our IntentResult is on `me`, then the acked panel).
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
-import type { PreviewRes, Side } from "@/shell/contracts/channels";
-import { marketDayDraft, parseAssetId, parseQtyInput, placeOrder, previewOrder, type IntentId, type MarketDayDraft } from "@/shell/contracts/orders";
+import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/contracts/channels";
+import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
 import { getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
 import { AssetHeader } from "./AssetHeader";
+import { OpenOrders } from "./OpenOrders";
+import { OrderType, termsText, typeLabel } from "./OrderType";
 import { SimpleTicket } from "./SimpleTicket";
 import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
 import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
@@ -26,8 +29,21 @@ type Phase =
   | { kind: "review" }
   | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: boolean };
 
-interface Draft { assetId: string; side: Side; qtyText: string }
-const draftKey = (d: MarketDayDraft): string => `${d.assetId}|${d.side}|${d.qty}`;
+interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string }
+const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}`;
+/** The type's prices, once each box the type shows has a well-formed price; null otherwise. */
+function termsOf(type: DayOrderType, limitText: string, stopText: string): OrderTerms | null {
+  const limit = parsePriceInput(limitText);
+  const stop = parsePriceInput(stopText);
+  switch (type) {
+    case "market": return { type };
+    case "limit": return limit.kind === "price" ? { type, limit: limit.price } : null;
+    case "stop": return stop.kind === "price" ? { type, stop: stop.price } : null;
+    case "stop_limit": return stop.kind === "price" && limit.kind === "price" ? { type, stop: stop.price, limit: limit.price } : null;
+  }
+}
+/** Keys typed inside the Open orders list never drive the ticket (BR-5-07: a row is not a control). */
+const inOpenOrders = (el: EventTarget): boolean => el instanceof Element && el.closest("[data-oo]") !== null;
 /** The asset select keeps its own letter keys (type-to-find). */
 const isSelect = (el: EventTarget): boolean => el instanceof HTMLSelectElement;
 
@@ -41,7 +57,7 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const choices = useMemo(() => (ticker.body ? Object.keys(ticker.body.rows).sort() : []), [ticker.body]);
   const fixedAsset = context ? parseAssetId(context) : null;
-  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", qtyText: "" });
+  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" });
   const assetId = fixedAsset ?? (draft.assetId || choices[0] || "");
   const [touched, setTouched] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "edit" });
@@ -53,8 +69,9 @@ export function BrokerFrame({ context }: { context?: string }) {
   const order = useMemo(() => {
     const a = parseAssetId(assetId);
     const q = parseQtyInput(draft.qtyText);
-    return a && q.kind === "whole" ? marketDayDraft(a, draft.side, q.qty) : null;
-  }, [assetId, draft.side, draft.qtyText]);
+    const terms = termsOf(draft.type, draft.limitText, draft.stopText);
+    return a && q.kind === "whole" && terms ? dayDraft(a, draft.side, q.qty, terms) : null;
+  }, [assetId, draft.side, draft.qtyText, draft.type, draft.limitText, draft.stopText]);
   const key = order ? draftKey(order) : null;
   const preview = est && est.key === key ? est.res : null;
   const tickerTick = ticker.tick;
@@ -66,7 +83,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const budget = useRef({ tick: -1, n: 0 });
   const tickRef = useRef(tickerTick);
   useEffect(() => { tickRef.current = tickerTick; });
-  const request = useCallback((d: MarketDayDraft) => {
+  const request = useCallback((d: DayDraft) => {
     const tk = tickRef.current ?? -1;
     if (budget.current.tick !== tk) budget.current = { tick: tk, n: 0 };
     if (budget.current.n >= MAX_PREVIEWS_PER_TICK) return;
@@ -80,7 +97,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     const id = setTimeout(() => request(order), PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [order, settled, request]);
-  const shownRef = useRef<MarketDayDraft | null>(null);
+  const shownRef = useRef<DayDraft | null>(null);
   useEffect(() => { shownRef.current = preview && order && !settled ? order : null; });
   useEffect(() => {
     if (shownRef.current) request(shownRef.current);
@@ -92,12 +109,18 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const row = ticker.body?.rows[assetId];
   const halted = row?.halted === true;
-  const action = order ? (order.side === "BUY" ? t.actionBuy : t.actionSell)(order.qty, assetId) : "";
+  const bare = order ? (order.side === "BUY" ? t.actionBuy : t.actionSell)(order.qty, assetId) : "";
+  // Review title: action + terms for priced types ("Buy 40 HALC · Limit 42.10"); market keeps card 4's bare action.
+  const action = order && order.type !== "market" ? t.actionTerms(bare, termsText(t, locale, order)) : bare;
   const reviewStale = preview !== null && tickerTick !== null && preview.computedAtTick < tickerTick;
   const canReview = phase.kind === "edit" && preview !== null && preview.valid && !frozen;
   const canPlace = phase.kind === "review" && preview !== null && preview.valid && !reviewStale && !frozen;
 
   const setSide = (side: Side) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, side })); };
+  const setType = (type: DayOrderType) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, type })); };
+  const setPrice = (field: "limit" | "stop", text: string) => {
+    if (phase.kind === "edit") setDraft((d) => (field === "limit" ? { ...d, limitText: text } : { ...d, stopText: text }));
+  };
   const toReview = () => { if (canReview) setPhase({ kind: "review" }); };
   /** Edit / Esc / scrim: back to the ticket, except while our intent is in flight. */
   const toEdit = () => { if (phase.kind === "review" || placed?.failed) { placing.current = false; setPhase({ kind: "edit" }); } };
@@ -117,7 +140,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const editAfterReject = () => { placing.current = false; focusQty.current = true; setPhase({ kind: "edit" }); };
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.altKey || e.ctrlKey || e.metaKey || isSelect(e.target)) return;
+    if (e.altKey || e.ctrlKey || e.metaKey || isSelect(e.target) || inOpenOrders(e.target)) return;
     const k = e.key.toLowerCase();
     if ((k === "b" || k === "s") && phase.kind === "edit") { e.preventDefault(); setSide(k === "b" ? "BUY" : "SELL"); return; }
     if (e.key !== "Enter" || e.target instanceof HTMLButtonElement) return; // a focused button activates itself
@@ -128,12 +151,21 @@ export function BrokerFrame({ context }: { context?: string }) {
   const retry = () => { getFeed().resync("ticker:wl_default"); getFeed().resync("me"); };
   const cls = ["br", phone && "br-phone", stacked && "br-stacked"].filter(Boolean).join(" ");
 
+  // Open orders reads `me` on its own (card 5 States): skeleton rows, Updating…, or its own Couldn't load + Retry.
+  const restingId = result && result.status === "ACCEPTED" && me.body ? restingOrderId(result, me.body) : null;
+  const orders = (
+    <div className="br-col br-col-orders">
+      <OpenOrders t={t} locale={locale} me={me} freshId={restingId !== null && me.tick === result?.tick ? restingId : null} />
+    </div>
+  );
+
   if (ticker.state === "loading" || me.state === "loading") {
     return (
       <div className={cls} data-testid="broker" data-state="loading" aria-busy="true" aria-label={t.loading}>
         <div className="br-grid">
           <div className="br-col br-col-head"><div className="br-skel br-skel-head" data-testid="br-loading" /></div>
           <div className="br-col br-col-ticket"><div className="br-skel br-skel-ticket" /></div>
+          {orders}
         </div>
       </div>
     );
@@ -141,9 +173,14 @@ export function BrokerFrame({ context }: { context?: string }) {
   if (ticker.body === null || me.body === null) {
     return (
       <div className={cls} data-testid="broker" data-state={ticker.body === null ? ticker.state : me.state}>
-        <div className="br-error" data-testid="br-error">
-          <span role="alert">{t.couldntLoad}</span>
-          <Button data-testid="br-retry" onClick={retry}>{t.retry}</Button>
+        <div className="br-grid">
+          <div className="br-col br-col-ticket">
+            <div className="br-error" data-testid="br-error">
+              <span role="alert">{t.couldntLoad}</span>
+              <Button data-testid="br-retry" onClick={retry}>{t.retry}</Button>
+            </div>
+          </div>
+          {orders}
         </div>
       </div>
     );
@@ -164,10 +201,12 @@ export function BrokerFrame({ context }: { context?: string }) {
   const ack = result && (
     <AckPanel t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
       queued={(() => { const id = orderIdOf(result); return id !== null && body.orders[id]?.status === "QUEUED_AUCTION"; })()}
-      onNew={newOrder} onEdit={editAfterReject} />
+      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject} />
   );
   const ticket = (
     <SimpleTicket t={t} locale={locale} side={draft.side} qtyText={draft.qtyText} qtyRef={qtyRef}
+      orderType={<OrderType t={t} type={draft.type} limitText={draft.limitText} stopText={draft.stopText} readOnly={phase.kind !== "edit"} stacked={stacked} onType={setType} onPrice={setPrice} />}
+      kind={t.kindDay(typeLabel(t, draft.type))}
       onSide={setSide} onQty={(q) => { setTouched(true); setDraft((d) => ({ ...d, qtyText: q })); }} onQtyBlur={() => setTouched(true)}
       message={qtyMessage} preview={preview} reviewDisabled={!canReview} onReview={toReview} readOnly={phase.kind !== "edit"} />
   );
@@ -184,7 +223,15 @@ export function BrokerFrame({ context }: { context?: string }) {
           {ack || (phone ? ticket : review || ticket)}
           {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
         </div>
+        {orders}
       </div>
     </div>
   );
+}
+
+/** The order an ACCEPTED intent rested ("order:{id}" on `me.orders`, not queued for reopen); null for a fill. */
+function restingOrderId(result: IntentResult, body: MeTradingBody): string | null {
+  const id = orderIdOf(result);
+  const o = id !== null ? body.orders[id] : undefined;
+  return o && o.status !== "QUEUED_AUCTION" && fillOf(result, body.fills) === null ? o.orderId : null;
 }

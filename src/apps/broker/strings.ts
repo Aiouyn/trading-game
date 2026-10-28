@@ -4,6 +4,7 @@
 // "insufficient funds" copy; the card's MKT_INSUFFICIENT_FUNDS was only 19 §2.3's example code.
 // updating / couldntLoad / retry / cash repeat Portfolio's existing copy so this chunk does not import Portfolio's.
 // FR typography: U+202F before "%", "pb" and ":", and inside « ».
+// UI card 5 (limit / stop / Open orders) keys follow the card's copy table; s.QUEUED_AUCTION is `haltedQueued` (orderStatus).
 export type BrLocale = "en" | "fr";
 
 const NNBSP = "\u202F";
@@ -72,6 +73,28 @@ const EN = {
   updating: "Updating…",
   couldntLoad: "Couldn't load",
   retry: "Retry",
+  // ---- UI card 5: order types, prices, Open orders ----
+  orderType: "Order type",
+  t: { market: "Market", limit: "Limit", stop: "Stop", stopLimit: "Stop limit" },
+  kindDay: (type: string) => `${type} · Day`,
+  limitPrice: "Limit price",
+  stopPrice: "Stop price",
+  priceEmpty: "Enter a price.",
+  priceFormat: "Use a number like 42.10.",
+  termsLimit: (p: string) => `Limit ${p}`,
+  termsStop: (p: string) => `Stop ${p}`,
+  termsStopLimit: (s: string, l: string) => `Stop ${s} · Limit ${l}`,
+  /** Review title: action + terms ("Buy 40 HALC · Limit 42.10"); market keeps card 4's bare action. */
+  actionTerms: (action: string, terms: string) => `${action} · ${terms}`,
+  restingAck: "Order placed. It's in Open orders.",
+  openOrders: "Open orders",
+  noOpenOrders: "No open orders.",
+  filledOf: (filled: string, qty: string) => `${filled} / ${qty} filled`,
+  s: { PENDING: "Pending", WORKING: "Working", PARTIAL: "Partly filled" },
+  rowMeta: (n: string) => `Day · tick ${n}`,
+  rowAria: (side: string, qty: string, ticker: string, terms: string, status: string) => `${side} ${qty} ${ticker}, ${terms}, ${status}`,
+  /** [provisional] aria-label of the list skeleton (aria-busy). */
+  loadingOrders: "Loading open orders",
 };
 export type BrStrings = typeof EN;
 
@@ -129,6 +152,25 @@ const FR: BrStrings = {
   updating: "Mise à jour…",
   couldntLoad: "Chargement impossible",
   retry: "Réessayer",
+  orderType: "Type d’ordre",
+  t: { market: "Au marché", limit: "Limite", stop: "Stop", stopLimit: "Stop limite" },
+  kindDay: (type) => `${type} · Jour`,
+  limitPrice: "Cours limite",
+  stopPrice: "Cours de déclenchement",
+  priceEmpty: "Saisissez un cours.",
+  priceFormat: "Saisissez un nombre, par ex. 42,10.",
+  termsLimit: (p) => `Limite ${p}`,
+  termsStop: (p) => `Stop ${p}`,
+  termsStopLimit: (s, l) => `Stop ${s} · Limite ${l}`,
+  actionTerms: (action, terms) => `${action} · ${terms}`,
+  restingAck: "Ordre passé. Il figure dans les ordres en cours.",
+  openOrders: "Ordres en cours",
+  noOpenOrders: "Aucun ordre en cours.",
+  filledOf: (filled, qty) => `${filled} / ${qty} exécutés`,
+  s: { PENDING: "En attente", WORKING: "Actif", PARTIAL: "Partiellement exécuté" },
+  rowMeta: (n) => `Jour · tick ${n}`,
+  rowAria: (side, qty, ticker, terms, status) => `${side} ${qty} ${ticker}, ${terms}, ${status}`,
+  loadingOrders: "Chargement des ordres en cours",
 };
 
 export const BR_STRINGS: Record<BrLocale, BrStrings> = { en: EN, fr: FR };
