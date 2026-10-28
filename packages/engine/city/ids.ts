@@ -30,18 +30,22 @@ export const buildingId = (ctx: IdSource): Id => checked(ctx.newId('bld'));
 export const propId = (ctx: IdSource): Id => checked(ctx.newId('prop'));
 export const leaseId = (ctx: IdSource): Id => checked(ctx.newId('lse'));
 
-/** AC-10A-01-10 (E-92 (3)): the 10A id helpers for the E-92 prefixes. No spec fixes the part after the prefix, so each helper takes it
- *  as given (an authored slug, a persistent seq, a version, or a ctx.newId body) and only adds the prefix and runs assertEntityId. */
-const prefixed = (prefix: string) => (rest: string): Id => checked(`${prefix}${rest}`);
-export const streetId = prefixed('str_');        // street, a persistent road feature (10 §2 streetId)
-export const personalityId = prefixed('per_');   // city personality, authored data file (§3.19)
-export const manifestId = prefixed('mfs_');      // public CityManifest version (§2.11)
-export const archetypeId = prefixed('arc_');     // personality building archetype (§3.19.5)
-export const baseMeshId = prefixed('msh_');      // renderer base mesh
-export const styleId = prefixed('sty_');         // renderer facade style
-export const managementPolicyId = prefixed('mgp_');   // property ManagementPolicy (§2.8); not `pol_` (08 insurance policyId, T13B-01)
-export const transitionId = prefixed('trn_');    // CityTransition.id
-export const regionId = prefixed('rgn_');        // generation region (§3.19.2); not `reg_` (the regulator entity kind)
+/** AC-10A-01-10 (E-92 (3)) with the #68 Producer ruling: the E-92 helpers follow the main convention above. Authored ids are
+ *  prefix + slug (as cityId); persistent features are prefix + city slug + '_' + non-negative integer (as parcelId); runtime records use
+ *  ctx.newId(kind) (as unitId). Parts are used verbatim: a bloc code stays as written (FDL, as in cbk_FDL and gov_FDL), never re-cased. */
+function seqId(prefix: string, what: string, city: string, n: number): Id {
+  if (!Number.isSafeInteger(n) || n < 0) throw new EngineFault('CITY_BAD_ID', `${what} ${n} is not a non-negative integer`);
+  return checked(`${prefix}${city}_${n}`);
+}
+export const streetId = (city: string, seq: number): Id => seqId('str_', 'street seq', city, seq);        // persistent road feature (10 §2 streetId)
+export const manifestId = (city: string, version: number): Id => seqId('mfs_', 'manifest version', city, version);   // CityManifest version (§2.11)
+export const regionId = (city: string, seq: number): Id => seqId('rgn_', 'region seq', city, seq);       // generation region (§3.19.2); not `reg_` (regulator kind)
+export const personalityId = (slug: string): Id => checked(`per_${slug}`);    // city personality, authored data file (§3.19)
+export const archetypeId = (slug: string): Id => checked(`arc_${slug}`);      // personality building archetype (§3.19.5), authored
+export const baseMeshId = (slug: string): Id => checked(`msh_${slug}`);       // renderer base mesh, authored
+export const styleId = (slug: string): Id => checked(`sty_${slug}`);          // renderer facade style, authored
+export const managementPolicyId = (slug: string): Id => checked(`mgp_${slug}`);   // property ManagementPolicy (§2.8); not `pol_` (08 insurance policyId)
+export const transitionId = (ctx: IdSource): Id => checked(ctx.newId('trn'));   // CityTransition.id, a runtime record
 
 /** AC-10A-01-2: the allowed entity-id prefixes (E-26/E-27/E-30/E-33/E-38/E-39/E-40/E-44/E-46/E-50/E-52), in the card's order,
  *  then the 12 of AC-10A-01-10 (E-92 (3)) in E-92's table order: 85. A pass list, not a gate (E-88 (2c)). */

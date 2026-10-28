@@ -119,6 +119,9 @@ interface State {
   m0PlayerOpen: SortedMap<string, Money>;         // M0_player at the open of the game day (gross-control alarm)
 }
 
+/** The ids the LedgerWorld constructor pre-registers with no owner whose owner a later registration may fill (#68 item 1): cbk_<ccy>. */
+const isOwnerlessPreRegistered = (id: Id): boolean => CCYS.some((c) => cbkId(c) === id);
+
 export class LedgerWorld {
   readonly catalog: ReasonCatalog;
   readonly params: Params;
@@ -161,13 +164,16 @@ export class LedgerWorld {
   get alerts(): readonly Failure[] { return this.s.alerts; }
 
   // ───────── entities & facts ─────────
-  /** Idempotent (T03-08 :99). E-92 (5) defect fix: re-registering a known entity whose owner is still null sets the given owner (the
-   *  constructor pre-registers cbk_<ccy> with no owner, so T04-21's `cbk_<B>` ownerId govId(b) was lost). Nothing else is updated. */
+  /** Idempotent (T03-08 :99). E-92 (5) defect fix, Producer ruling (#68 item 1): the constructor pre-registers cbk_<ccy> with no owner,
+   *  so re-registering one of those ids while its owner is still null fills the given owner (T04-21's `cbk_<B>` ownerId govId(b)). That is
+   *  the only fill. A known id re-registered with no owner, or with the owner it already has, is a no-op; any other owner throws. */
   registerEntity(spec: RegisterEntitySpec): Id {
     const known = this.s.entities.get(spec.id);
     if (known) {
-      if (known.ownerId === null && spec.ownerId !== undefined && spec.ownerId !== null) this.s.entities.set(spec.id, { ...known, ownerId: spec.ownerId });
-      return spec.id;
+      const owner = spec.ownerId ?? null;
+      if (owner === null || owner === known.ownerId) return spec.id;
+      if (known.ownerId === null && isOwnerlessPreRegistered(spec.id)) { this.s.entities.set(spec.id, { ...known, ownerId: owner }); return spec.id; }
+      throw new Error(`registerEntity: ${spec.id} is already registered with owner ${known.ownerId ?? 'null'}; refusing owner ${owner}`);
     }
     if (spec.id.length > ENTITY_ID_MAX) throw new Error(`registerEntity: id longer than ${ENTITY_ID_MAX} chars`);
     if (!ENTITY_ID_RE.test(spec.id)) throw new Error(`registerEntity: invalid id '${spec.id}' (must match ${ENTITY_ID_RE.source})`);

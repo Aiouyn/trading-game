@@ -92,18 +92,18 @@ const SECTORS: SectorId[] = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS
 const perUse = <V>(f: (u: UseClass, i: number) => V): Record<UseClass, V> => USE_CLASSES.reduce((r, u, i) => ({ ...r, [u]: f(u, i) }), {} as Record<UseClass, V>);
 const C = cityId('port_avalon'), D = districtId('port_avalon', 'old_harbor'), P = parcelId('port_avalon', 17);
 const B = buildingId(ids), U1 = unitId(ids), U2 = unitId(ids), PR = propId(ids), L = leaseId(ids);
-const addr = { number: 14, streetId: streetId('port_avalon_9'), streetName: 'Quayside Row', districtId: D, cityId: C, display: '14 Quayside Row, Old Harbor, Port Avalon' };
+const addr = { number: 14, streetId: streetId('port_avalon', 9), streetName: 'Quayside Row', districtId: D, cityId: C, display: '14 Quayside Row, Old Harbor, Port Avalon' };
 const appraisal = { tick: 1440, valueIncome: 1_250_000_00n, valueComp: 1_310_000_00n, weightIncome: 0.6, value: 1_274_000_00n, priceIndexAtAppraisal: 1.0125, appraiser: 'SYSTEM' as const };
 const city: CityRow = { id: C, slug: 'port_avalon', rendererKey: 'avalon', name: 'city.port_avalon.name', bloc: 'FDL', ccy: 'FDL', personalityId: personalityId('port_avalon'),
   worldSeedStream: `city/${C}`, openedTick: 0, access: cityAccessOf(C), districts: [D], population: 1_234_567.5, households: 514_403.125, hhSize: 2.4, laborForce: 640_000,
   jobsBySector: SECTORS.reduce((r, s, i) => ({ ...r, [s]: 1000 * (i + 1) + 0.25 }), {} as Record<SectorId, number>), medianHhIncomePerGY: 6_400_000n,
-  cityGdpShare: 0.42, propertyTaxRate: 0.01, stampDutyRate: 0.01, priceIndex: 1, stateVersion: 3, manifestId: manifestId('port_avalon_3') };
+  cityGdpShare: 0.42, propertyTaxRate: 0.01, stampDutyRate: 0.01, priceIndex: 1, stateVersion: 3, manifestId: manifestId('port_avalon', 3) };
 const market = (i: number): DistrictUseMarket => ({ supplyArea: 120_000 + i, occupiedArea: 110_000, demandArea: 111_234.5, vacancy: 0.0833, naturalVacancy: 0.05,
   pressure: 1.01, pressureHighDays: 0, pressureLowDays: 2, marketRentPerM2PerGD: -0n + BigInt(37 + i), rentIndex: 1, capRate: 0.055, txnCount91: 4 });
 const district: DistrictRow = { id: D, cityId: C, name: 'district.old_harbor.name', tier: 'prime', terrainRole: 'waterfront', heritage: true, heightCapM: 45,
   market: perUse((_u, i) => market(i)), desirability: { jobsAccess: 0.3, services: -0.1, transit: 0.5, environment: 0.7, safety: 0, prestige: 0.2, momentum: 0.05, tierOffset: 0.5, value: 0.79 },
   crimeIndex: 48.5, capexMomentum91: 0n, landmarkParcelId: P, priceIndexByUse: perUse((_u, i) => 1 + i / 100) };
-const parcel: ParcelRow = { id: P, cityId: C, districtId: D, regionId: regionId('port_avalon_2'), polygon: [{ x: 0, z: 0 }, { x: 2000, z: 0 }, { x: 2000, z: 3000 }, { x: -150, z: 3000 }],
+const parcel: ParcelRow = { id: P, cityId: C, districtId: D, regionId: regionId('port_avalon', 2), polygon: [{ x: 0, z: 0 }, { x: 2000, z: 0 }, { x: 2000, z: 3000 }, { x: -150, z: 3000 }],
   areaM2: 600, frontageM: 20, access: ['ROAD', 'CANAL'], zoning: { allowed: ['RES', 'RETAIL'], maxHeightM: 30, maxFar: 4.5, heritageLocked: false }, landValueV: 0.813,
   attributes: { waterView: 0.9, transitDist: 320, slope: 0.02, cornerLot: true, mainAvenue: false }, lifecycle: 'OCCUPIED', devPriority: 0.12, ownerId: 'npc_land_authority',
   buildingId: B, reservedFor: null, address: addr };
@@ -118,14 +118,14 @@ const prop: PropertyRow = { id: PR, type: 'RETAIL_UNIT', ownerId: 'chr_0001', cc
   publicRecord: DEFAULT_PUBLIC_RECORD, uniqueAssetId: null };
 const lease: LeaseRow = { id: L, propId: PR, unitIds: [U1], landlordId: 'chr_0001', tenantId: 'biz_bakery', tenantKind: 'PLAYER_BUSINESS', use: 'RETAIL', rentPerGD: 4_210n,
   revenueSharePct: 0, startTick: 720, endTick: 720 + 1440 * 3, indexation: 'CPI', depositHeld: -0n + 378_900n, breakFeeGD: 91, status: 'ACTIVE', arrearsGD: 0, relatedParty: false, contractId: 'ctr_9' };
-const manifest: CityManifestRow = { id: manifestId('port_avalon_3'), worldId: 'wld_1', cityId: C, macroPlanVersion: 'cityplan@1.2.0', stateVersion: 3, publicSnapshotTick: 1440,
-  regions: [{ regionId: regionId('port_avalon_2'), generatorPackage: 'citygen@1.0.0', contentHash: 'ab'.repeat(32) }], chunks: [{ chunkKey: '2:3', contentHash: 'cd'.repeat(32), url: 'https://cdn/x' }], schemaVersion: 1 };
-const region: CityRegionRow = { id: regionId('port_avalon_2'), cityId: C, bounds: { minX: -50_000, minZ: 0, maxX: 50_000, maxZ: 80_000 },
+const manifest: CityManifestRow = { id: manifestId('port_avalon', 3), worldId: 'wld_1', cityId: C, macroPlanVersion: 'cityplan@1.2.0', stateVersion: 3, publicSnapshotTick: 1440,
+  regions: [{ regionId: regionId('port_avalon', 2), generatorPackage: 'citygen@1.0.0', contentHash: 'ab'.repeat(32) }], chunks: [{ chunkKey: '2:3', contentHash: 'cd'.repeat(32), url: 'https://cdn/x' }], schemaVersion: 1 };
+const region: CityRegionRow = { id: regionId('port_avalon', 2), cityId: C, bounds: { minX: -50_000, minZ: 0, maxX: 50_000, maxZ: 80_000 },
   boundaryContracts: [{ edge: 'N', crossings: [{ at: { x: 1200, z: 80_000 }, streetClass: 'ARTERIAL', widthCm: 2400, elevationCm: -30 }], waterEdges: [[{ x: 0, z: 0 }, { x: 10, z: 20 }]] }],
   generatorPackage: 'citygen@1.0.0', generatedTick: 0, status: 'GENERATED' };
 const pub: PublicCityState = { cityId: C, stateVersion: 3, baseVersion: 2, parcelStates: [{ parcelId: P, lifecycle: 'OCCUPIED', heightLevel: 2, archetypeId: archetypeId('quay_terrace') }],
   bindings: [{ kind: 'STOREFRONT', unitId: U1, signText: 'Harbour Bakes', sectorAwning: 'STAPLES', status: 'OPEN' }, { kind: 'HALL_SEAT', cityId: C, position: 1, displayName: null, band: 'TOP' }],
-  transitions: [{ id: transitionId('1'), parcelId: P, cause: 'STOREFRONT_OPEN', fromState: 'FIT_OUT', toState: 'OPEN', publishedTick: 1440, sourceEventId: 'evt_1' }] };
+  transitions: [{ id: transitionId(ids), parcelId: P, cause: 'STOREFRONT_OPEN', fromState: 'FIT_OUT', toState: 'OPEN', publishedTick: 1440, sourceEventId: 'evt_1' }] };
 const ROWS = { city, district, parcel, building, unit, prop, lease, manifest, region, pub, unitWithLabel: { ...unit, id: U2 }, addrWithLabel: { ...addr, unitLabel: 'Shop 2' } };
 
 const reverseKeys = (v: unknown): unknown => Array.isArray(v) ? v.map(reverseKeys)
@@ -314,14 +314,29 @@ describe('AC-10A-01-6 (E-88, E-92 (1)) ports.ts', () => {
 describe('AC-10A-01-10 (E-92 (3)) the 12 E-92 prefixes, no colon ids, no reg_ region ids', () => {
   const E92 = ['str_', 'per_', 'mfs_', 'arc_', 'msh_', 'sty_', 'mgp_', 'ctr_', 'wld_', 'trn_', 'evt_', 'rgn_'];
   it('the id helpers mint str_, per_, mfs_, arc_, msh_, sty_, mgp_, trn_ and rgn_ ids that pass assertEntityId', () => {
-    const minted = [streetId('port_avalon_9'), personalityId('port_avalon'), manifestId('port_avalon_3'), archetypeId('quay_terrace'), baseMeshId('box'),
-      styleId('brick'), managementPolicyId('default'), transitionId('1'), regionId('port_avalon_2')];
-    expect(minted).toEqual(['str_port_avalon_9', 'per_port_avalon', 'mfs_port_avalon_3', 'arc_quay_terrace', 'msh_box', 'sty_brick', 'mgp_default', 'trn_1', 'rgn_port_avalon_2']);
-    for (const id of minted) expect(() => assertEntityId(id)).not.toThrow();
-    for (const f of [streetId, personalityId, manifestId, archetypeId, baseMeshId, styleId, managementPolicyId, transitionId, regionId]) {
+    const trn = transitionId(ids);
+    const minted = [streetId('port_avalon', 9), personalityId('port_avalon'), manifestId('port_avalon', 3), archetypeId('quay_terrace'), baseMeshId('box'),
+      styleId('brick'), managementPolicyId('default'), regionId('port_avalon', 2)];
+    expect(minted).toEqual(['str_port_avalon_9', 'per_port_avalon', 'mfs_port_avalon_3', 'arc_quay_terrace', 'msh_box', 'sty_brick', 'mgp_default', 'rgn_port_avalon_2']);
+    expect(trn.slice(0, 4)).toBe('trn_');
+    expect(trn.length - 4).toBe(26);   // 02 ctx.newId body, as unitId
+    for (const id of [...minted, trn]) expect(() => assertEntityId(id)).not.toThrow();
+    for (const f of [personalityId, archetypeId, baseMeshId, styleId, managementPolicyId]) {
       expect(() => f('a:b')).toThrow(/CITY_BAD_ID|does not match/);   // the E-18/E-20 grammar has no colon
       expect(() => f('')).toThrow(/CITY_BAD_ID|does not match/);
     }
+    for (const f of [streetId, manifestId, regionId]) {
+      expect(() => f('a:b', 1)).toThrow(/CITY_BAD_ID|does not match/);
+      for (const n of [-1, 1.5, Number.NaN]) expect(() => f('port_avalon', n)).toThrow(/not a non-negative integer/);
+      expect(() => f('port_avalon', 0)).not.toThrow();
+    }
+  });
+  it('#68 ruling: parts are verbatim, so a bloc code keeps its case as in cbk_FDL and gov_FDL', () => {
+    expect(personalityId('FDL')).toBe('per_FDL');
+    expect(regionId('FDL', 2)).toBe('rgn_FDL_2');
+    expect(streetId('SRL', 0)).toBe('str_SRL_0');
+    expect(manifestId('EUN', 7)).toBe('mfs_EUN_7');
+    expect(styleId('PYN_brick')).toBe('sty_PYN_brick');
   });
   it('ALLOWED_ENTITY_PREFIXES adds those plus ctr_, wld_ and evt_ (73 → 85); none is a ledger entity kind', () => {
     expect(ALLOWED_ENTITY_PREFIXES.slice(73)).toEqual(E92);
