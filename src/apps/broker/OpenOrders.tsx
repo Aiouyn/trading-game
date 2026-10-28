@@ -142,7 +142,7 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   const rows = [...orders.map((o) => ({ o, ghost: false })), ...ghosts.map((o) => ({ o, ghost: true }))].sort((a, b) => byRecent(a.o, b.o));
   return (
     <section ref={sectionRef} className="br-oo" data-testid="br-oo" data-oo="1" data-state={me.state} aria-labelledby="br-oo-title" aria-busy={me.state === "loading" || undefined}
-      onKeyDownCapture={clearLine} onPointerDownCapture={clearLine}>
+      onKeyDownCapture={clearLine} onClickCapture={clearLine}>
       <h3 id="br-oo-title" className="br-oo-title" tabIndex={-1}>
         {t.openOrders}
         {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{String(orders.length)}</span>}

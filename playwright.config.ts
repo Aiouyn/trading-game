@@ -7,6 +7,8 @@ export default defineConfig({
   // City e2e runs only with its own config/harness (tests/e2e/city/playwright.config.ts), never against the Next app.
   testIgnore: ["city/**"],
   outputDir: "test-results",
+  // Compared baselines (toHaveScreenshot) live next to the spec: tests/e2e/<dir>/__screenshots__/<name>.png (17B BR-5-12, BR-6-11).
+  expect: { toHaveScreenshot: { pathTemplate: "{testDir}/{testFileDir}/__screenshots__/{arg}{ext}", maxDiffPixelRatio: 0.002, animations: "disabled", caret: "hide" } },
   reporter: [["list"], ["html", { open: "never" }]],
   use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
