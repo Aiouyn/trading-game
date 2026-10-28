@@ -67,11 +67,15 @@ async function toNews(page: Page) {
 /**
  * After a theme pin: run the paused clock, then wait out the colour transitions the swap started on every button
  * (shell.css; CSS transitions run on real time, not the paused clock). Without it a cb / hc shot caught one mid-way,
- * 1 to 121 pixels off one or two levels, depending on the run.
+ * a few edge pixels off one level. A second, real-time pass catches a transition that only starts after the first
+ * (a re-render from the clock run).
  */
 async function settle(page: Page) {
   await page.clock.runFor(100);
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+  const done = () => page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+  await done();
+  await page.waitForTimeout(150);
+  await done();
 }
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const colours = (l: Locator) => l.evaluate((el) => {
