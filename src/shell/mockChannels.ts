@@ -3,6 +3,7 @@
 import { parseEntitlements, type AcctEntitlements, type Channels, type ClockChannel, type MarketPhase, type ShellId } from "./channels";
 import { loadHookStartsFailed } from "./loader";
 import { RANKS, type Rank } from "./registry";
+import { START_NW } from "./contracts/fixtures/me";
 
 // Build-time gate (QUAY_HOOKS is always defined as "1"/"0" by next.config `env`, the single source of truth).
 // Keep it a MODULE-LOCAL const: an exported const read from another module is emitted as a runtime property read
@@ -40,7 +41,7 @@ export function defaultChannels(): Channels {
     entitlements: mockEntitlements(new URLSearchParams()),
     system: { connection: "live", halted: false, held: false, load: "ok", offline: false },
     me: {
-      nw: "412860.15", todayPct: "+0.78", todayChg: "+3204.10", license: "LIC1", charters: [], flags: [],
+      nw: START_NW /* one NW source with the me feed */, todayPct: "+0.78", todayChg: "+3204.10", license: "LIC1", charters: [], flags: [],
       onboardingMin: 60, onboardingDone: true, myPlaces: [], guest: false, protectionEndsRealMs: null,
     },
   };

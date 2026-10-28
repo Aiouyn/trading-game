@@ -40,7 +40,7 @@ describe("check-hooks matcher", () => {
   });
 
   it("covers the mock feed, shells and palette keys", () => {
-    for (const k of ["sheet", "feed", "seed", "reject", "tier", "empty", "shells", "owned", "palette"]) expect(QUERY_KEYS).toContain(k);
+    for (const k of ["sheet", "feed", "seed", "reject", "tier", "empty", "halt", "thin", "shells", "owned", "palette"]) expect(QUERY_KEYS).toContain(k);
   });
 
   it("does not flag real deep-link params or near-miss keys", () => {

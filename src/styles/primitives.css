@@ -60,12 +60,14 @@
 .chip-warn { color: var(--warn); }
 .chip-info { color: var(--info); }
 .chip-signal { color: var(--signal); }
+.chip-steel { color: var(--fg-muted); }
 .chip-outline.chip-acc { border-color: var(--acc); }
 .chip-outline.chip-gain { border-color: var(--gain); }
 .chip-outline.chip-loss { border-color: var(--loss); }
 .chip-outline.chip-warn { border-color: var(--warn); }
 .chip-outline.chip-info { border-color: var(--info); }
 .chip-outline.chip-signal { border-color: var(--signal); }
+.chip-outline.chip-steel { border-color: var(--steel); }
 
 /* Label on --win2 in Ink & Brass: --fg-muted (17 §3.3.1) [P]. */
 :root:not([data-palette]) .label-win2, html[data-palette="ink-brass"] .label-win2 { color: var(--fg-muted); }

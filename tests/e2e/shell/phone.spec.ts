@@ -86,7 +86,7 @@ test("S1-19 axe: phone home, launcher, ComingLater", async ({ page }) => {
 test("Phone widget: sparkline, rank bar, today's change, cents at 65% muted, rank target from thresholds (M2, M3, B2)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
   await expect(page.getByTestId("rank-next")).toHaveText("Next: Owner · $30k / $250k");
-  await boot(page);
+  await boot(page, "/?nw=412860.15"); // pinned: the mock feed now moves NW with marks every tick (one NW source, #67)
   await expect(page.getByTestId("rank-next")).toHaveText("Next: Mogul · $412k / $5M");
   const sp = await page.getByTestId("sparkline").boundingBox();
   expect([sp?.width, sp?.height]).toEqual([92, 22]);
