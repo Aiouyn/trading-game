@@ -7,7 +7,8 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
-import { boot, bootPaused, intents, setTextScale } from "../shell/helpers";
+import { boot, intents, setTextScale } from "../shell/helpers";
+import { openBrokerPaused } from "./openPaused";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -68,9 +69,7 @@ type Type = "market" | "limit" | "stop" | "stop_limit";
 type Prices = { stop?: string; limit?: string };
 /** Fake-clock Broker: one feed tick = 5,000 ms, only when a test runs the clock. */
 async function openPaused(page: Page, query = "?asset=HALC") {
-  await bootPaused(page, `/broker${query}`);
-  await page.clock.runFor(200);
-  await expect(br(page)).toHaveAttribute("data-state", "live");
+  await openBrokerPaused(page, `/broker${query}`, br(page));
 }
 /** Pick a type, fill its prices and the quantity, and wait out the 300 ms preview debounce. */
 async function ticket(page: Page, type: Type, prices: Prices, qty = "40") {

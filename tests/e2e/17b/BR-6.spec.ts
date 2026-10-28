@@ -10,7 +10,8 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
-import { boot, bootPaused, setTextScale } from "../shell/helpers";
+import { boot, setTextScale } from "../shell/helpers";
+import { openBrokerPaused } from "./openPaused";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -59,9 +60,7 @@ const rowId = async (r: Locator) => (await r.getAttribute("data-testid"))!.repla
 const volatile = (page: Page) => [list(page).getByTestId("br-oo-meta"), list(page).getByTestId("br-oo-cancelling")];
 
 async function openPaused(page: Page, query = "") {
-  await bootPaused(page, `/broker?asset=HALC${query}`);
-  await page.clock.runFor(200);
-  await expect(br(page)).toHaveAttribute("data-state", "live");
+  await openBrokerPaused(page, `/broker?asset=HALC${query}`, br(page));
 }
 /** Run the paused clock in 500 ms steps until `done`, at most `ms`. */
 async function runUntil(page: Page, done: () => Promise<boolean>, ms = 6_000) {
