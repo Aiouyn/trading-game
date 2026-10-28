@@ -8,23 +8,22 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
 import { pinHtml } from "./pin";
-import { winShot } from "./winShot";
+import { winShot, winShotBuffer } from "./winShot";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
 
-/**
- * One retry, for rasteriser noise only: on some page loads Chromium antialiases the left corners of the rounded asset
- * select and story rows (x 29-35) one level off the baseline, stable within that load (toHaveScreenshot's two matching
- * captures) and seen on about 1 in 8 loads with the feed held, transitions settled and the pointer parked. The same
- * class of noise winShot masks for window corners; masking these would hide real header pixels, so a fresh load decides.
- */
-test.describe.configure({ retries: 1 });
 const brk = (page: Page) => page.getByTestId("broker").first();
 const about = (page: Page) => page.getByTestId("br-about");
 const tab = (page: Page, k: "overview" | "news") => page.getByTestId(`br-about-tabs-${k}`);
 const stories = (page: Page) => page.getByTestId("ap-story");
 const frame = (page: Page) => page.locator('[data-testid="win-broker"], [data-testid="phone-appview"]').first();
+/**
+ * The rounded controls whose r×r corner squares every shot masks (winShot), besides the window's own: the asset select and
+ * the News rows. Their left corners are antialiased one level differently on some page loads (PR #98 QA: phone-cb 3 of 5
+ * loads, 12 px at x 32-34 on the select's left corners), the same host noise as the window corners.
+ */
+const rounded = (page: Page) => frame(page).locator(".br-select, .ap-story");
 /**
  * Every baseline is taken at the same feed tick. The mock ticks every 5 s of fake time, and the steps before and between
  * shots run the paused clock a varying amount (chunk loads, `until`), so a shot could land either side of a tick and read
@@ -51,13 +50,17 @@ test.beforeEach(async ({ page }) => {
   });
 });
 const ticks = (page: Page) => page.evaluate(() => (window as unknown as { brTicks: number }).brTicks);
-async function shot(page: Page, state: string) {
+/** Feed held at SHOT_TICK, pointer parked, transitions over: the page as every shot sees it. */
+async function holdStill(page: Page) {
   for (let i = 0; i < 200 && (await ticks(page)) < SHOT_TICK; i++) await page.clock.runFor(100);
   await page.evaluate(() => { (window as unknown as { brHold: boolean }).brHold = true; });
   expect(await ticks(page), "feed ticks seen before the shot").toBe(SHOT_TICK);
   await page.mouse.move(0, page.viewportSize()!.height - 1); // winShot's own move, made early so its hover-out ends first
   await still(page);
-  await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR);
+}
+async function shot(page: Page, state: string) {
+  await holdStill(page);
+  await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR, rounded(page));
 }
 
 async function openBroker(page: Page, query = "") {
@@ -393,3 +396,44 @@ for (const scale of ["1", "2"] as const) {
     await expect(page.getByTestId("br-asset-select")).toBeFocused();
   });
 }
+
+/** With the page held still: a 1 px change on `c`'s edges just past its corner squares, or at its centre, changes the
+ *  masked buffer; one inside its top-left or bottom-left corner square doesn't. */
+async function maskedOnlyCorners(page: Page, c: Locator) {
+  await holdStill(page);
+  const f = frame(page);
+  const base = await winShotBuffer(page, f, rounded(page));
+  const changed = async (x: number, y: number) => {
+    await page.evaluate(([x, y]) => {
+      const d = document.createElement("div");
+      d.id = "br-dot";
+      d.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px;background:rgb(255,0,0);z-index:2147483646`;
+      document.body.append(d);
+    }, [x, y] as const);
+    const diff = !(await winShotBuffer(page, f, rounded(page))).equals(base);
+    await page.evaluate(() => document.getElementById("br-dot")?.remove());
+    return diff;
+  };
+  const b = (await c.boundingBox())!;
+  const r = await c.evaluate((el) => Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius)));
+  expect(r, "control radius").toBeGreaterThan(0);
+  const [l, t, rt, bt] = [Math.floor(b.x), Math.floor(b.y), Math.ceil(b.x + b.width) - 1, Math.ceil(b.y + b.height) - 1];
+  const sq = r + 1; // one past the (pixel-widened) square
+  for (const [x, y] of [[l, t + sq], [l, bt - sq], [l + sq, bt], [rt - sq, t], [rt, t + sq], [Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2)]]) {
+    expect(await changed(x!, y!), `pixel ${x},${y} outside the corner squares`).toBe(true);
+  }
+  expect(await changed(l, t), "pixel inside the top-left corner square").toBe(false);
+  expect(await changed(l, bt), "pixel inside the bottom-left corner square").toBe(false);
+}
+
+test("BR-10 shots mask only the r×r corner squares of the select and News rows: edge and inner pixels outside them are caught", async ({ page }, info) => {
+  phoneOnly(info.project.name);
+  await bootPaused(page, "/broker");
+  await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
+  await page.getByTestId("br-asset-select").selectOption("HALC");
+  await until(page, async () => (await brk(page).getAttribute("data-state")) === "live");
+  await maskedOnlyCorners(page, page.getByTestId("br-asset-select"));
+  await toAbout(page);
+  await toNews(page);
+  await maskedOnlyCorners(page, stories(page).first());
+});
