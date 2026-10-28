@@ -4,7 +4,7 @@ import { createParamsView, MACRO_T04_08_PARAMS, MACRO_T04_18_PARAMS } from '@tyc
 import { cbkId } from '@tycoon/engine-ledger';
 import { MACRO_EVENTS } from '../events';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
-import { BLOC_ORDER, macroTables, type BlocId, type CentralBank } from '../schema';
+import { ALL_MACRO_TABLES, BLOC_ORDER, macroTables, type BlocId, type CentralBank } from '../schema';
 
 /** 22's 12 SectorIds (ContentView.sectors() stub; order as in the SectorId union). */
 const SECTORS = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS', 'FINANCIALS', 'HEALTH', 'STAPLES', 'DISCRETIONARY', 'REAL_ESTATE', 'MEDIA', 'SECURITY'] as const;
@@ -76,8 +76,8 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     get: (t: string, id: string) => tables[t]?.find((r) => r.id === id)?.e, put,
     iter: (t: string) => (tables[t] ?? []).map((r) => r.e), count: (t: string) => (tables[t] ?? []).length,
     del: (t: string, id: string) => { const rows = tables[t] ?? [], i = rows.findIndex((r) => r.id === id); if (i >= 0) rows.splice(i, 1); },
-    index: (t: string, name: string, key: string) => {   // the table def's own index key (T04-09: pool_order, hook_call, facility, event; T04-11: auction, bid; T04-16: release); others → []
-      const def = [macroTables.poolOrder, macroTables.hookCall, macroTables.facility, macroTables.event, macroTables.auction, macroTables.bid, macroTables.release].find((d) => d.name === t) as { indexes?: { name: string; key(e: unknown): string | null }[] } | undefined;
+    index: (t: string, name: string, key: string) => {   // the table def's own index key (every indexed table in ALL_MACRO_TABLES); others → []
+      const def = ALL_MACRO_TABLES.find((d) => d.name === t) as { indexes?: { name: string; key(e: unknown): string | null }[] } | undefined;
       const ix = def?.indexes?.find((x) => x.name === name);
       return ix ? (tables[t] ?? []).map((r) => r.e).filter((e) => ix.key(e) === key) : [];
     },

@@ -1,7 +1,7 @@
 // T04-18 E-35 sub-defs: AC-04-18-SUBDEF-RATE over 1,000 seeded GY (271 chapters), and BANK_RUN_LOCAL on the weakest NPC bank.
 import { describe, expect, it } from 'vitest';
 import { TICKS_PER_CHAPTER, TICKS_PER_GAME_DAY } from '@tycoon/engine-core';
-import { macroTables, type HookCall, type WorldEvent } from '../schema';
+import { HOOK_CALL_TABLE, type HookCall, type WorldEvent } from '../schema';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
 import { runChapters, schedWorld, V1 } from '../testkit/schedWorld';
 import { SUB_DEFS, subDefOf } from './crisisCatalog';
@@ -17,10 +17,10 @@ function run(subDefs: boolean): Rec[] {
     let sign: number | null = null, target: string | null = null;
     const v = ev.shocks[0]?.value;
     if (v !== undefined) sign = Math.sign(v);
-    for (const h of w.store.iter<HookCall>(macroTables.hookCall.name)) {
+    for (const h of w.store.iter<HookCall>(HOOK_CALL_TABLE.name)) {
       if (h.worldEventId !== ev.id) continue;
       if (h.hook === 'commoditySupplyShock') { sign = Math.sign(h.args['pct'] as number); target = h.args['commodityId'] as string; }
-      w.store.del(macroTables.hookCall.name, h.id);
+      w.store.del(HOOK_CALL_TABLE.name, h.id);
     }
     out.push({ tier: ev.tier, kind: ev.kind, day: Math.floor(ev.precursorStartTick / D), sub: ev.subDef?.key ?? 'generic', sign, target });
   } });

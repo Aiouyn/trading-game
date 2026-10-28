@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn() }));
 vi.mock('../../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));
 import { MAJORS } from '../../rules/crisisCatalog';
-import { macroTables, type HookCall } from '../../schema';
+import { HOOK_CALL_TABLE, macroTables, type HookCall } from '../../schema';
 import { macroWorld } from '../../testkit/macroWorld';
 import { bandHit, checkBands, CRISIS_SEEDS, expectedHooks, foldTrace, forcedRun, judgeWarm, KINDS_04_BANDS, metricOf, newTrace, ref06Ports, WARM_DAYS, WARM_KINDS, type ForcedRun } from './macro-crisis-calibration';
 
@@ -49,7 +49,7 @@ describe('04#36 crisis calibration: readings', () => {
     const st = macroWorld('ref06', 0).store;
     st.put(macroTables.global.name, { id: 'GLOBAL', tick: 1000 });
     const hk = (id: string, c: string, pct: number, startTick: number, days: number) =>
-      st.put<HookCall>(macroTables.hookCall.name, { id, owner: '06', hook: 'commoditySupplyShock', args: { commodityId: c, pct, days }, startTick, worldEventId: 'e' } as unknown as HookCall);
+      st.put<HookCall>(HOOK_CALL_TABLE.name, { id, owner: '06', hook: 'commoditySupplyShock', args: { commodityId: c, pct, days }, startTick, worldEventId: 'e' } as unknown as HookCall);
     hk('a', 'CRUDE', -0.02, 0, 2); hk('b', 'CRUDE', -0.08, 280, 1); hk('c', 'CRUDE', -0.5, 1001, 9); hk('d', 'GAS', -0.05, 0, 9);
     const p = ref06Ports();
     expect(p.assets.commodityClose(st, 'CRUDE')).toBeCloseTo(100 * (1 + 10 * 0.02), 9);   // b ended at 1000 (280 + 720), c not started

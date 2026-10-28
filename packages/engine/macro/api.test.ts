@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { dmath, type StoreRead } from '@tycoon/engine-core';
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import { BLOC_DEFAULTS } from './blocs';
-import { macroTables, type BlocMacroState, type CurveState, type GlobalMacroState } from './schema';
+import { HOOK_CALL_TABLE, macroTables, type BlocMacroState, type CurveState, type GlobalMacroState } from './schema';
 import * as api from './api';
 import { macroGenesis } from './core/genesis';
 import { macroWorld } from './testkit/macroWorld';
@@ -15,7 +15,7 @@ type Put = (t: string, e: { id: string }) => void;
 /** genesis world whose store answers index() from the macroTables index defs (schedWorld indexes only hook_call/event). */
 function world(): { s: StoreRead; put: Put } {
   const w = macroWorld('a', 0); macroGenesis(w.ctx, stubPorts());
-  const defs = Object.values(macroTables) as { name: string; indexes?: { name: string; key(e: unknown): string | null }[] }[];
+  const defs = [...Object.values(macroTables), HOOK_CALL_TABLE] as { name: string; indexes?: { name: string; key(e: unknown): string | null }[] }[];
   const s = { ...w.store, get: w.store.get.bind(w.store), iter: w.store.iter.bind(w.store),
     index: (t: string, n: string, k: string) => { const ix = defs.find((d) => d.name === t)?.indexes?.find((x) => x.name === n); return ix ? w.store.iter(t).filter((e) => ix.key(e) === k).reverse() : []; } } as unknown as StoreRead;   // reversed: readers must not lean on index order
   return { s, put: (t, e) => w.store.put(t, e) };
@@ -66,7 +66,7 @@ describe('T04-20 api readers', () => {
     expect(api.factorJumps(s, 900)).toEqual([{ bloc: 'EUN', equityJump: -0.01, fxValueJump: 0.002, causeId: 'rel_x' }]);
   });
   it('hooks: marketHookCalls = 05 rows starting at tick; scheduledMandateFlows = MANDATE_SELL only', () => {
-    const { s, put } = world(), h = (id: string, owner: string, hook: string, startTick: number) => put(macroTables.hookCall.name, { id, owner, hook, args: {}, worldEventId: '', createdTick: startTick - 1, startTick } as never);
+    const { s, put } = world(), h = (id: string, owner: string, hook: string, startTick: number) => put(HOOK_CALL_TABLE.name, { id, owner, hook, args: {}, worldEventId: '', createdTick: startTick - 1, startTick } as never);
     h('hook_2', '05', 'MANDATE_SELL', 50); h('hook_1', '05', 'OTHER', 50); h('hook_3', '16', 'MANDATE_SELL', 50); h('hook_4', '05', 'MANDATE_SELL', 51);
     expect(api.marketHookCalls(s, 50).map((x) => x.id)).toEqual(['hook_1', 'hook_2']);
     expect(api.scheduledMandateFlows(s, 50).map((x) => x.id)).toEqual(['hook_2']);

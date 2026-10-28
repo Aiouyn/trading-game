@@ -11,6 +11,7 @@ import { defaultMacroPorts, type MacroPorts } from '../../ports';
 import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type CrisisKind, type GlobalMacroState, type HookCall, type WorldEvent } from '../../schema';
 import { catalogInputs, MAJORS, type CalibrationBand } from '../../rules/crisisCatalog';
 import { forceEvent } from '../../rules/scheduler';
+import { allHookCalls } from '../../rules/hooks';
 import { macroGenesis } from '../../core/genesis';
 import { macroWorld, type MacroWorld } from '../../testkit/macroWorld';
 import { runDays } from '../../testkit/macroLoop';
@@ -70,7 +71,7 @@ export function ref06Ports(base: MacroPorts = defaultMacroPorts()): MacroPorts {
     if (c === 'GOLD') return base.assets.commodityClose(s, c);
     const t = s.get<GlobalMacroState>(macroTables.global.name, 'GLOBAL')?.tick ?? 0;
     let cut = 0;
-    for (const h of s.iter<HookCall>(macroTables.hookCall.name)) {
+    for (const h of allHookCalls(s)) {
       if (h.hook !== 'commoditySupplyShock' || h.args.commodityId !== c) continue;
       if (t >= h.startTick && t < h.startTick + Number(h.args.days) * TICKS_PER_GAME_DAY) cut -= Number(h.args.pct);
     }
@@ -98,7 +99,7 @@ export function forcedRun(kind: CrisisKind, seed: number, o: RunOpts = {}): Forc
     foldTrace(acc, sample(w, ports, ev));
     if (ev.phase === 'ENDED') { n++; break; }
   }
-  const hooks = w.store.iter<HookCall>(macroTables.hookCall.name).filter((h) => h.worldEventId === ev0.id);
+  const hooks = allHookCalls(w.store).filter((h) => h.worldEventId === ev0.id);
   return { kind, seed, ev, days: n, trace: acc.t, hooks };
 }
 

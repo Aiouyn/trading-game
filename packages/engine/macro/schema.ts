@@ -434,7 +434,6 @@ export const macroTables = Object.freeze({
   vote: T<SovExchangeVote>('vote', byId),
   voteSnapshot: T<{ id: string /* `${offerId}:${holderId}:${assetId}` */; offerId: string; holderId: Id; assetId: string; face: Qty }>('vote_snapshot', byId),
   event: T<WorldEvent>('event', byId, [{ name: 'phase', key: (e) => e.phase }]),
-  hookCall: T<HookCall>('hook_call', byId, [{ name: 'owner', key: (e) => e.owner }]),
   poolOrder: T<NpcPoolOrder>('pool_order', byId, [{ name: 'tick', key: (e) => String(e.tick).padStart(12, '0') }]),
   facility: T<FacilityLoan>('facility', byId, [{ name: 'bankId', key: (e) => e.bankId }]),
   depositFacility: T<DepositFacilityBalance>('deposit_facility', byId),
@@ -442,10 +441,13 @@ export const macroTables = Object.freeze({
   stab: T<StabilizerState & { id: 'STAB' }>('stab', byId),
   inputs: T<MacroInputs>('inputs', byId),
 });
+/** mac.hook_call (E-105). Not in `macroTables`: the only non-test importer is rules/hooks.ts (`writeHook` is the only writer,
+ *  `hookCallsFor` / `allHookCalls` the readers); rules/hookId.test.ts (4) fails on any other source that names it or the table. */
+export const HOOK_CALL_TABLE = T<HookCall>('hook_call', byId, [{ name: 'owner', key: (e) => e.owner }]);
 export const ALL_MACRO_TABLES: TableDef<any>[] = [   // eslint-disable-line @typescript-eslint/no-explicit-any
   macroTables.bloc, macroTables.global, macroTables.cb, macroTables.curve, macroTables.history, macroTables.publicView, macroTables.release,
   macroTables.schedule, macroTables.program, macroTables.issue, macroTables.auction, macroTables.bid, macroTables.buyback, macroTables.buybackOffer,
   macroTables.syndication, macroTables.syndicationOrder, macroTables.dealer, macroTables.defaultCase, macroTables.vote, macroTables.voteSnapshot,
-  macroTables.event, macroTables.hookCall, macroTables.poolOrder, macroTables.facility, macroTables.depositFacility, macroTables.csf, macroTables.stab,
+  macroTables.event, HOOK_CALL_TABLE, macroTables.poolOrder, macroTables.facility, macroTables.depositFacility, macroTables.csf, macroTables.stab,
   macroTables.inputs,
 ];
