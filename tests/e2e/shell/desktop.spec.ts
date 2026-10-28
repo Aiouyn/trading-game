@@ -340,13 +340,20 @@ test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
   await page.waitForLoadState("networkidle");
   const brokerChunks = [...scripts.keys()];
   const zlib = await import("node:zlib");
+  // The price-chart plot (lightweight-charts, UI card 7 G4) arrives by dynamic import after the Broker
+  // mounts, so it is not first-load JS. Only a chunk the document does not reference may be left out.
+  const html = await (await request.get("/broker")).text();
   let gz = 0;
+  let lazyPlot = 0;
   for (const url of brokerChunks) {
     const body = await (await request.get(url)).body();
-    expect(body.toString().includes("WebGLRenderer"), url).toBe(false);
-    gz += zlib.gzipSync(body).length;
+    const text = body.toString();
+    expect(text.includes("WebGLRenderer"), url).toBe(false);
+    const size = zlib.gzipSync(body).length;
+    if (text.includes("Failed to parse color") && !html.includes(new URL(url).pathname)) lazyPlot += size;
+    else gz += size;
   }
-  console.log(`S1-20 broker first-load JS: ${brokerChunks.length} chunks, ${(gz / 1024).toFixed(1)} KB gzipped`);
+  console.log(`S1-20 broker first-load JS: ${brokerChunks.length} chunks, ${(gz / 1024).toFixed(1)} KB gzipped (lazy plot chunk ${(lazyPlot / 1024).toFixed(1)} KB gz not counted)`);
   expect(gz).toBeLessThanOrEqual(200 * 1024);
   // Deterministic: arm the wait for the first new script before the click that triggers the dynamic import.
   const cityChunk = page.waitForResponse((r) => r.request().resourceType() === "script" && !brokerChunks.includes(r.url()));
