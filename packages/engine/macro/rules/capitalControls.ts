@@ -4,7 +4,7 @@ import type { FlowClass } from '@tycoon/engine-ledger';
 import { macroTables, type BlocId, type BlocMacroState, type FxState } from '../schema';
 
 const D = TICKS_PER_GAME_DAY, LEVY = 0.01;
-/** Default days per level at a step-down; level 1's 28 days are the break rule's (unit decision). */
+/** Days per level at a step-down: L3 72 d and L2 3 d (card defaults); L1 28 d = 20,160 ticks, card-sourced by 04#30(b). */
 export const CAPCON_DAYS: Readonly<Record<1 | 2 | 3, number>> = Object.freeze({ 1: 28, 2: 3, 3: 72 });
 export type CapconLevel = 0 | 1 | 2 | 3;
 
