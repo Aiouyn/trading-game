@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { LAYOUT_RECTS_1440 } from "../../unit/shell/layoutRects";
 import { SPEC_TABLE } from "../../unit/shell/paletteTable";
-import { boot, box, intents, setReducedTransparency } from "./helpers";
+import { boot, box, intents, pauseClock, setReducedTransparency, settled } from "./helpers";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "desktop project only"));
 
@@ -359,13 +359,20 @@ test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
 });
 
 test("S1-03 computed tokens per palette; DOM identical across palettes", async ({ page }) => {
-    await boot(page);
+  // The shell clock and the mock feed tick every 5 s, and each tick changes the DOM (clock, prices, NW) whatever the
+  // palette. Boot on a running fake clock, then hold time still while the snapshots are compared (below).
+  await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
+  await boot(page);
   const read = () => page.evaluate((names) => names.map((n) => getComputedStyle(document.documentElement).getPropertyValue(`--${n}`).trim().toUpperCase().replace(/^#(\w)(\w)(\w)$/, "#$1$1$2$2$3$3")), SPEC_TABLE.map((r) => r[0]));
   await page.evaluate(() => delete document.documentElement.dataset.palette);
   expect(await read()).toEqual(SPEC_TABLE.map((r) => r[1]));
   const snap = () => page.locator("[data-testid=quay-ready]").evaluate((el) => el.outerHTML);
-  // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
+  // The Trade layout opens Broker, Wire and Portfolio together, once the saved state has loaded: Wire's loaded feed
+  // means the windows exist. Then every window must show its loaded body (Broker's and Portfolio's chunks land behind
+  // AppSkeleton, Portfolio's `me` snap arrives after its chunk), or the snapshots catch a load, not a palette (#67).
   await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
+  await settled(page);
+  await pauseClock(page);
   const base = await snap();
   for (const [i, p] of ["ink-brass", "broadsheet", "phosphor", "riviera"].entries()) {
     await page.evaluate((v) => (document.documentElement.dataset.palette = v), p);

@@ -1,7 +1,7 @@
 import { mkdirSync, copyFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { boot } from "./helpers";
+import { boot, settled } from "./helpers";
 
 // 17A T2: window chrome, strip, shelf, tiles, glyphs (T2-01..T2-04, T2-06, T2-07, C3–C9).
 const PALETTES = ["ink-brass", "broadsheet", "phosphor", "riviera"] as const;
@@ -160,10 +160,12 @@ test("T2-07 focus mode: 24 px strip with exactly clock, tick ring and NW", async
   await shot(page, "focus-mode");
 });
 
-test("C3 home DOM identical across palettes", async ({ page }) => {
+test("C3 home DOM identical across palettes", async ({ page }, info) => {
   await boot(page, "/?rank=R2");
-  // Studio Q3: built apps (Broker in the default layout) show a skeleton until their chunk lands; compare settled DOMs.
-  await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
+  // Studio Q3: built apps show a skeleton until their chunk lands, and Portfolio's hero loads after it; compare settled
+  // DOMs. The default layout's windows open after the saved state loads: wait for them (Wire's feed) before settling.
+  if (info.project.name === "desktop") await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
+  await settled(page);
   const doms: string[] = [];
   for (const p of PALETTES) { await setPalette(page, p); doms.push(await page.locator(".quay").evaluate((el) => el.outerHTML)); }
   for (const d of doms) expect(d).toBe(doms[0]);

@@ -43,6 +43,11 @@ export async function bootPaused(page: Page, path = "/", time = new Date("2026-1
   await page.clock.install({ time });
   if (afterInstall) await afterInstall();
   await boot(page, path);
+  await pauseClock(page);
+}
+
+/** Pause an installed, running fake clock now: no timer fires until the test advances it. */
+export async function pauseClock(page: Page) {
   // The fake clock keeps running between reading it and pausing, so a target can slip into the past;
   // re-read and retry rather than racing it with a fixed margin.
   for (let attempt = 0; ; attempt++) {
@@ -50,4 +55,11 @@ export async function bootPaused(page: Page, path = "/", time = new Date("2026-1
     try { await page.clock.pauseAt(new Date(now + 100)); return; }
     catch (e) { if (attempt >= 5 || !String(e).includes("past")) throw e; }
   }
+}
+
+/** Every window on screen shows its loaded body: no lazy app chunk still behind its skeleton (AppSkeleton, WireLoading)
+ *  and no channel still loading (Wire's list, Portfolio's hero). Those loading states, and only those, are aria-busy.
+ *  It cannot see windows that do not exist yet: wait for the layout's windows first. */
+export async function settled(page: Page) {
+  await expect(page.locator("[data-testid=quay-ready] [aria-busy=true]")).toHaveCount(0);
 }
