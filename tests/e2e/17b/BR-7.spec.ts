@@ -113,6 +113,7 @@ test("BR-7-01 the plot is its own chunk, requested after the Broker mounts; Brok
   await expect(chart(page)).toBeVisible();
   await expect(chart(page)).toHaveAttribute("data-state", "plot");
   await page.waitForLoadState("networkidle");
+  await page.unrouteAll({ behavior: "wait" });
   const zlib = await import("node:zlib");
   const sizes = new Map<string, number>();
   for (const url of seen.keys()) sizes.set(url, zlib.gzipSync(await (await request.get(url)).body()).length);

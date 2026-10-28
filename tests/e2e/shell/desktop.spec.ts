@@ -358,6 +358,7 @@ test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
   }
   console.log(`S1-20 broker first-load JS: ${brokerChunks.length} chunks, ${(gz / 1024).toFixed(1)} KB gzipped (lazy plot chunk ${(lazyPlot / 1024).toFixed(1)} KB gz not counted)`);
   expect(gz).toBeLessThanOrEqual(200 * 1024);
+  await page.unrouteAll({ behavior: "wait" }); // the City part below isn't watched
   // Deterministic: arm the wait for the first new script before the click that triggers the dynamic import.
   const cityChunk = page.waitForResponse((r) => r.request().resourceType() === "script" && !brokerChunks.includes(r.url()));
   await page.getByTestId("tile-city").click();

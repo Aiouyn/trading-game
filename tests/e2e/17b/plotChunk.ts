@@ -11,15 +11,20 @@ export const BROKER_MARK = "br-chart-ranges";
 
 export interface ScriptSeen { readonly afterMount: boolean; readonly plot: boolean; readonly broker: boolean }
 
-/** Call before the navigation. Returns script URL -> what was seen. */
+/** Call before the navigation. Returns script URL -> what was seen. Stop with page.unrouteAll() once measured. */
 export async function watchScripts(page: Page): Promise<Map<string, ScriptSeen>> {
   const seen = new Map<string, ScriptSeen>();
   await page.route(/\/_next\/static\/.+\.js(\?.*)?$/, async (route) => {
     const afterMount = await page.evaluate(() => document.querySelector('[data-testid="br-chart"]') !== null).catch(() => false);
-    const res = await route.fetch();
-    const body = await res.body();
-    seen.set(route.request().url(), { afterMount, plot: body.includes(PLOT_MARK), broker: body.includes(BROKER_MARK) });
-    await route.fulfill({ response: res, body });
+    try {
+      const res = await route.fetch();
+      const body = await res.body();
+      seen.set(route.request().url(), { afterMount, plot: body.includes(PLOT_MARK), broker: body.includes(BROKER_MARK) });
+      await route.fulfill({ response: res, body });
+    } catch {
+      // The page or test closed while the chunk was in flight. A script that is never recorded is never left out.
+      await route.continue().catch(() => {});
+    }
   });
   return seen;
 }
