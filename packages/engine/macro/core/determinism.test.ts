@@ -1,6 +1,6 @@
 // T04-20 04#1 (card test plan): two worlds, same seed, 1820 game days, the wired tick loop with a fixed bot intent script.
 import { describe, expect, it, vi } from 'vitest';
-import { macroTables } from '../schema';
+import { macroTables, type HookCall } from '../schema';
 import { macroGenesis } from './genesis';
 import { macroWorld, type MacroWorld } from '../testkit/macroWorld';
 import { botPorts, macroRows, macroStateHash, runDays, sovBidBot } from '../testkit/macroLoop';
@@ -37,6 +37,15 @@ describe('04#1 determinism', () => {
     expect(b.events).toEqual(a.events);
     expect(macroRows(b)[macroTables.auction.name]).toEqual(macroRows(a)[macroTables.auction.name]);
     expect(macroRows(b)).toEqual(macroRows(a));
+    // AC-04-18-HOOKID (2), (5) (E-105): every source id non-empty, (hook, args.key, worldEventId) unique, same seed → same ids
+    // (rows deep-equal above); only wev_ ids resolve in mac.event, every other kind is a composite or a case/auction id.
+    const hooks = a.store.iter<HookCall>(macroTables.hookCall.name);
+    expect(hooks.length).toBeGreaterThan(0);
+    expect(hooks.filter((h) => h.worldEventId === '')).toEqual([]);
+    const keyOf = (h: HookCall): string => `${h.hook}|${String(h.args['key'] ?? '')}|${h.worldEventId}`;
+    expect(new Set(hooks.map(keyOf)).size).toBe(hooks.length);
+    expect(b.store.iter<HookCall>(macroTables.hookCall.name).map((h) => h.worldEventId)).toEqual(hooks.map((h) => h.worldEventId));
+    for (const h of hooks) expect([h.worldEventId, a.store.get(macroTables.event.name, h.worldEventId) !== undefined]).toEqual([h.worldEventId, h.worldEventId.startsWith('wev_')]);
   }, LONG ? 9_000_000 : 1_800_000);
 });
 const botA = sovBidBot(), botB = sovBidBot();
