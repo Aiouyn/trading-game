@@ -39,7 +39,7 @@ export const MACRO_EVENTS: Record<string, z.ZodType> = {
     // (the CB's own estimate, never the true gap x). Strict: an extra or a missing key is rejected (AC-04-01b-RULETERMS-KEYS).
     ruleTerms: o({ neutral: num, inflation: num, inflationGap: num, outputGap: num, finStress: num, fx: num, bias: num }),
     qeChangePerMonth: money, statementKey: z.string(), reasons: z.array(z.string()) }),
-  'macro.cb.minutes': o({ bloc, meetingId: id, dissent: o({ hike: int.nonnegative(), hold: int.nonnegative(), cut: int.nonnegative() }), riskKeys: z.array(z.string()) }),
+  'macro.cb.minutes': o({ bloc, meetingId: id, dissent: o({ higher: int.nonnegative(), lower: int.nonnegative() }), riskKeys: z.array(z.string()) }),
   'macro.cb.tool': o({ bloc, tool: cbTool, params: z.record(z.string(), z.union([num, z.string(), z.boolean()])) }),
   'macro.cb.facility.daily': o({ bloc, repoOutstanding: money, elaOutstanding: money, deposits: money }),
   'macro.cb.repo': loanEvent,
@@ -82,7 +82,7 @@ export const MACRO_EVENTS: Record<string, z.ZodType> = {
     leverDirections: o({ L1_demand: z.enum(['UP', 'DOWN', 'FLAT']), L2_lifestyle_price: z.enum(['UP', 'DOWN', 'FLAT']), L3_levy_bp: z.enum(['UP', 'DOWN', 'FLAT']), L4_upkeep: z.enum(['UP', 'DOWN', 'FLAT']) }),
     e: num, faucetsByClass: z.record(z.string(), money), sinksByClass: z.record(z.string(), money), netMint: money, m0Index: num, m2Index: num,
     npcToPlayerWealthRatio: num, crisisCount: int.nonnegative() }),   // §3.17.5 contents
-  'macro.governor.appointed': o({ bloc, governorNpcId: id, termEndTick: tick }),
+  'macro.governor.appointed': o({ bloc, governorNpcId: id.nullable(), termEndTick: tick }),   // E-100 (b): null when 16 names no appointee
   'macro.input.stale': o({ keys: z.array(z.string()), tick }),
 };
 
