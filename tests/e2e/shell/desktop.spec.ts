@@ -366,7 +366,7 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
   const snap = () => page.locator("[data-testid=quay-ready]").evaluate((el) => el.outerHTML);
   // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
   await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
-  // Other windows (Broker's ComingLater) load their own chunks behind AppSkeleton; wait until none is showing.
+  // Portfolio (built since 17B CH-00) loads its chunk behind AppSkeleton; wait until none is showing. Broker is built:false (ComingLater, no chunk).
   await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
   const base = await snap();
   for (const [i, p] of ["ink-brass", "broadsheet", "phosphor", "riviera"].entries()) {
