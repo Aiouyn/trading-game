@@ -2,7 +2,7 @@
 // a UTC header with 5 s per tick, and a scheduler-only day loop (majors held until plannedEnd + recoveryDays, storms and ripples until plannedEnd).
 import { makeRng, TICKS_PER_CHAPTER, TICKS_PER_GAME_DAY, type PhaseCtx, type Rng, type Store } from '@tycoon/engine-core';
 import { createParamsView, MACRO_T04_17_PARAMS } from '@tycoon/params';
-import { macroTables, type CrisisKind, type CrisisSchedulerState, type GlobalMacroState, type WorldEvent } from '../schema';
+import { ALL_MACRO_TABLES, macroTables, type CrisisKind, type CrisisSchedulerState, type GlobalMacroState, type WorldEvent } from '../schema';
 import { MAJORS } from '../rules/crisisCatalog';
 import { chapterStart, schedOf, schedulerDay, type SchedState } from '../rules/scheduler';
 import { releaseWorld } from './releaseWorld';
@@ -37,9 +37,10 @@ export function schedWorld(seed = 's', tick0 = 0): SchedWorld {
     del: (t, id) => { const x = tab(t); if (x.rows[id] !== undefined) { delete x.rows[id]; x.ids = x.ids.filter((i) => i !== id); } },
     range: <T>(t: string, from: string, to: string) => iter<T>(t).filter((e) => { const id = (e as { id: string }).id; return id >= from && id < to; }),
     index: <T>(t: string, name: string, key: string) => {
-      const def = [macroTables.hookCall, macroTables.event].find((x) => x.name === t) as { indexes?: { name: string; key(e: unknown): string | null }[] } | undefined;
+      const def = ALL_MACRO_TABLES.find((x) => x.name === t) as { indexes?: { name: string; key(e: unknown): string | null }[] } | undefined;
       const ix = def?.indexes?.find((x) => x.name === name);
-      return ix ? iter<T>(t).filter((e) => ix.key(e) === key) : [];
+      if (!ix) throw new Error(`schedWorld: no index ${t}.${name}`);   // was [] for every table but hookCall/event, so auctions never announced in macroWorld
+      return iter<T>(t).filter((e) => ix.key(e) === key);
     } };
   for (const t of [macroTables.bloc.name, macroTables.publicView.name, macroTables.global.name]) for (const r of rw.rows(t)) put(t, r as object);
   for (const r of iter<object>(macroTables.bloc.name)) put(macroTables.bloc.name, { ...r, nominalGdp: 1_000_000_000_000_000n, imbalance: {}, housePriceGap: 0, shocks: [],

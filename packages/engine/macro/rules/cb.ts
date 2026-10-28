@@ -239,10 +239,10 @@ export function appointGovernor(ctx: PhaseCtx, b: BlocId, reason: 'GENESIS' | 'T
   const cb = must(ctx.store.get<CentralBank>(T, id), 'cb', id);
   const pers = BLOC_DEFAULTS[b].personality;
   const rng = ctx.rng(S.cbPersonality(b));
-  const u = rng.next();
+  const u = rng.uOpen();
   const offsets: number[] = [];
   for (let j = 0; j < 9; j++) offsets.push(0.15 * rng.normal());
-  const rStarBias = -0.005 + 0.01 * rng.next();
+  const rStarBias = -0.005 + 0.01 * rng.uOpen();
   const app = ports.world.governorAppointment(ctx.store, b, ctx.tick);
   const hawk = app !== null ? app.hawk0 : pers.hawkMin + (pers.hawkMax - pers.hawkMin) * u;
   const termEnd = ctx.tick + ctx.params.int('macro_governor_term_days') * TICKS_PER_GAME_DAY;

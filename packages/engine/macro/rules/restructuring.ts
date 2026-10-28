@@ -91,7 +91,7 @@ export function openOffer(ctx: PhaseCtx, b: BlocId, round: 1 | 2 | 3, ports: Mac
     for (const x of held) if (x.assetId === l.assetId && isNpcSector(x.holderId)) {
       const block = floorLot(x.face / BigInt(NPC_BLOCKS));
       let accept = 0n;
-      for (let i = 0; i < NPC_BLOCKS; i++) if (rng.next() < p) accept += i === NPC_BLOCKS - 1 ? x.face - block * BigInt(NPC_BLOCKS - 1) : block;
+      for (let i = 0; i < NPC_BLOCKS; i++) if (rng.uOpen() < p) accept += i === NPC_BLOCKS - 1 ? x.face - block * BigInt(NPC_BLOCKS - 1) : block;
       s.put<SovExchangeVote>(macroTables.vote.name, { id: `${offer.id}:${x.holderId}:${x.assetId}`, offerId: offer.id, holderId: x.holderId, assetId: x.assetId,
         face: accept > 0n ? accept : x.face, vote: accept > 0n ? 'ACCEPT' : 'REJECT' });
     }

@@ -54,9 +54,12 @@ export function publishRelease(ctx: PhaseCtx, b: BlocId, rel: ScheduledRelease):
 const NO_PARAMS = Object.freeze({}) as unknown as ParamsView;
 const kindRank = (k: ReleaseKind): number => RELEASE_KINDS.indexOf(k), blocRank = (b: BlocId): number => BLOC_ORDER.indexOf(b);
 /** Releases with a mac.schedule row whose consensus (t 420 of the previous trading day) or publication falls on `tick`. */
+/** Pure function of the day (NO_PARAMS): one-entry memo, so the 720 P2 ticks of a day build the 12-day window once (0.3 ms/tick before). */
+let dueMemo: { day: number; rs: readonly ScheduledRelease[] } | null = null;
 export function releasesDue(store: StoreRead, tick: Tick): { consensus: ScheduledRelease[]; publish: ScheduledRelease[] } {
   const day = Math.floor(tick / D), consensus: ScheduledRelease[] = [], publish: ScheduledRelease[] = [];
-  for (const r of releasesInRange(day, day + 12, NO_PARAMS)) {
+  if (dueMemo?.day !== day) dueMemo = { day, rs: releasesInRange(day, day + 12, NO_PARAMS) };
+  for (const r of dueMemo.rs) {
     if (store.get(macroTables.schedule.name, `${r.bloc}:${r.kind}:${r.tick}`) === undefined) continue;
     if (r.tick === tick) publish.push(r);
     if (r.consensusTick === tick) consensus.push(r);

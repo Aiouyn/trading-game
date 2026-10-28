@@ -102,7 +102,7 @@ export function planQuarter(ctx: PhaseCtx, b: BlocId, ports: MacroPorts): SovAuc
 export function announceDue(ctx: PhaseCtx, ports: MacroPorts): void {
   const s = ctx.store, at = ctx.params.int('macro_auction_tick');
   for (const b of BLOC_ORDER) {
-    const due = [...s.index<SovAuction>(macroTables.auction.name, 'govId', govId(b))].filter((a) => a.announceTick === ctx.tick && a.whenIssuedYield === null)
+    const due = [...s.index<SovAuction>(macroTables.auction.name, 'govId', govId(b))].filter((a) => a.announceTick <= ctx.tick && a.whenIssuedYield === null && !a.result)   // <=: genesis-planned auctions announced before tick 0 catch up on the first tick
       .sort((x, y) => (x.id < y.id ? -1 : 1));
     for (const a of due) {
       const line = linesOf(s, b, ports).find((l) => l.assetId === a.assetId);

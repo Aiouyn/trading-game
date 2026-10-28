@@ -32,7 +32,7 @@ function world(b: BlocId = 'EUN', sov: Sov = {}, high = 0): CbWorld {
     issueTick: 0, maturityTick: mat, faceOutstanding: F(1e6), inflationLinked: false, fxDenominated: fx, cac: { threshold: 0.75, aggregated: true }, onTheRun: false } as never);
   line(L1, T0 + 10 * D, 0.04); line(L2, T0 + 100 * D, 0.02);
   draws = 0; script = [];
-  Object.assign(w.ctx, { rng: () => ({ next: () => { draws++; return script.shift() ?? 0.5; }, normal: () => 0 }) });
+  Object.assign(w.ctx, { rng: () => ({ uOpen: () => { draws++; return script.shift() ?? 0.5; }, normal: () => 0 }) });
   return w;
 }
 const bloc = (w: CbWorld, b: BlocId = 'EUN') => w.rows(macroTables.bloc.name).find((e) => (e as { id: string }).id === b) as { sovereign: { status: string; defaultCase?: SovereignDefaultCase }; fiscal: { debt: bigint }; shocks: { target: string; value: number; endTick: number; halfLifeDays?: number; shape: string }[]; highSpreadTradingDays: number; fx: { fxServicePending?: boolean } };

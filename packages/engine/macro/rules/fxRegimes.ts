@@ -137,7 +137,7 @@ export function emp(d5LnS: number, sigma5d: number, d5Reserves: number, reserves
  *  PEG_BREAK credibility for band or peg breaks, SRL reserve requirement DEFENCE. */
 export function executeBreak(ctx: PhaseCtx, b: BlocId): void {
   if (b === 'FDL') return;
-  const fx = blocOf(ctx.store, b).fx, p = fxPair(b), sev = 0.6 + 0.8 * ctx.rng(S.fx(p.base, p.quote)).next(), drop = BREAK_BASE + BREAK_SEV * sev;
+  const fx = blocOf(ctx.store, b).fx, p = fxPair(b), sev = 0.6 + 0.8 * ctx.rng(S.fx(p.base, p.quote)).uOpen(), drop = BREAK_BASE + BREAK_SEV * sev;
   const { band: _b, pegLn: _p, ...rest } = fx;
   const next: FxState = { ...rest, regime: 'FREE_FLOAT', fairValueLn: fx.fairValueLn - drop, breakTick: ctx.tick, breakArmed: false, empDays: 0, highCoreDays: 0, crisisFlag: true };
   putFx(ctx, b, next);

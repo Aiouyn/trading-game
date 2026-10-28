@@ -90,7 +90,7 @@ describe('§3.6.2 coefficients and personality', () => {
       expect(MACRO_EVENTS['macro.governor.appointed']!.safeParse(w.emitted[0]!.payload).success).toBe(true);
     }
     const w = world('gov'); appointGovernor(w.ctx, 'FDL', 'GENESIS', defaultMacroPorts());
-    const r = testRng(`gov|${S.cbPersonality('FDL')}`), u = r.next(), offs = Array.from({ length: 9 }, () => 0.15 * r.normal()), bias = -0.005 + 0.01 * r.next();
+    const r = testRng(`gov|${S.cbPersonality('FDL')}`), u = r.uOpen(), offs = Array.from({ length: 9 }, () => 0.15 * r.normal()), bias = -0.005 + 0.01 * r.uOpen();
     const pers = BLOC_DEFAULTS.FDL.personality;
     expect(cbOf(w).hawkishness).toBe(pers.hawkMin + (pers.hawkMax - pers.hawkMin) * u);
     expect(cbOf(w).memberOffsets).toEqual(offs); expect(cbOf(w).rStarBias).toBe(bias);

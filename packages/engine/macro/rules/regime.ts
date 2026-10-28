@@ -71,7 +71,7 @@ export interface RegimeStep { next: Regime; transitioned: boolean; hazard: numbe
 /** §3.3.2 steps 1-6. Always exactly 2 draws (u1, u2) from `rng` (G8 fixed draw count); u2 is reported only when transitioning.
  *  `hazard` is H = λ_s·Σ P_base·M (also reported while daysIn < min_s, when no transition is possible). */
 export function stepRegime(rng: Rng, from: Regime, daysIn: number, m: Partial<Record<Regime, number>>, rp: RegimeParams): RegimeStep {
-  const u1 = rng.next(), u2 = rng.next();
+  const u1 = rng.uOpen(), u2 = rng.uOpen();
   const lambda = 1 / (rp.meanDays[from] - rp.minDays[from]);
   const targets = ALLOWED[from], wts: number[] = [];
   let sum = 0;
