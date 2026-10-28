@@ -93,6 +93,16 @@ describe("wm.openApp: a single-instance app takes a new context", () => {
     expect(b.opened).toBe(true);
     expect(b.windows.map((x) => x.context)).toEqual(["HALC", "NRON"]);
   });
+  it("multi-instance Broker at its cap (4) opened on a 5th ticker: no new window, no retarget; the main instance comes to the front as it was", () => {
+    let w: ReturnType<typeof openApp>["windows"] = [];
+    for (const t of ["HALC", "NRON", "VOLT", "GX"]) w = openApp(w, "broker", A, t).windows;
+    const before = w.map((x) => ({ ...x }));
+    const r = openApp(w, "broker", A, "OKRA");
+    expect(r.opened).toBe(false);
+    expect(r.windows.filter((x) => x.app === "broker").map((x) => x.context).sort()).toEqual(["GX", "HALC", "NRON", "VOLT"]);
+    expect(r.focused).toEqual(before[0]);
+    expect(r.windows.at(-1)).toEqual(before[0]);
+  });
 });
 
 describe("?news= mock hook", () => {
