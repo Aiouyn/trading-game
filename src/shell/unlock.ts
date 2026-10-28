@@ -39,10 +39,16 @@ export function ruleMet(rule: UnlockRule, s: UnlockInput): boolean {
     case "rank": return rankAtLeast(s.rank.rank, rule.min);
     case "license": return licNum(s.me.license) >= licNum(rule.min);
     case "charter": return rule.charter === "*" ? s.me.charters.length > 0 : s.me.charters.includes(rule.charter);
-    case "nw": return moneyAtLeast(s.me.nw, rule.minNw);
+    case "nw": return moneyAtLeast(s.me.nw, rule.minNw); // the live NW (useNw, via withLiveNw), not the store's boot NW
     case "flag": return flagsOf(s.me).has(rule.flag);
     case "anyOf": return rule.rules.some((r) => ruleMet(r, s));
   }
+}
+
+/** Unlock input with the live NW: the `me` channel's nw (useNw, the one NW source) replaces the boot snapshot that
+ *  the shell store's channels hold (QA #67 d). Null until the channel's first frame: the boot NW stands. */
+export function withLiveNw(s: UnlockInput, nw: string | null): UnlockInput {
+  return nw === null || nw === s.me.nw ? s : { ...s, me: { ...s.me, nw } };
 }
 
 /** License and charter rules follow live state; everything else is sticky once met. */

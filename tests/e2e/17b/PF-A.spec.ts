@@ -3,12 +3,27 @@
 // and is the one NW source: the hero, the desktop strip and the phone status bar all read its me.nw (useNw).
 import { expect, test, type Page } from "@playwright/test";
 import { boot, setTextScale } from "../shell/helpers";
+import { mkdirSync } from "node:fs";
 import { START_NW } from "../../../src/shell/contracts/fixtures/me";
+import { abbreviateDigits, parseAmount } from "../../../src/components/ui/money";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const pf = (page: Page) => page.getByTestId("pf-overview").first();
+const SHOTS = process.env.POS_SHOTS_DIR ? `${process.env.POS_SHOTS_DIR}/../PF-A` : "tests/e2e/17b/__screenshots__/PF-A";
+async function shot(page: Page, name: string) {
+  if (!process.env.SHOTS) return;
+  mkdirSync(SHOTS, { recursive: true });
+  const vp = page.viewportSize()!;
+  await page.screenshot({ path: `${SHOTS}/${name}-${vp.width}x${vp.height}.png` });
+}
+/** The top bars' compact NW, through the one shared floor formatter (src/components/ui/money.ts abbreviateDigits) applied to
+ *  the shared NW source (the hero prints the me channel's nw in full): "$412,860.15" -> "$412k"; under 10,000 in full. */
+const compactNw = (full: string) => {
+  const p = parseAmount(full.replace(/[$,]/g, ""));
+  return p.int.length >= 5 ? `$${abbreviateDigits(p.int, p.negative, p.frac)}` : full;
+};
 
 async function openPortfolio(page: Page, query = "") {
   await boot(page, `/portfolio${query}`);
@@ -61,14 +76,17 @@ test("PF-2-02 hero NW: exact text of the shared mock NW string; the top bar show
   await expect(hero).toHaveText(full);
   await expect(hero).toHaveAttribute("aria-label", "412,860.15 dollars");
   // One shared compact-money formatter (MoneyText ctx=chip, abbreviateDigits): 3 significant figures, rounded down.
-  if (info.project.name === "desktop") {
-    const strip = page.getByTestId("strip-nw").locator("[title]");
-    await expect(strip).toHaveAttribute("title", full);
-    await expect(strip).toHaveText("$412k");
-  } else {
-    await expect(page.locator(".sb-nw [title]")).toHaveAttribute("title", full);
-    await expect(page.locator(".sb-nw [role=img]")).toHaveText("$412k");
-  }
+  expect(compactNw(full)).toBe("$412k");
+  const bar = info.project.name === "desktop" ? page.getByTestId("strip-nw").locator("[title]") : page.locator(".sb-nw [title]");
+  await expect(bar).toHaveAttribute("title", full);
+  await expect(bar).toHaveText(compactNw(full));
+  // Unpinned, the feed's NW moves with marks: the top bar must follow the hero (one source), never the store's boot NW.
+  await openPortfolio(page);
+  await page.waitForTimeout(5_200); // one mock tick
+  const live = (await hero.textContent())!;
+  expect(live, "the unpinned mock NW has moved off the boot value").not.toBe(full);
+  await expect(bar).toHaveAttribute("title", live);
+  await expect(bar).toHaveText(compactNw(live));
 });
 
 test("PF-2-04 stats: mock drawdownReal '-4.2' renders '−4.2%' (U+2212, locale percent); absent for the new player", async ({ page }) => {
@@ -115,30 +133,21 @@ test("Studio b: one NW string; the hero and the top bar (compact) agree on deskt
   const read = () => page.evaluate(() => {
     const hero = document.querySelector("[data-testid=pf-hero-nw] [role=img]")!.textContent!;
     const strip = document.querySelector("[data-testid=strip-nw] [title]");
-    const sb = document.querySelector(".sb-nw [role=img]");
-    return { hero, stripTitle: strip?.getAttribute("title") ?? null, stripText: strip?.textContent ?? null, sb: sb?.textContent ?? null };
+    const sb = document.querySelector(".sb-nw [title]");
+    return { hero, stripTitle: strip?.getAttribute("title") ?? null, stripText: strip?.textContent ?? null, sbTitle: sb?.getAttribute("title") ?? null, sb: sb?.textContent ?? null };
   });
-  // Both top bars use the one shared compact formatter: 3 significant figures, ROUNDED DOWN (positive NW here),
-  // k/M/B/T, trailing zeros dropped; under 10,000 the full amount. Restated independently of src/components/ui/money.ts.
-  const compact = (full: string) => {
-    const i = full.replace(/[^\d.]/g, "").split(".")[0];
-    if (i.length < 5) return full;
-    for (const [d, u] of [[12, "T"], [9, "B"], [6, "M"], [3, "k"]] as const) if (i.length > d) {
-      const sig = i.slice(0, Math.max(3, i.length - d));
-      const whole = sig.slice(0, i.length - d), dec = sig.slice(i.length - d).replace(/0+$/, "");
-      return `$${whole}${dec ? `.${dec}` : ""}${u}`;
-    }
-    return full;
-  };
+  // Both top bars show the hero's NW (the shared me-channel source) through the one shared floor formatter (compactNw);
+  // the title carries the full amount, so a bar reading the store's boot NW fails as soon as the mock NW moves.
   const seen = new Set<string>();
   for (let k = 0; k < 3; k++) {
     const r = await read();
     seen.add(r.hero);
     if (info.project.name === "desktop") {
       expect(r.stripTitle).toBe(r.hero);
-      expect(r.stripText).toBe(compact(r.hero)); // the same shared floor formatter as the phone
+      expect(r.stripText).toBe(compactNw(r.hero)); // the same shared floor formatter as the phone
     } else {
-      expect(r.sb).toBe(compact(r.hero));
+      expect(r.sbTitle).toBe(r.hero);
+      expect(r.sb).toBe(compactNw(r.hero));
     }
     if (k < 2) await page.waitForTimeout(5_200); // one mock tick
   }
@@ -234,6 +243,31 @@ test("PF-2-09 desktop: tabs (#38), maximised two columns, 520 minimum one column
   await tabs.nth(1).click();
   await expect(win.getByTestId("pf-positions")).toBeVisible();
   await expect(win.getByTestId("pf-overview")).toHaveCount(0);
+});
+
+test("PF-2-09 Broadsheet (QA #67): the desktop frame renders in the light palette; tab, hero and columns use its tokens", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await openPortfolio(page);
+  await page.evaluate(() => { document.documentElement.dataset.palette = "broadsheet"; });
+  // Broadsheet tokens (src/styles/tokens.ts): win2 #F6F2EA, fg #1B1A17. Proves the palette really applied.
+  expect([await color(page, "var(--win2)"), await color(page, "var(--fg)")]).toEqual(["rgb(246, 242, 234)", "rgb(27, 26, 23)"]);
+  const win = page.getByTestId("win-portfolio").first();
+  const tabs = win.getByRole("tab");
+  await expect(tabs).toHaveText(["Overview", "Positions"]);
+  // Colours transition on a palette switch: poll until they settle on the Broadsheet tokens.
+  await expect.poll(() => tabs.nth(0).evaluate((e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]))
+    .toEqual(["rgb(246, 242, 234)", "rgb(27, 26, 23)"]);
+  const int = pf(page).getByTestId("pf-hero-nw").getByTestId("money-int");
+  const wealth = await color(page, "var(--acc-wealth)"), muted = await color(page, "var(--fg-muted)");
+  await expect.poll(() => int.evaluate((e) => getComputedStyle(e).color)).toBe(wealth);
+  const label = pf(page).getByTestId("pf-hero").locator(".label").first();
+  await expect.poll(() => label.evaluate((e) => getComputedStyle(e).color)).toBe(muted);
+  await win.getByRole("button", { name: "Fill" }).click();
+  await expect.poll(async () => {
+    const [h, s] = await Promise.all(["pf-hero", "pf-stats"].map(async (id) => (await win.getByTestId(id).boundingBox())!));
+    return s.x > h.x + h.width;
+  }).toBe(true);
+  await shot(page, "PF-2-09-broadsheet");
 });
 
 test("PF-2-10 phone: Overview root, Positions push with 'Back to Portfolio', hits ≥ 44, no overflow at scale 1 and 2", async ({ page }, info) => {

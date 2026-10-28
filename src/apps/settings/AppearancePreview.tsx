@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Label } from "@/components/ui/Label";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
+import { useNw } from "@/components/shell/useNw";
 import { useSettingsStrings } from "./useSettingsStrings";
 
 export function AppearancePreview() {
@@ -12,6 +13,7 @@ export function AppearancePreview() {
   const applied = useShell((s) => s.prefs.textScale);
   const [draft, setDraft] = useState<number | null>(null);
   const value = draft ?? applied;
+  const nw = useNw(); // the player's NW from the one NW source (the mock me feed), not a hardcoded figure (QA #67 e)
   const commit = () => { if (draft !== null) { store.getState().setPrefs({ textScale: draft }); setDraft(null); } };
   return (
     <div className="scale">
@@ -25,7 +27,7 @@ export function AppearancePreview() {
         onPointerUp={commit} onKeyUp={commit} onBlur={commit} />
       <div className="preview" data-testid="scale-preview" style={{ ["--text-scale" as string]: String(value) }} aria-label={t.previewLabel} role="group">
         <Label>{t.previewNw}</Label>
-        <div className="preview-hero"><MoneyText amount="412860.15" ctx="hero" /></div>
+        <div className="preview-hero"><MoneyText amount={nw} ctx="hero" /></div>
         <div className="preview-row"><span>{t.previewRow}</span><span className="num"><MoneyText amount="1240.50" ctx="list" /></span></div>
       </div>
     </div>
