@@ -8,7 +8,7 @@ export default defineConfig({
   testIgnore: ["city/**"],
   outputDir: "test-results",
   // Compared baselines (toHaveScreenshot) live next to the spec: tests/e2e/<dir>/__screenshots__/<name>.png (17B BR-5-12, BR-6-11).
-  expect: { toHaveScreenshot: { pathTemplate: "{testDir}/{testFileDir}/__screenshots__/{arg}{ext}", maxDiffPixelRatio: 0.002, animations: "disabled", caret: "hide" } },
+  expect: { toHaveScreenshot: { pathTemplate: "{testDir}/{testFileDir}/__screenshots__/{arg}{ext}", threshold: 0, maxDiffPixelRatio: 0, animations: "disabled", caret: "hide" } },
   reporter: [["list"], ["html", { open: "never" }]],
   // --disable-lcd-text: grayscale text antialiasing on every host. CI's desktop Chromium otherwise draws subpixel (LCD) glyphs,
   // so the committed desktop baselines (BR-6-11) would differ from the box by ~4% of pixels; phone (isMobile) is already grayscale.

@@ -9,6 +9,7 @@ import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
 import { boot, intents, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
+import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -327,12 +328,23 @@ for (const scale of ["1", "2"] as const) {
       const plainChip = await chipOf();
       await pinHtml(page, "cb", true);
       expect(await chipOf()).toEqual(plainChip); // chips carry no colour meaning
+      // The baseline frames a cb-coloured element: the open confirm's Yes (--loss), checked against the Studio literal.
+      // Keyboard, not a tap: at scale 1 this Cancel sits at the foot of the 844 px viewport and the tap lands mid-scroll.
+      await row.getByTestId("br-oo-cancel").focus();
+      await page.keyboard.press("Enter");
+      const yes = row.getByTestId("br-oo-yes");
+      await expect(yes).toBeVisible();
+      await expect.poll(() => yes.evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).borderTopColor])).toEqual([SPEC_COLOUR.cbLoss, SPEC_COLOUR.cbLoss]);
       await shot(page, "open-orders-cb");
       await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-cb-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
+      await row.getByTestId("br-oo-keep").click();
+      await expect(yes).toHaveCount(0);
+      await row.getByTestId("br-oo-cancel").blur(); // Keep hands focus back to Cancel; :focus-visible would paint its border --loss
       await pinHtml(page, "cb", false);
       await pinHtml(page, "hc", true);
-      expect(await row.evaluate((e) => getComputedStyle(e).borderBottomColor)).toBe(await color(page, "var(--fg-muted)"));
-      expect(await br(page).getByTestId("br-price-limit").evaluate((e) => getComputedStyle(e).borderTopColor)).toBe(await color(page, "var(--fg-disabled)"));
+      expect(await row.evaluate((e) => getComputedStyle(e).borderBottomColor)).toBe(SPEC_COLOUR.fgMuted);
+      expect(await br(page).getByTestId("br-price-limit").evaluate((e) => getComputedStyle(e).borderTopColor)).toBe(SPEC_COLOUR.hcLine);
+      await expect.poll(() => row.getByTestId("br-oo-cancel").evaluate((e) => getComputedStyle(e).borderTopColor), "once the border transition settles").toBe(SPEC_COLOUR.hcLine);
       await shot(page, "open-orders-hc");
       await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-hc-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
     }

@@ -46,12 +46,16 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   partFill: number | null;
   /** `?cancelGone=1` (QUAY_HOOKS): the order a cancel targets fills in full on the next tick, before the cancel settles,
    *  so the cancel settles one tick later on an id that is no longer open (BR-6-08 absent id, Gap 4 race). */
-  cancelGone: boolean }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false };
+  cancelGone: boolean;
+  /** `?cancelFill=N` (QUAY_HOOKS): a cancel is held one extra tick. On the tick after it is sent, N of the order fill (a
+   *  MAKER fill at its price; the order stays open, PARTIAL); the cancel settles on the tick after that (card 6 spec
+   *  line 34: a fill lands while the row is cancelling). N is capped so the order stays open. */
+  cancelFill: number | null }
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null };
 const KEEP_STATUSES: ReadonlySet<string> = new Set<OpenOrder["status"]>(["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"]);
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -66,6 +70,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const cancelReject = q.get("cancelReject");
   const cancelKeep = q.get("cancelKeep");
   const partFill = Number(q.get("partFill"));
+  const cancelFill = Number(q.get("cancelFill"));
   const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
@@ -81,6 +86,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     cancelKeep: cancelKeep && KEEP_STATUSES.has(cancelKeep) ? (cancelKeep as OpenOrder["status"]) : null,
     partFill: Number.isSafeInteger(partFill) && partFill > 0 ? partFill : null,
     cancelGone: q.get("cancelGone") === "1",
+    cancelFill: Number.isSafeInteger(cancelFill) && cancelFill > 0 ? cancelFill : null,
   };
 }
 
@@ -129,7 +135,7 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
   policy?: OrderPolicy }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
-type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string }
+type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string; held?: true /* ?cancelFill: its fill landed */ }
   | { kind: "partFill"; orderId: string; qty: number } /* ?partFill: the tick after the order rests */;
 
 export class MockFeed {
@@ -213,6 +219,14 @@ export class MockFeed {
       if (p.kind === "cancel") {
         // ?cancelGone=1: a fill takes the whole order first; the cancel settles next tick on an id no longer open.
         if (this.scenario.cancelGone && this.orders[p.orderId]) { this.fillRest(p.orderId); this.pending.push(p); continue; }
+        // ?cancelFill=N: part of the order fills while the cancel is out; the cancel settles next tick.
+        const o = this.orders[p.orderId], n = this.scenario.cancelFill;
+        if (n !== null && !p.held && o) {
+          const part = Math.min(n, Number(o.qty) - Number(o.filled) - 1);
+          if (part > 0) this.restingFill(p.orderId, part);
+          this.pending.push({ ...p, held: true });
+          continue;
+        }
         this.settleCancel(p.intentId, p.orderId);
         continue;
       }

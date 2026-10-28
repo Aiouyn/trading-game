@@ -64,6 +64,8 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   /** The status line shows the newest finished cancel whose order left the list, if its seq is above this. */
   const [lineFrom, setLineFrom] = useState(0);
   const [settledGhosts, setSettledGhosts] = useState<ReadonlySet<string>>(new Set());
+  /** The newest copy of each order with a cancel out: a fill while cancelling (card 6 spec line 34) reaches its ghost and line. */
+  const [seen, setSeen] = useState<Readonly<Record<string, OpenOrder>>>({});
   const seq = useRef(0);
   /** Orders with a cancel on the wire (17-AT-07): a second press before React re-renders sends nothing. */
   const inFlight = useRef(new Set<string>());
@@ -74,13 +76,18 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   const present = new Set(orders.map((o) => o.orderId));
 
   // Finished cancels whose order left the list: the newest gives the status line (accepted, or the race's outcome).
-  const gone = Object.entries(sent).filter(([id]) => !present.has(id)).map(([, s]) => ({ s, r: resultOf(intents, s.intentId) }));
+  const gone = Object.entries(sent).filter(([id]) => !present.has(id)).map(([id, s]) => ({ s: { ...s, order: seen[id] ?? s.order }, r: resultOf(intents, s.intentId) }));
   const lastGone = gone.filter((g) => g.r !== null && g.s.seq > lineFrom).sort((a, b) => b.s.seq - a.s.seq)[0];
   const line = lastGone ? lineText(t, locale, lastGone.s.order, lastGone.r!) : null;
   // Rows collapsing out (height on --dur-base; instant under reduced motion): the cancel removed the order this tick
   // (ACCEPTED naming it in effects), not yet animated. An order that left before its result (Gap 4: a fill took it, the
   // cancel then finds no order) already dropped out at once, so it never comes back as a ghost.
   const ghosts = gone.filter((g) => g.r?.status === "ACCEPTED" && g.r.tick === me.tick && g.r.effects?.includes(`order:${g.s.order.orderId}`) && !settledGhosts.has(g.s.order.orderId)).map((g) => g.s.order);
+
+  useEffect(() => {
+    const fresh = Object.values(body?.orders ?? {}).filter((o) => sent[o.orderId] !== undefined && (seen[o.orderId]?.filled !== o.filled || seen[o.orderId]?.status !== o.status));
+    if (fresh.length > 0) setSeen((v) => ({ ...v, ...Object.fromEntries(fresh.map((o) => [o.orderId, o])) }));
+  }, [body, sent, seen]);
 
   useEffect(() => {
     const ids = orders.map((o) => o.orderId);

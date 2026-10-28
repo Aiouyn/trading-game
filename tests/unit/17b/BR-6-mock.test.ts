@@ -102,7 +102,7 @@ describe("BR-6-08 mock cancel", () => {
   });
 });
 
-describe("BR-6-06 / 08 browser hooks (QUAY_HOOKS): ?cancelKeep, ?partFill, ?cancelGone", () => {
+describe("BR-6-06 / 08 browser hooks (QUAY_HOOKS): ?cancelKeep, ?partFill, ?cancelGone, ?cancelFill", () => {
   const held = (f: MockFeed) => Number(me(f).positions.HALC?.qty ?? 0);
   it("?cancelKeep=QUEUED_AUCTION: ACCEPTED naming the order, which stays open with that status", () => {
     const { f, id } = rested({ cancelKeep: "QUEUED_AUCTION" });
@@ -149,6 +149,27 @@ describe("BR-6-06 / 08 browser hooks (QUAY_HOOKS): ?cancelKeep, ?partFill, ?canc
     expect(r.effects ?? []).toEqual([]);
     expect(JSON.stringify(me(f).orders)).toBe(before);
     expect(me(f).orders[other]).toBeDefined();
+  });
+});
+
+describe("card 6 spec line 34: a fill while cancelling (?cancelFill)", () => {
+  it("?cancelFill=18: the tick after the cancel, 18 fill and the order stays open PARTIAL with no result; the tick after, the cancel settles and removes the remainder", () => {
+    const { f, id } = rested({ cancelFill: 18 });
+    const iid = f.cancel(id);
+    f.advance();
+    expect(me(f).orders[id]).toMatchObject({ status: "PARTIAL", filled: "18", qty: "40" });
+    expect(me(f).fills.at(-1)).toMatchObject({ orderId: id, qty: "18", liquidity: "MAKER" });
+    expect(me(f).intents.some((i) => i.intentId === iid), "the cancel is still out").toBe(false);
+    f.advance();
+    expect(last(f)).toMatchObject({ intentId: iid, status: "ACCEPTED", effects: [`order:${id}`] });
+    expect(me(f).orders[id]).toBeUndefined();
+    expect(me(f).fills.filter((x) => x.orderId === id).map((x) => x.qty)).toEqual(["18"]);
+  });
+  it("?cancelFill=N >= what is left: caps at one under, so the order is still open while cancelling", () => {
+    const { f, id } = rested({ cancelFill: 40 });
+    f.cancel(id);
+    f.advance();
+    expect(me(f).orders[id]).toMatchObject({ status: "PARTIAL", filled: "39" });
   });
 });
 

@@ -12,6 +12,7 @@ import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
 import { boot, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
+import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -246,6 +247,27 @@ test("BR-6-08 ?partFill=18: a row turns partly filled (18 / 40) the tick after i
   expect(await youHold(page), "the filled part stays in holdings").toBe(held0 + 18);
 });
 
+test("card 6 spec l.34 ?cancelFill=18: a fill lands while the row is cancelling; the row shows 18 / 40 filled and Partly filled, then the cancel removes it", async ({ page }) => {
+  await openPaused(page, "&cancelFill=18");
+  const held0 = await youHold(page);
+  await limitOrder(page, "42.10");
+  const id = await confirmCancel(rows(page).first());
+  const r = list(page).getByTestId(`br-oo-row-${id}`);
+  await expect(r.getByTestId("br-oo-cancelling")).toBeVisible();
+  await expect(r.getByTestId("br-oo-qty")).toHaveText("40");
+  await runUntil(page, async () => (await r.getByTestId("br-oo-qty").textContent()) !== "40");
+  // The fill tick: no result yet, so the row is still Cancelling, and it shows the server's new filled / status.
+  await expect(r.getByTestId("br-oo-cancelling")).toBeVisible();
+  await expect(r).toHaveAttribute("aria-busy", "true");
+  await expect(r.getByTestId("br-oo-qty")).toHaveText("18 / 40 filled");
+  await expect(r.getByTestId("br-oo-status")).toHaveText("Partly filled");
+  await expect(r).toHaveAttribute("data-status", "PARTIAL");
+  await expect(list(page).getByTestId("br-oo-line")).toBeEmpty();
+  await runUntil(page, async () => (await r.count()) === 0);
+  await expect(list(page).getByTestId("br-oo-line")).toHaveText("Order cancelled: Buy 18 / 40 filled HALC, Limit 42.10");
+  await expect.poll(() => youHold(page), "the 18 filled while cancelling stay held").toBe(held0 + 18);
+});
+
 test("BR-6-08 ?cancelGone=1: a fill takes the order first (row drops at once, no ghost); the cancel then finds no order: ACCEPTED, no effects, the other row untouched", async ({ page }) => {
   await openPaused(page, "&cancelGone=1");
   const held0 = await youHold(page);
@@ -302,8 +324,15 @@ test("BR-6-07 ?cancelReject=MKT_HALTED: a mapped code shows its r.* line", async
   await openPaused(page, "&cancelReject=MKT_HALTED");
   await limitOrder(page, "42.10");
   await confirmCancel(rows(page).first());
-  await runUntil(page, async () => (await rows(page).first().getByTestId("br-oo-note").count()) > 0);
-  await expect(rows(page).first().getByTestId("br-oo-note")).toHaveText("Trading is halted for this asset.");
+  const r = rows(page).first();
+  await runUntil(page, async () => (await r.getByTestId("br-oo-note").count()) > 0);
+  await expect(r.getByTestId("br-oo-note")).toHaveText("Trading is halted for this asset.");
+  await expect(r.getByTestId("br-oo-note")).toHaveAttribute("role", "alert");
+  await expect(r).toHaveAttribute("data-cancel", "idle");
+  await expect(r.getByTestId("br-oo-status")).toHaveText("Working");
+  await expect(cancelBtn(r)).not.toHaveAttribute("aria-disabled", "true");
+  await expect(rows(page)).toHaveCount(1);
+  await expect(list(page).getByTestId("br-oo-line")).toBeEmpty();
 });
 
 test("BR-6-09 ?halt=HALC: Cancel is enabled on a Waits-for-reopen row and the cancel is ACCEPTED", async ({ page }) => {
@@ -436,17 +465,32 @@ test("BR-6-11 1440: Cancel ≥ 28 px, rows one line, no --acc in idle / hover / 
   expect(await colours(list(page))).not.toContain(acc);
   // cb / hc: compared baselines (committed), with the confirm open on the first row.
   await pinHtml(page, "cb", true);
-  const cbLoss = await color(page, "var(--loss)");
-  expect(cbLoss, "cb swaps the --loss token").not.toBe(loss);
-  await expect.poll(async () => (await look(r.getByTestId("br-oo-yes"))).color).toBe(cbLoss); // paired with its text label, never colour alone
+  // The Studio literal, not the token: a one-step edit to the cb --loss fails here (QA K1 / K2).
+  await expect.poll(() => look(r.getByTestId("br-oo-yes"))).toEqual({ color: SPEC_COLOUR.cbLoss, bg: "rgba(0, 0, 0, 0)", border: SPEC_COLOUR.cbLoss }); // paired with its text label, never colour alone
+  const today = br(page).getByTestId("br-today");
+  await expect(today).toHaveAttribute("data-dir", "down");
+  expect(await today.evaluate((e) => getComputedStyle(e).color)).toBe(SPEC_COLOUR.cbLoss);
   await expect(list(page)).toHaveScreenshot(["BR-6", "cb-1440x900.png"], { mask: volatile(page) });
   await pinHtml(page, "cb", false);
   await pinHtml(page, "hc", true);
+  const border = (l: Locator) => l.evaluate((e) => [getComputedStyle(e).borderTopWidth, getComputedStyle(e).borderTopColor]);
+  await expect.poll(() => border(r.getByTestId("br-oo-keep"))).toEqual(["2px", SPEC_COLOUR.hcLine]);
+  expect(await border(cancelBtn(rows(page).nth(1)))).toEqual(["2px", SPEC_COLOUR.hcLine]);
   expect(await r.getByTestId("br-oo-yes").evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe("2px");
-  expect(await cancelBtn(rows(page).nth(1)).evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe("2px");
   await expect(list(page)).toHaveScreenshot(["BR-6", "hc-1440x900.png"], { mask: volatile(page) });
   await shot(page, "hc");
   await pinHtml(page, "hc", false);
+});
+
+test("BR-6-11 cb gain: an up Today renders the Studio cb --gain literal", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await openBrokerPaused(page, "/broker?asset=GX", br(page));
+  const today = br(page).getByTestId("br-today");
+  await expect(today).toHaveAttribute("data-dir", "up");
+  await pinHtml(page, "cb", true);
+  await expect.poll(() => today.evaluate((e) => getComputedStyle(e).color)).toBe(SPEC_COLOUR.cbGain);
+  await pinHtml(page, "cb", false);
+  expect(await today.evaluate((e) => getComputedStyle(e).color), "cb really swaps --gain").not.toBe(SPEC_COLOUR.cbGain);
 });
 
 test("BR-6-11 reduced motion: the removed row leaves with no animation", async ({ page }, info) => {
@@ -465,6 +509,11 @@ test("BR-6-11 reduced motion: the removed row leaves with no animation", async (
     ghosts: [...el.querySelectorAll<HTMLElement>("[data-leaving]")].filter((g) => getComputedStyle(g).display !== "none").length,
   }));
   expect(anim).toEqual({ running: 0, ghosts: 0 });
+  await expect(list(page).getByTestId("br-oo-line")).toHaveText("Order cancelled: Buy 7 HALC, Limit 41.50");
+  await expect(list(page).getByTestId("br-oo-count")).toHaveText("1");
+  await expect(cancelBtn(rows(page).first())).toBeFocused();
+  // Instant, not merely fast: the row's own transitions are 0 s under data-motion="reduce".
+  expect(await rows(page).first().evaluate((e) => getComputedStyle(e).transitionDuration.split(",").every((d) => parseFloat(d) === 0))).toBe(true);
 });
 
 test("BR-6-11 520 window: rows two lines + a right-aligned actions line; confirm and rejected fit", async ({ page }, info) => {

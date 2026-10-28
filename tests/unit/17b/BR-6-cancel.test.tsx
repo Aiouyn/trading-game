@@ -236,6 +236,64 @@ describe("Q2 rows follow status / filled for the same id", () => {
   });
 });
 
+describe("card 6 spec line 34: a fill while cancelling (?cancelFill)", () => {
+  it("the row stays Cancelling and shows the new {filled}/{qty} and status; the next tick removes it", async () => {
+    const f = feedWith([LIMIT("42.10")], { cancelFill: 18 });
+    await mount(h, { context: "HALC", feed: f });
+    const [id] = rowIds();
+    await openConfirm(id!);
+    await yes(id!);
+    expect(inRow(id!, "br-oo-qty")!.textContent).toBe("40");
+    await tick(f);
+    expect(inRow(id!, "br-oo-cancelling"), "still cancelling: the result is not in").not.toBeNull();
+    expect(row(id!).getAttribute("aria-busy")).toBe("true");
+    expect(inRow(id!, "br-oo-qty")!.textContent).toBe("18 / 40 filled");
+    expect(inRow(id!, "br-oo-status")!.textContent).toBe(EN.s.PARTIAL);
+    expect(row(id!).dataset.status).toBe("PARTIAL");
+    await tick(f);
+    expect(rowIds()).toEqual([]);
+    expect(text(h, "br-oo-line")).toBe("Order cancelled: Buy 18 / 40 filled HALC, Limit 42.10");
+  });
+});
+
+describe("BR-6-08 a fill takes the order before the cancel settles (?cancelGone)", () => {
+  it("the row drops on the fill with no ghost and no line; the ACCEPTED with no effects then fills the line, still no ghost", async () => {
+    const f = feedWith([LIMIT("42.10"), LIMIT("41.50")], { cancelGone: true });
+    await mount(h, { context: "HALC", feed: f });
+    const [gone, other] = rowIds();
+    await openConfirm(gone!);
+    await yes(gone!);
+    await tick(f);
+    expect(rowIds()).toEqual([other]);
+    expect(q(h, `br-oo-leaving-${gone}`), "a filled order is not a cancel ghost").toBeNull();
+    expect(text(h, "br-oo-line")).toBe("");
+    await tick(f);
+    expect(q(h, `br-oo-leaving-${gone}`), "the ACCEPTED does not bring it back as a ghost").toBeNull();
+    expect(all("[data-leaving]")).toEqual([]);
+    expect(text(h, "br-oo-line")).toBe("Order cancelled: Buy 40 HALC, Limit 42.10");
+    expect(rowIds()).toEqual([other]);
+  });
+});
+
+describe("BR-6-09 read-only list (stale)", () => {
+  it("Cancel is aria-disabled while the list is not live; a press opens no confirm and sends nothing", async () => {
+    // A running 1 s feed: the stale script misses 3 ticks in 6, and the watchdog marks the channel stale.
+    const f = new MockFeed({ feed: "stale" }, { tickMs: 1000 });
+    f.submit(LIMIT("42.10"));
+    f.advance();
+    await mount(h, { context: "HALC", feed: f });
+    const [id] = rowIds();
+    for (let i = 0; i < 12 && q(h, "br-oo")!.dataset.state !== "stale"; i++) await wait(500);
+    expect(q(h, "br-oo")!.dataset.state).toBe("stale");
+    expect(inRow(id!, "br-oo-cancel")!.getAttribute("aria-disabled")).toBe("true");
+    const n = cancels().length;
+    await openConfirm(id!);
+    expect(inRow(id!, "br-oo-confirm")).toBeNull();
+    expect(inRow(id!, "br-oo-yes")).toBeNull();
+    expect(cancels().length).toBe(n);
+  });
+});
+
 describe("BR-6-07 reject", () => {
   it("?cancelReject=MKT_X: row stays idle with the alert; the next Cancel press clears it", async () => {
     const f = feedWith([LIMIT("42.10")], { cancelReject: "MKT_X" });
