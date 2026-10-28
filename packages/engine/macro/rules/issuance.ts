@@ -66,6 +66,7 @@ const faceOf = (store: StoreRead, b: BlocId, ports: MacroPorts, from: Tick, to: 
 
 /** Quarter start (trading day 1, caller's schedule): GFN and the quarter's auction rows (syndicated rows are T04-12's, no auction row).
  *  Idempotent: auction ids are `auc_<BLOC>_<tenor>_<day>`; an existing row is kept as is. */
+const POST_LOT = 1000n * MICRO_N;
 export function planQuarter(ctx: PhaseCtx, b: BlocId, ports: MacroPorts): SovAuction[] {
   const s = ctx.store, bloc = s.get<BlocMacroState & { id: BlocId }>(macroTables.bloc.name, b);
   if (!bloc) return [];
@@ -83,6 +84,7 @@ export function planQuarter(ctx: PhaseCtx, b: BlocId, ports: MacroPorts): SovAuc
     const n = sched.filter((x) => x.tenor === a.tenor).length;
     let size = auctionSize(gfn, mix[a.tenor], n);
     if (a.tenor === 'B3M' && carry > 0n) { size += carry; carry = 0n; }
+    if (bloc.sovereign.status === 'POST_RESTRUCTURING') size = (size / 2n / POST_LOT) * POST_LOT;   // T04-13: 50% of plan for 364 days after an exchange
     const reopen = !isBill(a.tenor) && !a.newLine ? current[a.tenor] : undefined;
     const assetId = reopen ?? sovereignAssetId(b, a.tenor, a.dayIndex + tenorDays(a.tenor));
     if (!isBill(a.tenor)) current[a.tenor] = assetId;

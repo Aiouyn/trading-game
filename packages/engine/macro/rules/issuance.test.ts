@@ -26,6 +26,14 @@ const auctions = (w: CbWorld): SovAuction[] => w.rows(macroTables.auction.name) 
 const blocRow = (w: CbWorld, b: BlocId) => w.rows(macroTables.bloc.name).find((e) => (e as { id: string }).id === b) as { fiscal: { grossFinancingNeedQuarter: bigint; shortfallCarry?: Qty } };
 
 describe('debt management', () => {
+  it('T04-13: POST_RESTRUCTURING caps every auction at 50% of plan (lot-floored)', () => {
+    const base = planQuarter(world('FDL').ctx, 'FDL', ports), w = world('FDL');
+    const r = w.rows(macroTables.bloc.name)[0] as { sovereign: object };
+    w.put(macroTables.bloc.name, { ...r, sovereign: { ...r.sovereign, status: 'POST_RESTRUCTURING' } } as never);
+    const cut = planQuarter(w.ctx, 'FDL', ports), LOT = 1000n * MICRO_N;
+    expect(cut.length).toBe(base.length); expect(base.some((a) => a.offeredFace > 0n)).toBe(true);
+    cut.forEach((a, i) => expect(a.offeredFace).toBe((base[i]!.offeredFace / 2n / LOT) * LOT));
+  });
   it('GFN: 350e9 + 500e9 + (846.153846e9 − 600e9) = 1,096.153846e9; N10Y 0.22 over 3 auctions → 80,384,000,000 per auction', () => {
     const g = grossFinancingNeed(fiscalState({ cashBuffer: M(600e9) }), 1.4e12, 11e12, 500e9);
     expect(g).toBeCloseTo(1_096_153_846_153.846, 2);

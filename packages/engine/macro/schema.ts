@@ -102,6 +102,7 @@ export interface BlocMacroState {
   credit: number; credit0: number /* E-90 (1): genesis credit, float, never changes */; creditGdpTrend: number; peNorm: number; fiscalImpulse: number; unemployment12mLow: number;
   dep: number;                     // effective depreciation yoy
   sentiment: number; consumptionSignal: number;
+  highSpreadTradingDays?: number;  // T04-13: consecutive trading days with s10 > 0.15 (POLITICAL trigger)
 }
 
 // ───────── §2.4 public macro view ─────────
@@ -374,7 +375,7 @@ export interface DailyHistoryRow { id: string /* `${bloc}:${gameDay}` or `GLOBAL
   outputGapEstimate: number /* E-45: public x̂ = x + ε, ε AR(1) per GD, ρ 0.98, σ 0.005, stream `macro.gapest:<bloc>`, PROVISIONAL [Quant] (T04-01b) */; energyIndex: number; foodIndex: number; worldTradeIndex: number;
   equityIndex: number | null; spotVsFdl: number; effectiveFx: number; reservesFdl: string; policyRate: number; y3m: number; y10: number;
   deficitPrimaryGdp: number; credit: number | null /* E-90 (1): closing bloc credit; null on GLOBAL rows */; creditGdp: number; housePriceIndex: number | null; fearIndex: number; fsi: number; regime: Regime }
-export interface HookCall { id: Id; owner: '05' | '06' | '07' | '08' | '10' | '11' | '12' | '16'; hook: string; args: Record<string, number | string | string[] | null>;
+export interface HookCall { id: Id; owner: '05' | '06' | '07' | '08' | '10' | '11' | '12' | '13' | '16' /* '13': T04-13 HOLDOUT_CLAIM */; hook: string; args: Record<string, number | string | string[] | null>;
   worldEventId: string; createdTick: Tick; startTick: Tick /* createdTick + 1 */ }
 export interface NpcPoolOrder { id: Id; poolId: `CB:${BlocId}` | `TSY:${BlocId}` | 'CSF'; assetId: string; side: 'BUY' | 'SELL'; qty: Qty; limitPrice?: Price; tif: 'TICK' | 'RESTING'; tick: Tick;
   purpose: 'QE' | 'QT' | 'YCC' | 'FX_BAND' | 'FX_LEAN' | 'FX_COORD' | 'FX_PEG' | 'RESERVE_REBAL' | 'BACKSTOP' | 'MANDATE_SELL' }   // 04 §6.3

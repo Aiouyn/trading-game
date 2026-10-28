@@ -35,7 +35,9 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
   for (const cb of cbs) put(macroTables.cb.name, cb as unknown as { id: string });
   const posts: Post[] = [], events: Ev[] = [], holds: HoldRow[] = [], sent: { to: Id; kind: string; body: unknown }[] = [];
   let inbox: PhaseMessage[] = [], tick = tick0, n = 0, failCash = false;
-  const cash: Record<string, bigint> = {}, qty: Record<string, bigint> = {};
+  const cash: Record<string, bigint> = {}, qtyKeys: string[] = [];
+  // qty keys are `${entity}:${asset}`; the proxy records each key so accountsOfAsset can list holders without Object.keys (G8).
+  const qty = new Proxy({} as Record<string, bigint>, { set: (o, k, v) => { if (typeof k === 'string' && !(k in o)) { qtyKeys.push(k); qtyKeys.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)); } o[k as string] = v as bigint; return true; } });
   const P = (op: string) => (a: Id, b: Id, amt: bigint, ccy: string, code: string, o?: { sub?: string }) => {
     posts.push({ op, from: a, to: b, amt, ccy, code, ...(o?.sub ? { sub: o.sub } : {}) }); return `e${posts.length}`; };
   const ledger = {
@@ -50,6 +52,12 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     elasticOut: (from: Id, sector: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'elasticOut', from, to: sector, amt, ccy, code }); return `e${posts.length}`; },
     cash: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n,
     position: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
+    moveQty: (from: Id, to: Id, a: string, q: bigint, _bv: bigint, ccy: string, code: string) => {
+      qty[`${from}:${a}`] = (qty[`${from}:${a}`] ?? 0n) - q; qty[`${to}:${a}`] = (qty[`${to}:${a}`] ?? 0n) + q;
+      posts.push({ op: 'moveQty', from, to, amt: 0n, ccy, code, sub: `${a}:${q}` }); return `e${posts.length}`; },
+    accountsOfAsset: (a: string) => qtyKeys.filter((k) => k.endsWith(`:${a}`) && k.slice(0, k.length - a.length - 1).indexOf(':') < 0)
+      .map((k) => ({ key: k, entityId: k.slice(0, k.length - a.length - 1), assetId: a, qty: qty[k] })),
+    committedQty: (k: string) => qty[k] ?? 0n,
     available: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n, availableQty: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
     netWorth: (e: Id) => cash[`${e}:FDL`] ?? 0n,   // T04-12: the FDL cash stands in for book NW
   };
