@@ -47,13 +47,20 @@ async function open(page: Page, id: string) {
   await expect(detail(page)).toHaveAttribute("data-id", id);
   await page.clock.runFor(100);
 }
+/** A desktop window's rounded corners are antialiased against the desktop by the host's rasteriser: CI's Chromium drew
+ *  22 corner pixels 1-2 levels off the box's (PR #92 run 40697141021, rows 552-559 of none-1440x900). So a `.win` frame
+ *  is compared without its top and bottom corner-radius rows; the phone app view has no rounded corners. */
 async function shot(page: Page, state: string, l: Locator = frame(page)) {
   const vp = page.viewportSize()!;
   const name = `${state}-${vp.width}x${vp.height}.png`;
   await page.mouse.move(0, vp.height - 1); // no hover tint in a baseline
-  await expect(l).toHaveScreenshot(["WIR-9", name]);
+  const r = await l.evaluate((el) => (el.classList.contains("win") ? Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0) : 0));
+  const b = (await l.boundingBox())!;
+  const clip = { x: b.x, y: b.y + r, width: b.width, height: b.height - 2 * r };
+  if (r > 0) await expect(page).toHaveScreenshot(["WIR-9", name], { clip });
+  else await expect(l).toHaveScreenshot(["WIR-9", name]);
   const dir = process.env.WIR9_SHOTS_DIR;
-  if (dir) { mkdirSync(dir, { recursive: true }); await l.screenshot({ path: `${dir}/${name}` }); }
+  if (dir) { mkdirSync(dir, { recursive: true }); await (r > 0 ? page.screenshot({ path: `${dir}/${name}`, clip }) : l.screenshot({ path: `${dir}/${name}` })); }
 }
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const colours = (l: Locator) => l.evaluate((el) => {
