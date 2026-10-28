@@ -1,12 +1,13 @@
 // T04-14 Concord Stability Facility (04 §3.13.6, §2.13, §6.6). npc_CSF lends FDL to blocs in crisis under conditions.
 import { accrue, divRoundHalfEven, EngineFault, fromMoney, roundHalfEven, TICKS_PER_GAME_DAY, toMoney, type Money, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
 import { govId } from '@tycoon/engine-ledger';
-import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type ConcordFacility, type CurveState, type HookCall } from '../schema';
+import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type ConcordFacility, type CurveState } from '../schema';
 import { CSF_ID } from '../ids';
 import { setCapitalControls } from './capitalControls';
 import { nominalGdpFdl } from './fxReserves';
 import { nsZero } from './nelsonSiegel';
 import { addProgram } from './programs';
+import { trancheSourceId, writeHook } from './hooks';
 
 export type ConcordProgram = ConcordFacility['programs'][number];
 type Cause = 'BREAK_PENDING' | 'FX_SERVICE' | 'SPREAD' | 'RESTRUCTURING';
@@ -111,8 +112,8 @@ export function concordTranches(ctx: PhaseCtx): void {
       if (p.compliance >= COMPLIANCE_MIN) p = disburse(ctx, p, k);
       else {
         p = { ...p, suspended: (p.suspended ?? 0) + 1 };
-        s.put<HookCall>(macroTables.hookCall.name, { id: ctx.newId('hook'), owner: '16', hook: 'WIRE_ITEM', args: { key: 'csf_tranche_suspended', bloc: p.bloc, programId: p.id ?? '' },
-          worldEventId: '', createdTick: t, startTick: t + 1 });
+        const src = trancheSourceId(p.id, k);   // throws on a missing program id (E-105: never '')
+        writeHook(ctx, '16', 'WIRE_ITEM', { key: 'csf_tranche_suspended', bloc: p.bloc, programId: p.id! }, src);
       }
       emitProgram(ctx, p);
     }

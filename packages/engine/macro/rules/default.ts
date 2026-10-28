@@ -4,12 +4,13 @@ import { dmath, EngineFault, TICKS_PER_GAME_DAY, type Money, type PhaseCtx, type
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import { blocOfEntity } from '../ids';
 import type { MacroPorts } from '../ports';
-import { macroTables, type BlocId, type CentralBank, type HookCall, type SovereignCreditState, type SovereignDefaultCase } from '../schema';
+import { macroTables, type BlocId, type CentralBank, type SovereignCreditState, type SovereignDefaultCase } from '../schema';
 import { S } from '../streams';
 import { closeOffer, openOffer, tallyOffer } from './restructuring';
 import { blocRow, govLines, latestCase, payments, saveCase } from './sovCase';
 import { canAgreeConcord, concordActive, openConcord } from './concord';
 import { fxReservesFdl, importsMonthFdl } from './fxReserves';
+import { writeHook } from './hooks';
 
 export type DefaultTrigger = SovereignDefaultCase['trigger'];
 
@@ -104,7 +105,7 @@ export function stepDefaultCase(ctx: PhaseCtx, b: BlocId, ports: MacroPorts): vo
   if (sov.status === 'PERFORMING') {
     if (tick < c.missedPayment.dueTick) return;
     status(ctx, b, c, 'GRACE', c.trigger);
-    ctx.store.put<HookCall>(macroTables.hookCall.name, { id: ctx.newId('hook'), owner: '16', hook: 'WIRE_ITEM', args: { key: 'sov_grace', govId: c.govId, caseId: c.id }, worldEventId: '', createdTick: tick, startTick: tick + 1 });
+    writeHook(ctx, '16', 'WIRE_ITEM', { key: 'sov_grace', govId: c.govId, caseId: c.id }, c.id);
     return;
   }
   if (sov.status === 'GRACE') {

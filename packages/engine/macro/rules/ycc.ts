@@ -2,9 +2,10 @@
 import { MICRO_N, mulRate, roundHalfEven, type PhaseCtx, type Qty, type StoreRead } from '@tycoon/engine-core';
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import type { MacroPorts } from '../ports';
-import { macroTables, type BlocId, type CentralBank, type HookCall, type NpcPoolOrder, type YieldCurveControl } from '../schema';
+import { macroTables, type BlocId, type CentralBank, type NpcPoolOrder, type YieldCurveControl } from '../schema';
 import { credibilityOneOff } from './credibility';
 import { holdingsOf, HOLDINGS_CAP_GDP, lineCapRoom, type PositionOf } from './qe';
+import { writeHook, yccPressureSourceId } from './hooks';
 
 /** `macro_ycc_bloc` is not in the params registry (MISSING param); the card default PYN holds. */
 export const YCC_BLOC: BlocId = 'PYN';
@@ -55,8 +56,7 @@ export function yccPressure(ctx: PhaseCtx, b: BlocId, capacityFace: Qty): void {
   if (!cb?.ycc?.active) return;
   if (capacityFace > 0n) { if (cb.yccPressureWired) ctx.store.put<CentralBank>(T, { ...cb, yccPressureWired: false }); return; }
   if (cb.yccPressureWired) return;
-  const id = ctx.newId('hook');
-  ctx.store.put<HookCall>(macroTables.hookCall.name, { id, owner: '16', hook: 'WIRE_ITEM', args: { key: 'ycc_under_pressure', bloc: b }, worldEventId: '', createdTick: ctx.tick, startTick: ctx.tick + 1 });
+  writeHook(ctx, '16', 'WIRE_ITEM', { key: 'ycc_under_pressure', bloc: b }, yccPressureSourceId(b, ctx.tick));
   ctx.store.put<CentralBank>(T, { ...cb, yccPressureWired: true });
 }
 

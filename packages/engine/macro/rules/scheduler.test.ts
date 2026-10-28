@@ -94,6 +94,8 @@ describe('T04-17 crisis week and constraints', () => {
     const hk = w.store.iter<HookCall>(macroTables.hookCall.name).filter((h) => h.hook === 'WIRE_ITEM');
     expect(hk.length).toBe(1); expect(hk[0]!.owner).toBe('16');
     expect(hk[0]!.args).toEqual({ key: 'crisis_week_announced', startTick: cw.startTick, endTick: cw.endTick });
+    expect(hk[0]!.worldEventId).toBe(`cwk_WORLD_${cw.startTick / 720}`);   // AC-04-18-HOOKID (1)
+    expect(hk[0]!.worldEventId).toMatch(/^cwk_WORLD_\d+$/);
   });
   it('about 60% of chapters get one, never two (crisisWeekUsedThisChapter)', () => {
     let n = 0;

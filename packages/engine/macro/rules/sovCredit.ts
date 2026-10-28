@@ -10,6 +10,7 @@ import { concordActive } from './concord';
 import { ruleBreachPremium } from './programs';
 import { blocRow } from './sovCase';
 import { shockValue } from './shocks';
+import { igExclusionSourceId, writeHook } from './hooks';
 
 export const GRADES = ['AAA', 'AA+', 'AA', 'AA-', 'A+', 'A', 'A-', 'BBB+', 'BBB', 'BBB-', 'BB+', 'BB', 'BB-', 'B+', 'B', 'B-', 'CCC', 'CC', 'C', 'D'] as const;
 
@@ -125,10 +126,8 @@ export function igExclusionCheck(ctx: PhaseCtx, b: BlocId, ports: MacroPorts): H
     assetIds.push(l.assetId);
     for (let d = 0; d < SELL_DAYS; d++) qtyPerDay.push(String((lots / 10n + (d === 0 ? lots % 10n : 0n)) * LOT));
   }
-  const tick = ctx.tick, h: HookCall = { id: ctx.newId('hook'), owner: '05', hook: 'MANDATE_SELL',
-    args: { govId: gov, assetIds, qtyPerDay, tradingDays: SELL_DAYS, startDay: nextTradingDay(b, Math.floor(tick / D)) }, worldEventId: '', createdTick: tick, startTick: tick + 1 };
-  s.put<HookCall>(macroTables.hookCall.name, h);
-  return h;
+  const tick = ctx.tick;
+  return writeHook(ctx, '05', 'MANDATE_SELL', { govId: gov, assetIds, qtyPerDay, tradingDays: SELL_DAYS, startDay: nextTradingDay(b, Math.floor(tick / D)) }, igExclusionSourceId(b, tick));
 }
 
 const hist = (ctx: PhaseCtx, b: BlocId, d: number): DailyHistoryRow | undefined => ctx.store.get<DailyHistoryRow>(macroTables.history.name, `${b}:${d}`);
