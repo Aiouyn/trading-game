@@ -84,3 +84,14 @@ export const MACRO_T04_07_PARAMS: readonly ParamDef[] = Object.freeze([
     Object.freeze({ bloc: 'FDL', hazard: 0.0005 }), Object.freeze({ bloc: 'EUN', hazard: 0.0030 }), Object.freeze({ bloc: 'PYN', hazard: 0.0020 }),
     Object.freeze({ bloc: 'NKR', hazard: 0.0003 }), Object.freeze({ bloc: 'SRL', hazard: 0.0200 })]) },
 ] as ParamDef[]);
+
+/** T04-08 (04 §3.8.1–§3.8.3): corridor half-width, reserve requirements per bloc, standing-facility haircuts (key = kind_bucket, lower case). */
+const HC: readonly (readonly [string, number])[] = [['own_gov_aaa_aa', 0.01], ['own_gov_a', 0.02], ['own_gov_bbb', 0.04], ['own_gov_bb', 0.15],
+  ['other_gov_aaa_aa', 0.03], ['other_gov_a', 0.05], ['other_gov_bbb', 0.10], ['corp_aaa_aa', 0.05], ['corp_a', 0.07], ['corp_bbb', 0.12],
+  ['abs_covered_aaa_aa', 0.08], ['abs_covered_a', 0.12], ['abs_covered_bbb', 0.20], ['credit_claim', 0.30], ['equity', 0.40]];
+export const MACRO_T04_08_PARAMS: readonly ParamDef[] = Object.freeze([
+  { key: 'macro_corridor_halfwidth', type: 'num', value: 0.0025 },
+  { key: 'macro_rr_fdl', type: 'num', value: 0.01 }, { key: 'macro_rr_eun', type: 'num', value: 0.01 }, { key: 'macro_rr_pyn', type: 'num', value: 0.05 },
+  { key: 'macro_rr_nkr', type: 'num', value: 0.01 }, { key: 'macro_rr_srl', type: 'num', value: 0.10 },
+  ...HC.map(([k, v]) => ({ key: `macro_cb_haircut_${k}`, type: 'num', value: v })),
+] as ParamDef[]);

@@ -206,7 +206,8 @@ export interface CentralBank {
   ltroOpenUntilTick: Tick | null;
   ccybPending: { value: number; effectiveTick: Tick } | null;
   emergencyQuarter: number;        // quarter index of emergencyCountQuarter, quarter = floor(game day / 91)
-  pendingEmergency: { tick: Tick; triggers: EmergencyTrigger[] } | null;   // E-100 (c): genesis null; set by T04-06 scheduleEmergency, cleared by the emergency runMeeting
+  pendingEmergency: { tick: Tick; triggers: EmergencyTrigger[] } | null;
+  rrEasingQuarter?: number;       // T04-08 adjustRr: quarter of the last SRL EASING change (at most one per quarter)   // E-100 (c): genesis null; set by T04-06 scheduleEmergency, cleared by the emergency runMeeting
 }
 
 // ───────── §2.7 treasury, fiscal, issuance, auctions ─────────
@@ -369,8 +370,9 @@ export interface HookCall { id: Id; owner: '05' | '06' | '07' | '08' | '10' | '1
 export interface NpcPoolOrder { id: Id; poolId: `CB:${BlocId}` | `TSY:${BlocId}` | 'CSF'; assetId: string; side: 'BUY' | 'SELL'; qty: Qty; limitPrice?: Price; tif: 'TICK' | 'RESTING'; tick: Tick;
   purpose: 'QE' | 'QT' | 'YCC' | 'FX_BAND' | 'FX_LEAN' | 'FX_COORD' | 'FX_PEG' | 'RESERVE_REBAL' | 'BACKSTOP' | 'MANDATE_SELL' }   // 04 §6.3
 export interface FacilityLoan { id: Id; kind: 'REPO' | 'ELA' | 'LTRO' | 'SWAP_ONLEND'; bloc: BlocId; bankId: Id; amount: Money; ccy: Ccy; rate: number; openTick: Tick; maturityTick: Tick;
-  collateral: { assetId: string; qty: Qty; haircut: number; valueAtOpen: Money }[]; accrued: Money; status: 'OPEN' | 'REPAID' }
-export interface DepositFacilityBalance { id: string /* `${bloc}:${bankId}` */; bloc: BlocId; bankId: Id; amount: Money }
+  collateral: { assetId: string; qty: Qty; haircut: number; valueAtOpen: Money }[]; accrued: Money; status: 'OPEN' | 'REPAID';
+  holdIds?: Id[] /* T04-08: the collateral holds, released at close */ }
+export interface DepositFacilityBalance { id: string /* `${bloc}:${bankId}` */; bloc: BlocId; bankId: Id; amount: Money; holdId?: Id /* T04-08 earmark */ }
 export interface PrimaryDealerStatus { id: string /* `${bloc}:${entityId}` */; bloc: BlocId; entityId: Id; npc: boolean; status: 'APPLIED' | 'ACTIVE' | 'RESIGNING' | 'REVOKED';
   fromQuarter: number; revokedUntilQuarter: number | null; auctionsThisQuarter: number; auctionsBidThisQuarter: number; missesThisQuarter: number;
   awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */ }
