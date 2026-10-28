@@ -5,15 +5,17 @@
 // daily sovereign.spread10y over the event blocs; srl/pyn_fair_change = exp(min fairValueLn − start) − 1; capital_controls_days = SRL days with
 // controls > 0; headline_change = max rise of the GDP-weighted world headline inflation (catalogInputs); peak_fsi = max daily GLOBAL FSI;
 // pie1_rise = max rise of the 5-bloc mean inflationExp1y (E-104 (1)). CURRENCY_CRISIS arms SRL naturally from the seeded + mirrored reserve
-// drain (E-106 (5); the harness never writes fx.breakArmed); srlArmClose / srlBreakDay record it. OIL_SHOCK's 06 band runs nightly with
+// drain (E-106 (5); the harness never writes fx.breakArmed); srlArms / srlConcordDays / srlBreakDay record it (E-107 (1) Concord path). OIL_SHOCK's 06 band runs nightly with
 // WARM_DAYS and ref06Ports (E-104).
 import { dmath, TICKS_PER_GAME_DAY } from '@tycoon/engine-core';
 import { defaultMacroPorts, type MacroPorts } from '../../ports';
-import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type CrisisKind, type GlobalMacroState, type HookCall, type WorldEvent } from '../../schema';
+import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type ConcordFacility, type CrisisKind, type GlobalMacroState, type HookCall, type WorldEvent } from '../../schema';
 import { catalogInputs, MAJORS, type CalibrationBand } from '../../rules/crisisCatalog';
 import { forceEvent } from '../../rules/scheduler';
 import { tradingDaysOfPeriod } from '../../rules/calendar';
+import { CSF_ID } from '../../ids';
 import { macroGenesis } from '../../core/genesis';
+import { GENESIS_DEFAULT } from '../../rules/inputs';
 import { macroWorld, type MacroWorld } from '../../testkit/macroWorld';
 import { runDays } from '../../testkit/macroLoop';
 
@@ -24,9 +26,11 @@ export const WARM_DAYS = 364, REF06_ELASTICITY = 10;
 export const WARM_KINDS: readonly CrisisKind[] = ['OIL_SHOCK'];
 
 export interface Trace { s10Peak: number; srlFairMin: number; pynFairMin: number; srlControlDays: number; headlineRise: number; peakFsi: number; pie1Rise: number }
-/** srlArmClose: first forced close (1-based) with SRL fx.breakArmed; srlArmDay / srlBreakDay: its game day and the game day of SRL breakTick. */
-export interface ForcedRun { kind: CrisisKind; seed: number; ev: WorldEvent; days: number; trace: Trace; hooks: HookCall[]; srlArmClose: number | null; srlArmDay: number | null;
-  srlBreakDay: number | null }
+/** srlArms: each forced close (1-based) on which SRL fx.breakArmed turned true, with its game day; srlConcordDays: game days on which an SRL
+ *  BREAK_PENDING Concord program started after forcing; srlBreakDay / srlBreakClose: game day of SRL breakTick and the forced close that showed it. */
+export interface SrlArm { close: number; day: number }
+export interface ForcedRun { kind: CrisisKind; seed: number; ev: WorldEvent; days: number; trace: Trace; hooks: HookCall[]; srlArms: SrlArm[]; srlConcordDays: number[];
+  srlBreakDay: number | null; srlBreakClose: number | null }
 
 const blocOf = (w: MacroWorld, b: BlocId): BlocMacroState => w.store.get<BlocMacroState>(macroTables.bloc.name, b)!;
 const fsiOf = (w: MacroWorld): number => w.store.get<GlobalMacroState>(macroTables.global.name, 'GLOBAL')?.financialStressIndex ?? 0;
@@ -82,6 +86,21 @@ export function ref06Ports(base: MacroPorts = defaultMacroPorts()): MacroPorts {
   } } };
 }
 
+/** Reference 16 political-stability response (E-108 (4), reference assumption; 16's spec does not define it yet): politicalStability =
+ *  genesis 0.7 + Σ delta over the bloc's active politicalStabilityShock hooks, clamped [0, 1]. Only SOVEREIGN_DEBT_CRISIS writes those hooks,
+ *  so for every other kind it returns the genesis value T04-07 already holds. */
+export function ref16Ports(base: MacroPorts = defaultMacroPorts()): MacroPorts {
+  return { ...base, world: { ...base.world, politicalStability: (s, b) => {
+    const t = s.get<GlobalMacroState>(macroTables.global.name, 'GLOBAL')?.tick ?? 0;
+    let ps = GENESIS_DEFAULT.politicalStability;
+    for (const h of s.iter<HookCall>(macroTables.hookCall.name)) {
+      if (h.hook !== 'politicalStabilityShock' || h.args.bloc !== b) continue;
+      if (t >= h.startTick && t < h.startTick + Number(h.args.days) * TICKS_PER_GAME_DAY) ps += Number(h.args.delta);
+    }
+    return dmath.clamp(ps, 0, 1);
+  } } };
+}
+
 export interface RunOpts { maxDays?: number; ports?: MacroPorts; warmDays?: number }
 /** One forced run: genesis, 1 + warmDays day closes, forceEvent(kind) at severity 1, then day closes until ENDED (or maxDays). */
 export function forcedRun(kind: CrisisKind, seed: number, o: RunOpts = {}): ForcedRun {
@@ -92,28 +111,37 @@ export function forcedRun(kind: CrisisKind, seed: number, o: RunOpts = {}): Forc
   w.reads.length = 0; w.events.length = 0; w.cb.posts.length = 0; w.cb.events.length = 0; w.cb.sent.length = 0;
   const ev0 = forceEvent(w.ctx, kind, { severity: 1, ...(kind === 'CURRENCY_CRISIS' ? { blocs: ['SRL' as BlocId] } : {}) })   // the band is on SRL;
   const acc = newTrace(sample(w, ports, ev0));
-  let n = 0, ev = ev0, srlArmClose: number | null = null, srlArmDay: number | null = null, srlBreakDay: number | null = null;
+  let n = 0, ev = ev0, armed = blocOf(w, 'SRL').fx.breakArmed === true, srlBreakDay: number | null = null, srlBreakClose: number | null = null;
+  const srlArms: SrlArm[] = [], t0 = start * TICKS_PER_GAME_DAY;
   for (; n < maxDays; n++) {
     runDays(w, ports, start + n, start + n + 1);
     const srl = blocOf(w, 'SRL').fx;
-    if (srlArmClose === null && srl.breakArmed) { srlArmClose = n + 1; srlArmDay = start + n; }
-    if (srlBreakDay === null && srl.breakTick !== undefined) srlBreakDay = Math.floor(srl.breakTick / TICKS_PER_GAME_DAY);
+    if (srl.breakArmed && !armed) srlArms.push({ close: n + 1, day: start + n });
+    armed = srl.breakArmed === true;
+    if (srlBreakDay === null && srl.breakTick !== undefined) { srlBreakDay = Math.floor(srl.breakTick / TICKS_PER_GAME_DAY); srlBreakClose = n + 1; }
     w.reads.length = 0; w.events.length = 0; w.cb.posts.length = 0; w.cb.events.length = 0; w.cb.sent.length = 0;
     ev = w.store.get<WorldEvent>(macroTables.event.name, ev0.id) ?? ev;
     foldTrace(acc, sample(w, ports, ev));
     if (ev.phase === 'ENDED') { n++; break; }
   }
   const hooks = w.store.iter<HookCall>(macroTables.hookCall.name).filter((h) => h.worldEventId === ev0.id);
-  return { kind, seed, ev, days: n, trace: acc.t, hooks, srlArmClose, srlArmDay, srlBreakDay };
+  const csf = w.store.get<ConcordFacility>(macroTables.csf.name, CSF_ID);
+  const srlConcordDays = (csf?.programs ?? []).filter((p) => p.bloc === 'SRL' && p.cause === 'BREAK_PENDING' && p.startTick >= t0).map((p) => Math.floor(p.startTick / TICKS_PER_GAME_DAY));
+  return { kind, seed, ev, days: n, trace: acc.t, hooks, srlArms, srlConcordDays, srlBreakDay, srlBreakClose };
 }
 
-/** E-106 (5) 04#36 CURRENCY_CRISIS run predicate: SRL first armed on a forced close in [24, 30], broken (t = 45 breakRuleCheck) on the next SRL
- *  trading day, capital_controls_days ≥ 3 and srl_fair_change ≤ −0.40. Pass = ≥ 35 of 50 runs. */
-export const CURRENCY_ARM_CLOSES = [24, 30] as const, CURRENCY_PASS_RUNS = 35;
-export function currencyCrisisHit(r: Pick<ForcedRun, 'srlArmClose' | 'srlArmDay' | 'srlBreakDay' | 'trace'>): boolean {
-  if (r.srlArmClose === null || r.srlArmDay === null || r.srlBreakDay === null) return false;
-  if (r.srlArmClose < CURRENCY_ARM_CLOSES[0] || r.srlArmClose > CURRENCY_ARM_CLOSES[1]) return false;
-  return r.srlBreakDay === tradingDaysOfPeriod('SRL', r.srlArmDay + 1, 14)[0] && r.trace.srlControlDays >= 3 && r.trace.srlFairMin <= -0.40;
+/** E-107 (1) 04#36 CURRENCY_CRISIS run predicate (Concord path; pending Producer ruling): SRL first armed on a forced close in [24, 30]; the next
+ *  SRL trading day is either the break (t = 45 breakRuleCheck) or a BREAK_PENDING Concord, and after a Concord the next arming breaks on the
+ *  following SRL trading day; first break by forced close 40; capital_controls_days ≥ 3 and srl_fair_change ≤ −0.40. Pass = ≥ 35 of 50 runs. */
+export const CURRENCY_ARM_CLOSES = [24, 30] as const, CURRENCY_BREAK_BY_CLOSE = 40, CURRENCY_PASS_RUNS = 35;
+const nextSrlTradingDay = (day: number): number => tradingDaysOfPeriod('SRL', day + 1, 14)[0]!;
+export function currencyCrisisHit(r: Pick<ForcedRun, 'srlArms' | 'srlConcordDays' | 'srlBreakDay' | 'srlBreakClose' | 'trace'>): boolean {
+  const a0 = r.srlArms[0];
+  if (a0 === undefined || r.srlBreakDay === null || r.srlBreakClose === null) return false;
+  if (a0.close < CURRENCY_ARM_CLOSES[0] || a0.close > CURRENCY_ARM_CLOSES[1] || r.srlBreakClose > CURRENCY_BREAK_BY_CLOSE) return false;
+  const d0 = nextSrlTradingDay(a0.day), a1 = r.srlArms[1];
+  const path = r.srlBreakDay === d0 || (r.srlConcordDays.includes(d0) && a1 !== undefined && r.srlBreakDay === nextSrlTradingDay(a1.day));
+  return path && r.trace.srlControlDays >= 3 && r.trace.srlFairMin <= -0.40;
 }
 
 export interface BandCheck { kind: CrisisKind; metric: string; measuredBy: CalibrationBand['measuredBy']; hits: number; runs: number; pass: boolean | null }

@@ -1,4 +1,4 @@
-// T04-20 nightly harness (04#4, 04#6, 04#24, 04#27, 04#32): no players, defaultMacroPorts(), 200 seeds × 3640 game days.
+// T04-20 nightly harness (04#4, 04#6, 04#24, 04#27, 04#32): no players, defaultMacroPorts() + the reference 16 political-stability stub (E-108 (7)), 200 seeds × 3640 game days.
 // One seed = startSeed + stepSeed (day by day, so callers can yield) + finishSeed → SeedResult (plain JSON). aggregate() pools seeds and
 // checks every band. Readings: inversion "precedes" = a run of ≥ 63 consecutive bloc trading days with y10 < y3m that is ongoing at the
 // CONTRACTION entry or ended ≤ 364 game days before it; durations pool the global chain and the five blocs, completed spells only;
@@ -11,6 +11,7 @@ import { ALLOWED } from '../../rules/regime';
 import { macroGenesis } from '../../core/genesis';
 import { macroWorld, type MacroWorld } from '../../testkit/macroWorld';
 import { runDays } from '../../testkit/macroLoop';
+import { ref16Ports } from './macro-crisis-calibration';
 
 export const CALIB_SEEDS = 200, CALIB_DAYS = 3640;
 export const REGIMES: readonly Regime[] = ['EXPANSION', 'OVERHEATING', 'CONTRACTION', 'RECOVERY'];
@@ -105,7 +106,7 @@ export function sampleDay(w: MacroWorld, day: number): DaySample {
 
 export interface SeedRun { seed: number; w: MacroWorld; p: MacroPorts; day: number; acc: SeedAcc | null }
 export function startSeed(seed: number): SeedRun {
-  const p = defaultMacroPorts(), w = macroWorld(`calib:${seed}`, 0);
+  const p = ref16Ports(defaultMacroPorts()), w = macroWorld(`calib:${seed}`, 0);   // E-108 (7): natural SDCs get the reference 16 political-stability driver
   macroGenesis(w.ctx, p);
   return { seed, w, p, day: 0, acc: null };
 }

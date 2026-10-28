@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BLOC_ORDER, CRISIS_KINDS, type BlocId, type WorldEvent } from '../schema';
-import { MAJORS, weightOf, type CatalogInputs } from './crisisCatalog';
+import { MAJORS, RECOVERY_MAX_DAYS, SDC_POLSTAB_SHOCK_DAYS, weightOf, type CatalogInputs } from './crisisCatalog';
 
 const per = <T>(v: T): Record<BlocId, T> => Object.fromEntries(BLOC_ORDER.map((b) => [b, v])) as Record<BlocId, T>;
 const calm = (o: Partial<CatalogInputs> = {}): CatalogInputs => ({ blocZ: per({ credit: 0, valuation: 0, house: 0 }),
@@ -40,10 +40,20 @@ describe('T04-18 crisis catalog', () => {
     expect(oneOff('CURRENCY_CRISIS', ['SRL'])).toEqual([{ kind: 'ONE_OFF', target: 'fx_fair_ln', value: Math.log(0.8), bloc: 'SRL' }]);
     expect(oneOff('TRADE_WAR', ['FDL', 'PYN'])).toEqual([{ kind: 'ONE_OFF', target: 'fx_fair_ln', value: Math.log(0.92), bloc: 'PYN' }]);
   });
+  it('E-108 (3), (4): SOVEREIGN_DEBT_CRISIS trigger lambda_raw_mult ×16 from the trigger to plannedEndTick + 180 game days (closed at ENDED by T04-17); 16 politicalStabilityShock stays SDC_POLSTAB_SHOCK_DAYS = 63', () => {
+    const ev = { id: 'ev1', blocs: ['SRL'], severity: 1, precursorStartTick: 0, triggerTick: 8 * 720, plannedEndTick: 39 * 720 } as unknown as WorldEvent;
+    expect(RECOVERY_MAX_DAYS).toBe(180);
+    expect(SDC_POLSTAB_SHOCK_DAYS).toBe(63);
+    const trig = def('SOVEREIGN_DEBT_CRISIS').trigger(ev, calm());
+    const lam = trig.flatMap((x) => (x.kind === 'SHOCK' && x.shock.target === 'lambda_raw_mult' ? [x] : []));
+    expect(lam.map((x) => [x.bloc, x.shock.value, x.shock.startTick, x.shock.endTick, x.shock.shape])).toEqual([['SRL', 16, 8 * 720, (39 + 180) * 720, 'STEP']]);
+    const ps = trig.flatMap((x) => (x.kind === 'HOOK' && x.hook === 'politicalStabilityShock' ? [x.args] : []));
+    expect(ps).toEqual([{ bloc: 'SRL', delta: -0.3, days: 63 }]);
+  });
   it('E-104 (1) bands per kind: metric, lo, measuring module', () => {
     const bands = (k: string) => def(k).calibration.map((b) => [b.metric, b.lo, b.hi, b.measuredBy]);
     const I = Number.POSITIVE_INFINITY, N = Number.NEGATIVE_INFINITY;
-    expect(bands('BANKING_PANIC')).toEqual([['peak_fsi', 0.28, I, '04'], ['peak_fsi', 0.7, I, '07']]);
+    expect(bands('BANKING_PANIC')).toEqual([['peak_fsi', 0.195, I, '04'], ['peak_fsi', 0.7, I, '07']]);   // '04' 0.195 E-107 (2)
     expect(bands('OIL_SHOCK')).toEqual([['headline_change', 0.03, I, '06']]);
     expect(bands('STAGFLATION')).toEqual([['pie1_rise', 0.019, I, '04'], ['bond_drawdown', 0.1, I, '06'], ['equity_drawdown', 0.15, I, '05']]);
     expect(bands('SECURITIZATION_CRISIS')).toEqual([['peak_fsi', 0.6, I, '07'], ['peak_fsi', 0.6, I, '08']]);
