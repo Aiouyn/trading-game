@@ -72,7 +72,7 @@ describe('T02-11 module registry', () => {
     expect(defineModule(mod('14A', { intents: [handler('life.a'), handler('acct.b')] })).id).toBe('14A');
     expect(err(() => defineModule(mod('05', { intents: [handler('mkt.')] })))?.code).toBe('MOD_INTENT_NS');
     expect(err(() => defineModule(mod('04', { streams: ['macro.nope'] })))?.code).toBe('MOD_STREAM_FOREIGN');
-    expect(err(() => defineModule(mod('04', { intents: [handler('macro.x')] })))?.code).toBe('MOD_INTENT_NS');   // 04 has no intent namespace
+    expect(err(() => defineModule(mod('04', { intents: [handler('macro.x')] })))?.code).toBe('MOD_INTENT_NS');   // 04 owns only mkt.sov. / bank.cb. / bank.primaryDealer. (T04-21)
   });
   it('BUILD_UNITS transcribes 19 §12.2 (spot rows), NON_MODULE_UNITS, INTENT_NAMESPACES and NPC_INTENT_KIND', () => {
     expect(BUILD_UNITS['05']).toEqual(['03', '04', '14A', '13A']); expect(BUILD_UNITS['02']).toEqual(['19A', '23', '22A', '20A']);

@@ -10,7 +10,8 @@ import { eventNamespaces, INTENT_NAMESPACES, ModuleSetError, streamSpecOfPrefix 
 import type { ViewHandler } from './views';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- G6 verbatim (TableDef<any>, IntentHandler<any> ...) */
-export interface ModuleServices { ledger?: LedgerProvider; calendarEvents?: (store: StoreRead, year: number) => { tick: number; kind: string; labelKey: string; module: string; bloc?: string }[];
+export interface ModuleServices { ledger?: LedgerProvider; /** E-92 (4): this module's reason-code rows (03 CodeRow), registered by 03 by class in FLOW_CLASSES order. */ reasonCodes?: readonly unknown[];
+  calendarEvents?: (store: StoreRead, year: number) => { tick: number; kind: string; labelKey: string; module: string; bloc?: string }[];
   spawnCharacter?: (ctx: PhaseCtx, opts: { cash?: Money; license?: string; rank?: string; city?: string }) => Id }   // calendarEvents: read by core.calendar.get (T02-20); spawnCharacter: provided by 14A, used by TestWorld.spawnCharacter (T02-21)
 export interface ModuleDef { id: string; module: string; dependsOn: string[]; tables: TableDef<any>[]; streams: string[];
   phases: Partial<Record<PhaseId, (ctx: PhaseCtx) => void>>; boundaries?: Partial<Record<Boundary, (ctx: PhaseCtx) => void>>;

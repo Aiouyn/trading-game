@@ -28,8 +28,9 @@ export const BUILD_UNITS: Readonly<Record<string, readonly string[]>> = Object.f
  *  satisfied outside the module set (they are packages or infrastructure, not engine modules). */
 export const NON_MODULE_UNITS: readonly string[] = Object.freeze(['19A', '19B', '19C', '19D', '23', '22A', '22B', '20A', '20B', '17A', '17B', '18']);
 
+/** '04': the sub-namespaces of the 12 kinds in T04-21 step 2 (04 §4); G6's list has no 04 entry (T04-21 decision). */
 export const INTENT_NAMESPACES: Readonly<Record<string, string[]>> = Object.freeze({
-  '02': ['adm.', 'core.'], '05': ['mkt.'], '07': ['bank.'], '08': ['fund.'], '09': ['biz.'], '10': ['prop.'], '11': ['lab.'], '12': ['ops.'],
+  '02': ['adm.', 'core.'], '04': ['mkt.sov.', 'bank.cb.', 'bank.primaryDealer.'], '05': ['mkt.'], '07': ['bank.'], '08': ['fund.'], '09': ['biz.'], '10': ['prop.'], '11': ['lab.'], '12': ['ops.'],
   '13': ['law.'], '14': ['life.', 'acct.'], '15': ['soc.'], '20': ['acct.'], '21': ['adm.'],
 });
 /** Event kinds: a module may use its intent namespaces and the first segment of its registered stream keys (e.g. 04 'macro.'). */
