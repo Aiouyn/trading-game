@@ -17,6 +17,11 @@ describe('T04-14 fair value', () => {
     expect(realGap(-0.2, 100, 100, 0)).toBeCloseTo(-0.2, 12);
     expect(currentAccount('SRL', 0.1, 0, 0, 100)).toBeCloseTo(-0.02 - 0.03, 12);
   });
+  it('PPP pull is ln2/1.5 per year; CA trade term 0.5·openness; oil term 0.04·commodityExporter', () => {
+    expect(stepFairValue(0, { ...base, iX: 0.03, ca: 0, pppLn: 0.1 }, {} as never)).toBeCloseTo(dmath.ln(2) / 1.5 * 0.1 / 364, 12);
+    expect(currentAccount('SRL', 0, 0.1, 0, 100) - currentAccount('SRL', 0, 0, 0, 100)).toBeCloseTo(0.5 * 0.4 * 0.1, 12);
+    expect(currentAccount('SRL', 0, 0, 0, 200) - currentAccount('SRL', 0, 0, 0, 100)).toBeCloseTo(0.04 * 0.6 * dmath.ln(2), 12);
+  });
   it('surprise +0.25 pp at an SRL meeting → +0.0075 on ln F', () => {
     const pp = policySurprisePp(0.0925, 0.09);
     expect(pp).toBeCloseTo(0.25, 12);

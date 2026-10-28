@@ -170,7 +170,7 @@ describe('T04-14 FX regimes', () => {
     const d0 = 100, early = firstTradingDay('SRL', d0 + 60), late = firstTradingDay('SRL', d0 + 92);
     const w = world(d0 * D, { core: 0.26, meetings: { SRL: [early * D + 30, late * D + 30] }, fdlRes: { SRL: M(1e9) } });
     setFx(w, 'SRL', { breakTick: d0 * D - 1 });
-    for (let d = d0; d <= late; d++) close(w, d);
+    for (let d = d0; d <= late; d++) { close(w, d); if (d === early) expect(fxOf(w, 'SRL').regime).toBe('FREE_FLOAT'); }
     const fx = fxOf(w, 'SRL');
     expect(fx.regime).toBe('HARD_PEG');
     expect(fx.pegLn).toBeCloseTo(Math.log(0.2), 12);
@@ -213,10 +213,36 @@ describe('T04-14 FX regimes', () => {
     setFx(w, 'EUN', { reservesFdl: M(1e9) });
     w.spot.EUN = 1.1 * 0.74;
     expect(coordinatedOrders(w.ctx.store, w.ports, w.ctx.tick)).toEqual([]);
+    w.put(macroTables.global.name, { id: 'GLOBAL', riskAppetite: 0, energyIndex: 100, scheduler: { activeMajorId: null } } as never);
+    expect(coordinatedOrders(w.ctx.store, w.ports, w.ctx.tick)).toEqual([]);
     w.put(macroTables.global.name, { id: 'GLOBAL', riskAppetite: 0, energyIndex: 100, scheduler: { activeMajorId: 'wev_1' } } as never);
     const co = coordinatedOrders(w.ctx.store, w.ports, w.ctx.tick);
     expect(co.map((o) => [o.purpose, o.assetId, o.side])).toEqual([['FX_COORD', 'ast_FX_EUNFDL', 'BUY']]);
     w.spot.EUN = 1.1 * 0.76;
     expect(coordinatedOrders(w.ctx.store, w.ports, w.ctx.tick)).toEqual([]);
+  });
+  it('day close: CA absorbed through the ledger only for managed regimes; weak-edge days count within 0.005; PYN cover < 3 widens the band to ±6%', () => {
+    const day = firstTradingDay('PYN', 100), w = world(day * D), c = Math.log(0.15);
+    setFx(w, 'PYN', { regime: 'MANAGED_BAND', band: { centerLn: c, halfWidth: 0.03, basket: {} }, bandC0: c });
+    setFx(w, 'SRL', { regime: 'MANAGED_FLOAT' });
+    w.put(macroTables.cb.name, { ...w.ctx.store.get<object>(macroTables.cb.name, cbkId('PYN'))!, reserves: { fdl: importsMonthFdl(w.ctx.store, 'PYN') * 4n, gold: 0n, otherFx: {} } } as never);
+    w.spot.PYN = Math.exp(c - 0.03 + 0.004);
+    close(w, day);
+    expect(fxOf(w, 'PYN').weakEdgeDays).toBe(1);
+    const abs = w.posts.filter((p) => p.code === 'MAC_FX_CA_ABSORB');
+    expect([...new Set(abs.map((p) => p.from))].sort()).toEqual([cbkId('PYN'), cbkId('SRL'), 'row'].sort());
+    for (const b of ['PYN', 'SRL'] as const) {
+      const ca = fxOf(w, b).currentAccountGdp, first = abs.find((p) => p.from === cbkId(b))!;
+      expect(first.ccy).toBe(ca > 0 ? b : 'FDL');
+      if (ca < 0) expect(Number(first.amt)).toBeCloseTo(-GDP[b] * BLOC_DEFAULTS[b].fx0 * 1e6 * ca / 364 * (w.spot[b]! / BLOC_DEFAULTS[b].fx0), -3);
+    }
+    const next = tradingDaysOfPeriod('PYN', day + 1, 30)[0]!;
+    w.spot.PYN = Math.exp(c - 0.03 + 0.006);
+    w.put(macroTables.cb.name, { ...w.ctx.store.get<object>(macroTables.cb.name, cbkId('PYN'))!, reserves: { fdl: importsMonthFdl(w.ctx.store, 'PYN') * 2n, gold: 0n, otherFx: {} } } as never);
+    close(w, next);
+    expect(fxOf(w, 'PYN').weakEdgeDays).toBe(0);
+    expect(fxOf(w, 'PYN').band!.halfWidth).toBe(0.06);
+    expect(calls.meet).toEqual([['PYN', true, ['CURRENCY']]]);
+    expect(w.events.filter((e) => e.kind === 'macro.fx.regime')).toHaveLength(1);
   });
 });

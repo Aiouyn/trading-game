@@ -7,13 +7,13 @@ import { fiscalWorld, putBloc } from '../testkit/fiscalWorld';
 import { canAgreeConcord, compliance, concordActive, concordTranches, lendingCapacity, openConcord, quotas } from './concord';
 
 const GDP: Record<BlocId, number> = { FDL: 40e12, EUN: 25e12, PYN: 10e12, NKR: 10e12, SRL: 15e12 };
-function world(o: { s10?: number; hazard?: number; breakArmed?: boolean; cc?: 0 | 1 | 2 | 3 } = {}) {
+function world(o: { s10?: number; hazard?: number; breakArmed?: boolean; svc?: boolean; cc?: 0 | 1 | 2 | 3 } = {}) {
   const w = fiscalWorld(100 * D);
   for (const b of Object.keys(GDP) as BlocId[]) {
     putBloc(w, b, { gdp: GDP[b], s10: b === 'SRL' ? o.s10 ?? 0 : 0 });
     const row = w.ctx.store.get<Record<string, unknown>>(macroTables.bloc.name, b)!;
     w.put(macroTables.bloc.name, { ...row, sovereign: { spread10y: b === 'SRL' ? o.s10 ?? 0 : 0, hazard: b === 'SRL' ? o.hazard ?? 0.1 : 0.01 },
-      fx: { regime: 'FLOAT', capitalControls: b === 'SRL' ? o.cc ?? 0 : 0, breakArmed: b === 'SRL' && !!o.breakArmed } } as never);
+      fx: { regime: 'FLOAT', capitalControls: b === 'SRL' ? o.cc ?? 0 : 0, breakArmed: b === 'SRL' && !!o.breakArmed, fxServicePending: b === 'SRL' && !!o.svc } } as never);
     w.put(macroTables.publicView.name, { id: b, bloc: b, fx: { spotVsFdl: 1 } } as never);
   }
   w.put(macroTables.curve.name, { id: 'FDL', nsOis: { L: 0.04, S: 0, C: 0, lambda: 1 } } as never);
@@ -32,6 +32,7 @@ describe('T04-14 Concord', () => {
     expect(canAgreeConcord(world().ctx.store, 'SRL')).toBe(false);
     expect(canAgreeConcord(world({ s10: 0.09 }).ctx.store, 'SRL')).toBe(true);
     expect(canAgreeConcord(world({ breakArmed: true }).ctx.store, 'SRL')).toBe(true);
+    expect(canAgreeConcord(world({ svc: true }).ctx.store, 'SRL')).toBe(true);
     expect(canAgreeConcord(world({ s10: 0.08 }).ctx.store, 'SRL')).toBe(false);
     expect(canAgreeConcord(world({ s10: 0.09, hazard: 0.25 }).ctx.store, 'SRL')).toBe(false);
     expect(canAgreeConcord(world({ s10: 0.09, hazard: 0.24 }).ctx.store, 'SRL')).toBe(true);
@@ -49,6 +50,13 @@ describe('T04-14 Concord', () => {
     expect(canAgreeConcord(w.ctx.store, 'SRL')).toBe(false);
     expect(w.events.find((e) => e.kind === 'macro.csf.program')?.vis).toBe('PUBLIC');
     expect(w.events.some((e) => e.kind === 'macro.fx.capcontrols')).toBe(false);   // phase-out is scheduled for tick+1
+    expect(w.ctx.store.get<{ fx: { capconSchedule?: { level: number; startTick: number } } }>(macroTables.bloc.name, 'SRL')!.fx.capconSchedule).toMatchObject({ level: 0, startTick: t + 1 });
+  });
+  it('a day step opens a SPREAD program when s10 > 0.08 and agreeable', () => {
+    const w = world({ s10: 0.09 });
+    day(w, 1);
+    expect(concordActive(w.ctx.store, 'SRL')).toBe(true);
+    expect(fac(w).programs[0]!.cause).toBe('SPREAD');
   });
   it('RESTRUCTURING bypasses the crisis condition', () => {
     expect(openConcord(world().ctx, 'SRL', 'RESTRUCTURING')).not.toBeNull();
