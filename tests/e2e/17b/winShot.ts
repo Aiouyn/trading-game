@@ -162,12 +162,12 @@ export type WinShotOptions = {
 
 /**
  * Compare the frame against `__screenshots__/<dir>/<name>`, with toHaveScreenshot and then pixel-exactly (expectExact),
- * with the corner arc bands masked (maskRuns).
+ * with the corner arc bands masked (maskRuns). Both are soft, so a failing shot doesn't hide the test's later shots.
  */
 export async function winShot(page: Page, frame: Locator, dir: string, name: string, { shotsDir, rounded, check = softCheck }: WinShotOptions = {}): Promise<void> {
   await page.mouse.move(0, page.viewportSize()!.height - 1); // no hover tint in a baseline
   await withCorners(page, frame, rounded, async ({ clip, mask }) => {
-    await expect(page).toHaveScreenshot([dir, name], { clip, mask });
+    await expect.soft(page).toHaveScreenshot([dir, name], { clip, mask }); // soft, like the exact check: every shot of a test reports
     const actual = await capture(page, clip, mask);
     expectExact(baselinePath(dir, name), actual, name, check);
     if (shotsDir) { mkdirSync(shotsDir, { recursive: true }); writeFileSync(`${shotsDir}/${name}`, actual); }
