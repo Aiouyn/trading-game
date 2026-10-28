@@ -259,6 +259,7 @@ describe("BR-5-07 rows are not controls", () => {
     await mount(h, { context: "HALC", feed: new InjectFeed(extra) });
     const r = q(h, "br-oo-row-o-90")!;
     expect(r.querySelector("button, a, [role=menu], [role=menuitem], [role=button], input, select")).toBeNull();
+    expect(r.getAttribute("role"), "the row itself is not a control").toBeNull();
     expect(r.tabIndex).toBe(0);
     expect(q(h, "br-oo")!.querySelector("button")).toBeNull();
   });
