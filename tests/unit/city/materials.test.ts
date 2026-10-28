@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { anchors, DISTRICT_MATERIALS, fnv1a32, lch, material, materialId, MATERIAL_PLAIN, partLook, RUST_BELOW, matPalette, visSeed, visSeeder, WALL_SPLIT_M, type Lch } from '@/city/art/materials';
+import { anchors, DISTRICT_MATERIALS, fnv1a32, lch, material, materialId, MATERIAL_PLAIN, partLook, RUST_BELOW, matPalette, fmix32, visSeed, visSeeder, WALL_SPLIT_M, type Lch } from '@/city/art/materials';
 import { deltaE, mixOklab, srgbToOklab, type Rgb } from '@/city/art/color';
 import { TOKEN_VARS, type Tokens } from '@/city/art/tokens';
 import { buildRamps } from '@/city/art/ramps';
@@ -27,12 +27,14 @@ describe('card 2 materials', () => {
     expect(fnv1a32('')).toBe(0x811c9dc5);
     expect(fnv1a32('a')).toBe(0xe40c292c);
     expect(fnv1a32('foobar')).toBe(0xbf9cf968);
-    expect(visSeed('port_avalon', 'p1')).toBe(fnv1a32('city.vis:port_avalon:p1'));
+    expect(visSeed('port_avalon', 'p1')).toBe(fmix32(fnv1a32('city.vis:port_avalon:p1')));
+    // murmur3 fmix32 reference values (Python cross-check; 1 → 0x514e28b7 as published)
+    expect([0, 1, 0xdeadbeef, 0x811c9dc5].map(fmix32)).toEqual([0, 0x514e28b7, 0x0de5c6a9, 0xab3e7c0b]);
     // the ASCII fast path and the prefix chaining hash exactly the UTF-8 bytes
     const ref = (x: string) => { let h = 0x811c9dc5; for (const b of new TextEncoder().encode(x)) h = Math.imul(h ^ b, 0x01000193) >>> 0; return h >>> 0; };
     for (const x of ['', 'a', 'prc_port_avalon_00af3', 'café', 'ab東京', 'x😀y', 'é']) expect(fnv1a32(x), x).toBe(ref(x));
-    expect(visSeeder('port_avalon')('prc_07')).toBe(ref('city.vis:port_avalon:prc_07'));
-    expect(visSeeder('köln')('p😀')).toBe(ref('city.vis:köln:p😀'));
+    expect(visSeeder('port_avalon')('prc_07')).toBe(fmix32(ref('city.vis:port_avalon:prc_07')));
+    expect(visSeeder('köln')('p😀')).toBe(fmix32(ref('city.vis:köln:p😀')));
   });
   it('Ink & Brass lightness matches the spec table (u → L)', () => {
     const L = (c: Lch) => srgbToOklab(lch(A, c))[0];
@@ -74,6 +76,20 @@ describe('card 2 materials', () => {
     for (let i = 0; i < n; i++) r += +partLook(A, 7, visSeed('port_avalon', `p${i}`)).rust;
     expect(r / n).toBeGreaterThan(0.06);
     expect(r / n).toBeLessThan(0.14);
+  });
+});
+
+describe('rust share on the reference city (Studio AC5 ruling 3b)', () => {
+  it('each rust district is near 1 in 10 (sequential parcel ids do not clump)', () => {
+    const s = generateCity().snapshot, seed = visSeeder(s.cityId);
+    for (const d of ['industrial_basin', 'eastside_docks']) {
+      const es = s.entities.filter((e) => e.districtId.endsWith(d));
+      const id = materialId(es[0].districtId, s.cityId);
+      const share = es.filter((e) => partLook(A, id, seed(e.parcelId)).rust).length / es.length;
+      expect(es.length, d).toBeGreaterThan(100);
+      expect(share, d).toBeGreaterThan(0.05);
+      expect(share, d).toBeLessThan(0.16);
+    }
   });
 });
 
