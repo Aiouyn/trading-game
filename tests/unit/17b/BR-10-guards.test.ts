@@ -37,6 +37,7 @@ describe("BR-10-12 strings", () => {
     expect([EN.positionLine("40", "$1.2K"), FR.positionLine("40", "1,2 k$")]).toEqual(["40 shares · $1.2K", "40 titres · 1,2 k$"]);
     expect([EN.noNews("HALC"), FR.noNews("HALC")]).toEqual(["No stories about HALC in your feed yet.", "Aucune dépêche sur HALC dans votre fil pour l’instant."]);
     expect([EN.openStoryAria("X"), FR.openStoryAria("X")]).toEqual(["Open in Wire: X", `Ouvrir dans le fil${NNBSP}: X`]);
+    for (const L of [EN, FR]) expect(L.openStoryAria("Halcyon beats").endsWith("Halcyon beats")).toBe(true); // storyPrefix slices it off
     expect([EN.assetOption("HALC", "Halcyon Shipping"), FR.assetOption("HALC", "Halcyon Shipping")]).toEqual(["HALC · Halcyon Shipping", "HALC · Halcyon Shipping"]);
     expect(FR.st).toEqual({
       CLOSED: "Fermé", PRE_OPEN: "Pré-ouverture", OPENING_AUCTION: "Enchère d’ouverture", CONTINUOUS: "Ouvert", CLOSING_AUCTION: "Enchère de clôture",

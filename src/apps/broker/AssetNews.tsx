@@ -16,6 +16,11 @@ export function assetStories(items: readonly WireItem[], assetId: string): WireI
     .sort((a, b) => b.tick - a.tick || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+/** The name is `openStoryAria(headline)` built from content, not an `aria-label`: the sr-only prefix ("Open in Wire: ")
+ *  then the visible headline, with the chip and time aria-hidden. An aria-label would drop the visible headline from
+ *  the computed text axe compares (label-content-name-mismatch, WCAG 2.5.3), as card 9's Open in Broker found. */
+export const storyPrefix = (t: BrStrings, text: string): string => t.openStoryAria(text).slice(0, -text.length);
+
 export function AssetNews({ t, assetId }: { t: BrStrings; assetId: string }) {
   const news = useChannel("news");
   const wt = useWireStrings();
@@ -44,9 +49,10 @@ export function AssetNews({ t, assetId }: { t: BrStrings; assetId: string }) {
             const text = headline(item, wt);
             return (
               <li key={item.id}>
-                <button type="button" className="ap-story" data-testid="ap-story" data-id={item.id} aria-label={t.openStoryAria(text)}
+                <button type="button" className="ap-story" data-testid="ap-story" data-id={item.id}
                   onClick={() => store.getState().open("wire", item.id)}>
                   <span aria-hidden="true"><KindChip kind={item.kind} t={wt} /></span>
+                  <span className="sr-only">{storyPrefix(t, text)}</span>
                   <span className="ap-story-hl" data-testid="ap-story-hl">{text}</span>
                   <time className="ap-story-time" aria-hidden="true">{timeLabel(item.tick, wt)}</time>
                 </button>

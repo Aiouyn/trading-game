@@ -212,7 +212,9 @@ describe("BR-10-07 News filter and order", () => {
     expect(btns.map((b) => b.dataset.id)).toEqual(["n-1"]);
     const hl = headline(NEWS[0]!, WIRE_EN);
     expect(btns[0]!.tagName).toBe("BUTTON");
-    expect(btns[0]!.getAttribute("aria-label")).toBe(EN.openStoryAria(hl));
+    expect(btns[0]!.hasAttribute("aria-label")).toBe(false);
+    const named = [...btns[0]!.childNodes].filter((n) => !(n instanceof Element && n.getAttribute("aria-hidden") === "true"));
+    expect(named.map((n) => n.textContent).join("")).toBe(EN.openStoryAria(hl)); // the accessible name, from content
     expect(btns[0]!.querySelector('[data-testid="ap-story-hl"]')!.textContent).toBe(hl);
     expect(btns[0]!.querySelector(".chip")).not.toBeNull();
     expect(btns[0]!.querySelector("time")).not.toBeNull();

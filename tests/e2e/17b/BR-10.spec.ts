@@ -29,9 +29,9 @@ async function until(page: Page, done: () => Promise<boolean>) {
   for (let t = 0; t < 10_000 && !(await done()); t += 100) await page.clock.runFor(100);
   expect(await done()).toBe(true);
 }
-async function toAbout(page: Page) {
-  await page.getByTestId("br-view-about").click();
-  await expect(about(page)).toBeVisible();
+async function toAbout(page: Page, root: Page | Locator = page) {
+  await root.getByTestId("br-view-about").click();
+  await expect(root.getByTestId("br-about")).toBeVisible();
   await page.clock.runFor(100);
 }
 async function toNews(page: Page) {
@@ -138,7 +138,7 @@ test("BR-10-10 1440: Overview with HALC's position, News, News empty, halted, hc
   await toNews(page);
   await expect(stories(page)).toHaveCount(1);
   await expect(stories(page)).toHaveAttribute("data-id", "n-1");
-  await expect(stories(page)).toHaveAccessibleName(/^Open in Wire: /);
+  await expect(stories(page)).toHaveAccessibleName(`Open in Wire: ${await stories(page).getByTestId("ap-story-hl").textContent()}`);
   expect((await stories(page).boundingBox())!.height).toBeGreaterThanOrEqual(28);
   expect(await smallTargets(brk(page), 28)).toEqual([]);
   await noBrass(page);
@@ -222,13 +222,17 @@ test("BR-10-08 a News row opens that story in Wire (card 9 detail at 1440); no t
   await expect(page.locator('[data-testid=wire-row][data-id="n-1"]')).toHaveAttribute("aria-current", "true");
   expect(await intents(page)).toBe(before);
 
-  // ORCA in the same Broker: its row selects n-2 in the same Wire window
-  await page.getByTestId("br-view-trade").click();
+  // ORCA in the same Broker: its row selects n-2 in the same Wire window. Wire is on top and covers the Broker, so the
+  // Broker's controls are used from the keyboard (focus + Enter), as a keyboard player would.
+  const press = async (l: Locator) => { await l.focus(); await page.keyboard.press("Enter"); };
+  await press(page.getByTestId("br-view-trade"));
   await page.getByTestId("br-asset-select").selectOption("ORCA");
-  await toAbout(page);
-  await toNews(page);
+  await press(page.getByTestId("br-view-about"));
+  await expect(about(page)).toBeVisible();
+  await press(tab(page, "news"));
+  await until(page, async () => (await page.getByTestId("ap-news").count()) > 0);
   await expect(stories(page)).toHaveAttribute("data-id", "n-2");
-  await stories(page).click();
+  await press(stories(page));
   await until(page, async () => (await detail.getAttribute("data-id")) === "n-2");
   await expect(page.getByTestId("win-wire")).toHaveCount(1);
   expect(await intents(page)).toBe(before);
@@ -275,10 +279,12 @@ test("BR-10-09 states: stale dims with Updating…; denied / error: Couldn't loa
   await expect(page.getByTestId("ap-news-loading")).toHaveAttribute("aria-busy", "true");
   await expect(page.getByTestId("ap-news-loading")).toHaveAccessibleName(/./);
 
-  await reboot("/broker?asset=NOPE", page.locator('[data-testid="broker"][data-state="live"]'));
-  await toAbout(page);
-  await expect(page.getByTestId("ap-unknown")).toHaveText("Details for this asset aren't available.");
-  await expect(page.getByTestId("ap-row")).toHaveCount(0);
+  // The layout persists across boots, so the HALC Broker is still there and NOPE opens a second one: scope to it.
+  const nope = page.getByTestId("win-broker").filter({ has: page.getByRole("heading", { level: 2, name: "NOPE" }) });
+  await reboot("/broker?asset=NOPE", nope.locator('[data-testid="broker"][data-state="live"]'));
+  await toAbout(page, nope);
+  await expect(nope.getByTestId("ap-unknown")).toHaveText("Details for this asset aren't available.");
+  await expect(nope.getByTestId("ap-row")).toHaveCount(0);
 });
 
 for (const scale of ["1", "2"] as const) {
