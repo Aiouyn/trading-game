@@ -1,4 +1,6 @@
 import { portfolio, type AssetClass, type AssetDef, type WorldState } from '@/engine';
+import { compactMoneyText } from '@/components/ui/money';
+import { decimalString } from './format';
 import { RANKS, type Rank } from './rank';
 
 /**
@@ -61,7 +63,8 @@ export function licenseCheck(world: WorldState, playerId: string, assetId: strin
   return { ok: false, license, rank, equity: pf.equity, progress };
 }
 
-/** "Pro license at Owner, $250k" */
-export function lockedText(c: Extract<LicenseCheck, { ok: false }>, money: (n: number) => string): string {
-  return `${c.license.name} license at ${c.rank.name}, ${money(c.rank.threshold)}`;
+/** "Pro license at Owner, $250k": the threshold goes through the shared floor compact formatter (MoneyText's sentence
+ *  text) from its exact decimal string, never through float rounding. */
+export function lockedText(c: Extract<LicenseCheck, { ok: false }>): string {
+  return `${c.license.name} license at ${c.rank.name}, ${compactMoneyText(decimalString(c.rank.threshold))}`;
 }
