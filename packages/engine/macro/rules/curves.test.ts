@@ -93,6 +93,11 @@ describe('T04-07 ĥ, market path, buildCurve', () => {
     expect(c.nsReal).toEqual(nsFit(c.nodes.map((n, k) => ({ tenorYears: n.tenorYears, yield: n.yield - c.breakeven[k]!.yield })), 1.8));
     expect(buildCurve(ss({ piE1: 0.03 }), 100).nInf).toBe(0.0275);   // n∞ = r*_cb + π_e5
   });
+  it('QA #82: OIS tail uses r*_cb + π_e5 when π_e1 ≠ π_e5 (kills nInf → r* + π_e1)', () => {
+    const c = buildCurve(ss({ piE1: 0.04, piE5: 0.02 }), 100), E = { 1: 0.0275, 2: 0.0275, 4: 0.0275, 8: 0.0275 };
+    expect(c.ois[6]!.yield).toBeCloseTo(oisZero(30, 0.0275, E, 0.0075 + 0.02), 12);
+    expect(Math.abs(c.ois[6]!.yield - oisZero(30, 0.0275, E, 0.0075 + 0.04))).toBeGreaterThan(1e-3);
+  });
   it('04#18 curve half: path 0.0275 → 0.0300 lifts OIS(2) 23.44 bp, OIS(10) 11.45 bp; Δy(2) ∈ [5, 25] bp and Δy(10) < Δy(2)', () => {
     const a = buildCurve(ss(), 100), b = buildCurve(ss({ dotsPath: flat(0.03), modelPathRates: flat(0.03) }), 100);
     const at = (c: typeof a, k: 'ois' | 'nodes', t: number) => c[k].find((n) => n.tenorYears === t)!.yield;

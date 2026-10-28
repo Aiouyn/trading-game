@@ -13,6 +13,7 @@ import { S } from '../streams';
 import { appointGovernor, cbOutputGap, coeffsFromHawk, emergencyStep, emergencyTriggers, freshGuidance, fxTerm, guidanceMissed, publishedData, roundRuleTerms, ruleRate,
   runMeeting, scheduledStep, scheduleEmergency, stepHawkDrift, stepsHalfEven, RATE_EPS, RULE_TERMS_INTERNAL, type CbDecisionRow, type PublishedData } from './cb';
 import { corridorOf } from './corridor';
+import { impliedHawk, stepHHat } from './curves';
 import { memberPreference, tally } from './cbVotes';
 import { credibilityOneOff, stepCredibility } from './credibility';
 import { dots, guidanceAt, guidanceScore, guidanceTextKey, impliedMove, memberPrefsOf, minutesAt, riskKeysOf } from './guidance';
@@ -280,6 +281,21 @@ describe('runMeeting', () => {
     expect(ev.payload.corridor).toEqual(corridorOf(row.newRate, false, 0.0025));
     expect(ev.payload.votes).toEqual({ for: row.voteFor, against: row.voteAgainst });
     expect(ev.payload.statementKey).toBe(row.statementKey);
+  });
+  it('QA #82: after a decision ĥ moves 0.2 toward impliedHawk (scheduled and emergency); no curve row → none written', () => {
+    for (const [core, emergency, hWant] of [[0.02, false, 0.25], [0.025, false, 0.9], [0.04, true, 0]] as const) {
+      const w = world(`hh${core}`, { core });
+      w.tables[macroTables.curve.name] = { FDL: { id: 'FDL', hHat: 0.5 } };
+      const data = publishedData(w.ctx.store, 'FDL');
+      const row = runMeeting(w.ctx, 'FDL', emergency, emergency ? ['FSI'] : null);
+      const h = impliedHawk(0.03, row.newRate, BLOC_DEFAULTS.FDL.rStar0, data, BLOC_DEFAULTS.FDL.inflationTarget, BLOC_DEFAULTS.FDL.nairu, 'FDL', cbOf(w).mandate, pv);
+      const got = (w.tables[macroTables.curve.name]!.FDL as { hHat: number }).hHat;
+      expect(h).toBeCloseTo(hWant, 9);
+      expect(got).toBe(stepHHat(0.5, h));
+      expect(got).not.toBe(0.5);
+    }
+    const w0 = world('hh0'); runMeeting(w0.ctx, 'FDL', false, null);
+    expect(w0.tables[macroTables.curve.name]).toBeUndefined();
   });
   it('rStar bias enters r*_cb; a fresh guidance meetingId is reused once; guidance break costs 0.05 (plus MISS 0.03 when ≥ 2 steps off)', () => {
     const w = world('gb', { core: 0.0, cb: { rStarBias: 0.004, guidance: { meetingId: 'mtg_g', tick: 900, score: 0.5, impliedMove: 1, textKey: 'HAWKISH' } } });
