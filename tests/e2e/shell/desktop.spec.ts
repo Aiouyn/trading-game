@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import { LAYOUT_RECTS_1440 } from "../../unit/shell/layoutRects";
 import { SPEC_TABLE } from "../../unit/shell/paletteTable";
 import { boot, box, intents, setReducedTransparency } from "./helpers";
+import { watchScripts } from "../17b/plotChunk";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "desktop project only"));
 
@@ -336,21 +337,23 @@ test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
   page.on("response", (r) => {
     if (r.request().resourceType() === "script") scripts.set(r.url(), 0); // record synchronously; size comes from request.get below
   });
+  const seen = await watchScripts(page);
   await boot(page, "/broker");
   await page.waitForLoadState("networkidle");
   const brokerChunks = [...scripts.keys()];
   const zlib = await import("node:zlib");
-  // The price-chart plot (lightweight-charts, UI card 7 G4) arrives by dynamic import after the Broker
-  // mounts, so it is not first-load JS. Only a chunk the document does not reference may be left out.
+  // The price-chart plot (lightweight-charts, UI card 7 G4) arrives by dynamic import after the Broker mounts, so it
+  // is not first-load JS. A chunk is left out only if it is lightweight-charts with no Broker code, was requested
+  // once the Broker was in the page, and the document doesn't reference it. A statically bundled plot counts.
   const html = await (await request.get("/broker")).text();
   let gz = 0;
   let lazyPlot = 0;
   for (const url of brokerChunks) {
     const body = await (await request.get(url)).body();
-    const text = body.toString();
-    expect(text.includes("WebGLRenderer"), url).toBe(false);
+    expect(body.toString().includes("WebGLRenderer"), url).toBe(false);
     const size = zlib.gzipSync(body).length;
-    if (text.includes("Failed to parse color") && !html.includes(new URL(url).pathname)) lazyPlot += size;
+    const s = seen.get(url);
+    if (s && s.plot && !s.broker && s.afterMount && !html.includes(new URL(url).pathname)) lazyPlot += size;
     else gz += size;
   }
   console.log(`S1-20 broker first-load JS: ${brokerChunks.length} chunks, ${(gz / 1024).toFixed(1)} KB gzipped (lazy plot chunk ${(lazyPlot / 1024).toFixed(1)} KB gz not counted)`);

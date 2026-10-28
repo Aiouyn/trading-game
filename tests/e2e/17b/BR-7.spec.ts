@@ -11,6 +11,7 @@ import { SPEC_TABLE } from "../../unit/shell/paletteTable";
 import { boot, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
 import { pinHtml } from "./pin";
+import { watchScripts } from "./plotChunk";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -107,27 +108,26 @@ async function resizeWindow(page: Page, to = 50) {
 
 test("BR-7-01 the plot is its own chunk, requested after the Broker mounts; Broker first load <= 200 KB gz", async ({ page, request }, info) => {
   desktopOnly(info.project.name);
-  const scripts: string[] = [];
-  page.on("response", (r) => { if (r.request().resourceType() === "script") scripts.push(r.url()); });
+  const seen = await watchScripts(page);
   await boot(page, "/broker?asset=HALC");
   await expect(chart(page)).toBeVisible();
   await expect(chart(page)).toHaveAttribute("data-state", "plot");
   await page.waitForLoadState("networkidle");
   const zlib = await import("node:zlib");
-  const sizes = new Map<string, { gz: number; lib: boolean; broker: boolean }>();
-  for (const url of new Set(scripts)) {
-    const body = (await (await request.get(url)).body()).toString();
-    sizes.set(url, { gz: zlib.gzipSync(body).length, lib: body.includes("Failed to parse color"), broker: body.includes("br-chart-ranges") });
-  }
-  const lib = [...sizes].filter(([, s]) => s.lib);
+  const sizes = new Map<string, number>();
+  for (const url of seen.keys()) sizes.set(url, zlib.gzipSync(await (await request.get(url)).body()).length);
+  const lib = [...seen].filter(([, s]) => s.plot);
   expect(lib, "lightweight-charts is in exactly one chunk").toHaveLength(1);
-  expect(lib[0]![1].broker, "the plot chunk carries no Broker code").toBe(false);
+  const [libUrl, libSeen] = lib[0]!;
+  expect(libSeen.broker, "the plot chunk carries no Broker code").toBe(false);
+  expect(libSeen.afterMount, "the plot chunk is requested after the Broker's chart section is in the page").toBe(true);
+  expect([...seen].filter(([, s]) => s.broker && s.afterMount), "the Broker's own code was all requested before it mounted").toEqual([]);
   // Not in the document's own script tags: the chunk only arrives by the dynamic import.
   const html = await (await request.get("/broker?asset=HALC")).text();
-  expect(html.includes(new URL(lib[0]![0]).pathname)).toBe(false);
-  const all = [...sizes.values()].reduce((s, x) => s + x.gz, 0);
-  const first = all - lib[0]![1].gz;
-  console.log(`BR-7-01 broker first load ${(first / 1024).toFixed(1)} KB gz; plot chunk ${(lib[0]![1].gz / 1024).toFixed(1)} KB gz; all ${(all / 1024).toFixed(1)} KB gz`);
+  expect(html.includes(new URL(libUrl).pathname)).toBe(false);
+  const all = [...sizes.values()].reduce((s, x) => s + x, 0);
+  const first = all - sizes.get(libUrl)!;
+  console.log(`BR-7-01 broker first load ${(first / 1024).toFixed(1)} KB gz; plot chunk ${(sizes.get(libUrl)! / 1024).toFixed(1)} KB gz; all ${(all / 1024).toFixed(1)} KB gz`);
   expect(first).toBeLessThanOrEqual(200 * 1024);
 });
 

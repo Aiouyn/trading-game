@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process';
 import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const HOOK_STRINGS = ['__city', 'labelBackground', 'samplePerfNow', 'brassCheck', 'partsOfEntity', 't0Picture', 'projectGround', 'NEXT_PUBLIC_CITY_E2E'];
+const HOOK_STRINGS = ['__city', /labelBackground(?!Color)/, 'samplePerfNow', 'brassCheck', 'partsOfEntity', 't0Picture', 'projectGround', 'NEXT_PUBLIC_CITY_E2E'];
 const STATIC = '.next/static';
 
 function files(dir) {

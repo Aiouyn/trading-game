@@ -347,6 +347,9 @@ for (const scale of ["1", "2"] as const) {
       });
       expect(clear.hit).toBe(true);
       expect(edge.y - clear.bottom).toBeGreaterThanOrEqual(edge.height);
+      // The positions above hold even without the padding when the list is short, so check the padding itself (E1).
+      const padBottom = await list(page).getByTestId("br-oo-list").evaluate((e) => parseFloat(getComputedStyle(e).paddingBottom));
+      expect(padBottom, "the list pads its end by the edge bar's height").toBeGreaterThanOrEqual(edge.height);
       await cancel.tap();
       const yes = row.getByTestId("br-oo-yes");
       await expect(yes).toBeVisible();
