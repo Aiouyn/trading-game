@@ -249,7 +249,9 @@ describe("mock scenarios, intents and req ops", () => {
 describe("URL scenario (build-gated)", () => {
   it("parses the documented params and ignores junk", () => {
     expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_BP&seed=9&nw=200000&pledge=HALC:40")))
-      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 }, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null });
+      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 }, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null });
+    for (const h of ["error", "loading"] as const) expect(scenarioFromQuery(new URLSearchParams(`filings=${h}`)).filings).toBe(h);
+    for (const junk of ["stale", "x", ""]) expect(scenarioFromQuery(new URLSearchParams(`filings=${junk}`)).filings).toBeNull();
     expect(scenarioFromQuery(new URLSearchParams("replyMs=1500")).replyMs).toBe(1500);
     for (const h of ["bad", "flaky", "hold"] as const) expect(scenarioFromQuery(new URLSearchParams(`history=${h}`)).history).toBe(h);
     for (const junk of ["x", "BAD", ""]) expect(scenarioFromQuery(new URLSearchParams(`history=${junk}`)).history).toBeNull();
