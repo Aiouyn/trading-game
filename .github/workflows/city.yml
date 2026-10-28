@@ -20,6 +20,11 @@ on:
     # last green at ca9b76c while main moved on. PR branches stay path-filtered (no double runs).
     branches: [main]
   workflow_dispatch:
+    inputs:
+      e2e_args:
+        description: 'Extra args for the e2e playwright step, e.g. "card1.spec.ts --repeat-each=5" (empty: the whole suite)'
+        required: false
+        default: ''
 concurrency:
   group: city-${{ github.ref }}
   cancel-in-progress: true
@@ -89,8 +94,9 @@ jobs:
           nohup node tests/e2e/city/serve.mjs "$RUNNER_TEMP/h-card1" 3212 > "$RUNNER_TEMP/serve-card1.log" 2>&1 &
           for i in $(seq 30); do curl -fs -o /dev/null http://localhost:3212/city.html && exit 0; sleep 1; done; exit 1
       - name: playwright (C-03 … C-15, incl. C-10 budgets)
-        run: npx playwright test -c tests/e2e/city/playwright.config.ts
+        run: npx playwright test -c tests/e2e/city/playwright.config.ts $E2E_ARGS
         env:
+          E2E_ARGS: ${{ inputs.e2e_args }} # dispatch only; empty on push/PR
           CI: 'true' # GitHub's own value; loop.spec's real-clock check runs only when CI === 'true'
           CITY_EVIDENCE_DIR: ${{ runner.temp }}/city-evidence
           CITY_CARD2_BEFORE_URL: http://localhost:3212

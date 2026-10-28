@@ -254,6 +254,8 @@ test("T4-10 C3/C4: DOM identical across palettes; axe clean on launcher, home, k
   await boot(page, "/");
   // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
   if (info.project.name === "desktop") await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
+  // Studio Q3: built apps (Broker) show a skeleton until their chunk lands; compare settled DOMs.
+  await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
   const doms: string[] = [];
   for (const p of PALETTES) { await page.evaluate((v) => { document.documentElement.dataset.palette = v; }, p); doms.push(await page.locator(".quay").evaluate((e) => e.outerHTML.replace(/style="[^"]*"/g, ""))); }
   for (const d of doms) expect(d).toBe(doms[0]);

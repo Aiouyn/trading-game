@@ -9,7 +9,7 @@ import type {
 } from "./channels";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "./fixtures/assets";
-import { POSITIONS, START_CASH_MINOR } from "./fixtures/me";
+import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
 
@@ -26,11 +26,13 @@ export const RING_KEEP = 50; // me.fills / me.intents (Q4)
 export const NEWS_KEEP = 100; // [P]
 
 export type FeedMode = "live" | "stale" | "denied" | "error" | "loading";
-export interface Scenario { seed: number; feed: FeedMode; halt: string | null; thin: string | null; tier: "free" | "terminal"; empty: boolean; reject: string | null }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null };
+export interface Scenario { seed: number; feed: FeedMode; halt: string | null; thin: string | null; tier: "free" | "terminal"; empty: boolean; reject: string | null;
+  /** `?nw=` pin (QUAY_HOOKS): `me.nw` stays exactly this string (cash absorbs mark moves), matching the shell's override. */
+  nw: string | null }
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null };
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&seed=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&seed=N&nw=D`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -39,6 +41,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const asset = (k: string) => { const v = q.get(k); return v && ASSET_BY_ID[v] ? v : null; };
   const seed = Number(q.get("seed"));
   const reject = q.get("reject");
+  const nw = q.get("nw");
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
     feed: feed === "stale" || feed === "denied" || feed === "error" || feed === "loading" ? feed : "live",
@@ -46,6 +49,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     tier: q.get("tier") === "terminal" ? "terminal" : "free",
     empty: q.get("empty") === "1",
     reject: reject && /^[A-Z][A-Z0-9_]{2,63}$/.test(reject) ? reject : null,
+    nw: nw && /^\d{1,13}(\.\d{1,2})?$/.test(nw) ? nw : null,
   };
 }
 
@@ -108,8 +112,9 @@ export class MockFeed {
       const prevClose = Math.round(a.base * (1 + (this.rand() - 0.5) * 0.02));
       this.assets.set(a.assetId, { last: a.base, prevClose, dayVol: a.lot * 40, prints: [], lastQty: 0, dir: 0 });
     }
-    this.cash = START_CASH_MINOR;
     if (!this.scenario.empty) for (const p of POSITIONS) this.lots.set(p.assetId, { qty: p.qty, avgCost: p.avgCostMinor });
+    // One NW source (fixtures/me START_NW): opening cash is whatever makes nw = START_NW at the opening marks.
+    this.cash = START_NW_MINOR - this.heldMinor();
     this.news = this.scenario.empty ? [] : NEWS.map((n) => this.tierNews(n));
   }
 
@@ -235,18 +240,39 @@ export class MockFeed {
     const o = px[0] ?? s.last;
     return { assetId, res, live: { t, o: fmt(o, a.displayDecimals), h: fmt(Math.max(o, s.last, ...px), a.displayDecimals), l: fmt(Math.min(o, s.last, ...px), a.displayDecimals), c: fmt(s.last, a.displayDecimals), v: String(prints.reduce((n, p) => n + Number(p.qty), 0)) } };
   }
+  private heldMinor(): number {
+    let held = 0;
+    for (const [id, l] of this.lots) held += this.assets.get(id)!.last * l.qty;
+    return held;
+  }
+  /** `?nw=` pin: the FDL cash that keeps nw at the pinned value for the current marks. */
+  private pinnedNwMinor(): number | null {
+    const v = this.scenario.nw;
+    if (v === null) return null;
+    const [i, f = ""] = v.split(".");
+    return Number(i) * 100 + Number(f.padEnd(2, "0"));
+  }
   private meBody(): MeTradingBody {
     const positions: Record<string, Position> = {};
-    let held = 0;
     for (const [id, l] of this.lots) {
       const a = ASSET_BY_ID[id]!, mark = this.assets.get(id)!.last;
-      held += mark * l.qty;
       positions[id] = { assetId: id, qty: String(l.qty), avgCost: fmt(l.avgCost, a.displayDecimals), mark: fmt(mark, a.displayDecimals), value: fmt(mark * l.qty, 2), upl: fmt((mark - l.avgCost) * l.qty, 2), pledgedQty: "0", lentQty: "0" };
     }
-    const nw = this.cash + held;
+    const held = this.heldMinor(), pin = this.pinnedNwMinor();
+    const cash = pin === null ? this.cash : pin - held;
+    const nw = cash + held;
+    const empty = this.scenario.empty;
+    // Restricted buckets live inside the FDL balance (so inside nw); untilRealMs = real ms remaining (5 s per tick),
+    // and a bucket leaves the list once released (its cash stays in FDL). `?empty=1` is a new player: FDL only.
+    const restricted = empty ? [] : RESTRICTED.flatMap((r) => {
+      const left = r.releaseTick === null ? null : (r.releaseTick - this.tick) * FEED_TICK_MS;
+      return left !== null && left <= 0 ? [] : [{ reason: r.reason, amount: fmt(r.amountMinor, 2), untilRealMs: left }];
+    });
     return {
-      balances: { FDL: fmt(this.cash, 2) }, nw: fmt(nw, 2), nwi: fmt(Math.round((nw * 10_000) / START_CASH_MINOR), 4), restricted: [],
+      balances: empty ? { FDL: fmt(cash, 2) } : { FDL: fmt(cash, 2), MDOL: MDOL_BALANCE },
+      nw: fmt(nw, 2), nwi: fmt(Math.round((nw * 10_000) / START_NW_MINOR), 4), restricted,
       positions, orders: this.orders, fills: this.fills, margin: null, holds: {}, intents: this.intents, alerts: [],
+      ...(empty ? {} : { nwStats: { ...NW_STATS } }),
     };
   }
 
