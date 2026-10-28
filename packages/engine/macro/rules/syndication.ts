@@ -12,7 +12,9 @@ import { activeDealers, dealerShares, npcDealerKey, quarterOf } from './dealers'
 import { newLineCoupon, sovereignAssetId, tenorDays } from './issuance';
 import { nsZero } from './nelsonSiegel';
 
-const D = TICKS_PER_GAME_DAY, QD = 91, LOT: Qty = 1000n * MICRO_N, SIZE_STEP: Qty = 1_000_000n * MICRO_N, BOOK_TICK = 420, GUIDANCE_BP = 5, FEE_RATE = 0.0015;
+/** Book open and pricing tick of day (T04-11 syndication; AC-04-11-SETTLEFIRST (d)). */
+export const BOOK_TICK = 420;
+const D = TICKS_PER_GAME_DAY, QD = 91, LOT: Qty = 1000n * MICRO_N, SIZE_STEP: Qty = 1_000_000n * MICRO_N, GUIDANCE_BP = 5, FEE_RATE = 0.0015;
 const LEAD_SHARE_BP = 1500n, SY = macroTables.syndication.name, SO = macroTables.syndicationOrder.name;
 const floorLot = (q: Qty): Qty => (q / LOT) * LOT;
 const blocOf = (s: Syndication): BlocId => (blocOfEntity(s.govId) ?? 'FDL') as BlocId;
