@@ -274,7 +274,7 @@ test("BR-6-10 axe 0 serious while cancelling (reply held 60 s)", async ({ page }
   await expect(r).toHaveAttribute("aria-busy", "true");
 });
 
-test("BR-6-11 1440: Cancel ≥ 28 px, rows one line, no --acc in idle / hover / confirm; cb and hc baselines; reduced motion: no removal animation", async ({ page }, info) => {
+test("BR-6-11 1440: Cancel ≥ 28 px, rows one line, no --acc in idle / hover / confirm; cb and hc baselines", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await openPaused(page);
   await limitOrder(page, "42.10");
@@ -313,12 +313,18 @@ test("BR-6-11 1440: Cancel ≥ 28 px, rows one line, no --acc in idle / hover / 
   await expect(list(page)).toHaveScreenshot(["BR-6", "hc-1440x900.png"], { mask: volatile(page) });
   await shot(page, "hc");
   await html("hc", false);
-  // Reduced motion: the removed row leaves with no animation.
-  // Through the app's own path (QuayShell applyAppearance re-reads the media query): a hand-set data-motion is overwritten.
+});
+
+test("BR-6-11 reduced motion: the removed row leaves with no animation", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  // Emulated before load: QuayShell's applyAppearance reads the media query and sets data-motion itself.
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await openPaused(page);
   await runUntil(page, async () => (await page.evaluate(() => document.documentElement.dataset.motion)) === "reduce");
-  await expect(r.getByTestId("br-oo-yes")).toBeVisible();
-  await r.getByTestId("br-oo-yes").click();
+  await limitOrder(page, "42.10");
+  await limitOrder(page, "41.50", "7");
+  await cancelBtn(rows(page).first()).click();
+  await rows(page).first().getByTestId("br-oo-yes").click();
   await runUntil(page, async () => (await rows(page).count()) === 1);
   const anim = await list(page).evaluate((el) => ({
     running: document.getAnimations().filter((a) => el.contains((a.effect as KeyframeEffect | null)?.target ?? null)).length,
