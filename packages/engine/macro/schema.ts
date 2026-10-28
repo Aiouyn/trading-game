@@ -374,7 +374,7 @@ export interface ConcordFacility {
               conditions: { primaryBalanceStepPerYear: number; cbIndependence: boolean; capitalControlsPhaseOutDays: number };
               compliance: number;
               // T04-14 card additions
-              id?: string; cause?: 'BREAK_PENDING' | 'FX_SERVICE' | 'SPREAD' | 'RESTRUCTURING'; trancheTicks?: Tick[]; tranchesPaid?: number; skipped?: number;
+              id?: string; cause?: 'BREAK_PENDING' | 'FX_SERVICE' | 'SPREAD' | 'RESTRUCTURING'; trancheTicks?: Tick[]; tranchesPaid?: number; suspended?: number;
               repaid?: Money; accrued?: Money; pb0?: number; phaseOutTick?: Tick; closedTick?: Tick }[];
 }
 

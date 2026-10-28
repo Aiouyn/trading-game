@@ -61,11 +61,12 @@ function emitProgram(ctx: PhaseCtx, p: ConcordProgram): void {
     trancheTicks: p.trancheTicks ?? [], conditions: p.conditions, compliance: p.compliance }, 'PUBLIC');
 }
 const tranche = (p: ConcordProgram): Money => p.size / BigInt(TRANCHES);
-/** Tranche k pays size/4; the last one also carries the division remainder. */
+/** Tranche k pays size/4 plus every suspended tranche (released at the next compliant date); the last one also carries the
+ *  division remainder. */
 function disburse(ctx: PhaseCtx, p: ConcordProgram, k: number): ConcordProgram {
-  const amt = tranche(p) + (k === TRANCHES - 1 ? p.size - tranche(p) * BigInt(TRANCHES) : 0n);
+  const n = 1 + (p.suspended ?? 0), amt = tranche(p) * BigInt(n) + (k === TRANCHES - 1 ? p.size - tranche(p) * BigInt(TRANCHES) : 0n);
   ctx.ledger.pay(CSF_ID, govId(p.bloc), amt, 'FDL', 'CSF_DISBURSE');
-  return { ...p, drawn: p.drawn + amt, tranchesPaid: (p.tranchesPaid ?? 0) + 1 };
+  return { ...p, drawn: p.drawn + amt, tranchesPaid: (p.tranchesPaid ?? 0) + n, suspended: 0 };
 }
 /** Opens a program (RESTRUCTURING skips the crisis condition); first tranche at once. Null when it cannot be agreed. */
 export function openConcord(ctx: PhaseCtx, b: BlocId, cause: Cause): ConcordProgram | null {
@@ -76,7 +77,7 @@ export function openConcord(ctx: PhaseCtx, b: BlocId, cause: Cause): ConcordProg
   const trancheTicks = [0, 1, 2, 3].map((k) => t + k * Q * D), repay0 = trancheTicks[3]! + REPAY_LAG_DAYS * D;
   let p: ConcordProgram = { id: `csf_${b}_${t}`, cause, bloc: b, size: sizeFor(s, b), drawn: 0n, rate: nsZero(fdlCurve.nsOis, 5) + RATE_SPREAD, startTick: t,
     endTick: repay0 + (INSTALLMENTS - 1) * Q * D, conditions: { primaryBalanceStepPerYear: PB_STEP, cbIndependence: true, capitalControlsPhaseOutDays: PHASE_OUT_DAYS },
-    compliance: 1, trancheTicks, tranchesPaid: 0, skipped: 0, repaid: 0n, accrued: 0n, pb0: st.fiscal.primaryBalanceGdp, phaseOutTick: t + PHASE_OUT_DAYS * D };
+    compliance: 1, trancheTicks, tranchesPaid: 0, suspended: 0, repaid: 0n, accrued: 0n, pb0: st.fiscal.primaryBalanceGdp, phaseOutTick: t + PHASE_OUT_DAYS * D };
   p = disburse(ctx, p, 0);
   const f = facility(s);
   save(ctx, { ...f, programs: [...f.programs, p] });
@@ -92,7 +93,7 @@ export function compliance(prog: ConcordProgram, achievedPbStep: number, control
   return c * (controlsPhasedOut ? 1 : 0.5);
 }
 /** Daily: SPREAD programs open for qualifying blocs; interest accrues; on tranche dates compliance ≥ 0.7 disburses, else the tranche is
- *  skipped with a Wire hook; quarterly interest; 8 quarterly installments from 364 days after the last tranche; closed at the last one. */
+ *  suspended (withheld) with a Wire hook and released at the next compliant date, none after the 4th; quarterly interest; 8 quarterly installments from 364 days after the last tranche; closed at the last one. */
 export function concordTranches(ctx: PhaseCtx): void {
   const t = ctx.tick, s = ctx.store;
   if (t % D !== 0) return;
@@ -109,7 +110,7 @@ export function concordTranches(ctx: PhaseCtx): void {
       p = { ...p, compliance: compliance(p, ach, phased) };
       if (p.compliance >= COMPLIANCE_MIN) p = disburse(ctx, p, k);
       else {
-        p = { ...p, skipped: (p.skipped ?? 0) + 1 };
+        p = { ...p, suspended: (p.suspended ?? 0) + 1 };
         s.put<HookCall>(macroTables.hookCall.name, { id: ctx.newId('hook'), owner: '16', hook: 'WIRE_ITEM', args: { key: 'csf_tranche_suspended', bloc: p.bloc, programId: p.id ?? '' },
           worldEventId: '', createdTick: t, startTick: t + 1 });
       }
