@@ -102,6 +102,7 @@ export interface BlocMacroState {
   credit: number; credit0: number /* E-90 (1): genesis credit, float, never changes */; creditGdpTrend: number; peNorm: number; fiscalImpulse: number; unemployment12mLow: number;
   dep: number;                     // effective depreciation yoy
   sentiment: number; consumptionSignal: number;
+  highSpreadTradingDays?: number;  // T04-13: consecutive trading days with s10 > 0.15 (POLITICAL trigger)
 }
 
 // ───────── §2.4 public macro view ─────────
@@ -162,6 +163,9 @@ export interface AssetPurchaseProgram {
   holdingsCapGdp: number;
   qtRunoffCapPerMonth: number;
   startedTick?: Tick;
+  // T04-09 program progress (unit decision: 04 leaves it implicit). month = first game day of the game month the totals belong to.
+  month?: { start: number; bought: Money; sold: Money; runoff: Money };
+  day?: { gameDay: number; rows: { assetId: string; side: 'BUY' | 'SELL'; face: Qty }[] };   // the day's plan; face = still to trade
 }
 export interface YieldCurveControl { tenorYears: 10; capYield: number; active: boolean; startedTick: Tick }
 export interface FacilityTerms {
@@ -170,7 +174,7 @@ export interface FacilityTerms {
   elaPenaltySpread: number;
   maxTermDays: number;
 }
-export interface SwapLine { counterpartyCbk: string; limit: Money; spread: number; active: boolean; drawn: Money }
+export interface SwapLine { counterpartyCbk: string; limit: Money; spread: number; active: boolean; drawn: Money; calmDays?: number /* T04-09 */ }
 /** §3.6.6 emergency triggers, declaration order (E-100 (c): declared here, re-exported by rules/cb.ts). */
 export type EmergencyTrigger = 'FSI' | 'EQUITY_DROP' | 'INTERBANK' | 'CURRENCY' | 'CRISIS_POLICY';
 export interface CentralBank {
@@ -204,9 +208,12 @@ export interface CentralBank {
   offTargetDays: number;           // consecutive days |π_core − target| > 0.02
   ycc10Streak: number; yccHighInflDays: number; yccRaises: number; lowDepthDays: number;
   ltroOpenUntilTick: Tick | null;
+  backstop?: { assetId: string; face: Qty; days: number[]; done: number[] };   // T04-11 failed-auction secondary backstop: face over the listed trading days (T04-14 passes the orders to writePoolOrders)
   ccybPending: { value: number; effectiveTick: Tick } | null;
   emergencyQuarter: number;        // quarter index of emergencyCountQuarter, quarter = floor(game day / 91)
-  pendingEmergency: { tick: Tick; triggers: EmergencyTrigger[] } | null;   // E-100 (c): genesis null; set by T04-06 scheduleEmergency, cleared by the emergency runMeeting
+  pendingEmergency: { tick: Tick; triggers: EmergencyTrigger[] } | null;
+  yccPressureWired?: boolean;      // T04-09 edge 20: the WIRE_ITEM hook of the current under-pressure episode is written
+  rrEasingQuarter?: number;       // T04-08 adjustRr: quarter of the last SRL EASING change (at most one per quarter)   // E-100 (c): genesis null; set by T04-06 scheduleEmergency, cleared by the emergency runMeeting
 }
 
 // ───────── §2.7 treasury, fiscal, issuance, auctions ─────────
@@ -220,6 +227,7 @@ export interface FiscalProgram {
   startTick: Tick; endTick: Tick;
   source: 'AUTOMATIC' | 'POLITICS' | 'CRISIS_RESPONSE' | 'CONCORD_CONDITIONALITY';
   sponsorActorIds: string[];
+  breachUntilTick?: Tick;   // card addition (T04-10): passed against its fiscal rule; the 25 bp window is [until − 182·720, until)
 }
 export interface FiscalState {
   revenueGdp: number; spendingGdp: number; interestGdp: number;
@@ -228,6 +236,7 @@ export interface FiscalState {
   averageCoupon: number; averageMaturityYears: number;
   cashBuffer: Money;
   grossFinancingNeedQuarter: Money;
+  shortfallCarry?: Qty;   // T04-11: failed-auction shortfall (face) waiting for the next quarter's first B3M (none left in this quarter)
   programs: FiscalProgram[];
   austerityMode: boolean;
   swfAssets: Money;
@@ -254,7 +263,9 @@ export interface SovAuction {
              awardedFace: Qty; npcShare: number; playerShare: number; failed: boolean };
 }
 export interface Buyback { id: string; govId: string; assetIds: string[]; maxFace: Qty; tick: Tick; offers: { offerId: string; holderId: string; assetId: string; face: Qty; minPrice: Price }[] }
-export interface Syndication { id: string; govId: string; assetId: string; size: Qty; leadManagers: string[]; bookOpenTick: Tick; pricingTick: Tick; guidanceSpreadBp: number; feeRate: number }
+export interface Syndication { id: string; govId: string; assetId: string; size: Qty; leadManagers: string[]; bookOpenTick: Tick; pricingTick: Tick; guidanceSpreadBp: number; feeRate: number;
+  tenor?: 'N30Y' | 'N10Y_FDL' /* T04-12 */; curveYield?: number /* T04-12: curve zero at the maturity, fixed at book open */;
+  pricedTick?: Tick /* T04-12: set at pricing; a priced book takes no orders */ }
 
 // ───────── §2.8 sovereign credit ─────────
 export interface SovereignRatingInputs {
@@ -288,6 +299,8 @@ export interface SovereignCreditState {
   status: 'PERFORMING' | 'GRACE' | 'SELECTIVE_DEFAULT' | 'RESTRUCTURING' | 'POST_RESTRUCTURING';
   defaultCase?: SovereignDefaultCase;
   ratingInputs: SovereignRatingInputs;
+  /** T04-07 step 13: yesterday's isInvestmentGrade (absent before the first close); step 10: last bondDepthIndex (absent → 1). */
+  investmentGrade?: boolean; depthIndex?: number;
 }
 
 // ───────── §2.9 FX ─────────
@@ -303,6 +316,13 @@ export interface FxState {
   capitalControlsUntilTick?: Tick;
   interventionToday: Money;
   crisisFlag: boolean;
+  // T04-14 card additions (04 leaves storage implicit)
+  capconSchedule?: { level: 0 | 1 | 2 | 3; startTick: Tick; untilTick: Tick | null; reason: string };
+  empDays?: number; breakArmed?: boolean; fxServicePending?: boolean;
+  bandC0?: number; weakEdgeDays?: number; strongEdgeDays?: number; bandToleranceWide?: boolean;
+  breakTick?: Tick; highCoreDays?: number; pegLn?: number;
+  hist?: { lnS: number; res: Money; i: number }[] /* trading-day closes, last 370 */; lastRA?: number; lastEnergy?: number;
+  pendingDaily?: { gameDay: number; net: Money; reserves: Money };
 }
 
 // ───────── §2.10 crisis scheduler and crises ─────────
@@ -352,7 +372,10 @@ export interface ConcordFacility {
   lendingCapacity: Money;
   programs: { bloc: BlocId; size: Money; drawn: Money; rate: number; startTick: Tick; endTick: Tick;
               conditions: { primaryBalanceStepPerYear: number; cbIndependence: boolean; capitalControlsPhaseOutDays: number };
-              compliance: number }[];
+              compliance: number;
+              // T04-14 card additions
+              id?: string; cause?: 'BREAK_PENDING' | 'FX_SERVICE' | 'SPREAD' | 'RESTRUCTURING'; trancheTicks?: Tick[]; tranchesPaid?: number; suspended?: number;
+              repaid?: Money; accrued?: Money; pb0?: number; phaseOutTick?: Tick; closedTick?: Tick }[];
 }
 
 // ───────── additions decided by the card (04 leaves storage implicit) ─────────
@@ -364,16 +387,18 @@ export interface DailyHistoryRow { id: string /* `${bloc}:${gameDay}` or `GLOBAL
   outputGapEstimate: number /* E-45: public x̂ = x + ε, ε AR(1) per GD, ρ 0.98, σ 0.005, stream `macro.gapest:<bloc>`, PROVISIONAL [Quant] (T04-01b) */; energyIndex: number; foodIndex: number; worldTradeIndex: number;
   equityIndex: number | null; spotVsFdl: number; effectiveFx: number; reservesFdl: string; policyRate: number; y3m: number; y10: number;
   deficitPrimaryGdp: number; credit: number | null /* E-90 (1): closing bloc credit; null on GLOBAL rows */; creditGdp: number; housePriceIndex: number | null; fearIndex: number; fsi: number; regime: Regime }
-export interface HookCall { id: Id; owner: '05' | '06' | '07' | '08' | '10' | '11' | '12' | '16'; hook: string; args: Record<string, number | string | string[] | null>;
+export interface HookCall { id: Id; owner: '05' | '06' | '07' | '08' | '10' | '11' | '12' | '13' | '16' /* '13': T04-13 HOLDOUT_CLAIM */; hook: string; args: Record<string, number | string | string[] | null>;
   worldEventId: string; createdTick: Tick; startTick: Tick /* createdTick + 1 */ }
 export interface NpcPoolOrder { id: Id; poolId: `CB:${BlocId}` | `TSY:${BlocId}` | 'CSF'; assetId: string; side: 'BUY' | 'SELL'; qty: Qty; limitPrice?: Price; tif: 'TICK' | 'RESTING'; tick: Tick;
   purpose: 'QE' | 'QT' | 'YCC' | 'FX_BAND' | 'FX_LEAN' | 'FX_COORD' | 'FX_PEG' | 'RESERVE_REBAL' | 'BACKSTOP' | 'MANDATE_SELL' }   // 04 §6.3
 export interface FacilityLoan { id: Id; kind: 'REPO' | 'ELA' | 'LTRO' | 'SWAP_ONLEND'; bloc: BlocId; bankId: Id; amount: Money; ccy: Ccy; rate: number; openTick: Tick; maturityTick: Tick;
-  collateral: { assetId: string; qty: Qty; haircut: number; valueAtOpen: Money }[]; accrued: Money; status: 'OPEN' | 'REPAID' }
-export interface DepositFacilityBalance { id: string /* `${bloc}:${bankId}` */; bloc: BlocId; bankId: Id; amount: Money }
+  collateral: { assetId: string; qty: Qty; haircut: number; valueAtOpen: Money }[]; accrued: Money; status: 'OPEN' | 'REPAID';
+  holdIds?: Id[] /* T04-08: the collateral holds, released at close */ }
+export interface DepositFacilityBalance { id: string /* `${bloc}:${bankId}` */; bloc: BlocId; bankId: Id; amount: Money; holdId?: Id /* T04-08 earmark */ }
 export interface PrimaryDealerStatus { id: string /* `${bloc}:${entityId}` */; bloc: BlocId; entityId: Id; npc: boolean; status: 'APPLIED' | 'ACTIVE' | 'RESIGNING' | 'REVOKED';
   fromQuarter: number; revokedUntilQuarter: number | null; auctionsThisQuarter: number; auctionsBidThisQuarter: number; missesThisQuarter: number;
-  awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */ }
+  awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */;
+  nameInLeague?: boolean /* T04-12: league-table opt-in (bank.primaryDealer.apply) */ }
 export interface MacroInputs { id: 'INPUTS' | 'HOURLY'; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23); 'INPUTS' daily (T04-05), 'HOURLY' the held hourly fear and FSI inputs (T04-15, E-93 (2))
 export interface SovExchangeVote { id: string /* `${offerId}:${holderId}:${assetId}` */; offerId: string; holderId: Id; assetId: string; face: Qty; vote: 'ACCEPT' | 'REJECT' }
 export interface SyndicationOrder { id: Id; syndicationId: string; bidderId: Id; face: Qty; limitSpreadBp: number | null; holdId: Id; tick: Tick }

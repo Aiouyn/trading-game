@@ -6,6 +6,7 @@ import { GAME_DAYS_PER_GAME_YEAR, GAME_DAYS_PER_QUARTER, HOLIDAYS_ENABLED_DEFAUL
   EngineFault, type ParamsView, type Tick } from '@tycoon/engine-core';
 import type { PhaseCtx } from '@tycoon/engine-core';
 import { BLOC_DEFAULTS } from '../blocs';
+import { mixOf } from './issuance';
 import { BLOC_ORDER, macroTables, RELEASE_KINDS, TENORS, type BlocId, type ReleaseKind, type ReleaseSchedule, type Tenor } from '../schema';
 
 const D = TICKS_PER_GAME_DAY;
@@ -127,16 +128,16 @@ export function releasesInRange(fromDay: number, toDay: number, params: ParamsVi
 // ───────── sovereign auctions (§3.10.2) ─────────
 export interface ScheduledAuction { bloc: BlocId; tenor: Tenor; dayIndex: number; auctionTick: Tick; announceTick: Tick; bidOpenTick: Tick;
   newLine: boolean; syndicated: boolean; fxDenominated: boolean }
-/** STUB (E-51 AC-04-02-ZEROSHARE): tenors with a zero issuance share (§3.10.1, the two 0% rows: SC N30Y, L10Y). Replaced by the T04-11 mix table (AC-04-11-MIXSTUB). */
-const ZERO_SHARE: Readonly<Partial<Record<BlocId, readonly Tenor[]>>> = { SRL: ['N30Y', 'L10Y'] };
+/** E-51 AC-04-02-ZEROSHARE / AC-04-11-MIXSTUB: a tenor with a zero share in T04-11's ISSUE_MIX (the single source) has no auction. */
+const zeroShare = (b: BlocId, t: Tenor): boolean => mixOf(b)[t] === 0;
 const tenorRank = (t: Tenor): number => TENORS.indexOf(t);
 
 export function auctionsInQuarter(b: BlocId, quarterStart: number, params: ParamsView, holidays: boolean = HOLIDAYS_ENABLED_DEFAULT): ScheduledAuction[] {
   const at = params.int('macro_auction_tick'), ann = params.int('macro_auction_announce_tick');   // E-51: own key (value 420, §3.10.2)
-  const h = holidays, off = BLOC_DEFAULTS[b].releaseOffset, zero = ZERO_SHARE[b] ?? [];
+  const h = holidays, off = BLOC_DEFAULTS[b].releaseOffset;
   const out: ScheduledAuction[] = [];
   const add = (tenor: Tenor, day: number, x: { newLine?: boolean; syndicated?: boolean; fxDenominated?: boolean } = {}): void => {
-    if (zero.includes(tenor)) return;
+    if (zeroShare(b, tenor)) return;
     let a = day; for (let i = 0; i < 3; i++) a = previousTradingDay(b, a, h);   // 3 bloc trading days before
     out.push({ bloc: b, tenor, dayIndex: day, auctionTick: day * D + at, announceTick: a * D + ann, bidOpenTick: a * D + ann,
       newLine: x.newLine ?? false, syndicated: x.syndicated ?? false, fxDenominated: x.fxDenominated ?? false });

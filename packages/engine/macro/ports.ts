@@ -26,7 +26,7 @@ export interface MacroCreditPort {   // 07
   bankReserves(s: StoreRead, bankId: Id): { balance: Money; required: Money; eligibleDeposits: Money } | null;
   solvencyOk(s: StoreRead, bankId: Id): boolean; isChartered(s: StoreRead, entityId: Id, b: BlocId): boolean; bankEquity(s: StoreRead, bankId: Id): Money | null;
   repoHaircutIndexChange(s: StoreRead): number | null; ccpDefaultFundUsage(s: StoreRead): number | null; npcBankBelow12xMin(s: StoreRead, b: BlocId): number;
-  repoLeverageIndex(s: StoreRead): number | null; npcBankIds(s: StoreRead, b: BlocId): Id[]; pledgedQty(s: StoreRead, owner: Id, assetId: string): Qty;
+  repoLeverageIndex(s: StoreRead): number | null; npcBankIds(s: StoreRead, b: BlocId): Id[]; charteredBankIds(s: StoreRead, b: BlocId): Id[] /* T04-08 IOR: every chartered bank of the bloc */; pledgedQty(s: StoreRead, owner: Id, assetId: string): Qty;
   weakestNpcBanks(s: StoreRead, n: number): Id[]; isLoanClaim(s: StoreRead, id: string): { bankId: Id; principal: Money; ccy: Ccy } | null }  // ELA collateral (T04-08)
 export interface MacroFundsPort {    // 08
   sovereignGrades(s: StoreRead, gov: Id): string[] /* three agencies, best first */; gradeOf(s: StoreRead, assetIdOrIssuer: string): string | null;
@@ -43,7 +43,9 @@ export interface MacroWorldPort {    // 16
 export interface MacroPlayerPort {   // 14A / 13A / 15
   licenseOf(s: StoreRead, entityId: Id): 'LIC0' | 'LIC1' | 'LIC2' | 'LIC3' | 'LIC4' | null; hasCharter(s: StoreRead, entityId: Id, ch: string, b?: BlocId): boolean;
   isHeld(s: StoreRead, chrId: Id): boolean; ownerGroupOf(s: StoreRead, entityId: Id): string; reputationLowestBand(s: StoreRead, entityId: Id): boolean;
-  topWealthGrowth(s: StoreRead): number | null; swfPrivilege(s: StoreRead, entityId: Id): boolean }
+  topWealthGrowth(s: StoreRead): number | null; swfPrivilege(s: StoreRead, entityId: Id): boolean;
+  /** T04-11 CAPCON check: the entity's reporting currency (MISSING EXPORT T14A reportingCcyOf; absent = unknown, never blocked). */
+  reportingCcyOf?(s: StoreRead, entityId: Id): Ccy | null }
 export interface MacroPorts { markets: MacroMarketPort; assets: MacroAssetPort; credit: MacroCreditPort | null; funds: MacroFundsPort; housing: MacroHousingPort;
   ai: MacroAiPort; conflict: MacroConflictPort; world: MacroWorldPort; players: MacroPlayerPort }
 
