@@ -66,12 +66,10 @@ export function encodePng({ width, height, data }: Rgba): Buffer {
   return Buffer.concat([SIGNATURE, chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
 }
 
-/** Pixel offsets (y * width + x) where `a` and `b` differ in any RGBA byte. Sizes must match. */
+/** Pixel offsets (y * width + x) where `a` and `b` differ in any RGBA byte (one 32-bit word per pixel). Sizes must match. */
 export function differingPixels(a: Rgba, b: Rgba): number[] {
+  const n = a.width * a.height, wa = new Uint32Array(a.data.buffer, a.data.byteOffset, n), wb = new Uint32Array(b.data.buffer, b.data.byteOffset, n);
   const out: number[] = [];
-  for (let p = 0; p < a.width * a.height; p++) {
-    const i = p * 4;
-    if (a.data[i] !== b.data[i] || a.data[i + 1] !== b.data[i + 1] || a.data[i + 2] !== b.data[i + 2] || a.data[i + 3] !== b.data[i + 3]) out.push(p);
-  }
+  for (let p = 0; p < n; p++) if (wa[p] !== wb[p]) out.push(p);
   return out;
 }
