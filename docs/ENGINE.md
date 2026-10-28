@@ -85,12 +85,9 @@ There are 12 stocks, one per sector, taken from the example companies in 01 §3.
 
 ## Headless sim
 
-```
-npx tsx scripts/sim.ts --seed alpha --days 1260 [--csv out/prices.csv] [--json out/summary.json]
-npm run sim                      # defaults: seed alpha, 504 days (in PowerShell, npm drops args after --, so call npx tsx directly to pass flags)
-```
+The headless sim (`scripts/sim.ts`) was deleted in #83. The figures below are from its last reference run.
 
-It prints per-asset start and end prices, CAGR, realized vol against target, max drawdown and correlation to GX from daily closes, followed by the regime timeline and event counts. The output is identical across runs with the same seed.
+It printed per-asset start and end prices, CAGR, realized vol against target, max drawdown and correlation to GX from daily closes, followed by the regime timeline and event counts. The output was identical across runs with the same seed.
 
 The reference run uses seed `alpha` and 5 game years, at about 17 µs per tick for 17 assets on one core (6.5 µs per tick on DESKTOP-NICO4R2). The same seed gives byte-identical output on Linux and on this Windows PC:
 

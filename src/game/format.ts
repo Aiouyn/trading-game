@@ -54,27 +54,6 @@ export function qty(n: number): string {
   return fixMinus(Number.isInteger(n) ? nf(0, 0).format(n) : nf(0, 4).format(n));
 }
 
-/**
- * Exact decimal string for a legacy number amount, so number callers can use the shared string formatters
- * (src/components/ui/money.ts: compactMoneyText, abbreviateDigits) instead of a float formatter.
- * Number#toString (ECMA-262 Number::toString) yields the shortest digits that round-trip to the same double, which is
- * the literal the amount was written as: 250_000 -> "250000", 0.1 -> "0.1", never 0.1000000000000000055...
- * Exponent forms (|n| >= 1e21 or < 1e-6) are expanded by moving the point inside the digit string, so no arithmetic
- * ever touches the value. NaN and Infinity throw.
- */
-export function decimalString(n: number): string {
-  if (!Number.isFinite(n)) throw new Error(`decimalString: not a finite number: ${n}`);
-  const s = String(n);
-  const m = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
-  if (!m) return s;
-  const [, sign, lead, rest = '', exp] = m;
-  const digits = `${lead}${rest}`;
-  // Number::toString uses an exponent only for exponents >= 21 or <= -7, so the point lands right of every digit
-  // (append zeros) or left of all of them (prefix "0." and zeros).
-  const point = 1 + Number(exp);
-  return point > 0 ? `${sign}${digits}${'0'.repeat(point - digits.length)}` : `${sign}0.${'0'.repeat(-point)}${digits}`;
-}
-
 export function tone(n: number): 'gain' | 'loss' | 'flat' {
   if (n > 1e-9) return 'gain';
   if (n < -1e-9) return 'loss';

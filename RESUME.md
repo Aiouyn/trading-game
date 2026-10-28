@@ -11,7 +11,7 @@ Mathis owns the product. His decisions are in Ledger's chat and in the group. Th
 | Ledger, project chief | `grok-bot-export/03-ledger.md` | `vision/MASTER-BIBLE.md`, `vision/05-ai-research.md`, `vision/RESOLVED-NUMBERS.md`, `vision/ROADMAP.md` |
 | Quant, markets | `grok-bot-export/04-quant.md` | `vision/01-markets-economy.md`, `specs/quant-*.md`, `engine-staging/`, `scripts/company/` |
 | Forge, app | `grok-bot-export/07-forge.md` | `vision/02-multiplayer-systems.md`, `src/`, `specs/forge-desktop-shell.md` |
-| Tape, QA | `grok-bot-export/05-tape.md` | `vision/03-conflict-legal-fairness.md`, `specs/tape-*.md`, `proof/`, `scripts/balance/tape_v15_joint.py`, `scripts/balance/tape_v16_backlog.py` |
+| Tape, QA | `grok-bot-export/05-tape.md` | `vision/03-conflict-legal-fairness.md`, `specs/tape-*.md`, `proof/`, `scripts/tape/tape_v15_joint.py`, `scripts/tape/tape_v16_backlog.py` |
 | Velvet, visuals | `grok-bot-export/06-velvet.md` | `vision/04-experience-lifestyle.md`, `design/`, `handoff/DESIGN.md`, `specs/velvet-*.md` |
 | All five together | `grok-bot-export/02-trading-game-team.md` | the group thread |
 
@@ -25,7 +25,7 @@ Raw JSON of those chats is in `grok-bot-export/raw/`.
 
 `engine-drops/` holds three small archives (`engine-drop.tar`, `engine-drop2.tar`, `engine-drop3.tar`) from before staging. Staging is the newer tree.
 
-Company building has no engine code. Tape says so at the top of `specs/tape-company-building.md`. The checks are modelled in `scripts/balance/tape_v15_joint.py` and `scripts/balance/tape_v16_backlog.py`, and in `scripts/company/signal_cap_breakeven.py`.
+Company building has no engine code. Tape says so at the top of `specs/tape-company-building.md`. The checks are modelled in `scripts/tape/tape_v15_joint.py` and `scripts/tape/tape_v16_backlog.py`, and in `scripts/company/signal_cap_breakeven.py`.
 
 ## Read order
 
