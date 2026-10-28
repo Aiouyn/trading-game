@@ -64,6 +64,8 @@ describe('checkDefaultTriggers', () => {
     w.cash['gov_EUN:EUN'] = F(1e6);
     expect(checkDefaultTriggers(w.ctx, 'EUN', ports)).toBeNull();
     expect(draws).toBe(4);
+    const p = world('EUN', { failedAuctions21d: 2, status: 'POST_RESTRUCTURING' });
+    expect(checkDefaultTriggers(p.ctx, 'EUN', ports)).toBeNull();
   });
   it('hazard: λ 0.20 draws HAZARD below p; λ 0.09 never but still consumes one draw; no draw-dependent check once a case is open', () => {
     const w = world('EUN', { hazard: 0.20 });
@@ -99,6 +101,16 @@ describe('checkDefaultTriggers', () => {
 function w2debt(w: CbWorld, b: BlocId, d: number): void { const r = bloc(w, b) as unknown as { fiscal: object }; w.put(macroTables.bloc.name, { ...r, fiscal: { ...r.fiscal, debtGdp: d } } as never); }
 
 describe('case, grace, selective default', () => {
+  it('CAC: exactly 75% consent is ACCEPTED', () => {
+    const w = restructuring({ usr_a: 750e3, usr_b: 250e3 });
+    vote(w, 'usr_a', 'ACCEPT'); w.setTick(offerOf(w).closeTick); stepDefaultCase(w.ctx, 'EUN', ports);
+    expect(offerOf(w).status).toBe('ACCEPTED');
+  });
+  it('missed payment is the earliest across lines, not the first line', () => {
+    const w = world('EUN');
+    w.put(macroTables.issue.name, { ...(w.rows(macroTables.issue.name)[0] as object), id: 'ast_SOV_EUN_Z_1003', assetId: 'ast_SOV_EUN_Z_1003', maturityTick: T0 + 3 * D } as never);
+    expect(openDefaultCase(w.ctx, 'EUN', 'HAZARD', ports).missedPayment.assetId).toBe('ast_SOV_EUN_Z_1003');
+  });
   it('earliest payment after today; GRACE at due (5,040-tick grace, Wire hook); SELECTIVE_DEFAULT lists every line; sovereignStatus GRACE from opening', () => {
     const w = world('EUN', { failedAuctions21d: 2 });
     const c = openDefaultCase(w.ctx, 'EUN', 'FAILED_ROLLOVER', ports);
@@ -180,9 +192,20 @@ describe('exchange', () => {
     expect(hooks[0]!.args.parDifference).toBeCloseTo(300e3 * hs[2]!, 6);
     expect(bloc(w).sovereign.status).toBe('POST_RESTRUCTURING');
   });
+  it('NPC sectors that reject file no holdout claim in a unilateral exchange', () => {
+    const w = world('EUN');
+    w.qty[`hh_EUN:${L1}`] = F(200e3);
+    const c = openDefaultCase(w.ctx, 'EUN', 'HAZARD', ports);
+    for (const t of [c.missedPayment.dueTick, c.graceEndsTick]) { w.setTick(t); stepDefaultCase(w.ctx, 'EUN', ports); }
+    script = Array(20).fill(0.999);
+    w.setTick(c.graceEndsTick + 7 * D); stepDefaultCase(w.ctx, 'EUN', ports);
+    expect(w.rows(macroTables.vote.name).map((v) => (v as { vote: string }).vote)).toEqual(['REJECT']);
+    executeExchange(w.ctx, 'EUN', offerOf(w), true);
+    expect((w.rows(macroTables.hookCall.name) as HookCall[]).filter((h) => h.hook === 'HOLDOUT_CLAIM')).toEqual([]);
+  });
   it('NPC sectors vote in 20 blocks, one draw each; executeExchange gives the lot remainder to the largest holder', () => {
     const w = world('EUN');
-    w.qty[`hh_EUN:${L1}`] = F(200e3); w.qty[`usr_a:${L1}`] = F(1e3);
+    w.qty[`hh_EUN:${L1}`] = F(200e3); w.qty[`usr_zz:${L1}`] = F(300e3);
     const c = openDefaultCase(w.ctx, 'EUN', 'HAZARD', ports);
     for (const t of [c.missedPayment.dueTick, c.graceEndsTick]) { w.setTick(t); stepDefaultCase(w.ctx, 'EUN', ports); }
     draws = 0; script = [...Array(5).fill(0), ...Array(15).fill(0.999)];
@@ -191,7 +214,7 @@ describe('exchange', () => {
     expect(tallyOffer(w.ctx.store, offerOf(w)).acceptFace).toBe(F(50e3));
     executeExchange(w.ctx, 'EUN', offerOf(w), false);
     const n8 = `ast_SOV_EUN_N8Y_RS_${Math.floor(w.ctx.tick / D) + 8 * 364}`;
-    expect([w.qty[`hh_EUN:${n8}`], w.qty[`usr_a:${n8}`] ?? 0n]).toEqual([F(106e3), 0n]);
+    expect([w.qty[`hh_EUN:${n8}`], w.qty[`usr_zz:${n8}`]]).toEqual([F(105e3), F(159e3)]);
   });
 });
 
