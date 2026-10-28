@@ -102,7 +102,7 @@ void main() {
   vec3 n = normalize(vNormal);
   bool top = n.y > 0.5;
   bool lit = !top && dot(n.xz, normalize(uSunDir.xz)) > 0.0;
-  if (uMask > 2.5) { gl_FragColor = vec4(vec3(abs(vMat.x - (uMask - 3.0)) < 0.5 ? 1.0 : 0.0), 1.0); return; } // 3 + id: parts of material id (card 2 test hook)
+  if (uMask > 2.5) { gl_FragColor = vec4(vec3(!top && abs(vMat.x - (uMask - 3.0)) < 0.5 ? 1.0 : 0.0), 1.0); return; } // 3 + id: walls of material id (card 2 AC5 test hook: roofs excluded, AC5 reads wall colour)
   if (uMask > 0.5) { gl_FragColor = vec4(vec3(uMask > 1.5 || vFlat > 1.5 ? 1.0 : 0.0), 1.0); return; } // 1: brass mask, 2: all parts
   if (vFlat > 1.5) { gl_FragColor = vec4(top ? uBrassHi : lit ? uBrass : uBrassLo, 1.0); return; }
   if (vFlat > 0.5) { gl_FragColor = vec4(vColor, 1.0); return; }
