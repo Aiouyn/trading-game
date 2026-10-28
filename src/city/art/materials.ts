@@ -21,7 +21,7 @@ export interface Material {
 
 const slate: Lch = { u: 0.14, C: 0.012, h: 250 };
 const concrete: Lch = { u: 0.48, C: 0.008, h: 80 };
-const metal: Lch = { u: 0.42, C: 0.01, h: 240 }; // Studio AC5 round 2 (1a): .35 → .42, lighter roofs/trim city-wide accepted
+const metal: Lch = { u: 0.35, C: 0.01, h: 240 }; // Studio AC5 round 2 (1a): .35 → .42, lighter roofs/trim city-wide accepted
 // C 0.056: base HSL sat 36.0 %, worst case with full jitter (L ±.02, hue ±4°, chroma ×1.1) 44.8 % ≤ AC-LOOK-04's 45 %
 // (Studio rulings 2 and AC5 3a: no clamp; numbers of record at C .056: base 36.0 %, worst case 44.9 %)
 const rust: Lch = { u: 0.35, C: 0.056, h: 45 };
