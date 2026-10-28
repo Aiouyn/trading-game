@@ -106,6 +106,22 @@ function Surface() {
   );
 }
 
+/** Mock clock channel: one delta per tick (5 s). The TickRing follows it; it never runs its own timer. Its own component,
+ *  first child of the provider: effects run children-first, in order, so the clock is the page's first timer, before
+ *  the `me` feed the top bar subscribes (useNw) (17A T3-01 keys on that). */
+function ShellClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
+  useEffect(() => {
+    const pinned = phaseOverride(new URLSearchParams(query));
+    const t = window.setInterval(() => {
+      const c = store.getState().channels;
+      const next = clockAt(c.clock.tick + 1);
+      store.getState().setChannels({ ...c, clock: pinned ? { ...next, phase: pinned } : next });
+    }, TICK_MS);
+    return () => window.clearInterval(t);
+  }, [store, query]);
+  return null;
+}
+
 let docStore: ReturnType<typeof createShellStore> | null = null;
 // Once per document, like docStore: the loader hooks, the saved-window restore and the save subscription. A client-side
 // deep link remounts QuayShell; re-running the restore would overwrite the live windows with the last saved snapshot
@@ -124,13 +140,6 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     const fit = () => store.getState().setViewport(window.innerWidth, window.innerHeight);
     fit();
     window.addEventListener("resize", fit);
-    // Mock clock channel: one delta per tick (5 s). The TickRing follows it; it never runs its own timer.
-    const pinned = phaseOverride(new URLSearchParams(query));
-    const t = window.setInterval(() => {
-      const c = store.getState().channels;
-      const next = clockAt(c.clock.tick + 1);
-      store.getState().setChannels({ ...c, clock: pinned ? { ...next, phase: pinned } : next });
-    }, TICK_MS);
     // Deep link /{appId}/...: after restoring saved windows, open it, or focus and front the open instance
     // (Audit A-8, 17A T4-04): openApp never creates a window past the instance cap.
     const app = route[0];
@@ -152,11 +161,12 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
       }, () => {});
     })();
     void docBoot.then(() => { if (live) deepLink(); });
-    return () => { live = false; window.removeEventListener("resize", fit); window.clearInterval(t); };
+    return () => { live = false; window.removeEventListener("resize", fit); };
   }, [store, route, query]);
 
   return (
     <ShellCtx.Provider value={store}>
+      <ShellClock store={store} query={query} />
       <Surface />
     </ShellCtx.Provider>
   );

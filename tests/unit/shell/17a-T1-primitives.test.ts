@@ -85,9 +85,10 @@ describe("T1-06 MoneyText formatting", () => {
     expect(text(est)).toBe("≈$1,284.10");
     expect(est).toContain("muted");
   });
-  it("restricted cash shows an acc-outline pill beside it", () => {
+  it("restricted cash shows a steel-outline pill beside it, never brass (Studio PF fix a)", () => {
     const m = html("500", "list", { restricted: "AD" });
-    expect(m).toMatch(/class="chip chip-acc chip-outline">AD</);
+    expect(m).toMatch(/class="chip chip-steel chip-outline">AD</);
+    expect(m).not.toContain("chip-acc");
   });
   it.each([["99950", "100k"], ["999500", "1M"], ["123456", "123k"], ["10000", "10k"], ["1234567890123456", "1234T"]])("rounds %s -> %s", (a, want) => {
     expect(abbreviateDigits(a)).toBe(want);

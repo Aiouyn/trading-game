@@ -93,7 +93,9 @@ export const intentResult: Schema<IntentResult> = obj(
   { intentId: str, tick: int, status: lit("ACCEPTED", "REJECTED", "PARTIAL", "QUEUED_NEXT") },
   { rejectCode: str, rejectParams: rec(str), effects: arr(str) },
 );
+// untilRealMs = real milliseconds REMAINING until release (int >= 0, counts down), or null when held with no date.
 const restricted: Schema<RestrictedBucket> = obj({ reason: str, amount: dec, untilRealMs: nullable(int) });
+// drawdownReal = bare decimal in percent units ("-4.2" means -4.2 %); the server never sends the "%".
 const nwStats: Schema<NwStats> = obj({ window: str, drawdownReal: dec, sharpe: nullable(dec), twrIdx: dec, bench: dec });
 const share = obj({ key: str, value: dec, sharePct: dec });
 const nwBreakdown: Schema<NwBreakdown> = obj({ byClass: arr(share), byCcy: arr(share), liabilities: dec });
