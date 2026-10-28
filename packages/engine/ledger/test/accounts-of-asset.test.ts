@@ -113,3 +113,16 @@ describe('QA #82: the by-asset index forgets closed accounts (no leak)', () => {
     expect((ix as unknown as { by: SortedMap<string, unknown> }).by.size).toBe(0);
   });
 });
+
+import { computeM0Scan } from '../src/invariants';
+describe('QA #82: LedgerApi.m0 (T04-14 peg break-back adapter)', () => {
+  it('m0(ccy) is the committed computeM0 of that currency', () => {
+    const w = fixture(), L = w.apiFor('04').ledger;
+    const m0a = L.m0('FDL');
+    L.mint('fnd_F', 5_000_000n, 'FDL', 'MAC_GENESIS_ENDOWMENT'); w.runP13();
+    const a = w.testHooks().accounts;
+    expect(L.m0('FDL')).toBe(computeM0Scan(a, 'FDL'));
+    expect(L.m0('FDL')).not.toBe(m0a);
+    expect(L.m0('EUN')).toBe(computeM0Scan(a, 'EUN'));
+  });
+});

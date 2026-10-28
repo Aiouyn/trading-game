@@ -5,7 +5,7 @@ import { FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, ReasonCatalog } from
 import { AccountIndex, advanceHoldings, advanceTotals, incrementalSide, scanHoldings, scanIndex, scanSide, scanTotals, tickIndex, totalsCrossCheck, type CcyTotals, type DirtyRow, type Totals } from './balside';
 import { canonEncode, SortedMap } from './det';
 import {
-  computePEM, dM0cbOf, INV_LED_012, postingEffect, TICK_INVARIANTS, tickFlowsOf,
+  computeM0, computePEM, dM0cbOf, INV_LED_012, postingEffect, TICK_INVARIANTS, tickFlowsOf,
   type Accounts, type Bal, type CheckView, type Failure, type TickFlows,
 } from './invariants';
 import { CCYS, mulRate, toMoney, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
@@ -51,6 +51,8 @@ export interface LedgerApi {
   committedQty(accountKey: string): Qty;
   /** T03-08 (E-79): every open account (live and dormant) whose code is quantity-bearing and whose sub is `assetId`, sorted by key. */
   accountsOfAsset(assetId: Id): readonly Account[];
+  /** QA #82 (T04-14 peg break-back): committed M0 of `ccy` (T03-11 computeM0: −Σ cbk 2001–2003 balances), micro-units. */
+  m0(ccy: Ccy): Money;
   entryOf(entryId: Id): Entry | undefined;
   /** §6.11 Δ14: owner 12 only (E-12 layer 2); opId = the SEALED op the escrow belongs to (layer 4). */
   escrowPlace(victim: Id, attacker: Id, amt: Money, ccy: Ccy, code: string, escrowId: Id, opId?: Id): Id;
@@ -382,7 +384,7 @@ export class LedgerWorld {
       balance: (k) => this.balance(k), cash: (e, c) => this.cash(e, c), available: (e, c) => this.available(e, c),
       availableFor: (e, c, p) => this.availableFor(e, c, p), position: (e, a) => this.position(e, a),
       availableQty: (e, a) => this.availableQty(e, a), netWorth: (e) => this.netWorth(e),
-      committedQty: (k) => this.committedQty(k), accountsOfAsset: (a) => this.accountsOfAsset(a),
+      committedQty: (k) => this.committedQty(k), accountsOfAsset: (a) => this.accountsOfAsset(a), m0: (c) => computeM0(this.s.accounts, c),
       entryOf: (id) => this.queue.find((e) => e.entryId === id) ?? this.s.log.find((e) => e.entryId === id),
       escrowPlace: (v, a, amt, c, k, id, op) => q(T.tplEscrowPlace(env(), v, a, amt, c, k, id, op)),
       escrowSettle: (id, ta, tv) => { const row = this.s.escrows.get(id); return row ? q(T.tplEscrowSettle(env(), row, ta, tv)) : rej('LED_UNKNOWN_ESCROW'); },
