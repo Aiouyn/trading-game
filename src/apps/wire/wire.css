@@ -1,0 +1,148 @@
+/* Wire feed (UI card 1 · WIR-A). Tokens only. Container, list and skeleton rules live in skeleton.css (shell chunk). Window >= 520 px: chip column / headline / time; narrower (phone): stacked. */
+
+/* Invisible hit area: 28 px with a pointer, 44 px on touch; the control itself never grows. */
+.wire-hit { position: relative; }
+.wire-hit::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, var(--hit-pointer));
+  height: max(100%, var(--hit-pointer));
+  translate: -50% -50%;
+}
+@media (pointer: coarse) {
+  .wire-hit::after { width: max(100%, var(--hit-touch)); height: max(100%, var(--hit-touch)); }
+}
+
+/* ---- Breaking strip ---- */
+.wire-breaking {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sp-8);
+  min-height: 32px;
+  padding: 0 var(--sp-16) 0 13px;
+  border-left: 3px solid var(--loss);
+  background: var(--win2);
+  font-size: var(--fs-12_5);
+  color: var(--fg);
+}
+.wire-breaking svg { flex: none; color: var(--loss); }
+.wire-breaking-label { flex: none; font-weight: 600; }
+.wire-breaking-hl { min-width: 0; }
+
+/* ---- Filter chips ---- */
+.wire-filters { position: relative; flex: none; border-bottom: 1px solid var(--line); }
+.wire-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  min-height: 48px;
+  padding: 0 var(--sp-16);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wire-filters::before,
+.wire-filters::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: var(--sp-16);
+  pointer-events: none;
+}
+.wire-filters::before { left: 0; background: linear-gradient(to right, var(--win), transparent); }
+.wire-filters::after { right: 0; background: linear-gradient(to left, var(--win), transparent); }
+/* The button is the hit box (28 px pointer / 44 px touch, transparent); the visible chip is its face, which never grows. */
+.wire-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--hit-pointer);
+  min-height: var(--hit-pointer);
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: var(--fs-11_5);
+  color: var(--fg-muted);
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+@media (pointer: coarse) {
+  .wire-chip { min-width: var(--hit-touch); min-height: var(--hit-touch); }
+}
+.wire-chip-face {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  padding: 2px 9px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.wire-chip[aria-checked="true"] { color: var(--fg); }
+.wire-chip[aria-checked="true"] > .wire-chip-face { background: var(--win2); }
+/* Focus: the shell's ring token (its 2 px --bg0 offset + 2 px ring) on the visible face, never on the hit box. The
+   focused chip paints above the edge fades, and scroll-margin (16 px fade + 4 px ring) keeps it clear of the scroller's edges, so the ring is
+   never clipped or faded. */
+.wire-chip { scroll-margin-inline: var(--sp-20); }
+.wire-chip:focus-visible { position: relative; z-index: 2; outline: none; }
+.wire-chip:focus-visible > .wire-chip-face { box-shadow: var(--focus-ring); }
+
+.wire-updating { flex: none; margin: 0; padding: var(--sp-4) var(--sp-16); font-size: var(--fs-11_5); color: var(--fg-muted); }
+
+/* ---- List ---- */
+.wire-pill-slot {
+  position: absolute;
+  top: var(--sp-8);
+  right: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.wire-pill { border-radius: var(--r-chip); pointer-events: auto; }
+@media (pointer: coarse) { .wire-pill.btn-sm { min-height: var(--hit-pointer); } }
+
+.wire-row {
+  display: grid;
+  grid-template-areas: "kind time" "hl hl" "meta meta";
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--sp-4) var(--sp-8);
+  min-height: 40px;
+  padding: 10px var(--sp-16) 11px;
+  border-bottom: 1px solid var(--line);
+  background: var(--win);
+}
+.wire-row.is-new { animation: wire-in var(--dur-base) var(--ease-out); }
+@keyframes wire-in { from { opacity: 0; } }
+.wire-row-kind { grid-area: kind; min-width: 0; }
+.wire-row-kind .chip { max-width: 100%; white-space: normal; }
+.wire-row-hl { grid-area: hl; margin: 0; font-size: var(--fs-13); line-height: 1.35; color: var(--fg); overflow-wrap: normal; word-break: normal; }
+.wire-row-time { grid-area: time; justify-self: end; font-family: var(--font-num); font-size: var(--fs-10_5); color: var(--fg-muted); white-space: nowrap; }
+.wire-row-meta { grid-area: meta; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4) var(--sp-8); font-size: var(--fs-11_5); }
+.wire-row-meta:empty { display: none; }
+.wire-entity { color: var(--fg); }
+.wire-entity:hover { text-decoration: underline; }
+.wire-record,
+.wire-asof { color: var(--fg-muted); }
+.wire-priced { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.chip.wire-band { border-color: var(--steel); color: var(--fg); }
+
+/* Kind chips are all neutral (.chip: --line outline, --fg-muted text); RUMOR is dashed. No brass, never --signal. */
+.chip.wire-kind-rumor { border-style: dashed; }
+
+.wire-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); margin: 0; padding: var(--sp-24) var(--sp-16); color: var(--fg-muted); }
+
+@container wire (min-width: 520px) {
+  .wire-chips { flex-wrap: wrap; gap: var(--sp-8); min-height: 0; padding: var(--sp-8) var(--sp-16); overflow-x: visible; }
+  .wire-filters::before,
+  .wire-filters::after { display: none; }
+  .wire-row { grid-template-areas: "kind hl time" ". meta ."; grid-template-columns: 96px minmax(0, 1fr) auto; }
+}

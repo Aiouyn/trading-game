@@ -1,0 +1,1055 @@
+{
+  "catalogVersion": 1,
+  "districts": [
+    {
+      "distId": "dst_port_avalon_eastside_docks",
+      "cityId": "cty_port_avalon",
+      "name": "Eastside Docks",
+      "tier": "working",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_the_coal_crane",
+      "landmarkBrief": "a riveted harbour crane kept as a monument"
+    },
+    {
+      "distId": "dst_port_avalon_industrial_basin",
+      "cityId": "cty_port_avalon",
+      "name": "Industrial Basin",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_basin_gasworks",
+      "landmarkBrief": "brick gasholder frames turned into a market hall"
+    },
+    {
+      "distId": "dst_port_avalon_old_harbor",
+      "cityId": "cty_port_avalon",
+      "name": "Old Harbor",
+      "tier": "mid",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_old_harbor_lighthouse",
+      "landmarkBrief": "the first light of the bay"
+    },
+    {
+      "distId": "dst_port_avalon_riverside_lofts",
+      "cityId": "cty_port_avalon",
+      "name": "Riverside Lofts",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_ironworks_bridge",
+      "landmarkBrief": "a lattice bridge over the river mouth"
+    },
+    {
+      "distId": "dst_port_avalon_midtown",
+      "cityId": "cty_port_avalon",
+      "name": "Midtown",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_union_station",
+      "landmarkBrief": "the domed rail terminus"
+    },
+    {
+      "distId": "dst_port_avalon_financial_mile",
+      "cityId": "cty_port_avalon",
+      "name": "Financial Mile",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_port_avalon_exchange_building",
+      "landmarkBrief": "columned hall of the exchange (CBD)"
+    },
+    {
+      "distId": "dst_port_avalon_glasshill",
+      "cityId": "cty_port_avalon",
+      "name": "Glasshill",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_glasshill_observatory",
+      "landmarkBrief": "copper-domed observatory over the bay"
+    },
+    {
+      "distId": "dst_port_avalon_summit_estates_on_gilt_hill",
+      "cityId": "cty_port_avalon",
+      "name": "Summit Estates on Gilt Hill",
+      "tier": "trophy",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_gilt_hill_gates",
+      "landmarkBrief": "wrought gates at the summit road"
+    },
+    {
+      "distId": "dst_lakemont_rail_yards",
+      "cityId": "cty_lakemont",
+      "name": "Rail Yards",
+      "tier": "working",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_roundhouse_market",
+      "landmarkBrief": "a locomotive roundhouse turned food hall"
+    },
+    {
+      "distId": "dst_lakemont_northshore",
+      "cityId": "cty_lakemont",
+      "name": "Northshore",
+      "tier": "mid",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_northshore_pier",
+      "landmarkBrief": "a timber pier with a carousel"
+    },
+    {
+      "distId": "dst_lakemont_campus_quarter",
+      "cityId": "cty_lakemont",
+      "name": "Campus Quarter",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_university_tower",
+      "landmarkBrief": "the clock tower of Lakemont University"
+    },
+    {
+      "distId": "dst_lakemont_old_town",
+      "cityId": "cty_lakemont",
+      "name": "Old Town",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_clockmakers_hall",
+      "landmarkBrief": "guild hall of the clockmakers"
+    },
+    {
+      "distId": "dst_lakemont_lakefront",
+      "cityId": "cty_lakemont",
+      "name": "Lakefront",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_lakefront_spire",
+      "landmarkBrief": "the tallest tower on the lake (CBD)"
+    },
+    {
+      "distId": "dst_lakemont_cedar_point",
+      "cityId": "cty_lakemont",
+      "name": "Cedar Point",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_cedar_point_light",
+      "landmarkBrief": "a lake lighthouse among cedars"
+    },
+    {
+      "distId": "dst_lakemont_the_bluffs",
+      "cityId": "cty_lakemont",
+      "name": "The Bluffs",
+      "tier": "trophy",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_bluffs_overlook",
+      "landmarkBrief": "a cliff-top terrace over the lake"
+    },
+    {
+      "distId": "dst_redmesa_powerline_flats",
+      "cityId": "cty_redmesa",
+      "name": "Powerline Flats",
+      "tier": "working",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_substation_seven",
+      "landmarkBrief": "a lattice substation lit at night"
+    },
+    {
+      "distId": "dst_redmesa_depot_district",
+      "cityId": "cty_redmesa",
+      "name": "Depot District",
+      "tier": "working",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_freight_depot_clocktower",
+      "landmarkBrief": "the old freight depot"
+    },
+    {
+      "distId": "dst_redmesa_mesa_heights",
+      "cityId": "cty_redmesa",
+      "name": "Mesa Heights",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_mesa_water_tower",
+      "landmarkBrief": "a painted water tower"
+    },
+    {
+      "distId": "dst_redmesa_sunwell",
+      "cityId": "cty_redmesa",
+      "name": "Sunwell",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_sunwell_solar_arch",
+      "landmarkBrief": "an arch of solar panels over the main street"
+    },
+    {
+      "distId": "dst_redmesa_canyon_row",
+      "cityId": "cty_redmesa",
+      "name": "Canyon Row",
+      "tier": "mid",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_canyon_row_arcade",
+      "landmarkBrief": "a shaded arcade along the canyon rim"
+    },
+    {
+      "distId": "dst_redmesa_central_plaza",
+      "cityId": "cty_redmesa",
+      "name": "Central Plaza",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_redmesa_capitol_plaza",
+      "landmarkBrief": "the plaza before the old capitol (CBD)"
+    },
+    {
+      "distId": "dst_redmesa_saguaro_hills",
+      "cityId": "cty_redmesa",
+      "name": "Saguaro Hills",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_saguaro_botanical_dome",
+      "landmarkBrief": "a glass dome of desert plants"
+    },
+    {
+      "distId": "dst_meridia_arsenal_yards",
+      "cityId": "cty_meridia",
+      "name": "Arsenal Yards",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_the_old_arsenal",
+      "landmarkBrief": "walled shipyards of the old navy"
+    },
+    {
+      "distId": "dst_meridia_lido_strand",
+      "cityId": "cty_meridia",
+      "name": "Lido Strand",
+      "tier": "mid",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_lido_bathhouse",
+      "landmarkBrief": "a striped bathhouse on the sand bar"
+    },
+    {
+      "distId": "dst_meridia_mainland_gate",
+      "cityId": "cty_meridia",
+      "name": "Mainland Gate",
+      "tier": "mid",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_causeway_gate",
+      "landmarkBrief": "the gate at the end of the causeway"
+    },
+    {
+      "distId": "dst_meridia_business_district",
+      "cityId": "cty_meridia",
+      "name": "Business District",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_bourse_of_the_compact",
+      "landmarkBrief": "the bourse and the central bank on one square (CBD)"
+    },
+    {
+      "distId": "dst_meridia_san_telmo_islands",
+      "cityId": "cty_meridia",
+      "name": "San Telmo Islands",
+      "tier": "mid",
+      "terrainRole": "island",
+      "heritage": true,
+      "landmarkId": "lmk_san_telmo_bell_tower",
+      "landmarkBrief": "a leaning brick bell tower"
+    },
+    {
+      "distId": "dst_meridia_rialto_court",
+      "cityId": "cty_meridia",
+      "name": "Rialto Court",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": true,
+      "landmarkId": "lmk_court_of_the_merchants",
+      "landmarkBrief": "arcaded merchants' court, seat of the Meridian Civil Court"
+    },
+    {
+      "distId": "dst_meridia_grand_canal",
+      "cityId": "cty_meridia",
+      "name": "Grand Canal",
+      "tier": "trophy",
+      "terrainRole": "waterfront",
+      "heritage": true,
+      "landmarkId": "lmk_palazzo_serrano",
+      "landmarkBrief": "a marble palazzo on the great canal"
+    },
+    {
+      "distId": "dst_meridia_new_lagoon",
+      "cityId": "cty_meridia",
+      "name": "New Lagoon",
+      "tier": "mid",
+      "terrainRole": "reclaimed",
+      "heritage": false,
+      "landmarkId": "lmk_lagoon_barrier_locks",
+      "landmarkBrief": "the tide barrier that protects the lagoon"
+    },
+    {
+      "distId": "dst_valcourt_foundry_bank",
+      "cityId": "cty_valcourt",
+      "name": "Foundry Bank",
+      "tier": "working",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_great_foundry_chimney",
+      "landmarkBrief": "the last chimney of the iron foundries"
+    },
+    {
+      "distId": "dst_valcourt_lock_quarter",
+      "cityId": "cty_valcourt",
+      "name": "Lock Quarter",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_lock_nine",
+      "landmarkBrief": "a staircase of river locks"
+    },
+    {
+      "distId": "dst_valcourt_cathedral_rise",
+      "cityId": "cty_valcourt",
+      "name": "Cathedral Rise",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_valcourt_cathedral",
+      "landmarkBrief": "twin-spired cathedral"
+    },
+    {
+      "distId": "dst_valcourt_atelier_row",
+      "cityId": "cty_valcourt",
+      "name": "Atelier Row",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_velour_maison_atelier",
+      "landmarkBrief": "the couture house's glass-roofed workshop"
+    },
+    {
+      "distId": "dst_valcourt_bourse_square",
+      "cityId": "cty_valcourt",
+      "name": "Bourse Square",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_valcourt_bourse_hall",
+      "landmarkBrief": "the old regional bourse (CBD)"
+    },
+    {
+      "distId": "dst_valcourt_southern_mills",
+      "cityId": "cty_valcourt",
+      "name": "Southern Mills",
+      "tier": "working",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_southern_mill_wheel",
+      "landmarkBrief": "a working undershot mill wheel"
+    },
+    {
+      "distId": "dst_valcourt_parkside",
+      "cityId": "cty_valcourt",
+      "name": "Parkside",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_parkside_conservatory",
+      "landmarkBrief": "an iron-and-glass palm house"
+    },
+    {
+      "distId": "dst_belmara_station_quarter",
+      "cityId": "cty_belmara",
+      "name": "Station Quarter",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_belmara_central_station",
+      "landmarkBrief": "an alpine station with a clock gable"
+    },
+    {
+      "distId": "dst_belmara_old_spa",
+      "cityId": "cty_belmara",
+      "name": "Old Spa",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": true,
+      "landmarkId": "lmk_thermal_baths_of_belmara",
+      "landmarkBrief": "domed thermal baths, seat of the Appeals Chamber nearby"
+    },
+    {
+      "distId": "dst_belmara_lakeside_promenade",
+      "cityId": "cty_belmara",
+      "name": "Lakeside Promenade",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_kursaal_concert_hall",
+      "landmarkBrief": "a lakeside concert hall (CBD)"
+    },
+    {
+      "distId": "dst_belmara_vineyard_slopes",
+      "cityId": "cty_belmara",
+      "name": "Vineyard Slopes",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_slopes_funicular",
+      "landmarkBrief": "a funicular through the vines"
+    },
+    {
+      "distId": "dst_belmara_pinecrest",
+      "cityId": "cty_belmara",
+      "name": "Pinecrest",
+      "tier": "trophy",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_pinecrest_chalet_row",
+      "landmarkBrief": "a row of historic timber chalets"
+    },
+    {
+      "distId": "dst_belmara_valley_works",
+      "cityId": "cty_belmara",
+      "name": "Valley Works",
+      "tier": "working",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_valley_hydro_dam",
+      "landmarkBrief": "an arched dam at the valley head"
+    },
+    {
+      "distId": "dst_kaiyo_harbor_freight",
+      "cityId": "cty_kaiyo",
+      "name": "Harbor Freight",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_container_gantries",
+      "landmarkBrief": "a line of giant container cranes"
+    },
+    {
+      "distId": "dst_kaiyo_neon_ward",
+      "cityId": "cty_kaiyo",
+      "name": "Neon Ward",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_neon_ward_night_market",
+      "landmarkBrief": "a night market under neon signs"
+    },
+    {
+      "distId": "dst_kaiyo_delta_markets",
+      "cityId": "cty_kaiyo",
+      "name": "Delta Markets",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_delta_fish_market",
+      "landmarkBrief": "the dawn fish auction hall"
+    },
+    {
+      "distId": "dst_kaiyo_loop_central",
+      "cityId": "cty_kaiyo",
+      "name": "Loop Central",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_loop_central_station_tower",
+      "landmarkBrief": "the rail-loop hub tower (CBD)"
+    },
+    {
+      "distId": "dst_kaiyo_reclaim_grid",
+      "cityId": "cty_kaiyo",
+      "name": "Reclaim Grid",
+      "tier": "mid",
+      "terrainRole": "reclaimed",
+      "heritage": false,
+      "landmarkId": "lmk_seawall_park",
+      "landmarkBrief": "a park on the reclaimed seawall"
+    },
+    {
+      "distId": "dst_kaiyo_shinbashi_heights",
+      "cityId": "cty_kaiyo",
+      "name": "Shinbashi Heights",
+      "tier": "trophy",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_shinbashi_sky_garden",
+      "landmarkBrief": "a garden bridge between two towers"
+    },
+    {
+      "distId": "dst_kaiyo_riverbend",
+      "cityId": "cty_kaiyo",
+      "name": "Riverbend",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_riverbend_shrine",
+      "landmarkBrief": "a red-gated shrine at the river bend"
+    },
+    {
+      "distId": "dst_kaiyo_shiomi_docks",
+      "cityId": "cty_kaiyo",
+      "name": "Shiomi Docks",
+      "tier": "working",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_shiomi_drydock",
+      "landmarkBrief": "a stone drydock still in use"
+    },
+    {
+      "distId": "dst_tessan_fab_island",
+      "cityId": "cty_tessan",
+      "name": "Fab Island",
+      "tier": "working",
+      "terrainRole": "island",
+      "heritage": false,
+      "landmarkId": "lmk_fab_one_cleanroom_hall",
+      "landmarkBrief": "the white hall of the first fab"
+    },
+    {
+      "distId": "dst_tessan_delta_wharf",
+      "cityId": "cty_tessan",
+      "name": "Delta Wharf",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_delta_wharf_cranes",
+      "landmarkBrief": "river-sea transfer cranes"
+    },
+    {
+      "distId": "dst_tessan_market_bridge",
+      "cityId": "cty_tessan",
+      "name": "Market Bridge",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_market_bridge",
+      "landmarkBrief": "a covered bridge lined with stalls"
+    },
+    {
+      "distId": "dst_tessan_old_ward",
+      "cityId": "cty_tessan",
+      "name": "Old Ward",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": true,
+      "landmarkId": "lmk_old_ward_pagoda",
+      "landmarkBrief": "a nine-storey pagoda"
+    },
+    {
+      "distId": "dst_tessan_tower_bund",
+      "cityId": "cty_tessan",
+      "name": "Tower Bund",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_bund_clocktower",
+      "landmarkBrief": "the clocktower of the riverfront bund (CBD)"
+    },
+    {
+      "distId": "dst_tessan_hillgarden",
+      "cityId": "cty_tessan",
+      "name": "Hillgarden",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_hillgarden_tea_terraces",
+      "landmarkBrief": "stepped tea terraces above the delta"
+    },
+    {
+      "distId": "dst_tessan_canal_homes",
+      "cityId": "cty_tessan",
+      "name": "Canal Homes",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_canal_lantern_walk",
+      "landmarkBrief": "a canal path lit by lanterns"
+    },
+    {
+      "distId": "dst_mirako_terrace_steps",
+      "cityId": "cty_mirako",
+      "name": "Terrace Steps",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": true,
+      "landmarkId": "lmk_thousand_steps",
+      "landmarkBrief": "a stone stairway through the terraces"
+    },
+    {
+      "distId": "dst_mirako_temple_hill",
+      "cityId": "cty_mirako",
+      "name": "Temple Hill",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": true,
+      "landmarkId": "lmk_temple_of_the_mountain_gate",
+      "landmarkBrief": "the summit temple"
+    },
+    {
+      "distId": "dst_mirako_riverside_arcades",
+      "cityId": "cty_mirako",
+      "name": "Riverside Arcades",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_riverside_covered_arcade",
+      "landmarkBrief": "a covered shopping arcade on the river"
+    },
+    {
+      "distId": "dst_mirako_station_center",
+      "cityId": "cty_mirako",
+      "name": "Station Center",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_mirako_grand_station",
+      "landmarkBrief": "the station and plaza (CBD)"
+    },
+    {
+      "distId": "dst_mirako_kiln_yard",
+      "cityId": "cty_mirako",
+      "name": "Kiln Yard",
+      "tier": "working",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_old_kiln_chimneys",
+      "landmarkBrief": "a cluster of pottery kiln chimneys"
+    },
+    {
+      "distId": "dst_mirako_maple_slopes",
+      "cityId": "cty_mirako",
+      "name": "Maple Slopes",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_maple_slopes_ropeway",
+      "landmarkBrief": "a cable car over the maples"
+    },
+    {
+      "distId": "dst_nordhaven_harbor_works",
+      "cityId": "cty_nordhaven",
+      "name": "Harbor Works",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_shipyard_crane",
+      "landmarkBrief": "the yellow shipyard crane"
+    },
+    {
+      "distId": "dst_nordhaven_gamla_town",
+      "cityId": "cty_nordhaven",
+      "name": "Gamla Town",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": true,
+      "landmarkId": "lmk_gamla_town_hall",
+      "landmarkBrief": "a stepped-gable town hall"
+    },
+    {
+      "distId": "dst_nordhaven_terrace_row",
+      "cityId": "cty_nordhaven",
+      "name": "Terrace Row",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_terrace_row_steps",
+      "landmarkBrief": "painted terraces up the slope"
+    },
+    {
+      "distId": "dst_nordhaven_fjord_quarter",
+      "cityId": "cty_nordhaven",
+      "name": "Fjord Quarter",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_fjord_baths",
+      "landmarkBrief": "floating sea baths"
+    },
+    {
+      "distId": "dst_nordhaven_opera_quay",
+      "cityId": "cty_nordhaven",
+      "name": "Opera Quay",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_nordhaven_opera_house",
+      "landmarkBrief": "an opera house sloping into the fjord (CBD)"
+    },
+    {
+      "distId": "dst_nordhaven_birch_hills",
+      "cityId": "cty_nordhaven",
+      "name": "Birch Hills",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_birch_hills_ski_jump",
+      "landmarkBrief": "a ski jump over the city"
+    },
+    {
+      "distId": "dst_nordhaven_isle_mouth",
+      "cityId": "cty_nordhaven",
+      "name": "Isle Mouth",
+      "tier": "working",
+      "terrainRole": "island",
+      "heritage": false,
+      "landmarkId": "lmk_isle_mouth_fortress",
+      "landmarkBrief": "a star fort at the fjord mouth"
+    },
+    {
+      "distId": "dst_skarvik_rig_yards",
+      "cityId": "cty_skarvik",
+      "name": "Rig Yards",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_rig_yard_gantry",
+      "landmarkBrief": "the gantry that builds offshore rigs"
+    },
+    {
+      "distId": "dst_skarvik_herring_quay",
+      "cityId": "cty_skarvik",
+      "name": "Herring Quay",
+      "tier": "mid",
+      "terrainRole": "waterfront",
+      "heritage": true,
+      "landmarkId": "lmk_herring_salt_houses",
+      "landmarkBrief": "red salting houses on stilts"
+    },
+    {
+      "distId": "dst_skarvik_rockside",
+      "cityId": "cty_skarvik",
+      "name": "Rockside",
+      "tier": "mid",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_rockside_chapel",
+      "landmarkBrief": "a granite chapel on bare rock"
+    },
+    {
+      "distId": "dst_skarvik_harbor_exchange",
+      "cityId": "cty_skarvik",
+      "name": "Harbor Exchange",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_energy_exchange_hall",
+      "landmarkBrief": "the energy trading hall (CBD)"
+    },
+    {
+      "distId": "dst_skarvik_skerries",
+      "cityId": "cty_skarvik",
+      "name": "Skerries",
+      "tier": "prime",
+      "terrainRole": "island",
+      "heritage": false,
+      "landmarkId": "lmk_skerry_lighthouse",
+      "landmarkBrief": "a lighthouse on the outer skerry"
+    },
+    {
+      "distId": "dst_skarvik_northfield",
+      "cityId": "cty_skarvik",
+      "name": "Northfield",
+      "tier": "working",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_northfield_gas_terminal",
+      "landmarkBrief": "spherical gas tanks by the sea"
+    },
+    {
+      "distId": "dst_vintra_turbine_valley",
+      "cityId": "cty_vintra",
+      "name": "Turbine Valley",
+      "tier": "working",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_turbine_hall_one",
+      "landmarkBrief": "the first hydro turbine hall"
+    },
+    {
+      "distId": "dst_vintra_lakeside",
+      "cityId": "cty_vintra",
+      "name": "Lakeside",
+      "tier": "mid",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_vintra_lake_pier",
+      "landmarkBrief": "a long timber pier"
+    },
+    {
+      "distId": "dst_vintra_old_mill",
+      "cityId": "cty_vintra",
+      "name": "Old Mill",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_old_paper_mill",
+      "landmarkBrief": "a brick paper mill turned studios"
+    },
+    {
+      "distId": "dst_vintra_vintra_center",
+      "cityId": "cty_vintra",
+      "name": "Vintra Center",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_town_square_clock",
+      "landmarkBrief": "the square's iron clock (CBD)"
+    },
+    {
+      "distId": "dst_vintra_spruce_ridge",
+      "cityId": "cty_vintra",
+      "name": "Spruce Ridge",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_spruce_ridge_lodge",
+      "landmarkBrief": "a log lodge on the ridge"
+    },
+    {
+      "distId": "dst_vintra_hydro_flats",
+      "cityId": "cty_vintra",
+      "name": "Hydro Flats",
+      "tier": "working",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_vintra_dam",
+      "landmarkBrief": "the great dam above the town"
+    },
+    {
+      "distId": "dst_sundara_sunset_strip",
+      "cityId": "cty_sundara",
+      "name": "Sunset Strip",
+      "tier": "working",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_sunset_boardwalk",
+      "landmarkBrief": "a boardwalk of food stalls"
+    },
+    {
+      "distId": "dst_sundara_coastal_spine",
+      "cityId": "cty_sundara",
+      "name": "Coastal Spine",
+      "tier": "mid",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_coastal_highway_arch",
+      "landmarkBrief": "the arch over the coast road"
+    },
+    {
+      "distId": "dst_sundara_hill_barrios",
+      "cityId": "cty_sundara",
+      "name": "Hill Barrios",
+      "tier": "working",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_barrio_murals_stair",
+      "landmarkBrief": "a stair painted with murals"
+    },
+    {
+      "distId": "dst_sundara_marina_quarter",
+      "cityId": "cty_sundara",
+      "name": "Marina Quarter",
+      "tier": "mid",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_marina_lighthouse",
+      "landmarkBrief": "the marina's harbour light"
+    },
+    {
+      "distId": "dst_sundara_palm_bay",
+      "cityId": "cty_sundara",
+      "name": "Palm Bay",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_palm_bay_pier",
+      "landmarkBrief": "a white pier and pavilion"
+    },
+    {
+      "distId": "dst_sundara_ocean_towers",
+      "cityId": "cty_sundara",
+      "name": "Ocean Towers",
+      "tier": "prime",
+      "terrainRole": "waterfront",
+      "heritage": false,
+      "landmarkId": "lmk_coalition_exchange_tower",
+      "landmarkBrief": "the exchange tower (CBD)"
+    },
+    {
+      "distId": "dst_sundara_cliffside",
+      "cityId": "cty_sundara",
+      "name": "Cliffside",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_cliffside_lookout",
+      "landmarkBrief": "a lookout over the surf"
+    },
+    {
+      "distId": "dst_cobreval_smelter_flats",
+      "cityId": "cty_cobreval",
+      "name": "Smelter Flats",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_great_smelter_stack",
+      "landmarkBrief": "the tallest smelter chimney"
+    },
+    {
+      "distId": "dst_cobreval_ore_docks",
+      "cityId": "cty_cobreval",
+      "name": "Ore Docks",
+      "tier": "working",
+      "terrainRole": "industrial_shore",
+      "heritage": false,
+      "landmarkId": "lmk_ore_loading_pier",
+      "landmarkBrief": "a long ore pier with conveyors"
+    },
+    {
+      "distId": "dst_cobreval_old_town_hill",
+      "cityId": "cty_cobreval",
+      "name": "Old Town Hill",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": true,
+      "landmarkId": "lmk_cobreval_funicular",
+      "landmarkBrief": "a funicular up the old town"
+    },
+    {
+      "distId": "dst_cobreval_plaza_mayor",
+      "cityId": "cty_cobreval",
+      "name": "Plaza Mayor",
+      "tier": "prime",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_cobreval_cabildo",
+      "landmarkBrief": "the arcaded town council (CBD)"
+    },
+    {
+      "distId": "dst_cobreval_copper_terraces",
+      "cityId": "cty_cobreval",
+      "name": "Copper Terraces",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_copper_dome_church",
+      "landmarkBrief": "a church with a green copper dome"
+    },
+    {
+      "distId": "dst_cobreval_mirador",
+      "cityId": "cty_cobreval",
+      "name": "Mirador",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_mirador_balcony",
+      "landmarkBrief": "a terrace over the bay"
+    },
+    {
+      "distId": "dst_cobreval_riverside_colonia",
+      "cityId": "cty_cobreval",
+      "name": "Riverside Colonia",
+      "tier": "mid",
+      "terrainRole": "riverside",
+      "heritage": false,
+      "landmarkId": "lmk_colonia_river_market",
+      "landmarkBrief": "a river market under tin roofs"
+    },
+    {
+      "distId": "dst_alta_verde_market_valley",
+      "cityId": "cty_alta_verde",
+      "name": "Market Valley",
+      "tier": "working",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_valley_wholesale_market",
+      "landmarkBrief": "the great produce market"
+    },
+    {
+      "distId": "dst_alta_verde_government_hill",
+      "cityId": "cty_alta_verde",
+      "name": "Government Hill",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_coalition_congress_palace",
+      "landmarkBrief": "the congress and central bank (CBD)"
+    },
+    {
+      "distId": "dst_alta_verde_colonial_center",
+      "cityId": "cty_alta_verde",
+      "name": "Colonial Center",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": true,
+      "landmarkId": "lmk_colonial_cathedral",
+      "landmarkBrief": "a baroque cathedral"
+    },
+    {
+      "distId": "dst_alta_verde_coffee_slopes",
+      "cityId": "cty_alta_verde",
+      "name": "Coffee Slopes",
+      "tier": "mid",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_coffee_exchange_hacienda",
+      "landmarkBrief": "the old coffee exchange house"
+    },
+    {
+      "distId": "dst_alta_verde_highland_park",
+      "cityId": "cty_alta_verde",
+      "name": "Highland Park",
+      "tier": "prime",
+      "terrainRole": "hill",
+      "heritage": false,
+      "landmarkId": "lmk_highland_observatory",
+      "landmarkBrief": "an observatory in the park"
+    },
+    {
+      "distId": "dst_alta_verde_southern_ring",
+      "cityId": "cty_alta_verde",
+      "name": "Southern Ring",
+      "tier": "working",
+      "terrainRole": "edge",
+      "heritage": false,
+      "landmarkId": "lmk_southern_ring_bus_terminal",
+      "landmarkBrief": "a modernist bus terminal"
+    },
+    {
+      "distId": "dst_alta_verde_university_mesa",
+      "cityId": "cty_alta_verde",
+      "name": "University Mesa",
+      "tier": "mid",
+      "terrainRole": "flat_center",
+      "heritage": false,
+      "landmarkId": "lmk_university_mesa_library",
+      "landmarkBrief": "a library with a mosaic facade"
+    },
+    {
+      "distId": "dst_isla_serena_the_cays",
+      "cityId": "cty_isla_serena",
+      "name": "The Cays",
+      "tier": "trophy",
+      "terrainRole": "island",
+      "heritage": false,
+      "landmarkId": "lmk_serena_lighthouse_key",
+      "landmarkBrief": "a lighthouse on the central key"
+    }
+  ]
+}

@@ -2,16 +2,21 @@
 import { toMoney, type Money } from '@tycoon/engine-core';
 import type { ParamsView } from '@tycoon/params';
 import cities from '../data/cities.json' with { type: 'json' };
+import districtsFile from '../data/districts.json' with { type: 'json' };
 import dynasties from '../data/dynasties.json' with { type: 'json' };
 import finInstitutions from '../data/fin_institutions.json' with { type: 'json' };
 import indices from '../data/indices.json' with { type: 'json' };
 import institutions from '../data/institutions.json' with { type: 'json' };
 import instruments from '../data/instruments.json' with { type: 'json' };
+import personalitiesFile from '../data/personalities.json' with { type: 'json' };
 import releases from '../data/releases.json' with { type: 'json' };
 import world from '../data/world.json' with { type: 'json' };
 import { BLOC_ALIAS_04, BLOC_IDS, canonicalBloc, ContentError, isBlocId, type BlocAlias04, type BlocId } from './blocs';
 import { PE_NORM0_MAX, PE_NORM0_MIN, PE_NORM0_TOL, peNorm0Of, SECTOR_IDS, sortedIds } from './derived';
+import { buildGeo, type CityPersonality, type CityProfile, type DistrictContent, type DistrictRow, type PersonalityRow, type ProfileRow } from './geo';
 import { contentHashOf, deepFreeze } from './hash';
+
+export type { CityPersonality, CityProfile, DistrictContent, DistrictFlag, DistrictTier, PerilClass, TerrainRole } from './geo';
 
 export type SectorId = 'TECH'|'SEMI'|'ENERGY'|'MATERIALS'|'INDUSTRIALS'|'FINANCIALS'|'HEALTH'|'STAPLES'|'DISCRETIONARY'|'REAL_ESTATE'|'MEDIA'|'SECURITY';
 export interface BlocContent { blocId: BlocId; alias04: BlocAlias04; name: string; currencyName: string; code: BlocId;
@@ -44,6 +49,12 @@ export interface ContentView {
   fxAssetId(ccy: Exclude<BlocId,'FDL'>): string;
   equities(): readonly EquityContent[];
   realFields(catalog: string): readonly string[];
+  /** T22A-02: 22 §3.3 row order, filtered when cityId is given. */
+  districts(cityId?: string): readonly DistrictContent[];
+  /** T22A-02: 16 ids incl. cty_isla_serena; unknown id throws CONTENT_UNKNOWN_CITY. */
+  personality(cityId: string): CityPersonality;
+  /** T22A-02: 16 ids incl. cty_isla_serena; unknown id throws CONTENT_UNKNOWN_CITY. */
+  cityProfile(cityId: string): CityProfile;
 }
 export interface ContentOverrides { base: 'full'; patch: Readonly<Record<string, unknown>> }
 
@@ -59,10 +70,11 @@ interface IndexRow { indexId: string; name: string; sectorId?: string; bloc?: st
 
 /** The shipped files, keyed by file name (sorted by cmpStr; canon sorts them again). */
 export const FULL_FILES: Readonly<Record<string, unknown>> = deepFreeze({
-  'cities.json': cities, 'dynasties.json': dynasties, 'fin_institutions.json': finInstitutions, 'indices.json': indices, 'institutions.json': institutions,
-  'instruments.json': instruments, 'releases.json': releases, 'world.json': world,
+  'cities.json': cities, 'districts.json': districtsFile, 'dynasties.json': dynasties, 'fin_institutions.json': finInstitutions, 'indices.json': indices, 'institutions.json': institutions,
+  'instruments.json': instruments, 'personalities.json': personalitiesFile, 'releases.json': releases, 'world.json': world,
 });
-const FILE_NAMES: readonly string[] = ['cities.json', 'dynasties.json', 'fin_institutions.json', 'indices.json', 'institutions.json', 'instruments.json', 'releases.json', 'world.json'];
+const FILE_NAMES: readonly string[] = ['cities.json', 'districts.json', 'dynasties.json', 'fin_institutions.json', 'indices.json', 'institutions.json', 'instruments.json',
+  'personalities.json', 'releases.json', 'world.json'];
 
 /** 22 explicitly labels no column of these catalogs as real (22 §0.1 rule 2: money columns are nominal genesis FDL). */
 const REAL_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({});
@@ -216,8 +228,14 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
   const tch = sortedIds([...sibs, ...blocIds.map((b) => COMMERCIAL_A[b]), ...DEALERS, 'npc_VAULTCLR', 'bnk_serena']);
   const fxIds = fxRows.map((r) => r.assetId);
 
+  // ---- T22A-02 geography ----
+  const geo = buildGeo(cityRows.map((c) => c.cityId), rows<DistrictRow>(files['districts.json'], 'districts'),
+    rows<PersonalityRow>(files['personalities.json'], 'personalities'), cityRows as unknown as ProfileRow[]);
+  const cityKnown = <T extends { cityId: string }>(xs: readonly T[], id: string): T =>
+    xs.find((x) => x.cityId === id) ?? fail('CONTENT_UNKNOWN_CITY', `unknown city ${id}`);
+
   const need = <T>(x: T | undefined, what: string): T => x ?? fail('CONTENT_NOT_IN_SUBSET', what);
-  const D = deepFreeze({ blocsOut, citiesOut, serenaOut, banksOut, sectorsOut, indexOut, releasesOut, dealersOut, tch, catalogVersions });
+  const D = deepFreeze({ geo, districtsByCity: Object.fromEntries(geo.profiles.map((p) => [p.cityId, geo.districts.filter((d) => d.cityId === p.cityId)])), blocsOut, citiesOut, serenaOut, banksOut, sectorsOut, indexOut, releasesOut, dealersOut, tch, catalogVersions });
   return Object.freeze({
     contentHash,
     catalogVersions: D.catalogVersions,
@@ -242,6 +260,13 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
     },
     equities: eqFn,
     realFields: (catalog: string) => REAL_FIELDS[catalog] ?? EMPTY,
+    districts: (cityId?: string) => {
+      if (cityId === undefined) return D.geo.districts;
+      cityKnown(D.geo.profiles, cityId);
+      return D.districtsByCity[cityId]!;
+    },
+    personality: (cityId: string) => cityKnown(D.geo.personalities, cityId),
+    cityProfile: (cityId: string) => cityKnown(D.geo.profiles, cityId),
   });
 }
 const EMPTY: readonly string[] = Object.freeze([]);

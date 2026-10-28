@@ -38,8 +38,12 @@ test("T3-01 sweep restarts within one frame of each tick; with ticks stopped 12 
     const w = window as unknown as { __tickArmed: boolean; __tickProbes: Animation[] };
     w.__tickArmed = false; w.__tickProbes = [];
     const orig = window.setInterval;
+    // Only the first 5 s interval is the shell clock (QuayShell mounts before any app); the mock news feed the Wire
+    // window opens (WIR-A) also ticks every 5 s and must not add probes.
+    let wrapped = false;
     (window as unknown as { setInterval: unknown }).setInterval = (cb: TimerHandler, ms?: number, ...rest: unknown[]) => {
-      if (ms !== 5000 || typeof cb !== "function") return orig(cb, ms, ...rest);
+      if (ms !== 5000 || typeof cb !== "function" || wrapped) return orig(cb, ms, ...rest);
+      wrapped = true;
       return orig(() => {
         if (w.__tickArmed) {
           const el = document.createElement("i"); el.style.cssText = "position:fixed;width:0;height:0;"; document.documentElement.append(el);
