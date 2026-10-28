@@ -48,6 +48,7 @@ async function shot(page: Page, state: string) {
   for (let i = 0; i < 200 && (await ticks(page)) < SHOT_TICK; i++) await page.clock.runFor(100);
   await page.evaluate(() => { (window as unknown as { brHold: boolean }).brHold = true; });
   expect(await ticks(page), "feed ticks seen before the shot").toBe(SHOT_TICK);
+  await page.mouse.move(0, page.viewportSize()!.height - 1); // winShot's own move, made early so its hover-out ends first
   await still(page);
   await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR);
 }
@@ -70,7 +71,7 @@ async function toNews(page: Page) {
   await until(page, async () => (await page.locator('[data-testid="ap-news"], [data-testid="ap-news-error"]').count()) > 0);
 }
 /**
- * Before a shot: wait out CSS transitions (theme swap colours on every button, shell.css; hover after a drag). They run
+ * Before a shot: wait out CSS transitions (theme swap colours on every button, shell.css; hover-out of the last click). They run
  * on real time, not the paused clock, and one can start a beat after another ends, so wait until two real-time checks
  * 100 ms apart find none running. Without it a shot caught one mid-way, a few edge pixels off one level.
  */
