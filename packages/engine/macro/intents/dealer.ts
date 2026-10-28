@@ -1,10 +1,9 @@
 // T04-12 bank.primaryDealer.apply / bank.primaryDealer.resign (04 §4, §3.10.5).
-import { type IntentHandler, type Money, type Reject, type SealedIntent, type ValidateCtx } from '@tycoon/engine-core';
+import { SortedMap, type IntentHandler, type Money, type Reject, type SealedIntent, type ValidateCtx } from '@tycoon/engine-core';
 import { z } from 'zod';
 import { macroTables, BLOC_ORDER, type BlocId, type BlocMacroState, type PrimaryDealerStatus } from '../schema';
 import { dealerEligibility, quarterOf } from '../rules/dealers';
 import { primaryPorts } from './primaryPorts';
-import { SortedMap } from '@tycoon/engine-core';
 
 const NOT_ELIGIBLE: Reject = { code: 'CBK_NOT_ELIGIBLE' }, T = macroTables.dealer.name;
 const bloc = z.enum(BLOC_ORDER as [BlocId, ...BlocId[]]);
