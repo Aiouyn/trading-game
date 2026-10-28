@@ -81,7 +81,7 @@ function volDelta(cum: number | undefined, prev: number | undefined): number {
  */
 export function record(h: History, tick: number, priceById: Record<string, number>, cumById: Record<string, number> = {}): void {
   const d = dayIndex(tick, h.ticksPerDay);
-  const dayStart = d * h.ticksPerDay + (tick <= 0 ? 0 : 1);
+  const dayStart = d * h.ticksPerDay;
   for (const id in h.series) {
     const p = priceById[id];
     if (p === undefined || !Number.isFinite(p)) continue;

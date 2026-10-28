@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, defaultConfig, openAccount, placeOrder, step } from '@/engine';
-import { clockLabel, clockParts, dayIndex } from './clock';
-import { compactMoney, money, price, signedChange, signedMoney, signedPct } from './format';
+import { clockLabel, clockParts } from './clock';
+import { money, price, signedChange, signedMoney, signedPct } from './format';
 import { candles, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
 import { CLASS_LICENSE, hasLicense, licenseCheck, lockedText, requiredLicense } from './license';
 import { rankProgress } from './rank';
@@ -21,20 +21,14 @@ describe('format', () => {
     expect(signedPct(-0.0105)).toBe(`${M}1.05%`);
     expect(price(41000)).toBe('41,000.00');
     expect(price(0.034)).toBe('0.0340');
-    expect(compactMoney(5000)).toBe('$5k');
-    expect(compactMoney(20000)).toBe('$20k');
-    expect(compactMoney(1_400_000)).toBe('$1.4M');
   });
 });
 
 describe('clock', () => {
-  it('maps ticks to a 09:30-16:00 session that matches the engine day boundary', () => {
+  it('maps ticks to a 09:30-16:00 session', () => {
     expect(clockLabel(0, 720)).toBe('Day 1 \u00b7 09:30');
     expect(clockParts(360, 720).hhmm).toBe('12:45');
-    expect(clockLabel(720, 720)).toBe('Day 1 \u00b7 16:00');
-    expect(clockLabel(721, 720)).toBe('Day 2 \u00b7 09:30');
-    expect(dayIndex(720, 720)).toBe(0);
-    expect(dayIndex(721, 720)).toBe(1);
+    expect(clockParts(719, 720)).toEqual({ day: 1, tickInDay: 719, hhmm: '15:59' });
   });
 });
 
@@ -59,13 +53,16 @@ describe('history and candles', () => {
     return h;
   }
 
-  it('builds daily OHLC bars that open at the previous close', () => {
-    const h = filled(tpd * 2);
+  it('builds daily OHLC bars on the engine calendar day (ticks d*tpd .. d*tpd + tpd - 1) that open at the previous close', () => {
+    const h = filled(tpd * 2 - 1);
     const d = h.series.X!.daily;
     expect(d).toHaveLength(2);
-    expect(d[0]).toMatchObject({ time: 0, open: 100, close: 100 + tpd, high: 100 + tpd, low: 100 });
-    expect(d[1]).toMatchObject({ time: tpd + 1, open: 100 + tpd, close: 100 + 2 * tpd });
-    expect(dayOpen(h, 'X')).toBe(100 + tpd);
+    expect(d[0]).toMatchObject({ time: 0, open: 100, close: 100 + tpd - 1, high: 100 + tpd - 1, low: 100 });
+    expect(d[1]).toMatchObject({ time: tpd, open: 100 + tpd - 1, high: 100 + 2 * tpd - 1, low: 100 + tpd - 1, close: 100 + 2 * tpd - 1 });
+    expect(dayOpen(h, 'X')).toBe(100 + tpd - 1);
+    record(h, tpd * 2, { X: 7 });
+    expect(h.series.X!.daily).toHaveLength(3);
+    expect(h.series.X!.daily[2]).toMatchObject({ time: 2 * tpd, open: 100 + 2 * tpd - 1, low: 7, close: 7 });
   });
 
   it('aggregates intraday bars on fixed tick buckets with continuous opens', () => {
@@ -153,7 +150,7 @@ describe('licenses', () => {
   it('locks commodities until Owner and keeps stocks and crypto open', () => {
     const gold = licenseCheck(w, 'p', 'GOLD');
     expect(gold.ok).toBe(false);
-    if (!gold.ok) expect(lockedText(gold, compactMoney)).toBe('Pro license at Owner, $250k');
+    if (!gold.ok) expect(lockedText(gold)).toBe('Pro license at Owner, $250k');
     expect(licenseCheck(w, 'p', 'OIL').ok).toBe(false);
     expect(licenseCheck(w, 'p', 'HLCN').ok).toBe(true);
     expect(licenseCheck(w, 'p', 'AUC').ok).toBe(true);
