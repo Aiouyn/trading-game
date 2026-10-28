@@ -5,6 +5,7 @@
 // updating / couldntLoad / retry / cash repeat Portfolio's existing copy so this chunk does not import Portfolio's.
 // FR typography: U+202F before "%", "pb" and ":", and inside « ».
 // UI card 5 (limit / stop / Open orders) keys follow the card's copy table; s.QUEUED_AUCTION is `haltedQueued` (orderStatus).
+// UI card 6 (cancel) keys follow the card's copy table; sideName [provisional] is the arrow-less side its examples use.
 export type BrLocale = "en" | "fr";
 
 const NNBSP = "\u202F";
@@ -95,6 +96,18 @@ const EN = {
   rowAria: (side: string, qty: string, ticker: string, terms: string, status: string) => `${side} ${qty} ${ticker}, ${terms}, ${status}`,
   /** [provisional] aria-label of the list skeleton (aria-busy). */
   loadingOrders: "Loading open orders",
+  // ---- UI card 6: cancel ----
+  /** [provisional] the side as a word, for cancelAria / cancelled ("Cancel order: Buy 40 HALC, …"). */
+  sideName: { BUY: "Buy", SELL: "Sell" } as Record<"BUY" | "SELL", string>,
+  cancel: "Cancel",
+  cancelAria: (side: string, qty: string, ticker: string, terms: string) => `Cancel order: ${side} ${qty} ${ticker}, ${terms}`,
+  cancelConfirm: "Cancel this order?",
+  keepOrder: "Keep order",
+  confirmCancel: "Yes, cancel",
+  cancelling: (n: string) => `Cancelling… · tick ${n}`,
+  cancelled: (side: string, qty: string, ticker: string, terms: string) => `Order cancelled: ${side} ${qty} ${ticker}, ${terms}`,
+  cancelRejectedCode: (code: string) => `Cancel refused (code ${code})`,
+  cancelSendFailed: "Couldn't send. Try again.",
 };
 export type BrStrings = typeof EN;
 
@@ -171,6 +184,16 @@ const FR: BrStrings = {
   rowMeta: (n) => `Jour · tick ${n}`,
   rowAria: (side, qty, ticker, terms, status) => `${side} ${qty} ${ticker}, ${terms}, ${status}`,
   loadingOrders: "Chargement des ordres en cours",
+  sideName: { BUY: "Achat", SELL: "Vente" },
+  cancel: "Annuler",
+  cancelAria: (side, qty, ticker, terms) => `Annuler l’ordre${NNBSP}: ${side} ${qty} ${ticker}, ${terms}`,
+  cancelConfirm: `Annuler cet ordre${NNBSP}?`,
+  keepOrder: "Conserver l’ordre",
+  confirmCancel: "Oui, annuler",
+  cancelling: (n) => `Annulation… · tick ${n}`,
+  cancelled: (side, qty, ticker, terms) => `Ordre annulé${NNBSP}: ${side} ${qty} ${ticker}, ${terms}`,
+  cancelRejectedCode: (code) => `Annulation refusée (code «${NNBSP}${code}${NNBSP}»)`,
+  cancelSendFailed: "Envoi impossible. Réessayez.",
 };
 
 export const BR_STRINGS: Record<BrLocale, BrStrings> = { en: EN, fr: FR };
@@ -179,6 +202,10 @@ export const brStrings = (locale: string): BrStrings => BR_STRINGS[brLocale(loca
 /** Reject line copy: the code's text with its slots, or null for a code this client has no copy for. */
 export function rejectCopy(t: BrStrings, code: string, params?: Readonly<Record<string, string>>): string | null {
   return Object.hasOwn(t.r, code) ? fillSlots(t.r[code]!, params) : null;
+}
+/** A cancel's reject line: the code's r.* text with its params, else cancelRejectedCode with the code verbatim. */
+export function cancelRejectCopy(t: BrStrings, code: string, params?: Readonly<Record<string, string>>): string {
+  return rejectCopy(t, code, params) ?? t.cancelRejectedCode(code);
 }
 /** Copy for a preview's `reasonCode` under the input: the mock sends the bare code ("BAD_QTY"), the engine the
  *  MKT_ one; either maps to the same r.* line, an unknown code reads as rejectedCode. */

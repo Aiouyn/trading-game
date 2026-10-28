@@ -78,15 +78,18 @@ export function BrokerFrame({ context }: { context?: string }) {
   const frozen = ticker.state === "stale" || me.state === "stale";
 
   // Preview scheduling: one request 300 ms after the last edit, then one per new ticker tick while shown; a per-tick
-  // budget caps both (19 Rule 3.8.5) and a sequence number drops replies to an older draft.
+  // budget caps both (19 Rule 3.8.5) and a sequence number drops replies to an older draft. A request the budget
+  // refused is sent on the next tick (QA #85 Q1): until a preview for the current inputs lands, Review stays disabled
+  // and the ticket says "Refreshing estimate…".
   const seq = useRef(0);
   const budget = useRef({ tick: -1, n: 0 });
   const tickRef = useRef(tickerTick);
+  const deferred = useRef(false);
   useEffect(() => { tickRef.current = tickerTick; });
   const request = useCallback((d: DayDraft) => {
     const tk = tickRef.current ?? -1;
     if (budget.current.tick !== tk) budget.current = { tick: tk, n: 0 };
-    if (budget.current.n >= MAX_PREVIEWS_PER_TICK) return;
+    if (budget.current.n >= MAX_PREVIEWS_PER_TICK) { deferred.current = true; return; }
     budget.current.n += 1;
     const mine = ++seq.current;
     void previewOrder(d).then((r) => { if (mine === seq.current && r.ok) setEst({ key: draftKey(d), res: r.value }); });
@@ -97,10 +100,13 @@ export function BrokerFrame({ context }: { context?: string }) {
     const id = setTimeout(() => request(order), PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [order, settled, request]);
-  const shownRef = useRef<DayDraft | null>(null);
-  useEffect(() => { shownRef.current = preview && order && !settled ? order : null; });
+  const shownRef = useRef<{ draft: DayDraft; shown: boolean } | null>(null);
+  useEffect(() => { shownRef.current = order && !settled ? { draft: order, shown: preview !== null } : null; });
   useEffect(() => {
-    if (shownRef.current) request(shownRef.current);
+    const cur = shownRef.current;
+    if (!cur || !(cur.shown || deferred.current)) return;
+    deferred.current = false;
+    request(cur.draft);
   }, [tickerTick, request]);
 
   // Our IntentResult, once `me` carries it.
@@ -208,7 +214,8 @@ export function BrokerFrame({ context }: { context?: string }) {
       orderType={<OrderType t={t} type={draft.type} limitText={draft.limitText} stopText={draft.stopText} readOnly={phase.kind !== "edit"} stacked={stacked} onType={setType} onPrice={setPrice} />}
       kind={t.kindDay(typeLabel(t, draft.type))}
       onSide={setSide} onQty={(q) => { setTouched(true); setDraft((d) => ({ ...d, qtyText: q })); }} onQtyBlur={() => setTouched(true)}
-      message={qtyMessage} preview={preview} reviewDisabled={!canReview} onReview={toReview} readOnly={phase.kind !== "edit"} />
+      message={qtyMessage} preview={preview} pending={phase.kind === "edit" && order !== null && preview === null}
+      reviewDisabled={!canReview} onReview={toReview} readOnly={phase.kind !== "edit"} />
   );
 
   return (

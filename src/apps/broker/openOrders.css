@@ -46,8 +46,10 @@
 /* Desktop list column >= 520 px at text scale < 1.5: one line, 36 px min. */
 @container oo (min-width: 520px) {
   .br:not(.br-phone):not(.br-stacked) .br-oo-row {
-    display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; grid-template-areas: "side ticker terms qty chip meta";
+    display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto; grid-template-areas: "side ticker terms qty chip meta actions";
   }
+  .br:not(.br-phone):not(.br-stacked) .br-oo-actions { grid-area: actions; flex-basis: auto; }
+  .br:not(.br-phone):not(.br-stacked) .br-oo-note { grid-column: 1 / -1; }
   .br:not(.br-phone):not(.br-stacked) .br-oo-row::after { display: none; }
   .br:not(.br-phone):not(.br-stacked) .br-oo-side { grid-area: side; }
   .br:not(.br-phone):not(.br-stacked) .br-oo-ticker { grid-area: ticker; }
@@ -62,3 +64,33 @@ html[data-motion="reduce"] .br-oo-row.fresh { background: transparent; }
 /* High contrast: rows keep a visible border (inputs already use --line, which hc raises). */
 html[data-hc="1"] .br-oo-row { border-bottom-color: var(--fg-muted); }
 .br-phone .br-oo-row { min-height: var(--hit-touch); }
+
+/* Cancel (UI card 6). Quiet secondary, never the accent: transparent, --line 1 px, --fg text; hover / focus border --loss.
+   Two-line rows (phone, narrow column, text scale >= 1.5) put the actions on their own line, right-aligned. */
+.br-oo-actions { order: 5; flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-8); margin: 0; }
+.br-oo-cancelling { color: var(--fg-muted); white-space: nowrap; }
+.br-oo-ask { white-space: nowrap; color: var(--fg); }
+.br-oo-confirm-btns { display: flex; gap: var(--sp-8); }
+.br-oo .btn.br-oo-btn { background: transparent; border: 1px solid var(--line); color: var(--fg); white-space: nowrap; }
+.br-oo .btn.br-oo-cancel:not([aria-disabled="true"]):hover,
+.br-oo .btn.br-oo-cancel:focus-visible { border-color: var(--loss); }
+.br-oo .btn.br-oo-yes { border-color: var(--loss); color: var(--loss); }
+.br-oo .btn.br-oo-btn[aria-disabled="true"] { color: var(--fg-disabled); border-color: var(--line); }
+/* A refused or unsent cancel: --fg text on a 2 px --loss rule, full row width under the row. */
+.br-oo-note { order: 6; flex-basis: 100%; margin: 0; padding-left: var(--sp-8); border-left: 2px solid var(--loss); color: var(--fg); }
+.br-oo-line { margin: 0; color: var(--fg); }
+.br-oo-line:empty { display: none; }
+/* Phone: actions line full width, 44 px controls; Keep / Yes side by side, stacked full width at BR_STACK_SCALE. */
+.br-phone .br-oo-actions { justify-content: stretch; }
+.br-phone .br-oo .btn.br-oo-btn { min-height: var(--hit-touch); flex: 1 1 0; }
+.br-phone .br-oo-confirm { justify-content: flex-start; }
+.br-phone .br-oo-ask { flex-basis: 100%; }
+.br-phone .br-oo-confirm-btns { flex: 1 1 100%; }
+.br-phone.br-stacked .br-oo-confirm-btns { flex-direction: column; }
+.br-phone.br-stacked .br-oo-ask { white-space: normal; }
+/* High contrast: 2 px control borders; --loss stays paired with its text label. */
+html[data-hc="1"] .br-oo .btn.br-oo-btn { border-width: 2px; }
+/* A cancelled row collapses out on the motion token (0 ms and no animation under reduced motion). */
+@keyframes br-oo-leave { from { max-height: 120px; opacity: 1; } to { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; } }
+.br-oo-leaving { overflow: hidden; animation: br-oo-leave var(--dur-base) ease-in forwards; pointer-events: none; }
+html[data-motion="reduce"] .br-oo-leaving { animation: none; display: none; }
