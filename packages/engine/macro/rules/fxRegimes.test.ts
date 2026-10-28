@@ -6,6 +6,7 @@ import type { MacroPorts } from '../ports';
 import { macroTables, type BlocId, type FxState, type NpcPoolOrder } from '../schema';
 import { cbRow, M, stubPorts } from '../testkit/cbWorld';
 import { fiscalWorld, putBloc } from '../testkit/fiscalWorld';
+import { isTradingDay } from '@tycoon/engine-core';
 import { tradingDaysOfPeriod } from './calendar';
 import { sovSpread } from './sovCredit';
 import { stepCapitalControls } from './capitalControls';
@@ -258,3 +259,86 @@ describe('T04-14 FX regimes', () => {
     expect(w.events.filter((e) => e.kind === 'macro.fx.regime')).toHaveLength(1);
   });
 });
+
+describe('AC-04-18-CAPFLOW (E-104 (1)): capital_flow drains a managed regime\'s FDL reserves', () => {
+  const K = 0.15;
+  const step = (id: string, value: number, a: number, b: number) => ({ id, target: 'capital_flow', value, startTick: a, endTick: b, shape: 'STEP' as const });
+  const setShocks = (w: W, b: BlocId, shocks: unknown[]) => { const r = w.ctx.store.get<Record<string, unknown>>(macroTables.bloc.name, b)!; w.put(macroTables.bloc.name, { ...r, shocks } as never); };
+  const resOf = (w: W, b: BlocId) => w.ctx.store.get<{ reserves: { fdl: bigint } }>(macroTables.cb.name, cbkId(b))!.reserves.fdl;
+  const setRes = (w: W, b: BlocId, fdl: bigint) => w.put(macroTables.cb.name, { ...w.ctx.store.get<object>(macroTables.cb.name, cbkId(b))!, reserves: { fdl, gold: 0n, otherFx: {} } } as never);
+  const cf = (w: W) => w.posts.filter((p) => p.code === 'MAC_FX_CAPITAL_FLOW');
+  /** round half-even of R × rate, the rate carried at 1e-12 */
+  const expected = (R: bigint, rate: number) => { const q = R * BigInt(Math.round(rate * 1e12)), d = 1_000_000_000_000n, f = q / d, r = q - f * d; return 2n * r > d || (2n * r === d && f % 2n === 1n) ? f + 1n : f; };
+  /** Precursor −0.2 for 8 days, trigger −0.8 for 30, SRL MANAGED_FLOAT at cover 11 with λ 0.30 (no Concord). The balance stub applies the
+   *  MAC_FX_CAPITAL_FLOW FDL leg to cb.reserves as it posts. Dispatch's t = 45 call is
+   *  breakRuleCheck at t = 45 of every day. */
+  function attack(d0: number) {
+    const w = world(d0 * D, { hazard: 0.3 }), trig = d0 + 8, imp = importsMonthFdl(w.ctx.store, 'SRL');
+    Object.assign(w.ctx, { rng: () => ({ uOpen: () => 0.5, normal: () => 0 }) });
+    // balance stub: a MAC_FX_CAPITAL_FLOW FDL leg out of the CB moves cb.reserves.fdl when it is posted (CA absorption kept out, as in Quant's model)
+    const fx0 = w.ctx.ledger.fx.bind(w.ctx.ledger);
+    Object.assign(w.ctx.ledger, { fx: (a: string, b: string, c1: string, a1: bigint, c2: string, a2: bigint, code: string) => {
+      if (code === 'MAC_FX_CAPITAL_FLOW' && a === cbkId('SRL') && c1 === 'FDL') setRes(w, 'SRL', resOf(w, 'SRL') - a1);
+      return fx0(a, b, c1 as never, a1, c2 as never, a2, code); } });
+    setFx(w, 'SRL', { regime: 'MANAGED_FLOAT' });
+    setRes(w, 'SRL', imp * 11n);
+    setShocks(w, 'SRL', [step('p', -0.2, d0 * D, trig * D), step('t', -0.8, trig * D, (trig + 30) * D)]);
+    const log: { day: number; trading: boolean; R: bigint; n: number; amt: bigint | null; cover: number; emp: number; armed: boolean }[] = [];
+    let breakDay: number | null = null;
+    for (let d = d0; d < trig + 30 && breakDay === null; d++) {
+      w.setTick(d * D + 45);
+      if (breakRuleCheck(w.ctx, 'SRL', w.ports) === 'BREAK') { breakDay = d - trig; break; }
+      const R = resOf(w, 'SRL'), k0 = cf(w).length;
+      close(w, d);
+      const legs = cf(w).slice(k0), out = legs.filter((p) => p.from === cbkId('SRL') && p.ccy === 'FDL');
+      const fx = fxOf(w, 'SRL');
+      log.push({ day: d, trading: isTradingDay('SRL', d), R, n: legs.length / 2, amt: out[0]?.amt ?? null, cover: fx.reserveCoverMonths, emp: fx.exchangeMarketPressure, armed: !!fx.breakArmed });
+    }
+    return { w, trig, log, breakDay, imp };
+  }
+  it('each SRL trading-day close posts one sale of 0.15 × 0.8 × reserves (0.03× in the precursor); none on non-trading days', () => {
+    const { log, trig } = attack(firstTradingDay('SRL', 100));
+    expect(log.length).toBeGreaterThan(10);
+    for (const l of log) {
+      if (!l.trading) { expect([l.n, l.amt]).toEqual([0, null]); continue; }
+      expect(l.n).toBe(1);
+      expect(l.amt).toBe(expected(l.R, K * (l.day < trig ? 0.2 : 0.8)));
+    }
+    expect(log.some((l) => l.trading && l.day < trig)).toBe(true);
+    expect(Number(log.find((l) => l.trading && l.day >= trig)!.amt) / 1e6).toBeCloseTo(0.12 * Number(log.find((l) => l.trading && l.day >= trig)!.R) / 1e6, 0);
+  });
+  it('cover first < 3, then 5 closes with EMP > 2 arm the break; the t = 45 call breaks 17 to 19 game days after trigger over the 7 start weekdays', () => {
+    const first = firstTradingDay('SRL', 100), breaks: number[] = [];
+    for (let k = 0; k < 7; k++) {
+      const { log, breakDay } = attack(first + k), t = log.filter((l) => l.trading);
+      const i = t.findIndex((l) => l.cover < 3), j = t.findIndex((l) => l.armed);
+      expect(i).toBeGreaterThan(0);
+      expect(j).toBe(i + 4);
+      for (const l of t.slice(i, j + 1)) expect(l.emp).toBeGreaterThan(2);
+      expect(t.slice(0, i).every((l) => !l.armed)).toBe(true);
+      breaks.push(breakDay!);
+    }
+    expect(Math.min(...breaks)).toBeGreaterThanOrEqual(17);
+    expect(Math.max(...breaks)).toBeLessThanOrEqual(19);
+    expect(new Set(breaks).size).toBeGreaterThan(1);
+  });
+  it('Σ > 0 buys at the same rate; FREE_FLOAT → no posting; Σ = 0 → no posting', () => {
+    const d = firstTradingDay('SRL', 100), w = world(d * D), R = M(1e9);
+    setFx(w, 'SRL', { regime: 'MANAGED_FLOAT' }); setRes(w, 'SRL', R);
+    setShocks(w, 'SRL', [step('a', 0.5, d * D, (d + 5) * D), step('b', 0.3, d * D, (d + 5) * D)]);
+    close(w, d);
+    const buy = cf(w);
+    expect(buy.map((p) => [p.from, p.ccy])).toEqual([[cbkId('SRL'), 'SRL'], ['row', 'FDL']]);
+    expect(buy[1]!.amt).toBe(expected(R, K * 0.8));
+    expect(buy[0]!.amt).toBe(buy[1]!.amt * 5n);   // X leg at spot 0.2
+    w.posts.length = 0;
+    setShocks(w, 'SRL', [step('a', 0.5, d * D, (d + 5) * D), step('b', -0.5, d * D, (d + 5) * D)]);
+    close(w, d);
+    expect(cf(w)).toEqual([]);
+    setShocks(w, 'SRL', [step('a', -0.8, d * D, (d + 5) * D)]);
+    setFx(w, 'SRL', { regime: 'FREE_FLOAT' });
+    close(w, d);
+    expect(cf(w)).toEqual([]);
+  });
+});
+
