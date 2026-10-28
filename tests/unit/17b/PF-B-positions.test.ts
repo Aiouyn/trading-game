@@ -164,7 +164,7 @@ describe("PF-3-07 row label", () => {
     expect(rowLabel(p, { ...TICK.HALC, chgPct: "1.20" }, EN, "en")).toContain(", up 1.20 percent today");
     expect(rowLabel(p, { ...TICK.HALC, chgPct: "0.00" }, EN, "en")).toContain(", unchanged today");
     expect(rowLabel(p, { ...TICK.HALC, chgPct: null }, EN, "en")).not.toContain("today");
-    expect(rowLabel(p, TICK.HALC, FR, "fr")).toMatch(/^HALC, 1\u202F200 actions, valeur .*, en baisse de 0\.35 pour cent aujourd’hui, coût moyen 39,90, dernier 42,18$/);
+    expect(rowLabel(p, TICK.HALC, FR, "fr")).toMatch(/^HALC, 1\u202F200 actions, valeur .*, en baisse de 0\.35 pour cent aujourd’hui, coût moyen 39,90, dernier cours 42,18$/);
   });
 });
 
@@ -233,5 +233,14 @@ describe("Studio PF-B ruling: E-56 fields when present", () => {
   });
   it("no --acc class on any row", () => {
     for (const h of [html(), html({ cards: true }), html({ tickers: TICK_HALT })]) expect(h).not.toMatch(/chip-acc|money-wealth|\bacc\b/);
+  });
+});
+
+describe("Studio FR rulings (art GO at efad6b1a)", () => {
+  const fr = posStrings("fr");
+  it("colLast « Cours », avgLast « dernier cours », emptyBody « Tout votre argent est en liquidités. »", () => {
+    expect(fr.colLast).toBe("Cours");
+    expect(fr.avgLast("39,90", "42,18")).toBe(", coût moyen 39,90, dernier cours 42,18");
+    expect(fr.emptyBody).toBe("Tout votre argent est en liquidités.");
   });
 });
