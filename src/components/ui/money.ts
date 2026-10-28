@@ -29,35 +29,28 @@ export const shouldAbbreviate = (p: ParsedAmount) => p.int.length >= 5;
 
 const UNITS: readonly (readonly [number, string])[] = [[12, "T"], [9, "B"], [6, "M"], [3, "k"]];
 
-/** The one compact-money formatter for wealth (Studio #67 condition): 3 significant figures, ALWAYS rounded down
- *  (floor, toward −∞), trailing zeros dropped: 412860.15 -> "412k", 1999999 -> "1.99M", 4200000000000 -> "4.2T".
- *  For a negative amount floor means the magnitude rounds UP when any dropped digit (cents included) is non-zero:
- *  −412,860.15 -> −$413k, so the compact form is never above the real amount. From 1,000T up the whole number of T
- *  is shown (no larger unit in 17 §3.4.1). Digits only: no locale variant exists yet (FR i18n pass). */
-export function abbreviateDigits(int: string, negative = false, frac = ""): string {
-  let digits = int;
-  const unit0 = UNITS.find(([d]) => digits.length > d);
-  const keep = unit0 ? Math.max(3, digits.length - unit0[0]) : digits.length;
-  const dropped = `${digits.slice(keep)}${frac}`;
-  if (negative && unit0 && /[1-9]/.test(dropped)) {
-    const up = String(Number(digits.slice(0, keep)) + 1); // magnitude + 1 in the last kept place: rounding, not money arithmetic
-    digits = `${up}${"0".repeat(digits.length - keep)}`; // 999 -> 1000 adds a digit, so the unit below may step up
-  }
-  const unit = UNITS.find(([d]) => digits.length > d);
-  if (!unit) return digits;
-  const intLen = digits.length - unit[0];
-  const sig = digits.slice(0, Math.max(3, intLen));
+/** The one compact-money formatter for wealth (Studio #67 condition, sign ruling 2026-10-28): 3 significant figures,
+ *  the magnitude ALWAYS truncated toward zero whatever the sign, trailing zeros dropped: 412860.15 -> "412k",
+ *  1999999 -> "1.99M", 4200000000000 -> "4.2T". The caller adds the sign, so −412,000.01 reads −$412k, never −$413k:
+ *  a compact figure never shows more than the real magnitude. Dropped digits (cents included) never round up, so only
+ *  the whole part is needed. From 1,000T up the whole number of T is shown (no larger unit in 17 §3.4.1). Digits only:
+ *  no locale variant exists yet (FR i18n pass). */
+export function abbreviateDigits(int: string): string {
+  const unit = UNITS.find(([d]) => int.length > d);
+  if (!unit) return int;
+  const intLen = int.length - unit[0];
+  const sig = int.slice(0, Math.max(3, intLen));
   const whole = sig.slice(0, intLen);
   const dec = sig.slice(intLen).replace(/0+$/, "");
   return `${whole}${dec ? `.${dec}` : ""}${unit[1]}`;
 }
 
 /** MoneyText's text for an abbreviating context (list, chip, sentence), for plain-string callers such as legacy toasts:
- *  "250000" -> "$250k", "-412860.15" -> "−$413k", "5000" -> "$5,000.00" (abbreviates from 10,000), "0" -> "$0.00".
- *  Same parse, zero rule, threshold and floor as MoneyText (pinned by a parity test). */
+ *  "250000" -> "$250k", "-412860.15" -> "−$412k", "5000" -> "$5,000.00" (abbreviates from 10,000), "0" -> "$0.00".
+ *  Same parse, zero rule, threshold and truncation as MoneyText (pinned by a parity test). */
 export function compactMoneyText(amount: string): string {
   const p = parseAmount(amount);
   if (isZero(p)) return "$0.00";
-  const digits = shouldAbbreviate(p) ? abbreviateDigits(p.int, p.negative, p.frac) : fullDigits(p);
+  const digits = shouldAbbreviate(p) ? abbreviateDigits(p.int) : fullDigits(p);
   return `${p.negative ? MINUS : ""}$${digits}`;
 }
