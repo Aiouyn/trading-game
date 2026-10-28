@@ -1,0 +1,33 @@
+/* Broker asset page (UI card 10, BRK-D): About view, Overview | News. No brass; --gain / --loss only inside the shared
+ * Quote (Today). No transitions: the Trade / About swap and the phone push are instant (reduced motion by design). */
+.br-name { margin: 0; }
+.ap { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
+.ap-title:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* Tab lists on the #38 segment (.br-seg): selected by aria-selected instead of aria-pressed, same look. */
+.ap-tabs [role="tab"][aria-selected="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
+.ap-panel { min-width: 0; }
+
+/* Overview rows: label muted, value --fg. */
+.ap-rows { display: flex; flex-direction: column; gap: var(--sp-8); margin: 0; }
+.ap-row { display: grid; grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); gap: var(--sp-12); align-items: baseline; }
+.ap-row dt { color: var(--fg-muted); }
+.ap-row dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-4) var(--sp-8); margin: 0; min-width: 0; color: var(--fg); overflow-wrap: anywhere; }
+.ap-row .br-last { font-size: var(--fs-16); }
+.br-stacked .ap-row { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+
+/* News */
+.ap-news { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.ap-news p, .ap-empty p { margin: 0; }
+.ap-empty { display: flex; flex-direction: column; gap: var(--sp-4); }
+.ap-stories { display: flex; flex-direction: column; gap: var(--sp-4); margin: 0; padding: 0; list-style: none; }
+.ap-story { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4) var(--sp-8); width: 100%; min-height: var(--hit-pointer); padding: var(--sp-4) var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: transparent; color: var(--fg); text-align: left; }
+.ap-story:hover { background: var(--win2); }
+.ap-story:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ap-story-hl { flex: 1 1 12ch; min-width: 0; overflow-wrap: anywhere; }
+.ap-story-time { font-family: var(--font-num); font-size: var(--fs-10_5); color: var(--fg-muted); white-space: nowrap; }
+/* Wire's rumor chip (wire.css) without loading Wire's stylesheet into the Broker chunk. */
+.ap-story .chip.wire-kind-rumor { border-style: dashed; }
+.br-phone .ap-story { min-height: var(--hit-touch); }
+@media (pointer: coarse) { .ap-story { min-height: var(--hit-touch); } }
+.ap-skel { height: 96px; border-radius: var(--r-input); background: var(--win2); }
+.ap-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); color: var(--fg-muted); }

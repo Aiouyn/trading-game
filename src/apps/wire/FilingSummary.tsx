@@ -19,6 +19,7 @@ export function fieldValue(key: FilingField, value: string, t: WireStrings): str
   return key === "pct" ? fill(t.pctValue, { v: text })! : text;
 }
 
+/** Spec §6 order: type, filer, subject, time, then the `fields` rows. */
 function FilingBody({ filing, t }: { filing: Filing; t: WireStrings }) {
   return (
     <>
@@ -26,13 +27,15 @@ function FilingBody({ filing, t }: { filing: Filing; t: WireStrings }) {
       <dl className="wire-filing-fields">
         <div className="wire-field" data-testid="wire-filing-filer"><dt>{t.filedBy}</dt><dd>{filing.filer.label}</dd></div>
         <div className="wire-field" data-testid="wire-filing-subject"><dt>{t.subject}</dt><dd>{filing.subject.label}</dd></div>
+      </dl>
+      <time className="wire-filing-time" data-testid="wire-filing-time">{timeLabel(filing.tick, t)}</time>
+      <dl className="wire-filing-fields">
         {Object.entries(filing.fields).map(([k, v]) => (
           <div key={k} className="wire-field" data-testid="wire-filing-field" data-key={k}>
             {isKnown(k) ? <><dt>{t.field[k]}</dt><dd className="num">{fieldValue(k, v, t)}</dd></> : <><dt>{k}</dt><dd>{v}</dd></>}
           </div>
         ))}
       </dl>
-      <time className="wire-filing-time" data-testid="wire-filing-time">{timeLabel(filing.tick, t)}</time>
     </>
   );
 }

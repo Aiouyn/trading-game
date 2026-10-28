@@ -7,6 +7,10 @@
 // UI card 5 (limit / stop / Open orders) keys follow the card's copy table; s.QUEUED_AUCTION is `haltedQueued` (orderStatus).
 // UI card 6 (cancel) keys follow the card's copy table; sideName [provisional] is the arrow-less side its examples use.
 // UI card 7 (price chart) keys follow the card's copy table; chartLoading [provisional] is the skeleton's aria-label.
+// UI card 10 (asset page) keys follow the card's copy table; viewAria / tabsAria (tab list names), newsLoading (News
+// skeleton) and assetOption (the select's "TICKER · Name", AC 1) are [provisional].
+import type { TradingState } from "@/shell/contracts/channels";
+
 export type BrLocale = "en" | "fr";
 
 const NNBSP = "\u202F";
@@ -123,6 +127,31 @@ const EN = {
   noHistory: "No price history yet.",
   /** [provisional] aria-label of the chart skeleton (aria-busy). */
   chartLoading: "Loading price chart",
+  // ---- UI card 10: asset page (updating / couldntLoad / retry / halted reuse card 4 keys) ----
+  viewTrade: "Trade",
+  viewAbout: "About",
+  /** [provisional] accessible names of the Trade | About and the Overview | News tab lists. */
+  viewAria: "Broker view",
+  tabsAria: "About this asset",
+  tabOverview: "Overview",
+  tabNews: "News",
+  backToTrade: "Back to trade",
+  f: { name: "Name", ticker: "Ticker", type: "Type", sector: "Sector", region: "Region", ccy: "Currency", licence: "Licence", quote: "Price", trading: "Trading", position: "Your position" },
+  /** Asset `class` labels; a class not listed here shows raw. */
+  class: { equity: "Stock", index: "Index" } as Readonly<Record<string, string>>,
+  positionLine: (qty: string, value: string) => `${qty} shares · ${value}`,
+  noPosition: "You don't hold this asset.",
+  st: {
+    CLOSED: "Closed", PRE_OPEN: "Pre-open", OPENING_AUCTION: "Opening auction", CONTINUOUS: "Open", CLOSING_AUCTION: "Closing auction",
+    AFTER_HOURS: "After hours", HALTED: "Halted", VOL_INTERRUPTION: "Volatility pause", LIMIT_LOCKED: "Limit locked", SUSPENDED: "Suspended",
+  } as Readonly<Record<TradingState, string>>,
+  noNews: (ticker: string) => `No stories about ${ticker} in your feed yet.`,
+  newsHelp: "Only recent stories are kept.",
+  openStoryAria: (headline: string) => `Open in Wire: ${headline}`,
+  unknownAsset: "Details for this asset aren't available.",
+  /** [provisional] aria-label of the News skeleton (aria-busy). */
+  newsLoading: "Loading stories",
+  assetOption: (ticker: string, name: string) => `${ticker} · ${name}`,
 };
 export type BrStrings = typeof EN;
 
@@ -221,6 +250,27 @@ const FR: BrStrings = {
   chartError: "Impossible de charger le graphique",
   noHistory: "Pas encore d’historique de cours.",
   chartLoading: "Chargement du graphique de cours",
+  viewTrade: "Trader",
+  viewAbout: "À propos",
+  viewAria: "Vue du courtier",
+  tabsAria: "À propos de cet actif",
+  tabOverview: "Aperçu",
+  tabNews: "Actualités",
+  backToTrade: "Retour au trading",
+  f: { name: "Nom", ticker: "Code", type: "Type", sector: "Secteur", region: "Région", ccy: "Devise", licence: "Licence", quote: "Cours", trading: "Cotation", position: "Votre position" },
+  class: { equity: "Action", index: "Indice" },
+  positionLine: (qty, value) => `${qty} titres · ${value}`,
+  noPosition: "Vous ne détenez pas cet actif.",
+  st: {
+    CLOSED: "Fermé", PRE_OPEN: "Pré-ouverture", OPENING_AUCTION: "Enchère d’ouverture", CONTINUOUS: "Ouvert", CLOSING_AUCTION: "Enchère de clôture",
+    AFTER_HOURS: "Après-bourse", HALTED: "Suspendu temporairement", VOL_INTERRUPTION: "Pause de volatilité", LIMIT_LOCKED: "Bloqué en limite", SUSPENDED: "Suspendu",
+  },
+  noNews: (ticker) => `Aucune dépêche sur ${ticker} dans votre fil pour l’instant.`,
+  newsHelp: "Seules les dépêches récentes sont conservées.",
+  openStoryAria: (headline) => `Ouvrir dans le fil${NNBSP}: ${headline}`,
+  unknownAsset: "Les détails de cet actif ne sont pas disponibles.",
+  newsLoading: "Chargement des dépêches",
+  assetOption: (ticker, name) => `${ticker} · ${name}`,
 };
 
 export const BR_STRINGS: Record<BrLocale, BrStrings> = { en: EN, fr: FR };

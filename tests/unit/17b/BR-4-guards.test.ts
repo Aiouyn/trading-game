@@ -51,7 +51,7 @@ describe("BR-4-03 no client maths on server numbers", () => {
   });
   it.each(code)("$f: never imports mockFeed; data comes only via useChannel and contracts/orders", ({ raw }) => {
     expect(raw).not.toMatch(/mockFeed|mockChannels|fixtures\//);
-    for (const m of raw.matchAll(/from "(@\/shell\/[^"]+)"/g)) expect(["@/shell/contracts/useChannel", "@/shell/contracts/orders", "@/shell/contracts/channels", "@/shell/wm"]).toContain(m[1]);
+    for (const m of raw.matchAll(/from "(@\/shell\/[^"]+)"/g)) expect(["@/shell/contracts/useChannel", "@/shell/contracts/orders", "@/shell/contracts/channels", "@/shell/contracts/assetDetail", "@/shell/wm"]).toContain(m[1]);
   });
 });
 

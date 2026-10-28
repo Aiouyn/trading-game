@@ -58,11 +58,14 @@ function useSplit(ref: RefObject<HTMLElement | null>, phone: boolean): boolean {
 
 interface Open { id: string; last: WireItem }
 
-export function Feed({ view, t, host = NO_HOST }: { view: ChannelView<NewsBody>; t: WireStrings; host?: WireHost }) {
+/** `select`: a story id to open (UI card 10). Each new value opens that item once the feed has it; an id that is not
+ * in the ring shows the feed with nothing selected. */
+export function Feed({ view, t, host = NO_HOST, select }: { view: ChannelView<NewsBody>; t: WireStrings; host?: WireHost; select?: string }) {
   const [filter, setFilter] = useState<WireFilter>("all");
   const [scrolled, setScrolled] = useState(false);
   const [track, setTrack] = useState<Track>({ body: null, seen: NONE, fresh: NONE });
   const [open, setOpen] = useState<Open | null>(null);
+  const [selected, setSelected] = useState<string | undefined>(undefined);
   const list = useRef<HTMLUListElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -72,6 +75,14 @@ export function Feed({ view, t, host = NO_HOST }: { view: ChannelView<NewsBody>;
   const split = useSplit(root, host.phone);
 
   const body = view.body;
+  // Derived during render: a new `select` is applied once there is a body to look it up in.
+  if (body && select !== selected) {
+    setSelected(select);
+    if (select !== undefined) {
+      const it = body.items.find((i) => i.id === select);
+      setOpen(it ? { id: select, last: it } : null);
+    }
+  }
   // The open item as the feed has it now; once it leaves the ring the last snapshot stays (WIR-9-08).
   const current = open && body ? body.items.find((i) => i.id === open.id) ?? null : null;
   if (open && current && current !== open.last) setOpen({ id: open.id, last: current });

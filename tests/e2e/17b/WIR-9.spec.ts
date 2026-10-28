@@ -2,12 +2,12 @@
 // WIR-9-04 Open in Broker, 05 Terminal priced-in, 07 Back / Esc / phone back, 09 states and filings Retry, 10 the 1440
 // split and the 520 replace layouts, 11 phone at text scale 1 / 2 with reduced motion, cb / hc and axe. 01-03, 06, 08
 // and 12 are unit tests (tests/unit/17b/WIR-9-*). Compared baselines: tests/e2e/17b/__screenshots__/WIR-9/<state>-<vw>x<vh>.png;
-// PR shots also go to $WIR9_SHOTS_DIR when set.
+// PR shots also go to $WIR9_SHOTS_DIR when set. Desktop frames mask only their r×r corners (winShot.ts).
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
 import { pinHtml } from "./pin";
+import { winShot, winShotBuffer } from "./winShot";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -47,21 +47,8 @@ async function open(page: Page, id: string) {
   await expect(detail(page)).toHaveAttribute("data-id", id);
   await page.clock.runFor(100);
 }
-/** A desktop window's rounded corners are antialiased against the desktop by the host's rasteriser: CI's Chromium drew
- *  22 corner pixels 1-2 levels off the box's (PR #92 run 40697141021, rows 552-559 of none-1440x900). So a `.win` frame
- *  is compared without its top and bottom corner-radius rows; the phone app view has no rounded corners. */
-async function shot(page: Page, state: string, l: Locator = frame(page)) {
-  const vp = page.viewportSize()!;
-  const name = `${state}-${vp.width}x${vp.height}.png`;
-  await page.mouse.move(0, vp.height - 1); // no hover tint in a baseline
-  const r = await l.evaluate((el) => (el.classList.contains("win") ? Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0) : 0));
-  const b = (await l.boundingBox())!;
-  const clip = { x: b.x, y: b.y + r, width: b.width, height: b.height - 2 * r };
-  if (r > 0) await expect(page).toHaveScreenshot(["WIR-9", name], { clip });
-  else await expect(l).toHaveScreenshot(["WIR-9", name]);
-  const dir = process.env.WIR9_SHOTS_DIR;
-  if (dir) { mkdirSync(dir, { recursive: true }); await (r > 0 ? page.screenshot({ path: `${dir}/${name}`, clip }) : l.screenshot({ path: `${dir}/${name}` })); }
-}
+const shot = (page: Page, state: string, l: Locator = frame(page)) =>
+  winShot(page, l, "WIR-9", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.WIR9_SHOTS_DIR);
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const colours = (l: Locator) => l.evaluate((el) => {
   const out = new Set<string>();
@@ -153,6 +140,31 @@ test("WIR-9-10 1440: feed and pane side by side; RUMOR record + band, FILING sum
   await shot(page, "hc");
   expect(await axe(page)).toEqual([]);
   await pinHtml(page, "hc", false);
+});
+
+test("winShot: the mask covers only the corner squares, so a 1 px change on the bottom edge row is caught", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await bootWire(page);
+  const f = frame(page);
+  const base = await winShotBuffer(page, f);
+  const dot = (x: number, y: number) => page.evaluate(([x, y]) => {
+    const d = document.createElement("div");
+    d.id = "edge-dot";
+    d.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px;background:rgb(255,0,0);z-index:2147483646`;
+    document.body.append(d);
+  }, [x, y] as const);
+  const undot = () => page.evaluate(() => document.getElementById("edge-dot")?.remove());
+  const b = (await f.boundingBox())!;
+  const r = await f.evaluate((el) => Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius)));
+  expect(r).toBeGreaterThan(0);
+  for (const [x, y] of [[b.x + r + 1, b.y + b.height - 1], [b.x + b.width / 2, b.y + b.height - 1], [b.x + b.width - r - 2, b.y], [b.x, b.y + r + 1]]) {
+    await dot(x!, y!);
+    expect((await winShotBuffer(page, f)).equals(base), `edge pixel ${x},${y}`).toBe(false);
+    await undot();
+  }
+  await dot(b.x, b.y + b.height - 1); // inside the bottom-left corner square: masked
+  expect((await winShotBuffer(page, f)).equals(base)).toBe(true);
+  await undot();
 });
 
 test("WIR-9-05 ?tier=terminal: priced-in band + as-of in the detail; ?tier=free: no priced-in section", async ({ page }, info) => {
