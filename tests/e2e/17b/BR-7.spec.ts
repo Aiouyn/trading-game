@@ -11,7 +11,7 @@ import { SPEC_TABLE } from "../../unit/shell/paletteTable";
 import { boot, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
 import { pinHtml } from "./pin";
-import { watchScripts } from "./plotChunk";
+import { FIRST_LOAD_BUDGET_KB, watchScripts } from "./plotChunk";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -106,7 +106,7 @@ async function resizeWindow(page: Page, to = 50) {
   return win;
 }
 
-test("BR-7-01 the plot is its own chunk, requested after the Broker mounts; Broker first load <= 200 KB gz", async ({ page, request }, info) => {
+test(`BR-7-01 the plot is its own chunk, requested after the Broker mounts; Broker first load <= ${FIRST_LOAD_BUDGET_KB} KB gz`, async ({ page, request }, info) => {
   desktopOnly(info.project.name);
   const seen = await watchScripts(page);
   await boot(page, "/broker?asset=HALC");
@@ -128,8 +128,8 @@ test("BR-7-01 the plot is its own chunk, requested after the Broker mounts; Brok
   expect(html.includes(new URL(libUrl).pathname)).toBe(false);
   const all = [...sizes.values()].reduce((s, x) => s + x, 0);
   const first = all - sizes.get(libUrl)!;
-  console.log(`BR-7-01 broker first load ${(first / 1024).toFixed(1)} KB gz; plot chunk ${(sizes.get(libUrl)! / 1024).toFixed(1)} KB gz; all ${(all / 1024).toFixed(1)} KB gz`);
-  expect(first).toBeLessThanOrEqual(200 * 1024);
+  console.log(`BR-7-01 broker first load ${(first / 1024).toFixed(1)} KB gz; plot chunk ${(sizes.get(libUrl)! / 1024).toFixed(1)} KB gz; all ${(all / 1024).toFixed(1)} KB gz; budget ${FIRST_LOAD_BUDGET_KB} KB`);
+  expect(first).toBeLessThanOrEqual(FIRST_LOAD_BUDGET_KB * 1024);
 });
 
 test("BR-7-02 each tab asks the Q3 request (res, from, to, bar count) and plots; All pages <= 5000 from 0", async ({ page }, info) => {

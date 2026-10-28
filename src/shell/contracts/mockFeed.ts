@@ -55,12 +55,17 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   /** `?cancelFill=N` (QUAY_HOOKS): a cancel is held one extra tick. On the tick after it is sent, N of the order fill (a
    *  MAKER fill at its price; the order stays open, PARTIAL); the cancel settles on the tick after that (card 6 spec
    *  line 34: a fill lands while the row is cancelling). N is capped so the order stays open. */
-  cancelFill: number | null }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null };
+  cancelFill: number | null;
+  /** `?filings=error|loading` (QUAY_HOOKS, card 9): the `filings` channel alone errors or never answers; every other
+   *  channel follows `feed`. An errored filings sub answers the next `resync("filings")` with a snap, so an e2e proves
+   *  the Wire detail's Retry asked for that channel (with `?feed=error` a resync is ignored, so Retry could not show). */
+  filings: FilingsHook }
+export type FilingsHook = "error" | "loading" | null;
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null };
 const KEEP_STATUSES: ReadonlySet<string> = new Set<OpenOrder["status"]>(["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"]);
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&filings=error|loading&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -77,6 +82,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const partFill = Number(q.get("partFill"));
   const cancelFill = Number(q.get("cancelFill"));
   const history = q.get("history");
+  const filings = q.get("filings");
   const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
@@ -94,6 +100,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     cancelGone: q.get("cancelGone") === "1",
     history: history === "bad" || history === "flaky" || history === "hold" ? history : null,
     cancelFill: Number.isSafeInteger(cancelFill) && cancelFill > 0 ? cancelFill : null,
+    filings: filings === "error" || filings === "loading" ? filings : null,
   };
 }
 
@@ -135,7 +142,9 @@ export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number 
 const IMPACT_BP = (qty: number, lot: number) => (lot <= 0 ? 0 : qty <= lot ? 1 : qty <= lot * 5 ? 4 : qty <= lot * 20 ? 12 : 30); // fixed table
 
 type Listener = (raw: unknown) => void;
-interface Sub { ch: ChannelName; fn: Listener; seq: number; sent: unknown; count: number; snapTimer: ReturnType<typeof setTimeout> | null }
+interface Sub { ch: ChannelName; fn: Listener; seq: number; sent: unknown; count: number; snapTimer: ReturnType<typeof setTimeout> | null;
+  /** Errored by `?filings=error`: the next resync of this channel answers with a snap. */
+  recoverOnResync: boolean }
 
 export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: boolean;
   /** The ENGINE-TBD order rules (orderPolicy.ts). Tests pass another policy to prove the mock reads it. */
@@ -455,10 +464,11 @@ export class MockFeed {
   // ---- channel transport ----
   /** Subscribe to a channel. Frames are delivered as plain JSON (a wire copy), never shared objects. */
   subscribe(ch: ChannelName, fn: Listener): () => void {
-    const sub: Sub = { ch, fn, seq: 0, sent: null, count: 0, snapTimer: null };
+    const filingsHook = ch === "filings" ? this.scenario.filings : null;
+    const sub: Sub = { ch, fn, seq: 0, sent: null, count: 0, snapTimer: null, recoverOnResync: filingsHook === "error" };
     this.subs.add(sub);
     if (this.autoStart) this.start();
-    const mode = this.scenario.feed;
+    const mode = filingsHook ?? this.scenario.feed;
     if (mode !== "loading") sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
@@ -473,7 +483,11 @@ export class MockFeed {
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
-    for (const s of this.subs) if (s.ch === ch && s.sent !== null) this.sendSnap(s);
+    for (const s of this.subs) {
+      if (s.ch !== ch || (s.sent === null && !s.recoverOnResync)) continue;
+      s.recoverOnResync = false;
+      this.sendSnap(s);
+    }
   }
   private sendSnap(sub: Sub) {
     const body = this.body(sub.ch);

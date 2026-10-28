@@ -3,7 +3,7 @@
 // (CancelControl): one confirm open per list, one `mkt.order.cancel` per "Yes, cancel", and the outcome read from `me`
 // only (the row leaves when the order leaves `me.orders`; ENGINE-TBD rules are in orderPolicy.ts). Every value is the
 // server's string (decText regroups for the locale); the list only sorts by tick numbers and orderId, never by money.
-import { useEffect, useRef, useState, type AnimationEvent } from "react";
+import { useEffect, useId, useRef, useState, type AnimationEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { decText } from "@/apps/portfolio/positions/format";
@@ -70,6 +70,9 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   /** Orders with a cancel on the wire (17-AT-07): a second press before React re-renders sends nothing. */
   const inFlight = useRef(new Set<string>());
   const sectionRef = useRef<HTMLElement>(null);
+  // One per instance: Broker and Portfolio both mount this list, so a fixed id would repeat (the label would point at the first).
+  const titleId = useId();
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const focusReq = useRef<FocusReq | null>(null);
   const shownIds = useRef<readonly string[]>([]);
   const live = me.state === "live";
@@ -109,7 +112,7 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
       const after = req.prev.slice(i + 1).find((id) => ids.includes(id));
       const before = req.prev.slice(0, i).reverse().find((id) => ids.includes(id));
       const target = [after, before].flatMap((id) => (id === undefined ? [] : [root.querySelector<HTMLElement>(cancelSel(id)) ?? root.querySelector<HTMLElement>(`[data-testid="br-oo-row-${id}"]`)]))[0];
-      (target ?? root.querySelector<HTMLElement>("#br-oo-title"))?.focus();
+      (target ?? titleRef.current)?.focus();
       return;
     }
     const sel = req.kind === "cancel" ? cancelSel(req.id) : req.kind === "keep" ? `[data-testid="br-oo-row-${req.id}"] [data-testid="br-oo-keep"]` : `[data-testid="br-oo-row-${req.id}"]`;
@@ -150,9 +153,9 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
 
   const rows = [...orders.map((o) => ({ o, ghost: false })), ...ghosts.map((o) => ({ o, ghost: true }))].sort((a, b) => byRecent(a.o, b.o));
   return (
-    <section ref={sectionRef} className="br-oo" data-testid="br-oo" data-oo="1" data-state={me.state} aria-labelledby="br-oo-title" aria-busy={me.state === "loading" || undefined}
+    <section ref={sectionRef} className="br-oo" data-testid="br-oo" data-oo="1" data-state={me.state} aria-labelledby={titleId} aria-busy={me.state === "loading" || undefined}
       onKeyDownCapture={clearLine} onClickCapture={clearLine}>
-      <h3 id="br-oo-title" className="br-oo-title" tabIndex={-1}>
+      <h3 ref={titleRef} id={titleId} className="br-oo-title" data-testid="br-oo-title" tabIndex={-1}>
         {t.openOrders}
         {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{String(orders.length)}</span>}
       </h3>

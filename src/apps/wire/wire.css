@@ -121,6 +121,15 @@
   background: var(--win);
 }
 .wire-row.is-new { animation: wire-in var(--dur-base) var(--ease-out); }
+/* Card 9: the headline button opens the detail; its ::after covers the whole row (>= 40 px; 44 px on touch), so the
+   row is the hit area while entity labels stay plain text. Focus: the shell's ring colours, inset on the row box. */
+.wire-row { position: relative; }
+.wire-row.is-selected { background: var(--win2); }
+.wire-row-open { all: unset; cursor: pointer; overflow-wrap: inherit; }
+.wire-row-open::after { content: ""; position: absolute; inset: 0; }
+.wire-row-open:focus-visible::after { box-shadow: inset 0 0 0 2px var(--bg0), inset 0 0 0 4px var(--acc); } /* the shell ring, inset */
+.wire-row:hover { background: var(--win2); }
+@media (pointer: coarse) { .wire-row { min-height: var(--hit-touch); } }
 @keyframes wire-in { from { opacity: 0; } }
 .wire-row-kind { grid-area: kind; min-width: 0; }
 .wire-row-kind .chip { max-width: 100%; white-space: normal; }

@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { LAYOUT_RECTS_1440 } from "../../unit/shell/layoutRects";
 import { SPEC_TABLE } from "../../unit/shell/paletteTable";
 import { boot, box, intents, setReducedTransparency } from "./helpers";
-import { watchScripts } from "../17b/plotChunk";
+import { FIRST_LOAD_BUDGET_KB, watchScripts } from "../17b/plotChunk";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "desktop project only"));
 
@@ -332,7 +332,7 @@ test("S1-19 axe: zero serious violations at 1440 and 1000", async ({ page }) => 
   await expect(page.getByRole("dialog", { name: "Markets" })).toBeVisible();
 });
 
-test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no three.js and ≤200 KB gz", async ({ page, request }) => {
+test(`S1-20 City dynamic-imports @/city in its own chunk; Broker route has no three.js and ≤${FIRST_LOAD_BUDGET_KB} KB gz`, async ({ page, request }) => {
   const scripts = new Map<string, number>();
   page.on("response", (r) => {
     if (r.request().resourceType() === "script") scripts.set(r.url(), 0); // record synchronously; size comes from request.get below
@@ -356,8 +356,8 @@ test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
     if (s && s.plot && !s.broker && s.afterMount && !html.includes(new URL(url).pathname)) lazyPlot += size;
     else gz += size;
   }
-  console.log(`S1-20 broker first-load JS: ${brokerChunks.length} chunks, ${(gz / 1024).toFixed(1)} KB gzipped (lazy plot chunk ${(lazyPlot / 1024).toFixed(1)} KB gz not counted)`);
-  expect(gz).toBeLessThanOrEqual(200 * 1024);
+  console.log(`S1-20 broker first-load JS: ${brokerChunks.length} chunks, ${(gz / 1024).toFixed(1)} KB gzipped (lazy plot chunk ${(lazyPlot / 1024).toFixed(1)} KB gz not counted; budget ${FIRST_LOAD_BUDGET_KB} KB)`);
+  expect(gz).toBeLessThanOrEqual(FIRST_LOAD_BUDGET_KB * 1024);
   await page.unrouteAll({ behavior: "wait" }); // the City part below isn't watched
   // Deterministic: arm the wait for the first new script before the click that triggers the dynamic import.
   const cityChunk = page.waitForResponse((r) => r.request().resourceType() === "script" && !brokerChunks.includes(r.url()));

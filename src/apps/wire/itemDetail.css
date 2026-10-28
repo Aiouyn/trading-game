@@ -1,0 +1,51 @@
+/* Wire item detail (UI card 9 · WIR-9). Tokens only; never --acc, --gain or --loss. Wire box >= 720 px: feed (>= 360)
+   left, pane right with a --line divider, each scrolling on its own; narrower the pane replaces the feed. No slide. */
+.wire[data-layout="split"] { flex-direction: row; }
+.wire-feed { container: wire / inline-size; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.wire-feed[hidden] { display: none; }
+.wire[data-layout="split"] > .wire-feed { flex: 1 1 50%; min-width: 360px; }
+
+.wire-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; background: var(--win); }
+.wire[data-layout="split"] > .wire-pane { flex: 1 1 50%; border-left: 1px solid var(--line); }
+html[data-hc="1"] .wire[data-layout="split"] > .wire-pane { border-left-color: var(--fg-muted); }
+.wire-no-selection { margin: 0; padding: var(--sp-24) var(--sp-16); color: var(--fg-muted); }
+
+.wire-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.wire-detail-bar { display: flex; flex: none; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border-bottom: 1px solid var(--line); }
+html[data-hc="1"] .wire-detail-bar { border-bottom-color: var(--fg-muted); }
+.wire-detail-bar-title { min-width: 0; font-size: var(--fs-13); font-weight: 600; color: var(--fg); }
+.wire-detail-body { flex: 1; min-height: 0; padding: var(--sp-16); overflow-y: auto; overflow-wrap: anywhere; }
+.wire-detail-note { margin: 0 0 var(--sp-12); color: var(--fg-muted); font-size: var(--fs-11_5); }
+.wire-detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
+.wire-detail-time { margin-left: auto; font-family: var(--font-num); font-size: var(--fs-10_5); color: var(--fg-muted); white-space: nowrap; }
+.wire-detail-hl { margin: var(--sp-8) 0 0; font-size: var(--fs-16); line-height: 1.35; font-weight: 600; color: var(--fg); }
+/* The h2 takes focus on open (a landing point, not a control): a quiet --fg-muted outline, never the --acc ring. */
+.wire-detail-hl:focus { outline: none; }
+.wire-detail-hl:focus-visible { outline: 2px solid var(--fg-muted); outline-offset: 2px; border-radius: 2px; }
+
+.wire-detail-section { margin-top: var(--sp-16); }
+.wire-detail-label { margin: 0 0 var(--sp-4); font-size: var(--fs-11_5); font-weight: 600; color: var(--fg-muted); }
+.wire-detail-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4) var(--sp-8); margin: 0; font-size: var(--fs-13); }
+.wire-assets { margin: 0; padding: 0; list-style: none; }
+.wire-asset { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-8); padding: var(--sp-4) 0; border-bottom: 1px solid var(--line); }
+.wire-asset-label { font-family: var(--font-num); font-size: var(--fs-13); color: var(--fg); }
+@media (pointer: coarse) { .wire-open-broker.btn-sm, .wire-back.btn-sm, .wire-filing-error .btn-sm { min-height: var(--hit-touch); } }
+
+.wire-filing-type { margin: 0; font-size: var(--fs-13); color: var(--fg); }
+.wire-filing-fields { margin: var(--sp-8) 0 0; }
+.wire-field { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-4) var(--sp-16); padding: var(--sp-4) 0; border-bottom: 1px solid var(--line); font-size: var(--fs-13); }
+.wire-field dt { color: var(--fg-muted); }
+.wire-field dd { margin: 0; color: var(--fg); }
+.wire-filing-time { display: block; margin-top: var(--sp-8); font-family: var(--font-num); font-size: var(--fs-10_5); color: var(--fg-muted); }
+.wire-filing-skel { height: 96px; border-radius: var(--r-input); background: var(--win2); }
+.wire-filing-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); margin: 0; color: var(--fg-muted); }
+.wire-filing-missing { margin: 0; color: var(--fg-muted); }
+
+/* hc: borders on chips and rules in the pane */
+html[data-hc="1"] .wire-detail .chip,
+html[data-hc="1"] .wire-asset,
+html[data-hc="1"] .wire-field { border-color: var(--fg-muted); }
+
+/* Stale news: the detail stays, dimmed (as stale positions) */
+.wire-detail[data-stale] .wire-detail-body { color: var(--fg-disabled); }
+.wire-detail[data-stale] .wire-detail-body :is(.wire-detail-hl, .wire-asset-label, .wire-field dd, .wire-filing-type, .chip) { color: var(--fg-disabled); }
