@@ -22,7 +22,7 @@ export function buybackTrigger(f: { cashBuffer: Money; cashTarget: Money; stress
   { open: boolean; maxFaceCash: Money; reason: 'EXCESS_CASH' | 'DYSFUNCTION' | null } {
   let excess = 0n, reason: 'EXCESS_CASH' | 'DYSFUNCTION' | null = null;
   if (f.cashBuffer > 2n * f.cashTarget && f.stress < 0.2) { excess = f.cashBuffer - 2n * f.cashTarget; reason = 'EXCESS_CASH'; }
-  else if (f.offTheRunDepth < 0.5 && f.fsi > 0.5) { excess = f.cashBuffer > f.cashTarget ? f.cashBuffer - f.cashTarget : 0n; reason = 'DYSFUNCTION'; }
+  else if (f.offTheRunDepth < 0.5 && f.fsi > 0.5) { excess = f.cashBuffer - f.cashTarget; /* ≤ 0 stays closed below */ reason = 'DYSFUNCTION'; }
   const lim = (f.debt * 2n) / 100n, m = excess < lim ? excess : lim;
   return m > 0n ? { open: true, maxFaceCash: m, reason } : { open: false, maxFaceCash: 0n, reason: null };
 }

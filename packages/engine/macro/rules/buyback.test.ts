@@ -68,6 +68,9 @@ describe('open, offers, settle', () => {
     expect(buybackOfferIntent.validate(w.ctx, si('usr_p', '5001000', '99.00'))).toEqual({ code: 'SOV_HOLD_FAILED' });
     expect(buybackOfferIntent.validate(w.ctx, si('usr_p', '5000000', '99.00'))).toBeNull();
     expect(buybackOfferIntent.validate(w.ctx, si('usr_a', '10001000', '99.00'))).toEqual({ code: 'SOV_HOLD_FAILED' });
+    w.qty[`usr_c:${OFF}`] = F(10_000_000) - 1n;
+    expect(buybackOfferIntent.validate(w.ctx, si('usr_c', '10000000', '99.00'))).toEqual({ code: 'SOV_HOLD_FAILED' });
+    w.qty[`usr_c:${OFF}`] = F(10_000_000);
     expect(buybackOfferIntent.validate(w.ctx, si('usr_a', '1000', '99.00'))).toEqual({ code: 'SOV_FACE_STEP' });
     expect(buybackOfferIntent.validate(w.ctx, si('usr_a', '10000', '99.00', ON))).toEqual({ code: 'SOV_AUCTION_CLOSED' });
     expect(buybackOfferIntent.apply(w.ctx, si('usr_c', '3000000', '100.20'))).toBeNull();
@@ -95,6 +98,8 @@ describe('open, offers, settle', () => {
     for (const e of ['usr_a', 'usr_b']) w.qty[`${e}:${OFF}`] = F(10_000_000);
     w.put(macroTables.buybackOffer.name, off('o1', 'usr_a', 1_000_000, '99.5'));
     w.put(macroTables.buybackOffer.name, off('o2', 'usr_b', 1_000_000, '99.6'));
+    w.put(macroTables.buybackOffer.name, off('o0', 'usr_b', 1_000_000, '99.0'));
+    w.ctx.holds.release((w.rows(macroTables.buybackOffer.name).find((o) => (o as BuybackOffer).id === 'o0') as BuybackOffer).holdId);   // dead hold → not accepted
     settleBuyback(w.ctx, bb, ports());
     expect(w.posts.filter((x) => x.op === 'swapAsset').map((x) => x.sub)).toEqual([`${OFF}:${F(1_000_000)}`, `${OFF}:${F(500_000)}`]);
     const w2 = world(); w2.put(macroTables.buyback.name, bb);

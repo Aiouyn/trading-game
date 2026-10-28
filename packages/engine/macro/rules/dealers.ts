@@ -21,7 +21,6 @@ export function dealerEligibility(store: StoreRead, ports: MacroPorts, b: BlocId
   const pl = ports.players, row = store.get<PrimaryDealerStatus>(T, `${b}:${entityId}`);
   if (row) return NOT_ELIGIBLE;
   const bank = pl.hasCharter(store, entityId, 'CH_BANK', b), swf = pl.swfPrivilege(store, entityId);
-  if (!bank && !swf) return NOT_ELIGIBLE;
   const eq = (bank ? ports.credit?.bankEquity(store, entityId) : null) ?? (swf ? swfNetWorth ?? null : null);
   if (eq === null || eq * 10_000n < debtStock * 5n) return NOT_ELIGIBLE;
   if (pl.reputationLowestBand(store, entityId)) return NOT_ELIGIBLE;
@@ -32,7 +31,7 @@ export function dealerCount(store: StoreRead, b: BlocId): number { return NPC_DE
 export function obligationMinFace(offered: Qty, dealers: number): Qty { return ((offered / (2n * BigInt(dealers))) / LOT) * LOT; }
 /** Decision: only competitive bids qualify (a noncompetitive bid has no yield to test against y_WI + 5 bp). */
 export function isQualifyingBid(bid: AuctionBid, offered: Qty, dealers: number, yWi: number): boolean {
-  return bid.kind === 'COMPETITIVE' && bid.yieldBp !== undefined && bid.face >= obligationMinFace(offered, dealers) && bid.yieldBp <= roundHalfEven(yWi * 1e6) + 500;
+  return bid.yieldBp !== undefined /* COMPETITIVE only: NC bids carry no yield */ && bid.face >= obligationMinFace(offered, dealers) && bid.yieldBp <= roundHalfEven(yWi * 1e6) + 500;
 }
 const addFace = (m: SortedMap<string, string>, q: number, f: Qty): SortedMap<string, string> => {
   const c = m.clone(); c.set(qKey(q), (BigInt(c.get(qKey(q)) ?? '0') + f).toString()); return c; };
@@ -57,12 +56,11 @@ export function recordDealerAuction(ctx: PhaseCtx, b: BlocId, offered: Qty, yWi:
 export function quarterEndDealerReview(ctx: PhaseCtx, b: BlocId): void {
   const s = ctx.store, cur = quarterOf(ctx.tick), q = cur - 1;
   for (const r of rowsOf(s, b)) {
-    if (r.npc) continue;
     const reset = { auctionsThisQuarter: 0, auctionsBidThisQuarter: 0, missesThisQuarter: 0 };
     if (r.status === 'RESIGNING' || (r.status === 'REVOKED' && (r.revokedUntilQuarter ?? 0) <= cur)) s.del(T, r.id);
     else if (r.status === 'ACTIVE' && r.missesThisQuarter >= 3) s.put<PrimaryDealerStatus>(T, { ...r, ...reset, status: 'REVOKED', revokedUntilQuarter: q + 2 });
     else if (r.status === 'APPLIED' && r.fromQuarter <= cur) s.put<PrimaryDealerStatus>(T, { ...r, ...reset, status: 'ACTIVE', fromQuarter: q + 1 });
-    else if (r.status === 'ACTIVE') s.put<PrimaryDealerStatus>(T, { ...r, ...reset });
+    else if (r.status === 'ACTIVE' && !r.npc) s.put<PrimaryDealerStatus>(T, { ...r, ...reset });
   }
 }
 /** Shares of dealer-awarded face over the quarters starting in [fromTick, toTick); NPC pool split equally into the 8 NPC dealer keys. Sorted by share desc, key asc. */

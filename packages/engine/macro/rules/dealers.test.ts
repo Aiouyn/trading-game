@@ -63,7 +63,7 @@ describe('eligibility', () => {
     const q = ports({ swf: ['swf_x'] });
     bindPrimaryPorts({ ...q, markets: { ...q.markets, fxSpot: () => 2 } });
     const w = cbWorld([cbRow('SRL')], 0); putBloc(w, 'SRL', { fiscal: { debt: DEBT } as never });
-    w.cash['swf_x:FDL'] = M(2.5e8);   // = 1.25e8 SRL < 5e8
+    w.cash['swf_x:FDL'] = M(8e8);   // = 4e8 SRL < 5e8 (as FDL it would pass)
     const si = { intentId: 'i', actorId: 'swf_x', payload: { bloc: 'SRL', bankId: 'swf_x' }, tick: 0 } as never;
     expect(primaryDealerApplyIntent.validate(w.ctx, si)).toEqual({ code: 'CBK_NOT_ELIGIBLE' });
     w.cash['swf_x:FDL'] = M(1e9);
@@ -99,6 +99,7 @@ describe('obligations and review', () => {
     expect(get(w, 'bnk_b')).toMatchObject({ auctionsThisQuarter: 4, auctionsBidThisQuarter: 3, missesThisQuarter: 1 });
     expect(get(w, 'bnk_b')!.awardedFaceQuarter.get('000010')).toBe(F(3_000_000_000).toString());
     expect(get(w, DEALER_POOL_ID('FDL'))).toMatchObject({ npc: true, status: 'ACTIVE' });
+    expect(get(w, DEALER_POOL_ID('FDL'))!.awardedFaceQuarter.get('000010')).toBe(F(24_000_000_000).toString());
     w.setTick(11 * Q); quarterEndDealerReview(w.ctx, 'FDL');
     expect(get(w, 'bnk_a')).toMatchObject({ status: 'REVOKED', revokedUntilQuarter: 12, missesThisQuarter: 0 });
     expect(get(w, 'bnk_b')).toMatchObject({ status: 'ACTIVE', missesThisQuarter: 0, auctionsThisQuarter: 0, auctionsBidThisQuarter: 0 });

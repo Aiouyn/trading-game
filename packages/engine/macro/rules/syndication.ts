@@ -34,7 +34,7 @@ export function syndicationSize(tenor: 'N30Y' | 'N10Y_FDL', gfnQuarter: Money, r
 export function leadManagers(store: StoreRead, b: BlocId, tick: Tick): string[] {
   const q = quarterOf(tick), act = activeDealers(store, b).map((r) => r.entityId), npc = (k: string): boolean => k.startsWith(`${DEALER_POOL_ID(b)}#`);
   const out = dealerShares(store, b, (q - 2) * QD * D, q * QD * D).filter((x) => x.share > 0 && (npc(x.entityKey) || act.includes(x.entityKey))).slice(0, 3).map((x) => x.entityKey);
-  for (let i = 0; out.length < 3; i++) if (!out.includes(npcDealerKey(b, i))) out.push(npcDealerKey(b, i));
+  for (let i = 0; out.length < 3; i++) out.push(npcDealerKey(b, i));   // NPC keys are all in or all out (equal shares)
   return out;
 }
 /** At t = 420: book open now, pricing at t = 420 of the next trading day; guidance = curve zero at the maturity + 5 bp; leads; fee 0.0015. */

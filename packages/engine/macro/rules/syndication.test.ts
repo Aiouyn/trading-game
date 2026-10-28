@@ -1,5 +1,5 @@
 // T04-12 syndication tests (04 §3.10.6).
-import { MICRO_N, type Id, type Qty } from '@tycoon/engine-core';
+import { MICRO_N, SortedMap, type Id, type Qty } from '@tycoon/engine-core';
 import { describe, expect, it } from 'vitest';
 import { DEALER_POOL_ID } from '../ids';
 import { syndicationOrderIntent } from '../intents/syndication';
@@ -124,8 +124,17 @@ describe('open, size, leads, orders', () => {
     expect(syndicationSize('N10Y_FDL', M(10_000_999_999), 0n)).toBe(F(2_000_000_000));
     expect(syndicationSize('N30Y', M(1e9), F(1e9))).toBe(0n);
   });
-  it('leads: NPC keys fill when no dealer won anything', () => {
-    const w = world();
+  it('leads: top shares over the two prior quarters, ACTIVE players only; NPC keys fill when no dealer won anything', () => {
+    const w = world(), fq = (q: string, x: number) => new SortedMap([[q, F(x).toString()]] as const);
+    const r = (e: string, o: object) => ({ id: `FDL:${e}`, bloc: 'FDL', entityId: e, npc: false, status: 'ACTIVE', fromQuarter: 0, revokedUntilQuarter: null, auctionsThisQuarter: 0,
+      auctionsBidThisQuarter: 0, missesThisQuarter: 0, awardedFaceQuarter: new SortedMap(), ...o } as never);
+    const q = Math.floor(PT / D / 91);
+    w.put(macroTables.dealer.name, r('bnk_a', { awardedFaceQuarter: fq(String(q - 1).padStart(6, '0'), 9_000) }));
+    w.put(macroTables.dealer.name, r('bnk_c', { status: 'RESIGNING', awardedFaceQuarter: fq(String(q - 2).padStart(6, '0'), 90_000) }));
+    w.put(macroTables.dealer.name, r('bnk_d', { awardedFaceQuarter: fq(String(q).padStart(6, '0'), 90_000) }));
+    w.put(macroTables.dealer.name, r(DEALER_POOL_ID('FDL'), { npc: true, awardedFaceQuarter: fq(String(q - 2).padStart(6, '0'), 8_000) }));
+    expect(leadManagers(w.ctx.store, 'FDL', PT)).toEqual(['bnk_a', npcDealerKey('FDL', 0), npcDealerKey('FDL', 1)]);
+    w.ctx.store.del(macroTables.dealer.name, `FDL:${DEALER_POOL_ID('FDL')}`); w.ctx.store.del(macroTables.dealer.name, 'FDL:bnk_a');
     expect(leadManagers(w.ctx.store, 'FDL', w.ctx.tick)).toEqual([0, 1, 2].map((i) => npcDealerKey('FDL', i)));
   });
   it('open: pricing at t = 420 of the next trading day, announced with syndication: true; orders: closed, license, cap, step, hold', () => {
