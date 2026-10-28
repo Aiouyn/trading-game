@@ -13,7 +13,7 @@ export const MACRO_TEST_PARAMS: Readonly<Record<string, number>> = Object.freeze
   macro_xreg_exp: 0.005, macro_xreg_ovh: 0.025, macro_xreg_con: -0.04, macro_xreg_rec: -0.01,
   macro_x_a_r: 0.5, macro_x_m: 0.8, macro_x_a_c: 0.012, macro_x_a_e: 0.4, macro_x_a_q: 0.10, macro_x_a_o: 0.03, macro_x_a_f: 0.010,
   macro_x_a_w: 0.05, macro_x_a_h: 0.08, macro_x_a_t: 0.2, macro_x_a_k: 0.010,
-  macro_regime_mean_days_exp: 819, macro_regime_mean_days_ovh: 273, macro_regime_mean_days_con: 273, macro_regime_mean_days_rec: 273,
+  macro_regime_mean_days_exp: 819, macro_cycle_label_lag_days: 21, macro_regime_mean_days_ovh: 273, macro_regime_mean_days_con: 273, macro_regime_mean_days_rec: 273,
   macro_regime_min_days_exp: 182, macro_regime_min_days_ovh: 63, macro_regime_min_days_con: 91, macro_regime_min_days_rec: 91,
   macro_cb_phi_fs: 1.5, macro_cb_smoothing: 0.5, macro_cb_max_step: 0.005, macro_cb_max_step_wide: 0.0075,
   macro_cb_emergency_step: 0.01, macro_cred_guidance_break: 0.05, macro_governor_term_days: 2912, macro_corridor_halfwidth: 0.0025, macro_cb_max_emergency_per_quarter: 2,
