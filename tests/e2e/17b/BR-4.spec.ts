@@ -5,7 +5,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { boot, bootPaused, intents, setTextScale } from "../shell/helpers";
+import { boot, intents, setTextScale } from "../shell/helpers";
+import { openBrokerPaused } from "./openPaused";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -70,9 +71,7 @@ const takerFee = (notional: number) => { const n = notional * 3, q = Math.floor(
 const money = (c: number) => (c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** Fake-clock Broker: boots, then the clock only moves when a test runs it (one feed tick = 5,000 ms). */
 async function openPaused(page: Page, query = "?asset=HALC") {
-  await bootPaused(page, `/broker${query}`);
-  await page.clock.runFor(200);
-  await expect(br(page)).toHaveAttribute("data-state", "live");
+  await openBrokerPaused(page, `/broker${query}`, br(page));
 }
 async function qtyPaused(page: Page, n: string) {
   await br(page).getByTestId("br-qty").fill(n);

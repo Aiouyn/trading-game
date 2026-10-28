@@ -7,8 +7,12 @@ export default defineConfig({
   // City e2e runs only with its own config/harness (tests/e2e/city/playwright.config.ts), never against the Next app.
   testIgnore: ["city/**"],
   outputDir: "test-results",
+  // Compared baselines (toHaveScreenshot) live next to the spec: tests/e2e/<dir>/__screenshots__/<name>.png (17B BR-5-12, BR-6-11).
+  expect: { toHaveScreenshot: { pathTemplate: "{testDir}/{testFileDir}/__screenshots__/{arg}{ext}", threshold: 0, maxDiffPixelRatio: 0, animations: "disabled", caret: "hide" } },
   reporter: [["list"], ["html", { open: "never" }]],
-  use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure", screenshot: "only-on-failure" },
+  // --disable-lcd-text: grayscale text antialiasing on every host. CI's desktop Chromium otherwise draws subpixel (LCD) glyphs,
+  // so the committed desktop baselines (BR-6-11) would differ from the box by ~4% of pixels; phone (isMobile) is already grayscale.
+  use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure", screenshot: "only-on-failure", launchOptions: { args: ["--disable-lcd-text"] } },
   projects: [
     { name: "desktop", use: { browserName: "chromium", viewport: { width: 1440, height: 900 } } },
     { name: "phone", use: { browserName: "chromium", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },

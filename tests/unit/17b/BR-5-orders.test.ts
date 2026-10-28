@@ -80,8 +80,12 @@ describe("BR-5-02 no number parsing or arithmetic (extends BR-4-03)", () => {
 });
 
 describe("BR-5-01 / 08 colour rules (CSS source)", () => {
-  it("no brass, gain or loss anywhere in openOrders.css", () => {
-    expect(css).not.toMatch(/--acc\b|--gain\b|--loss\b/);
+  it("no brass or gain anywhere in openOrders.css; --loss only in card 6's cancel rules (BR-6 spec)", () => {
+    expect(css).not.toMatch(/--acc\b|--gain\b/);
+    const card6 = css.indexOf("/* Cancel (UI card 6)");
+    expect(card6).toBeGreaterThan(-1);
+    expect(css.slice(0, card6)).not.toMatch(/--loss\b/);
+    for (const rule of css.slice(card6).match(/[^{}]+\{[^}]*--loss[^}]*\}/g) ?? []) expect(rule).toMatch(/br-oo-(cancel|yes|note)/);
   });
   it("status chips: --steel outline, --fg text", () => {
     expect(css).toMatch(/\.br-oo-chip\s*\{[^}]*border-color:\s*var\(--steel\)[^}]*color:\s*var\(--fg\)/);

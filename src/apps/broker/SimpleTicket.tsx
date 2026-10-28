@@ -47,6 +47,8 @@ export interface SimpleTicketProps {
   /** Format message under the input (qtyEmpty / qtyDigits), or the server's reasonCode copy. */
   message: { text: string; tone: "muted" | "warn" } | null;
   preview: PreviewRes | null;
+  /** A whole draft with no preview for these exact inputs yet (debounce, or the per-tick cap): Review stays disabled. */
+  pending: boolean;
   reviewDisabled: boolean;
   onReview: () => void;
   readOnly: boolean;
@@ -57,7 +59,7 @@ export interface SimpleTicketProps {
   kind: string;
 }
 
-export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlur, message, preview, reviewDisabled, onReview, readOnly, qtyRef, orderType, kind }: SimpleTicketProps) {
+export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlur, message, preview, pending, reviewDisabled, onReview, readOnly, qtyRef, orderType, kind }: SimpleTicketProps) {
   const msgId = "br-qty-msg";
   return (
     <section className="br-ticket" data-testid="br-ticket" aria-label={kind}>
@@ -81,6 +83,7 @@ export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlu
       {message && <p id={msgId} className={`br-msg ${message.tone}`} data-testid="br-qty-msg">{message.text}</p>}
       <p className="br-kind muted" data-testid="br-kind">{kind}</p>
       {preview && <PreviewRows t={t} locale={locale} res={preview} />}
+      {pending && <p className="br-refreshing muted" role="status" data-testid="br-est-pending">{t.refreshing}</p>}
       <p className="br-note muted" data-testid="br-note">{t.note}</p>
       <Button variant="secondary" className="br-review" data-testid="br-review" disabled={reviewDisabled} onClick={onReview}>{t.review}</Button>
     </section>

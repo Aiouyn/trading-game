@@ -1,12 +1,15 @@
 // UI card 5 (17B BR-5) Broker limit and stop orders + read-only Open orders, end to end against the production build and its mock feed.
 // Drafts, sort, partial rows and the read-only rows are unit tested in tests/unit/17b/BR-5-ticket.test.tsx (the mock never makes
 // PARTIAL or PENDING); this spec proves the browser side: review titles and primaries, the resting ack on the fake clock,
-// computed colours, list states, layout at 1440 / 520 / 390, text scale, cb / hc, FR.
+// computed colours (segment + chips), list states, layout at 1440 / 520 / 390, text scale, cb / hc, FR.
 // Shots: SHOTS=1 writes them under tests/e2e/17b/__screenshots__/BR-5 (CI); BR_SHOTS_DIR overrides the folder.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { boot, bootPaused, intents, setTextScale } from "../shell/helpers";
+import { pinHtml } from "./pin";
+import { boot, intents, setTextScale } from "../shell/helpers";
+import { openBrokerPaused } from "./openPaused";
+import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -67,9 +70,7 @@ type Type = "market" | "limit" | "stop" | "stop_limit";
 type Prices = { stop?: string; limit?: string };
 /** Fake-clock Broker: one feed tick = 5,000 ms, only when a test runs the clock. */
 async function openPaused(page: Page, query = "?asset=HALC") {
-  await bootPaused(page, `/broker${query}`);
-  await page.clock.runFor(200);
-  await expect(br(page)).toHaveAttribute("data-state", "live");
+  await openBrokerPaused(page, `/broker${query}`, br(page));
 }
 /** Pick a type, fill its prices and the quantity, and wait out the 300 ms preview debounce. */
 async function ticket(page: Page, type: Type, prices: Prices, qty = "40") {
@@ -95,6 +96,25 @@ async function order(page: Page, type: Type, prices: Prices, qty = "40") {
   await placeAndAck(page);
   await br(page).getByTestId("br-new").click();
 }
+
+test("BR-5-01 segment computed colours: idle --fg-muted on transparent, pressed --fg on --win2, --line border; never --acc / --gain / --loss", async ({ page }) => {
+  await openPaused(page);
+  const seg = br(page).getByTestId("br-type");
+  const look = (l: Locator) => l.evaluate((e) => { const s = getComputedStyle(e); return { color: s.color, bg: s.backgroundColor }; });
+  const [fg, muted, win2, line] = await Promise.all(["--fg", "--fg-muted", "--win2", "--line"].map((v) => color(page, `var(${v})`)));
+  expect(await seg.evaluate((e) => getComputedStyle(e).borderTopColor)).toBe(line);
+  for (const type of ["limit", "stop_limit"] as const) {
+    await br(page).getByTestId(`br-type-${type}`).click();
+    await page.mouse.move(0, 0);
+    for (const b of await seg.locator("button").all()) {
+      const pressed = (await b.getAttribute("aria-pressed")) === "true";
+      await expect.poll(() => look(b), `${type} ${await b.textContent()}`).toEqual( // polled: .btn transitions colour on --dur-fast
+        pressed ? { color: fg, bg: win2 } : { color: muted, bg: "rgba(0, 0, 0, 0)" });
+    }
+    const cols = await colours(seg);
+    for (const v of ["--loss", "--acc", "--gain"]) expect(cols, v).not.toContain(await color(page, `var(${v})`));
+  }
+});
 
 test("BR-5-04 review title per type; one primary only in review; Market keeps card 4's title", async ({ page }) => {
   await openPaused(page);
@@ -176,16 +196,16 @@ test("BR-5-05 fake clock: Place on a limit sends one intent with limit; the resu
   await expect(rows(page).first()).not.toHaveAttribute("data-fresh", "1");
 });
 
-test("BR-5-08 halted: market Buy rests as Waits for reopen; chips --steel outline, --fg text; no --loss / --acc in the list", async ({ page }, info) => {
+test("BR-5-08 halted: market, limit and stop limit rest as Waits for reopen (E-98 (1)); chips --steel outline, --fg text; no --loss / --acc in the list", async ({ page }, info) => {
   await openPaused(page, "?asset=HALC&halt=HALC");
   await order(page, "limit", { limit: "42.10" });
   await order(page, "stop_limit", { stop: "40.00", limit: "39.80" }, "7");
   await order(page, "market", {}, "5");
   await expect(rows(page)).toHaveCount(3);
-  const queued = rows(page).filter({ hasText: "Waits for reopen" });
-  await expect(queued).toHaveCount(1);
-  await expect(queued.getByTestId("br-oo-terms")).toHaveText("Market");
-  await expect(rows(page).getByTestId("br-oo-status")).toHaveText(["Waits for reopen", "Working", "Working"]);
+  // E-98 (1): a halted priced order rests as QUEUED_AUCTION too (mock default behind src/shell/contracts/orderPolicy.ts).
+  await expect(rows(page).getByTestId("br-oo-terms")).toHaveText(["Market", "Stop 40.00 · Limit 39.80", "Limit 42.10"]);
+  await expect(rows(page).getByTestId("br-oo-status")).toHaveText(["Waits for reopen", "Waits for reopen", "Waits for reopen"]);
+  await expect(rows(page).first()).toHaveAttribute("data-status", "QUEUED_AUCTION");
   const steel = await color(page, "var(--steel)"), fg = await color(page, "var(--fg)");
   for (const chip of await rows(page).getByTestId("br-oo-status").all()) {
     expect(await chip.evaluate((e) => { const s = getComputedStyle(e); return [s.borderTopColor, s.color]; })).toEqual([steel, fg]);
@@ -304,17 +324,29 @@ for (const scale of ["1", "2"] as const) {
     await row.scrollIntoViewIfNeeded();
     await shot(page, `open-orders-scale-${scale}`);
     if (scale === "1") {
-      const html = (k: "cb" | "hc", on: boolean) => page.evaluate(([a, b]) => { if (b) document.documentElement.dataset[a] = "1"; else delete document.documentElement.dataset[a]; }, [k, on] as const);
       const chipOf = () => row.getByTestId("br-oo-status").evaluate((e) => [getComputedStyle(e).borderTopColor, getComputedStyle(e).color]);
       const plainChip = await chipOf();
-      await html("cb", true);
+      await pinHtml(page, "cb", true);
       expect(await chipOf()).toEqual(plainChip); // chips carry no colour meaning
+      // The baseline frames a cb-coloured element: the open confirm's Yes (--loss), checked against the Studio literal.
+      // Keyboard, not a tap: at scale 1 this Cancel sits at the foot of the 844 px viewport and the tap lands mid-scroll.
+      await row.getByTestId("br-oo-cancel").focus();
+      await page.keyboard.press("Enter");
+      const yes = row.getByTestId("br-oo-yes");
+      await expect(yes).toBeVisible();
+      await expect.poll(() => yes.evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).borderTopColor])).toEqual([SPEC_COLOUR.cbLoss, SPEC_COLOUR.cbLoss]);
       await shot(page, "open-orders-cb");
-      await html("cb", false);
-      await html("hc", true);
-      expect(await row.evaluate((e) => getComputedStyle(e).borderBottomColor)).toBe(await color(page, "var(--fg-muted)"));
-      expect(await br(page).getByTestId("br-price-limit").evaluate((e) => getComputedStyle(e).borderTopColor)).toBe(await color(page, "var(--fg-disabled)"));
+      await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-cb-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
+      await row.getByTestId("br-oo-keep").click();
+      await expect(yes).toHaveCount(0);
+      await row.getByTestId("br-oo-cancel").blur(); // Keep hands focus back to Cancel; :focus-visible would paint its border --loss
+      await pinHtml(page, "cb", false);
+      await pinHtml(page, "hc", true);
+      expect(await row.evaluate((e) => getComputedStyle(e).borderBottomColor)).toBe(SPEC_COLOUR.fgMuted);
+      expect(await br(page).getByTestId("br-price-limit").evaluate((e) => getComputedStyle(e).borderTopColor)).toBe(SPEC_COLOUR.hcLine);
+      await expect.poll(() => row.getByTestId("br-oo-cancel").evaluate((e) => getComputedStyle(e).borderTopColor), "once the border transition settles").toBe(SPEC_COLOUR.hcLine);
       await shot(page, "open-orders-hc");
+      await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-hc-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
     }
   });
 }

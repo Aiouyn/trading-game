@@ -1,4 +1,4 @@
-// Order path for the Broker ticket (UI cards 4 and 5, Gap 1). The client has no `req` path yet: `FeedTransport` only
+// Order path for the Broker ticket and Open orders (UI cards 4, 5 and 6, Gap 1). The client has no `req` path yet: `FeedTransport` only
 // subscribes and resyncs. Until 19 `req` lands (SWAP), this file is the one client door to `preview` and `submit`.
 // Engine Dev reviews it alone, so everything it relies on is stated here:
 //  - Draft fields mirror `OrderDraft` (channels.ts, 05 Order): assetId, side BUY|SELL, type, qty (decimal string), tif,
@@ -21,6 +21,9 @@
 //    core intake dedupes on intentId + actorId + nonce, and that dedupe is what the 17-AT-07 double-submit guard rests
 //    on. The mock mints it server-side and this file parses it from the submit reply (`parseIntentId`). This note
 //    changes no behaviour; 19 `req` does.
+//  - Cancel (card 6): `cancel(orderId)` sends one `mkt.order.cancel` intent for an id read from `me.orders`. The id is
+//    opaque (non-empty only). The reply is an intent id, parsed like submit's; the IntentResult arrives on `me.intents`
+//    next tick. What a cancel does on a halted, partly filled or already-gone order is ENGINE-TBD (orderPolicy.ts).
 import type { OrderDraft, PreviewRes, Side } from "./channels";
 import { orderDraft, ParseError, previewRes, str } from "./schema";
 import { getFeed } from "./useChannel";
@@ -35,6 +38,9 @@ export type WholeQty = Brand<string, "WholeQty">;
 /** The id `submit` returns; its result arrives as `me.intents[].intentId`. */
 export type IntentId = Brand<string, "IntentId">;
 
+/** An open order id as `me.orders` keys it ("o-12" in the mock). Opaque: not empty, nothing else. */
+export type OrderId = Brand<string, "OrderId">;
+
 /** A price as typed, format-checked, with "," rewritten to ".": "42,10" -> "42.10". Never parsed to a number. */
 export type PriceText = Brand<string, "PriceText">;
 
@@ -44,6 +50,11 @@ const PRICE = /^\d+([.,]\d+)?$/;
 /** Non-empty only: the format is the server's to judge (MKT_UNKNOWN_ASSET), not the client's. */
 export function parseAssetId(raw: string): AssetId | null {
   return raw === "" ? null : (raw as AssetId);
+}
+
+/** Non-empty only, like asset ids: the server judges any other id (unknown ids are ENGINE-TBD, orderPolicy.ts). */
+export function parseOrderId(raw: string): OrderId | null {
+  return raw === "" ? null : (raw as OrderId);
 }
 
 /** What the quantity box holds. The client checks the format only; every other rule is the server's `valid`. */
@@ -102,12 +113,13 @@ export function dayDraft(assetId: AssetId, side: Side, qty: WholeQty, terms: Ord
 export interface OrderTransport {
   preview(draft: OrderDraft): unknown;
   submit(draft: OrderDraft): unknown;
+  cancel(orderId: OrderId): unknown;
 }
 
 function isOrderTransport(v: unknown): v is OrderTransport {
   if (typeof v !== "object" || v === null) return false;
   const t = v as Record<string, unknown>;
-  return typeof t.preview === "function" && typeof t.submit === "function";
+  return typeof t.preview === "function" && typeof t.submit === "function" && typeof t.cancel === "function";
 }
 
 function hasOrderDoor(v: unknown): v is { orderDoor(): unknown } {
@@ -116,7 +128,7 @@ function hasOrderDoor(v: unknown): v is { orderDoor(): unknown } {
 
 /** The mock transport: the page feed's order door (`getFeed()`, a MockFeed in this build), so a placed intent settles
  *  into the same `me` channel the UI reads. A feed without a door is used as the transport itself if it has
- *  preview/submit; otherwise null. SWAP: 19 `req` replaces this. */
+ *  preview/submit/cancel; otherwise null. SWAP: 19 `req` replaces this. */
 export function mockTransport(): OrderTransport | null {
   const feed: unknown = getFeed();
   const door: unknown = hasOrderDoor(feed) ? feed.orderDoor() : feed;
@@ -153,4 +165,15 @@ export function previewOrder(draft: DayDraft, transport: OrderTransport | null =
 /** Sends the order once. The caller must not call it twice for one Place (17-AT-07). */
 export function placeOrder(draft: DayDraft, transport: OrderTransport | null = mockTransport()): Promise<OrderResult<IntentId>> {
   return call(draft, transport, (t, d) => t.submit(d), parseIntentId);
+}
+
+/** Sends one cancel for an open order. The caller must not call it twice for one "Yes, cancel" (card 6, 17-AT-07). */
+export async function cancelOrder(orderId: OrderId, transport: OrderTransport | null = mockTransport()): Promise<OrderResult<IntentId>> {
+  if (!transport) return fail({ kind: "noTransport" });
+  try {
+    return { ok: true, value: parseIntentId(await transport.cancel(str(orderId, "orderId") as OrderId)) };
+  } catch (e) {
+    if (e instanceof ParseError) return fail({ kind: "badReply", detail: e.message });
+    throw e;
+  }
 }
