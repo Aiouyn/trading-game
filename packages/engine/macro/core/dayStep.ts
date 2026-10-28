@@ -144,6 +144,7 @@ function realAndPrices(ctx: PhaseCtx, ports: MacroPorts, b: BlocId, day: number,
     wtiNow: g.energyIndex, wtiMean364: trailingMean(s, 'GLOBAL', day, 364, g.energyIndex, (r) => r.energyIndex) ?? g.energyIndex, worldHackRate: g.worldHackRate,
     shockSum: activeShockSum(s, 'x_target', b, tick) + activeShockSum(s, 'x_target', 'WORLD', tick) }, Rt, p);
   const x = stepOutputGap(bl.outputGap, outputGapTarget(terms), rng.normal(), p);
+  stepOutputGapEstimate(ctx, b, x); // 3.4, right after stepOutputGap (T04-20 card step 3.4); it writes gapEstNoise, carried into the put below
   const gPot = potentialGrowth(b, g.aiRaceIndex, p), lv = stepLevels({ potentialGdpIndex: bl.potentialGdpIndex, realGdpIndex: bl.realGdpIndex, outputGap: x }, gPot);
   const u = stepUnemployment(bl.unemployment, d.nairu, x), wg = wageGrowth(piE1, gPot, d.laborForceGrowth, u, d.nairu);
   const nr = stepNeutralRate(bl.rStarRw, rng.normal(), b, gPot);
@@ -163,8 +164,8 @@ function realAndPrices(ctx: PhaseCtx, ports: MacroPorts, b: BlocId, day: number,
     unemployment: u, unemployment12mLow: bl.unemployment12mLow === null ? u : Math.min(u, bl.unemployment12mLow) /* no u history column: running low */, wageGrowth: wg, wageIndex: stepWageIndex(wg, bl.wageIndex),
     rStarRw: nr.rw, rStar: nr.rStar, nominalGdp: gdp, coreInflation: core, coreCpiLevel: coreLvl, cpiLevel: cpi, headlineInflation: headline,
     inflationExp1y: ex.piE1, inflationExp5y5y: ex.piE5, housePriceGap: ports.housing.housePriceGap(s, b) ?? bl.housePriceGap,
-    credit: ca.credit, creditGdpTrend: ca.trend, creditGap: ca.creditGap, creditGrowth: ca.creditGrowth, creditConditions: ca.creditConditions });
-  stepOutputGapEstimate(ctx, b, x);
+    credit: ca.credit, creditGdpTrend: ca.trend, creditGap: ca.creditGap, creditGrowth: ca.creditGrowth, creditConditions: ca.creditConditions,
+    gapEstNoise: blocOf(ctx, b).gapEstNoise });
   return ca.interbankSpread;
 }
 
