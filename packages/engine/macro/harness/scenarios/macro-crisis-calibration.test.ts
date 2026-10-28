@@ -58,12 +58,12 @@ describe('04#36 crisis calibration: readings', () => {
     expect(p.assets.commodityClose(st, 'GOLD')).toBeNull();
   });
   it('E-106 (5) 04#36 run predicate: arm close in [24, 30], break on the next SRL trading day, controls ≥ 3, fair ≤ −0.40', () => {
-    const tr = { ...newTrace(day()).t, srlControlDays: 3, srlFairMin: -0.4 }, ok = { srlArmClose: 24, srlArmDay: 25, srlBreakDay: 26, trace: tr };
+    const tr = { ...newTrace(day()).t, srlControlDays: 3, srlFairMin: -0.4 }, ok = { srlArmClose: 24, srlArmDay: 25, srlBreakDay: 28, trace: tr };   // SRL days 26, 27 are the weekend
     expect(currencyCrisisHit(ok)).toBe(true);
     expect(currencyCrisisHit({ ...ok, srlArmClose: 30 })).toBe(true);
     expect(currencyCrisisHit({ ...ok, srlArmClose: 23 })).toBe(false);
     expect(currencyCrisisHit({ ...ok, srlArmClose: 31 })).toBe(false);
-    expect(currencyCrisisHit({ ...ok, srlBreakDay: 27 })).toBe(false);
+    expect(currencyCrisisHit({ ...ok, srlBreakDay: 29 })).toBe(false);
     expect(currencyCrisisHit({ ...ok, srlBreakDay: null })).toBe(false);
     expect(currencyCrisisHit({ ...ok, trace: { ...tr, srlControlDays: 2 } })).toBe(false);
     expect(currencyCrisisHit({ ...ok, trace: { ...tr, srlFairMin: -0.39 } })).toBe(false);
