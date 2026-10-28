@@ -15,7 +15,7 @@ export interface MoneyTextProps {
   ctx?: MoneyCtx;
   /** Shows ≈; muted only for zero/neutral values, a negative estimate stays loss (Studio T1 ruling 7). */
   estimated?: boolean;
-  /** Restricted cash: an acc-outline pill beside the amount. */
+  /** Restricted cash: a --steel outline pill beside the amount, --fg-muted text (Studio PF fix a; brass is for hero and rank only). */
   restricted?: Restricted;
 }
 
@@ -53,7 +53,7 @@ export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
   );
   const shown = abbreviated ? <LongPressTip full={`${p.negative ? MINUS : ""}$${fullDigits(p)}`}>{money}</LongPressTip> : money;
   if (!restricted) return shown;
-  return <span className="money-restricted">{shown}<Chip tone="acc" outline>{RESTRICTED_TEXT[restricted]}</Chip></span>;
+  return <span className="money-restricted">{shown}<Chip tone="steel" outline>{RESTRICTED_TEXT[restricted]}</Chip></span>;
 }
 
 export const LONG_PRESS_MS = 500;

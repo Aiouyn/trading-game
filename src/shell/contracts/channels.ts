@@ -36,9 +36,13 @@ export interface Position { assetId: string; qty: Qty; avgCost: Price; mark: Pri
 export interface OpenOrder { orderId: string; assetId: string; side: Side; type: string; qty: Qty; filled: Qty; limit?: Price; stop?: Price; tif: string; status: 'PENDING'|'WORKING'|'PARTIAL'|'QUEUED_AUCTION'; placedTick: Tick; avgPrice: Price } // Q4: 05 Order minus ownerGroupId/actorId/holdId/arrivalRefPrice/priorityTick/displayedRemaining; avgPrice server-computed. Field names mirror 05 Order on SWAP
 export interface MyFill { fillId: string; tick: Tick; assetId: string; orderId: string; side: Side; qty: Qty; price: Price; fee: Money; feeCcy: string; liquidity: 'MAKER'|'TAKER'|'AUCTION'; counterpartyKind: 'PLAYER'|'NPC' }
 export interface IntentResult { intentId: string; tick: Tick; status: 'ACCEPTED'|'REJECTED'|'PARTIAL'|'QUEUED_NEXT'; rejectCode?: string; rejectParams?: Record<string,string>; effects?: string[] }
+/** One restricted-cash bucket. `untilRealMs`: real (wall-clock) MILLISECONDS REMAINING until release, counted down by
+ *  the server on each frame; not a timestamp and not game ticks. null = held with no release time. */
 export interface RestrictedBucket { reason: string; amount: Money; untilRealMs: number | null }
 export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
 export type MarginSummary = Record<string, Money>; // 07 summary, opaque until 07
+/** `drawdownReal`: a bare decimal in PERCENT units, no "%" ("-4.2" = -4.2 %); the UI adds the sign glyph and the
+ *  locale's percent sign (src/components/ui/percent.ts). */
 export interface NwStats { window: string; drawdownReal: string; sharpe: string | null /* null below 63 trading days */; twrIdx: string; bench: string } // Q10, E-56 §12; strings as sent
 export interface NwBreakdown { byClass: { key: string; value: Money; sharePct: string }[]; byCcy: { key: string; value: Money; sharePct: string }[]; liabilities: Money } // Q10: sharePct 1 dp, sums to 100.0 server-side
 export interface NwPoint { t: Tick; nw: Money; nwi: string; realNw: Money; twrIdx: string; bench: string } // GET /api/v1/me/nw-history (Q9/Q10, E-56 §5)

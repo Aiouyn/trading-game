@@ -3,7 +3,7 @@
 import { expect, test } from "@playwright/test";
 import { boot } from "../shell/helpers";
 
-const APPS = [["broker", "Broker"], ["portfolio", "Portfolio"], ["wire", "Wire"]] as const;
+const APPS = [["broker", "Broker"], ["wire", "Wire"]] as const; // portfolio has real UI since card 2 (PF-A.spec)
 
 for (const [id, name] of APPS) {
   test(`CH-07 ${id} opens (deep link) and renders ComingLater from its own lazy chunk`, async ({ page }) => {
