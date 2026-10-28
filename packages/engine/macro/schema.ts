@@ -170,6 +170,8 @@ export interface FacilityTerms {
   maxTermDays: number;
 }
 export interface SwapLine { counterpartyCbk: string; limit: Money; spread: number; active: boolean; drawn: Money }
+/** §3.6.6 emergency triggers, declaration order (E-100 (c): declared here, re-exported by rules/cb.ts). */
+export type EmergencyTrigger = 'FSI' | 'EQUITY_DROP' | 'INTERBANK' | 'CURRENCY' | 'CRISIS_POLICY';
 export interface CentralBank {
   id: string; bloc: BlocId; name: string;
   mandate: 'PRICE_STABILITY' | 'DUAL';
@@ -202,7 +204,8 @@ export interface CentralBank {
   ycc10Streak: number; yccHighInflDays: number; yccRaises: number; lowDepthDays: number;
   ltroOpenUntilTick: Tick | null;
   ccybPending: { value: number; effectiveTick: Tick } | null;
-  emergencyQuarter: number;        // quarter index of emergencyCountQuarter
+  emergencyQuarter: number;        // quarter index of emergencyCountQuarter, quarter = floor(game day / 91)
+  pendingEmergency: { tick: Tick; triggers: EmergencyTrigger[] } | null;   // E-100 (c): genesis null; set by T04-06 scheduleEmergency, cleared by the emergency runMeeting
 }
 
 // ───────── §2.7 treasury, fiscal, issuance, auctions ─────────
