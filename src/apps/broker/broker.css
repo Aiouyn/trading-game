@@ -34,6 +34,8 @@
 .br-qty { min-height: var(--hit-pointer); width: 100%; padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-family: var(--font-num); }
 .br-qty:focus-visible, .br-select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .br-qty[readonly] { color: var(--fg-muted); }
+/* One line is always reserved for the Qty message: it appears without layout shift. A longer server reason can still wrap. */
+.br-msg-slot { min-height: 1lh; }
 .br-msg, .br-kind, .br-note, .br-pending, .br-refreshing, .br-queued, .br-ack p { margin: 0; }
 .br-msg.warn { color: var(--warn); }
 .br-msg.muted, .br-note, .br-kind { color: var(--fg-muted); }

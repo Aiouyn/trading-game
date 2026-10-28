@@ -394,6 +394,25 @@ test("BR-4-14 phone: review in a bottom Sheet with focus trapped, Esc returns to
   await expect(br(page).getByTestId("br-qty")).toHaveValue("40");
 });
 
+test("BR-4 Qty blur (QA #89 note): 'Enter a quantity.' fills its reserved line; the ticket and Review do not move", async ({ page }) => {
+  await open(page);
+  const ticket = br(page).getByTestId("br-ticket");
+  const input = br(page).getByTestId("br-qty");
+  const msg = br(page).getByTestId("br-qty-msg");
+  const review = br(page).getByTestId("br-review");
+  await input.focus();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue("");
+  await expect(msg).toHaveCount(0);
+  const before = { ticket: (await ticket.boundingBox())!, review: (await review.boundingBox())! };
+  await input.blur();
+  await expect(msg).toHaveText("Enter a quantity.");
+  const after = { ticket: (await ticket.boundingBox())!, review: (await review.boundingBox())! };
+  expect(after.ticket.height, "ticket height across the blur").toBe(before.ticket.height);
+  expect(after.review.y, "Review's y across the blur").toBe(before.review.y);
+  await shot(page, "qty-blur");
+});
+
 test("BR-4-14 phone text scale 2: segment stacks, no horizontal overflow, amounts stay on one line", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await boot(page, "/settings");

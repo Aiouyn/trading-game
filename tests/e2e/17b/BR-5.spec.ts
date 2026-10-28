@@ -332,10 +332,10 @@ for (const scale of ["1", "2"] as const) {
       // QA #87 carry-over: scrolled to the end, the list's bottom padding (--edge-bar-h) keeps the last Cancel clear of
       // #edge-bar, and a real tap opens the confirm.
       const cancel = row.getByTestId("br-oo-cancel");
-      // The ticket's Qty still has focus from the review above; its blur adds "Enter a quantity." (card 4) and moves
-      // everything below by one line. Settle that first so the tap target measured below is where the tap lands.
-      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-      await expect(br(page).getByTestId("br-qty-msg")).toBeVisible();
+      // New order left the empty Qty focused. The tap below blurs it, which shows "Enter a quantity." in its reserved
+      // line (card 4), so nothing moves between touchstart and click and the tap lands on Cancel.
+      await expect(br(page).getByTestId("br-qty")).toBeFocused();
+      await expect(br(page).getByTestId("br-qty-msg")).toHaveCount(0);
       const edge = (await page.getByTestId("edge-bar").boundingBox())!;
       const clear = await cancel.evaluate((el) => {
         for (let s = el.parentElement; s; s = s.parentElement) {
@@ -350,6 +350,7 @@ for (const scale of ["1", "2"] as const) {
       await cancel.tap();
       const yes = row.getByTestId("br-oo-yes");
       await expect(yes).toBeVisible();
+      await expect(br(page).getByTestId("br-qty-msg")).toBeVisible(); // the same tap blurred Qty
       await expect.poll(() => yes.evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).borderTopColor])).toEqual([SPEC_COLOUR.cbLoss, SPEC_COLOUR.cbLoss]);
       await shot(page, "open-orders-cb");
       await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-cb-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
