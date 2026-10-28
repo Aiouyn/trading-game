@@ -2,12 +2,12 @@
 // WIR-9-04 Open in Broker, 05 Terminal priced-in, 07 Back / Esc / phone back, 09 states and filings Retry, 10 the 1440
 // split and the 520 replace layouts, 11 phone at text scale 1 / 2 with reduced motion, cb / hc and axe. 01-03, 06, 08
 // and 12 are unit tests (tests/unit/17b/WIR-9-*). Compared baselines: tests/e2e/17b/__screenshots__/WIR-9/<state>-<vw>x<vh>.png;
-// PR shots also go to $WIR9_SHOTS_DIR when set.
+// PR shots also go to $WIR9_SHOTS_DIR when set. Shots mask only the band along each corner arc of the window and the detail kind chip (winShot.ts).
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
 import { pinHtml } from "./pin";
+import { type ExactCheck, expectOnlyBandMasked, winShot } from "./winShot";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -47,21 +47,14 @@ async function open(page: Page, id: string) {
   await expect(detail(page)).toHaveAttribute("data-id", id);
   await page.clock.runFor(100);
 }
-/** A desktop window's rounded corners are antialiased against the desktop by the host's rasteriser: CI's Chromium drew
- *  22 corner pixels 1-2 levels off the box's (PR #92 run 40697141021, rows 552-559 of none-1440x900). So a `.win` frame
- *  is compared without its top and bottom corner-radius rows; the phone app view has no rounded corners. */
-async function shot(page: Page, state: string, l: Locator = frame(page)) {
-  const vp = page.viewportSize()!;
-  const name = `${state}-${vp.width}x${vp.height}.png`;
-  await page.mouse.move(0, vp.height - 1); // no hover tint in a baseline
-  const r = await l.evaluate((el) => (el.classList.contains("win") ? Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0) : 0));
-  const b = (await l.boundingBox())!;
-  const clip = { x: b.x, y: b.y + r, width: b.width, height: b.height - 2 * r };
-  if (r > 0) await expect(page).toHaveScreenshot(["WIR-9", name], { clip });
-  else await expect(l).toHaveScreenshot(["WIR-9", name]);
-  const dir = process.env.WIR9_SHOTS_DIR;
-  if (dir) { mkdirSync(dir, { recursive: true }); await (r > 0 ? page.screenshot({ path: `${dir}/${name}`, clip }) : l.screenshot({ path: `${dir}/${name}` })); }
-}
+/**
+ * Rounded controls whose corner arc bands the shots mask besides the window's (winShot): the detail's kind chip. Its pill
+ * corners came out 1 level off on 1 of 5 loads (--repeat-each=5, filing-1440x900: 90 px, all on the chip's arcs at window
+ * x 538-549 / 577-588, y 49-71; straight edges and the label identical).
+ */
+const rounded = (page: Page) => detail(page).getByTestId("wire-kind");
+const shot = (page: Page, state: string, l: Locator = frame(page), check?: ExactCheck) =>
+  winShot(page, l, "WIR-9", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, { shotsDir: process.env.WIR9_SHOTS_DIR, rounded: rounded(page), ...(check ? { check } : {}) });
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const colours = (l: Locator) => l.evaluate((el) => {
   const out = new Set<string>();
@@ -153,6 +146,44 @@ test("WIR-9-10 1440: feed and pane side by side; RUMOR record + band, FILING sum
   await shot(page, "hc");
   expect(await axe(page)).toEqual([]);
   await pinHtml(page, "hc", false);
+});
+
+test("winShot masks only the band along the corner arcs of the window and the detail kind chip: the whole ring on both sides of each band is caught, and the chip label's ink is never masked", async ({ page }, info) => {
+  if (info.project.name === "phone") { // scale 2: the chip's r is 21, the widest band, the closest to its label
+    await bootPhoneWire(page, "2");
+    await open(page, "n-2");
+    const p = await expectOnlyBandMasked(page, frame(page), rounded(page), rounded(page));
+    expect(p.corners, "the detail kind chip's four corners (the phone view has none)").toBe(4);
+    expect(p.ink, "chip label first-column pixels checked").toBeGreaterThan(4);
+    return;
+  }
+  await bootWire(page);
+  const n = await expectOnlyBandMasked(page, frame(page), rounded(page), rounded(page));
+  expect(n.corners, "the window's four corners").toBe(4);
+  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.corners * 8);
+  await open(page, "n-3");
+  const k = await expectOnlyBandMasked(page, frame(page), rounded(page), rounded(page));
+  expect(k.corners, "the window's and the detail kind chip's").toBe(8);
+  expect(k.ink, "chip label first-column pixels checked").toBeGreaterThan(4);
+});
+
+test("winShot fails a shot that differs from its baseline only in a pixel touching the mask, with the pixel-exact report (toHaveScreenshot alone skips it as antialiasing)", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  test.skip(info.config.updateSnapshots === "all" || info.config.updateSnapshots === "changed", "would write the dot into the baseline");
+  await bootWire(page);
+  const b = (await frame(page).boundingBox())!;
+  const r = await frame(page).evaluate((el) => Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius)));
+  const [x, y] = [b.x + r, b.y + b.height - 1]; // bottom edge row, just right of the bottom-left corner's band
+  await page.evaluate(([x, y]) => {
+    const d = document.createElement("div");
+    d.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px;background:rgb(255,0,0);z-index:2147483646`;
+    document.body.append(d);
+  }, [x, y] as const);
+  const reports: [boolean, string][] = [];
+  await shot(page, "none", frame(page), (ok, message) => reports.push([ok, message]));
+  expect(reports).toHaveLength(1);
+  expect(reports[0]![0]).toBe(false);
+  expect(reports[0]![1]).toMatch(new RegExp(`^none-1440x900\\.png: pixel-exact match with the baseline: 1 px differ; first: \\(${x - b.x},${y - b.y}\\) [0-9.]+ → 255\\.0\\.0\\.255$`));
 });
 
 test("WIR-9-05 ?tier=terminal: priced-in band + as-of in the detail; ?tier=free: no priced-in section", async ({ page }, info) => {
