@@ -43,4 +43,14 @@ describe('E-92 (5) cbk_<ccy> owner', () => {
     expect(() => w.registerEntity({ id: 'gov_SRL', ownerId: 'cbk_FDL' })).toThrow(/gov_SRL is already registered with owner gov_FDL/);
     expect(w.entity('gov_SRL')?.ownerId).toBe('gov_FDL');
   });
+  it('#68 (a)/(b): only gov_<B> of the same bloc fills cbk_<B>; anything else throws and leaves it ownerless; the side tag is recomputed on fill', () => {
+    const w = new LedgerWorld();
+    for (const bad of ['gov_FDL', 'frm_acme', 'frm_SRL', 'cbk_FDL', 'gov_SRLX']) {
+      expect(() => w.registerEntity({ id: 'cbk_SRL', ownerId: bad })).toThrow(/cbk_SRL is already registered with owner null/);
+      expect(w.entity('cbk_SRL')?.ownerId).toBeNull();
+    }
+    w.registerEntity({ id: 'cbk_SRL', ownerId: 'gov_SRL' });
+    expect(w.entity('cbk_SRL')?.ownerId).toBe('gov_SRL');
+    expect(w.sideTag('cbk_SRL')).toEqual({ side: 'S' });
+  });
 });
