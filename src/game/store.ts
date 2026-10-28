@@ -10,7 +10,7 @@ import { createHistory, ensureSeries, ensureVolume, record, type History, type R
 import { clearSave, loadGame, saveGame } from './save';
 import { firstTradeCap, previewTicket } from './ticket';
 import { WIRE_KEEP, wireFromEvents, type WireItem } from './wire';
-import { compactMoney, money, price, qty } from './format';
+import { money, price, qty } from './format';
 import { licenseCheck, lockedText } from './license';
 
 export const PLAYER = 'you';
@@ -224,7 +224,7 @@ export const useGame = create<GameStore>((set, get) => ({
     // app-side license gate (04 §3.1): the engine does not know about licenses
     const lic = licenseCheck(w, PLAYER, req.assetId);
     if (!lic.ok) {
-      set({ toasts: [...get().toasts, { id: `lic-${w.tick}`, tone: 'loss' as const, text: `${lockedText(lic, compactMoney)}.` }].slice(-4) });
+      set({ toasts: [...get().toasts, { id: `lic-${w.tick}`, tone: 'loss' as const, text: `${lockedText(lic)}.` }].slice(-4) });
       return null;
     }
     // app-side Simple-mode rule: the engine does not know about the first-trade cap
