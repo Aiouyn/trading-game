@@ -31,10 +31,13 @@ export function macroWorld(seed = 'g', tick0 = 0): MacroWorld {
   const reg = createParamsView(defs.filter((d, i) => defs.findIndex((x) => x.key === d.key) === i));
   let over: Record<string, number> = {}, tick = tick0;
   const reads: string[] = [];
+  // ids as core IdFactory: one sequence per (tick, kind), so an intent's ids never shift a module's ids (04#2)
+  let idTick = -1, seqs: Record<string, number> = {};
+  const newId = (k: string): string => { if (idTick !== tick) { idTick = tick; seqs = {}; } const n = seqs[k] ?? 0; seqs[k] = n + 1; return `${k}_${tick}_${n}`; };
   const num = (k: string): number => { reads.push(k); return over[k] !== undefined ? over[k] : MACRO_TEST_PARAMS[k] !== undefined ? MACRO_TEST_PARAMS[k] : reg.num(k); };
   const base = sw.ctx as unknown as Record<string, unknown>, cbx = cw.ctx as unknown as Record<string, unknown>;
   const ctx = { get tick() { return tick; }, get header() { return { tick, sealUtcMs: SEAL0 + BigInt(tick) * 5000n }; }, get cal() { return calendarOf(tick); },
-    phase: 'P8', params: { ...reg, num, int: num }, content: cbx.content, store: sw.store, newId: base.newId, rng: base.rng, emit: base.emit,
+    phase: 'P8', params: { ...reg, num, int: num }, content: cbx.content, store: sw.store, newId, rng: base.rng, emit: base.emit,
     ledger: cbx.ledger, holds: cbx.holds, send: cbx.send, inbox: cbx.inbox } as unknown as PhaseCtx;
   return { ctx, store: sw.store, cb: cw, events: sw.events, draws: sw.draws, reads, nums: (o) => { over = { ...over, ...o }; },
     setTick: (t) => { tick = t; cw.setTick(t); const g = sw.store.get<{ id: string }>(macroTables.global.name, 'GLOBAL'); if (g) sw.store.put(macroTables.global.name, { ...g, tick: t }); } };

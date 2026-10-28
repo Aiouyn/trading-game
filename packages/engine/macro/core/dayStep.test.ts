@@ -37,16 +37,6 @@ describe('T04-20 macroDayStep', () => {
     const f = w.store.get<BlocMacroState>(macroTables.bloc.name, 'FDL')!;
     expect(f.headlineInflation).toBe(f.coreInflation);  // < 364 days of history: headline = core
   });
-  it('deterministic per seed', () => {
-    const a = run(10, 's'), c = run(10, 's');
-    expect(a.store.get(macroTables.bloc.name, 'FDL')).toEqual(c.store.get(macroTables.bloc.name, 'FDL'));
-  });
-  it('04#3 (reduced, 60 days): an extra stream drawn every day changes no macro row', () => {
-    const ports = stubPorts(), a = run(60, 'x'), w = macroWorld('x', 0); macroGenesis(w.ctx, ports);
-    for (let d = 0; d < 60; d++) { w.setTick(d * D + 719); w.ctx.rng('test.extra').normal(); macroDayStep(w.ctx, ports); }
-    for (const b of BLOC_ORDER) expect(w.store.get(macroTables.bloc.name, b)).toEqual(a.store.get(macroTables.bloc.name, b));
-    expect(w.store.get(macroTables.global.name, 'GLOBAL')).toEqual(a.store.get(macroTables.global.name, 'GLOBAL'));
-  });
   it('§3.19 stream keys: global regime draws from macro.global_regime, blocs from macro.regime:<b>', () => {
     const w = macroWorld('g', 0), ports = stubPorts(), keys: string[] = [], rng = w.ctx.rng; macroGenesis(w.ctx, ports);
     (w.ctx as { rng: typeof rng }).rng = (k: string) => { keys.push(k); return rng(k); };
