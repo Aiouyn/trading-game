@@ -2,7 +2,7 @@
 // results, mac.schedule, public event views) and, for SEALED rows, copy named public fields one by one. Every output passes
 // assertNoHiddenFields (04#15). Store "now" is mac.global.tick (StoreRead carries no tick).
 import { EngineFault, fromMoney, GAME_DAYS_PER_GAME_YEAR, TICKS_PER_GAME_DAY, type Id, type StoreRead, type Tick, type ViewerContext, type ViewHandler } from '@tycoon/engine-core';
-import { govId } from '@tycoon/engine-ledger';
+import { cbkId, govId } from '@tycoon/engine-ledger';
 import { z } from 'zod';
 import { blocOfEntity } from '../ids';
 import { BLOC_ORDER, macroTables, RELEASE_KINDS, type AuctionBid, type BlocId, type BlocMacroState, type CentralBank, type ConcordFacility, type CurveState,
@@ -54,10 +54,11 @@ export function calendarRows(s: StoreRead, fromDay: number, toDay: number): Cale
   for (const r of s.iter<{ id: string; bloc: BlocId; kind: string }>(macroTables.schedule.name)) {
     const t = tickOfId(r.id);
     if (!inRange(t)) continue;
-    if ((RELEASE_KINDS as readonly string[]).includes(r.kind)) {
+    if (r.kind.startsWith('CB_')) { if (CB_KIND[r.kind]) out.push({ tick: t, bloc: r.bloc, kind: CB_KIND[r.kind]!, ref: r.id, consensus: null, offeredFace: null }); }   // CB_MINUTES: no calendar kind
+    else if ((RELEASE_KINDS as readonly string[]).includes(r.kind)) {
       const rel = s.get<{ consensus: number; consensusDispersion: number }>(macroTables.release.name, `rel_${r.bloc}_${r.kind}_${t}`);   // written at consensusTick
       out.push({ tick: t, bloc: r.bloc, kind: 'RELEASE', ref: r.kind, consensus: rel ? { consensus: rel.consensus, dispersion: rel.consensusDispersion } : null, offeredFace: null });
-    } else if (CB_KIND[r.kind]) out.push({ tick: t, bloc: r.bloc, kind: CB_KIND[r.kind]!, ref: r.id, consensus: null, offeredFace: null });
+    }
   }
   for (const a of s.iter<SovAuction>(macroTables.auction.name)) {
     const b = blocOfEntity(a.govId);
@@ -90,7 +91,7 @@ export const viewMacroDashboard: ViewHandler<{ bloc: BlocId | 'ALL' }, Dashboard
 
 // ───────── macro.cb (MKT-04) ─────────
 export function centralBankView(s: StoreRead, b: BlocId): CentralBankView {
-  const cb = s.get<CentralBank>(macroTables.cb.name, b), v = pv(s, b), bl = s.get<BlocMacroState>(macroTables.bloc.name, b), now = nowOf(s);
+  const cb = s.get<CentralBank>(macroTables.cb.name, cbkId(b)), v = pv(s, b), bl = s.get<BlocMacroState>(macroTables.bloc.name, b), now = nowOf(s);
   if (!cb || !v || !bl) throw new EngineFault('MAC_STATE_MISSING', `macro.cb ${b}`, [b]);
   const lag = cb.meetings.minutesLagTicks, ds = (cb.lastDecisions as CbDecisionRow[]).filter((d) => d.tick <= now).sort((x, y) => x.tick - y.tick);
   const minutesOut = (d: CbDecisionRow): boolean => d.tick + lag <= now;

@@ -1,6 +1,7 @@
 // T04-19: the per-bloc public view row (04 §2.4). Writes every field except `prints` (T04-16), the curve block (T04-07) and the
 // cycle label (T04-20 day step); those are carried over unchanged. Every value is copied from an already-public source.
 import { EngineFault, fromMoney, TICKS_PER_GAME_DAY, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
+import { cbkId } from '@tycoon/engine-ledger';
 import { macroTables, type BlocId, type BlocMacroState, type CentralBank, type CurveState, type PublicMacroView } from '../schema';
 import { spotOfStore } from '../rules/fxReserves';
 
@@ -20,7 +21,7 @@ function nextScheduled(s: StoreRead, b: BlocId, kind: string, now: Tick): Tick {
 }
 
 export function buildPublicView(s: StoreRead, b: BlocId, tick: Tick): Row {
-  const bl = s.get<BlocMacroState & { id: BlocId }>(macroTables.bloc.name, b), cb = s.get<CentralBank>(macroTables.cb.name, b);
+  const bl = s.get<BlocMacroState & { id: BlocId }>(macroTables.bloc.name, b), cb = s.get<CentralBank>(macroTables.cb.name, cbkId(b));
   if (!bl || !cb) throw new EngineFault('MAC_STATE_MISSING', `public view ${b}`, [b]);
   const prev = s.get<Row>(macroTables.publicView.name, b), curve = s.get<CurveState>(macroTables.curve.name, b);
   const fiscal = prev?.prints?.FISCAL, gdp = fromMoney(bl.nominalGdp), bs = cb.balanceSheet;
