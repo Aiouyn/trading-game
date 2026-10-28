@@ -1,6 +1,6 @@
 // Ledger runtime for one world (T03-08/T03-09/T03-11/T03-12 subset): queue, holds, P13 commit, aggregates, FlowReader.
 // All state lives on the instance (Δ11 spirit); nothing is process-global.
-import { accountKey, cbkId, defaultMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
+import { accountKey, cbkId, chartEntry, classOfCode, defaultMoneyCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
 import { FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, ReasonCatalog } from './catalog';
 import { AccountIndex, advanceHoldings, advanceTotals, incrementalSide, scanHoldings, scanIndex, scanSide, scanTotals, tickIndex, totalsCrossCheck, type CcyTotals, type DirtyRow, type Totals } from './balside';
 import { canonEncode, SortedMap } from './det';
@@ -15,7 +15,7 @@ import { classify, controlChanges, sameSide, sideOf, sumMap, type HolderClass, t
 import { addTick, archiveHash, emptyArchive, INV_LED_017, INV_LED_018, SYS_INVARIANTS, type FlowDayArchive } from './sysinv';
 import { RECEIVABLE, SETTLEMENT_CODES, SETTLEMENT_PAYABLE, type AccrualKind } from './legpolicy';
 import { cmpStr } from './det';
-import type { AccrualRow, ConflictEscrow, Entry, EntityKind, Hold, LedgerEntity, PayAccountChoice, Perimeter, PhaseId, Reject } from './types';
+import type { Account, AccrualRow, ConflictEscrow, Entry, EntityKind, Hold, LedgerEntity, PayAccountChoice, Perimeter, PhaseId, Reject } from './types';
 
 export const TICKS_PER_DAY = 720;
 export interface RegisterEntitySpec { id: Id; reportingCcy?: Ccy; ownerId?: Id | null; payFrom?: PayAccountChoice; receiveInto?: PayAccountChoice }
@@ -46,6 +46,10 @@ export interface LedgerApi {
   balance(accountKey: string): Money; cash(entityId: Id, ccy: Ccy): Money; available(entityId: Id, ccy: Ccy): Money;
   availableFor(entityId: Id, ccy: Ccy, purposeCode: string): Money;
   position(entityId: Id, assetId: Id): Qty; availableQty(entityId: Id, assetId: Id): Qty; netWorth(entityId: Id): Money;
+  /** T03-08 (E-79): committed quantity on one account key, 0n if the account is absent. */
+  committedQty(accountKey: string): Qty;
+  /** T03-08 (E-79): every open account (live and dormant) whose code is quantity-bearing and whose sub is `assetId`, sorted by key. */
+  accountsOfAsset(assetId: Id): readonly Account[];
   entryOf(entryId: Id): Entry | undefined;
   /** §6.11 Δ14: owner 12 only (E-12 layer 2); opId = the SEALED op the escrow belongs to (layer 4). */
   escrowPlace(victim: Id, attacker: Id, amt: Money, ccy: Ccy, code: string, escrowId: Id, opId?: Id): Id;
@@ -223,6 +227,21 @@ export class LedgerWorld {
   // ───────── reads (committed state only) ─────────
   balance(key: string): Money { return this.s.accounts.get(key)?.balance ?? 0n; }
   qtyOf(key: string): Qty { return this.s.accounts.get(key)?.qty ?? 0n; }
+  /** T03-08 `committedQty` (E-79 maps it onto the V3 reads): the committed quantity on `key`, 0n if absent. */
+  committedQty(key: string): Qty { return this.qtyOf(key); }
+  /** T03-08 `accountsOfAsset` (E-79: a new LedgerWorld method). Accounts of every holder of `assetId`: quantity-bearing chart codes
+   *  (T03-01 step 2: `assetId = sub` only for those) with `sub === assetId`, live ∪ dormant (lazy open keeps an emptied account open),
+   *  in key order. V3 stores no open tick, so `openedTick` is left unset. */
+  accountsOfAsset(assetId: Id): readonly Account[] {
+    const out: Account[] = [];
+    for (const [key, b] of this.allAccounts()) {
+      const q = parseAccountKey(key);
+      if (q === undefined || q.sub !== assetId || chartEntry(q.code)?.qtyBearing !== true) continue;
+      out.push({ key, entityId: q.entityId, code: q.code, sub: q.sub, ccy: q.ccy, class: classOfCode(q.code) as Account['class'],
+        balance: b.balance, qty: b.qty, assetId: q.sub, isMoney: isMoneyCode(q.code, kindOfId(q.entityId)) });
+    }
+    return out;
+  }
   accounts(): [string, Bal][] { return this.allAccounts().entries().map(([k, v]) => [k, { ...v }]); }
   /** Live ∪ dormant: the full account map, as it was before dormant accounts were parked (full-recompute view). */
   allAccounts(): Accounts {
@@ -340,6 +359,7 @@ export class LedgerWorld {
       balance: (k) => this.balance(k), cash: (e, c) => this.cash(e, c), available: (e, c) => this.available(e, c),
       availableFor: (e, c, p) => this.availableFor(e, c, p), position: (e, a) => this.position(e, a),
       availableQty: (e, a) => this.availableQty(e, a), netWorth: (e) => this.netWorth(e),
+      committedQty: (k) => this.committedQty(k), accountsOfAsset: (a) => this.accountsOfAsset(a),
       entryOf: (id) => this.queue.find((e) => e.entryId === id) ?? this.s.log.find((e) => e.entryId === id),
       escrowPlace: (v, a, amt, c, k, id, op) => q(T.tplEscrowPlace(env(), v, a, amt, c, k, id, op)),
       escrowSettle: (id, ta, tv) => { const row = this.s.escrows.get(id); return row ? q(T.tplEscrowSettle(env(), row, ta, tv)) : rej('LED_UNKNOWN_ESCROW'); },
