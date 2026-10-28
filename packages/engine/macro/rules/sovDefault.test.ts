@@ -2,7 +2,7 @@
 import { MICRO_N, type Id, type Qty, type SealedIntent } from '@tycoon/engine-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { exchangeVoteIntent } from '../intents/exchangeVote';
-import { BLOC_ORDER, macroTables, type BlocId, type ExchangeOffer, type HookCall, type SovereignDefaultCase } from '../schema';
+import { HOOK_CALL_TABLE, BLOC_ORDER, macroTables, type BlocId, type ExchangeOffer, type HookCall, type SovereignDefaultCase } from '../schema';
 import { cbRow, cbWorld, M, stubPorts, type CbWorld } from '../testkit/cbWorld';
 import { putBloc } from '../testkit/fiscalWorld';
 import { checkDefaultTriggers, openDefaultCase, sovereignStatus, stepDefaultCase } from './default';
@@ -130,7 +130,7 @@ describe('case, grace, selective default', () => {
     w.setTick(c.missedPayment.dueTick); stepDefaultCase(w.ctx, 'EUN', ports);
     expect(bloc(w).sovereign.status).toBe('GRACE');
     expect(w.events.map((e) => [e.kind, e.payload])).toEqual([['macro.sov.status', { govId: 'gov_EUN', status: 'GRACE', trigger: 'FAILED_ROLLOVER' }]]);
-    expect((w.rows(macroTables.hookCall.name) as HookCall[]).map((h) => [h.owner, h.hook, h.worldEventId])).toEqual([['16', 'WIRE_ITEM', c.id]]);   // AC-04-18-HOOKID (1)
+    expect((w.rows(HOOK_CALL_TABLE.name) as HookCall[]).map((h) => [h.owner, h.hook, h.worldEventId])).toEqual([['16', 'WIRE_ITEM', c.id]]);   // AC-04-18-HOOKID (1)
     expect(c.id).toMatch(/^sdc_/);   // the test world's newId is a counter; the 26-char form is checked in hookId.test.ts
     w.setTick(c.graceEndsTick - 1); stepDefaultCase(w.ctx, 'EUN', ports); expect(w.events).toHaveLength(1);
     w.setTick(c.graceEndsTick); stepDefaultCase(w.ctx, 'EUN', ports);
@@ -196,7 +196,7 @@ describe('exchange', () => {
     }
     expect(hs[1]).toBeCloseTo(0.283333, 6); expect(hs[2]).toBeCloseTo(0.233333, 6);
     expect([w.qty[`usr_a:${L1}`], w.qty[`usr_b:${L1}`], w.qty[`usr_c:${L1}`]]).toEqual([0n, 0n, 0n]);
-    const hooks = (w.rows(macroTables.hookCall.name) as HookCall[]).filter((h) => h.hook === 'HOLDOUT_CLAIM');
+    const hooks = (w.rows(HOOK_CALL_TABLE.name) as HookCall[]).filter((h) => h.hook === 'HOLDOUT_CLAIM');
     expect(hooks.map((h) => [h.owner, h.args.holderId, h.args.claimFace])).toEqual([['13', 'usr_b', 300e3]]);
     expect(hooks[0]!.args.parDifference).toBeCloseTo(300e3 * hs[2]!, 6);
     expect(bloc(w).sovereign.status).toBe('POST_RESTRUCTURING');
@@ -210,7 +210,7 @@ describe('exchange', () => {
     w.setTick(c.graceEndsTick + 7 * D); stepDefaultCase(w.ctx, 'EUN', ports);
     expect(w.rows(macroTables.vote.name).map((v) => (v as { vote: string }).vote)).toEqual(['REJECT']);
     executeExchange(w.ctx, 'EUN', offerOf(w), true);
-    expect((w.rows(macroTables.hookCall.name) as HookCall[]).filter((h) => h.hook === 'HOLDOUT_CLAIM')).toEqual([]);
+    expect((w.rows(HOOK_CALL_TABLE.name) as HookCall[]).filter((h) => h.hook === 'HOLDOUT_CLAIM')).toEqual([]);
   });
   it('NPC sectors vote in 20 blocks, one draw each; executeExchange gives the lot remainder to the largest holder', () => {
     const w = world('EUN');

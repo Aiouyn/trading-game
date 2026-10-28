@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TICKS_PER_GAME_DAY as D } from '@tycoon/engine-core';
-import { macroTables, type BlocId, type ConcordFacility } from '../schema';
+import { HOOK_CALL_TABLE, macroTables, type BlocId, type ConcordFacility } from '../schema';
 import { CSF_ID } from '../ids';
 import { M } from '../testkit/cbWorld';
 import { fiscalWorld, putBloc } from '../testkit/fiscalWorld';
@@ -79,9 +79,9 @@ describe('T04-14 Concord', () => {
       expect(p.compliance).toBeCloseTo(paid ? 1 : 0.6, 9);
       expect(w.posts.filter((x) => x.code === 'CSF_DISBURSE').length).toBe(paid ? 2 : 1);
       expect(p.suspended).toBe(paid ? 0 : 1);
-      expect(w.rows(macroTables.hookCall.name).length).toBe(paid ? 0 : 1);
+      expect(w.rows(HOOK_CALL_TABLE.name).length).toBe(paid ? 0 : 1);
       // AC-04-18-HOOKID (1): source id <programId>_t<k>, k = 1 for the day-91 tranche
-      if (!paid) expect((w.rows(macroTables.hookCall.name)[0] as { worldEventId: string }).worldEventId).toBe(`${p.id}_t1`);
+      if (!paid) expect((w.rows(HOOK_CALL_TABLE.name)[0] as { worldEventId: string }).worldEventId).toBe(`${p.id}_t1`);
       if (!paid) expect(`${p.id}_t1`).toMatch(/^csf_[A-Z]{3}_\d+_t[1-9]\d*$/);
       const int = w.posts.filter((x) => x.code === 'CSF_INTEREST');
       expect(int.length).toBe(1);
@@ -103,7 +103,7 @@ describe('T04-14 Concord', () => {
     const b = run(0, 0);
     expect(b.paid).toEqual([M(225e9)]);
     expect([b.p.suspended, b.p.tranchesPaid, b.p.drawn]).toEqual([3, 1, M(225e9)]);
-    expect(b.w.rows(macroTables.hookCall.name).length).toBe(3);
+    expect(b.w.rows(HOOK_CALL_TABLE.name).length).toBe(3);
   });
   it('repays in 8 installments and closes', () => {
     const w = world({ breakArmed: true });

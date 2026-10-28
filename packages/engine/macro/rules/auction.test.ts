@@ -2,7 +2,7 @@
 import { fnv1a32, MICRO_N, type Qty } from '@tycoon/engine-core';
 import { describe, expect, it } from 'vitest';
 import { DEALER_POOL_ID } from '../ids';
-import { macroTables, type AuctionBid, type BlocId, type CentralBank, type SovAuction } from '../schema';
+import { HOOK_CALL_TABLE, macroTables, type AuctionBid, type BlocId, type CentralBank, type SovAuction } from '../schema';
 import { cbRow, cbWorld, stubPorts, type CbWorld } from '../testkit/cbWorld';
 import { putBloc } from '../testkit/fiscalWorld';
 import { afterFailedOrWeak, applyGroupCap, auctionPrice, backstopOrders, cashFor, clearAuction, ladderParams, NONCOMP_MAX_FACE, npcLadder, runAuction, type ClearingResult } from './auction';
@@ -244,7 +244,7 @@ describe('failed and weak auctions', () => {
     expect(r.weak).toBe(true); expect(r.failed).toBe(false);
     afterFailedOrWeak(w.ctx, 'FDL', a, r);
     expect(bloc(w, 'FDL').shocks.map((x) => x.value)).toEqual([0.05]);
-    expect(w.rows(macroTables.hookCall.name)).toEqual([expect.objectContaining({ owner: '16', hook: 'WIRE_ITEM', args: { key: 'weak_auction', auctionId: a.id }, worldEventId: a.id })]);
+    expect(w.rows(HOOK_CALL_TABLE.name)).toEqual([expect.objectContaining({ owner: '16', hook: 'WIRE_ITEM', args: { key: 'weak_auction', auctionId: a.id }, worldEventId: a.id })]);
     expect(a.id).toMatch(/^auc_[A-Z]{3}_[A-Z0-9]+_\d+$/);   // AC-04-18-HOOKID (1)
     expect(cb(w, 'FDL').backstop).toBeUndefined();
     expect(bloc(w, 'FDL').fiscal.shortfallCarry).toBeUndefined();

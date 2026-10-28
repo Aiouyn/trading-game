@@ -3,7 +3,7 @@
 // written once per owner by fireResponse/the catalog; HOOKS lists the first owner (09 is not a HookCall owner, so consensusEpsShock goes to 06 only).
 import { EngineFault, fromMoney, TICKS_PER_GAME_DAY, toMoney, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
 import { cbkId } from '@tycoon/engine-ledger';
-import { macroTables, type BlocMacroState, type CentralBank, type HookCall, type WorldEvent } from '../schema';
+import { HOOK_CALL_TABLE, macroTables, type BlocMacroState, type CentralBank, type HookCall, type WorldEvent } from '../schema';
 import { canAgreeConcord, openConcord } from './concord';
 import type { ResponseKey } from './crisisCatalog';
 import { macroprudentialRelease, openLtro } from './macroprudential';
@@ -62,12 +62,15 @@ export function writeHook(ctx: PhaseCtx, owner: HookCall['owner'], hook: string,
   if (!ownersOf(hook).includes(owner)) throw new EngineFault('MAC_STATE_MISSING', `hook ${hook} owner ${owner}`, [hook, worldEventId]);
   for (const a of def.args) if (args[a] === undefined) throw new EngineFault('MAC_STATE_MISSING', `hook ${hook} without arg ${a}`, [hook, worldEventId]);
   const row: HookCall = { id: ctx.newId('hook'), owner, hook, args, worldEventId, createdTick: ctx.tick, startTick: ctx.tick + 1 };
-  ctx.store.put<HookCall>(macroTables.hookCall.name, row);
+  ctx.store.put<HookCall>(HOOK_CALL_TABLE.name, row);
   return row;
 }
 export function hookCallsFor(store: StoreRead, owner: HookCall['owner'], tick: Tick): HookCall[] {
-  return [...store.index<HookCall>(macroTables.hookCall.name, 'owner', owner)].filter((r) => r.startTick === tick).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return [...store.index<HookCall>(HOOK_CALL_TABLE.name, 'owner', owner)].filter((r) => r.startTick === tick).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
+
+/** Every mac.hookCall row (read-only; harness and tests). */
+export const allHookCalls = (store: StoreRead): HookCall[] => [...store.iter<HookCall>(HOOK_CALL_TABLE.name)];
 
 const RESP = 'response.';
 const mark = (ctx: PhaseCtx, ev: WorldEvent, key: ResponseKey, refs: string[]): void => {

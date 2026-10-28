@@ -2,7 +2,7 @@ import { EngineFault, ID_KIND_RE, matchStream, STREAM_REGISTRY, streamPrefix } f
 import type { Ccy } from '@tycoon/engine-core';
 import { readFileSync } from 'node:fs';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId, type BlocMacroState, type DailyHistoryRow, type PublicMacroView } from './schema';
+import { HOOK_CALL_TABLE, BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId, type BlocMacroState, type DailyHistoryRow, type PublicMacroView } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import { auctionId, blocOfEntity, crisisId, crtId, CSF_ID, DEALER_POOL_ID, excId, meetingId, regId, releaseId, STAB_ID } from './ids';
@@ -110,8 +110,11 @@ describe('aliases, ids', () => {
 
 describe('tables', () => {
   it('28 tables, mac.* names matching the T02-09 regex, module 04, unique', () => {
-    expect(ALL_MACRO_TABLES.length).toBe(Object.keys(macroTables).length);
+    // hook_call lives outside macroTables (HOOK_CALL_TABLE; QA hookId.test.ts:27 alias follow-up) but is still a registered table
+    expect(ALL_MACRO_TABLES.length).toBe(Object.keys(macroTables).length + 1);
     expect(ALL_MACRO_TABLES.length).toBe(28);
+    expect(ALL_MACRO_TABLES).toContain(HOOK_CALL_TABLE);
+    expect(Object.values(macroTables)).not.toContain(HOOK_CALL_TABLE);
     const names = ALL_MACRO_TABLES.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     for (const t of ALL_MACRO_TABLES) { expect(t.name).toMatch(/^mac\.[a-z0-9_]+$/); expect(t.name).toMatch(/^[a-z]{2,8}\.[a-z0-9_]+$/); expect(t.module).toBe('04'); }
@@ -120,12 +123,13 @@ describe('tables', () => {
   it('idOf = id; secondary indexes as listed', () => {
     expect(macroTables.cb.idOf({ id: 'cbk_FDL' } as never)).toBe('cbk_FDL');
     const idx = Object.entries(macroTables).filter(([, t]) => t.indexes).map(([k, t]) => [k, t.indexes!.map((i) => i.name)]);
-    expect(Object.fromEntries(idx)).toEqual({ release: ['bloc'], auction: ['govId'], bid: ['auctionId'], event: ['phase'], hookCall: ['owner'], poolOrder: ['tick'], facility: ['bankId'] });
+    expect(Object.fromEntries(idx)).toEqual({ release: ['bloc'], auction: ['govId'], bid: ['auctionId'], event: ['phase'], poolOrder: ['tick'], facility: ['bankId'] });
     expect(macroTables.release.indexes![0]!.key({ bloc: 'NKR' } as never)).toBe('NKR');
     expect(macroTables.auction.indexes![0]!.key({ govId: 'gov_EUN' } as never)).toBe('gov_EUN');
     expect(macroTables.bid.indexes![0]!.key({ auctionId: 'auc_1' } as never)).toBe('auc_1');
     expect(macroTables.event.indexes![0]!.key({ phase: 'TRIGGER' } as never)).toBe('TRIGGER');
-    expect(macroTables.hookCall.indexes![0]!.key({ owner: '07' } as never)).toBe('07');
+    expect(HOOK_CALL_TABLE.indexes!.map((i) => i.name)).toEqual(['owner']);
+    expect(HOOK_CALL_TABLE.indexes![0]!.key({ owner: '07' } as never)).toBe('07');
     expect(macroTables.facility.indexes![0]!.key({ bankId: 'bnk_x' } as never)).toBe('bnk_x');
     const pk = (t: number): string => macroTables.poolOrder.indexes![0]!.key({ tick: t } as never)!;
     expect(pk(9) < pk(10)).toBe(true); expect(pk(99) < pk(100)).toBe(true);   // lexicographic order = tick order

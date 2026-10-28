@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TICKS_PER_CHAPTER, TICKS_PER_GAME_DAY } from '@tycoon/engine-core';
-import { macroTables, type HookCall, type WorldEvent } from '../schema';
+import { HOOK_CALL_TABLE, macroTables, type HookCall, type WorldEvent } from '../schema';
 import { runChapters, schedWorld, SCHED0, V1, type StartRec } from '../testkit/schedWorld';
 import { chapterStart, constraintsAllowMajor, crisisWeekActive, DRAWS_PER_DAY, forceEvent, majorRate, plannedTrigger, poissonInverse, schedOf, schedulerDay } from './scheduler';
 import { attachEmergent } from './phases';
@@ -89,9 +89,9 @@ describe('T04-17 crisis week and constraints', () => {
     expect((cw.startTick / (168 * D)) % 1).toBe(0); expect(cw.startTick / (168 * D)).toBeGreaterThanOrEqual(1); expect(cw.startTick / (168 * D)).toBeLessThanOrEqual(6);
     expect(cw.endTick - cw.startTick).toBe(168 * D);
     w.setTick(cw.announcedTick - D - 1); schedulerDay(w.ctx, undefined, V1);
-    expect(w.store.iter<HookCall>(macroTables.hookCall.name).filter((h) => h.hook === 'WIRE_ITEM')).toEqual([]);
+    expect(w.store.iter<HookCall>(HOOK_CALL_TABLE.name).filter((h) => h.hook === 'WIRE_ITEM')).toEqual([]);
     w.setTick(cw.announcedTick - 1); schedulerDay(w.ctx, undefined, V1);
-    const hk = w.store.iter<HookCall>(macroTables.hookCall.name).filter((h) => h.hook === 'WIRE_ITEM');
+    const hk = w.store.iter<HookCall>(HOOK_CALL_TABLE.name).filter((h) => h.hook === 'WIRE_ITEM');
     expect(hk.length).toBe(1); expect(hk[0]!.owner).toBe('16');
     expect(hk[0]!.args).toEqual({ key: 'crisis_week_announced', startTick: cw.startTick, endTick: cw.endTick });
     expect(hk[0]!.worldEventId).toBe(`cwk_WORLD_${cw.startTick / 720}`);   // AC-04-18-HOOKID (1)

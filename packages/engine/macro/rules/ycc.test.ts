@@ -4,7 +4,7 @@ import { dmath, sessionState, TICKS_PER_GAME_DAY } from '@tycoon/engine-core';
 import { cbkId } from '@tycoon/engine-ledger';
 import { cbRow, cbWorld, M, stubPorts } from '../testkit/cbWorld';
 import { createMarketStub } from '../testing/marketStub';
-import { macroTables, type AssetPurchaseProgram, type CentralBank, type HookCall } from '../schema';
+import { HOOK_CALL_TABLE, macroTables, type AssetPurchaseProgram, type CentralBank, type HookCall } from '../schema';
 import type { MacroPorts } from '../ports';
 import { applyPoolFills, writePoolOrders } from './poolOrders';
 import { yccAtMeeting, yccBid, yccDayClose, yccExitStep, yccStartCheck } from './ycc';
@@ -41,12 +41,12 @@ describe('T04-09 04#20 YCC on the market stub', () => {
     const { closes, w } = run(0n, 20);
     expect(closes.length).toBeGreaterThan(10);
     for (const y of closes) expect(y).toBeLessThanOrEqual(CAP + 0.0002);
-    expect(w.rows(macroTables.hookCall.name)).toEqual([]);
+    expect(w.rows(HOOK_CALL_TABLE.name)).toEqual([]);
   });
   it('run B, line cap room nearly used: once capacity hits 0 the close exceeds cap + 2 bp; exactly one WIRE_ITEM ycc_under_pressure', () => {
     const { closes, w } = run(FACE / 2n - 30n * ADV, 3);
     expect(closes.some((y) => y > CAP + 0.0002)).toBe(true);
-    const hooks = w.rows(macroTables.hookCall.name) as HookCall[];
+    const hooks = w.rows(HOOK_CALL_TABLE.name) as HookCall[];
     expect(hooks.map((h) => [h.owner, h.hook, h.args, h.worldEventId])).toEqual([['16', 'WIRE_ITEM', { key: 'ycc_under_pressure', bloc: 'PYN' }, `ycp_PYN_${Math.floor(hooks[0]!.createdTick / 720)}`]]);
     expect(hooks[0]!.worldEventId).toMatch(/^ycp_[A-Z]{3}_\d+$/);   // AC-04-18-HOOKID (1)
     expect(w.qty[`${cbkId('PYN')}:pyn10`]).toBe(FACE / 2n);
