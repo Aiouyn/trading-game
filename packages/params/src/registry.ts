@@ -106,3 +106,10 @@ export const MACRO_E93_OPENING_PARAMS: readonly ParamDef[] = Object.freeze([
   { key: 'mac_cbk_reserve_cover0_NKR', type: 'num', value: 4 }, { key: 'mac_cbk_reserve_cover0_SRL', type: 'num', value: 10 },
   { key: 'mac_gov_fdlcash0_gdp_SRL', type: 'num', value: 0.00672 },
 ] as ParamDef[]);
+
+/** T04-17 crisis scheduler (04 §3.16.1-§3.16.2, 16 §3.7.3). Ranges: base 2e-4–6e-4, gap 336–1008, ripple 1/14–1/3, storm 1/182–1/60, precursor 4–20, suppression 0–1344. */
+export const MACRO_T04_17_PARAMS: readonly ParamDef[] = Object.freeze([
+  { key: 'macro_major_base_rate', type: 'num', value: 3.6e-4 }, { key: 'macro_major_min_gap_days', type: 'num', value: 504 },
+  { key: 'macro_ripple_rate', type: 'num', value: 1 / 7 }, { key: 'macro_storm_rate', type: 'num', value: 1 / 91 },
+  { key: 'major_precursor_min_game_days', type: 'num', value: 8 }, { key: 'major_suppression_game_days', type: 'num', value: 336 },
+] as ParamDef[]);

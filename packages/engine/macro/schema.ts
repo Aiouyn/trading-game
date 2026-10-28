@@ -399,7 +399,7 @@ export interface PrimaryDealerStatus { id: string /* `${bloc}:${entityId}` */; b
   fromQuarter: number; revokedUntilQuarter: number | null; auctionsThisQuarter: number; auctionsBidThisQuarter: number; missesThisQuarter: number;
   awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */;
   nameInLeague?: boolean /* T04-12: league-table opt-in (bank.primaryDealer.apply) */ }
-export interface MacroInputs { id: 'INPUTS' | 'HOURLY'; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23); 'INPUTS' daily (T04-05), 'HOURLY' the held hourly fear and FSI inputs (T04-15, E-93 (2))
+export interface MacroInputs { id: 'INPUTS' | 'HOURLY' | 'EMERGENT' /* T04-18 emergent labels */; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23); 'INPUTS' daily (T04-05), 'HOURLY' the held hourly fear and FSI inputs (T04-15, E-93 (2))
 export interface SovExchangeVote { id: string /* `${offerId}:${holderId}:${assetId}` */; offerId: string; holderId: Id; assetId: string; face: Qty; vote: 'ACCEPT' | 'REJECT' }
 export interface SyndicationOrder { id: Id; syndicationId: string; bidderId: Id; face: Qty; limitSpreadBp: number | null; holdId: Id; tick: Tick }
 export interface BuybackOffer { id: Id; buybackId: string; holderId: Id; assetId: string; face: Qty; minPrice: Price; holdId: Id; tick: Tick }

@@ -76,12 +76,15 @@ export function stormShocks(kind: StormKind, sev: number, target: { bloc?: BlocI
 }
 
 /** Ripple effect at `store`'s tick (step 3). `u.target` is the sector index / commodity index / city index, `sign` ±1, `size` fraction, `length` days. */
-export function rippleEffect(store: StoreRead, kind: RippleKind, u: { target: number; sign: number; size: number; length: number }): ShockSpec[] {
+/** Commodity ids in ports order; a COMMODITY_* ripple target is an index into this list (unit decision). */
+export const RIPPLE_COMMODITIES = Object.freeze(['CRUDE', 'GAS', 'MWH', 'WHEAT', 'CORN', 'COFFEE', 'COCOA', 'GOLD'] as const);
+/** target: sector index (SECTOR_SHOCK, REGULATORY_NOTE), commodity index (COMMODITY_*), or city id (LOCAL_BOOM). */
+export function rippleEffect(store: StoreRead, kind: RippleKind, u: { target: number | string; sign: number; size: number; length: number }): ShockSpec[] {
   const t = store.get<{ tick: Tick }>(macroTables.global.name, 'GLOBAL')?.tick ?? 0, end = t + u.length * D;
   if (kind === 'SECTOR_SHOCK' || kind === 'REGULATORY_NOTE') return [shock('WORLD', `sector_value:${u.target}`, u.sign * u.size, t, end)];
   if (kind === 'LOCAL_BOOM') return [shock('WORLD', `city_activity:${u.target}`, u.size, t, end)];
   const pct = (kind === 'COMMODITY_SUPPLY' ? -1 : 1) * u.sign * u.size;
-  return [hook('06', 'commoditySupplyShock', { commodityId: String(u.target), pct, days: u.length })];
+  return [hook('06', 'commoditySupplyShock', { commodityId: typeof u.target === 'number' ? RIPPLE_COMMODITIES[u.target] ?? RIPPLE_COMMODITIES[0] : u.target, pct, days: u.length })];
 }
 
 /** Writes SHOCK specs (bloc row or event), HOOK rows (with the event id), ONE_OFFs (credibility on the CB row, π_e1/π_e5/fx fair on the bloc row;
