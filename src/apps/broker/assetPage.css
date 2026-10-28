@@ -1,6 +1,11 @@
 /* Broker asset page (UI card 10, BRK-D): About view, Overview | News. No brass; --gain / --loss only inside the shared
  * Quote (Today). No transitions: the Trade / About swap and the phone push are instant (reduced motion by design). */
-.br-name { margin: 0; }
+.br-name { margin: 0; line-height: calc(20px * var(--text-scale)); }
+/* Header additions (card 10). The name line is a whole-pixel height so everything under it (chart, open orders) moves by
+ * whole pixels and keeps the card 4-9 baselines' antialiasing. "TICKER · Name" options widen the select: cap it at the
+ * column so 390 at text scale 2 does not overflow (BR-5-12, BR-7-12); the closed select clips, the open list is native. */
+.br-pick { min-width: 0; max-width: 100%; }
+.br-select { max-width: 100%; text-overflow: ellipsis; }
 .ap { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
 .ap-title:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* Tab lists on the #38 segment (.br-seg): selected by aria-selected instead of aria-pressed, same look. */
