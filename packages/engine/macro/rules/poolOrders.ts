@@ -5,6 +5,7 @@ import { cbkId } from '@tycoon/engine-ledger';
 import type { MacroPorts } from '../ports';
 import { BLOC_ORDER, macroTables, type AssetPurchaseProgram, type BlocId, type CentralBank, type NpcPoolOrder } from '../schema';
 import { monthStartDay } from './calendar';
+import { bookCbkFdl, fxFillFdl } from './fxReserves';
 import { dailyProgram, runoffOfDay, type PositionOf } from './qe';
 import { yccBid, yccCapacity, yccPressure } from './ycc';
 
@@ -83,13 +84,16 @@ export function applyPoolFills(ctx: PhaseCtx, ports: MacroPorts): void {
     const q = cb.qe, rows = (q.day?.rows ?? []).map((r) => ({ ...r }));
     let month = q.month ?? { start: monthStartDay(Math.floor(prev / TICKS_PER_GAME_DAY)), bought: 0n, sold: 0n, runoff: 0n };
     const bs = { ...cb.balanceSheet };
+    let dFdl = 0n;
     for (const f of fills) {
+      dFdl += fxFillFdl(f);
       const r = rows.find((x) => x.assetId === f.assetId && x.side === f.side);
       if (r) { r.face = r.face > f.qty ? r.face - f.qty : 0n; month = f.side === 'BUY' ? { ...month, bought: month.bought + f.notional } : { ...month, sold: month.sold + f.notional }; }
       const cls = ports.assets.assetInfo(ctx.store, f.assetId)?.cls, sgn = f.side === 'BUY' ? f.notional : -f.notional;
       if (cls === 'GOV') bs.govBonds += sgn; else if (cls === 'CORP') bs.corpBonds += sgn; else if (cls === 'ABS_SENIOR') bs.abs += sgn;
     }
     ctx.store.put<CentralBank>(T, { ...cb, balanceSheet: bs, qe: { ...q, month, ...(q.day ? { day: { ...q.day, rows } } : {}) } });
+    bookCbkFdl(ctx, b, dFdl); // E-106 (2): 05 posts the MKT_TRADE for CB:<b>; mirror its FDL leg on this tick's P2
   }
   for (const o of [...ctx.store.index<NpcPoolOrder>(PO, 'tick', tickKey(prev))]) ctx.store.del(PO, o.id);
 }

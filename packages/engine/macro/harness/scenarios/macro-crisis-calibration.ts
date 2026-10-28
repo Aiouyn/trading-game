@@ -4,25 +4,29 @@
 // Readings (unit decisions, see PR Decisions): run from day 1 (genesis + 1 day close) until the event is ENDED or MAX_RUN_DAYS; s10_peak = max
 // daily sovereign.spread10y over the event blocs; srl/pyn_fair_change = exp(min fairValueLn − start) − 1; capital_controls_days = SRL days with
 // controls > 0; headline_change = max rise of the GDP-weighted world headline inflation (catalogInputs); peak_fsi = max daily GLOBAL FSI;
-// pie1_rise = max rise of the 5-bloc mean inflationExp1y (E-104 (1)). CURRENCY_CRISIS arms SRL breakArmed before the 16th close after forcing
-// (CURRENCY_ARM_DAY, E-104 (1): stands in for the 05-fill reserve drain). OIL_SHOCK's 06 band runs nightly with WARM_DAYS and ref06Ports (E-104).
+// pie1_rise = max rise of the 5-bloc mean inflationExp1y (E-104 (1)). CURRENCY_CRISIS arms SRL naturally from the seeded + mirrored reserve
+// drain (E-106 (5); the harness never writes fx.breakArmed); srlArmClose / srlBreakDay record it. OIL_SHOCK's 06 band runs nightly with
+// WARM_DAYS and ref06Ports (E-104).
 import { dmath, TICKS_PER_GAME_DAY } from '@tycoon/engine-core';
 import { defaultMacroPorts, type MacroPorts } from '../../ports';
 import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type CrisisKind, type GlobalMacroState, type HookCall, type WorldEvent } from '../../schema';
 import { catalogInputs, MAJORS, type CalibrationBand } from '../../rules/crisisCatalog';
 import { forceEvent } from '../../rules/scheduler';
+import { tradingDaysOfPeriod } from '../../rules/calendar';
 import { macroGenesis } from '../../core/genesis';
 import { macroWorld, type MacroWorld } from '../../testkit/macroWorld';
 import { runDays } from '../../testkit/macroLoop';
 
 export const CRISIS_SEEDS = 50, CRISIS_PASS_SHARE = 0.7, MAX_RUN_DAYS = 240;
-/** E-104 (1): SRL armed before close n = 15 after forcing (break on forced day 16); OIL_SHOCK 06 band: 364 warm-up days, 06 elasticity 10. */
-export const CURRENCY_ARM_DAY = 15, WARM_DAYS = 364, REF06_ELASTICITY = 10;
+/** E-104 (1): OIL_SHOCK 06 band: 364 warm-up days, 06 elasticity 10. */
+export const WARM_DAYS = 364, REF06_ELASTICITY = 10;
 /** Kinds whose band runs on the nightly warm-up path (06-measured, ref06Ports), E-104 (1). */
 export const WARM_KINDS: readonly CrisisKind[] = ['OIL_SHOCK'];
 
 export interface Trace { s10Peak: number; srlFairMin: number; pynFairMin: number; srlControlDays: number; headlineRise: number; peakFsi: number; pie1Rise: number }
-export interface ForcedRun { kind: CrisisKind; seed: number; ev: WorldEvent; days: number; trace: Trace; hooks: HookCall[] }
+/** srlArmClose: first forced close (1-based) with SRL fx.breakArmed; srlArmDay / srlBreakDay: its game day and the game day of SRL breakTick. */
+export interface ForcedRun { kind: CrisisKind; seed: number; ev: WorldEvent; days: number; trace: Trace; hooks: HookCall[]; srlArmClose: number | null; srlArmDay: number | null;
+  srlBreakDay: number | null }
 
 const blocOf = (w: MacroWorld, b: BlocId): BlocMacroState => w.store.get<BlocMacroState>(macroTables.bloc.name, b)!;
 const fsiOf = (w: MacroWorld): number => w.store.get<GlobalMacroState>(macroTables.global.name, 'GLOBAL')?.financialStressIndex ?? 0;
@@ -78,28 +82,38 @@ export function ref06Ports(base: MacroPorts = defaultMacroPorts()): MacroPorts {
   } } };
 }
 
-export interface RunOpts { maxDays?: number; ports?: MacroPorts; warmDays?: number; armSrlDay?: number | null }
+export interface RunOpts { maxDays?: number; ports?: MacroPorts; warmDays?: number }
 /** One forced run: genesis, 1 + warmDays day closes, forceEvent(kind) at severity 1, then day closes until ENDED (or maxDays). */
 export function forcedRun(kind: CrisisKind, seed: number, o: RunOpts = {}): ForcedRun {
   const maxDays = o.maxDays ?? MAX_RUN_DAYS, ports = o.ports ?? defaultMacroPorts(), start = 1 + (o.warmDays ?? 0);
-  const arm = o.armSrlDay !== undefined ? o.armSrlDay : kind === 'CURRENCY_CRISIS' ? CURRENCY_ARM_DAY : null;
   const w = macroWorld(`crisis:${kind}:${seed}`, 0);
   macroGenesis(w.ctx, ports);
   runDays(w, ports, 0, start);
   w.reads.length = 0; w.events.length = 0; w.cb.posts.length = 0; w.cb.events.length = 0; w.cb.sent.length = 0;
   const ev0 = forceEvent(w.ctx, kind, { severity: 1, ...(kind === 'CURRENCY_CRISIS' ? { blocs: ['SRL' as BlocId] } : {}) })   // the band is on SRL;
   const acc = newTrace(sample(w, ports, ev0));
-  let n = 0, ev = ev0;
+  let n = 0, ev = ev0, srlArmClose: number | null = null, srlArmDay: number | null = null, srlBreakDay: number | null = null;
   for (; n < maxDays; n++) {
-    if (n === arm) { const r = blocOf(w, 'SRL'); w.store.put(macroTables.bloc.name, { ...r, fx: { ...r.fx, breakArmed: true } }); }
     runDays(w, ports, start + n, start + n + 1);
+    const srl = blocOf(w, 'SRL').fx;
+    if (srlArmClose === null && srl.breakArmed) { srlArmClose = n + 1; srlArmDay = start + n; }
+    if (srlBreakDay === null && srl.breakTick !== undefined) srlBreakDay = Math.floor(srl.breakTick / TICKS_PER_GAME_DAY);
     w.reads.length = 0; w.events.length = 0; w.cb.posts.length = 0; w.cb.events.length = 0; w.cb.sent.length = 0;
     ev = w.store.get<WorldEvent>(macroTables.event.name, ev0.id) ?? ev;
     foldTrace(acc, sample(w, ports, ev));
     if (ev.phase === 'ENDED') { n++; break; }
   }
   const hooks = w.store.iter<HookCall>(macroTables.hookCall.name).filter((h) => h.worldEventId === ev0.id);
-  return { kind, seed, ev, days: n, trace: acc.t, hooks };
+  return { kind, seed, ev, days: n, trace: acc.t, hooks, srlArmClose, srlArmDay, srlBreakDay };
+}
+
+/** E-106 (5) 04#36 CURRENCY_CRISIS run predicate: SRL first armed on a forced close in [24, 30], broken (t = 45 breakRuleCheck) on the next SRL
+ *  trading day, capital_controls_days ≥ 3 and srl_fair_change ≤ −0.40. Pass = ≥ 35 of 50 runs. */
+export const CURRENCY_ARM_CLOSES = [24, 30] as const, CURRENCY_PASS_RUNS = 35;
+export function currencyCrisisHit(r: Pick<ForcedRun, 'srlArmClose' | 'srlArmDay' | 'srlBreakDay' | 'trace'>): boolean {
+  if (r.srlArmClose === null || r.srlArmDay === null || r.srlBreakDay === null) return false;
+  if (r.srlArmClose < CURRENCY_ARM_CLOSES[0] || r.srlArmClose > CURRENCY_ARM_CLOSES[1]) return false;
+  return r.srlBreakDay === tradingDaysOfPeriod('SRL', r.srlArmDay + 1, 14)[0] && r.trace.srlControlDays >= 3 && r.trace.srlFairMin <= -0.40;
 }
 
 export interface BandCheck { kind: CrisisKind; metric: string; measuredBy: CalibrationBand['measuredBy']; hits: number; runs: number; pass: boolean | null }

@@ -9,10 +9,16 @@ import { EXA_ID, MACRO_INSTITUTION_IDS, openingReservesFdl, openingSrlFdlCash, o
 import { macroTables, type BlocMacroState } from '../schema';
 import { macroWorld } from '../testkit/macroWorld';
 import { stubPorts } from '../testkit/cbWorld';
+import { cashShadow } from '../testkit/cashShadow';
+import { runDays } from '../testkit/macroLoop';
+import { defaultMacroPorts } from '../ports';
+import type { CentralBank } from '../schema';
 
 // MISSING EXPORT T03-08 LedgerApi.registerEntity: the stub forwards to the test's LedgerWorld.
 vi.mock('../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn(),
   registerEntity: (ctx: { world: LedgerWorld }, spec: { id: string }) => ctx.world.registerEntity(spec) }));
+
+vi.mock('../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));
 
 const NON_FDL = ['EUN', 'PYN', 'NKR', 'SRL'] as const;
 const CCYS: Ccy[] = ['FDL', 'EUN', 'PYN', 'NKR', 'SRL'];
@@ -93,6 +99,21 @@ describe('T04-22 institutions', () => {
       expect(x.w.entryLog().length).toBe(n0);
     }
   });
+
+  it('AC-04-22-4 (E-106 (3)): cb.reserves.fdl = ledger cash(cbk_<b>, FDL) after genesis and close 1; close-1 cover within 0.05 of genesis', () => {
+    const mw = macroWorld('g', 0), ports = defaultMacroPorts(), sh = cashShadow(mw.ctx), p = mw.ctx.params;
+    postOpeningBalanceSheets(mw.ctx, p, p.num('macro_scale_min'));
+    macroGenesis(mw.ctx, ports);
+    const at = (b: (typeof NON_FDL)[number]) => ({ st: mw.store.get<BlocMacroState>(macroTables.bloc.name, b)!.fx, cb: mw.store.get<CentralBank>(macroTables.cb.name, cbkId(b))! });
+    const g = Object.fromEntries(NON_FDL.map((b) => [b, at(b).st.reserveCoverMonths]));
+    for (const b of NON_FDL) expect([at(b).cb.reserves.fdl, at(b).st.reservesFdl]).toEqual([sh.cash(cbkId(b), 'FDL'), sh.cash(cbkId(b), 'FDL')]);
+    expect(g).toEqual({ EUN: 4, PYN: 10, NKR: 4, SRL: 11 });
+    runDays(mw, ports, 0, 1);
+    for (const b of NON_FDL) {
+      expect(at(b).cb.reserves.fdl).toBe(sh.cash(cbkId(b), 'FDL'));
+      expect(Math.abs(at(b).st.reserveCoverMonths - g[b]!)).toBeLessThan(0.05);
+    }
+  }, 60_000);
 
   it('AC-04-22-6: SRL FDL treasury cash, day-182 coupon margin, 0 posts nothing, 0.06 throws', () => {
     const a = post(), b = post({ macro_scale_min: 1 });

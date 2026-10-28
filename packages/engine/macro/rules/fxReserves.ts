@@ -1,6 +1,6 @@
 // T04-14 reserves in FDL and import cover (04 §3.13.4).
 import { BLOC_DEFAULTS } from '../blocs';
-import { EngineFault, MICRO_N, divRoundHalfEven, roundHalfEven, type Ccy, type Money, type StoreRead } from '@tycoon/engine-core';
+import { EngineFault, MICRO_N, divRoundHalfEven, roundHalfEven, type Ccy, type Money, type PhaseCtx, type StoreRead } from '@tycoon/engine-core';
 import { cbkId } from '@tycoon/engine-ledger';
 import type { MacroPorts } from '../ports';
 import { macroTables, type BlocId, type BlocMacroState, type CentralBank, type PublicMacroView } from '../schema';
@@ -36,4 +36,21 @@ export function fxReservesFdl(store: StoreRead, b: BlocId, ports: MacroPorts): M
 /** Months of imports; imports 0 → +∞ cover is reported as a large finite number. */
 export function reserveCover(reservesFdl: Money, importsMonth: Money): number {
   return importsMonth > 0n ? Number(divRoundHalfEven(reservesFdl * MICRO_N, importsMonth)) / 1e6 : 1e9;
+}
+/** E-106 (2) mirror rule (T04-20 step 8): `cb.reserves.fdl` of `cbk_<b>` equals its FDL ledger cash at every close. The only writer after
+ *  genesis; called right after each posting that moves `cbk_<b>` FDL cash, with the same signed micro amount (+ the cbk receives FDL).
+ *  FDL's own CB is not mirrored (no FX reserves). */
+export function bookCbkFdl(ctx: PhaseCtx, b: BlocId, dFdl: Money): void {
+  if (b === 'FDL' || dFdl === 0n) return;
+  const cb = ctx.store.get<CentralBank>(macroTables.cb.name, cbkId(b));
+  if (!cb) throw new EngineFault('MAC_STATE_MISSING', `no cb row ${b}`);
+  ctx.store.put<CentralBank>(macroTables.cb.name, { ...cb, reserves: { ...cb.reserves, fdl: cb.reserves.fdl + dFdl } });
+}
+/** FDL leg of one CB FX pool fill, signed for the CB (+ receives FDL). ast_FX_EUNFDL quotes FDL: BUY pays the notional. ast_FX_FDL<X> has FDL
+ *  as base: BUY receives qty. Non-FX fills → 0n. */
+export function fxFillFdl(f: { assetId: string; side: 'BUY' | 'SELL'; qty: Money; notional: Money }): Money {
+  if (!f.assetId.startsWith('ast_FX_')) return 0n;
+  if (f.assetId.startsWith('ast_FX_FDL')) return f.side === 'BUY' ? f.qty : -f.qty;
+  if (f.assetId.endsWith('FDL')) return f.side === 'BUY' ? -f.notional : f.notional;
+  return 0n;
 }

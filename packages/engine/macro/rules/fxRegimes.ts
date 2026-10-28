@@ -12,7 +12,7 @@ import { canAgreeConcord, concordActive, openConcord } from './concord';
 import { credibilityOneOff } from './credibility';
 import { setCapitalControls } from './capitalControls';
 import { currentAccount, pppLn, realGap, stepFairValue } from './fxFair';
-import { fxReservesFdl, importsMonthFdl, nominalGdpFdl, reserveCover } from './fxReserves';
+import { bookCbkFdl, fxReservesFdl, importsMonthFdl, nominalGdpFdl, reserveCover } from './fxReserves';
 import { iocLimit } from './poolOrders';
 import { adjustRr } from './reserves';
 import { sovSpread } from './sovCredit';
@@ -203,8 +203,8 @@ export function capitalFlow(ctx: PhaseCtx, ports: MacroPorts, c: X, spot: number
   const reserves = fxReservesFdl(ctx.store, c, ports), fdlAmt = reserves > 0n ? divRoundHalfEven(reserves * rate, KAPPA_SCALE) : 0n;
   if (fdlAmt <= 0n) return 0n;
   const xAmt = divRoundHalfEven(fdlAmt * MICRO_N, micro(spot));
-  if (sum < 0) ctx.ledger.fx(cbkId(c), 'row', 'FDL', fdlAmt, c, xAmt, 'MAC_FX_CAPITAL_FLOW');
-  else ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CAPITAL_FLOW');
+  if (sum < 0) { ctx.ledger.fx(cbkId(c), 'row', 'FDL', fdlAmt, c, xAmt, 'MAC_FX_CAPITAL_FLOW'); bookCbkFdl(ctx, c, -fdlAmt); }
+  else { ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CAPITAL_FLOW'); bookCbkFdl(ctx, c, fdlAmt); }
   return sum < 0 ? -fdlAmt : fdlAmt;
 }
 /** Day close per X in EUN, PYN, NKR, SRL: fair value, PPP, q̃, CA (yesterday's gaps), reserves and cover, CA absorption for managed regimes,
@@ -225,8 +225,8 @@ export function stepFxDay(ctx: PhaseCtx, ports: MacroPorts): void {
       surpriseX: 0, surpriseFdl: 0, shocks: activeShockSum(s, 'fx_fair_ln', c, ctx.tick), b: c }, ctx.params);
     if (fx0.regime !== 'FREE_FLOAT') {
       const fdlAmt = divRoundHalfEven(nominalGdpFdl(s, c) * micro(ca), 364n * MICRO_N), xAmt = divRoundHalfEven((fdlAmt < 0n ? -fdlAmt : fdlAmt) * MICRO_N, micro(sp));
-      if (fdlAmt > 0n) ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CA_ABSORB');
-      else if (fdlAmt < 0n) ctx.ledger.fx(cbkId(c), 'row', 'FDL', -fdlAmt, c, xAmt, 'MAC_FX_CA_ABSORB');
+      if (fdlAmt > 0n) { ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CA_ABSORB'); bookCbkFdl(ctx, c, fdlAmt); }
+      else if (fdlAmt < 0n) { ctx.ledger.fx(cbkId(c), 'row', 'FDL', -fdlAmt, c, xAmt, 'MAC_FX_CA_ABSORB'); bookCbkFdl(ctx, c, fdlAmt); }
     }
     if (trading && fx0.regime !== 'FREE_FLOAT') capitalFlow(ctx, ports, c, sp);
     const reserves = fxReservesFdl(s, c, ports), cover = reserveCover(reserves, importsMonthFdl(s, c));

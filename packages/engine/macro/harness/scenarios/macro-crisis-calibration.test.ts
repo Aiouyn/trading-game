@@ -7,7 +7,7 @@ vi.mock('../../views/ledgerSources', async (orig) => ({ ...(await orig<object>()
 import { MAJORS } from '../../rules/crisisCatalog';
 import { macroTables, type HookCall } from '../../schema';
 import { macroWorld } from '../../testkit/macroWorld';
-import { bandHit, checkBands, CRISIS_SEEDS, expectedHooks, foldTrace, forcedRun, judgeWarm, KINDS_04_BANDS, metricOf, newTrace, ref06Ports, WARM_DAYS, WARM_KINDS, type ForcedRun } from './macro-crisis-calibration';
+import { bandHit, checkBands, CRISIS_SEEDS, CURRENCY_PASS_RUNS, currencyCrisisHit, expectedHooks, foldTrace, forcedRun, judgeWarm, KINDS_04_BANDS, metricOf, newTrace, ref06Ports, WARM_DAYS, WARM_KINDS, type ForcedRun } from './macro-crisis-calibration';
 
 const day = (o: Partial<{ s10: number[]; srlLn: number; pynLn: number; srlControls: number; head: number; fsi: number; pie1: number }> = {}) =>
   ({ s10: [0.01], srlLn: 0, pynLn: 0, srlControls: 0, head: 0.02, fsi: 0.1, pie1: 0.02, ...o });
@@ -57,10 +57,22 @@ describe('04#36 crisis calibration: readings', () => {
     expect(p.assets.commodityClose(st, 'WHEAT')).toBe(100);
     expect(p.assets.commodityClose(st, 'GOLD')).toBeNull();
   });
-  it('E-104 (1) CURRENCY_CRISIS: SRL armed before close 16 after forcing breaks on that close; unarmed it does not', () => {
-    expect(forcedRun('CURRENCY_CRISIS', 0, { maxDays: 15 }).trace.srlControlDays).toBe(0);
-    expect(forcedRun('CURRENCY_CRISIS', 0, { maxDays: 16 }).trace.srlControlDays).toBe(1);
-    expect(forcedRun('CURRENCY_CRISIS', 0, { maxDays: 20, armSrlDay: null }).trace.srlControlDays).toBe(0);
+  it('E-106 (5) 04#36 run predicate: arm close in [24, 30], break on the next SRL trading day, controls ≥ 3, fair ≤ −0.40', () => {
+    const tr = { ...newTrace(day()).t, srlControlDays: 3, srlFairMin: -0.4 }, ok = { srlArmClose: 24, srlArmDay: 25, srlBreakDay: 26, trace: tr };
+    expect(currencyCrisisHit(ok)).toBe(true);
+    expect(currencyCrisisHit({ ...ok, srlArmClose: 30 })).toBe(true);
+    expect(currencyCrisisHit({ ...ok, srlArmClose: 23 })).toBe(false);
+    expect(currencyCrisisHit({ ...ok, srlArmClose: 31 })).toBe(false);
+    expect(currencyCrisisHit({ ...ok, srlBreakDay: 27 })).toBe(false);
+    expect(currencyCrisisHit({ ...ok, srlBreakDay: null })).toBe(false);
+    expect(currencyCrisisHit({ ...ok, trace: { ...tr, srlControlDays: 2 } })).toBe(false);
+    expect(currencyCrisisHit({ ...ok, trace: { ...tr, srlFairMin: -0.39 } })).toBe(false);
+    expect(CURRENCY_PASS_RUNS).toBe(35);
+  });
+  it('E-106 (5) CURRENCY_CRISIS seed 0, no harness arm: SRL arms naturally on a forced close in [24, 30] and breaks on the next trading day', () => {
+    const r = forcedRun('CURRENCY_CRISIS', 0);
+    expect(r.srlArmClose).toBeGreaterThanOrEqual(24); expect(r.srlArmClose).toBeLessThanOrEqual(30);
+    expect(currencyCrisisHit(r)).toBe(true);
   }, 120_000);
   it('one forced SECURITIZATION_CRISIS runs to ENDED and writes the §3.16.4 hook calls with its event id', () => {
     const r = forcedRun('SECURITIZATION_CRISIS', 0);
@@ -78,10 +90,12 @@ describe.skipIf(process.env.TYCOON_CRISIS_CALIB !== '1')(`04#36 crisis calibrati
     const runs: ForcedRun[] = [];
     for (const k of KINDS_04_BANDS) for (let s = 0; s < CRISIS_SEEDS; s++) { runs.push(forcedRun(k, s)); await new Promise((r) => setTimeout(r, 0)); }   // keep the worker RPC alive
     const checks = checkBands(runs), warm: ForcedRun[] = [];
+    const cc = runs.filter((r) => r.kind === 'CURRENCY_CRISIS'), ccHits = cc.filter(currencyCrisisHit).length;   // E-106 (5) 04#36 text
+    checks.push({ kind: 'CURRENCY_CRISIS', metric: 'arm_24_30_break_next_day', measuredBy: '04', hits: ccHits, runs: cc.length, pass: ccHits >= CURRENCY_PASS_RUNS });
     for (const k of WARM_KINDS) for (let s = 0; s < CRISIS_SEEDS; s++) { warm.push(forcedRun(k, s, { warmDays: WARM_DAYS, ports: ref06Ports() })); await new Promise((r) => setTimeout(r, 0)); }
     checks.push(...checkBands(warm, judgeWarm).filter((c) => c.pass !== null));
     runs.push(...warm);
-    writeFileSync(process.env.TYCOON_CRISIS_OUT ?? 'crisis-report.json', JSON.stringify({ seeds: CRISIS_SEEDS, checks, runs: runs.map((r) => ({ kind: r.kind, seed: r.seed, days: r.days, trace: r.trace })) }, null, 1));
+    writeFileSync(process.env.TYCOON_CRISIS_OUT ?? 'crisis-report.json', JSON.stringify({ seeds: CRISIS_SEEDS, checks, runs: runs.map((r) => ({ kind: r.kind, seed: r.seed, days: r.days, trace: r.trace, srlArmClose: r.srlArmClose, srlBreakDay: r.srlBreakDay })) }, null, 1));
     expect(checks.filter((c) => c.pass === false).map((c) => `${c.kind} ${c.metric} ${c.hits}/${c.runs}`)).toEqual([]);
   }, 7_200_000);
 });

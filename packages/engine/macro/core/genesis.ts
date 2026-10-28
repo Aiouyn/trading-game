@@ -62,7 +62,7 @@ const D = TICKS_PER_GAME_DAY;
 const FSI_KEYS = ['interbank', 'repoHaircut', 'ccpFund', 'bankEquityDd', 'stablecoinDepeg', 'etfDiscount'] as const;
 const zeroImbalance = (): Record<ImbalanceKey, number> => { const o = {} as Record<ImbalanceKey, number>; for (const k of IMBALANCE_KEYS) o[k] = 0; return o; };
 
-function genesisCb(b: BlocId, tick: number, p: ParamsView): CentralBank {
+function genesisCb(b: BlocId, S0: number, tick: number, p: ParamsView): CentralBank {
   const d = BLOC_DEFAULTS[b], ccy0 = {} as Record<BlocId, Money>;
   for (const c of BLOC_ORDER) ccy0[c] = 0n;
   const meet = [meetingPlan(b, 0, p).meetingTick, meetingPlan(b, 91, p).meetingTick].filter((t) => t >= tick);
@@ -73,7 +73,7 @@ function genesisCb(b: BlocId, tick: number, p: ParamsView): CentralBank {
     qe: { state: 'NONE', purchasesPerMonth: 0n, eligible: { govBonds: 1, corpIG: 0, abs: 0 }, holdingsCapGdp: 0.35, qtRunoffCapPerMonth: 0 }, ycc: null,
     macroprudential: { ccyb: 0, ltvCapResidential: 0.80, ltvCapCommercial: 0.65, dtiCap: 0.40 },
     facilities: { lendingRate: d.initialPolicyRate, depositRate: d.initialPolicyRate, collateralHaircuts: {}, elaPenaltySpread: 0.015, maxTermDays: 7 },
-    swapLinesOut: [], reserves: { fdl: 0n, gold: 0n, otherFx: ccy0 },
+    swapLinesOut: [], reserves: { fdl: b === 'FDL' ? 0n : openingReservesFdl(b, S0, p), gold: 0n, otherFx: ccy0 }, // E-106 (1)
     balanceSheet: { govBonds: 0n, corpBonds: 0n, abs: 0n, loansToBanks: 0n, elaOutstanding: 0n, bankReserves: 0n, currencyInCirculation: 0n },
     emergencyCountQuarter: 0, memberOffsets: [], rStarBias: 0, governorNpcId: null, governorTermEndTick: 0, offTargetDays: 0, ycc10Streak: 0, yccHighInflDays: 0,
     yccRaises: 0, lowDepthDays: 0, ltroOpenUntilTick: null, ccybPending: null, emergencyQuarter: 0, pendingEmergency: null };
@@ -133,7 +133,7 @@ export function macroGenesis(ctx: PhaseCtx, ports: MacroPorts): void {
   for (const b of BLOC_ORDER) {
     const row = { ...genesisBloc(b, S0, ai0, p), peNorm: peNorm0(ctx, b, ports) };
     s.put(macroTables.bloc.name, row);
-    s.put(macroTables.cb.name, genesisCb(b, ctx.tick, p));
+    s.put(macroTables.cb.name, genesisCb(b, S0, ctx.tick, p));
     appointGovernor(ctx, b, 'GENESIS', ports);
     genesisOutputGapEstimate(ctx, b, 0);
     const cb = s.get<CentralBank>(macroTables.cb.name, cbkId(b))!;

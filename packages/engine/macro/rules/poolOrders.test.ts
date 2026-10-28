@@ -24,6 +24,7 @@ function ports(adv: number | null, fills: Record<number, { assetId: string; side
       sovereignLines: (_s, g) => (g === govId('FDL') ? [{ assetId: 'f10', tenor: 'N10Y', couponRate: 0.03, maturityTick: 20 * Y, faceOutstanding: M(1e12), onTheRun: true, inflationLinked: false, fxDenominated: false }] : []) } } as MacroPorts;
 }
 const fdl = (w: ReturnType<typeof cbWorld>): CentralBank => w.ctx.store.get<CentralBank>(macroTables.cb.name, cbkId('FDL'))!;
+const resFdl = (w: ReturnType<typeof cbWorld>, b: 'FDL' | 'EUN' | 'PYN' | 'NKR' | 'SRL'): bigint | undefined => w.ctx.store.get<CentralBank>(macroTables.cb.name, cbkId(b))!.reserves?.fdl;
 
 describe('T04-09 slices and limits', () => {
   it('sliceOfDay(1,000 lots, 479) sums to 1,000 lots: floors, the remainder on the last tick', () => {
@@ -71,6 +72,19 @@ describe('T04-09 writePoolOrders / applyPoolFills', () => {
     const o2 = writePoolOrders(w.ctx, ports(null))[0]!;
     expect(o2.qty).toBe(sliceOfDay(face0 - o1.qty / 2n, 478));
   });
+  it('E-106 (2): the FDL leg of CB:<b> FX fills moves cb.reserves.fdl (EUNFDL BUY −notional, SELL +notional; FDL<X> BUY +qty, SELL −qty; bonds 0)', () => {
+    const rs = { fdl: M(1000), gold: 0n, otherFx: {} };
+    const w = cbWorld([cbRow('FDL'), cbRow('EUN', { reserves: rs, qe: qe() } as Partial<CentralBank>), cbRow('SRL', { reserves: rs, qe: qe() } as Partial<CentralBank>)], t0 + 62);
+    const f: Record<string, { assetId: string; side: 'BUY' | 'SELL'; qty: bigint; notional: bigint }[]> = {
+      'CB:EUN': [{ assetId: 'ast_FX_EUNFDL', side: 'BUY', qty: M(10), notional: M(11) }, { assetId: 'ast_FX_EUNFDL', side: 'SELL', qty: M(1), notional: M(2) }],
+      'CB:SRL': [{ assetId: 'ast_FX_FDLSRL', side: 'SELL', qty: M(7), notional: M(35) }, { assetId: 'ast_FX_FDLSRL', side: 'BUY', qty: M(3), notional: M(15) },
+        { assetId: 'g10', side: 'BUY', qty: M(50), notional: M(50) }] };
+    const d = ports(null);
+    applyPoolFills(w.ctx, { ...d, markets: { ...d.markets, poolFills: (_s, t, id) => (t === t0 + 61 ? (f[id] ?? []).map((x) => ({ ...x, ccy: 'FDL' as const })) : []) } } as MacroPorts);
+    expect(resFdl(w, 'EUN')).toBe(M(1000) - M(11) + M(2));
+    expect(resFdl(w, 'SRL')).toBe(M(1000) - M(7) + M(3));
+    expect(resFdl(w, 'FDL')).toBeUndefined();
+  });
   it('weekend and pre-open ticks write no QE orders; extra orders are written as handed in', () => {
     const w = setup();
     w.setTick(5 * TICKS_PER_GAME_DAY + 100);
@@ -83,7 +97,8 @@ describe('T04-09 writePoolOrders / applyPoolFills', () => {
 
 describe('T04-09 swap lines', () => {
   const world = (basis: number | null, fsi = 0.2, lines: CentralBank['swapLinesOut'] = []): ReturnType<typeof cbWorld> => {
-    const w = cbWorld([cbRow('FDL', { policyRate: 0.03, swapLinesOut: lines })], 1000);
+    const xs = (['EUN', 'PYN', 'NKR', 'SRL'] as const).map((b) => cbRow(b, { reserves: { fdl: M(1000), gold: 0n, otherFx: {} } } as Partial<CentralBank>));
+    const w = cbWorld([cbRow('FDL', { policyRate: 0.03, swapLinesOut: lines }), ...xs], 1000);
     w.put(macroTables.bloc.name, { id: 'EUN', nominalGdp: M(20e12) } as never);
     w.put(macroTables.global.name, { id: 'GLOBAL', financialStressIndex: fsi } as never);
     if (basis !== null) w.put(macroTables.curve.name, { id: 'EUN', basis } as never);
@@ -114,6 +129,8 @@ describe('T04-09 swap lines', () => {
     swapLineStep(w.ctx, p());
     expect(fdl(w).swapLinesOut[0]).toMatchObject({ active: true, drawn: M(5) });
     expect(w.posts[0]).toMatchObject({ op: 'pay', from: cbkId('EUN'), to: cbkId('FDL'), ccy: 'FDL', code: 'CBK_SWAP_LINE_INTEREST' });
+    expect(w.posts[0]!.amt).toBeGreaterThan(0n);
+    expect(resFdl(w, 'EUN')).toBe(M(1000) - w.posts[0]!.amt);   // E-106 (2): interest mirrored on the borrowing cbk
     const v = world(null, 0.61);
     swapLineStep(v.ctx, p());
     expect(fdl(v).swapLinesOut.filter((l) => l.active).map((l) => l.counterpartyCbk)).toEqual([cbkId('EUN'), cbkId('PYN'), cbkId('NKR')]);
@@ -136,6 +153,9 @@ describe('T04-09 swap lines', () => {
       [cbkId('FDL'), cbkId('EUN'), 'FDL', M(110), 'CBK_SWAP_LINE_DRAW'], [cbkId('EUN'), cbkId('FDL'), 'EUN', M(100), 'CBK_SWAP_LINE_DRAW'],
       [cbkId('EUN'), cbkId('FDL'), 'EUN', M(100), 'CBK_SWAP_LINE_REPAY'], [cbkId('FDL'), cbkId('EUN'), 'FDL', M(110), 'CBK_SWAP_LINE_REPAY']]);
     expect(fdl(w).swapLinesOut[0]!.drawn).toBe(0n);
+    // E-106 (2) mirror, as posted: DRAW +110 and REPAY +110 FDL into cbk_EUN (the REPAY template's FDL leg runs cbk_FDL → cbk_EUN)
+    expect(resFdl(w, 'EUN')).toBe(M(1000) + M(220));
+    expect(resFdl(w, 'FDL')).toBeUndefined();
   });
 });
 
