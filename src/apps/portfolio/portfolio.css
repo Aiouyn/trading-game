@@ -59,6 +59,7 @@
    left, chevron right; it pushes the Positions screen (not a tab). */
 .pf-nav-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); width: 100%; min-height: 44px; padding: var(--sp-8) 0;
   text-align: left; color: var(--fg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.pf-nav-item + .pf-nav-item { border-top: 0; }
 .pf-nav-label { min-width: 0; overflow-wrap: anywhere; }
 .pf-nav-chevron { flex: none; color: var(--fg-muted); }
 @media (pointer: coarse) { .pf-seg button { min-height: 44px; } }

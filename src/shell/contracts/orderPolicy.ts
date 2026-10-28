@@ -1,7 +1,9 @@
 // Order rules Engine has not defined yet (UI card 6 Gaps 1-4, Producer E-98 (1)). ONE seam: the mock server and the
 // Broker UI read these values and nothing else. When Engine rules, change the value (or widen its type) here; no other
 // file names a default. Every field is ENGINE-TBD.
-import type { TradingState } from "./channels";
+// UI card 8 adds the order history rules (GET /api/v1/orders/me, which the mock serves for the client contract in
+// orderHistory.ts) below, in the same pattern.
+import type { OrderHistoryRow, TradingState } from "./channels";
 
 export interface OrderPolicy {
   /** Gap 1 (idempotent cancel): a cancel for an order id that is not open. The mock answers ACCEPTED with no effects;
@@ -30,4 +32,29 @@ export const ORDER_POLICY: OrderPolicy = {
   cancelPartlyFilled: "removeRemainder",
   cancelGoneBeforeResult: "removeRow",
   haltedRestingStatus: "QUEUED_AUCTION",
+};
+
+/** GET /api/v1/orders/me (UI card 8 Gap 1: channels.ts names the row and the params status / from / to / cursor, and
+ *  nothing else). The mock server and orderHistory.ts read these values and nothing else. Every field is ENGINE-TBD. */
+export interface OrderHistoryPolicy {
+  /** Rows per reply at most; a longer history pages by `nextCursor`. */
+  readonly pageSize: number;
+  /** The reply shape: `{ rows, nextCursor }`, `nextCursor` null on the last page. The only shape typed so far. */
+  readonly reply: "rowsNextCursor";
+  /** A REJECTED place never became an order, so it has no orderId: the mock lists it under its intentId. */
+  readonly rejectedOrderId: "intentId";
+  /** `avgPrice` of a closed order with no fills (cancelled unfilled, rejected): "0" at the asset's decimals, as an open
+   *  order's is (the mock's OpenOrder), "0" for an unknown asset. */
+  readonly unfilledAvgPrice: "zero";
+  /** The statuses the mock can close an order with. EXPIRED needs a day end, which the mock does not run. */
+  readonly mockStatuses: readonly OrderHistoryRow["status"][];
+}
+
+/** The mock defaults (card 8). */
+export const ORDER_HISTORY_POLICY: OrderHistoryPolicy = {
+  pageSize: 50,
+  reply: "rowsNextCursor",
+  rejectedOrderId: "intentId",
+  unfilledAvgPrice: "zero",
+  mockStatuses: ["FILLED", "CANCELLED", "REJECTED"],
 };

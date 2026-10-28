@@ -1,0 +1,50 @@
+/* Orders tab (UI card 8). Tokens only, no colour meaning and no brass: Recent fills uses --fg / --fg-muted / --line /
+   --steel; Open orders keeps card 6's own styles (openOrders.css), including its --loss confirm / reject. */
+.pf-orders { display: flex; flex-direction: column; gap: var(--sp-24); min-width: 0; }
+.pf-orders-phone { padding: var(--sp-16); gap: var(--sp-20);
+  /* QA #87 carry-over: the tab's last row scrolls clear of #edge-bar (the Broker list pads its own end; here fills follow). */
+  padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
+
+/* The Broker list's host: Broker's frame classes for its layout rules, without the Broker frame's own padding (broker.css,
+   loaded once a Broker window has opened). */
+.pf-orders .br.pf-oo-host { padding: 0; container-type: normal; }
+.pf-orders .br-phone .br-oo-list { padding-bottom: 0; }
+
+.pf-fills { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.pf-fills-title { margin: 0; display: flex; align-items: baseline; gap: var(--sp-8); font-size: var(--fs-16); font-weight: 600; color: var(--fg); }
+.pf-fills-count { font-weight: 400; color: var(--fg-muted); }
+.pf-fills-help, .pf-fills-empty { margin: 0; color: var(--fg-muted); }
+
+/* Table (desktop window >= 640 px, text scale < 1.5): 36 px rows, --line hairlines; numbers mono, tabular, right. */
+.pf-fills-table { width: 100%; border-collapse: collapse; }
+.pf-fills-table th, .pf-fills-table td { padding: var(--sp-8); text-align: left; vertical-align: middle; white-space: nowrap; }
+.pf-fills-table th:first-child, .pf-fills-table td:first-child { padding-left: 0; }
+.pf-fills-table th:last-child, .pf-fills-table td:last-child { padding-right: 0; }
+.pf-fills-table thead th { font-weight: 400; color: var(--fg-muted); font-size: var(--fs-12_5); border-bottom: 1px solid var(--line); }
+.pf-fills-table .pf-fc-qty, .pf-fills-table .pf-fc-price, .pf-fills-table .pf-fc-fee, .pf-fills-table .pf-fc-tick { text-align: right; }
+.pf-fills-table td.num { font-family: var(--font-num); font-feature-settings: "tnum"; }
+.pf-fills-table tr.pf-fill { height: 36px; border-bottom: 1px solid var(--line); color: var(--fg); }
+.pf-fills-table .pf-fc-asset { font-weight: 600; }
+.pf-fills-table td.pf-fc-tick { color: var(--fg-muted); }
+
+/* Rows (narrow window, phone, text scale >= 1.5): 2 or 3 lines, left and right clusters; no value wraps or truncates. */
+.pf-fills-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pf-fills-list .pf-fill { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 36px; padding: var(--sp-8) 0; border-bottom: 1px solid var(--line); color: var(--fg); min-width: 0; }
+.pf-orders-phone .pf-fills-list .pf-fill { min-height: var(--hit-touch); }
+.pf-fill-line { display: flex; justify-content: space-between; align-items: center; column-gap: var(--sp-12); min-width: 0; }
+.pf-fill-line > *, .pf-fill-cluster > * { flex: none; white-space: nowrap; }
+.pf-fill-cluster { display: flex; align-items: baseline; gap: var(--sp-8); }
+.pf-fill-ticker { font-weight: 600; }
+.pf-fill-tick { color: var(--fg-muted); font-size: var(--fs-12_5); }
+.pf-fills-list .num { font-family: var(--font-num); font-feature-settings: "tnum"; }
+
+/* Liquidity chip: neutral, the Broker status chip's look (--steel outline, --fg text). */
+.pf-fills .chip.pf-fill-liq { border-color: var(--steel); color: var(--fg); }
+.pf-fill:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+/* High contrast: rows keep a visible border, as Open orders does. No insert animation, so nothing for reduced motion. */
+html[data-hc="1"] .pf-fill, html[data-hc="1"] .pf-fills-table thead th { border-bottom-color: var(--fg-muted); }
+
+.pf-orders-skel { display: flex; flex-direction: column; gap: var(--sp-4); }
+.pf-orders-skel .pf-fills-title { margin-bottom: var(--sp-4); }
+.pf-orders-skel-row { height: 36px; border-radius: var(--r-input); background: var(--win2); }
+.pf-orders-phone .pf-orders-skel-row { height: var(--hit-touch); }

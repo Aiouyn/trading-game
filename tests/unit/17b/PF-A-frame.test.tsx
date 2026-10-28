@@ -33,7 +33,7 @@ describe("PF-2-09 desktop frame", () => {
   it("tab row Overview · Positions; Positions shows card 3 Positions; arrows move selection", async () => {
     await mount(1440);
     const tabs = [...el.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, t.getAttribute("aria-selected")]);
-    expect(tabs).toEqual([["Overview", "true"], ["Positions", "false"]]);
+    expect(tabs).toEqual([["Overview", "true"], ["Positions", "false"], ["Orders", "false"]]); // card 8 adds Orders
     expect(q("pf-overview")?.dataset.state).toBe("live");
     await click(q("pf-tab-positions")!);
     expect(q("pf-positions")).not.toBeNull();
