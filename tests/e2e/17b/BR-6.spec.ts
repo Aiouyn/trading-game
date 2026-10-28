@@ -1,5 +1,6 @@
 // UI card 6 (17B BR-6) Broker: cancel an open order, end to end against the production build and its mock feed.
-// BR-6-01 / 02 / 06 / 08 are unit tested (tests/unit/17b/BR-6-*.test.ts(x)); this spec proves the browser side: the cancel
+// BR-6-06 / 08 need injected engine states (ack with the order kept, partial fill, absent id) the mock cannot reach from the
+// browser, so they are unit tested (tests/unit/17b/BR-6-*.test.ts(x)). This spec proves the browser side: control and confirm, the cancel
 // intent on the fake clock, pending, ack + focus, reject, halt and feed states, keyboard, axe, layout at 1440 / 520 / 390,
 // cb / hc baselines, reduced motion, FR. Also QA #85 Q1 (no Review on a preview for other inputs) end to end.
 // Shots: SHOTS=1 writes them under tests/e2e/17b/__screenshots__/BR-6 (CI); BR_SHOTS_DIR overrides the folder. The cb / hc
@@ -86,6 +87,59 @@ async function confirmCancel(r: Locator) {
   await r.getByTestId("br-oo-yes").click();
   return id;
 }
+
+test("BR-6-01 one Cancel per row named by cancelAria, no --acc in its computed colours; the li is no control", async ({ page }) => {
+  await openPaused(page);
+  await limitOrder(page, "42.10");
+  await limitOrder(page, "41.50", "7");
+  await expect(rows(page)).toHaveCount(2);
+  for (const r of await rows(page).all()) {
+    await expect(r.locator("button")).toHaveText(["Cancel"]);
+    expect(await r.getAttribute("role")).toBeNull();
+  }
+  await expect(cancelBtn(rows(page).nth(0))).toHaveAccessibleName("Cancel order: Buy 7 HALC, Limit 41.50");
+  await expect(cancelBtn(rows(page).nth(1))).toHaveAccessibleName("Cancel order: Buy 40 HALC, Limit 42.10");
+  const acc = await color(page, "var(--acc)");
+  await page.mouse.move(0, 0);
+  await expect.poll(() => colours(list(page))).not.toContain(acc);
+});
+
+test("BR-6-02 confirm: Keep focused; Keep and Esc restore idle with focus on Cancel, nothing logged; a second confirm closes the first", async ({ page }) => {
+  await openPaused(page);
+  await limitOrder(page, "42.10");
+  await limitOrder(page, "41.50", "7");
+  const [a, b] = [rows(page).nth(0), rows(page).nth(1)];
+  const before = (await cancelIntents(page)).length;
+  await cancelBtn(a).click();
+  await expect(a.getByTestId("br-oo-keep")).toBeFocused();
+  await a.getByTestId("br-oo-keep").click();
+  await expect(a.getByTestId("br-oo-ask")).toHaveCount(0);
+  await expect(cancelBtn(a)).toBeFocused();
+  await cancelBtn(a).click();
+  await expect(a.getByTestId("br-oo-keep")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(a.getByTestId("br-oo-ask")).toHaveCount(0);
+  await expect(cancelBtn(a)).toBeFocused();
+  await expect(br(page)).toBeVisible(); // Esc closed only the confirm
+  await cancelBtn(a).click();
+  await cancelBtn(b).click();
+  await expect(a.getByTestId("br-oo-ask")).toHaveCount(0);
+  await expect(cancelBtn(a)).toBeVisible();
+  await expect(b.getByTestId("br-oo-keep")).toBeFocused();
+  expect(await cancelIntents(page)).toHaveLength(before);
+});
+
+test("BR-6-05 a middle row: focus moves to the next row's Cancel", async ({ page }) => {
+  await openPaused(page);
+  await limitOrder(page, "41.00");
+  await limitOrder(page, "42.10");
+  await limitOrder(page, "43.20");
+  await expect(rows(page)).toHaveCount(3);
+  const ids = await Promise.all((await rows(page).all()).map(rowId));
+  await confirmCancel(rows(page).nth(1));
+  await runUntil(page, async () => (await list(page).getByTestId(`br-oo-row-${ids[1]}`).count()) === 0);
+  await expect(cancelBtn(list(page).getByTestId(`br-oo-row-${ids[2]}`))).toBeFocused();
+});
 
 test("BR-6-03/04/05 fake clock: Yes logs one cancel (double press too); Cancelling… · tick n; ack removes the row, line, focus next then heading", async ({ page }, info) => {
   await openPaused(page);

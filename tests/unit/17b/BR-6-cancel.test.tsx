@@ -142,6 +142,16 @@ describe("BR-6-05 ack removes the row", () => {
     await tick(f);
     expect(q(h, "br-oo-leaving-o-3"), "the collapsing copy is gone a tick later").toBeNull();
   });
+  it("a middle row: focus goes to the next row's Cancel, not the previous one", async () => {
+    const f = feedWith([LIMIT("41.00"), LIMIT("42.10"), LIMIT("43.20")]);
+    await mount(h, { context: "HALC", feed: f });
+    const [prev, mid, next] = rowIds();
+    await openConfirm(mid);
+    await yes(mid);
+    await tick(f);
+    expect(rowIds()).toEqual([prev, next]);
+    expect(document.activeElement).toBe(inRow(next, "br-oo-cancel"));
+  });
   it("last row: focus on the previous row's Cancel; empty list: heading, then \"No open orders.\"", async () => {
     const f = feedWith([LIMIT("41.00"), LIMIT("42.10")]);
     await mount(h, { context: "HALC", feed: f });
