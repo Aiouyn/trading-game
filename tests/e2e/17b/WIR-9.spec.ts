@@ -150,6 +150,21 @@ test("winShot: the mask covers only the window's r×r corner squares: every pixe
   expect(n.ring, "ring pixels checked").toBeGreaterThan(8);
 });
 
+test("winShot fails a shot that differs from its baseline only in a pixel touching a mask square (toHaveScreenshot alone skips it as antialiasing)", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  test.skip(info.config.updateSnapshots === "all" || info.config.updateSnapshots === "changed", "would write the dot into the baseline");
+  test.fail();
+  await bootWire(page);
+  const b = (await frame(page).boundingBox())!;
+  const r = await frame(page).evaluate((el) => Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius)));
+  await page.evaluate(([x, y]) => {
+    const d = document.createElement("div"); // bottom edge row, just right of the bottom-left corner square
+    d.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px;background:rgb(255,0,0);z-index:2147483646`;
+    document.body.append(d);
+  }, [b.x + r, b.y + b.height - 1] as const);
+  await shot(page, "none");
+});
+
 test("WIR-9-05 ?tier=terminal: priced-in band + as-of in the detail; ?tier=free: no priced-in section", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await bootWire(page, "?tier=terminal");

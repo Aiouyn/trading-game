@@ -122,6 +122,26 @@ export async function winShot(page: Page, frame: Locator, dir: string, name: str
 }
 
 /**
+ * Independent of maskSquares, read again from the DOM: the squares are exactly the four r×r corners of each rounded box
+ * (the `.win` frame, each visible `rounded` control with a radius), each edge widened outward to the pixel grid.
+ */
+async function expectCornerSquares(frame: Locator, rounded: Locator | undefined, squares: Square[]) {
+  type Box = { x: number; y: number; right: number; bottom: number; r: number };
+  const own: Box[] = await frame.evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    return el.classList.contains("win") ? [{ x: b.x, y: b.y, right: b.right, bottom: b.bottom, r: Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0) }] : [];
+  });
+  const controls: Box[] = rounded ? await rounded.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => {
+    const b = e.getBoundingClientRect();
+    return { x: b.x, y: b.y, right: b.right, bottom: b.bottom, r: Math.ceil(parseFloat(getComputedStyle(e).borderBottomLeftRadius) || 0) };
+  })) : [];
+  const span = (from: number, to: number) => [Math.floor(from), Math.ceil(to) - Math.floor(from)] as const;
+  const want = [...own, ...controls].filter((b) => b.r > 0).flatMap((b) => [span(b.x, b.x + b.r), span(b.right - b.r, b.right)].flatMap(([x, w]) =>
+    [span(b.y, b.y + b.r), span(b.bottom - b.r, b.bottom)].map(([y, h]) => `${x},${y} ${w}x${h}`)));
+  expect(squares.map((q) => `${q.x},${q.y} ${q.w}x${q.h}`).sort(), "mask squares: the r×r corners of each rounded box").toEqual(want.sort());
+}
+
+/**
  * The page held still: paint every pixel of the 1 px ring round every mask square (except ring pixels inside another
  * square or outside the frame) in the inverse of its colour, and every one must change the masked capture, and nothing
  * else may; then paint every pixel inside every square, and the capture must not change at all. Pixel-exact, as winShot
@@ -129,6 +149,7 @@ export async function winShot(page: Page, frame: Locator, dir: string, name: str
  */
 export async function expectOnlySquaresMasked(page: Page, frame: Locator, rounded?: Locator): Promise<{ squares: number; ring: number; inside: number }> {
   return withCorners(page, frame, rounded, async (clip, mask, squares) => {
+    await expectCornerSquares(frame, rounded, squares);
     for (const v of [clip.x, clip.y, clip.width, clip.height]) expect(Number.isInteger(v), `frame box on whole pixels: ${JSON.stringify(clip)}`).toBe(true);
     const base = decodePng(await capture(page, clip, mask));
     const inSquare = (x: number, y: number) => squares.some((q) => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h);
