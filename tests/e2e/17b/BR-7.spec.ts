@@ -11,7 +11,7 @@ import { SPEC_TABLE } from "../../unit/shell/paletteTable";
 import { boot, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
 import { pinHtml } from "./pin";
-import { FIRST_LOAD_BUDGET_KB, watchScripts } from "./plotChunk";
+import { FIRST_LOAD_BUDGET_KB, PLOT_EXCLUDE_CAP_KB, firstLoadBytes, watchScripts } from "./plotChunk";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -127,8 +127,8 @@ test(`BR-7-01 the plot is its own chunk, requested after the Broker mounts; Brok
   const html = await (await request.get("/broker?asset=HALC")).text();
   expect(html.includes(new URL(libUrl).pathname)).toBe(false);
   const all = [...sizes.values()].reduce((s, x) => s + x, 0);
-  const first = all - sizes.get(libUrl)!;
-  console.log(`BR-7-01 broker first load ${(first / 1024).toFixed(1)} KB gz; plot chunk ${(sizes.get(libUrl)! / 1024).toFixed(1)} KB gz; all ${(all / 1024).toFixed(1)} KB gz; budget ${FIRST_LOAD_BUDGET_KB} KB`);
+  const first = firstLoadBytes(all - sizes.get(libUrl)!, sizes.get(libUrl)!);   // plot chunk left out up to PLOT_EXCLUDE_CAP_KB, as in S1-20 and the CI step
+  console.log(`BR-7-01 broker first load ${(first / 1024).toFixed(1)} KB gz; plot chunk ${(sizes.get(libUrl)! / 1024).toFixed(1)} KB gz; all ${(all / 1024).toFixed(1)} KB gz; cap ${PLOT_EXCLUDE_CAP_KB} KB; budget ${FIRST_LOAD_BUDGET_KB} KB`);
   expect(first).toBeLessThanOrEqual(FIRST_LOAD_BUDGET_KB * 1024);
 });
 
