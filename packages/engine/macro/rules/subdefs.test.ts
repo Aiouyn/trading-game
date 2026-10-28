@@ -85,3 +85,14 @@ describe('BANK_RUN_LOCAL', () => {
     expect(subDefOf('LOCAL_BOOM', 0.1)).toBeNull();
   });
 });
+
+describe('sub-def weights (T04-18 card, E-35 §5)', () => {
+  it('match the card table exactly, generic = remainder', () => {
+    expect(SUB_DEFS.COMMODITY_SUPPLY).toEqual([{ key: 'DROUGHT', w: 0.25 }, { key: 'CROP_DISEASE', w: 0.15 }, { key: 'CHIP_FAB', w: 0.15 }, { key: 'SHIPPING_LANE', w: 0.15 }]);
+    expect(SUB_DEFS.SECTOR_SHOCK).toEqual([{ key: 'RECALL', w: 0.2 }, { key: 'SCANDAL', w: 0.15 }, { key: 'CYBER', w: 0.15 }, { key: 'DATA_CENTER', w: 0.1 }]);
+    expect(SUB_DEFS.CREDIT_WOBBLE).toEqual([{ key: 'BANK_RUN_LOCAL', w: 0.5 }]);
+    expect(subDefOf('COMMODITY_SUPPLY', 0.2499)?.key).toBe('DROUGHT');
+    expect(subDefOf('COMMODITY_SUPPLY', 0.25)?.key).toBe('CROP_DISEASE');
+    expect(subDefOf('COMMODITY_SUPPLY', 0.71)).toBeNull();
+  });
+});

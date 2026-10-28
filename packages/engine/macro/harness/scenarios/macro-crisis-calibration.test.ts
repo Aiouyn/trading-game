@@ -49,9 +49,9 @@ describe('04#36 crisis calibration: readings', () => {
 });
 
 describe.skipIf(process.env.TYCOON_CRISIS_CALIB !== '1')(`04#36 crisis calibration (${CRISIS_SEEDS} forced runs per kind, nightly)`, () => {
-  it('each 04-measured band hits in ≥ 70% of runs', () => {
+  it('each 04-measured band hits in ≥ 70% of runs', async () => {
     const runs: ForcedRun[] = [];
-    for (const k of KINDS_04_BANDS) for (let s = 0; s < CRISIS_SEEDS; s++) runs.push(forcedRun(k, s));
+    for (const k of KINDS_04_BANDS) for (let s = 0; s < CRISIS_SEEDS; s++) { runs.push(forcedRun(k, s)); await new Promise((r) => setTimeout(r, 0)); }   // keep the worker RPC alive
     const checks = checkBands(runs);
     writeFileSync(process.env.TYCOON_CRISIS_OUT ?? 'crisis-report.json', JSON.stringify({ seeds: CRISIS_SEEDS, checks, runs: runs.map((r) => ({ kind: r.kind, seed: r.seed, days: r.days, trace: r.trace })) }, null, 1));
     expect(checks.filter((c) => c.pass === false).map((c) => `${c.kind} ${c.metric} ${c.hits}/${c.runs}`)).toEqual([]);
