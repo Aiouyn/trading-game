@@ -47,7 +47,8 @@ export const RUST_BELOW = 26;
 /** `dst_<city>_<district>` → material id 1–8, or 0 when unknown. cityId is e.g. `port_avalon`. */
 export function materialId(districtId: string | undefined, cityId: string): number {
   if (!districtId) return MATERIAL_PLAIN;
-  const prefix = `dst_${cityId}_`;
+  // engine ids (packages/engine/city/ids.ts): city `cty_<slug>`, district `dst_<slug>_<district>`
+  const prefix = `dst_${cityId.replace(/^cty_/, '')}_`;
   const key = districtId.startsWith(prefix) ? districtId.slice(prefix.length) : districtId;
   const i = DISTRICT_MATERIALS.findIndex(([k]) => k === key);
   return i < 0 ? MATERIAL_PLAIN : i + 1;

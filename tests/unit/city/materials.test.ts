@@ -39,6 +39,11 @@ describe('card 2 materials', () => {
     expect(materialId('dst_port_avalon_old_harbor', 'port_avalon')).toBe(1);
     expect(materialId('dst_port_avalon_eastside_docks', 'port_avalon')).toBe(8);
     expect(materialId(undefined, 'port_avalon')).toBe(MATERIAL_PLAIN);
+    // the engine's cityId carries 'cty_' and its districtIds don't (CI run 40605465589: every fixture part was plain)
+    expect(materialId('dst_port_avalon_old_harbor', 'cty_port_avalon')).toBe(1);
+    const city = generateCity();
+    const ids = new Set(city.snapshot.entities.map((e) => materialId(e.districtId, city.snapshot.cityId)));
+    for (let id = 1; id <= DISTRICT_MATERIALS.length; id++) expect(ids.has(id), `fixture district material ${id}`).toBe(true);
     expect(materialId('dst_port_avalon_nowhere', 'port_avalon')).toBe(MATERIAL_PLAIN);
     expect(material(MATERIAL_PLAIN).wall).toEqual(material(7).wall);
   });
