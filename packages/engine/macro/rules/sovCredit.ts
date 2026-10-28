@@ -9,7 +9,7 @@ import { macroTables, type BlocId, type CentralBank, type CurveState, type Daily
 import { concordActive } from './concord';
 import { ruleBreachPremium } from './programs';
 import { blocRow } from './sovCase';
-import { shockValue } from './shocks';
+import { activeShockSum, shockValue } from './shocks';
 import { igExclusionSourceId, writeHook } from './hooks';
 
 export const GRADES = ['AAA', 'AA+', 'AA', 'AA-', 'A+', 'A', 'A-', 'BBB+', 'BBB', 'BBB-', 'BB+', 'BB', 'BB-', 'B+', 'B', 'B-', 'CCC', 'CC', 'C', 'D'] as const;
@@ -154,7 +154,7 @@ export function stepSovereignCredit(ctx: PhaseCtx, b: BlocId, ports: MacroPorts)
   const politicalStability = ports.world.politicalStability(s, b) ?? sv.ratingInputs?.politicalStability ?? 0.5;
   const z = hazardZ({ b, debtGdp: f.debtGdp, dStar: d0.debtReference, rEff: face > 0 ? cw / face : d0.initialPolicyRate, gPot: bloc.potentialGrowth, target: d0.inflationTarget,
     primaryBalanceGdp: f.primaryBalanceGdp, fxDebtShare, depVsFdlYoy: now && ago && now.spotVsFdl > 0 ? ago.spotVsFdl / now.spotVsFdl - 1 : 0,
-    reserveCoverMonths: bloc.fx.reserveCoverMonths, fxRegime: bloc.fx.regime, fear: g?.fearIndex ?? 50, politicalStability, failedAuctions21d: sv.failedAuctions21d, coreInflation: bloc.coreInflation });
+    reserveCoverMonths: bloc.fx.reserveCoverMonths, fxRegime: bloc.fx.regime, fear: (g?.fearIndex ?? 50) + activeShockSum(s, 'z5_fear_add', b, tick) /* E-104 (1) */, politicalStability, failedAuctions21d: sv.failedAuctions21d, coreInflation: bloc.coreInflation });
   let mult = 1, trig = false;
   for (const sh of bloc.shocks) if (sh.target === 'lambda_raw_mult') { const v = shockValue(sh, tick); if (v !== 0) mult *= v; if (Math.floor(sh.startTick / D) === today) trig = true; }
   const post = sv.status === 'POST_RESTRUCTURING' ? Math.floor((tick - (sv.defaultCase?.resolvedTick ?? tick)) / D) : null;

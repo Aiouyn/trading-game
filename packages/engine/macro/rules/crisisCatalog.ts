@@ -78,7 +78,7 @@ export const MAJORS: readonly MajorDef[] = Object.freeze<MajorDef[]>([
     response: ['LOOK_THROUGH_ENERGY', 'ENERGY_SUBSIDY'], calibration: [band('headline_change', 0.03, INF, '04')] },
   { kind: 'CURRENCY_CRISIS', base: 0.8, eligible: (s) => fxBlocs(s).length > 0, vuln: (s) => maxOf(fxBlocs(s).map((b) => (9 - s.reserveCover[b]!) / 3)), blocs: (s) => fxBlocs(s).slice(0, 1),
     precursor: (ev) => each(ev, (b) => [pre(ev, b, 'capital_flow', -0.2)]),
-    trigger: (ev) => each(ev, (b) => [trg(ev, b, 'capital_flow', -0.8, 30), { kind: 'ONE_OFF', target: 'fx_fair_ln', value: dmath.ln(0.90), bloc: b }]),
+    trigger: (ev) => each(ev, (b) => [trg(ev, b, 'capital_flow', -0.8, 30), { kind: 'ONE_OFF', target: 'fx_fair_ln', value: dmath.ln(0.80) /* E-104 (5) */, bloc: b }]),
     response: ['BREAK_RULE', 'CONCORD'], calibration: [band('srl_fair_change', Number.NEGATIVE_INFINITY, -0.40, '04'), band('capital_controls_days', 3, INF, '04')] },
   { kind: 'SOVEREIGN_DEBT_CRISIS', base: 0.6, eligible: (s) => sovBlocs(s).length > 0, vuln: (s) => dmath.ln(maxOf(sovBlocs(s).map((b) => s.lambda[b]!)) / 0.01), blocs: (s) => sovBlocs(s).slice(0, 1),
     precursor: (ev) => each(ev, (b) => [pre(ev, b, 'auction_stress', 0.05), hook('16', 'politicalStabilityShock', { bloc: b, delta: -0.1, days: pDays(ev) })]),
@@ -116,7 +116,7 @@ export const MAJORS: readonly MajorDef[] = Object.freeze<MajorDef[]>([
   { kind: 'TRADE_WAR', base: 0.5, eligible: (s) => s.tension >= 50, vuln: (s) => (s.tension - 50) / 15, blocs: () => ['FDL', 'PYN'],
     precursor: () => [wire('TRADE_WAR', 'tariff_talk')],
     trigger: (ev) => [trg(ev, 'WORLD', 'tariff_level', 0.10, 364), trg(ev, 'PYN', 'x_target', -0.02, null), trg(ev, 'FDL', 'x_target', -0.007, null),
-      { kind: 'ONE_OFF', target: 'fx_fair_ln', value: dmath.ln(0.95), bloc: 'PYN' }],
+      { kind: 'ONE_OFF', target: 'fx_fair_ln', value: dmath.ln(0.92) /* E-104 (5) */, bloc: 'PYN' }],
     response: ['FISCAL_SUPPORT'], calibration: [band('pyn_fair_change', Number.NEGATIVE_INFINITY, -0.08, '04')] },
 ]);
 /** E-35 §5 sub-defs within a kind (weights PROVISIONAL [Quant]); the rest of the kind is generic. They draw inside the kind rate (no new draw:

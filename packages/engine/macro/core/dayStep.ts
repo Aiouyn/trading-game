@@ -129,23 +129,27 @@ function regimes(ctx: PhaseCtx, ports: MacroPorts, day: number): void {
 /** Steps 3.4–3.5 for one bloc: real side (draws 1 gap, 2 r*), inflation (draw 3), credit. Returns the interbank spread for step 3.11. */
 function realAndPrices(ctx: PhaseCtx, ports: MacroPorts, b: BlocId, day: number, w: Record<BlocId, number>, effLn: number): number | null {
   const s = ctx.store, p = ctx.params, bl = blocOf(ctx, b), g = globalOf(ctx), d = BLOC_DEFAULTS[b], cb = cbOf(ctx, b), tick = ctx.tick, rng = ctx.rng(S.shock(b));
-  const Rt = smoothRealRateGap(bl.realRateGapSmoothed, cb.policyRate, bl.inflationExp1y, bl.rStar, p);
+  // E-104 (1): pi_e1_add (bloc and WORLD) and credit_conditions_add (bloc) are added where these are read, never into the state
+  // (stepExpectations below steps the stored π_e1 and the stored creditConditions comes from creditAggregates).
+  const piE1 = bl.inflationExp1y + activeShockSum(s, 'pi_e1_add', b, tick) + activeShockSum(s, 'pi_e1_add', 'WORLD', tick);
+  const creditConditions = bl.creditConditions + activeShockSum(s, 'credit_conditions_add', b, tick);
+  const Rt = smoothRealRateGap(bl.realRateGapSmoothed, cb.policyRate, piE1, bl.rStar, p);
   let xOthers = 0, wo = 0;
   for (const o of BLOC_ORDER) if (o !== b) { xOthers += w[o] * blocOf(ctx, o).outputGap; wo += w[o]; }
   const e364 = historyAt(s, 'GLOBAL', day - 364)?.energyIndex ?? null, eqNow = ports.markets.equityIndexLevel(s, b);
-  const terms = gapTerms({ i: cb.policyRate, piE1: bl.inflationExp1y, rStar: bl.rStar, regime: bl.regime, fiscalImpulse: bl.fiscalImpulse, sovStress: bl.sovereign.stressIndex,
-    atElb: cb.policyRate <= d.elb, creditConditions: bl.creditConditions, openness: d.openness, xOthers: wo > 0 ? xOthers / wo : 0, realFxGap: bl.fx.realExchangeGap,
+  const terms = gapTerms({ i: cb.policyRate, piE1, rStar: bl.rStar, regime: bl.regime, fiscalImpulse: bl.fiscalImpulse, sovStress: bl.sovereign.stressIndex,
+    atElb: cb.policyRate <= d.elb, creditConditions, openness: d.openness, xOthers: wo > 0 ? xOthers / wo : 0, realFxGap: bl.fx.realExchangeGap,
     energyYoyLn: e364 === null ? 0 : dmath.ln(g.energyIndex / e364), commodityExporter: d.commodityExporter, fear: g.fearIndex, eqIndex: eqNow,
     eqMean364: trailingMean(s, b, day, 364, null, (r) => r.equityIndex), housePriceGap: ports.housing.housePriceGap(s, b) ?? bl.housePriceGap,
     wtiNow: g.energyIndex, wtiMean364: trailingMean(s, 'GLOBAL', day, 364, g.energyIndex, (r) => r.energyIndex) ?? g.energyIndex, worldHackRate: g.worldHackRate,
     shockSum: activeShockSum(s, 'x_target', b, tick) + activeShockSum(s, 'x_target', 'WORLD', tick) }, Rt, p);
   const x = stepOutputGap(bl.outputGap, outputGapTarget(terms), rng.normal(), p);
   const gPot = potentialGrowth(b, g.aiRaceIndex, p), lv = stepLevels({ potentialGdpIndex: bl.potentialGdpIndex, realGdpIndex: bl.realGdpIndex, outputGap: x }, gPot);
-  const u = stepUnemployment(bl.unemployment, d.nairu, x), wg = wageGrowth(bl.inflationExp1y, gPot, d.laborForceGrowth, u, d.nairu);
+  const u = stepUnemployment(bl.unemployment, d.nairu, x), wg = wageGrowth(piE1, gPot, d.laborForceGrowth, u, d.nairu);
   const nr = stepNeutralRate(bl.rStarRw, rng.normal(), b, gPot);
   // inflation (E-87 (2): core → level → headline → e1 → e5)
   const eff364 = historyAt(s, b, day - 364)?.effectiveFx ?? effLn, mean90 = trailingMean(s, b, day, 90, x, (r) => r.outputGap) ?? x;
-  const core = stepCore(bl.coreInflation, coreTarget(bl.inflationExp1y, mean90, d.fxPassThrough, effectiveDepreciation(effLn, eff364), p), rng.normal());
+  const core = stepCore(bl.coreInflation, coreTarget(piE1, mean90, d.fxPassThrough, effectiveDepreciation(effLn, eff364), p), rng.normal());
   const coreLvl = stepCoreLevel(bl.coreCpiLevel, core), spot = spotOfStore(s, b);
   const cpi = headlineLevel(coreLvl, g.energyIndex, g.foodIndex, spot, d.fx0, d.energyWeight, d.foodWeight);
   const cpi364 = historyAt(s, b, day - 364)?.cpiLevel ?? null, headline = cpi364 === null ? core : headlineYoy(cpi, cpi364);

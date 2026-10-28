@@ -14,6 +14,7 @@ export const MACRO_EXTENSION_CODES_FX: readonly { code: string; cls: FlowClass; 
   { code: 'CSF_REPAY', cls: 'TRANSFER', template: 'PAY', desc: 'Concord principal installment, treasury to npc_CSF' },
   { code: 'CSF_INTEREST', cls: 'TRANSFER', template: 'PAY', desc: 'Concord quarterly interest, treasury to npc_CSF' },
   { code: 'MAC_FX_CA_ABSORB', cls: 'TRANSFER', template: 'FX', desc: 'current account absorbed by a managed-regime cb' },
+  { code: 'MAC_FX_CAPITAL_FLOW', cls: 'TRANSFER', template: 'FX', desc: 'capital_flow shock: managed-regime cb sells or buys FDL reserves (E-104 (6), owner T04-18)' },
 ]);
 
 const blocOf = (ctx: PhaseCtx, b: BlocId) => ctx.store.get<BlocMacroState & { id: BlocId }>(macroTables.bloc.name, b);

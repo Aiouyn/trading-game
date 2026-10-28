@@ -12,7 +12,7 @@ import { guidanceAt, minutesAt } from '../rules/guidance';
 import { runMeeting } from '../rules/cb';
 import { setCorridor } from '../rules/corridor';
 import { macroprudentialAtMeeting } from '../rules/macroprudential';
-import { realignAtMeeting } from '../rules/fxRegimes';
+import { breakRuleCheck, realignAtMeeting } from '../rules/fxRegimes';
 import { recomputeCurve, type CurveRecomputeReason } from '../rules/curves';
 import { hourlyFsi } from '../rules/fsi';
 import { hourlyFear } from '../rules/fear';
@@ -76,6 +76,7 @@ export function macroP2(ctx: PhaseCtx, ports: MacroPorts, stab: StabReportPort):
   for (const r of due.publish) { publishRelease(ctx, r.bloc, r); mark(m, r.bloc, 'RELEASE'); }
   for (const b of BLOC_ORDER) cbStep(ctx, b, m);                          // 2.3
   announceDue(ctx, ports);                                                // 2.4
+  if (tod === 45) for (const b of BLOC_ORDER) breakRuleCheck(ctx, b, ports);  // 2.4b (E-104 (1)); a break shows in 2.5's FX_REGIME mark
   for (const b of BLOC_ORDER) {                                           // 2.5 (RATING_ACTION: MISSING EXPORT T08 rating action; never marked)
     const bl = ctx.store.get<BlocMacroState>(macroTables.bloc.name, b), v = ctx.store.get<PublicMacroView>(macroTables.publicView.name, b);
     if (bl && v && bl.fx.regime !== v.fx.regime) mark(m, b, 'FX_REGIME');
