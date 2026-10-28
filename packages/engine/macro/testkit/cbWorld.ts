@@ -14,8 +14,10 @@ export interface HoldRow { id: Id; owner: Id; assetId?: string; amt: bigint; exp
 export interface CbWorld { ctx: PhaseCtx; posts: Post[]; events: Ev[]; holds: HoldRow[]; sent: { to: Id; kind: string; body: unknown }[];
   rows(table: string): unknown[]; put(table: string, e: { id: string }): void; setTick(t: number): void; deliver(): void;
   cash: Record<string, bigint>; qty: Record<string, bigint>;
-  /** Overlay `params.num` keys not in the registry yet (T04-10: macro_rev_base_*, T23). */
-  nums(m: Record<string, number>): void }
+  /** Overlay `params.num`/`params.int` keys not in the registry yet (T04-10: macro_rev_base_*, T23). */
+  nums(m: Record<string, number>): void;
+  /** T04-11: make the next placeCash calls fail (SOV_HOLD_FAILED path). */
+  failCash(on: boolean): void }
 
 export function cbRow(b: BlocId, over: Partial<CentralBank> = {}): CentralBank {
   return { id: cbkId(b), bloc: b, policyRate: 0.03, reserveRequirement: 0.01, corridorHalfWidth: 0.0025, ltroOpenUntilTick: null,
@@ -31,7 +33,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
   };
   for (const cb of cbs) put(macroTables.cb.name, cb as unknown as { id: string });
   const posts: Post[] = [], events: Ev[] = [], holds: HoldRow[] = [], sent: { to: Id; kind: string; body: unknown }[] = [];
-  let inbox: PhaseMessage[] = [], tick = tick0, n = 0;
+  let inbox: PhaseMessage[] = [], tick = tick0, n = 0, failCash = false;
   const cash: Record<string, bigint> = {}, qty: Record<string, bigint> = {};
   const P = (op: string) => (a: Id, b: Id, amt: bigint, ccy: string, code: string, o?: { sub?: string }) => {
     posts.push({ op, from: a, to: b, amt, ccy, code, ...(o?.sub ? { sub: o.sub } : {}) }); return `e${posts.length}`; };
@@ -39,6 +41,8 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     pay: P('pay'), cbCredit: P('cbCredit'), cbCreditUnwind: P('cbCreditUnwind'),
     mint: (to: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'mint', to, amt, ccy, code }); return `e${posts.length}`; },
     burn: (from: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'burn', from, amt, ccy, code }); return `e${posts.length}`; },
+    swapAsset: (buyer: Id, seller: Id, assetId: string, q: bigint, amt: bigint, ccy: string, code: string) => {
+      posts.push({ op: 'swapAsset', from: buyer, to: seller, amt, ccy, code, sub: `${assetId}:${q}` }); return `e${posts.length}`; },
     fx: (a: Id, b: Id, c1: string, a1: bigint, c2: string, a2: bigint, code: string) => {
       posts.push({ op: 'fx', from: a, to: b, amt: a1, ccy: c1, code }, { op: 'fx', from: b, to: a, amt: a2, ccy: c2, code }); return `e${posts.length}`; },
     elasticIn: (sector: Id, to: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'elasticIn', from: sector, to, amt, ccy, code }); return `e${posts.length}`; },
@@ -51,7 +55,8 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     const id = `hold_${holds.length}`; holds.push({ id, owner, ...(assetId ? { assetId } : {}), amt, expires, ref, open: true }); return id; };
   const hb = {
     placeQty: (o: Id, a: string, q: bigint, x: number, r: Id) => (q > (qty[`${o}:${a}`] ?? 0n) ? { code: 'LED_INSUFFICIENT_QTY' } : hold(o, a, q, x, r)),
-    placeCash: (o: Id, _c: string, m: bigint, x: number, r: Id) => hold(o, undefined, m, x, r),
+    placeCash: (o: Id, _c: string, m: bigint, x: number, r: Id) => (failCash ? { code: 'LED_INSUFFICIENT_CASH' } : hold(o, undefined, m, x, r)),
+    get: (id: Id) => { const h = holds.find((x) => x.id === id); return h ? { holdId: h.id, amount: h.amt, remaining: h.amt, status: h.open ? 'ACTIVE' : 'RELEASED' } : undefined; },
     release: (id: Id) => { const h = holds.find((x) => x.id === id); if (h) h.open = false; },
     reduce: (id: Id, by: bigint) => { const h = holds.find((x) => x.id === id); if (h) h.amt -= by; },
   };
@@ -59,14 +64,14 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     get: (t: string, id: string) => tables[t]?.find((r) => r.id === id)?.e, put,
     iter: (t: string) => (tables[t] ?? []).map((r) => r.e), count: (t: string) => (tables[t] ?? []).length,
     del: (t: string, id: string) => { const rows = tables[t] ?? [], i = rows.findIndex((r) => r.id === id); if (i >= 0) rows.splice(i, 1); },
-    index: (t: string, name: string, key: string) => {   // the table def's own index key (T04-09: pool_order, hook_call, facility, event); others → []
-      const def = [macroTables.poolOrder, macroTables.hookCall, macroTables.facility, macroTables.event].find((d) => d.name === t) as { indexes?: { name: string; key(e: unknown): string | null }[] } | undefined;
+    index: (t: string, name: string, key: string) => {   // the table def's own index key (T04-09: pool_order, hook_call, facility, event; T04-11: auction, bid); others → []
+      const def = [macroTables.poolOrder, macroTables.hookCall, macroTables.facility, macroTables.event, macroTables.auction, macroTables.bid].find((d) => d.name === t) as { indexes?: { name: string; key(e: unknown): string | null }[] } | undefined;
       const ix = def?.indexes?.find((x) => x.name === name);
       return ix ? (tables[t] ?? []).map((r) => r.e).filter((e) => ix.key(e) === key) : [];
     },
   };
   const base = createParamsView(MACRO_T04_08_PARAMS), over: Record<string, number> = {};
-  const params = { ...base, num: (k: string) => (k in over ? over[k]! : base.num(k)) };
+  const params = { ...base, num: (k: string) => (k in over ? over[k]! : base.num(k)), int: (k: string) => (k in over ? over[k]! : base.int(k)) };
   const content = { sectors: () => SECTORS.map((sectorId) => ({ sectorId, name: sectorId })), swfEntityId: (b: BlocId) => `fnd_SWF_${b}`,
     cities: () => BLOC_ORDER.flatMap((b) => [0, 1, 2].map((slot) => ({ cityId: `cty_${b.toLowerCase()}_${slot}`, name: '', bloc: b, slot, cityGdpShare: 1 / 3, cycleBeta: 1 }))) };
   const ctx = { get tick() { return tick; }, phase: 'P8', params, content, newId: (k: string) => `${k}_${n++}`, store, ledger, holds: hb,
@@ -74,7 +79,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     send: (to: Id, kind: string, body: unknown) => { sent.push({ to, kind, body }); },
     inbox: (kind?: string) => inbox.filter((m) => kind === undefined || m.kind === kind) } as unknown as PhaseCtx;
   return { ctx, posts, events, holds, sent, rows: (t) => (tables[t] ?? []).map((r) => r.e), put, cash, qty,
-    setTick: (t) => { tick = t; }, nums: (m) => { Object.assign(over, m); },
+    setTick: (t) => { tick = t; }, nums: (m) => { Object.assign(over, m); }, failCash: (on) => { failCash = on; },
     deliver: () => { inbox = sent.splice(0).map((s) => ({ fromEntity: 'x', toEntity: s.to, phase: 'P8', tick, kind: s.kind, body: s.body, canonicalKey: '' })); } };
 }
 

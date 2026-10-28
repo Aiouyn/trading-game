@@ -207,6 +207,7 @@ export interface CentralBank {
   offTargetDays: number;           // consecutive days |π_core − target| > 0.02
   ycc10Streak: number; yccHighInflDays: number; yccRaises: number; lowDepthDays: number;
   ltroOpenUntilTick: Tick | null;
+  backstop?: { assetId: string; face: Qty; days: number[]; done: number[] };   // T04-11 failed-auction secondary backstop: face over the listed trading days (T04-14 passes the orders to writePoolOrders)
   ccybPending: { value: number; effectiveTick: Tick } | null;
   emergencyQuarter: number;        // quarter index of emergencyCountQuarter, quarter = floor(game day / 91)
   pendingEmergency: { tick: Tick; triggers: EmergencyTrigger[] } | null;
@@ -234,6 +235,7 @@ export interface FiscalState {
   averageCoupon: number; averageMaturityYears: number;
   cashBuffer: Money;
   grossFinancingNeedQuarter: Money;
+  shortfallCarry?: Qty;   // T04-11: failed-auction shortfall (face) waiting for the next quarter's first B3M (none left in this quarter)
   programs: FiscalProgram[];
   austerityMode: boolean;
   swfAssets: Money;

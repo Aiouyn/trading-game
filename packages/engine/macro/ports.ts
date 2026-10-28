@@ -43,7 +43,9 @@ export interface MacroWorldPort {    // 16
 export interface MacroPlayerPort {   // 14A / 13A / 15
   licenseOf(s: StoreRead, entityId: Id): 'LIC0' | 'LIC1' | 'LIC2' | 'LIC3' | 'LIC4' | null; hasCharter(s: StoreRead, entityId: Id, ch: string, b?: BlocId): boolean;
   isHeld(s: StoreRead, chrId: Id): boolean; ownerGroupOf(s: StoreRead, entityId: Id): string; reputationLowestBand(s: StoreRead, entityId: Id): boolean;
-  topWealthGrowth(s: StoreRead): number | null; swfPrivilege(s: StoreRead, entityId: Id): boolean }
+  topWealthGrowth(s: StoreRead): number | null; swfPrivilege(s: StoreRead, entityId: Id): boolean;
+  /** T04-11 CAPCON check: the entity's reporting currency (MISSING EXPORT T14A reportingCcyOf; absent = unknown, never blocked). */
+  reportingCcyOf?(s: StoreRead, entityId: Id): Ccy | null }
 export interface MacroPorts { markets: MacroMarketPort; assets: MacroAssetPort; credit: MacroCreditPort | null; funds: MacroFundsPort; housing: MacroHousingPort;
   ai: MacroAiPort; conflict: MacroConflictPort; world: MacroWorldPort; players: MacroPlayerPort }
 
