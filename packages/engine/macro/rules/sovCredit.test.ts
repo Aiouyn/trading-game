@@ -120,3 +120,67 @@ describe('T04-07 liquidity, market PD, cliffs (§3.11.2–§3.11.4)', () => {
     expect(GRADES).toHaveLength(20); expect(GRADES[0]).toBe('AAA'); expect(GRADES.indexOf('BBB-')).toBe(9); expect(GRADES[19]).toBe('D');
   });
 });
+
+import { nextTradingDay } from '@tycoon/engine-core';
+import { igExclusionCheck, stepSovereignCredit } from './sovCredit';
+import { cbRow, cbWorld, M, stubPorts } from '../testkit/cbWorld';
+import { fiscalState } from '../testkit/fiscalWorld';
+import { macroTables, type BlocMacroState, type HookCall } from '../schema';
+import type { MacroPorts } from '../ports';
+describe('T04-07 stepSovereignCredit / igExclusionCheck (store)', () => {
+  const LINE = { assetId: 'gb_FDL_10', tenor: 'N10Y' as const, couponRate: 0.03, maturityTick: 10_000_000, faceOutstanding: M(1e9), onTheRun: true, inflationLinked: false, fxDenominated: false };
+  const world = (sov: Record<string, unknown> = {}) => {
+    const w = cbWorld([cbRow('FDL', { credibility: 0.8 } as never)]);
+    w.put(macroTables.bloc.name, { id: 'FDL', bloc: 'FDL', potentialGrowth: 0.02, coreInflation: 0.02, shocks: [], fx: { regime: 'FREE_FLOAT', reserveCoverMonths: 6 },
+      fiscal: fiscalState({ debtGdp: 0.95, revenueGdp: 0.3, interestGdp: 0.03 }),
+      sovereign: { hazard: 0.0005, failedAuctions21d: 0, status: 'PERFORMING', ratingInputs: { politicalStability: 0.5 }, ...sov } } as never);
+    w.put(macroTables.global.name, { id: 'GLOBAL', fearIndex: 50, financialStressIndex: 0 } as never);
+    w.put(macroTables.curve.name, { id: 'FDL', ois: [0, 0, 0, 0, 0, { tenorYears: 10, yield: 0.03 }], tp10: 0.004 } as never);
+    return w;
+  };
+  const ports = (y10: number, grades = ['AA', 'AA', 'AA-']): MacroPorts => {
+    const p = stubPorts({ sovGrades: grades });
+    return { ...p, assets: { ...p.assets, sovereignLines: () => [LINE] }, markets: { ...p.markets, lineYield: () => y10, lineAdv: () => 1 } };
+  };
+  it('exploit 8: a 200 bp rise of y10Mkt moves marketPd1y only; λ, s_sov and the model PD are unchanged', () => {
+    const a = stepSovereignCredit(world().ctx, 'FDL', ports(0.05)), b = stepSovereignCredit(world().ctx, 'FDL', ports(0.07));
+    expect([b.hazard, b.spread10y, b.pd1y, b.pd5y, b.ratingInputs.modelPd1y]).toEqual([a.hazard, a.spread10y, a.pd1y, a.pd5y, a.ratingInputs.modelPd1y]);
+    expect(a.ratingInputs.marketPd1y).not.toBe(b.ratingInputs.marketPd1y);
+    expect(a.ratingInputs.marketPd1y).toBeCloseTo(pdAt(1, (0.05 - 0.03 - 0.004 + 0.002) / 0.6), 12);   // FU: liq 0, conv 0.002
+  });
+  it('day close: λ toward λ_raw (FU at λ0 with neutral z is a fixed point), spreads, PDs, liq/conv, rating inputs, IG flag', () => {
+    const w = world(), st = stepSovereignCredit(w.ctx, 'FDL', ports(0.05));
+    const raw = hazardRaw(0.0005, hazardZ({ b: 'FDL', debtGdp: 0.95, dStar: 1.10, rEff: 0.03, gPot: 0.02, target: 0.02, primaryBalanceGdp: 0, fxDebtShare: 0, depVsFdlYoy: 0,
+      reserveCoverMonths: 6, fxRegime: 'FREE_FLOAT', fear: 50, politicalStability: 0.5, failedAuctions21d: 0, coreInflation: 0.02 }), hazardWeights('FDL'), 'FDL',
+      { concordActive: false, postRestructuringDays: null, shockMult: 1 });
+    expect(st.hazard).toBeCloseTo(stepHazard(0.0005, raw, false), 15);
+    expect([st.spread10y, st.pd1y, st.pd5y, st.liquidityPremium, st.convenienceYield, st.stressIndex]).toEqual([sovSpread(10, st.hazard, 0.6), pdAt(1, st.hazard), pdAt(5, st.hazard),
+      0, 0.002, stressIndexOf(st.hazard, 0.0005)]);
+    expect(st.ratingInputs).toMatchObject({ govId: 'gov_FDL', debtGdp: 0.95, interestRevenue: 0.1, realGrowthTrend: 0.02, cbCredibility: 0.8, politicalStability: 0.5, inflationVol: 0, reserveCoverMonths: 6 });
+    expect(st.investmentGrade).toBe(true);
+    expect((w.rows(macroTables.bloc.name)[0] as BlocMacroState).sovereign).toEqual(st);
+  });
+  it('a lambda_raw_mult shock on its trigger day sets λ = λ_raw (×3, bypassing smoothing), smoothed again the next day', () => {
+    const w = world(), t = w.ctx.tick, row = w.rows(macroTables.bloc.name)[0] as BlocMacroState;
+    w.put(macroTables.bloc.name, { ...row, shocks: [{ id: 'k', target: 'lambda_raw_mult', value: 3, startTick: t - 5, endTick: t + 63 * 720, shape: 'STEP' }] } as never);
+    const st = stepSovereignCredit(w.ctx, 'FDL', ports(0.05)), base = stepSovereignCredit(world().ctx, 'FDL', ports(0.05));
+    const raw1 = 0.0005 + (base.hazard - 0.0005) / (1 - dmath.pow(2, -1 / 5));   // invert one smoothing step
+    expect(st.hazard).toBeCloseTo(3 * raw1, 12);
+    w.setTick(t + 720);   // next day: smoothed again
+    expect(stepSovereignCredit(w.ctx, 'FDL', ports(0.05)).hazard).toBeCloseTo(st.hazard + (3 * raw1 - st.hazard) * (1 - dmath.pow(2, -1 / 5)), 12);
+  });
+  it('rating cliff: IG → non-IG writes one MANDATE_SELL hook, 10 days summing to 25% of hh/frm/row holdings in lots, from the next trading day', () => {
+    const w = world({ investmentGrade: true }), q = (x: number) => M(x);
+    Object.assign(w.qty, { 'hh_cty_fdl_0:gb_FDL_10': q(1_234_000), 'frm_FDL:gb_FDL_10': q(100_000), 'row_WORLD:gb_FDL_10': q(50_000), 'plr_x:gb_FDL_10': q(999_000) });
+    expect(igExclusionCheck(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BBB-', 'BB+']))).toBeNull();
+    const st = stepSovereignCredit(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BB+', 'BB+']));
+    const hooks = w.rows(macroTables.hookCall.name) as HookCall[];
+    expect(hooks).toHaveLength(1);
+    const a = hooks[0]!.args, qs = (a.qtyPerDay as string[]).map(BigInt);
+    expect([hooks[0]!.owner, hooks[0]!.hook, a.govId, a.assetIds, a.tradingDays, a.startDay]).toEqual(['05', 'MANDATE_SELL', 'gov_FDL', ['gb_FDL_10'], 10, nextTradingDay('FDL', Math.floor(w.ctx.tick / 720))]);
+    expect(qs).toEqual([40, 34, 34, 34, 34, 34, 34, 34, 34, 34].map((l) => q(l * 1000)));   // 1,384,000 × 25% = 346 lots
+    expect(st.investmentGrade).toBe(false);
+    stepSovereignCredit(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BB+', 'BB+']));
+    expect(w.rows(macroTables.hookCall.name)).toHaveLength(1);   // already non-IG: no second hook
+  });
+});

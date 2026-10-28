@@ -299,6 +299,8 @@ export interface SovereignCreditState {
   status: 'PERFORMING' | 'GRACE' | 'SELECTIVE_DEFAULT' | 'RESTRUCTURING' | 'POST_RESTRUCTURING';
   defaultCase?: SovereignDefaultCase;
   ratingInputs: SovereignRatingInputs;
+  /** T04-07 step 13: yesterday's isInvestmentGrade (absent before the first close); step 10: last bondDepthIndex (absent → 1). */
+  investmentGrade?: boolean; depthIndex?: number;
 }
 
 // ───────── §2.9 FX ─────────
