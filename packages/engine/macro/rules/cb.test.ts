@@ -495,6 +495,11 @@ describe('§3.6.6 emergencies', () => {
     expect(cbOf(w).pendingEmergency!.tick).toBe(91 * 720 + 45);
     expect([cbOf(w).emergencyCountQuarter, cbOf(w).emergencyQuarter]).toEqual([1, 1]);
   });
+  it('AC-04-06-PENDING: booked triggers are stored in declaration order (FSI, EQUITY_DROP, INTERBANK, CURRENCY, CRISIS_POLICY)', () => {
+    const w = world('pe4');
+    expect(scheduleEmergency(w.ctx, 'FDL', ['CRISIS_POLICY', 'CURRENCY', 'FSI'], 3 * 720 + 700)).toBe(true);
+    expect(cbOf(w).pendingEmergency!.triggers).toEqual(['FSI', 'CURRENCY', 'CRISIS_POLICY']);
+  });
   it('AC-04-06-PENDING: the max per quarter is the param; a stale quarter count restarts at 0', () => {
     const w = world('pe2', { cb: { emergencyQuarter: 2, emergencyCountQuarter: 2 } });
     expect(scheduleEmergency(w.ctx, 'FDL', ['FSI'], 3 * 720)).toBe(true);
