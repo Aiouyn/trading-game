@@ -94,7 +94,7 @@ describe('T04-15 hourlyFear', () => {
     expect(w.events).toEqual([{ kind: 'macro.fear', payload: { F, RA: 1 - F / 50 }, vis: 'PUBLIC' }]);
     expect(() => MACRO_EVENTS['macro.fear']!.parse(w.events[0]!.payload)).not.toThrow();
     expect(assertNoHiddenFields(w.events[0]!.payload)).toEqual([]);
-    expect(w.hourly().staleKeys).toEqual(['igCreditSpreadIndex', 'rv21Gx', 'gxReturnToday']);
+    expect(w.hourly().staleKeys).toEqual(['igCreditSpreadIndex', 'gxReturn63d', 'rv21Gx', 'gxReturnToday']);   // E-103 (4): a null level is listed in warm-up too
     expect(w.hourly().values).toEqual(GENESIS_HOURLY.values);
     expect(w.hourly().tick).toBe(w.ctx.tick);
     expect(w.inputs()).toBeUndefined();   // E-93 (2): hourly code never writes INPUTS
@@ -111,10 +111,10 @@ describe('T04-15 hourlyFear', () => {
   });
   it('a null rv21 holds the previous value in HOURLY and lists rv21Gx as stale (once)', () => {
     const w = fakeWorld({});
-    hourlyFear(w.ctx, ports({ rv: 0.24, r: 0, lvl: null, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: 0.24, r: 0, lvl: 100, ig: 0.01 }));
     const F1 = w.global().fearIndex;
-    hourlyFear(w.ctx, ports({ rv: null, r: 0, lvl: null, ig: 0.01 }));
-    hourlyFear(w.ctx, ports({ rv: null, r: 0, lvl: null, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: null, r: 0, lvl: 100, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: null, r: 0, lvl: 100, ig: 0.01 }));
     const raw = fearRaw({ ...NEUTRAL, rv21Gx: 0.24, tension: 30, hackRate: 0 });
     expect(F1).toBe(stepFear(22, raw));
     expect(w.global().fearIndex).toBe(stepFear(stepFear(F1, raw), raw));   // 0.24 held, not 0.16
@@ -124,7 +124,7 @@ describe('T04-15 hourlyFear', () => {
   });
   it('a null IG holds the last IG level against the stored closes; never held → csi 1', () => {
     const w = fakeWorld({}, [hourlyWith({ igCreditSpreadIndex: 0.0122222222222222, 'igClose.9': 0.01, 'igClose.10': 0.0122222222222222 })]);
-    hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }));
+    hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: 100, ig: null }));
     expect(w.global().fearIndex).toBeCloseTo(g0({ creditSpreadIdx: 1.1 }), 9);
     expect(w.hourly().staleKeys).toEqual(['igCreditSpreadIndex']);
     expect(w.hourly().values['igClose.10']).toBe(0.0122222222222222);
@@ -133,29 +133,30 @@ describe('T04-15 hourlyFear', () => {
     expect(z.global().fearIndex).toBe(g0());
   });
   it('IG history: the 364-day mean drops the close 364 days back, and HOURLY drops its key', () => {
-    const vals: Record<string, number> = { 'igClose.-354': 0.05 };   // day 10 − 364: leaves the window today
-    for (let d = -353; d < 10; d++) vals[`igClose.${d}`] = 0.01;
-    const w = fakeWorld({}, [hourlyWith(vals)]);
+    const vals: Record<string, number> = { 'igClose.36': 0.05, 'igClose.5': 0.05 };   // day 400 − 364 leaves the window today; day 5 is an older orphan
+    for (let d = 37; d < 400; d++) vals[`igClose.${d}`] = 0.01;
+    const w = fakeWorld({}, [hourlyWith(vals)], 400);
     hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: 0.01 }));
-    expect(w.hourly().values['igClose.-354']).toBeUndefined();
-    expect(w.hourly().values['igClose.10']).toBe(0.01);
+    expect(w.hourly().values['igClose.36']).toBeUndefined();
+    expect(w.hourly().values['igClose.5']).toBeUndefined();
+    expect(w.hourly().values['igClose.400']).toBe(0.01);
     expect(w.global().fearIndex).toBeCloseTo(g0(), 12);   // csi 1 exactly
     expect(w.inputs()).toBeUndefined();
   });
   it('E-93 (2): HOURLY is put only when a value or staleKeys changed', () => {
     const w = fakeWorld({});
-    hourlyFear(w.ctx, ports({ rv: 0.2, r: 0.01, lvl: null, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: 0.2, r: 0.01, lvl: 100, ig: 0.01 }));
     expect(w.inputPuts()).toBe(1);
-    hourlyFear(w.ctx, ports({ rv: 0.2, r: 0.01, lvl: null, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: 0.2, r: 0.01, lvl: 100, ig: 0.01 }));
     expect(w.inputPuts()).toBe(1);
-    hourlyFear(w.ctx, ports({ rv: null, r: 0.01, lvl: null, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: null, r: 0.01, lvl: 100, ig: 0.01 }));
     expect(w.inputPuts()).toBe(2);
-    hourlyFear(w.ctx, ports({ rv: null, r: 0.01, lvl: null, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: null, r: 0.01, lvl: 100, ig: 0.01 }));
     expect(w.inputPuts()).toBe(2);
-    hourlyFear(w.ctx, ports({ rv: null, r: 0.02, lvl: null, ig: 0.01 }));
+    hourlyFear(w.ctx, ports({ rv: null, r: 0.02, lvl: 100, ig: 0.01 }));
     expect(w.inputPuts()).toBe(3);
     const g = fakeWorld({}, [hourlyWith({ igCreditSpreadIndex: 0.01, 'igClose.10': 0.01 })]);
-    hourlyFear(g.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: 0.01 }));   // all equal to the held values
+    hourlyFear(g.ctx, ports({ rv: 0.16, r: 0, lvl: 100, ig: 0.01 }));   // all equal to the held values
     expect(g.inputPuts()).toBe(0);
   });
   it('#72 item 3: card order inside the hour, hourlyFsi then hourlyFear reading the FSI just written', () => {
@@ -219,7 +220,53 @@ describe('T04-15 hourlyFear', () => {
     expect(fresh.hourly().staleKeys).toContain('gxReturn63d');
     const early = fakeWorld({}, [], 100);
     hourlyFear(early.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }));
-    expect(early.hourly().staleKeys).not.toContain('gxReturn63d');   // before history exists: 0, nothing held
+    expect(early.hourly().staleKeys).toContain('gxReturn63d');   // E-103 (4)(a): before history exists 0, nothing held, a null level listed
+    expect(early.hourly().values['gxReturn63d']).toBeUndefined();
+  });
+  it('AC-04-15-IGCLOSE (E-103 (3)): pruning leaves no orphan igClose keys after a read gap; ≤ 364 keys; base-10 key text', () => {
+    const w = fakeWorld({}, [], 0), cal = w.ctx.cal as { gameDay: number };
+    const igKeys = () => Object.getOwnPropertyNames(w.hourly().values).filter((k) => k.startsWith('igClose.')).sort();
+    for (let d = 0; d <= 401; d++) {
+      cal.gameDay = d;
+      hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: 100, ig: d < 10 ? 1.0 : d < 401 ? null : 1.2 }));
+      if (d === 9) expect(igKeys()).toContain('igClose.0');
+      if (d === 200) { expect(w.hourly().staleKeys).toContain('igCreditSpreadIndex'); expect(w.hourly().values['igCreditSpreadIndex']).toBe(1.0); }
+      if (d === 373) expect(igKeys()).toEqual([]);   // day 9 ≤ 373 − 364: pruned on a null-read day
+    }
+    expect(igKeys()).toEqual(['igClose.401']);
+    const e = fakeWorld({}, [], 0), ec = e.ctx.cal as { gameDay: number };
+    let max = 0;
+    for (let d = 0; d < 800; d++) { ec.gameDay = d; hourlyFear(e.ctx, ports({ rv: 0.16, r: 0, lvl: 100, ig: 1 })); max = Math.max(max, Object.getOwnPropertyNames(e.hourly().values).filter((k) => k.startsWith('igClose.')).length); }
+    expect(max).toBe(364);
+    expect(e.hourly().values['igClose.799']).toBe(1);
+    expect(e.hourly().values['igClose.436']).toBe(1);
+    expect(e.hourly().values['igClose.435']).toBeUndefined();
+  });
+  it('AC-04-15-R63HOLD (E-103 (4)): (a) warm-up, (b) write and hold, (c) null equityIndex uses the held value, (d) 30 null days hold, no fault', () => {
+    const a = fakeWorld({}, [], 100);
+    hourlyFear(a.ctx, ports({ rv: 0.16, r: 0, lvl: 100, ig: null }));
+    expect(a.global().fearIndex).toBe(g0());
+    expect(a.hourly().staleKeys).not.toContain('gxReturn63d');
+    const b = fakeWorld({}, [hist(10, 100)], 100);
+    hourlyFear(b.ctx, ports({ rv: 0.16, r: 0, lvl: 95, ig: null }));
+    expect(b.hourly().values['gxReturn63d']).toBeCloseTo(-0.05, 15);
+    const F1 = b.global().fearIndex;
+    hourlyFear(b.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }));
+    expect(b.hourly().staleKeys).toContain('gxReturn63d');
+    const raw = fearRaw({ ...NEUTRAL, tension: 30, hackRate: 0, gxReturn63d: 95 / 100 - 1 });
+    expect(b.global().fearIndex).toBe(stepFear(F1, raw));
+    const c = fakeWorld({}, [hist(10, null as unknown as number), hourlyWith({ gxReturn63d: 95 / 100 - 1 })], 100);
+    hourlyFear(c.ctx, ports({ rv: 0.16, r: 0, lvl: 95, ig: null }));
+    expect(c.global().fearIndex).toBe(stepFear(22, raw));   // held −0.05, not 0
+    expect(c.hourly().staleKeys).toContain('gxReturn63d');
+    const rows = Array.from({ length: 130 }, (_x, k) => hist(k, 100));
+    const d = fakeWorld({}, [...rows, hourlyWith({ gxReturn63d: 95 / 100 - 1 })], 100), cal = d.ctx.cal as { gameDay: number };
+    for (let day = 100; day < 130; day++) {
+      cal.gameDay = day;
+      expect(() => hourlyFear(d.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }))).not.toThrow();
+      expect(d.hourly().staleKeys.filter((k) => k === 'gxReturn63d')).toEqual(['gxReturn63d']);
+    }
+    expect(d.hourly().values['gxReturn63d']).toBeCloseTo(-0.05, 15);
   });
   it('E-93 (4): missing GLOBAL or HOURLY row → MAC_STATE_MISSING with the row id', () => {
     expect(() => hourlyFear(fakeWorld(null).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'MAC_STATE_MISSING', entityIds: ['GLOBAL'] }));

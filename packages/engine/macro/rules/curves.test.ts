@@ -93,6 +93,11 @@ describe('T04-07 ĥ, market path, buildCurve', () => {
     expect(c.nsReal).toEqual(nsFit(c.nodes.map((n, k) => ({ tenorYears: n.tenorYears, yield: n.yield - c.breakeven[k]!.yield })), 1.8));
     expect(buildCurve(ss({ piE1: 0.03 }), 100).nInf).toBe(0.0275);   // n∞ = r*_cb + π_e5
   });
+  it('QA #82: OIS tail uses r*_cb + π_e5 when π_e1 ≠ π_e5 (kills nInf → r* + π_e1)', () => {
+    const c = buildCurve(ss({ piE1: 0.04, piE5: 0.02 }), 100), E = { 1: 0.0275, 2: 0.0275, 4: 0.0275, 8: 0.0275 };
+    expect(c.ois[6]!.yield).toBeCloseTo(oisZero(30, 0.0275, E, 0.0075 + 0.02), 12);
+    expect(Math.abs(c.ois[6]!.yield - oisZero(30, 0.0275, E, 0.0075 + 0.04))).toBeGreaterThan(1e-3);
+  });
   it('04#18 curve half: path 0.0275 → 0.0300 lifts OIS(2) 23.44 bp, OIS(10) 11.45 bp; Δy(2) ∈ [5, 25] bp and Δy(10) < Δy(2)', () => {
     const a = buildCurve(ss(), 100), b = buildCurve(ss({ dotsPath: flat(0.03), modelPathRates: flat(0.03) }), 100);
     const at = (c: typeof a, k: 'ois' | 'nodes', t: number) => c[k].find((n) => n.tenorYears === t)!.yield;
@@ -104,7 +109,7 @@ describe('T04-07 ĥ, market path, buildCurve', () => {
   });
 });
 
-import { blocShockSum, recomputeCurve } from './curves';
+import { recomputeCurve } from './curves';
 import { cbRow } from '../testkit/cbWorld';
 import { macroTables, type CurveState, type PublicMacroView } from '../schema';
 describe('T04-07 recomputeCurve (store)', () => {
@@ -134,9 +139,8 @@ describe('T04-07 recomputeCurve (store)', () => {
     expect(c.marketImplied[0]!.rate).toBeGreaterThan(0.034);   // 0.8·0.04 + 0.2·model; the model path alone stays near 0.0275
     expect(c.nInf).toBeCloseTo(0.0075 + 0.001 + 0.02, 15);
   });
-  it('tp10 shocks feed the term premium (stand-in for T04-18 activeShockSum)', () => {
+  it('tp10 shocks of the bloc feed the term premium through activeShockSum', () => {
     const sh = { id: 's', target: 'tp10', value: 0.001, startTick: 0, endTick: 10_000, shape: 'STEP', halfLifeDays: 0 };
-    expect(blocShockSum([sh, { ...sh, target: 'x' }] as never, 'tp10', 100)).toBe(0.001);
     expect(recomputeCurve(world([sh]).ctx, 'FDL', 'DAY_CLOSE').tp10).toBeCloseTo(buildCurve(ss(), 100).tp10 + 0.001, 12);
   });
 });

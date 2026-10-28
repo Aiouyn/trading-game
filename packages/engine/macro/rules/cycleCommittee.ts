@@ -9,14 +9,14 @@ type Label = PublicMacroView['cycleLabel'];
 function latestGrowth(prints: Prints): number | null {
   let best: { tick: number; actual: number } | null = null;
   for (const k of ['GDP_ADV', 'GDP_REV1', 'GDP_REV2'] as const) {
-    const p = prints[k];
+    const p = prints[k] ?? null;   // genesis prints are {}: a kind not yet released is absent
     if (p !== null && (best === null || p.tick > best.tick)) best = { tick: p.tick, actual: p.actual };
   }
   return best === null ? null : best.actual;
 }
 
 function dataConfirms(s: Regime, prints: Prints, unemployment12mLow: number | null, nairu: number, inflationTarget: number): boolean {
-  const g = latestGrowth(prints), jobs = prints.JOBS, cpi = prints.CPI;
+  const g = latestGrowth(prints), jobs = prints.JOBS ?? null, cpi = prints.CPI ?? null;
   switch (s) {
     case 'CONTRACTION':
       return (g !== null && g < 0) || (jobs !== null && unemployment12mLow !== null && jobs.actual >= unemployment12mLow + 0.005);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createParamsView, MACRO_T04_07_PARAMS, ParamsError, TEST_PARAM_REGISTRY, type ParamsView } from './index';
+import { createParamsView, MACRO_E93_OPENING_PARAMS, MACRO_T04_07_PARAMS, MACRO_T04_08_PARAMS, MACRO_T04_17_PARAMS, ParamsError, TEST_PARAM_REGISTRY, type ParamsView } from './index';
 
 const code = (f: () => unknown): string | undefined => { try { f(); } catch (e) { return (e as ParamsError).code; } return undefined; };
 
@@ -56,5 +56,22 @@ describe('T04-07 params (E-100)', () => {
   });
   it('combines with the test registry without a duplicate key', () => {
     expect(createParamsView([...TEST_PARAM_REGISTRY, ...MACRO_T04_07_PARAMS]).num('macro_irp')).toBe(0.002);
+  });
+});
+
+describe('E-93 (6) opening params', () => {
+  const p = createParamsView([...TEST_PARAM_REGISTRY, ...MACRO_T04_07_PARAMS, ...MACRO_T04_08_PARAMS, ...MACRO_E93_OPENING_PARAMS]);
+  it('the 10 keys with the E-93 values', () => {
+    expect(MACRO_E93_OPENING_PARAMS.map((d) => [d.key, p.num(d.key)])).toEqual([['mac_gov_cash0_gdp_FDL', 0.0246], ['mac_gov_cash0_gdp_EUN', 0.0331],
+      ['mac_gov_cash0_gdp_PYN', 0.02], ['mac_gov_cash0_gdp_NKR', 0.0285], ['mac_gov_cash0_gdp_SRL', 0.0219], ['mac_cbk_reserve_cover0_EUN', 4],
+      ['mac_cbk_reserve_cover0_PYN', 10], ['mac_cbk_reserve_cover0_NKR', 4], ['mac_cbk_reserve_cover0_SRL', 11], ['mac_gov_fdlcash0_gdp_SRL', 0.007392]]);
+  });
+});
+
+describe('T04-17 scheduler params', () => {
+  it('the 6 keys with the card defaults', () => {
+    const p = createParamsView([...TEST_PARAM_REGISTRY, ...MACRO_T04_17_PARAMS]);
+    expect(MACRO_T04_17_PARAMS.map((d) => [d.key, p.num(d.key)])).toEqual([['macro_major_base_rate', 3.6e-4], ['macro_major_min_gap_days', 504],
+      ['macro_ripple_rate', 1 / 7], ['macro_storm_rate', 1 / 91], ['major_precursor_min_game_days', 8], ['major_suppression_game_days', 336]]);
   });
 });

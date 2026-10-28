@@ -1,0 +1,84 @@
+name: macro-calibration
+# T04-20 nightly harness (04#4, 6, 24, 27, 32) and T04-18 04#36 (crisis job): 200 seeds × 3640 game days, no players, defaultMacroPorts().
+# 40 shards × 5 seeds (about 6 min per seed); the aggregate job pools every seed JSON and asserts the bands.
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'game days per seed (card: 3640)'
+        default: '3640'
+jobs:
+  seeds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+    defaults:
+      run:
+        working-directory: packages/engine/macro
+    env:
+      TYCOON_CALIB: '1'
+      CALIB_DAYS: ${{ inputs.days || '3640' }}
+      CALIB_OUT: calib-out
+      NODE_OPTIONS: '--max-old-space-size=8192'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: seeds 5·shard .. 5·shard+4
+        run: CALIB_SEED_FROM=$(( ${{ matrix.shard }} * 5 )) CALIB_SEED_TO=$(( ${{ matrix.shard }} * 5 + 4 )) npx vitest run harness/scenarios/macro-calibration.test.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calib-${{ matrix.shard }}
+          path: packages/engine/macro/calib-out/
+  aggregate:
+    needs: seeds
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/engine/macro
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: calib-*
+          merge-multiple: true
+          path: packages/engine/macro/calib-all
+      - name: 04#4, 6, 24, 27, 32 bands over 200 seeds
+        run: TYCOON_CALIB=1 CALIB_AGG=calib-all CALIB_MIN_SEEDS=200 npx vitest run harness/scenarios/macro-calibration.test.ts
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: calib-report
+          path: packages/engine/macro/calib-all/report.json
+  crisis:
+    # T04-18 04#36 04-measured bands: 8 kinds × 50 forced runs (about 25 min). Card asks for CI; long-run placement listed in the PR.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: packages/engine/macro
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: 04#36 forced crisis bands
+        run: TYCOON_CRISIS_CALIB=1 TYCOON_CRISIS_OUT=crisis-report.json npx vitest run harness/scenarios/macro-crisis-calibration.test.ts
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: crisis-report
+          path: packages/engine/macro/crisis-report.json

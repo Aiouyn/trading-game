@@ -9,7 +9,7 @@ import { macroTables, type BlocId, type CentralBank, type CurveState, type Daily
 import { concordActive } from './concord';
 import { ruleBreachPremium } from './programs';
 import { blocRow } from './sovCase';
-import { shockValueAt } from './trade';
+import { shockValue } from './shocks';
 
 export const GRADES = ['AAA', 'AA+', 'AA', 'AA-', 'A+', 'A', 'A-', 'BBB+', 'BBB', 'BBB-', 'BB+', 'BB', 'BB-', 'B+', 'B', 'B-', 'CCC', 'CC', 'C', 'D'] as const;
 
@@ -157,7 +157,7 @@ export function stepSovereignCredit(ctx: PhaseCtx, b: BlocId, ports: MacroPorts)
     primaryBalanceGdp: f.primaryBalanceGdp, fxDebtShare, depVsFdlYoy: now && ago && now.spotVsFdl > 0 ? ago.spotVsFdl / now.spotVsFdl - 1 : 0,
     reserveCoverMonths: bloc.fx.reserveCoverMonths, fxRegime: bloc.fx.regime, fear: g?.fearIndex ?? 50, politicalStability, failedAuctions21d: sv.failedAuctions21d, coreInflation: bloc.coreInflation });
   let mult = 1, trig = false;
-  for (const sh of bloc.shocks) if (sh.target === 'lambda_raw_mult') { const v = shockValueAt(sh, tick); if (v !== 0) mult *= v; if (Math.floor(sh.startTick / D) === today) trig = true; }
+  for (const sh of bloc.shocks) if (sh.target === 'lambda_raw_mult') { const v = shockValue(sh, tick); if (v !== 0) mult *= v; if (Math.floor(sh.startTick / D) === today) trig = true; }
   const post = sv.status === 'POST_RESTRUCTURING' ? Math.floor((tick - (sv.defaultCase?.resolvedTick ?? tick)) / D) : null;
   const raw = hazardRaw(d0.sovereignBaseHazard, z, hazardWeights(b), b, { concordActive: concordActive(s, b), postRestructuringDays: post, shockMult: mult });
   const lambda = stepHazard(sv.hazard, raw, trig), depthIndex = ports.markets.bondDepthIndex(s, b, false) ?? sv.depthIndex ?? 1;

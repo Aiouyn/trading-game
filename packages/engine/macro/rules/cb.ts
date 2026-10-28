@@ -12,6 +12,7 @@ import { S } from '../streams';
 import { memberPreference, tally } from './cbVotes';
 import { corridorOf } from './corridor';
 import { credibilityOneOff } from './credibility';
+import { impliedHawk, stepHHat } from './curves';
 import { statementKey } from './guidance';
 
 export interface RuleCoeffs { phiPi: number; phiX: number; phiFs: number; phiFx: number; bias: number; rho: number }
@@ -175,6 +176,10 @@ export function runMeeting(ctx: PhaseCtx, b: BlocId, emergency: boolean, trigger
   if (fxDefence && iNew > i) cred = credibilityOneOff(cred, 'DEFENCE_HIKE');
   ctx.store.put<CentralBank>(T, { ...cb, policyRate: iNew, credibility: cred, lastDecisions: [row, ...cb.lastDecisions],
     pendingEmergency: emergency ? null : cb.pendingEmergency });
+  // T04-07 step 2: after every decision the market's ĥ moves 0.2 toward the hawk that explains it (no curve row yet → nothing to learn into).
+  const curve = ctx.store.get<CurveState>(macroTables.curve.name, b);
+  if (curve !== undefined) ctx.store.put<CurveState>(macroTables.curve.name,
+    { ...curve, hHat: stepHHat(curve.hHat, impliedHawk(i, iNew, rStarCb, data, d0.inflationTarget, d0.nairu, b, cb.mandate, ctx.params)) });
   const corridor = corridorOf(iNew, d0.negativeRatesAllowed, ctx.params.num('macro_corridor_halfwidth'));
   ctx.emit('macro.cb.decision', [id], { bloc: b, meetingId: mid, previousRate: i, newRate: iNew, corridor: { depositRate: corridor.depositRate, lendingRate: corridor.lendingRate },
     emergency, votes: { for: votes.voteFor, against: votes.voteAgainst }, ruleTerms: publicRuleTerms(internal, c.phiX, cbOutputGap(data, d0.nairu)), qeChangePerMonth: row.qeChangePerMonth.toString(),   // events carry Money as a decimal string (G3)
@@ -234,10 +239,10 @@ export function appointGovernor(ctx: PhaseCtx, b: BlocId, reason: 'GENESIS' | 'T
   const cb = must(ctx.store.get<CentralBank>(T, id), 'cb', id);
   const pers = BLOC_DEFAULTS[b].personality;
   const rng = ctx.rng(S.cbPersonality(b));
-  const u = rng.next();
+  const u = rng.uOpen();
   const offsets: number[] = [];
   for (let j = 0; j < 9; j++) offsets.push(0.15 * rng.normal());
-  const rStarBias = -0.005 + 0.01 * rng.next();
+  const rStarBias = -0.005 + 0.01 * rng.uOpen();
   const app = ports.world.governorAppointment(ctx.store, b, ctx.tick);
   const hawk = app !== null ? app.hawk0 : pers.hawkMin + (pers.hawkMax - pers.hawkMin) * u;
   const termEnd = ctx.tick + ctx.params.int('macro_governor_term_days') * TICKS_PER_GAME_DAY;

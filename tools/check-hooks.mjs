@@ -13,7 +13,7 @@ export const QUERY_KEYS = [
   "rank", "flags", "tick", "conn", "halted", "held", "nw", "pct", "chg", "lic", "charters", "onb", "onbDone", "places", "guest", "prot",
   "shells", "owned", "locale",
   // mock feed scenario (src/shell/contracts/mockFeed.ts)
-  "feed", "seed", "reject", "tier", "empty", "halt", "thin", "pledge", "replyMs", "cancelReject", "cancelKeep", "partFill", "cancelGone", "cancelFill",
+  "feed", "seed", "reject", "tier", "empty", "halt", "thin", "pledge", "replyMs", "cancelReject", "cancelKeep", "partFill", "cancelGone", "cancelFill", "filings",
   // chart history transport hooks (src/shell/contracts/history.ts)
   "history",
   // other URL hooks: phase, load failure, city failure, alert/world banners (feed.ts), the demo sheet (QuayShell), /__ds palette

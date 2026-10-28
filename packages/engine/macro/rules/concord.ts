@@ -61,12 +61,12 @@ function emitProgram(ctx: PhaseCtx, p: ConcordProgram): void {
     trancheTicks: p.trancheTicks ?? [], conditions: p.conditions, compliance: p.compliance }, 'PUBLIC');
 }
 const tranche = (p: ConcordProgram): Money => p.size / BigInt(TRANCHES);
-/** Tranche k pays size/4 plus every suspended tranche (released at the next compliant date); the last one also carries the
- *  division remainder. */
+/** Tranche k pays size/4; the last one also carries the division remainder. A suspended tranche is withheld for good (the card has no
+ *  release: QA #82 follow-up 4); `suspended` counts the withheld ones. */
 function disburse(ctx: PhaseCtx, p: ConcordProgram, k: number): ConcordProgram {
-  const n = 1 + (p.suspended ?? 0), amt = tranche(p) * BigInt(n) + (k === TRANCHES - 1 ? p.size - tranche(p) * BigInt(TRANCHES) : 0n);
+  const amt = tranche(p) + (k === TRANCHES - 1 ? p.size - tranche(p) * BigInt(TRANCHES) : 0n);
   ctx.ledger.pay(CSF_ID, govId(p.bloc), amt, 'FDL', 'CSF_DISBURSE');
-  return { ...p, drawn: p.drawn + amt, tranchesPaid: (p.tranchesPaid ?? 0) + n, suspended: 0 };
+  return { ...p, drawn: p.drawn + amt, tranchesPaid: (p.tranchesPaid ?? 0) + 1 };
 }
 /** Opens a program (RESTRUCTURING skips the crisis condition); first tranche at once. Null when it cannot be agreed. */
 export function openConcord(ctx: PhaseCtx, b: BlocId, cause: Cause): ConcordProgram | null {
@@ -93,7 +93,7 @@ export function compliance(prog: ConcordProgram, achievedPbStep: number, control
   return c * (controlsPhasedOut ? 1 : 0.5);
 }
 /** Daily: SPREAD programs open for qualifying blocs; interest accrues; on tranche dates compliance ≥ 0.7 disburses, else the tranche is
- *  suspended (withheld) with a Wire hook and released at the next compliant date, none after the 4th; quarterly interest; 8 quarterly installments from 364 days after the last tranche; closed at the last one. */
+ *  suspended (withheld, never paid later) with a Wire hook; quarterly interest; 8 quarterly installments from 364 days after the last tranche; closed at the last one. */
 export function concordTranches(ctx: PhaseCtx): void {
   const t = ctx.tick, s = ctx.store;
   if (t % D !== 0) return;

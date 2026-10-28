@@ -1,7 +1,7 @@
 // Wire copy (UI card 1 · WIR-A). EN + FR; headline templates and kind labels are [P] pending Studio copy.
 // Slot values are inserted verbatim (they are display strings from the server); nothing here parses a WireItem field.
 "use client";
-import type { WireItem, WireKind } from "@/shell/contracts/channels";
+import type { Filing, WireItem, WireKind } from "@/shell/contracts/channels";
 import { clockAt, clockLabel } from "@/shell/mockChannels";
 import { S, clockStrings, type ShellLocale } from "@/shell/strings";
 import { useShell } from "@/components/shell/ShellContext";
@@ -9,6 +9,9 @@ import { useShell } from "@/components/shell/ShellContext";
 export type WireFilter = "all" | "news" | "filings" | "trades" | "verdicts" | "purchases" | "milestones" | "rumors" | "world" | "statements";
 type Band = NonNullable<WireItem["sourceBand"]>;
 type PricedIn = NonNullable<WireItem["pricedInBand"]>;
+/** Filing `fields` keys with a label and a display rule (card 9); any other key shows as `key: value`, raw. */
+export type FilingField = "pct" | "qty" | "price" | "side";
+const NNBSP = "\u202F";
 
 export interface WireStrings {
   filtersLabel: string;
@@ -32,6 +35,29 @@ export interface WireStrings {
   couldntLoad: string;
   retry: string;
   headlines: Record<string, string>;
+  // ---- item detail (UI card 9 · WIR-9) ----
+  /** Accessible name of a row's open button. */
+  openItem: string;
+  backToWire: string;
+  noSelection: string;
+  assets: string;
+  openInBroker: string;
+  openInBrokerAria: string;
+  source: string;
+  /** The detail's record line (the row keeps card 1's short `sourceRecord`). */
+  recordLine: string;
+  /** Section title; card 1's `pricedInLabel` stays the row chip's name. */
+  pricedInTitle: string;
+  filing: string;
+  filedBy: string;
+  subject: string;
+  field: Record<FilingField, string>;
+  pctValue: string;
+  /** Filing `side` values, copied from the Broker's side labels (no Broker import in the Wire chunk). */
+  side: Record<"BUY" | "SELL", string>;
+  filingType: Record<Filing["type"], string>;
+  filingMissing: string;
+  notInFeed: string;
 }
 
 export const EN: WireStrings = {
@@ -66,6 +92,27 @@ export const EN: WireStrings = {
     "wire.statement.ceo": "{company} CEO issues a statement",
     "wire.rumor.downgrade": "Downgrade rumored for {company}",
   },
+  openItem: "Open: {headline}",
+  backToWire: "Back to Wire",
+  noSelection: "Select a story to read it here.",
+  assets: "Assets",
+  openInBroker: "Open in Broker",
+  openInBrokerAria: "Open {ticker} in Broker",
+  source: "Source",
+  recordLine: "{hits} of {resolved} past claims held up",
+  pricedInTitle: "Priced in",
+  filing: "Filing",
+  filedBy: "Filed by",
+  subject: "Company",
+  field: { pct: "Stake", qty: "Quantity", price: "Price", side: "Side" },
+  pctValue: `{v}${NNBSP}%`,
+  side: { BUY: "↑ Buy", SELL: "↓ Sell" },
+  filingType: {
+    ownership_5pct: "Major stake", insider: "Insider trade", quarterly_holdings: "Quarterly holdings",
+    company_statement: "Company statement", fund_disclosure: "Fund disclosure", regulatory: "Regulatory",
+  },
+  filingMissing: "Filing details aren't available.",
+  notInFeed: "This story is no longer in your feed.",
 };
 
 export const FR: WireStrings = {
@@ -100,6 +147,27 @@ export const FR: WireStrings = {
     "wire.statement.ceo": "Le PDG de {company} publie un communiqué",
     "wire.rumor.downgrade": "Rumeur de dégradation pour {company}",
   },
+  openItem: `Ouvrir${NNBSP}: {headline}`,
+  backToWire: "Retour au fil",
+  noSelection: "Sélectionnez une dépêche pour la lire ici.",
+  assets: "Actifs",
+  openInBroker: "Ouvrir dans Broker",
+  openInBrokerAria: "Ouvrir {ticker} dans Broker",
+  source: "Source",
+  recordLine: "{hits} sur {resolved} affirmations passées se sont vérifiées",
+  pricedInTitle: "Intégré aux cours",
+  filing: "Déclaration",
+  filedBy: "Déclarant",
+  subject: "Société",
+  field: { pct: "Participation", qty: "Quantité", price: "Cours", side: "Sens" },
+  pctValue: `{v}${NNBSP}%`,
+  side: { BUY: "↑ Achat", SELL: "↓ Vente" },
+  filingType: {
+    ownership_5pct: "Participation importante", insider: "Opération d’initié", quarterly_holdings: "Positions trimestrielles",
+    company_statement: "Communiqué de société", fund_disclosure: "Publication de fonds", regulatory: "Réglementaire",
+  },
+  filingMissing: "Les détails de la déclaration ne sont pas disponibles.",
+  notInFeed: "Cette dépêche ne figure plus dans votre fil.",
 };
 
 export const useWireStrings = (): WireStrings => (useShell((s) => s.prefs.locale) === "fr" ? FR : EN);
