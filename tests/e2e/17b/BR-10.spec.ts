@@ -19,20 +19,23 @@ const tab = (page: Page, k: "overview" | "news") => page.getByTestId(`br-about-t
 const stories = (page: Page) => page.getByTestId("ap-story");
 const frame = (page: Page) => page.locator('[data-testid="win-broker"], [data-testid="phone-appview"]').first();
 /**
- * Every baseline is taken in the same feed tick. The mock ticks every 5 s of fake time, and the steps before a shot run
- * the paused clock a varying amount (chunk loads, `until`), so a shot could land either side of a tick and read another
- * Last / Today. An init script, registered before bootPaused's clock.install, traps window.setInterval so it can count
- * the calls of the feed's interval (MockFeed.start: `() => this.advance()`); a shot first runs the clock to tick
- * SHOT_TICK, then fails if it is already past it (or if the trap counted nothing, so it can't go quietly stale).
+ * Every baseline is taken at the same feed tick. The mock ticks every 5 s of fake time, and the steps before and between
+ * shots run the paused clock a varying amount (chunk loads, `until`), so a shot could land either side of a tick and read
+ * another Last / Today. An init script, registered before bootPaused's clock.install, traps window.setInterval and wraps
+ * the feed's interval (MockFeed.start: `() => this.advance()`) to count its ticks and to hold it. The first shot runs
+ * the clock to tick SHOT_TICK and holds the feed there; every shot checks the count, so a trap that stops matching fails.
  */
 const SHOT_TICK = 3;
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    const w = window as unknown as { brTicks: number };
+    const w = window as unknown as { brTicks: number; brHold: boolean };
     w.brTicks = 0;
+    w.brHold = false;
     let current = window.setInterval;
     const counted = (fn: TimerHandler): TimerHandler =>
-      typeof fn === "function" && /\.advance\(\)/.test(String(fn)) ? (...a: unknown[]) => { w.brTicks++; return (fn as (...x: unknown[]) => unknown)(...a); } : fn;
+      typeof fn === "function" && /\.advance\(\)/.test(String(fn))
+        ? (...a: unknown[]) => { if (w.brHold) return; w.brTicks++; (fn as (...x: unknown[]) => unknown)(...a); }
+        : fn;
     Object.defineProperty(window, "setInterval", {
       configurable: true,
       get: () => (fn: TimerHandler, ms?: number, ...a: unknown[]) => current(counted(fn), ms, ...a),
@@ -43,6 +46,7 @@ test.beforeEach(async ({ page }) => {
 const ticks = (page: Page) => page.evaluate(() => (window as unknown as { brTicks: number }).brTicks);
 async function shot(page: Page, state: string) {
   for (let i = 0; i < 200 && (await ticks(page)) < SHOT_TICK; i++) await page.clock.runFor(100);
+  await page.evaluate(() => { (window as unknown as { brHold: boolean }).brHold = true; });
   expect(await ticks(page), "feed ticks seen before the shot").toBe(SHOT_TICK);
   await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR);
 }
