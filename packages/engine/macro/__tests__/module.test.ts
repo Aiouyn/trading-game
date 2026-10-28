@@ -95,5 +95,8 @@ describe('T04-21 reason codes', () => {
     const w2 = new LedgerWorld();
     expect(w2.catalog.registerReasonCodes(4, 'TRANSFER', [{ ...swf, requestableBy: [4, 5] }])).toEqual([]);
     expect(() => registerMacroReasonCodes(w2.catalog)).toThrow(/LEDGER_EXTENSION_CONFLICT: SWF_TRANSFER/);
+    const w3 = new LedgerWorld();
+    expect(w3.catalog.registerReasonCodes(4, 'TRANSFER', [{ ...swf, requestableBy: [] }])).toEqual([]);
+    expect(() => registerMacroReasonCodes(w3.catalog)).toThrow(/LEDGER_EXTENSION_CONFLICT: SWF_TRANSFER/);
   });
 });
