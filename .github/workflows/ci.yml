@@ -20,6 +20,22 @@ jobs:
       # AC-HOOKS-PROD: the build above has no e2e flags; neither its client nor its server output may contain a test/mock hook or /__ds code.
       - run: node tools/check-hooks.mjs .next/static .next/server
       - run: npm test
+      # Route budget: the Broker route's first-load JS on this build is at most FIRST_LOAD_BUDGET_KB gz (tests/e2e/17b/plotChunk.ts;
+      # counted as in S1-20; tools/ci/route-budget.mjs).
+      - run: npx playwright install --with-deps chromium
+      - run: node tools/ci/route-budget.mjs /broker
+  # AC-03-MAP-NO-DUP on every PR, whatever paths it touches: the test scans the whole repo, so a PR outside packages/engine
+  # (which the engine workflow's path filter skips) can still add a duplicate definition.
+  ledger-no-dup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: packages/engine/ledger
+      - run: npx vitest run test/map-no-dup.test.ts
+        working-directory: packages/engine/ledger
   e2e:
     runs-on: ubuntu-latest
     needs: checks
