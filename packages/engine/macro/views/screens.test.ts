@@ -28,6 +28,9 @@ describe('T04-19 screens', () => {
     expect(run()[1]!.consensus).toEqual({ consensus: 0.021, dispersion: 0.002 });
     for (const t of [40, 99]) { setNow(w, t); expect(JSON.stringify(MACRO_SCREEN_VIEWS.map((v) => v.id === 'macro.calendar' ? run() : null))).not.toMatch(/0\.0234|actual/); }
     expect(viewMacroCalendar.run(w.ctx.store, { fromDay: 1, toDay: 3 }, anyone)).toEqual([]);
+    w.put(macroTables.schedule.name, { id: 'EUN:PMI:1439', bloc: 'EUN', kind: 'PMI' } as never);
+    w.put(macroTables.schedule.name, { id: 'EUN:JOBS:1440', bloc: 'EUN', kind: 'JOBS' } as never);
+    expect(viewMacroCalendar.run(w.ctx.store, { fromDay: 1, toDay: 1 }, anyone).map((r) => r.ref)).toEqual(['PMI']);   // toDay inclusive, day 2 excluded
   });
   it('calendar: auctions after announce, crisis week after announcement, capcon expiry only when active; sorted', () => {
     const w = viewWorld(10);
@@ -51,6 +54,8 @@ describe('T04-19 screens', () => {
     expect(fdl.spread2s10s).toBeCloseTo(0.005, 12); expect(fdl.inverted).toBe(false);
     expect(r.carry.find((c) => c.bloc === 'PYN')!.carry3m).toBeCloseTo(0.015, 12);
     expect(pyn.basis).toBe(0.001);
+    w.put(macroTables.publicView.name, { ...v, curve: curveOf(0.03, 0.032) } as never);
+    expect(viewRates.run(w.ctx.store, { bloc: 'PYN' }, anyone).curves[0]!.inverted).toBe(false);   // +0.002
     expect(r.curves.map((c) => c.bloc)).toEqual(['FDL', 'EUN', 'PYN', 'NKR', 'SRL']);
   });
   it('auction ticket: a non-owner sees ownBids [] and no result; the owner sees its 2 bids', () => {
@@ -65,6 +70,8 @@ describe('T04-19 screens', () => {
     expect(own.ownBids.map((b) => b.bidId)).toEqual(['b1', 'b2']);
     expect(own.ownResult).toEqual({ stopYield: 0.032, allotmentAtStopPct: 0.4, failed: false });
     expect(assertNoHiddenFields(own)).toEqual([]);
+    setNow(w, 9);
+    expect(viewAuctionTicket.run(w.ctx.store, { auctionId: 'A' }, viewer('p1'))).toBeNull();   // not yet announced
   });
   it('bank console: owner sees own facilities and dealer row; others see empty sections', () => {
     const w = viewWorld(100);

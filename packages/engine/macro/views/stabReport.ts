@@ -23,7 +23,7 @@ const stabRow = (read: StoreRead): StabRow | undefined => read.get<StabRow>(macr
 export function leverDirection(now: number, weekAgo: number): -1 | 0 | 1 { return now > weekAgo ? 1 : now < weekAgo ? -1 : 0; }
 /** "Money vs designed path: +12%": percent rounded half away from zero; + for ≥ 0, ASCII - below. */
 export function formatMoneyVsPath(e: number): string {
-  const pct = Math.sign(e) * Math.floor(Math.abs(100 * e) + 0.5), r = pct === 0 ? 0 : pct;   // no "-0"
+  const r = Math.sign(e) * Math.floor(Math.abs(100 * e) + 0.5);   // −0 prints "+0" (−0 >= 0)
   return `Money vs designed path: ${r >= 0 ? '+' : '-'}${Math.abs(r)}%`;
 }
 
