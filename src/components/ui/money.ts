@@ -46,11 +46,11 @@ export function abbreviateDigits(int: string): string {
 }
 
 /** MoneyText's text for an abbreviating context (list, chip, sentence), for plain-string callers such as legacy toasts:
- *  "250000" -> "$250k", "-412860.15" -> "−$413k", "5000" -> "$5,000.00" (abbreviates from 10,000), "0" -> "$0.00".
- *  Same parse, zero rule, threshold and floor as MoneyText (pinned by a parity test). */
+ *  "250000" -> "$250k", "-412860.15" -> "−$412k", "5000" -> "$5,000.00" (abbreviates from 10,000), "0" -> "$0.00".
+ *  Same parse, zero rule, threshold and truncation as MoneyText (pinned by a parity test). */
 export function compactMoneyText(amount: string): string {
   const p = parseAmount(amount);
   if (isZero(p)) return "$0.00";
-  const digits = shouldAbbreviate(p) ? abbreviateDigits(p.int, p.negative, p.frac) : fullDigits(p);
+  const digits = shouldAbbreviate(p) ? abbreviateDigits(p.int) : fullDigits(p);
   return `${p.negative ? MINUS : ""}$${digits}`;
 }
