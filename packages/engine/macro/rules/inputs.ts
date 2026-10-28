@@ -22,7 +22,7 @@ export function foodIndex(prices: FoodPx, genesis: FoodPx): number {
   return 100 * (0.3 * prices.wheat / genesis.wheat + 0.3 * prices.corn / genesis.corn + 0.2 * prices.coffee / genesis.coffee + 0.2 * prices.cocoa / genesis.cocoa);
 }
 
-const GENESIS_DEFAULT = { energy: 100, food: 100, aiRaceIndex: 50, worldHackRate: 0, geopoliticalTension: 30, politicalStability: 0.7 } as const;
+export const GENESIS_DEFAULT = { energy: 100, food: 100, aiRaceIndex: 50, worldHackRate: 0, geopoliticalTension: 30, politicalStability: 0.7 } as const;
 type Commodity = 'CRUDE' | 'GAS' | 'MWH' | 'WHEAT' | 'CORN' | 'COFFEE' | 'COCOA';
 const ENERGY: readonly Commodity[] = ['CRUDE', 'GAS', 'MWH'];
 const FOOD: readonly Commodity[] = ['WHEAT', 'CORN', 'COFFEE', 'COCOA'];

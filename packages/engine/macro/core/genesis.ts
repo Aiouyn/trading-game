@@ -19,6 +19,7 @@ import { potentialGrowth } from '../rules/economy';
 import { liquidityPremium, pdAt, sovSpread, stressIndexOf } from '../rules/sovCredit';
 import { nominalGdpFdl } from '../rules/fxReserves';
 import { openingReservesFdl } from '../institutions';
+import { GENESIS_DEFAULT } from '../rules/inputs';
 
 const UNIT = 1000000000n;   // one 1,000-face launch bond unit in micro
 
@@ -98,7 +99,7 @@ function genesisBloc(b: BlocId, S: number, aiRace: number, p: ParamsView): BlocM
     sovereign: { hazard: lambda0, pd1y: pdAt(1, lambda0), pd5y: pdAt(5, lambda0), spread10y: sovSpread(10, lambda0, lgd), liquidityPremium: liquidityPremium(b, 1, 0),
       convenienceYield: d.conv, stressIndex: stressIndexOf(lambda0, lambda0), failedAuctions21d: 0, status: 'PERFORMING', depthIndex: 1,
       ratingInputs: { govId: govId(b), tick: 0, debtGdp, interestRevenue: 0, primaryBalanceGdp: d.initialPrimaryBalanceGdp, realGrowthTrend: d.potentialGrowth0,
-        inflationVol: 0, reserveCoverMonths: fx.reserveCoverMonths, fxDebtShare: d.fxDebtShare0, cbCredibility: d.personality.credibility0, politicalStability: 0,
+        inflationVol: 0, reserveCoverMonths: fx.reserveCoverMonths, fxDebtShare: d.fxDebtShare0, cbCredibility: d.personality.credibility0, politicalStability: GENESIS_DEFAULT.politicalStability,   // 0.7, the input snapshot default (E-106 (8), Producer ruling)
         marketPd1y: pdAt(1, lambda0), modelPd1y: pdAt(1, lambda0) } },
     imbalance: zeroImbalance(), shocks: [], rStarRw: 0, gapEstNoise: 0, credit: g, credit0: g, creditGdpTrend: 1, peNorm: 0, fiscalImpulse: 0,
     unemployment12mLow: d.nairu, dep: 0, sentiment: 0, consumptionSignal: 0 };
