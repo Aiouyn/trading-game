@@ -148,7 +148,7 @@ const SAMPLES: Record<string, unknown> = {
   'macro.cb.decision': { bloc: 'FDL', meetingId: 'm', previousRate: 0.03, newRate: 0.0325, corridor: { depositRate: 0.0275, lendingRate: 0.0375 }, emergency: false,
     votes: { for: 7, against: 2 }, ruleTerms: { neutral: 0.0275, inflation: 0.02, inflationGap: 0.0025, outputGap: 0.0025, finStress: 0, fx: 0, bias: 0 },
     qeChangePerMonth: '0', statementKey: 's', reasons: ['r1'] },
-  'macro.cb.minutes': { bloc: 'FDL', meetingId: 'm', dissent: { hike: 1, hold: 7, cut: 1 }, riskKeys: ['k'] },
+  'macro.cb.minutes': { bloc: 'FDL', meetingId: 'm', dissent: { higher: 1, lower: 1 }, riskKeys: ['k'] },
   'macro.cb.tool': { bloc: 'PYN', tool: 'YCC_START', params: { capYield: 0.01 } },
   'macro.cb.facility.daily': { bloc: 'FDL', repoOutstanding: '100', elaOutstanding: '0', deposits: '5' },
   'macro.cb.repo': { bloc: 'FDL', bankId: 'b', loanId: 'l', amount: '1000', ccy: 'FDL', termDays: 7, collateral: [{ assetId: 'a', qty: '10', haircut: 0.02 }] },
