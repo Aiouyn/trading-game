@@ -47,8 +47,14 @@ async function open(page: Page, id: string) {
   await expect(detail(page)).toHaveAttribute("data-id", id);
   await page.clock.runFor(100);
 }
+/**
+ * Rounded controls whose r×r corner squares the shots mask besides the window's (winShot): the detail's kind chip. Its pill
+ * corners came out 1 level off on 1 of 5 loads (--repeat-each=5, filing-1440x900: 90 px, all on the chip's arcs at window
+ * x 538-549 / 577-588, y 49-71; straight edges and the label identical).
+ */
+const rounded = (page: Page) => detail(page).getByTestId("wire-kind");
 const shot = (page: Page, state: string, l: Locator = frame(page)) =>
-  winShot(page, l, "WIR-9", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.WIR9_SHOTS_DIR);
+  winShot(page, l, "WIR-9", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.WIR9_SHOTS_DIR, rounded(page));
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const colours = (l: Locator) => l.evaluate((el) => {
   const out = new Set<string>();
@@ -142,12 +148,15 @@ test("WIR-9-10 1440: feed and pane side by side; RUMOR record + band, FILING sum
   await pinHtml(page, "hc", false);
 });
 
-test("winShot: the mask covers only the window's r×r corner squares: every pixel of the ring round each square is caught", async ({ page }, info) => {
+test("winShot: the mask covers only the r×r corner squares of the window and the detail kind chip: every pixel of the ring round each square is caught", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await bootWire(page);
-  const n = await expectOnlySquaresMasked(page, frame(page));
+  const n = await expectOnlySquaresMasked(page, frame(page), rounded(page));
   expect(n.squares, "the window's four corner squares").toBe(4);
-  expect(n.ring, "ring pixels checked").toBeGreaterThan(8);
+  expect(n.ring, "ring pixels checked").toBeGreaterThan(16);
+  await open(page, "n-3");
+  const k = await expectOnlySquaresMasked(page, frame(page), rounded(page));
+  expect(k.squares, "the window's and the detail kind chip's").toBe(8);
 });
 
 test("winShot fails a shot that differs from its baseline only in a pixel touching a mask square (toHaveScreenshot alone skips it as antialiasing)", async ({ page }, info) => {

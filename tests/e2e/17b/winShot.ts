@@ -8,7 +8,7 @@ type Clip = { x: number; y: number; width: number; height: number };
 /** A corner square to mask, in whole device pixels. */
 type Square = { x: number; y: number; w: number; h: number };
 
-/** An element's border box and its rounded bottom-left radius (ceil), read in the page. */
+/** An element's border box and its rounded bottom-left radius as drawn (a pill's 999px clamps to half its side; ceil), read in the page. */
 type Rounded = { x: number; y: number; width: number; height: number; r: number };
 
 /**
@@ -35,11 +35,11 @@ const cornerSquares = ({ x, y, width, height, r }: Rounded): Square[] => {
 async function maskSquares(frame: Locator, rounded: Locator | undefined): Promise<Square[]> {
   const own: Rounded[] = await frame.evaluate((el) => {
     const b = el.getBoundingClientRect();
-    return el.classList.contains("win") ? [{ x: b.x, y: b.y, width: b.width, height: b.height, r: Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0) }] : [];
+    return el.classList.contains("win") ? [{ x: b.x, y: b.y, width: b.width, height: b.height, r: Math.ceil(Math.min(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0, b.width / 2, b.height / 2)) }] : [];
   });
   const controls: Rounded[] = rounded ? await rounded.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => {
     const b = e.getBoundingClientRect();
-    return { x: b.x, y: b.y, width: b.width, height: b.height, r: Math.ceil(parseFloat(getComputedStyle(e).borderBottomLeftRadius) || 0) };
+    return { x: b.x, y: b.y, width: b.width, height: b.height, r: Math.ceil(Math.min(parseFloat(getComputedStyle(e).borderBottomLeftRadius) || 0, b.width / 2, b.height / 2)) };
   })) : [];
   return [...own, ...controls].flatMap(cornerSquares);
 }
@@ -129,11 +129,11 @@ async function expectCornerSquares(frame: Locator, rounded: Locator | undefined,
   type Box = { x: number; y: number; right: number; bottom: number; r: number };
   const own: Box[] = await frame.evaluate((el) => {
     const b = el.getBoundingClientRect();
-    return el.classList.contains("win") ? [{ x: b.x, y: b.y, right: b.right, bottom: b.bottom, r: Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0) }] : [];
+    return el.classList.contains("win") ? [{ x: b.x, y: b.y, right: b.right, bottom: b.bottom, r: Math.ceil(Math.min(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0, b.width / 2, b.height / 2)) }] : [];
   });
   const controls: Box[] = rounded ? await rounded.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => {
     const b = e.getBoundingClientRect();
-    return { x: b.x, y: b.y, right: b.right, bottom: b.bottom, r: Math.ceil(parseFloat(getComputedStyle(e).borderBottomLeftRadius) || 0) };
+    return { x: b.x, y: b.y, right: b.right, bottom: b.bottom, r: Math.ceil(Math.min(parseFloat(getComputedStyle(e).borderBottomLeftRadius) || 0, b.width / 2, b.height / 2)) };
   })) : [];
   const span = (from: number, to: number) => [Math.floor(from), Math.ceil(to) - Math.floor(from)] as const;
   const want = [...own, ...controls].filter((b) => b.r > 0).flatMap((b) => [span(b.x, b.x + b.r), span(b.right - b.r, b.right)].flatMap(([x, w]) =>
