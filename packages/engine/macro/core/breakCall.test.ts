@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn() }));
 const cc = vi.hoisted(() => ({ agree: false }));   // Concord agreeable? (T04-14 step 5: a Concord pre-empts the break)
 vi.mock('../rules/concord', async (orig) => { const m = await orig<typeof import('../rules/concord')>(); return { ...m, canAgreeConcord: (...a: Parameters<typeof m.canAgreeConcord>) => cc.agree && m.canAgreeConcord(...a) }; });
+const rc = vi.hoisted(() => ({ log: [] as string[] }));   // FX_REGIME recompute marks (dispatch 2.5 → 2.6), as `${bloc}@${tick}`
+vi.mock('../rules/curves', async (orig) => { const m = await orig<typeof import('../rules/curves')>(); return { ...m, recomputeCurve: (...a: Parameters<typeof m.recomputeCurve>) => {
+  if (a[2] === 'FX_REGIME') rc.log.push(`${a[1]}@${a[0].tick}`); return m.recomputeCurve(...a); } }; });
 vi.mock('../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));
 import { isTradingDay, TICKS_PER_GAME_DAY as D } from '@tycoon/engine-core';
 import { macroTables, type BlocId, type BlocMacroState, type FxRegimeKind, type PublicMacroView } from '../schema';
@@ -26,6 +29,7 @@ const nextTrading = (b: BlocId, d: number) => { let x = d; while (!isTradingDay(
 /** Genesis, day closes to SRL trading day d, ticks through d's t = 45; `armed` arms SRL (and FDL) at t = 46 of d; then ticks to t = 45 of the
  *  next SRL trading day. Returns the regimes seen at t = 44 and right after t = 45 of that day. */
 function run(armed: boolean) {
+  rc.log.length = 0;
   const w = macroWorld('breakcall', 0);
   macroGenesis(w.ctx, ports);
   const d = nextTrading('SRL', 2), nd = nextTrading('SRL', d + 1);
@@ -36,7 +40,7 @@ function run(armed: boolean) {
   for (let t = d * D + 46; t < nd * D + 45; t++) tick(w, t);
   const before = regime(w, 'SRL');
   tick(w, nd * D + 45);
-  return { start, before, armedAfter: w.store.get<BlocMacroState>(macroTables.bloc.name, 'SRL')!.fx.breakArmed, after: regime(w, 'SRL'), view: viewRegime(w, 'SRL'), fdl: regime(w, 'FDL'), fdlBreak: w.store.get<BlocMacroState>(macroTables.bloc.name, 'FDL')!.fx.breakTick, breakTick: w.store.get<BlocMacroState>(macroTables.bloc.name, 'SRL')!.fx.breakTick, nd };
+  return { start, before, armedAfter: w.store.get<BlocMacroState>(macroTables.bloc.name, 'SRL')!.fx.breakArmed, after: regime(w, 'SRL'), view: viewRegime(w, 'SRL'), fdl: regime(w, 'FDL'), fdlBreak: w.store.get<BlocMacroState>(macroTables.bloc.name, 'FDL')!.fx.breakTick, breakTick: w.store.get<BlocMacroState>(macroTables.bloc.name, 'SRL')!.fx.breakTick, nd, fxMarks: [...rc.log] };
 }
 
 describe('AC-04-20-BREAKCALL', () => {
@@ -45,6 +49,7 @@ describe('AC-04-20-BREAKCALL', () => {
     expect([r.start, r.before]).toEqual(['MANAGED_FLOAT', 'MANAGED_FLOAT']);
     expect([r.after, r.view, r.breakTick]).toEqual(['FREE_FLOAT', 'FREE_FLOAT', r.nd * D + 45]);
     expect([r.fdl, r.fdlBreak]).toEqual(['FREE_FLOAT', undefined]);   // FDL armed too: breakRuleCheck returns null, no break
+    expect(r.fxMarks).toEqual([`SRL@${r.nd * D + 45}`]);               // 2.5 marks FX_REGIME for SRL on the break tick only
   }, 120_000);
   it('with a Concord agreeable the same call opens it instead (BREAK_PENDING, regime kept, disarmed)', () => {
     cc.agree = true;
@@ -56,5 +61,6 @@ describe('AC-04-20-BREAKCALL', () => {
   it('breakArmed false → no regime change', () => {
     const r = run(false);
     expect([r.start, r.before, r.after, r.view]).toEqual(['MANAGED_FLOAT', 'MANAGED_FLOAT', 'MANAGED_FLOAT', 'MANAGED_FLOAT']);
+    expect(r.fxMarks).toEqual([]);
   }, 120_000);
 });
