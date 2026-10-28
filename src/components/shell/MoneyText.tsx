@@ -3,10 +3,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Chip } from "@/components/ui/Chip";
 import { abbreviateDigits, fullDigits, isZero, MINUS, parseAmount, shouldAbbreviate } from "@/components/ui/money";
-import { S } from "@/shell/strings";
+import type { RestrictedReason } from "@/shell/contracts/channels";
+import { RESTRICTED_LABELS, S } from "@/shell/strings";
 
 export type MoneyCtx = "hero" | "table" | "list" | "chip" | "sentence" | "delta" | "wealth";
-export type Restricted = "AD" | "START";
+export type Restricted = RestrictedReason;
 
 export interface MoneyTextProps {
   /** Decimal string from the server, e.g. "-42.10". */
@@ -17,13 +18,14 @@ export interface MoneyTextProps {
   estimated?: boolean;
   /** Restricted cash: a --steel outline pill beside the amount, --fg-muted text (Studio PF fix a; brass is for hero and rank only). */
   restricted?: Restricted;
+  /** Locale for the restricted pill label (EN default). */
+  locale?: string;
 }
 
 /** @deprecated Pre-17A props, kept so StatusStrip (T2) and PhoneHome (T4) render unchanged until they migrate. */
-export interface LegacyMoneyTextProps { value: string; ctx?: MoneyCtx; compact?: boolean; signed?: boolean }
+export interface LegacyMoneyTextProps { value: string; ctx?: MoneyCtx; signed?: boolean }
 
 const ABBREVIATED: ReadonlySet<MoneyCtx> = new Set(["list", "chip", "sentence"]);
-const RESTRICTED_TEXT: Record<Restricted, string> = { AD: S.restrictedAD, START: S.restrictedSTART };
 
 /** Spoken form (17 §3.4.6): "-42.10" -> "minus 42.10 dollars". */
 export function speakMoney(amount: string, estimated = false): string {
@@ -33,11 +35,11 @@ export function speakMoney(amount: string, estimated = false): string {
 
 export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
   if ("value" in props) return <LegacyMoneyText {...props} />;
-  const { amount, ctx = "list", estimated = false, restricted } = props;
+  const { amount, ctx = "list", estimated = false, restricted, locale } = props;
   const p = parseAmount(amount);
   const zero = isZero(p);
   const abbreviated = !zero && ABBREVIATED.has(ctx) && shouldAbbreviate(p);
-  const digits = zero ? "0.00" : abbreviated ? abbreviateDigits(p.int) : fullDigits(p);
+  const digits = zero ? "0.00" : abbreviated ? abbreviateDigits(p.int, p.negative, p.frac) : fullDigits(p);
   const sign = p.negative ? MINUS : ctx === "delta" && !zero ? "+" : "";
   const tone = zero ? "muted" : p.negative ? "loss" : ctx === "delta" ? "gain" : estimated ? "muted" : ctx === "wealth" ? "money-wealth-tone" : "";
   const cls = ["num", "money", `money-${ctx}`, tone].filter(Boolean).join(" ");
@@ -53,7 +55,7 @@ export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
   );
   const shown = abbreviated ? <LongPressTip full={`${p.negative ? MINUS : ""}$${fullDigits(p)}`}>{money}</LongPressTip> : money;
   if (!restricted) return shown;
-  return <span className="money-restricted">{shown}<Chip tone="steel" outline>{RESTRICTED_TEXT[restricted]}</Chip></span>;
+  return <span className="money-restricted">{shown}<Chip tone="steel" outline>{RESTRICTED_LABELS[locale === "fr" ? "fr" : "en"][restricted]}</Chip></span>;
 }
 
 export const LONG_PRESS_MS = 500;
@@ -118,23 +120,10 @@ export function groupMoney(v: string, cents = true): string {
   return `${neg ? "\u2212" : ""}$${grouped}${cents ? `.${f.padEnd(2, "0").slice(0, 2)}` : ""}`;
 }
 
-export function compactMoney(v: string): string {
-  const i = v.replace(/^[-+]/, "").split(".")[0];
-  const units: [number, string][] = [[12, "T"], [9, "B"], [6, "M"], [3, "k"]];
-  for (const [d, u] of units) {
-    if (i.length > d) {
-      const head = i.slice(0, i.length - d);
-      const dec = i.slice(i.length - d, i.length - d + 1);
-      return `${v.startsWith("-") ? "\u2212" : ""}$${head}${head.length < 3 && dec !== "0" ? `.${dec}` : ""}${u}`;
-    }
-  }
-  return `$${i}`;
-}
-
-function LegacyMoneyText({ value, ctx = "list", compact = false, signed = false }: LegacyMoneyTextProps) {
-  const text = compact ? compactMoney(value) : groupMoney(value);
+function LegacyMoneyText({ value, ctx = "list", signed = false }: LegacyMoneyTextProps) {
+  const text = groupMoney(value);
   const sign = signed && !value.startsWith("-") ? "+" : "";
-  if (ctx === "hero" && !compact) {
+  if (ctx === "hero") {
     const dot = text.lastIndexOf(".");
     return (
       <span className="money money-hero">

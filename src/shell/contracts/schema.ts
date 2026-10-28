@@ -80,7 +80,7 @@ export const candlesBody: Schema<CandlesBody> = obj({ assetId: str, res: candleR
 export const candleHistoryReq: Schema<CandleHistoryReq> = obj({ assetId: str, res: candleRes, from: int, to: int });
 export const candleHistoryRes: Schema<CandleHistoryRes> = obj({ bars: arr(candle) });
 
-const position: Schema<Position> = obj({ assetId: str, qty: dec, avgCost: dec, mark: dec, value: dec, upl: dec, pledgedQty: dec, lentQty: dec });
+const position: Schema<Position> = obj({ assetId: str, qty: dec, avgCost: dec, mark: dec, value: dec, upl: dec, pledgedQty: dec, lentQty: dec }, { pnlPct: dec, weightPct: dec }); // optional: proposed (PF-B), Engine to confirm
 const openOrder: Schema<OpenOrder> = obj(
   { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, tif: str, status: lit("PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"), placedTick: int, avgPrice: dec },
   { limit: dec, stop: dec },
@@ -94,6 +94,7 @@ export const intentResult: Schema<IntentResult> = obj(
   { rejectCode: str, rejectParams: rec(str), effects: arr(str) },
 );
 // untilRealMs = real milliseconds REMAINING until release (int >= 0, counts down), or null when held with no date.
+// reason stays an open string: AD_GRANT / FRESH_START (engine codes) get a label; any other code is shown raw.
 const restricted: Schema<RestrictedBucket> = obj({ reason: str, amount: dec, untilRealMs: nullable(int) });
 // drawdownReal = bare decimal in percent units ("-4.2" means -4.2 %); the server never sends the "%".
 const nwStats: Schema<NwStats> = obj({ window: str, drawdownReal: dec, sharpe: nullable(dec), twrIdx: dec, bench: dec });

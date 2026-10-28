@@ -56,6 +56,7 @@ describe("T1-06 MoneyText formatting", () => {
   });
   it("chip and sentence abbreviate too; below 10,000 stays full", () => {
     expect(text(html("12400", "chip"))).toBe("$12.4k");
+    expect(text(html("12499.99", "chip"))).toBe("$12.4k"); // rounds down, never up
     expect(text(html("12400", "sentence"))).toBe("$12.4k");
     expect(text(html("9999.99", "list"))).toBe("$9,999.99");
   });
@@ -86,12 +87,32 @@ describe("T1-06 MoneyText formatting", () => {
     expect(est).toContain("muted");
   });
   it("restricted cash shows a steel-outline pill beside it, never brass (Studio PF fix a)", () => {
-    const m = html("500", "list", { restricted: "AD" });
+    const m = html("500", "list", { restricted: "AD_GRANT" });
     expect(m).toMatch(/class="chip chip-steel chip-outline">AD</);
     expect(m).not.toContain("chip-acc");
+    expect(text(html("2500", "list", { restricted: "FRESH_START" }))).toBe("$2,500.00START");
+    expect(text(html("2500", "list", { restricted: "FRESH_START", locale: "fr" }))).toBe("$2,500.00START");
   });
-  it.each([["99950", "100k"], ["999500", "1M"], ["123456", "123k"], ["10000", "10k"], ["1234567890123456", "1234T"]])("rounds %s -> %s", (a, want) => {
+  // The one compact-money formatter for wealth (Studio #67 condition): 3 significant figures, always rounded DOWN.
+  it.each([
+    ["99950", "99.9k"], ["999500", "999k"], ["999999", "999k"], ["1000000", "1M"], ["1999999", "1.99M"], ["123456", "123k"],
+    ["10000", "10k"], ["10099", "10k"], ["412860", "412k"], ["999999999999", "999B"], ["1234567890123456", "1234T"],
+  ])("floors %s -> %s", (a, want) => {
     expect(abbreviateDigits(a)).toBe(want);
+  });
+  it.each([
+    ["412860", "15", "413k"], ["412000", "00", "412k"], ["412000", "01", "413k"], ["999001", "", "1M"], ["999000", "00", "999k"],
+    ["10000", "50", "10.1k"], ["999999999999", "99", "1T"],
+  ])("negatives floor toward −∞: −%s.%s -> −%s", (a, frac, want) => {
+    expect(abbreviateDigits(a, true, frac)).toBe(want);
+  });
+  it("wealth: status strip, phone status bar and home widget all read $412k for $412,860.15; −$413k when negative", () => {
+    expect(text(html("412860.15", "chip"))).toBe("$412k");
+    expect(text(html("-412860.15", "chip"))).toBe("\u2212$413k");
+    expect(text(html("1999999", "chip"))).toBe("$1.99M");
+  });
+  it("no FR variant yet: the compact form is the same digits for FR prefs (flagged for the i18n pass)", () => {
+    expect(text(html("412860.15", "chip", { locale: "fr" }))).toBe("$412k");
   });
   it("rejects non-decimal input instead of guessing", () => {
     expect(() => html("12e3")).toThrow();

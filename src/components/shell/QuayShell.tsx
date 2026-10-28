@@ -23,6 +23,7 @@ import { ShellCtx, useShell, useShellStore } from "./ShellContext";
 import { useDeepLinkNavigate } from "./PhoneBanners";
 import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
+import { LiveNwUnlock } from "./useNw";
 import { Desktop } from "./Desktop";
 import { SystemOverlays } from "./SystemOverlays";
 import { Banner, WorldEventBanner } from "./Banner";
@@ -167,6 +168,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
   return (
     <ShellCtx.Provider value={store}>
       <ShellClock store={store} query={query} />
+      <LiveNwUnlock />
       <Surface />
     </ShellCtx.Provider>
   );
