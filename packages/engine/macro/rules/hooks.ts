@@ -1,7 +1,7 @@
 // T04-18 steps 5-6: hook calls other modules implement (04 §3.16.6) and the crisis-specific policy responses.
 // A hook the card gives two owners (RESCUE_MERGER_PROPOSAL 16+07, CYBERCERT_PATCH 12+13, ltvTighten 07+10, consensusEpsShock 06+09) is
 // written once per owner by fireResponse/the catalog; HOOKS lists the first owner (09 is not a HookCall owner, so consensusEpsShock goes to 06 only).
-import { fromMoney, TICKS_PER_GAME_DAY, toMoney, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
+import { EngineFault, fromMoney, TICKS_PER_GAME_DAY, toMoney, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
 import { cbkId } from '@tycoon/engine-ledger';
 import { macroTables, type BlocMacroState, type CentralBank, type HookCall, type WorldEvent } from '../schema';
 import { canAgreeConcord, openConcord } from './concord';
@@ -39,7 +39,17 @@ export const HOOKS: Readonly<Record<string, { owner: HookCall['owner']; args: re
   CYBERCERT_PATCH: h('12', 'eventId'),
 });
 
+/** Hooks the card gives two owners (written once per owner). */
+const OWNERS: Readonly<Record<string, readonly HookCall['owner'][]>> = Object.freeze({ RESCUE_MERGER_PROPOSAL: ['16', '07'], CYBERCERT_PATCH: ['12', '13'], ltvTighten: ['07', '10'] });
+/** The owners a hook may be written to ([] for an unknown hook). */
+export const ownersOf = (hook: string): readonly HookCall['owner'][] => OWNERS[hook] ?? (HOOKS[hook] === undefined ? [] : [HOOKS[hook].owner]);
+/** Card Done: "no hook without a worldEventId"; and every hook is a §3.16.6 name, written to one of its owners, with every named arg. */
 export function writeHook(ctx: PhaseCtx, owner: HookCall['owner'], hook: string, args: HookCall['args'], worldEventId: string): HookCall {
+  const def = HOOKS[hook];
+  if (typeof worldEventId !== 'string' || worldEventId === '') throw new EngineFault('MAC_STATE_MISSING', `hook ${hook} without a worldEventId`, [hook]);
+  if (def === undefined) throw new EngineFault('MAC_STATE_MISSING', `unknown hook ${hook}`, [hook, worldEventId]);
+  if (!ownersOf(hook).includes(owner)) throw new EngineFault('MAC_STATE_MISSING', `hook ${hook} owner ${owner}`, [hook, worldEventId]);
+  for (const a of def.args) if (args[a] === undefined) throw new EngineFault('MAC_STATE_MISSING', `hook ${hook} without arg ${a}`, [hook, worldEventId]);
   const row: HookCall = { id: ctx.newId('hook'), owner, hook, args, worldEventId, createdTick: ctx.tick, startTick: ctx.tick + 1 };
   ctx.store.put<HookCall>(macroTables.hookCall.name, row);
   return row;

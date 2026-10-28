@@ -46,6 +46,12 @@ export const hook = (owner: Extract<ShockSpec, { kind: 'HOOK' }>['owner'], name:
 
 /** Major kinds: the catalog's precursor or trigger vector. Storms: stormShocks on the event's first bloc/sector/asset hint (start = triggerTick).
  *  Ripples are applied at start through rippleEffect (T04-17), so they return []. `ports` (unit addition) feeds the trigger's inputs. */
+/** E-35 BANK_RUN_LOCAL: the weakest NPC bank (07 port; CREDIT_WOBBLE is WORLD-scoped, so world-wide), delta −U(0.10, 0.20). No 07 → generic. */
+function bankRunOf(ev: WorldEvent, store: StoreRead, ports: MacroPorts): { bankRun?: { bankId: string; delta: number } } {
+  if (ev.subDef?.key !== 'BANK_RUN_LOCAL') return {};
+  const bankId = ports.credit?.weakestNpcBanks(store, 1)[0];
+  return bankId === undefined ? {} : { bankRun: { bankId, delta: -(0.10 + 0.10 * ev.subDef.u) } };
+}
 export function storyShocks(ev: WorldEvent, store: StoreRead, phase: 'PRECURSOR' | 'TRIGGER', ports: MacroPorts = defaultMacroPorts()): ShockSpec[] {
   if (ev.tier === 'MAJOR') {
     const def = MAJORS.find((m) => m.kind === ev.kind);
@@ -54,19 +60,20 @@ export function storyShocks(ev: WorldEvent, store: StoreRead, phase: 'PRECURSOR'
   }
   if (ev.tier === 'STORM' && phase === 'TRIGGER')
     return stormShocks(ev.kind as StormKind, ev.severity, { ...(ev.blocs[0] ? { bloc: ev.blocs[0] } : {}), ...(ev.sectors[0] !== undefined ? { sector: ev.sectors[0] } : {}),
-      ...(ev.assetsHint[0] ? { assetClass: ev.assetsHint[0] } : {}) }).map((s) => (s.kind === 'SHOCK' ? { ...s, shock: { ...s.shock, startTick: s.shock.startTick + ev.triggerTick, endTick: s.shock.endTick + ev.triggerTick } } : s));
+      ...(ev.assetsHint[0] ? { assetClass: ev.assetsHint[0] } : {}), ...bankRunOf(ev, store, ports) }).map((s) => (s.kind === 'SHOCK' ? { ...s, shock: { ...s.shock, startTick: s.shock.startTick + ev.triggerTick, endTick: s.shock.endTick + ev.triggerTick } } : s));
   return [];
 }
 
 /** Storm vectors (step 2). SHOCK ticks are relative to the storm start (storyShocks offsets them). FX_SQUALL needs target.bloc (SRL/PYN, drawn by
  *  the scheduler); SECTOR_ROTATION uses `sector` as s1 and `sector + 1` as s2 (unit decision: the card names no s2 rule). */
-export function stormShocks(kind: StormKind, sev: number, target: { bloc?: BlocId; sector?: number; assetClass?: string }): ShockSpec[] {
+export function stormShocks(kind: StormKind, sev: number, target: { bloc?: BlocId; sector?: number; assetClass?: string; bankRun?: { bankId: string; delta: number } }): ShockSpec[] {
   const b = target.bloc ?? 'FDL';
   switch (kind) {
     case 'RATE_SCARE': return [shock(b, 'tp10', 0.004 * sev, 0, 5 * D, 'RAMP'), shock(b, 'tp10', 0.004 * sev, 5 * D, 30 * D, 'DECAY', 10)];
     case 'OIL_SPIKE_LITE': return [hook('06', 'commoditySupplyShock', { commodityId: 'CRUDE', pct: -0.03 * sev, days: 20 })];
     case 'CRYPTO_FLUSH': return [hook('16', 'WIRE_ITEM', { key: 'storm.crypto_flush.hype', delta: -0.4 }), hook('05', 'makerWithdrawal', { assetFilter: 'CRYPTO', depthMult: 0.5, ticks: 720 })];
-    case 'CREDIT_WOBBLE': return [hook('07', 'corporatePdMultiplier', { bloc: 'WORLD', mult: 1.4, days: 30 })];
+    case 'CREDIT_WOBBLE': return target.bankRun ? [hook('07', 'depositConfidenceShock', { bankIds: [target.bankRun.bankId], delta: target.bankRun.delta })]
+      : [hook('07', 'corporatePdMultiplier', { bloc: 'WORLD', mult: 1.4, days: 30 })];
     case 'FX_SQUALL': return [shock(b, 'capital_flow', -0.4 * sev, 0, 10 * D)];
     case 'SECTOR_ROTATION': { const s1 = target.sector ?? 0;
       return [hook('06', 'erpShock', { bloc: 'WORLD', sector: s1, deltaPremium: 0.01, halfLifeDays: null }), hook('06', 'erpShock', { bloc: 'WORLD', sector: s1 + 1, deltaPremium: -0.005, halfLifeDays: null })]; }

@@ -6,12 +6,11 @@
 import { dmath, EngineFault, TICKS_PER_CHAPTER, TICKS_PER_GAME_DAY, type Id, type ParamsView, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
 import { BLOC_DEFAULTS } from '../blocs';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
-import { BLOC_ORDER, CRISIS_KINDS, macroTables, RIPPLE_KINDS, STORM_KINDS, type BlocId, type CrisisKind, type CrisisSchedulerState, type EventTier, type GlobalMacroState,
+import { BLOC_ORDER, CRISIS_KINDS, macroTables, RIPPLE_KINDS, STORM_KINDS, type BlocId, type CrisisKind, type CrisisSchedulerState, type EventTier, type GlobalMacroState, type HookCall, type SubDefKey,
   type RippleKind, type StormKind, type WorldEvent } from '../schema';
 import { S } from '../streams';
 import { utcBandOf, utcHourOfTick } from './calendar';
-import { chooseBlocs, majorWeights, STORM_EFFECT_DAYS } from './crisisCatalog';
-import { writeHook } from './hooks';
+import { chooseBlocs, majorWeights, STORM_EFFECT_DAYS, subDefOf } from './crisisCatalog';
 import { applyEventShocks, rippleEffect, storyShocks } from './shocks';
 
 const D = TICKS_PER_GAME_DAY;
@@ -82,11 +81,11 @@ const plannedEnd = (tier: EventTier, trigger: Tick, contagionDays: number): Tick
  *  emits SEALED macro.event.internal. contagionDays: MAJOR days from trigger + 1 day to RECOVERY; STORM/RIPPLE days from trigger to ENDED. */
 export function startEvent(ctx: PhaseCtx, tier: EventTier, kind: WorldEvent['kind'], blocs: BlocId[], severity: number, precursorDays: number,
   contagionDays: number, origin: WorldEvent['origin'], triggerTick: Tick, cause: { key: string; refs: string[] } = { key: `scheduler.${tier}`, refs: [] },
-  extra: { sectors?: number[]; assetsHint?: string[] } = {}): WorldEvent {
+  extra: { sectors?: number[]; assetsHint?: string[]; subDef?: WorldEvent['subDef'] } = {}): WorldEvent {
   const tick = ctx.tick;
   const ev: WorldEvent = { id: ctx.newId('wev'), tier, kind, blocs: [...blocs], sectors: extra.sectors ?? [], assetsHint: extra.assetsHint ?? [], phase: 'PRECURSOR', phaseSinceTick: tick,
     precursorStartTick: precursorDays > 0 ? tick + 1 : triggerTick, triggerTick, plannedEndTick: plannedEnd(tier, triggerTick, contagionDays), origin, severity,
-    shocks: [], publicTitleKey: null, causeChain: [{ tick, key: cause.key, refs: [...cause.refs] }] };
+    shocks: [], publicTitleKey: null, causeChain: [{ tick, key: cause.key, refs: [...cause.refs] }], ...(extra.subDef ? { subDef: extra.subDef } : {}) };
   ctx.store.put(macroTables.event.name, ev);
   const s = schedOf(ctx.store);
   if (tier === 'MAJOR') putSched(ctx, { ...s, activeMajorId: ev.id, lastMajorStartTick: triggerTick, majorsThisChapter: s.majorsThisChapter + 1,
@@ -126,47 +125,58 @@ function stormTarget(kind: StormKind, f: number): { blocs: BlocId[]; sectors: nu
   return { blocs: [], sectors: [], assetsHint: [] };
 }
 
-function startRipple(ctx: PhaseCtx, d: readonly number[], at: number): WorldEvent {
-  const kind: RippleKind = RIPPLE_KINDS[Math.floor(d[at]! * RIPPLE_KINDS.length)]!;
-  const sign = d[at + 2]! < 0.5 ? -1 : 1, size = 0.03 + 0.05 * d[at + 3]!, length = 1 + Math.floor(3 * d[at + 4]!);
+/** Sub-defs with a fixed sign (E-35 §5): +1 = supply cut on COMMODITY_SUPPLY (price up), −1 = negative SECTOR_SHOCK. */
+const FIXED_SIGN: Readonly<Partial<Record<SubDefKey, number>>> = Object.freeze({ DROUGHT: 1, CROP_DISEASE: 1, CHIP_FAB: 1, RECALL: -1, SCANDAL: -1, CYBER: -1 });
+const AGRI_FIRST = 3, AGRI_COUNT = 4;   // RIPPLE_COMMODITIES WHEAT, CORN, COFFEE, COCOA
+function startRipple(ctx: PhaseCtx, d: readonly number[], at: number, subDefs: boolean): WorldEvent {
+  const xk = d[at]! * RIPPLE_KINDS.length, ik = Math.floor(xk), kind: RippleKind = RIPPLE_KINDS[ik]!;
+  const sub = subDefs ? subDefOf(kind, xk - ik) : null;
+  const sign = (sub ? FIXED_SIGN[sub.key] : undefined) ?? (d[at + 2]! < 0.5 ? -1 : 1), size = 0.03 + 0.05 * d[at + 3]!, length = 1 + Math.floor(3 * d[at + 4]!);
   let target: number | string, extra: { sectors?: number[]; assetsHint?: string[] };
   if (kind === 'SECTOR_SHOCK' || kind === 'REGULATORY_NOTE') { target = Math.floor(d[at + 1]! * SECTOR_COUNT); extra = { sectors: [target] }; }      // MISSING EXPORT: T06 sector sizes (uniform)
   else if (kind === 'LOCAL_BOOM') {
     const cities = ctx.content.cities().map((c) => c.cityId).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));                                           // MISSING EXPORT: T22 city activity weights (uniform)
     target = cities[Math.floor(d[at + 1]! * cities.length)] ?? ''; extra = { assetsHint: [target] };
-  } else { target = Math.floor(d[at + 1]! * 8); extra = { assetsHint: [] }; }
-  const ev = startEvent(ctx, 'RIPPLE', kind, [], size, 0, length, 'SCHEDULED', ctx.tick + 1, { key: 'scheduler.RIPPLE', refs: [String(target)] }, extra);
+  } else if (sub?.key === 'DROUGHT' || sub?.key === 'CROP_DISEASE') { target = AGRI_FIRST + Math.floor(d[at + 1]! * AGRI_COUNT); extra = { assetsHint: [] }; }   // agricultural commodity
+  else { target = Math.floor(d[at + 1]! * 8); extra = { assetsHint: [] }; }
+  // MISSING EXPORT: T06 listed firms (RECALL/SCANDAL/CYBER scope COMPANY, revenue/capacity), T06 semis sector (CHIP_FAB), T09 delivery delay (SHIPPING_LANE C18),
+  // T14 Rep/CEO hook (SCANDAL), C17 compute price (DATA_CENTER): the sub-def is recorded on the event and the kind's generic vector applies with its fixed sign.
+  const ev = startEvent(ctx, 'RIPPLE', kind, [], size, 0, length, 'SCHEDULED', ctx.tick + 1, { key: 'scheduler.RIPPLE', refs: [String(target)] }, { ...extra, ...(sub ? { subDef: sub } : {}) });
   applyEventShocks(ctx, ev, rippleEffect(ctx.store, kind, { target, sign, size, length }));
   return ctx.store.get<WorldEvent>(macroTables.event.name, ev.id) ?? ev;
 }
 
-function startStorm(ctx: PhaseCtx, uKind: number, uPre: number): WorldEvent {
+/** The sub-def uses uPre's fraction inside its precursor bucket (independent of the precursor length, f and the kind). */
+function startStorm(ctx: PhaseCtx, uKind: number, uPre: number, subDefs: boolean): WorldEvent {
   const x = uKind * STORM_KINDS.length, i = Math.min(STORM_KINDS.length - 1, Math.floor(x)), f = x - i, kind = STORM_KINDS[i]!;
-  const t = stormTarget(kind, f), pre = 1 + Math.floor(2 * uPre);
+  const t = stormTarget(kind, f), xp = 2 * uPre, pre = 1 + Math.floor(xp), sub = subDefs ? subDefOf(kind, xp - Math.floor(xp)) : null;
   return startEvent(ctx, 'STORM', kind, t.blocs, 0.6 + 0.8 * f, pre, STORM_EFFECT_DAYS[kind], 'SCHEDULED', ctx.tick + 1 + pre * D, { key: 'scheduler.STORM', refs: [] },
-    { sectors: t.sectors, assetsHint: t.assetsHint });
+    { sectors: t.sectors, assetsHint: t.assetsHint, ...(sub ? { subDef: sub } : {}) });
 }
 
 /** Called at each day close (step 11). Always draws exactly 24 uniforms. Returns the events started today. */
-export function schedulerDay(ctx: PhaseCtx, ports: MacroPorts = defaultMacroPorts(), weights?: { kind: CrisisKind; w: number }[]): WorldEvent[] {
+/** `opts.subDefs` false (AC-04-18-SUBDEF-RATE comparison) draws the same onsets with every ripple and storm generic. */
+export function schedulerDay(ctx: PhaseCtx, ports: MacroPorts = defaultMacroPorts(), weights?: { kind: CrisisKind; w: number }[], opts: { subDefs?: boolean } = {}): WorldEvent[] {
   const rng = ctx.rng(S.crisis()), d: number[] = [];
   for (let i = 0; i < DRAWS_PER_DAY; i++) d.push(rng.uOpen());
   const tick = ctx.tick, p = ctx.params, out: WorldEvent[] = [];
   let s = schedOf(ctx.store);
   const cw = s.crisisWeek, inCw = crisisWeekActive(s, tick), c0 = chapterStartOf(tick + 1);
-  if (cw && cw.announcedTick === tick + 1) writeHook(ctx, '16', 'WIRE_ITEM', { key: 'crisis_week_announced', startTick: cw.startTick, endTick: cw.endTick }, '');
+  // no WorldEvent exists for a crisis week: a non-event wire item (worldEventId '', as auction/ycc/default/concord wire items), not a writeHook call
+  if (cw && cw.announcedTick === tick + 1) ctx.store.put<HookCall>(macroTables.hookCall.name, { id: ctx.newId('hook'), owner: '16', hook: 'WIRE_ITEM',
+    args: { key: 'crisis_week_announced', startTick: cw.startTick, endTick: cw.endTick }, worldEventId: '', createdTick: tick, startTick: tick + 1 });
   // ripples
   const n = poissonInverse(d[0]!, p.num('macro_ripple_rate'));
   for (let k = 0; k < MAX_RIPPLES && k < n; k++) {
     if (schedOf(ctx.store).activeRippleIds.length >= MAX_RIPPLES) break;
-    out.push(startRipple(ctx, d, 1 + 5 * k));
+    out.push(startRipple(ctx, d, 1 + 5 * k, opts.subDefs ?? true));
   }
   // storms
   s = schedOf(ctx.store);
   const stormFree = s.activeStormIds.length === 0 && (s.lastStormEndTick == null || tick - s.lastStormEndTick >= STORM_COOLDOWN_DAYS * D) && tick + 1 >= c0 + NO_START_FIRST_DAYS * D;
   const forced = cw !== null && inCw && Math.floor(tick / D) === Math.floor(cw.startTick / D) + 2 && s.activeStormIds.length === 0
     && (s.lastStormStartTick == null || s.lastStormStartTick < cw.startTick);
-  if (forced || (stormFree && d[16]! < pFromRate(p.num('macro_storm_rate') * (inCw ? CRISIS_WEEK_STORM_MULT : 1)))) out.push(startStorm(ctx, d[17]!, d[18]!));
+  if (forced || (stormFree && d[16]! < pFromRate(p.num('macro_storm_rate') * (inCw ? CRISIS_WEEK_STORM_MULT : 1)))) out.push(startStorm(ctx, d[17]!, d[18]!, opts.subDefs ?? true));
   // majors
   s = schedOf(ctx.store);
   const ws = weights ?? majorWeights(ctx.store, ports), W = ws.reduce((a, x) => a + x.w, 0);

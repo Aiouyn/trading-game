@@ -6,7 +6,7 @@ import { dmath, TICKS_PER_GAME_DAY, type Ccy, type StoreRead } from '@tycoon/eng
 import { BLOC_DEFAULTS } from '../blocs';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
 import { BLOC_ORDER, macroTables, type ActiveShock, type BlocId, type BlocMacroState, type CrisisKind, type GlobalMacroState, type HookCall,
-  type StormKind, type WorldEvent } from '../schema';
+  type RippleKind, type StormKind, type SubDefKey, type WorldEvent } from '../schema';
 import { hook, shock } from './shocks';
 
 const D = TICKS_PER_GAME_DAY;
@@ -119,6 +119,19 @@ export const MAJORS: readonly MajorDef[] = Object.freeze<MajorDef[]>([
       { kind: 'ONE_OFF', target: 'fx_fair_ln', value: dmath.ln(0.95), bloc: 'PYN' }],
     response: ['FISCAL_SUPPORT'], calibration: [band('pyn_fair_change', Number.NEGATIVE_INFINITY, -0.08, '04')] },
 ]);
+/** E-35 §5 sub-defs within a kind (weights PROVISIONAL [Quant]); the rest of the kind is generic. They draw inside the kind rate (no new draw:
+ *  the kind draw's within-bucket fraction picks the sub-def), so onsets are identical with and without them. */
+export const SUB_DEFS: Readonly<Partial<Record<RippleKind | StormKind, readonly { key: SubDefKey; w: number }[]>>> = Object.freeze({
+  COMMODITY_SUPPLY: [{ key: 'DROUGHT', w: 0.25 }, { key: 'CROP_DISEASE', w: 0.15 }, { key: 'CHIP_FAB', w: 0.15 }, { key: 'SHIPPING_LANE', w: 0.15 }],
+  SECTOR_SHOCK: [{ key: 'RECALL', w: 0.2 }, { key: 'SCANDAL', w: 0.15 }, { key: 'CYBER', w: 0.15 }, { key: 'DATA_CENTER', w: 0.1 }],
+  CREDIT_WOBBLE: [{ key: 'BANK_RUN_LOCAL', w: 0.5 }],
+});
+/** The sub-def `f` ∈ [0, 1) falls in, with the uniform rescaled inside its bucket; null = generic. */
+export function subDefOf(kind: RippleKind | StormKind, f: number): { key: SubDefKey; u: number } | null {
+  let c = 0;
+  for (const x of SUB_DEFS[kind] ?? []) { if (f < c + x.w) return { key: x.key, u: (f - c) / x.w }; c += x.w; }
+  return null;
+}
 export const STORM_EFFECT_DAYS: Readonly<Record<StormKind, number>> = Object.freeze({ RATE_SCARE: 30, OIL_SPIKE_LITE: 20, CRYPTO_FLUSH: 1, CREDIT_WOBBLE: 30, FX_SQUALL: 10,
   SECTOR_ROTATION: 1, EARNINGS_SCARE: 1, LIQUIDITY_HICCUP: 1 });
 

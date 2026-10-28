@@ -65,14 +65,16 @@ export interface StartRec { id: string; tier: WorldEvent['tier']; kind: string; 
 
 /** Scheduler-only loop over `chapters`: chapterStart at each chapter's first tick, schedulerDay at each day close, then ends due events
  *  (majors at plannedEnd + recoveryDays: calm recovery; storms and ripples at plannedEnd). ENDED storm and ripple rows are deleted (speed). */
-export function runChapters(w: SchedWorld, chapters: number, weights: { kind: CrisisKind; w: number }[], recoveryDays = 14): StartRec[] {
+export function runChapters(w: SchedWorld, chapters: number, weights: { kind: CrisisKind; w: number }[], recoveryDays = 14,
+  o: { subDefs?: boolean; onStart?: (ev: WorldEvent) => void } = {}): StartRec[] {
   const recs: StartRec[] = [], byId: Record<string, StartRec> = {};
   const days = chapters * (TICKS_PER_CHAPTER / D);
   for (let d = 0; d < days; d++) {
     if ((d * D) % TICKS_PER_CHAPTER === 0) { w.setTick(d * D); chapterStart(w.ctx); }
     const t = d * D + D - 1;
     w.setTick(t);
-    for (const ev of schedulerDay(w.ctx, undefined, weights)) {
+    for (const ev of schedulerDay(w.ctx, undefined, weights, { subDefs: o.subDefs ?? true })) {
+      o.onStart?.(ev);
       const r: StartRec = { id: ev.id, tier: ev.tier, kind: ev.kind, chapter: Math.floor((t + 1) / TICKS_PER_CHAPTER), precursorStartTick: ev.precursorStartTick,
         triggerTick: ev.triggerTick, endTick: null, origin: ev.origin };
       recs.push(r); byId[r.id] = r;

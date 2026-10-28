@@ -344,7 +344,10 @@ export interface WorldEvent {
   shocks: ActiveShock[];
   publicTitleKey: string | null;
   causeChain: { tick: Tick; key: string; refs: string[] }[];
+  /** T04-18 E-35 sub-def (absent = generic); `u` is the uniform left inside the sub-def's bucket (BANK_RUN_LOCAL delta). */
+  subDef?: { key: SubDefKey; u: number };
 }
+export type SubDefKey = 'DROUGHT' | 'CROP_DISEASE' | 'CHIP_FAB' | 'SHIPPING_LANE' | 'RECALL' | 'SCANDAL' | 'CYBER' | 'DATA_CENTER' | 'BANK_RUN_LOCAL';
 
 // ───────── §2.11 stabilizer (read-only mirror of 03, R04) ─────────
 export interface StabilizerState {
