@@ -329,9 +329,25 @@ for (const scale of ["1", "2"] as const) {
       await pinHtml(page, "cb", true);
       expect(await chipOf()).toEqual(plainChip); // chips carry no colour meaning
       // The baseline frames a cb-coloured element: the open confirm's Yes (--loss), checked against the Studio literal.
-      // Keyboard, not a tap: at scale 1 this Cancel sits at the foot of the 844 px viewport and the tap lands mid-scroll.
-      await row.getByTestId("br-oo-cancel").focus();
-      await page.keyboard.press("Enter");
+      // QA #87 carry-over: scrolled to the end, the list's bottom padding (--edge-bar-h) keeps the last Cancel clear of
+      // #edge-bar, and a real tap opens the confirm.
+      const cancel = row.getByTestId("br-oo-cancel");
+      // The ticket's Qty still has focus from the review above; its blur adds "Enter a quantity." (card 4) and moves
+      // everything below by one line. Settle that first so the tap target measured below is where the tap lands.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await expect(br(page).getByTestId("br-qty-msg")).toBeVisible();
+      const edge = (await page.getByTestId("edge-bar").boundingBox())!;
+      const clear = await cancel.evaluate((el) => {
+        for (let s = el.parentElement; s; s = s.parentElement) {
+          if (s.scrollHeight > s.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(s).overflowY)) s.scrollTop = s.scrollHeight;
+        }
+        const b = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return { hit: hit !== null && el.contains(hit), bottom: b.bottom };
+      });
+      expect(clear.hit).toBe(true);
+      expect(edge.y - clear.bottom).toBeGreaterThanOrEqual(edge.height);
+      await cancel.tap();
       const yes = row.getByTestId("br-oo-yes");
       await expect(yes).toBeVisible();
       await expect.poll(() => yes.evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).borderTopColor])).toEqual([SPEC_COLOUR.cbLoss, SPEC_COLOUR.cbLoss]);

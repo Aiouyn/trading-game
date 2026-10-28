@@ -76,7 +76,7 @@
 .sparkline-empty line { stroke-dasharray: 3 3; }
 .rank-bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 12px; overflow: hidden; }
 .rank-bar span { display: block; height: 100%; background: var(--acc); }
-.edge-bar { flex: none; height: calc(36px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); display: grid; place-items: center; background: var(--chrome); touch-action: none; }
+.edge-bar { flex: none; height: calc(var(--edge-bar-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); display: grid; place-items: center; background: var(--chrome); touch-action: none; }
 .launcher-bar { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 0; border-bottom: 1px solid var(--line); }
 .launcher-bar .icon-btn { width: 44px; height: 44px; }
 .launcher-bar .cancel { min-height: 44px; padding: 0 8px; color: var(--fg-muted); }

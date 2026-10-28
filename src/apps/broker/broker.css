@@ -65,6 +65,39 @@
 .br-skel-ticket { height: 240px; }
 .br-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-8); }
 
+/* Price chart (UI card 7). The box has the chart's height in every state (skeleton, error, empty, plot, table), so
+   nothing below it moves when history lands. 200 px; 240 px in a >= 640 px desktop window. The plot itself is the lazy
+   chart chunk (candleChart.css). */
+.br-chart { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.br-chart-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-8); }
+.br-chart-title { margin: 0; font-size: var(--fs-12_5); color: var(--fg-muted); font-weight: 500; }
+.br-chart-box { position: relative; height: 200px; min-width: 0; border-radius: var(--r-input); overflow: hidden; }
+@container (min-width: 640px) { .br:not(.br-phone) .br-chart-box { height: 240px; } }
+.br-chart-box.stale { opacity: 0.6; }
+.br-chart-skel { position: absolute; inset: 0; }
+.br-chart-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-8); margin: 0; padding: var(--sp-12); text-align: center; border: 1px solid var(--line); border-radius: var(--r-input); }
+.br-chart-msg.muted { color: var(--fg-muted); }
+.br-chart-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
+.br-chart-foot .br-updating { margin: 0; }
+.br-chart-foot.off { visibility: hidden; }
+/* Range tabs: the #38 segment (.br-seg). At BR_STACK_SCALE they wrap to 2 rows of 3, not a column. */
+.br-stacked .br-seg.br-chart-ranges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+.br-stacked .br-seg.br-chart-ranges button { text-align: center; }
+.br-stacked .br-seg.br-chart-ranges button + button { border-top: 0; border-left: 1px solid var(--line); }
+.br-stacked .br-seg.br-chart-ranges button:nth-child(3n + 1) { border-left: 0; }
+.br-stacked .br-seg.br-chart-ranges button:nth-child(n + 4) { border-top: 1px solid var(--line); }
+/* Table view: scrolls inside the box; the header row stays put. */
+.br-chart-table { position: absolute; inset: 0; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-input); }
+.br-chart-table:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+.br-chart-table table { width: 100%; border-collapse: collapse; font-size: var(--fs-12_5); }
+.br-chart-table th, .br-chart-table td { padding: var(--sp-4) var(--sp-8); text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+.br-chart-table th[scope="row"], .br-chart-table thead th:first-child { text-align: left; font-weight: 400; color: var(--fg-muted); }
+.br-chart-table thead th { position: sticky; top: 0; background: var(--win); color: var(--fg-muted); font-weight: 500; }
+.br-chart-table td { font-family: var(--font-num); color: var(--fg); }
+.br-chart-toggle.btn { min-height: var(--hit-pointer); }
+.br-phone .br-chart-toggle.btn { min-height: var(--hit-touch); }
+html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { border-bottom-color: var(--fg-muted); }
+
 /* Phone: one column, 16 px padding, 44 px controls. */
 /* No size container on phone: it would become the containing block of the fixed review Sheet. */
 .br-phone { padding: var(--sp-16); container-type: normal; }
