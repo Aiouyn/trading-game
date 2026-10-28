@@ -22,7 +22,7 @@ test("T4-01 Ctrl K: focus in combobox with listbox + activedescendant; Esc close
   await boot(page, "/");
   await page.getByTestId("focus-btn").focus();
   await page.keyboard.press("Control+k");
-  const cb = page.getByRole("combobox");
+  const cb = page.getByRole("combobox", { name: "Find an app, a ticker, a command" });
   await expect(cb).toBeFocused();
   await cb.fill("po");
   await expect(page.getByRole("listbox")).toBeVisible();
@@ -39,10 +39,10 @@ test("T4-02 empty query = Recent group; 'zzzz' = Nothing found · Search help; g
   await page.keyboard.press("Control+k");
   await expect(page.locator(".launcher .label").first()).toHaveText("Recent");
   await shot(page, "launcher-recent");
-  await page.getByRole("combobox").fill("zzzz");
+  await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill("zzzz");
   await expect(page.locator(".launcher .empty")).toHaveText("Nothing found · Search help");
   await shot(page, "launcher-empty");
-  await page.getByRole("combobox").fill("o");
+  await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill("o");
   const order = await page.locator(".launcher .label").allTextContents();
   const want = ["Apps", "Tickers", "Players and companies", "Commands", "Recent", "Help"];
   expect(order).toEqual(want.filter((g) => order.includes(g)));

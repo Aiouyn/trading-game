@@ -78,7 +78,8 @@ test("BR-4-02 header: ticker, last, today; asset picker when opened without one"
   await expect(br(page).getByTestId("br-last")).toHaveText(/^\d[\d,]*\.\d+$/);
   await expect(br(page).getByTestId("br-today")).toHaveText(/[+\u2212]?[\d,.]+ \([+\u2212]?[\d.]+%\)|—/);
   await boot(page, "/broker");
-  const sel = brAny(page).getByTestId("br-asset-select");
+  // The persisted HALC window stays open; the new no-asset window is the one with the picker.
+  const sel = page.getByTestId("br-asset-select").first();
   await expect(sel).toBeVisible();
   const opts = await sel.locator("option").allTextContents();
   expect(opts).toEqual([...opts].sort());
@@ -88,8 +89,8 @@ test("BR-4-04/06 preview rows appear after typing; Review does not submit; Enter
   await open(page);
   const before = await intents(page);
   await qty(page, "40");
-  for (const k of ["cost", "fee", "impact"]) await expect(br(page).getByTestId(`br-row-${k}`)).toBeVisible();
-  await expect(br(page).getByTestId("br-est-title")).toHaveText(/^Estimate at tick \d+$/);
+  for (const k of ["price", "fee", "impact", "total"]) await expect(br(page).getByTestId(`br-row-${k}`)).toBeVisible();
+  await expect(br(page).getByTestId("br-est-title")).toHaveText(/^Estimate · at tick \d+$/);
   await shot(page, "preview");
   await review(page);
   await expect(page.getByTestId("br-action").first()).toHaveText("Buy 40 HALC");
@@ -123,8 +124,9 @@ test("BR-4-08/09 Place sends one intent, shows the pending tick, then the fill; 
   await review(page);
   await place(page).dblclick();
   await expect.poll(() => intents(page)).toBe(before + 1);
-  await expect(br(page).getByTestId("br-ack")).toHaveAttribute("data-status", "FILLED", { timeout: 15_000 });
-  await expect(br(page).getByTestId("br-ack-title")).toHaveText(/^Bought 40 HALC at [\d,.]+$/);
+  // 19 §2.3: the intent stays ACCEPTED; the fill arrives on me.fills and turns the ack into the Bought line.
+  await expect(br(page).getByTestId("br-ack")).toHaveAttribute("data-status", "ACCEPTED");
+  await expect(br(page).getByTestId("br-ack-title")).toHaveText(/^Bought 40 HALC at [\d,.]+$/, { timeout: 15_000 });
   await expect(br(page).getByTestId("br-ack-fee")).toHaveText(/^Fee [\d,.]+$/);
   expect(await intents(page)).toBe(before + 1);
   await shot(page, "placed");
@@ -133,15 +135,29 @@ test("BR-4-08/09 Place sends one intent, shows the pending tick, then the fill; 
   await expect(br(page).getByTestId("br-qty")).toHaveValue("");
 });
 
-test("BR-4-10 rejected for buying power, and oversell rejected with MKT_NO_LOCATE copy", async ({ page }) => {
-  await open(page);
-  await qty(page, "999999");
-  await expect(br(page).getByTestId("br-qty-msg")).toHaveText(/buying power/i);
-  await expect(br(page).getByTestId("br-review")).toHaveAttribute("aria-disabled", "true");
+test("BR-4-10 rejected for buying power (Edit restores the draft), unknown code, and oversell rejected with MKT_NO_LOCATE copy", async ({ page }) => {
+  await open(page, "?asset=HALC&reject=MKT_INSUFFICIENT_FUNDS");
+  await qty(page, "40");
+  await review(page);
+  await place(page).click();
+  const ack = br(page).getByTestId("br-ack");
+  await expect(ack).toHaveAttribute("data-status", "REJECTED");
+  await expect(br(page).getByTestId("br-ack-title")).toHaveText("Order rejected");
+  await expect(br(page).getByTestId("br-ack-reason")).toHaveText("Not enough cash for this order.");
   await shot(page, "rejected-bp");
+  await br(page).getByTestId("br-ack-edit").click();
+  await expect(br(page)).toHaveAttribute("data-phase", "edit");
+  await expect(br(page).getByTestId("br-qty")).toHaveValue("40");
+  await open(page, "?asset=HALC&reject=ZZ_NEW");
+  await qty(page, "40");
+  await review(page);
+  await place(page).click();
+  await expect(br(page).getByTestId("br-ack-title")).toHaveText("Order rejected (ZZ_NEW)");
+  await open(page);
   await br(page).getByTestId("br-side-sell").click();
   await qty(page, "999999");
-  await expect(br(page).getByTestId("br-qty-msg")).toHaveText(/more than you hold|hold/i);
+  await expect(br(page).getByTestId("br-qty-msg")).toHaveText("You can't sell more than you hold.");
+  await expect(br(page).getByTestId("br-review")).toHaveAttribute("aria-disabled", "true");
   await shot(page, "no-locate");
 });
 
@@ -195,12 +211,19 @@ test("BR-4-13 desktop window: default and maximised two columns, the 520 minimum
   await page.mouse.down();
   await page.mouse.move(50, handle.y + 5, { steps: 5 });
   await page.mouse.up();
-  expect((await win.boundingBox())!.width).toBe(520);
+  // Registry minW is 720 (narrowMinW 480 only when the desktop area is < 720), so the drag stops at 720: still two columns.
+  expect((await win.boundingBox())!.width).toBe(720);
+  await expect.poll(cols).toBe("two");
+  expect(await br(page).evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  // The card's 520 window (< 640, one column): force the frame width, as a narrow desktop area would allow.
+  await win.evaluate((w) => { (w as HTMLElement).style.width = "520px"; });
   await expect.poll(cols).toBe("one");
   expect(await br(page).evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
   expect(await hits(br(page), 28)).toEqual([]);
   await qty(page, "40");
   await shot(page, "window-520");
+  await review(page);
+  await shot(page, "window-520-review");
 });
 
 test("BR-4-14 phone: review in a bottom Sheet with focus trapped, Esc returns to Edit, 44 px hits", async ({ page }, info) => {
@@ -211,9 +234,9 @@ test("BR-4-14 phone: review in a bottom Sheet with focus trapped, Esc returns to
   await br(page).getByTestId("br-review").click();
   const sheet = page.getByTestId("br-sheet");
   await expect(sheet).toBeVisible();
-  const sb = (await sheet.boundingBox())!;
-  expect(sb.y + sb.height).toBeCloseTo(844, 0);
-  expect(sb.width).toBe(390);
+  // Measure after the sheet-up entrance (--dur-base) settles.
+  await expect.poll(async () => { const b = (await sheet.boundingBox())!; return Math.round(b.y + b.height); }).toBe(844);
+  expect((await sheet.boundingBox())!.width).toBe(390);
   expect(await primaries(page)).toBe(1);
   for (let i = 0; i < 5; i++) {
     await page.keyboard.press("Tab");
@@ -259,11 +282,11 @@ test("BR-4-16 FR: labels, NNBSP before % and pb, French action", async ({ page }
   await expect(page.getByTestId("br-action").first()).toHaveText("Acheter 40 HALC");
   await shot(page, "review", "fr");
   await place(page).click();
-  await expect(br(page).getByTestId("br-ack")).toHaveAttribute("data-status", "FILLED", { timeout: 15_000 });
+  await expect(br(page).getByTestId("br-ack-title")).toHaveText(/^Achat de 40 HALC à [\d\u202F,]+$/, { timeout: 15_000 });
   await shot(page, "placed", "fr");
   await br(page).getByTestId("br-new").click();
   await qty(page, "999999");
-  await shot(page, "rejected-bp", "fr");
+  await shot(page, "preview-large", "fr");
 });
 
 test("BR-4 axe: no serious or critical issues in edit, review and ack", async ({ page }) => {

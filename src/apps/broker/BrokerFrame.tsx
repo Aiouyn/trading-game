@@ -131,8 +131,10 @@ export function BrokerFrame({ context }: { context?: string }) {
   if (ticker.state === "loading" || me.state === "loading") {
     return (
       <div className={cls} data-testid="broker" data-state="loading" aria-busy="true" aria-label={t.loading}>
-        <div className="br-col br-col-head"><div className="br-skel br-skel-head" data-testid="br-loading" /></div>
-        <div className="br-col br-col-ticket"><div className="br-skel br-skel-ticket" /></div>
+        <div className="br-grid">
+          <div className="br-col br-col-head"><div className="br-skel br-skel-head" data-testid="br-loading" /></div>
+          <div className="br-col br-col-ticket"><div className="br-skel br-skel-ticket" /></div>
+        </div>
       </div>
     );
   }
@@ -172,14 +174,16 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   return (
     <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-phase={result ? "acked" : phase.kind === "placed" ? "submitting" : phase.kind} onKeyDown={onKey}>
-      <div className="br-col br-col-head">
-        <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices}
-          onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} />
-        {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
-      </div>
-      <div className="br-col br-col-ticket">
-        {ack || (phone ? ticket : review || ticket)}
-        {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
+      <div className="br-grid">
+        <div className="br-col br-col-head">
+          <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices}
+            onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} />
+          {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
+        </div>
+        <div className="br-col br-col-ticket">
+          {ack || (phone ? ticket : review || ticket)}
+          {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
+        </div>
       </div>
     </div>
   );

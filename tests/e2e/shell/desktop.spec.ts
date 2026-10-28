@@ -281,7 +281,7 @@ test("S1-16 reduced motion and reduced transparency in every shell state of §5,
 test("S1-17 launcher, layouts, focus mode and shortcuts log zero intents", async ({ page }) => {
   await boot(page);
   await page.keyboard.press("Control+k");
-  await page.getByRole("combobox").fill("buy 100 HALC limit 42");
+  await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill("buy 100 HALC limit 42");
   await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
   await page.getByTestId("layout-btn").click();
@@ -300,8 +300,8 @@ test("S1-18 R0 and R6: same launcher results, Broker limit and keys", async ({ b
     const out: string[][] = [];
     for (const q of ["HALC", "open", "go to", "broker"]) {
       await page.keyboard.press("Control+k");
-      await page.getByRole("combobox").fill(q);
-      out.push(await page.getByRole("option").allInnerTexts());
+      await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill(q);
+      out.push(await page.locator("#launcher-list").getByRole("option").allInnerTexts());
       await page.keyboard.press("Escape");
     }
     for (let i = 0; i < 5; i++) await page.keyboard.press("Alt+n");

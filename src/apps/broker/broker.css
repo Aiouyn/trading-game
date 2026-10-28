@@ -1,8 +1,10 @@
 /* Broker ticket (UI card 4, BRK-A). Colour only for price direction (Today) and the one primary (Place). */
-.br { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-16); padding: var(--sp-16); min-width: 0; }
+/* .br is the size container; a container query cannot style its own container, so the columns live on .br-grid. */
+.br { container-type: inline-size; padding: var(--sp-16); min-width: 0; }
+.br-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-16); min-width: 0; }
 .br-col { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
 /* >= 640 px window: header + holdings left, ticket 400 px right. */
-@container (min-width: 640px) { .br:not(.br-phone) { grid-template-columns: minmax(0, 1fr) 400px; } }
+@container (min-width: 640px) { .br:not(.br-phone) .br-grid { grid-template-columns: minmax(0, 1fr) 400px; } }
 
 /* Header */
 .br-head { display: flex; flex-direction: column; gap: var(--sp-8); }
