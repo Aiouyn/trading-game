@@ -36,9 +36,20 @@ test("CH-07 desktop: tiles open each 17B app as a window", async ({ page }, info
 
 test("CH-07 Broker is built:false: ComingLater straight away, even with every new chunk request held", async ({ page }, info) => {
   const desktop = info.project.name === "desktop";
+  // Record any loading state (skeleton, aria-busy) that ever appears in a Broker window (desktop) or the Broker screen
+  // (phone), from the first paint on: on desktop the default layout's Broker window mounts at boot, before the tile
+  // click. Scoped to Broker, so the Portfolio window's own chunk skeleton (#67) cannot affect it.
+  await page.addInitScript(() => {
+    const w = window as Window & { __brokerLoading?: string[] };
+    w.__brokerLoading = [];
+    new MutationObserver(() => {
+      for (const el of document.querySelectorAll('[data-testid="app-skeleton"], [aria-busy="true"]')) {
+        if (el.closest('[data-testid="win-broker"], [data-testid="phone-appview"][data-app="broker"]')) w.__brokerLoading!.push(el.outerHTML.slice(0, 80));
+      }
+    }).observe(document, { subtree: true, childList: true, attributes: true });
+  });
   await boot(page);
-  // Since #67 the desktop default layout's Portfolio window shows AppSkeleton while its own chunk loads, and Wire has
-  // its own loading state: let both settle first so only what opening Broker does is held.
+  // Let the default layout's Portfolio and Wire chunks settle, so only what opening Broker does is held below.
   if (desktop) await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
   await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
   // Desktop: the default layout already has a Broker window, so the tile opens a new instance; capture it by instance.
@@ -46,20 +57,6 @@ test("CH-07 Broker is built:false: ComingLater straight away, even with every ne
   // Hold every JS chunk requested from here on: a lazy body could never arrive, so whatever shows is synchronous.
   const held: string[] = [];
   await page.route("**/_next/static/chunks/**", (route) => { held.push(route.request().url()); });
-  // Record any loading state (skeleton, aria-busy) that ever appears in the Broker window the tile opens (desktop) or
-  // the Broker screen (phone). Scoped, so the other default-layout windows cannot affect it.
-  await page.evaluate((old) => {
-    const w = window as Window & { __brokerLoading?: string[] };
-    w.__brokerLoading = [];
-    const inBroker = (el: Element) => {
-      const win = el.closest<HTMLElement>('[data-testid="win-broker"]');
-      if (win) return !old.includes(win.dataset.instance ?? "");
-      return !!el.closest('[data-testid="phone-appview"][data-app="broker"]');
-    };
-    new MutationObserver(() => {
-      for (const el of document.querySelectorAll('[data-testid="app-skeleton"], [aria-busy="true"]')) if (inBroker(el)) w.__brokerLoading!.push(el.outerHTML.slice(0, 80));
-    }).observe(document.body, { subtree: true, childList: true, attributes: true });
-  }, before);
   await page.getByTestId(desktop ? "tile-broker" : "icon-broker").click();
   const scope = desktop
     ? page.locator(`[data-testid="win-broker"]${before.map((n) => `:not([data-instance="${n}"])`).join("")}`)
