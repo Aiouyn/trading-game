@@ -220,7 +220,7 @@ test("PF-2-09 desktop: tabs (#38), maximised two columns, 520 minimum one column
   await openPortfolio(page);
   const win = page.getByTestId("win-portfolio").first();
   const tabs = win.getByRole("tab");
-  await expect(tabs).toHaveText(["Overview", "Positions"]);
+  await expect(tabs).toHaveText(["Overview", "Positions", "Orders"]); // card 8 adds Orders
   await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
   for (const t of await tabs.all()) expect((await t.boundingBox())!.height).toBeGreaterThanOrEqual(28);
   const sel = await tabs.nth(0).evaluate((e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color, getComputedStyle(e).fontWeight]);
@@ -253,7 +253,7 @@ test("PF-2-09 Broadsheet (QA #67): the desktop frame renders in the light palett
   expect([await color(page, "var(--win2)"), await color(page, "var(--fg)")]).toEqual(["rgb(246, 242, 234)", "rgb(27, 26, 23)"]);
   const win = page.getByTestId("win-portfolio").first();
   const tabs = win.getByRole("tab");
-  await expect(tabs).toHaveText(["Overview", "Positions"]);
+  await expect(tabs).toHaveText(["Overview", "Positions", "Orders"]); // card 8 adds Orders
   // Colours transition on a palette switch: poll until they settle on the Broadsheet tokens.
   await expect.poll(() => tabs.nth(0).evaluate((e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]))
     .toEqual(["rgb(246, 242, 234)", "rgb(27, 26, 23)"]);
