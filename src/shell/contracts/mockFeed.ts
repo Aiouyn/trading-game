@@ -27,6 +27,7 @@ export const RING_KEEP = 50; // me.fills / me.intents (Q4)
 export const NEWS_KEEP = 100; // [P]
 
 export type FeedMode = "live" | "stale" | "denied" | "error" | "loading";
+export type HistoryHook = "bad" | "flaky" | "hold" | null;
 export interface Scenario { seed: number; feed: FeedMode; halt: string | null; thin: string | null; tier: "free" | "terminal"; empty: boolean; reject: string | null;
   /** `?nw=` pin (QUAY_HOOKS): `me.nw` stays exactly this string (cash absorbs mark moves), matching the shell's override. */
   nw: string | null;
@@ -47,15 +48,18 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   /** `?cancelGone=1` (QUAY_HOOKS): the order a cancel targets fills in full on the next tick, before the cancel settles,
    *  so the cancel settles one tick later on an id that is no longer open (BR-6-08 absent id, Gap 4 race). */
   cancelGone: boolean;
+  /** `?history=bad|flaky|hold` (QUAY_HOOKS, card 7): every history reply malformed, the first one malformed, or never answered.
+   *  Read here, at feed creation, because the shell rewrites the query once the app opens. */
+  history: HistoryHook;
   /** `?cancelFill=N` (QUAY_HOOKS): a cancel is held one extra tick. On the tick after it is sent, N of the order fill (a
    *  MAKER fill at its price; the order stays open, PARTIAL); the cancel settles on the tick after that (card 6 spec
    *  line 34: a fill lands while the row is cancelling). N is capped so the order stays open. */
   cancelFill: number | null }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null };
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null };
 const KEEP_STATUSES: ReadonlySet<string> = new Set<OpenOrder["status"]>(["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"]);
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -71,6 +75,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const cancelKeep = q.get("cancelKeep");
   const partFill = Number(q.get("partFill"));
   const cancelFill = Number(q.get("cancelFill"));
+  const history = q.get("history");
   const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
@@ -86,6 +91,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     cancelKeep: cancelKeep && KEEP_STATUSES.has(cancelKeep) ? (cancelKeep as OpenOrder["status"]) : null,
     partFill: Number.isSafeInteger(partFill) && partFill > 0 ? partFill : null,
     cancelGone: q.get("cancelGone") === "1",
+    history: history === "bad" || history === "flaky" || history === "hold" ? history : null,
     cancelFill: Number.isSafeInteger(cancelFill) && cancelFill > 0 ? cancelFill : null,
   };
 }
@@ -495,24 +501,31 @@ export class MockFeed {
     void _b; void _v; void _l;
     return { ...pub, tradingState: this.tradingState(assetId) };
   }
-  /** GET /api/v1/history/candles: deterministic per (seed, asset, res, range); ≤ 5,000 bars per call. */
+  /** GET /api/v1/history/candles: ≤ 5,000 bars per call, span-aligned, oldest first. The walk runs BACKWARDS from the
+   *  live bar (`candlesBody`), so the newest bar is the live one and each bar closes where the next one opens: the plot
+   *  joins the live edge with no jump (card 7). Each bar's move is seeded by (seed, asset, res, t), so a bar's shape is
+   *  the same in every call; the level follows the live price. `?empty=1` (a new account in the mock) has no history. */
   candleHistory(req: CandleHistoryReq): CandleHistoryRes {
     const a = ASSET_BY_ID[req.assetId];
-    if (!a || req.to < req.from) return { bars: [] };
+    if (!a || req.to < req.from || this.scenario.empty) return { bars: [] };
     const span = req.res === "tick" ? 1 : req.res === "hour" ? 30 : 720;
     const first = req.from - (((req.from % span) + span) % span);
-    const bars: Candle[] = [];
-    const r = rng(this.scenario.seed * 104729 + a.base);
-    let px = a.base;
-    for (let t = first; t <= req.to && bars.length < 5000; t += span) {
-      const o = px;
-      const move = Math.round(((r() - 0.5) * 2 * a.volBp * Math.sqrt(span) * px) / 10_000);
-      const c = Math.max(1, o + move);
-      const h = Math.max(o, c) + Math.round(r() * a.volBp * px / 20_000), l = Math.max(1, Math.min(o, c) - Math.round(r() * a.volBp * px / 20_000));
-      bars.push({ t, o: fmt(o, a.displayDecimals), h: fmt(h, a.displayDecimals), l: fmt(l, a.displayDecimals), c: fmt(c, a.displayDecimals), v: String(Math.round(a.lot * span * (0.5 + r()))) });
-      px = c;
+    const live = this.candlesBody(req.assetId, req.res).live;
+    const resSalt = span === 1 ? 1 : span === 30 ? 2 : 3;
+    const dec = (s: string) => Math.round(Number(s) * 10 ** a.displayDecimals);
+    const newest: Candle[] = [];
+    if (live.t <= req.to && live.t >= first) newest.push(live);
+    let px = dec(live.o);
+    for (let t = live.t - span; t >= first; t -= span) {
+      const r = rng(this.scenario.seed * 104729 + a.base * 31 + t * 4 + resSalt);
+      const c = px;
+      const move = Math.round(((r() - 0.5) * 2 * a.volBp * Math.sqrt(span) * c) / 10_000);
+      const o = Math.max(1, c - move);
+      const h = Math.max(o, c) + Math.round((r() * a.volBp * c) / 20_000), l = Math.max(1, Math.min(o, c) - Math.round((r() * a.volBp * c) / 20_000));
+      if (t <= req.to) newest.push({ t, o: fmt(o, a.displayDecimals), h: fmt(h, a.displayDecimals), l: fmt(l, a.displayDecimals), c: fmt(c, a.displayDecimals), v: String(Math.round(a.lot * span * (0.5 + r()))) });
+      px = o;
     }
-    return { bars };
+    return { bars: newest.reverse().slice(0, 5000) };
   }
   /** A SELL for more than the account holds (E-96 (4)): a short sale of the excess, which this mock never allows. */
   private oversells(draft: OrderDraft): boolean {

@@ -166,6 +166,7 @@ export const ROOT_TOKENS = {
   "focus-ring": "0 0 0 2px var(--bg0), 0 0 0 4px var(--acc)",
   "hit-touch": "44px",
   "hit-pointer": "28px",
+  "edge-bar-h": "36px",
   "tile-shelf": "40px",
   "tile-phone": "60px",
   "strip-h": "34px",

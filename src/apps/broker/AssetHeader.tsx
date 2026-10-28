@@ -7,9 +7,12 @@ import { Label } from "@/components/ui/Label";
 import { formatPercent } from "@/components/ui/percent";
 import { ARROW, DIR_CLASS, decText, direction, signedText } from "@/apps/portfolio/positions/format";
 import type { TickerRow } from "@/shell/contracts/channels";
+import type { ReactNode } from "react";
 import type { BrStrings } from "./strings";
 
 export interface AssetHeaderProps {
+  /** UI card 7: the price chart, under the quote and above the holdings line. */
+  chart?: ReactNode;
   t: BrStrings;
   locale: string;
   assetId: string;
@@ -40,7 +43,7 @@ export function Today({ row, locale, t }: { row: TickerRow | undefined; locale: 
   );
 }
 
-export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty, cash }: AssetHeaderProps) {
+export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty, cash, chart }: AssetHeaderProps) {
   return (
     <header className="br-head" data-testid="br-head">
       <div className="br-title">
@@ -66,6 +69,7 @@ export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty,
           <Today row={row} locale={locale} t={t} />
         </span>
       </div>
+      {chart}
       <p className="br-hold muted" data-testid="br-hold">
         {holdQty !== null && <><span data-testid="br-you-hold">{t.youHold(decText(holdQty, locale))}</span><span aria-hidden="true">{" · "}</span></>}
         <span className="br-cash">{t.cash} {cash === undefined ? t.none : <MoneyText amount={cash} ctx="table" />}</span>
