@@ -1,6 +1,6 @@
 // UI card 3 (17B PF-B) Portfolio positions: rows A→Z, Today, halt chip, badges, empty, states, row label, desktop
-// columns + 520 px window, phone cards at text scale 1 / 2, colour-blind Broadsheet. Pledged qty is injected through
-// the QUAY_HOOKS-only window.__quayFeedMe (the mock always sends "0"). Shots with SHOTS=1.
+// columns + 520 px window, phone cards at text scale 1 / 2, colour-blind Broadsheet. Pledged qty comes from the mock's
+// QUAY_HOOKS-only `?pledge=HALC:40` scenario (otherwise it sends "0"; PF-A removed body injection). Shots with SHOTS=1.
 import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { boot, setTextScale } from "../shell/helpers";
@@ -9,7 +9,6 @@ import { boot, setTextScale } from "../shell/helpers";
 const SHOTS = process.env.POS_SHOTS_DIR ?? "tests/e2e/17b/__screenshots__/PF-B";
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
-const inject = (page: Page, patch: object) => page.addInitScript((p) => { (window as Window & { __quayFeedMe?: object }).__quayFeedMe = p; }, patch);
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const pos = (page: Page) => page.getByTestId("pf-positions").first();
 const rows = (page: Page) => pos(page).getByTestId("pos-row");
@@ -65,9 +64,8 @@ test("PF-3-03 halted HALC: steel 'Halted' chip, no brass on the row", async ({ p
   await shot(page, "halted-HALC");
 });
 
-test("PF-3-04 Pledged 40 badge (injected); neutral steel outline, --fg-muted text", async ({ page }, info) => {
-  await inject(page, { positions: { HALC: { assetId: "HALC", qty: "1200", avgCost: "39.90", mark: "42.18", value: "50616.00", upl: "2736.00", pledgedQty: "40", lentQty: "0" } } });
-  await openPositions(page, "", isPhone(info.project.name));
+test("PF-3-04 Pledged 40 badge (mock ?pledge=); neutral steel outline, --fg-muted text", async ({ page }, info) => {
+  await openPositions(page, "?pledge=HALC:40", isPhone(info.project.name));
   const chip = rows(page).nth(1).getByTestId("pos-pledged");
   await expect(chip).toHaveText("Pledged 40");
   const [c, b] = await chip.evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).borderTopColor]);
@@ -108,11 +106,13 @@ test("PF-3-07 HALC row label and focus", async ({ page }, info) => {
   await expect(halc).toBeFocused();
 });
 
-test("PF-3-08 desktop: 7 columns at 1440, Avg/Last hidden at the 520 window, row hit ≥ 28", async ({ page }, info) => {
+test("PF-3-08 desktop: 8 columns at 1440 (Weight after Value), Weight/Avg/Last hidden at the 520 window, row hit ≥ 28", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await openPositions(page);
   const win = page.getByTestId("win-portfolio").first();
-  await expect(win.locator("thead th")).toHaveText(["Asset", "Qty", "Avg cost", "Last", "Today", "Value", "P&L"]);
+  await expect(win.locator("thead th")).toHaveText(["Asset", "Qty", "Avg cost", "Last", "Today", "Value", "Weight", "P&L"]);
+  await expect(rows(page).first().getByTestId("pos-weight")).toHaveText("3.6%");
+  await expect(rows(page).first().getByTestId("pos-pnl-pct")).toHaveText("(+4.4%)");
   for (const r of await rows(page).all()) expect((await r.boundingBox())!.height).toBeGreaterThanOrEqual(28);
   const handle = (await win.getByTestId("resize-handle").boundingBox())!;
   await page.mouse.move(handle.x + 5, handle.y + 5);
@@ -126,7 +126,7 @@ test("PF-3-08 desktop: 7 columns at 1440, Avg/Last hidden at the 520 window, row
   await shot(page, "window-520");
 });
 
-test("PF-3-09 phone: pushed 'Positions', 2-line cards, no overflow, rows ≥ 44 at scale 1 and 2", async ({ page }, info) => {
+test("PF-3-09 phone: pushed 'Positions', 3-line cards, no overflow, rows ≥ 44 at scale 1 and 2", async ({ page }, info) => {
   phoneOnly(info.project.name);
   for (const scale of ["1", "2"]) {
     await boot(page, "/settings");
@@ -140,7 +140,7 @@ test("PF-3-09 phone: pushed 'Positions', 2-line cards, no overflow, rows ≥ 44 
     await expect(pos(page).locator("table")).toHaveCount(0);
     for (const r of await rows(page).all()) {
       expect((await r.boundingBox())!.height, `scale ${scale}`).toBeGreaterThanOrEqual(44);
-      await expect(r.locator(".pos-line")).toHaveCount(2);
+      await expect(r.locator(".pos-line")).toHaveCount(3);
     }
     const ok = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth
       && [...document.querySelectorAll("[data-testid=pf-positions] *")].every((e) => e.getBoundingClientRect().right <= window.innerWidth + 0.5));
@@ -149,6 +149,46 @@ test("PF-3-09 phone: pushed 'Positions', 2-line cards, no overflow, rows ≥ 44 
     for (const m of await pos(page).locator(".money").all()) expect(await m.evaluate((e) => getComputedStyle(e).whiteSpace)).toBe("nowrap");
     if (scale === "2") await shot(page, "text-scale-2");
   }
+});
+
+// Studio PF-B round 2: at text scale >= 1.5 every card has the same 3 lines whatever the string length. HALC (the
+// longest amounts) and AVB (short ticker) are measured: line 1 ticker | P&L, line 2 value · weight, line 3 qty @ avg |
+// Today; left and right clusters on one row, >= 12 px apart; no amount on two lines.
+test("PF-3-09b text scale 2: HALC and a short ticker (AVB) get the same 3-line geometry", async ({ page }, info) => {
+  phoneOnly(info.project.name);
+  await boot(page, "/settings");
+  await setTextScale(page, "2");
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByTestId("icon-portfolio").click();
+  await page.getByTestId("pf-open-positions").click();
+  await expect(pos(page)).toHaveAttribute("data-state", "live");
+  const geo = (asset: string) => pos(page).locator(`[data-testid=pos-row][data-asset=${asset}]`).evaluate((row) => {
+    const box = (e: Element | null) => { const b = e!.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom, h: b.height }; };
+    const lines = [...row.querySelectorAll(":scope > .pos-line")];
+    const lh = parseFloat(getComputedStyle(row).lineHeight) || parseFloat(getComputedStyle(row).fontSize) * 1.6;
+    const pair = (line: Element) => { const k = [...line.children]; return k.length === 2 ? { left: box(k[0]), right: box(k[1]) } : { left: box(k[0]), right: null }; };
+    const amounts = [...row.querySelectorAll(".money, .num")].map((e) => (e as HTMLElement).getClientRects().length);
+    return { n: lines.length, tops: lines.map((l) => box(l).t), p: lines.map(pair), lh, amounts,
+      ticker: row.querySelector("[data-testid=pos-ticker]")!.textContent, rowRight: box(row).r };
+  });
+  const halc = await geo("HALC"), avb = await geo("AVB");
+  for (const g of [halc, avb]) {
+    expect(g.n, g.ticker!).toBe(3);
+    expect(g.tops[0] < g.tops[1] && g.tops[1] < g.tops[2], g.ticker!).toBe(true);
+    for (const i of [0, 2]) {
+      const { left, right } = g.p[i];
+      expect(right, `${g.ticker} line ${i + 1}`).not.toBeNull();
+      expect(Math.abs(left.t - right!.t), `${g.ticker} line ${i + 1} same row`).toBeLessThan(g.lh / 2);
+      expect(right!.l - left.r, `${g.ticker} line ${i + 1} gap`).toBeGreaterThanOrEqual(12);
+      expect(right!.r, `${g.ticker} line ${i + 1} fits`).toBeLessThanOrEqual(g.rowRight + 0.5);
+    }
+    expect(g.p[1].right, `${g.ticker} line 2 is one cluster`).toBeNull();
+    expect(g.p[0].left.l, `${g.ticker} keeps the 16 px phone side margin`).toBeGreaterThanOrEqual(16);
+    expect(390 - g.rowRight, `${g.ticker} right margin`).toBeGreaterThanOrEqual(16);
+    expect(g.amounts.every((n) => n === 1), `${g.ticker} amounts on one line`).toBe(true);
+  }
+  // Same layout: same line count, and each line's left cluster starts at the same x.
+  expect(halc.p.map((x) => Math.round(x.left.l))).toEqual(avb.p.map((x) => Math.round(x.left.l)));
 });
 
 test("PF-3-10 colour-blind Broadsheet: Today / P&L use the cb tokens, arrows present", async ({ page }, info) => {

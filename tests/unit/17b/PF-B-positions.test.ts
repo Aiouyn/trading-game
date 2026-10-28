@@ -42,9 +42,10 @@ describe("PF-3-01 rows A→Z, contract strings verbatim", () => {
     const halc = rows(html({ tickers: null }))[1];
     expect(cell(halc, "pos-last")).toBe(ME.positions.HALC.mark);
   });
-  it("seven column headers in spec order", () => {
+  it("eight column headers: spec order + Weight right after Value (Studio PF-B round 2)", () => {
     const heads = [...html().matchAll(/<th scope="col"[^>]*>([^<]*)</g)].map((m) => m[1]);
-    expect(heads).toEqual(["Asset", "Qty", "Avg cost", "Last", "Today", "Value", "P&amp;L"]);
+    expect(heads).toEqual(["Asset", "Qty", "Avg cost", "Last", "Today", "Value", "Weight", "P&amp;L"]);
+    expect([...posStrings("fr").colWeight]).toEqual([..."Poids"]);
   });
 });
 
@@ -75,10 +76,24 @@ describe("PF-3-02 Today: chgPct verbatim + %, colour and arrow from the leading 
     expect(["-1", "1", "+1", "0.00", "-0.0"].map(direction)).toEqual(["down", "up", "up", "flat", "flat"]);
   });
   it("P&L: arrow beside MoneyText delta (sign + colour from MoneyText)", () => {
-    const up = r(Pnl, { upl: "2736.00" }), down = r(Pnl, { upl: "-318.00" });
+    const up = r(Pnl, { upl: "2736.00", t: EN, locale: "en" }), down = r(Pnl, { upl: "-318.00", t: EN, locale: "en" });
     expect(text(up)).toBe("▲ +$2,736.00");
     expect(text(down)).toBe("▼ −$318.00");
     expect(down).toContain("loss");
+  });
+  it("pnlPct after the amount, as sent, muted: '(+4.4%)', U+2212, FR comma + NNBSP; absent = nothing", () => {
+    expect(text(r(Pnl, { upl: "618.00", pct: "4.4", t: EN, locale: "en" }))).toBe("▲ +$618.00 (+4.4%)");
+    expect(text(r(Pnl, { upl: "-318.00", pct: "-1.4", t: EN, locale: "en" }))).toBe("▼ −$318.00 (−1.4%)");
+    expect(text(r(Pnl, { upl: "0.00", pct: "0.0", t: EN, locale: "en" }))).toContain("(0.0%)");
+    expect(r(Pnl, { upl: "-318.00", pct: "-1.4", t: FR, locale: "fr" })).toContain("(−1,4\u202F%)");
+    expect(r(Pnl, { upl: "618.00", pct: "4.4", t: EN, locale: "en" })).toContain('class="pos-pnl-pct num"');
+    expect(r(Pnl, { upl: "618.00", t: EN, locale: "en" })).not.toContain("pos-pnl-pct");
+  });
+  it("mock me.positions carry pnlPct / weightPct (1 dp, server side) and the table shows them as sent", () => {
+    expect(Object.values(ME.positions).map((p) => [p.assetId, p.pnlPct, p.weightPct])).toEqual([["HALC", "5.7", "12.3"], ["VOLT", "-1.4", "5.5"], ["AVB", "4.4", "3.6"]]);
+    const avb = rows(html())[0];
+    expect(cell(avb, "pos-weight")).toBe("3.6%");
+    expect(cell(avb, "pos-pnl-pct")).toBe("(+4.4%)");
   });
 });
 
@@ -154,15 +169,17 @@ describe("PF-3-07 row label", () => {
 });
 
 describe("PF-3-09 cards (phone, text scale ≥ 1.5)", () => {
-  it("2-line card: ticker (+ value under it) and P&L; then '{qty} @ {avgCost}' and Today", () => {
+  it("3-line card: ticker | P&L (+%); value · weight; '{qty} @ {avgCost}' | Today", () => {
     const h = html({ cards: true, phone: true });
     expect(h).not.toContain("<table");
     const halc = rows(h)[1];
     expect(halc.startsWith('<li class="pos-card"')).toBe(true);
     const lines = halc.split('class="pos-line').slice(1).map((l) => text(l.replace(/^[^>]*>/, "").replace(/<div\s*$/, "")));
-    expect(lines[0]).toBe("HALC $50,616.00 ▲ +$2,736.00");
-    expect(lines[1].startsWith("1,200 @ 39.90 ▼ −0.35%")).toBe(true);
+    expect(lines[0]).toBe("HALC ▲ +$2,736.00 (+5.7%)");
+    expect(lines[1]).toBe("$50,616.00 · 12.3%");
+    expect(lines[2].startsWith("1,200 @ 39.90 ▼ −0.35%")).toBe(true);
     expect(h).toContain('class="pos pos-cards pos-phone"');
+    expect(html({ cards: true, big: true })).toContain('class="pos pos-cards pos-big"');
   });
 });
 
@@ -173,11 +190,19 @@ describe("PF-3-10 arrows present so colour is never the only cue", () => {
 });
 
 describe("Studio PF-B ruling: E-56 fields when present", () => {
-  it("liqPrice: '≈ {value}' + small-caps 'approx.' and aria 'approximately {value}'", () => {
+  it("liqPrice: 'Liq. ≈ {value}' + small-caps 'approx.'; aria 'Liquidation price, approximate'; FR « Px liq. »", () => {
     const h = r(LiqPrice, { value: "-31.5", t: EN, locale: "en" });
     expect(text(h)).toBe("Liq. ≈ −31.5 approx.");
-    expect(h).toContain('aria-label="Liq. approximately −31.5"');
+    expect(h).toContain('aria-label="Liquidation price, approximate, −31.5"');
     expect(h).toContain('class="pos-approx"');
+    const f = r(LiqPrice, { value: "31.5", t: FR, locale: "fr" });
+    expect(text(f)).toBe("Px liq. ≈ 31,5 approx.");
+    expect(f).toContain('aria-label="Prix de liquidation, approximatif, 31,5"');
+  });
+  it("margin chip copy (Studio PF-B round 2); enum names never shown", () => {
+    expect(EN.margin).toMatchObject({ CALL: "Margin call", LIQUIDATING: "Liquidating", DEFICIT: "Deficit", CLOSED: "Closed" });
+    expect(FR.margin).toMatchObject({ CALL: "Appel de marge", LIQUIDATING: "En liquidation", DEFICIT: "Déficit", CLOSED: "Clôturée" });
+    for (const s of ["CALL", "LIQUIDATING", "DEFICIT", "CLOSED"] as const) expect(text(r(MarginChip, { state: s, t: EN }))).not.toContain(s);
   });
   it("marginState chip only when not OK; tone per state; alert glyph on LIQUIDATING / DEFICIT", () => {
     const chip = (state: MarginState | null) => r(MarginChip, { state, t: EN });
@@ -188,13 +213,21 @@ describe("Studio PF-B ruling: E-56 fields when present", () => {
     for (const s of ["LIQUIDATING", "DEFICIT"] as const) { expect(chip(s)).toContain("pos-margin-alert"); expect(chip(s)).toContain("<svg"); }
     expect(chip("CLOSED")).toContain("pos-margin-closed");
   });
-  it("row shows liq + margin only when sent; pnlPct / weightPct have no placement and never render", () => {
+  it("row shows liq + margin only when sent; pnlPct / weightPct render as sent, nothing when absent", () => {
     const halc = { ...ME.positions.HALC, liqPrice: "31.50", marginState: "CALL", pnlPct: "6.86", weightPct: "57.6" } as PositionData;
-    const h = html({ view: live({ ...ME, positions: { HALC: halc } }) });
-    expect(h).toContain("pos-liq");
-    expect(h).toContain("pos-margin-call");
-    expect(h).not.toContain("6.86");
-    expect(h).not.toContain("57.6");
+    for (const cards of [false, true]) {
+      const h = html({ view: live({ ...ME, positions: { HALC: halc } }), cards });
+      expect(h).toContain("pos-liq");
+      expect(h).toContain("pos-margin-call");
+      expect(h).toContain("(+6.86%)");
+      expect(h).toContain(">57.6%<");
+    }
+    const bare = { ...ME.positions.HALC };
+    delete bare.pnlPct; delete bare.weightPct; // fields absent (an engine that does not send them yet)
+    for (const cards of [false, true]) {
+      const h = html({ view: live({ ...ME, positions: { HALC: bare } }), cards });
+      expect(h).not.toMatch(/pos-pnl-pct|pos-weight|pos-dot/);
+    }
     expect(html()).not.toContain("pos-liq");
     expect(html()).not.toContain("pos-margin");
   });

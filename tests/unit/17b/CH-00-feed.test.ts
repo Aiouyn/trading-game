@@ -135,7 +135,7 @@ describe("CH-03 denied / error carry no body and no entity hint", () => {
 
 describe("CH-04 every Money / Price / Qty is a decimal string", () => {
   const DEC = /^-?\d+(\.\d+)?$/;
-  const FIELDS = new Set(["last", "chg", "vol", "price", "qty", "imbalance", "o", "h", "l", "c", "v", "avgCost", "mark", "value", "upl", "pledgedQty", "lentQty", "filled", "limit", "stop", "avgPrice", "fee", "nw", "amount", "estFill", "buyingPowerAfter", "impactMoney", "total", "firstTradeCapRemaining"]);
+  const FIELDS = new Set(["last", "chg", "vol", "price", "qty", "imbalance", "o", "h", "l", "c", "v", "avgCost", "mark", "value", "upl", "pledgedQty", "lentQty", "pnlPct", "weightPct", "filled", "limit", "stop", "avgPrice", "fee", "nw", "amount", "estFill", "buyingPowerAfter", "impactMoney", "total", "firstTradeCapRemaining"]);
   const walk = (v: unknown, key: string, bad: string[]) => {
     if (Array.isArray(v)) v.forEach((x) => walk(x, key, bad));
     else if (v && typeof v === "object") Object.entries(v).forEach(([k, x]) => (k === "balances" ? Object.values(x as object).forEach((b) => walk(b, "amount", bad)) : walk(x, k, bad)));
@@ -226,9 +226,10 @@ describe("mock scenarios, intents and req ops", () => {
 
 describe("URL scenario (build-gated)", () => {
   it("parses the documented params and ignores junk", () => {
-    expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_FUNDS&seed=9&nw=200000")))
-      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_FUNDS", nw: "200000" });
-    expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1&nw=1e9"))).toEqual(DEFAULT_SCENARIO);
+    expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_FUNDS&seed=9&nw=200000&pledge=HALC:40")))
+      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_FUNDS", nw: "200000", pledge: { assetId: "HALC", qty: 40 } });
+    expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1&nw=1e9&pledge=ZZZ:4"))).toEqual(DEFAULT_SCENARIO);
+    expect(scenarioFromQuery(new URLSearchParams("pledge=HALC:0")).pledge).toBeNull();
   });
   it("QUAY_HOOKS=0 compiles the overrides out: the URL is ignored", async () => {
     vi.resetModules(); vi.stubEnv("QUAY_HOOKS", "0");

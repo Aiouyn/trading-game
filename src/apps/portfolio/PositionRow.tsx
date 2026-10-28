@@ -1,16 +1,16 @@
 "use client";
-// One position (UI card 3, 17B PF-B). Table row (desktop) or 2-line card (phone, or text scale >= 1.5).
+// One position (UI card 3, 17B PF-B). Table row (desktop) or 3-line card (phone, or text scale >= 1.5; Studio PF-B round 2).
 // Strings are the contract's, regrouped only (PF-3-02); MoneyText formats Value and P&L. No brass on the row.
 import { Chip } from "@/components/ui/Chip";
 import { Glyph } from "@/components/shell/Glyph";
 import { MoneyText, speakMoney } from "@/components/shell/MoneyText";
 import type { Position, TickerRow } from "@/shell/contracts/channels";
-import { ARROW, DIR_CLASS, decText, direction, unsigned } from "./positions/format";
+import { ARROW, DIR_CLASS, decText, direction, signedText, unsigned } from "./positions/format";
 import type { MarginState, PosStrings } from "./positions/strings";
 
-/** E-56 §15 row fields. Position on this base does not carry them (the strict schema rejects extra keys), so they
- *  render only when present; Studio PF-B ruling governs how. */
-export interface PositionExtras { pnlPct?: string | null; weightPct?: string | null; marginState?: MarginState | null; liqPrice?: string | null }
+/** E-56 §15 row fields not in Position yet (the strict schema rejects extra keys), so they render only when present;
+ *  Studio PF-B ruling governs how. pnlPct / weightPct are optional Position fields (proposed, Engine to confirm). */
+export interface PositionExtras { marginState?: MarginState | null; liqPrice?: string | null }
 export type PositionData = Position & PositionExtras;
 
 export interface RowProps { pos: PositionData; ticker: TickerRow | undefined; t: PosStrings; locale: string; stale: boolean; layout: "table" | "cards" }
@@ -32,20 +32,29 @@ export function Today({ pct, t, locale }: { pct: string | null; t: PosStrings; l
   );
 }
 
-export function Pnl({ upl }: { upl: string }) {
+/** P&L amount (arrow + signed MoneyText), then pnlPct as sent in --fg-muted: "▲+$618.00 (+4.4%)". */
+export function Pnl({ upl, pct, t, locale }: { upl: string; pct?: string | null; t: PosStrings; locale: string }) {
   const dir = direction(upl);
   return (
-    <span className={`pos-pnl ${DIR_CLASS[dir]}`} data-testid="pos-pnl" data-dir={dir}>
-      {ARROW[dir] && <span className="pos-arrow" aria-hidden="true">{ARROW[dir]}</span>}<MoneyText amount={upl} ctx="delta" />
+    <span className="pos-pnl-cell" data-testid="pos-pnl-cell">
+      <span className={`pos-pnl ${DIR_CLASS[dir]}`} data-testid="pos-pnl" data-dir={dir}>
+        {ARROW[dir] && <span className="pos-arrow" aria-hidden="true">{ARROW[dir]}</span>}<MoneyText amount={upl} ctx="delta" />
+      </span>
+      {pct ? <span className="pos-pnl-pct num" data-testid="pos-pnl-pct">{t.pnlPct(signedText(pct, locale))}</span> : null}
     </span>
   );
 }
 
-/** Studio PF-B: liqPrice "≈ {value}" + small-caps "approx." in --fg-muted; spoken "approximately {value}". */
+/** weightPct as sent, "4.4%", or nothing when absent. */
+export function Weight({ pct, t, locale }: { pct?: string | null; t: PosStrings; locale: string }) {
+  return pct ? <span className="pos-weight num" data-testid="pos-weight">{t.pct(decText(pct, locale))}</span> : null;
+}
+
+/** Studio PF-B: liqPrice "≈ {value}" + small-caps "approx." in --fg-muted; spoken "Liquidation price, approximate, {value}". */
 export function LiqPrice({ value, t, locale }: { value: string; t: PosStrings; locale: string }) {
   const v = decText(value, locale);
   return (
-    <span className="pos-liq num" data-testid="pos-liq" role="img" aria-label={`${t.liq} ${t.approximately(v)}`}>
+    <span className="pos-liq num" data-testid="pos-liq" role="img" aria-label={t.liqAria(v)}>
       <span className="pos-liq-label" aria-hidden="true">{t.liq}</span> <span aria-hidden="true">{t.approxValue(v)}</span> <span className="pos-approx" aria-hidden="true">{t.approx}</span>
     </span>
   );
@@ -81,14 +90,17 @@ export function PositionRow({ pos, ticker, t, locale, stale, layout }: RowProps)
   if (layout === "cards") {
     return (
       <li className="pos-card" tabIndex={0} aria-label={label} data-testid="pos-row" data-asset={pos.assetId}>
-        <div className="pos-line">
-          <span className="pos-id">
-            <span className="pos-ticker">{pos.assetId}</span>
-            <span className="pos-value" data-testid="pos-value"><MoneyText amount={pos.value} ctx="table" /></span>
-          </span>
-          <Pnl upl={pos.upl} />
+        <div className="pos-line pos-line1">
+          <span className="pos-ticker" data-testid="pos-ticker">{pos.assetId}</span>
+          <Pnl upl={pos.upl} pct={pos.pnlPct} t={t} locale={locale} />
         </div>
-        <div className="pos-line pos-sub">
+        <div className="pos-line pos-line2">
+          <span className="pos-value-w">
+            <span className="pos-value" data-testid="pos-value"><MoneyText amount={pos.value} ctx="table" /></span>
+            {pos.weightPct ? <><span className="pos-dot" aria-hidden="true">{t.dot}</span><Weight pct={pos.weightPct} t={t} locale={locale} /></> : null}
+          </span>
+        </div>
+        <div className="pos-line pos-line3">
           <span className="num pos-qtyat" data-testid="pos-qtyat">{t.qtyAt(decText(pos.qty, locale), decText(pos.avgCost, locale))}</span>
           <Today pct={ticker?.chgPct ?? null} t={t} locale={locale} />
         </div>
@@ -104,7 +116,8 @@ export function PositionRow({ pos, ticker, t, locale, stale, layout }: RowProps)
       <td className={`${lastCls} pos-col-last`} data-testid="pos-last">{decText(last, locale)}</td>
       <td><Today pct={ticker?.chgPct ?? null} t={t} locale={locale} /></td>
       <td data-testid="pos-value"><MoneyText amount={pos.value} ctx="table" /></td>
-      <td><Pnl upl={pos.upl} /></td>
+      <td className="pos-col-weight"><Weight pct={pos.weightPct} t={t} locale={locale} /></td>
+      <td><Pnl upl={pos.upl} pct={pos.pnlPct} t={t} locale={locale} /></td>
     </tr>
   );
 }

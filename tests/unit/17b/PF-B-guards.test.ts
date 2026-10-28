@@ -35,9 +35,17 @@ describe("PF-B ruling: no brass on the row, neutral steel chips", () => {
 
 describe("layout hooks", () => {
   it("PF-3-06 stale Last is --fg-disabled", () => expect(rule(".pos-stale")).toContain("var(--fg-disabled)"));
-  it("PF-3-08 Avg cost + Last hidden under 640 px of window; 36 px rows", () => {
-    expect(css).toMatch(/@container \(max-width: 639px\) \{ \.pos-col-avg, \.pos-col-last \{ display: none; \} \}/);
+  it("PF-3-08 Weight hides first (< 640 px), then Avg cost + Last (< 560 px); 36 px rows", () => {
+    expect(css).toMatch(/@container \(max-width: 639px\) \{ \.pos-col-weight \{ display: none; \} \}/);
+    expect(css).toMatch(/@container \(max-width: 559px\) \{ \.pos-col-avg, \.pos-col-last \{ display: none; \} \}/);
     expect(rule(".pos-tr")).toContain("height: 36px");
+  });
+  it("cards: value in --fg; 3 fixed lines with a 12 px gap and no wrap; margin chips small caps", () => {
+    expect(rule(".pos-card .pos-value .money")).toContain("color: var(--fg)");
+    expect(rule(".pos-line")).toContain("column-gap: var(--sp-12)");
+    expect(rule(".pos-line")).toContain("flex-wrap: nowrap");
+    expect(rule(".pos.pos-phone.pos-big")).toContain("padding-inline: 0"); // the app screen keeps the 16 px side margin
+    expect(rule(".pos .chip.pos-margin")).toContain("font-variant-caps: all-small-caps");
   });
   it("PF-3-09 cards ≥ 56 px; amounts nowrap; no tick flash (no transition / animation)", () => {
     expect(rule(".pos-card")).toContain("min-height: 56px");

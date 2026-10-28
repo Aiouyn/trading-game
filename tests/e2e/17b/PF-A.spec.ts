@@ -1,5 +1,5 @@
 // UI card 2 (17B PF-A) Portfolio overview: hero, summary, restricted, stats, rank, states, desktop frame, phone push.
-// The mock feed sends nwStats, an MDOL wallet and AD/START restricted buckets (?empty=1 is the new player without them),
+// The mock feed sends nwStats, an MDOL wallet and AD_GRANT/FRESH_START restricted buckets (pills AD / START) (?empty=1 is the new player without them),
 // and is the one NW source: the hero, the desktop strip and the phone status bar all read its me.nw (useNw).
 import { expect, test, type Page } from "@playwright/test";
 import { boot, setTextScale } from "../shell/helpers";
@@ -60,12 +60,14 @@ test("PF-2-02 hero NW: exact text of the shared mock NW string; the top bar show
   const hero = pf(page).getByTestId("pf-hero-nw").getByRole("img");
   await expect(hero).toHaveText(full);
   await expect(hero).toHaveAttribute("aria-label", "412,860.15 dollars");
+  // One shared compact-money formatter (MoneyText ctx=chip, abbreviateDigits): 3 significant figures, rounded down.
   if (info.project.name === "desktop") {
     const strip = page.getByTestId("strip-nw").locator("[title]");
     await expect(strip).toHaveAttribute("title", full);
-    await expect(strip).toHaveText("$413k"); // MoneyText ctx=chip: abbreviated, rounded
+    await expect(strip).toHaveText("$412k");
   } else {
-    await expect(page.locator(".sb-nw")).toHaveText("$412k"); // compactMoney: truncated
+    await expect(page.locator(".sb-nw [title]")).toHaveAttribute("title", full);
+    await expect(page.locator(".sb-nw [role=img]")).toHaveText("$412k");
   }
 });
 
@@ -113,17 +115,20 @@ test("Studio b: one NW string; the hero and the top bar (compact) agree on deskt
   const read = () => page.evaluate(() => {
     const hero = document.querySelector("[data-testid=pf-hero-nw] [role=img]")!.textContent!;
     const strip = document.querySelector("[data-testid=strip-nw] [title]");
-    const sb = document.querySelector(".sb-nw");
+    const sb = document.querySelector(".sb-nw [role=img]");
     return { hero, stripTitle: strip?.getAttribute("title") ?? null, stripText: strip?.textContent ?? null, sb: sb?.textContent ?? null };
   });
-  // phone status bar: compactMoney of the same string (integer digits, k/M/B/T, one decimal under 3 head digits)
+  // Both top bars use the one shared compact formatter: 3 significant figures, ROUNDED DOWN (positive NW here),
+  // k/M/B/T, trailing zeros dropped; under 10,000 the full amount. Restated independently of src/components/ui/money.ts.
   const compact = (full: string) => {
     const i = full.replace(/[^\d.]/g, "").split(".")[0];
+    if (i.length < 5) return full;
     for (const [d, u] of [[12, "T"], [9, "B"], [6, "M"], [3, "k"]] as const) if (i.length > d) {
-      const head = i.slice(0, i.length - d), dec = i.slice(i.length - d, i.length - d + 1);
-      return `$${head}${head.length < 3 && dec !== "0" ? `.${dec}` : ""}${u}`;
+      const sig = i.slice(0, Math.max(3, i.length - d));
+      const whole = sig.slice(0, i.length - d), dec = sig.slice(i.length - d).replace(/0+$/, "");
+      return `$${whole}${dec ? `.${dec}` : ""}${u}`;
     }
-    return `$${i}`;
+    return full;
   };
   const seen = new Set<string>();
   for (let k = 0; k < 3; k++) {
@@ -131,7 +136,7 @@ test("Studio b: one NW string; the hero and the top bar (compact) agree on deskt
     seen.add(r.hero);
     if (info.project.name === "desktop") {
       expect(r.stripTitle).toBe(r.hero);
-      expect(r.stripText).toMatch(/^\$\d{1,3}(\.\d)?[kMBT]$/); // the chip's abbreviated form of that same string
+      expect(r.stripText).toBe(compact(r.hero)); // the same shared floor formatter as the phone
     } else {
       expect(r.sb).toBe(compact(r.hero));
     }

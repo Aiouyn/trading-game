@@ -10,8 +10,8 @@ export const MDOL_BALANCE = "1250.00";
 /** Restricted FDL inside the FDL balance (so inside `nw`): an ad grant releasing 3 real hours after START_TICK
  *  (2,160 ticks of 5 s) and the fresh-start grant, held with no release time. Reason codes as in 17B (AD / START). */
 export const RESTRICTED: readonly { reason: string; amountMinor: number; releaseTick: number | null }[] = [
-  { reason: "AD", amountMinor: 50_000, releaseTick: 38 * 720 + 340 + 2_160 },
-  { reason: "START", amountMinor: 250_000, releaseTick: null },
+  { reason: "AD_GRANT", amountMinor: 50_000, releaseTick: 38 * 720 + 340 + 2_160 },
+  { reason: "FRESH_START", amountMinor: 250_000, releaseTick: null },
 ];
 /** Whole-NW stats (Q10, E-56 §12): 90-day window; drawdownReal is percent units ("-4.2" = -4.2 %). */
 export const NW_STATS = { window: "90d", drawdownReal: "-4.2", sharpe: "1.31", twrIdx: "1.0842", bench: "1.0315" } as const;

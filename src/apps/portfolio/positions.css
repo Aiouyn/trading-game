@@ -1,6 +1,9 @@
 /* Positions (UI card 3, 17B PF-B). Tokens only; no brass (--acc) anywhere on a row (Studio PF-B). */
 .pos { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
 .pos.pos-phone { padding: var(--sp-16); }
+/* Text scale >= 1.5 on phone: the app screen already keeps a 16 px side margin, so the list drops its own side padding
+   and every card's 3 lines fit at 390 px (Studio PF-B round 2: same 3 lines for every row, >= 12 px between clusters). */
+.pos.pos-phone.pos-big { padding-inline: 0; }
 
 /* Table: 36 px rows, --line hairlines on --win; numbers mono, tabular, right-aligned. */
 .pos-table { width: 100%; border-collapse: collapse; background: var(--win); }
@@ -15,17 +18,23 @@
 .pos-asset .pos-badges { margin-left: var(--sp-8); }
 .pos-stale { color: var(--fg-disabled); }
 
-/* Narrow window (< 640 px): Avg cost and Last leave the table; the row label still speaks them. */
-@container (max-width: 639px) { .pos-col-avg, .pos-col-last { display: none; } }
+/* Narrow window: Weight is the first column to go (< 640 px), then Avg cost and Last (< 560 px); the row label still
+   speaks avg and last, and the P&L % stays in the P&L cell. */
+@container (max-width: 639px) { .pos-col-weight { display: none; } }
+@container (max-width: 559px) { .pos-col-avg, .pos-col-last { display: none; } }
 
 /* Today and P&L: colour from the leading sign, with an arrow so colour is never the only cue. */
 .pos-today, .pos-pnl { display: inline-flex; align-items: baseline; gap: var(--sp-2); white-space: nowrap; }
 .pos-arrow { font-size: 0.75em; }
+/* P&L % and weight: as sent, in --fg-muted, after the amount (Studio PF-B round 2). */
+.pos-pnl-cell { display: inline-flex; align-items: baseline; justify-content: flex-end; gap: var(--sp-4); white-space: nowrap; }
+.pos-pnl-pct, .pos-weight, .pos-dot { color: var(--fg-muted); }
 
 /* Badges. Neutral chips (#67): --steel outline, --fg-muted text. Halted: --steel text. */
 .pos-badges { display: inline-flex; flex-wrap: wrap; gap: var(--sp-4); align-items: center; vertical-align: middle; }
 .pos .chip.pos-chip { border-color: var(--steel); color: var(--fg-muted); }
 .pos .chip.pos-halted { color: var(--steel); }
+.pos .chip.pos-margin { font-variant-caps: all-small-caps; }
 .pos .chip.pos-margin-call { border-color: var(--signal); color: var(--signal); }
 .pos .chip.pos-margin-alert { border-color: var(--loss); color: var(--loss); }
 .pos .chip.pos-margin-closed { border-color: var(--fg-disabled); color: var(--fg-disabled); }
@@ -33,13 +42,17 @@
 .pos-liq-label, .pos-approx { color: var(--fg-muted); font-family: var(--font-ui); }
 .pos-approx { font-variant-caps: all-small-caps; }
 
-/* Cards: phone, and any text scale >= 1.5 (#67: label line on top, value line below; an amount never splits from
-   its code). 56 px minimum, no horizontal scroll. */
+/* Cards: phone, and any text scale >= 1.5 (Studio PF-B round 2). The same 3 lines on every row whatever the string
+   length: 1 ticker | P&L, 2 value · weight, 3 qty @ avg | Today. Clusters never wrap inside (an amount never splits
+   from its code) and keep >= 12 px between them. 56 px minimum, no horizontal scroll. */
 .pos-list { list-style: none; margin: 0; padding: 0; }
 .pos-card { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 56px; padding: var(--sp-8) 0; border-bottom: 1px solid var(--line); min-width: 0; }
-.pos-line { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-8); flex-wrap: wrap; min-width: 0; }
-.pos-id { display: flex; flex-direction: column; min-width: 0; }
-.pos-card .pos-value .money { color: var(--fg-muted); }
+.pos-line { display: flex; justify-content: space-between; align-items: baseline; column-gap: var(--sp-12); flex-wrap: nowrap; min-width: 0; }
+.pos-line > * { flex: none; white-space: nowrap; }
+.pos-card .pos-value .money { color: var(--fg); }
+/* Text scale >= 1.5: the P&L % sits under its amount, so line 1 fits at 390 px whatever the amount. */
+.pos-big .pos-pnl-cell { flex-direction: column; align-items: flex-end; gap: 0; }
+.pos-big .pos-line1 { align-items: flex-start; }
 .pos-card .money, .pos-card .num { white-space: nowrap; }
 .pos-card .pos-badges { margin-top: var(--sp-2); }
 

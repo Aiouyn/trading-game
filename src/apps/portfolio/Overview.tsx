@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Label } from "@/components/ui/Label";
 import { MINUS, fullDigits, parseAmount } from "@/components/ui/money";
-import { MoneyText, type Restricted } from "@/components/shell/MoneyText";
+import { MoneyText } from "@/components/shell/MoneyText";
 import { formatPercent } from "@/components/ui/percent";
 import { useShell } from "@/components/shell/ShellContext";
 import type { MeTradingBody, Money, NwStats, RestrictedBucket } from "@/shell/contracts/channels";
+import { isRestrictedReason } from "@/shell/strings";
 import { getFeed, useChannel, type ChannelView } from "@/shell/contracts/useChannel";
 import type { RankChannel } from "@/shell/channels";
 import { RANK_NAMES } from "@/shell/registry";
@@ -40,7 +41,6 @@ function Balance({ code, amount }: { code: string; amount: Money }) {
   return code === "FDL" ? <MoneyText amount={amount} ccy="FDL" ctx="table" /> : <CodeAmount amount={amount} code={code} />;
 }
 
-const PILL: Record<string, Restricted> = { AD: "AD", START: "START" };
 
 function RestrictedRows({ buckets, t, locale }: { buckets: RestrictedBucket[]; t: T; locale: string }) {
   return (
@@ -50,8 +50,8 @@ function RestrictedRows({ buckets, t, locale }: { buckets: RestrictedBucket[]; t
         {buckets.map((b, i) => (
           <tr key={`${b.reason}-${i}`} data-testid="pf-restricted-row">
             <td className="pf-cell-amount">
-              {PILL[b.reason]
-                ? <MoneyText amount={b.amount} ctx="table" restricted={PILL[b.reason]} />
+              {isRestrictedReason(b.reason)
+                ? <MoneyText amount={b.amount} ctx="table" restricted={b.reason} locale={locale} />
                 : (
                   // Studio Q2: a reason code with no client label shows the raw code in the same neutral chip, named
                   // for AT and on hover ("Restricted (CODE)"). The label key is missing upstream (Engine).

@@ -17,6 +17,12 @@ export function decText(s: string, locale: string): string {
   return `${m[1] === "-" ? MINUS : m[1]}${body}`;
 }
 
+/** Like decText, with an explicit "+" when the string is above zero (a sign, not maths): "4.4" -> "+4.4". */
+export function signedText(s: string, locale: string): string {
+  const t = decText(s, locale);
+  return direction(s) === "up" && !s.startsWith("+") ? `+${t}` : t;
+}
+
 /** Direction from the leading sign of the string; zero ("0", "0.00", "-0.00") is flat. */
 export function direction(s: string): Direction {
   const m = DEC.exec(s);

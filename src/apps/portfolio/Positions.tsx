@@ -1,7 +1,7 @@
 "use client";
 // Positions (UI card 3, 17B PF-B): the player's holdings from `me`, with Last / Today from `ticker:wl_default`.
 // Desktop: a 7-column table (Avg cost + Last hidden under 640 px of window, kept in the row label). Phone, and any
-// text scale >= 1.5: 2-line cards. Rows are A→Z by assetId. No tick flash, no brass.
+// text scale >= 1.5: 3-line cards (Studio PF-B round 2). Rows are A→Z by assetId. No tick flash, no brass.
 import { Button } from "@/components/ui/Button";
 import { useShell } from "@/components/shell/ShellContext";
 import type { MeTradingBody, TickerBody, TickerRow } from "@/shell/contracts/channels";
@@ -22,6 +22,8 @@ export interface PositionsViewProps {
   locale: string;
   cards: boolean;
   phone: boolean;
+  /** Text scale >= 1.5: the fixed 3-line card with the P&L % under its amount (Studio PF-B round 2). */
+  big?: boolean;
   onRetry: () => void;
 }
 
@@ -30,9 +32,9 @@ export function sortedPositions(me: MeTradingBody): PositionData[] {
   return Object.values(me.positions).sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
 }
 
-export function PositionsView({ view, tickers, locale, cards, phone, onRetry }: PositionsViewProps) {
+export function PositionsView({ view, tickers, locale, cards, phone, big = false, onRetry }: PositionsViewProps) {
   const t = posStrings(locale);
-  const cls = `pos${cards ? " pos-cards" : ""}${phone ? " pos-phone" : ""}`;
+  const cls = `pos${cards ? " pos-cards" : ""}${phone ? " pos-phone" : ""}${big ? " pos-big" : ""}`;
   const layout = cards ? "cards" : "table";
   if (view.state === "loading") {
     return (
@@ -75,6 +77,7 @@ export function PositionsView({ view, tickers, locale, cards, phone, onRetry }: 
             <th scope="col" className="pos-col-last">{t.colLast}</th>
             <th scope="col">{t.colToday}</th>
             <th scope="col">{t.colValue}</th>
+            <th scope="col" className="pos-col-weight">{t.colWeight}</th>
             <th scope="col">{t.colPnl}</th>
           </tr></thead>
           <tbody>{rows.map((p) => <PositionRow key={p.assetId} pos={p} ticker={tickers?.[p.assetId]} {...common} />)}</tbody>
@@ -88,6 +91,6 @@ export function Positions({ phone }: { phone: boolean }) {
   const view = useChannel("me");
   const ticker: ChannelView<TickerBody> = useChannel(POS_TICKER);
   const locale = useShell((s) => s.prefs.locale);
-  const cards = useShell((s) => phone || s.prefs.textScale >= POS_STACK_SCALE);
-  return <PositionsView view={view} tickers={ticker.body?.rows ?? null} locale={locale} cards={cards} phone={phone} onRetry={() => getFeed().resync("me")} />;
+  const big = useShell((s) => s.prefs.textScale >= POS_STACK_SCALE);
+  return <PositionsView view={view} tickers={ticker.body?.rows ?? null} locale={locale} cards={phone || big} phone={phone} big={big} onRetry={() => getFeed().resync("me")} />;
 }

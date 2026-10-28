@@ -29,13 +29,13 @@ const click = (n: HTMLElement) => act(async () => { n.dispatchEvent(new MouseEve
 const settle = () => act(async () => { vi.advanceTimersByTime(SNAP_DELAY_MS); });
 
 describe("PF-3-01/08 desktop tab", () => {
-  it("Positions tab renders the 7-column table A→Z with ticker Last", async () => {
+  it("Positions tab renders the 8-column table (Weight after Value) A→Z with ticker Last", async () => {
     await mount(1440);
     await click(q("pf-tab-positions")!);
     await settle();
     expect(q("pf-positions")!.dataset.state).toBe("live");
     expect(qa("pos-row").map((r) => r.dataset.asset)).toEqual(["AVB", "HALC", "VOLT"]);
-    expect(el.querySelectorAll("thead th")).toHaveLength(7);
+    expect(el.querySelectorAll("thead th")).toHaveLength(8);
     expect(qa("pos-today").every((t) => t.textContent !== "—")).toBe(true); // ticker:wl_default is subscribed
   });
   it("text scale ≥ 1.5 switches the desktop table to cards", async () => {

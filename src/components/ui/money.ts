@@ -28,14 +28,19 @@ export const shouldAbbreviate = (p: ParsedAmount) => p.int.length >= 5;
 
 const UNITS: readonly (readonly [number, string])[] = [[12, "T"], [9, "B"], [6, "M"], [3, "k"]];
 
-/** 3 significant figures, half up, trailing zeros dropped: 12400 -> "12.4k", 4200000000000 -> "4.2T".
- *  From 1,000T up the whole number of T is shown (no larger unit in 17 §3.4.1). */
-export function abbreviateDigits(int: string): string {
+/** The one compact-money formatter for wealth (Studio #67 condition): 3 significant figures, ALWAYS rounded down
+ *  (floor, toward −∞), trailing zeros dropped: 412860.15 -> "412k", 1999999 -> "1.99M", 4200000000000 -> "4.2T".
+ *  For a negative amount floor means the magnitude rounds UP when any dropped digit (cents included) is non-zero:
+ *  −412,860.15 -> −$413k, so the compact form is never above the real amount. From 1,000T up the whole number of T
+ *  is shown (no larger unit in 17 §3.4.1). Digits only: no locale variant exists yet (FR i18n pass). */
+export function abbreviateDigits(int: string, negative = false, frac = ""): string {
   let digits = int;
-  const head = digits.slice(0, 3);
-  if (Number(digits[3] ?? "0") >= 5) {
-    const up = String(Number(head) + 1); // three digits at most: rounding, not money arithmetic
-    digits = `${up}${digits.slice(3)}`; // 999 -> 1000 adds a digit, so the unit below may step up
+  const unit0 = UNITS.find(([d]) => digits.length > d);
+  const keep = unit0 ? Math.max(3, digits.length - unit0[0]) : digits.length;
+  const dropped = `${digits.slice(keep)}${frac}`;
+  if (negative && unit0 && /[1-9]/.test(dropped)) {
+    const up = String(Number(digits.slice(0, keep)) + 1); // magnitude + 1 in the last kept place: rounding, not money arithmetic
+    digits = `${up}${"0".repeat(digits.length - keep)}`; // 999 -> 1000 adds a digit, so the unit below may step up
   }
   const unit = UNITS.find(([d]) => digits.length > d);
   if (!unit) return digits;
