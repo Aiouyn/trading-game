@@ -27,7 +27,7 @@ describe('04#1 determinism', () => {
       runDays(a, p, d, d + 1, { bot: botA, applied, onDayClose: () => ha.push(macroStateHash(a)) });
       runDays(b, p, d, d + 1, { bot: botB, onDayClose: () => hb.push(macroStateHash(b)) });
       if (ha[d] !== hb[d]) diff = d;
-      if (d % 20 === 19) await yieldLoop();
+      await yieldLoop();
     }
     expect(diff).toBe(-1);
     expect(ha).toHaveLength(DAYS);

@@ -21,7 +21,7 @@ describe('04#2 / 04#3 isolation', () => {
     for (let d = 0; d < DAYS; d++) {
       runDays(a, p, d, d + 1, { bot, applied }); runDays(b, p, d, d + 1);
       expect(state(b)).toEqual(state(a));
-      if (d % 20 === 19) await yieldLoop();
+      await yieldLoop();
     }
     expect(applied.filter((x) => x.rejected === null).length).toBeGreaterThan(5);
     expect(a.store.iter(macroTables.bid.name).length + a.events.filter((e) => e.kind === 'macro.sov.bid.accepted').length).toBeGreaterThan(0);
@@ -33,7 +33,7 @@ describe('04#2 / 04#3 isolation', () => {
     for (let d = 0; d < DAYS; d++) {
       runDays(a, p, d, d + 1); runDays(b, p, d, d + 1, extra);
       expect(macroStateHash(b)).toBe(macroStateHash(a));
-      if (d % 20 === 19) await yieldLoop();
+      await yieldLoop();
     }
     expect(b.draws['test.extra']).toBe(DAYS * 720);
     expect(macroRows(b)).toEqual(macroRows(a));
