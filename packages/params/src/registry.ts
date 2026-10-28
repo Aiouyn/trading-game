@@ -72,3 +72,26 @@ export const TEST_PARAM_REGISTRY: readonly ParamDef[] = Object.freeze([
   { key: 'test_str', type: 'str', value: 'HALF_EVEN' },
   { key: 'test_list', type: 'list', value: Object.freeze(['P0', 'P13']) },
 ] as ParamDef[]);
+
+/** T04-07 params (04 §3.7.5, §3.7.6, §3.11.1, §3.11.2; values per E-100). Stand-in home until the real 23 registry (T23-02) lands.
+ *  `macro_sovereign_base_hazard` is per bloc: T23-02 plans `{kind:'struct'}`, which ParamType has no accessor for yet, so it is a
+ *  `list` of `{ bloc, hazard }` in BLOC_ORDER (equal to macro/blocs.ts BLOC_DEFAULTS[b].sovereignBaseHazard). */
+export const MACRO_T04_07_PARAMS: readonly ParamDef[] = Object.freeze([
+  { key: 'macro_ns_lambda', type: 'num', value: 1.8 },          // years, Nelson-Siegel λ
+  { key: 'macro_irp', type: 'num', value: 0.002 },              // inflation risk premium in be10
+  { key: 'macro_sov_lgd', type: 'num', value: 0.6 },            // sovereign loss given default
+  { key: 'macro_sovereign_base_hazard', type: 'list', value: Object.freeze([
+    Object.freeze({ bloc: 'FDL', hazard: 0.0005 }), Object.freeze({ bloc: 'EUN', hazard: 0.0030 }), Object.freeze({ bloc: 'PYN', hazard: 0.0020 }),
+    Object.freeze({ bloc: 'NKR', hazard: 0.0003 }), Object.freeze({ bloc: 'SRL', hazard: 0.0200 })]) },
+] as ParamDef[]);
+
+/** T04-08 (04 §3.8.1–§3.8.3): corridor half-width, reserve requirements per bloc, standing-facility haircuts (key = kind_bucket, lower case). */
+const HC: readonly (readonly [string, number])[] = [['own_gov_aaa_aa', 0.01], ['own_gov_a', 0.02], ['own_gov_bbb', 0.04], ['own_gov_bb', 0.15],
+  ['other_gov_aaa_aa', 0.03], ['other_gov_a', 0.05], ['other_gov_bbb', 0.10], ['corp_aaa_aa', 0.05], ['corp_a', 0.07], ['corp_bbb', 0.12],
+  ['abs_covered_aaa_aa', 0.08], ['abs_covered_a', 0.12], ['abs_covered_bbb', 0.20], ['credit_claim', 0.30], ['equity', 0.40]];
+export const MACRO_T04_08_PARAMS: readonly ParamDef[] = Object.freeze([
+  { key: 'macro_corridor_halfwidth', type: 'num', value: 0.0025 },
+  { key: 'macro_rr_fdl', type: 'num', value: 0.01 }, { key: 'macro_rr_eun', type: 'num', value: 0.01 }, { key: 'macro_rr_pyn', type: 'num', value: 0.05 },
+  { key: 'macro_rr_nkr', type: 'num', value: 0.01 }, { key: 'macro_rr_srl', type: 'num', value: 0.10 },
+  ...HC.map(([k, v]) => ({ key: `macro_cb_haircut_${k}`, type: 'num', value: v })),
+] as ParamDef[]);

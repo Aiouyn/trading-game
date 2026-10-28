@@ -1,11 +1,11 @@
 // Ledger runtime for one world (T03-08/T03-09/T03-11/T03-12 subset): queue, holds, P13 commit, aggregates, FlowReader.
 // All state lives on the instance (Δ11 spirit); nothing is process-global.
-import { accountKey, cbkId, chartEntry, classOfCode, defaultMoneyCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
+import { accountKey, cbkId, classOfCode, defaultMoneyCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
 import { FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, ReasonCatalog } from './catalog';
 import { AccountIndex, advanceHoldings, advanceTotals, incrementalSide, scanHoldings, scanIndex, scanSide, scanTotals, tickIndex, totalsCrossCheck, type CcyTotals, type DirtyRow, type Totals } from './balside';
 import { canonEncode, SortedMap } from './det';
 import {
-  computePEM, dM0cbOf, INV_LED_012, postingEffect, TICK_INVARIANTS, tickFlowsOf,
+  computeM0, computePEM, dM0cbOf, INV_LED_012, postingEffect, TICK_INVARIANTS, tickFlowsOf,
   type Accounts, type Bal, type CheckView, type Failure, type TickFlows,
 } from './invariants';
 import { CCYS, mulRate, toMoney, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
@@ -15,6 +15,7 @@ import { classify, controlChanges, sameSide, sideOf, sumMap, type HolderClass, t
 import { addTick, archiveHash, emptyArchive, INV_LED_017, INV_LED_018, SYS_INVARIANTS, type FlowDayArchive } from './sysinv';
 import { RECEIVABLE, SETTLEMENT_CODES, SETTLEMENT_PAYABLE, type AccrualKind } from './legpolicy';
 import { cmpStr } from './det';
+import { AssetIndex, trackAssetAccounts } from './assetIndex';
 import type { Account, AccrualRow, ConflictEscrow, Entry, EntityKind, Hold, LedgerEntity, PayAccountChoice, Perimeter, PhaseId, Reject } from './types';
 
 export const TICKS_PER_DAY = 720;
@@ -50,6 +51,8 @@ export interface LedgerApi {
   committedQty(accountKey: string): Qty;
   /** T03-08 (E-79): every open account (live and dormant) whose code is quantity-bearing and whose sub is `assetId`, sorted by key. */
   accountsOfAsset(assetId: Id): readonly Account[];
+  /** QA #82 (T04-14 peg break-back): committed M0 of `ccy` (T03-11 computeM0: −Σ cbk 2001–2003 balances), micro-units. */
+  m0(ccy: Ccy): Money;
   entryOf(entryId: Id): Entry | undefined;
   /** §6.11 Δ14: owner 12 only (E-12 layer 2); opId = the SEALED op the escrow belongs to (layer 4). */
   escrowPlace(victim: Id, attacker: Id, amt: Money, ccy: Ccy, code: string, escrowId: Id, opId?: Id): Id;
@@ -121,6 +124,7 @@ interface State {
   hookCursor: SortedMap<string, Tick>;            // led.hookcursor: last notified tick per ccy
   flips: string[];                                // `${tick}|${id}` side flips (E14 churn alarm)
   m0PlayerOpen: SortedMap<string, Money>;         // M0_player at the open of the game day (gross-control alarm)
+  assetOpened: SortedMap<string, Tick>;           // T03-08: open tick of every quantity-bearing asset account (live ∪ dormant)
 }
 
 /** The ids the LedgerWorld constructor pre-registers with no owner whose owner a later registration may fill (#68 item 1): cbk_<ccy>. */
@@ -140,6 +144,8 @@ export class LedgerWorld {
   private totals: Totals;
   /** E-84: negative and sub-grouped non-zero accounts as of the last commit (balside AccountIndex); derived like `totals`. */
   private index: AccountIndex;
+  /** T03-08: by-asset index over State.assetOpened (derived, rebuilt on restore). */
+  private assets = new AssetIndex();
   /** Test instrumentation for spec test 2 (Δ2 cost): counts reads of the postings archive. */
   archiveReads = 0;
 
@@ -153,7 +159,7 @@ export class LedgerWorld {
       facts: new SortedMap(), log: [], day: [], tickFlows: new SortedMap(), today: new SortedMap(), flowDays: new SortedMap(), done: new SortedMap(), alerts: [],
       sides: new SortedMap(), holdings: new SortedMap(), roles: new SortedMap(), dynasty: new SortedMap(), linkGroups: new SortedMap(), escrows: new SortedMap(),
       accruals: new SortedMap(), freshStart: new SortedMap(), garnish: new SortedMap(), archive: new SortedMap(), dayAcc: new SortedMap(),
-      hookCursor: new SortedMap(CCYS.map((c) => [c, t - 1])), flips: [], m0PlayerOpen: new SortedMap(),
+      hookCursor: new SortedMap(CCYS.map((c) => [c, t - 1])), flips: [], m0PlayerOpen: new SortedMap(), assetOpened: new SortedMap(),
     };
     this.resetToday();
     this.registerEntity({ id: SYS_ID });
@@ -170,7 +176,7 @@ export class LedgerWorld {
   // ───────── entities & facts ─────────
   /** Idempotent (T03-08 :99). E-92 (5) defect fix, Producer ruling (#68 item 1): the constructor pre-registers cbk_<ccy> with no owner,
    *  so re-registering one of those ids while its owner is still null fills the given owner (T04-21's `cbk_<B>` ownerId govId(b)). That is
-   *  the only fill, and only `gov_<B>` of the same bloc may fill it (#68 (a)); the side tag is recomputed on fill (#68 (b)). A known id
+   *  the only fill, and only `gov_<B>` of the same bloc may fill it (#68 (a)); the side tag needs no recompute on fill (#68 (b): sideOf returns S for cbk regardless of owner). A known id
    *  re-registered with no owner, or with the owner it already has, is a no-op; any other owner throws. */
   registerEntity(spec: RegisterEntitySpec): Id {
     const known = this.s.entities.get(spec.id);
@@ -178,8 +184,7 @@ export class LedgerWorld {
       const owner = spec.ownerId ?? null;
       if (owner === null || owner === known.ownerId) return spec.id;
       if (known.ownerId === null && isOwnerlessPreRegistered(spec.id) && owner === `gov_${spec.id.slice(4)}`) {
-        this.s.entities.set(spec.id, { ...known, ownerId: owner });
-        const side = sideOf(this.sideInputs(), spec.id); if (side) this.s.sides.set(spec.id, side); else this.s.sides.delete(spec.id);
+        this.s.entities.set(spec.id, { ...known, ownerId: owner }); // side tag unchanged: sideOf is S for every cbk, whatever its owner
         return spec.id;
       }
       throw new Error(`registerEntity: ${spec.id} is already registered with owner ${known.ownerId ?? 'null'}; refusing owner ${owner}`);
@@ -194,6 +199,10 @@ export class LedgerWorld {
     });
     const side = sideOf(this.sideInputs(), spec.id); if (side) this.s.sides.set(spec.id, side); // in force from now; later changes at P13 (Δ10)
     return spec.id;
+  }
+  /** Account create / delete for the by-asset index: `keys` were written this tick (any path); exists = live or dormant now. */
+  private trackAssets(keys: readonly string[], tick: Tick): void {
+    trackAssetAccounts(this.s.assetOpened, this.assets, keys.map((k) => [k, this.s.accounts.has(k) || this.s.dormant.has(k)] as const), tick);
   }
   private sideInputs() {
     return { entity: this.entity, hasRole: (id: Id, r: string) => this.s.roles.has(`${id}|${r}`), isDynastyHolding: (id: Id) => this.s.dynasty.has(id) };
@@ -247,14 +256,14 @@ export class LedgerWorld {
   committedQty(key: string): Qty { return this.qtyOf(key); }
   /** T03-08 `accountsOfAsset` (E-79: a new LedgerWorld method). Accounts of every holder of `assetId`: quantity-bearing chart codes
    *  (T03-01 step 2: `assetId = sub` only for those) with `sub === assetId`, live ∪ dormant (lazy open keeps an emptied account open),
-   *  in key order. V3 stores no open tick, so `openedTick` is left unset. */
+   *  in key order, read through the by-asset index (QA #80: no full-map copy). `openedTick` is the commit tick that created the account. */
   accountsOfAsset(assetId: Id): readonly Account[] {
     const out: Account[] = [];
-    for (const [key, b] of this.allAccounts()) {
-      const q = parseAccountKey(key);
-      if (q === undefined || q.sub !== assetId || chartEntry(q.code)?.qtyBearing !== true) continue;
+    for (const [key, openedTick] of this.assets.of(assetId)) {
+      const q = parseAccountKey(key); const b = this.s.accounts.get(key) ?? this.s.dormant.get(key);
+      if (q === undefined || b === undefined) continue;
       out.push({ key, entityId: q.entityId, code: q.code, sub: q.sub, ccy: q.ccy, class: classOfCode(q.code) as Account['class'],
-        balance: b.balance, qty: b.qty, assetId: q.sub, isMoney: isMoneyCode(q.code, kindOfId(q.entityId)) });
+        balance: b.balance, qty: b.qty, assetId: q.sub, isMoney: isMoneyCode(q.code, kindOfId(q.entityId)), openedTick });
     }
     return out;
   }
@@ -375,7 +384,7 @@ export class LedgerWorld {
       balance: (k) => this.balance(k), cash: (e, c) => this.cash(e, c), available: (e, c) => this.available(e, c),
       availableFor: (e, c, p) => this.availableFor(e, c, p), position: (e, a) => this.position(e, a),
       availableQty: (e, a) => this.availableQty(e, a), netWorth: (e) => this.netWorth(e),
-      committedQty: (k) => this.committedQty(k), accountsOfAsset: (a) => this.accountsOfAsset(a),
+      committedQty: (k) => this.committedQty(k), accountsOfAsset: (a) => this.accountsOfAsset(a), m0: (c) => computeM0(this.s.accounts, c),
       entryOf: (id) => this.queue.find((e) => e.entryId === id) ?? this.s.log.find((e) => e.entryId === id),
       escrowPlace: (v, a, amt, c, k, id, op) => q(T.tplEscrowPlace(env(), v, a, amt, c, k, id, op)),
       escrowSettle: (id, ta, tv) => { const row = this.s.escrows.get(id); return row ? q(T.tplEscrowSettle(env(), row, ta, tv)) : rej('LED_UNKNOWN_ESCROW'); },
@@ -625,12 +634,13 @@ export class LedgerWorld {
       // incremental values that failed a check: totals rebuilt by a full scan.
       if (outsideWrites.length > 0) this.s.holdings = advanceHoldings(this.s.holdings, outsideWrites.map(([k, b]): DirtyRow => [k, b, post.get(k)]), (id) => this.s.escrows.get(id)?.victimId);
       this.totals = scanTotals(post); this.index = AccountIndex.scan(post);
+      this.trackAssets(outsideWrites.map(([k]) => k), tick);
       this.committedVersion = post.version;
       return res;
     }
     this.s.holds = holds;
     parkZeroAccounts(post, this.s.dormant, valid);
-    post.resetWrites(); this.totals = inc.endTotals; this.index.apply(dirty);
+    post.resetWrites(); this.totals = inc.endTotals; this.index.apply(dirty); this.trackAssets(dirty.map(([k]) => k), tick);
     this.s.log.push(...valid, ...invalid);
     this.s.day.push(...valid);
     this.s.today = today;
@@ -766,6 +776,7 @@ export class LedgerWorld {
       this.s.hookCursor.set(c, t);
     }
     this.s.accounts.trackWrites(); this.totals = scanTotals(this.s.accounts); this.index = AccountIndex.scan(this.s.accounts); // E-84: derived state rebuilt from a full scan on load
+    this.assets = AssetIndex.of(this.s.assetOpened);
     this.queue = []; this.committedVersion = this.s.accounts.version; }
 }
 
@@ -829,7 +840,7 @@ function cloneState(s: State): State {
     sides: s.sides.clone(), holdings: s.holdings.clone(), roles: s.roles.clone(), dynasty: s.dynasty.clone(), linkGroups: s.linkGroups.clone(),
     escrows: new SortedMap(s.escrows.entries().map(([k, e]) => [k, { ...e }])), accruals: new SortedMap(s.accruals.entries().map(([k, e]) => [k, { ...e }])),
     freshStart: s.freshStart.clone(), garnish: s.garnish.clone(), archive: s.archive.clone(), dayAcc: s.dayAcc.clone(),
-    hookCursor: s.hookCursor.clone(), flips: [...s.flips], m0PlayerOpen: s.m0PlayerOpen.clone(),
+    hookCursor: s.hookCursor.clone(), flips: [...s.flips], assetOpened: s.assetOpened.clone(), m0PlayerOpen: s.m0PlayerOpen.clone(),
   };
 }
 export type { State as LedgerState, EntityKind };
