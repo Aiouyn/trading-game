@@ -86,16 +86,29 @@ export function ref06Ports(base: MacroPorts = defaultMacroPorts()): MacroPorts {
   } } };
 }
 
-/** Reference 16 political-stability response (E-108 (4), reference assumption; 16's spec does not define it yet): politicalStability =
- *  genesis 0.7 + Σ delta over the bloc's active politicalStabilityShock hooks, clamped [0, 1]. Only SOVEREIGN_DEBT_CRISIS writes those hooks,
- *  so for every other kind it returns the genesis value T04-07 already holds. */
-export function ref16Ports(base: MacroPorts = defaultMacroPorts()): MacroPorts {
+/** Reference 16 political-stability response (E-108 (4), E-109 (1) stub contract; 16's spec does not define it yet): politicalStability =
+ *  genesis 0.7 + Σ delta over the bloc's active politicalStabilityShock hooks, clamped [0, 1]. A hook is active from startTick for args.days.
+ *  E-109 (2) `ps16after`, once the hook's world event is ENDED: 'end' (default, case (3): no stability readout) drops the delta at the ENDED
+ *  tick; 'fade' keeps the full delta until ENDED, then fades it linearly to 0 at the end of the hook's window. Only SOVEREIGN_DEBT_CRISIS
+ *  writes those hooks, so for every other kind it returns the genesis value T04-07 already holds. */
+export type Ps16After = 'end' | 'fade';
+export function ref16Ports(base: MacroPorts = defaultMacroPorts(), o: { ps16after?: Ps16After } = {}): MacroPorts {
+  const after = o.ps16after ?? 'end';
   return { ...base, world: { ...base.world, politicalStability: (s, b) => {
     const t = s.get<GlobalMacroState>(macroTables.global.name, 'GLOBAL')?.tick ?? 0;
     let ps = GENESIS_DEFAULT.politicalStability;
     for (const h of s.iter<HookCall>(macroTables.hookCall.name)) {
       if (h.hook !== 'politicalStabilityShock' || h.args.bloc !== b) continue;
-      if (t >= h.startTick && t < h.startTick + Number(h.args.days) * TICKS_PER_GAME_DAY) ps += Number(h.args.delta);
+      const endAt = h.startTick + Number(h.args.days) * TICKS_PER_GAME_DAY;
+      if (t < h.startTick || t >= endAt) continue;
+      const ev = s.get<WorldEvent>(macroTables.event.name, h.worldEventId);
+      if (ev?.phase === 'ENDED' && t >= ev.phaseSinceTick) {
+        if (after === 'end') continue;
+        const e0 = Math.min(ev.phaseSinceTick, endAt);
+        ps += Number(h.args.delta) * (endAt - t) / Math.max(1, endAt - e0);
+        continue;
+      }
+      ps += Number(h.args.delta);
     }
     return dmath.clamp(ps, 0, 1);
   } } };

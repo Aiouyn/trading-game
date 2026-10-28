@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn() }));
 vi.mock('../../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));
 import { MAJORS } from '../../rules/crisisCatalog';
-import { macroTables, type HookCall } from '../../schema';
+import { TICKS_PER_GAME_DAY as D } from '@tycoon/engine-core';
+import { defaultMacroPorts } from '../../ports';
+import { macroTables, type HookCall, type WorldEvent } from '../../schema';
 import { macroWorld } from '../../testkit/macroWorld';
 import { bandHit, checkBands, CRISIS_SEEDS, CURRENCY_PASS_RUNS, currencyCrisisHit, CURRENCY_BREAK_BY_CLOSE, expectedHooks, foldTrace, forcedRun, judgeWarm, KINDS_04_BANDS, metricOf, newTrace, ref06Ports, ref16Ports, WARM_DAYS, WARM_KINDS, type ForcedRun } from './macro-crisis-calibration';
 
@@ -71,6 +73,19 @@ describe('04#36 crisis calibration: readings', () => {
     hk('e', 'EUN', -0.9, 0, 9); hk('f', 'PYN', 0.9, 0, 9);
     expect(p.world.politicalStability(st, 'EUN')).toBe(0); expect(p.world.politicalStability(st, 'PYN')).toBe(1);
     expect(ref16Ports(ref06Ports()).assets.commodityClose(st, 'WHEAT')).toBe(100);   // composes with the 06 stub
+  });
+  it('E-109 (2) ref16Ports ps16after: trigger hook −0.3 for 63 d from tick 0, event ENDED at day 30; end (default) drops it at ENDED, fade goes linearly to 0 at day 63', () => {
+    const at = (mode: 'end' | 'fade' | undefined, day: number, ended = true): number => {
+      const st = macroWorld('ref16-e109', 0).store;
+      st.put(macroTables.global.name, { id: 'GLOBAL', tick: Math.round(day * D) });
+      st.put<HookCall>(macroTables.hookCall.name, { id: 'h', owner: '16', hook: 'politicalStabilityShock', args: { bloc: 'SRL', delta: -0.3, days: 63 }, startTick: 0, worldEventId: 'e1' } as unknown as HookCall);
+      st.put(macroTables.event.name, { id: 'e1', phase: ended ? 'ENDED' : 'RECOVERY', phaseSinceTick: 30 * D } as unknown as WorldEvent);
+      return +ref16Ports(defaultMacroPorts(), mode ? { ps16after: mode } : {}).world.politicalStability(st, 'SRL')!.toFixed(4);
+    };
+    expect([10, 29.99, 30, 46.5, 63].map((d) => at(undefined, d))).toEqual([0.4, 0.4, 0.7, 0.7, 0.7]);
+    expect([10, 29.99, 30, 46.5, 63].map((d) => at('end', d))).toEqual([0.4, 0.4, 0.7, 0.7, 0.7]);
+    expect([10, 30, 46.5, 63].map((d) => at('fade', d))).toEqual([0.4, 0.4, 0.55, 0.7]);
+    expect([31, 62.99].map((d) => at('end', d, false))).toEqual([0.4, 0.4]);   // not ENDED: the hook's own 63-day window
   });
   it('E-108 (5) SOVEREIGN_DEBT_CRISIS seed 0 with ref16Ports: s10_peak ≥ 0.10 and the multiplier ends at ENDED', () => {
     const r = forcedRun('SOVEREIGN_DEBT_CRISIS', 0, { ports: ref16Ports() });
