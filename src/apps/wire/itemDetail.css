@@ -3,10 +3,12 @@
 .wire[data-layout="split"] { flex-direction: row; }
 .wire-feed { container: wire / inline-size; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .wire-feed[hidden] { display: none; }
-.wire[data-layout="split"] > .wire-feed { flex: 1 1 50%; min-width: 360px; }
+/* Halves, but the feed keeps card 1's wide row layout (its container >= 520) while the pane can stay >= 300: at the
+   default 840 window the feed is 520 and the pane the rest; at 720 the feed is 420 (spec min 360). */
+.wire[data-layout="split"] > .wire-feed { flex: 1 1 0; min-width: min(520px, calc(100% - 300px)); }
 
 .wire-pane { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; background: var(--win); }
-.wire[data-layout="split"] > .wire-pane { flex: 1 1 50%; border-left: 1px solid var(--line); }
+.wire[data-layout="split"] > .wire-pane { flex: 1 1 0; min-width: 300px; border-left: 1px solid var(--line); }
 html[data-hc="1"] .wire[data-layout="split"] > .wire-pane { border-left-color: var(--fg-muted); }
 .wire-no-selection { margin: 0; padding: var(--sp-24) var(--sp-16); color: var(--fg-muted); }
 

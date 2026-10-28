@@ -109,7 +109,9 @@ test("WIR-9-10 1440: feed and pane side by side; RUMOR record + band, FILING sum
   await expect(detail(page).getByTestId("wire-detail-record")).toHaveText("3 of 7 past claims held up");
   await expect(detail(page).getByTestId("wire-detail-band")).toHaveAttribute("data-band", "mixed");
   const f = (await page.getByTestId("wire-feed").boundingBox())!, p = (await pane(page).boundingBox())!;
-  expect(f.width).toBeGreaterThanOrEqual(360);
+  expect(f.width).toBeGreaterThanOrEqual(520); // the default 840 window: the feed keeps card 1's wide rows (WIR-1-09)
+  expect(p.width).toBeGreaterThanOrEqual(300);
+  expect(Math.round((await row(page, "n-2").locator(".wire-row-kind").boundingBox())!.width)).toBe(96);
   expect(p.x).toBeGreaterThanOrEqual(f.x + f.width - 0.5); // side by side
   expect(await pane(page).evaluate((el) => getComputedStyle(el).borderLeftColor)).toBe(await color(page, "var(--line)"));
   for (const id of ["n-1", "n-2"]) {

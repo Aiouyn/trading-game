@@ -1,6 +1,7 @@
 // One Wire row (UI card 1): kind chip · headline · entity labels · game time; source record and priced-in bands
 // only when the item carries them. Bands are words, never a score or a %. Card 9: the headline is the row's open
-// button, and its hit area is the whole row (wire.css); entity labels stay plain text.
+// button, and its hit area is the whole row (wire.css); entity labels stay plain text. `wire-headline` stays on the
+// headline text itself (a span whose first child is the text node), as card 1's layout and line-break checks read it.
 "use client";
 import type { Ref } from "react";
 import { Glyph } from "@/components/shell/Glyph";
@@ -55,9 +56,9 @@ export function WireItemRow({ item, t, fresh, selected = false, onOpen, buttonRe
   return (
     <li className={cls} data-testid="wire-row" data-id={item.id} data-kind={item.kind} aria-current={selected || undefined}>
       <span className="wire-row-kind"><KindChip kind={item.kind} t={t} /></span>
-      <p className="wire-row-hl" data-testid="wire-headline">
+      <p className="wire-row-hl">
         <button ref={buttonRef} type="button" className="wire-row-open" data-testid="wire-open" aria-label={fill(t.openItem, { headline: text }) ?? text}
-          onClick={() => onOpen?.(item.id)}>{text}</button>
+          onClick={() => onOpen?.(item.id)}><span data-testid="wire-headline">{text}</span></button>
       </p>
       <time className="wire-row-time" data-testid="wire-time">{timeLabel(item.tick, t)}</time>
       <div className="wire-row-meta">

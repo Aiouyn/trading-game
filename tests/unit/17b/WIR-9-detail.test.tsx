@@ -56,7 +56,7 @@ describe("WIR-9-01 open", () => {
     await render(view(bodyAfter(0)));
     const rows = [...el.querySelectorAll<HTMLElement>("[data-testid=wire-row]")];
     expect(rows.map((r) => r.querySelectorAll("button").length)).toEqual([1, 1, 1, 1]);
-    expect(rows.map((r) => r.querySelector("[data-testid=wire-headline] > button") !== null)).toEqual([true, true, true, true]);
+    expect(rows.map((r) => r.querySelector(".wire-row-hl > button[data-testid=wire-open] > [data-testid=wire-headline]") !== null)).toEqual([true, true, true, true]); // the headline text is the button
     expect(openBtn("n-2").getAttribute("aria-label")).toBe(`Open: ${row("n-2").querySelector("[data-testid=wire-headline]")!.textContent}`);
     expect(detail()).toBeNull();
     await click(openBtn("n-2"));
