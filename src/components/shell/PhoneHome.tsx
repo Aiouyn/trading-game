@@ -183,7 +183,7 @@ function StatusBar() {
       <span className="num clock">{clockText}</span>
       <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
       <HaltChip halted={halted} />
-      <span className="sb-nw"><MoneyText value={nw} compact /></span>
+      <span className="sb-nw"><MoneyText amount={nw} ctx="chip" /></span>
     </header>
   );
 }
@@ -266,7 +266,7 @@ export function PhoneHome() {
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
                 <span style={{ width: `${progress * 100}%` }} />
               </div>
-              <p className="num muted rank-next" data-testid="rank-next">{`${S.next}: ${RANK_NAMES[next.rank]} · `}<MoneyText value={nw} compact />{" / "}<MoneyText value={next.at} compact /></p>
+              <p className="num muted rank-next" data-testid="rank-next">{`${S.next}: ${RANK_NAMES[next.rank]} · `}<MoneyText amount={nw} ctx="chip" />{" / "}<MoneyText amount={next.at} ctx="chip" /></p>
             </>
           )}
         </section>

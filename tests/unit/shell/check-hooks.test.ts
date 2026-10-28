@@ -1,6 +1,6 @@
 // AC-HOOKS-PROD matcher (tools/check-hooks.mjs): what a no-flag production bundle may and may not contain.
 import { describe, expect, it } from "vitest";
-import { scan, QUERY_KEYS, HOOK_STRINGS, DS_STRINGS } from "../../../tools/check-hooks.mjs";
+import { scan, QUERY_KEYS, ASSET_KEYS, HOOK_STRINGS, DS_STRINGS } from "../../../tools/check-hooks.mjs";
 
 type Hit = { hook: string; index: number };
 const hooks = (text: string) => (scan(text) as Hit[]).map((h) => h.hook);
@@ -40,7 +40,24 @@ describe("check-hooks matcher", () => {
   });
 
   it("covers the mock feed, shells and palette keys", () => {
-    for (const k of ["sheet", "feed", "seed", "reject", "tier", "empty", "halt", "thin", "shells", "owned", "palette"]) expect(QUERY_KEYS).toContain(k);
+    for (const k of ["sheet", "feed", "seed", "reject", "tier", "empty", "halt", "thin", "pledge", "shells", "owned", "palette"]) expect(QUERY_KEYS).toContain(k);
+  });
+
+  it("flags the mock asset-name helper forms asset(\"halt\") / asset(\"thin\") under any minified name (QA #67 c)", () => {
+    expect(ASSET_KEYS).toEqual(["halt", "thin"]);
+    // Source form and the minified form from mockFeed.ts scenarioFromQuery: the .get(k) has no literal key.
+    expect(hooks('halt: asset("halt"), thin: asset("thin")')).toEqual(['asset("halt")', 'asset("thin")']);
+    expect(hooks('let r=e=>{let n=t.get(e);return n&&o[n]?n:null};({halt:r("halt"),thin:r(\'thin\')})')).toEqual(['asset("halt")', 'asset("thin")']);
+    expect(hooks('x.y$( `halt` )')).toEqual(['asset("halt")']);
+    // A direct query read stays one .get hit, not two.
+    expect(hooks('p.get("halt")')).toEqual(['.get("halt")']);
+  });
+
+  it("does not flag halt / thin outside a one-argument call", () => {
+    expect(hooks('{halted:!1,phase:"halt"}')).toEqual([]);
+    expect(hooks('t("halted")')).toEqual([]);
+    expect(hooks('f("halt",1)')).toEqual([]);
+    expect(hooks('"thin space"')).toEqual([]);
   });
 
   it("does not flag real deep-link params or near-miss keys", () => {

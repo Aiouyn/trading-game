@@ -108,8 +108,8 @@ describe("PF-2-06 new player", () => {
 
 describe("PF-2-07 restricted", () => {
   const t = pfStrings("en");
-  it("the mock sends AD (releases in 3 hours) and START (held); none for the new player", () => {
-    expect(ME.restricted).toEqual([{ reason: "AD", amount: "500.00", untilRealMs: 3 * 3600_000 }, { reason: "START", amount: "2500.00", untilRealMs: null }]);
+  it("the mock sends AD_GRANT (releases in 3 hours) and FRESH_START (held), the engine codes; none for the new player", () => {
+    expect(ME.restricted).toEqual([{ reason: "AD_GRANT", amount: "500.00", untilRealMs: 3 * 3600_000 }, { reason: "FRESH_START", amount: "2500.00", untilRealMs: null }]);
     expect(ME_EMPTY.restricted).toEqual([]);
     expect(html({ view: live(ME_EMPTY) })).not.toContain("pf-restricted");
   });
@@ -129,10 +129,10 @@ describe("PF-2-07 restricted", () => {
     expect(html({ stacked: true })).toContain('class="pf-ov pf-stacked"');
     expect(html({ phone: true, stacked: true })).toContain('class="pf-ov pf-phone pf-stacked"');
   });
-  it("one row per bucket with the AD/START pill and a written unit or 'held'", () => {
+  it("one row per bucket with the AD_GRANT/FRESH_START pill (labels AD / START) and a written unit or 'held'", () => {
     const restricted = [
-      { reason: "AD", amount: "120.00", untilRealMs: 3 * 3600_000 },
-      { reason: "START", amount: "500.00", untilRealMs: null },
+      { reason: "AD_GRANT", amount: "120.00", untilRealMs: 3 * 3600_000 },
+      { reason: "FRESH_START", amount: "500.00", untilRealMs: null },
     ];
     const h = html({ view: live({ ...ME, restricted }) });
     const rows = h.split('data-testid="pf-restricted-row"').slice(1).map(text);
@@ -181,7 +181,7 @@ describe("rank", () => {
     expect(text(block(html({ rank: { ...RANK, rank: "R6", nextAt: null } }), "pf-next")!)).toBe("Top rank");
   });
   it("phone order: hero, rank, summary, restricted, stats", () => {
-    const h = html({ phone: true, view: live({ ...ME, restricted: [{ reason: "AD", amount: "1.00", untilRealMs: null }], nwStats: { window: "", drawdownReal: "0", sharpe: null, twrIdx: "", bench: "" } }) });
+    const h = html({ phone: true, view: live({ ...ME, restricted: [{ reason: "AD_GRANT", amount: "1.00", untilRealMs: null }], nwStats: { window: "", drawdownReal: "0", sharpe: null, twrIdx: "", bench: "" } }) });
     const order = ["pf-hero", "pf-rank", "pf-summary", "pf-restricted", "pf-stats"].map((id) => h.indexOf(`data-testid="${id}"`));
     expect(order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]!))).toBe(true);
   });
