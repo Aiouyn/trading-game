@@ -92,6 +92,10 @@ describe('T04-20 macroGenesis', () => {
     expect(BLOC_ORDER.map((b) => w.store.get<CentralBank>(macroTables.cb.name, cbkId(b))!.reserves.fdl)).toEqual(BLOC_ORDER.map((b) => (b === 'FDL' ? 0n : openingReservesFdl(b, 0.2, w.ctx.params))));
     expect(BLOC_ORDER.map((b) => bl(w, b).fx.reservesFdl)).toEqual(BLOC_ORDER.map((b) => (b === 'FDL' ? 0n : openingReservesFdl(b, 0.2, w.ctx.params))));
   });
+  it('E-106 (8): genesis ratingInputs.politicalStability is 0.7 (the input snapshot default), every bloc', () => {
+    const w = run();
+    expect(BLOC_ORDER.map((b) => bl(w, b).sovereign.ratingInputs!.politicalStability)).toEqual([0.7, 0.7, 0.7, 0.7, 0.7]);
+  });
   it('curve hHat 0.5, inversionDays 0; public view labelled EXPANSION; cb coefficients from hawkishness', () => {
     const w = run();
     for (const b of BLOC_ORDER) {
