@@ -1,4 +1,5 @@
 // Typed app registry (Spec 1 §2; V3 17 §2.2, §3.2.4, §3.2.5). Static data only: no React, no DOM.
+import { isBuiltApp } from "./appModules";
 
 export const APP_IDS = [
   "broker", "portfolio", "wire", "messages", "markets", "risk", "quantlab", "research",
@@ -104,16 +105,12 @@ const ROWS: Row[] = [
   { id: "api", group: "trade", unlock: { kind: "flag", flag: "api.eligible" } },
 ];
 
-/** Apps with a real body. 17B CH-00 flipped portfolio and wire (lazy-loaded). Broker stays built:false until BRK-A
- *  ships its body: it shows "Coming later" straight away and is not presented as a built app (Producer). */
-const BUILT: ReadonlySet<AppId> = new Set(["settings", "portfolio", "wire"]);
-
 export const REGISTRY: readonly AppDef[] = ROWS.map((r, i) => ({
   minW: 420, minH: 300, maxInstances: 1, unlock: ALWAYS, teaser: NONE,
   ...r,
   nameKey: `app.${r.id}.name` as const,
   order: i + 1,
-  built: BUILT.has(r.id),
+  built: isBuiltApp(r.id), // derived from APP_MODULES: built means it has a body (QA #71 follow-up)
 }));
 
 export const APPS: Record<AppId, AppDef> = Object.fromEntries(REGISTRY.map((a) => [a.id, a])) as Record<AppId, AppDef>;
