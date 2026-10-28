@@ -1,6 +1,7 @@
 // Money formatting for MoneyText (17 §3.4.1, 17-AT-05). Server amounts are decimal strings; this module
 // only rearranges their digits. src/game/format.ts (number-based, no 3-significant-figure or T unit)
-// cannot format them without converting to floats, so this thin string adapter does it instead [P].
+// cannot format them without converting to floats, so this thin string adapter does it instead [P]. Legacy number
+// callers come in through src/game/format.ts decimalString (exact decimal string) and use compactMoneyText below.
 
 export const MINUS = "\u2212";
 
@@ -42,4 +43,14 @@ export function abbreviateDigits(int: string): string {
   const whole = sig.slice(0, intLen);
   const dec = sig.slice(intLen).replace(/0+$/, "");
   return `${whole}${dec ? `.${dec}` : ""}${unit[1]}`;
+}
+
+/** MoneyText's text for an abbreviating context (list, chip, sentence), for plain-string callers such as legacy toasts:
+ *  "250000" -> "$250k", "-412860.15" -> "−$413k", "5000" -> "$5,000.00" (abbreviates from 10,000), "0" -> "$0.00".
+ *  Same parse, zero rule, threshold and floor as MoneyText (pinned by a parity test). */
+export function compactMoneyText(amount: string): string {
+  const p = parseAmount(amount);
+  if (isZero(p)) return "$0.00";
+  const digits = shouldAbbreviate(p) ? abbreviateDigits(p.int, p.negative, p.frac) : fullDigits(p);
+  return `${p.negative ? MINUS : ""}$${digits}`;
 }

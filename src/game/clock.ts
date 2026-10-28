@@ -1,6 +1,7 @@
 /**
  * Game clock. One game day is ticksPerDay ticks (720 by default, 1 tick = 5 real seconds),
- * shown as a 09:30 to 16:00 session so the clock reads like a trading day.
+ * shown as a 09:30 to 16:00 session so the clock reads like a trading day: tick 0 of each day is 09:30 and its last
+ * tick (ticksPerDay - 1) reads 15:59; the next tick is the following day's 09:30.
  */
 export const SESSION_OPEN_MIN = 9 * 60 + 30;
 export const SESSION_MINUTES = 390;
@@ -8,22 +9,23 @@ export const SESSION_MINUTES = 390;
 export interface ClockParts {
   /** 1-based game day */
   day: number;
-  /** tick within the day, 0..ticksPerDay (ticksPerDay is the close) */
+  /** tick within the day, 0..ticksPerDay - 1 */
   tickInDay: number;
   hhmm: string;
 }
 
 export function clockParts(tick: number, ticksPerDay: number): ClockParts {
-  // Matches the engine's day partition: the step after a multiple of ticksPerDay opens a new day,
-  // so ticks 1..ticksPerDay are day 1 and tick ticksPerDay itself is that day's 16:00 close.
+  // Engine calendar (packages/engine/core/calendar/date.ts:15-16, ticksToGameDate): dayIndex = floor(tick / ticksPerDay),
+  // t = tick % ticksPerDay, and its 1-based day counters are dayIndex + 1 (date.ts:18, :26). So ticks 0..ticksPerDay - 1
+  // are Day 1 and tick ticksPerDay opens Day 2, the same rollover as the shell clockLabel (src/shell/mockChannels.ts).
   const d = dayIndex(tick, ticksPerDay);
   const tickInDay = Math.max(0, tick) - d * ticksPerDay;
   return { day: d + 1, tickInDay, hhmm: sessionTime(tickInDay, ticksPerDay) };
 }
 
-/** 0-based day a tick's price belongs to. */
+/** 0-based day a tick belongs to: the engine calendar's dayIndex (date.ts:15). Negative ticks clamp to day 0. */
 export function dayIndex(tick: number, ticksPerDay: number): number {
-  return tick <= 0 ? 0 : Math.floor((tick - 1) / ticksPerDay);
+  return tick <= 0 ? 0 : Math.floor(tick / ticksPerDay);
 }
 
 export function sessionTime(tickInDay: number, ticksPerDay: number): string {
