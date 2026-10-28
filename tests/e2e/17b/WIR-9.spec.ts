@@ -21,7 +21,12 @@ const pane = (page: Page) => page.getByTestId("wire-pane");
 /** The Wire window (desktop) or the phone app view: the screenshot frame. */
 const frame = (page: Page) => page.locator('[data-testid="win-wire"], [data-testid="phone-appview"]').first();
 
+/** Pages already booted on the fake clock: their clock stays paused across a navigation, which starves the next
+ *  boot's timers (quay-ready never shows), so a re-boot resumes it first. */
+const booted = new WeakSet<Page>();
 async function bootWire(page: Page, query = "", loading = false) {
+  if (booted.has(page)) await page.clock.resume();
+  booted.add(page);
   await bootPaused(page, `/wire${query}`);
   const settled = page.locator(loading ? '[data-testid="wire"][data-state="loading"]' : '[data-testid="wire"]:not([data-state="loading"]), [data-testid="wire-denied"], [data-testid="wire-error"]');
   await expect.poll(async () => { await page.clock.runFor(100); return settled.count(); }, { timeout: 15_000 }).toBe(1);

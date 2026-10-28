@@ -4,7 +4,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Feed, SPLIT_MIN, type PhoneSub, type WireHost } from "@/apps/wire/Feed";
+import { Feed, type PhoneSub, type WireHost } from "@/apps/wire/Feed";
 import { EN, FR, headline } from "@/apps/wire/strings";
 import type { NewsBody, WireItem } from "@/shell/contracts/channels";
 import { MockFeed } from "@/shell/contracts/mockFeed";
@@ -38,8 +38,10 @@ async function render(v: ChannelView<NewsBody>, host: WireHost = fakeHost(), t =
   await act(async () => { root!.render(createElement(Feed, { view: v, t, host })); });
   return el;
 }
+/** The spec's breakpoint, as a literal: the tests pin 720 / 719, not whatever SPLIT_MIN says. */
+const SPEC_SPLIT = 720;
 const wide = () => {
-  width = SPLIT_MIN;
+  width = SPEC_SPLIT;
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) { return this.classList.contains("wire") ? width : 0; });
 };
 afterEach(async () => { await act(async () => root?.unmount()); root = null; el?.remove(); vi.restoreAllMocks(); });
@@ -165,7 +167,7 @@ describe("WIR-9-03 headline", () => {
 });
 
 describe("layout", () => {
-  it(`Wire box >= ${SPLIT_MIN} px: feed + pane side by side; nothing selected shows noSelection; feed stays visible`, async () => {
+  it(`Wire box >= ${SPEC_SPLIT} px: feed + pane side by side; nothing selected shows noSelection; feed stays visible`, async () => {
     wide();
     await render(view(bodyAfter(0)));
     expect(q("wire")!.dataset.layout).toBe("split");
@@ -175,8 +177,8 @@ describe("layout", () => {
     expect(q("wire-feed")!.hidden).toBe(false);
     expect(q("wire-back")).toBeNull();
   });
-  it(`< ${SPLIT_MIN} px: the detail replaces the feed (kept mounted, hidden) with 'Back to Wire' + kind title; no empty pane`, async () => {
-    wide(); width = SPLIT_MIN - 1;
+  it(`< ${SPEC_SPLIT} px: the detail replaces the feed (kept mounted, hidden) with 'Back to Wire' + kind title; no empty pane`, async () => {
+    wide(); width = SPEC_SPLIT - 1;
     await render(view(bodyAfter(0)));
     expect(q("wire")!.dataset.layout).toBe("single");
     expect(q("wire-pane")).toBeNull();
