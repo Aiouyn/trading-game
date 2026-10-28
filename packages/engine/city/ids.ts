@@ -30,12 +30,31 @@ export const buildingId = (ctx: IdSource): Id => checked(ctx.newId('bld'));
 export const propId = (ctx: IdSource): Id => checked(ctx.newId('prop'));
 export const leaseId = (ctx: IdSource): Id => checked(ctx.newId('lse'));
 
-/** AC-10A-01-2: the allowed entity-id prefixes (E-26/E-27/E-30/E-33/E-38/E-39/E-40/E-44/E-46/E-50/E-52), in the card's order. */
+/** AC-10A-01-10 (E-92 (3)) with the #68 Producer ruling: the E-92 helpers follow the main convention above. Authored ids are
+ *  prefix + slug (as cityId); persistent features are prefix + city slug + '_' + non-negative integer (as parcelId); runtime records use
+ *  ctx.newId(kind) (as unitId). Parts are used verbatim: a bloc code stays as written (FDL, as in cbk_FDL and gov_FDL), never re-cased. */
+function seqId(prefix: string, what: string, city: string, n: number): Id {
+  if (!Number.isSafeInteger(n) || n < 0) throw new EngineFault('CITY_BAD_ID', `${what} ${n} is not a non-negative integer`);
+  return checked(`${prefix}${city}_${n}`);
+}
+export const streetId = (city: string, seq: number): Id => seqId('str_', 'street seq', city, seq);        // persistent road feature (10 §2 streetId)
+export const manifestId = (city: string, version: number): Id => seqId('mfs_', 'manifest version', city, version);   // CityManifest version (§2.11)
+export const regionId = (city: string, seq: number): Id => seqId('rgn_', 'region seq', city, seq);       // generation region (§3.19.2); not `reg_` (regulator kind)
+export const personalityId = (slug: string): Id => checked(`per_${slug}`);    // city personality, authored data file (§3.19)
+export const archetypeId = (slug: string): Id => checked(`arc_${slug}`);      // personality building archetype (§3.19.5), authored
+export const baseMeshId = (slug: string): Id => checked(`msh_${slug}`);       // renderer base mesh, authored
+export const styleId = (slug: string): Id => checked(`sty_${slug}`);          // renderer facade style, authored
+export const managementPolicyId = (slug: string): Id => checked(`mgp_${slug}`);   // property ManagementPolicy (§2.8); not `pol_` (08 insurance policyId)
+export const transitionId = (ctx: IdSource): Id => checked(ctx.newId('trn'));   // CityTransition.id, a runtime record
+
+/** AC-10A-01-2: the allowed entity-id prefixes (E-26/E-27/E-30/E-33/E-38/E-39/E-40/E-44/E-46/E-50/E-52), in the card's order,
+ *  then the 12 of AC-10A-01-10 (E-92 (3)) in E-92's table order: 85. A pass list, not a gate (E-88 (2c)). */
 export const ALLOWED_ENTITY_PREFIXES: readonly string[] = [
   'cty_', 'dst_', 'pcl_', 'bld_', 'unt_', 'lse_', 'prop_', 'unq_', 'lon_', 'dyn_', 'pty_', 'cau_', 'bil_', 'ele_', 'lob_', 'hst_', 'fct_', 'sec_',
   'brf_', 'brk_', 'mac_', 'mcl_', 'dfe_', 'lot_', 'csa_', 'esc_', 'clm_', 'ccp_', 'lst_', 'dev_', 'ofr_', 'prm_', 'psl_', 'lau_', 'mqt_', 'obj_',
   'mrl_', 'pln_', 'rdp_', 'tof_', 'mrg_', 'vrd_', 'rst_', 'mot_', 'lbo_', 'ipo_', 'srf_', 'opn_', 'hsn_', 'lgc_', 'anm_', 'dcp_', 'itl_', 'lab_',
-  'cls_', 'dts_', 'res_', 'run_', 'mdl_', 'dep_', 'grf_', 'lic_', 'rpj_', 'evl_', 'chn_', 'wir_', 'brd_', 'lgr_', 'chp_', 'chl_', 'riv_', 'itp_', 'ics_'];
+  'cls_', 'dts_', 'res_', 'run_', 'mdl_', 'dep_', 'grf_', 'lic_', 'rpj_', 'evl_', 'chn_', 'wir_', 'brd_', 'lgr_', 'chp_', 'chl_', 'riv_', 'itp_', 'ics_',
+  'str_', 'per_', 'mfs_', 'arc_', 'msh_', 'sty_', 'mgp_', 'ctr_', 'wld_', 'trn_', 'evt_', 'rgn_'];
 /** AC-10A-01-2: the pre-E-26 prefixes the lint rule `no-noncompliant-entity-prefix` rejects. */
 // eslint-disable-next-line city/no-noncompliant-entity-prefix -- the rule's own deny list
 export const NONCOMPLIANT_ENTITY_PREFIXES: readonly string[] = ['city_', 'dist_', 'unit_', 'loan_', 'uq_'];
