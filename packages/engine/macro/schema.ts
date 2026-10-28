@@ -319,6 +319,8 @@ export interface FxState {
   empDays?: number; breakArmed?: boolean; fxServicePending?: boolean;
   bandC0?: number; weakEdgeDays?: number; strongEdgeDays?: number; bandToleranceWide?: boolean;
   breakTick?: Tick; highCoreDays?: number; pegLn?: number;
+  hist?: { lnS: number; res: Money; i: number }[] /* trading-day closes, last 370 */; lastRA?: number; lastEnergy?: number;
+  pendingDaily?: { gameDay: number; net: Money; reserves: Money };
 }
 
 // ───────── §2.10 crisis scheduler and crises ─────────
