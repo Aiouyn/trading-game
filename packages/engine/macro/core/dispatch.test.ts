@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cbkId, govId } from '@tycoon/engine-ledger';
-import { macroTables } from '../schema';
+import { BLOC_ORDER, macroTables } from '../schema';
 import { macroWorld } from '../testkit/macroWorld';
 import { stubPorts } from '../testkit/cbWorld';
 
@@ -16,7 +16,7 @@ vi.mock('../rules/cb', () => ({ runMeeting: (_c: unknown, b: string, e: boolean)
 vi.mock('../rules/guidance', () => ({ guidanceAt: h.rec('guidance'), minutesAt: h.rec('minutes') }));
 vi.mock('../rules/corridor', () => ({ setCorridor: h.rec('corridor') }));
 vi.mock('../rules/macroprudential', () => ({ macroprudentialAtMeeting: h.rec('mpru') }));
-vi.mock('../rules/fxRegimes', () => ({ realignAtMeeting: h.rec('realign') }));
+vi.mock('../rules/fxRegimes', () => ({ realignAtMeeting: h.rec('realign'), breakRuleCheck: (c: { tick: number }, b: string) => { h.log.push(`break:${c.tick}:${b}`); return null; } }));
 vi.mock('../rules/curves', () => ({ recomputeCurve: (_c: unknown, b: string, r: string) => { h.log.push(`curve:${b}:${r}`); } }));
 vi.mock('../rules/fsi', () => ({ hourlyFsi: (c: { tick: number }) => { h.log.push(`fsi:${c.tick}`); } }));
 vi.mock('../rules/fear', () => ({ hourlyFear: (c: { tick: number }) => { h.log.push(`fear:${c.tick}`); } }));
@@ -57,6 +57,15 @@ describe('T04-20 P2 dispatch', () => {
     expect(h.log.indexOf('fsi:750') + 1).toBe(h.log.indexOf('fear:750'));
     expect(h.log.filter((x) => x.startsWith('day:'))).toEqual(['day:1439']);
     expect(h.log.indexOf('mirror')).toBe(h.log.indexOf('fsi:720') - 1);
+  });
+  it('E-104 (1) step 4b: breakRuleCheck for every bloc in BLOC_ORDER at t = 45 only, after the CB step and before the recompute', () => {
+    const w = world(), ports = stubPorts(), T = 3 * 720 + 45;
+    h.publish.push({ bloc: 'EUN', tick: T });
+    ticks(w, 3 * 720, 4 * 720, () => macroP2(w.ctx, ports, stab));
+    expect(h.log.filter((x) => x.startsWith('break:'))).toEqual(BLOC_ORDER.map((b) => `break:${T}:${b}`));
+    const l = h.log.filter((x) => /^(publish|break|curve)/.test(x));
+    expect(l.indexOf(`break:${T}:FDL`)).toBe(l.indexOf('publish:EUN') + 1);
+    expect(l.indexOf('curve:EUN:RELEASE')).toBe(l.indexOf(`break:${T}:SRL`) + 1);
   });
   it('weekly stabilizer report at 5085 and 10125 only', () => {
     const w = world(), ports = stubPorts();

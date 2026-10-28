@@ -39,11 +39,22 @@ export const HOOKS: Readonly<Record<string, { owner: HookCall['owner']; args: re
   CYBERCERT_PATCH: h('12', 'eventId'),
 });
 
+/** E-105 (T04-18 step 5): source ids of the six non-WorldEvent writers (`<day>` = ⌊tick / D⌋). Every composite id has ≥ 2 underscores,
+ *  so it cannot collide with a `newId` digest id (`<kind>_<26 base32>`, one underscore); the kinds below are reserved for newId. */
+export const RESERVED_ID_KINDS: readonly string[] = Object.freeze(['cwk', 'ycp', 'igx']);
+export const crisisWeekSourceId = (startTick: Tick): string => `cwk_WORLD_${Math.floor(startTick / D)}`;
+export const yccPressureSourceId = (b: string, tick: Tick): string => `ycp_${b}_${Math.floor(tick / D)}`;
+export const igExclusionSourceId = (b: string, tick: Tick): string => `igx_${b}_${Math.floor(tick / D)}`;
+export const trancheSourceId = (programId: string | undefined, k: number): string => {
+  if (programId === undefined || programId === '' || !(k >= 1)) throw new EngineFault('MAC_STATE_MISSING', `CSF tranche source id without a program id or k ≥ 1`, [programId ?? '', String(k)]);
+  return `${programId}_t${k}`;
+};
+
 /** Hooks the card gives two owners (written once per owner). */
 const OWNERS: Readonly<Record<string, readonly HookCall['owner'][]>> = Object.freeze({ RESCUE_MERGER_PROPOSAL: ['16', '07'], CYBERCERT_PATCH: ['12', '13'], ltvTighten: ['07', '10'] });
 /** The owners a hook may be written to ([] for an unknown hook). */
 export const ownersOf = (hook: string): readonly HookCall['owner'][] => OWNERS[hook] ?? (HOOKS[hook] === undefined ? [] : [HOOKS[hook].owner]);
-/** Card Done: "no hook without a worldEventId"; and every hook is a §3.16.6 name, written to one of its owners, with every named arg. */
+/** The only writer of mac.hookCall (E-105). Card Done: "no hook without a worldEventId"; and every hook is a §3.16.6 name, written to one of its owners, with every named arg. */
 export function writeHook(ctx: PhaseCtx, owner: HookCall['owner'], hook: string, args: HookCall['args'], worldEventId: string): HookCall {
   const def = HOOKS[hook];
   if (typeof worldEventId !== 'string' || worldEventId === '') throw new EngineFault('MAC_STATE_MISSING', `hook ${hook} without a worldEventId`, [hook]);

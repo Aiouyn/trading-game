@@ -130,7 +130,8 @@ describe('case, grace, selective default', () => {
     w.setTick(c.missedPayment.dueTick); stepDefaultCase(w.ctx, 'EUN', ports);
     expect(bloc(w).sovereign.status).toBe('GRACE');
     expect(w.events.map((e) => [e.kind, e.payload])).toEqual([['macro.sov.status', { govId: 'gov_EUN', status: 'GRACE', trigger: 'FAILED_ROLLOVER' }]]);
-    expect((w.rows(macroTables.hookCall.name) as HookCall[]).map((h) => [h.owner, h.hook])).toEqual([['16', 'WIRE_ITEM']]);
+    expect((w.rows(macroTables.hookCall.name) as HookCall[]).map((h) => [h.owner, h.hook, h.worldEventId])).toEqual([['16', 'WIRE_ITEM', c.id]]);   // AC-04-18-HOOKID (1)
+    expect(c.id).toMatch(/^sdc_/);   // the test world's newId is a counter; the 26-char form is checked in hookId.test.ts
     w.setTick(c.graceEndsTick - 1); stepDefaultCase(w.ctx, 'EUN', ports); expect(w.events).toHaveLength(1);
     w.setTick(c.graceEndsTick); stepDefaultCase(w.ctx, 'EUN', ports);
     expect(bloc(w).sovereign.status).toBe('SELECTIVE_DEFAULT');

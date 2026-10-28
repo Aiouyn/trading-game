@@ -15,9 +15,9 @@ describe('T04-14 capital controls', () => {
     expect(capconDecision(1, lvl({ sellCcy: 'SRL', buyCcy: 'FDL' }))).toEqual({ allowed: true, levyRate: 0.01 });
     expect(capconDecision(0, lvl({ sellCcy: 'SRL', buyCcy: 'FDL' }))).toEqual({ allowed: true, levyRate: 0 });
   });
-  it('declares the five extension codes', () => {
+  it('declares the six extension codes', () => {
     expect(MACRO_EXTENSION_CODES_FX.map((c) => `${c.code}:${c.cls}`).sort((a, b) => (a < b ? -1 : 1)))
-      .toEqual(['CAPCON_LEVY:SINK', 'CSF_DISBURSE:TRANSFER', 'CSF_INTEREST:TRANSFER', 'CSF_REPAY:TRANSFER', 'MAC_FX_CA_ABSORB:TRANSFER']);
+      .toEqual(['CAPCON_LEVY:SINK', 'CSF_DISBURSE:TRANSFER', 'CSF_INTEREST:TRANSFER', 'CSF_REPAY:TRANSFER', 'MAC_FX_CAPITAL_FLOW:TRANSFER', 'MAC_FX_CA_ABSORB:TRANSFER']);
   });
   it('starts at the next tick; steps 3 (72d) → 2 (3d) → 1 (28d) → 0 with an event at each change', () => {
     const t0 = 50 * D + 100, w = fiscalWorld(t0);

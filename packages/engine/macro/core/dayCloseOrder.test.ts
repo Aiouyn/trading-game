@@ -2,11 +2,12 @@
 // Every day-step module is wrapped; a call is recorded only at depth 0 (a direct call from dayStep.ts, not a helper's inner call).
 import { describe, expect, it, vi } from 'vitest';
 import { TICKS_PER_GAME_DAY } from '@tycoon/engine-core';
-import { BLOC_ORDER } from '../schema';
+import { BLOC_ORDER, macroTables, type BlocMacroState } from '../schema';
 import { macroGenesis } from './genesis';
 import { macroDayStep } from './dayStep';
 import { macroWorld } from '../testkit/macroWorld';
 import { stubPorts } from '../testkit/cbWorld';
+import { stepOutputGapEstimate } from '../gapest';
 vi.mock('../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn() }));
 vi.mock('../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));  // MISSING EXPORT T03-24 led.msi
 
@@ -78,8 +79,9 @@ function cardOrder(quarterEnd: boolean): string[] {
     'collectInputs',                                                                               // 3.1
     'stepScale', 'dailyTrade',                                                                     // 3.2
     'stepRegime', ...per(() => ['stepRegime', 'cycleLabelStep']),                                  // 3.3 global first, then per bloc
-    ...per((b) => ['smoothRealRateGap', 'gapTerms', 'stepOutputGap', 'stepLevels', 'stepUnemployment', 'wageGrowth', `stepNeutralRate:${b}`,   // 3.4
-      'stepCore', 'stepCoreLevel', 'stepExpectations', `nominalGdpLocal:${b}`, 'creditAggregates', `stepOutputGapEstimate:${b}`]),                // 3.5 (E-87 (2))
+    ...per((b) => ['smoothRealRateGap', 'gapTerms', 'stepOutputGap', `stepOutputGapEstimate:${b}`, 'stepLevels', 'stepUnemployment', 'wageGrowth',
+      `stepNeutralRate:${b}`,                                                                      // 3.4 (card T04-20 step 3.4)
+      'stepCore', 'stepCoreLevel', 'stepExpectations', `nominalGdpLocal:${b}`, 'creditAggregates']),  // 3.5 (E-87 (2): core → level → headline → e1 → e5)
     ...per((b) => ['stepFiscalDay', `postFiscalCash:${b}`, ...(b === 'NKR' ? ['swfStep'] : []), `runFiscalRuleChecks:${b}`]),                 // 3.6
     'handleProgramSpend', ...per((b) => [`acceptProposals:${b}`]),
     ...(quarterEnd ? per((b) => [`quarterFiscalEvent:${b}`, `quarterEndDealerReview:${b}`]) : []),
@@ -98,5 +100,18 @@ describe('T04-20 step 3 day-close order (golden trace)', () => {
   });
   it('ordinary day close (day 10): the same order without the quarter-end steps', () => {
     expect(trace(10)).toEqual(cardOrder(false));
+  });
+  it('step 3.4 keeps the gap-estimate noise stepped there: the bloc row ends the day with ε1 of macro.gapest:<bloc>, not ε0', () => {
+    const noise = (w: ReturnType<typeof macroWorld>, b: string): number => w.ctx.store.get<BlocMacroState & { id: string }>(macroTables.bloc.name, b)!.gapEstNoise;
+    const a = macroWorld('gapest-carry', 0), z = macroWorld('gapest-carry', 0);
+    macroGenesis(a.ctx, ports); macroGenesis(z.ctx, ports);
+    a.setTick(10 * TICKS_PER_GAME_DAY + 719); z.setTick(10 * TICKS_PER_GAME_DAY + 719);
+    const e0 = BLOC_ORDER.map((b) => noise(a, b));
+    const e1 = BLOC_ORDER.map((b) => stepOutputGapEstimate(a.ctx, b, 0));   // same stream state the day step sees
+    macroDayStep(z.ctx, ports);
+    for (const [i, b] of BLOC_ORDER.entries()) {
+      expect(noise(z, b)).toBe(e1[i]);
+      expect(noise(z, b)).not.toBe(e0[i]);
+    }
   });
 });

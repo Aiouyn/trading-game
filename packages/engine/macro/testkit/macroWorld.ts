@@ -1,7 +1,7 @@
 // T04-20 test kit: the integrated macro world (genesis, day step, dispatch). schedWorld's fast store, rng and header, cbWorld's ledger and
 // holds, ctx.cal = calendarOf(tick), and params = every registry plus the T04-04/05/06/07/08/16 test tables (as economy/regime/cb/inflation/fiscal tests).
 import { calendarOf, type PhaseCtx } from '@tycoon/engine-core';
-import { createParamsView, MACRO_E93_OPENING_PARAMS, MACRO_T04_07_PARAMS, MACRO_T04_08_PARAMS, MACRO_T04_17_PARAMS } from '@tycoon/params';
+import { createParamsView, MACRO_E93_OPENING_PARAMS, MACRO_T04_07_PARAMS, MACRO_T04_08_PARAMS, MACRO_T04_17_PARAMS, MACRO_T04_18_PARAMS } from '@tycoon/params';
 import { cbWorld, type CbWorld } from './cbWorld';
 import { REV_BASE } from './fiscalWorld';
 import { schedWorld, SEAL0, type MapStore } from './schedWorld';
@@ -27,7 +27,7 @@ export interface MacroWorld { ctx: PhaseCtx; store: MapStore; cb: CbWorld; event
 export function macroWorld(seed = 'g', tick0 = 0): MacroWorld {
   const sw = schedWorld(seed, tick0), cw = cbWorld([], tick0);
   for (const t of [macroTables.bloc.name, macroTables.global.name, macroTables.publicView.name]) for (const r of sw.store.iter<{ id: string }>(t)) sw.store.del(t, r.id);
-  const defs = [...MACRO_T04_07_PARAMS, ...MACRO_T04_08_PARAMS, ...MACRO_E93_OPENING_PARAMS, ...MACRO_T04_17_PARAMS];
+  const defs = [...MACRO_T04_07_PARAMS, ...MACRO_T04_08_PARAMS, ...MACRO_E93_OPENING_PARAMS, ...MACRO_T04_17_PARAMS, ...MACRO_T04_18_PARAMS];
   const reg = createParamsView(defs.filter((d, i) => defs.findIndex((x) => x.key === d.key) === i));
   let over: Record<string, number> = {}, tick = tick0;
   const reads: string[] = [];

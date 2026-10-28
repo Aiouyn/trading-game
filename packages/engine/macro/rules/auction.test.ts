@@ -244,7 +244,8 @@ describe('failed and weak auctions', () => {
     expect(r.weak).toBe(true); expect(r.failed).toBe(false);
     afterFailedOrWeak(w.ctx, 'FDL', a, r);
     expect(bloc(w, 'FDL').shocks.map((x) => x.value)).toEqual([0.05]);
-    expect(w.rows(macroTables.hookCall.name)).toEqual([expect.objectContaining({ owner: '16', hook: 'WIRE_ITEM', args: { key: 'weak_auction', auctionId: a.id } })]);
+    expect(w.rows(macroTables.hookCall.name)).toEqual([expect.objectContaining({ owner: '16', hook: 'WIRE_ITEM', args: { key: 'weak_auction', auctionId: a.id }, worldEventId: a.id })]);
+    expect(a.id).toMatch(/^auc_[A-Z]{3}_[A-Z0-9]+_\d+$/);   // AC-04-18-HOOKID (1)
     expect(cb(w, 'FDL').backstop).toBeUndefined();
     expect(bloc(w, 'FDL').fiscal.shortfallCarry).toBeUndefined();
   });

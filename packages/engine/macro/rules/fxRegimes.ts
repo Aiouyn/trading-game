@@ -192,6 +192,21 @@ function stdev5(h: readonly { lnS: number }[]): number {
 }
 const meetingToday = (s: StoreRead, b: BlocId, day: number): boolean => cbOf(s, b).meetings.scheduledTicks.some((t) => Math.floor(t / D) === day);
 
+const KAPPA_SCALE = 1_000_000_000_000n;
+/** E-104 (1) `capital_flow` (T04-18 step 4), at a managed regime's trading-day close after CA absorption and before the reserve read:
+ *  Σ < 0 → the CB sells κ_cf × |Σ| × reservesFdl FDL to `row`, Σ > 0 → buys the same; FDL amount half-even to micro (rate carried at
+ *  1e-12), X leg at spot. κ_cf = macro_fx_capital_flow_kappa. Proportional, so reserves never reach 0. Σ = 0 or no reserves → no posting. */
+export function capitalFlow(ctx: PhaseCtx, ports: MacroPorts, c: X, spot: number): bigint {
+  const sum = activeShockSum(ctx.store, 'capital_flow', c, ctx.tick);
+  if (sum === 0) return 0n;
+  const rate = BigInt(roundHalfEven(ctx.params.num('macro_fx_capital_flow_kappa') * Math.abs(sum) * 1e12));
+  const reserves = fxReservesFdl(ctx.store, c, ports), fdlAmt = reserves > 0n ? divRoundHalfEven(reserves * rate, KAPPA_SCALE) : 0n;
+  if (fdlAmt <= 0n) return 0n;
+  const xAmt = divRoundHalfEven(fdlAmt * MICRO_N, micro(spot));
+  if (sum < 0) ctx.ledger.fx(cbkId(c), 'row', 'FDL', fdlAmt, c, xAmt, 'MAC_FX_CAPITAL_FLOW');
+  else ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CAPITAL_FLOW');
+  return sum < 0 ? -fdlAmt : fdlAmt;
+}
 /** Day close per X in EUN, PYN, NKR, SRL: fair value, PPP, q̃, CA (yesterday's gaps), reserves and cover, CA absorption for managed regimes,
  *  band centre and edge counters, EMP and the break arming, core-inflation counter, PYN emergency widening, realignment and hard-peg checks
  *  on scheduled meeting days; yesterday's macro.fx.intervention.daily goes out on the next trading day. */
@@ -213,6 +228,7 @@ export function stepFxDay(ctx: PhaseCtx, ports: MacroPorts): void {
       if (fdlAmt > 0n) ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CA_ABSORB');
       else if (fdlAmt < 0n) ctx.ledger.fx(cbkId(c), 'row', 'FDL', -fdlAmt, c, xAmt, 'MAC_FX_CA_ABSORB');
     }
+    if (trading && fx0.regime !== 'FREE_FLOAT') capitalFlow(ctx, ports, c, sp);
     const reserves = fxReservesFdl(s, c, ports), cover = reserveCover(reserves, importsMonthFdl(s, c));
     let fx: FxState = { ...fx0, fairValueLn: fLn, pppLn: ppp, realExchangeGap: realGap(lnS, st.cpiLevel, fdl.cpiLevel, ppp0), currentAccountGdp: ca, reservesFdl: reserves,
       reserveCoverMonths: cover, lastRA: RA, lastEnergy: E, pendingDaily: trading ? { gameDay: day, net: fx0.interventionToday, reserves } : fx0.pendingDaily,
