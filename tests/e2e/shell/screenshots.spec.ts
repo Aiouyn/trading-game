@@ -18,7 +18,7 @@ async function four(page: Page, prefix: string, phone: boolean) {
     await page.keyboard.press("Control+k");
   }
   await page.screenshot({ path: `${OUT}/${prefix}-launcher-recent.png` });
-  await page.getByRole("combobox").fill("po");
+  await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill("po");
   await page.screenshot({ path: `${OUT}/${prefix}-launcher.png` });
   await boot(page, "/?rank=R1&nw=30000");
   if (!phone) await page.getByTestId("tile-quantlab").hover();

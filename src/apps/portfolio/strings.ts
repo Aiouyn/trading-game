@@ -61,7 +61,7 @@ const FR: Strings = {
   rank: "Rang",
   nextRankAt: "Rang suivant à",
   topRank: "Rang maximal",
-  emptyCash: "Tout votre argent est en liquidités.",
+  emptyCash: "Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.",
 };
 
 export const PF_STRINGS: Record<PfLocale, Strings> = { en: EN, fr: FR };

@@ -30,8 +30,11 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   /** `?nw=` pin (QUAY_HOOKS): `me.nw` stays exactly this string (cash absorbs mark moves), matching the shell's override. */
   nw: string | null;
   /** `?pledge=HALC:40` (QUAY_HOOKS): that held position reports pledgedQty 40 (PF-B badge); otherwise every pledgedQty is "0". */
-  pledge: { assetId: string; qty: number } | null }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null };
+  pledge: { assetId: string; qty: number } | null;
+  /** `?replyMs=N` (QUAY_HOOKS): the order door answers `submit` N ms after the intent is logged, like a slow gateway.
+   *  0 answers at once. Lets an e2e press Place again while the reply is still out (17-AT-07). */
+  replyMs: number }
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0 };
 
 /**
  * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&seed=N&nw=D&pledge=ID:QTY`).
@@ -45,6 +48,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const reject = q.get("reject");
   const nw = q.get("nw");
   const pledge = /^([A-Z0-9]{1,12}):(\d{1,9})$/.exec(q.get("pledge") ?? "");
+  const replyMs = Number(q.get("replyMs"));
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
     feed: feed === "stale" || feed === "denied" || feed === "error" || feed === "loading" ? feed : "live",
@@ -54,6 +58,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     reject: reject && /^[A-Z][A-Z0-9_]{2,63}$/.test(reject) ? reject : null,
     nw: nw && /^\d{1,13}(\.\d{1,2})?$/.test(nw) ? nw : null,
     pledge: pledge && ASSET_BY_ID[pledge[1]!] && Number(pledge[2]) > 0 ? { assetId: pledge[1]!, qty: Number(pledge[2]) } : null,
+    replyMs: Number.isSafeInteger(replyMs) && replyMs > 0 && replyMs <= 60_000 ? replyMs : 0,
   };
 }
 
@@ -80,7 +85,18 @@ export function fmt(minor: number, dp: number): string {
 interface AssetState { last: number; prevClose: number; dayVol: number; prints: TapePrint[]; lastQty: number; dir: -1 | 0 | 1 }
 interface Lot { qty: number; avgCost: number }
 
-const FEE_BP: Record<OrderDraft["type"], number> = { market: 10, limit: 6, stop: 10, stop_limit: 8 }; // fixed table
+/** Exchange fee, Quant E-96 (2): max(min fee, rate x notional x tier multiplier), rounded half-even to the cent.
+ *  Equities and ETFs: taker 3 bp, auction 1 bp, minimum $0.10; tier multiplier 1.0 below $10M notional (every mock order).
+ *  The mock fills market orders as takers and queues halted ones for the reopen auction. Limit and stop orders rest and
+ *  never fill here, so their preview uses the taker rate too [P]. Bonds (0.5 bp) are not in the mock's asset list. */
+const FEE_BP = { taker: 3, auction: 1 } as const;
+const MIN_FEE_MINOR = 10;
+export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number {
+  const n = notionalMinor * rateBp; // fee in 1/10,000 of a cent
+  const q = Math.floor(n / 10_000), r = n - q * 10_000;
+  const fee = r > 5_000 || (r === 5_000 && q % 2 === 1) ? q + 1 : q;
+  return Math.max(MIN_FEE_MINOR, fee);
+}
 const IMPACT_BP = (qty: number, lot: number) => (lot <= 0 ? 0 : qty <= lot ? 1 : qty <= lot * 5 ? 4 : qty <= lot * 20 ? 12 : 30); // fixed table
 
 type Listener = (raw: unknown) => void;
@@ -160,7 +176,10 @@ export class MockFeed {
     this.pending = [];
     for (const { intentId, draft } of due) {
       const a = ASSET_BY_ID[draft.assetId];
-      const reject = this.scenario.reject ?? (!a ? "MKT_UNKNOWN_ASSET" : this.tradingState(draft.assetId) === "HALTED" ? "MKT_HALTED" : null);
+      // Halt (Quant E-96 (3), Producer E-98 (1)): a halted asset still takes orders; a market day order is accepted with
+      // no fill and waits for the reopen auction (QUEUED_AUCTION). Sell beyond the holding (E-96 (4)): rejected whole,
+      // MKT_NO_LOCATE (a cash-account ticket has no locate); never a negative lot.
+      const reject = this.scenario.reject ?? (!a ? "MKT_UNKNOWN_ASSET" : this.oversells(draft) ? "MKT_NO_LOCATE" : null);
       if (reject || !a) {
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "REJECTED", rejectCode: reject ?? "MKT_UNKNOWN_ASSET" }].slice(-RING_KEEP);
         continue;
@@ -172,9 +191,14 @@ export class MockFeed {
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
         continue;
       }
+      if (this.tradingState(a.assetId) === "HALTED") {
+        this.orders = { ...this.orders, [orderId]: { orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", tif: draft.tif, status: "QUEUED_AUCTION", placedTick: this.tick, avgPrice: fmt(0, a.displayDecimals) } };
+        this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
+        continue;
+      }
       const s = this.assets.get(a.assetId)!;
       const px = s.last;
-      const fee = Math.round((px * qty * FEE_BP.market) / 10_000);
+      const fee = exchangeFeeMinor(px * qty, FEE_BP.taker);
       const signed = draft.side === "BUY" ? qty : -qty;
       const lot = this.lots.get(a.assetId) ?? { qty: 0, avgCost: 0 };
       const nq = lot.qty + signed;
@@ -340,17 +364,20 @@ export class MockFeed {
     const a = ASSET_BY_ID[draft.assetId];
     const s = a && this.assets.get(a.assetId);
     const qty = Number(draft.qty);
-    const valid = !!a && !!s && Number.isSafeInteger(qty) && qty > 0 && this.tradingState(draft.assetId) !== "HALTED";
+    // Halted stays valid: the preview reads only N-1 public data (Quant E-96 (3)). A sell beyond the holding is invalid.
+    const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
+    const valid = wellFormed && !this.oversells(draft);
     const dp = a?.displayDecimals ?? 2;
     const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
     const impactBp = valid ? IMPACT_BP(qty, a!.lot) : 0;
     const impact = Math.round((px * qty * impactBp) / 10_000);
-    const fee = valid ? Math.round((px * qty * FEE_BP[draft.type]) / 10_000) : 0;
+    const halted = !!a && this.tradingState(a.assetId) === "HALTED";
+    const fee = valid ? exchangeFeeMinor(px * qty, draft.type === "market" && halted ? FEE_BP.auction : FEE_BP.taker) : 0;
     const gross = valid ? px * qty : 0;
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
-      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : this.tradingState(draft.assetId) === "HALTED" ? "MKT_HALTED" : "MKT_BAD_QTY" }),
+      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : "MKT_NO_LOCATE" }),
       buyingPowerAfter: fmt(this.cash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };
@@ -381,6 +408,10 @@ export class MockFeed {
     }
     return { bars };
   }
+  /** A SELL for more than the account holds (E-96 (4)): a short sale of the excess, which this mock never allows. */
+  private oversells(draft: OrderDraft): boolean {
+    return draft.side === "SELL" && Number(draft.qty) > (this.lots.get(draft.assetId)?.qty ?? 0);
+  }
   /** Place an order intent: logged to the shell intent log; the IntentResult (+ MyFill) lands on `me` next tick. */
   submit(draft: OrderDraft): string {
     const intentId = `i-${this.nextId++}`;
@@ -390,6 +421,14 @@ export class MockFeed {
     submitIntent({ kind: "mkt.order.place", payload });
     this.pending.push({ intentId, draft });
     return intentId;
+  }
+  /** The order door (orders.ts `mockTransport`): `preview` and `submit`, with the submit reply held `scenario.replyMs`. */
+  orderDoor(): { preview(draft: OrderDraft): PreviewRes; submit(draft: OrderDraft): string | Promise<string> } {
+    const ms = this.scenario.replyMs;
+    return {
+      preview: (d) => this.preview(d),
+      submit: (d) => { const id = this.submit(d); return ms > 0 ? new Promise((r) => setTimeout(() => r(id), ms)) : id; },
+    };
   }
 }
 

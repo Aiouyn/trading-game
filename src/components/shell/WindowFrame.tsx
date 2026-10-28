@@ -56,7 +56,7 @@ export function WindowFrame({ win, z, active, rect, movable, background }: Props
       </div>
       {/* The body stays mounted while collapsed or in the background so City can report visibility. */}
       <div className="win-body" hidden={win.collapsed}>
-        <AppBody app={win.app} state={{ focused: active && !background, collapsed: win.collapsed, background }} />
+        <AppBody app={win.app} context={win.context} state={{ focused: active && !background, collapsed: win.collapsed, background }} />
       </div>
       {movable && !win.collapsed && (
         <div className="resize-handle" data-testid="resize-handle" onPointerDown={(e) => start(e, "resize")} onPointerMove={onMove} onPointerUp={end} aria-hidden="true" />

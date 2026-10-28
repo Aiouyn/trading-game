@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { applyDeepLink, useBackStack } from "@/shell/back";
-import { clockAt, mockChannels, phaseOverride, TICK_MS } from "@/shell/mockChannels";
+import { clockAt, mockChannels, mockLocale, phaseOverride, TICK_MS } from "@/shell/mockChannels";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
 import { loadLocal, queueSave } from "@/shell/persist";
@@ -128,12 +128,18 @@ let docStore: ReturnType<typeof createShellStore> | null = null;
 // deep link remounts QuayShell; re-running the restore would overwrite the live windows with the last saved snapshot
 // (focus included) before the deep link applies.
 let docBoot: Promise<void> | null = null;
+/** e2e `?locale=fr` (mockLocale, build-gated): applied once, when the document's store is created. */
+function seedLocale(store: ReturnType<typeof createShellStore>, q: URLSearchParams) {
+  const locale = mockLocale(q);
+  if (locale) store.getState().setPrefs({ locale });
+  return store;
+}
 
 export function QuayShell({ route, query }: { route: string[]; query: string }) {
   // One store per document. The App Router remounts the catch-all page when the route param changes (a client-side
   // deep link such as /settings → /settings/SET-08), so the store lives at module scope: windows and focus survive
   // and the deep-link effect below focuses the existing instance (17B S1-02, Audit A-8).
-  const [store] = useState(() => (docStore ??= createShellStore(mockChannels(new URLSearchParams(query)))));
+  const [store] = useState(() => (docStore ??= seedLocale(createShellStore(mockChannels(new URLSearchParams(query))), new URLSearchParams(query))));
   useShellKeys(store);
   useBackStack(store);
 

@@ -25,12 +25,12 @@ const html = (app: AppId) => renderToStaticMarkup(createElement(AppBody, { app, 
 describe("built apps: one source of truth (APP_MODULES)", () => {
   it("registry built === has an APP_MODULES entry, for all 32 apps", () => {
     for (const a of REGISTRY) expect([a.id, a.built]).toEqual([a.id, Object.hasOwn(APP_MODULES, a.id)]);
-    expect(Object.keys(APP_MODULES).sort()).toEqual(["portfolio", "settings", "wire"]);
+    expect(Object.keys(APP_MODULES).sort()).toEqual(["broker", "portfolio", "settings", "wire"]);
   });
 
-  it("type level: Broker is not a built app until BRK-A ships a module (adding it without one fails typecheck)", () => {
-    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "portfolio" | "wire">();
-    expectTypeOf<LazyAppId>().toEqualTypeOf<"portfolio" | "wire">();
+  it("type level: Broker is built by its lazy module (UI card 4, BRK-A); an id without a module fails typecheck", () => {
+    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire">();
+    expectTypeOf<LazyAppId>().toEqualTypeOf<"broker" | "portfolio" | "wire">();
     expectTypeOf<EagerAppId>().toEqualTypeOf<"settings">();
   });
 

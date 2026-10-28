@@ -33,11 +33,12 @@ describe("instances (S1-11)", () => {
 });
 
 describe("minimum sizes (S1-12)", () => {
-  it("Broker never below 720×420; narrow 480 under a 720 work area", () => {
-    expect(clampSize("broker", 100, 100, 1424)).toEqual({ w: 720, h: 420 });
-    expect(minSize("broker", 600)).toEqual({ w: 480, h: 420 });
+  it("Broker never below 520×420 (UI card 4: the 520 window); narrow 480 under a 520 work area", () => {
+    expect(clampSize("broker", 100, 100, 1424)).toEqual({ w: 520, h: 420 });
+    expect(minSize("broker", 600)).toEqual({ w: 520, h: 420 });
+    expect(minSize("broker", 500)).toEqual({ w: 480, h: 420 });
     const w = openApp([], "broker", A).windows;
-    expect(resizeWin(w, w[0], 10, 10, A)[0]).toMatchObject({ w: 720, h: 420 });
+    expect(resizeWin(w, w[0], 10, 10, A)[0]).toMatchObject({ w: 520, h: 420 });
   });
   it("every app clamps to its §2 minimum", () => {
     expect(clampSize("wire", 1, 1, 1424)).toEqual({ w: 360, h: 280 });
@@ -120,8 +121,8 @@ describe("snap slots (17 §3.2.6)", () => {
     const [half] = snapWin([wire], wire, "L1/2", W);
     const w = openApp([], "broker", W).focused;
     expect([half.x, half.w, half.snap, half.collapsed]).toEqual([8, 708, "L1/2", false]);
-    const [q] = snapWin([w], w, "TL", W); // TL is 708×395; Broker min is 720×420
-    expect([q.w, q.h]).toEqual([720, 420]);
+    const [q] = snapWin([w], w, "TL", W); // TL is 708×395; Broker min is 520×420: width fills, height clamps
+    expect([q.w, q.h]).toEqual([708, 420]);
   });
   it("resizing clears the snap slot", () => {
     const w = snapWin([openApp([], "wire", W).focused], openApp([], "wire", W).focused, "R1/2", W)[0];

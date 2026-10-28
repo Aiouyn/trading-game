@@ -64,7 +64,7 @@ type Row = Omit<AppDef, "nameKey" | "order" | "built" | "minW" | "minH" | "maxIn
   Partial<Pick<AppDef, "minW" | "minH" | "maxInstances" | "unlock" | "teaser">>;
 
 const ROWS: Row[] = [
-  { id: "broker", group: "trade", minW: 720, minH: 420, narrowMinW: 480, maxInstances: 4 },
+  { id: "broker", group: "trade", minW: 520, minH: 420, narrowMinW: 480, maxInstances: 4 },
   { id: "portfolio", group: "trade", minW: 520, minH: 220 },
   { id: "wire", group: "trade", minW: 360, minH: 280 },
   { id: "messages", group: "trade" },

@@ -241,7 +241,7 @@ export function PhoneHome() {
             <h1 id="phone-app-title" data-testid="app-title">{phoneSub?.title ?? bar!.title}</h1>
           </div>
           <div className="phone-appbody">
-            <AppBody app={phoneApp.app} state={{ focused: true, collapsed: false, background: false }} />
+            <AppBody app={phoneApp.app} context={phoneApp.context} state={{ focused: true, collapsed: false, background: false }} />
           </div>
         </section>
         {edgeBar}

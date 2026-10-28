@@ -42,6 +42,7 @@ test("S1-07 every unlocked built:false app opens a ComingLater window; deep link
     await page.getByTestId(`tile-${id}`).click();
     const win = page.getByTestId(`win-${id}`).first();
     if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
+    if (id === "broker") { await expect(win.getByTestId("broker")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 4 (BR-4)
     await expect(win.getByTestId("coming-later")).toContainText("Coming later");
     await expect(win.getByRole("heading")).toHaveText(await win.locator(".tb-name").innerText());
     await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);
@@ -175,7 +176,7 @@ test("S1-12 windows cannot be resized below their minimum", async ({ page }) => 
   await page.mouse.move(50, 50, { steps: 5 });
   await page.mouse.up();
   const w = await box(page, "win-broker");
-  expect([w.width, w.height]).toEqual([720, 420]);
+  expect([w.width, w.height]).toEqual([520, 420]); // Broker's minimum is 520×420 since UI card 4 (its 520 window)
 });
 
 test("S1-15 Shadow sub-palette in AI Lab and Security; Broker stays brass", async ({ page }) => {
@@ -280,7 +281,7 @@ test("S1-16 reduced motion and reduced transparency in every shell state of §5,
 test("S1-17 launcher, layouts, focus mode and shortcuts log zero intents", async ({ page }) => {
   await boot(page);
   await page.keyboard.press("Control+k");
-  await page.getByRole("combobox").fill("buy 100 HALC limit 42");
+  await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill("buy 100 HALC limit 42");
   await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
   await page.getByTestId("layout-btn").click();
@@ -299,8 +300,8 @@ test("S1-18 R0 and R6: same launcher results, Broker limit and keys", async ({ b
     const out: string[][] = [];
     for (const q of ["HALC", "open", "go to", "broker"]) {
       await page.keyboard.press("Control+k");
-      await page.getByRole("combobox").fill(q);
-      out.push(await page.getByRole("option").allInnerTexts());
+      await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill(q);
+      out.push(await page.locator("#launcher-list").getByRole("option").allInnerTexts());
       await page.keyboard.press("Escape");
     }
     for (let i = 0; i < 5; i++) await page.keyboard.press("Alt+n");
@@ -366,8 +367,10 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
   const snap = () => page.locator("[data-testid=quay-ready]").evaluate((el) => el.outerHTML);
   // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
   await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
-  // Portfolio (built since 17B CH-00) loads its chunk behind AppSkeleton; wait until none is showing. Broker is built:false (ComingLater, no chunk).
+  // Portfolio (built since 17B CH-00) and Broker (built since UI card 4) load their chunks behind AppSkeleton; wait until
+  // none is showing, then until the Broker's channels have answered (its body leaves the loading state).
   await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
+  await expect(page.getByTestId("broker").first()).toHaveAttribute("data-state", /^(?!loading$)/);
   const base = await snap();
   for (const [i, p] of ["ink-brass", "broadsheet", "phosphor", "riviera"].entries()) {
     await page.evaluate((v) => (document.documentElement.dataset.palette = v), p);

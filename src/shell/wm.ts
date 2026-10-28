@@ -64,7 +64,7 @@ export function slotRect(slot: SnapSlot, a: Area): Area {
   }
 }
 
-/** Minimum size for an app given the work-area width (narrow Broker form under 720). */
+/** Minimum size for an app given the work-area width (narrow Broker form under its 520 minimum, UI card 4). */
 export function minSize(app: AppId, areaW: number): { w: number; h: number } {
   const d = APPS[app];
   const w = d.narrowMinW !== undefined && areaW < d.minW ? d.narrowMinW : d.minW;
