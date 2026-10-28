@@ -111,9 +111,11 @@ describe("BR-6-06 / 08 browser hooks (QUAY_HOOKS): ?cancelKeep, ?partFill, ?canc
     expect(last(f)).toMatchObject({ intentId: iid, status: "ACCEPTED", effects: [`order:${id}`] });
     expect(me(f).orders[id]).toMatchObject({ status: "QUEUED_AUCTION", filled: "0" });
   });
-  it("?partFill=18: a live priced order rests PARTIAL 18 / 40 with a MAKER fill booked to the position; cancel removes the remainder, the fill stays", () => {
+  it("?partFill=18: a live priced order rests WORKING, next tick PARTIAL 18 / 40 with a MAKER fill booked to the position; cancel removes the remainder, the fill stays", () => {
     const base = held(rested().f);
     const { f, id } = rested({ partFill: 18 });
+    expect(me(f).orders[id]).toMatchObject({ status: "WORKING", filled: "0" });
+    f.advance();
     expect(me(f).orders[id]).toMatchObject({ status: "PARTIAL", filled: "18", qty: "40", avgPrice: "42.10" });
     expect(me(f).fills.at(-1)).toMatchObject({ orderId: id, qty: "18", price: "42.10", liquidity: "MAKER", side: "BUY" });
     expect(held(f)).toBe(base + 18);
@@ -125,8 +127,10 @@ describe("BR-6-06 / 08 browser hooks (QUAY_HOOKS): ?cancelKeep, ?partFill, ?canc
     expect(me(f).fills.filter((x) => x.orderId === id).map((x) => x.qty)).toEqual(["18"]);
   });
   it("?partFill: never on a halted asset, and N >= qty does not fill", () => {
-    expect(me(rested({ partFill: 18, halt: "HALC" }).f).orders).toSatisfy((o: Record<string, OpenOrder>) => Object.values(o).every((x) => x.filled === "0"));
-    expect(me(rested({ partFill: 40 }).f).orders).toSatisfy((o: Record<string, OpenOrder>) => Object.values(o).every((x) => x.status === "WORKING"));
+    const halted = rested({ partFill: 18, halt: "HALC" }).f, whole = rested({ partFill: 40 }).f;
+    halted.advance(); whole.advance();
+    expect(me(halted).orders).toSatisfy((o: Record<string, OpenOrder>) => Object.values(o).every((x) => x.filled === "0"));
+    expect(me(whole).orders).toSatisfy((o: Record<string, OpenOrder>) => Object.values(o).every((x) => x.status === "WORKING"));
   });
   it("?cancelGone=1: a fill takes the order on the next tick with no result; the tick after, the cancel finds no order: ACCEPTED, no effects, other orders unchanged", () => {
     const { f, id } = rested({ cancelGone: true });

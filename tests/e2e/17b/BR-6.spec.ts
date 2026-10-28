@@ -226,11 +226,14 @@ test("BR-6-06 ?cancelKeep=QUEUED_AUCTION: ACCEPTED with the order still open: th
   await expect(list(page).getByTestId("br-oo-count")).toHaveText("1");
 });
 
-test("BR-6-08 ?partFill=18: a partly filled row (18 / 40) is removed on ACCEPTED; the 18 filled stay held", async ({ page }) => {
+test("BR-6-08 ?partFill=18: a row turns partly filled (18 / 40) the tick after it rests, and is removed on ACCEPTED; the 18 filled stay held", async ({ page }) => {
   await openPaused(page, "&partFill=18");
   const held0 = await youHold(page);
   await limitOrder(page, "42.10");
   const r = rows(page).first();
+  await expect(r.getByTestId("br-oo-status")).toHaveText("Working"); // rests first; the same row then re-renders on the fill (Q2)
+  await expect(r.getByTestId("br-oo-qty")).toHaveText("40");
+  await runUntil(page, async () => (await r.getByTestId("br-oo-status").textContent()) !== "Working");
   await expect(r.getByTestId("br-oo-status")).toHaveText("Partly filled");
   await expect(r.getByTestId("br-oo-qty")).toHaveText("18 / 40 filled");
   await expect(cancelBtn(r)).toHaveAccessibleName("Cancel order: Buy 18 / 40 filled HALC, Limit 42.10");

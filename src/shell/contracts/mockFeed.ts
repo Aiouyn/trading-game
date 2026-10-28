@@ -41,8 +41,8 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   /** `?cancelKeep=STATUS` (QUAY_HOOKS): a cancel is ACCEPTED but the order stays open with STATUS (BR-6-06: Engine may
    *  answer an accepted cancel with the order still in `me.orders`). */
   cancelKeep: OpenOrder["status"] | null;
-  /** `?partFill=N` (QUAY_HOOKS): a priced order on a live asset rests with N filled (a MAKER fill at its price, booked
-   *  to the position), status PARTIAL (BR-6-08 partly filled). N must be below the order's qty. */
+  /** `?partFill=N` (QUAY_HOOKS): a priced order on a live asset rests WORKING, then on the next tick N fill (a MAKER
+   *  fill at its price, booked to the position) and it turns PARTIAL (BR-6-08 partly filled). N must be below its qty. */
   partFill: number | null;
   /** `?cancelGone=1` (QUAY_HOOKS): the order a cancel targets fills in full on the next tick, before the cancel settles,
    *  so the cancel settles one tick later on an id that is no longer open (BR-6-08 absent id, Gap 4 race). */
@@ -129,7 +129,8 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
   policy?: OrderPolicy }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
-type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string };
+type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string }
+  | { kind: "partFill"; orderId: string; qty: number } /* ?partFill: the tick after the order rests */;
 
 export class MockFeed {
   readonly scenario: Scenario;
@@ -204,6 +205,11 @@ export class MockFeed {
     const due = this.pending;
     this.pending = [];
     for (const p of due) {
+      if (p.kind === "partFill") {
+        const o = this.orders[p.orderId];
+        if (o && this.tradingState(o.assetId) !== "HALTED") this.restingFill(p.orderId, p.qty);
+        continue;
+      }
       if (p.kind === "cancel") {
         // ?cancelGone=1: a fill takes the whole order first; the cancel settles next tick on an id no longer open.
         if (this.scenario.cancelGone && this.orders[p.orderId]) { this.fillRest(p.orderId); this.pending.push(p); continue; }
@@ -228,7 +234,7 @@ export class MockFeed {
         const status = halted ? this.policy.haltedRestingStatus : "WORKING";
         this.orders = { ...this.orders, [orderId]: { orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", ...(draft.limit ? { limit: draft.limit } : {}), ...(draft.stop ? { stop: draft.stop } : {}), tif: draft.tif, status, placedTick: this.tick, avgPrice: fmt(0, a.displayDecimals) } };
         const part = this.scenario.partFill;
-        if (!halted && part !== null && part < qty) this.restingFill(orderId, part);
+        if (!halted && part !== null && part < qty) this.pending.push({ kind: "partFill", orderId, qty: part });
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
         continue;
       }
