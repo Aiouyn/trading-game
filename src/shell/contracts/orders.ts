@@ -66,11 +66,17 @@ function isOrderTransport(v: unknown): v is OrderTransport {
   return typeof t.preview === "function" && typeof t.submit === "function";
 }
 
-/** The mock transport: the page feed (`getFeed()`, a MockFeed in this build), so a placed intent settles into the same
- *  `me` channel the UI reads. null when the page feed cannot take orders. SWAP: 19 `req` replaces this. */
+function hasOrderDoor(v: unknown): v is { orderDoor(): unknown } {
+  return typeof v === "object" && v !== null && typeof (v as Record<string, unknown>).orderDoor === "function";
+}
+
+/** The mock transport: the page feed's order door (`getFeed()`, a MockFeed in this build), so a placed intent settles
+ *  into the same `me` channel the UI reads. A feed without a door is used as the transport itself if it has
+ *  preview/submit; otherwise null. SWAP: 19 `req` replaces this. */
 export function mockTransport(): OrderTransport | null {
   const feed: unknown = getFeed();
-  return isOrderTransport(feed) ? feed : null;
+  const door: unknown = hasOrderDoor(feed) ? feed.orderDoor() : feed;
+  return isOrderTransport(door) ? door : null;
 }
 
 export type OrderError = { kind: "noTransport" } | { kind: "badReply"; detail: string };

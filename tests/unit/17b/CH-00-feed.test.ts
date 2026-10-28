@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelName, MeTradingBody, TickerBody } from "@/shell/contracts/channels";
 import { DeltaError, applyOps, deepEqual, diffOps } from "@/shell/contracts/delta";
-import { DEFAULT_SCENARIO, MockFeed, SNAP_DELAY_MS, fmt, scenarioFromQuery } from "@/shell/contracts/mockFeed";
+import { DEFAULT_SCENARIO, MockFeed, SNAP_DELAY_MS, exchangeFeeMinor, fmt, scenarioFromQuery } from "@/shell/contracts/mockFeed";
 import { openChannel, staleAfterMs, type FeedTransport } from "@/shell/contracts/useChannel";
 import { parseFrame } from "@/shell/contracts/schema";
 import { intentLog } from "@/shell/intentLog";
@@ -218,7 +218,15 @@ describe("mock scenarios, intents and req ops", () => {
     const f = feedOf();
     const draft = { assetId: "HALC", side: "BUY", type: "market", qty: "400", tif: "day" } as const;
     const p = f.preview(draft);
-    expect(p).toMatchObject({ valid: true, price: "42.18", impactBp: "1", fee: "16.87", computedAtTick: f.tick, firstTradeCapRemaining: null });
+    // Pinned literals (QA #84 M7/M8): cash FDL 324,714.15 at the opening marks. Fee per Quant E-96 (2): taker 3 bp,
+    // minimum 0.10, half-even. A buy spends notional + fee + impact; a sell adds its net proceeds.
+    expect(f.body("me")).toMatchObject({ balances: { FDL: "324714.15" } });
+    expect(p).toEqual({ valid: true, price: "42.18", estFill: "42.18", fee: "5.06", impactBp: "1", impactMoney: "1.69", total: "16878.75",
+      buyingPowerAfter: "307835.40", computedAtTick: f.tick, firstTradeCapRemaining: null });
+    expect(f.preview({ ...draft, side: "SELL", qty: "40" })).toMatchObject({ fee: "0.51", impactMoney: "0.17", total: "1686.52", buyingPowerAfter: "326400.67" });
+    expect(f.preview({ ...draft, qty: "3" })).toMatchObject({ fee: "0.10", impactMoney: "0.01", total: "126.65", buyingPowerAfter: "324587.50" });
+    // Halted: the order waits for the reopen auction, so the estimate uses the 1 bp auction rate.
+    expect(feedOf({ halt: "HALC" }).preview(draft)).toMatchObject({ fee: "1.69", total: "16875.38", buyingPowerAfter: "307838.77" });
     expect(f.preview(draft)).toEqual(p);
     expect(f.preview({ ...draft, qty: "2000" }).impactBp).toBe("4");
     const halted = feedOf({ halt: "HALC" }).preview(draft);
@@ -241,7 +249,9 @@ describe("mock scenarios, intents and req ops", () => {
 describe("URL scenario (build-gated)", () => {
   it("parses the documented params and ignores junk", () => {
     expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_BP&seed=9&nw=200000&pledge=HALC:40")))
-      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 } });
+      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 }, replyMs: 0 });
+    expect(scenarioFromQuery(new URLSearchParams("replyMs=1500")).replyMs).toBe(1500);
+    for (const junk of ["-5", "1.5", "x", "60001"]) expect(scenarioFromQuery(new URLSearchParams(`replyMs=${junk}`)).replyMs).toBe(0);
     expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1&nw=1e9&pledge=ZZZ:4"))).toEqual(DEFAULT_SCENARIO);
     expect(scenarioFromQuery(new URLSearchParams("pledge=HALC:0")).pledge).toBeNull();
   });
@@ -294,5 +304,42 @@ describe("applyOps mid-path walk follows own keys only (QA #34 round 3)", () => 
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     expect((Object.prototype as Record<string, unknown>).x).toBeUndefined();
     expect(Object.getPrototypeOf(f.body)).toBe(Object.prototype);
+  });
+});
+
+describe("exchange fee (Quant E-96 (2)) and the order door", () => {
+  it("fee = max(0.10, rate x notional), half-even to the cent", () => {
+    expect(exchangeFeeMinor(12_654, 3)).toBe(10); // 3 HALC at 42.18: 0.038 -> the 0.10 minimum
+    expect(exchangeFeeMinor(100_000, 3)).toBe(30); // 100 at 10.00 -> 0.30 (errata example)
+    expect(exchangeFeeMinor(50_000_000, 3)).toBe(15_000);
+    expect(exchangeFeeMinor(2_550_000, 1)).toBe(255);
+    expect(exchangeFeeMinor(55_000, 1)).toBe(10); // 5.5 -> minimum
+    expect(exchangeFeeMinor(250_000, 1)).toBe(25);
+    expect(exchangeFeeMinor(125_000, 1)).toBe(12); // 12.5 -> 12 (even)
+    expect(exchangeFeeMinor(135_000, 1)).toBe(14); // 13.5 -> 14 (even)
+  });
+  it("a filled market buy pays notional + the taker fee from cash; the fill reports that fee", () => {
+    const f = feedOf();
+    f.submit({ assetId: "HALC", side: "BUY", type: "market", qty: "40", tif: "day" });
+    f.advance();
+    const me = f.body("me") as MeTradingBody;
+    const fill = me.fills.at(-1)!;
+    const px = Math.round(Number(fill.price) * 100);
+    expect(fill.fee).toBe(fmt(exchangeFeeMinor(px * 40, 3), 2));
+    expect(Math.round(Number(me.balances.FDL) * 100)).toBe(32_471_415 - px * 40 - exchangeFeeMinor(px * 40, 3));
+  });
+  it("?replyMs holds the submit reply but logs the intent at once", async () => {
+    const door = feedOf({ replyMs: 1500 }).orderDoor();
+    const before = intentLog().length;
+    const reply = door.submit({ assetId: "HALC", side: "BUY", type: "market", qty: "1", tif: "day" });
+    expect(intentLog().length).toBe(before + 1);
+    expect(reply).toBeInstanceOf(Promise);
+    let got: string | null = null;
+    void Promise.resolve(reply).then((id) => { got = id; });
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(got).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(got).toMatch(/^i-\d+$/);
+    expect(typeof feedOf().orderDoor().submit({ assetId: "HALC", side: "BUY", type: "market", qty: "1", tif: "day" })).toBe("string");
   });
 });

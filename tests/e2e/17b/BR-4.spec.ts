@@ -5,7 +5,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { boot, intents, setTextScale } from "../shell/helpers";
+import { boot, bootPaused, intents, setTextScale } from "../shell/helpers";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -58,6 +58,28 @@ async function hits(l: Locator, min: number) {
   }
   return small;
 }
+/** The last money amount in a row's text, in cents ("Total 16,878.75" -> 1687875). */
+async function cents(l: Locator): Promise<number> {
+  const m = (await l.innerText()).replace(/\u2212/g, "-").match(/-?[\d,]+\.\d{2}/g);
+  expect(m, `no amount in ${await l.innerText()}`).not.toBeNull();
+  return Math.round(Number(m!.at(-1)!.replace(/,/g, "")) * 100);
+}
+const cash = (page: Page) => cents(br(page).locator(".br-cash"));
+/** Quant E-96 (2): taker 3 bp, minimum 0.10, half-even to the cent. */
+const takerFee = (notional: number) => { const n = notional * 3, q = Math.floor(n / 10_000), r = n - q * 10_000; return Math.max(10, r > 5_000 || (r === 5_000 && q % 2 === 1) ? q + 1 : q); };
+const money = (c: number) => (c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Fake-clock Broker: boots, then the clock only moves when a test runs it (one feed tick = 5,000 ms). */
+async function openPaused(page: Page, query = "?asset=HALC") {
+  await bootPaused(page, `/broker${query}`);
+  await page.clock.runFor(200);
+  await expect(br(page)).toHaveAttribute("data-state", "live");
+}
+async function qtyPaused(page: Page, n: string) {
+  await br(page).getByTestId("br-qty").fill(n);
+  await page.clock.runFor(400); // the 300 ms preview debounce
+  await expect(br(page).getByTestId("br-est")).toBeVisible();
+}
+const placeIntents = (page: Page) => page.evaluate(() => ((window as Window & { __quayIntents?: () => { kind: string; payload: Record<string, string> }[] }).__quayIntents?.() ?? []).filter((i) => i.kind === "mkt.order.place"));
 async function axe(page: Page) {
   const r = await new AxeBuilder({ page }).include('[data-testid="broker"]').analyze();
   return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(" ")}`);
@@ -135,6 +157,90 @@ test("BR-4-08/09 Place sends one intent, shows the pending tick, then the fill; 
   await expect(br(page).getByTestId("br-qty")).toHaveValue("");
 });
 
+test("BR-4-08/09 fake clock: Enter places one intent with the exact payload, pending tick, cash unchanged until the result tick, exact fill", async ({ page }) => {
+  await openPaused(page);
+  await qtyPaused(page, "40");
+  // Pinned preview arithmetic (QA #84 M7): total = notional + fee + impact; buying power after = cash − total.
+  const px = await cents(br(page).getByTestId("br-row-price"));
+  const fee = await cents(br(page).getByTestId("br-row-fee")), impact = await cents(br(page).getByTestId("br-row-impact"));
+  expect(fee).toBe(takerFee(px * 40));
+  expect(await cents(br(page).getByTestId("br-row-total"))).toBe(px * 40 + fee + impact);
+  const cash0 = await cash(page);
+  expect(await cents(br(page).getByTestId("br-row-bpAfter"))).toBe(cash0 - (px * 40 + fee + impact));
+  const tickAtSubmit = (await br(page).getByTestId("br-est-title").innerText()).match(/\d+$/)![0];
+  const before = await placeIntents(page);
+  await expect(br(page).getByTestId("br-qty")).toBeFocused();
+  await page.keyboard.press("Enter"); // Enter in the ticket = Review
+  await expect(br(page)).toHaveAttribute("data-phase", "review");
+  await page.keyboard.press("Enter"); // Enter in review = Place
+  await page.keyboard.press("Enter");
+  await place(page).evaluate((el: HTMLElement) => { el.click(); el.click(); }); // a late double click while submitting (phone: Place may sit below the fold)
+  const sent = (await placeIntents(page)).slice(before.length);
+  expect(sent).toEqual([{ kind: "mkt.order.place", payload: { assetId: "HALC", side: "BUY", type: "market", qty: "40", tif: "day", intentId: sent[0]?.payload.intentId } }]);
+  expect(sent[0]!.payload.intentId).toMatch(/^i-\d+$/);
+  await expect(br(page)).toHaveAttribute("data-phase", "submitting");
+  await expect(page.getByTestId("br-pending").first()).toHaveText(`Pending · tick ${tickAtSubmit}`);
+  // The cash line holds until the tick that carries the IntentResult (one 5 s feed tick).
+  for (let ms = 0; ms < 6_000 && (await br(page).getByTestId("br-ack").count()) === 0; ms += 500) {
+    expect(await cash(page)).toBe(cash0);
+    await page.clock.runFor(500);
+  }
+  await expect(br(page).getByTestId("br-ack")).toHaveAttribute("data-status", "ACCEPTED");
+  // The fill is at the result tick's Last; fee and cash follow from it exactly.
+  const fillPx = await cents(br(page).getByTestId("br-last"));
+  const fillFee = takerFee(fillPx * 40);
+  await expect(br(page).getByTestId("br-ack-title")).toHaveText(`Bought 40 HALC at ${money(fillPx)}`);
+  await expect(br(page).getByTestId("br-ack-fee")).toHaveText(`Fee ${money(fillFee)}`);
+  expect(await cash(page)).toBe(cash0 - fillPx * 40 - fillFee);
+  expect(await placeIntents(page)).toHaveLength(before.length + 1);
+});
+
+test("BR-4-08 a sell's estimate adds its net proceeds to buying power", async ({ page }) => {
+  await openPaused(page);
+  await br(page).getByTestId("br-side-sell").click();
+  await qtyPaused(page, "40");
+  const px = await cents(br(page).getByTestId("br-row-price"));
+  const fee = await cents(br(page).getByTestId("br-row-fee")), impact = await cents(br(page).getByTestId("br-row-impact"));
+  expect(fee).toBe(takerFee(px * 40));
+  const total = await cents(br(page).getByTestId("br-row-total"));
+  expect(total).toBe(px * 40 - fee - impact);
+  expect(await cents(br(page).getByTestId("br-row-bpAfter"))).toBe((await cash(page)) + total);
+});
+
+test("BR-4-08 the reply is held (?replyMs): double click and double Enter on Place still send one order", async ({ page }) => {
+  await openPaused(page, "?asset=HALC&replyMs=3000");
+  await qtyPaused(page, "40");
+  await review(page);
+  const before = await intents(page);
+  await place(page).dblclick();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  expect(await intents(page)).toBe(before + 1);
+  await expect(br(page)).toHaveAttribute("data-phase", "submitting");
+  await page.clock.runFor(3_000); // the submit reply
+  expect(await intents(page)).toBe(before + 1);
+  await page.clock.runFor(5_000); // the result tick
+  await expect(br(page).getByTestId("br-ack")).toHaveAttribute("data-status", "ACCEPTED");
+  expect(await intents(page)).toBe(before + 1);
+});
+
+test("BR-4-08 two clicks and two Enters in one task, before React renders, still send one order", async ({ page }) => {
+  await openPaused(page);
+  await qtyPaused(page, "40");
+  await review(page);
+  const before = await intents(page);
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>('[data-testid="br-place"]')!, block = document.querySelector('[data-testid="br-review-block"]')!;
+    b.click(); b.click();
+    const enter = () => block.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    enter(); enter();
+  });
+  expect(await intents(page)).toBe(before + 1);
+  await page.clock.runFor(5_000);
+  await expect(br(page).getByTestId("br-ack")).toBeVisible();
+  expect(await intents(page)).toBe(before + 1);
+});
+
 test("BR-4-10 rejected for buying power (Edit restores the draft), unknown code, and oversell rejected with MKT_NO_LOCATE copy", async ({ page }) => {
   await open(page, "?asset=HALC&reject=MKT_INSUFFICIENT_BP");
   await qty(page, "40");
@@ -167,17 +273,31 @@ test("BR-4-11 halted: chip in --steel, entry enabled, review and ack say the ord
   await expect(chip).toBeVisible();
   expect(await chip.evaluate((e) => getComputedStyle(e).color)).toBe(await color(page, "var(--steel)"));
   await expect(br(page).getByTestId("br-qty")).toBeEditable();
+  expect(await primaries(page)).toBe(0);
   await qty(page, "5");
+  expect(await primaries(page)).toBe(0); // BR-4-07 halted
+  const acc = await color(page, "var(--acc)"), loss = await color(page, "var(--loss)");
+  expect(await colours(br(page).getByTestId("br-ticket"))).not.toContain(loss);
   await review(page);
+  expect(await primaries(page)).toBe(1);
+  const cols = await colours(br(page).locator(".br-col-ticket"), ["br-place"]);
+  expect(cols).not.toContain(acc);
+  expect(cols).not.toContain(loss);
   await expect(page.getByTestId("br-queued").first()).toHaveText("Waits for reopen");
   await shot(page, "halted-review");
+  const before = await intents(page);
   await place(page).click();
   await expect(br(page).getByTestId("br-ack")).toBeVisible({ timeout: 15_000 });
+  expect(await intents(page)).toBe(before + 1);
   await expect(br(page).getByTestId("br-queued")).toHaveText("Waits for reopen");
   await shot(page, "halted-queued");
 });
 
 test("BR-4-12 loading, couldn't load + Retry, and stale freezes Place with Updating…", async ({ page }) => {
+  await boot(page, "/broker?asset=HALC&feed=loading");
+  await expect(brAny(page).getByTestId("br-loading")).toBeVisible();
+  await expect(brAny(page)).toHaveAttribute("aria-busy", "true");
+  await expect(brAny(page).getByTestId("br-ticket")).toHaveCount(0);
   for (const mode of ["denied", "error"]) {
     await boot(page, `/broker?asset=HALC&feed=${mode}`);
     await expect(brAny(page).getByTestId("br-error")).toContainText("Couldn't load");
@@ -193,6 +313,12 @@ test("BR-4-12 loading, couldn't load + Retry, and stale freezes Place with Updat
   await expect(br(page).getByTestId("br-updating")).toHaveText("Updating…");
   await expect(place(page)).toHaveAttribute("aria-disabled", "true");
   await shot(page, "stale");
+  // Back in the ticket while still stale: no primary (BR-4-07) and Review stays disabled.
+  await page.getByTestId("br-edit").first().click();
+  await expect(br(page)).toHaveAttribute("data-phase", "edit");
+  await expect(br(page)).toHaveAttribute("data-state", "stale");
+  expect(await primaries(page)).toBe(0);
+  await expect(br(page).getByTestId("br-review")).toHaveAttribute("aria-disabled", "true");
 });
 
 test("BR-4-13 desktop window: maximised two columns; dragged to the 520 minimum it is one column and nothing overflows", async ({ page }, info) => {
@@ -228,11 +354,21 @@ test("BR-4-14 phone: review in a bottom Sheet with focus trapped, Esc returns to
   await open(page);
   expect(await hits(br(page), 44)).toEqual([]);
   await qty(page, "40");
+  // Scale 1.0: nothing in the ticket or its rows scrolls sideways, and the page does not either.
+  const overflow = (l: Locator) => l.evaluate((root) => [root, ...root.querySelectorAll('[data-testid^="br-"]')]
+    .filter((e) => (e as HTMLElement).offsetParent !== null && e.scrollWidth > e.clientWidth)
+    .map((e) => `${e.getAttribute("data-testid")} ${e.scrollWidth}>${e.clientWidth}`));
+  expect(await overflow(br(page))).toEqual([]);
+  for (const id of ["br-ticket", "br-head", "br-side", "br-qty", "br-row-price", "br-row-fee", "br-row-impact", "br-row-total", "br-row-bpAfter"]) {
+    expect(await br(page).getByTestId(id).evaluate((e) => e.scrollWidth <= e.clientWidth), id).toBe(true);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await br(page).getByTestId("br-review").click();
   const sheet = page.getByTestId("br-sheet");
   await expect(sheet).toBeVisible();
   // Measure after the sheet-up entrance (--dur-base) settles.
   await expect.poll(async () => { const b = (await sheet.boundingBox())!; return Math.round(b.y + b.height); }).toBe(844);
+  expect(await overflow(sheet)).toEqual([]);
   expect((await sheet.boundingBox())!.width).toBe(390);
   expect(await primaries(page)).toBe(1);
   for (let i = 0; i < 5; i++) {
@@ -297,15 +433,46 @@ test("BR-4 axe: no serious or critical issues in edit, review and ack", async ({
   expect(await axe(page)).toEqual([]);
 });
 
-test("BR-4 colour-blind and high-contrast modes keep the ticket's tokens; reduced motion drops the Sheet animation", async ({ page }, info) => {
+test("BR-4-14 colour-blind recolours Today with the cb pair; high contrast shows segment, input and review borders; reduced motion", async ({ page }, info) => {
   await open(page);
   await qty(page, "40");
-  for (const [k, v] of [["cb", "1"], ["hc", "1"]] as const) {
-    await page.evaluate(([a, b]) => { document.documentElement.dataset[a] = b; }, [k, v]);
-    await shot(page, `preview-${k}`);
-    await page.evaluate((a) => { delete document.documentElement.dataset[a]; }, k);
-  }
-  if (info.project.name === "phone") {
+  const html = (k: "cb" | "hc", on: boolean) => page.evaluate(([a, b]) => { if (b) document.documentElement.dataset[a] = "1"; else delete document.documentElement.dataset[a]; }, [k, on] as const);
+  const fg = (l: Locator) => l.evaluate((e) => getComputedStyle(e).color);
+  // Colour-blind: Today takes the cb gain/loss hex (tokens.css, per palette) and keeps its arrow.
+  const today = br(page).getByTestId("br-today");
+  const dir = await today.getAttribute("data-dir");
+  expect(dir, "seed 17 HALC moves on its first tick").not.toBe("flat");
+  const tok = dir === "up" ? "--gain" : "--loss";
+  const plain = await fg(today);
+  expect(plain).toBe(await color(page, `var(${tok})`));
+  const palette = await page.evaluate(() => document.documentElement.dataset.palette ?? "");
+  const CB = palette === "broadsheet" ? { "--gain": "rgb(8, 101, 122)", "--loss": "rgb(168, 35, 90)" } : { "--gain": "rgb(92, 225, 230)", "--loss": "rgb(255, 92, 138)" };
+  await html("cb", true);
+  expect(await fg(today)).toBe(CB[tok]);
+  expect(CB[tok]).not.toBe(plain);
+  await expect(today).toContainText(dir === "up" ? "\u25B2" : "\u25BC");
+  for (const c of await colours(br(page).getByTestId("br-side"))) expect(Object.values(CB)).not.toContain(c);
+  await shot(page, "preview-cb");
+  await html("cb", false);
+  // High contrast: --line becomes --fg-disabled, so the segment, input and review block borders change to it.
+  const line = await color(page, "var(--line)");
+  const borders = (ids: string[]) => Promise.all(ids.map((id) => page.getByTestId(id).first().evaluate((e) => {
+    const s = getComputedStyle(e); return `${s.borderTopStyle} ${parseFloat(s.borderTopWidth) >= 1} ${s.borderTopColor}`;
+  })));
+  const ids = ["br-side", "br-qty"];
+  expect(await borders(ids)).toEqual(ids.map(() => `solid true ${line}`));
+  await html("hc", true);
+  const hc = await color(page, "var(--fg-disabled)");
+  expect(hc).not.toBe(line);
+  expect(await borders(ids)).toEqual(ids.map(() => `solid true ${hc}`));
+  await shot(page, "preview-hc");
+  if (info.project.name === "desktop") {
+    await review(page); // inline review block; on phone the Sheet frames it instead (.qs-body drops the block border)
+    expect(await borders(["br-review-block"])).toEqual([`solid true ${hc}`]);
+    await html("hc", false);
+    expect(await borders(["br-review-block"])).toEqual([`solid true ${line}`]);
+  } else {
+    await html("hc", false);
     await page.evaluate(() => { document.documentElement.dataset.motion = "reduce"; });
     await br(page).getByTestId("br-review").click();
     expect(await page.getByTestId("br-sheet").evaluate((e) => getComputedStyle(e).animationName)).toBe("none");

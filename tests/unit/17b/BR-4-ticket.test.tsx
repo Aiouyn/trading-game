@@ -3,6 +3,7 @@
 // BR-4-02 header, BR-4-04 preview schedule, BR-4-05 stale estimate, BR-4-06 nothing sends before Place,
 // BR-4-08/09 one intent then the server's fill, BR-4-10 rejects, BR-4-11 halted/queued, BR-4-14 Sheet Esc = Edit,
 // MKT_NO_LOCATE (Quant E-96 (4)).
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decText, signedText } from "@/apps/portfolio/positions/format";
 import { BR_STRINGS } from "@/apps/broker/strings";
@@ -191,6 +192,37 @@ describe("BR-4-08/09 place and fill", () => {
     expect(text(h, "br-ack-title")).toBe(EN.bought("40", "HALC", decText(fill.price, "en")));
     expect(text(h, "br-ack-fee")).toBe(EN.feeLine(decText(fill.fee, "en")));
     expect(text(h, "br-hold")).toContain(moneyText(me.balances.FDL!));
+  });
+  it("two clicks and two Enters in one task (no render between them) still send one intent", async () => {
+    await mount(h, { context: "HALC" });
+    await typeQty(h, "40");
+    await click(q(h, "br-review")!);
+    const n = intentLog().length;
+    const place = q(h, "br-place")!, block = q(h, "br-review-block")!;
+    await act(async () => {
+      const clickIt = () => place.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const enter = () => block.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      clickIt(); clickIt(); enter(); enter();
+    });
+    expect(intentsSince(n)).toHaveLength(1);
+  });
+  it("while the submit reply is held (?replyMs), more clicks and Enters send nothing", async () => {
+    const feed = await mount(h, { context: "HALC", scenario: { replyMs: 2000 } });
+    await typeQty(h, "40");
+    await click(q(h, "br-review")!);
+    const n = intentLog().length;
+    await click(q(h, "br-place")!);
+    await wait(500);
+    await click(q(h, "br-place")!);
+    await key(q(h, "br-review-block")!, "Enter");
+    await key(broker(), "Enter");
+    expect(intentsSince(n)).toHaveLength(1);
+    expect(broker().dataset.phase).toBe("submitting");
+    await wait(1500);
+    expect(intentsSince(n)).toHaveLength(1);
+    await tick(feed);
+    expect(broker().dataset.phase).toBe("acked");
+    expect(intentsSince(n)).toHaveLength(1);
   });
   it("New order keeps HALC + Buy and clears the quantity", async () => {
     const feed = await mount(h, { context: "HALC" });
