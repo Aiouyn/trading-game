@@ -18,6 +18,7 @@ import { planQuarter } from '../rules/issuance';
 import { potentialGrowth } from '../rules/economy';
 import { liquidityPremium, pdAt, sovSpread, stressIndexOf } from '../rules/sovCredit';
 import { nominalGdpFdl } from '../rules/fxReserves';
+import { openingReservesFdl } from '../institutions';
 
 const UNIT = 1000000000n;   // one 1,000-face launch bond unit in micro
 
@@ -56,9 +57,6 @@ export function launchDebtSplit(b: BlocId, S: number, p: ParamsView): LaunchDebt
   units[REMAINDER_LINE[b]] = rest;
   return { debt: D - residue, residue, units: Object.freeze(units), fdlUnits, fdlEq };
 }
-
-/** MISSING EXPORT: T04-22 openingReservesFdl (E-93 (6): the amount T04-22 mints). Typed stub: 0 until T04-22 lands. */
-export function openingReservesFdl(_b: BlocId, _S: number, _p: ParamsView): Money { return 0n; }
 
 const D = TICKS_PER_GAME_DAY;
 const FSI_KEYS = ['interbank', 'repoHaircut', 'ccpFund', 'bankEquityDd', 'stablecoinDepeg', 'etfDiscount'] as const;

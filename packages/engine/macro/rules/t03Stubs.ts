@@ -23,3 +23,7 @@ export function effectiveMark(_read: StoreRead, _assetId: string, _tick: Tick): 
 export function periodNet(_read: StoreRead, _accountKey: string, _kind: 'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR' | 'CHAPTER', _index: number): Money {
   throw new EngineFault('I0.macro_stub', 'periodNet: T03-18 export missing');
 }
+/** MISSING EXPORT: T03-08 / T03-28 ctx.ledger.registerEntity (LedgerApi has no registerEntity; LedgerWorld has it). Used by T04-22. */
+export function registerEntity(_ctx: PhaseCtx, _spec: { id: Id; reportingCcy: Ccy; ownerId: Id | null }): Id {
+  throw new EngineFault('I0.macro_stub', 'registerEntity: T03-08 LedgerApi export missing');
+}
