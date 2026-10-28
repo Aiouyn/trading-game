@@ -2,17 +2,18 @@
 import { dmath, EngineFault, type ParamsView, type PhaseCtx } from '@tycoon/engine-core';
 import { cbkId } from '@tycoon/engine-ledger';
 import { BLOC_DEFAULTS } from '../blocs';
-import { roundToQuarterPp } from '../gapest';
+import { publicRuleTerms } from '../gapest';
 import { meetingId } from '../ids';
 import { macroTables, type BlocId, type BlocMacroState, type CbDecision, type CentralBank, type ForwardGuidance } from '../schema';
 import { S } from '../streams';
-import { coeffsFromHawk, publishedData, ruleRate, scheduledStep, stepsHalfEven, RATE_STEP, type CbDecisionRow,
+import { cbOutputGap, coeffsFromHawk, publishedData, ruleRate, scheduledStep, stepsHalfEven, RATE_STEP, type CbDecisionRow,
   type PublishedData, type RuleCoeffs } from './cb';
 import { memberPreference } from './cbVotes';
 
 type GuidanceText = 'VERY_DOVISH' | 'DOVISH' | 'NEUTRAL' | 'HAWKISH' | 'VERY_HAWKISH';
 type Dir = 'HIKE' | 'CUT' | 'HOLD';
 const TERM_KEYS = ['inflation', 'inflationGap', 'outputGap', 'finStress', 'fx', 'bias'] as const;   // ruleTerms without `neutral`
+const RISK_KEYS = ['inflationGap', 'outputGap', 'finStress', 'fx'] as const;   // E-100 (e): tie order
 const DOT_HORIZONS = [1, 2, 4, 8] as const;
 
 /** §3.6.5 text band: < −0.6 VERY_DOVISH, < −0.2 DOVISH, > 0.6 VERY_HAWKISH, > 0.2 HAWKISH, else NEUTRAL. */
@@ -40,7 +41,8 @@ export function guidanceScore(move: number, clarity: number, eps: number): numbe
 
 /** §3.6.5 dots: iterate quarterly (Δ = 0.25 yr) from today's published data. Each quarter the CB's forecast paths decay first
  *  (π_cb → π* half-life 0.75 yr, x_cb → 0 half-life 0.5 yr applied to both x_gdp_pub and u_pub − u*, FSI → 0.2 half-life 0.25 yr;
- *  depYoy held), then the rate takes one `scheduledStep`. Horizons 1, 2, 4, 8. */
+ *  E-100 (f): depYoy rolls out of its 4-quarter window, dep_q = depYoy × max(0, 1 − q/4)), then the rule, then one `scheduledStep`.
+ *  Exactly 4 entries, horizons 1, 2, 4, 8. */
 export function dots(i: number, rStarCb: number, d: PublishedData, target: number, nairu: number, b: BlocId, c: RuleCoeffs, elb: number, p: ParamsView):
   { horizonQuarters: 1 | 2 | 4 | 8; rate: number }[] {
   const fPi = dmath.pow(2, -0.25 / 0.75), fX = dmath.pow(2, -0.25 / 0.5), fFsi = dmath.pow(2, -0.25 / 0.25);
@@ -48,7 +50,7 @@ export function dots(i: number, rStarCb: number, d: PublishedData, target: numbe
   const out: { horizonQuarters: 1 | 2 | 4 | 8; rate: number }[] = [];
   for (let q = 1; q <= 8; q++) {
     data = { piCb: target + (data.piCb - target) * fPi, xGdpPub: data.xGdpPub * fX, uPub: nairu + (data.uPub - nairu) * fX,
-      fsi: 0.2 + (data.fsi - 0.2) * fFsi, depYoy: data.depYoy };
+      fsi: 0.2 + (data.fsi - 0.2) * fFsi, depYoy: d.depYoy * Math.max(0, 1 - q / 4) };
     rate = scheduledStep(rate, ruleRate(rStarCb, data, target, nairu, b, c).iStar, elb, c.rho, p);
     for (const h of DOT_HORIZONS) if (h === q) out.push({ horizonQuarters: h, rate });
   }
@@ -56,7 +58,7 @@ export function dots(i: number, rStarCb: number, d: PublishedData, target: numbe
 }
 
 function sizeKey(steps: number): string {
-  if (steps === 0) return 'SIZE0';   // HOLD: the card's size enum has no hold entry (question batched)
+  if (steps === 0) return 'SIZE0';   // E-100 (d): HOLD is always SIZE0
   if (steps <= 4) return `SIZE${steps * 25}`;
   return 'LARGE';
 }
@@ -68,12 +70,13 @@ export function dominantTerm(terms: CbDecision['ruleTerms']): string {
   return best;
 }
 
-/** 'cb.stmt.<HIKE|CUT|HOLD>.<SIZE25|50|75|100|LARGE>.<MATCH|SURPRISE>.<dominantTerm>'. MATCH iff the decision direction equals the
- *  guidance band direction; no guidance is SURPRISE (question batched). */
+/** E-100 (d): 'cb.stmt.<HIKE|CUT|HOLD>.<SIZE0|SIZE25|SIZE50|SIZE75|SIZE100|LARGE>.<MATCH|SURPRISE|UNGUIDED>.<dominantTerm>'. Direction and
+ *  size from the actual move (LARGE > 100 bp). MATCH iff the decision direction equals the guidance band direction; no guidance for this
+ *  meeting (every emergency meeting, a pre-genesis guidance tick) is UNGUIDED. */
 export function statementKey(prev: number, next: number, guidance: ForwardGuidance | null, terms: CbDecision['ruleTerms']): string {
   const steps = stepsHalfEven(next - prev, RATE_STEP);
   const dir: Dir = steps > 0 ? 'HIKE' : steps < 0 ? 'CUT' : 'HOLD';
-  const match = guidance !== null && guidanceDirection(guidance.score) === dir ? 'MATCH' : 'SURPRISE';
+  const match = guidance === null ? 'UNGUIDED' : guidanceDirection(guidance.score) === dir ? 'MATCH' : 'SURPRISE';
   return `cb.stmt.${dir}.${sizeKey(Math.abs(steps))}.${match}.${dominantTerm(terms)}`;
 }
 
@@ -112,24 +115,24 @@ export function memberPrefsOf(row: CbDecisionRow, b: BlocId, mandate: CentralBan
   return out;
 }
 
-/** §3.6.1 minutes. The event schema's dissent is {hike, hold, cut}: each AGAINST member counted by the move it preferred relative to
- *  the previous rate (sum = voteAgainst; question batched vs the card's dissentHigher/dissentLower). riskKeys: `cb.risk.<term>.<UP|DOWN>`
- *  for each non-neutral term whose published (0.25 pp) value is non-zero, in key order (format question batched). */
+/** E-100 (e): `cb.risk.<inflationGap|outputGap|finStress|fx>.<UP|DOWN>`, one key per term whose published value (0.25 pp half-even, the
+ *  macro.cb.decision publicRuleTerms of the stored row) is non-zero; sorted by |value| descending, ties in RISK_KEYS order. 0–4 keys. */
+export function riskKeysOf(row: CbDecisionRow, b: BlocId, mandate: CentralBank['mandate'], p: ParamsView): string[] {
+  const c = coeffsFromHawk(b, row.hawkAtMeeting, mandate, p);
+  const pub = publicRuleTerms(row.ruleTerms, c.phiX, cbOutputGap(row.dataAtMeeting, BLOC_DEFAULTS[b].nairu));
+  const keys: { k: string; a: number; ord: number }[] = [];
+  RISK_KEYS.forEach((k, ord) => { const v = pub[k]; if (v !== 0) keys.push({ k: `cb.risk.${k}.${v > 0 ? 'UP' : 'DOWN'}`, a: Math.abs(v), ord }); });
+  keys.sort((x, y) => (y.a - x.a) || (x.ord - y.ord));
+  return keys.map((e) => e.k);
+}
+
+/** §3.6.1 minutes, read from the stored decision row of `mid` (no draw, no recompute at minutesTick): dissent = { higher, lower } copied
+ *  from the tally stored on the SEALED row (E-100 (a); higher + lower = voteAgainst); riskKeys per E-100 (e). */
 export function minutesAt(ctx: PhaseCtx, b: BlocId, mid: string): void {
   const cb = cbRow(ctx, b);
   let row: CbDecisionRow | null = null;
   for (const d of cb.lastDecisions) if (d.meetingId === mid) { row = d as CbDecisionRow; break; }
   if (row === null) throw new EngineFault('MAC_STATE_MISSING', `${b}: no decision ${mid}`, [mid]);
-  const dissent = { hike: 0, hold: 0, cut: 0 };
-  for (const pref of memberPrefsOf(row, b, cb.mandate, ctx.params)) {
-    if (Math.abs(pref - row.newRate) <= RATE_STEP + 1e-12) continue;
-    const s = stepsHalfEven(pref - row.previousRate, RATE_STEP);
-    if (s > 0) dissent.hike++; else if (s < 0) dissent.cut++; else dissent.hold++;
-  }
-  const riskKeys: string[] = [];
-  for (const k of TERM_KEYS) {
-    const v = roundToQuarterPp(row.ruleTerms[k]);
-    if (v !== 0) riskKeys.push(`cb.risk.${k}.${v > 0 ? 'UP' : 'DOWN'}`);
-  }
-  ctx.emit('macro.cb.minutes', [cbkId(b)], { bloc: b, meetingId: mid, dissent, riskKeys }, 'PUBLIC');
+  ctx.emit('macro.cb.minutes', [cbkId(b)], { bloc: b, meetingId: mid, dissent: { higher: row.dissentHigher, lower: row.dissentLower },
+    riskKeys: riskKeysOf(row, b, cb.mandate, ctx.params) }, 'PUBLIC');
 }

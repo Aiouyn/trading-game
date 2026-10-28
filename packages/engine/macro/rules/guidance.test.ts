@@ -75,16 +75,21 @@ describe('§3.6.5 dots', () => {
     expect(cut[0]!.rate).toBeCloseTo(0.0075, 15);   // first quarter: π decays to 0.02 + 0.04·2^(−1/3) before the wide step
     const pyn = coeffsFromHawk('PYN', 0.5, 'DUAL', pv);
     const a = dots(0.03, 0.01, d({ depYoy: 0.1 }), 0.02, 0.045, 'PYN', pyn, 0, pv), b = dots(0.03, 0.01, d({ depYoy: 0 }), 0.02, 0.045, 'PYN', pyn, 0, pv);
-    expect(a[3]!.rate).toBeGreaterThan(b[3]!.rate);   // depYoy held, not decayed
+    expect(a[0]!.rate).toBeGreaterThan(b[0]!.rate);   // q1: dep 0.075 still in the rule
+    const far = dots(0.0475, 0.01, d({ depYoy: 0.3 }), 0.02, 0.045, 'PYN', pyn, 0, pv);
+    expect(far[3]!.rate).toBe(dots(far[2]!.rate, 0.01, d(), 0.02, 0.045, 'PYN', pyn, 0, pv)[3]!.rate);   // q ≥ 4: dep_q = 0 (E-100 (f))
   });
 });
 
 describe('§3.6.4 step 8 statement key', () => {
-  it('direction, size, MATCH/SURPRISE, dominant term (neutral excluded, ties keep key order)', () => {
+  it('direction, size, MATCH/SURPRISE/UNGUIDED, dominant term (neutral excluded, ties keep key order)', () => {
     expect(statementKey(0.03, 0.035, g(0.5), terms({ inflationGap: 0.004, outputGap: -0.003 }))).toBe('cb.stmt.HIKE.SIZE50.MATCH.inflationGap');
     expect(statementKey(0.03, 0.0275, g(0.5), terms({ finStress: -0.01 }))).toBe('cb.stmt.CUT.SIZE25.SURPRISE.finStress');
     expect(statementKey(0.03, 0.03, g(0.1), terms({ fx: 0.001 }))).toBe('cb.stmt.HOLD.SIZE0.MATCH.fx');
-    expect(statementKey(0.03, 0.0375, null, terms({ inflation: 0.02 }))).toBe('cb.stmt.HIKE.SIZE75.SURPRISE.inflation');
+    expect(statementKey(0.03, 0.0375, null, terms({ inflation: 0.02 }))).toBe('cb.stmt.HIKE.SIZE75.UNGUIDED.inflation');
+    expect(statementKey(0.03, 0.03, null, terms({ fx: 0.001 }))).toBe('cb.stmt.HOLD.SIZE0.UNGUIDED.fx');
+    expect(statementKey(0.03, 0.03, g(0.5), terms({ fx: 0.001 }))).toBe('cb.stmt.HOLD.SIZE0.SURPRISE.fx');
+    expect(statementKey(0.03, 0.0425, null, terms())).toBe('cb.stmt.HIKE.LARGE.UNGUIDED.inflation');
     expect(statementKey(0.03, 0.04, g(0.9), terms({ bias: 0.0025 }))).toBe('cb.stmt.HIKE.SIZE100.MATCH.bias');
     expect(statementKey(0.03, 0.0175, g(-0.9), terms({ outputGap: -0.004 }))).toBe('cb.stmt.CUT.LARGE.MATCH.outputGap');
     expect(statementKey(0.03, 0.030000000000000002, g(0), terms())).toBe('cb.stmt.HOLD.SIZE0.MATCH.inflation');

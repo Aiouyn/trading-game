@@ -22,13 +22,13 @@ export type CredOneOff = 'GUIDANCE_BREAK' | 'GUIDANCE_MISS' | 'DEFENCE_HIKE' | '
 export function credibilityOneOff(cred: number, kind: CredOneOff, credibility0?: number, p?: ParamsView): number {
   switch (kind) {
     case 'GUIDANCE_BREAK':
-      if (p === undefined) throw new EngineFault('I0.macro_cred', 'GUIDANCE_BREAK needs params (macro_cred_guidance_break)');
+      if (p === undefined) throw new EngineFault('MAC_STATE_MISSING', 'GUIDANCE_BREAK needs params (macro_cred_guidance_break)');
       return clampCred(cred - p.num('macro_cred_guidance_break'));
     case 'GUIDANCE_MISS': return clampCred(cred - 0.03);
     case 'DEFENCE_HIKE': return clampCred(cred + 0.05);
     case 'PEG_BREAK': case 'YCC_ABANDON': return clampCred(cred - 0.10);
     case 'NEW_GOVERNOR': {
-      if (credibility0 === undefined) throw new EngineFault('I0.macro_cred', 'NEW_GOVERNOR needs credibility0');
+      if (credibility0 === undefined) throw new EngineFault('MAC_STATE_MISSING', 'NEW_GOVERNOR needs credibility0');
       const gap = credibility0 - cred;
       return clampCred(gap > 0.05 ? cred + 0.05 : gap < -0.05 ? cred - 0.05 : credibility0);
     }
