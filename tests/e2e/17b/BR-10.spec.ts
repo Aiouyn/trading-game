@@ -21,17 +21,23 @@ const frame = (page: Page) => page.locator('[data-testid="win-broker"], [data-te
 /**
  * Every baseline is taken in the same feed tick. The mock ticks every 5 s of fake time, and the steps before a shot run
  * the paused clock a varying amount (chunk loads, `until`), so a shot could land either side of a tick and read another
- * Last / Today. The status strip's tick ring remounts its sweep once per tick (TickRing `key={tick}`); an init script
- * counts those remounts, and a shot first runs the clock to tick SHOT_TICK, then fails if it is already past it.
+ * Last / Today. An init script, registered before bootPaused's clock.install, traps window.setInterval so it can count
+ * the calls of the feed's interval (MockFeed.start: `() => this.advance()`); a shot first runs the clock to tick
+ * SHOT_TICK, then fails if it is already past it (or if the trap counted nothing, so it can't go quietly stale).
  */
 const SHOT_TICK = 3;
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { brTicks: number };
     w.brTicks = 0;
-    new MutationObserver((recs) => {
-      for (const r of recs) for (const n of r.addedNodes) if (n instanceof SVGElement && n.classList.contains("tickring-sweep")) w.brTicks++;
-    }).observe(document, { childList: true, subtree: true });
+    let current = window.setInterval;
+    const counted = (fn: TimerHandler): TimerHandler =>
+      typeof fn === "function" && /\.advance\(\)/.test(String(fn)) ? (...a: unknown[]) => { w.brTicks++; return (fn as (...x: unknown[]) => unknown)(...a); } : fn;
+    Object.defineProperty(window, "setInterval", {
+      configurable: true,
+      get: () => (fn: TimerHandler, ms?: number, ...a: unknown[]) => current(counted(fn), ms, ...a),
+      set: (v: typeof window.setInterval) => { current = v; },
+    });
   });
 });
 const ticks = (page: Page) => page.evaluate(() => (window as unknown as { brTicks: number }).brTicks);
