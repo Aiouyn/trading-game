@@ -96,15 +96,15 @@ export const MACRO_T04_08_PARAMS: readonly ParamDef[] = Object.freeze([
   ...HC.map(([k, v]) => ({ key: `macro_cb_haircut_${k}`, type: 'num', value: v })),
 ] as ParamDef[]);
 
-/** E-93 (6) opening balance-sheet ratios (T04-22 param table; read with p.num × genesisNominalGdp). Values are E-93's; E-103 (1)/(2)
- *  SRL values (reserve cover 11, FDL cash 0.007392) land with the T04-22 PR. Ranges: cash [0, 0.25], cover [0, 36], FDL cash [0, 0.05]. */
+/** E-93 (6) opening balance-sheet ratios (T04-22 param table; read with p.num × genesisNominalGdp). Values are E-93's with
+ *  the E-103 (1)/(2) SRL amendments (reserve cover 11, FDL cash 0.007392). Ranges: cash [0, 0.25], cover [0, 36], FDL cash [0, 0.05]. */
 export const MACRO_E93_OPENING_PARAMS: readonly ParamDef[] = Object.freeze([
   { key: 'mac_gov_cash0_gdp_FDL', type: 'num', value: 0.0246 }, { key: 'mac_gov_cash0_gdp_EUN', type: 'num', value: 0.0331 },
   { key: 'mac_gov_cash0_gdp_PYN', type: 'num', value: 0.0200 }, { key: 'mac_gov_cash0_gdp_NKR', type: 'num', value: 0.0285 },
   { key: 'mac_gov_cash0_gdp_SRL', type: 'num', value: 0.0219 },
   { key: 'mac_cbk_reserve_cover0_EUN', type: 'num', value: 4 }, { key: 'mac_cbk_reserve_cover0_PYN', type: 'num', value: 10 },
-  { key: 'mac_cbk_reserve_cover0_NKR', type: 'num', value: 4 }, { key: 'mac_cbk_reserve_cover0_SRL', type: 'num', value: 10 },
-  { key: 'mac_gov_fdlcash0_gdp_SRL', type: 'num', value: 0.00672 },
+  { key: 'mac_cbk_reserve_cover0_NKR', type: 'num', value: 4 }, { key: 'mac_cbk_reserve_cover0_SRL', type: 'num', value: 11 },
+  { key: 'mac_gov_fdlcash0_gdp_SRL', type: 'num', value: 0.007392 },
 ] as ParamDef[]);
 
 /** T04-17 crisis scheduler (04 §3.16.1-§3.16.2, 16 §3.7.3). Ranges: base 2e-4–6e-4, gap 336–1008, ripple 1/14–1/3, storm 1/182–1/60, precursor 4–20, suppression 0–1344. */

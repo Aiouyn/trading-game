@@ -85,6 +85,8 @@ describe('T04-20 macroGenesis', () => {
     for (const b of BLOC_ORDER) { expect(bl(w, b).realRateGapSmoothed).toBeCloseTo(r0[b], 12); expect(bl(w, b).regime).toBe('EXPANSION'); expect(bl(w, b).fiscal.fxDebt).toBe(0n); }
     expect(bl(w, 'FDL').nominalGdp).toBe(6400000000000000000n);
     expect(bl(w, 'FDL').credit).toBe(fromMoney(6400000000000000000n));
+    // E-103 (1): reserve cover0 EUN 4, PYN 10, NKR 4, SRL 11 months (FDL 0, the reserve currency)
+    expect(BLOC_ORDER.map((b) => bl(w, b).fx.reserveCoverMonths)).toEqual([0, 4, 10, 4, 11]);
   });
   it('curve hHat 0.5, inversionDays 0; public view labelled EXPANSION; cb coefficients from hawkishness', () => {
     const w = run();

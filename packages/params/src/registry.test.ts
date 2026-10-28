@@ -64,7 +64,7 @@ describe('E-93 (6) opening params', () => {
   it('the 10 keys with the E-93 values', () => {
     expect(MACRO_E93_OPENING_PARAMS.map((d) => [d.key, p.num(d.key)])).toEqual([['mac_gov_cash0_gdp_FDL', 0.0246], ['mac_gov_cash0_gdp_EUN', 0.0331],
       ['mac_gov_cash0_gdp_PYN', 0.02], ['mac_gov_cash0_gdp_NKR', 0.0285], ['mac_gov_cash0_gdp_SRL', 0.0219], ['mac_cbk_reserve_cover0_EUN', 4],
-      ['mac_cbk_reserve_cover0_PYN', 10], ['mac_cbk_reserve_cover0_NKR', 4], ['mac_cbk_reserve_cover0_SRL', 10], ['mac_gov_fdlcash0_gdp_SRL', 0.00672]]);
+      ['mac_cbk_reserve_cover0_PYN', 10], ['mac_cbk_reserve_cover0_NKR', 4], ['mac_cbk_reserve_cover0_SRL', 11], ['mac_gov_fdlcash0_gdp_SRL', 0.007392]]);
   });
 });
 
