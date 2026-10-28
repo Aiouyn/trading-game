@@ -22,7 +22,7 @@ const NON_FDL = ['EUN', 'PYN', 'NKR', 'SRL'] as const;
 const DRAW_DAY = 60, REPAY_DAY = 200, DRAW = 50_000_000_000n;   // 50 000 FDL; repay half
 
 describe('AC-04-20-RESMIRROR', () => {
-  it('seed 1, 364 closes, forced SRL CURRENCY_CRISIS and swap draw/repay: cb.reserves.fdl === ledger cash(cbk_<b>, FDL), reservesFdl = step 4 value', () => {
+  it('seed 1, 364 closes, forced SRL CURRENCY_CRISIS and swap draw/repay: cb.reserves.fdl === ledger cash(cbk_<b>, FDL), reservesFdl = step 4 value', async () => {
     const w = macroWorld('resmirror:1', 0), ports = defaultMacroPorts(), sh = cashShadow(w.ctx), p = w.ctx.params;
     postOpeningBalanceSheets(w.ctx, p, p.num('macro_scale_min'));
     macroGenesis(w.ctx, ports);
@@ -65,6 +65,7 @@ describe('AC-04-20-RESMIRROR', () => {
       armed ||= !!fx.breakArmed; broke ||= fx.breakTick !== undefined;
       check(`close ${d + 1}`);
       if (bad.length > 20) break;
+      await new Promise((r) => { setTimeout(r, 0); });   // yield per close: a 90 s synchronous loop times out vitest's worker RPC (onTaskUpdate)
     }
     expect(bad).toEqual([]);
     expect([armed, broke]).toEqual([true, true]);
