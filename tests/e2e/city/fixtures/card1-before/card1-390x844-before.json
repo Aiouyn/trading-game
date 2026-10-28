@@ -11,7 +11,7 @@
   },
   "anchorsP1": {
     "dst_port_avalon_eastside_docks": {
-      "x": 246.3,
+      "x": 288.2,
       "y": 524.3
     },
     "dst_port_avalon_financial_mile": {
@@ -19,12 +19,12 @@
       "y": 450.4
     },
     "dst_port_avalon_glasshill": {
-      "x": 42,
-      "y": 349
+      "x": 82.1,
+      "y": 364
     },
     "dst_port_avalon_industrial_basin": {
-      "x": 328.8,
-      "y": 454.9
+      "x": 331.2,
+      "y": 438.5
     },
     "dst_port_avalon_midtown": {
       "x": 296.6,
@@ -35,8 +35,8 @@
       "y": 467.1
     },
     "dst_port_avalon_riverside_lofts": {
-      "x": 306.2,
-      "y": 407.7
+      "x": 296.1,
+      "y": 412.8
     },
     "dst_port_avalon_summit_estates_on_gilt_hill": {
       "x": 213,

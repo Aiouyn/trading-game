@@ -1,4 +1,18 @@
-import { money, signedPct } from '@/game/format';
+const MINUS = '\u2212';
+const NF2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** $48,212.40 */
+function money(n: number): string {
+  const s = NF2.format(Math.abs(n));
+  return n < 0 && Math.abs(n) >= 0.005 ? `${MINUS}$${s}` : `$${s}`;
+}
+
+/** Fraction in, +2.74% out. */
+function signedPct(fraction: number): string {
+  const v = fraction * 100;
+  if (Math.abs(v) < 0.005) return '0.00%';
+  return `${v > 0 ? '+' : MINUS}${NF2.format(Math.abs(v))}%`;
+}
 import type { Ccy, MoneyString } from '../data/types';
 
 /**

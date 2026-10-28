@@ -100,15 +100,20 @@ describe("T1-06 MoneyText formatting", () => {
   ])("floors %s -> %s", (a, want) => {
     expect(abbreviateDigits(a)).toBe(want);
   });
+  // Studio sign ruling 2026-10-28 (specs/ui-card-2-portfolio-overview.md): the magnitude truncates toward zero for both
+  // signs, so a negative reads the same digits as its positive, behind U+2212. Cents never round the magnitude up.
   it.each([
-    ["412860", "15", "413k"], ["412000", "00", "412k"], ["412000", "01", "413k"], ["999001", "", "1M"], ["999000", "00", "999k"],
-    ["10000", "50", "10.1k"], ["999999999999", "99", "1T"],
-  ])("negatives floor toward −∞: −%s.%s -> −%s", (a, frac, want) => {
-    expect(abbreviateDigits(a, true, frac)).toBe(want);
+    ["412860.15", "\u2212$412k"], ["412000.01", "\u2212$412k"], ["412999.99", "\u2212$412k"], ["999999.99", "\u2212$999k"],
+    ["10000.50", "\u2212$10k"], ["999999999999.99", "\u2212$999B"], ["1999999", "\u2212$1.99M"],
+  ])("negatives truncate toward zero: −%s -> %s", (a, want) => {
+    expect(text(html(`-${a}`, "chip"))).toBe(want);
+    expect(text(html(a, "chip"))).toBe(want.slice(1));
   });
-  it("wealth: status strip, phone status bar and home widget all read $412k for $412,860.15; −$413k when negative", () => {
+  it("wealth: status strip, phone status bar and home widget all read $412k for $412,860.15; −$412k when negative", () => {
     expect(text(html("412860.15", "chip"))).toBe("$412k");
-    expect(text(html("-412860.15", "chip"))).toBe("\u2212$413k");
+    expect(text(html("412999.99", "chip"))).toBe("$412k");
+    expect(text(html("-412860.15", "chip"))).toBe("\u2212$412k");
+    expect(text(html("-412000.01", "chip"))).toBe("\u2212$412k");
     expect(text(html("1999999", "chip"))).toBe("$1.99M");
   });
   it("no FR variant yet: the compact form is the same digits for FR prefs (flagged for the i18n pass)", () => {

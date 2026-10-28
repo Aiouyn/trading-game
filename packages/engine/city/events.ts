@@ -1,11 +1,21 @@
 // T10A-01: the 10 §5 event kinds, their visibility, and zod payload schemas for every kind whose §5 payload names its fields.
 // Money is a decimal string (G3). Objects are strict: no undeclared key can ride along. Kinds whose §5 payload is prose
-// ("loan fields", "project summary", "island or right", …) or whose field types §5 does not fix are in DEFERRED_EVENT_KINDS
-// (visibility only) until the owning 10A/10B task or a spec answer fixes them.
-import type { Visibility } from '@tycoon/engine-core';
+// ("loan fields", "project summary", "island or right", …) or whose field types §5 does not fix are in DEFERRED_EVENT_KINDS, each
+// mapped to its owner card (E-88 (2d)); emitting one throws CITY_EVENT_SCHEMA_MISSING. checkCityEvent is the emit-time gate: schema,
+// the §3.24 opt-ins (E-88 (2a)/(2e)) and the byUse presence rule (E-88 (2f)).
+import { EngineFault, type Visibility } from '@tycoon/engine-core';
+import type { SectorId } from '@tycoon/content';
 import { z } from 'zod';
 import { BLOC_ORDER } from '@tycoon/engine-macro';
-import { PROPERTY_TYPES, TENANT_KINDS, LEASE_STATUSES, TRANSITION_CAUSES, USE_CLASSES } from './schema';
+import { effectivePublicRecord, DEFAULT_PUBLIC_RECORD, PROPERTY_TYPES, TENANT_KINDS, LEASE_STATUSES, TRANSITION_CAUSES, USE_CLASSES,
+  type Area, type DistrictUseMarket, type PublicPropertyRecord, type UseClass } from './schema';
+
+/** 22 SectorId values (content SECTOR_IDS, derived.ts; content is type-only in this package). The check below stops compiling if 22's
+ *  SectorId gains a value this list lacks. */
+export const CITY_SECTOR_IDS = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS', 'FINANCIALS', 'HEALTH', 'STAPLES', 'DISCRETIONARY',
+  'REAL_ESTATE', 'MEDIA', 'SECURITY'] as const satisfies readonly SectorId[];
+const SECTORS_COMPLETE: [Exclude<SectorId, (typeof CITY_SECTOR_IDS)[number]>] extends [never] ? true : never = true;
+void SECTORS_COMPLETE;
 
 const money = z.string().regex(/^-?(0|[1-9][0-9]*)$/);   // decimal string of a bigint (G3)
 const num = z.number().refine(Number.isFinite);
@@ -15,7 +25,7 @@ const id = z.string().min(1);
 const o = z.strictObject;
 const e = <T extends string>(xs: readonly T[]) => z.enum(xs as unknown as [T, ...T[]]);
 const use = e(USE_CLASSES);
-const byUse = <S extends z.ZodType>(v: S) => z.partialRecord(use, v);   // §5 does not say every use is present
+const byUse = <S extends z.ZodType>(v: S) => z.partialRecord(use, v);   // E-88 (2f): a key iff that use has supply > 0 in the scope
 
 /** §2.11 CityTransition (also the `city.transition` payload). */
 export const cityTransitionSchema = o({ id, parcelId: id, cause: e(TRANSITION_CAUSES), fromState: z.string(), toState: z.string(), publishedTick: tick, sourceEventId: id });
@@ -32,6 +42,8 @@ const opened = o({ cityId: id, bloc: e(BLOC_ORDER).nullable() /* null: Isla Sere
 export const CITY_EVENTS: Readonly<Record<string, z.ZodType>> = Object.freeze({
   'city.dayClose': o({ cityId: id, population: num, households: num, jobs: num, priceIndex: num, vacancyByUse: byUse(num), rentIndexByUse: byUse(num) }),
   'city.districtMarket': o({ districtId: id, byUse: byUse(o({ rentIndex: num, vacancy: num, pressure: num, capRate: num, priceIndex: num })) }),
+  /** E-88 (2d): 10 §2.9 EmploymentDelta; jobs is a signed integer. */
+  'city.employmentDelta': o({ cityId: id, districtId: id.nullable(), jobs: int, sector: e(CITY_SECTOR_IDS), cause: id }),
   'city.opened': opened,
   'city.opening': opened,
   'city.transition': cityTransitionSchema,
@@ -49,24 +61,16 @@ export const CITY_EVENTS: Readonly<Record<string, z.ZodType>> = Object.freeze({
   'dev.stalled': o({ projectId: id }),
 });
 
-/** §5 kinds with no payload schema yet, and why (spec question in the T10A-01 PR). */
+/** E-88 (2d): §5 kinds with no payload schema yet, each mapped to the card that owns its schema. */
 export const DEFERRED_EVENT_KINDS: Readonly<Record<string, string>> = Object.freeze({
-  'city.employmentDelta': '`sector` and `cause` value sets not fixed (09/16 EmploymentDelta)',
-  'prop.tenantDefault': '`arrears`: Money or rent-days (LeaseRow.arrearsGD) not fixed',
-  'prop.eviction': '`arrears`: Money or rent-days (LeaseRow.arrearsGD) not fixed',
-  'prop.exception': '`kind` value set not fixed; `propId | groupId` shape not fixed',
-  'prop.damage': '`peril` value set is 08\'s',
-  'mortgage.originated': '"loan fields": 10B mortgage record', 'mortgage.paid': '"loan fields": 10B mortgage record',
-  'mortgage.late': '"loan fields": 10B mortgage record', 'mortgage.covenantBreach': '"loan fields": 10B mortgage record',
-  'mortgage.cureStarted': '"loan fields": 10B mortgage record', 'mortgage.cured': '"loan fields": 10B mortgage record',
-  'dev.planned': '"project summary": 10B project record',
-  'dev.permitDecision': '`status` / `reason` value sets: 10B permits',
-  'dev.phaseStart': '`phase` / `overrun` types: 10B development phases', 'dev.phaseEnd': '`phase` / `overrun` types: 10B development phases',
-  'land.auction': '`parcels` shape: 10B land auctions', 'land.auctionResult': '`parcels` shape: 10B land auctions',
-  'unique.auction': '"island or right": 10B unique assets', 'unique.sold': '"island or right": 10B unique assets',
-  'hall.snapshot': '`seats` shape: Hall of Patrons (§3.25)',
-  'prop.relatedPartyLease': '"lease id, deviation": field names not fixed',
-  'prop.appraisalByPlayerFirm': '"appraisal, firm, client": field names not fixed',
+  // T10A-06 (arrears / amount are money strings; peril is 08's enum)
+  'prop.tenantDefault': 'T10A-06', 'prop.eviction': 'T10A-06', 'prop.exception': 'T10A-06', 'prop.damage': 'T10A-06', 'prop.relatedPartyLease': 'T10A-06',
+  'prop.appraisalByPlayerFirm': 'T10A-07',
+  'hall.snapshot': 'T10A-10',
+  'mortgage.originated': 'T10B-01', 'mortgage.paid': 'T10B-01', 'mortgage.late': 'T10B-01', 'mortgage.covenantBreach': 'T10B-01',
+  'mortgage.cureStarted': 'T10B-01', 'mortgage.cured': 'T10B-01',
+  'dev.planned': 'T10B-01', 'dev.permitDecision': 'T10B-01', 'dev.phaseStart': 'T10B-01', 'dev.phaseEnd': 'T10B-01',
+  'land.auction': 'T10B-01', 'land.auctionResult': 'T10B-01', 'unique.auction': 'T10B-01', 'unique.sold': 'T10B-01',
 });
 
 /** 10 §5 visibility column. Where §5 gives two (a public record plus a fuller copy), this is the envelope's primary visibility and the
@@ -90,3 +94,76 @@ export const CITY_EVENT_VISIBILITY: Readonly<Record<string, Visibility>> = Objec
   'land.auction': 'PUBLIC', 'land.auctionResult': 'PUBLIC', 'unique.auction': 'PUBLIC', 'unique.sold': 'PUBLIC', 'hall.snapshot': 'PUBLIC',
   'prop.relatedPartyLease': 'SEALED', 'prop.appraisalByPlayerFirm': 'SEALED',
 });
+
+/** E-88 (2e) / AC-10A-01-8: the 10 §3.24 allowlist as payload keys, each with the §3.24 item (or §3.24 rule) it is published under.
+ *  A PUBLIC payload carries only these keys; the opt-in keys also need their PUBLIC_OPT_IN flag. */
+export const PUBLIC_PAYLOAD_KEYS: Readonly<Record<string, string>> = Object.freeze({
+  cityId: 'geometry, roads, parcels, buildings', districtId: 'geometry, roads, parcels, buildings', parcelId: 'geometry, roads, parcels, buildings',
+  propId: 'geometry, roads, parcels, buildings', buildingId: 'geometry, roads, parcels, buildings', type: 'geometry, roads, parcels, buildings',
+  bloc: 'geometry, roads, parcels, buildings', openTick: 'geometry, roads, parcels, buildings', stateVersion: 'geometry, roads, parcels, buildings',
+  id: 'parcel lifecycle', cause: 'parcel lifecycle', fromState: 'parcel lifecycle', toState: 'parcel lifecycle', publishedTick: 'parcel lifecycle',
+  sourceEventId: 'parcel lifecycle', projectId: 'parcel lifecycle',
+  population: 'rule (4) pooled aggregate', households: 'rule (4) pooled aggregate', jobs: 'rule (4) pooled aggregate',
+  priceIndex: 'rule (4) pooled aggregate', vacancyByUse: 'rule (4) pooled aggregate', rentIndexByUse: 'rule (4) pooled aggregate',
+  byUse: 'rule (4) pooled aggregate', rentIndex: 'rule (4) pooled aggregate', vacancy: 'rule (4) pooled aggregate',
+  pressure: 'rule (4) pooled aggregate', capRate: 'rule (4) pooled aggregate', sector: 'rule (4) pooled aggregate',
+  listingId: 'public market record (§5 prop.listed)', ask: 'public market record (§5 prop.listed)', price: 'public market record (§5 prop.purchased)',
+  buyerDisplay: 'owner name of a property (opt-in)', ownerDisplay: 'owner name of a property (opt-in)', address: 'home location street address (opt-in)',
+});
+/** E-88 (2a): the opt-in each owner-identifying key needs (publicAddress counts only with visitableEstate). */
+export const PUBLIC_OPT_IN: Readonly<Record<string, keyof PublicPropertyRecord>> = Object.freeze({
+  buyerDisplay: 'publicOwnership', ownerDisplay: 'publicOwnership', address: 'publicAddress' });
+const OPT_IN_KEYS: readonly string[] = ['buyerDisplay', 'ownerDisplay', 'address'];
+/** True when `key` may be published under the record's (effective) opt-ins; keys with no opt-in are always true. */
+export function optInAllows(key: string, rec: PublicPropertyRecord = DEFAULT_PUBLIC_RECORD): boolean {
+  const flag = PUBLIC_OPT_IN[key];
+  return flag === undefined || effectivePublicRecord(rec)[flag];
+}
+
+/** E-88 (2f): the byUse fields of each emitted kind, checked against the scope's supply. */
+const BY_USE_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'city.dayClose': ['vacancyByUse', 'rentIndexByUse'], 'city.districtMarket': ['byUse'] });
+/** The scope (city or district) of an emitted event: the supply area by use (E-88 (2f)) and, for a property event, its opt-ins. */
+export interface CityEventScope { supplyByUse?: Partial<Record<UseClass, Area>>; publicRecord?: PublicPropertyRecord }
+
+/** A district's supply by use (only uses with supply > 0). */
+export function supplyByUseOf(market: Readonly<Record<UseClass, DistrictUseMarket>>): Partial<Record<UseClass, Area>> {
+  const out: Partial<Record<UseClass, Area>> = {};
+  for (const u of USE_CLASSES) if (market[u].supplyArea > 0) out[u] = market[u].supplyArea;
+  return out;
+}
+/** E-88 (2f): a byUse map with a key iff that use has supply > 0; never zero-filled. */
+export function byUseOf<V>(supply: Partial<Record<UseClass, Area>>, f: (u: UseClass) => V): Partial<Record<UseClass, V>> {
+  const out: Partial<Record<UseClass, V>> = {};
+  for (const u of USE_CLASSES) if ((supply[u] ?? 0) > 0) out[u] = f(u);
+  return out;
+}
+
+const bad = (code: string, msg: string, kind: string): never => { throw new EngineFault(code, msg, [kind]); };
+/** The emit-time gate. Throws CITY_EVENT_SCHEMA_MISSING for a deferred or unknown kind (E-88 (2d)), CITY_EVENT_BAD_PAYLOAD when the
+ *  schema rejects, CITY_EVENT_NOT_OPTED_IN for an owner/address key without its opt-in, CITY_EVENT_SCOPE_MISSING when a byUse kind has
+ *  no supplyByUse, and CITY_EVENT_BYUSE_PRESENCE when a use key is present without supply or absent with supply. Returns the parsed payload. */
+export function checkCityEvent(kind: string, payload: unknown, scope: CityEventScope = {}): Record<string, unknown> {
+  const schema = CITY_EVENTS[kind];
+  if (schema === undefined) {
+    const owner = DEFERRED_EVENT_KINDS[kind];
+    return bad('CITY_EVENT_SCHEMA_MISSING', owner === undefined ? `${kind} is not a 10 §5 kind` : `${kind} has no payload schema yet (owner ${owner})`, kind);
+  }
+  const r = schema.safeParse(payload);
+  if (!r.success) return bad('CITY_EVENT_BAD_PAYLOAD', `${kind}: ${r.error.issues[0]?.path.join('.') ?? ''} ${r.error.issues[0]?.message ?? ''}`, kind);
+  const p = r.data as Record<string, unknown>;
+  for (const k of OPT_IN_KEYS) if (k in p && !optInAllows(k, scope.publicRecord)) bad('CITY_EVENT_NOT_OPTED_IN', `${kind}.${k} needs ${PUBLIC_OPT_IN[k]}`, kind);
+  const fields = BY_USE_FIELDS[kind];
+  if (fields !== undefined) {
+    const supply = scope.supplyByUse;
+    if (supply === undefined) return bad('CITY_EVENT_SCOPE_MISSING', `${kind} needs the scope's supplyByUse`, kind);
+    for (const f of fields) {
+      const m = p[f] as Partial<Record<UseClass, unknown>>;
+      for (const u of USE_CLASSES) {
+        const has = (supply[u] ?? 0) > 0;
+        if ((u in m) !== has) bad('CITY_EVENT_BYUSE_PRESENCE', `${kind}.${f}.${u}: ${has ? 'missing for a use with supply' : 'present with no supply'}`, kind);
+      }
+    }
+  }
+  return p;
+}
