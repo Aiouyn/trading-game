@@ -8,7 +8,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
 import { pinHtml } from "./pin";
-import { winShot, winShotBuffer } from "./winShot";
+import { expectOnlySquaresMasked, winShot } from "./winShot";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -399,44 +399,26 @@ for (const scale of ["1", "2"] as const) {
   });
 }
 
-/** With the page held still: a 1 px change on `c`'s edges just past its corner squares, or at its centre, changes the
- *  masked buffer; one inside its top-left or bottom-left corner square doesn't. */
-async function maskedOnlyCorners(page: Page, c: Locator) {
+/** Held still: the whole 1 px ring round every mask square of the shot is compared and every pixel inside is masked
+ *  (expectOnlySquaresMasked); `min` squares at least, so a scene that lost its rounded controls can't pass empty. */
+async function onlySquaresMasked(page: Page, min: number) {
   await holdStill(page);
-  const f = frame(page);
-  const base = await winShotBuffer(page, f, rounded(page));
-  const changed = async (x: number, y: number) => {
-    await page.evaluate(([x, y]) => {
-      const d = document.createElement("div");
-      d.id = "br-dot";
-      d.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px;background:rgb(255,0,0);z-index:2147483646`;
-      document.body.append(d);
-    }, [x, y] as const);
-    const diff = !(await winShotBuffer(page, f, rounded(page))).equals(base);
-    await page.evaluate(() => document.getElementById("br-dot")?.remove());
-    return diff;
-  };
-  const b = (await c.boundingBox())!;
-  const r = await c.evaluate((el) => Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius)));
-  expect(r, "control radius").toBeGreaterThan(0);
-  const [l, t, rt, bt] = [Math.floor(b.x), Math.floor(b.y), Math.ceil(b.x + b.width) - 1, Math.ceil(b.y + b.height) - 1];
-  const sq = r + 1; // one past the (pixel-widened) square
-  for (const [x, y] of [[l, t + sq], [l, bt - sq], [l + sq, bt], [rt - sq, t], [rt, t + sq], [Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2)]]) {
-    expect(await changed(x!, y!), `pixel ${x},${y} outside the corner squares`).toBe(true);
-  }
-  expect(await changed(l, t), "pixel inside the top-left corner square").toBe(false);
-  expect(await changed(l, bt), "pixel inside the bottom-left corner square").toBe(false);
+  const n = await expectOnlySquaresMasked(page, frame(page), rounded(page));
+  expect(n.squares, "mask squares in the shot").toBeGreaterThanOrEqual(min);
+  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.squares * 4);
 }
 
-test("BR-10 shots mask only the r×r corner squares of the select, About tabs and News rows: edge and inner pixels outside them are caught", async ({ page }, info) => {
-  phoneOnly(info.project.name);
-  await bootPaused(page, "/broker");
-  await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
-  await page.getByTestId("br-asset-select").selectOption("HALC");
-  await until(page, async () => (await brk(page).getAttribute("data-state")) === "live");
-  await maskedOnlyCorners(page, page.getByTestId("br-asset-select"));
+test("BR-10 shots mask only the r×r corner squares of the window, select, About tabs and News rows: every pixel of the ring round each square is caught", async ({ page }, info) => {
+  if (info.project.name !== "phone") await openBroker(page);
+  else {
+    await bootPaused(page, "/broker");
+    await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
+    await page.getByTestId("br-asset-select").selectOption("HALC");
+    await until(page, async () => (await brk(page).getAttribute("data-state")) === "live");
+    await onlySquaresMasked(page, 4);
+  }
   await toAbout(page);
   await toNews(page);
-  await maskedOnlyCorners(page, page.getByTestId("br-about-tabs"));
-  await maskedOnlyCorners(page, stories(page).first());
+  await expect(stories(page).first()).toBeVisible();
+  await onlySquaresMasked(page, 12);
 });

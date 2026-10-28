@@ -1,5 +1,7 @@
-import { expect, type Locator, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { decodePng, differingPixels, encodePng, type Rgba } from "./png";
 
 type Clip = { x: number; y: number; width: number; height: number };
 
@@ -30,9 +32,7 @@ const cornerSquares = ({ x, y, width, height, r }: Rounded): Square[] => {
  * (rounded controls inside the frame). Every other pixel, edge rows and columns included, is compared. The phone app view
  * has no rounded corners of its own.
  */
-async function withCorners<T>(page: Page, frame: Locator, rounded: Locator | undefined, fn: (clip: Clip, mask: Locator[]) => Promise<T>): Promise<T> {
-  const b = (await frame.boundingBox())!;
-  const clip = { x: b.x, y: b.y, width: b.width, height: b.height };
+async function maskSquares(frame: Locator, rounded: Locator | undefined): Promise<Square[]> {
   const own: Rounded[] = await frame.evaluate((el) => {
     const b = el.getBoundingClientRect();
     return el.classList.contains("win") ? [{ x: b.x, y: b.y, width: b.width, height: b.height, r: Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius) || 0) }] : [];
@@ -41,8 +41,14 @@ async function withCorners<T>(page: Page, frame: Locator, rounded: Locator | und
     const b = e.getBoundingClientRect();
     return { x: b.x, y: b.y, width: b.width, height: b.height, r: Math.ceil(parseFloat(getComputedStyle(e).borderBottomLeftRadius) || 0) };
   })) : [];
-  const squares = [...own, ...controls].flatMap(cornerSquares);
-  if (squares.length === 0) return fn(clip, []);
+  return [...own, ...controls].flatMap(cornerSquares);
+}
+
+async function withCorners<T>(page: Page, frame: Locator, rounded: Locator | undefined, fn: (clip: Clip, mask: Locator[], squares: Square[]) => Promise<T>): Promise<T> {
+  const b = (await frame.boundingBox())!;
+  const clip = { x: b.x, y: b.y, width: b.width, height: b.height };
+  const squares = await maskSquares(frame, rounded);
+  if (squares.length === 0) return fn(clip, [], squares);
   await page.evaluate((squares) => {
     for (const { x, y, w, h } of squares) {
       const d = document.createElement("div");
@@ -52,24 +58,108 @@ async function withCorners<T>(page: Page, frame: Locator, rounded: Locator | und
     }
   }, squares);
   try {
-    return await fn(clip, [page.locator("[data-winshot-corner]")]);
+    return await fn(clip, [page.locator("[data-winshot-corner]")], squares);
   } finally {
     await page.evaluate(() => document.querySelectorAll("[data-winshot-corner]").forEach((d) => d.remove()));
   }
 }
 
+/** Where toHaveScreenshot([dir, name]) keeps its baseline (snapshotPath types only `kind` with a single name segment). */
+const baselinePath = (dir: string, name: string) => join(dirname(test.info().snapshotPath("_.png", { kind: "screenshot" })), dir, name);
+
+/** The masked capture, with the same options as the toHaveScreenshot config (playwright.config.ts). */
+const capture = (page: Page, clip: Clip, mask: Locator[]) => page.screenshot({ clip, mask, animations: "disabled", caret: "hide", scale: "css" });
+
 /**
- * Compare the frame against `__screenshots__/<dir>/<name>`; also write it to `shotsDir` when given. `rounded`: rounded
+ * Every RGBA byte of `actual` equals the baseline at `path`. Playwright's comparator skips pixels it classes as antialiased
+ * even at threshold 0, and a pixel touching a magenta mask square always looks antialiased, so it alone leaves a 1 px ring
+ * round every square unchecked (PR #98 QA round 2: 3 red px there passed 5 shots). Masked pixels are the same magenta in
+ * both images, so the masks still hold. With --update-snapshots (all / changed) a differing baseline is rewritten from
+ * `actual`, because toHaveScreenshot leaves one that differs only in pixels it skips. On a mismatch the diff (changed
+ * pixels red, the rest dimmed), the actual image and the first differing pixels are attached; the check is soft, so every
+ * shot of a test reports.
+ */
+function expectExact(path: string, actual: Buffer, name: string) {
+  const info = test.info();
+  const update = info.config.updateSnapshots === "all" || info.config.updateSnapshots === "changed";
+  expect(existsSync(path), `baseline ${path}`).toBe(true);
+  const want = decodePng(readFileSync(path)), got = decodePng(actual);
+  const sameSize = want.width === got.width && want.height === got.height;
+  const diff = sameSize ? differingPixels(want, got) : [];
+  if (sameSize && diff.length === 0) return;
+  if (update) { writeFileSync(path, actual); return; }
+  const report = sameSize
+    ? `${diff.length} px differ; first: ${diff.slice(0, 12).map((p) => {
+      const [x, y, i] = [p % got.width, Math.floor(p / got.width), p * 4];
+      return `(${x},${y}) ${[...want.data.subarray(i, i + 4)].join(".")} → ${[...got.data.subarray(i, i + 4)].join(".")}`;
+    }).join(", ")}`
+    : `size ${got.width}x${got.height}, baseline ${want.width}x${want.height}`;
+  if (sameSize) {
+    const out: Rgba = { width: got.width, height: got.height, data: new Uint8Array(got.data.length) };
+    for (let i = 0; i < got.data.length; i += 4) out.data.set([got.data[i]! >> 2, got.data[i + 1]! >> 2, got.data[i + 2]! >> 2, 255], i);
+    for (const p of diff) out.data.set([255, 0, 0, 255], p * 4);
+    const diffPath = info.outputPath(name.replace(/\.png$/, "-exact-diff.png"));
+    writeFileSync(diffPath, encodePng(out));
+    void info.attach(`${name} exact diff`, { path: diffPath, contentType: "image/png" });
+  }
+  void info.attach(`${name} exact actual`, { body: actual, contentType: "image/png" });
+  expect.soft(sameSize && diff.length === 0, `${name}: pixel-exact match with the baseline: ${report}`).toBe(true);
+}
+
+/**
+ * Compare the frame against `__screenshots__/<dir>/<name>`, with toHaveScreenshot and then pixel-exactly (expectExact);
+ * also write it to `shotsDir` when given. `rounded`: rounded
  * controls in the frame whose r×r corner squares are masked too.
  */
 export async function winShot(page: Page, frame: Locator, dir: string, name: string, shotsDir?: string, rounded?: Locator): Promise<void> {
   await page.mouse.move(0, page.viewportSize()!.height - 1); // no hover tint in a baseline
   await withCorners(page, frame, rounded, async (clip, mask) => {
     await expect(page).toHaveScreenshot([dir, name], { clip, mask });
-    if (shotsDir) { mkdirSync(shotsDir, { recursive: true }); await page.screenshot({ path: `${shotsDir}/${name}`, clip, mask }); }
+    const actual = await capture(page, clip, mask);
+    expectExact(baselinePath(dir, name), actual, name);
+    if (shotsDir) { mkdirSync(shotsDir, { recursive: true }); writeFileSync(`${shotsDir}/${name}`, actual); }
   });
 }
 
-/** The frame exactly as `winShot` compares it, as a PNG buffer (no baseline). */
-export const winShotBuffer = (page: Page, frame: Locator, rounded?: Locator): Promise<Buffer> =>
-  withCorners(page, frame, rounded, (clip, mask) => page.screenshot({ clip, mask }));
+/**
+ * The page held still: paint every pixel of the 1 px ring round every mask square (except ring pixels inside another
+ * square or outside the frame) in the inverse of its colour, and every one must change the masked capture, and nothing
+ * else may; then paint every pixel inside every square, and the capture must not change at all. Pixel-exact, as winShot
+ * compares. Returns the counts so the caller can check there was something to test.
+ */
+export async function expectOnlySquaresMasked(page: Page, frame: Locator, rounded?: Locator): Promise<{ squares: number; ring: number; inside: number }> {
+  return withCorners(page, frame, rounded, async (clip, mask, squares) => {
+    for (const v of [clip.x, clip.y, clip.width, clip.height]) expect(Number.isInteger(v), `frame box on whole pixels: ${JSON.stringify(clip)}`).toBe(true);
+    const base = decodePng(await capture(page, clip, mask));
+    const inSquare = (x: number, y: number) => squares.some((q) => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h);
+    const inClip = (x: number, y: number) => x >= clip.x && x < clip.x + clip.width && y >= clip.y && y < clip.y + clip.height;
+    const key = (x: number, y: number) => (y - clip.y) * base.width + (x - clip.x);
+    const ring = new Map<number, [number, number]>();
+    for (const q of squares) {
+      for (let x = q.x - 1; x <= q.x + q.w; x++) for (const y of [q.y - 1, q.y + q.h]) ring.set(key(x, y), [x, y]);
+      for (let y = q.y; y < q.y + q.h; y++) for (const x of [q.x - 1, q.x + q.w]) ring.set(key(x, y), [x, y]);
+    }
+    for (const [k, [x, y]] of ring) if (inSquare(x, y) || !inClip(x, y)) ring.delete(k);
+    const inside: [number, number][] = squares.flatMap((q) => Array.from({ length: q.w * q.h }, (_, i): [number, number] => [q.x + (i % q.w), q.y + Math.floor(i / q.w)])).filter(([x, y]) => inClip(x, y));
+    const paint = async (px: [number, number][]) => {
+      const dots = px.map(([x, y]) => { const i = key(x, y) * 4; return [x, y, 255 - base.data[i]!, 255 - base.data[i + 1]!, 255 - base.data[i + 2]!] as const; });
+      await page.evaluate((dots) => {
+        for (const [x, y, r, g, b] of dots) {
+          const d = document.createElement("div");
+          d.dataset.winshotDot = "";
+          d.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px;background:rgb(${r},${g},${b});pointer-events:none;z-index:2147483646`;
+          document.body.append(d);
+        }
+      }, dots);
+      const changed = differingPixels(base, decodePng(await capture(page, clip, mask)));
+      await page.evaluate(() => document.querySelectorAll("[data-winshot-dot]").forEach((d) => d.remove()));
+      return changed;
+    };
+    const ringChanged = new Set(await paint([...ring.values()]));
+    const fmt = (k: number) => `(${clip.x + (k % base.width)},${clip.y + Math.floor(k / base.width)})`;
+    expect([...ring.keys()].filter((k) => !ringChanged.has(k)).map(fmt), "ring pixels the masked capture missed").toEqual([]);
+    expect([...ringChanged].filter((k) => !ring.has(k)).map(fmt), "pixels that changed but weren't painted").toEqual([]);
+    expect((await paint(inside)).map(fmt), "pixels inside a square that showed through the mask").toEqual([]);
+    return { squares: squares.length, ring: ring.size, inside: inside.length };
+  });
+}

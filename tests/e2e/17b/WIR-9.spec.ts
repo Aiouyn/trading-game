@@ -7,7 +7,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
 import { pinHtml } from "./pin";
-import { winShot, winShotBuffer } from "./winShot";
+import { expectOnlySquaresMasked, winShot } from "./winShot";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -142,29 +142,12 @@ test("WIR-9-10 1440: feed and pane side by side; RUMOR record + band, FILING sum
   await pinHtml(page, "hc", false);
 });
 
-test("winShot: the mask covers only the corner squares, so a 1 px change on the bottom edge row is caught", async ({ page }, info) => {
+test("winShot: the mask covers only the window's r×r corner squares: every pixel of the ring round each square is caught", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await bootWire(page);
-  const f = frame(page);
-  const base = await winShotBuffer(page, f);
-  const dot = (x: number, y: number) => page.evaluate(([x, y]) => {
-    const d = document.createElement("div");
-    d.id = "edge-dot";
-    d.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px;background:rgb(255,0,0);z-index:2147483646`;
-    document.body.append(d);
-  }, [x, y] as const);
-  const undot = () => page.evaluate(() => document.getElementById("edge-dot")?.remove());
-  const b = (await f.boundingBox())!;
-  const r = await f.evaluate((el) => Math.ceil(parseFloat(getComputedStyle(el).borderBottomLeftRadius)));
-  expect(r).toBeGreaterThan(0);
-  for (const [x, y] of [[b.x + r + 1, b.y + b.height - 1], [b.x + b.width / 2, b.y + b.height - 1], [b.x + b.width - r - 2, b.y], [b.x, b.y + r + 1]]) {
-    await dot(x!, y!);
-    expect((await winShotBuffer(page, f)).equals(base), `edge pixel ${x},${y}`).toBe(false);
-    await undot();
-  }
-  await dot(b.x, b.y + b.height - 1); // inside the bottom-left corner square: masked
-  expect((await winShotBuffer(page, f)).equals(base)).toBe(true);
-  await undot();
+  const n = await expectOnlySquaresMasked(page, frame(page));
+  expect(n.squares, "the window's four corner squares").toBe(4);
+  expect(n.ring, "ring pixels checked").toBeGreaterThan(8);
 });
 
 test("WIR-9-05 ?tier=terminal: priced-in band + as-of in the detail; ?tier=free: no priced-in section", async ({ page }, info) => {
