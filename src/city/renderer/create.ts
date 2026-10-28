@@ -712,6 +712,18 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       chrome.labels.append(b);
       labelEls.push({ el: b, text: spec.text, ground: spec.ground, w: 0, h: 0 });
     }
+    // Placement measures each label's box, and before the label face has loaded (font-display: block)
+    // that box has fallback metrics; the cache key (camera, sizes, counts) never changes when the face
+    // lands, so the home view kept whichever widths it measured first. Re-place once the face is in.
+    const first = labelEls[0]?.el;
+    if (first && document.fonts) {
+      const face = getComputedStyle(first).font;
+      void (face ? document.fonts.load(face, first.textContent ?? '') : document.fonts.ready).then(() => {
+        if (disposed) return;
+        labelKey = '';
+        loop.invalidate();
+      }, () => {});
+    }
   }
 
   function placeLabels(): void {
