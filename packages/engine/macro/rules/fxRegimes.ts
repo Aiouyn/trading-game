@@ -5,6 +5,7 @@ import { BLOC_DEFAULTS } from '../blocs';
 import type { MacroPorts } from '../ports';
 import { macroTables, type BlocId, type BlocMacroState, type CentralBank, type FxRegimeKind, type FxState, type GlobalMacroState, type NpcPoolOrder } from '../schema';
 import { S } from '../streams';
+import { activeShockSum } from './shocks';
 import { tradingDaysOfPeriod } from './calendar';
 import { runMeeting } from './cb';
 import { canAgreeConcord, concordActive, openConcord } from './concord';
@@ -206,7 +207,7 @@ export function stepFxDay(ctx: PhaseCtx, ports: MacroPorts): void {
     const ppp = pppLn(ppp0, fdl.cpiLevel, 100, st.cpiLevel, 100), xOthers = (gaps.reduce((a, x) => a + x, 0) - st.outputGap) / (gaps.length - 1);
     const ca = currentAccount(c, fx0.realExchangeGap, xOthers, st.outputGap, E);
     const fLn = stepFairValue(fx0.fairValueLn, { iX: cb.policyRate, iFdl, pppLn: ppp, ca, dRA: RA - (fx0.lastRA ?? RA), dLnEnergy: dmath.ln(E / (fx0.lastEnergy ?? E)),
-      surpriseX: 0, surpriseFdl: 0, shocks: 0 /* MISSING EXPORT: T04-18 activeShockSum */, b: c }, ctx.params);
+      surpriseX: 0, surpriseFdl: 0, shocks: activeShockSum(s, 'fx_fair_ln', c, ctx.tick), b: c }, ctx.params);
     if (fx0.regime !== 'FREE_FLOAT') {
       const fdlAmt = divRoundHalfEven(nominalGdpFdl(s, c) * micro(ca), 364n * MICRO_N), xAmt = divRoundHalfEven((fdlAmt < 0n ? -fdlAmt : fdlAmt) * MICRO_N, micro(sp));
       if (fdlAmt > 0n) ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CA_ABSORB');

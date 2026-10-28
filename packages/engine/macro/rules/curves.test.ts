@@ -109,7 +109,7 @@ describe('T04-07 ĥ, market path, buildCurve', () => {
   });
 });
 
-import { blocShockSum, recomputeCurve } from './curves';
+import { recomputeCurve } from './curves';
 import { cbRow } from '../testkit/cbWorld';
 import { macroTables, type CurveState, type PublicMacroView } from '../schema';
 describe('T04-07 recomputeCurve (store)', () => {
@@ -139,9 +139,8 @@ describe('T04-07 recomputeCurve (store)', () => {
     expect(c.marketImplied[0]!.rate).toBeGreaterThan(0.034);   // 0.8·0.04 + 0.2·model; the model path alone stays near 0.0275
     expect(c.nInf).toBeCloseTo(0.0075 + 0.001 + 0.02, 15);
   });
-  it('tp10 shocks feed the term premium (stand-in for T04-18 activeShockSum)', () => {
+  it('tp10 shocks of the bloc feed the term premium through activeShockSum', () => {
     const sh = { id: 's', target: 'tp10', value: 0.001, startTick: 0, endTick: 10_000, shape: 'STEP', halfLifeDays: 0 };
-    expect(blocShockSum([sh, { ...sh, target: 'x' }] as never, 'tp10', 100)).toBe(0.001);
     expect(recomputeCurve(world([sh]).ctx, 'FDL', 'DAY_CLOSE').tp10).toBeCloseTo(buildCurve(ss(), 100).tp10 + 0.001, 12);
   });
 });
