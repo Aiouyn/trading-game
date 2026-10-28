@@ -96,3 +96,20 @@ describe('T03-08 accountsOfAsset / committedQty (E-79)', () => {
     expect(w.committedQty(k)).toBe(w.position('fnd_F', BOND));
   });
 });
+
+import { accountKey } from '../src/accounts';
+import { AssetIndex, trackAssetAccounts } from '../src/assetIndex';
+import { SortedMap } from '../src/det';
+describe('QA #82: the by-asset index forgets closed accounts (no leak)', () => {
+  it('trackAssetAccounts on close removes the key from the index and the opened map; the last key drops the asset bucket', () => {
+    const opened = new SortedMap<string, number>(), ix = new AssetIndex();
+    const k1 = accountKey('fnd_A', 1520, 'FDL', BOND), k2 = accountKey('fnd_B', 1520, 'FDL', BOND);
+    trackAssetAccounts(opened, ix, [[k1, true], [k2, true]], 5);
+    expect(ix.of(BOND)).toEqual([[k1, 5], [k2, 5]].sort((a, b) => (a[0]! < b[0]! ? -1 : 1)));
+    trackAssetAccounts(opened, ix, [[k1, false]], 6);
+    expect([ix.of(BOND), opened.has(k1)]).toEqual([[[k2, 5]], false]);
+    trackAssetAccounts(opened, ix, [[k2, false]], 7);
+    expect([ix.of(BOND), opened.size]).toEqual([[], 0]);
+    expect((ix as unknown as { by: SortedMap<string, unknown> }).by.size).toBe(0);
+  });
+});
