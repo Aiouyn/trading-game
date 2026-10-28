@@ -62,7 +62,10 @@ function fillBytes(fills: string[]): Uint8ClampedArray {
   return g.getImageData(0, 0, fills.length, 1).data;
 }
 
-const css = (c: Rgb, k = 1) => `color(srgb ${c[0] * k} ${c[1] * k} ${c[2] * k})`;
+const hex2 = (v: number) => Math.min(255, Math.max(0, Math.round(v * 255))).toString(16).padStart(2, '0');
+/** 8-bit #rrggbb, the canvas target's depth: Chrome parses hex on a fast path, while every unique `color(srgb …)` string
+ *  (card 2 gives each part its own wall colour) takes the full CSS parser: phone T0 parts 13.1 → 15.4 ms in run 40611186920 */
+export const css = (c: Rgb, k = 1) => `#${hex2(c[0] * k)}${hex2(c[1] * k)}${hex2(c[2] * k)}`;
 export const PICTURE_PADDING_PX = 16;
 /** Portrait (phone) T0: the picture fills at least this share of the viewport height (review M6). */
 export const PORTRAIT_MIN_FILL = 0.45;
