@@ -5,7 +5,7 @@ import type { Channels } from "./channels";
 import { applyLayout, type LayoutId } from "./layouts";
 import { RANKS, type AppId, type Rank } from "./registry";
 import type { AccountUiPrefs, PaletteId, ShellId, ShellLocalState, SnapSlot, WindowRect } from "./types";
-import { evaluate, type Visibility } from "./unlock";
+import { evaluate, withLiveNw, type Visibility } from "./unlock";
 import * as wm from "./wm";
 import { prefsClient } from "./prefs";
 
@@ -36,6 +36,10 @@ export interface ShellState {
   phoneApp: { app: AppId; context?: string } | null;
 
   setChannels(c: Channels): void;
+  /** The `me` channel's live NW (useNw) for unlock rules only; channels.me.nw stays the boot value (no store copy of
+   *  the NW that views print). Null before the first frame. */
+  liveNw: string | null;
+  setLiveNw(nw: string): void;
   setViewport(w: number, h: number): void;
   /** Height of the open desktop banners (0 / 34 / 68), which shrinks the work area (17A T6). */
   bannerH: number;
@@ -70,6 +74,15 @@ export const createShellStore = (channels: Channels) =>
     const area = () => wm.workArea(get().vw, get().vh, get().local.focusMode);
     const setWindows = (windows: WindowRect[], extra: Partial<ShellLocalState> = {}) =>
       set((s) => ({ local: { ...s.local, ...extra, windows } }));
+    const reevaluate = (c: Channels, liveNw: string | null) => {
+      const prev = get();
+      const next = evaluate(withLiveNw(c, liveNw), prev.sticky);
+      const fresh = new Set(prev.fresh);
+      for (const id of Object.keys(next.vis) as AppId[]) {
+        if (next.vis[id] === "unlocked" && prev.vis[id] !== "unlocked") fresh.add(id);
+      }
+      set({ channels: c, liveNw, vis: next.vis, sticky: next.sticky, fresh });
+    };
     const touchRecent = (app: AppId) =>
       set((s) => ({ recent: [app, ...s.recent.filter((a) => a !== app)].slice(0, 6), fresh: without(s.fresh, app) }));
 
@@ -82,14 +95,16 @@ export const createShellStore = (channels: Channels) =>
       setPhoneSub(phoneSub) { set({ phoneSub }); },
       vw: 1440, vh: 900, recent: [], launcherOpen: false, recentOpen: false, keySheetOpen: false, phoneApp: null,
 
-      setChannels(c) {
+      setChannels(c) { reevaluate(c, get().liveNw); },
+      liveNw: null,
+      setLiveNw(nw) {
         const prev = get();
-        const next = evaluate(c, prev.sticky);
-        const fresh = new Set(prev.fresh);
-        for (const id of Object.keys(next.vis) as AppId[]) {
-          if (next.vis[id] === "unlocked" && prev.vis[id] !== "unlocked") fresh.add(id);
-        }
-        set({ channels: c, vis: next.vis, sticky: next.sticky, fresh });
+        if (nw === prev.liveNw) return;
+        // NW moves every me frame; only a crossed threshold may touch vis (no re-render of vis readers otherwise).
+        const next = evaluate(withLiveNw(prev.channels, nw), prev.sticky);
+        const same = (Object.keys(next.vis) as AppId[]).every((id) => next.vis[id] === prev.vis[id])
+          && next.sticky.size === prev.sticky.size && [...next.sticky].every((id) => prev.sticky.has(id));
+        if (same) set({ liveNw: nw }); else reevaluate(prev.channels, nw);
       },
       setViewport(vw, vh) { set({ vw, vh }); },
       bannerH: 0,

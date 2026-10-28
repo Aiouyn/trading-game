@@ -84,11 +84,12 @@ export function clockAt(tick: number): ClockChannel {
   return { tick, gameDay, tickOfDay, phase };
 }
 
+/** Display clock. `day` is 1-based like the engine calendar (ticksToGameDate: dayIndex + 1), so tick 0 is Day 1. */
 export function clockLabel(c: ClockChannel): { day: number; hhmm: string } {
   const m = c.tickOfDay * 2;
   const hh = String(Math.floor(m / 60)).padStart(2, "0");
   const mm = String(m % 60).padStart(2, "0");
-  return { day: c.gameDay, hhmm: `${hh}:${mm}` };
+  return { day: c.gameDay + 1, hhmm: `${hh}:${mm}` };
 }
 
 const isRankShell = (v: string): v is ShellId => /^r[0-6]$/.test(v);

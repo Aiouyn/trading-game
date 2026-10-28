@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Studio Q3: a shell-level generic window skeleton while ANY built app's lazy chunk loads; "Coming later" is only for
-// built:false apps. The three 17B chunks are held behind a gate here so the Suspense fallback can be observed.
+// built:false apps (Broker, until BRK-A). The two built 17B chunks are held behind a gate here so the Suspense fallback can be observed.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +12,6 @@ const gate = vi.hoisted(() => {
   return { p, open, body };
 });
 vi.mock("@/apps/portfolio/App", gate.body("portfolio"));
-vi.mock("@/apps/broker/App", gate.body("broker"));
 vi.mock("@/apps/wire/App", gate.body("wire"));
 
 const { AppBody } = await import("@/components/shell/AppBody");
@@ -33,7 +32,7 @@ const render = (app: AppId) => act(async () => { root.render(createElement(Shell
 const q = (id: string) => el.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 
 describe("Q3 chunk loading (gate closed)", () => {
-  it.each([["portfolio", "Portfolio"], ["broker", "Broker"]] as const)("%s: generic skeleton, never 'Coming later'", async (app, name) => {
+  it.each([["portfolio", "Portfolio"]] as const)("%s: generic skeleton, never 'Coming later'", async (app, name) => {
     await render(app);
     const sk = q("app-skeleton")!;
     expect(sk.dataset.app).toBe(app);
@@ -58,6 +57,12 @@ describe("Q3 chunk loading (gate closed)", () => {
     await render("markets");
     expect(q("coming-later")?.textContent).toBe("MarketsComing later");
     expect(q("app-skeleton")).toBeNull();
+  });
+  it("broker is built:false until BRK-A: 'Coming later' at once, no skeleton, no aria-busy", async () => {
+    await render("broker");
+    expect(q("coming-later")?.textContent).toBe("BrokerComing later");
+    expect(q("app-skeleton")).toBeNull();
+    expect(el.querySelector('[aria-busy="true"]')).toBeNull();
   });
 });
 

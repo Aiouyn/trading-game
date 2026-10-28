@@ -45,10 +45,10 @@ describe("WIR-1-08 headline", () => {
       expect(timeLabel(i.tick, EN)).toBe(strip(i.tick, "en"));
       expect(timeLabel(i.tick, FR)).toBe(strip(i.tick, "fr"));
     }
-    // The shell's default tick (top bar "Day 38 · 11:20", also the newest fixture item n-4) and n-2, 10 ticks earlier.
-    expect(timeLabel(27_700, EN)).toBe("Day 38 · 11:20");
-    expect(timeLabel(27_690, EN)).toBe("Day 38 · 11:00");
-    expect(timeLabel(27_690, FR)).toBe("Jour\u00a038\u00a0· 11:00");
+    // The shell's default tick (top bar "Day 39 · 11:20", also the newest fixture item n-4) and n-2, 10 ticks earlier.
+    expect(timeLabel(27_700, EN)).toBe("Day 39 · 11:20");
+    expect(timeLabel(27_690, EN)).toBe("Day 39 · 11:00");
+    expect(timeLabel(27_690, FR)).toBe("Jour\u00a039\u00a0· 11:00");
   });
 });
 

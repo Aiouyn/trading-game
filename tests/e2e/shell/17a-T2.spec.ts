@@ -162,7 +162,7 @@ test("T2-07 focus mode: 24 px strip with exactly clock, tick ring and NW", async
 
 test("C3 home DOM identical across palettes", async ({ page }) => {
   await boot(page, "/?rank=R2");
-  // Studio Q3: built apps (Broker in the default layout) show a skeleton until their chunk lands; compare settled DOMs.
+  // Studio Q3: built apps (Portfolio in the default layout) show a skeleton until their chunk lands; compare settled DOMs.
   await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
   const doms: string[] = [];
   for (const p of PALETTES) { await setPalette(page, p); doms.push(await page.locator(".quay").evaluate((el) => el.outerHTML)); }

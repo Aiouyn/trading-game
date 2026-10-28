@@ -1,5 +1,6 @@
 // English copy for the shell (keys per 17 §3.17). Components never contain raw JSX text.
 import type { AppId } from "./registry";
+import type { RestrictedReason } from "./contracts/channels";
 
 export const APP_NAMES: Record<AppId, string> = {
   broker: "Broker", portfolio: "Portfolio", wire: "Wire", messages: "Messages", markets: "Markets",
@@ -78,13 +79,12 @@ export const S = {
   updateRequired: "Update required",
   updateBody: "A new version of Quay is available. Reload to continue.",
   updateAction: "Reload",
-  // MoneyText speech and restricted-cash pills (17 §3.4.6, §3.5)
+  // MoneyText speech (17 §3.4.6)
   moneyMinus: "minus",
   moneyAbout: "about",
   moneyDollars: "dollars",
-  restrictedAD: "AD",
-  restrictedSTART: "START",
 } as const;
+
 
 /** Phone app-bar titles for in-app screens (level 2); the app root shows APP_NAMES (Studio T4 ruling 1). */
 export const SCREEN_NAMES: Record<string, string> = { journal: "Journal" };
@@ -94,7 +94,7 @@ export const S_FR = { back: "Retour", backTo: "Retour à", home: "Accueil" } as 
 export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
 
 /**
- * Game clock (E-66 copylint): "Day 38 · 11:20" in the status strip, "D38 · 11:20" in the phone status bar.
+ * Game clock (E-66 copylint): "Day 39 · 11:20" in the status strip, "D39 · 11:20" in the phone status bar.
  * The calendar word is a key per locale (17 §8: "the game calendar words (Day, Wk, Q, Y, Ch) are keys"); `hhmm` is
  * the game's 24-hour HH:mm in both locales. FR: no-break spaces (U+00A0) keep the word with its number and
  * the separator with the day, as French typography requires.
@@ -105,6 +105,14 @@ export const CLOCK_STRINGS: Record<ShellLocale, { strip: (day: number, hhmm: str
   fr: { strip: (day, hhmm) => `Jour\u00a0${day}\u00a0· ${hhmm}`, phone: (day, hhmm) => `J${day}\u00a0· ${hhmm}` },
 };
 export const clockStrings = (locale: string) => CLOCK_STRINGS[locale === "fr" ? "fr" : "en"];
+
+/** Restricted-cash pill labels per engine code (17 §3.5; #70 round 2). The copy is unchanged from the old AD / START
+ *  codes in both locales; FR is pending the i18n pass. Unknown codes use the neutral "Restricted ({code})" chip. */
+export const RESTRICTED_LABELS: Record<ShellLocale, Record<RestrictedReason, string>> = {
+  en: { AD_GRANT: "AD", FRESH_START: "START" },
+  fr: { AD_GRANT: "AD", FRESH_START: "START" },
+};
+export const isRestrictedReason = (code: string): code is RestrictedReason => Object.hasOwn(RESTRICTED_LABELS.en, code);
 
 /** Generic window skeleton (AppSkeleton, Studio Q3): the status line AT reads while a built app's chunk loads. */
 const APP_LOADING: Record<ShellLocale, (app: string) => string> = { en: (app) => `Loading ${app}…`, fr: (app) => `Chargement de ${app}…` };

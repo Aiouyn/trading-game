@@ -23,7 +23,7 @@ Rules
 ## Desktop layout (≥ 1200 px)
 | Zone | Size | Contents (left to right) |
 |---|---|---|
-| **Status strip** (top) | 34 px, `chrome` at 94%, 1 px `line` bottom | Mark + "Quay" + release · launcher field "Find an app, a ticker, a command" with `Ctrl K` (312 px) · centred: "Day 38 · 11:20" (mono), market state dot + "Market open · Port Avalon", speed control `pause / 1x / 4x / 20x` (active segment gets an accent underline) · right: rank chip "R2 · Owner", net worth in mono with today's %, notification bell (accent dot when unread) |
+| **Status strip** (top) | 34 px, `chrome` at 94%, 1 px `line` bottom | Mark + "Quay" + release · launcher field "Find an app, a ticker, a command" with `Ctrl K` (312 px) · centred: "Day 39 · 11:20" (mono; the day is 1-based like the engine calendar), market state dot + "Market open · Port Avalon", speed control `pause / 1x / 4x / 20x` (active segment gets an accent underline) · right: rank chip "R2 · Owner", net worth in mono with today's %, notification bell (accent dot when unread) |
 | **Desktop** | the rest | Wallpaper and windows. Windows can't go under the strip or the shelf |
 | **Shelf** (bottom) | 52 px, `chrome`, 1 px `line` top | App tiles 40 × 40, left-aligned, in shelf order, with a divider after the first four · right: layout button ("Trade layout"), Focus button with `Ctrl .`, workspace switcher (one box per workspace, active in accent) |
 
@@ -145,8 +145,8 @@ Toasts appear top-right, 10 px under the strip, 332 px wide, at most 3 stacked (
 ## Phone (< 768 px): home screen and full-screen apps
 | Zone | Spec |
 |---|---|
-| Status bar | 44 px: left the Quay mark (18 px, accent, 26 px hit area padded to 44) then "D38 · 11:20" (mono 13), right a market dot + compact net worth "$412.9k". No battery, no signal bars, no notch. Tap the mark = Home; long-press = Recent (below). Id `phone-quay` |
-| Widget | 16 px from the edges, radius 20, `win` at 94% + 1 px `line`: "NET WORTH" label + rank chip, serif 44 net worth (cents 28 in `fg-muted`), today in mono with colour, sparkline 92 × 22, rank progress bar (3 px) "Next: Operator · $412.9k / $5M". Id `home-widget`. Tap opens Portfolio |
+| Status bar | 44 px: left the Quay mark (18 px, accent, 26 px hit area padded to 44) then "D39 · 11:20" (mono 13), right a market dot + compact net worth "$412k" (shared compact formatter, rounds down). No battery, no signal bars, no notch. Tap the mark = Home; long-press = Recent (below). Id `phone-quay` |
+| Widget | 16 px from the edges, radius 20, `win` at 94% + 1 px `line`: "NET WORTH" label + rank chip, serif 44 net worth (cents 28 in `fg-muted`), today in mono with colour, sparkline 92 × 22, rank progress bar (3 px) "Next: Operator · $412k / $5M". Id `home-widget`. Tap opens Portfolio |
 | Grid | 4 columns, 20 px row gap, icons 60 × 60 radius 16, label Inter 11.5 below. One page: no folders, no app library, no search page |
 | Bottom row | 4 fixed slots on a radius-24 `chrome` panel: Broker, Portfolio, Wire, Messages. Not editable |
 | Icon | A flat rounded-square tile (`win`, 1 px `line`) with one glyph at 26 px in the accent. The same family as the desktop glyphs. Locked apps use the `fg-disabled` glyph, `fg-muted` label and a tiny mono tag ("R3") |

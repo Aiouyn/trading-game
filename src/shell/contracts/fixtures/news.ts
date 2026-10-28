@@ -2,7 +2,7 @@
 // renders them through strings when the Wire card lands. Never a 0–1 credibility (Q5).
 import type { Filing, WireItem } from "../channels";
 
-// Seeded stamps sit at or before the mock clock (START_TICK = Day 38 · 11:20, the top bar at boot); n-4 is "now".
+// Seeded stamps sit at or before the mock clock (START_TICK = Day 39 · 11:20, the top bar at boot); n-4 is "now".
 export const NEWS: readonly WireItem[] = [
   { id: "n-1", kind: "NEWS", headlineKey: "wire.news.earningsBeat", slots: { company: "Halcyon Shipping" }, entities: [{ id: "HALC", kind: "asset", label: "HALC" }], tick: 27_680, breaking: false, causeEventIds: ["ev-101"] },
   { id: "n-2", kind: "RUMOR", headlineKey: "wire.rumor.takeover", slots: { company: "Orca Biologics" }, entities: [{ id: "ORCA", kind: "asset", label: "ORCA" }], tick: 27_690, breaking: false, causeEventIds: ["ev-102"], sourceRecord: { hits: 3, resolved: 7 }, sourceBand: "mixed" },
