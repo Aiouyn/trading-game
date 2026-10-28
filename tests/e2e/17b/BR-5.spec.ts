@@ -6,6 +6,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
+import { pinHtml } from "./pin";
 import { boot, bootPaused, intents, setTextScale } from "../shell/helpers";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -323,15 +324,14 @@ for (const scale of ["1", "2"] as const) {
     await row.scrollIntoViewIfNeeded();
     await shot(page, `open-orders-scale-${scale}`);
     if (scale === "1") {
-      const html = (k: "cb" | "hc", on: boolean) => page.evaluate(([a, b]) => { if (b) document.documentElement.dataset[a] = "1"; else delete document.documentElement.dataset[a]; }, [k, on] as const);
       const chipOf = () => row.getByTestId("br-oo-status").evaluate((e) => [getComputedStyle(e).borderTopColor, getComputedStyle(e).color]);
       const plainChip = await chipOf();
-      await html("cb", true);
+      await pinHtml(page, "cb", true);
       expect(await chipOf()).toEqual(plainChip); // chips carry no colour meaning
       await shot(page, "open-orders-cb");
       await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-cb-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
-      await html("cb", false);
-      await html("hc", true);
+      await pinHtml(page, "cb", false);
+      await pinHtml(page, "hc", true);
       expect(await row.evaluate((e) => getComputedStyle(e).borderBottomColor)).toBe(await color(page, "var(--fg-muted)"));
       expect(await br(page).getByTestId("br-price-limit").evaluate((e) => getComputedStyle(e).borderTopColor)).toBe(await color(page, "var(--fg-disabled)"));
       await shot(page, "open-orders-hc");

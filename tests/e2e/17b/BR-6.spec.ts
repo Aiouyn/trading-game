@@ -8,6 +8,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
+import { pinHtml } from "./pin";
 import { boot, bootPaused, setTextScale } from "../shell/helpers";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -356,17 +357,18 @@ test("BR-6-11 1440: Cancel ≥ 28 px, rows one line, no --acc in idle / hover / 
   await expect.poll(async () => (await look(r.getByTestId("br-oo-keep"))).border).toBe(line);
   expect(await colours(list(page))).not.toContain(acc);
   // cb / hc: compared baselines (committed), with the confirm open on the first row.
-  const html = (k: "cb" | "hc", on: boolean) => page.evaluate(([a, b]) => { if (b) document.documentElement.dataset[a] = "1"; else delete document.documentElement.dataset[a]; }, [k, on] as const);
-  await html("cb", true);
-  await expect.poll(async () => (await look(r.getByTestId("br-oo-yes"))).color).toBe(loss); // paired with its text label, never colour alone
+  await pinHtml(page, "cb", true);
+  const cbLoss = await color(page, "var(--loss)");
+  expect(cbLoss, "cb swaps the --loss token").not.toBe(loss);
+  await expect.poll(async () => (await look(r.getByTestId("br-oo-yes"))).color).toBe(cbLoss); // paired with its text label, never colour alone
   await expect(list(page)).toHaveScreenshot(["BR-6", "cb-1440x900.png"], { mask: volatile(page) });
-  await html("cb", false);
-  await html("hc", true);
+  await pinHtml(page, "cb", false);
+  await pinHtml(page, "hc", true);
   expect(await r.getByTestId("br-oo-yes").evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe("2px");
   expect(await cancelBtn(rows(page).nth(1)).evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe("2px");
   await expect(list(page)).toHaveScreenshot(["BR-6", "hc-1440x900.png"], { mask: volatile(page) });
   await shot(page, "hc");
-  await html("hc", false);
+  await pinHtml(page, "hc", false);
 });
 
 test("BR-6-11 reduced motion: the removed row leaves with no animation", async ({ page }, info) => {
