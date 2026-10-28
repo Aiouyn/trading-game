@@ -3,6 +3,7 @@ import type { Ramps } from '../art/ramps';
 import type { Rgb } from '../art/color';
 import { FLOATS_PER_PART } from '../worker/format';
 import { screenBasis, viewDirection, type CameraState } from './camera';
+import { FIELD_RANGE_M, type GroundField } from './groundfield';
 
 type Three = typeof THREE_NS;
 
@@ -18,6 +19,8 @@ export interface SceneConfig {
   dpr: number;
   nearRing: number; // metres; Infinity = windows everywhere
   boats: boolean;
+  /** card 1: zebra crosswalks (T2 only) */
+  crosswalks: boolean;
 }
 
 export interface GroundData {
@@ -43,6 +46,7 @@ export class CityScene {
   private boats: THREE_NS.Mesh | null = null;
   private ground: THREE_NS.Mesh | null = null;
   private groundTex: THREE_NS.DataTexture | null = null;
+  private fieldTex: THREE_NS.DataTexture | null = null;
   private selection: THREE_NS.LineSegments | null = null;
   private readonly selectionMat: THREE_NS.LineBasicMaterial;
   partCount = 0;
@@ -99,6 +103,18 @@ export class CityScene {
         uLand: { value: v3(ramps.land) },
         uPark: { value: v3(ramps.park) },
         uRoad: { value: v3(ramps.road) },
+        uFieldTex: { value: null },
+        uCells: { value: 1 },
+        uCellM: { value: 1 },
+        uFieldRange: { value: FIELD_RANGE_M },
+        uCrosswalks: { value: 0 },
+        uKerb: { value: v3(ramps.kerb) },
+        uSidewalk: { value: v3(ramps.sidewalk) },
+        uCrosswalk: { value: v3(ramps.crosswalk) },
+        uApron: { value: v3(ramps.quayApron) },
+        uCoping: { value: v3(ramps.coping) },
+        uQuayShadow: { value: v3(ramps.quayShadow) },
+        uVerge: { value: v3(ramps.verge) },
         uExposure: this.partMat.uniforms.uExposure,
         uMask: { value: 0 },
       },
@@ -121,6 +137,7 @@ export class CityScene {
     this.config = c;
     this.renderer.setPixelRatio(c.dpr);
     this.partMat.uniforms.uNearRing.value = Number.isFinite(c.nearRing) ? c.nearRing : 1e9;
+    this.groundMat.uniforms.uCrosswalks.value = c.crosswalks ? 1 : 0;
     if (this.boats) this.boats.visible = c.boats && this.boatsWanted;
   }
 
@@ -129,7 +146,8 @@ export class CityScene {
     this.renderer.setSize(Math.max(1, w), Math.max(1, h), false);
   }
 
-  setGround(g: GroundData): void {
+  /** field: card 1 RGBA8 ground field (coast SDF, road SDF, district, junction), same grid as the mask. */
+  setGround(g: GroundData, field: GroundField): void {
     const T = this.T;
     this.extent = g.span / 2;
     this.center = [g.x0 + g.span / 2, g.z0 + g.span / 2];
@@ -138,6 +156,17 @@ export class CityScene {
       this.scene.remove(this.ground);
     }
     this.groundTex?.dispose();
+    this.fieldTex?.dispose();
+    const ft = new T.DataTexture(field.rgba, field.size, field.size, T.RGBAFormat, T.UnsignedByteType);
+    ft.magFilter = T.LinearFilter;
+    ft.minFilter = T.LinearFilter;
+    ft.flipY = false;
+    ft.needsUpdate = true;
+    this.fieldTex = ft;
+    const gu = this.groundMat.uniforms;
+    gu.uFieldTex.value = ft;
+    gu.uCells.value = g.size;
+    gu.uCellM.value = g.span / g.size;
     const tex = new T.DataTexture(g.mask, g.size, g.size, T.RedFormat, T.UnsignedByteType);
     tex.magFilter = T.NearestFilter;
     tex.minFilter = T.NearestFilter;
@@ -263,8 +292,10 @@ export class CityScene {
     (this.partMat.uniforms.uFocus.value as THREE_NS.Vector2).set(cam.target[0], cam.target[1]);
   }
 
-  render(mask = false): void {
-    this.partMat.uniforms.uMask.value = mask ? 1 : 0;
+  /** mode 'brass': the selection mask; 'parts': every part white on black (card 1 coverage hook). */
+  render(mode: 'normal' | 'brass' | 'parts' = 'normal'): void {
+    const mask = mode !== 'normal';
+    this.partMat.uniforms.uMask.value = mode === 'parts' ? 2 : mask ? 1 : 0;
     this.groundMat.uniforms.uMask.value = mask ? 1 : 0;
     this.selectionMat.color.setRGB(...(mask ? ([1, 1, 1] as Rgb) : this.ramps.brass));
     const boatsOn = this.boats?.visible ?? false;
@@ -307,6 +338,7 @@ export class CityScene {
       if (g.index) bytes += g.index.array.byteLength;
     });
     if (this.groundTex) bytes += this.groundTex.image.width * this.groundTex.image.height;
+    if (this.fieldTex) bytes += this.fieldTex.image.width * this.fieldTex.image.height * 4;
     const c = this.renderer.domElement;
     bytes += c.width * c.height * 8; // colour + depth/stencil
     return { drawCalls: i.render.calls, triangles: i.render.triangles, ...this.lastInfo, gpuBytes: bytes };
@@ -325,6 +357,8 @@ export class CityScene {
     this.selection = null;
     this.groundTex?.dispose();
     this.groundTex = null;
+    this.fieldTex?.dispose();
+    this.fieldTex = null;
     this.unitBox.dispose();
     this.partMat.dispose();
     this.groundMat.dispose();
