@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 // #41: every state wait in the city e2e goes through helpers.ts waitState (bounded, named).
 // Only helpers.ts (waitState itself) and waits.spec.ts (which spies on it) may name a raw wait.
-// Scans every .ts/.tsx/.mts/.cts file under tests/e2e/city (the city testMatch is unanchored, so
-// it also runs .spec.tsx), subfolders included (Playwright's testMatch
+// Scans every .ts/.tsx/.mts/.cts file under tests/e2e/city (the city testMatch /\.spec\.tsx?$/
+// also runs .spec.tsx), subfolders included (Playwright's testMatch
 // is recursive). It matches the bare identifiers waitForFunction, waitForSelector and waitFor, so a
 // call, an alias, .bind(), a destructure, page['waitForFunction'], a generic call or a call split
 // over lines are all caught; waitForTimeout, waitForLoadState and waitForEvent are different words.

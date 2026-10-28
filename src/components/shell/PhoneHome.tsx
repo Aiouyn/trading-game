@@ -13,6 +13,7 @@ import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
+import { useNw } from "./useNw";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 const LONG_PRESS_MS = 400;
@@ -152,7 +153,7 @@ function StatusBar() {
   const clock = useShell((s) => s.channels.clock);
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const me = useShell((s) => s.channels.me);
+  const nw = useNw();
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
   const { day, hhmm } = clockLabel(clock);
@@ -182,7 +183,7 @@ function StatusBar() {
       <span className="num clock">{clockText}</span>
       <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
       <HaltChip halted={halted} />
-      <span className="sb-nw"><MoneyText value={me.nw} compact /></span>
+      <span className="sb-nw"><MoneyText value={nw} compact /></span>
     </header>
   );
 }
@@ -190,6 +191,7 @@ function StatusBar() {
 export function PhoneHome() {
   const vis = useShell((s) => s.vis);
   const me = useShell((s) => s.channels.me);
+  const nw = useNw();
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
   const phoneSub = useShell((s) => s.phoneSub);
@@ -200,11 +202,17 @@ export function PhoneHome() {
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
   const bar = phoneApp ? appBarLabels(phoneApp.app, screen) : null;
-  const progress = next ? Math.min(1, Math.max(0, Number(me.nw) / Number(next.at))) : 1;
+  const progress = next ? Math.min(1, Math.max(0, Number(nw) / Number(next.at))) : 1;
   const edge = useRef<{ x: number; y: number } | null>(null);
   // Edge gestures (17 §3.2.3): swipe up on the edge bar = Home; swipe from the left edge = back.
   const gestures = {
-    onPointerDown: (e: RPointerEvent) => { edge.current = { x: e.clientX, y: e.clientY }; },
+    onPointerDown: (e: RPointerEvent) => {
+      edge.current = { x: e.clientX, y: e.clientY };
+      // A back swipe starts at the edge: it must not start a text selection or drag one (a drag cancels the pointer,
+      // so no pointerup and no back). Taps still click; this only drops the mouse-down default in the edge zone.
+      if (e.clientX <= EDGE_START) e.preventDefault();
+    },
+    onPointerCancel: () => { edge.current = null; },
     onPointerUp: (e: RPointerEvent) => {
       const g = edge.current;
       edge.current = null;
@@ -248,7 +256,7 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top"><span className="label">{S.netWorth}</span><span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span></div>
-          <div className="hero-nw" data-testid="hero-nw"><MoneyText value={me.nw} ctx="hero" /></div>
+          <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>
           <div className="widget-row">
             <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
             <Sparkline />
@@ -258,7 +266,7 @@ export function PhoneHome() {
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
                 <span style={{ width: `${progress * 100}%` }} />
               </div>
-              <p className="num muted rank-next" data-testid="rank-next">{`${S.next}: ${RANK_NAMES[next.rank]} · `}<MoneyText value={me.nw} compact />{" / "}<MoneyText value={next.at} compact /></p>
+              <p className="num muted rank-next" data-testid="rank-next">{`${S.next}: ${RANK_NAMES[next.rank]} · `}<MoneyText value={nw} compact />{" / "}<MoneyText value={next.at} compact /></p>
             </>
           )}
         </section>

@@ -7,6 +7,14 @@ export interface Ramps {
   land: Rgb;
   park: Rgb;
   road: Rgb;
+  /** card 1 ground detail (spec §2): kerb line, sidewalk, crosswalk stripes, quay apron / coping / shadow, verge */
+  kerb: Rgb;
+  sidewalk: Rgb;
+  crosswalk: Rgb;
+  quayApron: Rgb;
+  coping: Rgb;
+  quayShadow: Rgb;
+  verge: Rgb;
   facades: [Rgb, Rgb, Rgb, Rgb];
   /** roof tint (--win2-derived), lit-face key tint, shadow-face tint (--win) */
   top: Rgb;
@@ -27,16 +35,26 @@ export interface Ramps {
 
 const lightness = (c: Rgb) => srgbToOklab(c)[0];
 
-export function buildRamps(t: Tokens): Ramps {
+/** highContrast: html[data-hc="1"]; kerb and coping step up to mix(--line, --fg, .45) (card 1 §2). */
+export function buildRamps(t: Tokens, opts: { highContrast?: boolean } = {}): Ramps {
   const land = mixOklab(t.win, t.win2, 0.4);
   // water: --bg0 mixed 15 % with --info, then held at --bg0's lightness so it stays the darkest
   const tinted = mixOklab(t.bg0, t.info, 0.15);
   const water = adjust(tinted, lightness(t.bg0) / lightness(tinted), 1);
+  const park = mixOklab(land, t.gain, 0.07);
+  const hcEdge = opts.highContrast ? mixOklab(t.line, t.fg, 0.45) : null;
   return {
     water,
     land,
-    park: mixOklab(land, t.gain, 0.07),
+    park,
     road: t.line,
+    kerb: hcEdge ?? mixOklab(t.line, t.fgMuted, 0.3),
+    sidewalk: mixOklab(t.line, t.fgMuted, 0.12),
+    crosswalk: mixOklab(t.line, t.fg, 0.22),
+    quayApron: mixOklab(t.line, t.fgFaint, 0.18),
+    coping: hcEdge ?? mixOklab(t.line, t.fgMuted, 0.35),
+    quayShadow: mixOklab(water, t.bg0, 0.5),
+    verge: mixOklab(park, land, 0.5),
     facades: [
       mixOklab(t.win2, t.fgMuted, 0.2),
       mixOklab(t.win2, t.fgMuted, 0.27),
