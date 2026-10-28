@@ -85,7 +85,7 @@ describe('T04-14 Concord', () => {
       expect(Number(int[0]!.amt) / 1e6).toBeCloseTo(225e9 * 0.06 * 91 / 364, -3);
     }
   });
-  it('a suspended tranche is withheld and released with the next compliant one; still suspended at the 4th date → never paid', () => {
+  it('a suspended tranche is withheld for good (card: no release); later compliant dates pay one tranche each', () => {
     const run = (pb91: number, pbLater: number) => {
       const w = world({ breakArmed: true }), setPb = (pb: number) => {
         const row = w.ctx.store.get<Record<string, unknown>>(macroTables.bloc.name, 'SRL')!;
@@ -95,8 +95,8 @@ describe('T04-14 Concord', () => {
       return { w, p: fac(w).programs[0]!, paid: w.posts.filter((x) => x.code === 'CSF_DISBURSE').map((x) => x.amt) };
     };
     const a = run(0.009 * 91 / 364, 0.05);
-    expect(a.paid).toEqual([M(225e9), M(450e9), M(225e9)]);
-    expect([a.p.suspended, a.p.tranchesPaid, a.p.drawn]).toEqual([0, 4, M(900e9)]);
+    expect(a.paid).toEqual([M(225e9), M(225e9), M(225e9)]);
+    expect([a.p.suspended, a.p.tranchesPaid, a.p.drawn]).toEqual([1, 3, M(675e9)]);
     const b = run(0, 0);
     expect(b.paid).toEqual([M(225e9)]);
     expect([b.p.suspended, b.p.tranchesPaid, b.p.drawn]).toEqual([3, 1, M(225e9)]);

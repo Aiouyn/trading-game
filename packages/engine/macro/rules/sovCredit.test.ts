@@ -183,6 +183,15 @@ describe('T04-07 stepSovereignCredit / igExclusionCheck (store)', () => {
     stepSovereignCredit(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BB+', 'BB+']));
     expect(w.rows(macroTables.hookCall.name)).toHaveLength(1);   // already non-IG: no second hook
   });
+  it('QA #82: first close (no prior IG flag) or a prior non-IG flag on a non-IG rating writes no MANDATE_SELL hook', () => {
+    for (const prior of [{}, { investmentGrade: false }]) {
+      const w = world(prior);
+      Object.assign(w.qty, { 'hh_cty_fdl_0:gb_FDL_10': M(1_234_000) });
+      expect(igExclusionCheck(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BB+', 'BB+']))).toBeNull();
+      expect(stepSovereignCredit(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BB+', 'BB+'])).investmentGrade).toBe(false);
+      expect(w.rows(macroTables.hookCall.name)).toHaveLength(0);
+    }
+  });
   const Z0: HazardInputs = { b: 'FDL', debtGdp: 0.95, dStar: 1.10, rEff: 0.03, gPot: 0.02, target: 0.02, primaryBalanceGdp: 0, fxDebtShare: 0, depVsFdlYoy: 0,
     reserveCoverMonths: 6, fxRegime: 'FREE_FLOAT', fear: 50, politicalStability: 0.5, failedAuctions21d: 0, coreInflation: 0.02 };
   const want = (o: Partial<HazardInputs>, mods: { postRestructuringDays?: number | null } = {}) =>

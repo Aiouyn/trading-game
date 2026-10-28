@@ -5,6 +5,7 @@ import { BLOC_DEFAULTS } from '../blocs';
 import type { MacroPorts } from '../ports';
 import { macroTables, type BlocId, type BlocMacroState, type CentralBank, type FxRegimeKind, type FxState, type GlobalMacroState, type NpcPoolOrder } from '../schema';
 import { S } from '../streams';
+import { activeShockSum } from './shocks';
 import { tradingDaysOfPeriod } from './calendar';
 import { runMeeting } from './cb';
 import { canAgreeConcord, concordActive, openConcord } from './concord';
@@ -136,7 +137,7 @@ export function emp(d5LnS: number, sigma5d: number, d5Reserves: number, reserves
  *  PEG_BREAK credibility for band or peg breaks, SRL reserve requirement DEFENCE. */
 export function executeBreak(ctx: PhaseCtx, b: BlocId): void {
   if (b === 'FDL') return;
-  const fx = blocOf(ctx.store, b).fx, p = fxPair(b), sev = 0.6 + 0.8 * ctx.rng(S.fx(p.base, p.quote)).next(), drop = BREAK_BASE + BREAK_SEV * sev;
+  const fx = blocOf(ctx.store, b).fx, p = fxPair(b), sev = 0.6 + 0.8 * ctx.rng(S.fx(p.base, p.quote)).uOpen(), drop = BREAK_BASE + BREAK_SEV * sev;
   const { band: _b, pegLn: _p, ...rest } = fx;
   const next: FxState = { ...rest, regime: 'FREE_FLOAT', fairValueLn: fx.fairValueLn - drop, breakTick: ctx.tick, breakArmed: false, empDays: 0, highCoreDays: 0, crisisFlag: true };
   putFx(ctx, b, next);
@@ -206,7 +207,7 @@ export function stepFxDay(ctx: PhaseCtx, ports: MacroPorts): void {
     const ppp = pppLn(ppp0, fdl.cpiLevel, 100, st.cpiLevel, 100), xOthers = (gaps.reduce((a, x) => a + x, 0) - st.outputGap) / (gaps.length - 1);
     const ca = currentAccount(c, fx0.realExchangeGap, xOthers, st.outputGap, E);
     const fLn = stepFairValue(fx0.fairValueLn, { iX: cb.policyRate, iFdl, pppLn: ppp, ca, dRA: RA - (fx0.lastRA ?? RA), dLnEnergy: dmath.ln(E / (fx0.lastEnergy ?? E)),
-      surpriseX: 0, surpriseFdl: 0, shocks: 0 /* MISSING EXPORT: T04-18 activeShockSum */, b: c }, ctx.params);
+      surpriseX: 0, surpriseFdl: 0, shocks: activeShockSum(s, 'fx_fair_ln', c, ctx.tick), b: c }, ctx.params);
     if (fx0.regime !== 'FREE_FLOAT') {
       const fdlAmt = divRoundHalfEven(nominalGdpFdl(s, c) * micro(ca), 364n * MICRO_N), xAmt = divRoundHalfEven((fdlAmt < 0n ? -fdlAmt : fdlAmt) * MICRO_N, micro(sp));
       if (fdlAmt > 0n) ctx.ledger.fx(cbkId(c), 'row', c, xAmt, 'FDL', fdlAmt, 'MAC_FX_CA_ABSORB');

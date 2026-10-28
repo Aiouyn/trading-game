@@ -11,13 +11,13 @@ function fastRng(seed: number): Rng & { draws: number } {
   const u32 = (): number => { a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; let t = (a + b) | 0; a = b ^ (b >>> 9); b = (c + (c << 3)) | 0; c = (c << 21) | (c >>> 11); d = (d + 1) | 0; t = (t + d) | 0; c = (c + t) | 0; return t >>> 0; };
   for (let i = 0; i < 15; i++) u32();
   const no = (): never => { throw new Error('not used'); };
-  const r = { draws: 0, next: (): number => { r.draws++; return ((u32() >>> 5) * 67108864 + (u32() >>> 6) + 0.5) / 9007199254740992; },
-    u53: no, uOpen: no, int: no, bernoulli: no, normal: no, studentT: no, exponential: no, poisson: no, kouJump: no, categorical: no, shuffle: no };
+  const r = { draws: 0, uOpen: (): number => { r.draws++; return ((u32() >>> 5) * 67108864 + (u32() >>> 6) + 0.5) / 9007199254740992; },
+    u53: no, next: no, int: no, bernoulli: no, normal: no, studentT: no, exponential: no, poisson: no, kouJump: no, categorical: no, shuffle: no };
   return r as unknown as Rng & { draws: number };
 }
 /** A constant Rng (every draw returns `v`), counting draws. */
 function constRng(v: number): Rng & { draws: number } {
-  const r = fastRng(0); r.next = (): number => { r.draws++; return v; }; return r;
+  const r = fastRng(0); r.uOpen = (): number => { r.draws++; return v; }; return r;
 }
 /** The 23 DEFAULT values from the T04-03 pack's parameter table (04 §3.3.1). */
 const PARAMS: Record<string, number> = { macro_regime_mean_days_exp: 819, macro_regime_mean_days_ovh: 273, macro_regime_mean_days_con: 273, macro_regime_mean_days_rec: 273,
@@ -87,7 +87,7 @@ describe('T04-03 regime', () => {
     expect(s).toMatchObject({ transitioned: true, next: 'OVERHEATING', u2: 0 });   // u2 = 0 → first target
     const share = 1 - 0.233922341319356;
     expect(stepRegime(constRng(0.0001), 'EXPANSION', 182, m, RP).next).toBe('OVERHEATING');   // u1 0.0001 < P; u2 0.0001 < OVH share
-    const pick = (u2: number): Regime => { let i = 0; const r = fastRng(0); r.next = () => (i++ === 0 ? 0 : u2); return stepRegime(r, 'EXPANSION', 182, m, RP).next; };
+    const pick = (u2: number): Regime => { let i = 0; const r = fastRng(0); r.uOpen = () => (i++ === 0 ? 0 : u2); return stepRegime(r, 'EXPANSION', 182, m, RP).next; };
     expect(pick(share - 1e-9)).toBe('OVERHEATING'); expect(pick(share + 1e-9)).toBe('CONTRACTION');
     expect(stepRegime(constRng(0.00298268 + 1e-6), 'EXPANSION', 182, m, RP).transitioned).toBe(false);   // u1 ≥ 1 − e^(−H)
     expect(stepRegime(constRng(0.00298268 - 1e-6), 'EXPANSION', 182, m, RP).transitioned).toBe(true);

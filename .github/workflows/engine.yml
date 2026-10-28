@@ -26,6 +26,9 @@ jobs:
       NODE_OPTIONS: ${{ (github.event_name == 'schedule' || inputs.long) && '--max-old-space-size=8192' || '' }}
       # E-84 condition 4: the nightly run sets ledger_inv_full_scan_every_tick = true for one seed (test/incremental.test.ts)
       LEDGER_FULL_SCAN_SEED: ${{ (github.event_name == 'schedule' || inputs.long) && '39' || '' }}
+      # 04#46 reference profile = the nightly / long-dispatch macro job (CPU in the lscpu step); its result is the perf log artifact below
+      TYCOON_PERF_REF: ${{ (github.event_name == 'schedule' || inputs.long) && matrix.pkg == 'macro' && '1' || '' }}
+      TYCOON_PERF_LOG: ${{ github.workspace }}/perf-04-46.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,3 +39,10 @@ jobs:
         run: lscpu
       - name: typecheck, lint, test (skipped when the package is absent)
         run: node scripts/engine-check.mjs ${{ matrix.pkg }}
+      - name: 04#46 perf log
+        if: ${{ always() && (github.event_name == 'schedule' || inputs.long) && matrix.pkg == 'macro' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-04-46
+          path: perf-04-46.json
+          if-no-files-found: error

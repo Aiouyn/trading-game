@@ -3,14 +3,14 @@
 import { cbkId } from '@tycoon/engine-ledger';
 import { dmath, EngineFault, type ParamsView, type PhaseCtx, type Tick } from '@tycoon/engine-core';
 import { BLOC_DEFAULTS } from '../blocs';
-import { macroTables, type ActiveShock, type BlocId, type BlocMacroState, type CentralBank, type CurvePoint, type CurveState, type GlobalMacroState,
+import { macroTables, type BlocId, type BlocMacroState, type CentralBank, type CurvePoint, type CurveState, type GlobalMacroState,
   type PublicMacroView, type SovereignCreditState } from '../schema';
 import { coeffsFromHawk, publishedData, ruleRate, type PublishedData } from './cb';
 import { dots } from './guidance';
 import { nsFit } from './nelsonSiegel';
 import { sovSpread } from './sovCredit';
 import { swapLineActive } from './swapLines';
-import { shockValueAt } from './trade';
+import { activeShockSum } from './shocks';
 
 export const CURVE_NODES = Object.freeze([0.25, 0.5, 1, 2, 5, 10, 30] as const);
 type Path = Record<1 | 2 | 4 | 8, number>;
@@ -57,7 +57,7 @@ export function crossCurrencyBasis(b: BlocId, fsi: number, swapLineActive: boole
   return swapLineActive ? Math.max(raw, -0.0025) : raw;
 }
 
-export type CurveRecomputeReason = 'RELEASE' | 'CB_GUIDANCE' | 'CB_DECISION' | 'CB_MINUTES' | 'RATING_ACTION' | 'FX_REGIME' | 'DAY_CLOSE';
+export type CurveRecomputeReason = 'RELEASE' | 'CB_GUIDANCE' | 'CB_DECISION' | 'CB_MINUTES' | 'RATING_ACTION' | 'FX_REGIME' | 'DAY_CLOSE' | 'GENESIS';
 type Dot = { horizonQuarters: 1 | 2 | 4 | 8; rate: number };
 /** macro_ns_lambda 1.8, macro_irp 0.002, macro_sov_lgd 0.6 (E-100; the T23 param rows are not registered yet). */
 export const NS_LAMBDA = 1.8, IRP = 0.002, SOV_LGD = 0.6;
@@ -102,12 +102,6 @@ export function buildCurve(x: CurveBuildInputs, tick: Tick): CurveState {
     tp10, breakeven, basis: crossCurrencyBasis(x.b, x.fsi, x.swapLineActive), inversionDays: x.inversionDays };
 }
 
-/** Σ of the bloc's active `target` shocks at `tick` (stand-in for T04-18 activeShockSum, MISSING EXPORT; shapes per T04-18 step 4). */
-export function blocShockSum(shocks: readonly ActiveShock[], target: string, tick: Tick): number {
-  let sum = 0;
-  for (const sh of shocks) if (sh.target === target) sum += shockValueAt(sh, tick);
-  return sum;
-}
 /** Reads mac.cb, mac.bloc, mac.global, mac.public_view and the previous curve (ĥ 0.5 and 0 inversion days at genesis), builds and upserts
  *  mac.curve and the curve block of mac.public_view. `reason` only names the trigger (§3.7.1). */
 export function recomputeCurve(ctx: PhaseCtx, b: BlocId, _reason: CurveRecomputeReason): CurveState {
@@ -120,7 +114,7 @@ export function recomputeCurve(ctx: PhaseCtx, b: BlocId, _reason: CurveRecompute
   const dotsPath = cb.dots.length > 0 ? (cb.dots as Dot[]) : modelPathRates;
   const c = buildCurve({ b, i: cb.policyRate, cred: cb.credibility, dotsPath, modelPathRates, rStarCb, piE1: st.inflationExp1y, piE5: st.inflationExp5y5y,
     tp: { b, piE5: st.inflationExp5y5y, target: d0.inflationTarget, debtGdp: st.fiscal.debtGdp, dStar: d0.debtReference, qeHoldingsGdp: view?.qeHoldingsGdp ?? 0,
-      fear: g.fearIndex, shockSum: blocShockSum(st.shocks, 'tp10', ctx.tick) },
+      fear: g.fearIndex, shockSum: activeShockSum(s, 'tp10', b, ctx.tick) },
     sov: st.sovereign, liq: st.sovereign.liquidityPremium, conv: st.sovereign.convenienceYield, fsi: g.financialStressIndex, swapLineActive: swapLineActive(s, b),
     hHat, inversionDays: prev?.inversionDays ?? 0, p: ctx.params }, ctx.tick);
   s.put<CurveState>(macroTables.curve.name, c);
