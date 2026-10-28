@@ -6,9 +6,9 @@ import { EngineFault, roundHalfEven } from '@tycoon/engine-core';
 export type FixedPointCoord = { x: number; z: number };
 /** An array of coords in counter-clockwise order (10 §2.11). */
 export type FixedPointPolygon = FixedPointCoord[];
-/** SPEC GAP (10 §2.11 names it, never defines it): an open chain of coords. */
+/** E-88 (2a): an open chain of at least 2 integer-centimetre coords (10 §2.11 names it, never defines it). */
 export type FixedPointPolyline = FixedPointCoord[];
-/** SPEC GAP (10 §2.11 names it, never defines it): the axis-aligned box [minX, maxX] × [minZ, maxZ], integer centimetres. */
+/** E-88 (2a): the axis-aligned box [minX, maxX] × [minZ, maxZ], integer centimetres, min < max on both axes. */
 export interface FixedPointRect { minX: number; minZ: number; maxX: number; maxZ: number }
 
 export type StreetClass = 'HIGHWAY' | 'ARTERIAL' | 'COLLECTOR' | 'LOCAL' | 'ALLEY' | 'PEDESTRIAN' | 'CANAL' | 'RAIL';
@@ -38,8 +38,14 @@ export function assertFixedPolygon(p: readonly FixedPointCoord[]): void {
   if (signedArea2(p) <= 0n) fault('polygon is not counter-clockwise');
 }
 
-/** Throws CITY_BAD_GEOMETRY unless the rect is integer centimetres with min ≤ max on both axes. */
+/** Throws CITY_BAD_GEOMETRY unless the rect is integer centimetres with min < max on both axes (E-88 (2a): no degenerate rect). */
 export function assertFixedRect(r: FixedPointRect): void {
   for (const v of [r.minX, r.minZ, r.maxX, r.maxZ]) if (!Number.isSafeInteger(v)) fault(`rect bound ${v} is not integer centimetres`);
-  if (r.minX > r.maxX || r.minZ > r.maxZ) fault('rect min exceeds max');
+  if (r.minX >= r.maxX || r.minZ >= r.maxZ) fault('rect is degenerate: min must be < max on both axes');
+}
+
+/** Throws CITY_BAD_GEOMETRY unless the polyline has ≥ 2 integer-centimetre points (E-88 (2a)). */
+export function assertFixedPolyline(p: readonly FixedPointCoord[]): void {
+  if (p.length < 2) fault(`polyline has ${p.length} points (< 2)`);
+  for (const c of p) if (!isFixedPointCoord(c)) fault(`point (${c.x}, ${c.z}) is not integer centimetres`);
 }

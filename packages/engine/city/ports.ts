@@ -1,26 +1,32 @@
 // T10A-01 step 5: dependency-inversion ports (G6.1) through which 10A reads modules built after it or owned elsewhere.
-// Every function is pure over StoreRead; null = input missing (the caller holds its last value). The signatures are the narrowest the
-// card's one-line descriptions support; each is listed as a spec question in the PR until the owning task fixes it.
-import type { Ccy, Id, StoreRead } from '@tycoon/engine-core';
+// Signatures are E-88 (2b) verbatim. Every function is pure over StoreRead; null = input missing (the caller holds its last value).
+// 10 computes cityGdpShare (§3.3 step 4) and district demand (§3.4, from §2.9 CityDemandInputs) itself, so no port returns a city
+// allocation or a demand in m². EmploymentDelta items arrive as `city.employmentDelta` events (events.ts), not through a port.
+import type { Id, Money, StoreRead } from '@tycoon/engine-core';
 import type { ContentView } from '@tycoon/content';
 import type { BlocId } from '@tycoon/engine-macro';
 import type { UseClass } from './schema';
 
-/** 22 (T22A-02, E-86): city names and personalities. Today ContentView has cities() / serena() / sectors();
- *  MISSING EXPORT: T22A-02 city personality getter (10 §3.19) — added to this port when it lands. */
-export type CityContentPort = Pick<ContentView, 'cities' | 'serena' | 'sectors'>;
+/** 04 bloc-level inputs (10 §3.3): rates per GY; c in [−1, 1]. */
+export interface BlocMacroInputs { g: number; pi: number; u: number; i: number; y10: number; c: number }
 
-/** 04: the 10-year yield and inflation (cap rates §3.8.2, CPI lease indexation §2.4) and the city allocation of bloc GDP (§3.3). */
+/** 04 (E-88 (2b)). Bloc-keyed only: no currency- or city-keyed method. */
 export interface CityMacroPort {
-  y10(s: StoreRead, ccy: Ccy): number | null;                  // per GY
-  inflation(s: StoreRead, bloc: BlocId): number | null;        // π, per GY
-  cityAllocation(s: StoreRead, cityId: Id): number | null;     // the city's share of its bloc's GDP
+  blocInputs(s: StoreRead, bloc: BlocId): BlocMacroInputs | null;   // Isla Serena (bloc null) reads 'FDL'
+  fearIndex(s: StoreRead): number | null;                            // F, 0..100
 }
 
-/** 09: business premises demand by district and use (§3.4), in m². */
-export interface CityBizPort { premisesDemand(s: StoreRead, districtId: Id, use: UseClass): number | null }
+/** 09 (E-88 (2b)): staff by cityId and use. */
+export interface CityBizPort { jobsByUse(s: StoreRead, cityId: Id): Partial<Record<UseClass, number>> | null }
 
-/** 16: household demand by district and use (§3.4), in m². */
-export interface CityHhPort { householdDemand(s: StoreRead, districtId: Id, use: UseClass): number | null }
+/** 16 (E-88 (2b)): aggregate frm employment, and household inputs; medianHhIncomePerGY is Money (bigint), never a JS number. */
+export interface CityHhPort {
+  frmJobsByUse(s: StoreRead, cityId: Id): Partial<Record<UseClass, number>> | null;
+  householdInputs(s: StoreRead, cityId: Id): { medianHhIncomePerGY: Money; retailSpendIndex: number; tourismIndex: number } | null;
+}
 
+/** 22 (T22A-01 + T22A-02, E-88 (2b)). */
+export type CityContentPort = Pick<ContentView, 'cities' | 'serena' | 'sectors' | 'districts' | 'personality' | 'cityProfile'>;
+
+/** The bundle a 10A phase receives (not a port). */
 export interface CityPorts { content22: CityContentPort; macro04: CityMacroPort; biz09: CityBizPort; hh16: CityHhPort }

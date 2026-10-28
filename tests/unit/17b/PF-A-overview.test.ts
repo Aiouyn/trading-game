@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { OverviewView, drawdownText, releaseText, type OverviewViewProps } from "@/apps/portfolio/Overview";
 import { formatPercent } from "@/components/ui/percent";
 import { pfStrings } from "@/apps/portfolio/strings";
+import { posStrings } from "@/apps/portfolio/positions/strings";
 import type { MeTradingBody } from "@/shell/contracts/channels";
 import { MockFeed } from "@/shell/contracts/mockFeed";
 import type { ChannelView } from "@/shell/contracts/useChannel";
@@ -100,6 +101,11 @@ describe("PF-2-06 new player", () => {
     const h = html({ view: live(ME_EMPTY) });
     expect(text(block(h, "pf-empty")!)).toBe("Your money is all cash. Broker or Businesses are good first stops.");
     expect(block(h, "pf-summary")).not.toContain("<button");
+  });
+  it("FR copy is the Positions empty body, « Tout votre argent est en liquidités. » (Studio ruling 2026-10-28)", () => {
+    const h = html({ locale: "fr", view: live(ME_EMPTY) });
+    expect(text(block(h, "pf-empty")!)).toBe("Tout votre argent est en liquidités.");
+    expect(pfStrings("fr").emptyCash).toBe(posStrings("fr").emptyBody);
   });
   it("with positions there is no EmptyState", () => {
     expect(html()).not.toContain("pf-empty");
