@@ -213,15 +213,27 @@ test("BR-4-08 the reply is held (?replyMs): double click and double Enter on Pla
   await review(page);
   const before = await intents(page);
   await place(page).dblclick();
+  expect(await intents(page), "the double click alone").toBe(before + 1);
   await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
-  expect(await intents(page)).toBe(before + 1);
+  expect(await intents(page), "two Enters on top of it").toBe(before + 1);
   await expect(br(page)).toHaveAttribute("data-phase", "submitting");
   await page.clock.runFor(3_000); // the submit reply
   expect(await intents(page)).toBe(before + 1);
   await page.clock.runFor(5_000); // the result tick
   await expect(br(page).getByTestId("br-ack")).toHaveAttribute("data-status", "ACCEPTED");
   expect(await intents(page)).toBe(before + 1);
+  // The double Enter on its own (QA #84): a fresh order, Place focused, two Enters while the reply is held.
+  await br(page).getByTestId("br-new").click();
+  await qtyPaused(page, "40");
+  await review(page);
+  await place(page).focus();
+  await page.keyboard.press("Enter");
+  expect(await intents(page), "the first Enter places").toBe(before + 2);
+  await page.keyboard.press("Enter");
+  expect(await intents(page), "the second Enter is held").toBe(before + 2);
+  await page.clock.runFor(3_000);
+  expect(await intents(page)).toBe(before + 2);
 });
 
 test("BR-4-08 two clicks and two Enters in one task, before React renders, still send one order", async ({ page }) => {
@@ -451,6 +463,25 @@ test("BR-4-14 colour-blind recolours Today with the cb pair; high contrast shows
   expect(await fg(today)).toBe(CB[tok]);
   expect(CB[tok]).not.toBe(plain);
   await expect(today).toContainText(dir === "up" ? "\u25B2" : "\u25BC");
+  // The other direction (QA #84 M9): seed 17 HALC moves one way only, so a sample row (a clone of Today with the opposite
+  // direction class) proves the other cb hex too.
+  const otherTok = dir === "up" ? "--loss" : "--gain";
+  const sample = () => today.evaluate((e, cls) => {
+    const s = e.cloneNode(true) as HTMLElement;
+    s.classList.remove("gain", "loss");
+    s.classList.add(cls);
+    s.removeAttribute("data-testid");
+    s.dataset.dir = cls === "gain" ? "up" : "down";
+    e.parentElement!.append(s);
+    const c = getComputedStyle(s).color;
+    s.remove();
+    return c;
+  }, otherTok.slice(2));
+  expect(await sample()).toBe(CB[otherTok]);
+  await html("cb", false);
+  expect(await sample()).toBe(await color(page, `var(${otherTok})`));
+  expect(CB[otherTok]).not.toBe(await sample());
+  await html("cb", true);
   for (const c of await colours(br(page).getByTestId("br-side"))) expect(Object.values(CB)).not.toContain(c);
   await shot(page, "preview-cb");
   await html("cb", false);
