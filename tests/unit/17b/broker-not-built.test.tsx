@@ -28,7 +28,6 @@ describe("Broker is not a built app", () => {
   });
 
   it("nothing imports a Broker app chunk", () => {
-    const body = readFileSync("src/components/shell/AppBody.tsx", "utf8");
-    expect(body).not.toMatch(/apps\/broker/);
+    for (const f of ["src/components/shell/AppBody.tsx", "src/shell/appModules.ts"]) expect(readFileSync(f, "utf8")).not.toMatch(/apps\/broker/);
   });
 });
