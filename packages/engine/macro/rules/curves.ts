@@ -57,7 +57,7 @@ export function crossCurrencyBasis(b: BlocId, fsi: number, swapLineActive: boole
   return swapLineActive ? Math.max(raw, -0.0025) : raw;
 }
 
-export type CurveRecomputeReason = 'RELEASE' | 'CB_GUIDANCE' | 'CB_DECISION' | 'CB_MINUTES' | 'RATING_ACTION' | 'FX_REGIME' | 'DAY_CLOSE';
+export type CurveRecomputeReason = 'RELEASE' | 'CB_GUIDANCE' | 'CB_DECISION' | 'CB_MINUTES' | 'RATING_ACTION' | 'FX_REGIME' | 'DAY_CLOSE' | 'GENESIS';
 type Dot = { horizonQuarters: 1 | 2 | 4 | 8; rate: number };
 /** macro_ns_lambda 1.8, macro_irp 0.002, macro_sov_lgd 0.6 (E-100; the T23 param rows are not registered yet). */
 export const NS_LAMBDA = 1.8, IRP = 0.002, SOV_LGD = 0.6;
