@@ -111,7 +111,7 @@ describe('T04-14 FX regimes', () => {
 
   function attack(hazard: number, u = 0.5) {
     const d0 = firstTradingDay('SRL', 100), w = world(d0 * D, { hazard });
-    Object.assign(w.ctx, { rng: () => ({ next: () => u, normal: () => 0 }) });
+    Object.assign(w.ctx, { rng: () => ({ uOpen: () => u, normal: () => 0 }) });
     const imp = importsMonthFdl(w.ctx.store, 'SRL'), R = imp * 29n / 10n, R5 = R * 9n / 8n;
     w.put(macroTables.cb.name, { ...w.ctx.store.get<object>(macroTables.cb.name, cbkId('SRL'))!, reserves: { fdl: R, gold: 0n, otherFx: {} } } as never);
     setFx(w, 'SRL', { regime: 'MANAGED_FLOAT', hist: Array.from({ length: 10 }, () => ({ lnS: Math.log(0.2), res: R5, i: 0.095 })) });
@@ -156,7 +156,7 @@ describe('T04-14 FX regimes', () => {
   it('break severity spans 0.6 → 25.92% to 1.4 → 39.35%; band and peg breaks cost PEG_BREAK credibility', () => {
     for (const [u, p] of [[0, 0.2592], [1, 0.3935]] as const) {
       const w = world(100 * D);
-      Object.assign(w.ctx, { rng: () => ({ next: () => u, normal: () => 0 }) });
+      Object.assign(w.ctx, { rng: () => ({ uOpen: () => u, normal: () => 0 }) });
       setFx(w, 'PYN', { regime: 'MANAGED_BAND', band: { centerLn: 0, halfWidth: 0.03, basket: {} } });
       const f0 = fxOf(w, 'PYN').fairValueLn;
       executeBreak(w.ctx, 'PYN');
@@ -171,7 +171,7 @@ describe('T04-14 FX regimes', () => {
     expect(pegBreakBack(M(1e9), M(6.25e9) + 10n, 0.2)).toBe(true);
     for (const [m0, regime, want] of [[6.25e9, 'HARD_PEG', 'HARD_PEG'], [6.3e9, 'HARD_PEG', 'FREE_FLOAT'], [6.3e9, 'FREE_FLOAT', 'FREE_FLOAT']] as const) {
       const w = world(100 * D, { fdlRes: { SRL: M(1e9) } });
-      w.m0.SRL = M(m0); Object.assign(w.ctx, { rng: () => ({ next: () => 0.5, normal: () => 0 }) });
+      w.m0.SRL = M(m0); Object.assign(w.ctx, { rng: () => ({ uOpen: () => 0.5, normal: () => 0 }) });
       setFx(w, 'SRL', regime === 'HARD_PEG' ? { regime, pegLn: Math.log(0.2) } : { regime });
       close(w, 100);
       expect(fxOf(w, 'SRL').regime).toBe(want);

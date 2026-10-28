@@ -106,7 +106,7 @@ export const HIDDEN_FIELD_NAMES: readonly string[] = Object.freeze(['regime', 'o
 
 /** Public paths whose key collides with a hidden name but whose value is public by ruling (E-54: ruleTerms.outputGap is
  *  coef × outputGapEstimate, never the true gap). Matched as the path suffix `ruleTerms.outputGap`. */
-export const PUBLIC_PATH_EXCEPTIONS: readonly string[] = Object.freeze(['ruleTerms.outputGap']);
+export const PUBLIC_PATH_EXCEPTIONS: readonly string[] = Object.freeze(['ruleTerms.outputGap', 'fx.regime' /* T04-19: PublicMacroView.fx.regime is the FX regime kind (§2.4), not the macro regime */]);
 const isException = (p: string): boolean => PUBLIC_PATH_EXCEPTIONS.some((e) => p === e || p.endsWith(`.${e}`));
 
 /** Recursive key scan; returns the dotted paths of every hidden key (array items as `[i]`, keys in byte order). */

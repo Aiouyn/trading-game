@@ -135,6 +135,17 @@ describe('debt management', () => {
     expect(w.events.find((e) => (e.payload as { auctionId: string }).auctionId === a.id)!.payload).toMatchObject({ reopening: true, assetId: 'ast_SOV_FDL_N2Y_120' });
     expect(w.rows(macroTables.issue.name).filter((x) => (x as { assetId: string }).assetId === a.assetId)).toEqual([expect.objectContaining({ couponRate: 0.025, faceOutstanding: F(500e9) })]);
   });
+  it('E-101 (T04-11 step 1): a due auction with offeredFace 0 is deleted and not announced; a non-zero one beside it is', () => {
+    const w = world('FDL'), a = planQuarter(w.ctx, 'FDL', ports).filter((x) => !x.reopening && x.offeredFace > 0n).sort((x, y) => x.announceTick - y.announceTick)[0]!;
+    const zero: SovAuction = { ...a, id: `${a.id}_zero`, offeredFace: 0n };
+    w.put(macroTables.auction.name, zero as never);
+    w.setTick(a.announceTick);
+    announceDue(w.ctx, ports);
+    expect(auctions(w).find((x) => x.id === zero.id)).toBeUndefined();
+    expect(auctions(w).find((x) => x.id === a.id)!.whenIssuedYield).not.toBeNull();
+    const ids = w.events.filter((e) => e.kind === 'macro.sov.auction.announced').map((e) => (e.payload as { auctionId: string }).auctionId);
+    expect(ids).toContain(a.id); expect(ids).not.toContain(zero.id);
+  });
   it('y_WI: 05 line yield, else the NS zero, else the genesis policy rate', () => {
     const w = world('FDL'), s = w.ctx.store;
     expect(whenIssuedYield(s, 'FDL', null, 5, ports)).toBe(BLOC_DEFAULTS.FDL.initialPolicyRate);

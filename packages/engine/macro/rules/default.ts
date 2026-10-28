@@ -43,7 +43,7 @@ export const SOV_GRACE_DAYS = 7;
  * updates the s10 > 0.15 trading-day counter; checks FAILED_ROLLOVER, FX_SERVICE, POLITICAL, HAZARD in that order, only while PERFORMING with no case.
  */
 export function checkDefaultTriggers(ctx: PhaseCtx, b: BlocId, ports: MacroPorts): DefaultTrigger | null {
-  const s = ctx.store, u = ctx.rng(S.sov(b)).next(), bloc = blocRow(s, b), sov = bloc.sovereign;
+  const s = ctx.store, u = ctx.rng(S.sov(b)).uOpen(), bloc = blocRow(s, b), sov = bloc.sovereign;
   const high = sov.spread10y > 0.15 ? (bloc.highSpreadTradingDays ?? 0) + 1 : 0;
   s.put(macroTables.bloc.name, { ...bloc, highSpreadTradingDays: high });
   if (sov.status !== 'PERFORMING' || sov.defaultCase) return null;
