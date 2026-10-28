@@ -101,7 +101,7 @@ describe('open, offers, settle', () => {
     w.put(macroTables.buybackOffer.name, off('o0', 'usr_b', 1_000_000, '99.0'));
     w.ctx.holds.release((w.rows(macroTables.buybackOffer.name).find((o) => (o as BuybackOffer).id === 'o0') as BuybackOffer).holdId);   // dead hold → not accepted
     settleBuyback(w.ctx, bb, ports());
-    expect(w.posts.filter((x) => x.op === 'swapAsset').map((x) => x.sub)).toEqual([`${OFF}:${F(1_000_000)}`, `${OFF}:${F(500_000)}`]);
+    expect(w.posts.filter((x) => x.op === 'swapAsset').map((x) => [x.to, x.sub])).toEqual([['usr_a', `${OFF}:${F(1_000_000)}`], ['usr_b', `${OFF}:${F(500_000)}`]]);
     const w2 = world(); w2.put(macroTables.buyback.name, bb);
     w2.qty[`usr_a:${OFF}`] = F(10_000_000);
     w2.put(macroTables.buybackOffer.name, { id: 'o1', buybackId: bb.id, holderId: 'usr_a', assetId: OFF, face: F(1_000), minPrice: 1n, holdId: w2.ctx.holds.placeQty('usr_a', OFF, F(1_000), bb.tick + 1, 'o1') as string, tick: T0 } as never);

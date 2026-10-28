@@ -132,6 +132,8 @@ describe('open, size, leads, orders', () => {
     w.put(macroTables.dealer.name, r('bnk_a', { awardedFaceQuarter: fq(String(q - 1).padStart(6, '0'), 9_000) }));
     w.put(macroTables.dealer.name, r('bnk_c', { status: 'RESIGNING', awardedFaceQuarter: fq(String(q - 2).padStart(6, '0'), 90_000) }));
     w.put(macroTables.dealer.name, r('bnk_d', { awardedFaceQuarter: fq(String(q).padStart(6, '0'), 90_000) }));
+    w.put(macroTables.dealer.name, r(DEALER_POOL_ID('FDL'), { npc: true, awardedFaceQuarter: fq(String(q - 2).padStart(6, '0'), 80_000) }));
+    expect(leadManagers(w.ctx.store, 'FDL', PT)).toEqual([0, 1, 2].map((i) => npcDealerKey('FDL', i)));   // q−2 counts: 10,000 each > bnk_a 9,000
     w.put(macroTables.dealer.name, r(DEALER_POOL_ID('FDL'), { npc: true, awardedFaceQuarter: fq(String(q - 2).padStart(6, '0'), 8_000) }));
     expect(leadManagers(w.ctx.store, 'FDL', PT)).toEqual(['bnk_a', npcDealerKey('FDL', 0), npcDealerKey('FDL', 1)]);
     w.ctx.store.del(macroTables.dealer.name, `FDL:${DEALER_POOL_ID('FDL')}`); w.ctx.store.del(macroTables.dealer.name, 'FDL:bnk_a');

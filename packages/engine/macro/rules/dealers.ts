@@ -60,7 +60,7 @@ export function quarterEndDealerReview(ctx: PhaseCtx, b: BlocId): void {
     if (r.status === 'RESIGNING' || (r.status === 'REVOKED' && (r.revokedUntilQuarter ?? 0) <= cur)) s.del(T, r.id);
     else if (r.status === 'ACTIVE' && r.missesThisQuarter >= 3) s.put<PrimaryDealerStatus>(T, { ...r, ...reset, status: 'REVOKED', revokedUntilQuarter: q + 2 });
     else if (r.status === 'APPLIED' && r.fromQuarter <= cur) s.put<PrimaryDealerStatus>(T, { ...r, ...reset, status: 'ACTIVE', fromQuarter: q + 1 });
-    else if (r.status === 'ACTIVE' && !r.npc) s.put<PrimaryDealerStatus>(T, { ...r, ...reset });
+    else if (r.status === 'ACTIVE') s.put<PrimaryDealerStatus>(T, { ...r, ...reset });
   }
 }
 /** Shares of dealer-awarded face over the quarters starting in [fromTick, toTick); NPC pool split equally into the 8 NPC dealer keys. Sorted by share desc, key asc. */
