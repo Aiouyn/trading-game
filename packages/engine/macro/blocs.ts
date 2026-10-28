@@ -55,8 +55,8 @@ export const BLOC_DEFAULTS: Readonly<Record<BlocId, BlocDefaults>> = Object.free
 });
 
 export const SECTOR_COUNT = 12;
-/** Content id of Isla Serena (22 catalog; no bloc, uses FDL). */
-export const ISLA_SERENA_CITY = 'city_isla_serena';
+/** Content id of Isla Serena (22 catalog; no bloc, uses FDL). E-92 (2): `cty_` is the E-26 city prefix; `city_` is a banned legacy prefix. */
+export const ISLA_SERENA_CITY = 'cty_isla_serena';
 
 /** Merges content names, cityIds and sectorWeights with BLOC_DEFAULTS numbers. sectorWeights: 12 entries summing to 1 ± 1e−9. */
 export function blocDef(content: BlocContentReader, b: BlocId): BlocDef {

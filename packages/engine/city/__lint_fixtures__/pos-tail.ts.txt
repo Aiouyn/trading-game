@@ -1,0 +1,2 @@
+declare const a: string, b: string;
+export const t = `${a}/${b}/loan_`;

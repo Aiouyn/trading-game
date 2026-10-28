@@ -1,5 +1,6 @@
 import { EngineFault, ID_KIND_RE, matchStream, STREAM_REGISTRY, streamPrefix } from '@tycoon/engine-core';
 import type { Ccy } from '@tycoon/engine-core';
+import { readFileSync } from 'node:fs';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId, type BlocMacroState, type DailyHistoryRow, type PublicMacroView } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
@@ -54,7 +55,13 @@ describe('BLOC_DEFAULTS (04 §2.2)', () => {
       expect('sectorWeights' in d).toBe(false);
     }
   });
-  it('constants', () => { expect(SECTOR_COUNT).toBe(12); expect(ISLA_SERENA_CITY).toBe('city_isla_serena'); });
+  it('constants', () => { expect(SECTOR_COUNT).toBe(12); expect(ISLA_SERENA_CITY).toBe('cty_isla_serena'); });
+  it('E-92 (2): ISLA_SERENA_CITY is cty_isla_serena (E-26 city prefix, never the legacy city_), the id content cities.json carries', () => {
+    expect(ISLA_SERENA_CITY.startsWith('city_')).toBe(false);
+    const ids = (JSON.parse(readFileSync(new URL('../../content/data/cities.json', import.meta.url), 'utf8')) as { cities: { cityId: string }[] }).cities.map((c) => c.cityId);
+    expect(ids).toContain(ISLA_SERENA_CITY);
+    expect(ids.every((id) => id.startsWith('cty_'))).toBe(true);
+  });
 });
 
 const content = (w: number[]): ContentView => ({
@@ -141,7 +148,7 @@ const SAMPLES: Record<string, unknown> = {
   'macro.cb.decision': { bloc: 'FDL', meetingId: 'm', previousRate: 0.03, newRate: 0.0325, corridor: { depositRate: 0.0275, lendingRate: 0.0375 }, emergency: false,
     votes: { for: 7, against: 2 }, ruleTerms: { neutral: 0.0275, inflation: 0.02, inflationGap: 0.0025, outputGap: 0.0025, finStress: 0, fx: 0, bias: 0 },
     qeChangePerMonth: '0', statementKey: 's', reasons: ['r1'] },
-  'macro.cb.minutes': { bloc: 'FDL', meetingId: 'm', dissent: { hike: 1, hold: 7, cut: 1 }, riskKeys: ['k'] },
+  'macro.cb.minutes': { bloc: 'FDL', meetingId: 'm', dissent: { higher: 1, lower: 1 }, riskKeys: ['k'] },
   'macro.cb.tool': { bloc: 'PYN', tool: 'YCC_START', params: { capYield: 0.01 } },
   'macro.cb.facility.daily': { bloc: 'FDL', repoOutstanding: '100', elaOutstanding: '0', deposits: '5' },
   'macro.cb.repo': { bloc: 'FDL', bankId: 'b', loanId: 'l', amount: '1000', ccy: 'FDL', termDays: 7, collateral: [{ assetId: 'a', qty: '10', haircut: 0.02 }] },
