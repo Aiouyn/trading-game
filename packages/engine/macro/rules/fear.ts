@@ -1,11 +1,11 @@
 // T04-15: Fear Index F and risk appetite RA, every game hour (04 §3.14.1). Order inside the hour: hourlyFsi first, then hourlyFear
 // reads the FSI it just wrote (card step 1). Both read state committed at the end of the previous tick.
-// Storage (#72 Producer ruling, item 4): the last value of each fear input is held in its own row mac.indicator_hold `GLOBAL`
-// (`fear[<FearInputs key>]`), the IG spread daily closes for the 364-day mean in `igCloses[<gameDay>]`, and a missing input's key
-// is appended once to mac.inputs `staleKeys` (edge 23).
-import { dmath, EngineFault, type Id, type PhaseCtx, type StoreRead } from '@tycoon/engine-core';
+// Storage (E-93 (2)): held hourly values live in the mac.inputs row `HOURLY` (rv21Gx, gxReturnToday, igCreditSpreadIndex; the IG
+// daily closes for the 364-day mean as `igClose.<gameDay>`), never in `INPUTS`; a null read lists the key once in HOURLY.staleKeys
+// (edge 23; T04-20 day step 1 merges and clears them). The row is put only when a value or staleKeys changed.
+import { dmath, EngineFault, isTradingDay, type Id, type PhaseCtx, type StoreRead } from '@tycoon/engine-core';
 import type { MacroPorts } from '../ports';
-import { macroTables, type DailyHistoryRow, type GlobalIndicatorHold, type GlobalMacroState, type MacroInputs, type WorldEvent } from '../schema';
+import { macroTables, type DailyHistoryRow, type GlobalMacroState, type MacroInputs, type WorldEvent } from '../schema';
 
 export interface FearInputs { rv21Gx: number; creditSpreadIdx: number; fsi: number; crisisTerm: number; tension: number; hackRate: number; gxReturnToday: number; gxReturn63d: number }
 
@@ -37,62 +37,80 @@ export function impliedVolAnchor(F: number): number { return 0.10 + 0.004 * F; }
 /** Genesis neutral values (card step 2): rv 0.16, csi 1, returns 0; tension 30 and hack rate 0 (T04-05 input defaults). */
 const NEUTRAL = { rv21Gx: 0.16, creditSpreadIdx: 1, gxReturnToday: 0, gxReturn63d: 0, tension: 30, hackRate: 0 } as const;
 const IG_WINDOW_DAYS = 364;
-const R63_DAYS = 63;
+const R63_TRADING_DAYS = 63;
+/** HOURLY key of the daily IG close of game day d, for the 364-day mean (not in E-93 (2)'s key list; batched question). */
+const igCloseKey = (d: number): string => `igClose.${d}`;
 
-/** The mac.inputs row (stale keys only, edge 23), or an empty one before T04-05's first day close. */
-function inputsRow(ctx: PhaseCtx): MacroInputs {
-  return ctx.store.get<MacroInputs>(macroTables.inputs.name, 'INPUTS') ?? { id: 'INPUTS', tick: ctx.tick, staleKeys: [], values: {} };
+/** The mac.inputs `HOURLY` row (E-93 (2)), copied; written at genesis (T04-20 step 1.1), so a missing row is MAC_STATE_MISSING (E-93 (4)). */
+function hourlyRow(s: StoreRead): { row: MacroInputs; changed: boolean } {
+  const h = s.get<MacroInputs>(macroTables.inputs.name, 'HOURLY');
+  if (!h) throw new EngineFault('MAC_STATE_MISSING', 'no mac.inputs HOURLY row (written at genesis, T04-20 step 1.1)', ['HOURLY']);
+  return { row: { ...h, staleKeys: h.staleKeys.slice(), values: { ...h.values } }, changed: false };
 }
-/** The mac.indicator_hold row (#72 ruling item 4: held values live here, not in INPUTS), copied for this tick; empty at first use. */
-function holdRow(ctx: PhaseCtx): GlobalIndicatorHold {
-  const h = ctx.store.get<GlobalIndicatorHold>(macroTables.indicatorHold.name, 'GLOBAL');
-  return { id: 'GLOBAL', tick: ctx.tick, fear: { ...h?.fear }, fsi: { ...h?.fsi }, igCloses: { ...h?.igCloses } };
+/** E-93 (2): a non-null read replaces the held value; a null read keeps it and lists `key` in HOURLY.staleKeys once. Marks a change. */
+function holdKey(h: { row: MacroInputs; changed: boolean }, key: string, now: number | null | undefined): number | undefined {
+  if (now !== null && now !== undefined) {
+    if (!Object.is(h.row.values[key], now)) { h.row.values[key] = now; h.changed = true; }
+    return now;
+  }
+  if (!h.row.staleKeys.includes(key)) { h.row.staleKeys.push(key); h.changed = true; }
+  return h.row.values[key];
 }
-/** Value now (stored in `held`), else the held value (else `dflt`), listing `key` in `stale` once. */
-function holdInput(held: Record<string, number>, stale: string[], key: string, now: number | null | undefined, dflt: number | null): number | null {
-  if (now !== null && now !== undefined) { held[key] = now; return now; }
-  if (!stale.includes(key)) stale.push(key);
-  return held[key] ?? dflt;
+/** mac.global GLOBAL, or MAC_STATE_MISSING (E-93 (4)). */
+function globalRow(s: StoreRead): GlobalMacroState & { id: 'GLOBAL' } {
+  const g = s.get<GlobalMacroState & { id: 'GLOBAL' }>(macroTables.global.name, 'GLOBAL');
+  if (!g) throw new EngineFault('MAC_STATE_MISSING', 'no mac.global GLOBAL row (written at genesis, T04-20)', ['GLOBAL']);
+  return g;
+}
+/** E-93 (3): the GLOBAL history day 63 trading days (FDL calendar, holidays default off) before the latest closed trading day
+ *  (the last trading day before today); null when that day would precede genesis. */
+function r63Day(today: number): number | null {
+  let d = today - 1;
+  while (d >= 0 && !isTradingDay('FDL', d)) d--;
+  for (let n = 0; n < R63_TRADING_DAYS && d >= 0; n++) { d--; while (d >= 0 && !isTradingDay('FDL', d)) d--; }
+  return d >= 0 ? d : null;
 }
 
 /** P2 at each game hour: inputs (held on miss), F ← stepFear(F, fearRaw), RA; writes mac.global and emits macro.fear PUBLIC. */
 export function hourlyFear(ctx: PhaseCtx, ports: MacroPorts): void {
   const s = ctx.store;
-  const g = s.get<GlobalMacroState & { id: 'GLOBAL' }>(macroTables.global.name, 'GLOBAL');
-  if (!g) throw new EngineFault('I0.macro_global', 'no mac.global GLOBAL row (written at genesis, T04-20)');
-  const row: MacroInputs = (({ staleKeys, values, ...r }) => ({ ...r, tick: ctx.tick, staleKeys: staleKeys.slice(), values: { ...values } }))(inputsRow(ctx));
-  const hold = holdRow(ctx);
+  const g = globalRow(s);
+  const h = hourlyRow(s);
+  const daily = s.get<MacroInputs>(macroTables.inputs.name, 'INPUTS');
   const day = ctx.cal.gameDay;
 
-  // creditSpreadIdx = IG / mean of the daily IG closes over the last 364 game days (today's latest value included)
-  const ig = ports.assets.igCreditSpreadIndex(s);
-  let csi: number | null = null;
-  if (ig !== null && ig !== undefined) {
-    hold.igCloses[String(day)] = ig;
-    delete hold.igCloses[String(day - IG_WINDOW_DAYS)];
-    let sum = 0, n = 0;
-    for (let d = day - IG_WINDOW_DAYS + 1; d <= day; d++) { const v = hold.igCloses[String(d)]; if (v !== undefined) { sum += v; n++; } }
-    csi = n > 0 && sum > 0 ? ig / (sum / n) : NEUTRAL.creditSpreadIdx;
+  // creditSpreadIdx = IG / mean of the daily IG closes over the last 364 game days (today's latest value included); IG absent → 1
+  const igNow = ports.assets.igCreditSpreadIndex(s);
+  const ig = holdKey(h, 'igCreditSpreadIndex', igNow);
+  if (igNow !== null && igNow !== undefined) {
+    holdKey(h, igCloseKey(day), igNow);
+    if (h.row.values[igCloseKey(day - IG_WINDOW_DAYS)] !== undefined) { delete h.row.values[igCloseKey(day - IG_WINDOW_DAYS)]; h.changed = true; }
   }
-  // r63: GX level now vs the GLOBAL history row 63 game days ago (DailyHistoryRow.equityIndex keeps the daily GX close)
+  let csi: number = NEUTRAL.creditSpreadIdx;
+  if (ig !== undefined) {
+    let sum = 0, n = 0;
+    for (let d = day - IG_WINDOW_DAYS + 1; d <= day; d++) { const v = h.row.values[igCloseKey(d)]; if (v !== undefined) { sum += v; n++; } }
+    if (n > 0 && sum > 0) csi = ig / (sum / n);
+  }
+  // r63 (E-93 (3)): GX level now vs DailyHistoryRow.equityIndex 63 trading days back; 0 until that row exists
   const lvl = ports.markets.gxLevel(s);
-  const past = s.get<DailyHistoryRow>(macroTables.history.name, `GLOBAL:${day - R63_DAYS}`)?.equityIndex ?? null;
-  const r63 = lvl !== null && lvl !== undefined && past !== null && past > 0 ? lvl / past - 1 : null;
+  const d63 = r63Day(day);
+  const past = d63 === null ? null : s.get<DailyHistoryRow>(macroTables.history.name, `GLOBAL:${d63}`)?.equityIndex ?? null;
+  const r63 = lvl !== null && lvl !== undefined && past !== null && past > 0 ? lvl / past - 1 : NEUTRAL.gxReturn63d;
 
   const x: FearInputs = {
-    rv21Gx: holdInput(hold.fear, row.staleKeys, 'rv21Gx', ports.markets.rv21Gx(s), NEUTRAL.rv21Gx)!,
-    creditSpreadIdx: holdInput(hold.fear, row.staleKeys, 'creditSpreadIdx', csi, NEUTRAL.creditSpreadIdx)!,
+    rv21Gx: holdKey(h, 'rv21Gx', ports.markets.rv21Gx(s)) ?? NEUTRAL.rv21Gx,
+    creditSpreadIdx: csi,
     fsi: g.financialStressIndex,
     crisisTerm: crisisTerm(s),
-    tension: row.values['geopoliticalTension'] ?? NEUTRAL.tension,
-    hackRate: row.values['worldHackRate'] ?? NEUTRAL.hackRate,
-    gxReturnToday: holdInput(hold.fear, row.staleKeys, 'gxReturnToday', ports.markets.gxReturnToday(s), NEUTRAL.gxReturnToday)!,
-    gxReturn63d: holdInput(hold.fear, row.staleKeys, 'gxReturn63d', r63, NEUTRAL.gxReturn63d)!,
+    tension: daily?.values['geopoliticalTension'] ?? NEUTRAL.tension,
+    hackRate: daily?.values['worldHackRate'] ?? NEUTRAL.hackRate,
+    gxReturnToday: holdKey(h, 'gxReturnToday', ports.markets.gxReturnToday(s)) ?? NEUTRAL.gxReturnToday,
+    gxReturn63d: r63,
   };
   const F = stepFear(g.fearIndex, fearRaw(x));
   const RA = riskAppetite(F);
-  s.put(macroTables.inputs.name, row);
-  s.put(macroTables.indicatorHold.name, hold);
+  if (h.changed) s.put(macroTables.inputs.name, { ...h.row, tick: ctx.tick });   // E-93 (2): put only on a change
   s.put(macroTables.global.name, { ...g, fearIndex: F, riskAppetite: RA });
   ctx.emit('macro.fear', [] as Id[], { F, RA }, 'PUBLIC');
 }

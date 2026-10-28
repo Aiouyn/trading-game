@@ -135,6 +135,7 @@ export interface GlobalMacroState {
   globalRegime: Regime; globalRegimeSinceTick: Tick;
   fearIndex: number; riskAppetite: number; financialStressIndex: number;
   worldTradeIndex: number; tariffLevel: number; worldScale: number;
+  tariffBase: number;   // policy tariff before shocks (16), genesis 0.03; tariffLevel = effectiveTariff(tariffBase, shock sum) (E-94 (a))
   worldNominalGdpFdl: Money;
   energyIndex: number; foodIndex: number;
   aiRaceIndex: number; worldHackRate: number; geopoliticalTension: number;
@@ -370,11 +371,7 @@ export interface DepositFacilityBalance { id: string /* `${bloc}:${bankId}` */; 
 export interface PrimaryDealerStatus { id: string /* `${bloc}:${entityId}` */; bloc: BlocId; entityId: Id; npc: boolean; status: 'APPLIED' | 'ACTIVE' | 'RESIGNING' | 'REVOKED';
   fromQuarter: number; revokedUntilQuarter: number | null; auctionsThisQuarter: number; auctionsBidThisQuarter: number; missesThisQuarter: number;
   awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */ }
-export interface MacroInputs { id: 'INPUTS'; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23)
-/** T04-15 (#72 Producer ruling, item 4): last values of the hourly global-indicator inputs, held on miss (edge 23), in their own row
- *  instead of mac.inputs (T04-05's collectInputs rebuilds INPUTS daily). `fear` / `fsi` are keyed by FearInputs / FsiComponents key;
- *  `igCloses` holds the daily IG spread closes keyed by game day (String(gameDay)) for the 364-day mean. */
-export interface GlobalIndicatorHold { id: 'GLOBAL'; tick: Tick; fear: Record<string, number>; fsi: Record<string, number>; igCloses: Record<string, number> }
+export interface MacroInputs { id: 'INPUTS' | 'HOURLY'; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23); 'INPUTS' daily (T04-05), 'HOURLY' the held hourly fear and FSI inputs (T04-15, E-93 (2))
 export interface SovExchangeVote { id: string /* `${offerId}:${holderId}:${assetId}` */; offerId: string; holderId: Id; assetId: string; face: Qty; vote: 'ACCEPT' | 'REJECT' }
 export interface SyndicationOrder { id: Id; syndicationId: string; bidderId: Id; face: Qty; limitSpreadBp: number | null; holdId: Id; tick: Tick }
 export interface BuybackOffer { id: Id; buybackId: string; holderId: Id; assetId: string; face: Qty; minPrice: Price; holdId: Id; tick: Tick }
@@ -413,12 +410,11 @@ export const macroTables = Object.freeze({
   csf: T<ConcordFacility>('csf', byId),
   stab: T<StabilizerState & { id: 'STAB' }>('stab', byId),
   inputs: T<MacroInputs>('inputs', byId),
-  indicatorHold: T<GlobalIndicatorHold>('indicator_hold', byId),
 });
 export const ALL_MACRO_TABLES: TableDef<any>[] = [   // eslint-disable-line @typescript-eslint/no-explicit-any
   macroTables.bloc, macroTables.global, macroTables.cb, macroTables.curve, macroTables.history, macroTables.publicView, macroTables.release,
   macroTables.schedule, macroTables.program, macroTables.issue, macroTables.auction, macroTables.bid, macroTables.buyback, macroTables.buybackOffer,
   macroTables.syndication, macroTables.syndicationOrder, macroTables.dealer, macroTables.defaultCase, macroTables.vote, macroTables.voteSnapshot,
   macroTables.event, macroTables.hookCall, macroTables.poolOrder, macroTables.facility, macroTables.depositFacility, macroTables.csf, macroTables.stab,
-  macroTables.inputs, macroTables.indicatorHold,
+  macroTables.inputs,
 ];
