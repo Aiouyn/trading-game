@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { anchors, DISTRICT_MATERIALS, fnv1a32, lch, material, materialId, MATERIAL_PLAIN, partLook, RUST_BELOW, matPalette, visSeed, WALL_SPLIT_M, type Lch } from '@/city/art/materials';
+import { anchors, DISTRICT_MATERIALS, fnv1a32, lch, material, materialId, MATERIAL_PLAIN, partLook, RUST_BELOW, matPalette, visSeed, visSeeder, WALL_SPLIT_M, type Lch } from '@/city/art/materials';
 import { deltaE, srgbToOklab, type Rgb } from '@/city/art/color';
 import { TOKEN_VARS, type Tokens } from '@/city/art/tokens';
 import { buildRamps } from '@/city/art/ramps';
@@ -28,6 +28,11 @@ describe('card 2 materials', () => {
     expect(fnv1a32('a')).toBe(0xe40c292c);
     expect(fnv1a32('foobar')).toBe(0xbf9cf968);
     expect(visSeed('port_avalon', 'p1')).toBe(fnv1a32('city.vis:port_avalon:p1'));
+    // the ASCII fast path and the prefix chaining hash exactly the UTF-8 bytes
+    const ref = (x: string) => { let h = 0x811c9dc5; for (const b of new TextEncoder().encode(x)) h = Math.imul(h ^ b, 0x01000193) >>> 0; return h >>> 0; };
+    for (const x of ['', 'a', 'prc_port_avalon_00af3', 'café', 'ab東京', 'x😀y', 'é']) expect(fnv1a32(x), x).toBe(ref(x));
+    expect(visSeeder('port_avalon')('prc_07')).toBe(ref('city.vis:port_avalon:prc_07'));
+    expect(visSeeder('köln')('p😀')).toBe(ref('city.vis:köln:p😀'));
   });
   it('Ink & Brass lightness matches the spec table (u → L)', () => {
     const L = (c: Lch) => srgbToOklab(lch(A, c))[0];

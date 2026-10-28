@@ -59,14 +59,28 @@ export function material(id: number): Material {
 }
 
 /** FNV-1a 32 over UTF-8 [P: Studio's proposal; Systems may publish the seed instead]. */
-export function fnv1a32(s: string): number {
-  let h = 0x811c9dc5;
-  for (const b of new TextEncoder().encode(s)) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+export function fnv1a32(s: string, h = 0x811c9dc5): number {
+  // FNV-1a streams, so `h` continues a hash. ASCII is its own UTF-8; encode only from the first
+  // non-ASCII unit (an allocation per call cost T0's first picture ~4 ms over ~1200 parcels).
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0x80) {
+      for (const b of new TextEncoder().encode(s.slice(i))) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+      break;
+    }
+    h = Math.imul(h ^ c, 0x01000193) >>> 0;
+  }
   return h >>> 0;
 }
 
+/** visSeed for one city: the "city.vis:<cityId>:" prefix hashed once. */
+export function visSeeder(cityId: string): (parcelId: string) => number {
+  const prefix = fnv1a32(`city.vis:${cityId}:`);
+  return (parcelId) => fnv1a32(parcelId, prefix);
+}
+
 /** The per-entity visual seed: fnv1a32("city.vis:" + cityId + ":" + parcelId). */
-export const visSeed = (cityId: string, parcelId: string) => fnv1a32(`city.vis:${cityId}:${parcelId}`);
+export const visSeed = (cityId: string, parcelId: string) => visSeeder(cityId)(parcelId);
 
 const byte = (seed: number, k: number) => (seed >>> (8 * k)) & 0xff;
 /** byte → −1..1 */

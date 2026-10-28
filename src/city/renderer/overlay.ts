@@ -2,7 +2,7 @@ import type { CityOverlay } from '../index';
 import type { Ramps } from '../art/ramps';
 import { mixOklab, type Rgb } from '../art/color';
 import type { CityDistrict, CityEntity } from '../data/types';
-import { materialId, partLook, visSeed, type Anchors } from '../art/materials';
+import { materialId, partLook, visSeeder, type Anchors } from '../art/materials';
 
 export interface PartColorInput {
   /** per part: entity index into `entities` or -1 */
@@ -47,12 +47,20 @@ export function partColors(p: PartColorInput, r: Ramps): PartColors {
   // with a data overlay on, materials switch off so overlay colours read exactly as card 1 (§1)
   const matOn = p.materials && (p.overlay === 'none' || p.overlay === 'my_places') ? p.materials : undefined;
   const dIndex = new Map(p.districts.map((d, i) => [d.id, i]));
+  // per district / per city, not per part (T0's first picture runs this in one task)
+  const seedOf = matOn && visSeeder(matOn.cityId);
+  const matIds = new Map<string | undefined, number>();
+  const matIdOf = (districtId: string | undefined) => {
+    let id = matIds.get(districtId);
+    if (id === undefined) matIds.set(districtId, (id = materialId(districtId, matOn!.cityId)));
+    return id;
+  };
   const showMine = p.myCityOverlay || p.overlay === 'my_places';
   for (let i = 0; i < n; i++) {
     const base = r.facades[p.style[i] & 3];
     const ei = p.entity[i];
     const e = ei >= 0 ? p.entities[ei] : undefined;
-    const L = e && matOn ? partLook(matOn.anchors, materialId(e.districtId, matOn.cityId), visSeed(matOn.cityId, e.parcelId)) : undefined;
+    const L = e && matOn ? partLook(matOn.anchors, matIdOf(e.districtId), seedOf!(e.parcelId)) : undefined;
     const look = L ? L.wall : base;
     if (L) {
       mat.set(L.mat, i * 2);
@@ -77,8 +85,9 @@ export function partColors(p: PartColorInput, r: Ramps): PartColors {
 const SECTOR_ORDER = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS', 'FINANCIALS', 'HEALTH', 'STAPLES', 'DISCRETIONARY', 'REAL_ESTATE', 'MEDIA', 'SECURITY'];
 
 function overlayColor(o: CityOverlay, e: CityEntity, base: Rgb, r: Ramps, dIndex: Map<string, number>, quote?: (id: string) => number | null): Rgb {
-  const dim = mixOklab(base, r.water, 0.35);
-  const hi = mixOklab(base, r.label, 0.55);
+  // lazy: overlay 'none' (T0's first picture, every part) needs neither
+  const dim = () => mixOklab(base, r.water, 0.35);
+  const hi = () => mixOklab(base, r.label, 0.55);
   switch (o) {
     case 'none':
     case 'my_places':
@@ -86,19 +95,19 @@ function overlayColor(o: CityOverlay, e: CityEntity, base: Rgb, r: Ramps, dIndex
     case 'districts':
       return r.districtHues[(dIndex.get(e.districtId) ?? 0) % r.districtHues.length];
     case 'sectors':
-      return e.sector ? r.districtHues[SECTOR_ORDER.indexOf(e.sector) % r.districtHues.length] : dim;
+      return e.sector ? r.districtHues[SECTOR_ORDER.indexOf(e.sector) % r.districtHues.length] : dim();
     case 'for_sale':
-      return e.forSale || e.kind === 'listing' ? hi : dim;
+      return e.forSale || e.kind === 'listing' ? hi() : dim();
     case 'auctions':
-      return e.atAuction ? hi : dim;
+      return e.atAuction ? hi() : dim();
     case 'movers': {
       // HQs only, from the market view's quote; no quote → unavailable → dimmed like the rest
       const bp = e.kind === 'company_hq' && e.companyId && quote ? quote(e.companyId) : null;
-      if (bp === null) return dim;
+      if (bp === null) return dim();
       const t = Math.min(1, Math.abs(bp) / 500);
       return mixOklab(base, bp >= 0 ? r.gain : r.loss, 0.15 + 0.6 * t);
     }
     case 'development':
-      return e.lifecycle === 'PLANNED' || e.lifecycle === 'SERVICED' || e.lifecycle === 'BUILDING' || e.lifecycle === 'REUSE' ? hi : dim;
+      return e.lifecycle === 'PLANNED' || e.lifecycle === 'SERVICED' || e.lifecycle === 'BUILDING' || e.lifecycle === 'REUSE' ? hi() : dim();
   }
 }
