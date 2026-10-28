@@ -10,8 +10,9 @@ import { hazardRaw } from './sovCredit';
 import { executeExchange, restructuringTerms, sovereignRecovery, tallyOffer } from './restructuring';
 
 const stub = vi.hoisted(() => ({ active: false, agree: false, reserves: 0n, imports: 0n, opened: [] as string[] }));
-vi.mock('./t0414Stubs', () => ({
-  concordActive: () => stub.active, canAgreeConcord: () => stub.agree, fxReservesFdl: () => stub.reserves, importsMonthFdl: () => stub.imports,
+vi.mock('./fxReserves', () => ({ fxReservesFdl: () => stub.reserves, importsMonthFdl: () => stub.imports }));
+vi.mock('./concord', () => ({
+  concordActive: () => stub.active, canAgreeConcord: () => stub.agree,
   openConcord: (_c: unknown, b: string, cause: string) => { stub.opened.push(`${b}:${cause}`); return null; },
 }));
 
@@ -34,7 +35,7 @@ function world(b: BlocId = 'EUN', sov: Sov = {}, high = 0): CbWorld {
   Object.assign(w.ctx, { rng: () => ({ next: () => { draws++; return script.shift() ?? 0.5; }, normal: () => 0 }) });
   return w;
 }
-const bloc = (w: CbWorld, b: BlocId = 'EUN') => w.rows(macroTables.bloc.name).find((e) => (e as { id: string }).id === b) as { sovereign: { status: string; defaultCase?: SovereignDefaultCase }; fiscal: { debt: bigint }; shocks: { target: string; value: number; endTick: number; halfLifeDays?: number; shape: string }[]; highSpreadTradingDays: number };
+const bloc = (w: CbWorld, b: BlocId = 'EUN') => w.rows(macroTables.bloc.name).find((e) => (e as { id: string }).id === b) as { sovereign: { status: string; defaultCase?: SovereignDefaultCase }; fiscal: { debt: bigint }; shocks: { target: string; value: number; endTick: number; halfLifeDays?: number; shape: string }[]; highSpreadTradingDays: number; fx: { fxServicePending?: boolean } };
 const offerOf = (w: CbWorld): ExchangeOffer => bloc(w).sovereign.defaultCase!.offers.at(-1)!;
 let k = 0;
 const vote = (w: CbWorld, actorId: Id, v: 'ACCEPT' | 'REJECT', offerId = offerOf(w).id) =>
@@ -94,8 +95,15 @@ describe('checkDefaultTriggers', () => {
     w.cash['gov_SRL:SRL'] = F(1e9);
     Object.assign(stub, { reserves: F(3e9), imports: F(1.5e9) });
     expect(checkDefaultTriggers(w.ctx, 'SRL', ports)).toBe('FX_SERVICE');
+    expect(bloc(w, 'SRL').fx.fxServicePending).toBe(true);
+    expect(stub.opened).toEqual([]);
     stub.agree = true;
     expect(checkDefaultTriggers(w.ctx, 'SRL', ports)).toBeNull();
+    expect(stub.opened).toEqual(['SRL:FX_SERVICE']);
+    stub.reserves = F(4e9);
+    expect(checkDefaultTriggers(w.ctx, 'SRL', ports)).toBeNull();
+    expect(bloc(w, 'SRL').fx.fxServicePending).toBe(false);
+    expect(stub.opened.length).toBe(1);
   });
 });
 function w2debt(w: CbWorld, b: BlocId, d: number): void { const r = bloc(w, b) as unknown as { fiscal: object }; w.put(macroTables.bloc.name, { ...r, fiscal: { ...r.fiscal, debtGdp: d } } as never); }

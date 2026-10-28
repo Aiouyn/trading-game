@@ -11,7 +11,7 @@ import { priceFromYieldLocal } from './bondMath';
 import { tradingDaysOfPeriod } from './calendar';
 import { nsZero } from './nelsonSiegel';
 import { blocRow, govLines, latestCase, saveCase } from './sovCase';
-import { concordActive, openConcord } from './t0414Stubs';
+import { concordActive, openConcord } from './concord';
 
 /** h = clamp(1 − (d* + 0.20)/debtGdp, 0.20, 0.60). */
 export function haircut(debtGdp: number, dStar: number): number {

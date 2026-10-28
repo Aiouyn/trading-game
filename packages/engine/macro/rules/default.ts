@@ -8,7 +8,8 @@ import { macroTables, type BlocId, type CentralBank, type HookCall, type Soverei
 import { S } from '../streams';
 import { closeOffer, openOffer, tallyOffer } from './restructuring';
 import { blocRow, govLines, latestCase, payments, saveCase } from './sovCase';
-import { canAgreeConcord, concordActive, fxReservesFdl, importsMonthFdl } from './t0414Stubs';
+import { canAgreeConcord, concordActive, openConcord } from './concord';
+import { fxReservesFdl, importsMonthFdl } from './fxReserves';
 
 export type DefaultTrigger = SovereignDefaultCase['trigger'];
 
@@ -54,7 +55,13 @@ export function checkDefaultTriggers(ctx: PhaseCtx, b: BlocId, ports: MacroPorts
   const cb = s.get<CentralBank>(macroTables.cb.name, cbkId(b));
   if (failedRolloverTrigger({ failed21d: sov.failedAuctions21d, cashBuffer: ctx.ledger.cash(gov, b), maturities21d: maturities,
     backstopAvailable: !(b === 'EUN' && !concordActive(s, b)), backstopExhausted: !cb?.backstop })) return 'FAILED_ROLLOVER';
-  if (fdlDue > 0n && fxServiceTrigger({ fdlServiceDue21d: fdlDue, reservesFdl: fxReservesFdl(s, b, ports), importsMonthFdl: importsMonthFdl(s, b), concordAgreeable: canAgreeConcord(s, b) })) return 'FX_SERVICE';
+  const x = { fdlServiceDue21d: fdlDue, reservesFdl: fdlDue > 0n ? fxReservesFdl(s, b, ports) : 0n, importsMonthFdl: fdlDue > 0n ? importsMonthFdl(s, b) : 0n, concordAgreeable: false };
+  const short = fdlDue > 0n && fxServiceTrigger(x);   // T04-14: a shortfall marks FX service pending (a Concord crisis condition)
+  if (short !== !!bloc.fx?.fxServicePending) s.put(macroTables.bloc.name, { ...bloc, highSpreadTradingDays: high, fx: { ...bloc.fx, fxServicePending: short } });
+  if (short) {
+    if (!canAgreeConcord(s, b)) return 'FX_SERVICE';
+    openConcord(ctx, b, 'FX_SERVICE');
+  }
   if (politicalTrigger(b, { politicalDecision: ports.world.politicalDefault(s, b), debtGdp: bloc.fiscal.debtGdp, highSpreadTradingDays: high })) return 'POLITICAL';
   return u < hazardDrawProbability(sov.hazard) ? 'HAZARD' : null;
 }
