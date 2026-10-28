@@ -36,6 +36,9 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
 }`;
 
+/** Studio AC5 ruling 2: shadow mix on material walls, the floor of the ruling (.25 to .42); see evidence/city-card2/ac5-shadow.ts */
+export const MAT_SHADOW_MIX = 0.25;
+
 export const PART_FRAG = /* glsl */ `
 uniform vec3 uKey;
 uniform vec3 uFill;
@@ -95,6 +98,14 @@ vec3 material(int id, vec3 wall) {
   }
   return c + (trim - c) * min(1.0, t * uPatK);
 }
+// OKLab L under a pure 2.4 gamma; scaling sRGB by k scales it by k^0.8
+float okL(vec3 c) {
+  vec3 q = pow(max(c, vec3(0.0)), vec3(2.4));
+  float l = pow(max(dot(q, vec3(0.4122214708, 0.5363325363, 0.0514459929)), 1e-9), 1.0 / 3.0);
+  float m = pow(max(dot(q, vec3(0.2119034982, 0.6806995451, 0.1073969566)), 1e-9), 1.0 / 3.0);
+  float s = pow(max(dot(q, vec3(0.0883024619, 0.2817188376, 0.6299787005)), 1e-9), 1.0 / 3.0);
+  return 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+}
 float h21(vec2 p) { p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }
 void main() {
   // cut-away: dithered so it can fade in; uCutK = 1 is a full cut (instant under reduced motion)
@@ -112,7 +123,9 @@ void main() {
   else if (top) c = mix(vColor, uTop, 0.55);
   else if (id > 0) {
     vec3 w = material(id, vColor);
-    c = lit ? mix(w, uKey, uKeyK) * 1.12 : mix(w, uShadow, 0.42);
+    // AC5 ruling 2a: keep the wall's hue and chroma ratio, reach the lit/shadow lightness by scaling w
+    vec3 target = lit ? mix(w, uKey, uKeyK) * 1.12 : mix(w, uShadow, ${MAT_SHADOW_MIX.toFixed(2)});
+    c = w * pow(okL(target) / max(okL(w), 1e-4), 1.25);
   }
   else if (lit) c = mix(vColor, uKey, uKeyK) * 1.12;
   else c = mix(vColor, uShadow, 0.42);
