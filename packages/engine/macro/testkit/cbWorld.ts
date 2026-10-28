@@ -86,7 +86,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     cities: () => BLOC_ORDER.flatMap((b) => [0, 1, 2].map((slot) => ({ cityId: `cty_${b.toLowerCase()}_${slot}`, name: '', bloc: b, slot, cityGdpShare: 1 / 3, cycleBeta: 1 }))) };
   const ctx = { get tick() { return tick; }, phase: 'P8', params, content, newId: (k: string) => `${k}_${n++}`, store, ledger, holds: hb,
     emit: (kind: string, subjectIds: Id[], payload: unknown, vis: string, partyIds?: Id[]) => {
-      if (kind.startsWith('macro.sov.')) MACRO_EVENTS[kind]!.parse(payload);   // strict T04-01 payload schemas
+      if (/^macro\.(sov|fx|csf)\./.test(kind)) MACRO_EVENTS[kind]!.parse(payload);   // strict T04-01 payload schemas
       events.push({ kind, subjectIds, payload, vis, ...(partyIds ? { partyIds } : {}) }); },
     send: (to: Id, kind: string, body: unknown) => { sent.push({ to, kind, body }); },
     inbox: (kind?: string) => inbox.filter((m) => kind === undefined || m.kind === kind) } as unknown as PhaseCtx;

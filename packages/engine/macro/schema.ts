@@ -314,6 +314,11 @@ export interface FxState {
   capitalControlsUntilTick?: Tick;
   interventionToday: Money;
   crisisFlag: boolean;
+  // T04-14 card additions (04 leaves storage implicit)
+  capconSchedule?: { level: 0 | 1 | 2 | 3; startTick: Tick; untilTick: Tick | null; reason: string };
+  empDays?: number; breakArmed?: boolean; fxServicePending?: boolean;
+  bandC0?: number; weakEdgeDays?: number; strongEdgeDays?: number; bandToleranceWide?: boolean;
+  breakTick?: Tick; highCoreDays?: number; pegLn?: number;
 }
 
 // ───────── §2.10 crisis scheduler and crises ─────────
@@ -363,7 +368,10 @@ export interface ConcordFacility {
   lendingCapacity: Money;
   programs: { bloc: BlocId; size: Money; drawn: Money; rate: number; startTick: Tick; endTick: Tick;
               conditions: { primaryBalanceStepPerYear: number; cbIndependence: boolean; capitalControlsPhaseOutDays: number };
-              compliance: number }[];
+              compliance: number;
+              // T04-14 card additions
+              id?: string; cause?: 'BREAK_PENDING' | 'FX_SERVICE' | 'SPREAD' | 'RESTRUCTURING'; trancheTicks?: Tick[]; tranchesPaid?: number; skipped?: number;
+              repaid?: Money; accrued?: Money; pb0?: number; phaseOutTick?: Tick; closedTick?: Tick }[];
 }
 
 // ───────── additions decided by the card (04 leaves storage implicit) ─────────
