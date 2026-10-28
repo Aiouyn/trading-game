@@ -3,7 +3,7 @@
 // Storage (E-93 (2)): held hourly values live in the mac.inputs row `HOURLY` (rv21Gx, gxReturnToday, igCreditSpreadIndex; the IG
 // daily closes for the 364-day mean as `igClose.<gameDay>`), never in `INPUTS`; a null read lists the key once in HOURLY.staleKeys
 // (edge 23; T04-20 day step 1 merges and clears them). The row is put only when a value or staleKeys changed.
-import { dmath, EngineFault, isTradingDay, type Id, type PhaseCtx, type StoreRead } from '@tycoon/engine-core';
+import { dmath, EngineFault, HOLIDAYS_ENABLED_DEFAULT, isTradingDay, type Id, type PhaseCtx, type StoreRead } from '@tycoon/engine-core';
 import type { MacroPorts } from '../ports';
 import { macroTables, type DailyHistoryRow, type GlobalMacroState, type MacroInputs, type WorldEvent } from '../schema';
 
@@ -62,17 +62,17 @@ function globalRow(s: StoreRead): GlobalMacroState & { id: 'GLOBAL' } {
   if (!g) throw new EngineFault('MAC_STATE_MISSING', 'no mac.global GLOBAL row (written at genesis, T04-20)', ['GLOBAL']);
   return g;
 }
-/** E-93 (3): the GLOBAL history day 63 trading days (FDL calendar, holidays default off) before the latest closed trading day
+/** E-93 (3): the GLOBAL history day 63 trading days (FDL calendar, the caller's holidays flag) before the latest closed trading day
  *  (the last trading day before today); null when that day would precede genesis. */
-function r63Day(today: number): number | null {
+function r63Day(today: number, holidays: boolean): number | null {
   let d = today - 1;
-  while (d >= 0 && !isTradingDay('FDL', d)) d--;
-  for (let n = 0; n < R63_TRADING_DAYS && d >= 0; n++) { d--; while (d >= 0 && !isTradingDay('FDL', d)) d--; }
+  while (d >= 0 && !isTradingDay('FDL', d, holidays)) d--;
+  for (let n = 0; n < R63_TRADING_DAYS && d >= 0; n++) { d--; while (d >= 0 && !isTradingDay('FDL', d, holidays)) d--; }
   return d >= 0 ? d : null;
 }
 
 /** P2 at each game hour: inputs (held on miss), F ← stepFear(F, fearRaw), RA; writes mac.global and emits macro.fear PUBLIC. */
-export function hourlyFear(ctx: PhaseCtx, ports: MacroPorts): void {
+export function hourlyFear(ctx: PhaseCtx, ports: MacroPorts, holidays: boolean = HOLIDAYS_ENABLED_DEFAULT): void {
   const s = ctx.store;
   const g = globalRow(s);
   const h = hourlyRow(s);
@@ -92,11 +92,13 @@ export function hourlyFear(ctx: PhaseCtx, ports: MacroPorts): void {
     for (let d = day - IG_WINDOW_DAYS + 1; d <= day; d++) { const v = h.row.values[igCloseKey(d)]; if (v !== undefined) { sum += v; n++; } }
     if (n > 0 && sum > 0) csi = ig / (sum / n);
   }
-  // r63 (E-93 (3)): GX level now vs DailyHistoryRow.equityIndex 63 trading days back; 0 until that row exists
+  // r63 (E-93 (3)): GX level now vs DailyHistoryRow.equityIndex 63 trading days back; 0 until that row exists. Once it exists a null
+  // GX level holds the last r63 in HOURLY.gxReturn63d and lists it stale (#72 (c)); never held → 0.
   const lvl = ports.markets.gxLevel(s);
-  const d63 = r63Day(day);
+  const d63 = r63Day(day, holidays);
   const past = d63 === null ? null : s.get<DailyHistoryRow>(macroTables.history.name, `GLOBAL:${d63}`)?.equityIndex ?? null;
-  const r63 = lvl !== null && lvl !== undefined && past !== null && past > 0 ? lvl / past - 1 : NEUTRAL.gxReturn63d;
+  const r63 = past === null || past <= 0 ? NEUTRAL.gxReturn63d
+    : holdKey(h, 'gxReturn63d', lvl === null || lvl === undefined ? null : lvl / past - 1) ?? NEUTRAL.gxReturn63d;
 
   const x: FearInputs = {
     rv21Gx: holdKey(h, 'rv21Gx', ports.markets.rv21Gx(s)) ?? NEUTRAL.rv21Gx,
