@@ -1,8 +1,16 @@
-// T04-07 (04 §3.7.3, §3.7.4, §3.7.6, §3.7.7) pure curve pieces T04-09 needs: OIS from the expected path, term premium, breakevens,
-// cross-currency basis. The curve build (buildCurve / recomputeCurve) is not here yet (MISSING EXPORT: T04-18 activeShockSum, T04-20 inputSnapshot).
-import { dmath } from '@tycoon/engine-core';
+// T04-07 (04 §3.7) curves: market belief ĥ, expected path, OIS, term premium, government curve and NS fits, breakevens, basis, and
+// recomputeCurve (reads mac.* rows, upserts mac.curve and the curve block of mac.public_view). No randomness.
+import { cbkId } from '@tycoon/engine-ledger';
+import { dmath, EngineFault, type ParamsView, type PhaseCtx, type Tick } from '@tycoon/engine-core';
 import { BLOC_DEFAULTS } from '../blocs';
-import type { BlocId } from '../schema';
+import { macroTables, type ActiveShock, type BlocId, type BlocMacroState, type CentralBank, type CurvePoint, type CurveState, type GlobalMacroState,
+  type PublicMacroView, type SovereignCreditState } from '../schema';
+import { coeffsFromHawk, publishedData, ruleRate, type PublishedData } from './cb';
+import { dots } from './guidance';
+import { nsFit } from './nelsonSiegel';
+import { sovSpread } from './sovCredit';
+import { swapLineActive } from './swapLines';
+import { shockValueAt } from './trade';
 
 export const CURVE_NODES = Object.freeze([0.25, 0.5, 1, 2, 5, 10, 30] as const);
 type Path = Record<1 | 2 | 4 | 8, number>;
@@ -47,4 +55,76 @@ export function crossCurrencyBasis(b: BlocId, fsi: number, swapLineActive: boole
   if (b === 'FDL') return 0;
   const raw = b === 'SRL' ? -(0.003 + 0.015 * fsi) : -(0.0005 + 0.006 * Math.max(0, fsi - 0.3));
   return swapLineActive ? Math.max(raw, -0.0025) : raw;
+}
+
+export type CurveRecomputeReason = 'RELEASE' | 'CB_GUIDANCE' | 'CB_DECISION' | 'CB_MINUTES' | 'RATING_ACTION' | 'FX_REGIME' | 'DAY_CLOSE';
+type Dot = { horizonQuarters: 1 | 2 | 4 | 8; rate: number };
+/** macro_ns_lambda 1.8, macro_irp 0.002, macro_sov_lgd 0.6 (E-100; the T23 param rows are not registered yet). */
+export const NS_LAMBDA = 1.8, IRP = 0.002, SOV_LGD = 0.6;
+
+/** g(h) = iPrev + ρ(i*(h) − iPrev) − iNew; opposite signs at 0 and 1 (or a zero) → 40 halvings, the final midpoint; else the endpoint
+ *  with the smaller |g| (0 on ties). */
+export function impliedHawk(iPrev: number, iNew: number, rStarCb: number, d: PublishedData, target: number, nairu: number, b: BlocId,
+  mandate: CentralBank['mandate'], p: ParamsView): number {
+  const g = (h: number): number => { const c = coeffsFromHawk(b, h, mandate, p); return iPrev + c.rho * (ruleRate(rStarCb, d, target, nairu, b, c).iStar - iPrev) - iNew; };
+  let lo = 0, hi = 1, glo = g(0);
+  const ghi = g(1);
+  if (glo * ghi > 0) return Math.abs(ghi) < Math.abs(glo) ? 1 : 0;
+  for (let k = 0; k < 40; k++) {
+    const m = (lo + hi) / 2, gm = g(m);
+    if (glo * gm <= 0) hi = m; else { lo = m; glo = gm; }
+  }
+  return (lo + hi) / 2;
+}
+export function stepHHat(hHat: number, hawkImplied: number): number { return hHat + 0.2 * (hawkImplied - hHat); }
+/** E_h = cred·dots_h + (1 − cred)·model_h, h ∈ {1, 2, 4, 8}; a horizon missing on one side takes the other's rate. */
+export function marketPath(cred: number, dotsPath: Dot[], modelPath: Dot[]): Dot[] {
+  return ([1, 2, 4, 8] as const).map((h) => {
+    const dd = dotsPath.find((x) => x.horizonQuarters === h)?.rate, mm = modelPath.find((x) => x.horizonQuarters === h)?.rate;
+    const dv = dd ?? mm, mv = mm ?? dd;
+    if (dv === undefined || mv === undefined) throw new EngineFault('MAC_STATE_MISSING', `marketPath: no rate at ${h}q`);
+    return { horizonQuarters: h, rate: cred * dv + (1 - cred) * mv };
+  });
+}
+
+export interface CurveBuildInputs { b: BlocId; i: number; cred: number; dotsPath: Dot[]; modelPathRates: Dot[]; rStarCb: number; piE1: number; piE5: number;
+  tp: TermPremiumInputs; sov: SovereignCreditState; liq: number; conv: number; fsi: number; swapLineActive: boolean; hHat: number; inversionDays: number; p: ParamsView }
+/** y(τ) = OIS(τ) + TP(τ) + s_sov(τ) + liq − conv at each node; NS fits of the govt, OIS and real (y − breakeven) nodes; TP10, breakevens, basis. */
+export function buildCurve(x: CurveBuildInputs, tick: Tick): CurveState {
+  const mi = marketPath(x.cred, x.dotsPath, x.modelPathRates), nInf = nInfinity(x.rStarCb, x.piE5), tp10 = termPremium10(x.tp);
+  const E: Path = { 1: mi[0]!.rate, 2: mi[1]!.rate, 4: mi[2]!.rate, 8: mi[3]!.rate };
+  const ois: CurvePoint[] = [], nodes: CurvePoint[] = [], breakeven: CurvePoint[] = [], real: CurvePoint[] = [];
+  for (const tau of CURVE_NODES) {
+    const o = oisZero(tau, x.i, E, nInf), y = o + termPremiumAt(tp10, tau) + sovSpread(tau, x.sov.hazard, SOV_LGD) + x.liq - x.conv, be = breakevenAt(tau, x.piE1, x.piE5, IRP);
+    ois.push({ tenorYears: tau, yield: o }); nodes.push({ tenorYears: tau, yield: y }); breakeven.push({ tenorYears: tau, yield: be }); real.push({ tenorYears: tau, yield: y - be });
+  }
+  return { id: x.b, tick, hHat: x.hHat, marketImplied: mi, nInf, nodes, ois, ns: nsFit(nodes, NS_LAMBDA), nsOis: nsFit(ois, NS_LAMBDA), nsReal: nsFit(real, NS_LAMBDA),
+    tp10, breakeven, basis: crossCurrencyBasis(x.b, x.fsi, x.swapLineActive), inversionDays: x.inversionDays };
+}
+
+/** Σ of the bloc's active `target` shocks at `tick` (stand-in for T04-18 activeShockSum, MISSING EXPORT; shapes per T04-18 step 4). */
+export function blocShockSum(shocks: readonly ActiveShock[], target: string, tick: Tick): number {
+  let sum = 0;
+  for (const sh of shocks) if (sh.target === target) sum += shockValueAt(sh, tick);
+  return sum;
+}
+/** Reads mac.cb, mac.bloc, mac.global, mac.public_view and the previous curve (ĥ 0.5 and 0 inversion days at genesis), builds and upserts
+ *  mac.curve and the curve block of mac.public_view. `reason` only names the trigger (§3.7.1). */
+export function recomputeCurve(ctx: PhaseCtx, b: BlocId, _reason: CurveRecomputeReason): CurveState {
+  const s = ctx.store, cb = s.get<CentralBank>(macroTables.cb.name, cbkId(b)), st = s.get<BlocMacroState>(macroTables.bloc.name, b);
+  const g = s.get<GlobalMacroState>(macroTables.global.name, 'GLOBAL');
+  if (!cb || !st || !g) throw new EngineFault('MAC_STATE_MISSING', `recomputeCurve ${b}`, [b]);
+  const prev = s.get<CurveState>(macroTables.curve.name, b), view = s.get<PublicMacroView & { id: BlocId }>(macroTables.publicView.name, b);
+  const d0 = BLOC_DEFAULTS[b], rStarCb = st.rStar + cb.rStarBias, hHat = prev?.hHat ?? 0.5, data = publishedData(s, b);
+  const modelPathRates = dots(cb.policyRate, rStarCb, data, d0.inflationTarget, d0.nairu, b, coeffsFromHawk(b, hHat, cb.mandate, ctx.params), d0.elb, ctx.params);
+  const dotsPath = cb.dots.length > 0 ? (cb.dots as Dot[]) : modelPathRates;
+  const c = buildCurve({ b, i: cb.policyRate, cred: cb.credibility, dotsPath, modelPathRates, rStarCb, piE1: st.inflationExp1y, piE5: st.inflationExp5y5y,
+    tp: { b, piE5: st.inflationExp5y5y, target: d0.inflationTarget, debtGdp: st.fiscal.debtGdp, dStar: d0.debtReference, qeHoldingsGdp: view?.qeHoldingsGdp ?? 0,
+      fear: g.fearIndex, shockSum: blocShockSum(st.shocks, 'tp10', ctx.tick) },
+    sov: st.sovereign, liq: st.sovereign.liquidityPremium, conv: st.sovereign.convenienceYield, fsi: g.financialStressIndex, swapLineActive: swapLineActive(s, b),
+    hHat, inversionDays: prev?.inversionDays ?? 0, p: ctx.params }, ctx.tick);
+  s.put<CurveState>(macroTables.curve.name, c);
+  if (view) s.put(macroTables.publicView.name, { ...view, curve: c.nodes, ois: c.ois, breakeven10y: c.breakeven[5]!.yield, termPremium10y: c.tp10,
+    sovereignSpread10y: st.sovereign.spread10y, sovereignPd1y: st.sovereign.pd1y, marketImpliedPath: c.marketImplied });
+  return c;
 }

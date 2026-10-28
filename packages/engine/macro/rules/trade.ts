@@ -28,7 +28,7 @@ export function effectiveTariff(tariffBase: number, shockSum: number): number {
 }
 
 /** T04-18 step 4 shape of one shock at `tick` (STEP constant, RAMP linear from 0 to value, DECAY half-life), 0 outside [startTick, endTick). */
-function shockValueAt(sh: ActiveShock, tick: number): number {
+export function shockValueAt(sh: ActiveShock, tick: number): number {
   if (tick < sh.startTick || tick >= sh.endTick) return 0;
   if (sh.shape === 'STEP') return sh.value;
   if (sh.shape === 'RAMP') return sh.value * (tick - sh.startTick) / (sh.endTick - sh.startTick);
