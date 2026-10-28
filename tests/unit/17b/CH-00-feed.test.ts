@@ -187,7 +187,7 @@ describe("mock scenarios, intents and req ops", () => {
     expect(me.fills).toEqual([expect.objectContaining({ assetId: "MRDN", side: "BUY", qty: "100", tick: feed.tick })]);
     expect(me.positions.MRDN!.qty).toBe("100");
   });
-  it("?reject=CODE and halted assets reject", () => {
+  it("?reject=CODE rejects; a halted asset queues a market order for the reopen (E-98 (1)); oversell is MKT_NO_LOCATE (E-96 (4))", () => {
     const f = feedOf({ reject: "MKT_INSUFFICIENT_FUNDS" });
     f.submit({ assetId: "MRDN", side: "BUY", type: "market", qty: "1", tif: "day" });
     f.advance();
@@ -196,7 +196,17 @@ describe("mock scenarios, intents and req ops", () => {
     const h = feedOf({ halt: "HALC" });
     h.submit({ assetId: "HALC", side: "SELL", type: "market", qty: "1", tif: "day" });
     h.advance();
-    expect((h.body("me") as MeTradingBody).intents[0]).toMatchObject({ status: "REJECTED", rejectCode: "MKT_HALTED" });
+    const hm = h.body("me") as MeTradingBody;
+    const orderId = hm.intents[0]!.effects![0]!.replace("order:", "");
+    expect(hm.intents[0]).toMatchObject({ status: "ACCEPTED", effects: [`order:${orderId}`] });
+    expect(hm.orders[orderId]).toMatchObject({ assetId: "HALC", side: "SELL", type: "market", qty: "1", filled: "0", tif: "day", status: "QUEUED_AUCTION" });
+    expect(hm.fills).toEqual([]);
+    const o = feedOf({ empty: true });
+    o.submit({ assetId: "HALC", side: "SELL", type: "market", qty: "1", tif: "day" });
+    o.advance();
+    const om = o.body("me") as MeTradingBody;
+    expect(om.intents[0]).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LOCATE" });
+    expect(om.positions).toEqual({});
   });
   it("?empty=1 has no positions, orders, fills, news or filings", () => {
     const f = feedOf({ empty: true });
@@ -211,7 +221,11 @@ describe("mock scenarios, intents and req ops", () => {
     expect(p).toMatchObject({ valid: true, price: "42.18", impactBp: "1", fee: "16.87", computedAtTick: f.tick, firstTradeCapRemaining: null });
     expect(f.preview(draft)).toEqual(p);
     expect(f.preview({ ...draft, qty: "2000" }).impactBp).toBe("4");
-    expect(feedOf({ halt: "HALC" }).preview(draft)).toMatchObject({ valid: false, reasonCode: "MKT_HALTED" });
+    const halted = feedOf({ halt: "HALC" }).preview(draft);
+    expect(halted.valid).toBe(true);
+    expect(halted).not.toHaveProperty("reasonCode");
+    expect(feedOf({ empty: true }).preview({ ...draft, side: "SELL", qty: "1" })).toMatchObject({ valid: false, reasonCode: "MKT_NO_LOCATE" });
+    expect(f.preview({ ...draft, qty: "0" })).toMatchObject({ valid: false, reasonCode: "MKT_BAD_QTY" });
   });
   it("asset.detail exposes only public 05 §2.2 fields; candle history aligns and caps", () => {
     const f = feedOf();

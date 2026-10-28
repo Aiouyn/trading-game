@@ -42,6 +42,7 @@ test("S1-07 every unlocked built:false app opens a ComingLater window; deep link
     await page.getByTestId(`tile-${id}`).click();
     const win = page.getByTestId(`win-${id}`).first();
     if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
+    if (id === "broker") { await expect(win.getByTestId("broker")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 4 (BR-4)
     await expect(win.getByTestId("coming-later")).toContainText("Coming later");
     await expect(win.getByRole("heading")).toHaveText(await win.locator(".tb-name").innerText());
     await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);
@@ -366,8 +367,10 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
   const snap = () => page.locator("[data-testid=quay-ready]").evaluate((el) => el.outerHTML);
   // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
   await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
-  // Portfolio (built since 17B CH-00) loads its chunk behind AppSkeleton; wait until none is showing. Broker is built:false (ComingLater, no chunk).
+  // Portfolio (built since 17B CH-00) and Broker (built since UI card 4) load their chunks behind AppSkeleton; wait until
+  // none is showing, then until the Broker's channels have answered (its body leaves the loading state).
   await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
+  await expect(page.getByTestId("broker").first()).toHaveAttribute("data-state", /^(?!loading$)/);
   const base = await snap();
   for (const [i, p] of ["ink-brass", "broadsheet", "phosphor", "riviera"].entries()) {
     await page.evaluate((v) => (document.documentElement.dataset.palette = v), p);

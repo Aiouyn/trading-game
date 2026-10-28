@@ -1,0 +1,80 @@
+/* Broker ticket (UI card 4, BRK-A). Colour only for price direction (Today) and the one primary (Place). */
+.br { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-16); padding: var(--sp-16); min-width: 0; }
+.br-col { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
+/* >= 640 px window: header + holdings left, ticket 400 px right. */
+@container (min-width: 640px) { .br:not(.br-phone) { grid-template-columns: minmax(0, 1fr) 400px; } }
+
+/* Header */
+.br-head { display: flex; flex-direction: column; gap: var(--sp-8); }
+.br-title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); }
+.br-ticker { font-size: var(--fs-22); font-weight: 600; color: var(--fg); margin: 0; }
+.br-pick { display: flex; flex-direction: column; gap: var(--sp-4); }
+.br-select { min-height: var(--hit-pointer); padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-weight: 600; }
+.br-halted { color: var(--steel); }
+.br-quote { display: flex; flex-wrap: wrap; gap: var(--sp-16); align-items: flex-end; }
+.br-q { display: flex; flex-direction: column; gap: var(--sp-4); }
+.br-last { font-family: var(--font-num); font-size: var(--fs-30); color: var(--fg); white-space: nowrap; }
+.br-phone .br-last { font-size: var(--fs-22); }
+.br-today { font-family: var(--font-num); white-space: nowrap; }
+.br-hold { margin: 0; display: flex; flex-wrap: wrap; gap: 0 var(--sp-4); }
+.br-hold > span { white-space: nowrap; }
+.br-updating { margin: 0; color: var(--fg-muted); }
+
+/* Ticket */
+.br-ticket, .br-review-block, .br-ack { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
+.br-field { display: flex; flex-direction: column; gap: var(--sp-4); }
+/* Side segment, Studio #38: 28 / 44 px, --line border, hairline dividers, selected --win2 + --fg medium, no colour. */
+.br-seg { display: flex; border: 1px solid var(--line); border-radius: var(--r-input); width: fit-content; max-width: 100%; overflow: hidden; }
+.br-seg button { min-height: var(--hit-pointer); min-width: 44px; padding: 4px 12px; color: var(--fg-muted); background: transparent; overflow-wrap: anywhere; }
+.br-seg button + button { border-left: 1px solid var(--line); }
+.br-seg button[aria-pressed="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
+.br-seg button:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+.br-qty { min-height: var(--hit-pointer); width: 100%; padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-family: var(--font-num); }
+.br-qty:focus-visible, .br-select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.br-qty[readonly] { color: var(--fg-muted); }
+.br-msg, .br-kind, .br-note, .br-pending, .br-refreshing, .br-queued, .br-ack p { margin: 0; }
+.br-msg.warn { color: var(--warn); }
+.br-msg.muted, .br-note, .br-kind { color: var(--fg-muted); }
+.br-queued { color: var(--fg-muted); }
+.br-review { align-self: flex-start; }
+
+/* Estimate rows */
+.br-est { display: flex; flex-direction: column; gap: var(--sp-8); }
+.br-est-title { margin: 0; font-size: var(--fs-12_5); }
+.br-rows { display: flex; flex-direction: column; gap: var(--sp-4); margin: 0; }
+.br-row { display: flex; justify-content: space-between; gap: var(--sp-12); }
+.br-row dt { color: var(--fg-muted); }
+.br-row dd { margin: 0; white-space: nowrap; text-align: right; }
+.br-row dd .money, .br-row dd .num { white-space: nowrap; }
+/* Older than the ticker: rows greyed until the fresh preview (BR-4-05). */
+.br-est.stale, .br-est.stale .br-row dt, .br-est.stale .br-row dd, .br-est.stale .money, .br-est.stale .num { color: var(--fg-disabled); }
+
+/* Review */
+.br-review-block { border: 1px solid var(--line); border-radius: var(--r-input); padding: var(--sp-12); }
+.qs-body .br-review-block { border: 0; padding: 0; }
+.br-action { margin: 0; font-size: var(--fs-22); font-weight: 600; color: var(--fg); }
+.br-actions { display: flex; gap: var(--sp-8); justify-content: flex-end; flex-wrap: wrap; }
+.br-ack { border: 1px solid var(--line); border-radius: var(--r-input); padding: var(--sp-12); }
+.br-ack-title { font-weight: 600; color: var(--fg); }
+
+/* Loading / error */
+.br-skel { border-radius: var(--r-input); background: var(--win2); }
+.br-skel-head { height: calc(var(--fs-30) * 2.4); }
+.br-skel-ticket { height: 240px; }
+.br-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-8); }
+
+/* Phone: one column, 16 px padding, 44 px controls. */
+/* No size container on phone: it would become the containing block of the fixed review Sheet. */
+.br-phone { padding: var(--sp-16); container-type: normal; }
+.br-phone .br-seg button, .br-phone .br-qty, .br-phone .br-select, .br-phone .btn { min-height: var(--hit-touch); }
+.qs-body .br-actions .btn { min-height: var(--hit-touch); }
+@media (pointer: coarse) { .br-seg button, .br-qty, .br-select { min-height: var(--hit-touch); } }
+
+/* Text scale >= 1.5: segment stacks; rows stack label over value; amounts never wrap or truncate. */
+.br-stacked .br-seg { flex-direction: column; width: 100%; }
+.br-stacked .br-seg button { text-align: left; }
+.br-stacked .br-seg button + button { border-left: 0; border-top: 1px solid var(--line); }
+.br-stacked .br-row { flex-direction: column; gap: 0; }
+.br-stacked .br-row dd { text-align: left; }
+
+/* High contrast: data-hc raises --line, so the segment, input, select, review and ack borders above stay visible. */

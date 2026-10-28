@@ -160,7 +160,10 @@ export class MockFeed {
     this.pending = [];
     for (const { intentId, draft } of due) {
       const a = ASSET_BY_ID[draft.assetId];
-      const reject = this.scenario.reject ?? (!a ? "MKT_UNKNOWN_ASSET" : this.tradingState(draft.assetId) === "HALTED" ? "MKT_HALTED" : null);
+      // Halt (Quant E-96 (3), Producer E-98 (1)): a halted asset still takes orders; a market day order is accepted with
+      // no fill and waits for the reopen auction (QUEUED_AUCTION). Sell beyond the holding (E-96 (4)): rejected whole,
+      // MKT_NO_LOCATE (a cash-account ticket has no locate); never a negative lot.
+      const reject = this.scenario.reject ?? (!a ? "MKT_UNKNOWN_ASSET" : this.oversells(draft) ? "MKT_NO_LOCATE" : null);
       if (reject || !a) {
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "REJECTED", rejectCode: reject ?? "MKT_UNKNOWN_ASSET" }].slice(-RING_KEEP);
         continue;
@@ -169,6 +172,11 @@ export class MockFeed {
       const orderId = `o-${this.nextId++}`;
       if (draft.type !== "market") {
         this.orders = { ...this.orders, [orderId]: { orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", ...(draft.limit ? { limit: draft.limit } : {}), ...(draft.stop ? { stop: draft.stop } : {}), tif: draft.tif, status: "WORKING", placedTick: this.tick, avgPrice: fmt(0, a.displayDecimals) } };
+        this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
+        continue;
+      }
+      if (this.tradingState(a.assetId) === "HALTED") {
+        this.orders = { ...this.orders, [orderId]: { orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", tif: draft.tif, status: "QUEUED_AUCTION", placedTick: this.tick, avgPrice: fmt(0, a.displayDecimals) } };
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
         continue;
       }
@@ -340,7 +348,9 @@ export class MockFeed {
     const a = ASSET_BY_ID[draft.assetId];
     const s = a && this.assets.get(a.assetId);
     const qty = Number(draft.qty);
-    const valid = !!a && !!s && Number.isSafeInteger(qty) && qty > 0 && this.tradingState(draft.assetId) !== "HALTED";
+    // Halted stays valid: the preview reads only N-1 public data (Quant E-96 (3)). A sell beyond the holding is invalid.
+    const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
+    const valid = wellFormed && !this.oversells(draft);
     const dp = a?.displayDecimals ?? 2;
     const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
     const impactBp = valid ? IMPACT_BP(qty, a!.lot) : 0;
@@ -350,7 +360,7 @@ export class MockFeed {
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
-      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : this.tradingState(draft.assetId) === "HALTED" ? "MKT_HALTED" : "MKT_BAD_QTY" }),
+      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : "MKT_NO_LOCATE" }),
       buyingPowerAfter: fmt(this.cash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };
@@ -380,6 +390,10 @@ export class MockFeed {
       px = c;
     }
     return { bars };
+  }
+  /** A SELL for more than the account holds (E-96 (4)): a short sale of the excess, which this mock never allows. */
+  private oversells(draft: OrderDraft): boolean {
+    return draft.side === "SELL" && Number(draft.qty) > (this.lots.get(draft.assetId)?.qty ?? 0);
   }
   /** Place an order intent: logged to the shell intent log; the IntentResult (+ MyFill) lands on `me` next tick. */
   submit(draft: OrderDraft): string {

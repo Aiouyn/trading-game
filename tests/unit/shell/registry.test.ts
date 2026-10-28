@@ -38,7 +38,7 @@ describe("registry (S1-05)", () => {
     expect(a.group).toBe(group);
     expect(a.unlock.kind).toBe(unlock);
     expect([a.minW, a.minH, a.maxInstances]).toEqual([minW, minH, max]);
-    expect(a.built).toBe(["settings", "portfolio", "wire"].includes(id)); // 17B CH-00 flips portfolio/wire; Broker waits for BRK-A
+    expect(a.built).toBe(["broker", "settings", "portfolio", "wire"].includes(id)); // 17B CH-00 flips portfolio/wire; UI card 4 (BRK-A) flips Broker
   });
   it("Broker narrow form is 480; no legacy apps exist", () => {
     expect(APPS.broker.narrowMinW).toBe(480);
