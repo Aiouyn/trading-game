@@ -104,6 +104,11 @@ describe("BR-7-03 parse at the boundary", () => {
     expect(() => parseBar({ t: 31, o: "1", h: "1", l: "1", c: "1", v: "1" }, "hour")).toThrow(/span/);
     expect(parseBar({ t: 60, o: "1", h: "1", l: "1", c: "1", v: "1" }, "hour").t).toBe(60);
   });
+  it("an hour reply holding a bar off the span → badReply, not a plot with that bar", async () => {
+    const hourReq = { assetId: HALC, res: "hour" as const, from: T(0), to: T(90) };
+    const raw = { bars: [{ t: 30, o: "1", h: "1", l: "1", c: "1", v: "1" }, { t: 31, o: "1", h: "1", l: "1", c: "1", v: "1" }] };
+    expect(await loadCandles(hourReq, { candleHistory: () => raw })).toMatchObject({ ok: false, error: { kind: "badReply" } });
+  });
   it("more than 5,000 bars in one reply is rejected", () => {
     const many = { bars: Array.from({ length: 5001 }, (_, i) => ({ t: i, o: "1", h: "1", l: "1", c: "1", v: "1" })) };
     expect(() => parseHistory(many, { assetId: HALC, res: "tick", from: T(0), to: T(6000) })).toThrow(/5000/);
