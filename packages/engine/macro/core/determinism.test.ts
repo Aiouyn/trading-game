@@ -9,7 +9,10 @@ vi.mock('../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accounts
 vi.mock('../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));  // MISSING EXPORT T03-24 led.msi
 
 const yieldLoop = (): Promise<void> => new Promise((r) => { setTimeout(r, 0); });   // keeps the vitest worker RPC alive on long loops
-const DAYS = 1820;
+// Card length (1820 GD, two worlds) exceeds the 30-min per-PR budget on the CI runner (timed out at 1,800 s on 84464fd8):
+// the full card run goes to the nightly engine job (TYCOON_LONG=1, 180-min timeout), as 03#39 does; each PR runs the first game year.
+const LONG = process.env.TYCOON_LONG === '1';
+const DAYS = LONG ? 1820 : 364;
 const KINDS = ['macro.release.published', 'macro.cb.decision', 'macro.sov.auction.result'];
 const pub = (w: MacroWorld) => w.events.filter((e) => KINDS.includes(e.kind));
 
@@ -34,6 +37,6 @@ describe('04#1 determinism', () => {
     expect(b.events).toEqual(a.events);
     expect(macroRows(b)[macroTables.auction.name]).toEqual(macroRows(a)[macroTables.auction.name]);
     expect(macroRows(b)).toEqual(macroRows(a));
-  }, 1_800_000);
+  }, LONG ? 9_000_000 : 1_800_000);
 });
 const botA = sovBidBot(), botB = sovBidBot();
