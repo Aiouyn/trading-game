@@ -27,6 +27,16 @@ export interface ItemDetailProps {
   headingRef: Ref<HTMLHeadingElement>;
 }
 
+/** "Open in Broker" on screen, "Open HALC in Broker" as the name: the ticker from `openInBrokerAria` is sr-only text
+ *  inside the button, not an aria-label, so the visible words stay part of the name (WCAG 2.5.3, axe
+ *  label-content-name-mismatch). One wrapping span keeps the words a single inline run (the Button is a flex
+ *  box, whose items would each keep their edge space), so the two spaces around the sr-only span collapse to one
+ *  and the visible text is `openInBroker` (WIR-9-guards checks both locales). */
+function OpenInBrokerText({ ticker, t }: { ticker: string; t: WireStrings }) {
+  const [before, after = ""] = t.openInBrokerAria.split("{ticker}");
+  return <span>{before}<span className="sr-only">{ticker}</span>{after}</span>;
+}
+
 function Section({ label, testId, children }: { label: string; testId: string; children: ReactNode }) {
   return (
     <div className="wire-detail-section" data-testid={testId}>
@@ -71,9 +81,8 @@ export function ItemDetail({ item, t, gone, stale, updating, onBack, onClose, op
                 <li key={e.id} className="wire-asset" data-testid="wire-asset" data-id={e.id}>
                   <span className="wire-asset-label">{e.label}</span>
                   {e.kind === "asset" && (
-                    <Button variant="secondary" size="sm" className="wire-open-broker" data-testid="wire-open-broker"
-                      aria-label={fill(t.openInBrokerAria, { ticker: e.label }) ?? t.openInBroker} onClick={() => openAsset(e.id)}>
-                      {t.openInBroker}
+                    <Button variant="secondary" size="sm" className="wire-open-broker" data-testid="wire-open-broker" onClick={() => openAsset(e.id)}>
+                      <OpenInBrokerText ticker={e.label} t={t} />
                     </Button>
                   )}
                 </li>

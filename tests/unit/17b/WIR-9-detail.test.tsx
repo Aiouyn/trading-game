@@ -126,12 +126,27 @@ describe("WIR-9-02 only fields present", () => {
     expect(assets.map((a) => a.querySelector(".wire-asset-label")!.textContent)).toEqual(["HALC", "R. Okafor"]);
     expect(assets[1]!.querySelector("button")).toBeNull();
     const btn = assets[0]!.querySelector<HTMLButtonElement>("[data-testid=wire-open-broker]")!;
-    expect(btn.textContent).toBe("Open in Broker");
-    expect(btn.getAttribute("aria-label")).toBe("Open HALC in Broker");
+    expect(visible(btn)).toBe("Open in Broker");
+    expect(btn.textContent).toBe("Open HALC in Broker"); // the accessible name, from content (sr-only ticker)
+    expect(btn.hasAttribute("aria-label")).toBe(false); // no label that hides the visible words (axe label-content-name-mismatch)
     await click(btn);
     expect(host.opened).toEqual(["HALC"]);
   });
+  it("FR: Ouvrir dans Broker on screen, Ouvrir HALC dans Broker as the name", async () => {
+    await render(view(bodyAfter(0)), fakeHost(), FR);
+    await click(openBtn("n-1"));
+    const btn = el.querySelector<HTMLButtonElement>("[data-testid=wire-open-broker]")!;
+    expect(visible(btn)).toBe(FR.openInBroker);
+    expect(btn.textContent).toBe("Ouvrir HALC dans Broker");
+  });
 });
+
+/** Text a sighted user reads: sr-only spans out, whitespace collapsed as the browser lays it out. */
+function visible(n: HTMLElement): string {
+  const c = n.cloneNode(true) as HTMLElement;
+  c.querySelectorAll(".sr-only").forEach((x) => x.remove());
+  return c.textContent!.replace(/\s+/g, " ").trim();
+}
 
 describe("WIR-9-03 headline", () => {
   it("h2 equals the row's headline(); an unknown key shows the card 1 fallback, never the key", async () => {

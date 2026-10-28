@@ -47,6 +47,12 @@ describe("WIR-9-12 copy", () => {
       expect(v, p).not.toContain("'");
     }
   });
+  it("openInBrokerAria has one {ticker}; without it the words are openInBroker (the button's visible text)", () => {
+    for (const t of [EN, FR]) {
+      expect(t.openInBrokerAria.split("{ticker}")).toHaveLength(2);
+      expect(t.openInBrokerAria.replace("{ticker}", "").replace(/\s+/g, " ")).toBe(t.openInBroker);
+    }
+  });
   it("record line keeps the ints verbatim ({hits}/{resolved} slots in both)", () => {
     for (const t of [EN, FR]) expect(t.recordLine.match(/\{\w+\}/g)).toEqual(["{hits}", "{resolved}"]);
   });
