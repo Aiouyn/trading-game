@@ -21,8 +21,10 @@ function sources(dir = ROOT): string[] {
   }
   return out;
 }
-/** A put/set of mac.hookCall rows: `.put<…>(macroTables.hookCall.name` or the literal table name. */
-const HOOK_WRITE = /\.(put|set|upsert)\s*(<[^>()]*>)?\s*\(\s*(macroTables\.hookCall\.name|['"`]mac\.hookCall['"`])/;
+/** The registered table name (schema.ts: T('hook_call') → 'mac.hook_call'). */
+const HOOK_TABLE = macroTables.hookCall.name;
+/** A put/set of hook-call rows: `.put<…>(macroTables.hookCall.name` or the literal registered table name. */
+const HOOK_WRITE = new RegExp(`\\.(put|set|upsert)\\s*(<[^>()]*>)?\\s*\\(\\s*(macroTables\\.hookCall\\.name|['"\`]${HOOK_TABLE.replace(/\./g, '\\.')}['"\`])`);
 const hookCallWriters = (files: readonly string[], read: (f: string) => string): string[] =>
   files.filter((f) => HOOK_WRITE.test(read(f).replace(/\s+/g, ' '))).map((f) => relative(ROOT, f)).sort();
 
@@ -37,9 +39,11 @@ describe('AC-04-18-HOOKID', () => {
   it('(4) static: no write of mac.hookCall in packages/engine/macro outside rules/hooks.ts', () => {
     expect(hookCallWriters(sources(), (f) => readFileSync(f, 'utf8'))).toEqual(['rules/hooks.ts']);
   });
-  it('(4) the scan catches a direct put, multi-line and with a type argument', () => {
-    const fake = { 'a.ts': "s.put<HookCall>(\n  macroTables.hookCall.name, { id })", 'b.ts': "ctx.store.put('mac.hookCall', r)", 'c.ts': 'store.index(macroTables.hookCall.name, "owner", o)' } as Record<string, string>;
-    expect(hookCallWriters(Object.keys(fake).map((k) => join(ROOT, k)), (f) => fake[relative(ROOT, f)]!)).toEqual(['a.ts', 'b.ts']);
+  it('(4) the scan catches a direct put, multi-line and with a type argument, and the literal registered name', () => {
+    expect(HOOK_TABLE).toBe('mac.hook_call');
+    const fake = { 'a.ts': "s.put<HookCall>(\n  macroTables.hookCall.name, { id })", 'b.ts': "ctx.store.put('mac.hook_call', r)", 'c.ts': 'store.index(macroTables.hookCall.name, "owner", o)',
+      'd.ts': 'store.set(`mac.hook_call`, r)', 'e.ts': "ctx.store.put('mac.hookCall', r)" } as Record<string, string>;
+    expect(hookCallWriters(Object.keys(fake).map((k) => join(ROOT, k)), (f) => fake[relative(ROOT, f)]!)).toEqual(['a.ts', 'b.ts', 'd.ts']);
   });
   it('source-id grammar per writer (E-105 table) and the CSF guard', () => {
     expect(crisisWeekSourceId(42 * 168 * D)).toBe(`cwk_WORLD_${42 * 168}`);

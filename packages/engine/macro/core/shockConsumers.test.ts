@@ -20,21 +20,22 @@ const DAY = nextTrading(B, 3);
 const blocOf = (s: StoreRead, b: BlocId = B) => s.get<BlocMacroState>(macroTables.bloc.name, b)!;
 const glob = (s: StoreRead) => [...s.iter<GlobalMacroState>(macroTables.global.name)][0]!;
 type Scope = 'BLOC' | 'WORLD';
-/** target → [scope, unit value, consumer output read after the day]. */
-const CASES: [string, Scope, number, (s: StoreRead, w: MacroWorld) => number][] = [
-  ['x_target', 'BLOC', 0.01, (s) => blocOf(s).outputGapTarget],
-  ['tp10', 'BLOC', 0.01, (s) => y10(s, B)],
-  ['lambda_raw_mult', 'BLOC', 2, (s) => blocOf(s).sovereign.hazard],
-  ['z5_fear_add', 'BLOC', 10, (s) => blocOf(s).sovereign.hazard],
-  ['fx_fair_ln', 'BLOC', -0.05, (s) => blocOf(s).fx.fairValueLn],
-  ['tariff_level', 'WORLD', 0.05, (s) => glob(s).tariffLevel],
-  ['fear_add', 'WORLD', 5, (s) => glob(s).fearIndex],
-  ['fear_add', 'BLOC', 5, (s) => glob(s).fearIndex],
-  ['credit_conditions_add', 'BLOC', 0.5, (s) => blocOf(s).outputGapTarget],
-  ['interbank_add', 'WORLD', 0.05, (s) => glob(s).financialStressIndex],
-  ['capital_flow', 'BLOC', -0.5, (_s, w) => w.cb.posts.filter((p) => p.code === 'MAC_FX_CAPITAL_FLOW' && p.from === cbkId(B)).length],
-  ['pi_e1_add', 'BLOC', 0.01, (s) => blocOf(s).outputGapTarget],
-  ['pi_e1_add', 'WORLD', 0.01, (s) => blocOf(s).outputGapTarget],
+/** target → [scope, unit value, expected sign of (shocked − unshocked) per the E-104 (1) step-4 formulas, consumer output read after the day].
+ *  pi_e1_add raises π_e1 → lower real-rate gap → higher gap target; credit_conditions_add enters x̂ with +macro_x_a_c; z5_fear_add raises z5 → λ. */
+const CASES: [string, Scope, number, 1 | -1, (s: StoreRead, w: MacroWorld) => number][] = [
+  ['x_target', 'BLOC', 0.01, 1, (s) => blocOf(s).outputGapTarget],
+  ['tp10', 'BLOC', 0.01, 1, (s) => y10(s, B)],
+  ['lambda_raw_mult', 'BLOC', 2, 1, (s) => blocOf(s).sovereign.hazard],
+  ['z5_fear_add', 'BLOC', 10, 1, (s) => blocOf(s).sovereign.hazard],
+  ['fx_fair_ln', 'BLOC', -0.05, -1, (s) => blocOf(s).fx.fairValueLn],
+  ['tariff_level', 'WORLD', 0.05, 1, (s) => glob(s).tariffLevel],
+  ['fear_add', 'WORLD', 5, 1, (s) => glob(s).fearIndex],
+  ['fear_add', 'BLOC', 5, 1, (s) => glob(s).fearIndex],
+  ['credit_conditions_add', 'BLOC', 0.5, 1, (s) => blocOf(s).outputGapTarget],
+  ['interbank_add', 'WORLD', 0.05, 1, (s) => glob(s).financialStressIndex],
+  ['capital_flow', 'BLOC', -0.5, 1, (_s, w) => w.cb.posts.filter((p) => p.code === 'MAC_FX_CAPITAL_FLOW' && p.from === cbkId(B)).length],
+  ['pi_e1_add', 'BLOC', 0.01, 1, (s) => blocOf(s).outputGapTarget],
+  ['pi_e1_add', 'WORLD', 0.01, 1, (s) => blocOf(s).outputGapTarget],
 ];
 let base: MacroWorld | null = null;
 /** SRL reserves set to 10^15 µFDL before the day (the stub world has no ledger → cb.reserves sync), so a capital_flow sale has a base. */
@@ -59,10 +60,10 @@ describe('AC-04-18 every shock target has a consumer', () => {
     const local = SHOCK_TARGETS.filter((t) => !t.includes(':'));
     expect([...new Set(CASES.map((c) => c[0])), 'auction_stress'].sort()).toEqual([...local].sort());
   });
-  it.each(CASES)('%s (%s, unit %s) alone changes its consumer on the next day close', (target, scope, value, read) => {
+  it.each(CASES)('%s (%s, unit %s) alone moves its consumer in direction %s on the next day close', (target, scope, value, dir, read) => {
     const u = unshocked(), x = shocked(target, scope, value), a = read(u.store, u), b = read(x.store, x);
     expect(Number.isFinite(a) && Number.isFinite(b)).toBe(true);
-    expect(b).not.toBe(a);
+    expect(Math.sign(b - a)).toBe(dir);
   }, 120_000);
   it('fear_add 5 over 5 days: F sits 5 above the unshocked path each day (no accumulation through the stored F), and returns to it after', () => {
     const u = world(), x = world(), sh: ActiveShock = { id: 'shk_unit', target: 'fear_add', value: 5, startTick: DAY * D, endTick: (DAY + 3) * D, shape: 'STEP' };
