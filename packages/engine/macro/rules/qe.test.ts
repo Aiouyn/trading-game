@@ -116,4 +116,10 @@ describe('T04-09 04#19: QE of 10% of GDP lowers TP10 by 25 bp; CB ≤ 50% of any
     for (const l of lines) expect(lineCapRoom(position(l.assetId), l.face)).toBe(0n);
     expect(pos['g5']).toBe(lines[4]!.face / 2n);
   });
+  it('the 0.35 × GDP holdings cap clips the day: 1e9 of room left buys exactly 1e9 at par', () => {
+    const gdp = M(1e12), lines: Line[] = [{ assetId: 'g1', face: M(2e12), mat: 10 * Y }];
+    const w = cbWorld([cbRow('FDL', { qe: qe({ state: 'QE', purchasesPerMonth: M(120e9) }) })], 0);
+    w.put(macroTables.bloc.name, { id: 'FDL', nominalGdp: gdp } as never);
+    expect(dailyProgram(w.ctx.store, 'FDL', 0, ports(lines), () => M(349e9))).toEqual([{ assetId: 'g1', side: 'BUY', face: M(1e9) }]);
+  });
 });

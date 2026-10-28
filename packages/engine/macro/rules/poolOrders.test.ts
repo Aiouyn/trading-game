@@ -34,6 +34,7 @@ describe('T04-09 slices and limits', () => {
     expect(sl[0]).toBe(2n * LOT);
     expect(sl[478]).toBe(left + sl[478]!);
     expect(sliceOfDay(0n, 5)).toBe(0n);
+    expect(sliceOfDay(LOT + LOT / 2n, 1)).toBe(LOT + LOT / 2n);   // the last tick takes the non-lot remainder too
   });
   it('IOC limit fair × (1 ± 2h)', () => {
     expect(iocLimit(M(1), 0.001, 'BUY')).toBe(M(1.002));
