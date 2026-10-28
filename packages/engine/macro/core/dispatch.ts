@@ -98,7 +98,8 @@ export function macroP6(ctx: PhaseCtx, ports: MacroPorts): void {
   for (const a of due) runAuction(ctx, a, ports);
 }
 
-/** P8 at t = 719. MISSING EXPORT: T04-10/T04-11 coupon and redemption settlement (06 posts them when present). */
+/** P8 at t = 719. Coupons and redemptions are not posted here: main (T04-10/11) exports only the schedule sovCase.payments and
+ *  fiscal.ts assigns payment to 06 ("06 pays coupons from the treasury"). MISSING EXPORT: 06 coupon/redemption posting. */
 export function macroP8(ctx: PhaseCtx, ports: MacroPorts): void {
   if (ctx.cal.tickOfDay !== D - 1) return;
   for (const b of BLOC_ORDER) { facilityDaily(ctx, b); postInterestOnReserves(ctx, b, ports); remitProfit(ctx, b); }
