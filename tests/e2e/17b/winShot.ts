@@ -12,12 +12,13 @@ type Run = { x: number; y: number; w: number };
 type Rounded = { x: number; y: number; width: number; height: number; r: number };
 
 /**
- * Half-width of the masked band along each corner arc: a pixel of a corner's r×r box is masked when its centre lies
- * within r ± BAND of the arc centre. The host's corner noise is antialiasing on the arc (a pixel the edge crosses has its
- * centre within √½ ≈ 0.71 of it), so the band covers it with margin and leaves the box's inside (label text) and outside
- * compared.
+ * The masked band along each corner arc: a pixel of a corner's r×r box is masked when its centre's distance d from the arc
+ * centre is in [r - inside, r + outside]. The host's corner noise is antialiasing on the arc and on the border's inner edge
+ * (r - 1): a pixel an edge crosses has its centre within √½ ≈ 0.71 of it. ± 1.5 px was the brief; the inside is 2 because
+ * the --repeat-each=5 proof caught the WIR-9 detail chip's bottom arcs 1 level off at d = r - 1.50 to r - 1.83 (filing-1440x900,
+ * window px (541,66) (543,68) (547,70) (548,70) and mirrored, r 11.6). The box's inside (a pill's label) and outside stay compared.
  */
-export const BAND = 1.5;
+export const BAND = { inside: 2, outside: 1.5 } as const;
 
 /**
  * The pixels of the band along the four corner arcs of a rounded box (none when r is 0). A corner's box is widened to the
@@ -30,7 +31,10 @@ const cornerBand = ({ x, y, width, height, r }: Rounded): [number, number][] => 
     for (const [cy, y0] of [[y + r, y], [y + height - r, y + height - r]] as const) {
       for (let py = Math.floor(y0); py < Math.ceil(y0 + r); py++) {
         for (let px = Math.floor(x0); px < Math.ceil(x0 + r); px++) {
-          if (Math.abs(Math.hypot(px + 0.5 - cx, py + 0.5 - cy) - r) <= BAND) out.push([px, py]);
+          {
+            const d = Math.hypot(px + 0.5 - cx, py + 0.5 - cy);
+            if (d >= r - BAND.inside && d <= r + BAND.outside) out.push([px, py]);
+          }
         }
       }
     }
@@ -173,7 +177,7 @@ export async function winShot(page: Page, frame: Locator, dir: string, name: str
 /**
  * Independent of maskRuns, read again from the DOM and tested pixel by pixel: a pixel is masked iff, for some rounded box
  * (the `.win` frame, each visible `rounded` control with a radius), it overlaps one of the box's r×r corners and its centre
- * is within r ± 1.5 of that corner's arc centre.
+ * is within r - 2 to r + 1.5 of that corner's arc centre.
  */
 async function expectBand(frame: Locator, rounded: Locator | undefined, runs: Run[]) {
   type Box = { x: number; y: number; right: number; bottom: number; r: number };
@@ -191,13 +195,13 @@ async function expectBand(frame: Locator, rounded: Locator | undefined, runs: Ru
       for (let px = Math.floor(b.x); px < Math.ceil(b.right); px++) {
         const xs = [px < b.x + b.r ? b.x + b.r : NaN, px + 1 > b.right - b.r ? b.right - b.r : NaN];
         const ys = [py < b.y + b.r ? b.y + b.r : NaN, py + 1 > b.bottom - b.r ? b.bottom - b.r : NaN];
-        if (xs.some((cx) => ys.some((cy) => Math.abs(Math.hypot(px + 0.5 - cx, py + 0.5 - cy) - b.r) <= 1.5))) want.add(`${px},${py}`);
+        if (xs.some((cx) => ys.some((cy) => { const d = Math.hypot(px + 0.5 - cx, py + 0.5 - cy); return d >= b.r - 2 && d <= b.r + 1.5; }))) want.add(`${px},${py}`);
       }
     }
   }
   const got = runs.flatMap(({ x, y, w }) => Array.from({ length: w }, (_, i) => `${x + i},${y}`));
   expect(got.length, "mask runs don't overlap").toBe(new Set(got).size);
-  expect(got.sort(), "masked pixels: the r ± 1.5 band along each corner arc of each rounded box").toEqual([...want].sort());
+  expect(got.sort(), "masked pixels: the r - 2 to r + 1.5 band along each corner arc of each rounded box").toEqual([...want].sort());
 }
 
 /**
