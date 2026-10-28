@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anchors, DISTRICT_MATERIALS, fnv1a32, lch, material, materialId, MATERIAL_PLAIN, partLook, RUST_BELOW, matPalette, visSeed, visSeeder, WALL_SPLIT_M, type Lch } from '@/city/art/materials';
-import { deltaE, srgbToOklab, type Rgb } from '@/city/art/color';
+import { deltaE, mixOklab, srgbToOklab, type Rgb } from '@/city/art/color';
 import { TOKEN_VARS, type Tokens } from '@/city/art/tokens';
 import { buildRamps } from '@/city/art/ramps';
 import { FLAT_BRASS, partColors } from '@/city/renderer/overlay';
@@ -160,6 +160,13 @@ describe('partColors iMat and window seed', () => {
     expect(Array.from(pc.mat)).toEqual([0, 0, 0, 0, 0, 0]);
     expect(Array.from(pc.windowSeed)).toEqual([-1, -1, -1]);
     expect(Array.from(pc.colors)).toEqual(Array.from(plain.colors));
+  });
+  it('binary overlays: matching parts highlight toward the label, the rest dim toward the water', () => {
+    const f = { ...entities[0], forSale: true } as CityEntity;
+    const pc = partColors({ ...base, entities: [f, entities[1]], overlay: 'for_sale' as const }, r);
+    const face = r.facades[0];
+    const want = [...mixOklab(face, r.label, 0.55), ...mixOklab(face, r.water, 0.35)];
+    Array.from(pc.colors.slice(0, 6)).forEach((v, i) => expect(v).toBeCloseTo(want[i], 6));
   });
 });
 
