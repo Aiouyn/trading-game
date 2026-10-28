@@ -1,6 +1,6 @@
 // T04-08 test kit: a hand-rolled PhaseCtx (as in rules/cb.test.ts) with a recording ledger and hold book, for the facility tests.
 import { roundHalfEven, type Id, type PhaseCtx, type PhaseMessage } from '@tycoon/engine-core';
-import { createParamsView, MACRO_T04_08_PARAMS } from '@tycoon/params';
+import { createParamsView, MACRO_T04_08_PARAMS, MACRO_T04_18_PARAMS } from '@tycoon/params';
 import { cbkId } from '@tycoon/engine-ledger';
 import { MACRO_EVENTS } from '../events';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
@@ -82,7 +82,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
       return ix ? (tables[t] ?? []).map((r) => r.e).filter((e) => ix.key(e) === key) : [];
     },
   };
-  const base = createParamsView(MACRO_T04_08_PARAMS), over: Record<string, number> = {};
+  const base = createParamsView([...MACRO_T04_08_PARAMS, ...MACRO_T04_18_PARAMS]), over: Record<string, number> = {};
   const params = { ...base, num: (k: string) => (k in over ? over[k]! : base.num(k)), int: (k: string) => (k in over ? over[k]! : base.int(k)) };
   const content = { sectors: () => SECTORS.map((sectorId) => ({ sectorId, name: sectorId })), swfEntityId: (b: BlocId) => `fnd_SWF_${b}`,
     cities: () => BLOC_ORDER.flatMap((b) => [0, 1, 2].map((slot) => ({ cityId: `cty_${b.toLowerCase()}_${slot}`, name: '', bloc: b, slot, cityGdpShare: 1 / 3, cycleBeta: 1 }))) };

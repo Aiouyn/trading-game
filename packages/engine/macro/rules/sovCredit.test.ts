@@ -178,6 +178,8 @@ describe('T04-07 stepSovereignCredit / igExclusionCheck (store)', () => {
     expect(hooks).toHaveLength(1);
     const a = hooks[0]!.args, qs = (a.qtyPerDay as string[]).map(BigInt);
     expect([hooks[0]!.owner, hooks[0]!.hook, a.govId, a.assetIds, a.tradingDays, a.startDay]).toEqual(['05', 'MANDATE_SELL', 'gov_FDL', ['gb_FDL_10'], 10, nextTradingDay('FDL', Math.floor(w.ctx.tick / 720))]);
+    expect(hooks[0]!.worldEventId).toBe(`igx_FDL_${Math.floor(w.ctx.tick / 720)}`);   // AC-04-18-HOOKID (1)
+    expect(hooks[0]!.worldEventId).toMatch(/^igx_[A-Z]{3}_\d+$/);
     expect(qs).toEqual([40, 34, 34, 34, 34, 34, 34, 34, 34, 34].map((l) => q(l * 1000)));   // 1,384,000 × 25% = 346 lots
     expect(st.investmentGrade).toBe(false);
     stepSovereignCredit(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BB+', 'BB+']));

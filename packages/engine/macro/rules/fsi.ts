@@ -7,6 +7,7 @@ import { dmath, EngineFault, type Id, type PhaseCtx, type StoreRead } from '@tyc
 import { BLOC_DEFAULTS } from '../blocs';
 import type { MacroPorts } from '../ports';
 import { BLOC_ORDER, macroTables, type BlocMacroState, type GlobalMacroState, type MacroInputs } from '../schema';
+import { activeShockSum } from './shocks';
 
 /** The mac.inputs `HOURLY` row (E-93 (2)), copied; written at genesis (T04-20 step 1.1), so a missing row is MAC_STATE_MISSING (E-93 (4)). */
 function hourlyRow(s: StoreRead): { row: MacroInputs; changed: boolean } {
@@ -71,6 +72,9 @@ export function hourlyFsi(ctx: PhaseCtx, ports: MacroPorts): void {
     repoHaircut = hold('repoHaircut', cr.repoHaircutIndexChange(s));
     ccpFund = hold('ccpFund', cr.ccpDefaultFundUsage(s));
   }
+  // E-104 (1) interbank_add (WORLD): input = held 07 value (0 with ports.credit null or nothing held) + Σ, before the divisor; feeds the
+  // FSI and so T04-06's trigger. Not stored: the held HOURLY value stays 07's.
+  interbank = (interbank ?? 0) + activeShockSum(s, 'interbank_add', 'WORLD', ctx.tick);
   let sovStressMax = 0;
   for (const b of BLOC_ORDER) {
     const row = s.get<BlocMacroState>(macroTables.bloc.name, b);

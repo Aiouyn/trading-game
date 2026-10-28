@@ -113,3 +113,8 @@ export const MACRO_T04_17_PARAMS: readonly ParamDef[] = Object.freeze([
   { key: 'macro_ripple_rate', type: 'num', value: 1 / 7 }, { key: 'macro_storm_rate', type: 'num', value: 1 / 91 },
   { key: 'major_precursor_min_game_days', type: 'num', value: 8 }, { key: 'major_suppression_game_days', type: 'num', value: 336 },
 ] as ParamDef[]);
+
+/** T04-18 crisis consumers (E-104 (1), (6)): κ_cf, the capital_flow share of FDL reserves per trading day. Range 0.10–0.20 (E-104 κ_cf table). */
+export const MACRO_T04_18_PARAMS: readonly ParamDef[] = Object.freeze([
+  { key: 'macro_fx_capital_flow_kappa', type: 'num', value: 0.15 },
+] as ParamDef[]);

@@ -80,6 +80,9 @@ describe('T04-14 Concord', () => {
       expect(w.posts.filter((x) => x.code === 'CSF_DISBURSE').length).toBe(paid ? 2 : 1);
       expect(p.suspended).toBe(paid ? 0 : 1);
       expect(w.rows(macroTables.hookCall.name).length).toBe(paid ? 0 : 1);
+      // AC-04-18-HOOKID (1): source id <programId>_t<k>, k = 1 for the day-91 tranche
+      if (!paid) expect((w.rows(macroTables.hookCall.name)[0] as { worldEventId: string }).worldEventId).toBe(`${p.id}_t1`);
+      if (!paid) expect(`${p.id}_t1`).toMatch(/^csf_[A-Z]{3}_\d+_t[1-9]\d*$/);
       const int = w.posts.filter((x) => x.code === 'CSF_INTEREST');
       expect(int.length).toBe(1);
       expect(Number(int[0]!.amt) / 1e6).toBeCloseTo(225e9 * 0.06 * 91 / 364, -3);

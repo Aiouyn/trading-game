@@ -47,7 +47,8 @@ describe('T04-09 04#20 YCC on the market stub', () => {
     const { closes, w } = run(FACE / 2n - 30n * ADV, 3);
     expect(closes.some((y) => y > CAP + 0.0002)).toBe(true);
     const hooks = w.rows(macroTables.hookCall.name) as HookCall[];
-    expect(hooks.map((h) => [h.owner, h.hook, h.args])).toEqual([['16', 'WIRE_ITEM', { key: 'ycc_under_pressure', bloc: 'PYN' }]]);
+    expect(hooks.map((h) => [h.owner, h.hook, h.args, h.worldEventId])).toEqual([['16', 'WIRE_ITEM', { key: 'ycc_under_pressure', bloc: 'PYN' }, `ycp_PYN_${Math.floor(hooks[0]!.createdTick / 720)}`]]);
+    expect(hooks[0]!.worldEventId).toMatch(/^ycp_[A-Z]{3}_\d+$/);   // AC-04-18-HOOKID (1)
     expect(w.qty[`${cbkId('PYN')}:pyn10`]).toBe(FACE / 2n);
   });
   it('bid = 2 × ADV, shrinks to capacity, none at zero capacity or when YCC is off', () => {

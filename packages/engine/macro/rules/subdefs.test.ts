@@ -8,7 +8,7 @@ import { SUB_DEFS, subDefOf } from './crisisCatalog';
 import { RIPPLE_COMMODITIES, storyShocks } from './shocks';
 
 const D = TICKS_PER_GAME_DAY, CHAPTERS = 271, GD = CHAPTERS * (TICKS_PER_CHAPTER / D)   // 271 × 1,344 GD ≥ 1,000 GY (364,000 GD)
-, RATE = 1 / 7 + 1 / 91;
+, RATE = 0.1505, RATE_TOL = 0.00165;   // E-104 (2): 1/7 + 1/91 less the cap, cooldown and calendar
 interface Rec { tier: string; kind: string; day: number; sub: string; sign: number | null; target: string | null }
 function run(subDefs: boolean): Rec[] {
   const w = schedWorld('subdef'), out: Rec[] = [];
@@ -30,14 +30,12 @@ const on = run(true), off = run(false);
 const within3s = (n: number, p: number, k: number): boolean => Math.abs(k - n * p) <= 3 * Math.sqrt(n * p * (1 - p));
 
 describe('AC-04-18-SUBDEF-RATE (1,000 seeded GY)', () => {
-  // The 0.154/GD clause is deferred (needs Producer erratum): the 04 §3.16 storm cooldown (7 GD), one-storm-at-a-time, the first-24-GD rule and the
-  // ripple slot cap bring the measured onset rate to 54,910 / 364,224 GD = 0.1508 (ripples 51,457 vs 52,032 nominal, storms 3,453 vs 4,002), 6.3σ under 0.154.
-  it('onsets (tier, kind, day) identical with and without sub-defs over ≥ 1,000 GY; no sub-def when disabled', () => {
+  it('onset rate 0.1505 ± 0.00165 per GD (E-104 (2)); onsets (tier, kind, day) identical with and without sub-defs over ≥ 1,000 GY; no sub-def when disabled', () => {
     expect(GD).toBeGreaterThanOrEqual(364_000);
     expect(on.length).toBe(off.length);
     expect(on.map((r) => `${r.tier}:${r.kind}:${r.day}`)).toEqual(off.map((r) => `${r.tier}:${r.kind}:${r.day}`));
     expect(off.every((r) => r.sub === 'generic')).toBe(true);
-    expect(on.length / GD).toBeLessThan(RATE);   // records the deferred clause's direction; see above
+    expect(Math.abs(on.length / GD - RATE)).toBeLessThanOrEqual(RATE_TOL);
   });
   it('each sub-def share within its kind matches its weight within 3σ', () => {
     for (const kind of ['COMMODITY_SUPPLY', 'SECTOR_SHOCK', 'CREDIT_WOBBLE'] as const) {

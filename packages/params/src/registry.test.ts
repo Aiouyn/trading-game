@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createParamsView, MACRO_E93_OPENING_PARAMS, MACRO_T04_07_PARAMS, MACRO_T04_08_PARAMS, MACRO_T04_17_PARAMS, ParamsError, TEST_PARAM_REGISTRY, type ParamsView } from './index';
+import { createParamsView, MACRO_E93_OPENING_PARAMS, MACRO_T04_07_PARAMS, MACRO_T04_08_PARAMS, MACRO_T04_17_PARAMS, MACRO_T04_18_PARAMS, ParamsError, TEST_PARAM_REGISTRY, type ParamsView } from './index';
 
 const code = (f: () => unknown): string | undefined => { try { f(); } catch (e) { return (e as ParamsError).code; } return undefined; };
 
@@ -73,5 +73,12 @@ describe('T04-17 scheduler params', () => {
     const p = createParamsView([...TEST_PARAM_REGISTRY, ...MACRO_T04_17_PARAMS]);
     expect(MACRO_T04_17_PARAMS.map((d) => [d.key, p.num(d.key)])).toEqual([['macro_major_base_rate', 3.6e-4], ['macro_major_min_gap_days', 504],
       ['macro_ripple_rate', 1 / 7], ['macro_storm_rate', 1 / 91], ['major_precursor_min_game_days', 8], ['major_suppression_game_days', 336]]);
+  });
+});
+
+describe('T04-18 crisis consumer params (E-104 (6))', () => {
+  it('macro_fx_capital_flow_kappa = 0.15', () => {
+    const p = createParamsView([...TEST_PARAM_REGISTRY, ...MACRO_T04_18_PARAMS]);
+    expect(MACRO_T04_18_PARAMS.map((d) => [d.key, p.num(d.key)])).toEqual([['macro_fx_capital_flow_kappa', 0.15]]);
   });
 });

@@ -5,12 +5,13 @@ import { recordDealerAuction } from './dealers';
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import { blocOfEntity, CSF_ID, DEALER_POOL_ID } from '../ids';
 import type { MacroPorts } from '../ports';
-import { BLOC_ORDER, macroTables, type AuctionBid, type BlocId, type BlocMacroState, type CentralBank, type ConcordFacility, type GlobalMacroState, type HookCall,
+import { BLOC_ORDER, macroTables, type AuctionBid, type BlocId, type BlocMacroState, type CentralBank, type ConcordFacility, type GlobalMacroState,
   type NpcPoolOrder, type SovAuction, type SovereignIssue } from '../schema';
 import { priceFromYieldLocal } from './bondMath';
 import { tradingDaysOfPeriod } from './calendar';
 import { isBill, linesOf, whenIssuedYield } from './issuance';
 import { iocLimit } from './poolOrders';
+import { writeHook } from './hooks';
 
 const D = TICKS_PER_GAME_DAY, LOT: Qty = 1000n * MICRO_N, STRESS_DAYS = 21, BACKSTOP_DAYS = 5;
 /** `macro_auction_noncomp_max_face` = 10,000,000 face (§3.10.3; registry row MISSING EXPORT T23). */
@@ -172,7 +173,7 @@ export function afterFailedOrWeak(ctx: PhaseCtx, b: BlocId, auction: SovAuction,
   const shocks = [...bloc.shocks, { id: `shk_auc_${auction.id}`, target: 'auction_stress', value: r.failed ? 0.15 : 0.05, startTick: tick, endTick: tick + STRESS_DAYS * D, shape: 'STEP' as const }];
   if (!r.failed) {
     s.put(macroTables.bloc.name, { ...bloc, shocks });
-    s.put<HookCall>(macroTables.hookCall.name, { id: ctx.newId('hook'), owner: '16', hook: 'WIRE_ITEM', args: { key: 'weak_auction', auctionId: auction.id }, worldEventId: '', createdTick: tick, startTick: tick + 1 });
+    writeHook(ctx, '16', 'WIRE_ITEM', { key: 'weak_auction', auctionId: auction.id }, auction.id);
     return;
   }
   const shortfall = auction.offeredFace - r.awardedFace;

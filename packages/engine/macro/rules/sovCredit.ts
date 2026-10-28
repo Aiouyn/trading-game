@@ -9,7 +9,8 @@ import { macroTables, type BlocId, type CentralBank, type CurveState, type Daily
 import { concordActive } from './concord';
 import { ruleBreachPremium } from './programs';
 import { blocRow } from './sovCase';
-import { shockValue } from './shocks';
+import { activeShockSum, shockValue } from './shocks';
+import { igExclusionSourceId, writeHook } from './hooks';
 
 export const GRADES = ['AAA', 'AA+', 'AA', 'AA-', 'A+', 'A', 'A-', 'BBB+', 'BBB', 'BBB-', 'BB+', 'BB', 'BB-', 'B+', 'B', 'B-', 'CCC', 'CC', 'C', 'D'] as const;
 
@@ -125,10 +126,8 @@ export function igExclusionCheck(ctx: PhaseCtx, b: BlocId, ports: MacroPorts): H
     assetIds.push(l.assetId);
     for (let d = 0; d < SELL_DAYS; d++) qtyPerDay.push(String((lots / 10n + (d === 0 ? lots % 10n : 0n)) * LOT));
   }
-  const tick = ctx.tick, h: HookCall = { id: ctx.newId('hook'), owner: '05', hook: 'MANDATE_SELL',
-    args: { govId: gov, assetIds, qtyPerDay, tradingDays: SELL_DAYS, startDay: nextTradingDay(b, Math.floor(tick / D)) }, worldEventId: '', createdTick: tick, startTick: tick + 1 };
-  s.put<HookCall>(macroTables.hookCall.name, h);
-  return h;
+  const tick = ctx.tick;
+  return writeHook(ctx, '05', 'MANDATE_SELL', { govId: gov, assetIds, qtyPerDay, tradingDays: SELL_DAYS, startDay: nextTradingDay(b, Math.floor(tick / D)) }, igExclusionSourceId(b, tick));
 }
 
 const hist = (ctx: PhaseCtx, b: BlocId, d: number): DailyHistoryRow | undefined => ctx.store.get<DailyHistoryRow>(macroTables.history.name, `${b}:${d}`);
@@ -155,7 +154,7 @@ export function stepSovereignCredit(ctx: PhaseCtx, b: BlocId, ports: MacroPorts)
   const politicalStability = ports.world.politicalStability(s, b) ?? sv.ratingInputs?.politicalStability ?? 0.5;
   const z = hazardZ({ b, debtGdp: f.debtGdp, dStar: d0.debtReference, rEff: face > 0 ? cw / face : d0.initialPolicyRate, gPot: bloc.potentialGrowth, target: d0.inflationTarget,
     primaryBalanceGdp: f.primaryBalanceGdp, fxDebtShare, depVsFdlYoy: now && ago && now.spotVsFdl > 0 ? ago.spotVsFdl / now.spotVsFdl - 1 : 0,
-    reserveCoverMonths: bloc.fx.reserveCoverMonths, fxRegime: bloc.fx.regime, fear: g?.fearIndex ?? 50, politicalStability, failedAuctions21d: sv.failedAuctions21d, coreInflation: bloc.coreInflation });
+    reserveCoverMonths: bloc.fx.reserveCoverMonths, fxRegime: bloc.fx.regime, fear: (g?.fearIndex ?? 50) + activeShockSum(s, 'z5_fear_add', b, tick) /* E-104 (1) */, politicalStability, failedAuctions21d: sv.failedAuctions21d, coreInflation: bloc.coreInflation });
   let mult = 1, trig = false;
   for (const sh of bloc.shocks) if (sh.target === 'lambda_raw_mult') { const v = shockValue(sh, tick); if (v !== 0) mult *= v; if (Math.floor(sh.startTick / D) === today) trig = true; }
   const post = sv.status === 'POST_RESTRUCTURING' ? Math.floor((tick - (sv.defaultCase?.resolvedTick ?? tick)) / D) : null;

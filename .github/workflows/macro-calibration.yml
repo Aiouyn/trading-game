@@ -63,9 +63,10 @@ jobs:
           name: calib-report
           path: packages/engine/macro/calib-all/report.json
   crisis:
-    # T04-18 04#36 04-measured bands: 8 kinds × 50 forced runs (about 25 min). Card asks for CI; long-run placement listed in the PR.
+    # T04-18 04#36 (E-104 (1)): 5 kinds' 04-measured bands × 50 forced runs (about 15 min), then OIL_SHOCK's 06 band × 50 runs with
+    # 364 warm-up days and the 06 reference stub (about 50 min).
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     defaults:
       run:
         working-directory: packages/engine/macro

@@ -6,12 +6,13 @@
 import { dmath, EngineFault, TICKS_PER_CHAPTER, TICKS_PER_GAME_DAY, type Id, type ParamsView, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
 import { BLOC_DEFAULTS } from '../blocs';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
-import { BLOC_ORDER, CRISIS_KINDS, macroTables, RIPPLE_KINDS, STORM_KINDS, type BlocId, type CrisisKind, type CrisisSchedulerState, type EventTier, type GlobalMacroState, type HookCall, type SubDefKey,
+import { BLOC_ORDER, CRISIS_KINDS, macroTables, RIPPLE_KINDS, STORM_KINDS, type BlocId, type CrisisKind, type CrisisSchedulerState, type EventTier, type GlobalMacroState, type SubDefKey,
   type RippleKind, type StormKind, type WorldEvent } from '../schema';
 import { S } from '../streams';
 import { utcBandOf, utcHourOfTick } from './calendar';
 import { chooseBlocs, majorWeights, STORM_EFFECT_DAYS, subDefOf } from './crisisCatalog';
 import { applyEventShocks, rippleEffect, storyShocks } from './shocks';
+import { crisisWeekSourceId, writeHook } from './hooks';
 
 const D = TICKS_PER_GAME_DAY;
 const WEEK = 168 * D;
@@ -162,9 +163,8 @@ export function schedulerDay(ctx: PhaseCtx, ports: MacroPorts = defaultMacroPort
   const tick = ctx.tick, p = ctx.params, out: WorldEvent[] = [];
   let s = schedOf(ctx.store);
   const cw = s.crisisWeek, inCw = crisisWeekActive(s, tick), c0 = chapterStartOf(tick + 1);
-  // no WorldEvent exists for a crisis week: a non-event wire item (worldEventId '', as auction/ycc/default/concord wire items), not a writeHook call
-  if (cw && cw.announcedTick === tick + 1) ctx.store.put<HookCall>(macroTables.hookCall.name, { id: ctx.newId('hook'), owner: '16', hook: 'WIRE_ITEM',
-    args: { key: 'crisis_week_announced', startTick: cw.startTick, endTick: cw.endTick }, worldEventId: '', createdTick: tick, startTick: tick + 1 });
+  // no WorldEvent exists for a crisis week: E-105 source id cwk_WORLD_<start day>
+  if (cw && cw.announcedTick === tick + 1) writeHook(ctx, '16', 'WIRE_ITEM', { key: 'crisis_week_announced', startTick: cw.startTick, endTick: cw.endTick }, crisisWeekSourceId(cw.startTick));
   // ripples
   const n = poissonInverse(d[0]!, p.num('macro_ripple_rate'));
   for (let k = 0; k < MAX_RIPPLES && k < n; k++) {

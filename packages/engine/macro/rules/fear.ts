@@ -5,7 +5,8 @@
 // (edge 23; T04-20 day step 1 merges and clears them). The row is put only when a value or staleKeys changed.
 import { dmath, EngineFault, HOLIDAYS_ENABLED_DEFAULT, isTradingDay, type Id, type PhaseCtx, type StoreRead } from '@tycoon/engine-core';
 import type { MacroPorts } from '../ports';
-import { macroTables, type DailyHistoryRow, type GlobalMacroState, type MacroInputs, type WorldEvent } from '../schema';
+import { BLOC_ORDER, macroTables, type DailyHistoryRow, type GlobalMacroState, type MacroInputs, type WorldEvent } from '../schema';
+import { activeShockSum } from './shocks';
 
 export interface FearInputs { rv21Gx: number; creditSpreadIdx: number; fsi: number; crisisTerm: number; tension: number; hackRate: number; gxReturnToday: number; gxReturn63d: number }
 
@@ -79,6 +80,7 @@ function r63Day(today: number, holidays: boolean): number | null {
   return d >= 0 ? d : null;
 }
 
+const FEAR_BASE = 'fear.base';
 /** P2 at each game hour: inputs (held on miss), F ← stepFear(F, fearRaw), RA; writes mac.global and emits macro.fear PUBLIC. */
 export function hourlyFear(ctx: PhaseCtx, ports: MacroPorts, holidays: boolean = HOLIDAYS_ENABLED_DEFAULT): void {
   const s = ctx.store;
@@ -120,7 +122,14 @@ export function hourlyFear(ctx: PhaseCtx, ports: MacroPorts, holidays: boolean =
     gxReturnToday: holdKey(h, 'gxReturnToday', ports.markets.gxReturnToday(s)) ?? NEUTRAL.gxReturnToday,
     gxReturn63d: r63,
   };
-  const F = stepFear(g.fearIndex, fearRaw(x));
+  // E-104 (1) fear_add (WORLD and every bloc): Σ is added to F after smoothing, then clamped to [0, 100]; never accumulated. While a shock
+  // is active the unshocked smoothed level is kept in HOURLY `fear.base` and smoothing continues from it; the key goes when Σ is 0 again.
+  let add = activeShockSum(s, 'fear_add', 'WORLD', ctx.tick);
+  for (const b of BLOC_ORDER) add += activeShockSum(s, 'fear_add', b, ctx.tick);
+  const Fs = stepFear(h.row.values[FEAR_BASE] ?? g.fearIndex, fearRaw(x));
+  const F = dmath.clamp(Fs + add, 0, 100);
+  if (add !== 0) { if (!Object.is(h.row.values[FEAR_BASE], Fs)) { h.row.values[FEAR_BASE] = Fs; h.changed = true; } }
+  else if (h.row.values[FEAR_BASE] !== undefined) { delete h.row.values[FEAR_BASE]; h.changed = true; }
   const RA = riskAppetite(F);
   if (h.changed) s.put(macroTables.inputs.name, { ...h.row, tick: ctx.tick });   // E-93 (2): put only on a change
   s.put(macroTables.global.name, { ...g, fearIndex: F, riskAppetite: RA });
