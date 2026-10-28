@@ -1,6 +1,7 @@
 // Broker ticket copy (UI card 4, BRK-A), EN + FR. The card's copy table is used verbatim. Keys the card does not give
 // are marked [provisional] and listed as open Studio questions in the PR: haltedQueued FR, r.MKT_NO_LOCATE,
-// r.MKT_INSUFFICIENT_BP (the engine's code for the card's MKT_INSUFFICIENT_FUNDS, Gap 3), last, today, loading.
+// last, today, loading. r.MKT_INSUFFICIENT_BP is the engine's code (05 §4.2, T05-11 step 1.8) and carries the card's
+// "insufficient funds" copy; the card's MKT_INSUFFICIENT_FUNDS was only 19 §2.3's example code.
 // updating / couldntLoad / retry / cash repeat Portfolio's existing copy so this chunk does not import Portfolio's.
 // FR typography: U+202F before "%", "pb" and ":", and inside « ».
 export type BrLocale = "en" | "fr";
@@ -53,8 +54,6 @@ const EN = {
   rejected: "Order rejected",
   rejectedCode: (code: string) => `Order rejected (${code})`,
   r: {
-    MKT_INSUFFICIENT_FUNDS: "Not enough cash for this order.",
-    /** [provisional] the engine's code (05 §4.2); same copy until Engine aligns the key (Gap 3). */
     MKT_INSUFFICIENT_BP: "Not enough cash for this order.",
     MKT_HALTED: "Trading is halted for this asset.",
     MKT_UNKNOWN_ASSET: "This asset can't be traded.",
@@ -115,7 +114,6 @@ const FR: BrStrings = {
   rejected: "Ordre refusé",
   rejectedCode: (code) => `Ordre refusé (code «${NNBSP}${code}${NNBSP}»)`,
   r: {
-    MKT_INSUFFICIENT_FUNDS: "Liquidités insuffisantes pour cet ordre.",
     MKT_INSUFFICIENT_BP: "Liquidités insuffisantes pour cet ordre.",
     MKT_HALTED: "La cotation de cet actif est suspendue.",
     MKT_UNKNOWN_ASSET: "Cet actif ne peut pas être négocié.",

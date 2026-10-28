@@ -89,7 +89,7 @@ describe("BR-4-16 strings EN/FR", () => {
       ["Cours", "Exécution est.", "Frais", "Impact est.", "Total est.", "Pouvoir d’achat après", "Plafond premier ordre restant", "Actualisation de l’estimation…", "Les cours peuvent baisser. C’est le jeu."]);
     expect([FR.pending("5"), FR.bought("40", "HALC", "12,34"), FR.sold("40", "HALC", "12,34"), FR.feeLine("0,49"), FR.received, FR.newOrder, FR.rejected]).toEqual(
       ["En attente · tick 5", "Achat de 40 HALC à 12,34", "Vente de 40 HALC à 12,34", "Frais 0,49", "Ordre reçu.", "Nouvel ordre", "Ordre refusé"]);
-    expect([FR.r.MKT_INSUFFICIENT_FUNDS, FR.r.MKT_HALTED, FR.r.MKT_UNKNOWN_ASSET, FR.r.MKT_BAD_QTY, FR.halted, FR.haltedHelp]).toEqual(
+    expect([FR.r.MKT_INSUFFICIENT_BP, FR.r.MKT_HALTED, FR.r.MKT_UNKNOWN_ASSET, FR.r.MKT_BAD_QTY, FR.halted, FR.haltedHelp]).toEqual(
       ["Liquidités insuffisantes pour cet ordre.", "La cotation de cet actif est suspendue.", "Cet actif ne peut pas être négocié.", "Vérifiez la quantité.", "Suspendu", "Les ordres sont suspendus pendant l’arrêt de la cotation."]);
   });
   it("U+202F before \"pb\" and \":\"; the unknown-code line uses « » with U+202F inside", () => {

@@ -63,6 +63,11 @@ describe("T1-06 MoneyText formatting", () => {
   it("abbreviated values keep full precision in title", () => {
     expect(html("3210000", "list")).toContain('title="$3,210,000.00"');
   });
+  it("a negative abbreviated value's title keeps the minus (QA #76 follow-up): -412,000.01 -> −$412,000.01", () => {
+    expect(html("-412000.01", "list")).toContain('title="\u2212$412,000.01"');
+    expect(html("-412000.01", "chip")).toContain('title="\u2212$412,000.01"');
+    expect(html("-412000.01", "list")).not.toContain('title="$412,000.01"');
+  });
   it("table keeps full precision", () => {
     expect(text(html("4200000000000", "table"))).toBe("$4,200,000,000,000.00");
   });

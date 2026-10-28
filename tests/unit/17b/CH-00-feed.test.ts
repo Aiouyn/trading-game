@@ -188,10 +188,10 @@ describe("mock scenarios, intents and req ops", () => {
     expect(me.positions.MRDN!.qty).toBe("100");
   });
   it("?reject=CODE rejects; a halted asset queues a market order for the reopen (E-98 (1)); oversell is MKT_NO_LOCATE (E-96 (4))", () => {
-    const f = feedOf({ reject: "MKT_INSUFFICIENT_FUNDS" });
+    const f = feedOf({ reject: "MKT_INSUFFICIENT_BP" });
     f.submit({ assetId: "MRDN", side: "BUY", type: "market", qty: "1", tif: "day" });
     f.advance();
-    expect((f.body("me") as MeTradingBody).intents[0]).toMatchObject({ status: "REJECTED", rejectCode: "MKT_INSUFFICIENT_FUNDS" });
+    expect((f.body("me") as MeTradingBody).intents[0]).toMatchObject({ status: "REJECTED", rejectCode: "MKT_INSUFFICIENT_BP" });
     expect((f.body("me") as MeTradingBody).fills).toEqual([]);
     const h = feedOf({ halt: "HALC" });
     h.submit({ assetId: "HALC", side: "SELL", type: "market", qty: "1", tif: "day" });
@@ -240,8 +240,8 @@ describe("mock scenarios, intents and req ops", () => {
 
 describe("URL scenario (build-gated)", () => {
   it("parses the documented params and ignores junk", () => {
-    expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_FUNDS&seed=9&nw=200000&pledge=HALC:40")))
-      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_FUNDS", nw: "200000", pledge: { assetId: "HALC", qty: 40 } });
+    expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_BP&seed=9&nw=200000&pledge=HALC:40")))
+      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 } });
     expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1&nw=1e9&pledge=ZZZ:4"))).toEqual(DEFAULT_SCENARIO);
     expect(scenarioFromQuery(new URLSearchParams("pledge=HALC:0")).pledge).toBeNull();
   });

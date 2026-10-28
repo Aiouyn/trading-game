@@ -6,6 +6,12 @@
 //  - Every value crossing the boundary is parsed: the draft with `orderDraft` before it leaves, the reply with
 //    `previewRes` / an intent id check when it comes back. Nothing here does arithmetic on a contract field.
 //  - The IntentResult is not returned here: it arrives on `me.intents` one tick later, as on the server.
+//  - Asset ids are opaque: the client checks only that one is not empty. The engine's ids look like `ast_EQ_ADRG`
+//    (packages/content), and an id the server does not know comes back as MKT_UNKNOWN_ASSET.
+//  - SWAP (intentId): on the real transport the client mints the intentId and sends it inside the submitted intent;
+//    core intake dedupes on intentId + actorId + nonce, and that dedupe is what the 17-AT-07 double-submit guard rests
+//    on. The mock mints it server-side and this file parses it from the submit reply (`parseIntentId`). This note
+//    changes no behaviour; 19 `req` does.
 import type { OrderDraft, PreviewRes, Side } from "./channels";
 import { orderDraft, ParseError, previewRes, str } from "./schema";
 import { getFeed } from "./useChannel";
@@ -13,18 +19,18 @@ import { getFeed } from "./useChannel";
 declare const brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [brand]: B };
 
-/** A ticker-style asset id ("HALC"). Assumed format: 1-32 of A-Z, 0-9, ".", "_", "-", starting alphanumeric. */
+/** An asset id, opaque to the client ("ast_EQ_HALC" from the engine, "HALC" in the mock). Not empty. */
 export type AssetId = Brand<string, "AssetId">;
 /** A whole-number quantity as a decimal string: digits only, not empty. Zero passes: the server answers MKT_BAD_QTY. */
 export type WholeQty = Brand<string, "WholeQty">;
 /** The id `submit` returns; its result arrives as `me.intents[].intentId`. */
 export type IntentId = Brand<string, "IntentId">;
 
-const ASSET_ID = /^[A-Z0-9][A-Z0-9._-]{0,31}$/;
 const WHOLE = /^\d+$/;
 
+/** Non-empty only: the format is the server's to judge (MKT_UNKNOWN_ASSET), not the client's. */
 export function parseAssetId(raw: string): AssetId | null {
-  return ASSET_ID.test(raw) ? (raw as AssetId) : null;
+  return raw === "" ? null : (raw as AssetId);
 }
 
 /** What the quantity box holds. The client checks the format only; every other rule is the server's `valid`. */

@@ -226,11 +226,11 @@ describe("BR-4-10 rejects", () => {
     await click(q(h, "br-place")!);
     await tick(feed);
   }
-  it("MKT_INSUFFICIENT_FUNDS: \"Order rejected\" + its copy; Edit restores the draft", async () => {
-    await placeRejected("MKT_INSUFFICIENT_FUNDS");
+  it("MKT_INSUFFICIENT_BP: \"Order rejected\" + its copy; Edit restores the draft", async () => {
+    await placeRejected("MKT_INSUFFICIENT_BP");
     expect(q(h, "br-ack")!.dataset.status).toBe("REJECTED");
     expect(text(h, "br-ack-title")).toBe(EN.rejected);
-    expect(text(h, "br-ack-reason")).toBe(EN.r.MKT_INSUFFICIENT_FUNDS);
+    expect(text(h, "br-ack-reason")).toBe(EN.r.MKT_INSUFFICIENT_BP);
     await click(q(h, "br-ack-edit")!);
     expect(broker().dataset.phase).toBe("edit");
     expect((q(h, "br-qty") as HTMLInputElement).value).toBe("40");

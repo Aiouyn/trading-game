@@ -176,7 +176,7 @@ test("S1-12 windows cannot be resized below their minimum", async ({ page }) => 
   await page.mouse.move(50, 50, { steps: 5 });
   await page.mouse.up();
   const w = await box(page, "win-broker");
-  expect([w.width, w.height]).toEqual([720, 420]);
+  expect([w.width, w.height]).toEqual([520, 420]); // Broker's minimum is 520×420 since UI card 4 (its 520 window)
 });
 
 test("S1-15 Shadow sub-palette in AI Lab and Security; Broker stays brass", async ({ page }) => {

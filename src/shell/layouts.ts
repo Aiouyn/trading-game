@@ -26,7 +26,8 @@ export const LAYOUTS_MAX_CUSTOM = 5; // ui_layouts_max
 type Placed = { pane: Pane; rect: Area; snap: SnapSlot };
 
 /** Clamped rects for a layout, or null when it cannot fit with all minimums. */
-/** Trade is not offered below this viewport width: Broker 720 + Portfolio 520 + 3 × 8 px gutters (17A T4 §3). */
+/** Trade is not offered below this viewport width (17A T4 §3: Broker 720 + Portfolio 520 + 3 × 8 px gutters). A fixed
+ *  threshold: UI card 4 lowered Broker's resize minimum to 520 but not the width Trade is designed for. */
 export const TRADE_MIN_VW = 1264;
 
 export function planLayout(def: LayoutDef, a: Area): Placed[] | null {

@@ -4,7 +4,7 @@ import { APP_NAMES } from "@/shell/strings";
 
 // S1-05: the 32 ids of 17 §2.2 in the §2 table order, plus each row of the table.
 const TABLE: [AppId, string, string, string, number, number, number][] = [
-  ["broker", "Broker", "trade", "always", 720, 420, 4], ["portfolio", "Portfolio", "trade", "always", 520, 220, 1],
+  ["broker", "Broker", "trade", "always", 520, 420, 4], ["portfolio", "Portfolio", "trade", "always", 520, 220, 1],
   ["wire", "Wire", "trade", "always", 360, 280, 1], ["messages", "Messages", "trade", "always", 420, 300, 1],
   ["markets", "Markets", "trade", "always", 420, 300, 1], ["risk", "Risk", "trade", "license", 420, 300, 1],
   ["quantlab", "Quant Lab", "trade", "rank", 420, 300, 1], ["research", "Research Desk", "trade", "rank", 420, 300, 1],

@@ -136,7 +136,7 @@ test("BR-4-08/09 Place sends one intent, shows the pending tick, then the fill; 
 });
 
 test("BR-4-10 rejected for buying power (Edit restores the draft), unknown code, and oversell rejected with MKT_NO_LOCATE copy", async ({ page }) => {
-  await open(page, "?asset=HALC&reject=MKT_INSUFFICIENT_FUNDS");
+  await open(page, "?asset=HALC&reject=MKT_INSUFFICIENT_BP");
   await qty(page, "40");
   await review(page);
   await place(page).click();
@@ -195,7 +195,7 @@ test("BR-4-12 loading, couldn't load + Retry, and stale freezes Place with Updat
   await shot(page, "stale");
 });
 
-test("BR-4-13 desktop window: default and maximised two columns, the 520 minimum is one column and nothing overflows", async ({ page }, info) => {
+test("BR-4-13 desktop window: maximised two columns; dragged to the 520 minimum it is one column and nothing overflows", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await open(page);
   const win = page.getByTestId("win-broker").filter({ has: page.getByTestId("br-ticker") }).first();
@@ -211,12 +211,9 @@ test("BR-4-13 desktop window: default and maximised two columns, the 520 minimum
   await page.mouse.down();
   await page.mouse.move(50, handle.y + 5, { steps: 5 });
   await page.mouse.up();
-  // Registry minW is 720 (narrowMinW 480 only when the desktop area is < 720), so the drag stops at 720: still two columns.
-  expect((await win.boundingBox())!.width).toBe(720);
-  await expect.poll(cols).toBe("two");
-  expect(await br(page).evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
-  // The card's 520 window (< 640, one column): force the frame width, as a narrow desktop area would allow.
-  await win.evaluate((w) => { (w as HTMLElement).style.width = "520px"; });
+  // Registry minW is 520 (UI card 4's 520 window, decision a): a real drag stops at 520, under the 640 container
+  // breakpoint, so the ticket is one column with nothing overflowing.
+  expect((await win.boundingBox())!.width).toBe(520);
   await expect.poll(cols).toBe("one");
   expect(await br(page).evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
   expect(await hits(br(page), 28)).toEqual([]);
