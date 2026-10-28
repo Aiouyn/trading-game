@@ -225,6 +225,7 @@ export interface FiscalProgram {
   startTick: Tick; endTick: Tick;
   source: 'AUTOMATIC' | 'POLITICS' | 'CRISIS_RESPONSE' | 'CONCORD_CONDITIONALITY';
   sponsorActorIds: string[];
+  breachUntilTick?: Tick;   // card addition (T04-10): passed against its fiscal rule; the 25 bp window is [until − 182·720, until)
 }
 export interface FiscalState {
   revenueGdp: number; spendingGdp: number; interestGdp: number;

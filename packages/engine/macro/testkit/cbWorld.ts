@@ -3,14 +3,19 @@ import { roundHalfEven, type Id, type PhaseCtx, type PhaseMessage } from '@tycoo
 import { createParamsView, MACRO_T04_08_PARAMS } from '@tycoon/params';
 import { cbkId } from '@tycoon/engine-ledger';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
-import { macroTables, type BlocId, type CentralBank } from '../schema';
+import { BLOC_ORDER, macroTables, type BlocId, type CentralBank } from '../schema';
+
+/** 22's 12 SectorIds (ContentView.sectors() stub; order as in the SectorId union). */
+const SECTORS = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS', 'FINANCIALS', 'HEALTH', 'STAPLES', 'DISCRETIONARY', 'REAL_ESTATE', 'MEDIA', 'SECURITY'] as const;
 
 export interface Post { op: string; from?: Id; to?: Id; amt: bigint; ccy: string; code: string; sub?: string }
 export interface Ev { kind: string; subjectIds: Id[]; payload: unknown; vis: string; partyIds?: Id[] }
 export interface HoldRow { id: Id; owner: Id; assetId?: string; amt: bigint; expires: number; ref: Id; open: boolean }
 export interface CbWorld { ctx: PhaseCtx; posts: Post[]; events: Ev[]; holds: HoldRow[]; sent: { to: Id; kind: string; body: unknown }[];
   rows(table: string): unknown[]; put(table: string, e: { id: string }): void; setTick(t: number): void; deliver(): void;
-  cash: Record<string, bigint>; qty: Record<string, bigint> }
+  cash: Record<string, bigint>; qty: Record<string, bigint>;
+  /** Overlay `params.num` keys not in the registry yet (T04-10: macro_rev_base_*, T23). */
+  nums(m: Record<string, number>): void }
 
 export function cbRow(b: BlocId, over: Partial<CentralBank> = {}): CentralBank {
   return { id: cbkId(b), bloc: b, policyRate: 0.03, reserveRequirement: 0.01, corridorHalfWidth: 0.0025, ltroOpenUntilTick: null,
@@ -36,6 +41,9 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     burn: (from: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'burn', from, amt, ccy, code }); return `e${posts.length}`; },
     fx: (a: Id, b: Id, c1: string, a1: bigint, c2: string, a2: bigint, code: string) => {
       posts.push({ op: 'fx', from: a, to: b, amt: a1, ccy: c1, code }, { op: 'fx', from: b, to: a, amt: a2, ccy: c2, code }); return `e${posts.length}`; },
+    elasticIn: (sector: Id, to: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'elasticIn', from: sector, to, amt, ccy, code }); return `e${posts.length}`; },
+    elasticOut: (from: Id, sector: Id, amt: bigint, ccy: string, code: string) => { posts.push({ op: 'elasticOut', from, to: sector, amt, ccy, code }); return `e${posts.length}`; },
+    cash: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n,
     position: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
     available: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n, availableQty: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
   };
@@ -57,12 +65,16 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
       return ix ? (tables[t] ?? []).map((r) => r.e).filter((e) => ix.key(e) === key) : [];
     },
   };
-  const ctx = { get tick() { return tick; }, phase: 'P8', params: createParamsView(MACRO_T04_08_PARAMS), newId: (k: string) => `${k}_${n++}`, store, ledger, holds: hb,
+  const base = createParamsView(MACRO_T04_08_PARAMS), over: Record<string, number> = {};
+  const params = { ...base, num: (k: string) => (k in over ? over[k]! : base.num(k)) };
+  const content = { sectors: () => SECTORS.map((sectorId) => ({ sectorId, name: sectorId })), swfEntityId: (b: BlocId) => `fnd_SWF_${b}`,
+    cities: () => BLOC_ORDER.flatMap((b) => [0, 1, 2].map((slot) => ({ cityId: `cty_${b.toLowerCase()}_${slot}`, name: '', bloc: b, slot, cityGdpShare: 1 / 3, cycleBeta: 1 }))) };
+  const ctx = { get tick() { return tick; }, phase: 'P8', params, content, newId: (k: string) => `${k}_${n++}`, store, ledger, holds: hb,
     emit: (kind: string, subjectIds: Id[], payload: unknown, vis: string, partyIds?: Id[]) => { events.push({ kind, subjectIds, payload, vis, ...(partyIds ? { partyIds } : {}) }); },
     send: (to: Id, kind: string, body: unknown) => { sent.push({ to, kind, body }); },
     inbox: (kind?: string) => inbox.filter((m) => kind === undefined || m.kind === kind) } as unknown as PhaseCtx;
   return { ctx, posts, events, holds, sent, rows: (t) => (tables[t] ?? []).map((r) => r.e), put, cash, qty,
-    setTick: (t) => { tick = t; },
+    setTick: (t) => { tick = t; }, nums: (m) => { Object.assign(over, m); },
     deliver: () => { inbox = sent.splice(0).map((s) => ({ fromEntity: 'x', toEntity: s.to, phase: 'P8', tick, kind: s.kind, body: s.body, canonicalKey: '' })); } };
 }
 
