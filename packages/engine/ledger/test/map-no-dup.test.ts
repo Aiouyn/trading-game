@@ -34,10 +34,10 @@ const DECL = FILES.map((f) => ({ rel: f.rel, text: declText(f.text) }));
 const defs = (name: string): string[] => DECL.flatMap((f) => [...f.text.matchAll(new RegExp(
   `(?<![\\w$.'"\`])(type|interface|function\\*?|const|let|var|class|enum|namespace)\\s+${name}(?![\\w$'"\`])`, 'g'))]
   .map(() => f.rel));
-/** The only definitions outside the engine with a T03-01 name: the legacy app's own, unrelated types (src/city, src/engine). Each must still
+/** The only definitions outside the engine with a T03-01 name: the legacy app's own, unrelated types (src/city, engine-staging). Each must still
  *  exist, so the list cannot go stale; nothing else is exempt. */
 const LEGACY: Record<string, string[]> = {
-  EntityKind: ['src/city/data/types.ts'], Ccy: ['src/city/data/types.ts'], Account: ['engine-staging/src/engine/types.ts', 'src/engine/types.ts'],
+  EntityKind: ['src/city/data/types.ts'], Ccy: ['src/city/data/types.ts'], Account: ['engine-staging/src/engine/types.ts'],
   // not exported: the shell's own navigation-stack entry (`type Entry = PhoneEntry | DeskEntry`), found once non-exported definitions count
   Entry: ['src/shell/back.ts'],
 };
@@ -68,7 +68,7 @@ const NOT_DEFINED = ['ENTITY_KIND_ORDER', 'CashFlowClass', 'ReasonCodeDef', 'get
 describe('AC-03-MAP-NO-DUP', () => {
   it('scans the whole repo: every top-level dir, .d.ts included, node_modules excluded', () => {
     expect(FILES.length).toBeGreaterThan(300);
-    for (const top of ['packages/engine/', 'packages/content/', 'src/city/', 'src/engine/', 'src/shell/', 'engine-staging/', 'tools/'])
+    for (const top of ['packages/engine/', 'packages/content/', 'src/city/', 'src/shell/', 'engine-staging/', 'tools/'])
       expect(FILES.some((f) => f.rel.startsWith(top)), top).toBe(true);
     expect(FILES.some((f) => f.rel.split('/').some((s) => s.startsWith('node_modules')))).toBe(false);
   });
