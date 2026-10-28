@@ -36,17 +36,24 @@ test("CH-07 desktop: tiles open each 17B app as a window", async ({ page }, info
 
 test("CH-07 Broker is built:false: ComingLater straight away, even with every new chunk request held", async ({ page }, info) => {
   await boot(page);
+  // Since #67 the desktop default layout's Portfolio window shows AppSkeleton while its own chunk loads, and Wire has
+  // its own loading state: let both settle first so only what opening Broker does is held and recorded.
+  if (info.project.name === "desktop") await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
+  await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
   // Hold every JS chunk requested from here on: a lazy body could never arrive, so whatever shows is synchronous.
   const held: string[] = [];
   await page.route("**/_next/static/chunks/**", (route) => { held.push(route.request().url()); });
   // Record any loading state that appears before ComingLater (skeleton, aria-busy, status text).
-  await page.evaluate(() => {
+  // Desktop: only inside Broker windows; phone: anywhere (Broker is the only screen opened).
+  await page.evaluate((desktop) => {
     const w = window as Window & { __brokerLoading?: string[] };
     w.__brokerLoading = [];
     new MutationObserver(() => {
-      for (const el of document.querySelectorAll('[data-testid="app-skeleton"], [aria-busy="true"]')) w.__brokerLoading!.push(el.outerHTML.slice(0, 80));
+      for (const el of document.querySelectorAll('[data-testid="app-skeleton"], [aria-busy="true"]')) {
+        if ((el as HTMLElement).dataset.app === "broker" || !desktop || el.closest('[data-testid="win-broker"]')) w.__brokerLoading!.push(el.outerHTML.slice(0, 80));
+      }
     }).observe(document.body, { subtree: true, childList: true, attributes: true });
-  });
+  }, info.project.name === "desktop");
   if (info.project.name === "phone") await page.getByTestId("icon-broker").click();
   else await page.getByTestId("tile-broker").click();
   const scope = info.project.name === "phone" ? page : page.getByTestId("win-broker").first();
