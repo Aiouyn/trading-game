@@ -1,0 +1,51 @@
+/* Broker order type + Open orders (UI card 5). No colour meaning: segment and chips are --line / --steel / --win2 only. */
+
+/* Grid: >= 640 px window, header + Open orders left, ticket right (spanning). One column otherwise: header, ticket, list. */
+@container (min-width: 640px) {
+  .br:not(.br-phone) .br-grid { grid-template-areas: "head ticket" "orders ticket"; grid-template-rows: auto 1fr; align-items: start; }
+  .br:not(.br-phone) .br-col-head { grid-area: head; }
+  .br:not(.br-phone) .br-col-ticket { grid-area: ticket; }
+  .br:not(.br-phone) .br-col-orders { grid-area: orders; }
+}
+
+/* Order type segment (#38, same look as Side). One line keeps its labels whole so overflow can be measured. */
+.br-type-seg:not(.br-seg-stack) button { flex: none; white-space: nowrap; }
+.br-seg-stack { flex-direction: column; width: 100%; }
+.br-seg-stack button { text-align: left; }
+.br-seg-stack button + button { border-left: 0; border-top: 1px solid var(--line); }
+.br-price { text-align: right; }
+.br-price-field { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* Open orders */
+.br-oo { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.br-oo-title { margin: 0; display: flex; align-items: baseline; gap: var(--sp-8); font-size: var(--fs-16); font-weight: 600; color: var(--fg); }
+.br-oo-count { font-weight: 400; color: var(--fg-muted); }
+.br-oo-empty, .br-oo-updating { margin: 0; color: var(--fg-muted); }
+.br-oo-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-8); }
+.br-oo-skel { display: flex; flex-direction: column; gap: var(--sp-4); }
+.br-oo-skel-row { height: 36px; }
+.br-oo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+/* Two lines by default (phone, < 640 px window, text scale >= 1.5): side · ticker · status / terms · qty · tick. */
+.br-oo-row {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "side ticker . chip" "terms qty . meta";
+  align-items: center; gap: var(--sp-4) var(--sp-8); min-height: 36px; padding: var(--sp-8);
+  border-bottom: 1px solid var(--line); color: var(--fg);
+}
+.br-oo-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+.br-oo-side { grid-area: side; white-space: nowrap; }
+.br-oo-ticker { grid-area: ticker; font-weight: 600; white-space: nowrap; }
+.br-oo-terms { grid-area: terms; white-space: nowrap; }
+.br-oo-qty { grid-area: qty; white-space: nowrap; }
+.br-oo-chip { grid-area: chip; justify-self: end; border-color: var(--steel); color: var(--fg); }
+.br-oo-meta { grid-area: meta; justify-self: end; white-space: nowrap; color: var(--fg-muted); font-size: var(--fs-12_5); }
+/* Desktop >= 640 px window at text scale < 1.5: one line, 36 px min. */
+@container (min-width: 640px) {
+  .br:not(.br-phone):not(.br-stacked) .br-oo-row { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; grid-template-areas: "side ticker terms qty chip meta"; }
+  .br:not(.br-phone):not(.br-stacked) .br-oo-qty { justify-self: end; }
+}
+/* The row a Place just rested: --win2 for the tick its ack lands. None under reduced motion. */
+.br-oo-row.fresh { background: var(--win2); }
+html[data-motion="reduce"] .br-oo-row.fresh { background: transparent; }
+/* High contrast: rows keep a visible border (inputs already use --line, which hc raises). */
+html[data-hc="1"] .br-oo-row { border-bottom-color: var(--fg-muted); }
+.br-phone .br-oo-row { min-height: var(--hit-touch); }

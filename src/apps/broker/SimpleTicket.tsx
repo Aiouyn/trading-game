@@ -1,6 +1,7 @@
 "use client";
-// Simple market ticket (UI card 4): side segment (#38, no colour), whole-number quantity (format check only), the fixed
-// "Market · Day" line, the server's estimate and "Review order". Nothing here creates an intent (17-AT-07).
+// Simple ticket (UI cards 4 and 5): side segment (#38, no colour), the order type slot (card 5: segment + price boxes),
+// whole-number quantity (format check only), the fixed "{Type} · Day" line, the server's estimate and "Review order".
+// Nothing here creates an intent (17-AT-07).
 import { Fragment, type ReactNode, type RefObject } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { Button } from "@/components/ui/Button";
@@ -50,12 +51,16 @@ export interface SimpleTicketProps {
   onReview: () => void;
   readOnly: boolean;
   qtyRef: RefObject<HTMLInputElement | null>;
+  /** Card 5: the order type segment and its price boxes, rendered under Side. */
+  orderType: ReactNode;
+  /** The fixed "{Type} · Day" line ("Market · Day" for market, card 4's copy). */
+  kind: string;
 }
 
-export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlur, message, preview, reviewDisabled, onReview, readOnly, qtyRef }: SimpleTicketProps) {
+export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlur, message, preview, reviewDisabled, onReview, readOnly, qtyRef, orderType, kind }: SimpleTicketProps) {
   const msgId = "br-qty-msg";
   return (
-    <section className="br-ticket" data-testid="br-ticket" aria-label={t.orderKind}>
+    <section className="br-ticket" data-testid="br-ticket" aria-label={kind}>
       <div className="br-field">
         <Label id="br-side-label">{t.side}</Label>
         <div className="br-seg" role="group" aria-labelledby="br-side-label" data-testid="br-side">
@@ -66,6 +71,7 @@ export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlu
           ))}
         </div>
       </div>
+      {orderType}
       <label className="br-field">
         <Label>{t.qty}</Label>
         <input ref={qtyRef} className="br-qty num" data-testid="br-qty" inputMode="numeric" autoComplete="off" value={qtyText} readOnly={readOnly}
@@ -73,7 +79,7 @@ export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlu
           onChange={(e) => onQty(e.target.value)} onBlur={onQtyBlur} />
       </label>
       {message && <p id={msgId} className={`br-msg ${message.tone}`} data-testid="br-qty-msg">{message.text}</p>}
-      <p className="br-kind muted" data-testid="br-kind">{t.orderKind}</p>
+      <p className="br-kind muted" data-testid="br-kind">{kind}</p>
       {preview && <PreviewRows t={t} locale={locale} res={preview} />}
       <p className="br-note muted" data-testid="br-note">{t.note}</p>
       <Button variant="secondary" className="br-review" data-testid="br-review" disabled={reviewDisabled} onClick={onReview}>{t.review}</Button>
