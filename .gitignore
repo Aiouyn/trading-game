@@ -66,3 +66,6 @@ out/
 # playwright
 /test-results/
 /playwright-report/
+
+# local auth/session/world data (M1+)
+.data/
