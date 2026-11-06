@@ -37,9 +37,41 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     });
   }
 
-  it("signed-out: create account form; submit registers and shows handle", async () => {
+  function fill(handle: string, password: string) {
+    const h = el.querySelector<HTMLInputElement>("[data-testid=account-handle-input]")!;
+    const p = el.querySelector<HTMLInputElement>("[data-testid=account-password-input]")!;
+    const setNative = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    setNative.call(h, handle);
+    h.dispatchEvent(new Event("input", { bubbles: true }));
+    setNative.call(p, password);
+    p.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  it("logged-out shows plain demo disclaimer before login", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    await mount();
+    await act(async () => { await Promise.resolve(); });
+    const d = el.querySelector("[data-testid=account-disclaimer]")?.textContent ?? "";
+    expect(d).toMatch(/account is saved/i);
+    expect(d).toMatch(/demo/i);
+    expect(d.toLowerCase()).not.toContain("server save");
+    expect(d.toLowerCase()).not.toContain("mock broker");
+  });
+
+  it("in-app short password message (noValidate)", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    await mount();
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { fill("Nova", "short"); });
+    await act(async () => { el.querySelector<HTMLFormElement>("form")!.requestSubmit(); });
+    const err = el.querySelector("[data-testid=account-error]")?.textContent ?? "";
+    expect(err).toMatch(/8/i);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/auth/register"))).toBe(false);
+  });
+
+  it("register then shows handle, $10k starter placeholder, plain disclaimer; no Owner/$412k", async () => {
     fetchMock
-      .mockResolvedValueOnce(new Response(null, { status: 401 })) // ensureBoot /me
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -62,38 +94,21 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
 
     await mount();
     await act(async () => { await Promise.resolve(); });
-    expect(el.querySelector("[data-testid=account-handle-input]")).toBeTruthy();
-    expect(el.querySelector("[data-testid=account-disclaimer]")?.textContent).toMatch(/cookie/i);
-
-    const handle = el.querySelector<HTMLInputElement>("[data-testid=account-handle-input]")!;
-    const pass = el.querySelector<HTMLInputElement>("[data-testid=account-password-input]")!;
-    await act(async () => {
-      handle.value = "Nova";
-      handle.dispatchEvent(new Event("input", { bubbles: true }));
-      pass.value = "password1";
-      pass.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    // React controlled inputs need onChange - set via native setter + input event may not update state.
-    // Use change event with value onChange path:
-    await act(async () => {
-      const setNative = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      setNative.call(handle, "Nova");
-      handle.dispatchEvent(new Event("input", { bubbles: true }));
-      setNative.call(pass, "password1");
-      pass.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-
-    await act(async () => {
-      el.querySelector<HTMLFormElement>("form")!.requestSubmit();
-    });
+    await act(async () => { fill("Nova", "password1"); });
+    await act(async () => { el.querySelector<HTMLFormElement>("form")!.requestSubmit(); });
     await act(async () => { await Promise.resolve(); });
 
-    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/auth/register"))).toBe(true);
     expect(el.querySelector("[data-testid=account-handle]")?.textContent).toBe("Nova");
-    expect(el.querySelector("[data-testid=account-cash-note]")?.textContent).toMatch(/placeholder/i);
+    const disc = el.querySelector("[data-testid=account-disclaimer]")?.textContent ?? "";
+    expect(disc).toMatch(/account is saved/i);
+    expect(disc.toLowerCase()).not.toContain("server save");
+    const starter = el.querySelector("[data-testid=account-starter]")?.textContent ?? "";
+    expect(starter).toMatch(/\$10k|10,?000|10000/);
+    expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
+    expect(el.textContent).not.toMatch(/\$412/);
   });
 
-  it("signed-in boot from /me; logout returns to form", async () => {
+  it("signed-in boot; logout returns to form with disclaimer", async () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -110,45 +125,9 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     await mount();
     await act(async () => { await Promise.resolve(); });
     expect(el.querySelector("[data-testid=account-handle]")?.textContent).toBe("Reef");
-
-    await act(async () => {
-      el.querySelector<HTMLButtonElement>("[data-testid=account-logout]")!.click();
-    });
+    await act(async () => { el.querySelector<HTMLButtonElement>("[data-testid=account-logout]")!.click(); });
     await act(async () => { await Promise.resolve(); });
     expect(el.querySelector("[data-testid=account-handle-input]")).toBeTruthy();
-  });
-
-  it("shows private error copy on failed login (no stack / password echo)", async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: { code: "BAD_CREDENTIALS", message: "Invalid handle or password." } }), {
-          status: 401,
-          headers: { "content-type": "application/json" },
-        }),
-      );
-
-    await mount();
-    await act(async () => { await Promise.resolve(); });
-
-    // switch to login mode
-    const radios = el.querySelectorAll('[data-testid=account-mode] button');
-    await act(async () => { (radios[1] as HTMLButtonElement).click(); });
-
-    const handle = el.querySelector<HTMLInputElement>("[data-testid=account-handle-input]")!;
-    const pass = el.querySelector<HTMLInputElement>("[data-testid=account-password-input]")!;
-    await act(async () => {
-      const setNative = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      setNative.call(handle, "Reef");
-      handle.dispatchEvent(new Event("input", { bubbles: true }));
-      setNative.call(pass, "password1");
-      pass.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => { el.querySelector<HTMLFormElement>("form")!.requestSubmit(); });
-    await act(async () => { await Promise.resolve(); });
-
-    const err = el.querySelector("[data-testid=account-error]")?.textContent ?? "";
-    expect(err).toMatch(/incorrect/i);
-    expect(err.toLowerCase()).not.toContain("password1");
+    expect(el.querySelector("[data-testid=account-disclaimer]")?.textContent).toMatch(/demo/i);
   });
 });

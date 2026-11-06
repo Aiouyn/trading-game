@@ -4,6 +4,8 @@ import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
 import { useShell } from "@/components/shell/ShellContext";
+import { MoneyText } from "@/components/shell/MoneyText";
+import { DEMO_STARTER_NW } from "@/shell/authChrome";
 import { authErrorCopy, type AuthClientError } from "@/shell/authClient";
 import { authSession, useAuthSession } from "@/shell/authSession";
 import { Segment } from "./controls";
@@ -39,6 +41,14 @@ export function Account() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (password.length < 8 || password.length > 128) {
+      setError(authErrorCopy({ code: "PASSWORD_WEAK", message: "", status: 400 }, locale));
+      return;
+    }
+    if (handle.trim().length < 3) {
+      setError(authErrorCopy({ code: "HANDLE_INVALID", message: "", status: 400 }, locale));
+      return;
+    }
     setBusy(true);
     try {
       if (mode === "register") await authSession.register(handle.trim(), password);
@@ -81,7 +91,11 @@ export function Account() {
           <Label id="account-signed-in">{t.accountSignedIn}</Label>
           <p className="account-handle" data-testid="account-handle">{auth.account.handle}</p>
           <p className="muted set-hint" data-testid="account-world">{t.accountWorld(auth.account.worldId)}</p>
-          <p className="muted set-hint" data-testid="account-cash-note">{t.accountCashNote}</p>
+          <p className="account-starter" data-testid="account-starter">
+            <span className="set-row-label">{t.accountStarterLabel}</span>
+            <span data-testid="account-starter-amount"><MoneyText amount={DEMO_STARTER_NW} ctx="chip" /></span>
+          </p>
+          <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
           {error ? (
             <p className="account-error" role="alert" data-testid="account-error">{error}</p>
           ) : null}
@@ -100,6 +114,7 @@ export function Account() {
       <h2 className="section-title">{t.section["SET-01"]}</h2>
       <section className="account-panel" aria-labelledby="account-form-label">
         <Label id="account-form-label">{mode === "register" ? t.accountCreate : t.accountSignIn}</Label>
+        <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
         <Segment<Mode>
           label={t.accountMode}
           value={mode}
@@ -113,7 +128,7 @@ export function Account() {
           }}
           testId="account-mode"
         />
-        <form className="account-form" onSubmit={(e) => void onSubmit(e)} aria-describedby={error ? errId : undefined}>
+        <form className="account-form" noValidate onSubmit={(e) => void onSubmit(e)} aria-describedby={error ? errId : undefined}>
           <div className="set-block">
             <label className="set-row-label" htmlFor={handleId}>{t.accountHandle}</label>
             <input
@@ -155,7 +170,6 @@ export function Account() {
             </Button>
           </div>
         </form>
-        <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
       </section>
     </div>
   );

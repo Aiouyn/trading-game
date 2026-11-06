@@ -209,3 +209,7 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .tile-phone { position: relative; width: var(--tile-phone); height: var(--tile-phone); border-radius: var(--r-card); border: 1px solid var(--line); background: var(--win); display: grid; place-items: center; color: var(--fg-muted); }
 .tile-phone.locked { color: var(--fg-disabled); }
 .tile-phone .lock-tag { position: absolute; top: 4px; right: 5px; left: auto; order: 0; color: var(--fg-muted); }
+
+/* M1-01 auth chrome */
+.strip-demo-tag { font-size: var(--fs-13); }
+.strip-account, .sb-account { cursor: pointer; border: 0; font: inherit; }

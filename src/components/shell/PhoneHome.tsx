@@ -14,6 +14,8 @@ import { HaltChip } from "./SystemOverlays";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { useNw } from "./useNw";
+import { Button } from "@/components/ui/Button";
+import { DEMO_STARTER_NW, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 const LONG_PRESS_MS = 400;
@@ -153,7 +155,10 @@ function StatusBar() {
   const clock = useShell((s) => s.channels.clock);
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const nw = useNw();
+  const mockNw = useNw();
+  const auth = useAuthChrome();
+  const signedIn = isSignedIn(auth);
+  const nw = signedIn ? DEMO_STARTER_NW : mockNw;
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
   const { day, hhmm } = clockLabel(clock);
@@ -183,7 +188,14 @@ function StatusBar() {
       <span className="num clock">{clockText}</span>
       <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
       <HaltChip halted={halted} />
-      <span className="sb-nw"><MoneyText amount={nw} ctx="chip" /></span>
+      {signedIn ? (
+        <button type="button" className="chip chip-acc sb-account" data-testid="account-chip" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>
+          {auth.account.handle}
+        </button>
+      ) : (
+        <Button variant="secondary" size="sm" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
+      )}
+      <span className="sb-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}><MoneyText amount={nw} ctx="chip" /></span>
     </header>
   );
 }
@@ -191,13 +203,16 @@ function StatusBar() {
 export function PhoneHome() {
   const vis = useShell((s) => s.vis);
   const me = useShell((s) => s.channels.me);
-  const nw = useNw();
+  const mockNw = useNw();
+  const auth = useAuthChrome();
+  const signedIn = isSignedIn(auth);
+  const nw = signedIn ? DEMO_STARTER_NW : mockNw;
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
   const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
-  const next = nextRankTarget(rank);
+  const next = signedIn ? null : nextRankTarget(rank);
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -255,12 +270,26 @@ export function PhoneHome() {
       <PhoneBannerStack />
       <main className="phone-home">
         <section className="widget" data-testid="widget">
-          <div className="widget-top"><span className="label">{S.netWorth}</span><span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span></div>
+          <div className="widget-top">
+            <span className="label">{signedIn ? S.demoBalance : S.netWorth}</span>
+            {signedIn ? (
+              <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
+            ) : (
+              <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
+            )}
+          </div>
           <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>
           <div className="widget-row">
-            <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
-            <Sparkline />
+            {signedIn ? (
+              <span className="today muted" data-testid="today">{S.demoTradingNote}</span>
+            ) : (
+              <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
+            )}
+            {!signedIn && <Sparkline />}
           </div>
+          {signedIn ? (
+            <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
+          ) : null}
           {next && (
             <>
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>

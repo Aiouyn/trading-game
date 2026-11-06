@@ -62,8 +62,8 @@ const EN = {
   accountHandle: "Handle",
   accountPassword: "Password",
   accountWorld: (worldId: string) => `World: ${worldId}`,
-  accountCashNote: "Starter cash shown here is an account placeholder only — mock Broker/Portfolio trading is not a server save yet.",
-  accountDisclaimer: "Sessions stay on this device via a secure cookie. Passwords are never shown back.",
+  accountStarterLabel: "Starter account (demo placeholder)",
+  accountDisclaimer: "Your account is saved. Trading is a demo for now; trades and balances reset.",
 };
 
 type Strings = typeof EN;
@@ -121,8 +121,8 @@ const FR: Strings = {
   accountHandle: "Pseudo",
   accountPassword: "Mot de passe",
   accountWorld: (worldId: string) => `Monde : ${worldId}`,
-  accountCashNote: "L’argent de départ affiché est un placeholder de compte — le trading mock Broker/Portfolio n’est pas encore une sauvegarde serveur.",
-  accountDisclaimer: "La session reste sur cet appareil via un cookie sécurisé. Le mot de passe n’est jamais renvoyé.",
+  accountStarterLabel: "Compte de départ (démo)",
+  accountDisclaimer: "Votre compte est enregistré. Le trading est encore une démo ; les ordres et soldes sont réinitialisés.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };

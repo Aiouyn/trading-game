@@ -83,6 +83,12 @@ export const S = {
   moneyMinus: "minus",
   moneyAbout: "about",
   moneyDollars: "dollars",
+  signIn: "Sign in",
+  account: "Account",
+  demoBalance: "Demo balance",
+  demoTradingNote: "Trading is a demo for now; trades and balances reset.",
+  starterPlaceholder: "Starter account: $10,000 (demo placeholder, not a live balance).",
+  accountSavedDemo: "Your account is saved. Trading is a demo for now; trades and balances reset.",
 } as const;
 
 
