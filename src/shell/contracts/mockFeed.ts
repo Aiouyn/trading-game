@@ -59,13 +59,16 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   /** `?filings=error|loading` (QUAY_HOOKS, card 9): the `filings` channel alone errors or never answers; every other
    *  channel follows `feed`. An errored filings sub answers the next `resync("filings")` with a snap, so an e2e proves
    *  the Wire detail's Retry asked for that channel (with `?feed=error` a resync is ignored, so Retry could not show). */
-  filings: FilingsHook }
-export type FilingsHook = "error" | "loading" | null;
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null };
+  filings: ChannelHook;
+  /** `?news=error|loading` (QUAY_HOOKS, card 10): the same for the `news` channel alone, so the Broker asset page's News
+   *  tab shows its own error / loading state while ticker and `me` stay live. */
+  news: ChannelHook }
+export type ChannelHook = "error" | "loading" | null;
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null, news: null };
 const KEEP_STATUSES: ReadonlySet<string> = new Set<OpenOrder["status"]>(["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"]);
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&filings=error|loading&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&filings=error|loading&news=error|loading&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -83,6 +86,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const cancelFill = Number(q.get("cancelFill"));
   const history = q.get("history");
   const filings = q.get("filings");
+  const news = q.get("news");
   const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
@@ -101,6 +105,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     history: history === "bad" || history === "flaky" || history === "hold" ? history : null,
     cancelFill: Number.isSafeInteger(cancelFill) && cancelFill > 0 ? cancelFill : null,
     filings: filings === "error" || filings === "loading" ? filings : null,
+    news: news === "error" || news === "loading" ? news : null,
   };
 }
 
@@ -142,9 +147,11 @@ export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number 
 const IMPACT_BP = (qty: number, lot: number) => (lot <= 0 ? 0 : qty <= lot ? 1 : qty <= lot * 5 ? 4 : qty <= lot * 20 ? 12 : 30); // fixed table
 
 type Listener = (raw: unknown) => void;
-interface Sub { ch: ChannelName; fn: Listener; seq: number; sent: unknown; count: number; snapTimer: ReturnType<typeof setTimeout> | null;
-  /** Errored by `?filings=error`: the next resync of this channel answers with a snap. */
-  recoverOnResync: boolean }
+interface Sub { ch: ChannelName; fn: Listener; seq: number; sent: unknown; count: number; snapTimer: ReturnType<typeof setTimeout> | null }
+/** QUAY_HOOKS only: subs errored by a channel hook (`?filings=error`, `?news=error`); the next resync of that channel
+ *  answers them with a snap. Null in a no-flag build, so every use below is dead code the minifier drops. */
+const hookErrored: WeakSet<Sub> | null = MOCK_HOOKS ? new WeakSet() : null;
+const channelHook = (sc: Scenario, ch: ChannelName): ChannelHook => (ch === "filings" ? sc.filings : ch === "news" ? sc.news : null);
 
 export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: boolean;
   /** The ENGINE-TBD order rules (orderPolicy.ts). Tests pass another policy to prove the mock reads it. */
@@ -464,11 +471,12 @@ export class MockFeed {
   // ---- channel transport ----
   /** Subscribe to a channel. Frames are delivered as plain JSON (a wire copy), never shared objects. */
   subscribe(ch: ChannelName, fn: Listener): () => void {
-    const filingsHook = ch === "filings" ? this.scenario.filings : null;
-    const sub: Sub = { ch, fn, seq: 0, sent: null, count: 0, snapTimer: null, recoverOnResync: filingsHook === "error" };
+    const hook = MOCK_HOOKS ? channelHook(this.scenario, ch) : null;
+    const sub: Sub = { ch, fn, seq: 0, sent: null, count: 0, snapTimer: null };
+    if (MOCK_HOOKS && hook === "error") hookErrored?.add(sub);
     this.subs.add(sub);
     if (this.autoStart) this.start();
-    const mode = filingsHook ?? this.scenario.feed;
+    const mode = hook ?? this.scenario.feed;
     if (mode !== "loading") sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
@@ -484,9 +492,9 @@ export class MockFeed {
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
     for (const s of this.subs) {
-      if (s.ch !== ch || (s.sent === null && !s.recoverOnResync)) continue;
-      s.recoverOnResync = false;
-      this.sendSnap(s);
+      if (s.ch !== ch) continue;
+      if (MOCK_HOOKS && hookErrored?.delete(s)) this.sendSnap(s);
+      else if (s.sent !== null) this.sendSnap(s);
     }
   }
   private sendSnap(sub: Sub) {

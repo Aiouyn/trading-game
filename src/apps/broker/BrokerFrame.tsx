@@ -5,7 +5,9 @@
 // Phases: edit -> review -> placed (pending until our IntentResult is on `me`, then the acked panel).
 // UI card 7: the price chart sits in the header column (PriceChart; its plot is a lazy chunk). It reads its own
 // `candles` channel, so it shows in the loading and error branches too when the asset is known.
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+// UI card 10: Trade | About under the header. About (AssetPage) replaces the ticket column in place; on phone it is a
+// pushed screen. The draft and phase live here, so switching back finds the ticket as it was.
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
@@ -15,6 +17,7 @@ import { getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
 import { PriceChart } from "@/components/market/PriceChart";
 import { AssetHeader } from "./AssetHeader";
+import { AssetPage, ViewSwitch, type BrokerView } from "./AssetPage";
 import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
 import { SimpleTicket } from "./SimpleTicket";
@@ -67,6 +70,16 @@ export function BrokerFrame({ context }: { context?: string }) {
   const [est, setEst] = useState<{ key: string; res: PreviewRes } | null>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const placing = useRef(false);
+  const [view, setView] = useState<BrokerView>("trade");
+  const viewBase = useId();
+  const viewIds = { trade: `${viewBase}-trade`, about: `${viewBase}-about` };
+  // Back to Trade: focus returns to the header's ticker heading (or the asset select) once Trade is rendered again.
+  const headEl = useRef<HTMLElement | null>(null);
+  const setHead = useCallback((el: HTMLElement | null) => { headEl.current = el; }, []);
+  const focusHead = useRef(false);
+  useEffect(() => { if (focusHead.current && view === "trade" && headEl.current) { focusHead.current = false; headEl.current.focus(); } });
+  const toTrade = useCallback(() => { focusHead.current = true; setView("trade"); }, []);
+  const onView = (v: BrokerView) => (v === "trade" ? toTrade() : setView("about"));
 
   const qty = parseQtyInput(draft.qtyText);
   const order = useMemo(() => {
@@ -202,6 +215,26 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const body = me.body;
   const holdQty = body.positions[assetId]?.qty ?? null;
+  const header = (withChart: boolean) => (
+    <div className="br-col br-col-head">
+      <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices} focusRef={setHead}
+        onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={withChart ? chart : undefined} />
+      {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
+      {(view === "trade" || !phone) && <ViewSwitch t={t} view={view} onView={onView} ids={viewIds} />}
+    </div>
+  );
+  if (view === "about") {
+    return (
+      <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-view="about">
+        <div className="br-grid">
+          {header(false)}
+          <div className="br-col br-col-ticket">
+            <AssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade} />
+          </div>
+        </div>
+      </div>
+    );
+  }
   const qtyMessage = qty.kind === "notDigits" ? { text: t.qtyDigits, tone: "warn" as const }
     : qty.kind === "empty" && touched ? { text: t.qtyEmpty, tone: "muted" as const }
     : preview && !preview.valid ? { text: reasonCopy(t, preview.reasonCode ?? ""), tone: "warn" as const }
@@ -227,13 +260,9 @@ export function BrokerFrame({ context }: { context?: string }) {
   );
 
   return (
-    <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-phase={result ? "acked" : phase.kind === "placed" ? "submitting" : phase.kind} onKeyDown={onKey}>
-      <div className="br-grid">
-        <div className="br-col br-col-head">
-          <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices}
-            onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={chart} />
-          {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
-        </div>
+    <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-view="trade" data-phase={result ? "acked" : phase.kind === "placed" ? "submitting" : phase.kind} onKeyDown={onKey}>
+      <div className="br-grid" id={viewIds.trade}>
+        {header(true)}
         <div className="br-col br-col-ticket">
           {ack || (phone ? ticket : review || ticket)}
           {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
