@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
 import { useShell } from "@/components/shell/ShellContext";
 import { MoneyText } from "@/components/shell/MoneyText";
-import { DEMO_STARTER_NW } from "@/shell/authChrome";
+import { cashCentsToMoney } from "@/shell/cashFormat";
 import { authErrorCopy, type AuthClientError } from "@/shell/authClient";
 import { authSession, useAuthSession } from "@/shell/authSession";
 import { Segment } from "./controls";
@@ -93,7 +93,7 @@ export function AccountSettings() {
           <p className="muted set-hint" data-testid="account-world">{t.accountWorld(auth.account.worldId)}</p>
           <p className="account-starter" data-testid="account-starter">
             <span className="set-row-label">{t.accountStarterLabel}</span>
-            <span data-testid="account-starter-amount"><MoneyText amount={DEMO_STARTER_NW} ctx="chip" /></span>
+            <span data-testid="account-starter-amount"><MoneyText amount={cashCentsToMoney(auth.player.cashCents)} ctx="chip" /></span>
           </p>
           <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
           {error ? (

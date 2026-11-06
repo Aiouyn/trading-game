@@ -3,6 +3,7 @@ export { MemoryAuthStore, FileAuthStore } from "./store";
 export type { AuthStore, AuthStoreSnapshot } from "./store";
 export {
   AuthError,
+  PLAYER_PRIVATE_SCHEMA_VERSION,
   PORT_AVALON_WORLD_ID,
   toPublicAccount,
 } from "./types";
@@ -11,6 +12,8 @@ export type {
   AccountRecord,
   AuthErrorCode,
   AuthSessionView,
+  PersistedOpenOrder,
+  PersistedPosition,
   PlayerPrivateRecord,
   PublicAccount,
   SessionId,

@@ -20,7 +20,11 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
     if (auth.status === "loading") return;
     if (applied.current === authBoundaryKey) return;
     applied.current = authBoundaryKey;
-    if (isSignedIn(auth)) applySignedInDemo(store, auth.account.accountId, auth.world.marketSeed);
+    if (isSignedIn(auth)) {
+      applySignedInDemo(store, auth.account.accountId, auth.world.marketSeed, {
+        cashCents: auth.player.cashCents,
+      });
+    }
     else applyGuestDemo(store, query);
   }, [auth, authBoundaryKey, store, query]);
 

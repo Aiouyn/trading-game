@@ -1,5 +1,7 @@
 /** Browser client for M1-01 /api/auth/* — credentials include HttpOnly cookie. */
 
+import type { OpenOrder, Position } from "@/shell/contracts/channels";
+
 export type AuthPublicAccount = {
   accountId: string;
   handle: string;
@@ -11,14 +13,15 @@ export type AuthPublicAccount = {
 export type AuthWorldView = {
   worldId: string;
   marketSeed: number;
-  persistence: "none";
+  persistence: "none" | "player_private";
 };
 
+/** Saved private ledger (M1-03). Rows are the durable subset of the domain me.positions / me.orders. */
 export type AuthPlayerView = {
   accountId: string;
   cashCents: number;
-  positions: Record<string, number>;
-  openOrderIds: string[];
+  positions: Record<string, Pick<Position, "assetId" | "qty" | "avgCost">>;
+  openOrders: Record<string, OpenOrder>;
 };
 
 export type AuthMeResponse = {

@@ -20,11 +20,12 @@ export async function GET(request: Request): Promise<Response> {
     const player = await getAuthService().getPlayerPrivate(view, view.account.accountId);
     return jsonResponse({
       ...sessionBody(view),
+      // Own ledger only (session-gated). Read-only: there is no client write route for cash/holdings.
       player: {
         accountId: player.accountId,
         cashCents: player.cashCents,
         positions: player.positions,
-        openOrderIds: player.openOrderIds,
+        openOrders: player.openOrders,
       },
     });
   } catch (err) {

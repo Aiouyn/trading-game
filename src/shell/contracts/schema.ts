@@ -81,7 +81,7 @@ export const candleHistoryReq: Schema<CandleHistoryReq> = obj({ assetId: str, re
 export const candleHistoryRes: Schema<CandleHistoryRes> = obj({ bars: arr(candle) });
 
 const position: Schema<Position> = obj({ assetId: str, qty: dec, avgCost: dec, mark: dec, value: dec, upl: dec, pledgedQty: dec, lentQty: dec }, { pnlPct: dec, weightPct: dec }); // optional: proposed (PF-B), Engine to confirm
-const openOrder: Schema<OpenOrder> = obj(
+export const openOrder: Schema<OpenOrder> = obj(
   { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, tif: str, status: lit("PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"), placedTick: int, avgPrice: dec },
   { limit: dec, stop: dec },
 );

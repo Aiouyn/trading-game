@@ -107,7 +107,7 @@ describe("M1-01 auth foundation", () => {
     await expect(auth.getPlayerPrivate(a.view, b.view.account.accountId as AccountId)).rejects.toBeInstanceOf(AuthError);
     await expect(auth.getPlayerPrivate(a.view, b.view.account.accountId as AccountId)).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    await auth.setOwnCashCents(a.view, 42);
+    await auth.updateOwnPrivateState(a.view, (cur) => ({ ...cur, cashCents: 42 }));
     const aAfter = await auth.getPlayerPrivate(a.view, a.view.account.accountId);
     const bAfter = await auth.getPlayerPrivate(b.view, b.view.account.accountId);
     expect(aAfter.cashCents).toBe(42);
@@ -121,7 +121,7 @@ describe("M1-01 auth foundation", () => {
 
     const first = new AuthService({ store: new FileAuthStore(file) });
     const { rawToken, view } = await first.register({ handle: "Grace", password: "password1" });
-    await first.setOwnCashCents(view, 777);
+    await first.updateOwnPrivateState(view, (cur) => ({ ...cur, cashCents: 777 }));
 
     const second = new AuthService({ store: new FileAuthStore(file) });
     const resumed = await second.resolveSession(rawToken);

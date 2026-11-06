@@ -52,9 +52,10 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     await mount();
     await act(async () => { await Promise.resolve(); });
     const d = el.querySelector("[data-testid=account-disclaimer]")?.textContent ?? "";
-    expect(d).toMatch(/account is saved/i);
+    expect(d).toMatch(/saved on the server/i);
+    expect(d).toMatch(/broker trades and fills/i);
+    expect(d).toMatch(/not saved/i);
     expect(d).toMatch(/demo/i);
-    expect(d.toLowerCase()).not.toContain("server save");
     expect(d.toLowerCase()).not.toContain("mock broker");
   });
 
@@ -69,7 +70,7 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/auth/register"))).toBe(false);
   });
 
-  it("register then shows handle, $10k starter placeholder, plain disclaimer; no Owner/$412k", async () => {
+  it("register then shows handle, saved $10k balance, honest disclaimer; no Owner/$412k", async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockResolvedValueOnce(
@@ -77,6 +78,7 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
           JSON.stringify({
             account: { accountId: "acc_1", handle: "Nova", createdAtMs: 1, worldId: "world_port_avalon" },
             session: { sessionId: "ses_1", expiresAtMs: 9 },
+            world: { worldId: "world_port_avalon", marketSeed: 17, persistence: "player_private" },
           }),
           { status: 201, headers: { "content-type": "application/json" } },
         ),
@@ -86,7 +88,8 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
           JSON.stringify({
             account: { accountId: "acc_1", handle: "Nova", createdAtMs: 1, worldId: "world_port_avalon" },
             session: { sessionId: "ses_1", expiresAtMs: 9 },
-            player: { accountId: "acc_1", cashCents: 1_000_000, positions: {}, openOrderIds: [] },
+            player: { accountId: "acc_1", cashCents: 1_000_000, positions: {}, openOrders: {} },
+            world: { worldId: "world_port_avalon", marketSeed: 17, persistence: "player_private" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
@@ -100,9 +103,12 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
 
     expect(el.querySelector("[data-testid=account-handle]")?.textContent).toBe("Nova");
     const disc = el.querySelector("[data-testid=account-disclaimer]")?.textContent ?? "";
-    expect(disc).toMatch(/account is saved/i);
-    expect(disc.toLowerCase()).not.toContain("server save");
+    expect(disc).toMatch(/saved on the server/i);
+    expect(disc).toMatch(/broker trades and fills/i);
+    expect(disc).toMatch(/not saved/i);
+    expect(disc).toMatch(/demo/i);
     const starter = el.querySelector("[data-testid=account-starter]")?.textContent ?? "";
+    expect(starter).toMatch(/Saved balance/i);
     expect(starter).toMatch(/\$10k|10,?000|10000/);
     expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
     expect(el.textContent).not.toMatch(/\$412/);
@@ -115,7 +121,8 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
           JSON.stringify({
             account: { accountId: "acc_2", handle: "Reef", createdAtMs: 1, worldId: "world_port_avalon" },
             session: { sessionId: "ses_2", expiresAtMs: 9 },
-            player: { accountId: "acc_2", cashCents: 1_000_000, positions: {}, openOrderIds: [] },
+            player: { accountId: "acc_2", cashCents: 1_000_000, positions: {}, openOrders: {} },
+            world: { worldId: "world_port_avalon", marketSeed: 17, persistence: "player_private" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
