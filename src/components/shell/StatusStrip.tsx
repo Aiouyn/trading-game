@@ -1,6 +1,8 @@
 "use client";
 import { Chip } from "@/components/ui/Chip";
+import { Button } from "@/components/ui/Button";
 import { clockLabel } from "@/shell/mockChannels";
+import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { RANK_NAMES, RANKS } from "@/shell/registry";
 import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
@@ -11,7 +13,6 @@ import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
 
-
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
 export function StatusStrip() {
@@ -21,17 +22,27 @@ export function StatusStrip() {
   const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
   const nw = useNw();
+  const auth = useAuthChrome();
+  const signedIn = isSignedIn(auth);
   const focusMode = useShell((s) => s.local.focusMode);
   const { day, hhmm } = clockLabel(clock);
   const clockText = clockStrings(useShell((s) => s.prefs.locale)).strip(day, hhmm);
-  const release = `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
+  const release = signedIn
+    ? `${S.quay} · ${auth.account.handle}`
+    : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const nwChip = (
-    <span className="strip-nw" data-testid="strip-nw">
-      <MoneyText amount={nw} ctx="chip" /> <PctText value={me.todayPct} />
+    <span className="strip-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}>
+      <MoneyText amount={nw} ctx="chip" />
+      {signedIn ? (
+        <span className="muted strip-demo-tag" data-testid="strip-demo-tag"><span aria-hidden="true">{" · "}</span>{S.demoBalance}</span>
+      ) : (
+        <> <PctText value={me.todayPct} /></>
+      )}
     </span>
   );
+
   if (focusMode) {
     return (
       <header className="strip strip-focus" data-testid="strip">
@@ -62,7 +73,30 @@ export function StatusStrip() {
       <div className="strip-right">
         <HaltChip halted={sys.halted} />
         {me.protectionEndsRealMs !== null && <Chip data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</Chip>}
-        <Chip tone="acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</Chip>
+        {signedIn ? (
+          <button
+            type="button"
+            className="chip chip-acc strip-account"
+            data-testid="account-chip"
+            aria-label={`${S.account}: ${auth.account.handle}`}
+            onClick={() => openAccountSettings(store)}
+          >
+            {auth.account.handle}
+          </button>
+        ) : (
+          <>
+            <Chip tone="acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</Chip>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="sign-in-entry"
+              aria-label={S.signIn}
+              onClick={() => openAccountSettings(store)}
+            >
+              {S.signIn}
+            </Button>
+          </>
+        )}
         {nwChip}
         <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>
       </div>

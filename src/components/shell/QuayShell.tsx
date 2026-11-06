@@ -24,6 +24,7 @@ import { useDeepLinkNavigate } from "./PhoneBanners";
 import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
 import { LiveNwUnlock } from "./useNw";
+import { AuthAccountBoundary } from "./AuthAccountBoundary";
 import { Desktop } from "./Desktop";
 import { SystemOverlays } from "./SystemOverlays";
 import { Banner, WorldEventBanner } from "./Banner";
@@ -44,7 +45,7 @@ function useHtmlAttributes() {
   }, [palette, prefs, rank, entitlements]);
 }
 
-function Surface() {
+function Surface({ query }: { query: string }) {
   const vw = useShell((s) => s.vw);
   const launcherOpen = useShell((s) => s.launcherOpen);
   const recentOpen = useShell((s) => s.recentOpen);
@@ -83,6 +84,7 @@ function Surface() {
   }
   const phone = viewportOf(vw) === "phone";
   return (
+    <AuthAccountBoundary query={query}>
     <div className={`quay${phone ? " is-phone" : " is-desktop"}${focusMode && !phone ? " focus-mode" : ""}${reconnecting ? " reconnecting" : ""}`} data-testid="quay-ready">
       {phone ? <PhoneHome /> : (
         <>
@@ -104,6 +106,7 @@ function Surface() {
         </Sheet>
       )}
     </div>
+    </AuthAccountBoundary>
   );
 }
 
@@ -175,7 +178,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     <ShellCtx.Provider value={store}>
       <ShellClock store={store} query={query} />
       <LiveNwUnlock />
-      <Surface />
+      <Surface query={query} />
     </ShellCtx.Provider>
   );
 }

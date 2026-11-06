@@ -127,6 +127,20 @@ test("Phone glyphs: muted, locked disabled with tag inside the tile; never brass
   for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px" });
 });
 
+test("phone home Sign in CTA: touch opens Account (hit target + navigation)", async ({ page }) => {
+  await boot(page);
+  const cta = page.getByTestId("sign-in-entry");
+  await expect(cta).toBeVisible();
+  const b = await box(page, "sign-in-entry");
+  // Coarse phone tap must land on the control — the prior 68px chip beside the rank label failed GK taps.
+  expect(b.width).toBeGreaterThanOrEqual(200);
+  expect(b.height).toBeGreaterThanOrEqual(44);
+  await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+  await expect(page.getByTestId("phone-appview")).toHaveAttribute("data-app", "settings");
+  await expect(page.getByTestId("app-title")).toHaveText("Account");
+  await expect(page.getByTestId("settings-account")).toBeVisible();
+});
+
 test("Phone launcher: visible close and a Recent group; edge bar swipe up = Home, left-edge swipe = back (M4, m5)", async ({ page }) => {
   await boot(page);
   await page.getByTestId("icon-markets").click();

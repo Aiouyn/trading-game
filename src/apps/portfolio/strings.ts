@@ -42,6 +42,7 @@ const EN = {
   nextRankAt: "Next rank at",
   topRank: "Top rank",
   emptyCash: "Your money is all cash. Broker or Businesses are good first stops.",
+  guestExample: "Example portfolio · not your account",
   // UI card 8 (Orders tab: open orders + recent fills). Side and Open orders copy come from Broker's brStrings.
   orders: "Orders",
   recentFills: "Recent fills",
@@ -82,6 +83,7 @@ const FR: Strings = {
   nextRankAt: "Rang suivant à",
   topRank: "Rang maximal",
   emptyCash: "Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.",
+  guestExample: "Portefeuille d’exemple · pas le vôtre",
   orders: "Ordres",
   recentFills: "Exécutions récentes",
   fillsHelp: "Vos dernières transactions. Les plus anciennes figureront dans l’historique des ordres.",

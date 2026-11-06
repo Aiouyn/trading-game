@@ -63,3 +63,5 @@
 .pf-nav-label { min-width: 0; overflow-wrap: anywhere; }
 .pf-nav-chevron { flex: none; color: var(--fg-muted); }
 @media (pointer: coarse) { .pf-seg button { min-height: 44px; } }
+
+.pf-guest-example{margin:0 0 8px;font-size:12px;}

@@ -52,6 +52,18 @@ const EN = {
   roles: { design: "design", shellApps: "shell and apps", city: "Port Avalon", markets: "markets", quay: "Quay" },
   integrity: "Public integrity report",
   newTab: "(opens in a new tab)",
+  // Account (SET-01 / M1-01)
+  accountLoading: "Checking signed-in state…",
+  accountSignedIn: "Signed in",
+  accountCreate: "Create account",
+  accountSignIn: "Sign in",
+  accountLogout: "Sign out",
+  accountMode: "Account mode",
+  accountHandle: "Handle",
+  accountPassword: "Password",
+  accountWorld: (worldId: string) => `World: ${worldId}`,
+  accountStarterLabel: "Starter account (demo placeholder)",
+  accountDisclaimer: "Your account is saved. Trading is a demo for now; trades and balances reset.",
 };
 
 type Strings = typeof EN;
@@ -100,6 +112,17 @@ const FR: Strings = {
   roles: { design: "conception", shellApps: "interface et applis", city: "Port Avalon", markets: "marchés", quay: "Quay" },
   integrity: "Rapport d’intégrité public",
   newTab: "(s’ouvre dans un nouvel onglet)",
+  accountLoading: "Vérification de la session…",
+  accountSignedIn: "Connecté",
+  accountCreate: "Créer un compte",
+  accountSignIn: "Se connecter",
+  accountLogout: "Se déconnecter",
+  accountMode: "Mode compte",
+  accountHandle: "Pseudo",
+  accountPassword: "Mot de passe",
+  accountWorld: (worldId: string) => `Monde : ${worldId}`,
+  accountStarterLabel: "Compte de départ (démo)",
+  accountDisclaimer: "Votre compte est enregistré. Le trading est encore une démo ; les ordres et soldes sont réinitialisés.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };
