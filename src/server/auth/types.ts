@@ -3,12 +3,12 @@
  * Compatible with a later Better Auth migration (T19C-02); no stub identity.
  */
 
+import { PORT_AVALON_WORLD_ID, type WorldId } from "@/shell/worldIdentity";
+
 export type AccountId = string & { readonly __brand: "AccountId" };
 export type SessionId = string & { readonly __brand: "SessionId" };
-export type WorldId = string & { readonly __brand: "WorldId" };
-
-/** Single shared world stamp for V1 (M1-02 owns authority; M1-01 only stamps it). */
-export const PORT_AVALON_WORLD_ID = "world_port_avalon" as WorldId;
+export type { WorldId };
+export { PORT_AVALON_WORLD_ID };
 
 export interface AccountRecord {
   readonly accountId: AccountId;
