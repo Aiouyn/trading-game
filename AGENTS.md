@@ -20,6 +20,7 @@ Local shared-box work only. No cloud agents. Remote GitHub CI remains independen
 | Preflight phases match CI (lint, ledger-no-dup, typecheck, build, hooks, unit, route-budget; e2e via `--browser`) | `tests/unit/ci/preflight.test.ts` parity (argv/cwd/env) vs `.github/workflows/ci.yml` |
 | Omitted e2e ⇒ `scope=core_only` incomplete, not full green | Report `certified` + `scope`; `--dry-run` is uncertified `not_run` |
 | Browser-prove real changed player paths before GK for UI/state transitions | Judgment + `--browser` / Playwright when the change needs it |
+| Verify preview HTTP readiness before browser; use a stable already-built preview tied to this worktree/head and PID—do not mutate its build outputs during replay; if unreachable, one short timeout then fix first (no repeated long retries) | Judgment |
 | GK handoff: exact SHA, base, diff/ACs, commands+output, screenshots, known gaps | Judgment |
 | Reuse evidence only for an unchanged head fingerprint; otherwise targeted impact replay, not full suites by reflex | Preflight fingerprint + judgment |
 | Red CI resolved before GK product review | Judgment |

@@ -117,6 +117,19 @@ describe("content snapshot (real temp git repo)", () => {
   });
 });
 
+
+  it("ignored ledger node_modules directory does not change fingerprint after create", () => {
+    const dir = tempRepo();
+    writeFileSync(join(dir, ".gitignore"), "node_modules/\n");
+    git(dir, ["add", ".gitignore"]);
+    git(dir, ["commit", "-m", "ignore-nm"]);
+    const before = gitCapture(dir);
+    mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
+    writeFileSync(join(dir, "node_modules", ".bin", "x"), "x");
+    const after = gitCapture(dir);
+    expect(after.fingerprint).toBe(before.fingerprint);
+  });
+
 describe("runner CLI contracts", () => {
   it("fail-fast stops after first failure and keeps log paths when provided by runPhase", () => {
     const { ok, results, failedAt } = runPhases({

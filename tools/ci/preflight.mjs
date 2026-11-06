@@ -13,7 +13,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BROWSER_PHASES, CORE_PHASES, phaseShellLine } from "./phases.mjs";
@@ -241,11 +241,40 @@ export function main(argv = process.argv.slice(2), deps = {}) {
     return 0;
   }
 
+  const root = deps.cwd ?? ROOT;
+  if (!deps.runPhase && !args.dryRun) {
+    // Broken/env symlinks to other worktrees are not ignored like real node_modules dirs.
+    for (const nm of [join(root, "node_modules"), join(root, "packages/engine/ledger/node_modules")]) {
+      try {
+        if (lstatSync(nm).isSymbolicLink()) rmSync(nm, { force: true });
+      } catch { /* missing ok */ }
+    }
+    if (!existsSync(join(root, "node_modules", ".bin"))) {
+      const inst = spawnSync("npm", ["ci"], { cwd: root, stdio: "inherit", shell: false });
+      if (inst.status !== 0) {
+        console.error("root npm ci failed");
+        return 1;
+      }
+    }
+    const ledgerNm = join(root, "packages/engine/ledger/node_modules");
+    if (!existsSync(join(ledgerNm, ".bin"))) {
+      const inst = spawnSync("npm", ["ci"], {
+        cwd: join(root, "packages/engine/ledger"),
+        stdio: "inherit",
+        shell: false,
+      });
+      if (inst.status !== 0) {
+        console.error("ledger npm ci failed");
+        return 1;
+      }
+    }
+  }
+
   const capture = deps.gitCapture ?? gitCapture;
-  const before = capture(deps.cwd ?? ROOT);
+  const before = capture(root);
   const phases = args.browser ? [...CORE_PHASES, ...BROWSER_PHASES] : [...CORE_PHASES];
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outDir = resolve(deps.cwd ?? ROOT, args.outDir ?? join(".preflight", stamp));
+  const outDir = resolve(root, args.outDir ?? join(".preflight", stamp));
   const logDir = join(outDir, "logs");
   const scope = args.browser ? "core_and_browser" : "core_only";
 
@@ -278,25 +307,12 @@ export function main(argv = process.argv.slice(2), deps = {}) {
     return 0;
   }
 
-  const ledgerNm = join(deps.cwd ?? ROOT, "packages/engine/ledger/node_modules");
-  if (!existsSync(ledgerNm) && !deps.runPhase) {
-    const inst = spawnSync("npm", ["ci"], {
-      cwd: join(deps.cwd ?? ROOT, "packages/engine/ledger"),
-      stdio: "inherit",
-      shell: false,
-    });
-    if (inst.status !== 0) {
-      console.error("ledger npm ci failed");
-      return 1;
-    }
-  }
-
   console.log(
     `preflight commit=${before.commit} fp=${before.fingerprint.slice(0, 12)} dirty=${before.dirty} scope=${scope}`,
   );
   const { ok, results, failedAt } = runPhases({
     phases,
-    cwd: deps.cwd ?? ROOT,
+    cwd: root,
     runPhase: deps.runPhase,
     logDir,
     onPhase: (p) => console.log(`== ${p.id}: ${phaseShellLine(p)}`),
@@ -304,7 +320,7 @@ export function main(argv = process.argv.slice(2), deps = {}) {
 
   let staleError = null;
   try {
-    assertSnapshotUnchanged(before, capture(deps.cwd ?? ROOT));
+    assertSnapshotUnchanged(before, capture(root));
   } catch (e) {
     staleError = e.message;
   }
