@@ -37,6 +37,17 @@ describe("M1-01 shell auth chrome", () => {
     vi.unstubAllGlobals();
   });
 
+  it("fetchMe 401 drains response body so networkidle can settle", async () => {
+    const res = new Response(
+      JSON.stringify({ error: { code: "UNAUTHORIZED", message: "Not signed in." } }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    );
+    fetchMock.mockResolvedValueOnce(res);
+    const { fetchMe } = await import("@/shell/authClient");
+    await expect(fetchMe()).resolves.toBeNull();
+    expect(res.bodyUsed).toBe(true);
+  });
+
   it("logged-out: discoverable Sign in; may still show demo rank", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     const store = createShellStore(mockChannels(new URLSearchParams()));
