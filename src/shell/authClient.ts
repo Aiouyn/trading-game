@@ -58,7 +58,12 @@ async function postAuth(path: string, body?: Record<string, string>): Promise<Re
 
 export async function fetchMe(): Promise<AuthMeResponse | null> {
   const res = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" });
-  if (res.status === 401) return null;
+  if (res.status === 401) {
+    // Drain the body. Leaving it unread keeps the Chromium fetch "inflight", so
+    // Playwright waitForLoadState('networkidle') (tools/ci/route-budget.mjs) never settles.
+    await res.text();
+    return null;
+  }
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as AuthMeResponse;
 }
