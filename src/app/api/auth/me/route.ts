@@ -1,5 +1,6 @@
 import {
   AuthError,
+  assertLocalSingleProcessAuth,
   authErrorResponse,
   getAuthService,
   jsonResponse,
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    assertLocalSingleProcessAuth();
     const view = await getAuthService().resolveSession(tokenFromRequest(request));
     if (!view) {
       throw new AuthError("UNAUTHORIZED", "Not signed in.", 401);

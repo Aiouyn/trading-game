@@ -60,17 +60,21 @@ export type AuthErrorCode =
   | "BAD_CREDENTIALS"
   | "UNAUTHORIZED"
   | "FORBIDDEN"
-  | "BAD_REQUEST";
+  | "BAD_REQUEST"
+  | "RATE_LIMITED"
+  | "UNSUPPORTED_DEPLOY";
 
 export class AuthError extends Error {
   readonly code: AuthErrorCode;
   readonly status: number;
+  readonly retryAfterMs?: number;
 
-  constructor(code: AuthErrorCode, message: string, status: number) {
+  constructor(code: AuthErrorCode, message: string, status: number, retryAfterMs?: number) {
     super(message);
     this.name = "AuthError";
     this.code = code;
     this.status = status;
+    if (retryAfterMs !== undefined) this.retryAfterMs = retryAfterMs;
   }
 }
 

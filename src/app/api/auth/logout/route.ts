@@ -1,4 +1,6 @@
 import {
+  assertLocalSingleProcessAuth,
+  assertSameOriginMutation,
   authErrorResponse,
   getAuthService,
   jsonResponse,
@@ -10,6 +12,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    assertLocalSingleProcessAuth();
+    assertSameOriginMutation(request);
     await getAuthService().logout(tokenFromRequest(request));
     const res = jsonResponse({ ok: true }, 200);
     return withClearedSessionCookie(res, request.url);

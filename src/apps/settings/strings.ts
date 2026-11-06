@@ -52,6 +52,18 @@ const EN = {
   roles: { design: "design", shellApps: "shell and apps", city: "Port Avalon", markets: "markets", quay: "Quay" },
   integrity: "Public integrity report",
   newTab: "(opens in a new tab)",
+  // Account (SET-01 / M1-01)
+  accountLoading: "Checking signed-in state…",
+  accountSignedIn: "Signed in",
+  accountCreate: "Create account",
+  accountSignIn: "Sign in",
+  accountLogout: "Sign out",
+  accountMode: "Account mode",
+  accountHandle: "Handle",
+  accountPassword: "Password",
+  accountWorld: (worldId: string) => `World: ${worldId}`,
+  accountCashNote: "Starter cash shown here is an account placeholder only — mock Broker/Portfolio trading is not a server save yet.",
+  accountDisclaimer: "Sessions stay on this device via a secure cookie. Passwords are never shown back.",
 };
 
 type Strings = typeof EN;
@@ -100,6 +112,17 @@ const FR: Strings = {
   roles: { design: "conception", shellApps: "interface et applis", city: "Port Avalon", markets: "marchés", quay: "Quay" },
   integrity: "Rapport d’intégrité public",
   newTab: "(s’ouvre dans un nouvel onglet)",
+  accountLoading: "Vérification de la session…",
+  accountSignedIn: "Connecté",
+  accountCreate: "Créer un compte",
+  accountSignIn: "Se connecter",
+  accountLogout: "Se déconnecter",
+  accountMode: "Mode compte",
+  accountHandle: "Pseudo",
+  accountPassword: "Mot de passe",
+  accountWorld: (worldId: string) => `Monde : ${worldId}`,
+  accountCashNote: "L’argent de départ affiché est un placeholder de compte — le trading mock Broker/Portfolio n’est pas encore une sauvegarde serveur.",
+  accountDisclaimer: "La session reste sur cet appareil via un cookie sécurisé. Le mot de passe n’est jamais renvoyé.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };

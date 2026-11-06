@@ -1,5 +1,6 @@
 import { hashPassword, hashToken, mintSessionToken, newId, verifyPassword } from "./crypto";
 import type { AuthStore } from "./store";
+import { AttemptThrottle } from "./throttle";
 import {
   AuthError,
   PORT_AVALON_WORLD_ID,
@@ -21,6 +22,8 @@ export const START_CASH_CENTS = 1_000_000;
 
 const HANDLE_RE = /^[a-zA-Z][a-zA-Z0-9_]{2,31}$/;
 const MIN_PASSWORD_LEN = 8;
+/** Bound scrypt work; rejects absurd bodies. */
+export const MAX_PASSWORD_LEN = 128;
 
 export interface AuthServiceOptions {
   readonly store: AuthStore;
@@ -38,12 +41,27 @@ export class AuthService {
   private tokenIndex = new Map<string, SessionId>();
   private players = new Map<AccountId, PlayerPrivateRecord>();
   private ready: Promise<void>;
+  /** Serializes mutating ops so async scrypt cannot race handle uniqueness / file writes. */
+  private queue: Promise<void> = Promise.resolve();
+  /** Failed login attempts per handleKey (10 / 15 min). M3 owns real edge rate limits. */
+  private readonly loginThrottle = new AttemptThrottle(10, 15 * 60 * 1000);
+  /** Register attempts per handleKey (10 / 15 min) to blunt stuffing. */
+  private readonly registerThrottle = new AttemptThrottle(10, 15 * 60 * 1000);
 
   constructor(options: AuthServiceOptions) {
     this.store = options.store;
     this.now = options.now ?? (() => Date.now());
     this.worldId = options.worldId ?? PORT_AVALON_WORLD_ID;
     this.ready = this.reload();
+  }
+
+  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn, fn);
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   async reload(): Promise<void> {
@@ -63,80 +81,117 @@ export class AuthService {
     });
   }
 
-  async register(input: { handle: string; password: string }): Promise<{ view: AuthSessionView; rawToken: string }> {
-    await this.ready;
-    const handle = input.handle.trim();
-    if (!HANDLE_RE.test(handle)) {
-      throw new AuthError("HANDLE_INVALID", "Handle must be 3–32 chars, start with a letter, and use only letters, digits, underscore.", 400);
-    }
-    if (typeof input.password !== "string" || input.password.length < MIN_PASSWORD_LEN) {
+  private assertPassword(password: string): void {
+    if (typeof password !== "string" || password.length < MIN_PASSWORD_LEN) {
       throw new AuthError("PASSWORD_WEAK", `Password must be at least ${MIN_PASSWORD_LEN} characters.`, 400);
     }
-    const handleKey = handle.toLowerCase();
-    if (this.handleIndex.has(handleKey)) {
-      throw new AuthError("HANDLE_TAKEN", "That handle is already taken.", 409);
+    if (password.length > MAX_PASSWORD_LEN) {
+      throw new AuthError("PASSWORD_WEAK", `Password must be at most ${MAX_PASSWORD_LEN} characters.`, 400);
     }
+  }
 
-    const { hash, salt } = await hashPassword(input.password);
-    const accountId = newId("acc") as AccountId;
-    const createdAtMs = this.now();
-    const account: AccountRecord = {
-      accountId,
-      handle,
-      handleKey,
-      passwordHash: hash,
-      passwordSalt: salt,
-      createdAtMs,
-      worldId: this.worldId,
-    };
-    const player: PlayerPrivateRecord = {
-      accountId,
-      cashCents: START_CASH_CENTS,
-      positions: {},
-      openOrderIds: [],
-    };
+  async register(input: { handle: string; password: string }): Promise<{ view: AuthSessionView; rawToken: string }> {
+    return this.withLock(async () => {
+      await this.ready;
+      const handle = input.handle.trim();
+      if (!HANDLE_RE.test(handle)) {
+        throw new AuthError("HANDLE_INVALID", "Handle must be 3–32 chars, start with a letter, and use only letters, digits, underscore.", 400);
+      }
+      this.assertPassword(input.password);
+      const handleKey = handle.toLowerCase();
+      const retry = this.registerThrottle.check(handleKey);
+      if (retry !== null) {
+        throw new AuthError("RATE_LIMITED", "Too many account attempts. Try again later.", 429, retry);
+      }
+      this.registerThrottle.hit(handleKey);
+      if (this.handleIndex.has(handleKey)) {
+        throw new AuthError("HANDLE_TAKEN", "That handle is already taken.", 409);
+      }
 
-    this.accounts.set(accountId, account);
-    this.handleIndex.set(handleKey, accountId);
-    this.players.set(accountId, player);
+      const { hash, salt } = await hashPassword(input.password);
+      // Re-check after await: another waiter could have claimed the handle if lock were absent; keep for clarity.
+      if (this.handleIndex.has(handleKey)) {
+        throw new AuthError("HANDLE_TAKEN", "That handle is already taken.", 409);
+      }
+      const accountId = newId("acc") as AccountId;
+      const createdAtMs = this.now();
+      const account: AccountRecord = {
+        accountId,
+        handle,
+        handleKey,
+        passwordHash: hash,
+        passwordSalt: salt,
+        createdAtMs,
+        worldId: this.worldId,
+      };
+      const player: PlayerPrivateRecord = {
+        accountId,
+        cashCents: START_CASH_CENTS,
+        positions: {},
+        openOrderIds: [],
+      };
 
-    const session = await this.createSession(accountId);
-    await this.persist();
-    return session;
+      this.accounts.set(accountId, account);
+      this.handleIndex.set(handleKey, accountId);
+      this.players.set(accountId, player);
+
+      const session = await this.createSession(accountId);
+      await this.persist();
+      return session;
+    });
   }
 
   async login(input: { handle: string; password: string }): Promise<{ view: AuthSessionView; rawToken: string }> {
-    await this.ready;
-    const handleKey = input.handle.trim().toLowerCase();
-    const accountId = this.handleIndex.get(handleKey);
-    if (!accountId) {
-      // Constant-ish work path: still hash against a dummy to reduce timing oracle on missing handle.
-      await hashPassword(input.password).catch(() => undefined);
-      throw new AuthError("BAD_CREDENTIALS", "Invalid handle or password.", 401);
-    }
-    const account = this.accounts.get(accountId);
-    if (!account) throw new AuthError("BAD_CREDENTIALS", "Invalid handle or password.", 401);
+    return this.withLock(async () => {
+      await this.ready;
+      // Bound scrypt DoS only; short/wrong passwords still map to BAD_CREDENTIALS.
+      if (typeof input.password === "string" && input.password.length > MAX_PASSWORD_LEN) {
+        throw new AuthError("PASSWORD_WEAK", `Password must be at most ${MAX_PASSWORD_LEN} characters.`, 400);
+      }
+      const handleKey = input.handle.trim().toLowerCase();
+      const retry = this.loginThrottle.check(handleKey || "unknown");
+      if (retry !== null) {
+        throw new AuthError("RATE_LIMITED", "Too many sign-in attempts. Try again later.", 429, retry);
+      }
+      const accountId = this.handleIndex.get(handleKey);
+      if (!accountId) {
+        this.loginThrottle.hit(handleKey || "unknown");
+        await verifyPassword(input.password, "0".repeat(128), "00".repeat(16)).catch(() => false);
+        throw new AuthError("BAD_CREDENTIALS", "Invalid handle or password.", 401);
+      }
+      const account = this.accounts.get(accountId);
+      if (!account) {
+        this.loginThrottle.hit(handleKey);
+        throw new AuthError("BAD_CREDENTIALS", "Invalid handle or password.", 401);
+      }
 
-    const ok = await verifyPassword(input.password, account.passwordHash, account.passwordSalt);
-    if (!ok) throw new AuthError("BAD_CREDENTIALS", "Invalid handle or password.", 401);
+      const ok = await verifyPassword(input.password, account.passwordHash, account.passwordSalt);
+      if (!ok) {
+        this.loginThrottle.hit(handleKey);
+        throw new AuthError("BAD_CREDENTIALS", "Invalid handle or password.", 401);
+      }
 
-    const session = await this.createSession(account.accountId);
-    await this.persist();
-    return session;
+      this.loginThrottle.clear(handleKey);
+      const session = await this.createSession(account.accountId);
+      await this.persist();
+      return session;
+    });
   }
 
   async logout(rawToken: string | null | undefined): Promise<void> {
-    await this.ready;
-    if (!rawToken) return;
-    const tokenHash = hashToken(rawToken);
-    const sessionId = this.tokenIndex.get(tokenHash);
-    if (!sessionId) return;
-    const session = this.sessions.get(sessionId);
-    if (!session || session.revokedAtMs !== null) return;
-    const revoked: SessionRecord = { ...session, revokedAtMs: this.now() };
-    this.sessions.set(sessionId, revoked);
-    this.tokenIndex.delete(tokenHash);
-    await this.persist();
+    return this.withLock(async () => {
+      await this.ready;
+      if (!rawToken) return;
+      const tokenHash = hashToken(rawToken);
+      const sessionId = this.tokenIndex.get(tokenHash);
+      if (!sessionId) return;
+      const session = this.sessions.get(sessionId);
+      if (!session || session.revokedAtMs !== null) return;
+      const revoked: SessionRecord = { ...session, revokedAtMs: this.now() };
+      this.sessions.set(sessionId, revoked);
+      this.tokenIndex.delete(tokenHash);
+      await this.persist();
+    });
   }
 
   /**
@@ -144,40 +199,42 @@ export class AuthService {
    * Rolling idle expiry: lastSeen advances; absolute max from createdAt still enforced.
    */
   async resolveSession(rawToken: string | null | undefined): Promise<AuthSessionView | null> {
-    await this.ready;
-    if (!rawToken) return null;
-    const tokenHash = hashToken(rawToken);
-    const sessionId = this.tokenIndex.get(tokenHash);
-    if (!sessionId) return null;
-    const session = this.sessions.get(sessionId);
-    if (!session || session.revokedAtMs !== null) return null;
+    return this.withLock(async () => {
+      await this.ready;
+      if (!rawToken) return null;
+      const tokenHash = hashToken(rawToken);
+      const sessionId = this.tokenIndex.get(tokenHash);
+      if (!sessionId) return null;
+      const session = this.sessions.get(sessionId);
+      if (!session || session.revokedAtMs !== null) return null;
 
-    const now = this.now();
-    const absoluteExpiry = session.createdAtMs + SESSION_MAX_MS;
-    const idleExpiry = session.lastSeenAtMs + SESSION_IDLE_MS;
-    if (now > absoluteExpiry || now > idleExpiry || now > session.expiresAtMs) {
-      const revoked: SessionRecord = { ...session, revokedAtMs: now };
-      this.sessions.set(sessionId, revoked);
-      this.tokenIndex.delete(tokenHash);
+      const now = this.now();
+      const absoluteExpiry = session.createdAtMs + SESSION_MAX_MS;
+      const idleExpiry = session.lastSeenAtMs + SESSION_IDLE_MS;
+      if (now > absoluteExpiry || now > idleExpiry || now > session.expiresAtMs) {
+        const revoked: SessionRecord = { ...session, revokedAtMs: now };
+        this.sessions.set(sessionId, revoked);
+        this.tokenIndex.delete(tokenHash);
+        await this.persist();
+        return null;
+      }
+
+      const refreshed: SessionRecord = {
+        ...session,
+        lastSeenAtMs: now,
+        expiresAtMs: Math.min(now + SESSION_IDLE_MS, absoluteExpiry),
+      };
+      this.sessions.set(sessionId, refreshed);
       await this.persist();
-      return null;
-    }
 
-    const refreshed: SessionRecord = {
-      ...session,
-      lastSeenAtMs: now,
-      expiresAtMs: Math.min(now + SESSION_IDLE_MS, absoluteExpiry),
-    };
-    this.sessions.set(sessionId, refreshed);
-    await this.persist();
-
-    const account = this.accounts.get(session.accountId);
-    if (!account) return null;
-    return {
-      sessionId: refreshed.sessionId,
-      account: toPublicAccount(account),
-      expiresAtMs: refreshed.expiresAtMs,
-    };
+      const account = this.accounts.get(session.accountId);
+      if (!account) return null;
+      return {
+        sessionId: refreshed.sessionId,
+        account: toPublicAccount(account),
+        expiresAtMs: refreshed.expiresAtMs,
+      };
+    });
   }
 
   /**
@@ -201,15 +258,17 @@ export class AuthService {
 
   /** Test/helper: mutate own private cash only through the isolation gate. */
   async setOwnCashCents(session: AuthSessionView, cashCents: number): Promise<PlayerPrivateRecord> {
-    await this.ready;
-    if (!Number.isInteger(cashCents) || cashCents < 0) {
-      throw new AuthError("BAD_REQUEST", "cashCents must be a non-negative integer.", 400);
-    }
-    const current = await this.getPlayerPrivate(session, session.account.accountId);
-    const next: PlayerPrivateRecord = { ...current, cashCents };
-    this.players.set(session.account.accountId, next);
-    await this.persist();
-    return next;
+    return this.withLock(async () => {
+      await this.ready;
+      if (!Number.isInteger(cashCents) || cashCents < 0) {
+        throw new AuthError("BAD_REQUEST", "cashCents must be a non-negative integer.", 400);
+      }
+      const current = await this.getPlayerPrivate(session, session.account.accountId);
+      const next: PlayerPrivateRecord = { ...current, cashCents };
+      this.players.set(session.account.accountId, next);
+      await this.persist();
+      return next;
+    });
   }
 
   private async createSession(accountId: AccountId): Promise<{ view: AuthSessionView; rawToken: string }> {

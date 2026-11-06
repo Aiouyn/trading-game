@@ -72,3 +72,17 @@ describe("M1-01 auth HTTP routes", () => {
     expect(cookieFrom(loginRes)).toContain(SESSION_COOKIE_NAME);
   });
 });
+
+  it("rejects cross-origin auth mutations", async () => {
+    const res = await register(
+      new Request("http://localhost/api/auth/register", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://evil.example",
+        },
+        body: JSON.stringify({ handle: "Evil", password: "password1" }),
+      }),
+    );
+    expect(res.status).toBe(403);
+  });

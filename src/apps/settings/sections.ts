@@ -1,9 +1,9 @@
-// Settings section ids and order (17 §7.2). Only SET-02 and SET-08 are built; the rest show ComingLater.
+// Settings section ids and order (17 §7.2). SET-01 Account, SET-02 Appearance, SET-08 About are built; the rest show ComingLater.
 import { useSyncExternalStore } from "react";
 
 export const SECTION_IDS = ["SET-01", "SET-02", "SET-03", "SET-04", "SET-05", "SET-06", "SET-07", "SET-08"] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
-export const BUILT_SECTIONS: ReadonlySet<SectionId> = new Set(["SET-02", "SET-08"]);
+export const BUILT_SECTIONS: ReadonlySet<SectionId> = new Set(["SET-01", "SET-02", "SET-08"]);
 export const DEFAULT_SECTION: SectionId = "SET-02"; // [P] Appearance selected by default on desktop
 export const isSectionId = (v: string | undefined): v is SectionId => !!v && (SECTION_IDS as readonly string[]).includes(v);
 

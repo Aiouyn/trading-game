@@ -1,4 +1,6 @@
 import {
+  assertLocalSingleProcessAuth,
+  assertSameOriginMutation,
   authErrorResponse,
   getAuthService,
   jsonResponse,
@@ -12,6 +14,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    assertLocalSingleProcessAuth();
+    assertSameOriginMutation(request);
     const body = await readJsonObject(request);
     const handle = requireString(body, "handle");
     const password = requireString(body, "password");

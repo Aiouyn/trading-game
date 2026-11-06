@@ -13,6 +13,11 @@ import {
   clearSessionCookieHeader,
   readSessionTokenFromCookieHeader,
   sessionCookieHeader,
+  SESSION_IDLE_MS,
+  allowedAuthHosts,
+  assertSameOriginMutation,
+  assertLocalSingleProcessAuth,
+  AttemptThrottle,
 } from "@/server/auth";
 import { hashToken } from "@/server/auth/crypto";
 import type { AccountId } from "@/server/auth";
@@ -139,5 +144,92 @@ describe("M1-01 auth foundation", () => {
     expect(clear).not.toContain("Secure");
 
     expect(readSessionTokenFromCookieHeader(`a=1; ${SESSION_COOKIE_NAME}=abc%2Fdef; b=2`)).toBe("abc/def");
+  });
+});
+
+describe("M1-01 auth hardening (small)", () => {
+  it("serializes concurrent same-handle registers (one wins, one HANDLE_TAKEN)", async () => {
+    const auth = new AuthService({ store: new MemoryAuthStore() });
+    const results = await Promise.allSettled([
+      auth.register({ handle: "RaceBot", password: "password1" }),
+      auth.register({ handle: "RaceBot", password: "password1" }),
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: "HANDLE_TAKEN" });
+  });
+
+  it("rejects oversized passwords", async () => {
+    const auth = new AuthService({ store: new MemoryAuthStore() });
+    await expect(
+      auth.register({ handle: "LongPass", password: "x".repeat(129) }),
+    ).rejects.toMatchObject({ code: "PASSWORD_WEAK" });
+  });
+
+  it("expires idle sessions", async () => {
+    let now = 1_000_000;
+    const auth = new AuthService({ store: new MemoryAuthStore(), now: () => now });
+    const { rawToken } = await auth.register({ handle: "IdleUser", password: "password1" });
+    expect(await auth.resolveSession(rawToken)).not.toBeNull();
+    now += SESSION_IDLE_MS + 1;
+    expect(await auth.resolveSession(rawToken)).toBeNull();
+  });
+});
+
+describe("M1-01 CSRF host pinning", () => {
+  afterEach(() => {
+    delete process.env.QUAY_PUBLIC_HOST;
+    delete process.env.QUAY_TRUST_PROXY;
+    delete process.env.QUAY_TRUSTED_HOSTS;
+    delete process.env.VERCEL;
+    delete process.env.QUAY_AUTH_MULTI_PROCESS;
+  });
+
+  it("ignores X-Forwarded-Host unless trust proxy + allowlist", () => {
+    process.env.QUAY_PUBLIC_HOST = "localhost:3000";
+    const req = new Request("http://localhost:3000/api/auth/login", {
+      headers: { "x-forwarded-host": "evil.example", origin: "http://localhost:3000" },
+    });
+    expect([...allowedAuthHosts(req)]).toEqual(["localhost:3000"]);
+    expect(() => assertSameOriginMutation(req)).not.toThrow();
+    expect(() =>
+      assertSameOriginMutation(
+        new Request("http://localhost:3000/api/auth/login", {
+          headers: { origin: "https://evil.example" },
+        }),
+      ),
+    ).toThrow(/Cross-origin|Invalid/);
+  });
+
+  it("rejects Origin null", () => {
+    process.env.QUAY_PUBLIC_HOST = "localhost:3000";
+    expect(() =>
+      assertSameOriginMutation(
+        new Request("http://localhost:3000/api/auth/login", { headers: { origin: "null" } }),
+      ),
+    ).toThrow();
+  });
+
+  it("refuses Vercel / multi-process deploy flags", () => {
+    process.env.VERCEL = "1";
+    expect(() => assertLocalSingleProcessAuth()).toThrow(/Vercel/);
+    delete process.env.VERCEL;
+    process.env.QUAY_AUTH_MULTI_PROCESS = "1";
+    expect(() => assertLocalSingleProcessAuth()).toThrow(/Multi-process/);
+  });
+});
+
+describe("M1-01 attempt throttle", () => {
+  it("blocks after limit", () => {
+    let now = 0;
+    const t = new AttemptThrottle(2, 1000, () => now);
+    expect(t.check("a")).toBeNull();
+    t.hit("a");
+    t.hit("a");
+    expect(t.check("a")).toBeGreaterThan(0);
+    now = 1000;
+    expect(t.check("a")).toBeNull();
   });
 });

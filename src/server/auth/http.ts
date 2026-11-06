@@ -20,7 +20,11 @@ export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit)
 
 export function authErrorResponse(err: unknown): Response {
   if (err instanceof AuthError) {
-    return jsonResponse({ error: { code: err.code, message: err.message } }, err.status);
+    const headers: HeadersInit = {};
+    if (err.code === "RATE_LIMITED" && typeof err.retryAfterMs === "number") {
+      headers["retry-after"] = String(Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
+    }
+    return jsonResponse({ error: { code: err.code, message: err.message } }, err.status, headers);
   }
   return jsonResponse({ error: { code: "BAD_REQUEST", message: "Unexpected error." } }, 500);
 }
@@ -75,4 +79,67 @@ export function requireString(obj: Record<string, unknown>, key: string): string
     throw new AuthError("BAD_REQUEST", `Missing or invalid field: ${key}.`, 400);
   }
   return value;
+}
+
+/**
+ * Allowed request hosts for Origin/Referer checks.
+ * Never incorporates attacker-controlled X-Forwarded-Host unless
+ * QUAY_TRUST_PROXY=1 and the host is on QUAY_TRUSTED_HOSTS (comma list).
+ * Prefer pinning with QUAY_PUBLIC_HOST (e.g. localhost:3000).
+ */
+export function allowedAuthHosts(request: Request): ReadonlySet<string> {
+  const hosts = new Set<string>();
+  const pinned = process.env.QUAY_PUBLIC_HOST?.trim();
+  if (pinned) hosts.add(pinned);
+  else hosts.add(new URL(request.url).host);
+
+  if (process.env.QUAY_TRUST_PROXY === "1") {
+    for (const h of (process.env.QUAY_TRUSTED_HOSTS ?? "").split(",")) {
+      const t = h.trim();
+      if (t) hosts.add(t);
+    }
+  }
+  return hosts;
+}
+
+function parseBrowserOrigin(raw: string, kind: "Origin" | "Referer"): URL {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "null") {
+    throw new AuthError("FORBIDDEN", `Invalid ${kind}.`, 403);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new AuthError("FORBIDDEN", `Invalid ${kind}.`, 403);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new AuthError("FORBIDDEN", `Invalid ${kind} protocol.`, 403);
+  }
+  return parsed;
+}
+
+/**
+ * CSRF guard for auth mutations. Origin (preferred) or Referer must match an allowed host.
+ * Does not trust X-Forwarded-* unless QUAY_TRUST_PROXY + allowlist. Missing both allowed for non-browser smoke.
+ */
+export function assertSameOriginMutation(request: Request): void {
+  // Fail closed on known multi-instance deploy shapes before any cookie work.
+  // (imported lazily via dynamic would cycle; callers also call assertLocalSingleProcessAuth)
+  const allowed = allowedAuthHosts(request);
+  const origin = request.headers.get("origin");
+  if (origin !== null) {
+    const parsed = parseBrowserOrigin(origin, "Origin");
+    if (!allowed.has(parsed.host)) {
+      throw new AuthError("FORBIDDEN", "Cross-origin auth mutation blocked.", 403);
+    }
+    return;
+  }
+  const referer = request.headers.get("referer");
+  if (referer !== null && referer !== "") {
+    const parsed = parseBrowserOrigin(referer, "Referer");
+    if (!allowed.has(parsed.host)) {
+      throw new AuthError("FORBIDDEN", "Cross-origin auth mutation blocked.", 403);
+    }
+  }
 }
