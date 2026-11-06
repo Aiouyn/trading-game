@@ -28,7 +28,7 @@ describe("CH-01 loading → live; snap + per-tick deltas reproduce the server st
     expect(store.get()).toEqual({ state: "loading", body: null, tick: null });
     vi.advanceTimersByTime(SNAP_DELAY_MS);
     expect(store.get().state).toBe("live");
-    expect(Object.keys((store.get().body as TickerBody).rows)).toHaveLength(8);
+    expect(Object.keys((store.get().body as TickerBody).rows)).toHaveLength(10);
     for (let n = 1; n <= 100; n++) {
       vi.advanceTimersByTime(TICK);
       const v = store.get();

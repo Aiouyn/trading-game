@@ -8,7 +8,7 @@ import type {
   ServerFrame, TapeBody, TapePrint, TickerBody, TickerRow, TradingState, WireItem,
 } from "./channels";
 import { diffOps } from "./delta";
-import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "./fixtures/assets";
+import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
