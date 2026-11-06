@@ -88,7 +88,13 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
   const cap = APPS[app].maxInstances;
   // At the cap, focus the main instance (the Review layout's "Journal" Portfolio is never the target).
   const existing = same ?? (mine.length >= cap ? (mine.find((w) => w.context !== "Journal") ?? mine[0]) : undefined);
-  if (existing) return { windows: bringToFront(windows, existing), focused: existing, opened: false };
+  if (existing) {
+    // UI card 10: a single-instance app opened on another context (Wire on a story id) focuses with that context, so
+    // the app sees it; the window keeps its place and size.
+    if (context === undefined || cap !== 1 || existing.context === context) return { windows: bringToFront(windows, existing), focused: existing, opened: false };
+    const moved = { ...existing, context };
+    return { windows: [...windows.filter((x) => !sameWin(x, existing)), moved], focused: moved, opened: false };
+  }
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
   const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, 560), a.w);
   const n = windows.length % 6;

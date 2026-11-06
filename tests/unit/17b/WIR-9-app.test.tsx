@@ -116,6 +116,13 @@ describe("WIR-9-06 filing summary", () => {
     expect(q("wire-filing-time")!.textContent).toMatch(/^Day \d+ · \d\d:\d\d$/);
     expect(qa("wire-filing-skel")).toHaveLength(0);
   });
+  it("spec §6 reading order: type, filer, subject, time, then the fields (QA #92 carry-over)", async () => {
+    await mount();
+    await openRow("n-3");
+    await feed.snap("filings", { items: [...FILINGS] });
+    const order = [...q("wire-filing")!.querySelectorAll("[data-testid^='wire-filing-']")].map((n) => n.getAttribute("data-testid"));
+    expect(order).toEqual(["wire-filing-type", "wire-filing-filer", "wire-filing-subject", "wire-filing-time", "wire-filing-field", "wire-filing-field"]);
+  });
   it("FR: 5,20 % with NNBSP, qty grouped with the FR separator, French labels", async () => {
     await mount(1440, "fr");
     await openRow("n-3");

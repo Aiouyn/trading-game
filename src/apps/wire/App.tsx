@@ -1,5 +1,6 @@
 // 17B Wire (UI card 1 · WIR-A): the news feed on the existing mock `news` channel. Card 9 (WIR-9): the item detail;
-// the `filings` channel is subscribed only while a FILING item's detail is open (FilingSection mounts it).
+// the `filings` channel is subscribed only while a FILING item's detail is open (FilingSection mounts it). Card 10: the
+// window `context` is a story id to select (Broker's News tab opens Wire on it).
 "use client";
 import { useCallback, useMemo } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
@@ -15,7 +16,7 @@ function FilingSection({ filingId, t }: { filingId: string; t: WireStrings }) {
   return <FilingSummary view={view} filingId={filingId} t={t} />;
 }
 
-export default function WireApp() {
+export default function WireApp({ context }: { context?: string }) {
   const view = useChannel("news");
   const t = useWireStrings();
   const store = useShellStore();
@@ -29,5 +30,5 @@ export default function WireApp() {
     filing: (filingId) => <FilingSection filingId={filingId} t={t} />,
     pushPhone,
   }), [phone, store, t, pushPhone]);
-  return <Feed view={view} t={t} host={host} />;
+  return <Feed view={view} t={t} host={host} select={context} />;
 }
