@@ -46,7 +46,6 @@ export function guestChannels(query = ""): Channels {
 
 export type SignedInPrivateSnap = {
   readonly cashCents: number;
-  readonly positions?: Readonly<Record<string, number>>;
 };
 
 export function applySignedInDemo(
@@ -58,13 +57,11 @@ export function applySignedInDemo(
   void accountId; // identity remount key only — market seed is world-owned (M1-02).
   const cashCents = privateSnap?.cashCents ?? 1_000_000;
   const nw = cashCentsToMoney(cashCents);
-  const positions = privateSnap?.positions ?? {};
   setFeed(new MockFeed({ empty: true, nw, seed: marketSeed }));
   const channels = starterChannels();
   channels.me.nw = nw;
-  // Reflect saved lots in channel snapshot (server ledger); MockFeed market still ephemeral until M1-06.
-  const posCount = Object.keys(positions).length;
-  void posCount;
+  // Saved cash seeds NW. Saved lots/orders are server-durable (M1-03) but not rendered into the demo
+  // MockFeed: the Broker stays a disclosed demo until the M1-06 order door reads/writes the ledger.
   store.getState().setChannels({
     ...channels,
     me: { ...channels.me, nw },

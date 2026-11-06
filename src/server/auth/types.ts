@@ -3,6 +3,7 @@
  * Compatible with a later Better Auth migration (T19C-02); no stub identity.
  */
 
+import type { OpenOrder, Position } from "@/shell/contracts/channels";
 import { PORT_AVALON_WORLD_ID, type WorldId } from "@/shell/worldIdentity";
 
 export type AccountId = string & { readonly __brand: "AccountId" };
@@ -32,12 +33,30 @@ export interface SessionRecord {
   readonly revokedAtMs: number | null;
 }
 
-/** Private player ledger (M1-03 durable; M1-06 order door commits here). */
+/**
+ * Durable lot: the non-derived subset of the domain `me.positions` row (channels.ts Position).
+ * mark/value/upl/pnlPct/weightPct are quote-derived (M1-05/M1-08); pledged/lent are out of V1 scope (always 0 on read).
+ */
+export type PersistedPosition = Pick<Position, "assetId" | "qty" | "avgCost">;
+
+/**
+ * Durable resting order: exactly the domain `me.orders` row (channels.ts OpenOrder); remaining = qty − filled.
+ * Ownership is the enclosing PlayerPrivateRecord.accountId (records are keyed and session-gated per account).
+ */
+export type PersistedOpenOrder = OpenOrder;
+
+/** On-disk private ledger schema. v1 (M1-01/early M1-03) = {cashCents, positions: qty map, openOrderIds}. */
+export const PLAYER_PRIVATE_SCHEMA_VERSION = 2 as const;
+
+/** Private player ledger (M1-03 durable; M1-06 order door mutates via AuthService.updateOwnPrivateState). */
 export interface PlayerPrivateRecord {
+  readonly v: typeof PLAYER_PRIVATE_SCHEMA_VERSION;
   readonly accountId: AccountId;
   readonly cashCents: number;
-  readonly positions: Readonly<Record<string, number>>;
-  readonly openOrderIds: readonly string[];
+  /** Keyed by assetId. */
+  readonly positions: Readonly<Record<string, PersistedPosition>>;
+  /** Keyed by orderId. */
+  readonly openOrders: Readonly<Record<string, PersistedOpenOrder>>;
 }
 
 export interface PublicAccount {
@@ -62,6 +81,7 @@ export type AuthErrorCode =
   | "FORBIDDEN"
   | "BAD_REQUEST"
   | "RATE_LIMITED"
+  | "LEDGER_QUARANTINED"
   | "UNSUPPORTED_DEPLOY";
 
 export class AuthError extends Error {

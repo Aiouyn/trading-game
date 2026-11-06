@@ -1,7 +1,8 @@
 import { hashPassword, hashToken, mintSessionToken, newId, verifyPassword } from "./crypto";
 import type { AuthStore } from "./store";
 import { AttemptThrottle } from "./throttle";
-import { buildPlayerPrivate, type PlayerPrivateInput } from "@/server/player";
+import { buildPlayerPrivate, clonePlayerPrivate, type PlayerPrivateInput } from "@/server/player";
+import type { QuarantinedPlayerRow } from "./store";
 import {
   AuthError,
   PORT_AVALON_WORLD_ID,
@@ -41,6 +42,8 @@ export class AuthService {
   private sessions = new Map<SessionId, SessionRecord>();
   private tokenIndex = new Map<string, SessionId>();
   private players = new Map<AccountId, PlayerPrivateRecord>();
+  /** Unloadable ledger rows, preserved verbatim on every persist (never wiped). */
+  private quarantinedPlayers: QuarantinedPlayerRow[] = [];
   private ready: Promise<void>;
   /** Serializes mutating ops so async scrypt cannot race handle uniqueness / file writes. */
   private queue: Promise<void> = Promise.resolve();
@@ -72,6 +75,7 @@ export class AuthService {
     this.sessions = new Map(snap.sessions.map((s) => [s.sessionId, s]));
     this.tokenIndex = new Map(snap.sessions.filter((s) => s.revokedAtMs === null).map((s) => [s.tokenHash, s.sessionId]));
     this.players = new Map(snap.players.map((p) => [p.accountId, p]));
+    this.quarantinedPlayers = snap.quarantinedPlayers;
   }
 
   private async persist(): Promise<void> {
@@ -79,6 +83,7 @@ export class AuthService {
       accounts: [...this.accounts.values()],
       sessions: [...this.sessions.values()],
       players: [...this.players.values()],
+      quarantinedPlayers: this.quarantinedPlayers,
     });
   }
 
@@ -125,12 +130,7 @@ export class AuthService {
         createdAtMs,
         worldId: this.worldId,
       };
-      const player: PlayerPrivateRecord = {
-        accountId,
-        cashCents: START_CASH_CENTS,
-        positions: {},
-        openOrderIds: [],
-      };
+      const player = buildPlayerPrivate(accountId, { cashCents: START_CASH_CENTS, positions: {}, openOrders: {} });
 
       this.accounts.set(accountId, account);
       this.handleIndex.set(handleKey, accountId);
@@ -247,59 +247,41 @@ export class AuthService {
     if (session.account.accountId !== accountId) {
       throw new AuthError("FORBIDDEN", "Player isolation: cannot access another player's private state.", 403);
     }
+    return clonePlayerPrivate(this.requireLedger(accountId));
+  }
+
+  private requireLedger(accountId: AccountId): PlayerPrivateRecord {
+    if (this.quarantinedPlayers.some((q) => q.accountId === accountId)) {
+      throw new AuthError("LEDGER_QUARANTINED", "Saved player ledger could not be loaded; it is preserved for repair.", 409);
+    }
     const player = this.players.get(accountId);
     if (!player) throw new AuthError("UNAUTHORIZED", "No player record for this account.", 401);
-    return {
-      accountId: player.accountId,
-      cashCents: player.cashCents,
-      positions: { ...player.positions },
-      openOrderIds: [...player.openOrderIds],
-    };
+    return player;
   }
 
   /**
-   * Commit own private ledger (M1-03). Isolation-gated; durable via AuthStore.
-   * Future M1-06 order door calls this after atomic cash/holding checks — not a client cheat path.
+   * Atomic read-modify-write of the caller's OWN private ledger (M1-03 seam for the M1-06 order door).
+   * `mutate` runs inside the service lock against the latest committed record, so concurrent commits
+   * (two sessions, two accounts) cannot lose updates. Server-only: no HTTP route exposes this, and the
+   * caller can never choose the accountId — it is the session's.
    */
-  async commitOwnPrivateState(session: AuthSessionView, input: PlayerPrivateInput): Promise<PlayerPrivateRecord> {
+  async updateOwnPrivateState(
+    session: AuthSessionView,
+    mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput,
+  ): Promise<PlayerPrivateRecord> {
     return this.withLock(async () => {
       await this.ready;
       const accountId = session.account.accountId;
-      if (!this.players.has(accountId)) {
-        throw new AuthError("UNAUTHORIZED", "No player record for this account.", 401);
+      const current = this.requireLedger(accountId);
+      const next = buildPlayerPrivate(accountId, mutate(clonePlayerPrivate(current)));
+      this.players.set(accountId, next);
+      try {
+        await this.persist();
+      } catch (err) {
+        this.players.set(accountId, current); // memory never runs ahead of disk
+        throw err;
       }
-      const next = buildPlayerPrivate(accountId, input);
-      this.players.set(accountId, next);
-      await this.persist();
-      return {
-        accountId: next.accountId,
-        cashCents: next.cashCents,
-        positions: { ...next.positions },
-        openOrderIds: [...next.openOrderIds],
-      };
-    });
-  }
-
-  /** Convenience: mutate own cash only (preserves positions/orders) under one lock. */
-  async setOwnCashCents(session: AuthSessionView, cashCents: number): Promise<PlayerPrivateRecord> {
-    return this.withLock(async () => {
-      await this.ready;
-      const accountId = session.account.accountId;
-      const current = this.players.get(accountId);
-      if (!current) throw new AuthError("UNAUTHORIZED", "No player record for this account.", 401);
-      const next = buildPlayerPrivate(accountId, {
-        cashCents,
-        positions: current.positions,
-        openOrderIds: current.openOrderIds,
-      });
-      this.players.set(accountId, next);
-      await this.persist();
-      return {
-        accountId: next.accountId,
-        cashCents: next.cashCents,
-        positions: { ...next.positions },
-        openOrderIds: [...next.openOrderIds],
-      };
+      return clonePlayerPrivate(next);
     });
   }
 

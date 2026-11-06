@@ -23,7 +23,6 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
     if (isSignedIn(auth)) {
       applySignedInDemo(store, auth.account.accountId, auth.world.marketSeed, {
         cashCents: auth.player.cashCents,
-        positions: auth.player.positions,
       });
     }
     else applyGuestDemo(store, query);

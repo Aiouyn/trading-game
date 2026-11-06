@@ -17,7 +17,7 @@ export type WorldPersistence = "none" | "player_private";
 export type PortAvalonWorldView = {
   readonly worldId: WorldId;
   readonly marketSeed: number;
-  /** player_private = cash/positions/openOrderIds durable; market/ticks not yet (M1-04+). */
+  /** player_private = cash, positions (qty+avgCost) and open orders durable; market/ticks not yet (M1-04+). */
   readonly persistence: WorldPersistence;
 };
 

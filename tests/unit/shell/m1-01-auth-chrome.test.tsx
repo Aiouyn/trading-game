@@ -65,7 +65,7 @@ describe("M1-01 shell auth chrome", () => {
         JSON.stringify({
           account: { accountId: "acc_x", handle: "qa_player", createdAtMs: 1, worldId: "world_port_avalon" },
           session: { sessionId: "ses_x", expiresAtMs: 9 },
-          player: { accountId: "acc_x", cashCents: 1_000_000, positions: {}, openOrderIds: [] },
+          player: { accountId: "acc_x", cashCents: 1_000_000, positions: {}, openOrders: {} },
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),

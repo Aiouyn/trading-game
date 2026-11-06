@@ -88,7 +88,7 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
           JSON.stringify({
             account: { accountId: "acc_1", handle: "Nova", createdAtMs: 1, worldId: "world_port_avalon" },
             session: { sessionId: "ses_1", expiresAtMs: 9 },
-            player: { accountId: "acc_1", cashCents: 1_000_000, positions: {}, openOrderIds: [] },
+            player: { accountId: "acc_1", cashCents: 1_000_000, positions: {}, openOrders: {} },
             world: { worldId: "world_port_avalon", marketSeed: 17, persistence: "player_private" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -121,7 +121,7 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
           JSON.stringify({
             account: { accountId: "acc_2", handle: "Reef", createdAtMs: 1, worldId: "world_port_avalon" },
             session: { sessionId: "ses_2", expiresAtMs: 9 },
-            player: { accountId: "acc_2", cashCents: 1_000_000, positions: {}, openOrderIds: [] },
+            player: { accountId: "acc_2", cashCents: 1_000_000, positions: {}, openOrders: {} },
             world: { worldId: "world_port_avalon", marketSeed: 17, persistence: "player_private" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },

@@ -1,12 +1,35 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { parsePlayerPrivateRecord } from "@/server/player";
+import { clonePlayerPrivate, parsePlayerPrivateRow } from "@/server/player";
 import type { AccountRecord, PlayerPrivateRecord, SessionRecord } from "./types";
 
 export interface AuthStoreSnapshot {
   readonly accounts: AccountRecord[];
   readonly sessions: SessionRecord[];
   readonly players: PlayerPrivateRecord[];
+  /**
+   * players[] rows that could not be loaded (corrupt, unknown version, lossy legacy, duplicate).
+   * Kept verbatim and re-written on every save — never silently dropped. Their accounts read as
+   * LEDGER_QUARANTINED until repaired by hand.
+   */
+  readonly quarantinedPlayers: QuarantinedPlayerRow[];
+}
+
+export interface QuarantinedPlayerRow {
+  readonly accountId: string | null;
+  readonly reason: string;
+  readonly row: unknown;
+}
+
+const emptySnapshot = (): AuthStoreSnapshot => ({ accounts: [], sessions: [], players: [], quarantinedPlayers: [] });
+
+function cloneSnapshot(s: AuthStoreSnapshot): AuthStoreSnapshot {
+  return {
+    accounts: s.accounts.map((a) => ({ ...a })),
+    sessions: s.sessions.map((x) => ({ ...x })),
+    players: s.players.map(clonePlayerPrivate),
+    quarantinedPlayers: s.quarantinedPlayers.map((q) => structuredClone(q)),
+  };
 }
 
 export interface AuthStore {
@@ -15,30 +38,14 @@ export interface AuthStore {
 }
 
 export class MemoryAuthStore implements AuthStore {
-  private snapshot: AuthStoreSnapshot = { accounts: [], sessions: [], players: [] };
+  private snapshot: AuthStoreSnapshot = emptySnapshot();
 
   async load(): Promise<AuthStoreSnapshot> {
-    return {
-      accounts: this.snapshot.accounts.map((a) => ({ ...a })),
-      sessions: this.snapshot.sessions.map((s) => ({ ...s })),
-      players: this.snapshot.players.map((p) => ({
-        ...p,
-        positions: { ...p.positions },
-        openOrderIds: [...p.openOrderIds],
-      })),
-    };
+    return cloneSnapshot(this.snapshot);
   }
 
   async save(snapshot: AuthStoreSnapshot): Promise<void> {
-    this.snapshot = {
-      accounts: snapshot.accounts.map((a) => ({ ...a })),
-      sessions: snapshot.sessions.map((s) => ({ ...s })),
-      players: snapshot.players.map((p) => ({
-        ...p,
-        positions: { ...p.positions },
-        openOrderIds: [...p.openOrderIds],
-      })),
-    };
+    this.snapshot = cloneSnapshot(snapshot);
   }
 }
 
@@ -60,7 +67,7 @@ export class FileAuthStore implements AuthStore {
       return normalizeSnapshot(parsed);
     } catch (err) {
       const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
-      if (code === "ENOENT") return { accounts: [], sessions: [], players: [] };
+      if (code === "ENOENT") return emptySnapshot();
       throw err;
     }
   }
@@ -73,6 +80,7 @@ export class FileAuthStore implements AuthStore {
         accounts: snapshot.accounts,
         sessions: snapshot.sessions,
         players: snapshot.players,
+        quarantinedPlayers: snapshot.quarantinedPlayers,
       },
       null,
       0,
@@ -83,16 +91,42 @@ export class FileAuthStore implements AuthStore {
 }
 
 function normalizeSnapshot(parsed: unknown): AuthStoreSnapshot {
-  if (!parsed || typeof parsed !== "object") return { accounts: [], sessions: [], players: [] };
+  if (!parsed || typeof parsed !== "object") return emptySnapshot();
   const obj = parsed as Record<string, unknown>;
   const accounts = Array.isArray(obj.accounts) ? (obj.accounts as AccountRecord[]) : [];
   const sessions = Array.isArray(obj.sessions) ? (obj.sessions as SessionRecord[]) : [];
-  const players: PlayerPrivateRecord[] = [];
+  const quarantinedPlayers: QuarantinedPlayerRow[] = [];
+  if (Array.isArray(obj.quarantinedPlayers)) {
+    for (const q of obj.quarantinedPlayers as QuarantinedPlayerRow[]) quarantinedPlayers.push(q);
+  }
+  const byAccount = new Map<string, PlayerPrivateRecord>();
+  const rawById = new Map<string, unknown>();
   if (Array.isArray(obj.players)) {
     for (const row of obj.players) {
-      const p = parsePlayerPrivateRecord(row);
-      if (p) players.push(p);
+      const rowId =
+        row && typeof row === "object" && typeof (row as { accountId?: unknown }).accountId === "string"
+          ? ((row as { accountId: string }).accountId)
+          : null;
+      const parsedRow = parsePlayerPrivateRow(row);
+      if (!parsedRow.ok) {
+        quarantinedPlayers.push({ accountId: rowId, reason: parsedRow.reason, row });
+        continue;
+      }
+      const id = parsedRow.record.accountId;
+      if (byAccount.has(id)) {
+        // Two ledgers for one account: neither is trustworthy; keep both raw rows.
+        quarantinedPlayers.push({ accountId: id, reason: "duplicate ledger row", row: rawById.get(id) });
+        quarantinedPlayers.push({ accountId: id, reason: "duplicate ledger row", row });
+        byAccount.delete(id);
+        continue;
+      }
+      if (quarantinedPlayers.some((q) => q.accountId === id)) {
+        quarantinedPlayers.push({ accountId: id, reason: "ledger row alongside a quarantined row", row });
+        continue;
+      }
+      byAccount.set(id, parsedRow.record);
+      rawById.set(id, row);
     }
   }
-  return { accounts, sessions, players };
+  return { accounts, sessions, players: [...byAccount.values()], quarantinedPlayers };
 }
