@@ -37,11 +37,11 @@ describe("M1-02 shared world identity", () => {
     setFeed(null);
   });
 
-  it("getPortAvalonWorld is server-owned constant (persistence none)", () => {
+  it("getPortAvalonWorld is server-owned constant (persistence player_private)", () => {
     const w = getPortAvalonWorld();
     expect(w.worldId).toBe(PORT_AVALON_WORLD_ID);
     expect(w.marketSeed).toBe(PORT_AVALON_MARKET_SEED);
-    expect(w.persistence).toBe("none");
+    expect(w.persistence).toBe("player_private");
     expect(worldAttachBody()).toEqual({ world: w });
   });
 
@@ -51,7 +51,7 @@ describe("M1-02 shared world identity", () => {
     const body = (await res.json()) as { world: { worldId: string; marketSeed: number; persistence: string } };
     expect(body.world.worldId).toBe(PORT_AVALON_WORLD_ID);
     expect(body.world.marketSeed).toBe(PORT_AVALON_MARKET_SEED);
-    expect(body.world.persistence).toBe("none");
+    expect(body.world.persistence).toBe("player_private");
   });
 
   it("two accounts share world id + marketSeed; private cash stays isolated", async () => {
@@ -85,7 +85,7 @@ describe("M1-02 shared world identity", () => {
     expect(bodyA.world).toEqual(bodyB.world);
     expect(bodyA.world.worldId).toBe(PORT_AVALON_WORLD_ID);
     expect(bodyA.world.marketSeed).toBe(PORT_AVALON_MARKET_SEED);
-    expect(bodyA.world.persistence).toBe("none");
+    expect(bodyA.world.persistence).toBe("player_private");
 
     const cookieA = cookieFrom(regA)!;
     const cookieB = cookieFrom(regB)!;

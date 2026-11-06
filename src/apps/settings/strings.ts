@@ -62,8 +62,8 @@ const EN = {
   accountHandle: "Handle",
   accountPassword: "Password",
   accountWorld: (worldId: string) => `World: ${worldId}`,
-  accountStarterLabel: "Starter account (demo placeholder)",
-  accountDisclaimer: "Your account is saved. Trading is a demo for now; trades and balances reset.",
+  accountStarterLabel: "Saved balance",
+  accountDisclaimer: "Account and private cash, positions, and open orders are saved on the server. Market demo ticks still reset until live trading is wired.",
 };
 
 type Strings = typeof EN;
@@ -121,8 +121,8 @@ const FR: Strings = {
   accountHandle: "Pseudo",
   accountPassword: "Mot de passe",
   accountWorld: (worldId: string) => `Monde : ${worldId}`,
-  accountStarterLabel: "Compte de départ (démo)",
-  accountDisclaimer: "Votre compte est enregistré. Le trading est encore une démo ; les ordres et soldes sont réinitialisés.",
+  accountStarterLabel: "Solde enregistré",
+  accountDisclaimer: "Le compte et les liquidités, positions et ordres ouverts privés sont enregistrés sur le serveur. Les ticks de marché démo se réinitialisent encore.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };

@@ -11,7 +11,7 @@ export type AuthPublicAccount = {
 export type AuthWorldView = {
   worldId: string;
   marketSeed: number;
-  persistence: "none";
+  persistence: "none" | "player_private";
 };
 
 export type AuthPlayerView = {

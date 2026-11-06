@@ -2,6 +2,7 @@
  * Port Avalon shared-world identity literals (M1-02).
  * Pure client+server module. Server `/api/world` and auth session bodies are authoritative;
  * signed-in demo feed attaches with marketSeed (never an accountId hash).
+ * persistence player_private after M1-03 (private ledger only).
  */
 export type WorldId = string & { readonly __brand: "WorldId" };
 
@@ -11,12 +12,12 @@ export const PORT_AVALON_WORLD_ID = "world_port_avalon" as WorldId;
 /** Fixed market RNG seed for every signed-in attach until M1-04/05 own ticks. */
 export const PORT_AVALON_MARKET_SEED = 17;
 
-export type WorldPersistence = "none";
+export type WorldPersistence = "none" | "player_private";
 
 export type PortAvalonWorldView = {
   readonly worldId: WorldId;
   readonly marketSeed: number;
-  /** Honest scope: no claim of durable trading save (M1-03). */
+  /** player_private = cash/positions/openOrderIds durable; market/ticks not yet (M1-04+). */
   readonly persistence: WorldPersistence;
 };
 
@@ -24,6 +25,6 @@ export function getPortAvalonWorld(): PortAvalonWorldView {
   return {
     worldId: PORT_AVALON_WORLD_ID,
     marketSeed: PORT_AVALON_MARKET_SEED,
-    persistence: "none",
+    persistence: "player_private",
   };
 }

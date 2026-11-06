@@ -1,6 +1,7 @@
 import { hashPassword, hashToken, mintSessionToken, newId, verifyPassword } from "./crypto";
 import type { AuthStore } from "./store";
 import { AttemptThrottle } from "./throttle";
+import { buildPlayerPrivate, type PlayerPrivateInput } from "@/server/player";
 import {
   AuthError,
   PORT_AVALON_WORLD_ID,
@@ -256,18 +257,49 @@ export class AuthService {
     };
   }
 
-  /** Test/helper: mutate own private cash only through the isolation gate. */
+  /**
+   * Commit own private ledger (M1-03). Isolation-gated; durable via AuthStore.
+   * Future M1-06 order door calls this after atomic cash/holding checks — not a client cheat path.
+   */
+  async commitOwnPrivateState(session: AuthSessionView, input: PlayerPrivateInput): Promise<PlayerPrivateRecord> {
+    return this.withLock(async () => {
+      await this.ready;
+      const accountId = session.account.accountId;
+      if (!this.players.has(accountId)) {
+        throw new AuthError("UNAUTHORIZED", "No player record for this account.", 401);
+      }
+      const next = buildPlayerPrivate(accountId, input);
+      this.players.set(accountId, next);
+      await this.persist();
+      return {
+        accountId: next.accountId,
+        cashCents: next.cashCents,
+        positions: { ...next.positions },
+        openOrderIds: [...next.openOrderIds],
+      };
+    });
+  }
+
+  /** Convenience: mutate own cash only (preserves positions/orders) under one lock. */
   async setOwnCashCents(session: AuthSessionView, cashCents: number): Promise<PlayerPrivateRecord> {
     return this.withLock(async () => {
       await this.ready;
-      if (!Number.isInteger(cashCents) || cashCents < 0) {
-        throw new AuthError("BAD_REQUEST", "cashCents must be a non-negative integer.", 400);
-      }
-      const current = await this.getPlayerPrivate(session, session.account.accountId);
-      const next: PlayerPrivateRecord = { ...current, cashCents };
-      this.players.set(session.account.accountId, next);
+      const accountId = session.account.accountId;
+      const current = this.players.get(accountId);
+      if (!current) throw new AuthError("UNAUTHORIZED", "No player record for this account.", 401);
+      const next = buildPlayerPrivate(accountId, {
+        cashCents,
+        positions: current.positions,
+        openOrderIds: current.openOrderIds,
+      });
+      this.players.set(accountId, next);
       await this.persist();
-      return next;
+      return {
+        accountId: next.accountId,
+        cashCents: next.cashCents,
+        positions: { ...next.positions },
+        openOrderIds: [...next.openOrderIds],
+      };
     });
   }
 

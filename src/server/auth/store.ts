@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { parsePlayerPrivateRecord } from "@/server/player";
 import type { AccountRecord, PlayerPrivateRecord, SessionRecord } from "./types";
 
 export interface AuthStoreSnapshot {
@@ -86,6 +87,12 @@ function normalizeSnapshot(parsed: unknown): AuthStoreSnapshot {
   const obj = parsed as Record<string, unknown>;
   const accounts = Array.isArray(obj.accounts) ? (obj.accounts as AccountRecord[]) : [];
   const sessions = Array.isArray(obj.sessions) ? (obj.sessions as SessionRecord[]) : [];
-  const players = Array.isArray(obj.players) ? (obj.players as PlayerPrivateRecord[]) : [];
+  const players: PlayerPrivateRecord[] = [];
+  if (Array.isArray(obj.players)) {
+    for (const row of obj.players) {
+      const p = parsePlayerPrivateRecord(row);
+      if (p) players.push(p);
+    }
+  }
   return { accounts, sessions, players };
 }

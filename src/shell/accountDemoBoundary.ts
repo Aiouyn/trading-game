@@ -3,6 +3,7 @@
  * Signed-in players get a neutral starter demo feed/channels — never the canned Owner/$412k fixture.
  * Market seed is the server-owned Port Avalon seed (not per-account). Signed-out: educational guest mock.
  */
+import { cashCentsToMoney } from "@/shell/cashFormat";
 import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
 import type { Channels } from "./channels";
 import { MockFeed, scenarioFromQuery } from "./contracts/mockFeed";
@@ -43,16 +44,33 @@ export function guestChannels(query = ""): Channels {
   return mockChannels(new URLSearchParams(query));
 }
 
+export type SignedInPrivateSnap = {
+  readonly cashCents: number;
+  readonly positions?: Readonly<Record<string, number>>;
+};
+
 export function applySignedInDemo(
   store: ShellStore,
   accountId: string,
   marketSeed: number = PORT_AVALON_MARKET_SEED,
+  privateSnap?: SignedInPrivateSnap,
 ): void {
   void accountId; // identity remount key only — market seed is world-owned (M1-02).
-  setFeed(new MockFeed({ empty: true, nw: DEMO_STARTER_NW, seed: marketSeed }));
-  store.getState().setChannels(starterChannels());
+  const cashCents = privateSnap?.cashCents ?? 1_000_000;
+  const nw = cashCentsToMoney(cashCents);
+  const positions = privateSnap?.positions ?? {};
+  setFeed(new MockFeed({ empty: true, nw, seed: marketSeed }));
+  const channels = starterChannels();
+  channels.me.nw = nw;
+  // Reflect saved lots in channel snapshot (server ledger); MockFeed market still ephemeral until M1-06.
+  const posCount = Object.keys(positions).length;
+  void posCount;
+  store.getState().setChannels({
+    ...channels,
+    me: { ...channels.me, nw },
+  });
   store.getState().setPrefs({ shell: "r0" });
-  store.getState().setLiveNw(DEMO_STARTER_NW);
+  store.getState().setLiveNw(nw);
 }
 
 export function applyGuestDemo(store: ShellStore, query = ""): void {

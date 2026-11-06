@@ -32,7 +32,7 @@ export interface SessionRecord {
   readonly revokedAtMs: number | null;
 }
 
-/** Private player wallet stub used only for isolation checks until M1-03/M1-06. */
+/** Private player ledger (M1-03 durable; M1-06 order door commits here). */
 export interface PlayerPrivateRecord {
   readonly accountId: AccountId;
   readonly cashCents: number;
