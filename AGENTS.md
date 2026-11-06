@@ -7,3 +7,25 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Avalon agent workflow (V1)
+
+Local shared-box work only. No cloud agents. Remote GitHub CI remains independently required after local preflight.
+
+| Rule | Enforcement |
+|------|-------------|
+| One active coding unit (one branch/worktree/card) | Process: do not mix unrelated cards into the same PR |
+| Prefer the cheap path; escalate only after it fails or the core is hard | Judgment (prominent) |
+| One local preflight per changed working-tree snapshot | `npm run preflight` → `tools/ci/preflight.mjs` (SHA + dirty fingerprint; stale tree fails) |
+| Preflight phases match CI (lint, ledger-no-dup, typecheck, build, hooks, unit, route-budget; e2e via `--browser`) | `tests/unit/ci/preflight.test.ts` parity vs `.github/workflows/ci.yml` |
+| Skipped/omitted e2e is not a pass | Preflight report marks `e2e: omitted` unless `--browser` |
+| Browser-prove real changed player paths before GK for UI/state transitions | Judgment + `--browser` / Playwright when the change needs it |
+| GK handoff: exact SHA, base, diff/ACs, commands+output, screenshots, known gaps | Judgment |
+| Reuse evidence only for an unchanged head fingerprint; otherwise targeted impact replay, not full suites by reflex | Preflight fingerprint + judgment |
+| Red CI resolved before GK product review | Judgment |
+| GK may independently re-run when trust/integration changed | Judgment (checks not prohibited) |
+| No polling loops; events authoritative; verify once at handoff | Judgment |
+| User owns milestone/blocker updates | Judgment |
+| No cloud | Judgment / board |
+
+Command: `npm run preflight` (add `--browser` or `npm run preflight:browser` for local e2e). Evidence: `.preflight/` (gitignored).
