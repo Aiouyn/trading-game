@@ -8,12 +8,19 @@ import {
   type AuthMeResponse,
   type AuthPublicAccount,
   type AuthPlayerView,
+  type AuthWorldView,
 } from "./authClient";
 
 export type AuthUiState =
   | { status: "loading" }
   | { status: "signed_out" }
-  | { status: "signed_in"; account: AuthPublicAccount; player: AuthPlayerView; sessionExpiresAtMs: number };
+  | {
+      status: "signed_in";
+      account: AuthPublicAccount;
+      player: AuthPlayerView;
+      world: AuthWorldView;
+      sessionExpiresAtMs: number;
+    };
 
 let state: AuthUiState = { status: "loading" };
 let boot: Promise<void> | null = null;
@@ -36,6 +43,7 @@ async function refreshFromServer(): Promise<AuthUiState> {
       status: "signed_in",
       account: me.account,
       player: me.player,
+      world: me.world,
       sessionExpiresAtMs: me.session.expiresAtMs,
     });
     return state;

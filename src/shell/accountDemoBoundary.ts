@@ -1,8 +1,9 @@
 /**
- * Account ↔ demo-trading boundary (M1-01).
+ * Account ↔ demo-trading boundary (M1-01 + M1-02 shared world).
  * Signed-in players get a neutral starter demo feed/channels — never the canned Owner/$412k fixture.
- * Signed-out players get the educational canned mock (distinct example character).
+ * Market seed is the server-owned Port Avalon seed (not per-account). Signed-out: educational guest mock.
  */
+import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
 import type { Channels } from "./channels";
 import { MockFeed, scenarioFromQuery } from "./contracts/mockFeed";
 import { setFeed } from "./contracts/useChannel";
@@ -14,12 +15,6 @@ import type { ShellStore } from "./store";
 export const DEMO_STARTER_NW = "10000.00";
 
 const STARTER_RANK: Rank = "R0";
-
-function seedFromAccountId(accountId: string): number {
-  let h = 17;
-  for (let i = 0; i < accountId.length; i++) h = (h * 31 + accountId.charCodeAt(i)) >>> 0;
-  return (h % 1_000_000) + 1;
-}
 
 /** Shell channel snapshot for a fresh authenticated account (not the Owner fixture). */
 export function starterChannels(): Channels {
@@ -48,8 +43,13 @@ export function guestChannels(query = ""): Channels {
   return mockChannels(new URLSearchParams(query));
 }
 
-export function applySignedInDemo(store: ShellStore, accountId: string): void {
-  setFeed(new MockFeed({ empty: true, nw: DEMO_STARTER_NW, seed: seedFromAccountId(accountId) }));
+export function applySignedInDemo(
+  store: ShellStore,
+  accountId: string,
+  marketSeed: number = PORT_AVALON_MARKET_SEED,
+): void {
+  void accountId; // identity remount key only — market seed is world-owned (M1-02).
+  setFeed(new MockFeed({ empty: true, nw: DEMO_STARTER_NW, seed: marketSeed }));
   store.getState().setChannels(starterChannels());
   store.getState().setPrefs({ shell: "r0" });
   store.getState().setLiveNw(DEMO_STARTER_NW);

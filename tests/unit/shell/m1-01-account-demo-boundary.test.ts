@@ -77,14 +77,15 @@ describe("account demo boundary", () => {
     vi.useRealTimers();
   });
 
-  it("switching accounts reseeds feed (no leak of prior account demo seed state via shared feed)", async () => {
+  it("switching accounts replaces feed instance but keeps shared world marketSeed", async () => {
     vi.useFakeTimers();
     const store = createShellStore(mockChannels(new URLSearchParams()));
     applySignedInDemo(store, "acc_one");
-    const feedA = getFeed();
+    const feedA = getFeed() as MockFeed;
     applySignedInDemo(store, "acc_two");
-    const feedB = getFeed();
+    const feedB = getFeed() as MockFeed;
     expect(feedA).not.toBe(feedB);
+    expect(feedA.scenario.seed).toBe(feedB.scenario.seed);
     expect(store.getState().channels.me.nw).toBe(DEMO_STARTER_NW);
     vi.useRealTimers();
   });

@@ -7,6 +7,13 @@ export type AuthPublicAccount = {
   worldId: string;
 };
 
+/** Server-owned world attach (M1-02). */
+export type AuthWorldView = {
+  worldId: string;
+  marketSeed: number;
+  persistence: "none";
+};
+
 export type AuthPlayerView = {
   accountId: string;
   cashCents: number;
@@ -18,11 +25,13 @@ export type AuthMeResponse = {
   account: AuthPublicAccount;
   session: { sessionId: string; expiresAtMs: number };
   player: AuthPlayerView;
+  world: AuthWorldView;
 };
 
 export type AuthSessionResponse = {
   account: AuthPublicAccount;
   session: { sessionId: string; expiresAtMs: number };
+  world: AuthWorldView;
 };
 
 export type AuthClientError = {
@@ -54,6 +63,13 @@ async function postAuth(path: string, body?: Record<string, string>): Promise<Re
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
+}
+
+export async function fetchWorld(): Promise<AuthWorldView> {
+  const res = await fetch("/api/world", { credentials: "same-origin", cache: "no-store" });
+  if (!res.ok) throw await parseError(res);
+  const body = (await res.json()) as { world: AuthWorldView };
+  return body.world;
 }
 
 export async function fetchMe(): Promise<AuthMeResponse | null> {

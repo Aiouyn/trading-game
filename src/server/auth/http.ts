@@ -6,6 +6,7 @@ import {
   sessionCookieHeader,
 } from "./cookies";
 import type { AuthSessionView } from "./types";
+import { worldAttachBody } from "@/server/world";
 
 export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
   return new Response(JSON.stringify(body), {
@@ -57,6 +58,7 @@ export function sessionBody(view: AuthSessionView) {
   return {
     account: view.account,
     session: { sessionId: view.sessionId, expiresAtMs: view.expiresAtMs },
+    ...worldAttachBody(),
   };
 }
 
