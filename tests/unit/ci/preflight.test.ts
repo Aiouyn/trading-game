@@ -138,7 +138,7 @@ describe("runner CLI contracts", () => {
         { id: "ledger-no-dup", argv: ["false"] },
         { id: "typecheck", argv: ["true"] },
       ],
-      runPhase: (phase) => ({
+      runPhase: (phase: { id: string }) => ({
         status: phase.id === "ledger-no-dup" ? 1 : 0,
         signal: null,
         error: phase.id === "ledger-no-dup" ? "boom" : null,
