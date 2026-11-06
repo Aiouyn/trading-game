@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -6,11 +6,17 @@ import { describe, expect, it } from "vitest";
 import {
   BROWSER_PHASES,
   CI_CONDITIONAL_NOTE,
+  CI_NODE_MAJOR,
   CORE_PHASES,
+  NOT_COVERED,
+  localPhaseCommands,
   phaseShellLine,
+  unconditionalCiRunCommands,
 } from "../../../tools/ci/phases.mjs";
 import {
   assertSnapshotUnchanged,
+  e2eReport,
+  findSymlinkNodeModules,
   gitCapture,
   main,
   parseArgs,
@@ -37,7 +43,7 @@ function tempRepo() {
   return dir;
 }
 
-describe("preflight phases ↔ CI parity (cwd/env, not id self-map)", () => {
+describe("preflight phases ↔ CI parity (bidirectional)", () => {
   it("CORE_PHASES ids and commands match the known CI checklist (hardcoded)", () => {
     expect(CORE_PHASES.map((p) => p.id)).toEqual([
       "lint",
@@ -53,7 +59,7 @@ describe("preflight phases ↔ CI parity (cwd/env, not id self-map)", () => {
     expect(CORE_PHASES.find((p) => p.id === "ledger-no-dup")!.cwd).toBe("packages/engine/ledger");
   });
 
-  it("each phase argv appears as a CI run step; ledger cwd and e2e env match", () => {
+  it("each local phase argv appears as a CI run step; ledger cwd and e2e env match", () => {
     for (const p of CORE_PHASES) {
       expect(CI_YML, p.id).toContain(`run: ${phaseShellLine(p)}`);
     }
@@ -64,11 +70,29 @@ describe("preflight phases ↔ CI parity (cwd/env, not id self-map)", () => {
     expect(CI_YML).toMatch(/npx playwright test[\s\S]*env:[\s\S]*CI:\s*"1"[\s\S]*SHOTS:\s*"1"/);
   });
 
-  it("documents CI-conditional check:paths as not local-required", () => {
+  it("every unconditional ci.yml run step is covered by a local phase (CI→phases)", () => {
+    const required = unconditionalCiRunCommands(CI_YML);
+    expect(required.length).toBeGreaterThan(5);
+    const local = new Set(localPhaseCommands());
+    for (const cmd of required) {
+      expect(local.has(cmd), `CI run not in local phases: ${cmd}`).toBe(true);
+    }
+    // Adding a new unconditional run in ci.yml without a phase must fail this test.
+    const withExtra = CI_YML + "\n      - run: npm run invented-check\n";
+    const after = unconditionalCiRunCommands(withExtra);
+    expect(after).toContain("npm run invented-check");
+    expect(local.has("npm run invented-check")).toBe(false);
+  });
+
+  it("documents CI-conditional check:paths and remote NOT_COVERED workflows", () => {
     expect(CI_YML).toMatch(/check:paths/);
     expect(CI_YML).toMatch(/startsWith\(github\.head_ref, 'v3\/quay-shell'\)/);
     expect(CI_CONDITIONAL_NOTE).toMatch(/check:paths/);
     expect(CORE_PHASES.some((p) => phaseShellLine(p).includes("check:paths"))).toBe(false);
+    expect(unconditionalCiRunCommands(CI_YML).some((c) => c.includes("check:paths"))).toBe(false);
+    expect(NOT_COVERED.some((x) => x.includes("engine.yml"))).toBe(true);
+    expect(NOT_COVERED.some((x) => x.includes("city.yml"))).toBe(true);
+    expect(CI_NODE_MAJOR).toBe(22);
   });
 });
 
@@ -79,6 +103,8 @@ describe("content snapshot (real temp git repo)", () => {
     const b = gitCapture(dir);
     expect(a.dirty).toBe(false);
     expect(a.fingerprint).toBe(b.fingerprint);
+    expect(a.runtime.node).toMatch(/^v/);
+    expect(a.runtime.ciNodeMajor).toBe(22);
     expect(() => assertSnapshotUnchanged(a, b)).not.toThrow();
   });
 
@@ -115,8 +141,6 @@ describe("content snapshot (real temp git repo)", () => {
     const b = gitCapture(dir);
     expect(a.fingerprint).toBe(b.fingerprint);
   });
-});
-
 
   it("ignored ledger node_modules directory does not change fingerprint after create", () => {
     const dir = tempRepo();
@@ -129,27 +153,86 @@ describe("content snapshot (real temp git repo)", () => {
     const after = gitCapture(dir);
     expect(after.fingerprint).toBe(before.fingerprint);
   });
+});
 
 describe("runner CLI contracts", () => {
-  it("fail-fast stops after first failure and keeps log paths when provided by runPhase", () => {
+  it("fail-fast keeps executed rows, marks remaining planned phases not_run (no later exec)", () => {
+    const phases = [
+      { id: "lint", argv: ["true"] },
+      { id: "ledger-no-dup", argv: ["false"] },
+      { id: "typecheck", argv: ["true"] },
+      { id: "e2e", argv: ["true"] },
+    ];
+    let execCount = 0;
     const { ok, results, failedAt } = runPhases({
-      phases: [
-        { id: "lint", argv: ["true"] },
-        { id: "ledger-no-dup", argv: ["false"] },
-        { id: "typecheck", argv: ["true"] },
-      ],
-      runPhase: (phase: { id: string }) => ({
-        status: phase.id === "ledger-no-dup" ? 1 : 0,
-        signal: null,
-        error: phase.id === "ledger-no-dup" ? "boom" : null,
-        stdoutLog: `/tmp/${phase.id}.out`,
-        stderrLog: `/tmp/${phase.id}.err`,
-      }),
+      phases,
+      runPhase: (phase: { id: string }) => {
+        execCount += 1;
+        return {
+          status: phase.id === "ledger-no-dup" ? 1 : 0,
+          signal: null,
+          error: phase.id === "ledger-no-dup" ? "boom" : null,
+          stdoutLog: `/tmp/${phase.id}.out`,
+          stderrLog: `/tmp/${phase.id}.err`,
+        };
+      },
     });
     expect(ok).toBe(false);
     expect(failedAt).toBe("ledger-no-dup");
-    expect(results).toHaveLength(2);
-    expect(results[1]!.stderrLog).toBe("/tmp/ledger-no-dup.err");
+    expect(execCount).toBe(2);
+    expect(results.map((r) => r.id)).toEqual(["lint", "ledger-no-dup", "typecheck", "e2e"]);
+    expect(results[2]!.status).toBe("not_run");
+    expect(results[3]!.status).toBe("not_run");
+    expect(e2eReport(true, results)).toBe("not_run");
+  });
+
+  it("browser fail at pw-install: e2e top-level not_run (not failed), route-budget+e2e rows present", () => {
+    const dir = tempRepo();
+    const out = join(dir, "evidence-browser-fail");
+    mkdirSync(out, { recursive: true });
+    const code = main(["--browser", "--out", out], {
+      cwd: dir,
+      gitCapture: () => gitCapture(dir),
+      runPhase: (phase: { id: string }) => ({
+        status: phase.id === "pw-install" ? 1 : 0,
+        signal: null,
+        error: phase.id === "pw-install" ? "simulated" : null,
+        stdoutLog: join(out, `${phase.id}.out`),
+        stderrLog: join(out, `${phase.id}.err`),
+      }),
+    });
+    expect(code).toBe(1);
+    const result = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
+    expect(result.failedAt).toBe("pw-install");
+    expect(result.e2e).toBe("not_run");
+    expect(result.certified).toBe(false);
+    expect(result.phasesOk).toBe(false);
+    const byId = Object.fromEntries(result.results.map((r: { id: string; status: string }) => [r.id, r.status]));
+    expect(byId["pw-install"]).toBe("failed");
+    expect(byId["route-budget"]).toBe("not_run");
+    expect(byId["e2e"]).toBe("not_run");
+  });
+
+  it("default runPhases exec: first tiny command fails → remaining not_run, no later exec", () => {
+    const logDir = mkdtempSync(join(tmpdir(), "pf-real-"));
+    let later = false;
+    const { ok, results, failedAt } = runPhases({
+      phases: [
+        { id: "boom", argv: ["node", "-e", "process.exit(7)"] },
+        { id: "later", argv: ["node", "-e", "require('fs').writeFileSync(process.env.MARK,'1')"] },
+      ],
+      logDir,
+      onPhase: (p: { id: string }) => {
+        if (p.id === "later") later = true;
+      },
+    });
+    expect(ok).toBe(false);
+    expect(failedAt).toBe("boom");
+    expect(later).toBe(false); // onPhase still called? Actually onPhase is called before exec for each - wait, we return before later iteration so onPhase('later') should NOT be called
+    expect(results.map((r) => [r.id, r.status, r.exit])).toEqual([
+      ["boom", "failed", 7],
+      ["later", "not_run", null],
+    ]);
   });
 
   it("dry-run is uncertified: ok false, statuses not_run, not usable as pass", () => {
@@ -160,9 +243,11 @@ describe("runner CLI contracts", () => {
     const result = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
     expect(result.dryRun).toBe(true);
     expect(result.certified).toBe(false);
+    expect(result.phasesOk).toBe(false);
     expect(result.ok).toBe(false);
     expect(result.scope).toBe("core_only");
     expect(result.e2e).toBe("omitted");
+    expect(result.notCovered?.length).toBeGreaterThan(0);
     expect(result.results.every((r: { status: string; ok: boolean }) => r.status === "not_run" && r.ok === false)).toBe(true);
   });
 
@@ -172,7 +257,7 @@ describe("runner CLI contracts", () => {
     expect(code).toBe(2);
   });
 
-  it("core-only main message path: scope core_only when phases mocked pass", () => {
+  it("core-only mocked pass: phasesOk true but certified always false", () => {
     const dir = tempRepo();
     const out = join(dir, "evidence2");
     mkdirSync(out, { recursive: true });
@@ -189,8 +274,46 @@ describe("runner CLI contracts", () => {
     });
     expect(code).toBe(0);
     const result = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
-    expect(result.certified).toBe(true);
+    expect(result.phasesOk).toBe(true);
+    expect(result.certified).toBe(false);
     expect(result.scope).toBe("core_only");
     expect(result.e2e).toBe("omitted");
+    expect(result.snapshot.runtime.node).toBeTruthy();
+  });
+
+  it("dirty tree with mocked pass still certified=false", () => {
+    const dir = tempRepo();
+    writeFileSync(join(dir, "ADV.txt"), "dirty\n");
+    const out = join(dir, "evidence-dirty");
+    mkdirSync(out, { recursive: true });
+    const code = main(["--out", out], {
+      cwd: dir,
+      gitCapture: () => gitCapture(dir),
+      runPhase: () => ({ status: 0, signal: null, error: null, stdoutLog: null, stderrLog: null }),
+    });
+    expect(code).toBe(0);
+    const result = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
+    expect(result.snapshot.dirty).toBe(true);
+    expect(result.phasesOk).toBe(true);
+    expect(result.certified).toBe(false);
+  });
+
+  it("refuses symlinked node_modules without deleting it", () => {
+    const dir = tempRepo();
+    const target = mkdtempSync(join(tmpdir(), "pf-nm-target-"));
+    mkdirSync(join(target, ".bin"), { recursive: true });
+    symlinkSync(target, join(dir, "node_modules"));
+    expect(findSymlinkNodeModules(dir)).toBe(join(dir, "node_modules"));
+    const out = join(dir, "evidence-sym");
+    const code = main(["--out", out], {
+      cwd: dir,
+      gitCapture: () => gitCapture(dir),
+      runPhase: () => {
+        throw new Error("runPhase must not execute when symlink refused");
+      },
+    });
+    expect(code).toBe(1);
+    // Symlink still present (not deleted).
+    expect(findSymlinkNodeModules(dir)).toBe(join(dir, "node_modules"));
   });
 });
