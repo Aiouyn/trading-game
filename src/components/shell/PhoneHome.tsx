@@ -191,9 +191,7 @@ function StatusBar() {
         <button type="button" className="chip chip-acc sb-account" data-testid="account-chip" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>
           {auth.account.handle}
         </button>
-      ) : (
-        <Button variant="secondary" size="sm" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
-      )}
+      ) : null}
       <span className="sb-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}><MoneyText amount={nw} ctx="chip" /></span>
     </header>
   );
@@ -273,7 +271,10 @@ export function PhoneHome() {
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
-              <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
+              <span className="widget-top-actions">
+                <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
+                <Button variant="secondary" size="sm" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
+              </span>
             )}
           </div>
           <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>

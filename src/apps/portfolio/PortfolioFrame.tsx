@@ -41,7 +41,8 @@ export function PortfolioFrame() {
   if (phone) {
     return (
       <div className="pf pf-phone-root" data-testid="portfolio" data-tab={tab}>
-        {guest && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
+        {/* Guest example label on Overview only — Orders/Positions shots stay baseline-stable (PF-8). */}
+        {guest && tab === "overview" && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
         {tab === "positions" ? <Positions phone /> : tab === "orders" ? <Orders phone /> : (
           <>
             <Overview phone />
