@@ -16,9 +16,9 @@ Local shared-box work only. No cloud agents. Remote GitHub CI remains independen
 |------|-------------|
 | One active coding unit (one branch/worktree/card) | Process: do not mix unrelated cards into the same PR |
 | Prefer the cheap path; escalate only after it fails or the core is hard | Judgment (prominent) |
-| One local preflight per changed working-tree snapshot | `npm run preflight` → `tools/ci/preflight.mjs` (SHA + dirty fingerprint; stale tree fails) |
-| Preflight phases match CI (lint, ledger-no-dup, typecheck, build, hooks, unit, route-budget; e2e via `--browser`) | `tests/unit/ci/preflight.test.ts` parity vs `.github/workflows/ci.yml` |
-| Skipped/omitted e2e is not a pass | Preflight report marks `e2e: omitted` unless `--browser` |
+| One local preflight per changed working-tree snapshot | `npm run preflight` → content fingerprint (HEAD + `git diff HEAD` + untracked non-ignored bytes); mid-run change → stale |
+| Preflight phases match CI (lint, ledger-no-dup, typecheck, build, hooks, unit, route-budget; e2e via `--browser`) | `tests/unit/ci/preflight.test.ts` parity (argv/cwd/env) vs `.github/workflows/ci.yml` |
+| Omitted e2e ⇒ `scope=core_only` incomplete, not full green | Report `certified` + `scope`; `--dry-run` is uncertified `not_run` |
 | Browser-prove real changed player paths before GK for UI/state transitions | Judgment + `--browser` / Playwright when the change needs it |
 | GK handoff: exact SHA, base, diff/ACs, commands+output, screenshots, known gaps | Judgment |
 | Reuse evidence only for an unchanged head fingerprint; otherwise targeted impact replay, not full suites by reflex | Preflight fingerprint + judgment |
@@ -28,4 +28,4 @@ Local shared-box work only. No cloud agents. Remote GitHub CI remains independen
 | User owns milestone/blocker updates | Judgment |
 | No cloud | Judgment / board |
 
-Command: `npm run preflight` (add `--browser` or `npm run preflight:browser` for local e2e). Evidence: `.preflight/` (gitignored).
+Command: `npm run preflight` or `npm run preflight -- --browser`. Evidence: `.preflight/` (gitignored). Dry-run is a plan only (not certified).

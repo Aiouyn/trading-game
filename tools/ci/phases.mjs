@@ -1,15 +1,13 @@
 /**
  * Canonical local/CI phase list for trading-game.
  * Keep in lockstep with .github/workflows/ci.yml — parity is asserted by tests/unit/ci/preflight.test.ts.
- * Do not invent a second ad-hoc checklist in docs or agent chat.
  */
 /** @typedef {{ id: string, argv: string[], cwd?: string, env?: Record<string, string> }} Phase */
 
-/** Matches the `checks` job (+ ledger-no-dup job) required commands. */
+/** Matches the unconditional `checks` job steps + the `ledger-no-dup` job. */
 /** @type {Phase[]} */
 export const CORE_PHASES = [
   { id: "lint", argv: ["npm", "run", "lint"] },
-  // Whole-repo scan; CI runs this in packages/engine/ledger after its own npm ci.
   { id: "ledger-no-dup", argv: ["npx", "vitest", "run", "test/map-no-dup.test.ts"], cwd: "packages/engine/ledger" },
   { id: "typecheck", argv: ["npm", "run", "typecheck"] },
   { id: "build", argv: ["npm", "run", "build"] },
@@ -19,7 +17,7 @@ export const CORE_PHASES = [
   { id: "route-budget", argv: ["node", "tools/ci/route-budget.mjs", "/broker"] },
 ];
 
-/** Matches the `e2e` job. Local runs only with --browser; omitted ≠ pass. */
+/** Matches the `e2e` job. Local only with --browser; omitted ≠ certified full CI. */
 /** @type {Phase[]} */
 export const BROWSER_PHASES = [
   {
@@ -29,10 +27,13 @@ export const BROWSER_PHASES = [
   },
 ];
 
-export const REQUIRED_CORE_IDS = CORE_PHASES.map((p) => p.id);
-export const REQUIRED_BROWSER_IDS = BROWSER_PHASES.map((p) => p.id);
+/**
+ * CI `check:paths` runs only on PRs whose head starts with v3/quay-shell.
+ * Not part of local preflight; listed so agents do not invent a second unconditional check.
+ */
+export const CI_CONDITIONAL_NOTE =
+  "npm run check:paths -- origin/<base> is CI-conditional (pull_request + head_ref v3/quay-shell*); not required in local preflight.";
 
-/** Flatten argv to the form that appears after `run:` in ci.yml (shell words). */
 export function phaseShellLine(phase) {
   return phase.argv.join(" ");
 }
