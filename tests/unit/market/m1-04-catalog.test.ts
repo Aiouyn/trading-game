@@ -1,3 +1,4 @@
+import legacyTape from "./legacy-seed17.json";
 import { describe, expect, it } from "vitest";
 import { ASSETS } from "@/market/catalog";
 import { GET } from "@/app/api/world/route";
@@ -37,6 +38,21 @@ describe("M1-04 canonical catalog", () => {
     for (let tick = 0; tick < 5; tick++) {
       expect(a.body("ticker:wl_default")).toEqual(b.body("ticker:wl_default"));
       a.advance(); b.advance();
+    }
+  });
+});
+
+
+describe("catalog extension replay compatibility", () => {
+  it("preserves every original ticker field at ticks 0, 1, 3, 20 from the eight-asset seed17 tape", () => {
+    const feed = new MockFeed({ seed: 17 }, { autoStart: false });
+    for (let tick = 0; tick <= 20; tick++) {
+      const golden = legacyTape.find(sample => sample.tick === tick);
+      if (golden) {
+        const ticker = feed.body("ticker:wl_default");
+        expect(ticker).toMatchObject(golden.body);
+      }
+      feed.advance();
     }
   });
 });

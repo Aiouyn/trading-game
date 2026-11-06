@@ -1,0 +1,322 @@
+[
+  {
+    "tick": 0,
+    "body": {
+      "listId": "wl_default",
+      "rows": {
+        "HALC": {
+          "assetId": "HALC",
+          "last": "42.18",
+          "chg": "-0.15",
+          "chgPct": "-0.35",
+          "vol": "16000",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "GX": {
+          "assetId": "GX",
+          "last": "4200.15",
+          "chg": "25.82",
+          "chgPct": "0.62",
+          "vol": "0",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "MRDN": {
+          "assetId": "MRDN",
+          "last": "18.90",
+          "chg": "-0.01",
+          "chgPct": "-0.05",
+          "vol": "36000",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VOLT": {
+          "assetId": "VOLT",
+          "last": "76.04",
+          "chg": "0.51",
+          "chgPct": "0.68",
+          "vol": "10000",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "ORCA": {
+          "assetId": "ORCA",
+          "last": "23.85",
+          "chg": "0.20",
+          "chgPct": "0.85",
+          "vol": "24000",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "TIDE": {
+          "assetId": "TIDE",
+          "last": "55.30",
+          "chg": "-0.29",
+          "chgPct": "-0.52",
+          "vol": "12000",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "KILN": {
+          "assetId": "KILN",
+          "last": "12.44",
+          "chg": "0.05",
+          "chgPct": "0.40",
+          "vol": "48000",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "AVB": {
+          "assetId": "AVB",
+          "last": "98.12",
+          "chg": "-0.09",
+          "chgPct": "-0.09",
+          "vol": "8000",
+          "state": "CONTINUOUS",
+          "halted": false
+        }
+      }
+    }
+  },
+  {
+    "tick": 1,
+    "body": {
+      "listId": "wl_default",
+      "rows": {
+        "HALC": {
+          "assetId": "HALC",
+          "last": "42.14",
+          "chg": "-0.19",
+          "chgPct": "-0.45",
+          "vol": "16473",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "GX": {
+          "assetId": "GX",
+          "last": "4201.64",
+          "chg": "27.31",
+          "chgPct": "0.65",
+          "vol": "0",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "MRDN": {
+          "assetId": "MRDN",
+          "last": "18.89",
+          "chg": "-0.02",
+          "chgPct": "-0.11",
+          "vol": "36629",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VOLT": {
+          "assetId": "VOLT",
+          "last": "76.06",
+          "chg": "0.53",
+          "chgPct": "0.70",
+          "vol": "10310",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "ORCA": {
+          "assetId": "ORCA",
+          "last": "23.82",
+          "chg": "0.17",
+          "chgPct": "0.72",
+          "vol": "24590",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "TIDE": {
+          "assetId": "TIDE",
+          "last": "55.32",
+          "chg": "-0.27",
+          "chgPct": "-0.49",
+          "vol": "12351",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "KILN": {
+          "assetId": "KILN",
+          "last": "12.44",
+          "chg": "0.05",
+          "chgPct": "0.40",
+          "vol": "49330",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "AVB": {
+          "assetId": "AVB",
+          "last": "98.13",
+          "chg": "-0.08",
+          "chgPct": "-0.08",
+          "vol": "8181",
+          "state": "CONTINUOUS",
+          "halted": false
+        }
+      }
+    }
+  },
+  {
+    "tick": 3,
+    "body": {
+      "listId": "wl_default",
+      "rows": {
+        "HALC": {
+          "assetId": "HALC",
+          "last": "42.05",
+          "chg": "-0.28",
+          "chgPct": "-0.66",
+          "vol": "17190",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "GX": {
+          "assetId": "GX",
+          "last": "4201.46",
+          "chg": "27.13",
+          "chgPct": "0.65",
+          "vol": "0",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "MRDN": {
+          "assetId": "MRDN",
+          "last": "18.88",
+          "chg": "-0.03",
+          "chgPct": "-0.16",
+          "vol": "38831",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VOLT": {
+          "assetId": "VOLT",
+          "last": "76.13",
+          "chg": "0.60",
+          "chgPct": "0.79",
+          "vol": "10661",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "ORCA": {
+          "assetId": "ORCA",
+          "last": "23.72",
+          "chg": "0.07",
+          "chgPct": "0.30",
+          "vol": "25808",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "TIDE": {
+          "assetId": "TIDE",
+          "last": "55.32",
+          "chg": "-0.27",
+          "chgPct": "-0.49",
+          "vol": "13106",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "KILN": {
+          "assetId": "KILN",
+          "last": "12.44",
+          "chg": "0.05",
+          "chgPct": "0.40",
+          "vol": "50811",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "AVB": {
+          "assetId": "AVB",
+          "last": "98.17",
+          "chg": "-0.04",
+          "chgPct": "-0.04",
+          "vol": "8604",
+          "state": "CONTINUOUS",
+          "halted": false
+        }
+      }
+    }
+  },
+  {
+    "tick": 20,
+    "body": {
+      "listId": "wl_default",
+      "rows": {
+        "HALC": {
+          "assetId": "HALC",
+          "last": "41.77",
+          "chg": "-0.56",
+          "chgPct": "-1.32",
+          "vol": "24584",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "GX": {
+          "assetId": "GX",
+          "last": "4190.94",
+          "chg": "16.61",
+          "chgPct": "0.40",
+          "vol": "0",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "MRDN": {
+          "assetId": "MRDN",
+          "last": "18.97",
+          "chg": "0.06",
+          "chgPct": "0.32",
+          "vol": "53794",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VOLT": {
+          "assetId": "VOLT",
+          "last": "76.04",
+          "chg": "0.51",
+          "chgPct": "0.68",
+          "vol": "14879",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "ORCA": {
+          "assetId": "ORCA",
+          "last": "23.41",
+          "chg": "-0.24",
+          "chgPct": "-1.01",
+          "vol": "35087",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "TIDE": {
+          "assetId": "TIDE",
+          "last": "55.40",
+          "chg": "-0.19",
+          "chgPct": "-0.34",
+          "vol": "18599",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "KILN": {
+          "assetId": "KILN",
+          "last": "12.43",
+          "chg": "0.04",
+          "chgPct": "0.32",
+          "vol": "68236",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "AVB": {
+          "assetId": "AVB",
+          "last": "98.64",
+          "chg": "0.43",
+          "chgPct": "0.44",
+          "vol": "11911",
+          "state": "CONTINUOUS",
+          "halted": false
+        }
+      }
+    }
+  }
+]

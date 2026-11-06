@@ -168,6 +168,21 @@ export class MockFeed {
   readonly tickMs: number;
   tick: number;
   private rand: () => number;
+  private extraAssetRandom = new Map<string, () => number>();
+
+  // Preserve the original eight-asset replay stream. Catalog extensions must not
+  // consume it at initialization or on ticks (quotes, volumes and fills depend on it).
+  private assetRandom(assetId: string): () => number {
+    if (["HALC", "GX", "MRDN", "VOLT", "ORCA", "TIDE", "KILN", "AVB"].includes(assetId)) return this.rand;
+    let random = this.extraAssetRandom.get(assetId);
+    if (!random) {
+      let seed = this.scenario.seed;
+      for (const c of assetId) seed = (Math.imul(seed, 31) + c.charCodeAt(0)) >>> 0;
+      random = rng(seed);
+      this.extraAssetRandom.set(assetId, random);
+    }
+    return random;
+  }
   private assets = new Map<string, AssetState>();
   private cash: number;
   private lots = new Map<string, Lot>();
@@ -194,7 +209,7 @@ export class MockFeed {
     this.historyPolicy = opts.historyPolicy ?? ORDER_HISTORY_POLICY;
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
-      const prevClose = Math.round(a.base * (1 + (this.rand() - 0.5) * 0.02));
+      const prevClose = Math.round(a.base * (1 + (this.assetRandom(a.assetId)() - 0.5) * 0.02));
       this.assets.set(a.assetId, { last: a.base, prevClose, dayVol: a.lot * 40, prints: [], lastQty: 0, dir: 0 });
     }
     if (!this.scenario.empty) for (const p of POSITIONS) this.lots.set(p.assetId, { qty: p.qty, avgCost: p.avgCostMinor });
@@ -212,7 +227,8 @@ export class MockFeed {
     this.tick += 1;
     for (const a of ASSETS) {
       const s = this.assets.get(a.assetId)!;
-      const r = this.rand(), rq = this.rand();
+      const random = this.assetRandom(a.assetId);
+      const r = random(), rq = random();
       if (this.tradingState(a.assetId) !== "CONTINUOUS") { s.dir = 0; s.lastQty = 0; continue; }
       const step = Math.round(((r - 0.5) * 2 * a.volBp * s.last) / 10_000);
       s.dir = step > 0 ? 1 : step < 0 ? -1 : 0;
