@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { About } from "./About";
-import { Account } from "./Account";
+import { AccountSettings } from "./AccountSettings";
 import { Appearance } from "./Appearance";
 import { BUILT_SECTIONS, SECTION_IDS, settingsNav, useSettingsNav, type SectionId } from "./sections";
 import { useSettingsStrings } from "./useSettingsStrings";
@@ -14,7 +14,7 @@ import "./about.css";
 function SectionBody({ id }: { id: SectionId }) {
   const locale = useShell((s) => s.prefs.locale);
   const t = useSettingsStrings();
-  if (id === "SET-01") return <Account />;
+  if (id === "SET-01") return <AccountSettings />;
   if (id === "SET-02") return <Appearance />;
   if (id === "SET-08") return <About locale={locale} />;
   return (

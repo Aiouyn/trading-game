@@ -1,5 +1,5 @@
 "use client";
-// SET-01 Account — M1-01 visible register / login / logout (real sessions).
+// SET-01 Account settings — M1-01 visible register / login / logout (real sessions).
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
@@ -17,7 +17,7 @@ function isClientError(err: unknown): err is AuthClientError {
   return !!err && typeof err === "object" && "code" in err && typeof (err as AuthClientError).code === "string";
 }
 
-export function Account() {
+export function AccountSettings() {
   const t = useSettingsStrings();
   const locale = useShell((s) => (s.prefs.locale === "fr" ? "fr" : "en"));
   const auth = useAuthSession();

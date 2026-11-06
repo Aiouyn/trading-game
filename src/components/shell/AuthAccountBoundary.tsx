@@ -12,18 +12,18 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
   const store = useShellStore();
   const auth = useAuthChrome();
   const applied = useRef<string | null>(null);
-  const accountKey = isSignedIn(auth) ? auth.account.accountId : "guest";
+  const authBoundaryKey = isSignedIn(auth) ? auth.account.accountId : "guest";
 
   // Layout (before useChannel's passive retain): install the account feed before subscribers
   // rebind. useChannel also tolerates setFeed mid-flight; this keeps the first paint coherent.
   useLayoutEffect(() => {
     if (auth.status === "loading") return;
-    if (applied.current === accountKey) return;
-    applied.current = accountKey;
+    if (applied.current === authBoundaryKey) return;
+    applied.current = authBoundaryKey;
     if (isSignedIn(auth)) applySignedInDemo(store, auth.account.accountId);
     else applyGuestDemo(store, query);
-  }, [auth, accountKey, store, query]);
+  }, [auth, authBoundaryKey, store, query]);
 
   // Remount trading/shell surfaces when the account identity changes (incl. logout).
-  return <div key={accountKey} data-testid="auth-account-boundary" data-account={accountKey}>{children}</div>;
+  return <div key={authBoundaryKey} data-testid="auth-account-boundary" data-account={authBoundaryKey}>{children}</div>;
 }

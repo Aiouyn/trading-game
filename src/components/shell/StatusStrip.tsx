@@ -36,7 +36,7 @@ export function StatusStrip() {
     <span className="strip-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}>
       <MoneyText amount={nw} ctx="chip" />
       {signedIn ? (
-        <span className="muted strip-demo-tag" data-testid="strip-demo-tag"> · {S.demoBalance}</span>
+        <span className="muted strip-demo-tag" data-testid="strip-demo-tag"><span aria-hidden="true">{" · "}</span>{S.demoBalance}</span>
       ) : (
         <> <PctText value={me.todayPct} /></>
       )}

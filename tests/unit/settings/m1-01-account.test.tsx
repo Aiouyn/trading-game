@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Account } from "@/apps/settings/Account";
+import { AccountSettings } from "@/apps/settings/AccountSettings";
 import { ShellCtx } from "@/components/shell/ShellContext";
 import { mockChannels } from "@/shell/mockChannels";
 import { authSession } from "@/shell/authSession";
@@ -33,7 +33,7 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
   async function mount() {
     const store = createShellStore(mockChannels(new URLSearchParams()));
     await act(async () => {
-      root.render(createElement(ShellCtx.Provider, { value: store }, createElement(Account)));
+      root.render(createElement(ShellCtx.Provider, { value: store }, createElement(AccountSettings)));
     });
   }
 
