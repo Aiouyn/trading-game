@@ -198,8 +198,9 @@ export class MockFeed {
       this.assets.set(a.assetId, { last: a.base, prevClose, dayVol: a.lot * 40, prints: [], lastQty: 0, dir: 0 });
     }
     if (!this.scenario.empty) for (const p of POSITIONS) this.lots.set(p.assetId, { qty: p.qty, avgCost: p.avgCostMinor });
-    // One NW source (fixtures/me START_NW): opening cash is whatever makes nw = START_NW at the opening marks.
-    this.cash = START_NW_MINOR - this.heldMinor();
+    // Opening cash matches me.nw: Owner START_NW, or the `?nw=` / signed-in demo pin (else preview BP
+    // stays on the Owner ledger while me.balances.FDL shows the pin — GK broker ~$412k vs $10k).
+    this.cash = (this.pinnedNwMinor() ?? START_NW_MINOR) - this.heldMinor();
     this.news = this.scenario.empty ? [] : NEWS.map((n) => this.tierNews(n));
   }
 
@@ -440,9 +441,14 @@ export class MockFeed {
     const [i, f = ""] = v.split(".");
     return Number(i) * 100 + Number(f.padEnd(2, "0"));
   }
+  /** FDL cash me and preview share: pinned nw absorbs marks; otherwise the mutable ledger. */
+  private fdlCashMinor(): number {
+    const pin = this.pinnedNwMinor();
+    return pin === null ? this.cash : pin - this.heldMinor();
+  }
   private meBody(): MeTradingBody {
-    const held = this.heldMinor(), pin = this.pinnedNwMinor();
-    const cash = pin === null ? this.cash : pin - held;
+    const held = this.heldMinor();
+    const cash = this.fdlCashMinor();
     const nw = cash + held;
     const positions: Record<string, Position> = {};
     for (const [id, l] of this.lots) {
@@ -544,7 +550,7 @@ export class MockFeed {
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
       ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : "MKT_NO_LOCATE" }),
-      buyingPowerAfter: fmt(this.cash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
+      buyingPowerAfter: fmt(this.fdlCashMinor() - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };
   }

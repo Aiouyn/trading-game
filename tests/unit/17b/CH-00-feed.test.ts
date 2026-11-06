@@ -235,6 +235,15 @@ describe("mock scenarios, intents and req ops", () => {
     expect(feedOf({ empty: true }).preview({ ...draft, side: "SELL", qty: "1" })).toMatchObject({ valid: false, reasonCode: "MKT_NO_LOCATE" });
     expect(f.preview({ ...draft, qty: "0" })).toMatchObject({ valid: false, reasonCode: "MKT_BAD_QTY" });
   });
+  it("nw pin drives me cash and preview buying power (signed-in demo boundary)", () => {
+    const f = feedOf({ empty: true, nw: "10000.00" });
+    expect(f.body("me")).toMatchObject({ balances: { FDL: "10000.00" }, nw: "10000.00" });
+    const p = f.preview({ assetId: "HALC", side: "BUY", type: "market", qty: "1", tif: "day" });
+    expect(p.valid).toBe(true);
+    const bp = Number(p.buyingPowerAfter);
+    expect(bp).toBeGreaterThan(9_000);
+    expect(bp).toBeLessThan(10_000);
+  });
   it("asset.detail exposes only public 05 §2.2 fields; candle history aligns and caps", () => {
     const f = feedOf();
     expect(Object.keys(f.assetDetail("HALC")!).sort()).toEqual(["assetId", "bloc", "ccy", "class", "displayDecimals", "licenseTier", "name", "qtyDecimals", "sector", "ticker", "tradingState"]);

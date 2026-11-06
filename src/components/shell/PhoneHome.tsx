@@ -271,12 +271,13 @@ export function PhoneHome() {
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
-              <span className="widget-top-actions">
-                <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
-                <Button variant="secondary" size="sm" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
-              </span>
+              <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
             )}
           </div>
+          {/* Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
+          {!signedIn ? (
+            <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
+          ) : null}
           <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>
           <div className="widget-row">
             {signedIn ? (
