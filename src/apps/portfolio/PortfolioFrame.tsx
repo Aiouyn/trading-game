@@ -4,6 +4,7 @@
 // "Back to Portfolio" (SR T4). Positions: UI card 3 (17B PF-B). Orders: UI card 8.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
+import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
 import { viewportOf } from "@/shell/wm";
 import { Orders } from "./Orders";
 import { Overview } from "./Overview";
@@ -24,6 +25,8 @@ export function PortfolioFrame() {
   const locale = useShell((s) => s.prefs.locale);
   const stacked = useShell((s) => s.prefs.textScale >= STACK_SCALE);
   const t = pfStrings(locale);
+  const auth = useAuthChrome();
+  const guest = !isSignedIn(auth);
   const [tab, setTab] = useState<PfTab>("overview");
   const tabRefs = useRef<Record<PfTab, HTMLButtonElement | null>>({ overview: null, positions: null, orders: null });
   const label: Record<PfTab, string> = { overview: t.overview, positions: t.positions, orders: t.orders };
@@ -38,6 +41,7 @@ export function PortfolioFrame() {
   if (phone) {
     return (
       <div className="pf pf-phone-root" data-testid="portfolio" data-tab={tab}>
+        {guest && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
         {tab === "positions" ? <Positions phone /> : tab === "orders" ? <Orders phone /> : (
           <>
             <Overview phone />
@@ -68,6 +72,7 @@ export function PortfolioFrame() {
   };
   return (
     <div className="pf" data-testid="portfolio" data-tab={tab}>
+      {guest && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
       <div className={`pf-seg${stacked ? " stacked" : ""}`} role="tablist" aria-label={t.views} data-testid="pf-tabs" onKeyDown={onKey}>
         {TABS.map((id) => (
           <button key={id} type="button" role="tab" id={`pf-tab-${id}`} aria-controls={`pf-panel-${id}`} aria-selected={tab === id}

@@ -3,7 +3,7 @@
  * Binds authSession to the demo trading feed + shell channels.
  * Remounts children on account key so useChannel stores do not keep a prior feed.
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { applyGuestDemo, applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
 import { useShellStore } from "./ShellContext";
@@ -14,7 +14,9 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
   const applied = useRef<string | null>(null);
   const accountKey = isSignedIn(auth) ? auth.account.accountId : "guest";
 
-  useEffect(() => {
+  // Layout (before useChannel's passive retain): install the account feed before subscribers
+  // rebind. useChannel also tolerates setFeed mid-flight; this keeps the first paint coherent.
+  useLayoutEffect(() => {
     if (auth.status === "loading") return;
     if (applied.current === accountKey) return;
     applied.current = accountKey;

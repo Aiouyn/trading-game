@@ -66,39 +66,93 @@ export function openChannel<C extends ChannelName>(feed: FeedTransport, ch: C, n
 }
 
 // ---- React hook: one shared store per (feed, channel), ref-counted ----
+type SharedEntry = {
+  store: ChannelStore<unknown>;
+  refs: number;
+  closeTimer: ReturnType<typeof setTimeout> | null;
+};
+
 let defaultFeed: FeedTransport | null = null;
+/** Bumped on every setFeed so hot-swaps invalidate render-time acquires. */
+let feedGeneration = 0;
+
 /** The page's feed: the deterministic mock, scripted by the (build-gated) URL scenario. */
 export function getFeed(): FeedTransport {
   if (!defaultFeed) defaultFeed = new MockFeed(scenarioFromQuery(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)));
   return defaultFeed;
 }
-/** Tests / SWAP: replace the page feed (closes nothing; call before the first useChannel). */
-export function setFeed(f: FeedTransport | null): void { defaultFeed = f; shared.clear(); }
 
-const shared = new Map<string, { store: ChannelStore<unknown>; refs: number; closeTimer: ReturnType<typeof setTimeout> | null }>();
-function acquire<C extends ChannelName>(ch: C): ChannelStore<BodyOf<C>> {
-  let e = shared.get(ch);
-  if (!e) { e = { store: openChannel(getFeed(), ch) as ChannelStore<unknown>, refs: 0, closeTimer: null }; shared.set(ch, e); }
-  return e.store as ChannelStore<BodyOf<C>>;
+/**
+ * Replace the page feed. Safe while useChannel subscribers are mounted (M1-01 account boundary):
+ * closes live channel stores, clears the shared map, and bumps feedGeneration so the next
+ * subscribe/getSnapshot re-acquires on the new transport. Callers that mutate shell state in the
+ * same turn (setChannels) re-render subscribers onto the new feed.
+ */
+const feedListeners = new Set<() => void>();
+
+export function setFeed(f: FeedTransport | null): void {
+  for (const e of shared.values()) {
+    if (e.closeTimer) clearTimeout(e.closeTimer);
+    e.closeTimer = null;
+    e.store.close();
+  }
+  shared.clear();
+  defaultFeed = f;
+  feedGeneration += 1;
+  // Force every mounted useChannel to re-read getSnapshot on the new feed.
+  feedListeners.forEach((fn) => fn());
 }
-function retain(ch: string) {
-  const e = shared.get(ch)!;
+
+const shared = new Map<string, SharedEntry>();
+
+function acquireEntry(ch: ChannelName): SharedEntry {
+  let e = shared.get(ch);
+  if (!e) {
+    e = { store: openChannel(getFeed(), ch) as ChannelStore<unknown>, refs: 0, closeTimer: null };
+    shared.set(ch, e);
+  }
+  return e;
+}
+
+function retainEntry(ch: string, e: SharedEntry): () => void {
   if (e.closeTimer) { clearTimeout(e.closeTimer); e.closeTimer = null; }
   e.refs += 1;
   return () => {
     e.refs -= 1;
     // Grace period so a remount (StrictMode, window move) doesn't drop and re-snap the channel.
-    if (e.refs === 0) e.closeTimer = setTimeout(() => { e.store.close(); shared.delete(ch); }, 1000);
+    if (e.refs === 0) {
+      e.closeTimer = setTimeout(() => {
+        e.store.close();
+        // Only delete if this entry is still current (setFeed may have replaced the map).
+        if (shared.get(ch) === e) shared.delete(ch);
+      }, 1000);
+    }
   };
 }
 
 const SERVER_VIEW = LOADING;
-/** Subscribe a component to a channel: `loading` → `live` (snap, then per-tick deltas) → `stale` / `denied` / `error`. */
+
+/**
+ * Subscribe a component to a channel: `loading` → `live` (snap, then per-tick deltas) → `stale` / `denied` / `error`.
+ * Acquire happens again inside subscribe/getSnapshot so a setFeed between render and subscribe cannot
+ * retain a missing map entry (AuthAccountBoundary / LiveNwUnlock hot-swap).
+ */
 export function useChannel<C extends ChannelName>(ch: C): ChannelView<BodyOf<C>> {
-  const store = typeof window === "undefined" ? null : acquire(ch);
+  // Read generation during render so a feed swap that also updates React state rebinds this hook.
+  const generation = feedGeneration;
+  const onClient = typeof window !== "undefined";
+  void generation;
   return useSyncExternalStore(
-    (fn) => { if (!store) return () => {}; const off = store.listen(fn); const release = retain(ch); return () => { off(); release(); }; },
-    () => (store ? store.get() : SERVER_VIEW),
+    (fn) => {
+      if (!onClient) return () => {};
+      // Re-acquire on the *current* feed: setFeed may have cleared the map since render.
+      const e = acquireEntry(ch);
+      const off = e.store.listen(fn);
+      const release = retainEntry(ch, e);
+      feedListeners.add(fn);
+      return () => { feedListeners.delete(fn); off(); release(); };
+    },
+    () => (onClient ? acquireEntry(ch).store.get() as ChannelView<BodyOf<C>> : SERVER_VIEW),
     () => SERVER_VIEW,
   );
 }
