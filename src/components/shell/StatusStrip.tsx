@@ -2,7 +2,7 @@
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { clockLabel } from "@/shell/mockChannels";
-import { DEMO_STARTER_NW, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { RANK_NAMES, RANKS } from "@/shell/registry";
 import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
@@ -21,7 +21,7 @@ export function StatusStrip() {
   const rank = useShell((s) => s.channels.rank.rank);
   const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
-  const mockNw = useNw();
+  const nw = useNw();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const focusMode = useShell((s) => s.local.focusMode);
@@ -32,7 +32,6 @@ export function StatusStrip() {
     : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const nw = signedIn ? DEMO_STARTER_NW : mockNw;
   const nwChip = (
     <span className="strip-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}>
       <MoneyText amount={nw} ctx="chip" />

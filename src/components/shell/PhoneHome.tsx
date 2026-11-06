@@ -15,7 +15,7 @@ import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { useNw } from "./useNw";
 import { Button } from "@/components/ui/Button";
-import { DEMO_STARTER_NW, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 const LONG_PRESS_MS = 400;
@@ -155,10 +155,9 @@ function StatusBar() {
   const clock = useShell((s) => s.channels.clock);
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const mockNw = useNw();
+  const nw = useNw();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
-  const nw = signedIn ? DEMO_STARTER_NW : mockNw;
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
   const { day, hhmm } = clockLabel(clock);
@@ -203,10 +202,9 @@ function StatusBar() {
 export function PhoneHome() {
   const vis = useShell((s) => s.vis);
   const me = useShell((s) => s.channels.me);
-  const mockNw = useNw();
+  const nw = useNw();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
-  const nw = signedIn ? DEMO_STARTER_NW : mockNw;
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
   const phoneSub = useShell((s) => s.phoneSub);

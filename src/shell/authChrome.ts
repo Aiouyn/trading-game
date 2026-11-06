@@ -5,11 +5,11 @@
  */
 import { useEffect } from "react";
 import { settingsNav } from "@/apps/settings/sections";
+import { DEMO_STARTER_NW } from "@/shell/accountDemoBoundary";
 import { authSession, useAuthSession, type AuthUiState } from "@/shell/authSession";
 import type { ShellStore } from "@/shell/store";
 
-/** Neutral starter cash for signed-in chrome — not live mock NW ($412k). */
-export const DEMO_STARTER_NW = "10000.00";
+export { DEMO_STARTER_NW };
 
 export function isSignedIn(auth: AuthUiState): auth is Extract<AuthUiState, { status: "signed_in" }> {
   return auth.status === "signed_in";

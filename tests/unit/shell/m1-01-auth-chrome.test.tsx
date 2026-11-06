@@ -8,6 +8,9 @@ import { mockChannels } from "@/shell/mockChannels";
 import { authSession } from "@/shell/authSession";
 import { createShellStore } from "@/shell/store";
 import { DEMO_STARTER_NW } from "@/shell/authChrome";
+import { applySignedInDemo } from "@/shell/accountDemoBoundary";
+import { setFeed } from "@/shell/contracts/useChannel";
+import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,11 +26,14 @@ describe("M1-01 shell auth chrome", () => {
     authSession._resetForTests();
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
   });
 
   afterEach(async () => {
     await act(async () => root.unmount());
     el.remove();
+    setFeed(null);
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -54,10 +60,11 @@ describe("M1-01 shell auth chrome", () => {
       ),
     );
     const store = createShellStore(mockChannels(new URLSearchParams()));
+    applySignedInDemo(store, "acc_x");
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(StatusStrip)));
     });
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 20); await Promise.resolve(); });
     expect(el.querySelector("[data-testid=account-chip]")?.textContent).toBe("qa_player");
     expect(el.querySelector("[data-testid=sign-in-entry]")).toBeNull();
     expect(el.querySelector("[data-testid=rank-chip]")).toBeNull();
