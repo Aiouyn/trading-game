@@ -53,6 +53,8 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     await act(async () => { await Promise.resolve(); });
     const d = el.querySelector("[data-testid=account-disclaimer]")?.textContent ?? "";
     expect(d).toMatch(/saved on the server/i);
+    expect(d).toMatch(/broker trades and fills/i);
+    expect(d).toMatch(/not saved/i);
     expect(d).toMatch(/demo/i);
     expect(d.toLowerCase()).not.toContain("mock broker");
   });
@@ -102,6 +104,8 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     expect(el.querySelector("[data-testid=account-handle]")?.textContent).toBe("Nova");
     const disc = el.querySelector("[data-testid=account-disclaimer]")?.textContent ?? "";
     expect(disc).toMatch(/saved on the server/i);
+    expect(disc).toMatch(/broker trades and fills/i);
+    expect(disc).toMatch(/not saved/i);
     expect(disc).toMatch(/demo/i);
     const starter = el.querySelector("[data-testid=account-starter]")?.textContent ?? "";
     expect(starter).toMatch(/Saved balance/i);
