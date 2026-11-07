@@ -240,6 +240,10 @@ export class MockFeed {
   /** M1-07 signed-in: the server's live bar per `candles:{id}:{res}` channel (GET /api/market/candles). Never computed here. */
   private serverCandles = new Map<string, Candle>();
   private candlePulls = new Set<string>();
+  /** Per candles channel: the newest server bar read, the last `x-candle-rev`, and bars still to publish. */
+  private candleLatest = new Map<string, Candle>();
+  private candleRev = new Map<string, number>();
+  private candleQueue = new Map<string, Candle[]>();
   private autoStart: boolean;
 
   constructor(scenario: Partial<Scenario> = {}, opts: FeedOptions = {}) {
@@ -685,30 +689,45 @@ export class MockFeed {
   }
 
   /** Signed-in: the server's bar at the adopted tick for one candles channel; publishes it (snap or delta). A failed or
-   *  malformed read keeps the last bar (a long outage reads as stale through the quote watchdog). */
+   *  malformed read keeps the last bar (a long outage reads as stale through the quote watchdog).
+   *  Late volume: a fill's save may commit after its bar closed, with no bound on the delay. Each pull passes the last
+   *  server revision it saw (`since`), so the reply also carries every older bar whose volume changed since; those go out
+   *  as corrections, one frame per pull (absolute values: each change shows exactly once), before the newest bar. */
   private async pullServerCandle(ch: string): Promise<void> {
     if (!this.authoritativeQuotes || !this.quotesAdopted || this.candlePulls.has(ch)) return;
     const [, assetId, res] = ch.split(":") as [string, string, CandleRes];
     if (!ASSET_BY_ID[assetId] || (res !== "tick" && res !== "hour" && res !== "day")) return;
     const span = res === "tick" ? 1 : res === "hour" ? 30 : 720;
     const t = this.tick - (this.tick % span);
-    const held = this.serverCandles.get(ch);
-    // A bar that closed since the last pull is read once more (a fill in its last second still counts) before the
-    // next bar replaces it; only when it is a few bars back, so the request stays bounded.
+    const held = this.candleLatest.get(ch);
+    // A bar that closed since the last pull is read once more (its price is final once closed) with the bars it skipped;
+    // only when it is a few bars back, so the range stays bounded. Volume saved later still arrives through `since`.
     const from = held && held.t < t && t - held.t <= span * 4 ? held.t : t;
+    const since = this.candleRev.get(ch);
     this.candlePulls.add(ch);
     try {
-      const raw: unknown = await this.serverCandleHistory({ assetId, res, from, to: t });
-      const list = raw && typeof raw === "object" ? (raw as { bars?: unknown }).bars : null;
-      const bars: unknown[] = Array.isArray(list) ? list : [];
+      const reply = await this.serverCandlePull({ assetId, res, from, to: t }, since);
+      if (!reply) return;
+      const list = reply.raw && typeof reply.raw === "object" ? (reply.raw as { bars?: unknown }).bars : null;
+      const bars: Candle[] = Array.isArray(list) ? list.filter(isCandle) : [];
       const newest = bars[bars.length - 1];
-      if (!isCandle(newest) || newest.t !== t) return;
-      const prev = this.serverCandles.get(ch);
+      if (!newest || newest.t !== t) return;
+      const prev = this.candleLatest.get(ch);
       if (prev && prev.t > newest.t) return; // an older reply never replaces a newer bar
-      const closed = prev && prev.t < t ? bars.find((x): x is Candle => isCandle(x) && x.t === prev.t) : undefined;
-      // The closed bar's final values go out first; the new bar follows on the next pull (one frame each, so the chart
-      // sees both).
-      const bar = closed && !sameCandle(closed, prev!) ? closed : newest;
+      if (this.candleRev.get(ch) !== since) return; // a reply overtaken by a newer read
+      const queue = this.candleQueue.get(ch) ?? [];
+      for (const b of bars) {
+        if (b.t >= newest.t) continue;
+        // Unchanged closed bar: nothing to send. Older than the range: only sent because its volume changed after `since`.
+        if (prev && b.t === prev.t && sameCandle(b, prev)) continue;
+        const i = queue.findIndex((x) => x.t === b.t);
+        if (i >= 0) queue[i] = b; else queue.push(b);
+      }
+      queue.sort((x, y) => x.t - y.t);
+      if (reply.rev !== null) this.candleRev.set(ch, reply.rev);
+      this.candleLatest.set(ch, newest);
+      const bar = queue.shift() ?? newest;
+      if (queue.length) this.candleQueue.set(ch, queue); else this.candleQueue.delete(ch);
       this.serverCandles.set(ch, bar);
       for (const sub of this.subs) {
         if (sub.ch !== ch) continue;
@@ -731,6 +750,17 @@ export class MockFeed {
     const q = new URLSearchParams({ assetId: req.assetId, res: req.res, from: String(req.from), to: String(req.to) });
     return fetch(`/api/market/candles?${q}`, { cache: "no-store", headers: { accept: "application/json" } })
       .then((r) => (r.ok ? r.json() : null));
+  }
+
+  /** The live read: the same door plus `since`, and the reply's `x-candle-rev` (null when absent or malformed). */
+  private serverCandlePull(req: CandleHistoryReq, since: number | undefined): Promise<{ raw: unknown; rev: number | null } | null> {
+    const q = new URLSearchParams({ assetId: req.assetId, res: req.res, from: String(req.from), to: String(req.to) });
+    if (since !== undefined) q.set("since", String(since));
+    return fetch(`/api/market/candles?${q}`, { cache: "no-store", headers: { accept: "application/json" } }).then(async (r) => {
+      if (!r.ok) return null;
+      const h = r.headers.get("x-candle-rev") ?? "";
+      return { raw: await r.json(), rev: /^\d{1,15}$/.test(h) ? Number(h) : null };
+    });
   }
 
   /** Signed-in `me` publishes only with a server ledger and server marks, never the constructor state. */

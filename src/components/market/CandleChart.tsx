@@ -267,7 +267,8 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
     a.series.applyOptions(seriesOptions(a.theme, precision));
   }, [locale, precision, t]);
 
-  // Bars: a frame that only moves the last bar (same t) or adds one (new t) is an update; anything else is new data.
+  // Bars: a frame that only moves the last bar (same t), adds one (new t) or replaces one older bar in place (a late
+  // volume correction) is an update that keeps the view; anything else is new data.
   useEffect(() => {
     const a = api.current;
     if (!a) return;
@@ -278,7 +279,18 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
     const live = prev.length > 0 && (grew === 0 || grew === 1) && bars[0] === prev[0] && (prev.length < 2 || bars[prev.length - 2] === prev[prev.length - 2]);
     const newest = p.data[p.data.length - 1];
     const newestVol = p.vol[p.vol.length - 1];
-    if (live && newest && newestVol) {
+    let fixed = -1; // the one replaced older bar, same length otherwise identical
+    if (prev.length > 1 && grew === 0 && bars[bars.length - 1] === prev[prev.length - 1]) {
+      for (let i = 0; i < bars.length - 1; i++) {
+        if (bars[i] === prev[i]) continue;
+        if (fixed >= 0 || bars[i]!.t !== prev[i]!.t) { fixed = -1; break; }
+        fixed = i;
+      }
+    }
+    if (fixed >= 0) {
+      a.series.update(p.data[fixed]!, true);
+      a.volume.update(volPoint(p.vol[fixed]!, a.theme), true);
+    } else if (live && newest && newestVol) {
       if (grew === 1 && prev.length > 0) { a.series.update(p.data[prev.length - 1]!); a.volume.update(volPoint(p.vol[prev.length - 1]!, a.theme)); }
       a.series.update(newest);
       a.volume.update(volPoint(newestVol, a.theme));

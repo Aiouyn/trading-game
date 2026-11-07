@@ -3,7 +3,8 @@
 // candle merge, the states and the table. The plot (CandleChart, lightweight-charts) is a separate chunk imported
 // after mount (G4); until it lands its box shows the skeleton at the chart's height, so nothing moves.
 //  - History: one loadRange per (asset, range, Retry); the latest request wins and a superseded reply is dropped.
-//  - Live: each `candles:{id}:{res}` frame goes onto the bars (mergeLive: same t in place, newer t appended).
+//  - Live: each `candles:{id}:{res}` frame goes onto the bars (mergeLive: same t in place, newer t appended, an older
+//    known t replaced in place: a late volume correction).
 //  - States: no live candle or no reply yet -> skeleton; candles denied/error, a bad live candle or a failed reply
 //    -> "Couldn't load chart" + Retry (one new request); zero bars -> "No price history yet."; stale -> dimmed plot
 //    and card 4's "Updating…" (once: the frame's own line covers it when the ticker is stale too).
@@ -58,12 +59,16 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
   const liveBar = live !== null && live !== "bad" ? live : null;
 
   const [hist, setHist] = useState<Hist>({ status: "loading", key: "" });
-  const liveRef = useRef<Bar | null>(null);
-  useEffect(() => { liveRef.current = liveBar; });
+  // The newest live bar of this feed/asset/res: a history request ends there, never at an older correction frame.
+  const liveRef = useRef<{ k: string; bar: Bar } | null>(null);
+  useEffect(() => {
+    const k = `${epoch}|${assetId}|${res}`, p = liveRef.current;
+    if (liveBar !== null && (!p || p.k !== k || liveBar.t >= p.bar.t)) liveRef.current = { k, bar: liveBar };
+  });
   const seq = useRef(0);
   const want = liveBar !== null ? key : null;
   useEffect(() => {
-    const at = liveRef.current;
+    const at = liveRef.current?.bar ?? null;
     if (want === null || at === null) return;
     const mine = ++seq.current;
     void loadRange(assetId, range, at.t).then((r) => {

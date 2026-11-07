@@ -18,14 +18,14 @@ const lib = vi.hoisted(() => {
   const opts: { chart: Record<string, unknown>; series: Record<string, unknown>; volume: Record<string, unknown>; volScale: Record<string, unknown> } = { chart: {}, series: {}, volume: {}, volScale: {} };
   const volume = {
     setData: (d: unknown) => calls.push({ op: "volSetData", arg: d }),
-    update: (d: unknown) => calls.push({ op: "volUpdate", arg: d }),
+    update: (d: unknown, h?: boolean) => calls.push({ op: h ? "volHistUpdate" : "volUpdate", arg: d }),
     applyOptions: (o: Record<string, unknown>) => { opts.volume = { ...opts.volume, ...o }; },
     options: () => opts.volume,
   };
   const cross = { fn: null as null | ((p: unknown) => void) };
   const series = {
     setData: (d: unknown) => calls.push({ op: "setData", arg: d }),
-    update: (d: unknown) => calls.push({ op: "update", arg: d }),
+    update: (d: unknown, h?: boolean) => calls.push({ op: h ? "histUpdate" : "update", arg: d }),
     applyOptions: (o: Record<string, unknown>) => { opts.series = { ...opts.series, ...o }; },
     createPriceLine: (o: unknown) => { calls.push({ op: "priceLine", arg: o }); return { applyOptions: (x: unknown) => calls.push({ op: "line", arg: x }), options: () => o }; },
     removePriceLine: () => calls.push({ op: "removeLine" }),
@@ -222,6 +222,17 @@ describe("CandleChart with the library faked", () => {
     await render([...same, bar(b.at(-1)!.t + 1, "43.10")]);
     expect(ops()).not.toContain("setData");
     expect(lib.calls.filter((c) => c.op === "update").at(-1)!.arg).toEqual({ time: (b.at(-1)!.t + 1) * 120, open: 43.1, high: 43.1, low: 43.1, close: 43.1 });
+    // M1-07 late volume: one older bar replaced in place (same t) is a historical update; the view (fit, cursor) stays.
+    const grown = [...same, bar(b.at(-1)!.t + 1, "43.10")];
+    await render(grown);
+    for (const i of [grown.length - 2, 5, 0]) {
+      lib.calls.length = 0;
+      const fixed = grown.map((x, j) => (j === i ? ({ ...x, v: "250" }) as Bar : x));
+      await render(fixed);
+      expect(ops()).toEqual(["histUpdate", "volHistUpdate", "line"]);
+      expect(lib.calls[1]!.arg).toMatchObject({ time: grown[i]!.t * 120, value: 250 });
+      await render(grown);
+    }
     lib.calls.length = 0;
     await render(bars(10, 5000));
     expect(ops()).toEqual(expect.arrayContaining(["setData", "volSetData", "fit"]));

@@ -5,6 +5,9 @@
 //  - Volume: the sum of executed fill quantities (place takers and swept makers) at the fill's tick, each fillId counted
 //    once, so a replayed idempotency key (no new fill) or a repeated notification never double counts. NPC quote motion
 //    is not volume. Only public aggregates leave this module (no account, order or fill ids).
+//  - Late volume: a fill's save can finish after its bar has closed (the decision tick is kept; the save is async and
+//    unbounded). Each volume change bumps a revision; a reader that passes the last revision it saw (`since`) also gets
+//    every bar whose volume changed after it, however old (within the kept bars), so no fixed re-read window is assumed.
 //  - Process-local, like the clock: a restart starts the history again (the chart says since when it has data).
 import { ASSETS, ASSET_BY_ID } from "@/market/catalog";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
@@ -21,7 +24,7 @@ export const CANDLE_KEEP = 5000;
 export const FILL_IDS_KEEP = 200_000;
 
 /** A bar in integer minor units (price) and whole units (volume). */
-interface MinorBar { t: number; o: number; h: number; l: number; c: number; v: number }
+interface MinorBar { t: number; o: number; h: number; l: number; c: number; v: number; /** revision of its last volume change */ rv: number }
 
 /** The public part of an executed fill that volume needs. */
 export interface ExecutedFill { readonly fillId: string; readonly assetId: string; readonly tick: number; readonly qty: string }
@@ -30,6 +33,10 @@ export class CandleRecorder {
   private readonly bars = new Map<string, Record<CandleRes, MinorBar[]>>();
   private readonly seen = new Set<string>();
   private lastTick = -1;
+  private rev = 0;
+
+  /** Bumped once per counted fill; bars remember the revision of their last volume change. */
+  get revision(): number { return this.rev; }
 
   constructor() {
     for (const a of ASSETS) this.bars.set(a.assetId, { tick: [], hour: [], day: [] });
@@ -52,7 +59,7 @@ export class CandleRecorder {
           cur.h = Math.max(cur.h, px); cur.l = Math.min(cur.l, px); cur.c = px;
         } else {
           const o = cur ? cur.c : px;
-          list.push({ t, o, h: Math.max(o, px), l: Math.min(o, px), c: px, v: 0 });
+          list.push({ t, o, h: Math.max(o, px), l: Math.min(o, px), c: px, v: 0, rv: 0 });
           if (list.length > CANDLE_KEEP) list.splice(0, list.length - CANDLE_KEEP);
         }
       }
@@ -70,23 +77,26 @@ export class CandleRecorder {
       if (!findBar(per.tick, f.tick)) continue;
       this.seen.add(f.fillId);
       if (this.seen.size > FILL_IDS_KEEP) this.seen.delete(this.seen.values().next().value!);
+      this.rev += 1;
       for (const res of CANDLE_RES) {
         const t = f.tick - (f.tick % CANDLE_SPAN[res]);
         const bar = findBar(per[res], t);
-        if (bar) bar.v += qty;
+        if (bar) { bar.v += qty; bar.rv = this.rev; }
       }
     }
   }
 
-  /** Bars with from (aligned down) <= t <= to, oldest first, at most CANDLE_KEEP. Unknown asset: none. */
-  history(req: CandleHistoryReq): Candle[] {
+  /** Bars with from (aligned down) <= t <= to, oldest first, at most CANDLE_KEEP. Unknown asset: none. With `since`, also
+   *  every older bar whose volume changed after that revision (still oldest first). */
+  history(req: CandleHistoryReq, since?: number): Candle[] {
     const a = ASSET_BY_ID[req.assetId];
     const per = this.bars.get(req.assetId);
     if (!a || !per || req.to < req.from) return [];
     const lo = req.from - (req.from % CANDLE_SPAN[req.res]);
     const out: Candle[] = [];
     for (const b of per[req.res]) {
-      if (b.t < lo || b.t > req.to) continue;
+      if (b.t > req.to) continue;
+      if (b.t < lo && !(since !== undefined && b.rv > since)) continue;
       const dp = a.displayDecimals;
       out.push({ t: b.t, o: fmt(b.o, dp), h: fmt(b.h, dp), l: fmt(b.l, dp), c: fmt(b.c, dp), v: String(b.v) });
       if (out.length >= CANDLE_KEEP) break;

@@ -163,10 +163,17 @@ export async function loadRange(assetId: AssetId, range: ChartRange, liveT: Game
   return { ok: true, value: out };
 }
 
-/** The live candle onto the plotted bars: same t replaces the last bar, a newer t appends, an older one is dropped. */
+/** The live candle onto the plotted bars: same t replaces the last bar, a newer t appends, an older t replaces that bar
+ *  in place (a late volume correction), an older t not in the bars is dropped. */
 export function mergeLive(bars: readonly Bar[], live: Bar): readonly Bar[] {
   const last = bars[bars.length - 1];
   if (!last || live.t > last.t) return [...bars, live];
   if (live.t === last.t) return [...bars.slice(0, -1), live];
+  // An older bar: a late correction (volume saved after the bar closed) replaces that bar in place; unknown t is ignored.
+  for (let i = bars.length - 2; i >= 0; i--) {
+    const b = bars[i]!;
+    if (b.t < live.t) break;
+    if (b.t === live.t) return [...bars.slice(0, i), live, ...bars.slice(i + 1)];
+  }
   return bars;
 }
