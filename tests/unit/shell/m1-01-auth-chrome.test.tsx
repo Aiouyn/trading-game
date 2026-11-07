@@ -11,6 +11,7 @@ import { DEMO_STARTER_NW } from "@/shell/authChrome";
 import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { setFeed } from "@/shell/contracts/useChannel";
 import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
+import { portAvalonServer } from "../helpers/portAvalonServer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,9 +60,11 @@ describe("M1-01 shell auth chrome", () => {
     expect(el.querySelector("[data-testid=rank-chip]")?.textContent).toMatch(/R2/);
   });
 
-  it("signed-in: shows own handle; hides Owner/$412k; shows $10k demo balance", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(
+  it("signed-in: shows own handle; hides Owner/$412k; shows $10k saved balance", async () => {
+    // M1-06: the signed-in feed also reads /api/market and /api/broker/me, so route by URL.
+    fetchMock.mockImplementation(portAvalonServer({
+      cashCents: 1_000_000,
+      other: () => new Response(
         JSON.stringify({
           account: { accountId: "acc_x", handle: "qa_player", createdAtMs: 1, worldId: "world_port_avalon" },
           session: { sessionId: "ses_x", expiresAtMs: 9 },
@@ -69,7 +72,7 @@ describe("M1-01 shell auth chrome", () => {
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
-    );
+    }));
     const store = createShellStore(mockChannels(new URLSearchParams()));
     applySignedInDemo(store, "acc_x");
     await act(async () => {
@@ -81,7 +84,7 @@ describe("M1-01 shell auth chrome", () => {
     expect(el.querySelector("[data-testid=rank-chip]")).toBeNull();
     expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
     expect(el.textContent).not.toMatch(/412/);
-    expect(el.querySelector("[data-testid=strip-demo-tag]")?.textContent).toMatch(/Demo balance/i);
+    expect(el.querySelector("[data-testid=strip-demo-tag]")?.textContent).toMatch(/Saved net worth/i);
     // MoneyText formats DEMO_STARTER_NW
     expect(DEMO_STARTER_NW).toBe("10000.00");
     expect(el.querySelector("[data-testid=strip-nw]")?.textContent).toMatch(/\$10k|10,?000|10000/);

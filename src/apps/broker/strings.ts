@@ -69,6 +69,10 @@ const EN = {
     MKT_BAD_QTY: "Check the quantity.",
     /** [provisional] sell beyond the holding (Quant E-96 (4)); Studio to confirm, and the "Sell all N" feel call. */
     MKT_NO_LOCATE: "You can't sell more than you hold.",
+    /** [provisional] M1-06 server door codes. */
+    MKT_BAD_PRICE: "Check the price.",
+    MKT_ORDER_TYPE_UNSUPPORTED: "Only market and limit orders are available.",
+    MKT_TOO_MANY_ORDERS: "Too many open orders. Cancel one first.",
   } as Record<string, string>,
   halted: "Halted",
   /** Not shown (E-98 (1)): Designer to replace. */
@@ -202,6 +206,9 @@ const FR: BrStrings = {
     MKT_UNKNOWN_ASSET: "Cet actif ne peut pas être négocié.",
     MKT_BAD_QTY: "Vérifiez la quantité.",
     MKT_NO_LOCATE: "Vous ne pouvez pas vendre plus que vous ne détenez.",
+    MKT_BAD_PRICE: "Vérifiez le cours.",
+    MKT_ORDER_TYPE_UNSUPPORTED: "Seuls les ordres au marché et à cours limité sont disponibles.",
+    MKT_TOO_MANY_ORDERS: "Trop d’ordres en cours. Annulez-en un d’abord.",
   },
   halted: "Suspendu",
   haltedHelp: "Les ordres sont suspendus pendant l’arrêt de la cotation.",

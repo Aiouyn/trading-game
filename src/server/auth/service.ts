@@ -285,6 +285,37 @@ export class AuthService {
     });
   }
 
+  /**
+   * Server-internal market sweep (M1-06 resting limit fills on a server tick). Not reachable from HTTP and never
+   * session-chosen: the market clock applies one rule to every loadable ledger. `mutate` returns null for "no change".
+   * All changed ledgers commit in one persist; if it fails, every one rolls back (memory never runs ahead of disk).
+   * Quarantined accounts are never touched.
+   */
+  async sweepPrivateStates(mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput | null): Promise<number> {
+    return this.withLock(async () => {
+      await this.ready;
+      const before = new Map<AccountId, PlayerPrivateRecord>();
+      const next = new Map<AccountId, PlayerPrivateRecord>();
+      for (const [accountId, current] of this.players) {
+        if (this.quarantinedPlayers.some((q) => q.accountId === accountId)) continue;
+        const input = mutate(clonePlayerPrivate(current));
+        if (input === null) continue;
+        // Validate every next record before any becomes visible.
+        next.set(accountId, buildPlayerPrivate(accountId, input));
+        before.set(accountId, current);
+      }
+      if (next.size === 0) return 0;
+      for (const [accountId, record] of next) this.players.set(accountId, record);
+      try {
+        await this.persist();
+      } catch (err) {
+        for (const [accountId, record] of before) this.players.set(accountId, record);
+        throw err;
+      }
+      return next.size;
+    });
+  }
+
   private async createSession(accountId: AccountId): Promise<{ view: AuthSessionView; rawToken: string }> {
     const account = this.accounts.get(accountId);
     if (!account) throw new AuthError("UNAUTHORIZED", "Account missing.", 401);

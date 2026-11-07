@@ -10,6 +10,7 @@ import type {
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
+import { parseBrokerIntentReply, parseBrokerLedger, type BrokerLedgerView } from "@/market/brokerLedger";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
@@ -25,6 +26,9 @@ export const FEED_TICK_MS = 5000; // spec: 5,000 ms tick; tests use a fake clock
 /** Signed-in poll of GET /api/market. Faster than the price cadence so a reconnect catches the server tick
  *  before the channel watchdog (2 ticks + slack) marks quotes stale. This interval does not advance prices. */
 export const SERVER_QUOTE_POLL_MS = 1000;
+/** M1-06: retries of one signed-in place / cancel after a network or 5xx failure, all with the same idempotency key. */
+export const ORDER_SEND_ATTEMPTS = 3;
+export const ORDER_RETRY_MS = 300;
 export const SNAP_DELAY_MS = 40; // mock latency before the first snap (state `loading` until then)
 export const START_TICK = 38 * 720 + 340;
 export const TAPE_KEEP = 200; // keepLast 200 [P]
@@ -134,13 +138,24 @@ export function fmt(minor: number, dp: number): string {
 }
 
 interface AssetState { last: number; prevClose: number; dayVol: number; prints: TapePrint[]; lastQty: number; dir: -1 | 0 | 1 }
-interface Lot { qty: number; avgCost: number }
+export interface Lot { qty: number; avgCost: number }
+
+/** One fill's lot rule (shared by the mock and the M1-06 server door): a buy re-averages the cost (rounded to the minor
+ *  unit, fees excluded), a sell keeps it, and a lot that reaches 0 is gone (null). */
+export function nextLot(lot: Lot | null, side: OpenOrder["side"], qty: number, px: number): Lot | null {
+  const cur = lot ?? { qty: 0, avgCost: 0 };
+  const signed = side === "BUY" ? qty : -qty;
+  const nq = cur.qty + signed;
+  if (nq === 0) return null;
+  const avg = side === "BUY" && cur.qty >= 0 ? Math.round((cur.avgCost * cur.qty + px * qty) / nq) : cur.avgCost;
+  return { qty: nq, avgCost: avg };
+}
 
 /** Exchange fee, Quant E-96 (2): max(min fee, rate x notional x tier multiplier), rounded half-even to the cent.
  *  Equities and ETFs: taker 3 bp, auction 1 bp, minimum $0.10; tier multiplier 1.0 below $10M notional (every mock order).
  *  The mock fills market orders as takers and queues halted ones for the reopen auction. Limit and stop orders rest and
  *  fill only under the `?partFill` / `?cancelGone` hooks, so their preview uses the taker rate too [P]. Bonds (0.5 bp) are not in the mock's asset list. */
-const FEE_BP = { taker: 3, auction: 1 } as const;
+export const FEE_BP = { taker: 3, auction: 1 } as const;
 const MIN_FEE_MINOR = 10;
 export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number {
   const n = notionalMinor * rateBp; // fee in 1/10,000 of a cent
@@ -165,6 +180,7 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
   /**
    * Signed-in Port Avalon (M1-05). start() polls GET /api/market instead of advance().
    * The server clock owns the seed-17 path; this feed only adopts that snapshot.
+   * M1-06: `me` is the server ledger (GET /api/broker/me) and the order door is the server's (POST /api/broker/orders).
    */
   authoritativeQuotes?: boolean }
 
@@ -179,6 +195,14 @@ export class MockFeed {
   readonly authoritativeQuotes: boolean;
   /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
   private quotesAdopted = false;
+  /** M1-06 signed-in: set once a validated /api/broker/me (or order reply) ledger replaced the constructor `me`. */
+  private ledgerAdopted = false;
+  /** Signed-in: cash the server holds for working buy limits (spendable = cash − this). */
+  private reservedCash = 0;
+  /** Bumped by every adopted order reply, so a ledger read that started before it cannot roll it back. */
+  private ledgerEpoch = 0;
+  private ledgerPulling = false;
+  private ledgerPullAgain = false;
   tick: number;
   private rand: () => number;
   private extraAssetRandom = new Map<string, () => number>();
@@ -277,6 +301,8 @@ export class MockFeed {
   }
 
   private settle(): void {
+    // Signed-in (M1-06): only the server fills. A stray local intent is dropped, never booked.
+    if (this.authoritativeQuotes) { this.pending = []; return; }
     const due = this.pending;
     this.pending = [];
     for (const p of due) {
@@ -340,10 +366,8 @@ export class MockFeed {
   private bookFill(a: AssetFixture, orderId: string, side: OpenOrder["side"], qty: number, px: number, liquidity: MyFill["liquidity"]): string {
     const fee = exchangeFeeMinor(px * qty, FEE_BP.taker);
     const signed = side === "BUY" ? qty : -qty;
-    const lot = this.lots.get(a.assetId) ?? { qty: 0, avgCost: 0 };
-    const nq = lot.qty + signed;
-    const avg = nq === 0 ? 0 : side === "BUY" && lot.qty >= 0 ? Math.round((lot.avgCost * lot.qty + px * qty) / nq) : lot.avgCost;
-    if (nq === 0) this.lots.delete(a.assetId); else this.lots.set(a.assetId, { qty: nq, avgCost: avg });
+    const lot = nextLot(this.lots.get(a.assetId) ?? null, side, qty, px);
+    if (lot === null) this.lots.delete(a.assetId); else this.lots.set(a.assetId, lot);
     this.cash -= signed * px + fee;
     const fillId = `x-${this.nextId++}`;
     this.fills = [...this.fills, <MyFill>{ fillId, tick: this.tick, assetId: a.assetId, orderId, side, qty: String(qty), price: fmt(px, a.displayDecimals), fee: fmt(fee, 2), feeCcy: a.ccy, liquidity, counterpartyKind: "NPC" }].slice(-RING_KEEP);
@@ -521,14 +545,17 @@ export class MockFeed {
     if (MOCK_HOOKS && hook === "error") hookErrored?.add(sub);
     this.subs.add(sub);
     if (this.autoStart) {
-      // Quote polling is for the shared book only. A `me` subscriber must not open /api/market.
-      if (this.authoritativeQuotes) { if (ch.startsWith("ticker:")) this.startQuoteSync(); }
+      // Signed-in: quotes poll /api/market; `me` also needs server marks, and reads its ledger from /api/broker/me.
+      if (this.authoritativeQuotes) {
+        if (ch.startsWith("ticker:") || ch === "me") this.startQuoteSync();
+        if (ch === "me") void this.pullLedger();
+      }
       else this.start();
     }
     const mode = hook ?? this.scenario.feed;
     // Quote channels on a signed-in feed stay unpublished until /api/market validates.
     // The constructor book is not a server tick. `me` and other private channels still snap.
-    const holdQuotes = this.authoritativeQuotes && this.isQuoteChannel(ch) && !this.quotesAdopted;
+    const holdQuotes = this.authoritativeQuotes && ((this.isQuoteChannel(ch) && !this.quotesAdopted) || (ch === "me" && !this.meReady()));
     if (mode !== "loading" && !holdQuotes) sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
@@ -538,7 +565,7 @@ export class MockFeed {
     return () => {
       if (sub.snapTimer) clearTimeout(sub.snapTimer);
       this.subs.delete(sub);
-      if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:"))) {
+      if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:") || s.ch === "me")) {
         if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
       }
       if (this.subs.size === 0) this.stop();
@@ -547,6 +574,7 @@ export class MockFeed {
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
     if (this.authoritativeQuotes && ch.startsWith("ticker:")) void this.pullServerQuotes();
+    if (this.authoritativeQuotes && ch === "me") void this.pullLedger();
     for (const s of this.subs) {
       if (s.ch !== ch) continue;
       if (MOCK_HOOKS && hookErrored?.delete(s)) this.sendSnap(s);
@@ -624,13 +652,118 @@ export class MockFeed {
     }
     this.tick = snap.tick;
     this.quotesAdopted = true;
-    if (snap.tick > prevTick) this.settle();
+    if (snap.tick > prevTick) {
+      this.settle();
+      // A new server tick may have filled a working limit: re-read the ledger (M1-06).
+      if ([...this.subs].some((s) => s.ch === "me")) void this.pullLedger();
+    }
     this.emitTick();
     // First publication is a snap. emitTick only reaches subscribers that already have one.
     for (const sub of this.subs) {
       if (this.isQuoteChannel(sub.ch) && sub.sent === null) this.sendSnap(sub);
+      if (sub.ch === "me" && sub.sent === null && this.meReady()) this.sendSnap(sub);
     }
     return true;
+  }
+
+  /** Signed-in `me` publishes only with a server ledger and server marks, never the constructor state. */
+  private meReady(): boolean {
+    return !this.authoritativeQuotes || (this.ledgerAdopted && this.quotesAdopted);
+  }
+
+  /** True once a server ledger replaced the constructor `me` (signed-in only). */
+  adoptedLedger(): boolean {
+    return this.ledgerAdopted;
+  }
+
+  /**
+   * Replace cash, lots, working orders, fills and intents with one server ledger (M1-06). Nothing here prices or fills:
+   * the server did. Marks for `me` still come from the adopted server book.
+   */
+  adoptLedger(raw: unknown): boolean {
+    if (!this.authoritativeQuotes) return false;
+    const v = parseBrokerLedger(raw);
+    if (!v) return false;
+    return this.applyLedger(v);
+  }
+
+  private applyLedger(v: BrokerLedgerView): boolean {
+    const lots = new Map<string, Lot>();
+    for (const p of Object.values(v.positions)) {
+      const a = ASSET_BY_ID[p.assetId];
+      const qty = Number(p.qty), avg = a ? parseMinor(p.avgCost, a.displayDecimals) : null;
+      if (!a || !Number.isSafeInteger(qty) || qty <= 0 || avg === null) return false;
+      lots.set(p.assetId, { qty, avgCost: avg });
+    }
+    this.cash = v.cashCents;
+    this.reservedCash = v.reservedCashCents;
+    this.lots = lots;
+    this.orders = { ...v.orders };
+    this.fills = [...v.fills];
+    this.intents = [...v.intents];
+    this.ledgerAdopted = true;
+    for (const sub of this.subs) {
+      if (sub.ch !== "me") continue;
+      if (sub.sent === null) { if (this.meReady()) this.sendSnap(sub); continue; }
+      const body = this.body(sub.ch);
+      const ops = diffOps(sub.sent, body, RINGS);
+      sub.sent = body;
+      this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
+    }
+    return true;
+  }
+
+  private async pullLedger(): Promise<void> {
+    if (!this.authoritativeQuotes) return;
+    if (this.ledgerPulling) { this.ledgerPullAgain = true; return; }
+    this.ledgerPulling = true;
+    try {
+      do {
+        this.ledgerPullAgain = false;
+        const epoch = this.ledgerEpoch;
+        try {
+          const res = await fetch("/api/broker/me", { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json" } });
+          if (res.status === 401 || res.status === 403 || res.status === 409) { this.failMe(); return; }
+          if (!res.ok) continue;
+          const v = parseBrokerLedger(await res.json());
+          if (v && epoch === this.ledgerEpoch) this.applyLedger(v);
+        } catch {
+          // Keep the last adopted ledger; the next server tick pulls again.
+        }
+      } while (this.ledgerPullAgain);
+    } finally {
+      this.ledgerPulling = false;
+    }
+  }
+
+  /** Signed out / ledger quarantined: `me` errors rather than showing a ledger the server did not send. */
+  private failMe(): void {
+    for (const sub of this.subs) if (sub.ch === "me" && sub.sent === null) this.send(sub, { t: "err", ch: "me", code: "INTERNAL" });
+  }
+
+  /** POST one order intent with one key; retried only on network / 5xx failures, with the same key. */
+  private async sendIntent(path: string, body: Record<string, unknown>): Promise<string> {
+    for (let attempt = 1; attempt <= ORDER_SEND_ATTEMPTS; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(path, {
+          method: "POST", cache: "no-store", credentials: "same-origin",
+          headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body),
+        });
+      } catch {
+        if (attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
+        return "";
+      }
+      if (res.status >= 500 && attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
+      if (!res.ok) return "";
+      let reply;
+      try { reply = parseBrokerIntentReply(await res.json()); } catch { reply = null; }
+      if (!reply) return "";
+      this.ledgerEpoch += 1;
+      this.applyLedger(reply.ledger);
+      return reply.intentId;
+    }
+    return "";
   }
 
   private startQuoteSync(): void {
@@ -662,19 +795,24 @@ export class MockFeed {
     const qty = Number(draft.qty);
     // Halted stays valid: the preview reads only N-1 public data (Quant E-96 (3)). A sell beyond the holding is invalid.
     const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
-    const valid = wellFormed && !this.oversells(draft);
+    // Signed-in (M1-06): the server door takes market and limit day orders; stop types are not offered there.
+    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit");
+    let valid = wellFormed && !unsupported && !this.oversells(draft);
     const dp = a?.displayDecimals ?? 2;
     const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
     const impactBp = valid ? IMPACT_BP(qty, a!.lot) : 0;
     const impact = Math.round((px * qty * impactBp) / 10_000);
     const halted = !!a && this.tradingState(a.assetId) === "HALTED";
+    // Signed-in: the server's own check (notional + fee within spendable cash), advisory here; the server re-decides.
+    const short = this.authoritativeQuotes && valid && draft.side === "BUY" && px * qty + exchangeFeeMinor(px * qty, FEE_BP.taker) > this.cash - this.reservedCash;
+    if (short) valid = false;
     const fee = valid ? exchangeFeeMinor(px * qty, draft.type === "market" && halted ? FEE_BP.auction : FEE_BP.taker) : 0;
     const gross = valid ? px * qty : 0;
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
-      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : "MKT_NO_LOCATE" }),
-      buyingPowerAfter: fmt(this.fdlCashMinor() - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
+      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? "MKT_ORDER_TYPE_UNSUPPORTED" : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
+      buyingPowerAfter: fmt(this.fdlCashMinor() - this.reservedCash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };
   }
@@ -713,7 +851,11 @@ export class MockFeed {
   }
   /** A SELL for more than the account holds (E-96 (4)): a short sale of the excess, which this mock never allows. */
   private oversells(draft: OrderDraft): boolean {
-    return draft.side === "SELL" && Number(draft.qty) > (this.lots.get(draft.assetId)?.qty ?? 0);
+    // Signed-in: units already held back by working sells are not sellable again (the server's rule).
+    const held = this.authoritativeQuotes
+      ? Object.values(this.orders).reduce((n, o) => n + (o.side === "SELL" && o.assetId === draft.assetId ? Number(o.qty) - Number(o.filled) : 0), 0)
+      : 0;
+    return draft.side === "SELL" && Number(draft.qty) > (this.lots.get(draft.assetId)?.qty ?? 0) - held;
   }
   /** Place an order intent: logged to the shell intent log; the IntentResult (+ MyFill) lands on `me` next tick. */
   submit(draft: OrderDraft): string {
@@ -735,6 +877,23 @@ export class MockFeed {
   /** The order door (orders.ts `mockTransport`): `preview`, `submit` and `cancel`, with the submit and cancel replies
    *  held `scenario.replyMs`. */
   orderDoor(): { preview(draft: OrderDraft): PreviewRes; submit(draft: OrderDraft): string | Promise<string>; cancel(orderId: string): string | Promise<string> } {
+    if (this.authoritativeQuotes) {
+      // Signed-in (M1-06): the server decides. One idempotency key per Place / "Yes, cancel"; retries reuse it.
+      return {
+        preview: (d) => this.preview(d),
+        submit: (d) => {
+          const draft: Record<string, string> = { assetId: d.assetId, side: d.side, type: d.type, qty: d.qty, tif: d.tif };
+          if (d.limit !== undefined) draft.limit = d.limit;
+          if (d.stop !== undefined) draft.stop = d.stop;
+          submitIntent({ kind: "mkt.order.place", payload: { ...draft } });
+          return this.sendIntent("/api/broker/orders", { idempotencyKey: idempotencyKey(), draft });
+        },
+        cancel: (orderId) => {
+          submitIntent({ kind: "mkt.order.cancel", payload: { orderId } });
+          return this.sendIntent("/api/broker/orders/cancel", { idempotencyKey: idempotencyKey(), orderId });
+        },
+      };
+    }
     const ms = this.scenario.replyMs;
     const held = (id: string) => (ms > 0 ? new Promise<string>((r) => setTimeout(() => r(id), ms)) : id);
     return {
@@ -743,6 +902,13 @@ export class MockFeed {
       cancel: (id) => held(this.cancel(id)),
     };
   }
+}
+
+/** 128 random bits as hex. getRandomValues also works on a plain-http LAN origin, where randomUUID does not. */
+export function idempotencyKey(): string {
+  const b = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 /** Append-only rings (Q4): diffed to `ins` + `trim`. */

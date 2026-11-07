@@ -165,16 +165,19 @@ describe("M1-05 authoritative live ticks", () => {
     }
   });
 
-  it("two clients adopt one snapshot; private demo state stays apart; local advance does nothing", () => {
+  it("two clients adopt one snapshot; private ledgers stay apart; local advance and local intents do nothing", () => {
     const market = new LiveMarket();
     market.step();
     const snap = market.snapshot();
-    const a = new MockFeed({ empty: true, nw: "10000.00", seed: 17 }, { authoritativeQuotes: true, autoStart: false });
-    const b = new MockFeed({ empty: true, nw: "25000.00", seed: 99 }, { authoritativeQuotes: true, autoStart: false });
+    const a = new MockFeed({ empty: true, seed: 17 }, { authoritativeQuotes: true, autoStart: false });
+    const b = new MockFeed({ empty: true, seed: 99 }, { authoritativeQuotes: true, autoStart: false });
     expect(a.adoptAuthoritativeQuotes({ worldId: "other" })).toBe(false);
     expect(a.tick).toBe(START_TICK);
     expect(a.adoptAuthoritativeQuotes(snap)).toBe(true);
     expect(b.adoptAuthoritativeQuotes(snap)).toBe(true);
+    const ledger = (cashCents: number) => ({ tick: snap.tick, cashCents, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [] });
+    expect(a.adoptLedger(ledger(1_000_000))).toBe(true);
+    expect(b.adoptLedger(ledger(2_500_000))).toBe(true);
     expect(a.body("ticker:wl_default")).toEqual(snap.quotes);
     expect(b.body("ticker:wl_default")).toEqual(snap.quotes);
     expect(a.tick).toBe(snap.tick);
@@ -182,19 +185,18 @@ describe("M1-05 authoritative live ticks", () => {
     b.advance();
     expect(a.tick).toBe(snap.tick);
     expect(a.body("ticker:wl_default")).toEqual(b.body("ticker:wl_default"));
-    const meA = a.body("me") as { nw: string; positions: Record<string, { qty?: string }> };
-    const meB = b.body("me") as { nw: string; positions: Record<string, { qty?: string }> };
-    expect(meA.nw).toBe("10000.00");
-    expect(meB.nw).toBe("25000.00");
+    expect((a.body("me") as { nw: string }).nw).toBe("10000.00");
+    expect((b.body("me") as { nw: string }).nw).toBe("25000.00");
 
+    // M1-06: a signed-in feed never books a local intent; only a server ledger moves `me`.
     a.submit({ assetId: "HALC", side: "BUY", type: "market", qty: "2", tif: "day" });
     market.step();
     const next = market.snapshot();
     expect(a.adoptAuthoritativeQuotes(next)).toBe(true);
     expect(b.adoptAuthoritativeQuotes(next)).toBe(true);
     expect(a.body("ticker:wl_default")).toEqual(b.body("ticker:wl_default"));
-    expect((a.body("me") as { positions: Record<string, { qty: string }> }).positions.HALC?.qty).toBe("2");
-    expect((b.body("me") as { positions: Record<string, unknown> }).positions.HALC).toBeUndefined();
+    expect((a.body("me") as { positions: Record<string, unknown> }).positions.HALC).toBeUndefined();
+    expect((a.body("me") as { nw: string }).nw).toBe("10000.00");
     expect((b.body("me") as { nw: string }).nw).toBe("25000.00");
   });
 
@@ -329,12 +331,14 @@ describe("M1-05 authoritative live ticks", () => {
     store.close();
   });
 
-  it("keeps the demo-trade disclosure and does not claim that refresh resets quotes", () => {
+  it("discloses what is saved and executed, keeps guests as demo, and does not claim that refresh resets quotes", () => {
     const en = settingsStrings("en").accountDisclaimer;
-    expect(en).toMatch(/Broker trades and fills are still a demo/);
-    expect(en).toMatch(/are not saved/);
+    expect(en).toMatch(/saved on the server/);
+    expect(en).toMatch(/priced and filled by the server/);
+    expect(en).toMatch(/Signed out, the Broker is a demo and its trades are not saved/);
     expect(en).toMatch(/refresh does not reset them/);
     expect(en).not.toMatch(/ticks also reset/i);
+    expect(en).not.toMatch(/still a demo/i);
     const fr = settingsStrings("fr").accountDisclaimer;
     expect(fr).toMatch(/démo/);
     expect(fr).toMatch(/ne sont pas enregistrés/);

@@ -85,7 +85,7 @@ export const openOrder: Schema<OpenOrder> = obj(
   { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, tif: str, status: lit("PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"), placedTick: int, avgPrice: dec },
   { limit: dec, stop: dec },
 );
-const myFill: Schema<MyFill> = obj({
+export const myFill: Schema<MyFill> = obj({
   fillId: str, tick: int, assetId: str, orderId: str, side, qty: dec, price: dec, fee: dec, feeCcy: str,
   liquidity: lit("MAKER", "TAKER", "AUCTION"), counterpartyKind: lit("PLAYER", "NPC"),
 });

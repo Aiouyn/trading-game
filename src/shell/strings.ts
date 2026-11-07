@@ -85,10 +85,11 @@ export const S = {
   moneyDollars: "dollars",
   signIn: "Sign in",
   account: "Account",
-  demoBalance: "Demo balance",
-  demoTradingNote: "Trading is a demo for now; trades and balances reset.",
-  starterPlaceholder: "Starter account: $10,000 (demo placeholder, not a live balance).",
-  accountSavedDemo: "Your account is saved. Trading is a demo for now; trades and balances reset.",
+  /** Signed-in NW label (M1-06): server ledger at server quotes, saved. Key name kept from M1-01. */
+  demoBalance: "Saved net worth",
+  demoTradingNote: "Your trades, cash and positions are saved on the server.",
+  starterPlaceholder: "Starter account: $10,000 in game money.",
+  accountSavedDemo: "Your account, trades and balances are saved.",
 } as const;
 
 

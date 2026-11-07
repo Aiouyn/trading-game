@@ -11,6 +11,7 @@ import { setFeed } from "@/shell/contracts/useChannel";
 import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { mockChannels } from "@/shell/mockChannels";
 import { createShellStore } from "@/shell/store";
+import { portAvalonServer } from "../helpers/portAvalonServer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,12 +24,15 @@ describe("M1-01 signed-in Portfolio + Appearance use account demo boundary", () 
     document.body.append(el);
     root = createRoot(el);
     vi.useFakeTimers();
+    // M1-06: signed-in `me` is the saved server ledger at server marks.
+    vi.stubGlobal("fetch", vi.fn(portAvalonServer({ cashCents: 1_000_000 })));
   });
 
   afterEach(async () => {
     await act(async () => root.unmount());
     el.remove();
     setFeed(null);
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 

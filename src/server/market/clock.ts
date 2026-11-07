@@ -21,6 +21,7 @@ export class LiveMarket {
   readonly tickMs: number;
   private readonly feed: MockFeed;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private readonly stepListeners = new Set<() => void>();
 
   constructor(opts: LiveMarketOptions = {}) {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
@@ -42,9 +43,16 @@ export class LiveMarket {
     this.timer = null;
   }
 
-  /** One cadence step. The HTTP route never calls this. */
+  /** One cadence step. The HTTP route never calls this. Listeners (the M1-06 resting-order sweep) run after it. */
   step(): void {
     this.feed.advance();
+    for (const fn of this.stepListeners) fn();
+  }
+
+  /** Run `fn` after every step. Returns the unsubscribe. */
+  onStep(fn: () => void): () => void {
+    this.stepListeners.add(fn);
+    return () => { this.stepListeners.delete(fn); };
   }
 
   snapshot(): MarketSnapshot {

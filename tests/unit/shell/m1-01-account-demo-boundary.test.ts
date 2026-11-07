@@ -13,6 +13,7 @@ import { MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { createShellStore } from "@/shell/store";
 import { mockChannels } from "@/shell/mockChannels";
 import { vi } from "vitest";
+import { portAvalonServer } from "../helpers/portAvalonServer";
 
 describe("premise: chrome labeling is NOT enough", () => {
   it("observation: guest channels still carry Owner/START_NW (canned educational mock)", () => {
@@ -33,10 +34,14 @@ describe("premise: chrome labeling is NOT enough", () => {
 describe("account demo boundary", () => {
   afterEach(() => {
     setFeed(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("signed-in demo feed: $10k, empty positions, no nwStats; guest feed restores Owner fixture", async () => {
     vi.useFakeTimers();
+    // M1-06: signed-in `me` is the saved server ledger at server marks.
+    vi.stubGlobal("fetch", vi.fn(portAvalonServer({ cashCents: 1_000_000 })));
     const store = createShellStore(mockChannels(new URLSearchParams()));
     expect(store.getState().channels.me.nw).toBe(START_NW);
 

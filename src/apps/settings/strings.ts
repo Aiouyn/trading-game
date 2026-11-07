@@ -63,7 +63,7 @@ const EN = {
   accountPassword: "Password",
   accountWorld: (worldId: string) => `World: ${worldId}`,
   accountStarterLabel: "Saved balance",
-  accountDisclaimer: "Account, cash, and position quantities are saved on the server. Broker trades and fills are still a demo and are not saved until live trading is wired (M1-06). Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
+  accountDisclaimer: "Signed in, your cash, positions with their cost, and working limit orders are saved on the server; Broker market and limit orders are priced and filled by the server at its shared quotes. Signed out, the Broker is a demo and its trades are not saved. Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
 };
 
 type Strings = typeof EN;
@@ -122,7 +122,7 @@ const FR: Strings = {
   accountPassword: "Mot de passe",
   accountWorld: (worldId: string) => `Monde : ${worldId}`,
   accountStarterLabel: "Solde enregistré",
-  accountDisclaimer: "Le compte, les liquidités et les quantités de positions sont enregistrés sur le serveur. Les échanges et exécutions Broker sont encore une démo et ne sont pas enregistrés tant que le trading live n’est pas branché (M1-06). Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
+  accountDisclaimer: "Connecté, vos liquidités, vos positions avec leur coût et vos ordres à cours limité en cours sont enregistrés sur le serveur ; les ordres Broker au marché et à cours limité sont exécutés par le serveur à ses cours partagés. Déconnecté, le Broker est une démo et ses échanges ne sont pas enregistrés. Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };
