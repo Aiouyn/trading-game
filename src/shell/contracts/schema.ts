@@ -76,7 +76,7 @@ const tapePrint: Schema<TapePrint> = obj({ assetId: str, tick: int, price: dec, 
 export const tapeBody: Schema<TapeBody> = obj({ assetId: str, prints: arr(tapePrint) });
 
 export const candle: Schema<Candle> = obj({ t: int, o: dec, h: dec, l: dec, c: dec, v: dec });
-export const candlesBody: Schema<CandlesBody> = obj({ assetId: str, res: candleRes, live: candle });
+export const candlesBody: Schema<CandlesBody> = obj({ assetId: str, res: candleRes, live: candle }, { rev: str });
 export const candleHistoryReq: Schema<CandleHistoryReq> = obj({ assetId: str, res: candleRes, from: int, to: int });
 export const candleHistoryRes: Schema<CandleHistoryRes> = obj({ bars: arr(candle) });
 

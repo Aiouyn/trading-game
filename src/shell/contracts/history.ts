@@ -103,9 +103,21 @@ const isHistoryTransport = (v: unknown): v is HistoryTransport =>
   typeof v === "object" && v !== null && typeof (v as Record<string, unknown>).candleHistory === "function";
 
 /** A signed-in feed: quotes and candle history come from the server clock (MockFeed `authoritativeQuotes`). */
-export function isServerFeed(v: unknown): v is { readonly authoritativeQuotes: true; serverCandleHistory(req: CandleHistoryReq): Promise<unknown> } {
+export function isServerFeed(v: unknown): v is {
+  readonly authoritativeQuotes: true;
+  serverCandleHistory(req: CandleHistoryReq): Promise<unknown>;
+  serverCandleChanges(req: CandleHistoryReq, since?: number): Promise<{ raw: unknown; rev: string | null } | null>;
+} {
   return typeof v === "object" && v !== null && (v as Record<string, unknown>).authoritativeQuotes === true
-    && typeof (v as Record<string, unknown>).serverCandleHistory === "function";
+    && typeof (v as Record<string, unknown>).serverCandleHistory === "function"
+    && typeof (v as Record<string, unknown>).serverCandleChanges === "function";
+}
+
+/** Changed bars (oldest first) onto the plotted bars, each by mergeLive. */
+export function foldBars(bars: readonly Bar[], changed: readonly Bar[]): readonly Bar[] {
+  let out = bars;
+  for (const b of changed) out = mergeLive(out, b);
+  return out;
 }
 
 /** QUAY_HOOKS only: the feed scenario's `?history=bad` (every reply malformed), `flaky` (the first one), `hold` (never answers). */
@@ -163,17 +175,16 @@ export async function loadRange(assetId: AssetId, range: ChartRange, liveT: Game
   return { ok: true, value: out };
 }
 
-/** The live candle onto the plotted bars: same t replaces the last bar, a newer t appends, an older t replaces that bar
- *  in place (a late volume correction), an older t not in the bars is dropped. */
+/** A server bar onto the plotted bars: same t replaces that bar in place, a newer t appends, an older t inside the bars
+ *  goes in at its place (a tick the live read skipped), one older than the first bar is dropped (outside the range). */
 export function mergeLive(bars: readonly Bar[], live: Bar): readonly Bar[] {
   const last = bars[bars.length - 1];
   if (!last || live.t > last.t) return [...bars, live];
   if (live.t === last.t) return [...bars.slice(0, -1), live];
-  // An older bar: a late correction (volume saved after the bar closed) replaces that bar in place; unknown t is ignored.
   for (let i = bars.length - 2; i >= 0; i--) {
     const b = bars[i]!;
-    if (b.t < live.t) break;
     if (b.t === live.t) return [...bars.slice(0, i), live, ...bars.slice(i + 1)];
+    if (b.t < live.t) return [...bars.slice(0, i + 1), live, ...bars.slice(i + 1)];
   }
   return bars;
 }

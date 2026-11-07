@@ -62,6 +62,24 @@ export function toPoints(bars: readonly Bar[], last: string | null): Points {
   return { data, vol, last: last === null ? null : Number(last) };
 }
 
+/** The indexes to update when `next` only replaces bars of `prev` in place (same t) and/or appends newer bars, in order;
+ *  null when it is new data (a new range, a shift, more than MAX_EDITS changes). */
+const MAX_EDITS = 64;
+export function inPlaceEdits(prev: readonly Bar[], next: readonly Bar[]): number[] | null {
+  if (next.length < prev.length || next.length - prev.length > MAX_EDITS) return null;
+  const out: number[] = [];
+  for (let i = 0; i < prev.length; i++) {
+    if (next[i] === prev[i]) continue;
+    if (next[i]!.t !== prev[i]!.t || out.length >= MAX_EDITS) return null;
+    out.push(i);
+  }
+  for (let i = prev.length; i < next.length; i++) {
+    if (next[i]!.t <= next[i - 1]!.t) return null;
+    out.push(i);
+  }
+  return out;
+}
+
 const volPoint = (v: Points["vol"][number], th: ChartTheme): HistogramData<UTCTimestamp> =>
   ({ time: v.time, value: v.value, color: v.up ? th.colours.upVol : th.colours.downVol });
 
@@ -267,38 +285,29 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
     a.series.applyOptions(seriesOptions(a.theme, precision));
   }, [locale, precision, t]);
 
-  // Bars: a frame that only moves the last bar (same t), adds one (new t) or replaces one older bar in place (a late
-  // volume correction) is an update that keeps the view; anything else is new data.
+  // Bars: a frame that only replaces bars in place (same t: the live bar, a closed bar's final values, late volume) and/or
+  // appends newer ones is an update that keeps the view; anything else (a new range) is new data.
   useEffect(() => {
     const a = api.current;
     if (!a) return;
     const prev = shown.current;
     const p = toPoints(bars, last);
     points.current = p;
-    const grew = bars.length - prev.length;
-    const live = prev.length > 0 && (grew === 0 || grew === 1) && bars[0] === prev[0] && (prev.length < 2 || bars[prev.length - 2] === prev[prev.length - 2]);
-    const newest = p.data[p.data.length - 1];
-    const newestVol = p.vol[p.vol.length - 1];
-    let fixed = -1; // the one replaced older bar, same length otherwise identical
-    if (prev.length > 1 && grew === 0 && bars[bars.length - 1] === prev[prev.length - 1]) {
-      for (let i = 0; i < bars.length - 1; i++) {
-        if (bars[i] === prev[i]) continue;
-        if (fixed >= 0 || bars[i]!.t !== prev[i]!.t) { fixed = -1; break; }
-        fixed = i;
+    const edits = prev.length > 0 ? inPlaceEdits(prev, bars) : null;
+    if (edits) {
+      const lastOld = prev.length - 1;
+      for (const i of edits) {
+        a.series.update(p.data[i]!, i < lastOld);
+        a.volume.update(volPoint(p.vol[i]!, a.theme), i < lastOld);
       }
-    }
-    if (fixed >= 0) {
-      a.series.update(p.data[fixed]!, true);
-      a.volume.update(volPoint(p.vol[fixed]!, a.theme), true);
-    } else if (live && newest && newestVol) {
-      if (grew === 1 && prev.length > 0) { a.series.update(p.data[prev.length - 1]!); a.volume.update(volPoint(p.vol[prev.length - 1]!, a.theme)); }
-      a.series.update(newest);
-      a.volume.update(volPoint(newestVol, a.theme));
     } else {
       a.series.setData(p.data);
       a.volume.setData(p.vol.map((v) => volPoint(v, a.theme)));
-      a.chart.timeScale().fitContent();
-      setCursor(NO_CURSOR);
+      // A bar inserted inside the same range (a skipped tick caught up) keeps the view; a new range fits.
+      if (prev[0]?.t !== bars[0]?.t || bars.length < prev.length) {
+        a.chart.timeScale().fitContent();
+        setCursor(NO_CURSOR);
+      }
     }
     shown.current = bars;
     if (p.last !== null) {

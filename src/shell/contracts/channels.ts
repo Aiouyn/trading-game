@@ -27,7 +27,7 @@ export interface TapeBody { assetId: string; prints: TapePrint[] }   // ring buf
 // candles:{assetId}:{res}: live bar every tick; history over HTTP (17 §2.6; 19 Rule 3.8.2; 19 §3.10.1 /api/v1/history/candles)
 export type CandleRes = 'tick' | 'hour' | 'day';
 export interface Candle { t: Tick; o: Price; h: Price; l: Price; c: Price; v: Qty }
-export interface CandlesBody { assetId: string; res: CandleRes; live: Candle }
+export interface CandlesBody { assetId: string; res: CandleRes; live: Candle; rev?: string } // rev: M1-07 signed-in, the server candle revision `<epoch>.<n>` read with `live`
 export interface CandleHistoryReq { assetId: string; res: CandleRes; from: Tick; to: Tick }  // ≤ 5,000 bars per call
 export interface CandleHistoryRes { bars: Candle[] }
 

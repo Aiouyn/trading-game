@@ -3,8 +3,13 @@
 // candle merge, the states and the table. The plot (CandleChart, lightweight-charts) is a separate chunk imported
 // after mount (G4); until it lands its box shows the skeleton at the chart's height, so nothing moves.
 //  - History: one loadRange per (asset, range, Retry); the latest request wins and a superseded reply is dropped.
-//  - Live: each `candles:{id}:{res}` frame goes onto the bars (mergeLive: same t in place, newer t appended, an older
-//    known t replaced in place: a late volume correction).
+//  - Live: each `candles:{id}:{res}` frame goes onto the bars (mergeLive: same t in place, newer t appended).
+//  - M1-07 catch-up (signed-in): the bars carry the server candle revision they are known to include (the frame's
+//    `rev` when their request left, then each catch-up reply's). When a frame shows a newer revision, one request asks
+//    for every bar changed since the bars' own revision (a closed bar's last sample, volume saved after its bar closed)
+//    and installs them with the new revision in one state update: a change is acknowledged only where it is shown, so a
+//    reply that was read before a change can never hide it. A frame from another server history (`<epoch>` changed:
+//    the server restarted, its candle history is gone) changes the history key, so the range is requested again.
 //  - States: no live candle or no reply yet -> skeleton; candles denied/error, a bad live candle or a failed reply
 //    -> "Couldn't load chart" + Retry (one new request); zero bars -> "No price history yet."; stale -> dimmed plot
 //    and card 4's "Updating…" (once: the frame's own line covers it when the ticker is stale too).
@@ -14,7 +19,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import type { BrStrings } from "@/apps/broker/strings";
 import { decText } from "@/apps/portfolio/positions/format";
 import { Button } from "@/components/ui/Button";
-import { CHART_RANGES, DEFAULT_RANGE, isServerFeed, loadRange, mergeLive, parseBar, rangeRequests, resOf, type Bar, type ChartRange, type GameTick } from "@/shell/contracts/history";
+import { parseRev, type CandleRev } from "@/shell/contracts/candleRev";
+import { CHART_RANGES, DEFAULT_RANGE, foldBars, isServerFeed, loadRange, mergeLive, parseBar, rangeRequests, resOf, type Bar, type ChartRange, type GameTick } from "@/shell/contracts/history";
 import type { AssetId } from "@/shell/contracts/orders";
 import { feedEpoch, getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { ChartTable, barTime } from "./ChartTable";
@@ -23,7 +29,7 @@ import type { CandleChartProps } from "./CandleChart";
 type Hist =
   | { readonly status: "loading"; readonly key: string }
   | { readonly status: "error"; readonly key: string }
-  | { readonly status: "ok"; readonly key: string; readonly bars: readonly Bar[]; readonly from: GameTick };
+  | { readonly status: "ok"; readonly key: string; readonly bars: readonly Bar[]; readonly from: GameTick; readonly rev: CandleRev | null };
 
 export type ChartView = "loading" | "error" | "empty" | "plot";
 
@@ -48,7 +54,6 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
   const candles = useChannel(ch);
   // The feed epoch too: a sign-in / sign-out swaps the feed, and the other feed's bars must never stay on screen.
   const epoch = feedEpoch();
-  const key = `${epoch}|${assetId}|${range}|${attempt}`;
 
   // The live candle, parsed at the boundary; "bad" if it breaks the bar rules.
   const live = useMemo((): Bar | "bad" | null => {
@@ -57,24 +62,26 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
     try { return parseBar(b.live, res, "live"); } catch { return "bad"; }
   }, [candles.body, assetId, res]);
   const liveBar = live !== null && live !== "bad" ? live : null;
+  const bodyRev = candles.body && candles.body.assetId === assetId && candles.body.res === res ? parseRev(candles.body.rev) : null;
+  // The server candle history too (signed-in): after a server restart the old bars belong to a history that is gone, and
+  // the range is requested again from the new one.
+  const key = `${epoch}|${assetId}|${range}|${attempt}|${bodyRev?.epoch ?? ""}`;
 
   const [hist, setHist] = useState<Hist>({ status: "loading", key: "" });
-  // The newest live bar of this feed/asset/res: a history request ends there, never at an older correction frame.
-  const liveRef = useRef<{ k: string; bar: Bar } | null>(null);
-  useEffect(() => {
-    const k = `${epoch}|${assetId}|${res}`, p = liveRef.current;
-    if (liveBar !== null && (!p || p.k !== k || liveBar.t >= p.bar.t)) liveRef.current = { k, bar: liveBar };
-  });
+  const liveRef = useRef<Bar | null>(null);
+  const revRef = useRef<CandleRev | null>(null);
+  useEffect(() => { liveRef.current = liveBar; revRef.current = bodyRev; });
   const seq = useRef(0);
   const want = liveBar !== null ? key : null;
   useEffect(() => {
-    const at = liveRef.current?.bar ?? null;
+    const at = liveRef.current;
     if (want === null || at === null) return;
+    const rev = revRef.current; // read before the request leaves: every reply includes at least this revision
     const mine = ++seq.current;
     void loadRange(assetId, range, at.t).then((r) => {
       if (mine !== seq.current) return; // superseded (range, asset or Retry changed): latest wins
       const from = rangeRequests(assetId, range, at.t)[0]?.from ?? at.t;
-      setHist(r.ok ? { status: "ok", key: want, bars: r.value, from } : { status: "error", key: want });
+      setHist(r.ok ? { status: "ok", key: want, bars: r.value, from, rev } : { status: "error", key: want });
     });
     return () => { seq.current += 1; };
     // `want` carries asset, range and attempt; the live tick is read once, when the request leaves.
@@ -91,6 +98,29 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
       if (bars !== hist.bars) setHist({ ...hist, bars });
     }
   }
+
+  // Catch-up: one request at a time; a failed one is asked again on the next newer revision (every server tick is one).
+  const catching = useRef(false);
+  const histRev = hist.status === "ok" && hist.key === key ? hist.rev : null;
+  useEffect(() => {
+    if (histRev === null || bodyRev === null || catching.current || bodyRev.epoch !== histRev.epoch) return;
+    const feed = getFeed();
+    const to = liveRef.current?.t;
+    if (bodyRev.n <= histRev.n || !isServerFeed(feed) || to === undefined) return;
+    catching.current = true;
+    const k = key;
+    void feed.serverCandleChanges({ assetId, res, from: to, to }, histRev.n).then((r) => {
+      catching.current = false; // before the install below re-runs this effect
+      const rev = parseRev(r?.rev);
+      const list = r?.raw && typeof r.raw === "object" ? (r.raw as { bars?: unknown }).bars : null;
+      if (!rev || !Array.isArray(list) || rev.epoch !== histRev.epoch) return; // another history: the key reloads it
+      let changed: Bar[];
+      try { changed = list.map((c, i) => parseBar(c, res, `changes/${i}`)); } catch { return; }
+      setHist((h) => (h.status === "ok" && h.key === k && h.rev === histRev ? { ...h, bars: foldBars(h.bars, changed), rev } : h));
+    }).catch(() => {}).finally(() => { catching.current = false; });
+    // The revision's parts, not the parsed object (a new one per frame); liveRef is read when the request leaves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetId, res, key, histRev, bodyRev?.epoch, bodyRev?.n]);
 
   // The plot chunk, requested once the Broker has mounted.
   const [plot, setPlot] = useState<{ C: Plot } | null>(null);

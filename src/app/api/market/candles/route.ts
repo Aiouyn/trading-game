@@ -10,8 +10,9 @@ export const dynamic = "force-dynamic";
  * Public candle history for one asset (M1-07), the 19 §3.10.1 shape: `{ bars }`, ≤ 5,000 bars, span-aligned, oldest
  * first. GET ?assetId=&res=tick|hour|day&from=&to= (ticks). Quote OHLC from the server clock since this process
  * started sampling it; v = executed Broker fill quantity. No account data. GET only: it writes nothing.
- * Optional `since` (a revision from the `x-candle-rev` header of an earlier reply): the reply also carries every older bar
- * whose volume changed after it (a save that finished after its bar closed), so a live reader never misses late volume.
+ * Every reply names the history and its revision: `x-candle-rev: <epoch>.<n>`. Optional `since=<n>` (from an earlier
+ * reply of the same epoch): the reply also carries every other bar changed after it (e.g. a save that finished after its
+ * bar closed). A reader whose epoch no longer matches holds a revision of a history that is gone and reloads instead.
  */
 export async function GET(request: Request): Promise<Response> {
   assertLocalSingleProcessAuth();
@@ -30,5 +31,5 @@ export async function GET(request: Request): Promise<Response> {
   getBroker(); // the same first-read wiring as /api/market: the sweep and the candle volume attach to the clock
   const rec = getCandles(getLiveMarket());
   // Revision read with the bars, synchronously: a fill counted after this reply has a higher revision.
-  return jsonResponse({ bars: rec.history(req, since) }, 200, { "x-candle-rev": String(rec.revision) });
+  return jsonResponse({ bars: rec.history(req, since) }, 200, { "x-candle-rev": `${rec.epoch}.${rec.revision}` });
 }

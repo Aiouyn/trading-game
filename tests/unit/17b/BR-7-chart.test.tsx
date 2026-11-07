@@ -69,7 +69,7 @@ vi.mock("@/components/market/chartTheme", () => ({
   }),
 }));
 
-const { CandleChart, MIN_VISIBLE, NO_CURSOR, SECONDS_PER_TICK, axisLabel, chartKey, decimalsOf, toPoints, visibleWindow } = await import("@/components/market/CandleChart");
+const { CandleChart, MIN_VISIBLE, NO_CURSOR, SECONDS_PER_TICK, axisLabel, chartKey, decimalsOf, inPlaceEdits, toPoints, visibleWindow } = await import("@/components/market/CandleChart");
 const { barTime } = await import("@/components/market/ChartTable");
 
 const bar = (t: number, c = "42.10"): Bar => ({ t, o: c, h: c, l: c, c, v: "100" }) as unknown as Bar;
@@ -233,6 +233,15 @@ describe("CandleChart with the library faked", () => {
       expect(lib.calls[1]!.arg).toMatchObject({ time: grown[i]!.t * 120, value: 250 });
       await render(grown);
     }
+    // Several bars replaced in place plus one appended (a catch-up): updates in order, historical before the old last.
+    lib.calls.length = 0;
+    const caught = [...grown.map((x, j) => (j === 3 || j === grown.length - 2 || j === grown.length - 1 ? ({ ...x, v: "9" }) as Bar : x)), bar(grown.at(-1)!.t + 1, "43.20")];
+    await render(caught);
+    expect(ops().filter((o) => o !== "line")).toEqual(["histUpdate", "volHistUpdate", "histUpdate", "volHistUpdate", "update", "volUpdate", "update", "volUpdate"]);
+    expect(inPlaceEdits(grown, caught)).toEqual([3, grown.length - 2, grown.length - 1, grown.length]);
+    expect(inPlaceEdits(grown, [...grown.slice(1)])).toBeNull(); // shorter: new data
+    expect(inPlaceEdits(grown, [bar(grown[0]!.t - 1), ...grown.slice(1)])).toBeNull(); // a t moved: new data
+    await render(grown);
     lib.calls.length = 0;
     await render(bars(10, 5000));
     expect(ops()).toEqual(expect.arrayContaining(["setData", "volSetData", "fit"]));

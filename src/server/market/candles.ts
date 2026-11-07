@@ -5,9 +5,10 @@
 //  - Volume: the sum of executed fill quantities (place takers and swept makers) at the fill's tick, each fillId counted
 //    once, so a replayed idempotency key (no new fill) or a repeated notification never double counts. NPC quote motion
 //    is not volume. Only public aggregates leave this module (no account, order or fill ids).
-//  - Late volume: a fill's save can finish after its bar has closed (the decision tick is kept; the save is async and
-//    unbounded). Each volume change bumps a revision; a reader that passes the last revision it saw (`since`) also gets
-//    every bar whose volume changed after it, however old (within the kept bars), so no fixed re-read window is assumed.
+//  - Revisions: every change to a bar (a sample, or volume from a fill whose save may finish long after its bar closed)
+//    bumps one counter and marks the bar. A reader passing the last revision it holds (`since`) also gets every bar
+//    changed after it, however late (within the kept bars): no fixed re-read window. The counter belongs to this recorder
+//    (`epoch`, new per process / clock), so a revision from another history is never compared with this one.
 //  - Process-local, like the clock: a restart starts the history again (the chart says since when it has data).
 import { ASSETS, ASSET_BY_ID } from "@/market/catalog";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
@@ -34,8 +35,10 @@ export class CandleRecorder {
   private readonly seen = new Set<string>();
   private lastTick = -1;
   private rev = 0;
+  /** Names this history: a restarted process (or swapped clock) starts a new one, with revisions from 0 again. */
+  readonly epoch = Math.random().toString(36).slice(2, 10) || "0";
 
-  /** Bumped once per counted fill; bars remember the revision of their last volume change. */
+  /** Bumped once per sample and once per counted fill; each bar remembers the revision of its last change. */
   get revision(): number { return this.rev; }
 
   constructor() {
@@ -46,6 +49,7 @@ export class CandleRecorder {
   sample(snap: MarketSnapshot): void {
     if (snap.tick <= this.lastTick) return;
     this.lastTick = snap.tick;
+    this.rev += 1;
     for (const a of ASSETS) {
       const row = snap.quotes.rows[a.assetId];
       const px = row ? parseMinor(row.last, a.displayDecimals) : null;
@@ -56,10 +60,10 @@ export class CandleRecorder {
         const t = snap.tick - (snap.tick % CANDLE_SPAN[res]);
         const cur = list[list.length - 1];
         if (cur && cur.t === t) {
-          cur.h = Math.max(cur.h, px); cur.l = Math.min(cur.l, px); cur.c = px;
+          cur.h = Math.max(cur.h, px); cur.l = Math.min(cur.l, px); cur.c = px; cur.rv = this.rev;
         } else {
           const o = cur ? cur.c : px;
-          list.push({ t, o, h: Math.max(o, px), l: Math.min(o, px), c: px, v: 0, rv: 0 });
+          list.push({ t, o, h: Math.max(o, px), l: Math.min(o, px), c: px, v: 0, rv: this.rev });
           if (list.length > CANDLE_KEEP) list.splice(0, list.length - CANDLE_KEEP);
         }
       }
@@ -87,7 +91,7 @@ export class CandleRecorder {
   }
 
   /** Bars with from (aligned down) <= t <= to, oldest first, at most CANDLE_KEEP. Unknown asset: none. With `since`, also
-   *  every older bar whose volume changed after that revision (still oldest first). */
+   *  every bar outside that range changed after that revision (older or newer; still oldest first). */
   history(req: CandleHistoryReq, since?: number): Candle[] {
     const a = ASSET_BY_ID[req.assetId];
     const per = this.bars.get(req.assetId);
@@ -95,8 +99,7 @@ export class CandleRecorder {
     const lo = req.from - (req.from % CANDLE_SPAN[req.res]);
     const out: Candle[] = [];
     for (const b of per[req.res]) {
-      if (b.t > req.to) continue;
-      if (b.t < lo && !(since !== undefined && b.rv > since)) continue;
+      if ((b.t < lo || b.t > req.to) && !(since !== undefined && b.rv > since)) continue;
       const dp = a.displayDecimals;
       out.push({ t: b.t, o: fmt(b.o, dp), h: fmt(b.h, dp), l: fmt(b.l, dp), c: fmt(b.c, dp), v: String(b.v) });
       if (out.length >= CANDLE_KEEP) break;

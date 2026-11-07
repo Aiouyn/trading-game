@@ -7,6 +7,7 @@ import type {
   DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes,
   ServerFrame, TapeBody, TapePrint, TickerBody, TickerRow, TradingState, WireItem,
 } from "./channels";
+import { CANDLE_REV_RE } from "./candleRev";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
@@ -240,10 +241,8 @@ export class MockFeed {
   /** M1-07 signed-in: the server's live bar per `candles:{id}:{res}` channel (GET /api/market/candles). Never computed here. */
   private serverCandles = new Map<string, Candle>();
   private candlePulls = new Set<string>();
-  /** Per candles channel: the newest server bar read, the last `x-candle-rev`, and bars still to publish. */
-  private candleLatest = new Map<string, Candle>();
-  private candleRev = new Map<string, number>();
-  private candleQueue = new Map<string, Candle[]>();
+  /** Per candles channel: the server's candle revision (`<epoch>.<n>`) read with the live bar. */
+  private serverRevs = new Map<string, string>();
   private autoStart: boolean;
 
   constructor(scenario: Partial<Scenario> = {}, opts: FeedOptions = {}) {
@@ -493,7 +492,8 @@ export class MockFeed {
     if (this.authoritativeQuotes) {
       // Signed-in: only the server's bar; the channel is not published until one arrived (quoteReady).
       const live = this.serverCandles.get(`candles:${assetId}:${res}`);
-      return { assetId, res, live: live ?? { t: 0, o: "0", h: "0", l: "0", c: "0", v: "0" } };
+      const rev = this.serverRevs.get(`candles:${assetId}:${res}`);
+      return { assetId, res, live: live ?? { t: 0, o: "0", h: "0", l: "0", c: "0", v: "0" }, ...(rev ? { rev } : {}) };
     }
     const a = ASSET_BY_ID[assetId], s = this.assets.get(assetId);
     const span = res === "tick" ? 1 : res === "hour" ? 30 : 720;
@@ -688,46 +688,27 @@ export class MockFeed {
     return this.quotesAdopted && (!ch.startsWith("candles:") || this.serverCandles.has(ch));
   }
 
-  /** Signed-in: the server's bar at the adopted tick for one candles channel; publishes it (snap or delta). A failed or
-   *  malformed read keeps the last bar (a long outage reads as stale through the quote watchdog).
-   *  Late volume: a fill's save may commit after its bar closed, with no bound on the delay. Each pull passes the last
-   *  server revision it saw (`since`), so the reply also carries every older bar whose volume changed since; those go out
-   *  as corrections, one frame per pull (absolute values: each change shows exactly once), before the newest bar. */
+  /** Signed-in: the server's bar at the adopted tick for one candles channel, with the server's candle revision
+   *  (`x-candle-rev`); publishes them (snap or delta). Changes to older bars (a closed bar's last sample, a late save's
+   *  volume) are not sent here: the chart that holds the bars fetches everything changed since the revision of its own
+   *  bars (PriceChart), so a change counts as delivered only once it is installed. A failed or malformed read keeps the
+   *  last bar (a long outage reads as stale through the quote watchdog). */
   private async pullServerCandle(ch: string): Promise<void> {
     if (!this.authoritativeQuotes || !this.quotesAdopted || this.candlePulls.has(ch)) return;
     const [, assetId, res] = ch.split(":") as [string, string, CandleRes];
     if (!ASSET_BY_ID[assetId] || (res !== "tick" && res !== "hour" && res !== "day")) return;
     const span = res === "tick" ? 1 : res === "hour" ? 30 : 720;
     const t = this.tick - (this.tick % span);
-    const held = this.candleLatest.get(ch);
-    // A bar that closed since the last pull is read once more (its price is final once closed) with the bars it skipped;
-    // only when it is a few bars back, so the range stays bounded. Volume saved later still arrives through `since`.
-    const from = held && held.t < t && t - held.t <= span * 4 ? held.t : t;
-    const since = this.candleRev.get(ch);
     this.candlePulls.add(ch);
     try {
-      const reply = await this.serverCandlePull({ assetId, res, from, to: t }, since);
+      const reply = await this.serverCandleChanges({ assetId, res, from: t, to: t });
       if (!reply) return;
       const list = reply.raw && typeof reply.raw === "object" ? (reply.raw as { bars?: unknown }).bars : null;
-      const bars: Candle[] = Array.isArray(list) ? list.filter(isCandle) : [];
-      const newest = bars[bars.length - 1];
-      if (!newest || newest.t !== t) return;
-      const prev = this.candleLatest.get(ch);
-      if (prev && prev.t > newest.t) return; // an older reply never replaces a newer bar
-      if (this.candleRev.get(ch) !== since) return; // a reply overtaken by a newer read
-      const queue = this.candleQueue.get(ch) ?? [];
-      for (const b of bars) {
-        if (b.t >= newest.t) continue;
-        // Unchanged closed bar: nothing to send. Older than the range: only sent because its volume changed after `since`.
-        if (prev && b.t === prev.t && sameCandle(b, prev)) continue;
-        const i = queue.findIndex((x) => x.t === b.t);
-        if (i >= 0) queue[i] = b; else queue.push(b);
-      }
-      queue.sort((x, y) => x.t - y.t);
-      if (reply.rev !== null) this.candleRev.set(ch, reply.rev);
-      this.candleLatest.set(ch, newest);
-      const bar = queue.shift() ?? newest;
-      if (queue.length) this.candleQueue.set(ch, queue); else this.candleQueue.delete(ch);
+      const bar = Array.isArray(list) ? list[list.length - 1] : undefined;
+      if (!isCandle(bar) || bar.t !== t) return;
+      const prev = this.serverCandles.get(ch);
+      if (prev && prev.t > bar.t) return; // an older reply never replaces a newer bar
+      if (reply.rev !== null) this.serverRevs.set(ch, reply.rev);
       this.serverCandles.set(ch, bar);
       for (const sub of this.subs) {
         if (sub.ch !== ch) continue;
@@ -752,14 +733,15 @@ export class MockFeed {
       .then((r) => (r.ok ? r.json() : null));
   }
 
-  /** The live read: the same door plus `since`, and the reply's `x-candle-rev` (null when absent or malformed). */
-  private serverCandlePull(req: CandleHistoryReq, since: number | undefined): Promise<{ raw: unknown; rev: number | null } | null> {
+  /** The same door, read with the reply's `x-candle-rev` (null when absent or malformed); `since` adds every other bar
+   *  changed after that revision. The live pull uses it, and so does the chart catching its bars up. */
+  serverCandleChanges(req: CandleHistoryReq, since?: number): Promise<{ raw: unknown; rev: string | null } | null> {
     const q = new URLSearchParams({ assetId: req.assetId, res: req.res, from: String(req.from), to: String(req.to) });
     if (since !== undefined) q.set("since", String(since));
     return fetch(`/api/market/candles?${q}`, { cache: "no-store", headers: { accept: "application/json" } }).then(async (r) => {
       if (!r.ok) return null;
       const h = r.headers.get("x-candle-rev") ?? "";
-      return { raw: await r.json(), rev: /^\d{1,15}$/.test(h) ? Number(h) : null };
+      return { raw: await r.json(), rev: CANDLE_REV_RE.test(h) ? h : null };
     });
   }
 
@@ -1009,10 +991,6 @@ export function idempotencyKey(): string {
 }
 
 const DEC_RE = /^\d{1,15}(\.\d{1,8})?$/;
-/** A server bar's shape (history.ts re-parses every bar the chart plots). */
-function sameCandle(a: Candle, b: Candle): boolean {
-  return a.t === b.t && a.o === b.o && a.h === b.h && a.l === b.l && a.c === b.c && a.v === b.v;
-}
 function isCandle(v: unknown): v is Candle {
   if (!v || typeof v !== "object") return false;
   const c = v as Record<string, unknown>;
