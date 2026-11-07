@@ -48,6 +48,8 @@ const EN = {
   licences: "Licences",
   colComponent: "Component", colLicence: "Licence", colLink: "Link",
   chartsBy: "Charts by TradingView",
+  notices: "Licence notices",
+  licenceText: (licence: string) => `${licence} licence text`,
   credits: "Credits",
   roles: { design: "design", shellApps: "shell and apps", city: "Port Avalon", markets: "markets", quay: "Quay" },
   integrity: "Public integrity report",
@@ -108,6 +110,8 @@ const FR: Strings = {
   licences: "Licences",
   colComponent: "Composant", colLicence: "Licence", colLink: "Lien",
   chartsBy: "Charts by TradingView", // attribution line stays verbatim (licence requirement)
+  notices: "Avis de licence",
+  licenceText: (licence: string) => `Texte de la licence ${licence}`,
   credits: "Crédits",
   roles: { design: "conception", shellApps: "interface et applis", city: "Port Avalon", markets: "marchés", quay: "Quay" },
   integrity: "Rapport d’intégrité public",

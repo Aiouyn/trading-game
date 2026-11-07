@@ -246,6 +246,9 @@ test("S1-14: About in-app (S2-01..07)", async ({ page, context }, info) => {
   expect(version).toBe(`${pkgVersion} (build ${sha})`);
   await expect(about.getByTestId("about-licence-row")).toHaveCount(5);
   await expect(about.getByRole("link", { name: /Charts by TradingView/ })).toHaveAttribute("href", "https://www.tradingview.com");
+  // lightweight-charts NOTICE (Apache-2.0 §4(d)) in the served page, verbatim, with the licence text link.
+  await expect(about.getByTestId("about-notice-text")).toHaveText("TradingView Lightweight Charts\u2122\nCopyright (\u0441) 2025 TradingView, Inc. https://www.tradingview.com/", { useInnerText: false });
+  await expect(about.getByTestId("about-notice").getByRole("link")).toHaveAttribute("href", "https://www.apache.org/licenses/LICENSE-2.0");
   for (const a of await about.locator("a[target]").all()) {
     await expect(a).toHaveAttribute("target", "_blank");
     expect(await a.getAttribute("rel")).toContain("noopener");
