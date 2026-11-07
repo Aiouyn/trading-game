@@ -9,10 +9,16 @@ export const CHART_TOKENS = {
   grid: "--grid",
   crosshair: "--line",
   series: "--fg",
+  /** Rising / falling candles (DESIGN.md chart row; data-cb swaps the pair). */
+  up: "--gain",
+  down: "--loss",
   lastLine: "--fg-muted",
   label: "--win2",
 } as const;
-export type ChartColours = Record<keyof typeof CHART_TOKENS, string>;
+/** Volume bars: the candle tokens mixed with transparent (DESIGN.md: 22 %; hc 60 % so a bar still reads). */
+export const VOLUME_MIX = { upVol: "--gain", downVol: "--loss" } as const;
+export const VOLUME_PCT = { normal: 22, hc: 60 } as const;
+export type ChartColours = Record<keyof typeof CHART_TOKENS | keyof typeof VOLUME_MIX, string>;
 
 export interface ChartTheme {
   readonly colours: ChartColours;
@@ -34,6 +40,11 @@ export function readChartTheme(host: HTMLElement): ChartTheme | null {
     probe.style.color = `var(${v})`;
     colours[k] = getComputedStyle(probe).color;
   }
+  const hc = document.documentElement.dataset.hc === "1";
+  for (const [k, v] of Object.entries(VOLUME_MIX) as [keyof ChartColours, string][]) {
+    probe.style.color = `color-mix(in srgb, var(${v}) ${hc ? VOLUME_PCT.hc : VOLUME_PCT.normal}%, transparent)`;
+    colours[k] = getComputedStyle(probe).color;
+  }
   if (Object.values(colours).some((c) => c === "")) { probe.remove(); return null; }
   // The axis text size: --fs-11_5 (already times --text-scale), measured as a width so no CSS text is parsed.
   probe.style.cssText = "position:absolute;visibility:hidden;display:block;height:0;width:var(--fs-11_5)";
@@ -44,7 +55,7 @@ export function readChartTheme(host: HTMLElement): ChartTheme | null {
   const html = document.documentElement;
   return {
     colours,
-    hc: html.dataset.hc === "1",
+    hc,
     reducedMotion: html.dataset.motion === "reduce",
     fontFamily,
     fontSize,

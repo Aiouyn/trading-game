@@ -14,6 +14,8 @@
 //    day bars, All = every day bar, fetched oldest first in calls of at most 5,000 bars. `to` is the live candle's t;
 //    from = to - (bars - 1) * span, clamped at tick 0 (there are no ticks before genesis; back-history is ENGINE-TBD).
 //    A short reply is plotted as it is, with no padding.
+//  - M1-07: a signed-in feed answers from GET /api/market/candles (server quote OHLC since the process started
+//    sampling, v = executed Broker fills); a guest feed keeps the mock's generated demo bars below.
 //  - SWAP (transport): replace `mockHistory()` with the 19 `req` / HTTP door. It must answer
 //    `candleHistory(req)` with the raw JSON (`unknown`, sync or a Promise); a network failure should reject or
 //    return something that does not parse, which reads as `badReply`. Nothing else in the chart changes.
@@ -100,6 +102,12 @@ export interface HistoryTransport { candleHistory(req: CandleHistoryReq): unknow
 const isHistoryTransport = (v: unknown): v is HistoryTransport =>
   typeof v === "object" && v !== null && typeof (v as Record<string, unknown>).candleHistory === "function";
 
+/** A signed-in feed: quotes and candle history come from the server clock (MockFeed `authoritativeQuotes`). */
+export function isServerFeed(v: unknown): v is { readonly authoritativeQuotes: true; serverCandleHistory(req: CandleHistoryReq): Promise<unknown> } {
+  return typeof v === "object" && v !== null && (v as Record<string, unknown>).authoritativeQuotes === true
+    && typeof (v as Record<string, unknown>).serverCandleHistory === "function";
+}
+
 /** QUAY_HOOKS only: the feed scenario's `?history=bad` (every reply malformed), `flaky` (the first one), `hold` (never answers). */
 function historyHook(feed: object): HistoryHook {
   const sc = (feed as { scenario?: { history?: HistoryHook } }).scenario;
@@ -115,6 +123,8 @@ function hookLog(): HistoryLog | null {
 /** The mock transport: the page feed's `candleHistory` (`getFeed()`, a MockFeed in this build); null if it has none. */
 export function mockHistory(): HistoryTransport | null {
   const feed: unknown = getFeed();
+  // M1-07 signed-in: the server's recorded history only (GET /api/market/candles), never the mock's generated bars.
+  if (isServerFeed(feed)) return { candleHistory: (req) => feed.serverCandleHistory(req) };
   if (!isHistoryTransport(feed)) return null;
   if (!MOCK_HOOKS) return feed;
   const hook = historyHook(feed);

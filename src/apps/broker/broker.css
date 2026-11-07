@@ -99,6 +99,7 @@
 .br-chart-msg.muted { color: var(--fg-muted); }
 .br-chart-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
 .br-chart-foot .br-updating { margin: 0; }
+.br-chart-source { margin: 0; font-size: var(--fs-11_5); line-height: calc(16px * var(--text-scale)); } /* M1-07: where the bars come from (server quotes or demo) */
 .br-chart-foot.off { visibility: hidden; }
 /* Range tabs: the #38 segment (.br-seg). At BR_STACK_SCALE they wrap to 2 rows of 3, not a column. */
 .br-stacked .br-seg.br-chart-ranges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }

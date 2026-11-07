@@ -2,7 +2,8 @@
 // UI card 7 (17B BRK-B): the plot's logic with the library faked. BR-7-10 keyboard (←/→, +/−, Home/End, live
 // region); toPoints (time = t × 120 s, gaps stay gaps); game-clock labels at day boundaries and in FR, with no Date
 // (TZ-independent); BR-7-06 unit side: a same-t frame is update(), a new t is update(), anything else setData();
-// BR-7-05 unit side: the options are the theme's token colours, hc = 2 px and no grid.
+// BR-7-05 unit side: the options are the theme's token colours, hc = outlined bodies and no grid.
+// M1-07: candles (o/h/l/c) + a volume histogram on its own scale; the legend and the crosshair read the whole bar.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +15,14 @@ import type { Bar } from "@/shell/contracts/history";
 
 const lib = vi.hoisted(() => {
   const calls: { op: string; arg?: unknown }[] = [];
-  const opts: { chart: Record<string, unknown>; series: Record<string, unknown> } = { chart: {}, series: {} };
+  const opts: { chart: Record<string, unknown>; series: Record<string, unknown>; volume: Record<string, unknown>; volScale: Record<string, unknown> } = { chart: {}, series: {}, volume: {}, volScale: {} };
+  const volume = {
+    setData: (d: unknown) => calls.push({ op: "volSetData", arg: d }),
+    update: (d: unknown) => calls.push({ op: "volUpdate", arg: d }),
+    applyOptions: (o: Record<string, unknown>) => { opts.volume = { ...opts.volume, ...o }; },
+    options: () => opts.volume,
+  };
+  const cross = { fn: null as null | ((p: unknown) => void) };
   const series = {
     setData: (d: unknown) => calls.push({ op: "setData", arg: d }),
     update: (d: unknown) => calls.push({ op: "update", arg: d }),
@@ -32,7 +40,10 @@ const lib = vi.hoisted(() => {
     subscribeSizeChange: () => {}, unsubscribeSizeChange: () => {},
   };
   const chart = {
-    addSeries: (_t: unknown, o: Record<string, unknown>) => { opts.series = o; return series; },
+    addSeries: (t: unknown, o: Record<string, unknown>) => { if (t === "histogram") { opts.volume = o; return volume; } opts.series = o; return series; },
+    priceScale: (id: string) => ({ applyOptions: (o: Record<string, unknown>) => { if (id === "vol") opts.volScale = o; } }),
+    subscribeCrosshairMove: (fn: (p: unknown) => void) => { cross.fn = fn; },
+    unsubscribeCrosshairMove: () => { cross.fn = null; },
     applyOptions: (o: Record<string, unknown>) => { opts.chart = { ...opts.chart, ...o }; },
     options: () => opts.chart,
     timeScale: () => timeScale,
@@ -41,10 +52,10 @@ const lib = vi.hoisted(() => {
     clearCrosshairPosition: () => calls.push({ op: "clear" }),
     remove: () => calls.push({ op: "remove" }),
   };
-  return { calls, opts, createChart: (_el: unknown, o: Record<string, unknown>) => { opts.chart = o; return chart; } };
+  return { calls, opts, cross, createChart: (_el: unknown, o: Record<string, unknown>) => { opts.chart = o; return chart; } };
 });
 vi.mock("lightweight-charts", () => ({
-  createChart: lib.createChart, LineSeries: {}, ColorType: { Solid: "solid" }, CrosshairMode: { Magnet: 1 }, LineStyle: { Dotted: 1 },
+  createChart: lib.createChart, CandlestickSeries: "candlestick", HistogramSeries: "histogram", ColorType: { Solid: "solid" }, CrosshairMode: { Magnet: 1 }, LineStyle: { Dotted: 1 },
   TickMarkType: { Year: 0, Month: 1, DayOfMonth: 2, Time: 3, TimeWithSeconds: 4 },
 }));
 const theme = vi.hoisted(() => ({ hc: false, fail: false }));
@@ -52,7 +63,8 @@ vi.mock("@/components/market/chartTheme", () => ({
   THEME_ATTRS: ["data-hc"],
   CHART_TOKENS: {},
   readChartTheme: () => theme.fail ? null : ({
-    colours: { bg: "rgb(1, 1, 1)", text: "rgb(2, 2, 2)", grid: "rgb(3, 3, 3)", crosshair: "rgb(4, 4, 4)", series: "rgb(5, 5, 5)", lastLine: "rgb(6, 6, 6)", label: "rgb(7, 7, 7)" },
+    colours: { bg: "rgb(1, 1, 1)", text: "rgb(2, 2, 2)", grid: "rgb(3, 3, 3)", crosshair: "rgb(4, 4, 4)", series: "rgb(5, 5, 5)", lastLine: "rgb(6, 6, 6)", label: "rgb(7, 7, 7)",
+      up: "rgb(8, 8, 8)", down: "rgb(9, 9, 9)", upVol: "rgb(10, 10, 10)", downVol: "rgb(11, 11, 11)" },
     hc: theme.hc, reducedMotion: false, fontFamily: "mono", fontSize: 12,
   }),
 }));
@@ -61,17 +73,23 @@ const { CandleChart, MIN_VISIBLE, NO_CURSOR, SECONDS_PER_TICK, axisLabel, chartK
 const { barTime } = await import("@/components/market/ChartTable");
 
 const bar = (t: number, c = "42.10"): Bar => ({ t, o: c, h: c, l: c, c, v: "100" }) as unknown as Bar;
+const candle = (t: number, o: string, h: string, l: string, c: string, v: string): Bar => ({ t, o, h, l, c, v }) as unknown as Bar;
 const bars = (n: number, t0 = 1000) => Array.from({ length: n }, (_, i) => bar(t0 + i, `42.${String(i % 100).padStart(2, "0")}`));
 const EN = BR_STRINGS.en, FR = BR_STRINGS.fr;
 const sec = (n: number) => n as UTCTimestamp;
 
 describe("toPoints (G1's one number site)", () => {
-  it("time = t × 120 s, value = the close; a gap of missed ticks stays a gap (no fill, no interpolation)", () => {
-    const p = toPoints([bar(10, "1.50"), bar(11, "1.60"), bar(15, "1.20")], "1.25");
+  it("time = t × 120 s, o/h/l/c and volume as sent; a gap of missed ticks stays a gap (no fill, no interpolation)", () => {
+    const p = toPoints([candle(10, "1.40", "1.55", "1.35", "1.50", "7"), candle(11, "1.50", "1.60", "1.50", "1.60", "0"), candle(15, "1.30", "1.30", "1.10", "1.20", "12")], "1.25");
     expect(SECONDS_PER_TICK).toBe(120);
-    expect(p.data).toEqual([{ time: 1200, value: 1.5 }, { time: 1320, value: 1.6 }, { time: 1800, value: 1.2 }]);
+    expect(p.data).toEqual([
+      { time: 1200, open: 1.4, high: 1.55, low: 1.35, close: 1.5 },
+      { time: 1320, open: 1.5, high: 1.6, low: 1.5, close: 1.6 },
+      { time: 1800, open: 1.3, high: 1.3, low: 1.1, close: 1.2 },
+    ]);
+    expect(p.vol).toEqual([{ time: 1200, value: 7, up: true }, { time: 1320, value: 0, up: true }, { time: 1800, value: 12, up: false }]);
     expect(p.last).toBe(1.25);
-    expect(toPoints([], null)).toEqual({ data: [], last: null });
+    expect(toPoints([], null)).toEqual({ data: [], vol: [], last: null });
   });
   it("720 ticks = one LWC day, so library day marks fall on game days", () => {
     expect(toPoints([bar(720 * 38)], null).data[0]!.time).toBe(86_400 * 38);
@@ -161,17 +179,26 @@ describe("CandleChart with the library faked", () => {
   const press = (k: string) => act(async () => { plot().dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); });
   const ops = () => lib.calls.map((c) => c.op);
 
-  it("options are the theme's token colours; line 1 px with grid; hc: 2 px, no grid", async () => {
+  it("options are the theme's token colours; candles gain/loss, volume on its own hidden scale; hc: outlined, no grid", async () => {
     await render(bars(30));
     const c = lib.opts.chart as { layout: { background: { color: string }; textColor: string }; grid: { vertLines: { color: string; visible: boolean } }; crosshair: { vertLine: { color: string } } };
     expect([c.layout.background.color, c.layout.textColor, c.grid.vertLines.color, c.crosshair.vertLine.color]).toEqual(["rgb(1, 1, 1)", "rgb(2, 2, 2)", "rgb(3, 3, 3)", "rgb(4, 4, 4)"]);
     expect(c.grid.vertLines.visible).toBe(true);
-    expect(lib.opts.series).toMatchObject({ color: "rgb(5, 5, 5)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+    expect(lib.opts.series).toMatchObject({ upColor: "rgb(8, 8, 8)", downColor: "rgb(9, 9, 9)", wickUpColor: "rgb(8, 8, 8)", wickDownColor: "rgb(9, 9, 9)", borderVisible: false, priceLineVisible: false, lastValueVisible: false });
+    expect(lib.opts.volume).toMatchObject({ priceScaleId: "vol", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false });
+    expect(lib.opts.volScale).toEqual({ scaleMargins: { top: 0.8, bottom: 0 }, visible: false });
+    // Axis marks get room for the longest label (day marks, EN and FR), so they never overlap at 520; bars stay candle-sized.
+    const ts = (lib.opts.chart as { timeScale: { tickMarkMaxCharacterLength: number; maxBarSpacing: number } }).timeScale;
+    for (const loc of ["en", "fr"]) expect(axisLabel(sec(720 * 98 * 120), 0 as TickMarkType, loc).length).toBeLessThanOrEqual(ts.tickMarkMaxCharacterLength);
+    expect(ts.maxBarSpacing).toBe(24);
+    const vol = lib.calls.find((x) => x.op === "volSetData")!.arg as { color: string }[];
+    expect(vol).toHaveLength(30);
+    expect(new Set(vol.map((v) => v.color))).toEqual(new Set(["rgb(10, 10, 10)"])); // flat demo bars: close = open → up colour
     expect(lib.calls.find((x) => x.op === "priceLine")!.arg).toMatchObject({ color: "rgb(6, 6, 6)", price: 42.18, lineStyle: 1, axisLabelVisible: false });
     await act(async () => root.unmount()); root = createRoot(el); theme.hc = true;
     await render(bars(30));
     expect((lib.opts.chart as { grid: { vertLines: { visible: boolean } } }).grid.vertLines.visible).toBe(false);
-    expect(lib.opts.series.lineWidth).toBe(2);
+    expect(lib.opts.series.borderVisible).toBe(true);
   });
   it("tag shows ticker.last (decText) and the halted band + label only when halted", async () => {
     await render(bars(30), "1234.50");
@@ -189,28 +216,43 @@ describe("CandleChart with the library faked", () => {
     await render(same);
     expect(ops()).toContain("update");
     expect(ops()).not.toContain("setData");
-    expect(lib.calls.filter((c) => c.op === "update").at(-1)!.arg).toEqual({ time: b.at(-1)!.t * 120, value: 43 });
+    expect(lib.calls.filter((c) => c.op === "update").at(-1)!.arg).toEqual({ time: b.at(-1)!.t * 120, open: 43, high: 43, low: 43, close: 43 });
+    expect(lib.calls.filter((c) => c.op === "volUpdate").at(-1)!.arg).toEqual({ time: b.at(-1)!.t * 120, value: 100, color: "rgb(10, 10, 10)" });
     lib.calls.length = 0;
     await render([...same, bar(b.at(-1)!.t + 1, "43.10")]);
     expect(ops()).not.toContain("setData");
-    expect(lib.calls.filter((c) => c.op === "update").at(-1)!.arg).toEqual({ time: (b.at(-1)!.t + 1) * 120, value: 43.1 });
+    expect(lib.calls.filter((c) => c.op === "update").at(-1)!.arg).toEqual({ time: (b.at(-1)!.t + 1) * 120, open: 43.1, high: 43.1, low: 43.1, close: 43.1 });
     lib.calls.length = 0;
     await render(bars(10, 5000));
-    expect(ops()).toEqual(expect.arrayContaining(["setData", "fit"]));
+    expect(ops()).toEqual(expect.arrayContaining(["setData", "volSetData", "fit"]));
   });
-  it("BR-7-10: focusable img; ← announces time + close; Home/End; +/− set the visible range; Enter does not bubble-handle", async () => {
+  it("M1-07 legend: the newest bar's O H L C Vol by default, the hovered bar under the pointer, back on leave", async () => {
+    const b = [candle(100, "42.00", "42.40", "41.90", "42.30", "1200"), candle(101, "42.30", "42.30", "41.80", "41.95", "0")];
+    await render(b);
+    const legend = () => el.querySelector('[data-testid="br-chart-legend"]') as HTMLElement;
+    const vals = () => [...legend().querySelectorAll("[data-k]")].map((x) => x.textContent);
+    expect(legend().dataset.t).toBe("101");
+    expect(vals()).toEqual(["O 42.30", "H 42.30", "L 41.80", "C 41.95", "Vol 0"]);
+    await act(async () => lib.cross.fn!({ logical: 0, point: { x: 1, y: 1 } }));
+    expect(legend().dataset.t).toBe("100");
+    expect(vals()).toEqual(["O 42.00", "H 42.40", "L 41.90", "C 42.30", "Vol 1,200"]);
+    await act(async () => lib.cross.fn!({ logical: undefined, point: undefined }));
+    expect(legend().dataset.t).toBe("101");
+  });
+  it("BR-7-10: focusable img; ← announces time + the candle; Home/End; +/− set the visible range; Enter does not bubble-handle", async () => {
     const b = bars(100);
     await render(b);
     expect(plot().getAttribute("role")).toBe("img");
     expect(plot().tabIndex).toBe(0);
     expect(plot().getAttribute("aria-label")).toBe("HALC price");
     await press("ArrowLeft");
-    expect(live()).toBe(`${barTime(b[99]!.t, "en", EN)}: close ${b[99]!.c}`);
+    const say = (x: Bar) => `${barTime(x.t, "en", EN)}: open ${x.o}, high ${x.h}, low ${x.l}, close ${x.c}, volume ${x.v}`;
+    expect(live()).toBe(say(b[99]!));
     expect(lib.calls.filter((c) => c.op === "crosshair").at(-1)!.arg).toEqual([Number(b[99]!.c), b[99]!.t * 120]);
     await press("ArrowLeft");
-    expect(live()).toBe(`${barTime(b[98]!.t, "en", EN)}: close ${b[98]!.c}`);
+    expect(live()).toBe(say(b[98]!));
     await press("Home");
-    expect(live()).toBe(`${barTime(b[0]!.t, "en", EN)}: close ${b[0]!.c}`);
+    expect(live()).toBe(say(b[0]!));
     await press("End");
     expect(live()).toContain(`close ${b[99]!.c}`);
     lib.calls.length = 0;

@@ -14,4 +14,11 @@ html[data-hc="1"] .cc-plot { border: 1px solid var(--fg-muted); }
   position: absolute; top: 0; left: 0; z-index: 1; width: 24px; pointer-events: none;
   background: color-mix(in srgb, var(--steel) 24%, transparent); will-change: transform;
 }
+.cc-legend {
+  position: absolute; top: var(--sp-4); left: var(--sp-8); max-width: calc(100% - 80px); z-index: 2; margin: 0; pointer-events: none;
+  padding: 0 var(--sp-4); background: color-mix(in srgb, var(--win) 85%, transparent); /* readable over the bars */
+  display: flex; flex-wrap: wrap; gap: 0 var(--sp-8); color: var(--fg-muted); font-size: var(--fs-11_5); line-height: 1.4;
+}
+.cc-legend-time, .cc-legend-k { color: var(--fg-faint); }
+.cc.halted .cc-legend { top: calc(var(--sp-8) + 1.6em); } /* "Halted" keeps the top-left corner */
 .cc-halted { position: absolute; top: var(--sp-8); left: var(--sp-8); z-index: 2; color: var(--steel); font-size: var(--fs-12_5); font-weight: 500; pointer-events: none; }

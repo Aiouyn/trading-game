@@ -104,6 +104,12 @@ export function authoritativeQuoteProvenance(tick: number | null): { worldId: st
  */
 const feedListeners = new Set<() => void>();
 
+/** Bumped by every setFeed: anything loaded from one feed (e.g. chart history) is keyed by it, so an account switch never
+ *  shows the previous feed's data (M1-07). */
+export function feedEpoch(): number {
+  return feedGeneration;
+}
+
 export function setFeed(f: FeedTransport | null): void {
   for (const e of shared.values()) {
     if (e.closeTimer) clearTimeout(e.closeTimer);

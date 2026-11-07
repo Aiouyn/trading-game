@@ -1,6 +1,9 @@
 "use client";
-// Broker price chart plot (UI card 7): the lazy chunk that carries lightweight-charts (G4). PriceChart owns the data,
-// the states and the table; this file only draws the bars it is given and handles the plot's keyboard.
+// Broker price chart plot (UI card 7; M1-07 candles): the lazy chunk that carries lightweight-charts (G4). PriceChart owns
+// the data, the states and the table; this file only draws the bars it is given and handles the plot's keyboard.
+//  - Candles: gain / loss bodies and wicks; volume bars (22 % of the same token) on their own scale under the price
+//    (DESIGN.md chart row). Pan / zoom: the library's drag, wheel and pinch, plus the keyboard below. The legend shows
+//    the hovered (or newest) bar's server strings: O H L C and volume.
 //  - G1: a server price becomes a JS number only in toPoints(), for the canvas. Nothing here adds, subtracts or
 //    compares prices; the tag and the aria text are the server's strings.
 //  - Time: the x axis is game time, not wall time. A tick is 2 game minutes, so t * 120 s puts the library's own day
@@ -10,8 +13,8 @@
 //    scale changes. The last-price tag and the halt band are DOM overlays moved with transforms (no layout shift).
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
-  ColorType, CrosshairMode, LineSeries, LineStyle, TickMarkType, createChart,
-  type IChartApi, type IPriceLine, type ISeriesApi, type LineData, type Time, type UTCTimestamp,
+  CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineStyle, TickMarkType, createChart,
+  type CandlestickData, type HistogramData, type IChartApi, type IPriceLine, type ISeriesApi, type MouseEventParams, type Time, type UTCTimestamp,
 } from "lightweight-charts";
 import type { BrStrings } from "@/apps/broker/strings";
 import { decText } from "@/apps/portfolio/positions/format";
@@ -20,6 +23,7 @@ import type { Bar } from "@/shell/contracts/history";
 import { clockAt, clockLabel } from "@/shell/mockChannels";
 import { clockStrings } from "@/shell/strings";
 import { barTime } from "./ChartTable";
+import { parseSrgb } from "./chartColor";
 import { THEME_ATTRS, readChartTheme, type ChartTheme } from "./chartTheme";
 import "./candleChart.css";
 
@@ -35,15 +39,31 @@ const SCALE_W = 72;
 /** Width of the halted band at the live edge. */
 const BAND_W = 24;
 
-export interface Points { readonly data: LineData<UTCTimestamp>[]; readonly last: number | null }
+/** Volume bars' share of the plot height (bottom), and the price's margins above them. */
+const VOLUME_TOP = 0.8;
 
-/** The only place a server price becomes a number (G1): each bar's close, and the ticker's last for the tag. */
-export function toPoints(bars: readonly Bar[], last: string | null): Points {
-  return {
-    data: bars.map((b) => ({ time: (b.t * SECONDS_PER_TICK) as UTCTimestamp, value: Number(b.c) })),
-    last: last === null ? null : Number(last),
-  };
+export interface Points {
+  readonly data: CandlestickData<UTCTimestamp>[];
+  /** Volume per bar; `up` = close at or above open (the bar's colour). */
+  readonly vol: { readonly time: UTCTimestamp; readonly value: number; readonly up: boolean }[];
+  readonly last: number | null;
 }
+
+/** The only place a server price or volume becomes a number (G1): each bar's o/h/l/c and v, and the ticker's last. */
+export function toPoints(bars: readonly Bar[], last: string | null): Points {
+  const data: CandlestickData<UTCTimestamp>[] = [];
+  const vol: Points["vol"][number][] = [];
+  for (const b of bars) {
+    const time = (b.t * SECONDS_PER_TICK) as UTCTimestamp;
+    const o = Number(b.o), c = Number(b.c);
+    data.push({ time, open: o, high: Number(b.h), low: Number(b.l), close: c });
+    vol.push({ time, value: Number(b.v), up: c >= o });
+  }
+  return { data, vol, last: last === null ? null : Number(last) };
+}
+
+const volPoint = (v: Points["vol"][number], th: ChartTheme): HistogramData<UTCTimestamp> =>
+  ({ time: v.time, value: v.value, color: v.up ? th.colours.upVol : th.colours.downVol });
 
 /** Decimals of a server decimal string ("42.10" -> 2): the price axis precision. */
 export const decimalsOf = (s: string): number => /\.(\d+)$/.exec(s)?.[1]?.length ?? 0;
@@ -99,23 +119,27 @@ export interface CandleChartProps {
   readonly onFail: () => void;
 }
 
-interface Api { chart: IChartApi; series: ISeriesApi<"Line">; line: IPriceLine | null; theme: ChartTheme }
+interface Api { chart: IChartApi; series: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Histogram">; line: IPriceLine | null; theme: ChartTheme }
 
 function chartOptions(th: ChartTheme, locale: string, precision: number, s: Pick<BrStrings, "tickLabel">) {
   const c = th.colours;
   const fmt = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: precision, maximumFractionDigits: precision });
   return {
     autoSize: true,
-    layout: { background: { type: ColorType.Solid, color: c.bg }, textColor: c.text, fontFamily: th.fontFamily, fontSize: th.fontSize, attributionLogo: false },
+    layout: { background: { type: ColorType.Solid, color: c.bg }, textColor: c.text, fontFamily: th.fontFamily, fontSize: th.fontSize, attributionLogo: false, colorParsers: [parseSrgb] },
     grid: { vertLines: { color: c.grid, visible: !th.hc }, horzLines: { color: c.grid, visible: !th.hc } },
     crosshair: {
       mode: CrosshairMode.Magnet,
       vertLine: { color: c.crosshair, labelBackgroundColor: c.label },
       horzLine: { color: c.crosshair, labelBackgroundColor: c.label },
     },
-    rightPriceScale: { borderColor: c.crosshair, minimumWidth: SCALE_W },
+    rightPriceScale: { borderColor: c.crosshair, minimumWidth: SCALE_W, scaleMargins: { top: 0.08, bottom: 1 - VOLUME_TOP + 0.04 } },
     timeScale: {
       borderColor: c.crosshair, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true,
+      // A short recorded history stays candle-sized at the right edge (the empty left is "not recorded yet").
+      maxBarSpacing: MAX_BAR_SPACING,
+      // Day marks read "D39 · 06:00" (11 characters); the library's default room is 8, so marks overlapped at 520.
+      tickMarkMaxCharacterLength: 12,
       tickMarkFormatter: (time: Time, type: TickMarkType) => axisLabel(time, type, locale),
     },
     localization: { locale: pfNumberLocale(locale), timeFormatter: (time: Time) => barTime(tickOfTime(time), locale, s), priceFormatter: (p: number) => fmt.format(p) },
@@ -126,12 +150,19 @@ function chartOptions(th: ChartTheme, locale: string, precision: number, s: Pick
 }
 
 function seriesOptions(th: ChartTheme, precision: number) {
+  const { up, down } = th.colours;
   return {
-    color: th.colours.series, lineWidth: th.hc ? 2 : 1, priceLineVisible: false, lastValueVisible: false,
-    crosshairMarkerBorderColor: th.colours.bg, crosshairMarkerBackgroundColor: th.colours.series,
+    upColor: up, downColor: down, wickUpColor: up, wickDownColor: down,
+    // hc: an outlined body in the same colour, so a thin candle still reads at 1 px.
+    borderVisible: th.hc, borderUpColor: up, borderDownColor: down,
+    priceLineVisible: false, lastValueVisible: false,
     priceFormat: { type: "price", precision, minMove: 1 / 10 ** precision },
   } as const;
 }
+
+/** Widest a bar may draw, px: a handful of server bars must not stretch across the plot. */
+const MAX_BAR_SPACING = 24;
+const VOLUME_OPTIONS = { priceScaleId: "vol", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false } as const;
 
 export function CandleChart({ bars, last, halted, t, locale, label, onFail }: CandleChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -140,9 +171,11 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
   const bandRef = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
   const shown = useRef<readonly Bar[]>([]);
-  const points = useRef<Points>({ data: [], last: null });
+  const points = useRef<Points>({ data: [], vol: [], last: null });
   const [cursor, setCursor] = useState<Cursor>(NO_CURSOR);
   const [announce, setAnnounce] = useState("");
+  /** The bar the legend shows: the pointer's or keyboard's bar, else the newest. */
+  const [hover, setHover] = useState<number | null>(null);
   const precision = decimalsOf(last ?? bars[bars.length - 1]?.c ?? "");
 
   /** Tag at the last price, band at the live edge: transforms only. */
@@ -169,19 +202,27 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
     if (!first) { onFail(); return; }
     let th = first;
     let chart: IChartApi;
-    let series: ISeriesApi<"Line">;
+    let series: ISeriesApi<"Candlestick">;
+    let volume: ISeriesApi<"Histogram">;
     try {
       chart = createChart(plot, chartOptions(th, locale, precision, t));
-      series = chart.addSeries(LineSeries, seriesOptions(th, precision));
+      series = chart.addSeries(CandlestickSeries, seriesOptions(th, precision));
+      volume = chart.addSeries(HistogramSeries, VOLUME_OPTIONS);
+      chart.priceScale("vol").applyOptions({ scaleMargins: { top: VOLUME_TOP, bottom: 0 }, visible: false });
     } catch {
       onFail();
       return;
     }
-    const a: Api = { chart, series, line: null, theme: th };
+    const a: Api = { chart, series, volume, line: null, theme: th };
     api.current = a;
     const onMove = () => place();
     chart.timeScale().subscribeVisibleLogicalRangeChange(onMove);
     chart.timeScale().subscribeSizeChange(onMove);
+    const onCross = (p: MouseEventParams<Time>) => {
+      const i = p.logical === undefined || p.point === undefined ? null : Math.round(p.logical);
+      setHover(i !== null && i >= 0 && i < points.current.data.length ? i : null);
+    };
+    chart.subscribeCrosshairMove(onCross);
     const mo = new MutationObserver(() => {
       const next = readChartTheme(host);
       if (!next) { onFail(); return; }
@@ -190,6 +231,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
       try {
         chart.applyOptions(chartOptions(th, locale, precision, t));
         series.applyOptions(seriesOptions(th, precision));
+        volume.setData(points.current.vol.map((v) => volPoint(v, th)));
         a.line?.applyOptions({ color: th.colours.lastLine });
       } catch {
         onFail();
@@ -202,10 +244,12 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
       (window as Window & { __quayChart?: unknown }).__quayChart = {
         chart: () => chart.options(), series: () => series.options(), line: () => a.line?.options() ?? null,
         theme: () => th, visible: () => chart.timeScale().getVisibleLogicalRange(), data: () => series.data(),
+        volume: () => volume.data(), volumeOptions: () => volume.options(),
       };
     }
     return () => {
       mo.disconnect();
+      chart.unsubscribeCrosshairMove(onCross);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onMove);
       chart.timeScale().unsubscribeSizeChange(onMove);
       chart.remove();
@@ -233,11 +277,14 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
     const grew = bars.length - prev.length;
     const live = prev.length > 0 && (grew === 0 || grew === 1) && bars[0] === prev[0] && (prev.length < 2 || bars[prev.length - 2] === prev[prev.length - 2]);
     const newest = p.data[p.data.length - 1];
-    if (live && newest) {
-      if (grew === 1 && prev.length > 0) a.series.update(p.data[prev.length - 1]!);
+    const newestVol = p.vol[p.vol.length - 1];
+    if (live && newest && newestVol) {
+      if (grew === 1 && prev.length > 0) { a.series.update(p.data[prev.length - 1]!); a.volume.update(volPoint(p.vol[prev.length - 1]!, a.theme)); }
       a.series.update(newest);
+      a.volume.update(volPoint(newestVol, a.theme));
     } else {
       a.series.setData(p.data);
+      a.volume.setData(p.vol.map((v) => volPoint(v, a.theme)));
       a.chart.timeScale().fitContent();
       setCursor(NO_CURSOR);
     }
@@ -264,7 +311,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
     if (w) a.chart.timeScale().setVisibleLogicalRange({ from: w.from - 0.5, to: w.to + 0.5 });
     else if (cursor.visible === null) a.chart.timeScale().fitContent();
     const pt = cursor.index !== null ? points.current.data[cursor.index] : undefined;
-    if (pt) a.chart.setCrosshairPosition(pt.value, pt.time, a.series);
+    if (pt) a.chart.setCrosshairPosition(pt.close, pt.time, a.series);
     else a.chart.clearCrosshairPosition();
   }, [cursor]);
 
@@ -276,11 +323,20 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
     e.stopPropagation();
     setCursor(next);
     const b = next.index !== null ? bars[next.index] : undefined;
-    if (b && next.index !== cursor.index) setAnnounce(t.crosshairAria(barTime(b.t, locale, t), decText(b.c, locale)));
+    if (b && next.index !== cursor.index) setAnnounce(t.crosshairAria(barTime(b.t, locale, t), ...ohlcv(b, locale)));
   };
 
+  const shownBar = bars[cursor.index ?? hover ?? bars.length - 1] ?? bars[bars.length - 1];
   return (
-    <div className="cc" ref={hostRef} data-testid="br-chart-plot">
+    <div className={halted ? "cc halted" : "cc"} ref={hostRef} data-testid="br-chart-plot">
+      {shownBar && (
+        <p className="cc-legend num" data-testid="br-chart-legend" data-t={shownBar.t} aria-hidden="true">
+          <span className="cc-legend-time">{barTime(shownBar.t, locale, t)}</span>
+          {(["o", "h", "l", "c", "v"] as const).map((k) => (
+            <span key={k} data-k={k}><span className="cc-legend-k">{t.legend[k]}</span> {decText(shownBar[k], locale)}</span>
+          ))}
+        </p>
+      )}
       <div className="cc-plot" ref={plotRef} role="img" aria-label={label} tabIndex={0} onKeyDown={onKey}
         onBlur={() => setCursor((c) => (c.index === null ? c : { ...c, index: null }))} data-testid="br-chart-canvas" />
       {halted && (
@@ -293,6 +349,11 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
       <p className="sr-only" aria-live="polite" data-testid="br-chart-live">{announce}</p>
     </div>
   );
+}
+
+/** A bar's five server strings with locale grouping, for the legend and the crosshair announcement. */
+function ohlcv(b: Bar, locale: string): [string, string, string, string, string] {
+  return [decText(b.o, locale), decText(b.h, locale), decText(b.l, locale), decText(b.c, locale), decText(b.v, locale)];
 }
 
 export default CandleChart;

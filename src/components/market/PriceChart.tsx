@@ -7,20 +7,22 @@
 //  - States: no live candle or no reply yet -> skeleton; candles denied/error, a bad live candle or a failed reply
 //    -> "Couldn't load chart" + Retry (one new request); zero bars -> "No price history yet."; stale -> dimmed plot
 //    and card 4's "Updating…" (once: the frame's own line covers it when the ticker is stale too).
+//  - M1-07: signed-in bars are the server's recorded quote candles + executed volume (history.ts); a guest sees the mock's
+//    demo bars, labelled as such. History is keyed by the feed epoch, so an account switch never shows the other feed's bars.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { BrStrings } from "@/apps/broker/strings";
 import { decText } from "@/apps/portfolio/positions/format";
 import { Button } from "@/components/ui/Button";
-import { CHART_RANGES, DEFAULT_RANGE, loadRange, mergeLive, parseBar, resOf, type Bar, type ChartRange } from "@/shell/contracts/history";
+import { CHART_RANGES, DEFAULT_RANGE, isServerFeed, loadRange, mergeLive, parseBar, rangeRequests, resOf, type Bar, type ChartRange, type GameTick } from "@/shell/contracts/history";
 import type { AssetId } from "@/shell/contracts/orders";
-import { getFeed, useChannel } from "@/shell/contracts/useChannel";
-import { ChartTable } from "./ChartTable";
+import { feedEpoch, getFeed, useChannel } from "@/shell/contracts/useChannel";
+import { ChartTable, barTime } from "./ChartTable";
 import type { CandleChartProps } from "./CandleChart";
 
 type Hist =
   | { readonly status: "loading"; readonly key: string }
   | { readonly status: "error"; readonly key: string }
-  | { readonly status: "ok"; readonly key: string; readonly bars: readonly Bar[] };
+  | { readonly status: "ok"; readonly key: string; readonly bars: readonly Bar[]; readonly from: GameTick };
 
 export type ChartView = "loading" | "error" | "empty" | "plot";
 
@@ -43,7 +45,9 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
   const res = resOf(range);
   const ch = `candles:${assetId}:${res}` as const;
   const candles = useChannel(ch);
-  const key = `${assetId}|${range}|${attempt}`;
+  // The feed epoch too: a sign-in / sign-out swaps the feed, and the other feed's bars must never stay on screen.
+  const epoch = feedEpoch();
+  const key = `${epoch}|${assetId}|${range}|${attempt}`;
 
   // The live candle, parsed at the boundary; "bad" if it breaks the bar rules.
   const live = useMemo((): Bar | "bad" | null => {
@@ -64,7 +68,8 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
     const mine = ++seq.current;
     void loadRange(assetId, range, at.t).then((r) => {
       if (mine !== seq.current) return; // superseded (range, asset or Retry changed): latest wins
-      setHist(r.ok ? { status: "ok", key: want, bars: r.value } : { status: "error", key: want });
+      const from = rangeRequests(assetId, range, at.t)[0]?.from ?? at.t;
+      setHist(r.ok ? { status: "ok", key: want, bars: r.value, from } : { status: "error", key: want });
     });
     return () => { seq.current += 1; };
     // `want` carries asset, range and attempt; the live tick is read once, when the request leaves.
@@ -115,6 +120,10 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
   const label = first && newest ? t.chartAria(assetId, t.range[range], decText(first.c, locale), decText(newest.c, locale)) : t.chartTitle;
   const skeleton = <div className="br-skel br-chart-skel" data-testid="br-chart-loading" role="status" aria-busy="true" aria-label={t.chartLoading} />;
   const Plot = plot?.C;
+  // Where the bars come from: the server's recorded quotes (and since when, if that is inside the range), or the demo.
+  const server = isServerFeed(getFeed());
+  const since = server && first && hist.status === "ok" && first.t > hist.from ? t.sourceSince(barTime(first.t, locale, t)) : null;
+  const source = server ? (since ? `${t.sourceServer} · ${since}` : t.sourceServer) : t.sourceDemo;
 
   return (
     <section className="br-chart" data-testid="br-chart" data-state={view} data-range={range} data-chart="" aria-labelledby={titleId}>
@@ -143,6 +152,7 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
         <Button variant="ghost" size="sm" className="br-chart-toggle" data-testid="br-chart-toggle" onClick={() => setTable((v) => !v)}>
           {table ? t.viewChart : t.viewTable}
         </Button>
+        {view === "plot" && <p className="br-chart-source muted" data-testid="br-chart-source" data-source={server ? "server" : "demo"}>{source}</p>}
         {stale && !frameStale && view === "plot" && <p className="br-updating muted" data-testid="br-chart-updating">{t.updating}</p>}
       </div>
     </section>

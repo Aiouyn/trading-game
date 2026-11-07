@@ -237,6 +237,9 @@ export class MockFeed {
   private timer: ReturnType<typeof setInterval> | null = null;
   private quoteSync: ReturnType<typeof setInterval> | null = null;
   private quotePulling = false;
+  /** M1-07 signed-in: the server's live bar per `candles:{id}:{res}` channel (GET /api/market/candles). Never computed here. */
+  private serverCandles = new Map<string, Candle>();
+  private candlePulls = new Set<string>();
   private autoStart: boolean;
 
   constructor(scenario: Partial<Scenario> = {}, opts: FeedOptions = {}) {
@@ -483,6 +486,11 @@ export class MockFeed {
     return { assetId, prints: this.assets.get(assetId)?.prints ?? [] };
   }
   private candlesBody(assetId: string, res: CandleRes): CandlesBody {
+    if (this.authoritativeQuotes) {
+      // Signed-in: only the server's bar; the channel is not published until one arrived (quoteReady).
+      const live = this.serverCandles.get(`candles:${assetId}:${res}`);
+      return { assetId, res, live: live ?? { t: 0, o: "0", h: "0", l: "0", c: "0", v: "0" } };
+    }
     const a = ASSET_BY_ID[assetId], s = this.assets.get(assetId);
     const span = res === "tick" ? 1 : res === "hour" ? 30 : 720;
     const t = this.tick - (this.tick % span);
@@ -555,7 +563,8 @@ export class MockFeed {
     const mode = hook ?? this.scenario.feed;
     // Quote channels on a signed-in feed stay unpublished until /api/market validates.
     // The constructor book is not a server tick. `me` and other private channels still snap.
-    const holdQuotes = this.authoritativeQuotes && ((this.isQuoteChannel(ch) && !this.quotesAdopted) || (ch === "me" && !this.meReady()));
+    const holdQuotes = this.authoritativeQuotes && ((this.isQuoteChannel(ch) && !this.quoteReady(ch)) || (ch === "me" && !this.meReady()));
+    if (this.authoritativeQuotes && ch.startsWith("candles:") && this.quotesAdopted) void this.pullServerCandle(ch);
     if (mode !== "loading" && !holdQuotes) sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
@@ -573,6 +582,7 @@ export class MockFeed {
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
+    if (this.authoritativeQuotes && ch.startsWith("candles:")) void this.pullServerCandle(ch);
     if (this.authoritativeQuotes && ch.startsWith("ticker:")) void this.pullServerQuotes();
     if (this.authoritativeQuotes && ch === "me") void this.pullLedger();
     for (const s of this.subs) {
@@ -660,10 +670,67 @@ export class MockFeed {
     this.emitTick();
     // First publication is a snap. emitTick only reaches subscribers that already have one.
     for (const sub of this.subs) {
-      if (this.isQuoteChannel(sub.ch) && sub.sent === null) this.sendSnap(sub);
+      if (this.isQuoteChannel(sub.ch) && sub.sent === null && this.quoteReady(sub.ch)) this.sendSnap(sub);
       if (sub.ch === "me" && sub.sent === null && this.meReady()) this.sendSnap(sub);
     }
+    // M1-07: each server read also refreshes the live bar of every open candles channel.
+    for (const ch of new Set([...this.subs].map((x) => x.ch).filter((c) => c.startsWith("candles:")))) void this.pullServerCandle(ch);
     return true;
+  }
+
+  /** A quote channel may publish: server marks adopted, and for candles a server bar received. */
+  private quoteReady(ch: string): boolean {
+    if (!this.authoritativeQuotes) return true;
+    return this.quotesAdopted && (!ch.startsWith("candles:") || this.serverCandles.has(ch));
+  }
+
+  /** Signed-in: the server's bar at the adopted tick for one candles channel; publishes it (snap or delta). A failed or
+   *  malformed read keeps the last bar (a long outage reads as stale through the quote watchdog). */
+  private async pullServerCandle(ch: string): Promise<void> {
+    if (!this.authoritativeQuotes || !this.quotesAdopted || this.candlePulls.has(ch)) return;
+    const [, assetId, res] = ch.split(":") as [string, string, CandleRes];
+    if (!ASSET_BY_ID[assetId] || (res !== "tick" && res !== "hour" && res !== "day")) return;
+    const span = res === "tick" ? 1 : res === "hour" ? 30 : 720;
+    const t = this.tick - (this.tick % span);
+    const held = this.serverCandles.get(ch);
+    // A bar that closed since the last pull is read once more (a fill in its last second still counts) before the
+    // next bar replaces it; only when it is a few bars back, so the request stays bounded.
+    const from = held && held.t < t && t - held.t <= span * 4 ? held.t : t;
+    this.candlePulls.add(ch);
+    try {
+      const raw: unknown = await this.serverCandleHistory({ assetId, res, from, to: t });
+      const list = raw && typeof raw === "object" ? (raw as { bars?: unknown }).bars : null;
+      const bars: unknown[] = Array.isArray(list) ? list : [];
+      const newest = bars[bars.length - 1];
+      if (!isCandle(newest) || newest.t !== t) return;
+      const prev = this.serverCandles.get(ch);
+      if (prev && prev.t > newest.t) return; // an older reply never replaces a newer bar
+      const closed = prev && prev.t < t ? bars.find((x): x is Candle => isCandle(x) && x.t === prev.t) : undefined;
+      // The closed bar's final values go out first; the new bar follows on the next pull (one frame each, so the chart
+      // sees both).
+      const bar = closed && !sameCandle(closed, prev!) ? closed : newest;
+      this.serverCandles.set(ch, bar);
+      for (const sub of this.subs) {
+        if (sub.ch !== ch) continue;
+        if (sub.sent === null) { if (!sub.snapTimer) this.sendSnap(sub); continue; }
+        const body = this.body(ch as ChannelName);
+        const ops = diffOps(sub.sent, body, RINGS);
+        if (ops.length === 0) continue;
+        sub.sent = body;
+        this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
+      }
+    } catch {
+      // keep the last bar
+    } finally {
+      this.candlePulls.delete(ch);
+    }
+  }
+
+  /** Signed-in history door: GET /api/market/candles (server quote OHLC + executed volume). Raw JSON: history.ts parses it. */
+  serverCandleHistory(req: CandleHistoryReq): Promise<unknown> {
+    const q = new URLSearchParams({ assetId: req.assetId, res: req.res, from: String(req.from), to: String(req.to) });
+    return fetch(`/api/market/candles?${q}`, { cache: "no-store", headers: { accept: "application/json" } })
+      .then((r) => (r.ok ? r.json() : null));
   }
 
   /** Signed-in `me` publishes only with a server ledger and server marks, never the constructor state. */
@@ -909,6 +976,18 @@ export function idempotencyKey(): string {
   const b = new Uint8Array(16);
   globalThis.crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+const DEC_RE = /^\d{1,15}(\.\d{1,8})?$/;
+/** A server bar's shape (history.ts re-parses every bar the chart plots). */
+function sameCandle(a: Candle, b: Candle): boolean {
+  return a.t === b.t && a.o === b.o && a.h === b.h && a.l === b.l && a.c === b.c && a.v === b.v;
+}
+function isCandle(v: unknown): v is Candle {
+  if (!v || typeof v !== "object") return false;
+  const c = v as Record<string, unknown>;
+  return Number.isSafeInteger(c.t) && (c.t as number) >= 0
+    && [c.o, c.h, c.l, c.c, c.v].every((x) => typeof x === "string" && DEC_RE.test(x));
 }
 
 /** Append-only rings (Q4): diffed to `ins` + `trim`. */
