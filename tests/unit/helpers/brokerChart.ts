@@ -81,9 +81,10 @@ export function brokerChartEnv(asset = "HALC") {
     recorder: () => getCandles(asMarket(env.market)),
     /** A late save landing now, recorded at its decision tick (what Broker onFills does after the commit). */
     late: (tick: number, qty: string, id: string) => env.recorder().recordFills([{ fillId: id, assetId: asset, tick, qty }]),
-    /** A new server process: new clock at the same tick, new recorder (new epoch, revision from 0). */
-    restart() {
-      env.market = new ControlledMarket(env.market.tick);
+    /** A new server process: new clock (`back` ticks earlier: the clock is process-local), new recorder (new epoch,
+     *  revision from 0). */
+    restart(back = 0) {
+      env.market = new ControlledMarket(env.market.tick - back);
       setLiveMarketForTests(asMarket(env.market));
       setBrokerForTests(undefined);
       env.recorder();

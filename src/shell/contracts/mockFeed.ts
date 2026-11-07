@@ -707,7 +707,10 @@ export class MockFeed {
       const bar = Array.isArray(list) ? list[list.length - 1] : undefined;
       if (!isCandle(bar) || bar.t !== t) return;
       const prev = this.serverCandles.get(ch);
-      if (prev && prev.t > bar.t) return; // an older reply never replaces a newer bar
+      const sameHistory = (reply.rev ?? "").split(".")[0] === (this.serverRevs.get(ch) ?? "").split(".")[0];
+      // Within one server history an older reply never replaces a newer bar; a restarted server (new epoch) starts its
+      // own clock and history, possibly at an earlier tick, and replaces the old one.
+      if (prev && prev.t > bar.t && sameHistory) return;
       if (reply.rev !== null) this.serverRevs.set(ch, reply.rev);
       this.serverCandles.set(ch, bar);
       for (const sub of this.subs) {
