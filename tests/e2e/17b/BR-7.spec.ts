@@ -25,6 +25,8 @@ async function shot(page: Page, state: string, lang = "en") {
   await page.screenshot({ path: `${SHOTS}/${state}${lang === "en" ? "" : `-${lang}`}-${vp.width}x${vp.height}.png` });
 }
 const TICK_MS = 5_000;
+/** M1-07: the box holds the OHLCV legend's two reserved lines (32 px at text scale 1) above the 200 / 240 px plot. */
+const LEGEND_H = 32;
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const br = (page: Page) => page.locator('[data-testid="broker"]:has([data-testid="br-ticker"]), [data-testid="broker"]:has([data-testid="br-asset-select"] option:checked[value="HALC"])').first();
 const chart = (page: Page) => br(page).getByTestId("br-chart");
@@ -305,7 +307,7 @@ test("BR-7-11 ?feed=loading: the skeleton at chart height, busy", async ({ page 
   const sk = page.getByTestId("br-chart-loading").first();
   await expect(sk).toBeVisible();
   await expect(sk).toHaveAttribute("aria-busy", "true");
-  expect((await page.getByTestId("br-chart-box").first().boundingBox())!.height).toBe(240);
+  expect((await page.getByTestId("br-chart-box").first().boundingBox())!.height).toBe(240 + LEGEND_H);
   await shot(page, "loading");
 });
 for (const mode of ["denied", "error"] as const) {
@@ -343,7 +345,7 @@ test("BR-7-11 ?empty=1: 'No price history yet.' muted, the box keeps its height"
   const msg = chart(page).getByTestId("br-chart-empty");
   await expect(msg).toHaveText("No price history yet.");
   expect(await msg.evaluate((e) => getComputedStyle(e).color)).toBe(await color(page, "var(--fg-muted)"));
-  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240);
+  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240 + LEGEND_H);
 });
 test("BR-7-11 ?feed=stale: the last plot stays, dimmed, with one 'Updating…'", async ({ page }, info) => {
   desktopOnly(info.project.name);
@@ -365,7 +367,8 @@ test("BR-7-12 1440x900: chart in br-col-head above holdings, 240 px, tabs >= 28 
   await expect(head.getByTestId("br-chart")).toHaveCount(1);
   const [c, hold] = await Promise.all([chart(page).boundingBox(), head.getByTestId("br-hold").boundingBox()]);
   expect(c!.y + c!.height).toBeLessThanOrEqual(hold!.y);
-  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240);
+  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240 + LEGEND_H);
+  expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(240);
   expect(await hits(chart(page), 28)).toEqual([]);
   const ys = new Set(await chart(page).getByTestId("br-chart-ranges").locator("button").evaluateAll((bs) => bs.map((b) => b.getBoundingClientRect().y)));
   expect(ys.size).toBe(1);
@@ -388,11 +391,14 @@ test("BR-7-12 520 window: chart above the ticket, 200 px, no overflow", async ({
   const win = await resizeWindow(page);
   expect((await win.boundingBox())!.width).toBe(520);
   await page.clock.runFor(200);
-  await expect.poll(async () => (await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200);
+  await expect.poll(async () => (await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200 + LEGEND_H);
+  expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(200);
   const [c, ticket] = await Promise.all([chart(page).boundingBox(), br(page).locator(".br-col-ticket").boundingBox()]);
   expect(c!.y + c!.height).toBeLessThanOrEqual(ticket!.y);
   expect(await hits(chart(page), 28)).toEqual([]);
   expect(await overflow(br(page))).toEqual([]);
+  const [lg, pl] = await Promise.all([chart(page).getByTestId("br-chart-legend").boundingBox(), chart(page).getByTestId("br-chart-canvas").boundingBox()]);
+  expect(lg!.y + lg!.height).toBeLessThanOrEqual(pl!.y + 0.5); // M1-07: legend above the plot, not over the candles
   await shot(page, "1d-window-520");
 });
 
@@ -409,7 +415,9 @@ for (const scale of ["1", "2"] as const) {
     const now = await page.evaluate(() => Date.now());
     await page.clock.pauseAt(new Date(now + 1_000));
     await plotted(page);
-    expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200);
+    // The legend's reserved lines scale with the text; at 2.0 it may wrap to a third line, taken from the plot.
+    expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200 + LEGEND_H * Number(scale));
+    expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBeGreaterThanOrEqual(scale === "1" ? 200 : 200 - 16 * Number(scale));
     expect(await hits(chart(page), 44)).toEqual([]);
     const ys = [...new Set(await chart(page).getByTestId("br-chart-ranges").locator("button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().y))))];
     expect(ys.length).toBe(scale === "2" ? 2 : 1);
@@ -418,6 +426,10 @@ for (const scale of ["1", "2"] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     };
     await fits();
+    // M1-07: the OHLCV legend is above the plot, never over the candles, and not clipped at this text scale.
+    const [lg, pl] = await Promise.all([chart(page).getByTestId("br-chart-legend").boundingBox(), chart(page).getByTestId("br-chart-canvas").boundingBox()]);
+    expect(lg!.y + lg!.height).toBeLessThanOrEqual(pl!.y + 0.5);
+    expect(await chart(page).getByTestId("br-chart-legend").evaluate((e) => e.scrollHeight <= e.clientHeight + 1)).toBe(true);
     const [c, ticket] = await Promise.all([chart(page).boundingBox(), br(page).locator(".br-col-ticket").boundingBox()]);
     expect(c!.y + c!.height).toBeLessThanOrEqual(ticket!.y);
     await chart(page).scrollIntoViewIfNeeded();

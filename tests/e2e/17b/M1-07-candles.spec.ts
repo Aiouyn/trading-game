@@ -52,6 +52,34 @@ function wellFormed(pts: Pt[]) {
   }
 }
 
+/** The OHLCV legend sits above the plot (never over a candle) and inside the chart box, not clipped. */
+async function legendClear(page: Page) {
+  const c = chart(page);
+  const [l, p, b] = await Promise.all([c.getByTestId("br-chart-legend").boundingBox(), c.getByTestId("br-chart-canvas").boundingBox(), c.getByTestId("br-chart-box").boundingBox()]);
+  expect(l!.y + l!.height).toBeLessThanOrEqual(p!.y + 0.5);
+  expect(l!.y).toBeGreaterThanOrEqual(b!.y - 0.5);
+  expect(p!.height).toBeGreaterThanOrEqual(200); // the legend never takes plot height at text scale 1
+  expect(await c.getByTestId("br-chart-legend").evaluate((e) => e.scrollHeight <= e.clientHeight + 1 && e.scrollWidth <= e.clientWidth + 1)).toBe(true);
+}
+/** Table at this width: if it is wider than its region, a real (space-taking) scrollbar shows and Volume scrolls into view. */
+async function volumeReachable(page: Page) {
+  const region = chart(page).getByTestId("br-chart-table");
+  const m = await region.evaluate((e) => ({ sw: e.scrollWidth, cw: e.clientWidth, bar: (e as HTMLElement).offsetHeight - e.clientHeight - 2 }));
+  test.info().annotations.push({ type: "table-width", description: JSON.stringify(m) });
+  const vol = region.locator("thead th").last();
+  await expect(vol).toHaveText("Volume");
+  if (m.sw > m.cw) {
+    await region.focus();
+    for (let i = 0; i < 12; i++) await page.keyboard.press("ArrowRight"); // keyboard scroll in the focusable region
+  }
+  // Keyboard scrolling may animate (smooth scroll): wait until Volume is fully inside the region.
+  await expect.poll(async () => {
+    const [r, v] = await Promise.all([region.boundingBox(), vol.boundingBox()]);
+    return v!.x >= r!.x - 0.5 && v!.x + v!.width <= r!.x + r!.width + 0.5;
+  }, { message: "Volume header reachable by keyboard scroll", timeout: 5_000 }).toBe(true);
+  return m;
+}
+
 async function buy(page: Page, qty: string) {
   const b = br(page);
   await b.getByTestId("br-side-buy").click();
@@ -86,6 +114,7 @@ test("signed-in candles = server quotes, volume = executed trades once; legend, 
     expect(pts[0]!.time).toBe(srv[0]!.t * 120);
     expect(pts.length).toBeLessThanOrEqual(srv.length + 1);
     wellFormed(pts);
+    await legendClear(page);
     if (srv[0]!.t > Math.max(0, t - 719)) await expect(chart(page).getByTestId("br-chart-source")).toContainText("recorded since");
     await shot(page, "m107-01-signed-in-candles");
 
@@ -123,6 +152,9 @@ test("signed-in candles = server quotes, volume = executed trades once; legend, 
     const row = chart(page).getByTestId("br-chart-table").locator(`tr[data-t="${fill.tick}"]`);
     await expect(row.locator('[data-col="volume"]')).toHaveText("7");
     await shot(page, "m107-03-table");
+    await volumeReachable(page);
+    await shot(page, "m107-03b-table-scrolled");
+    await chart(page).getByTestId("br-chart-toggle").focus();
     await page.keyboard.press("Enter"); // back to the chart (toggle still focused)
     await expect(chart(page).getByTestId("br-chart-table")).toHaveCount(0);
 
@@ -134,10 +166,11 @@ test("signed-in candles = server quotes, volume = executed trades once; legend, 
     await page.mouse.move(50, handle.y + 5, { steps: 5 });
     await page.mouse.up();
     expect((await win.boundingBox())!.width).toBe(520);
-    await expect.poll(async () => (await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200);
+    await expect.poll(async () => (await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(200); // plot; legend above it
     const narrow = await canvas.evaluate((el) => [...el.querySelectorAll("canvas")].map((c) => c.getBoundingClientRect().width).filter((w) => w > 0));
     expect(narrow.length).toBeGreaterThan(1); // pane + price axis (+ time axis) canvases
     expect(Math.max(...narrow)).toBeLessThan(520);
+    await legendClear(page);
     await shot(page, "m107-04-window-520");
 
     // History read fails (live bar still fine): an error with Retry, never a demo plot; Retry recovers.
@@ -186,13 +219,15 @@ test("phone 390, reduced motion: signed-in candles fit, no animation, table reac
     await expect(br(page)).toHaveAttribute("data-state", "live", { timeout: 25_000 });
     await plotted(page, "server");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-    expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200);
+    expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(200); // plot; legend above it
+    await legendClear(page);
     expect(await chart(page).evaluate((el) => document.getAnimations().filter((a) => el.contains((a.effect as KeyframeEffect | null)?.target ?? null)).length)).toBe(0);
     await chart(page).scrollIntoViewIfNeeded();
     await shot(page, "m107-07-phone-390");
     await chart(page).getByTestId("br-chart-toggle").tap();
     await expect(chart(page).getByTestId("br-chart-table")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await volumeReachable(page);
     await shot(page, "m107-08-phone-table");
   } finally {
     await ctx.close();

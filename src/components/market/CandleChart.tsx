@@ -328,24 +328,25 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
 
   const shownBar = bars[cursor.index ?? hover ?? bars.length - 1] ?? bars[bars.length - 1];
   return (
-    <div className={halted ? "cc halted" : "cc"} ref={hostRef} data-testid="br-chart-plot">
-      {shownBar && (
-        <p className="cc-legend num" data-testid="br-chart-legend" data-t={shownBar.t} aria-hidden="true">
-          <span className="cc-legend-time">{barTime(shownBar.t, locale, t)}</span>
-          {(["o", "h", "l", "c", "v"] as const).map((k) => (
-            <span key={k} data-k={k}><span className="cc-legend-k">{t.legend[k]}</span> {decText(shownBar[k], locale)}</span>
-          ))}
-        </p>
-      )}
-      <div className="cc-plot" ref={plotRef} role="img" aria-label={label} tabIndex={0} onKeyDown={onKey}
-        onBlur={() => setCursor((c) => (c.index === null ? c : { ...c, index: null }))} data-testid="br-chart-canvas" />
-      {halted && (
-        <>
-          <div className="cc-band" ref={bandRef} data-testid="br-chart-halt" aria-hidden="true" />
-          <span className="cc-halted" data-testid="br-chart-halted">{t.halted}</span>
-        </>
-      )}
-      {last !== null && <span className="cc-tag num" ref={tagRef} data-testid="br-chart-tag" aria-hidden="true">{decText(last, locale)}</span>}
+    <div className="cc" ref={hostRef} data-testid="br-chart-plot">
+      {/* Always laid out (two lines reserved), so the plot below never resizes when the bars arrive. */}
+      <p className="cc-legend num" data-testid="br-chart-legend" data-t={shownBar?.t} aria-hidden="true">
+        {shownBar && <span className="cc-legend-time">{barTime(shownBar.t, locale, t)}</span>}
+        {shownBar && (["o", "h", "l", "c", "v"] as const).map((k) => (
+          <span key={k} data-k={k}><span className="cc-legend-k">{t.legend[k]}</span> {decText(shownBar[k], locale)}</span>
+        ))}
+      </p>
+      <div className="cc-stage">
+        <div className="cc-plot" ref={plotRef} role="img" aria-label={label} tabIndex={0} onKeyDown={onKey}
+          onBlur={() => setCursor((c) => (c.index === null ? c : { ...c, index: null }))} data-testid="br-chart-canvas" />
+        {halted && (
+          <>
+            <div className="cc-band" ref={bandRef} data-testid="br-chart-halt" aria-hidden="true" />
+            <span className="cc-halted" data-testid="br-chart-halted">{t.halted}</span>
+          </>
+        )}
+        {last !== null && <span className="cc-tag num" ref={tagRef} data-testid="br-chart-tag" aria-hidden="true">{decText(last, locale)}</span>}
+      </div>
       <p className="sr-only" aria-live="polite" data-testid="br-chart-live">{announce}</p>
     </div>
   );

@@ -14,7 +14,7 @@
   .br:not(.br-phone) .br-grid { grid-template-columns: minmax(0, 1fr) 400px; }
   /* openOrders.css places the areas: ticket spans both rows, row 1 grows. */
   .br[data-view="trade"]:not(.br-phone) .br-col-head .br-head, .br[data-view="trade"]:not(.br-phone) .br-col-head .br-chart { flex: 1; }
-  .br[data-view="trade"]:not(.br-phone) .br-col-head .br-chart-box { flex: 1; height: auto; min-height: 240px; }
+  .br[data-view="trade"]:not(.br-phone) .br-col-head .br-chart-box { flex: 1; height: auto; min-height: calc(240px + var(--cc-legend-h)); }
   .br:not(.br-phone)[data-view="trade"] .br-col-ticket { position: relative; }
   .br:not(.br-phone)[data-view="trade"] .br-col-ticket::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--sp-16) / -2); border-left: 1px solid var(--line); }
   .br:not(.br-phone) .br-col-orders { position: relative; }
@@ -90,8 +90,12 @@
 .br-chart { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
 .br-chart-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-8); }
 .br-chart-title { margin: 0; font-size: var(--fs-12_5); color: var(--fg-muted); font-weight: 500; }
-.br-chart-box { position: relative; height: 200px; min-width: 0; border-radius: var(--r-input); overflow: hidden; }
-@container (min-width: 640px) { .br:not(.br-phone) .br-chart-box { height: 240px; } }
+.br-chart-box {
+  /* M1-07: the plot keeps its 200 / 240 px; the OHLCV legend's two lines sit above it, inside the box (never over bars). */
+  --cc-legend-h: calc(32px * var(--text-scale));
+  position: relative; height: calc(200px + var(--cc-legend-h)); min-width: 0; border-radius: var(--r-input); overflow: hidden;
+}
+@container (min-width: 640px) { .br:not(.br-phone) .br-chart-box { height: calc(240px + var(--cc-legend-h)); } }
 /* (>= 760 px: the box grows with the window from 240 px, above.) */
 .br-chart-box.stale { opacity: 0.6; }
 .br-chart-skel { position: absolute; inset: 0; }
