@@ -29,7 +29,7 @@ export class BrokerService {
     const market = this.deps.market();
     if (this.attached.has(market)) return;
     this.attached.add(market);
-    market.onStep(() => { void this.sweep().catch(() => undefined); });
+    market.onStep(() => { void this.sweep().catch((err: unknown) => { console.error("[broker] sweep failed", err); }); });
   }
 
   async read(session: AuthSessionView): Promise<BrokerLedgerView> {
