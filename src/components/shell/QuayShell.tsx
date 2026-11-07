@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { applyDeepLink, useBackStack } from "@/shell/back";
+import { useAuthSession } from "@/shell/authSession";
+import { isSignedIn } from "@/shell/authChrome";
 import { clockAt, mockChannels, mockLocale, phaseOverride, TICK_MS } from "@/shell/mockChannels";
+import { useChannel } from "@/shell/contracts/useChannel";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
 import { loadLocal, queueSave } from "@/shell/persist";
@@ -110,10 +113,10 @@ function Surface({ query }: { query: string }) {
   );
 }
 
-/** Mock clock channel: one delta per tick (5 s). The TickRing follows it; it never runs its own timer. Its own component,
- *  first child of the provider: effects run children-first, in order, so the clock is the page's first timer, before
+/** Guest mock clock: one local step per tick (5 s). The TickRing follows the channel; it never runs its own timer.
+ *  First child of the provider: effects run children-first, so this interval is the page's first timer, before
  *  the `me` feed the top bar subscribes (useNw) (17A T3-01 keys on that). */
-function ShellClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
+function GuestClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
   useEffect(() => {
     const pinned = phaseOverride(new URLSearchParams(query));
     const t = window.setInterval(() => {
@@ -124,6 +127,27 @@ function ShellClock({ store, query }: { store: ReturnType<typeof createShellStor
     return () => window.clearInterval(t);
   }, [store, query]);
   return null;
+}
+
+/** Signed-in clock: the shell day follows the server quote tick. No local interval, so a second account cannot drift. */
+function ServerClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
+  const ticker = useChannel("ticker:wl_default");
+  useEffect(() => {
+    if (ticker.tick === null) return;
+    const pinned = phaseOverride(new URLSearchParams(query));
+    const next = clockAt(ticker.tick);
+    const clock = pinned ? { ...next, phase: pinned } : next;
+    const c = store.getState().channels;
+    if (c.clock.tick === clock.tick && c.clock.phase === clock.phase && c.clock.gameDay === clock.gameDay && c.clock.tickOfDay === clock.tickOfDay) return;
+    store.getState().setChannels({ ...c, clock });
+  }, [ticker.tick, store, query]);
+  return null;
+}
+
+function ShellClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
+  const auth = useAuthSession();
+  if (isSignedIn(auth)) return <ServerClock store={store} query={query} />;
+  return <GuestClock store={store} query={query} />;
 }
 
 let docStore: ReturnType<typeof createShellStore> | null = null;

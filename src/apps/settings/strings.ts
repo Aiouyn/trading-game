@@ -63,7 +63,7 @@ const EN = {
   accountPassword: "Password",
   accountWorld: (worldId: string) => `World: ${worldId}`,
   accountStarterLabel: "Saved balance",
-  accountDisclaimer: "Account, cash, and position quantities are saved on the server. Broker trades and fills are still a demo and are not saved until live trading is wired (M1-06). Market demo ticks also reset.",
+  accountDisclaimer: "Account, cash, and position quantities are saved on the server. Broker trades and fills are still a demo and are not saved until live trading is wired (M1-06). Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
 };
 
 type Strings = typeof EN;
@@ -122,7 +122,7 @@ const FR: Strings = {
   accountPassword: "Mot de passe",
   accountWorld: (worldId: string) => `Monde : ${worldId}`,
   accountStarterLabel: "Solde enregistré",
-  accountDisclaimer: "Le compte, les liquidités et les quantités de positions sont enregistrés sur le serveur. Les échanges et exécutions Broker sont encore une démo et ne sont pas enregistrés tant que le trading live n’est pas branché (M1-06). Les ticks de marché démo se réinitialisent aussi.",
+  accountDisclaimer: "Le compte, les liquidités et les quantités de positions sont enregistrés sur le serveur. Les échanges et exécutions Broker sont encore une démo et ne sont pas enregistrés tant que le trading live n’est pas branché (M1-06). Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };

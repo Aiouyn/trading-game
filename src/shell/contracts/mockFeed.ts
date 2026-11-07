@@ -9,6 +9,7 @@ import type {
 } from "./channels";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
+import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
@@ -21,6 +22,9 @@ import type { OrderHistoryReq, OrderHistoryRes } from "./orderHistory";
 const MOCK_HOOKS = process.env.QUAY_HOOKS === "1";
 
 export const FEED_TICK_MS = 5000; // spec: 5,000 ms tick; tests use a fake clock at 1,000 ms
+/** Signed-in poll of GET /api/market. Faster than the price cadence so a reconnect catches the server tick
+ *  before the channel watchdog (2 ticks + slack) marks quotes stale. This interval does not advance prices. */
+export const SERVER_QUOTE_POLL_MS = 1000;
 export const SNAP_DELAY_MS = 40; // mock latency before the first snap (state `loading` until then)
 export const START_TICK = 38 * 720 + 340;
 export const TAPE_KEEP = 200; // keepLast 200 [P]
@@ -157,7 +161,12 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
   /** The ENGINE-TBD order rules (orderPolicy.ts). Tests pass another policy to prove the mock reads it. */
   policy?: OrderPolicy;
   /** The ENGINE-TBD order history rules (orderPolicy.ts, card 8). */
-  historyPolicy?: OrderHistoryPolicy }
+  historyPolicy?: OrderHistoryPolicy;
+  /**
+   * Signed-in Port Avalon (M1-05). start() polls GET /api/market instead of advance().
+   * The server clock owns the seed-17 path; this feed only adopts that snapshot.
+   */
+  authoritativeQuotes?: boolean }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
 type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string; held?: true /* ?cancelFill: its fill landed */ }
@@ -166,6 +175,10 @@ type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: 
 export class MockFeed {
   readonly scenario: Scenario;
   readonly tickMs: number;
+  /** True when prices are adopted from the server clock and advance() is a no-op. */
+  readonly authoritativeQuotes: boolean;
+  /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
+  private quotesAdopted = false;
   tick: number;
   private rand: () => number;
   private extraAssetRandom = new Map<string, () => number>();
@@ -198,6 +211,8 @@ export class MockFeed {
   private nextId = 1;
   private subs = new Set<Sub>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  private quoteSync: ReturnType<typeof setInterval> | null = null;
+  private quotePulling = false;
   private autoStart: boolean;
 
   constructor(scenario: Partial<Scenario> = {}, opts: FeedOptions = {}) {
@@ -207,6 +222,7 @@ export class MockFeed {
     this.autoStart = opts.autoStart ?? true;
     this.policy = opts.policy ?? ORDER_POLICY;
     this.historyPolicy = opts.historyPolicy ?? ORDER_HISTORY_POLICY;
+    this.authoritativeQuotes = opts.authoritativeQuotes === true;
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
       const prevClose = Math.round(a.base * (1 + (this.assetRandom(a.assetId)() - 0.5) * 0.02));
@@ -222,8 +238,15 @@ export class MockFeed {
   // ---- world ----
   private tradingState(id: string): TradingState { return this.scenario.halt === id ? "HALTED" : "CONTINUOUS"; }
 
-  /** Advance one tick: move prices, print the tape, settle intents from the previous tick, emit deltas. */
+  /** Tick of the last validated server book. Null while the constructor book is still unpublished. */
+  adoptedServerTick(): number | null {
+    return this.quotesAdopted ? this.tick : null;
+  }
+
+  /** Advance one tick: move prices, print the tape, settle intents from the previous tick, emit deltas.
+   *  Authoritative feeds ignore this so a browser cannot run a second market. */
   advance(): void {
+    if (this.authoritativeQuotes) return;
     this.tick += 1;
     for (const a of ASSETS) {
       const s = this.assets.get(a.assetId)!;
@@ -497,9 +520,16 @@ export class MockFeed {
     const sub: Sub = { ch, fn, seq: 0, sent: null, count: 0, snapTimer: null };
     if (MOCK_HOOKS && hook === "error") hookErrored?.add(sub);
     this.subs.add(sub);
-    if (this.autoStart) this.start();
+    if (this.autoStart) {
+      // Quote polling is for the shared book only. A `me` subscriber must not open /api/market.
+      if (this.authoritativeQuotes) { if (ch.startsWith("ticker:")) this.startQuoteSync(); }
+      else this.start();
+    }
     const mode = hook ?? this.scenario.feed;
-    if (mode !== "loading") sub.snapTimer = setTimeout(() => {
+    // Quote channels on a signed-in feed stay unpublished until /api/market validates.
+    // The constructor book is not a server tick. `me` and other private channels still snap.
+    const holdQuotes = this.authoritativeQuotes && this.isQuoteChannel(ch) && !this.quotesAdopted;
+    if (mode !== "loading" && !holdQuotes) sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
       if (mode === "error") return this.send(sub, { t: "err", ch, code: "INTERNAL" });
@@ -508,17 +538,25 @@ export class MockFeed {
     return () => {
       if (sub.snapTimer) clearTimeout(sub.snapTimer);
       this.subs.delete(sub);
+      if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:"))) {
+        if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
+      }
       if (this.subs.size === 0) this.stop();
     };
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
+    if (this.authoritativeQuotes && ch.startsWith("ticker:")) void this.pullServerQuotes();
     for (const s of this.subs) {
       if (s.ch !== ch) continue;
       if (MOCK_HOOKS && hookErrored?.delete(s)) this.sendSnap(s);
       else if (s.sent !== null) this.sendSnap(s);
     }
   }
+  private isQuoteChannel(ch: string): boolean {
+    return ch.startsWith("ticker:") || ch.startsWith("book:") || ch.startsWith("tape:") || ch.startsWith("candles:");
+  }
+
   private sendSnap(sub: Sub) {
     const body = this.body(sub.ch);
     sub.sent = body;
@@ -543,8 +581,78 @@ export class MockFeed {
     }
   }
 
-  start(): void { if (!this.timer) this.timer = setInterval(() => this.advance(), this.tickMs); }
-  stop(): void { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+  start(): void {
+    if (this.authoritativeQuotes) {
+      this.startQuoteSync();
+      return;
+    }
+    if (!this.timer) this.timer = setInterval(() => this.advance(), this.tickMs);
+  }
+  stop(): void {
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
+  }
+
+  /**
+   * Replace marks with one server snapshot. Does not draw the price RNG.
+   * A newer tick settles session-local demo intents once. Those fills stay in this feed; nothing here writes the auth ledger.
+   * The same tick re-emits so the channel watchdog stays live between price steps.
+   */
+  adoptAuthoritativeQuotes(raw: unknown): boolean {
+    const snap = parseMarketSnapshot(raw);
+    if (!snap) return false;
+    const next = new Map<string, { last: number; prevClose: number; dayVol: number }>();
+    for (const a of ASSETS) {
+      const row = snap.quotes.rows[a.assetId];
+      if (!row || row.chg === null) return false;
+      const last = parseMinor(row.last, a.displayDecimals);
+      const chg = parseMinor(row.chg, a.displayDecimals);
+      if (last === null || chg === null || last <= 0) return false;
+      const prevClose = last - chg;
+      if (prevClose <= 0) return false;
+      const dayVol = Number(row.vol);
+      if (!Number.isSafeInteger(dayVol) || dayVol < 0) return false;
+      next.set(a.assetId, { last, prevClose, dayVol });
+    }
+    const prevTick = this.tick;
+    for (const [id, n] of next) {
+      const s = this.assets.get(id)!;
+      s.dir = n.last > s.last ? 1 : n.last < s.last ? -1 : 0;
+      s.last = n.last;
+      s.prevClose = n.prevClose;
+      s.dayVol = n.dayVol;
+    }
+    this.tick = snap.tick;
+    this.quotesAdopted = true;
+    if (snap.tick > prevTick) this.settle();
+    this.emitTick();
+    // First publication is a snap. emitTick only reaches subscribers that already have one.
+    for (const sub of this.subs) {
+      if (this.isQuoteChannel(sub.ch) && sub.sent === null) this.sendSnap(sub);
+    }
+    return true;
+  }
+
+  private startQuoteSync(): void {
+    if (this.quoteSync) return;
+    const pull = () => { void this.pullServerQuotes(); };
+    void pull();
+    this.quoteSync = setInterval(pull, SERVER_QUOTE_POLL_MS);
+  }
+
+  private async pullServerQuotes(): Promise<void> {
+    if (!this.authoritativeQuotes || this.quotePulling) return;
+    this.quotePulling = true;
+    try {
+      const res = await fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
+      if (!res.ok) return;
+      this.adoptAuthoritativeQuotes(await res.json());
+    } catch {
+      // Keep the last adopted snapshot. A long outage lets the channel watchdog mark quotes stale.
+    } finally {
+      this.quotePulling = false;
+    }
+  }
 
   // ---- req ops (19 Rule 3.8.5) and HTTP ----
   /** intent.preview: a fixed fee/impact table against the mock's committed state, never UI state (Q14). */
