@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyLayout, layoutFits, LAYOUTS } from "@/shell/layouts";
 import { LAYOUT_RECTS_1440 } from "./layoutRects";
 import type { WindowRect } from "@/shell/types";
-import { bringToFront, clampSize, closeWin, GUTTER, minSize, nextSnap, openApp, resizeWin, slotRect, SNAP_SLOTS, snapWin, viewportOf, workArea } from "@/shell/wm";
+import { bringToFront, clampSize, closeWin, EDGES, GUTTER, minSize, nextSnap, openApp, resizeEdgeRect, resizeEdgeWin, resizeWin, slotRect, SNAP_SLOTS, snapWin, TITLE_KEEP, viewportOf, workArea } from "@/shell/wm";
 import { workspacesFor } from "@/shell/store";
 import { RANKS } from "@/shell/registry";
 
@@ -159,7 +159,58 @@ describe("window list operations", () => {
     for (const r of w) expect(r.w).toBeLessThanOrEqual(small.w);
   });
   it("viewport breakpoints and focus-mode work area", () => {
-    expect([viewportOf(767), viewportOf(768), viewportOf(1199), viewportOf(1200)]).toEqual(["phone", "compact", "compact", "desktop"]);
+    // Owner ruling 2026-11-07: 1024 px is a desktop (free, resizable windows); compact is 768–1023.
+    expect([viewportOf(767), viewportOf(768), viewportOf(1023), viewportOf(1024), viewportOf(1200)]).toEqual(["phone", "compact", "compact", "desktop", "desktop"]);
     expect(workArea(1440, 900, true)).toEqual({ x: 8, y: 32, w: 1424, h: 860 });
+  });
+});
+
+describe("edge and corner resize (owner 2026-11-07; p10 resizeRect rule)", () => {
+  const a1024 = workArea(1024, 768);
+  const r0 = { x: 200, y: 120, w: 600, h: 450 };
+  it("each edge moves only its own side; corners move two", () => {
+    expect(resizeEdgeRect("broker", r0, "e", 50, 99, A)).toEqual({ ...r0, w: 650 });
+    expect(resizeEdgeRect("broker", r0, "s", 99, 40, A)).toEqual({ ...r0, h: 490 });
+    expect(resizeEdgeRect("broker", r0, "w", -50, 99, A)).toEqual({ ...r0, x: 150, w: 650 });
+    expect(resizeEdgeRect("broker", r0, "n", 99, -30, A)).toEqual({ ...r0, y: 90, h: 480 });
+    expect(resizeEdgeRect("broker", r0, "se", 10, 20, A)).toEqual({ ...r0, w: 610, h: 470 });
+    expect(resizeEdgeRect("broker", r0, "nw", -10, -20, A)).toEqual({ x: 190, y: 100, w: 610, h: 470 });
+    expect(resizeEdgeRect("broker", r0, "ne", 10, -20, A)).toEqual({ x: 200, y: 100, w: 610, h: 470 });
+    expect(resizeEdgeRect("broker", r0, "sw", -10, 20, A)).toEqual({ x: 190, y: 120, w: 610, h: 470 });
+  });
+  it("the app minimum wins, and the opposite edge stays put when the west or north edge hits it", () => {
+    const m = minSize("broker", A.w);
+    expect(resizeEdgeRect("broker", r0, "se", -900, -900, A)).toMatchObject({ x: 200, y: 120, w: m.w, h: m.h });
+    const w = resizeEdgeRect("broker", r0, "nw", 900, 900, A);
+    expect(w).toEqual({ x: r0.x + r0.w - m.w, y: r0.y + r0.h - m.h, w: m.w, h: m.h });
+  });
+  it("stays inside the work area: never above clampTop (title bar reachable), past the right, left or bottom edge", () => {
+    for (const a of [A, a1024]) {
+      for (const edge of EDGES) {
+        const r = resizeEdgeRect("wire", { x: 100, y: 100, w: 400, h: 300 }, edge, edge.includes("w") ? -5000 : 5000, edge.includes("n") ? -5000 : 5000, a);
+        expect(r.y, edge).toBeGreaterThanOrEqual(a.y);
+        expect(r.x, edge).toBeGreaterThanOrEqual(a.x);
+        expect(r.x + r.w, edge).toBeLessThanOrEqual(a.x + a.w);
+        expect(r.y + r.h, edge).toBeLessThanOrEqual(a.y + a.h);
+      }
+    }
+  });
+  it("a window hanging off the left keeps TITLE_KEEP px of title bar on screen when its east edge shrinks", () => {
+    const off = { x: 100 - 560, y: 100, w: 560, h: 420 };
+    const r = resizeEdgeRect("portfolio", off, "e", -400, 0, A);
+    expect(r.x + r.w).toBeGreaterThanOrEqual(TITLE_KEEP);
+    expect(r.x).toBe(off.x);
+  });
+  it("a minimum larger than the work area is capped to it (no window taller than the screen)", () => {
+    const tiny = workArea(1024, 480);
+    const r = resizeEdgeRect("broker", { x: tiny.x, y: tiny.y, w: 600, h: tiny.h }, "s", 0, 400, tiny);
+    expect(r.h).toBe(tiny.h);
+  });
+  it("the result is floating (snap null) and other windows are untouched", () => {
+    const w0: WindowRect = { app: "broker", instance: 1, x: 8, y: 50, w: 940, h: 806, snap: "L2/3", workspace: 1, collapsed: false };
+    const other: WindowRect = { ...w0, app: "wire", snap: "TR" };
+    const out = resizeEdgeWin([w0, other], w0, { x: w0.x, y: w0.y, w: w0.w, h: w0.h }, "e", -100, 0, A);
+    expect(out[0]).toMatchObject({ w: 840, snap: null });
+    expect(out[1]).toBe(other);
   });
 });
