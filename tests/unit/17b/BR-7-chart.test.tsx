@@ -31,6 +31,7 @@ const lib = vi.hoisted(() => {
     removePriceLine: () => calls.push({ op: "removeLine" }),
     priceToCoordinate: () => 50,
     options: () => opts.series,
+    attachPrimitive: () => {}, // the trend layer's redraw hook (real API; nothing to draw here)
   };
   const timeScale = {
     fitContent: () => calls.push({ op: "fit" }),

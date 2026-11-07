@@ -9,6 +9,8 @@
 //  - Time: the x axis is game time, not wall time. A tick is 2 game minutes, so t * 120 s puts the library's own day
 //    boundaries on game days (720 ticks = 86,400 s) and every label is formatted back from the tick with the shell's
 //    game clock (no Date, so no timezone).
+//  - Trend lines (TrendLayer) are drawn over the plot when PriceChart passes `draw`; a series primitive tells the layer
+//    each time the chart redraws, so the lines follow pan, zoom, resize and new bars in the same frame.
 //  - Colours are tokens read with getComputedStyle (chartTheme.ts) and re-read when the palette, hc, motion or text
 //    scale changes. The last-price tag and the halt band are DOM overlays moved with transforms (no layout shift).
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -25,6 +27,8 @@ import { clockStrings } from "@/shell/strings";
 import { barTime } from "./ChartTable";
 import { parseSrgb } from "./chartColor";
 import { THEME_ATTRS, readChartTheme, type ChartTheme } from "./chartTheme";
+import { TrendLayer, chartGeo } from "./TrendLayer";
+import type { TrendDraw } from "./trendlines";
 import "./candleChart.css";
 
 // Build-time gate, module-local (an imported const would ship the gated branch).
@@ -135,6 +139,8 @@ export interface CandleChartProps {
   readonly label: string;
   /** The library could not draw (e.g. a theme it cannot parse): the container shows its error state. */
   readonly onFail: () => void;
+  /** Trend lines (signed in or guest, once this device's copy is read); absent: no drawing layer. */
+  readonly draw?: TrendDraw;
 }
 
 interface Api { chart: IChartApi; series: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Histogram">; line: IPriceLine | null; theme: ChartTheme }
@@ -182,7 +188,7 @@ function seriesOptions(th: ChartTheme, precision: number) {
 const MAX_BAR_SPACING = 24;
 const VOLUME_OPTIONS = { priceScaleId: "vol", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false } as const;
 
-export function CandleChart({ bars, last, halted, t, locale, label, onFail }: CandleChartProps) {
+export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw }: CandleChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const tagRef = useRef<HTMLSpanElement>(null);
@@ -195,6 +201,12 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
   /** The bar the legend shows: the pointer's or keyboard's bar, else the newest. */
   const [hover, setHover] = useState<number | null>(null);
   const precision = decimalsOf(last ?? bars[bars.length - 1]?.c ?? "");
+  /** Called on every chart redraw (the trend layer re-maps its points). */
+  const [redraw] = useState(() => new Set<() => void>());
+  const geoOf = useCallback(() => {
+    const a = api.current;
+    return a ? chartGeo(a.chart, a.series, shown.current.map((b) => b.t)) : null;
+  }, []);
 
   /** Tag at the last price, band at the live edge: transforms only. */
   const place = useCallback(() => {
@@ -226,6 +238,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
       chart = createChart(plot, chartOptions(th, locale, precision, t));
       series = chart.addSeries(CandlestickSeries, seriesOptions(th, precision));
       volume = chart.addSeries(HistogramSeries, VOLUME_OPTIONS);
+      series.attachPrimitive({ updateAllViews: () => redraw.forEach((f) => f()) });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: VOLUME_TOP, bottom: 0 }, visible: false });
     } catch {
       onFail();
@@ -263,6 +276,8 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
         chart: () => chart.options(), series: () => series.options(), line: () => a.line?.options() ?? null,
         theme: () => th, visible: () => chart.timeScale().getVisibleLogicalRange(), data: () => series.data(),
         volume: () => volume.data(), volumeOptions: () => volume.options(),
+        // A tick and price in pane pixels by the library's own scales (the e2e checks a trend line against them).
+        coord: (tick: number, price: number) => ({ x: chart.timeScale().timeToCoordinate((tick * SECONDS_PER_TICK) as UTCTimestamp), y: series.priceToCoordinate(price) }),
       };
     }
     return () => {
@@ -357,7 +372,10 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
           <span key={k} data-k={k}><span className="cc-legend-k">{t.legend[k]}</span> {decText(shownBar[k], locale)}</span>
         ))}
       </p>
-      <div className="cc-stage">
+      <div className="cc-stage" onPointerDown={(e) => {
+        // A press anywhere on the plot but a line lets go of the selection (the press still pans the chart).
+        if (draw?.selected && !(e.target instanceof Element && e.target.closest(".cc-trend"))) draw.onSelect(null);
+      }}>
         <div className="cc-plot" ref={plotRef} role="img" aria-label={label} tabIndex={0} onKeyDown={onKey}
           onBlur={() => setCursor((c) => (c.index === null ? c : { ...c, index: null }))} data-testid="br-chart-canvas" />
         {halted && (
@@ -366,6 +384,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail }: Ca
             <span className="cc-halted" data-testid="br-chart-halted">{t.halted}</span>
           </>
         )}
+        {draw && <TrendLayer draw={draw} geoOf={geoOf} redraw={redraw} t={t} locale={locale} precision={precision} />}
         {last !== null && <span className="cc-tag num" ref={tagRef} data-testid="br-chart-tag" aria-hidden="true">{decText(last, locale)}</span>}
       </div>
       <p className="sr-only" aria-live="polite" data-testid="br-chart-live">{announce}</p>

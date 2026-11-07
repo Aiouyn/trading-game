@@ -13,9 +13,12 @@
 //  - States: no live candle or no reply yet -> skeleton; candles denied/error, a bad live candle or a failed reply
 //    -> "Couldn't load chart" + Retry (one new request); zero bars -> "No price history yet."; stale -> dimmed plot
 //    and card 4's "Updating…" (once: the frame's own line covers it when the ticker is stale too).
+//  - Trend lines: the player's own, per asset, on this device (trendlines.ts: the account's, or the guest's when
+//    signed out; none until the session and the device copy are read). The Trend line button picks the tool (Cancel
+//    or Esc drops it), a line is selected on the plot (Delete or the Delete line button removes it).
 //  - M1-07: signed-in bars are the server's recorded quote candles + executed volume (history.ts); a guest sees the mock's
 //    demo bars, labelled as such. History is keyed by the feed epoch, so an account switch never shows the other feed's bars.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { BrStrings } from "@/apps/broker/strings";
 import { decText } from "@/apps/portfolio/positions/format";
 import { Button } from "@/components/ui/Button";
@@ -23,8 +26,10 @@ import { parseRev, type CandleRev } from "@/shell/contracts/candleRev";
 import { CHART_RANGES, DEFAULT_RANGE, foldBars, isServerFeed, loadRange, mergeLive, parseBar, rangeRequests, resOf, type Bar, type ChartRange, type GameTick } from "@/shell/contracts/history";
 import type { AssetId } from "@/shell/contracts/orders";
 import { feedEpoch, getFeed, useChannel } from "@/shell/contracts/useChannel";
+import { useAuthSession } from "@/shell/authSession";
 import { ChartTable, barTime } from "./ChartTable";
 import type { CandleChartProps } from "./CandleChart";
+import { MAX_LINES, drawScope, setTrendlines, useTrendlines, type TrendDraw } from "./trendlines";
 
 type Hist =
   | { readonly status: "loading"; readonly key: string }
@@ -149,6 +154,46 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
   };
   const pick = (r: ChartRange) => { if (r !== range) { setRange(r); } };
 
+  // Trend lines. PriceChart is keyed by asset and the account boundary remounts it on sign-in / sign-out, so this state
+  // never outlives its asset or account.
+  const scope = drawScope(useAuthSession());
+  const lines = useTrendlines(scope, assetId);
+  const [placing, setPlacing] = useState<number | null>(null);
+  const sessions = useRef(0);
+  const [selected, setSelected] = useState<string | null>(null);
+  const canDraw = view === "plot" && !table && plot !== null && scope !== null && lines !== null;
+  const placingNow = canDraw ? placing : null;
+  const sel = canDraw && selected !== null && lines.some((l) => l.id === selected) ? selected : null;
+  const sectionRef = useRef<HTMLElement>(null);
+  const del = () => {
+    if (!sel || scope === null || lines === null) return;
+    setTrendlines(scope, assetId, lines.filter((l) => l.id !== sel));
+    setSelected(null);
+  };
+  const toggleTool = () => {
+    if (placingNow !== null) { setPlacing(null); return; }
+    setSelected(null);
+    sessions.current += 1;
+    setPlacing(sessions.current);
+  };
+  const draw: TrendDraw | undefined = canDraw ? {
+    lines, placing: placingNow, selected: sel,
+    onChange: (next) => setTrendlines(scope, assetId, next),
+    onSelect: setSelected,
+    onPlaced: () => setPlacing(null),
+  } : undefined;
+  const onKey = (e: KeyboardEvent<HTMLElement>) => {
+    if (!canDraw || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === "Escape" && (placingNow !== null || sel)) {
+      if (placingNow !== null) setPlacing(null); else setSelected(null);
+    } else if ((e.key === "Delete" || e.key === "Backspace") && sel && placingNow === null) {
+      del();
+      sectionRef.current?.querySelector<HTMLElement>('[data-testid="br-trend-tool"]')?.focus();
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   const titleId = useId();
   const first = bars?.[0];
   const newest = bars?.[bars.length - 1];
@@ -161,7 +206,7 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
   const source = server ? (since ? `${t.sourceServer} · ${since}` : t.sourceServer) : t.sourceDemo;
 
   return (
-    <section className="br-chart" data-testid="br-chart" data-state={view} data-range={range} data-chart="" aria-labelledby={titleId}>
+    <section ref={sectionRef} onKeyDown={onKey} className="br-chart" data-testid="br-chart" data-state={view} data-range={range} data-chart="" aria-labelledby={titleId}>
       <div className="br-chart-bar">
         <p className="br-chart-title" id={titleId}>{t.chartTitle}</p>
         <div className="br-seg br-chart-ranges" role="group" aria-label={t.rangeAria} data-testid="br-chart-ranges">
@@ -181,12 +226,24 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
         {view === "empty" && <p className="br-chart-msg muted" data-testid="br-chart-empty">{t.noHistory}</p>}
         {view === "plot" && bars && (table
           ? <ChartTable bars={bars} t={t} locale={locale} label={label} />
-          : Plot ? <Plot bars={bars} last={last} halted={halted} t={t} locale={locale} label={label} onFail={onPlotFail} /> : skeleton)}
+          : Plot ? <Plot bars={bars} last={last} halted={halted} t={t} locale={locale} label={label} onFail={onPlotFail} draw={draw} /> : skeleton)}
       </div>
       <div className={view === "plot" ? "br-chart-foot" : "br-chart-foot off"}>
-        <Button variant="ghost" size="sm" className="br-chart-toggle" data-testid="br-chart-toggle" onClick={() => setTable((v) => !v)}>
+        <Button variant="ghost" size="sm" className="br-chart-toggle" data-testid="br-chart-toggle" onClick={() => { setTable((v) => !v); setPlacing(null); }}>
           {table ? t.viewChart : t.viewTable}
         </Button>
+        {canDraw && (
+          <span className="br-chart-draw" role="group" aria-label={t.trendLayer} title={t.trendLocal}>
+            <Button variant="ghost" size="sm" className="br-chart-tool" data-testid="br-trend-tool" aria-pressed={placingNow !== null}
+              disabled={placingNow === null && lines.length >= MAX_LINES} onClick={toggleTool}>
+              {placingNow !== null ? t.trendCancel : t.trendTool}
+            </Button>
+            {sel && placingNow === null && (
+              <Button variant="ghost" size="sm" className="br-chart-tool" data-testid="br-trend-delete" onClick={del}>{t.trendDelete}</Button>
+            )}
+          </span>
+        )}
+        {placingNow !== null && <p className="br-chart-source muted" data-testid="br-trend-hint" role="status">{t.trendHint}</p>}
         {view === "plot" && <p className="br-chart-source muted" data-testid="br-chart-source" data-source={server ? "server" : "demo"}>{source}</p>}
         {stale && !frameStale && view === "plot" && <p className="br-updating muted" data-testid="br-chart-updating">{t.updating}</p>}
       </div>

@@ -121,6 +121,10 @@
 .br-chart-table td { font-family: var(--font-num); color: var(--fg); }
 .br-chart-toggle.btn { min-height: var(--hit-pointer); }
 .br-phone .br-chart-toggle.btn { min-height: var(--hit-touch); }
+/* Trend line tool and Delete line, next to the table toggle (same hit sizes). */
+.br-chart-draw { display: inline-flex; flex-wrap: wrap; gap: var(--sp-8); }
+.br-chart-tool.btn { min-height: var(--hit-pointer); }
+.br-phone .br-chart-tool.btn { min-height: var(--hit-touch); }
 html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { border-bottom-color: var(--fg-muted); }
 
 /* Phone: one column, 16 px padding, 44 px controls. */

@@ -26,6 +26,10 @@ export async function loadLocal(accountId: string): Promise<Partial<ShellLocalSt
 }
 
 export async function saveLocal(accountId: string, state: ShellLocalState): Promise<void> {
+  return put(localKey(accountId), state);
+}
+
+async function put(key: string, value: unknown): Promise<void> {
   if (typeof indexedDB === "undefined") return;
   const db = await open();
   // Resolve only once the transaction has committed, so a reload right after sees the write.
@@ -34,7 +38,7 @@ export async function saveLocal(accountId: string, state: ShellLocalState): Prom
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new DOMException("Transaction aborted", "AbortError"));
-    tx.objectStore(STORE).put(state, localKey(accountId));
+    tx.objectStore(STORE).put(value, key);
   });
 }
 
@@ -47,6 +51,23 @@ export function queueSave(accountId: string, state: ShellLocalState): Promise<vo
 export function flushLocal(): Promise<void> {
   return queue;
 }
+/** The account's Broker chart drawings on this device (`quay.<accountId>.drawings`; "guest" when signed out). Never
+ *  sent: another device or browser has its own. Unparsed here; the reader validates. */
+export const drawingsKey = (accountId: string) => `${localKey(accountId)}.drawings`;
+export async function loadDrawings(accountId: string): Promise<unknown> {
+  if (typeof indexedDB === "undefined") return null;
+  const db = await open();
+  return new Promise((resolve) => {
+    const req = db.transaction(STORE).objectStore(STORE).get(drawingsKey(accountId));
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => resolve(null);
+  });
+}
+export function queueDrawings(accountId: string, value: unknown): Promise<void> {
+  queue = queue.catch(() => {}).then(() => put(drawingsKey(accountId), value));
+  return queue;
+}
+
 if (typeof window !== "undefined") {
   (window as Window & { __quayFlush?: () => Promise<void> }).__quayFlush = flushLocal;
 }
