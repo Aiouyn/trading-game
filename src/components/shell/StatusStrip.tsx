@@ -46,7 +46,7 @@ export function StatusStrip() {
   if (focusMode) {
     return (
       <header className="strip strip-focus" data-testid="strip">
-        <span className="num clock">{clockText}</span>
+        <span className="num clock" data-tick={clock.tick}>{clockText}</span>
         <TickRing tick={clock.tick} />
         <HaltChip halted={sys.halted} />
         {nwChip}
@@ -66,7 +66,7 @@ export function StatusStrip() {
         <kbd>{S.ctrlK}</kbd>
       </button>
       <div className="strip-mid">
-        <span className="num clock" data-testid="clock">{clockText}</span>
+        <span className="num clock" data-testid="clock" data-tick={clock.tick}>{clockText}</span>
         <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} />
         <TickRing tick={clock.tick} />
       </div>

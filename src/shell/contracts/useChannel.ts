@@ -5,6 +5,7 @@
 import { useSyncExternalStore } from "react";
 import type { BodyOf, ChannelName, Tick } from "./channels";
 import { applyOps } from "./delta";
+import { PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 import { MockFeed, scenarioFromQuery } from "./mockFeed";
 import { bodySchema, parseFrame } from "./schema";
 
@@ -80,6 +81,18 @@ let feedGeneration = 0;
 export function getFeed(): FeedTransport {
   if (!defaultFeed) defaultFeed = new MockFeed(scenarioFromQuery(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)));
   return defaultFeed;
+}
+
+/**
+ * Server-owned Port Avalon quote provenance for the Broker header.
+ * Lives next to the feed so Broker source stays on the channel contract and does not import MockFeed.
+ * Guest clocks return null.
+ */
+export function authoritativeQuoteProvenance(tick: number | null): { worldId: string; tick: number } | null {
+  if (tick === null) return null;
+  const feed = getFeed();
+  if (!(feed instanceof MockFeed) || !feed.authoritativeQuotes) return null;
+  return { worldId: PORT_AVALON_WORLD_ID, tick };
 }
 
 /**
