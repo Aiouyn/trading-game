@@ -177,6 +177,8 @@ export class MockFeed {
   readonly tickMs: number;
   /** True when prices are adopted from the server clock and advance() is a no-op. */
   readonly authoritativeQuotes: boolean;
+  /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
+  private quotesAdopted = false;
   tick: number;
   private rand: () => number;
   private extraAssetRandom = new Map<string, () => number>();
@@ -235,6 +237,11 @@ export class MockFeed {
 
   // ---- world ----
   private tradingState(id: string): TradingState { return this.scenario.halt === id ? "HALTED" : "CONTINUOUS"; }
+
+  /** Tick of the last validated server book. Null while the constructor book is still unpublished. */
+  adoptedServerTick(): number | null {
+    return this.quotesAdopted ? this.tick : null;
+  }
 
   /** Advance one tick: move prices, print the tape, settle intents from the previous tick, emit deltas.
    *  Authoritative feeds ignore this so a browser cannot run a second market. */
@@ -519,7 +526,10 @@ export class MockFeed {
       else this.start();
     }
     const mode = hook ?? this.scenario.feed;
-    if (mode !== "loading") sub.snapTimer = setTimeout(() => {
+    // Quote channels on a signed-in feed stay unpublished until /api/market validates.
+    // The constructor book is not a server tick. `me` and other private channels still snap.
+    const holdQuotes = this.authoritativeQuotes && this.isQuoteChannel(ch) && !this.quotesAdopted;
+    if (mode !== "loading" && !holdQuotes) sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
       if (mode === "error") return this.send(sub, { t: "err", ch, code: "INTERNAL" });
@@ -543,6 +553,10 @@ export class MockFeed {
       else if (s.sent !== null) this.sendSnap(s);
     }
   }
+  private isQuoteChannel(ch: string): boolean {
+    return ch.startsWith("ticker:") || ch.startsWith("book:") || ch.startsWith("tape:") || ch.startsWith("candles:");
+  }
+
   private sendSnap(sub: Sub) {
     const body = this.body(sub.ch);
     sub.sent = body;
@@ -609,8 +623,13 @@ export class MockFeed {
       s.dayVol = n.dayVol;
     }
     this.tick = snap.tick;
+    this.quotesAdopted = true;
     if (snap.tick > prevTick) this.settle();
     this.emitTick();
+    // First publication is a snap. emitTick only reaches subscribers that already have one.
+    for (const sub of this.subs) {
+      if (this.isQuoteChannel(sub.ch) && sub.sent === null) this.sendSnap(sub);
+    }
     return true;
   }
 

@@ -86,12 +86,13 @@ export function getFeed(): FeedTransport {
 /**
  * Server-owned Port Avalon quote provenance for the Broker header.
  * Lives next to the feed so Broker source stays on the channel contract and does not import MockFeed.
- * Guest clocks return null.
+ * Guest clocks, and a signed-in feed that has not adopted `/api/market` yet, return null.
+ * The label is the adopted server tick only, never the constructor book.
  */
 export function authoritativeQuoteProvenance(tick: number | null): { worldId: string; tick: number } | null {
   if (tick === null) return null;
   const feed = getFeed();
-  if (!(feed instanceof MockFeed) || !feed.authoritativeQuotes) return null;
+  if (!(feed instanceof MockFeed) || feed.adoptedServerTick() !== tick) return null;
   return { worldId: PORT_AVALON_WORLD_ID, tick };
 }
 

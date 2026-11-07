@@ -16,7 +16,7 @@ import {
 import { getLiveMarket, LiveMarket, setLiveMarketForTests, shouldAutostartClock } from "@/server/market/clock";
 import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { FEED_TICK_MS, MockFeed, SERVER_QUOTE_POLL_MS, SNAP_DELAY_MS, START_TICK } from "@/shell/contracts/mockFeed";
-import { authoritativeQuoteProvenance, getFeed, setFeed } from "@/shell/contracts/useChannel";
+import { authoritativeQuoteProvenance, getFeed, openChannel, setFeed, staleAfterMs } from "@/shell/contracts/useChannel";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 import { createShellStore } from "@/shell/store";
 import { mockChannels } from "@/shell/mockChannels";
@@ -239,9 +239,94 @@ describe("M1-05 authoritative live ticks", () => {
     expect(feed.scenario.seed).toBe(PORT_AVALON_MARKET_SEED);
     expect(feed.scenario.empty).toBe(true);
     expect(authoritativeQuoteProvenance(null)).toBeNull();
-    expect(authoritativeQuoteProvenance(feed.tick)).toEqual({ worldId: PORT_AVALON_WORLD_ID, tick: feed.tick });
+    expect(feed.adoptedServerTick()).toBeNull();
+    expect(authoritativeQuoteProvenance(feed.tick)).toBeNull();
     setFeed(new MockFeed({ seed: PORT_AVALON_MARKET_SEED }, { autoStart: false }));
     expect(authoritativeQuoteProvenance(4)).toBeNull();
+  });
+
+  it("a guest feed still publishes its local book after the snap delay", async () => {
+    vi.useFakeTimers();
+    const feed = new MockFeed({ seed: PORT_AVALON_MARKET_SEED }, { autoStart: false });
+    setFeed(feed);
+    const frames: { t?: string; tick?: number }[] = [];
+    feed.subscribe("ticker:wl_default", (raw) => frames.push(raw as { t?: string; tick?: number }));
+    await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS - 1);
+    expect(frames).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(frames[0]).toMatchObject({ t: "snap", tick: START_TICK });
+    expect(authoritativeQuoteProvenance(START_TICK)).toBeNull();
+  });
+
+  it("a late or rejected first /api/market does not publish the constructor book as the server tick", async () => {
+    vi.useFakeTimers();
+    const market = new LiveMarket();
+    market.step();
+    const snap = market.snapshot();
+    expect(snap.tick).not.toBe(START_TICK);
+
+    type Pending = { resolve: (r: Response) => void; reject: (err: Error) => void };
+    const pending: Pending[] = [];
+    let failNext = false;
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve, reject) => {
+      if (failNext) {
+        failNext = false;
+        reject(new Error("market down"));
+        return;
+      }
+      pending.push({ resolve, reject });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const feed = new MockFeed({ empty: true, nw: "10000.00", seed: 1 }, { authoritativeQuotes: true });
+    setFeed(feed);
+    const localBook = JSON.stringify(feed.body("ticker:wl_default"));
+    const store = openChannel(feed, "ticker:wl_default");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 25);
+    expect(store.get().state).toBe("loading");
+    expect(store.get().body).toBeNull();
+    expect(store.get().tick).toBeNull();
+    expect(feed.adoptedServerTick()).toBeNull();
+    expect(authoritativeQuoteProvenance(START_TICK)).toBeNull();
+    expect(authoritativeQuoteProvenance(snap.tick)).toBeNull();
+    expect(JSON.stringify(feed.body("ticker:wl_default"))).toBe(localBook);
+
+    expect(pending).toHaveLength(1);
+    pending[0]!.reject(new Error("market down"));
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(SERVER_QUOTE_POLL_MS);
+    expect(store.get().state).toBe("loading");
+    expect(feed.adoptedServerTick()).toBeNull();
+    expect(JSON.stringify(feed.body("ticker:wl_default"))).toBe(localBook);
+
+    const retry = pending[pending.length - 1];
+    expect(retry).toBeTruthy();
+    expect(pending.length).toBeGreaterThan(1);
+    retry!.resolve(Response.json(snap));
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const live = store.get();
+    expect(live.state).toBe("live");
+    expect(live.tick).toBe(snap.tick);
+    expect(live.body).toEqual(snap.quotes);
+    expect(JSON.stringify(live.body)).not.toBe(localBook);
+    expect(feed.adoptedServerTick()).toBe(snap.tick);
+    expect(authoritativeQuoteProvenance(live.tick)).toEqual({ worldId: PORT_AVALON_WORLD_ID, tick: snap.tick });
+    expect(authoritativeQuoteProvenance(START_TICK)).toBeNull();
+
+    failNext = true;
+    await vi.advanceTimersByTimeAsync(SERVER_QUOTE_POLL_MS);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(store.get().state).toBe("live");
+    expect(store.get().body).toEqual(snap.quotes);
+    await vi.advanceTimersByTimeAsync(staleAfterMs(FEED_TICK_MS));
+    const stale = store.get();
+    expect(stale.state).toBe("stale");
+    expect(stale.tick).toBe(snap.tick);
+    expect(stale.body).toEqual(snap.quotes);
+    expect(authoritativeQuoteProvenance(snap.tick)).toEqual({ worldId: PORT_AVALON_WORLD_ID, tick: snap.tick });
+    store.close();
   });
 
   it("keeps the demo-trade disclosure and does not claim that refresh resets quotes", () => {

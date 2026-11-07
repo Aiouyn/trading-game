@@ -99,29 +99,23 @@ test("two accounts share server quotes across refresh and reconnect; cash stays 
     await pageA.goto("/broker");
     await pageB.goto("/broker");
 
-    const firstA = await uiQuotes(pageA);
-    const firstB = await uiQuotes(pageB);
-    const book = await market(a.request);
-    const bookB = await market(b.request);
-    expect(book).toEqual(bookB);
-    expect(book.worldId).toBe("world_port_avalon");
-    expect(book.marketSeed).toBe(17);
-    expect(book.tickMs).toBe(5000);
-    expect(Object.keys(book.quotes.rows)).toHaveLength(10);
-    expect(firstA.world).toBe("world_port_avalon");
-    expect(firstB).toEqual(firstA);
-    expect(firstA.tick).toBe(String(book.tick));
-    expect(firstA.clock).toBe(String(book.tick));
-    for (const [id, row] of Object.entries(book.quotes.rows)) {
-      expect(firstA.lasts[id]).toBe(row.last);
-    }
+    const metaA = await market(a.request);
+    const metaB = await market(b.request);
+    expect(metaA).toEqual(metaB);
+    expect(metaA.worldId).toBe("world_port_avalon");
+    expect(metaA.marketSeed).toBe(17);
+    expect(metaA.tickMs).toBe(5000);
+    expect(Object.keys(metaA.quotes.rows)).toHaveLength(10);
+    const first = await sameBook(pageA, pageB, a.request);
+    expect(first.world).toBe("world_port_avalon");
+    expect(Object.keys(first.lasts)).toHaveLength(10);
     await shot(pageA, "m1-05-a-broker");
     await shot(pageB, "m1-05-b-broker");
 
-    await expect.poll(async () => (await market(a.request)).tick, { timeout: 15_000, intervals: [250] }).toBeGreaterThan(book.tick);
+    await expect.poll(async () => (await market(a.request)).tick, { timeout: 15_000, intervals: [250] }).toBeGreaterThan(Number(first.tick));
     const mid = await sameBook(pageA, pageB, a.request);
-    expect(Number(mid.tick)).toBeGreaterThan(book.tick);
-    expect(mid.lasts).not.toEqual(firstA.lasts);
+    expect(Number(mid.tick)).toBeGreaterThan(Number(first.tick));
+    expect(mid.lasts).not.toEqual(first.lasts);
     await shot(pageA, "m1-05-a-after-tick");
 
     await pageA.reload();
@@ -157,5 +151,64 @@ test("two accounts share server quotes across refresh and reconnect; cash stays 
   } finally {
     await a.close();
     await b.close();
+  }
+});
+
+test("a held and failed first market read stays unlabeled, then matches the other account", async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name !== "desktop", "desktop quote proof; the phone shell uses the same feed");
+  test.setTimeout(90_000);
+  const stamp = Date.now().toString(36);
+  const ready = await browser.newContext();
+  const late = await browser.newContext();
+  try {
+    await register(ready.request, baseURL!, `Ready${stamp}`);
+    await register(late.request, baseURL!, `Late${stamp}`);
+    const pageB = await ready.newPage();
+    await pageB.goto("/broker");
+    const liveB = await uiQuotes(pageB);
+    const book = await market(ready.request);
+    expect(liveB.tick).toBe(String(book.tick));
+    expect(liveB.world).toBe("world_port_avalon");
+    for (const [id, row] of Object.entries(book.quotes.rows)) expect(liveB.lasts[id]).toBe(row.last);
+
+    const pageA = await late.newPage();
+    let hits = 0;
+    let releaseFirst: () => void = () => {};
+    const held = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let markFirst: () => void = () => {};
+    const firstSeen = new Promise<void>((resolve) => { markFirst = resolve; });
+    await pageA.route("**/api/market", async (route) => {
+      hits += 1;
+      if (hits === 1) {
+        markFirst();
+        await held;
+        await route.fulfill({ status: 503, contentType: "text/plain", body: "unavailable" });
+        return;
+      }
+      await route.continue();
+    });
+    await pageA.goto("/broker");
+    await firstSeen;
+    await pageA.waitForTimeout(80);
+    await expect(pageA.getByTestId("market-tick")).toHaveCount(0);
+    await expect(pageA.getByTestId("br-loading").first()).toBeVisible();
+    const during = await market(ready.request);
+    expect(during.worldId).toBe("world_port_avalon");
+    expect(during.tick).toBeGreaterThanOrEqual(book.tick);
+    await shot(pageA, "m1-05-delay-loading");
+    await shot(pageB, "m1-05-delay-other");
+
+    releaseFirst();
+    await expect.poll(async () => {
+      const tick = await pageA.getByTestId("market-tick").first().getAttribute("data-tick");
+      const serverTick = String((await market(ready.request)).tick);
+      return tick !== null && tick === serverTick;
+    }, { timeout: 12_000, intervals: [200] }).toBe(true);
+    const recovered = await sameBook(pageA, pageB, ready.request);
+    expect(Number(recovered.tick)).toBeGreaterThanOrEqual(book.tick);
+    await shot(pageA, "m1-05-delay-recovered");
+  } finally {
+    await ready.close();
+    await late.close();
   }
 });
