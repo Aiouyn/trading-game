@@ -133,9 +133,11 @@ quotes in `ticker:wl_default`, candles sampled from it (src/server/market/candle
 8. Restart: the save holds the graduation, the book and the positions; at start the server lists every graduated coin
    again before serving quotes. As for every asset in this base, a restart starts the clock's seeded path again
    (documented M1-05 rule), so the coin's price path restarts from its listing price.
-9. Limit orders: in this unit a listed coin takes market orders only (a limit is refused MKT_ORDER_TYPE_UNSUPPORTED before
-   anything is held): the resting-limit sweep would have to move the book inside the cross-ledger sweep commit, which is
-   the next step and is tracked, not faked.
+9. Limit orders: in this unit a listed coin takes market orders only. As built, a limit (or stop) on a listed coin is
+   refused MKT_MARKET_ONLY before anything is held, with its own copy ("Listed coins take market orders only." / FR); the
+   ticket's preview says the same and Review stays disabled. A market order the book cannot fill at all is refused
+   MKT_NO_LIQUIDITY ("The coin's book can't fill any of this order now."). The resting-limit sweep would have to move the
+   book inside the cross-ledger sweep commit, which is the next step and is tracked, not faked.
 
 **Acceptance.**
 1. Threshold: the crossing buy is clipped and its review says so; status/progress are truthful before.
@@ -161,6 +163,19 @@ quotes in `ticker:wl_default`, candles sampled from it (src/server/market/candle
 **Not in this unit (tracked).** Limit orders on listed coins (book-bound sweep); the NPC cohort's unwind (L6.2; this base has
 no NPC cohort); the graduation Wire item and creator notice; vesting (L5.1, allocation 0); ecology/factor loadings (no such
 model here); death (L3); listing for the signed-out guest demo (guests run a local demo market).
+
+**As built (additions found by the plain journey, same unit).**
+- Candles from the listing tick: LiveMarket.onList runs after a new listing and the candle recorder samples the new asset
+  at that tick (only assets with no bars yet), so a Broker fill in the listing tick has its bar and its volume (before,
+  it was dropped until the next clock step). Unit: launchpad-graduation "Broker: market fills…" (bar at the listing tick,
+  v = 200,000,000); journey: 2 bars, volume 2,000,000 = the two Broker fills.
+- Crossing buyer's result: a selected coin that graduates stays selected, shown as its Graduated panel, and the crossing
+  buy's result ("…GULL graduated and is listed in the Broker. Your tokens are a Broker position now.") stays on screen
+  there (before, the curve panel unmounted on the reload and took the message with it). An open curve review of another
+  player gives way to the Graduated panel the same way (no Confirm on a graduated coin; the server refuses GRADUATED).
+- Wealth valuation: positions are valued through one value callback (src/market/valuation.ts centsOf, used by the
+  client feed and the board), price decimals converted to cents once.
+- Guest after sign-out: the guest demo refuses a dp-8 asset (MKT_UNKNOWN_ASSET); listing for guests stays out of scope.
 
 ### Signed-in server-sync loading boundary (same L4 unit, S1-20; recorded before code)
 
@@ -205,3 +220,21 @@ Tests that drive the signed-in feed synchronously (m1-05 adopt*, m1-06, m1-07, m
 the boundary where they used microtask flushes. New targeted tests: auth switch / logout during the load, failed import
 then retry, immediate Broker readiness (parallel first read), duplicate mount (one poller), guest (no chunk), offline
 order while the chunk cannot load.
+
+As built (head recorded in evidence/launchpad/README.md):
+- Boundary exactly as above: serverSync.ts holds the moved methods verbatim (feed members as `this.f.X`), type-only
+  imports of the feed, so the feed module is never shared with the lazy chunk. MockFeed.serverSync() imports it once per
+  feed; a rejected import clears the cached promise. `srv(step, failed, still)` runs a step only if `still()` when the
+  chunk arrives: `has(ch)` for `me`, `news` and candle subscriptions, `quoteSync !== null` for the poll. startQuoteSync
+  starts the first /api/market fetch before the chunk and hands that response to the first pullServerQuotes. The order
+  door's POST goes through the half; a failed load throws IntentNotSentOffline before anything is sent.
+- S1-20 measured once on the proposed boundary (hooks build, real module graph): 218644 ≤ 220160 (1516 under; base
+  e946ac83 is 220130, the previous head c5dac328 was 220472). The half is a lazy chunk not requested on /broker first
+  load (budget-l4/boundary/). The later Launchpad/candles commits do not touch Broker first load; the final head's S1-20
+  e2e is in evidence/launchpad/e2e-hooks-<head>/.
+- Tests: tests/unit/shell/server-sync-boundary.test.ts (guest loads nothing; first read before the chunk and reused;
+  duplicate mount = one poller; swap during the load runs nothing; failed import then Retry; order with an unloadable
+  half is not sent; known offline still sends nothing). Mutations checked: removing the still-check, keeping a failed
+  import, or not reusing the first read each fail a test. Existing tests that stepped a fake clock past the signed-in
+  half now evaluate serverSync up front (m2-03, the Broker chart helper) or await it (m1-05); no assertion changed.
+
