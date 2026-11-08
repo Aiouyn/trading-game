@@ -140,20 +140,20 @@ test("Glyph colours: muted, white when active, disabled when locked; never brass
   for (const v of [c.tile, c.on, c.wsColor, c.wsBorder, c.winBorder, c.winGlyph, c.before]) expect(v).not.toBe(c.acc);
 });
 
-// Observable behaviour only, so it holds for the stub and for the real renderer (PR #4). The seam calls
-// (cityId, setVisibility on collapse / workspace switch, setReducedMotion, unmount + dispose on close,
-// ui.perf via onPerfSample) are asserted in tests/unit/shell/cityWindow.test.ts.
-test("City seam: the City window mounts a canvas with no error state, and closing removes it", async ({ page }) => {
+// M1-10: the City window is the static, read-only district view (no city data is published in V1, so the shell no
+// longer mounts the 3D renderer seam; CityWindow's seam calls stay asserted in tests/unit/shell/cityWindow.test.ts, the
+// renderer itself in the vite harness, tests/e2e/city). Observable: it opens its body with no error state and no canvas, and closing removes it.
+test("City: the City window opens the read-only district view with no error state or canvas, and closing removes it", async ({ page }) => {
   await boot(page, "/city?rank=R2");
   const win = page.getByTestId("win-city");
-  await expect(win.getByTestId("city-mount").locator("canvas")).toHaveCount(1, { timeout: 20_000 });
-  await expect(win.getByTestId("city-body")).toHaveAttribute("data-visibility", "visible");
-  await expect(win.getByText("Loading city…")).toHaveCount(0);
+  await expect(win.getByTestId("city")).toBeVisible({ timeout: 20_000 });
+  await expect(win.getByTestId("dv-name")).toHaveText("Financial Mile");
+  await expect(win.getByTestId("dv-readonly")).toHaveText("Read-only view. Nothing here can be bought or changed.");
+  await expect(win.locator("canvas")).toHaveCount(0);
   await expect(page.getByTestId("load-message")).toHaveCount(0);
   await expect(page.getByRole("alert").filter({ hasText: /\S/ })).toHaveCount(0);
   await win.getByTestId("win-close").click();
   await expect(page.getByTestId("win-city")).toHaveCount(0);
-  await expect(page.locator("canvas")).toHaveCount(0);
 });
 
 test("S1-11 5th Broker and same-ticker deep link focus the existing window", async ({ page }) => {
@@ -333,7 +333,7 @@ test("S1-19 axe: zero serious violations at 1440 and 1000", async ({ page }) => 
   await expect(page.getByRole("dialog", { name: "Markets" })).toBeVisible();
 });
 
-test(`S1-20 City dynamic-imports @/city in its own chunk; Broker route has no three.js and ≤${FIRST_LOAD_BUDGET_KB} KB gz`, async ({ page, request }) => {
+test(`S1-20 City opens its own lazy chunk; Broker route has no three.js and ≤${FIRST_LOAD_BUDGET_KB} KB gz`, async ({ page, request }) => {
   const scripts = new Map<string, number>();
   page.on("response", (r) => {
     if (r.request().resourceType() === "script") scripts.set(r.url(), 0); // record synchronously; size comes from request.get below
@@ -366,10 +366,12 @@ test(`S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
   await page.getByTestId("tile-city").click();
   const first = await cityChunk;
   scripts.set(first.url(), 0);
-  await expect(page.getByTestId("city-mount")).toBeAttached();
+  await expect(page.getByTestId("city")).toBeAttached(); // M1-10: the static district view (was the renderer's city-mount)
   const cityChunks = [...scripts.keys()].filter((u) => !brokerChunks.includes(u));
   console.log(`S1-20 chunks loaded on opening City: ${cityChunks.join(", ")}`);
   expect(cityChunks.length).toBeGreaterThan(0);
+  // M1-10: the district view is static; opening City loads no three.js either.
+  for (const url of cityChunks) expect((await (await request.get(url)).body()).toString().includes("WebGLRenderer"), url).toBe(false);
 });
 
 test("S1-03 computed tokens per palette; DOM identical across palettes", async ({ page }) => {

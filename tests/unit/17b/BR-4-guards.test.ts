@@ -13,8 +13,8 @@ const code = readdirSync(DIR).filter((f) => /\.tsx?$/.test(f)).map((f) => ({ f, 
 const css = readFileSync(join(DIR, "broker.css"), "utf8");
 
 describe("BR-4-01 Broker is built", () => {
-  it("registry built list = boards, broker, portfolio, settings, wire", () => {
-    expect(REGISTRY.filter((a) => a.built).map((a) => a.id).sort()).toEqual(["boards", "broker", "portfolio", "settings", "wire"]);
+  it("registry built list = boards, broker, city, portfolio, settings, wire (M1-10 adds city)", () => {
+    expect(REGISTRY.filter((a) => a.built).map((a) => a.id).sort()).toEqual(["boards", "broker", "city", "portfolio", "settings", "wire"]);
   });
   it("its module is the lazy @/apps/broker/App chunk", async () => {
     expect(APP_MODULES.broker.kind).toBe("lazy");

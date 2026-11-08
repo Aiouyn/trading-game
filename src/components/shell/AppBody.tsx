@@ -1,6 +1,5 @@
 "use client";
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactElement } from "react";
-import { CityWindow } from "@/apps/city/CityWindow";
 import { SettingsApp } from "@/apps/settings/SettingsApp";
 import { WireLoading } from "@/apps/wire/Skeleton";
 import { APP_MODULES, isBuiltApp, isLazyApp, type AppBodyProps, type BuiltAppId, type EagerAppId, type LazyAppId } from "@/shell/appModules";
@@ -22,10 +21,9 @@ for (const id of Object.keys(APP_MODULES) as BuiltAppId[]) if (isLazyApp(id)) LA
 const APP_SKELETONS: Partial<Record<LazyAppId, ReactElement>> = { wire: <WireLoading /> };
 
 /** `context` is the window's (or phone app's) context: Broker reads it as the assetId (UI card 4). */
-export function AppBody({ app, state, context }: { app: AppId; state: BodyState; context?: string }) {
+export function AppBody({ app, context }: { app: AppId; state: BodyState; context?: string }) {
   const vis = useShell((s) => s.vis[app]);
   if (vis !== "unlocked") return <LockTile app={app} />;
-  if (app === "city") return <CityWindow state={state} />;
   if (!isBuiltApp(app)) return <ComingLater app={app} />; // built:false: no chunk, no fallback
   if (!isLazyApp(app)) {
     const Eager = EAGER_BODIES[app];

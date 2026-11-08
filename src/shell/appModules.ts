@@ -19,6 +19,7 @@ export const APP_MODULES = {
   portfolio: { kind: "lazy", load: () => import("@/apps/portfolio/App") },
   wire: { kind: "lazy", load: () => import("@/apps/wire/App") },
   boards: { kind: "lazy", load: () => import("@/apps/boards/App") }, // M2-03 net-worth leaderboard
+  city: { kind: "lazy", load: () => import("@/apps/city/DistrictView") }, // M1-10 static read-only district view
 } as const satisfies Partial<Record<AppId, LazyBody | EagerBody>>;
 
 type Modules = typeof APP_MODULES;

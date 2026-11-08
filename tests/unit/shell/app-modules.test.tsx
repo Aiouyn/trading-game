@@ -12,7 +12,6 @@ vi.mock("@/components/shell/ShellContext", async (importOriginal) => {
   const state = { ...createShellStore(defaultChannels()).getState(), vis: new Proxy({}, { get: () => "unlocked" }) };
   return { ...actual, useShell: <T,>(sel: (s: typeof state) => T): T => sel(state) };
 });
-vi.mock("@/apps/city/CityWindow", () => ({ CityWindow: () => null }));
 vi.mock("@/apps/settings/SettingsApp", () => ({ SettingsApp: () => createElement("div", { "data-testid": "settings" }) }));
 
 import { AppBody } from "@/components/shell/AppBody";
@@ -25,12 +24,12 @@ const html = (app: AppId) => renderToStaticMarkup(createElement(AppBody, { app, 
 describe("built apps: one source of truth (APP_MODULES)", () => {
   it("registry built === has an APP_MODULES entry, for all 32 apps", () => {
     for (const a of REGISTRY) expect([a.id, a.built]).toEqual([a.id, Object.hasOwn(APP_MODULES, a.id)]);
-    expect(Object.keys(APP_MODULES).sort()).toEqual(["boards", "broker", "portfolio", "settings", "wire"]);
+    expect(Object.keys(APP_MODULES).sort()).toEqual(["boards", "broker", "city", "portfolio", "settings", "wire"]);
   });
 
   it("type level: Broker is built by its lazy module (UI card 4, BRK-A); an id without a module fails typecheck", () => {
-    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire" | "boards">();
-    expectTypeOf<LazyAppId>().toEqualTypeOf<"broker" | "portfolio" | "wire" | "boards">();
+    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire" | "boards" | "city">();
+    expectTypeOf<LazyAppId>().toEqualTypeOf<"broker" | "portfolio" | "wire" | "boards" | "city">();
     expectTypeOf<EagerAppId>().toEqualTypeOf<"settings">();
   });
 
@@ -38,7 +37,7 @@ describe("built apps: one source of truth (APP_MODULES)", () => {
     expect(html(id)).not.toContain('data-testid="coming-later"');
   });
 
-  it.each(REGISTRY.filter((a) => !a.built && a.id !== "city").map((a) => a.id))("%s (built:false) renders ComingLater synchronously", (id) => {
+  it.each(REGISTRY.filter((a) => !a.built).map((a) => a.id))("%s (built:false) renders ComingLater synchronously", (id) => {
     const out = html(id);
     expect(out).toContain('data-testid="coming-later"');
     expect(out).not.toContain("aria-busy");
