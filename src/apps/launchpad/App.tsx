@@ -251,7 +251,8 @@ function TradeReview({ coin, side, self, q, amount, min, changed, busy, onBack, 
     <div className="lpad-panel" data-testid="lp-review-panel" data-mode={q.mode} tabIndex={-1} ref={ref} aria-label={buy ? LPS.reviewBuy : LPS.reviewSell}>
       <p className="lpad-sub" data-testid="lp-review-mode">{q.mode === "pool" ? LPS.modePool(POOL_FEE_TEXT) : LPS.modeCurve}</p>
       {changed && <p className="lpad-msg" data-kind="refused" role="alert" data-testid="lp-mode-changed">{LPS.modeChanged}</p>}
-      <dl className="lpad-dl">
+      {/* A review made in the other market mode: its numbers no longer apply, so none are shown; Confirm stays off. */}
+      {!changed && <dl className="lpad-dl">
         {buy ? <><dt>{LPS.youPay}</dt><dd className="num" data-testid="lp-pay">{usd(q.cents)}</dd><dt>{LPS.youGet}</dt><dd className="num" data-testid="lp-est">{`${qty(q.tokens)} ${coin.ticker}`}</dd></>
           : <><dt>{LPS.sell}</dt><dd className="num">{`${qty(q.tokens)} ${coin.ticker}`}</dd><dt>{LPS.youReceive}</dt><dd className="num" data-testid="lp-est">{usd(q.cents)}</dd></>}
         <dt>{q.mode === "pool" ? LPS.feePool : LPS.fee}</dt><dd className="num" data-testid="lp-fee">{usd(q.fee)}</dd>
@@ -259,8 +260,8 @@ function TradeReview({ coin, side, self, q, amount, min, changed, busy, onBack, 
         <dt>{LPS.impact}</dt><dd className="num" data-testid="lp-impact">{pct(impactBp(coin, q.after))}</dd>
         <dt>{LPS.minAccepted}</dt><dd className="num">{buy ? `${qty(min)} ${coin.ticker}` : usd(min)}</dd>
         <dt>{LPS.cashAfter}</dt><dd className="num" data-testid="lp-cash-after">{usd(self.cashCents + (buy ? -q.cents : q.cents))}</dd>
-      </dl>
-      {g && (
+      </dl>}
+      {g && !changed && (
         <div className="lpad-msg" data-testid="lp-review-graduates" role="note">
           <p>{LPS.clipped(qty(q.tokens), usd(q.cents), usd(amount))}</p>
           <p>{LPS.willGraduate(usd(g.raise), usd(g.fee), usd(g.pool.cash), qty(g.pool.tokens))}</p>
