@@ -28,3 +28,26 @@ p.lpad-sub { white-space: normal; overflow-wrap: anywhere; } /* paragraphs (fee,
 .lpad-tape { list-style: none; margin: 0; padding: 0; font-size: var(--fs-12_5); }
 .lpad-tape li { display: flex; justify-content: space-between; gap: var(--sp-8); padding: 2px 0; border-bottom: 1px solid var(--line); }
 .lpad-skel { height: 120px; border-radius: var(--r-input); background: var(--win2); }
+.lpad-hist { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.lpad-hist[data-stale="true"] .lpad-hist-grid { opacity: .55; }
+.lpad-hist-skel { height: 220px; }
+.lpad-hist-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-8); }
+.lpad-hist-plot { display: flex; flex-direction: column; gap: 4px; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-input); padding: 4px; }
+.lpad-hist-plot:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.lpad-hist-plot svg { display: block; width: 100%; }
+.lpad-hist-price { height: 140px; }
+.lpad-hist-vol { height: 56px; border-top: 1px solid var(--line); }
+.lpad-hist-line { fill: none; stroke: var(--steel, var(--fg)); stroke-width: 2; }
+.lpad-hist-cursor { stroke: var(--fg-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.lpad-hist-vol rect[data-side="buy"] { fill: var(--gain, var(--fg)); }
+.lpad-hist-vol rect[data-side="sell"] { fill: var(--loss, var(--fg-muted)); }
+.lpad-hist-vol rect:not(.on) { opacity: .6; }
+.lpad-hist-axis { display: grid; grid-template-rows: 1fr auto 1fr 1fr auto 1fr; font-size: var(--fs-12_5); color: var(--fg-muted); text-align: right; height: 212px; padding: 4px 0; }
+.lpad-hist-axis span:nth-child(1), .lpad-hist-axis span:nth-child(4) { align-self: start; }
+.lpad-hist-axis span:nth-child(3), .lpad-hist-axis span:nth-child(6) { align-self: end; }
+.lpad-hist-axname { color: var(--fg); }
+.lpad-hist-readout { min-height: 2.6em; }
+.lpad-hist-table { font-size: var(--fs-12_5); max-height: 260px; overflow: auto; }
+.lpad-hist-table table { border-collapse: collapse; width: 100%; }
+.lpad-hist-table th, .lpad-hist-table td { padding: 2px var(--sp-4); border-bottom: 1px solid var(--line); text-align: left; }
+.lpad-hist-table td.num { text-align: right; }

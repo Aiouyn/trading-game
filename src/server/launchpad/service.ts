@@ -7,7 +7,7 @@ import { reservedCashCents } from "@/server/broker/execution";
 import { ASSETS } from "@/market/catalog";
 import { LP, nameOk, quoteBuy, quoteSell, tickerOk, type TaglineId } from "@/launchpad/rules";
 import { moderateName, normalizeName } from "./moderate";
-import { RECEIPTS_KEEP, type LpCoin, type LpState } from "./state";
+import { RECEIPTS_KEEP, recordPoint, type LpCoin, type LpState } from "./state";
 
 export interface LaunchInput { name: string; ticker: string; tagline: TaglineId; fee: number }
 export interface TradeInput { ticker: string; side: "buy" | "sell"; amount: number; min: number }
@@ -27,6 +27,13 @@ export interface LaunchpadView {
   coins: CoinView[];
   /** Only the caller's own values; null for a guest (or an account whose ledger cannot be loaded). */
   self: null | { cashCents: number; spendableCents: number; holdings: Record<string, number>; live: number; nextLaunchAtMs: number | null };
+}
+
+/** A coin's public price/volume history: curve points only (no account ids, handles, receipts, creator flag or
+ *  holdings). `since` is null for a legacy coin that has not traded since history was recorded. */
+export interface HistoryView {
+  ticker: string; createdAtMs: number; startX: number; since: number | null; dropped: number;
+  pts: { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; x: number; sold: number }[];
 }
 
 const refuse = (code: string, message: string, extra: Partial<Refusal> = {}): Refusal => ({ status: "refused", code, message, ...extra });
@@ -58,6 +65,18 @@ export class LaunchpadService {
     });
   }
 
+  /** Read-only and public: the same locked read as the board, with no session. Null for an unknown coin. */
+  history(ticker: string): Promise<HistoryView | null> {
+    return this.deps.auth().readLaunchpad(null, (lp) => {
+      const c = lp.coins.find((x) => x.ticker === ticker);
+      if (!c) return null;
+      return {
+        ticker: c.ticker, createdAtMs: c.createdAtMs, startX: LP.X0, since: c.hist?.since ?? null, dropped: c.hist?.dropped ?? 0,
+        pts: (c.hist?.pts ?? []).map(({ tick, atMs, side, tokens, cents, x, sold }) => ({ tick, atMs, side, tokens, cents, x, sold })),
+      };
+    });
+  }
+
   launch(session: AuthSessionView, key: string, input: LaunchInput): Promise<LaunchReply> {
     const fp = JSON.stringify(["launch", input.name, input.ticker, input.tagline, input.fee]);
     const tick = this.deps.tick();
@@ -82,7 +101,7 @@ export class LaunchpadService {
       if (lp.coins.filter((c) => c.creatorId === me).length >= LP.MAX_LIVE) return { result: refuse("MAX_LIVE", "You already have 3 live coins.") };
       if (spendable(self) < LP.LAUNCH_FEE) return { result: refuse("CASH", "Not enough spendable cash for the $1,000.00 launch fee.") };
       const cashCents = self.cashCents - LP.LAUNCH_FEE;
-      const coin: LpCoin = { ticker: input.ticker, name, tagline: input.tagline, creatorId: me, createdAtMs: now, createdTick: tick, x: LP.X0, sold: 0, tape: [] };
+      const coin: LpCoin = { ticker: input.ticker, name, tagline: input.tagline, creatorId: me, createdAtMs: now, createdTick: tick, x: LP.X0, sold: 0, tape: [], hist: { since: now, dropped: 0, pts: [] } };
       lp.coins.push(coin);
       lp.lastLaunchAtMs[me] = now;
       lp.sinkCents += LP.LAUNCH_FEE;
@@ -128,6 +147,8 @@ export class LaunchpadService {
       cash.set(coin.creatorId, (cash.get(coin.creatorId) ?? creator.cashCents) + creatorFee);
       coin.x = next.x;
       coin.sold = next.sold;
+      // The tape must be read before the trade is on it: recordPoint starts a legacy coin's history from its tape.
+      recordPoint(coin, { tick, atMs: now, side: input.side, tokens, cents, x: next.x, sold: next.sold });
       coin.tape.push({ tick, atMs: now, side: input.side, tokens, cents, creator: coin.creatorId === me });
       if (coin.tape.length > LP.TAPE_KEEP) coin.tape.splice(0, coin.tape.length - LP.TAPE_KEEP);
       const mine = (lp.holdings[me] ??= {}), cost = (lp.costs[me] ??= {});

@@ -5,6 +5,11 @@
 import { LP, type Curve, type TaglineId, isTagline, liquidationCents, tickerOk } from "@/launchpad/rules";
 
 export interface LpPrint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
+/** One executed trade on the coin's price/volume history: the curve after it (x, sold) and the tape's volume. */
+export interface LpPoint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; x: number; sold: number }
+/** The recorded history: points since `since` (the launch, or the first trade after history existed); `dropped` older
+ *  points were removed by the HIST_KEEP bound. */
+export interface LpHistory { since: number; dropped: number; pts: LpPoint[] }
 export interface LpCoin extends Curve {
   ticker: string;
   name: string;
@@ -13,6 +18,8 @@ export interface LpCoin extends Curve {
   createdAtMs: number;
   createdTick: number;
   tape: LpPrint[];
+  /** Absent on a coin saved before history was recorded (never back-filled). */
+  hist?: LpHistory;
 }
 /** One account's replies by idempotency key (newest last, 50 kept). `fp` is the request it answered. */
 export interface LpReceipt { key: string; fp: string; reply: unknown }
@@ -43,7 +50,26 @@ function coinOk(c: unknown): c is LpCoin {
   if (typeof c.ticker !== "string" || !tickerOk(c.ticker) || typeof c.name !== "string" || !isTagline(c.tagline)) return false;
   if (typeof c.creatorId !== "string" || !ACCT.test(c.creatorId) || !int(c.createdAtMs) || !int(c.createdTick)) return false;
   if (!int(c.x, LP.X0) || !int(c.sold) || c.sold > LP.Y0 - LP.GRAD_Y || !Array.isArray(c.tape) || c.tape.length > LP.TAPE_KEEP) return false;
-  return c.tape.every((p: unknown) => obj(p) && (p.side === "buy" || p.side === "sell") && int(p.tick) && int(p.atMs) && int(p.tokens, 1) && int(p.cents) && typeof p.creator === "boolean");
+  if (!c.tape.every((p: unknown) => obj(p) && (p.side === "buy" || p.side === "sell") && int(p.tick) && int(p.atMs) && int(p.tokens, 1) && int(p.cents) && typeof p.creator === "boolean")) return false;
+  return c.hist === undefined || histOk(c.hist, c as unknown as LpCoin);
+}
+
+const curveOk = (x: unknown, sold: unknown) => int(x, LP.X0) && int(sold) && (sold as number) <= LP.Y0 - LP.GRAD_Y;
+function histOk(h: unknown, c: LpCoin): boolean {
+  if (!obj(h) || !int(h.since, c.createdAtMs) || !int(h.dropped) || !Array.isArray(h.pts) || h.pts.length > LP.HIST_KEEP) return false;
+  const pts = h.pts as unknown[];
+  if (!pts.every((p) => obj(p) && (p.side === "buy" || p.side === "sell") && int(p.tick) && int(p.atMs, h.since as number) && int(p.tokens, 1) && int(p.cents) && curveOk(p.x, p.sold))) return false;
+  const last = pts[pts.length - 1] as LpPoint | undefined;
+  // The newest point is the curve as saved: the history cannot drift from the coin it describes.
+  return !last || (last.x === c.x && last.sold === c.sold);
+}
+
+/** Append one executed trade to the coin's history (starting it on a legacy coin), keeping at most HIST_KEEP points. */
+export function recordPoint(c: LpCoin, p: LpPoint): void {
+  // A legacy coin that never traded has a complete history from its launch; one that traded starts at this trade.
+  const h = (c.hist ??= { since: c.tape.length === 0 ? c.createdAtMs : p.atMs, dropped: 0, pts: [] });
+  h.pts.push(p);
+  if (h.pts.length > LP.HIST_KEEP) h.dropped += h.pts.splice(0, h.pts.length - LP.HIST_KEEP).length;
 }
 
 /** The saved section, or why it cannot be trusted. An absent section is an empty Launchpad. */

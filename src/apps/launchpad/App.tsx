@@ -5,7 +5,7 @@
 // computed with the server's own curve rules, and the server refuses a fill worse than the reviewed one by more than
 // 5%. Nothing completes locally: a result is shown only from the server's reply, then the board is read again. Keyed by
 // account, so an account switch starts a fresh board with that account's reads only.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
@@ -17,6 +17,9 @@ import {
 } from "@/launchpad/rules";
 import { LPS } from "./strings";
 import "./launchpad.css";
+
+// The price/volume chart is its own chunk, loaded when a coin panel opens.
+const History = lazy(() => import("./History"));
 
 export const LAUNCHPAD_POLL_MS = 5_000;
 
@@ -184,6 +187,10 @@ function CoinPanel({ coin, self, onDone }: { coin: Coin; self: Self | null; onDo
       )}
       {self && review && q?.ok && <TradeReview coin={coin} side={side} self={self} q={q} min={review.min} busy={busy} onBack={() => setReview(null)} onConfirm={() => void send()} />}
       {msg && <p className="lpad-msg" role="status" data-kind={msg.kind} data-testid="lp-result">{msg.text}</p>}
+      {/* Below the ticket and its review, so the chart never covers Review or Confirm. Re-read when the curve or tape moves. */}
+      <Suspense fallback={<div className="lpad-skel lpad-hist-skel" aria-busy="true" aria-label={LPS.hLoading} data-testid="lp-hist-loading" />}>
+        <History ticker={coin.ticker} version={`${coin.x}/${coin.sold}/${coin.tape.length}/${coin.tape[0]?.atMs ?? 0}`} />
+      </Suspense>
       <h3>{LPS.tape}</h3>
       {coin.tape.length === 0 ? <p className="lpad-sub">{LPS.noTape}</p> : (
         <ul className="lpad-tape" data-testid="lp-tape">

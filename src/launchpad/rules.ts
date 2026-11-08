@@ -21,6 +21,7 @@ export const LP = {
   COOLDOWN_MS: 24 * 60 * 60 * 1000, // one launch per account per 24 real hours
   MIN_BUY: 100, // $1
   TAPE_KEEP: 20,
+  HIST_KEEP: 500, // saved price/volume points per coin (one per trade); older ones are dropped and counted
 } as const;
 
 const K = BigInt(LP.X0) * BigInt(LP.Y0);

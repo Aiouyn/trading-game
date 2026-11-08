@@ -3,7 +3,7 @@ import { getLiveMarket } from "@/server/market/clock";
 import { LaunchpadService } from "./service";
 
 export { LaunchpadService } from "./service";
-export type { LaunchpadView, CoinView, LaunchReply, TradeReply } from "./service";
+export type { LaunchpadView, CoinView, HistoryView, LaunchReply, TradeReply } from "./service";
 
 const g = globalThis as typeof globalThis & { __portAvalonLaunchpad?: LaunchpadService };
 
