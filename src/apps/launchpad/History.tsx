@@ -14,6 +14,8 @@ type St = { status: "loading" } | { status: "error" } | { status: "ok"; data: Hi
 const usd = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qty = (n: number) => n.toLocaleString("en-US");
 const when = (ms: number) => new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+/** The table's compact time (the readout gives the full one). */
+const whenShort = (ms: number) => new Date(ms).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 const kindText = (s: Step) => (s.kind === "launch" ? LPS.hLaunch : s.kind === "buy" ? LPS.buy : LPS.sell);
 
 /** The readout of one step: trades are numbered from 1 (step 0 is the launch when the history starts there). */
@@ -107,11 +109,11 @@ function Chart({ data, stale, onRetry }: { data: HistoryData; stale: boolean; on
             <summary data-testid="lp-hist-table-toggle">{LPS.hTable}</summary>
             <table data-testid="lp-hist-table">
               <caption>{LPS.hCaption}</caption>
-              <thead><tr><th scope="col">{LPS.hNo}</th><th scope="col">{LPS.hTime}</th><th scope="col">{LPS.hSide}</th><th scope="col">{LPS.hTokens}</th><th scope="col">{LPS.hVolume}</th><th scope="col">{LPS.hPriceAfter}</th></tr></thead>
+              <thead><tr><th scope="col">{LPS.hTime}</th><th scope="col">{LPS.hSide}</th><th scope="col">{LPS.hTokens}</th><th scope="col">{LPS.hVolume}</th><th scope="col">{LPS.hPriceAfter}</th></tr></thead>
               <tbody>
                 {m.steps.map((st) => (
                   <tr key={st.n} data-kind={st.kind}>
-                    <td className="num">{m.fromLaunch ? st.n : st.n + 1}</td><td>{when(st.atMs)}</td><td>{kindText(st)}</td>
+                    <td className="num">{whenShort(st.atMs)}</td><td>{kindText(st)}</td>
                     <td className="num">{st.kind === "launch" ? "—" : qty(st.tokens)}</td><td className="num">{st.kind === "launch" ? "—" : usd(st.cents)}</td><td className="num">{priceStr(st.price)}</td>
                   </tr>
                 ))}
