@@ -13,6 +13,7 @@ import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/cat
 import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
 import { parseBrokerIntentReply, parseBrokerLedger, type BrokerLedgerView } from "@/market/brokerLedger";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
+import { heldValueMinor } from "@/market/valuation";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
 import { ORDER_HISTORY_POLICY, ORDER_POLICY, type OrderHistoryPolicy, type OrderPolicy } from "./orderPolicy";
@@ -505,9 +506,8 @@ export class MockFeed {
     return { assetId, res, live: { t, o: fmt(o, a.displayDecimals), h: fmt(Math.max(o, s.last, ...px), a.displayDecimals), l: fmt(Math.min(o, s.last, ...px), a.displayDecimals), c: fmt(s.last, a.displayDecimals), v: String(prints.reduce((n, p) => n + Number(p.qty), 0)) } };
   }
   private heldMinor(): number {
-    let held = 0;
-    for (const [id, l] of this.lots) held += this.assets.get(id)!.last * l.qty;
-    return held;
+    // The shared definition (src/market/valuation.ts), so the leaderboard values a ledger exactly as Portfolio does.
+    return heldValueMinor([...this.lots].map(([assetId, l]) => ({ assetId, qty: l.qty })), (id) => this.assets.get(id)!.last)!;
   }
   /** `?nw=` pin: the FDL cash that keeps nw at the pinned value for the current marks. */
   private pinnedNwMinor(): number | null {

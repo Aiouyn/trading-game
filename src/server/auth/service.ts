@@ -15,6 +15,15 @@ import {
   type SessionRecord,
 } from "./types";
 
+/** One account's standing inputs (M2-03): public handle + saved total cash + held quantities. */
+export interface StandingInput {
+  readonly accountId: AccountId;
+  readonly handle: string;
+  readonly handleKey: string;
+  readonly cashCents: number;
+  readonly positions: readonly { readonly assetId: string; readonly qty: number }[];
+}
+
 /** Match T19C session_idle_days / session_max_days defaults (real days). */
 export const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_MAX_MS = 90 * 24 * 60 * 60 * 1000;
@@ -235,6 +244,47 @@ export class AuthService {
         account: toPublicAccount(account),
         expiresAtMs: refreshed.expiresAtMs,
       };
+    });
+  }
+
+  /**
+   * Read-only session check (M2-03 leaderboard): the same validity rules as resolveSession (not revoked, within idle,
+   * absolute and stored expiry), but it never refreshes lastSeen or revokes, so a read route writes nothing. An expired
+   * session simply reads as signed out here; the next resolveSession revokes it.
+   */
+  async peekSession(rawToken: string | null | undefined): Promise<AuthSessionView | null> {
+    await this.ready;
+    if (!rawToken) return null;
+    const sessionId = this.tokenIndex.get(hashToken(rawToken));
+    const session = sessionId ? this.sessions.get(sessionId) : undefined;
+    if (!session || session.revokedAtMs !== null) return null;
+    const now = this.now();
+    if (now > session.createdAtMs + SESSION_MAX_MS || now > session.lastSeenAtMs + SESSION_IDLE_MS || now > session.expiresAtMs) return null;
+    const account = this.accounts.get(session.accountId);
+    if (!account) return null;
+    return { sessionId: session.sessionId, account: toPublicAccount(account), expiresAtMs: session.expiresAtMs };
+  }
+
+  /**
+   * Every saved ledger with its public handle, for the world leaderboard (M2-03). `read` runs synchronously inside the
+   * service lock, so an order commit or a tick sweep is seen whole or not at all, and the caller can take its quote
+   * snapshot in the same step. Read-only: nothing is persisted. Quarantined and ledger-less accounts are left out and
+   * counted. Only what ranking needs leaves here (no hash, salt, session or order data).
+   */
+  async readStandings<T>(read: (rows: readonly StandingInput[], excluded: number) => T): Promise<T> {
+    return this.withLock(async () => {
+      await this.ready;
+      const rows: StandingInput[] = [];
+      let excluded = 0;
+      for (const account of this.accounts.values()) {
+        const player = this.players.get(account.accountId);
+        if (!player || this.quarantinedPlayers.some((q) => q.accountId === account.accountId)) { excluded++; continue; }
+        rows.push({
+          accountId: account.accountId, handle: account.handle, handleKey: account.handleKey, cashCents: player.cashCents,
+          positions: Object.values(player.positions).map((p) => ({ assetId: p.assetId, qty: Number(p.qty) })),
+        });
+      }
+      return read(rows, excluded);
     });
   }
 
