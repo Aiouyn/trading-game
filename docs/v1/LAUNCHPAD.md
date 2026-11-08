@@ -38,7 +38,7 @@ A signed-in player A opens Launchpad, fills in name, ticker and tagline, and rev
 - The fee is debited once, in the launch's single persist, from spendable cash only (cash held by working Broker buy limits is never spent) and goes to the sink. A stale review that sends another fee is refused (FEE_CHANGED). History saved under the $100 fee is kept as saved: coins, holdings, cost basis, sink and receipts are not re-charged or reinterpreted, and an old receipt replays its old reply.
 
 ## Remaining steps (not in this unit, recorded rather than omitted)
-- Graduation: done in its smallest complete form (see Graduation below); the engine listing part of L4 remains.
+- Graduation (L4): see the Graduation section below (corrected after Gatekeeper NO-GO B1 at 6ac2b3b1).
 - Creator allocation and vesting (L5; the allocation is fixed at 0 here). Rug flag and cases (L5).
 - Buzz/hype, NPC retail, snipers and death (L6): prices move only when players trade.
 - Buzz items, candles and timeframes (a per-trade price/volume history chart exists, see below), market-cap axis, Trending/Graduated tabs, holder buckets, replies, icons (L7). Moderation beyond the minimal fictional-name checks. The balance gate (L8).
@@ -76,30 +76,88 @@ Out of this unit: candles and timeframes, market-cap axis, Trending/Graduated ta
 
 **As built.** Server: `recordPoint` (src/server/launchpad/state.ts) appends {tick, atMs, side, tokens, cents, x, sold} to `coin.hist` inside the trade's commit (LaunchpadService.trade, same lock and persist as cash, holdings, cost basis and tape); a launch saves `hist = {since: launch time, dropped: 0, pts: []}`; LP.HIST_KEEP = 500; `parseLaunchpad` checks every point and that the newest equals the coin's curve. GET /api/launchpad/history (src/app/api/launchpad/history/route.ts, LaunchpadService.history) reads under the same lock with no session; the board view (GET /api/launchpad) is unchanged and does not carry the history. Client: src/apps/launchpad/history.ts (parse, model, step geometry, pure) and History.tsx (React.lazy chunk inside the lazy Launchpad app): step line held to the next trade, buy/sell volume bars, price and volume scales as text beside the plot, a focusable plot with arrow/Home/End readout (aria-live), a "Show as a table" equivalent, loading/error + Retry/"not updated" (offline: "not live") states, latest-request-wins and a ticker check on every reply. It renders below the ticket, so a review and Confirm are always above it. Tests: tests/unit/launchpad/launchpad-history.test.ts (server, legacy, bound, privacy, restart, parse) and launchpad-history-ui.test.tsx (late reply, keyboard, table, stale/offline, Retry).
 
-## Graduation (next unit, recorded before any code change)
-Inspected first: lead-launchpad L2 (supply 1B: 800M on the curve, the rest seeds the pool at graduation; "at most 3 live (not graduated, not dead) tokens"), L3 (curve, 1% fee half to the creator), L4 (graduation), L5.1 (allocation vests from graduation; the allocation is 0 in this build), L7; old code origin/p10/chart src/world/launchpad/graduate.ts and curve.ts (quoteBuy clips a buy that reaches the last token: "the trader pays only for what fills"); this base's market (src/market/catalog.ts is a static 10-asset list; src/server/market/clock.ts a seeded mock feed; the Broker fills at the server mark with NPC liquidity) and the Launchpad server and client.
+## Graduation (L4) — corrected after Gatekeeper NO-GO B1 at 6ac2b3b1, recorded before any code change
 
-L4 as documented: when the curve has sold its 800M the token graduates; a graduation fee of 1.5% of the raised cash is a sink; the rest of the cash and the LP tokens (200M less the creator allocation) seed a liquidity book account that nobody owns (locked forever, no LP rug); the token becomes a runtime crypto asset through the engine's listing path (appendAsset, meme-template vol/drift, initialPrice = last curve price) and its fills run against the book ("a fill the book cannot cover is partial, never minted"); holders' balances become engine positions.
+**Why corrected.** 6ac2b3b1 kept a graduated coin trading inside the Launchpad against a constant-product book. That is not
+L4: lead-launchpad.md L4 (origin/p10/lp docs/team/specs/lead-launchpad.md, and its code origin/p10/lp
+src/world/launchpad/graduate.ts) makes the token a runtime crypto asset through the engine's listing path, priced by the
+engine with the meme template, filled against the liquidity book account, with the holders' balances turned into engine
+positions in the same tick, shown in the Broker and in Launchpad's Graduated tab. "Unsupported in this base" meant "not
+built". The stand-in, its MODE_CHANGED/pool review and its acceptance items are withdrawn; the stand-in was never an
+owner decision.
 
-What this base supports: there is no engine listing path, no runtime asset in the catalog, quote feed or Broker, and no engine price process for a new asset. Building those is the wider system (tracked below, not faked here).
+**What is reused unchanged from 6ac2b3b1** (GK safety PASS): the trigger (a buy reaching the last token is clipped to the
+tokens left, the buyer pays only for what fills, the review says so first), the fee (raise R = curve cash − X0; fee =
+round(1.5% × R), a sink), the seed (book = R − fee cash and 200,000,000 tokens, allocation 0; nobody owns it), "once" in
+the crossing buy's own commit, MAX_LIVE counting live coins only, the curve fee rules before graduation.
 
-**Smallest complete graduation journey (this unit).** The documented trigger, fee, supply split and lock happen exactly once, authoritatively, in the crossing trade's own commit. Afterwards the coin keeps trading in the Launchpad against its locked book only:
-- Trigger: a buy that reaches the curve's last token is clipped to exactly the tokens left; the buyer pays only for what fills (the old quoteBuy rule) and their review says so beforehand. That buy graduates the coin in the same persist (this build has no world tick, so "end of that tick" is the end of that commit).
-- Fee and seed: raise R = curve cash − X0; fee = round(1.5% × R) to the sink; the book gets R − fee cash and 200,000,000 tokens (1B − 800M, allocation 0). The curve is frozen and holds nothing afterwards. Nobody owns the book.
-- Holders keep their tokens and cost basis (the Launchpad holdings are this build's "positions"). No balance is moved, minted or burned: tokens held + book tokens = 1,000,000,000.
-- Post-graduation fills: against the book's own real reserves at constant product (k never decreases; tokens only ever come out of the book, cash only ever out of its own cash, so nothing is minted and a sell is always paid). This is a recorded stand-in for L4's engine pricing, not a hidden new market: the UI names the mode ("locked liquidity pool"), the seed price is the book's cash ÷ tokens (≈ the last curve price), and prices still move only when players trade. Fee after graduation: the Broker's exchange fee (taker 3 bp, minimum $0.10, `exchangeFeeMinor`) to the sink, since L4 fills are engine fills; the creator's 0.5% ends at graduation. The 5% slippage limit of the ticket still applies.
-- Mode safety: every trade names the mode it was reviewed in; a review made on the curve that arrives after graduation (or the reverse) is refused (MODE_CHANGED), never re-priced silently.
-- MAX_LIVE counts live (not graduated) coins, per L2.
+**This base's engine (inspected).** One authoritative server clock (src/server/market/clock.ts LiveMarket → ShockFeed →
+MockFeed): 720 ticks a game day, seeded per-asset streams (assetRandom keeps the first eight assets' stream untouched),
+quotes in `ticker:wl_default`, candles sampled from it (src/server/market/candles.ts), the Broker door
+(src/server/broker/execution.ts) filling at the server mark with NPC liquidity, the catalog a compile-time list
+(src/market/catalog.ts, mirrored to clients). Nothing could add an asset at run time.
+
+**L4 mapped onto it (the listing journey of this unit).**
+1. Listing path: a runtime `appendAsset` (src/market/listings.ts) adds one def to the catalog (ASSETS, ASSET_BY_ID, the
+   default watchlist) and bumps the list version; the clock gives it its own state and stream. The market snapshot carries
+   `listVersion` and the listed defs, so clients get the def (L4 "list-version bump so clients get the def"); /api/world's
+   catalog includes it. Def: assetId = ticker = the coin's ticker, its name, class `crypto`, sector `Crypto` (v1.1
+   ratified: no 'meme' sector key), ccy FDL, licence LIC1, qty in whole tokens, price in 8 decimals (the curve's last price
+   is about $0.000216; cents cannot carry it), initial price = the last curve price (x/273M, rounded to 1e-8 $),
+   sharesOutstanding = the supply (1B; the book plus the holders' positions).
+2. Price: the meme template of p10's universe (FROG; graduate.ts draws vol = 1.9 + 0.1u and drift = −(0.15 + 0.1u) from the
+   token's own stream) stepped by p10's per-tick law: dt = 1/(720 × 252); diffusive log step (μ − σ²/2)dt + σ√dt·t₄ (unit
+   variance Student-t, ν = 4, p10 config); Kou jumps at FROG's 20 a year (up with p 0.5, log size exponential with mean
+   0.25 up, 0.22 down); floor 1e-7 $. Own stream `lp:<TICKER>`, so every existing asset's fingerprint is unchanged.
+   GENUINE GAP (reported, not substituted): this base has no factor model, regime, GARCH, value pull or ecology, so the
+   template's wMarket/wCrypto co-movement and L4's "retail-heavy pool weights" have nothing to attach to; the whole
+   variance is idiosyncratic here. Fills do not move the price (this base's Broker has no impact model).
+3. Fills: Broker market orders on the coin fill at the server mark against the book account (`coin.book` {cash, tokens}
+   in the Launchpad save, nobody's ledger): a buy takes tokens out of the book and pays it the notional; a sell gives it
+   tokens and is paid from the book's cash. What the book cannot cover fills partly, never minted; nothing fillable is
+   refused. Fee: the Broker's exchange fee (taker 3 bp, min $0.10), a sink, as for every Broker fill. Ledger, book and fee
+   commit in one persist under the auth lock, replayed by the Broker's own idempotency key. Limit orders on a listed coin:
+   see item 9.
+4. Positions in the same tick: in the crossing buy's commit every holder's Launchpad balance becomes a Broker position
+   (qty, avgCost = their saved cost basis ÷ qty, fees included) and leaves the Launchpad holdings; the Launchpad has no
+   market for the coin afterwards (a Launchpad trade on it is refused GRADUATED, pointing to the Broker). Tokens: Σ
+   positions + book tokens = 1B, checked when the save loads. Cash: Σ player cash + live curves' real cash + books' cash
+   + sinks (Launchpad sink + Broker fees) is unchanged by every step.
+5. Discovery: the Broker watchlist shows the coin like any asset (quote, chart, ticket, positions); Launchpad gets a
+   Graduated tab (graduated coins: raise, fee, book, Broker price, "Open in Broker").
+6. Wealth: positions are valued like any Broker position (qty × server mark, price decimals converted to cents once, in
+   src/market/valuation.ts), so Portfolio, the header and the board agree; the Launchpad adds no value for a graduated
+   coin (its holdings moved), so nothing counts twice.
+7. Candles and feed: the clock's quote feed and candle recorder include the listed coin from its listing tick; Broker fills
+   add candle volume like any fill. The Launchpad price history ends at its labelled graduation step.
+8. Restart: the save holds the graduation, the book and the positions; at start the server lists every graduated coin
+   again before serving quotes. As for every asset in this base, a restart starts the clock's seeded path again
+   (documented M1-05 rule), so the coin's price path restarts from its listing price.
+9. Limit orders: in this unit a listed coin takes market orders only (a limit is refused MKT_ORDER_TYPE_UNSUPPORTED before
+   anything is held): the resting-limit sweep would have to move the book inside the cross-ledger sweep commit, which is
+   the next step and is tracked, not faked.
 
 **Acceptance.**
-1. Exactly once: one commit (one persist, rolled back on a failed save) clips the crossing buy, records it on the tape and history, books the fee, seeds the book and marks the coin graduated. Replay returns the first reply and graduates nothing again; a second buy queued behind it under the lock sees the graduated coin and is refused MODE_CHANGED; a failed save leaves the coin live and nothing charged.
-2. Conservation: Σ player cash + Σ live curves' real cash (x − X0) + Σ books' cash + sink is unchanged by every launch, trade and graduation; tokens: held = sold before, held + book = 1B after.
-3. Valuation, Portfolio, header and board use one function per mode (liquidation against the curve before, against the book after) and agree before and after the transition.
-4. History: curve points before, book points after (price = book cash ÷ book tokens), and a labelled graduation step between them; nothing interpolated.
-5. Reads stay pure and public-safe: the board and history show the curve, the book's reserves, the raise and the fee; never accounts, handles, holdings or receipts. Strict parse of the new fields (graduated coin: sold = 800M, raise and fee consistent, book k ≥ its seed, held + book = 1B).
-6. UI (lazy, no first-load growth): progress to graduation, graduated status with raise, fee and book; the review shows the mode, fee, impact, the clipped amount on a crossing buy, and the risk copy (no guaranteed profit). Keyboard, 390, 520. No automatic trade.
-7. Proof: plain exact-head preview, real UI only: A launches, buyers with fresh $10,000 accounts buy until the curve completes (about $44.4k of buys, so no seeded funds are needed), then post-graduation buy and sell, wealth, history, reload, restart, 390/520.
+1. Threshold: the crossing buy is clipped and its review says so; status/progress are truthful before.
+2. Once and atomic: one persist clips the buy, books the fee, seeds the book, moves every holder's balance to a position
+   and marks the coin graduated; replay returns the first reply; a concurrent second crossing buy sees the graduated coin
+   and is refused GRADUATED; a failed save leaves the coin live, no position granted, no listing, nothing charged.
+3. Listing: after the commit (and after a restart) the clock quotes the coin, the snapshot carries its def and list version,
+   /api/world's catalog has it, candles sample it; the existing assets' prices are byte-identical to a world without it.
+4. Broker: market buy and sell fill at the mark against the book, partial when the book cannot cover, never minted; fee
+   to the sink; idempotent by key; refusals change nothing; failed save rolls back ledger and book together.
+5. Conservation of cash and tokens across launch, curve trades, graduation and Broker fills (item 4 of the mapping).
+6. Wealth coherent before/after: before = cash + Launchpad liquidation value; after = cash + position at the mark; Portfolio,
+   header and board agree; no double count; history labels curve → graduation, the Broker chart from the listing on.
+7. Reads read-only and private-payload safe: listing defs, book and quotes are public; positions only in the owner's
+   ledger; no holder ids in any public read.
+8. Old saves: a base-format save (no graduation) loads unchanged. A 6ac2b3b1 stand-in save with a graduated coin (holdings
+   still on the Launchpad, book trades in its history) is refused as unloadable (503, preserved verbatim), never converted
+   silently: that format was never merged or shipped.
+9. Proof: unit tests with hand-worked fixtures; plain exact-head preview with the real UI and organic fresh accounts (as
+   6ac2b3b1): launch, curve buys to graduation, the coin in the Broker and the Graduated tab, Broker review + buy + sell,
+   positions/Portfolio/header/board, candles/feed, reload, restart, account isolation, 390/520 + keyboard.
 
-**Not in this unit (remaining L4 and around it).** The runtime engine asset (Broker listing, quote feed, meme-template price process, list-version bump and client def), holders' balances as Broker positions, the NPC cohort's post-graduation unwind (L6.2), the graduation Wire item and creator notification, vesting from graduation (L5.1; allocation is 0 here), the Graduated tab (L7), death (L3).
-
-**As built.** Rules (src/launchpad/rules.ts): `quoteBuy` clips at the last token (`spend`, `graduates`), `graduationOf`, `quotePoolBuy` / `quotePoolSell` (constant product on the book's real reserves, BigInt, rounded in the book's favour), `poolFee` (= Broker `exchangeFeeMinor` taker), one `quote()` for both modes, and `liquidationCents` / `priceText` / `marketCapCents` / `impactBp` reading the book once graduated. Server (src/server/launchpad/service.ts): the trade names its reviewed `mode` (part of the idempotency fingerprint; absent = curve), refuses MODE_CHANGED, and on the crossing buy books the fee, seeds `coin.pool` and saves `coin.grad` {atMs, tick, raise, fee, at} in the same commit; the creator's fee share and cap apply on the curve only; MAX_LIVE counts coins without `grad`. State (state.ts): strict parse of `grad`/`pool` (together; sold = 800M; raise and fee recomputed; book k ≥ its seed; held + book tokens = 1B), book points (pc, pt) only after `grad.at`, `marketCashCents` for conservation. Views: the board coin gains `pool` and `grad` {atMs, raise, fee}; history gains `grad` {atMs, at, cash, tokens} and book points. Client: a Status block (progress bar to graduation, or the graduation record and the book), the mode line in the ticket and review, the clipped-buy and graduation notes in the review, a stale-mode notice that disables Confirm, a Graduated chip in the list, and a labelled graduation step in the chart. Tests: tests/unit/launchpad/launchpad-graduation.test.ts (hand-worked fixtures in its header) and the updated rules, history and UI tests.
+**Not in this unit (tracked).** Limit orders on listed coins (book-bound sweep); the NPC cohort's unwind (L6.2; this base has
+no NPC cohort); the graduation Wire item and creator notice; vesting (L5.1, allocation 0); ecology/factor loadings (no such
+model here); death (L3); listing for the signed-out guest demo (guests run a local demo market).
