@@ -255,7 +255,7 @@ function TradeReview({ coin, side, self, q, amount, min, changed, busy, onBack, 
         {buy ? <><dt>{LPS.youPay}</dt><dd className="num" data-testid="lp-pay">{usd(q.cents)}</dd><dt>{LPS.youGet}</dt><dd className="num" data-testid="lp-est">{`${qty(q.tokens)} ${coin.ticker}`}</dd></>
           : <><dt>{LPS.sell}</dt><dd className="num">{`${qty(q.tokens)} ${coin.ticker}`}</dd><dt>{LPS.youReceive}</dt><dd className="num" data-testid="lp-est">{usd(q.cents)}</dd></>}
         <dt>{q.mode === "pool" ? LPS.feePool : LPS.fee}</dt><dd className="num" data-testid="lp-fee">{usd(q.fee)}</dd>
-        <dt>{LPS.avg}</dt><dd className="num">{`$${(q.gross / 100 / q.tokens).toPrecision(4)}`}</dd>
+        <dt>{LPS.avg}</dt><dd className="num">{`$${((buy ? q.cents : q.gross) / 100 / q.tokens).toPrecision(4)}`}</dd>
         <dt>{LPS.impact}</dt><dd className="num" data-testid="lp-impact">{pct(impactBp(coin, q.after))}</dd>
         <dt>{LPS.minAccepted}</dt><dd className="num">{buy ? `${qty(min)} ${coin.ticker}` : usd(min)}</dd>
         <dt>{LPS.cashAfter}</dt><dd className="num" data-testid="lp-cash-after">{usd(self.cashCents + (buy ? -q.cents : q.cents))}</dd>
