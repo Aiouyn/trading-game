@@ -42,7 +42,8 @@ export interface NpcView {
   h: number; funded: number; vol: number; pools: Record<PoolKind, PoolAccount>; tape: NpcPrint[];
   /** What the last step read: regime, Fear Index, attention, news sign, Wire mentions (null before a step read them). */
   w: PoolWorld | null;
-  /** The path's multipliers from the saved hype and regime: vol × (1 + 2H), the regime's vol, drift + 3.0·H a year. */
+  /** The path's multipliers from the saved hype and regime: vol × (1 + 2H), the regime's vol, and hype's annualized log
+   *  drift contribution 3.0·H per 364-day game year (not a guaranteed return). */
   path: { hypeVol: number; regimeVol: number | null; drift: number };
 }
 export interface LaunchpadView {

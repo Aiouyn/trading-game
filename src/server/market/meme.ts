@@ -15,7 +15,7 @@
 // Not copied, because this base has no such model: cycleBeta, GARCH and the value pull. The trader pools (05 §6.2 meme
 // weights) trade the coin through its book: src/server/broker/pools.ts.
 // Applied on top (docs/v1/LAUNCHPAD.md "Graduated-coin trader inputs"): 06 §3.11.3 hype H on the path (vol × (1 + 2H),
-// drift + 3.0·H a game year for MEME, "05 applies"), 05 §3.3.5 the global regime's multipliers (vol, jump intensity,
+// log drift + 3.0·H per 364-day game year for MEME, "05 applies"), 05 §3.3.5 the global regime's multipliers (vol, jump intensity,
 // jump down-probability shift; a crypto asset reads 04's global regime) and 05 §3.3 factor jumps (`jump`).
 // Its own streams (`lp:<TICKER>` for the draws, `lp:<TICKER>:px` for the path), so no other asset's path changes.
 import { rng } from "@/shell/contracts/mockFeed";
@@ -32,9 +32,14 @@ export const TICKS_PER_DAY = 720;
 export const TICKS_PER_HOUR = TICKS_PER_DAY / 24;
 export const DAYS_PER_YEAR = 252;
 export const DT = 1 / (TICKS_PER_DAY * DAYS_PER_YEAR);
+/** 00 GAME_DAYS_PER_GAME_YEAR: the unit of 06's "c per game year" (the template's 252 basis above is inherited and
+ *  unchanged). One tick in game years: 1/(720 × 364). */
+export const GAME_DAYS_PER_GAME_YEAR = 364;
+export const DT_GAME_YEAR = 1 / (TICKS_PER_DAY * GAME_DAYS_PER_GAME_YEAR);
 
 /** 06 §3.11.3 hype, per token per game hour: dH = a(m + f − H) − bH + shock; a 0.15, b 0.06 (MEME); f = clamp(net
- *  player buy over 24 game hours / circulating cap × 20, 0, 1); drift_bonus c·H with c = 3.0 a game year (MEME);
+ *  player buy over 24 game hours / circulating cap × 20, 0, 1); drift_bonus c·H with c = 3.0 per 364-day game year
+ *  (MEME): an annualized log-drift contribution (c·H/364 a game day), not a guaranteed or compounded return;
  *  vol_multiplier 1 + 2H. 06 §3.11.4: a new meme token's H₀ = 0.6. */
 export const HYPE = { a: 0.15, b: 0.06, h0: 0.6, f: 20, c: 3.0, volK: 2 } as const;
 
@@ -102,11 +107,12 @@ export class MemeProcess {
    *  inputs: hype and the regime scale the step, never the stream. */
   step(zMarket: number, zCrypto: number, inp: PathInputs): number {
     const t = MEME_TEMPLATE, d = this.draws;
-    const sigma = this.sigmaEff(inp), mu = this.drift + HYPE.c * inp.hype;
+    const sigma = this.sigmaEff(inp);
+    // the template's drift and vol on its inherited 252 basis (DT); the hype term per 364-day game year (DT_GAME_YEAR)
     let jump = 0;
     if (d.chance(t.jumpsPerYear * inp.reg.jump * DT)) jump = d.chance(t.jumpUpProb - inp.reg.skew) ? d.exponential(t.jumpUpMean) : -d.exponential(t.jumpDownMean);
     const shock = t.wMarket * zMarket + t.wCrypto * zCrypto + IDIO_LOADING * d.studentT(t.studentNu);
-    this.lnP += (mu - 0.5 * sigma * sigma) * DT + sigma * Math.sqrt(DT) * shock + jump;
+    this.lnP += (this.drift - 0.5 * sigma * sigma) * DT + HYPE.c * inp.hype * DT_GAME_YEAR + sigma * Math.sqrt(DT) * shock + jump;
     this.lnP = Math.max(this.lnP, Math.log(t.floor));
     return this.minor();
   }

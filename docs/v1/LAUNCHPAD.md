@@ -462,7 +462,8 @@ with real committed events and state, and fixes one form error (T05-14 RETAIL `p
   The coin is listed in that story's effects, and its candle shows the move.
 - A move of 15% or 30% from the day's open is published as a Wire item on the coin. That item raises attention, gives
   retail a news sign, and feeds hype mentions.
-- Hype now widens the coin's vol (× (1 + 2H)) and adds drift (3.0·H a game year). DEGEN, which chases the coin's 1-hour
+- Hype now widens the coin's vol (× (1 + 2H)) and adds to the log drift (3.0·H per 364-day game year, i.e. 3.0·H/364 a game day; an annualized log-drift contribution, not a
+  guaranteed or compounded return). DEGEN, which chases the coin's 1-hour
   return scaled by (1 + 2H), trades both ways on the real path. It buys only with its own cash, sells only what it holds,
   and shows "no fill" truthfully when the book is empty.
 
@@ -557,7 +558,8 @@ with real committed events and state, and fixes one form error (T05-14 RETAIL `p
 3. **Factor jump on a coin.** When a story's realized effect moves GX by J (log), each listed coin's path moves by
    `wMarket (0.25) × σ_coin,eff / σ_GX × J`, as a value move (lnV moves with it, so no VALUE gap). The coin is added to the
    story's effects.
-4. **Path.** Each tick uses `σ = vol × m_reg × (1 + 2H)`, `μ = drift + 3.0·H`, jump rate × the regime multiplier, and up
+4. **Path.** Each tick uses `σ = vol × m_reg × (1 + 2H)`, `μ = drift + 3.0·H` (the hype term per 364-day game year, 00 GAME_DAYS_PER_GAME_YEAR, applied as 3.0·H/(720 × 364) a
+   tick; the template's drift and vol keep their inherited 252 basis), jump rate × the regime multiplier, and up
    probability 0.5 − the regime's down shift. A regime change blends linearly over 5 × 720 ticks.
    - H is the saved pools' hype. The sweep pushes it to the clock only after its save (a failed save pushes nothing).
    - A relist after a restart carries the saved H. A fresh listing starts at H₀ 0.6.
@@ -616,3 +618,9 @@ with real committed events and state, and fixes one form error (T05-14 RETAIL `p
   only after a save, DEGEN trading in the world, restart with the saved H and no repeated listing item, public view).
 - Belief, hype shock, the market maker (spread / impactY / print shares), DEGEN liquidations and calibration stay
   remaining, as listed in Acceptance 5.
+
+**Correction after GK NO-GO B1 at 5d450211 (hype drift units).** 06:755 gives c per game year and 00:161 sets a game year at
+364 game days. 5d450211 applied c·H on the template's 252-day DT, so its daily hype drift was c·H/252: 44.4% too strong
+(H = 0.6: 0.714% vs 0.495% a game day). The fix: the hype term alone uses DT_GAME_YEAR = 1/(720 × 364), so it adds c·H/364 a
+game day. The template's own drift, its vol and the pools' σ_d keep their inherited 252 basis (accepted earlier; backlog vs
+05:262 crypto Dy 364, unchanged here). The panel and this doc call it an annualized log-drift contribution, not a return.

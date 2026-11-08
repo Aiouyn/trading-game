@@ -86,13 +86,33 @@ describe("06 hype on the path (same draws, active vs neutral)", () => {
     a.step(0.5, -0.3, NEUTRAL_PATH); b.step(0.5, -0.3, act); c.step(0.5, -0.3, NEUTRAL_PATH);
     expect(c.lnV()).toBe(a.lnV()); // deterministic
     const shock = (a.lnV() - l0 - (drift - 0.5 * vol * vol) * DT) / (vol * Math.sqrt(DT));
-    const s = vol * 0.9 * 2.2, mu = drift + 3.0 * 0.6;
-    expect(b.lnV() - l0).toBeCloseTo((mu - 0.5 * s * s) * DT + s * Math.sqrt(DT) * shock, 12);
+    const s = vol * 0.9 * 2.2;
+    // template drift and vol on their inherited 252 basis (DT); the hype term per 364-day game year (06:755, 00:161)
+    expect(b.lnV() - l0).toBeCloseTo((drift - 0.5 * s * s) * DT + (3.0 * 0.6) / (720 * 364) + s * Math.sqrt(DT) * shock, 12);
     expect(b.sigmaEff(act)).toBeCloseTo(vol * 1.98, 12);
     // the inputs never change the stream: 50 more steps, the neutral path still equals a path that never saw hype
     for (let i = 0; i < 50; i++) { a.step(0.1, 0.1, NEUTRAL_PATH); b.step(0.1, 0.1, act); c.step(0.1, 0.1, NEUTRAL_PATH); }
     expect(c.lnV()).toBe(a.lnV());
     expect(b.lnV()).not.toBe(a.lnV());
+  });
+  it("hype drift units (GK B1 at 5d450211): same RNG, same vol, H 0.6 vs 0: c·H/(720·364) a tick, c·H/364 a game day, 1.8 a 364-day game year", () => {
+    // same draws and the same σ for both (regime vol and the 1 + 2H vol factor held equal), so the log difference is the
+    // hype drift term alone
+    const reg = REGIME_MULTS.EXPANSION;
+    const on = new MemeProcess("FROG", 21_596, 8), off = new MemeProcess("FROG", 21_596, 8);
+    const perTick: number[] = [];
+    for (let i = 0; i < 720; i++) {
+      const a0 = on.lnV(), b0 = off.lnV();
+      on.step(0.2, -0.1, { hype: 0.6, reg: { ...reg, vol: reg.vol } });
+      // off: H = 0 but its vol factor raised to (1 + 2 × 0.6) through the regime vol, so σ is identical
+      off.step(0.2, -0.1, { hype: 0, reg: { ...reg, vol: reg.vol * 2.2 } });
+      perTick.push((on.lnV() - a0) - (off.lnV() - b0));
+    }
+    for (const d of perTick) expect(d).toBeCloseTo((3.0 * 0.6) / (720 * 364), 14);
+    const day = perTick.reduce((t, d) => t + d, 0);
+    expect(day).toBeCloseTo((3.0 * 0.6) / 364, 12); // 0.004945… a game day (5d450211 gave 0.007142…, ×1.444)
+    expect(day).toBeCloseTo(0.004945054945054945, 12);
+    expect(day * 364).toBeCloseTo(1.8, 10); // an annualized log-drift contribution of 1.8, not a +180% return
   });
   it("hype by hand: m = 0.15 slows the decay (0.4965 vs 0.474 an hour); with no input H decays (×0.79 an hour)", () => {
     expect(hypeStep(0.6, 0.15, 0)).toBeCloseTo(0.6 + 0.15 * (0.15 - 0.6) - 0.06 * 0.6, 15);

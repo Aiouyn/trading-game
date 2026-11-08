@@ -300,7 +300,7 @@ function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string 
           </ul>
           <p className="lpad-sub" data-testid="lp-npc-funded">{LPS.npcFunded(usd(grad.npc.funded), grad.npc.h.toFixed(2), qty(grad.npc.vol))}</p>
           {grad.npc.w && grad.npc.path && typeof grad.npc.w.f === "number" && typeof grad.npc.w.att === "number" && typeof grad.npc.w.m === "number" ? (
-            <p className="lpad-sub" data-testid="lp-npc-inputs">{LPS.npcInputs(LPS.regimes[grad.npc.w.rg] ?? grad.npc.w.rg, grad.npc.w.f.toFixed(0), grad.npc.w.att.toFixed(2), LPS.newsSign(grad.npc.w.ns), grad.npc.w.m.toFixed(2), grad.npc.path.hypeVol.toFixed(2), (grad.npc.path.drift * 100).toFixed(0))}</p>
+            <p className="lpad-sub" data-testid="lp-npc-inputs">{LPS.npcInputs(LPS.regimes[grad.npc.w.rg] ?? grad.npc.w.rg, grad.npc.w.f.toFixed(0), grad.npc.w.att.toFixed(2), LPS.newsSign(grad.npc.w.ns), grad.npc.w.m.toFixed(2), grad.npc.path.hypeVol.toFixed(2), grad.npc.path.drift.toFixed(2))}</p>
           ) : null}
           {grad.npc.tape.length === 0 ? <p className="lpad-sub" data-testid="lp-npc-none">{LPS.npcNone}</p> : (
             <ul className="lpad-tape" data-testid="lp-npc-tape">
