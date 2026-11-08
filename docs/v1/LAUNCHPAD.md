@@ -446,3 +446,148 @@ exist, and they are listed as remaining, not as implemented.
 7. Durability limits shared with the path (M1-05 rule): the marks the pools read and the 24-hour player-flow window
    restart with the clock (r_1h/r_1d read 0 until the new clock has an hour/day); a tick the sweep did not reach is not
    replayed (the next tick acts once, decaying over the gap).
+
+### Graduated-coin trader inputs: Wire events, attention, regime and hype on the price (same L4 unit; recorded before code)
+
+**Why.** GK fc6d72dc: the pools' accounting PASSES, but the product is PARTIAL. RETAIL's attention, dip-buying and belief
+terms read 0, hype has no news input and no price effect (with no players buying, H decays toward 0 in about 3 game
+days), and DEGEN never trades in a run with a flat price. This step wires the documented inputs that this base can back
+with real committed events and state, and fixes one form error (T05-14 RETAIL `pos* = tanh(signal)`).
+
+**Player outcome (observable).** After a coin graduates:
+- The Wire publishes the listing: "GULL lists in the Broker after graduating".
+- On that game day the coin's NPC traders trade larger slices (attention ×1.15). The Simulated traders panel shows what
+  each pool read: regime, Fear Index, attention, news sign, mentions, hype, and the path's vol and drift multipliers.
+- A Wire crisis that moves the GX index (bank or tech hit) moves the coin in the same tick through its market loading.
+  The coin is listed in that story's effects, and its candle shows the move.
+- A move of 15% or 30% from the day's open is published as a Wire item on the coin. That item raises attention, gives
+  retail a news sign, and feeds hype mentions.
+- Hype now widens the coin's vol (× (1 + 2H)) and adds drift (3.0·H a game year). DEGEN, which chases the coin's 1-hour
+  return scaled by (1 + 2H), trades both ways on the real path. It buys only with its own cash, sells only what it holds,
+  and shows "no fill" truthfully when the book is empty.
+
+**Sources, exact (definitions and units).**
+- **05 §3.14.1 (l.656–658), ADV:** `ADV_units = turnover × size × (1 + mkt_adv_fear_k (0.01) × max(0, F − 20)) ×
+  attention × regimeTurnover`.
+  - `attention = 1 + min(1, Σ newsworthiness of today's items on the asset)` (16).
+  - `regimeTurnover` = 1.0 / 1.1 / 1.3 / 1.1 for EXPANSION / OVERHEATING / CONTRACTION / RECOVERY.
+  - 05 §6.2: "Pool sizes scale with ADV."
+- **T05-14 RETAIL:** `signal = n_h + 0.5 tanh(r_1d/σ_d) + newsSign × (attention − 1) + 0.3 × [EXPANSION] ×
+  tanh(max(0, −r_1d/σ_d))`, then `× (1 + 2|b|/0.1)` when a belief is active, then `pos* = tanh(signal)`.
+- **T05-14 DEGEN:** `× (1 + 2|b|/0.1)` when a belief is active.
+- **16 §3.6.2, newsworthiness:** `nw = base_kind × magnitude × reach × novelty × (1 + 0.5·telegraphBonus) × outletFit`.
+  - reach 0.3 for a single company.
+  - novelty `1 − 0.5^(game days since the last item on the same subject and kind)`.
+  - Publish when `nw ≥ news_publish_threshold 0.05`.
+  - §3.6.1 source events include "05 halts and large moves", "launches … IPOs".
+  - 22 §10.9 base weights: IPO 0.5 ("filing, pricing, first trade"), CRYPTO_INCIDENT 0.55.
+- **05 §3.9.2:** large-move levels `mkt_halt_l1 15%` and `l2 30%` vs the previous official close, "each level triggers at
+  most once per day". Crypto does not halt (§3.9.1/3), so here they are news levels only.
+- **06 §3.11.3, hype:** `m` = "normalized social mentions (16 Wire mentions of the token, 0–1)". `drift_bonus = c · H`,
+  c = 3.0 per game year (MEME). `vol_multiplier = 1 + 2H` ("05 applies").
+- **05 §3.3:** `σ_ann,eff = sigmaV × 1.15 × √h × m_reg × m_event × m_hype`.
+- **05 §3.3.5:** the regime table. A global asset such as crypto uses 04's global regime.
+  - EXPANSION: vol 0.90, jump intensity × 0.8, down-probability −0.05.
+  - CONTRACTION: 1.45, × 1.6, +0.15.
+  - OVERHEATING: 1.05, × 1.0, +0.05.
+  - RECOVERY: 1.15, × 1.2, 0.
+  - On a change, the multipliers move linearly over 5 trading days.
+- **05 §3.3, factor jumps:** "04's crisis hooks deliver factor jumps J_k. Each asset applies X += L_k × (σ_ann,asset /
+  σ_ref,k) × J_k".
+- **04 §3.3.1–2, regimes:**
+  - Base chain and probabilities: EXP→OVH 0.80 / CON 0.20; OVH→CON 0.85 / EXP 0.15; CON→REC 1.00; REC→EXP 0.90 /
+    CON 0.10.
+  - Mean / minimum days: EXP 819 / 182, OVH 273 / 63, CON 273 / 91, REC 273 / 91.
+  - λ = 1/(mean − min). M = exp(Σ w·clamp(z, −2, 3)). Transition when u < 1 − e^(−H), then a second draw picks the target.
+  - Genesis EXPANSION (22 §4.12, prehistory "regime EXPANSION throughout").
+- **04 §3.14.1, Fear Index:** hourly `F_raw = 100σ(−1.2 + 3(rv21_GX − 0.16)/0.16 + 2(csi − 1) + 2.5 FSI + crisisTerm +
+  0.8(T − 50)/50 + 0.5(hack − 50)/50 + 2 max(0, −r_GX,today)/0.03 − 0.5 r_GX,63d/0.10)`.
+  - Update: `F ← F + (F_raw − F)(1 − 2^(−1/2))`, genesis 22.
+  - Genesis input values (T04-15): rv 0.16, csi 1, returns 0, tension 30, hack 0.
+  - "Missing inputs hold their last value" (§3.14.5). The regime's fear z = (F − 50)/20.
+
+**Dependencies traced to this base.**
+
+*Present, used:*
+- The GX index walk (volBp 6, so σ_GX = 6e-4/√3 × √(720 × 252) ≈ 0.147 a year), its day closes and today's return.
+- The Wire's fixed crisis stories and their realized GX effects (bank −100 bp, tech −150 bp).
+- The coin's path, marks and listing.
+- The saved pools, with H and the player net-flow window.
+
+*Absent, with the reason:*
+- **The Wire crises are not 04 majors.** They are a demo schedule, one every 48 ticks, which breaks 04's limits (one
+  major active, 504 days apart). So their `crisisTerm` and `fear_add` are not applied: applying them would pin F at 100.
+  They reach the coin only through their real GX move (the factor jump and r_GX,today).
+- **Missing inputs:** csi, FSI, tension and hack rate have no 06/07/12/16 source here, so they hold their genesis values.
+- **The other regime z keys** (credit, valuation, curve, inflation, house, oil, fiscal, contagion, policy, overheat,
+  trade, stimulus) have no 04/07/10 state here, so they hold 0.
+- **Belief (05 §6.3).** A belief needs a claim on the asset. The documented sources are:
+  - 15 player Wire posts with a structured claim: a social system this brief excludes.
+  - 16 rumors, whose subjects must be real pending events; none exists for a coin here.
+  - 16 analyst notes: the information tiers, not built.
+  - 22 PUMP_CLAIM (+0.10, "player posts, meme spawns"): a player-launched coin is not an NPC meme spawn, and asserting it
+    at graduation would be unbacked promotion.
+
+  So no claim on a coin exists, and b = 0 is the inactive case, not a stand-in. The overlay math is built with its first
+  claim source. Remaining.
+- **Hype `shock` (06: "from news templates (16) and Media-business campaigns (09)").** The only sized ones are 04's
+  CRYPTO_FLUSH storm (hype −0.4) and the CRYPTO_WINTER major (hype → 0). Neither is in the live crisis set, and campaigns
+  are promotional (excluded). Shock = 0 until 04's storm/major scheduler exists. Remaining.
+- **Not applied, and why:**
+  - The 1.15 vol scale: it compensates for partial value printing, and this path prints fully.
+  - GARCH h and m_event: no crypto crisis hook here.
+  - The print shares newsPrint/valuePrint: they belong to 05's maker/lnB model, which is the market-maker step, still
+    remaining.
+
+**Mapping (implementation choices marked).**
+1. **World inputs, owned by the clock.** New src/server/market/world.ts plays 04's role in this base.
+   - Fear F: hourly, from GX.
+   - Global regime: a daily 04 step. Each game day draws two uniforms from its own stream `macro:global:regime:<day>`.
+   - Both replay from the clock's first tick on a restart, like the stories (M1-05 rule).
+2. **Coin news, owned by the clock's Wire.**
+   - **Listing.** On a fresh graduation (not a restart relist), an IPO-kind item: magnitude 1 (IMPLEMENTATION CHOICE: a
+     listing is the whole first-trade event). nw = 0.5 × 1 × 0.3 × novelty.
+   - **Large moves.** Checked at each tick on the published end of N−1 (16: publishTick = eventTick + 1): a move of 15%
+     or 30% from the day's open, each level at most once a game day. Kind CRYPTO_INCIDENT 0.55 (IMPLEMENTATION CHOICE: the
+     22 table authors no row for 05 moves, and this is its crypto event row). magnitude = min(1, |ln move| / ln 1.30).
+   - Published only when nw ≥ 0.05.
+   - `attention = 1 + min(1, Σ nw today)`. `newsSign = sign(Σ sign·nw today)`, where the listing's sign is 0.
+     `m = min(1, Σ nw over the last 24 game hours)` (IMPLEMENTATION CHOICE: the normalization).
+   - Items stay in memory with the Wire (a restart publishes no stale listing).
+3. **Factor jump on a coin.** When a story's realized effect moves GX by J (log), each listed coin's path moves by
+   `wMarket (0.25) × σ_coin,eff / σ_GX × J`, as a value move (lnV moves with it, so no VALUE gap). The coin is added to the
+   story's effects.
+4. **Path.** Each tick uses `σ = vol × m_reg × (1 + 2H)`, `μ = drift + 3.0·H`, jump rate × the regime multiplier, and up
+   probability 0.5 − the regime's down shift. A regime change blends linearly over 5 × 720 ticks.
+   - H is the saved pools' hype. The sweep pushes it to the clock only after its save (a failed save pushes nothing).
+   - A relist after a restart carries the saved H. A fresh listing starts at H₀ 0.6.
+5. **Pools.** ADV_t = 0.15 × 1e9 × (1 + 0.01 max(0, F − 20)) × attention × regimeTurnover, at N−1.
+   - The cap is w × rate × ADV_t / 720 tokens, and pos moves by qty / ADV_t.
+   - RETAIL takes the T05-14 signal through tanh. DEGEN and RETAIL use belief ×1 (inactive, see above).
+   - Hype takes the Wire mentions m. Shock stays 0.
+   - The inputs each step read are saved on the coin's pools (public) and shown in the panel.
+   - Funding is unchanged (once, at the base ADV).
+6. **Unchanged.** Every existing asset's path and story, the book fill law, the fee, the funding, the save atomicity, the
+   exactly-once rule, and GET read-only.
+
+**Acceptance (this step).**
+1. **Hand fixtures from the source formulas:**
+   - nw and attention for the listing and for a large move.
+   - The F step and the regime step: no move before the minimum days; a forced hazard picks by P_BASE.
+   - The RETAIL tanh signal with and without the dip and news terms.
+   - The path step with H on vs off on the same draws; the factor jump size.
+   - ADV_t and the cap (107,812 tokens/tick at attention 1.15, vs 93,750).
+2. **Event → hype → target/price → executed volume:** a listing day vs no news; a GX story moving the coin; DEGEN buying
+   on a positive 1-hour return and selling what it holds; DEGEN reporting no fill on an empty book.
+3. **Kept:** the cash identity, supply 1e9, the random interleave of concurrent requests and ticks, failed-save rollback
+   (no hype pushed), restart (saved H relisted, no repeated listing item, regime/F replay), and determinism.
+4. **Real plain UI:** the Wire shows the listing item and a crisis whose effects include the coin; the panel shows the
+   inputs; candles carry the move; 390/520, account switch, wealth, restart.
+5. **Remaining (not claimed):**
+   - belief claims;
+   - hype shocks (04 storms/majors, 09 campaigns);
+   - 04's full Fear Index inputs and majors;
+   - the 05 market maker (lnB, square-root ladder, the 06 meme half-spread 1–3% and impactY 1.2 vs the B3 45 bp/0.8, print
+     shares);
+   - DEGEN liquidations (07/06);
+   - 20 calibration and the L8 gate.
