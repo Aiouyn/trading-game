@@ -12,8 +12,8 @@
 //    idio = sqrt(1 - 0.625) on the coin's own Student-t (docs/v1/LAUNCHPAD.md "Book liquidity path ... template factors").
 //    The market factor is this base's index GX, read (its own tick step standardized), never redrawn; the crypto factor is
 //    one normal a tick from the world stream `lp:crypto` (FactorDraws), shared by every listed coin.
-// Not copied, because this base has no such model: regimes and cycleBeta (no regime drift here), GARCH, the value pull
-// and the ecology pools (docs/v1/LAUNCHPAD.md, owner decision on L4's "retail-heavy pool weights").
+// Not copied, because this base has no such model: regimes and cycleBeta (no regime drift here), GARCH and the value
+// pull. The trader pools (05 §6.2 meme weights) trade the coin through its book: src/server/broker/pools.ts.
 // Its own streams (`lp:<TICKER>` for the draws, `lp:<TICKER>:px` for the path), so no other asset's path changes.
 import { rng } from "@/shell/contracts/mockFeed";
 
@@ -25,6 +25,8 @@ export const IDIO_LOADING = Math.sqrt(1 - MEME_TEMPLATE.wMarket ** 2 - MEME_TEMP
 /** The world's crypto factor stream (one standard normal per clock tick, shared by every listed coin). */
 export const CRYPTO_FACTOR_STREAM = "lp:crypto";
 export const TICKS_PER_DAY = 720;
+/** Game ticks a game hour (24 a game day). */
+export const TICKS_PER_HOUR = TICKS_PER_DAY / 24;
 export const DAYS_PER_YEAR = 252;
 export const DT = 1 / (TICKS_PER_DAY * DAYS_PER_YEAR);
 
@@ -68,6 +70,9 @@ export class MemeProcess {
   readonly vol: number;
   readonly drift: number;
   private lnP: number;
+  /** The sum of the permanent impacts applied to the path (log): lnV = lnP − offset is the template path without the
+   *  flow's moves, the value the VALUE pool reads (05 §6.2 gap G = lnRef − lnV; docs/v1/LAUNCHPAD.md trader pools). */
+  private offset = 0;
   private readonly draws: Draws;
   constructor(readonly ticker: string, baseMinor: number, readonly dp: number) {
     ({ vol: this.vol, drift: this.drift } = memeParams(ticker));
@@ -87,8 +92,12 @@ export class MemeProcess {
   }
   /** A fill's permanent impact (src/server/broker/book.ts): the path moves by `logMove` now and steps on from there. */
   shift(logMove: number): number {
+    const from = this.lnP;
     this.lnP = Math.max(this.lnP + logMove, Math.log(MEME_TEMPLATE.floor));
+    this.offset += this.lnP - from;
     return this.minor();
   }
+  /** The template path's log value in dollars, without the flow's permanent moves. */
+  lnV(): number { return this.lnP - this.offset; }
   minor(): number { return Math.max(1, Math.round(Math.exp(this.lnP) * 10 ** this.dp)); }
 }

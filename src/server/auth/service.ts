@@ -6,6 +6,7 @@ import type { QuarantinedPlayerRow } from "./store";
 import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoin, type LpCoinRow, type LpState } from "@/server/launchpad/state";
 import { LP } from "@/launchpad/rules";
 import type { BookAccount } from "@/server/broker/book";
+import { POOL_KINDS, type CoinPools } from "@/server/broker/pools";
 import type { PersistedPosition } from "./types";
 import {
   AuthError,
@@ -36,13 +37,21 @@ export interface ListedCoin { ticker: string; name: string; price: number }
  *  then `sweep` decides on copies of every loadable ledger and the books; `saved` runs once the commit is saved. */
 export interface ListedSweepStep {
   readonly list?: (coins: ListedCoin[]) => void;
-  readonly sweep: (ledgers: Map<AccountId, PlayerPrivateRecord>, books: Map<string, BookAccount>) => { ledgers: ReadonlyMap<AccountId, PlayerPrivateInput>; books: Map<string, BookAccount>; saved?: () => void };
+  readonly sweep: (ledgers: Map<AccountId, PlayerPrivateRecord>, books: Map<string, BookAccount>, coins: ReadonlyMap<string, GraduatedCoin>) => { ledgers: ReadonlyMap<AccountId, PlayerPrivateInput>; books: Map<string, BookAccount>; pools?: ReadonlyMap<string, CoinPools>; saved?: () => void };
 }
+/** What the trader pools read of a graduated coin's saved state: its listing price and its pools (none before the first
+ *  pool step). */
+export interface GraduatedCoin { readonly price: number; readonly pools?: CoinPools }
 /** A graduated coin's book account with its saved flow (none before graduation). */
 const bookOf = (c: LpCoin): BookAccount | undefined => (c.book ? { cash: c.book.cash, tokens: c.book.tokens, ...(c.flow ? { flow: { ...c.flow } } : {}) } : undefined);
 /** The section with these coins' books (and flows) replaced, re-checked whole (a book fill that breaks it throws). */
-function withBooks(lpBefore: LpState, books: ReadonlyMap<string, BookAccount>): LpState {
+function withBooks(lpBefore: LpState, books: ReadonlyMap<string, BookAccount>, pools?: ReadonlyMap<string, CoinPools>): LpState {
   const lp = cloneLaunchpad(lpBefore);
+  for (const [ticker, p] of pools ?? []) {
+    const c = lp.coins.find((x) => x.ticker === ticker);
+    if (!c?.book) throw new Error("Pools on a coin without a book.");
+    c.pools = structuredClone(p);
+  }
   for (const [ticker, b] of books) {
     const c = lp.coins.find((x) => x.ticker === ticker);
     if (!c?.book) throw new Error("A book fill on a coin without a book.");
@@ -130,6 +139,7 @@ export class AuthService {
     for (const c of lp.coins) {
       if (!c.book) continue;
       let held = c.book.tokens;
+      for (const k of POOL_KINDS) held += c.pools?.[k].tokens ?? 0; // the coin's NPC pools hold tokens too
       for (const p of this.players.values()) {
         const q = p.positions[c.ticker];
         if (q) held += Number(q.qty);
@@ -500,12 +510,13 @@ export class AuthService {
           ledgers.set(accountId, clonePlayerPrivate(next.get(accountId) ?? current));
         }
         const books = new Map(lp.coins.flatMap((c) => { const b = bookOf(c); return b ? [[c.ticker, b] as const] : []; }));
-        const out = listed.sweep(ledgers, books);
+        const coins = new Map(lp.coins.flatMap((c) => (c.grad && c.book ? [[c.ticker, { price: c.grad.price, ...(c.pools ? { pools: structuredClone(c.pools) } : {}) }] as const] : [])));
+        const out = listed.sweep(ledgers, books, coins);
         for (const [accountId, input] of out.ledgers) {
           next.set(accountId, buildPlayerPrivate(accountId, input));
           if (!before.has(accountId)) before.set(accountId, this.players.get(accountId)!);
         }
-        if (out.books.size > 0) this.launchpad = { ok: true, state: withBooks(lp, out.books) };
+        if (out.books.size > 0 || (out.pools?.size ?? 0) > 0) this.launchpad = { ok: true, state: withBooks(lp, out.books, out.pools) };
         saved = out.saved;
       }
       if (next.size === 0 && this.launchpad === lpBefore) return 0;

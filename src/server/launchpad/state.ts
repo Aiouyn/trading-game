@@ -3,6 +3,7 @@
 // together or not at all. Parsed strictly on load: a section that does not parse is kept verbatim (never reset) and the
 // Launchpad reads as unavailable until it is repaired.
 import type { BookFlow } from "@/server/broker/book";
+import { POOL_KINDS, type CoinPools } from "@/server/broker/pools";
 import { LP, type Book, type Curve, type TaglineId, graduationOf, isTagline, liquidationCents, listPriceMinor, tickerOk } from "@/launchpad/rules";
 
 export interface LpPrint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
@@ -31,6 +32,9 @@ export interface LpCoin extends Curve {
   /** The book's flow (src/server/broker/book.ts BookFlow: the price law's decayed flow, the tick's mid and cap use), saved
    *  with the book by every fill from the first one on (absent before, and on a save from before this field). */
   flow?: BookFlow;
+  /** The coin's trader pools (src/server/broker/pools.ts: NPC accounts, positions, hype, NPC prints), created and funded
+   *  by the first pool step after graduation (absent before, and on a save from before this field). */
+  pools?: CoinPools;
 }
 /** One account's replies by idempotency key (newest last, 50 kept). `fp` is the request it answered. */
 export interface LpReceipt { key: string; fp: string; reply: unknown }
@@ -65,6 +69,7 @@ function coinOk(c: unknown): c is LpCoin {
   if ((c.grad === undefined) !== (c.book === undefined) || "pool" in c) return false; // "pool": the withdrawn 6ac2b3b1 stand-in
   if (c.grad !== undefined && !gradOk(c as unknown as LpCoin)) return false;
   if (c.flow !== undefined && (c.book === undefined || !flowOk(c.flow))) return false;
+  if (c.pools !== undefined && (c.book === undefined || !poolsOk(c.pools))) return false;
   return c.hist === undefined || histOk(c.hist, c as unknown as LpCoin);
 }
 
@@ -84,6 +89,17 @@ function flowOk(f: unknown): boolean {
   return obj(f) && Object.keys(f).length === 6 && int(f.t) && int(f.mid, 1) && num(f.buy) && num(f.sell) && num(f.tb) && num(f.ts);
 }
 
+const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const sint = (v: unknown): v is number => Number.isSafeInteger(v);
+function poolsOk(p: unknown): boolean {
+  if (!obj(p) || Object.keys(p).length !== 9 + POOL_KINDS.length || !int(p.vol)) return false;
+  if (typeof p.ep !== "string" || !/^[0-9a-z]{1,16}$/.test(p.ep) || !int(p.t) || !int(p.hr) || !fin(p.h) || p.h < 0 || p.h > 1) return false;
+  if (!int(p.bk) || p.bk > LP.SUPPLY || !int(p.funded) || !Array.isArray(p.pnet) || p.pnet.length > 24 || !Array.isArray(p.tape) || p.tape.length > 20) return false;
+  if (!p.pnet.every((e: unknown) => Array.isArray(e) && e.length === 2 && int(e[0]) && sint(e[1]))) return false;
+  if (!p.tape.every((x: unknown) => obj(x) && Object.keys(x).length === 5 && int(x.tick) && POOL_KINDS.includes(x.pool as never) && (x.side === "BUY" || x.side === "SELL") && int(x.qty, 1) && int(x.px))) return false;
+  return POOL_KINDS.every((k) => { const a = p[k]; return obj(a) && Object.keys(a).length === 3 && int(a.cash) && int(a.tokens) && (a.tokens as number) <= LP.SUPPLY && fin(a.pos); });
+}
+
 const curveOk = (x: unknown, sold: unknown) => int(x, LP.X0) && int(sold) && (sold as number) <= LP.Y0 - LP.GRAD_Y;
 function histOk(h: unknown, c: LpCoin): boolean {
   if (!obj(h) || !int(h.since, c.createdAtMs) || !int(h.dropped) || !Array.isArray(h.pts) || h.pts.length > LP.HIST_KEEP) return false;
@@ -100,6 +116,13 @@ function histOk(h: unknown, c: LpCoin): boolean {
 /** The cash a coin's Launchpad market holds: the curve's real cash while live; once graduated the curve holds nothing
  *  (the raise went to the fee and the book) and the book's cash is `book.cash`. */
 export const marketCashCents = (c: LpCoin) => (c.book ? 0 : c.x - LP.X0);
+
+/** A coin's trader pools (src/server/broker/pools.ts): their cash and tokens, and the cash the booked NPC line funded
+ *  them with (0 before their first step). World cash identity: Σ ledgers + curves + books + pools + sinks = start cash +
+ *  Σ funded; supply: Σ positions + book + pools' tokens = the supply. */
+export const poolCashCents = (c: LpCoin) => POOL_KINDS.reduce((s, k) => s + (c.pools?.[k].cash ?? 0), 0);
+export const poolTokens = (c: LpCoin) => POOL_KINDS.reduce((s, k) => s + (c.pools?.[k].tokens ?? 0), 0);
+export const poolFundedCents = (c: LpCoin) => c.pools?.funded ?? 0;
 
 /** Append one executed trade to the coin's history (starting it on a legacy coin), keeping at most HIST_KEEP points. */
 export function recordPoint(c: LpCoin, p: LpPoint): void {

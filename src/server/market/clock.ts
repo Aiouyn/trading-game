@@ -10,7 +10,7 @@ import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
-import { ShockFeed } from "./shockFeed";
+import { ShockFeed, type PoolInputs } from "./shockFeed";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 
@@ -109,6 +109,11 @@ export class LiveMarket {
    *  path itself (a restart starts the clock again). Returns the new mark, or null when not listed here. */
   impactListed(assetId: string, logMove: number): number | null {
     return this.isListed(assetId) ? this.feed.impactListed(assetId, logMove) : null;
+  }
+
+  /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
+  poolInputs(assetId: string): PoolInputs | null {
+    return this.isListed(assetId) ? this.feed.poolInputs(assetId) : null;
   }
 
   isListed(assetId: string): boolean {

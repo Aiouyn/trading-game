@@ -34,7 +34,7 @@ import { isListed, listVersion, listedDef, resetListingsForTests } from "@/marke
 import { LP, minAfterSlip } from "@/launchpad/rules";
 import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, type AuthStore, type AuthStoreSnapshot } from "@/server/auth";
 import { setBrokerForTests } from "@/server/broker";
-import { marketCashCents } from "@/server/launchpad/state";
+import { marketCashCents, poolCashCents, poolFundedCents, poolTokens } from "@/server/launchpad/state";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { getCandles } from "@/server/market/candles";
 
@@ -84,11 +84,11 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
   const setCash = (cents: number) => auth.sweepPrivateStates((cur) => ({ ...cur, cashCents: cents }));
   /** Σ player cash + Σ live curves' real cash + Σ books' cash + the Launchpad sink (Broker fees on a listed coin go to its book). */
   const world = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + r.cashCents, 0)))
-    + (await auth.readLaunchpad(null, (lp) => lp.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0), 0) + lp.sinkCents));
+    + (await auth.readLaunchpad(null, (lp) => lp.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0) + poolCashCents(c) - poolFundedCents(c), 0) + lp.sinkCents)); // the pools' booked funding is the one NPC cash line
   const lp = () => auth.readLaunchpad(null, (s) => s);
-  /** Σ Broker positions in FROG over every ledger + the book's tokens. */
+  /** Σ Broker positions in FROG over every ledger + the book's tokens + the trader pools' tokens. */
   const supply = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + (r.positions.find((p) => p.assetId === "FROG")?.qty ?? 0), 0)))
-    + ((await lp()).coins[0]!.book?.tokens ?? 0);
+    + ((await lp()).coins[0]!.book?.tokens ?? 0) + poolTokens((await lp()).coins[0]!);
 
   it("threshold → listed → positions in the same commit (hand-worked); Launchpad trading ends (GRADUATED)", async () => {
     const a = await signUp("alice"), b = await signUp("bob");
@@ -123,7 +123,7 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
     // Wealth: cash + the position at the server mark (the board uses the same valuation as Portfolio).
     expect((await get(boardGet, "/api/leaderboard", b)).self.nw).toBe(((5_559_994 + 17_276_800) / 100).toFixed(2));
     // The Graduated view: public record, listing price, book and the Broker mark.
-    expect((await coinView()).grad).toEqual({ atMs: expect.any(Number), raise: 4_395_605, fee: 65_934, price: 21_596, book: { cash: 4_329_671, tokens: 200_000_000 }, mark: 21_596 });
+    expect((await coinView()).grad).toEqual({ atMs: expect.any(Number), raise: 4_395_605, fee: 65_934, price: 21_596, book: { cash: 4_329_671, tokens: 200_000_000 }, mark: 21_596, npc: null }); // the trader pools start on the first server tick after the listing (launchpad-pools.test.ts)
     // History ends at the graduation, at the listing price.
     const h = await get(histGet, "/api/launchpad/history?ticker=FROG");
     expect(h.grad).toEqual({ atMs: expect.any(Number), at: 1, price: 21_596 });

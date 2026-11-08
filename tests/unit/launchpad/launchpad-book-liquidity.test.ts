@@ -20,7 +20,7 @@ import { LP } from "@/launchpad/rules";
 import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, type AuthStore, type AuthStoreSnapshot } from "@/server/auth";
 import { getBroker, setBrokerForTests } from "@/server/broker";
 import { BOOK_LAW, fillOnBook, type BookAccount } from "@/server/broker/book";
-import { marketCashCents } from "@/server/launchpad/state";
+import { marketCashCents, poolCashCents, poolFundedCents, poolTokens } from "@/server/launchpad/state";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { memeParams } from "@/server/market/meme";
 
@@ -76,10 +76,10 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
   const setCash = (cents: number) => auth.sweepPrivateStates((cur) => ({ ...cur, cashCents: cents }));
   /** Σ player cash + Σ live curves' cash + Σ books' cash + the sink: constant across book fills (the fee stays in the book). */
   const world = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + r.cashCents, 0)))
-    + (await auth.readLaunchpad(null, (lp) => lp.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0), 0) + lp.sinkCents));
+    + (await auth.readLaunchpad(null, (lp) => lp.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0) + poolCashCents(c) - poolFundedCents(c), 0) + lp.sinkCents)); // the pools' booked funding is the one NPC cash line
   const lp = () => auth.readLaunchpad(null, (s) => s);
   const book = async () => (await lp()).coins[0]!.book!;
-  const supply = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + (r.positions.find((p) => p.assetId === "FROG")?.qty ?? 0), 0))) + (await book()).tokens;
+  const supply = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + (r.positions.find((p) => p.assetId === "FROG")?.qty ?? 0), 0))) + (await book()).tokens + poolTokens((await lp()).coins[0]!);
   const mark = () => minor(market.snapshot().quotes.rows.FROG!.last);
   const tick = async () => { market.step(); await getBroker().sweep(); };
   const holds = async () => { expect(await supply()).toBe(LP.SUPPLY); expect((await book()).cash).toBeGreaterThanOrEqual(0); expect((await book()).tokens).toBeGreaterThanOrEqual(0); };

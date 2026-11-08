@@ -3,7 +3,10 @@
 import { ASSET_BY_ID, type AssetFixture } from "@/market/catalog";
 import { MockFeed, fmt } from "@/shell/contracts/mockFeed";
 import { listAsset } from "@/market/listings";
-import { CRYPTO_FACTOR_STREAM, Draws, MemeProcess } from "./meme";
+import { CRYPTO_FACTOR_STREAM, Draws, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
+
+/** What the trader pools read of a listed coin (src/server/broker/pools.ts). */
+export interface PoolInputs { tick: number; ref: number; lnV: number; r1h: number | null; r1d: number | null; vol: number }
 
 /** The market factor of a listed coin's template step: this base's index. */
 export const MARKET_FACTOR_ASSET = "GX";
@@ -23,6 +26,22 @@ export class ShockFeed extends MockFeed {
     this.memes.set(a.assetId, new MemeProcess(a.assetId, a.base, a.displayDecimals));
   }
 
+  /** Each listed coin's marks and template values (lnV) at the end of its recent ticks, newest last (at most
+   *  POOL_LOOKBACK + 1): what the trader pools read as "state published at the end of tick N−1" (05 §6.2). In memory,
+   *  like the path: a restart starts it again. */
+  private readonly marks = new Map<string, { p: number[]; v: number[] }>();
+
+  /** The trader pools' inputs for a listed coin at this tick, read from the end of the previous tick: its mark P_{N−1}
+   *  (minor units), lnV_{N−1}, the 1-hour and 1-day log returns (null until the clock has that much of this coin's
+   *  marks) and its template vol; null when the coin is not listed here or no tick has ended since its listing. */
+  poolInputs(assetId: string): PoolInputs | null {
+    const m = this.memes.get(assetId), h = this.marks.get(assetId);
+    if (!m || !h || h.p.length === 0) return null;
+    const n = h.p.length, ref = h.p[n - 1]!;
+    const back = (k: number) => (n > k ? Math.log(ref / h.p[n - 1 - k]!) : null);
+    return { tick: this.tick, ref, lnV: h.v[n - 1]!, r1h: back(TICKS_PER_HOUR), r1d: back(TICKS_PER_DAY), vol: m.vol };
+  }
+
   /** The current mark of an asset in its minor unit, or null. */
   lastMinor(assetId: string): number | null {
     return this.assets.get(assetId)?.last ?? null;
@@ -39,6 +58,15 @@ export class ShockFeed extends MockFeed {
   override advance(): void {
     const gx = this.assets.get(MARKET_FACTOR_ASSET), gxDef = ASSET_BY_ID[MARKET_FACTOR_ASSET];
     const gxFrom = gx?.last ?? 0;
+    // the end of the previous tick, as published (after its fills' permanent moves): the pools' N−1 state
+    for (const [id, m] of this.memes) {
+      const s = this.assets.get(id);
+      if (!s) continue;
+      const h = this.marks.get(id) ?? { p: [], v: [] };
+      h.p.push(s.last); h.v.push(m.lnV());
+      if (h.p.length > TICKS_PER_DAY + 1) { h.p.shift(); h.v.shift(); }
+      this.marks.set(id, h);
+    }
     super.advance();
     const zCrypto = this.cryptoFactor.normal();
     const zMarket = gx && gxDef && gxDef.volBp > 0 && gxFrom > 0 ? (gx.last - gxFrom) / gxFrom / (gxDef.volBp / 10_000 / Math.sqrt(3)) : 0;

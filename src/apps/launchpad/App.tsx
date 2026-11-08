@@ -26,7 +26,9 @@ const History = lazy(() => import("./History"));
 export const LAUNCHPAD_POLL_MS = 5_000;
 
 interface Print { atMs: number; tick: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
-interface Grad { atMs: number; raise: number; fee: number; price: number; book: Book; mark: number | null }
+interface NpcAcct { cash: number; tokens: number }
+interface Npc { h: number; funded: number; vol: number; pools: Record<"retail" | "value" | "degen", NpcAcct>; tape: { tick: number; pool: string; side: "BUY" | "SELL"; qty: number; px: number }[] }
+interface Grad { atMs: number; raise: number; fee: number; price: number; book: Book; mark: number | null; npc?: Npc | null }
 interface Coin extends Curve { ticker: string; name: string; tagline: TaglineId; creator: string | null; mine: boolean; createdAtMs: number; holders: number; tape: Print[]; grad?: Grad | null }
 interface Self { cashCents: number; spendableCents: number; holdings: Record<string, number>; live: number; nextLaunchAtMs: number | null }
 interface View { coins: Coin[]; self: Self | null }
@@ -44,7 +46,8 @@ function parseView(v: unknown): View | null {
   const o = v as { coins?: unknown; self?: unknown };
   if (!Array.isArray(o.coins)) return null;
   const int = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 0;
-  const gradOk = (g: Grad | null | undefined) => !g || (int(g.atMs) && int(g.raise) && int(g.fee) && int(g.price) && !!g.book && int(g.book.cash) && int(g.book.tokens) && (g.mark === null || int(g.mark)));
+  const gradOk = (g: Grad | null | undefined) => !g || (int(g.atMs) && int(g.raise) && int(g.fee) && int(g.price) && !!g.book && int(g.book.cash) && int(g.book.tokens) && (g.mark === null || int(g.mark)) && npcOk(g.npc));
+  const npcOk = (n: Npc | null | undefined) => !n || (typeof n.h === "number" && int(n.funded) && int(n.vol) && !!n.pools && (["retail", "value", "degen"] as const).every((k) => !!n.pools[k] && int(n.pools[k].cash) && int(n.pools[k].tokens)) && Array.isArray(n.tape));
   const coins = o.coins.filter((c): c is Coin => !!c && typeof c === "object" && typeof (c as Coin).ticker === "string" && Number.isSafeInteger((c as Coin).x) && Number.isSafeInteger((c as Coin).sold) && Array.isArray((c as Coin).tape) && gradOk((c as Coin).grad));
   return { coins, self: o.self && typeof o.self === "object" ? (o.self as Self) : null };
 }
@@ -284,6 +287,21 @@ function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string 
       <p className="lpad-sub" data-testid="lp-listed-at">{LPS.listedAt(px8(grad.price))}</p>
       <p className="lpad-sub" data-testid="lp-book">{LPS.bookNow(usd(grad.book.cash), qty(grad.book.tokens))}</p>
       <p className="lpad-sub">{LPS.brokerOnly}</p>
+      <h3>{LPS.npcTitle}</h3>
+      <p className="lpad-sub">{LPS.npcRule}</p>
+      {!grad.npc ? <p className="lpad-sub" data-testid="lp-npc-waiting">{LPS.npcWaiting}</p> : (
+        <div data-testid="lp-npc">
+          <ul className="lpad-tape" data-testid="lp-npc-pools">
+            {(["retail", "value", "degen"] as const).map((k) => <li key={k} data-testid={`lp-npc-${k}`}><span>{LPS.npcPool(LPS.npcPools[k]!, qty(grad.npc!.pools[k].tokens), usd(grad.npc!.pools[k].cash))}</span></li>)}
+          </ul>
+          <p className="lpad-sub" data-testid="lp-npc-funded">{LPS.npcFunded(usd(grad.npc.funded), grad.npc.h.toFixed(2), qty(grad.npc.vol))}</p>
+          {grad.npc.tape.length === 0 ? <p className="lpad-sub" data-testid="lp-npc-none">{LPS.npcNone}</p> : (
+            <ul className="lpad-tape" data-testid="lp-npc-tape">
+              {[...grad.npc.tape].reverse().slice(0, 8).map((t) => <li key={`${t.tick}-${t.pool}`}><span>{LPS.npcPrint(LPS.npcPools[t.pool] ?? t.pool, t.side, qty(t.qty), px8(t.px))}</span><span className="num">{`#${t.tick}`}</span></li>)}
+            </ul>
+          )}
+        </div>
+      )}
       <div className="lpad-actions"><Button variant="primary" data-testid="lp-open-broker" onClick={() => store.getState().open("broker", coin.ticker)}>{LPS.openBroker}</Button></div>
       <Suspense fallback={<div className="lpad-skel lpad-hist-skel" aria-busy="true" aria-label={LPS.hLoading} data-testid="lp-hist-loading" />}>
         <History ticker={coin.ticker} version={`grad/${grad.atMs}`} />

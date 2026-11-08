@@ -6,6 +6,8 @@ import type { ListedCoin } from "@/server/auth/service";
 import type { BrokerIntentReply, BrokerLedgerView } from "@/market/brokerLedger";
 import type { MyFill, OrderDraft } from "@/shell/contracts/channels";
 import type { ExecutedFill } from "@/server/market/candles";
+import { ASSET_BY_ID } from "@/market/catalog";
+import { MEME_POOL_WEIGHTS, stepPools, type CoinPools } from "./pools";
 import { decideCancel, decidePlace, ledgerView, quoteFromSnapshot, sweepLedger, sweepListed, type IdSource } from "./execution";
 
 const randomIds: IdSource = { next: (kind) => newId(kind) };
@@ -103,11 +105,26 @@ export class BrokerService {
       }
     }, {
       ...(this.deps.list ? { list: this.deps.list } : {}),
-      sweep: (ledgers, books) => {
+      sweep: (ledgers, books, coins) => {
         const q = quoteFromSnapshot(market.snapshot()); // after list(): a coin listed in this turn has its mark
         const out = sweepListed(ledgers, books, q, this.ids);
         for (const [id, next] of out.ledgers) executed.push(...newFills(ledgers.get(id)!, next));
-        return { ledgers: out.ledgers, books: out.books, saved: () => { for (const m of out.moves) market.impactListed(m.assetId, m.move); } };
+        // then the coins' trader pools (src/server/broker/pools.ts), once a tick, against the books as just swept
+        const pools = new Map<string, CoinPools>();
+        const moves = [...out.moves];
+        for (const [ticker, c] of coins) {
+          const a = ASSET_BY_ID[ticker], inp = market.poolInputs?.(ticker) ?? null, mark = q.last(ticker), book = out.books.get(ticker) ?? books.get(ticker);
+          if (!a || !inp || mark === null || !book || !q.tradable(ticker) || inp.tick !== q.tick) continue;
+          const step = stepPools(a, MEME_POOL_WEIGHTS, c.price, c.pools, book, mark, inp, market.epoch);
+          if (!step) continue;
+          pools.set(ticker, step.pools);
+          out.books.set(ticker, step.book);
+          for (const [i, pr] of step.prints.entries()) {
+            executed.push({ fillId: `npc_${market.epoch}_${pr.tick}_${ticker}_${pr.pool}`, assetId: ticker, tick: pr.tick, qty: String(pr.qty) });
+            moves.push({ assetId: ticker, move: step.moves[i]! });
+          }
+        }
+        return { ledgers: out.ledgers, books: out.books, pools, saved: () => { for (const m of moves) market.impactListed(m.assetId, m.move); } };
       },
     });
     // Only after the commit: a failed write throws above and adds no volume.

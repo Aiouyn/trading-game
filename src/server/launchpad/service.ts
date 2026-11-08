@@ -11,6 +11,7 @@ import { reservedCashCents } from "@/server/broker/execution";
 import type { PersistedPosition } from "@/server/auth/types";
 import { ASSETS } from "@/market/catalog";
 import { LISTED_DP, listedDef } from "@/market/listings";
+import type { NpcPrint, PoolAccount, PoolKind } from "@/server/broker/pools";
 import { LP, graduationOf, listPriceMinor, nameOk, quote, tickerOk, type Book, type TaglineId } from "@/launchpad/rules";
 import { fmt } from "@/shell/contracts/mockFeed";
 import { moderateName, normalizeName } from "./moderate";
@@ -30,9 +31,12 @@ export interface CoinView {
   createdAtMs: number; x: number; sold: number; holders: number;
   /** Null while the coin is on its curve. Once graduated: when, the raise, the fee, the listing price (1e-8 $), the
    *  book's reserves (public, like the curve's) and the server mark now (1e-8 $; null before the clock lists it). */
-  grad: { atMs: number; raise: number; fee: number; price: number; book: Book; mark: number | null } | null;
+  grad: { atMs: number; raise: number; fee: number; price: number; book: Book; mark: number | null; npc: NpcView | null } | null;
   tape: { atMs: number; tick: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }[];
 }
+/** A graduated coin's trader pools, public (NPC accounts, not players'): hype, the booked funding, each pool's cash,
+ *  tokens and tracking position, the tokens they traded in all, and the last NPC prints. Null before the first pool step. */
+export interface NpcView { h: number; funded: number; vol: number; pools: Record<PoolKind, PoolAccount>; tape: NpcPrint[] }
 export interface LaunchpadView {
   coins: CoinView[];
   /** Only the caller's own values; null for a guest (or an account whose ledger cannot be loaded). */
@@ -73,7 +77,8 @@ export class LaunchpadService {
       coins: [...lp.coins].reverse().map((c) => ({
         ticker: c.ticker, name: c.name, tagline: c.tagline, creator: handleOf(c.creatorId), mine: c.creatorId === me,
         createdAtMs: c.createdAtMs, x: c.x, sold: c.sold,
-        grad: c.grad && c.book ? { atMs: c.grad.atMs, raise: c.grad.raise, fee: c.grad.fee, price: c.grad.price, book: { ...c.book }, mark: this.deps.mark?.(c.ticker) ?? null } : null,
+        grad: c.grad && c.book ? { atMs: c.grad.atMs, raise: c.grad.raise, fee: c.grad.fee, price: c.grad.price, book: { ...c.book }, mark: this.deps.mark?.(c.ticker) ?? null,
+          npc: c.pools ? { h: c.pools.h, funded: c.pools.funded, vol: c.pools.vol, pools: { value: { ...c.pools.value }, retail: { ...c.pools.retail }, degen: { ...c.pools.degen } }, tape: c.pools.tape.map((t) => ({ ...t })) } : null } : null,
         holders: Object.values(lp.holdings).filter((h) => (h[c.ticker] ?? 0) > 0).length,
         tape: [...c.tape].reverse(),
       })),

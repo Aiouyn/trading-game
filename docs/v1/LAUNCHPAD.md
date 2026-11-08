@@ -406,3 +406,43 @@ exist, and they are listed as remaining, not as implemented.
    tick acts; restart (new epoch) keeps the pools' accounts and pos and acts again; an old save without pools loads and
    is funded once; determinism: the same seed and inputs give byte-identical pools.
 6. Existing assets' paths and every B3 test unchanged; GET routes read only; no private field in any public read.
+
+**As built (same unit).**
+- src/server/broker/pools.ts: MEME_POOL_WEIGHTS {value 0.2, retail 3.0, degen 1.0} (CRYPTO row for comparison only),
+  POOL_LAW (rates 0.9 / 0.15 / 0.4 ADV a day, half-life 7,200 ticks, turnover 0.15, g0 1.0, soft 3, limit 3 half
+  spreads, hype a 0.15 b 0.06 H₀ 0.6 ×20, speed 1 = implementation choice), ADV_TOKENS 150,000,000, `fundingOf`,
+  `newPools`, `retailNoise`, `targets`, `hypeStep`/`hypeF`, `stepPools` (pure). Token amounts are rounded to 1e-6 then
+  truncated (a float's last bit never drops a whole token). A pool sale whose fee exceeds its proceeds and its cash is
+  skipped (the players' rule). An idle tick writes nothing (the decay composes over the gap).
+- Clock: MemeProcess tracks the applied permanent moves (`lnV()` = log mark − their sum); ShockFeed keeps each listed
+  coin's last 721 end-of-tick marks and lnV in memory and serves `poolInputs` (P_{N−1}, lnV_{N−1}, r_1h, r_1d, vol);
+  LiveMarket.poolInputs.
+- BrokerService.sweep: after the players' resting orders (oldest first, unchanged), each graduated coin's pools step on
+  the same tick's quote; their fills go through `fillOnBook`, their books, pools and the players' ledgers commit in the
+  one persist of `sweepPrivateStates` (rolled back together on a failed save; the permanent moves only after the save);
+  their prints count in the candles' volume (fill ids `npc_<epoch>_<tick>_<coin>_<pool>`).
+- Saved: LpCoin.pools (strict parse: 12 keys, accounts {cash, tokens, pos}, bounded tape and window); the load-time
+  supply check adds the pools' tokens. Public: the Launchpad view's `grad.npc` {h, funded, vol, pools, tape}; the
+  Graduated panel shows "Simulated traders" (weights, each pool's holdings and cash, funding, tokens traded, hype, the
+  last prints). No private field is added; GET routes stay read-only.
+- Tests: tests/unit/launchpad/launchpad-pools.test.ts (hand ticks reproduced by evidence/launchpad/tools/hand_pools.py,
+  hype by hand, weights by behavior, the world with players and a random interleave of concurrent requests and ticks,
+  exactly once with a failed save, restart and tamper, public read-only, determinism). The B3 tests' conservation
+  helpers now count the pools (supply + book + pools tokens; cash identity less the booked funding).
+
+**Remaining full-vision systems (not built here; the L4 requirement is not waived by this list).**
+1. RETAIL attention (16 newsworthiness), dip-buying (04 regimes, EXPANSION) and the belief multiplier (05 §6.3): no such
+   systems exist in this base for any asset; the terms read 0 / ×1.
+2. Hype: m (Wire mentions of the coin: the story catalog names only fixed assets) and shocks (16 news templates, 09
+   Media campaigns) read 0; hype's price effects (06 §3.11.3 drift bonus c·H, vol × (1 + 2H), "05 applies") are not
+   applied to the coin's path (that changes B3's template path; a 05/06 price-process item). H drives DEGEN here.
+3. DEGEN's liquidation flow (07 margin, 06 perps) and TREND/ARB for crypto (meme is not listed for them).
+4. The 05 NPC market maker (§3.4/§6.1): in this base the coin's book is its only counterparty (B3), so the pools trade it.
+5. 05's off-book decay hands inventory to "background holders"; none exist here and tokens cannot vanish, so the decay is
+   on `pos` only and the pools' holdings are bounded by their finite funded cash and what they bought.
+6. 20 calibration (stylized facts) and the L8 balance gate. Disclosed risk for it: the pools start with cash and no
+   tokens, so early NPC flow can only buy (a pool sells only what it bought), and every pool trade pays the base fee
+   (min $0.10) to the book.
+7. Durability limits shared with the path (M1-05 rule): the marks the pools read and the 24-hour player-flow window
+   restart with the clock (r_1h/r_1d read 0 until the new clock has an hour/day); a tick the sweep did not reach is not
+   replayed (the next tick acts once, decaying over the gap).
