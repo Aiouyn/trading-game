@@ -44,6 +44,7 @@ test("S1-07 every unlocked built:false app opens a ComingLater window; deep link
     const win = page.getByTestId(`win-${id}`).first();
     if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
     if (id === "broker") { await expect(win.getByTestId("broker")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 4 (BR-4)
+    if (id === "boards") { await expect(win.getByTestId("leaderboard")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since M2-03 (net-worth board)
     await expect(win.getByTestId("coming-later")).toContainText("Coming later");
     await expect(win.getByRole("heading")).toHaveText(await win.locator(".tb-name").innerText());
     await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);
