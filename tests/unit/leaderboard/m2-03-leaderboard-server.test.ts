@@ -32,6 +32,7 @@ class ControlledMarket {
   stop() {}
   onStep() { return () => {}; }
   onList() { return () => {}; }
+  impactListed() { return null; }
   set(marks: Record<string, number>) {
     const rows = { ...this.snap.quotes.rows };
     for (const [id, m] of Object.entries(marks)) rows[id] = { ...rows[id]!, last: fmt(m, 2) };

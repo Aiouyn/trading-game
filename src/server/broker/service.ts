@@ -6,7 +6,7 @@ import type { ListedCoin } from "@/server/auth/service";
 import type { BrokerIntentReply, BrokerLedgerView } from "@/market/brokerLedger";
 import type { MyFill, OrderDraft } from "@/shell/contracts/channels";
 import type { ExecutedFill } from "@/server/market/candles";
-import { decideCancel, decidePlace, ledgerView, quoteFromSnapshot, sweepLedger, type IdSource } from "./execution";
+import { decideCancel, decidePlace, ledgerView, quoteFromSnapshot, sweepLedger, sweepListed, type IdSource } from "./execution";
 
 const randomIds: IdSource = { next: (kind) => newId(kind) };
 
@@ -63,7 +63,9 @@ export class BrokerService {
       const d = decidePlace(cur, key, draft, quoteFromSnapshot(market.snapshot()), this.ids, book);
       out = d.result;
       executed = d.replayed ? [] : newFills(cur, d.next);
-      return { next: d.next, ...(d.book ? { book: d.book } : {}) };
+      const move = d.move;
+      // the fill's permanent impact moves the coin's mark only once the fill is saved (a failed save moves nothing)
+      return { next: d.next, ...(d.book ? { book: d.book } : {}), ...(move ? { saved: () => { market.impactListed(draft.assetId, move); } } : {}) };
     }, this.deps.list);
     if (!out) throw new AuthError("BAD_REQUEST", "Order was not decided.", 500);
     if (executed.length > 0) this.deps.onFills?.(executed);
@@ -85,9 +87,11 @@ export class BrokerService {
     return { intentId: result.intentId, result, ledger: ledgerView(next, market.snapshot().tick, coins) };
   }
 
-  /** One server tick: fill every working limit the mark reached, across all ledgers, in one commit. */
+  /** One server tick: fill every working limit the mark reached, across all ledgers, then (L4) every resting order on a
+   *  listed coin against its book, all in one commit. */
   async sweep(): Promise<number> {
-    const quote = quoteFromSnapshot(this.deps.market().snapshot());
+    const market = this.deps.market();
+    const quote = quoteFromSnapshot(market.snapshot());
     const executed: ExecutedFill[] = [];
     const n = await this.deps.auth().sweepPrivateStates((cur) => {
       try {
@@ -97,6 +101,14 @@ export class BrokerService {
       } catch {
         return null; // an untradable ledger is left as it is (it reads 409 on its own door)
       }
+    }, {
+      ...(this.deps.list ? { list: this.deps.list } : {}),
+      sweep: (ledgers, books) => {
+        const q = quoteFromSnapshot(market.snapshot()); // after list(): a coin listed in this turn has its mark
+        const out = sweepListed(ledgers, books, q, this.ids);
+        for (const [id, next] of out.ledgers) executed.push(...newFills(ledgers.get(id)!, next));
+        return { ledgers: out.ledgers, books: out.books, saved: () => { for (const m of out.moves) market.impactListed(m.assetId, m.move); } };
+      },
     });
     // Only after the commit: a failed write throws above and adds no volume.
     if (executed.length > 0) this.deps.onFills?.(executed);

@@ -69,6 +69,7 @@ class ControlledMarket {
   stop() {}
   onStep(fn: () => void) { this.fns.add(fn); return () => { this.fns.delete(fn); }; }
   onList() { return () => {}; } // L4 listing hook: this stand-in clock lists nothing
+  impactListed() { return null; }
   /** Next tick with HALC (or another asset) at `lastMinor`. */
   step(marks: Record<string, number> = {}) {
     const rows = { ...this.snap.quotes.rows };

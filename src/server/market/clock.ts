@@ -105,6 +105,12 @@ export class LiveMarket {
     return this.isListed(assetId) ? this.feed.lastMinor(assetId) : null;
   }
 
+  /** L4: a committed book fill's permanent impact on a listed coin (src/server/broker/book.ts). Not durable, like the
+   *  path itself (a restart starts the clock again). Returns the new mark, or null when not listed here. */
+  impactListed(assetId: string, logMove: number): number | null {
+    return this.isListed(assetId) ? this.feed.impactListed(assetId, logMove) : null;
+  }
+
   isListed(assetId: string): boolean {
     return this.listedDefs.some((d) => d.assetId === assetId);
   }

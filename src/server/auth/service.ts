@@ -3,8 +3,9 @@ import type { AuthStore } from "./store";
 import { AttemptThrottle } from "./throttle";
 import { buildPlayerPrivate, clonePlayerPrivate, type PlayerPrivateInput } from "@/server/player";
 import type { QuarantinedPlayerRow } from "./store";
-import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoinRow, type LpState } from "@/server/launchpad/state";
-import { LP, type Book } from "@/launchpad/rules";
+import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoin, type LpCoinRow, type LpState } from "@/server/launchpad/state";
+import { LP } from "@/launchpad/rules";
+import type { BookAccount } from "@/server/broker/book";
 import type { PersistedPosition } from "./types";
 import {
   AuthError,
@@ -31,6 +32,27 @@ export interface StandingInput {
 
 /** L4: a graduated coin's public listing inputs (ticker, name, listing price in 1e-8 $). */
 export interface ListedCoin { ticker: string; name: string; price: number }
+/** L4 sweep phase over listed coins (src/server/broker/execution.ts sweepListed): the clock lists the graduated coins,
+ *  then `sweep` decides on copies of every loadable ledger and the books; `saved` runs once the commit is saved. */
+export interface ListedSweepStep {
+  readonly list?: (coins: ListedCoin[]) => void;
+  readonly sweep: (ledgers: Map<AccountId, PlayerPrivateRecord>, books: Map<string, BookAccount>) => { ledgers: ReadonlyMap<AccountId, PlayerPrivateInput>; books: Map<string, BookAccount>; saved?: () => void };
+}
+/** A graduated coin's book account with its saved flow (none before graduation). */
+const bookOf = (c: LpCoin): BookAccount | undefined => (c.book ? { cash: c.book.cash, tokens: c.book.tokens, ...(c.flow ? { flow: { ...c.flow } } : {}) } : undefined);
+/** The section with these coins' books (and flows) replaced, re-checked whole (a book fill that breaks it throws). */
+function withBooks(lpBefore: LpState, books: ReadonlyMap<string, BookAccount>): LpState {
+  const lp = cloneLaunchpad(lpBefore);
+  for (const [ticker, b] of books) {
+    const c = lp.coins.find((x) => x.ticker === ticker);
+    if (!c?.book) throw new Error("A book fill on a coin without a book.");
+    c.book = { cash: b.cash, tokens: b.tokens };
+    if (b.flow) c.flow = { ...b.flow };
+  }
+  const parsed = parseLaunchpad(lp);
+  if (!parsed.ok) throw new Error(`Book fill failed its own check: ${parsed.reason}`);
+  return parsed.state;
+}
 const listedOf = (lp: LpState): ListedCoin[] => lp.coins.flatMap((c) => (c.grad ? [{ ticker: c.ticker, name: c.name, price: c.grad.price }] : []));
 
 /** Match T19C session_idle_days / session_max_days defaults (real days). */
@@ -394,7 +416,7 @@ export class AuthService {
   async updateOwnLedgerWithBook(
     session: AuthSessionView,
     ticker: string,
-    mutate: (current: PlayerPrivateRecord, book: Book | undefined) => { next: PlayerPrivateInput; book?: Book },
+    mutate: (current: PlayerPrivateRecord, book: BookAccount | undefined) => { next: PlayerPrivateInput; book?: BookAccount; saved?: () => void },
     list?: (coins: ListedCoin[]) => void,
   ): Promise<{ record: PlayerPrivateRecord; coins: LpCoinRow[] }> {
     return this.withLock(async () => {
@@ -404,17 +426,9 @@ export class AuthService {
       const accountId = session.account.accountId;
       const current = this.requireLedger(accountId);
       const coin = lpBefore.coins.find((c) => c.ticker === ticker);
-      const out = mutate(clonePlayerPrivate(current), coin?.book ? { ...coin.book } : undefined);
+      const out = mutate(clonePlayerPrivate(current), coin ? bookOf(coin) : undefined);
       const next = buildPlayerPrivate(accountId, out.next);
-      let lpNext = lpBefore;
-      if (out.book) {
-        if (!coin?.book) throw new Error("A book fill on a coin without a book.");
-        const lp = cloneLaunchpad(lpBefore);
-        lp.coins.find((c) => c.ticker === ticker)!.book = { cash: out.book.cash, tokens: out.book.tokens };
-        const parsed = parseLaunchpad(lp);
-        if (!parsed.ok) throw new Error(`Book fill failed its own check: ${parsed.reason}`);
-        lpNext = parsed.state;
-      }
+      const lpNext = out.book ? withBooks(lpBefore, new Map([[ticker, out.book]])) : lpBefore;
       this.players.set(accountId, next);
       this.launchpad = { ok: true, state: lpNext };
       try {
@@ -424,6 +438,7 @@ export class AuthService {
         this.launchpad = { ok: true, state: lpBefore };
         throw err;
       }
+      out.saved?.(); // after the save, still in the lock: the next decision sees its effect (the fill's price impact)
       return { record: clonePlayerPrivate(next), coins: coinRows(lpNext, accountId) };
     });
   }
@@ -459,9 +474,10 @@ export class AuthService {
    * All changed ledgers commit in one persist; if it fails, every one rolls back (memory never runs ahead of disk).
    * Quarantined accounts are never touched.
    */
-  async sweepPrivateStates(mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput | null): Promise<number> {
+  async sweepPrivateStates(mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput | null, listed?: ListedSweepStep): Promise<number> {
     return this.withLock(async () => {
       await this.ready;
+      const lpBefore = this.launchpad;
       const before = new Map<AccountId, PlayerPrivateRecord>();
       const next = new Map<AccountId, PlayerPrivateRecord>();
       for (const [accountId, current] of this.players) {
@@ -472,14 +488,36 @@ export class AuthService {
         next.set(accountId, buildPlayerPrivate(accountId, input));
         before.set(accountId, current);
       }
-      if (next.size === 0) return 0;
+      // L4: then the resting orders on listed coins, across every loadable ledger (as just swept), against their books;
+      // ledgers and books commit in this same persist. Only from a trusted Launchpad section (else no book is read).
+      let saved: (() => void) | undefined;
+      if (listed && lpBefore.ok) {
+        const lp = lpBefore.state;
+        listed.list?.(listedOf(lp));
+        const ledgers = new Map<AccountId, PlayerPrivateRecord>();
+        for (const [accountId, current] of this.players) {
+          if (this.quarantinedPlayers.some((q) => q.accountId === accountId)) continue;
+          ledgers.set(accountId, clonePlayerPrivate(next.get(accountId) ?? current));
+        }
+        const books = new Map(lp.coins.flatMap((c) => { const b = bookOf(c); return b ? [[c.ticker, b] as const] : []; }));
+        const out = listed.sweep(ledgers, books);
+        for (const [accountId, input] of out.ledgers) {
+          next.set(accountId, buildPlayerPrivate(accountId, input));
+          if (!before.has(accountId)) before.set(accountId, this.players.get(accountId)!);
+        }
+        if (out.books.size > 0) this.launchpad = { ok: true, state: withBooks(lp, out.books) };
+        saved = out.saved;
+      }
+      if (next.size === 0 && this.launchpad === lpBefore) return 0;
       for (const [accountId, record] of next) this.players.set(accountId, record);
       try {
         await this.persist();
       } catch (err) {
         for (const [accountId, record] of before) this.players.set(accountId, record);
+        this.launchpad = lpBefore;
         throw err;
       }
+      saved?.();
       return next.size;
     });
   }

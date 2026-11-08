@@ -11,6 +11,7 @@ export class ControlledMarket {
   stop() {}
   onStep(fn: () => void) { this.fns.add(fn); return () => { this.fns.delete(fn); }; }
   onList() { return () => {}; } // L4 listing hook: this stand-in clock lists nothing
+  impactListed() { return null; }
   step(marks: Record<string, number> = {}) {
     const rows = { ...this.snap.quotes.rows };
     for (const [id, m] of Object.entries(marks)) rows[id] = { ...rows[id]!, last: fmt(m, 2) };

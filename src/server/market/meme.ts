@@ -7,12 +7,23 @@
 //  - per tick (src/engine/sim.ts, config.ts): dt = 1 / (720 ticks x 252 days); log step (mu - sigma^2/2) dt +
 //    sigma sqrt(dt) eps, eps a unit-variance Student-t with nu = 4; compound Poisson jumps at rate jumpsPerYear dt, Kou
 //    double exponential in log space (up with jumpUpProb: +Exp(jumpUpMean), else -Exp(jumpDownMean)).
-// Not copied, because this base has no such model (docs/v1/LAUNCHPAD.md "Graduation", genuine gap): factor loadings
-// (wMarket / wCrypto), regimes, GARCH, the value pull and the ecology pools. Here all the variance is the asset's own.
+//  - factor loadings (sim.ts shock; FROG over the crypto defaults, through config.ts normalizeLoadings, unchanged at
+//    0.25^2 + 0.75^2 <= 0.95): wMarket 0.25 on the market factor, wCrypto 0.75 on the crypto factor, the rest
+//    idio = sqrt(1 - 0.625) on the coin's own Student-t (docs/v1/LAUNCHPAD.md "Book liquidity path ... template factors").
+//    The market factor is this base's index GX, read (its own tick step standardized), never redrawn; the crypto factor is
+//    one normal a tick from the world stream `lp:crypto` (FactorDraws), shared by every listed coin.
+// Not copied, because this base has no such model: regimes and cycleBeta (no regime drift here), GARCH, the value pull
+// and the ecology pools (docs/v1/LAUNCHPAD.md, owner decision on L4's "retail-heavy pool weights").
 // Its own streams (`lp:<TICKER>` for the draws, `lp:<TICKER>:px` for the path), so no other asset's path changes.
 import { rng } from "@/shell/contracts/mockFeed";
 
-export const MEME_TEMPLATE = { id: "FROG", jumpsPerYear: 20, jumpUpMean: 0.25, jumpDownMean: 0.22, jumpUpProb: 0.5, floor: 1e-7, studentNu: 4 } as const;
+export const MEME_TEMPLATE = {
+  id: "FROG", jumpsPerYear: 20, jumpUpMean: 0.25, jumpDownMean: 0.22, jumpUpProb: 0.5, floor: 1e-7, studentNu: 4, wMarket: 0.25, wCrypto: 0.75,
+} as const;
+/** p10 idioLoading: the unit-variance shock's own share once the factors take theirs. */
+export const IDIO_LOADING = Math.sqrt(1 - MEME_TEMPLATE.wMarket ** 2 - MEME_TEMPLATE.wCrypto ** 2);
+/** The world's crypto factor stream (one standard normal per clock tick, shared by every listed coin). */
+export const CRYPTO_FACTOR_STREAM = "lp:crypto";
 export const TICKS_PER_DAY = 720;
 export const DAYS_PER_YEAR = 252;
 export const DT = 1 / (TICKS_PER_DAY * DAYS_PER_YEAR);
@@ -63,14 +74,20 @@ export class MemeProcess {
     this.lnP = Math.log(baseMinor / 10 ** dp);
     this.draws = new Draws(`lp:${ticker}:px`);
   }
-  /** One tick: diffusion plus at most one jump; returns the new price in minor units (at least the floor, at least 1). */
-  step(): number {
+  /** One tick: diffusion (zMarket, zCrypto: this tick's unit-variance factor shocks, shared) plus at most one jump;
+   *  returns the new price in minor units (at least the floor, at least 1). */
+  step(zMarket: number, zCrypto: number): number {
     const t = MEME_TEMPLATE, d = this.draws;
     let jump = 0;
     if (d.chance(t.jumpsPerYear * DT)) jump = d.chance(t.jumpUpProb) ? d.exponential(t.jumpUpMean) : -d.exponential(t.jumpDownMean);
-    const eps = d.studentT(t.studentNu);
-    this.lnP += (this.drift - 0.5 * this.vol * this.vol) * DT + this.vol * Math.sqrt(DT) * eps + jump;
+    const shock = t.wMarket * zMarket + t.wCrypto * zCrypto + IDIO_LOADING * d.studentT(t.studentNu);
+    this.lnP += (this.drift - 0.5 * this.vol * this.vol) * DT + this.vol * Math.sqrt(DT) * shock + jump;
     this.lnP = Math.max(this.lnP, Math.log(t.floor));
+    return this.minor();
+  }
+  /** A fill's permanent impact (src/server/broker/book.ts): the path moves by `logMove` now and steps on from there. */
+  shift(logMove: number): number {
+    this.lnP = Math.max(this.lnP + logMove, Math.log(MEME_TEMPLATE.floor));
     return this.minor();
   }
   minor(): number { return Math.max(1, Math.round(Math.exp(this.lnP) * 10 ** this.dp)); }

@@ -2,6 +2,7 @@
 // snapshot file as the player ledgers and commits in the same persist, so a launch or trade and its cash effect are saved
 // together or not at all. Parsed strictly on load: a section that does not parse is kept verbatim (never reset) and the
 // Launchpad reads as unavailable until it is repaired.
+import type { BookFlow } from "@/server/broker/book";
 import { LP, type Book, type Curve, type TaglineId, graduationOf, isTagline, liquidationCents, listPriceMinor, tickerOk } from "@/launchpad/rules";
 
 export interface LpPrint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
@@ -27,6 +28,9 @@ export interface LpCoin extends Curve {
    *  Broker fill on the listed coin trades against from then on. The curve is frozen and holds nothing then. */
   grad?: LpGrad;
   book?: Book;
+  /** The book's flow (src/server/broker/book.ts BookFlow: the price law's decayed flow, the tick's mid and cap use), saved
+   *  with the book by every fill from the first one on (absent before, and on a save from before this field). */
+  flow?: BookFlow;
 }
 /** One account's replies by idempotency key (newest last, 50 kept). `fp` is the request it answered. */
 export interface LpReceipt { key: string; fp: string; reply: unknown }
@@ -60,6 +64,7 @@ function coinOk(c: unknown): c is LpCoin {
   if (!c.tape.every((p: unknown) => obj(p) && (p.side === "buy" || p.side === "sell") && int(p.tick) && int(p.atMs) && int(p.tokens, 1) && int(p.cents) && typeof p.creator === "boolean")) return false;
   if ((c.grad === undefined) !== (c.book === undefined) || "pool" in c) return false; // "pool": the withdrawn 6ac2b3b1 stand-in
   if (c.grad !== undefined && !gradOk(c as unknown as LpCoin)) return false;
+  if (c.flow !== undefined && (c.book === undefined || !flowOk(c.flow))) return false;
   return c.hist === undefined || histOk(c.hist, c as unknown as LpCoin);
 }
 
@@ -72,6 +77,11 @@ function gradOk(c: LpCoin): boolean {
   if (c.sold !== LP.Y0 - LP.GRAD_Y) return false;
   const want = graduationOf(c);
   return g.raise === want.raise && g.fee === want.fee && g.price === listPriceMinor(c);
+}
+
+const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+function flowOk(f: unknown): boolean {
+  return obj(f) && Object.keys(f).length === 6 && int(f.t) && int(f.mid, 1) && num(f.buy) && num(f.sell) && num(f.tb) && num(f.ts);
 }
 
 const curveOk = (x: unknown, sold: unknown) => int(x, LP.X0) && int(sold) && (sold as number) <= LP.Y0 - LP.GRAD_Y;

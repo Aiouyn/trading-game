@@ -740,12 +740,12 @@ export class MockFeed {
     const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
     // Signed-in (M1-06): the server door takes market and limit day orders; stop types are not offered there.
     const dp = a?.displayDecimals ?? 2;
-    // dp 8 is only a coin listed at graduation (L4): market orders only (its own refusal code, as the server's).
-    const marketOnly = dp > 2 && draft.type !== "market";
-    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit" || marketOnly);
+    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit");
     let valid = wellFormed && !unsupported && !this.oversells(draft);
     const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
-    const impactBp = valid ? IMPACT_BP(qty, a!.lot) : 0;
+    // dp 8 is only a coin listed at graduation (L4): it fills against its book at no better than its half spread (45 bp;
+    // the server adds the size impact, src/server/broker/book.ts), so the estimate shows at least that.
+    const impactBp = valid ? (dp > 2 ? 45 : IMPACT_BP(qty, a!.lot)) : 0;
     const n = centsOf(dp, px * qty, draft.side === "BUY"); // notional in cents (identity at dp 2)
     const impact = Math.round((n * impactBp) / 10_000);
     const halted = !!a && this.tradingState(a.assetId) === "HALTED";
@@ -757,7 +757,7 @@ export class MockFeed {
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
-      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? (marketOnly ? "MKT_MARKET_ONLY" : "MKT_ORDER_TYPE_UNSUPPORTED") : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
+      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? "MKT_ORDER_TYPE_UNSUPPORTED" : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
       buyingPowerAfter: fmt(this.fdlCashMinor() - this.reservedCash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };
