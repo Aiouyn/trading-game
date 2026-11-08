@@ -31,6 +31,7 @@ import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAu
 import { setBrokerForTests } from "@/server/broker";
 import { marketCashCents } from "@/server/launchpad/state";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
+import { getCandles } from "@/server/market/candles";
 
 class Store implements AuthStore {
   failNext = false;
@@ -129,6 +130,7 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
 
   it("Broker: market fills at the server mark against the book, partial when it cannot cover, never minted; limits refused", async () => {
     const a = await signUp("alice"), b = await signUp("bob"), c = await signUp("carol");
+    await get(marketGet, "/api/market"); // a client already reads the market: its candle recorder runs before the listing
     await launch(a);
     await setCash(10_000_000);
     await trade(b, { side: "buy", amount: 10_000_000 });
@@ -145,6 +147,9 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
     expect(r2.ledger.cashCents).toBe(10_000_000 - 21_606 - 4_297_604 - 1_289);
     expect(r2.ledger.positions.FROG).toEqual({ assetId: "FROG", qty: "200000000", avgCost: "0.00021596" });
     expect((await lp()).coins[0]!.book).toEqual({ cash: 8_648_871, tokens: 0 });
+    // Candles from the listing tick: both fills landed on it (no clock step since the graduation) and count as its volume.
+    const t0 = market.snapshot().tick;
+    expect(getCandles(market).history({ assetId: "FROG", res: "tick", from: t0, to: t0 })).toEqual([{ t: t0, o: "0.00021596", h: "0.00021596", l: "0.00021596", c: "0.00021596", v: "200000000" }]);
     expect((await order(c, "BUY", 1)).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LIQUIDITY" });
     // Partial sale: the book's cash pays 400,484,858 tokens.
     const r3 = await order(b, "SELL", 800_000_000);

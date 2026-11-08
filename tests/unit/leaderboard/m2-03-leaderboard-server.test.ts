@@ -31,6 +31,7 @@ class ControlledMarket {
   snapshot(): MarketSnapshot { return structuredClone(this.snap); }
   stop() {}
   onStep() { return () => {}; }
+  onList() { return () => {}; }
   set(marks: Record<string, number>) {
     const rows = { ...this.snap.quotes.rows };
     for (const [id, m] of Object.entries(marks)) rows[id] = { ...rows[id]!, last: fmt(m, 2) };

@@ -45,12 +45,14 @@ export class CandleRecorder {
     for (const a of ASSETS) this.bars.set(a.assetId, { tick: [], hour: [], day: [] });
   }
 
-  /** Record one clock snapshot. Same or older tick: ignored (a re-read is not a new sample). */
-  sample(snap: MarketSnapshot): void {
-    if (snap.tick <= this.lastTick) return;
+  /** Record one clock snapshot. Same or older tick: ignored (a re-read is not a new sample), except `listed`: an asset
+   *  listed at run time (L4) is sampled at its listing tick, so a fill on that tick has its bar; nothing else changes. */
+  sample(snap: MarketSnapshot, listed = false): void {
+    if (snap.tick < this.lastTick || (snap.tick === this.lastTick && !listed)) return;
     this.lastTick = snap.tick;
     this.rev += 1;
     for (const a of ASSETS) {
+      if (listed && this.bars.get(a.assetId)?.tick.length) continue;
       const row = snap.quotes.rows[a.assetId];
       const px = row ? parseMinor(row.last, a.displayDecimals) : null;
       if (px === null || px <= 0) continue;
@@ -130,6 +132,7 @@ export function getCandles(market: LiveMarket): CandleRecorder {
   const recorder = new CandleRecorder();
   recorder.sample(market.snapshot());
   market.onStep(() => recorder.sample(market.snapshot()));
+  market.onList(() => recorder.sample(market.snapshot(), true));
   globalForCandles.__portAvalonCandles = { recorder, market };
   return recorder;
 }

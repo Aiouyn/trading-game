@@ -30,6 +30,7 @@ export class LiveMarket {
   private readonly feed: ShockFeed;
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly stepListeners = new Set<() => void>();
+  private readonly listListeners = new Set<() => void>();
   private stories: WireItem[] = [];
   /** L4 listings on this clock, oldest first (public defs). */
   private readonly listedDefs: AssetFixture[] = [];
@@ -96,6 +97,7 @@ export class LiveMarket {
     if (this.listedDefs.some((d) => d.assetId === def.assetId)) return;
     this.feed.listMeme(ASSET_BY_ID[def.assetId]!);
     this.listedDefs.push({ ...def });
+    for (const fn of this.listListeners) fn(); // candles sample the new asset at its listing tick (fills there count)
   }
 
   /** A listed coin's mark now (1e-8 $), or null when this clock has not listed it. */
@@ -105,6 +107,12 @@ export class LiveMarket {
 
   isListed(assetId: string): boolean {
     return this.listedDefs.some((d) => d.assetId === assetId);
+  }
+
+  /** Run `fn` after every new listing (L4), at the listing tick. Returns the unsubscribe. */
+  onList(fn: () => void): () => void {
+    this.listListeners.add(fn);
+    return () => { this.listListeners.delete(fn); };
   }
 
   /** Run `fn` after every step. Returns the unsubscribe. */

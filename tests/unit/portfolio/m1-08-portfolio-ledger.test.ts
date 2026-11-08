@@ -49,6 +49,7 @@ class ControlledMarket {
   snapshot(): MarketSnapshot { return structuredClone(this.snap); }
   stop() {}
   onStep(fn: () => void) { this.fns.add(fn); return () => { this.fns.delete(fn); }; }
+  onList() { return () => {}; } // L4 listing hook: this stand-in clock lists nothing
   step(marks: Record<string, number> = {}) {
     const rows = { ...this.snap.quotes.rows };
     for (const [id, m] of Object.entries(marks)) rows[id] = { ...rows[id]!, last: fmt(m, 2) };
