@@ -6,7 +6,8 @@ import { useId, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import type { WireItem } from "@/shell/contracts/channels";
-import { causeText, fill, headline, pctLabel, timeLabel, type WireStrings } from "./strings";
+import { causeText } from "./causes";
+import { fill, headline, pctLabel, timeLabel, type WireStrings } from "./strings";
 import { KindChip, PricedIn, showsRecord } from "./WireItemRow";
 import "./itemDetail.css";
 
@@ -74,9 +75,9 @@ export function ItemDetail({ item, t, gone, stale, updating, onBack, onClose, op
           <time className="wire-detail-time" data-testid="wire-detail-time">{timeLabel(item.tick, t)}</time>
         </div>
         <h2 id={hId} ref={headingRef} tabIndex={-1} className="wire-detail-hl" data-testid="wire-detail-headline">{headline(item, t)}</h2>
-        {causeText(item, t) !== null && (
+        {causeText(item) !== null && (
           <Section label={t.causeTitle} testId="wire-detail-cause">
-            <p className="wire-detail-line">{causeText(item, t)}</p>
+            <p className="wire-detail-line">{causeText(item)}</p>
           </Section>
         )}
         {item.phase !== undefined && (

@@ -14,6 +14,7 @@ import { GET as candlesRoute } from "@/app/api/market/candles/route";
 import { GET as marketRoute } from "@/app/api/market/route";
 import { POST as placeRoute } from "@/app/api/broker/orders/route";
 import { GET as wireRoute } from "@/app/api/wire/route";
+import { CAUSES } from "@/apps/wire/causes";
 import { EN } from "@/apps/wire/strings";
 import { ASSET_BY_ID } from "@/market/catalog";
 import { CRISES, COMPANY_STORIES, STORY_EVERY, crisisHits, storyAt, type StoryDef } from "@/market/wireStories";
@@ -81,7 +82,7 @@ describe("M1-09 story schedule", () => {
       for (const id of s.assets) expect(ASSET_BY_ID[id], id).toBeDefined();
       for (const e of s.effects) { expect(s.assets).toContain(e.assetId); expect(Math.abs(e.bp)).toBeLessThanOrEqual(600); expect(e.bp).not.toBe(0); }
       expect(EN.headlines[s.headlineKey], s.headlineKey).toBeDefined();
-      expect(EN.causes[s.causeKey], s.causeKey).toBeDefined();
+      expect(CAUSES[s.causeKey], s.causeKey).toBeDefined();
     }
   });
 });

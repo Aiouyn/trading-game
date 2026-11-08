@@ -61,8 +61,6 @@ export interface WireStrings {
   // ---- M1-09 server stories and their price effect ----
   /** Guest feed: the stories are fixtures that move nothing. */
   demo: string;
-  /** Cause → consequence, by WireItem.causeKey. */
-  causes: Record<string, string>;
   causeTitle: string;
   effectTitle: string;
   /** "{ticker} {from} → {to} ({pct})" */
@@ -145,28 +143,6 @@ export const EN: WireStrings = {
   filingMissing: "Filing details aren't available.",
   notInFeed: "This story is no longer in your feed.",
   demo: "Example stories · they don't move prices. Sign in for the live Port Avalon Wire.",
-  causes: {
-    "wire.cause.halc-volumes": "Halcyon Shipping carried more cargo than expected this quarter. Higher earnings lift the stock.",
-    "wire.cause.volt-guidance": "Voltaic Grid expects more demand for the rest of the year. Higher expected profits lift the stock.",
-    "wire.cause.tide-downgrade": "Talk that Tidewater REIT's rating will be cut. Even unconfirmed, the rumor weighs on the price.",
-    "wire.cause.orca-trial": "Orca Biologics' lead drug missed its trial goal. Lost future sales take value out of the stock.",
-    "wire.cause.nmbs-contract": "Nimbus Compute won a large multi-year computing contract. New revenue lifts the stock.",
-    "wire.cause.kiln-demand": "Kiln Materials sees weaker building demand. Lower expected sales push the stock down.",
-    "wire.cause.mrdn-recall": "Meridian Foods recalls a product line. Costs and lost sales weigh on the stock.",
-    "wire.cause.avb-earnings": "Avalon Bank earned more on its loans than expected. The stock rises.",
-    "wire.cause.oil-watch": "Tension over crude supply is rising. If supply is cut, energy producers would gain and fuel-hungry shipping and materials firms would lose.",
-    "wire.cause.oil-hit": "Crude supply was cut. Verdane Energy gains on higher oil prices; Halcyon Shipping and Kiln Materials pay more for fuel and energy.",
-    "wire.cause.oil-eased": "Crude supply held up. The risk passed.",
-    "wire.cause.bank-watch": "Banks are paying more to borrow from each other, a sign of funding strain. A run would hit bank and property stocks.",
-    "wire.cause.bank-hit": "Depositors pulled money from weaker banks. Avalon Bank falls; Tidewater REIT and the Gilt Exchange Index follow.",
-    "wire.cause.bank-eased": "Funding strain faded. The risk passed.",
-    "wire.cause.tech-watch": "Tech valuations are stretched far above earnings. A sharp correction could follow.",
-    "wire.cause.tech-hit": "The tech rally broke. Nimbus Compute drops and the index slips with it.",
-    "wire.cause.tech-eased": "Tech valuations cooled without a break. The risk passed.",
-    "wire.cause.credit-watch": "Lenders are tightening loan terms. Borrowers such as property firms would be hit first.",
-    "wire.cause.credit-hit": "Credit dried up. Tidewater REIT falls hardest; Avalon Bank and Kiln Materials slip.",
-    "wire.cause.credit-eased": "Lending conditions steadied. The risk passed.",
-  },
   causeTitle: "Why it matters",
   effectTitle: "Price effect",
   effectLine: "{ticker} {from} → {to} ({pct})",
@@ -248,7 +224,6 @@ export const FR: WireStrings = {
   filingMissing: "Les détails de la déclaration ne sont pas disponibles.",
   notInFeed: "Cette dépêche ne figure plus dans votre fil.",
   demo: "Dépêches d’exemple · elles ne font pas bouger les cours. Connectez-vous pour le fil en direct de Port Avalon.",
-  causes: EN.causes, // [P] FR copy pending (Studio)
   causeTitle: "Pourquoi c’est important",
   effectTitle: "Effet sur le cours",
   effectLine: "{ticker} {from} → {to} ({pct})",
@@ -304,10 +279,6 @@ export function pctLabel(pct: string): string {
   const abs = neg ? pct.slice(1) : pct;
   return `${neg ? "\u2212" : /[1-9]/.test(abs) ? "+" : ""}${abs}%`;
 }
-
-/** Cause → consequence copy for a server story; null when the item has none (fixtures) or the key is unknown. */
-export const causeText = (item: WireItem, t: WireStrings): string | null =>
-  item.causeKey !== undefined && Object.hasOwn(t.causes, item.causeKey) ? t.causes[item.causeKey]! : null;
 
 /** Game time for a tick: the SAME clock source (`clockAt`) and formatter (`clockLabel` + `clockStrings().strip`) as the
  *  top bar, so a Wire stamp and the status strip always read the same "Day N · HH:MM" for the same tick. */
