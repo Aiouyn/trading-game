@@ -106,7 +106,9 @@ export function TrendLayer({ draw, geoOf, redraw, t, locale, precision }: Props)
       flushSync(() => setGeo(g)); // the same frame as the canvas
     };
     redraw.add(onRedraw);
-    return () => { redraw.delete(onRedraw); };
+    // Mounted after the chart's last paint (the lines' read settling late, a Retry): map now, not at the next tick.
+    const first = requestAnimationFrame(onRedraw);
+    return () => { cancelAnimationFrame(first); redraw.delete(onRedraw); };
   }, [geoOf, redraw]);
 
   // A release reads its own position (never a move state that may not have rendered yet).

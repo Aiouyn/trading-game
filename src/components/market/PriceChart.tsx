@@ -15,7 +15,8 @@
 //    and card 4's "Updating…" (once: the frame's own line covers it when the ticker is stale too).
 //  - Trend lines: the player's own, per asset, on this device (trendlines.ts: the account's, or the guest's when
 //    signed out; none until the session and the device copy are read). The Trend line button picks the tool (Cancel
-//    or Esc drops it), a line is selected on the plot (Delete or the Delete line button removes it).
+//    or Esc drops it), a line is selected on the plot (Delete or the Delete line button removes it). A device copy that
+//    cannot be read shows a Retry instead of the tool; a change the device did not keep is taken back and said so.
 //  - M1-07: signed-in bars are the server's recorded quote candles + executed volume (history.ts); a guest sees the mock's
 //    demo bars, labelled as such. History is keyed by the feed epoch, so an account switch never shows the other feed's bars.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -29,7 +30,7 @@ import { feedEpoch, getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { useAuthSession } from "@/shell/authSession";
 import { ChartTable, barTime } from "./ChartTable";
 import type { CandleChartProps } from "./CandleChart";
-import { MAX_LINES, drawScope, setTrendlines, useTrendlines, type TrendDraw } from "./trendlines";
+import { MAX_LINES, drawScope, retryTrendlines, setTrendlines, useTrendStatus, useTrendlines, type TrendDraw } from "./trendlines";
 
 type Hist =
   | { readonly status: "loading"; readonly key: string }
@@ -158,6 +159,7 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
   // never outlives its asset or account.
   const scope = drawScope(useAuthSession());
   const lines = useTrendlines(scope, assetId);
+  const linesStatus = useTrendStatus(scope);
   const [placing, setPlacing] = useState<number | null>(null);
   const sessions = useRef(0);
   const [selected, setSelected] = useState<string | null>(null);
@@ -243,6 +245,13 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
             )}
           </span>
         )}
+        {view === "plot" && !table && plot !== null && scope !== null && linesStatus === "error" && (
+          <span className="br-chart-draw" role="group" aria-label={t.trendLayer}>
+            <span className="br-chart-source" data-testid="br-trend-error" role="alert">{t.trendReadError}</span>
+            <Button variant="ghost" size="sm" className="br-chart-tool" data-testid="br-trend-retry" onClick={() => retryTrendlines(scope)}>{t.retry}</Button>
+          </span>
+        )}
+        {canDraw && linesStatus === "unsaved" && <p className="br-chart-source" data-testid="br-trend-unsaved" role="alert">{t.trendUnsaved}</p>}
         {placingNow !== null && <p className="br-chart-source muted" data-testid="br-trend-hint" role="status">{t.trendHint}</p>}
         {view === "plot" && <p className="br-chart-source muted" data-testid="br-chart-source" data-source={server ? "server" : "demo"}>{source}</p>}
         {stale && !frameStale && view === "plot" && <p className="br-updating muted" data-testid="br-chart-updating">{t.updating}</p>}

@@ -12,7 +12,11 @@ import type { TrendDraw, Trendline } from "@/components/market/trendlines";
 const device = vi.hoisted(() => ({ kept: new Map<string, unknown>(), writes: [] as string[] }));
 vi.mock("@/shell/persist", () => ({
   loadDrawings: async (scope: string) => structuredClone(device.kept.get(`quay.${scope}.drawings`) ?? null),
-  queueDrawings: async (scope: string, v: unknown) => { device.writes.push(scope); device.kept.set(`quay.${scope}.drawings`, structuredClone(v)); },
+  // One readwrite transaction: get, the caller's change, put (persist.ts updateDrawings).
+  updateDrawings: async (scope: string, change: (v: unknown) => unknown) => {
+    const next = structuredClone(change(structuredClone(device.kept.get(`quay.${scope}.drawings`) ?? null)));
+    device.writes.push(scope); device.kept.set(`quay.${scope}.drawings`, next); return structuredClone(next);
+  },
 }));
 const store = await import("@/components/market/trendlines");
 
@@ -30,7 +34,7 @@ function fakeGeo(view = 0, top = 60): Geo {
   };
 }
 
-let el: HTMLDivElement, root: Root, redraw: Set<() => void>, geo: Geo;
+let el: HTMLDivElement, root: Root, redraw: Set<() => void>, geo: Geo | null; // null: the chart has no layout yet (chartGeo)
 let state: { lines: readonly Trendline[]; placing: number | null; selected: string | null; placed: number };
 const draw = (): TrendDraw => ({
   lines: state.lines, placing: state.placing, selected: state.selected,
@@ -63,12 +67,21 @@ afterEach(async () => { await act(async () => root.unmount()); el.remove(); });
 describe("trend layer on the chart's mapping", () => {
   it("nothing until the chart has painted; then an empty layer that lets the pointer through", async () => {
     await act(async () => root.unmount());
-    root = createRoot(el); redraw = new Set();
+    root = createRoot(el); redraw = new Set(); geo = null;
     await render();
+    await act(async () => { await new Promise((ok) => requestAnimationFrame(() => ok(null))); });
     expect(layer()).toBeNull();
     await chartRedraws(fakeGeo());
     expect(layer()).not.toBeNull();
     expect(layer()!.classList.contains("placing")).toBe(false); // CSS: pointer-events none, so the chart pans
+  });
+
+  it("mounted after the chart's last paint (lines read late, a Retry), it maps on the next frame, not the next tick", async () => {
+    await act(async () => root.unmount());
+    root = createRoot(el); redraw = new Set(); // no chart redraw from here on
+    await render();
+    await act(async () => { await new Promise((ok) => requestAnimationFrame(() => ok(null))); });
+    expect(layer()).not.toBeNull();
   });
 
   it("tap, tap: the first point waits, the second places the line in tick and price, selects it, ends the tool", async () => {
@@ -80,8 +93,10 @@ describe("trend layer on the chart's mapping", () => {
     await ptr(layer()!, "pointermove", 200, 50);
     expect(el.querySelector('[data-testid="br-trend-draft"]')).not.toBeNull();
     await ptr(layer()!, "pointerdown", 200, 50);
-    expect(state.lines).toEqual([{ id: "l1", a: { t: 110, p: 50 }, b: { t: 150, p: 55 } }]);
-    expect(state.selected).toBe("l1");
+    const id = state.lines[0]?.id ?? "";
+    expect(id).toMatch(/^l[a-z0-9]{1,10}$/);
+    expect(state.lines).toEqual([{ id, a: { t: 110, p: 50 }, b: { t: 150, p: 55 } }]);
+    expect(state.selected).toBe(id);
     expect(state.placed).toBe(1);
   });
 
@@ -90,7 +105,7 @@ describe("trend layer on the chart's mapping", () => {
     await ptr(layer()!, "pointerdown", 40, 100);
     await ptr(layer()!, "pointermove", 120, 20);
     await ptr(layer()!, "pointerup", 120, 20);
-    expect(state.lines).toEqual([{ id: "l1", a: { t: 110, p: 50 }, b: { t: 130, p: 58 } }]);
+    expect(state.lines).toEqual([{ id: state.lines[0]?.id, a: { t: 110, p: 50 }, b: { t: 130, p: 58 } }]);
   });
 
   it("cancel drops the first point: a new placing session starts clean", async () => {
@@ -197,8 +212,9 @@ describe("device store: per account, per asset, kept across a reload", () => {
     store.setTrendlines("accA", "HALC", [L("l1", 200), L("l2", 300)]);
     store.setTrendlines("accA", "MRDN", [L("l1", 400)]);
     expect(await ready("accB", "HALC")).toEqual([]);
+    await act(async () => { await new Promise((ok) => setTimeout(ok, 0)); }); // committed
     store.setTrendlines("accA", "MRDN", []); // the last MRDN line deleted
-    await Promise.resolve();
+    await act(async () => { await new Promise((ok) => setTimeout(ok, 0)); });
     store._resetTrendlinesForTests(); // reload: only the device copy is left
     expect(await ready("accA", "HALC")).toEqual([L("l1", 200), L("l2", 300)]);
     expect(await ready("accA", "MRDN")).toEqual([]);
@@ -214,8 +230,14 @@ describe("device store: per account, per asset, kept across a reload", () => {
     expect(store.parseSaved([1, 2])).toEqual({});
   });
 
-  it("new ids never repeat one in the list", () => {
-    expect(store.newLineId([L("l1", 1), L("l3", 2)])).toBe("l4");
-    expect(store.newLineId([L("l3", 1)])).toBe("l2");
+  it("new ids are random (two tabs never pick the same), valid for the device copy, never one in the list", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const id = store.newLineId([L("l1", 1), L("l3", 2)]);
+      expect(id).toMatch(/^[a-z0-9]{1,12}$/);
+      expect(store.parseSaved({ HALC: [L(id, 1)] }).HALC).toHaveLength(1);
+      seen.add(id);
+    }
+    expect(seen.size).toBe(200);
   });
 });

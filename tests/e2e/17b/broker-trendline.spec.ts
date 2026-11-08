@@ -99,10 +99,10 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.3, { steps: 8 });
     await page.mouse.up();
     expect(await hook<{ from: number; to: number }>(page, "visible")).toEqual(before);
-    expect(await lineIds(page)).toEqual(["l1"]);
+    const first = await lineIds(page); expect(first).toHaveLength(1); const l1 = first[0]!; // ids are random
     await expect(tool).toHaveAttribute("aria-pressed", "false");
     await expect(chart.getByTestId("br-trend-handle-a")).toBeVisible(); // placed = selected
-    await aligned(page, "l1");
+    await aligned(page, l1);
     await shot(page, "tl-01-drawn-selected");
 
     // Tap, tap draws a second one.
@@ -112,7 +112,7 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.15, { steps: 4 });
     await expect(chart.getByTestId("br-trend-draft")).toBeVisible();
     await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.2);
-    expect(await lineIds(page)).toEqual(["l1", "l2"]);
+    const two = await lineIds(page); expect(two).toHaveLength(2); expect(two[0]).toBe(l1); const l2 = two[1]!;
 
     // Cancel a line in progress: Esc, then the Cancel button. Nothing is added either way.
     await tool.click();
@@ -128,7 +128,7 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.75); // a fresh first point, not an end
     await expect(chart.getByTestId("br-trend-layer")).toHaveAttribute("data-first", "");
     await page.keyboard.press("Escape");
-    expect(await lineIds(page)).toEqual(["l1", "l2"]);
+    expect(await lineIds(page)).toEqual([l1, l2]);
 
     // Select l1 by pressing on it, drag its end: only that end moves; the line follows the library's mapping.
     const sel = async (id: string) => {
@@ -137,19 +137,19 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
       await page.mouse.click(c.x + (x1! + x2!) / 2, c.y + (y1! + y2!) / 2);
       await expect(chart.getByTestId(`br-trend-${id}`)).toHaveAttribute("aria-pressed", "true");
     };
-    await sel("l1");
-    const was = await anchors(page, "l1");
+    await sel(l1);
+    const was = await anchors(page, l1);
     const end = chart.getByTestId("br-trend-handle-b");
     const eb = (await end.boundingBox())!;
     await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
     await page.mouse.down();
     await page.mouse.move(eb.x - 60, eb.y + 40, { steps: 6 });
     await page.mouse.up();
-    const now = await anchors(page, "l1");
+    const now = await anchors(page, l1);
     expect(now.a).toEqual(was.a);
     expect(now.b.t).toBeLessThan(was.b.t);
     expect(now.b.p).toBeLessThan(was.b.p);
-    await aligned(page, "l1");
+    await aligned(page, l1);
     await shot(page, "tl-02-end-adjusted");
 
     // Zoom (wheel) and pan (drag on the plot, away from the lines) outside drawing mode: the chart moves, lines follow.
@@ -158,39 +158,39 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.9);
     await page.mouse.wheel(0, -400);
     await expect.poll(async () => (await hook<{ from: number; to: number }>(page, "visible"))!.from).not.toBe(v0.from);
-    await aligned(page, "l1"); await aligned(page, "l2");
+    await aligned(page, l1); await aligned(page, l2);
     const v1 = await hook<{ from: number; to: number }>(page, "visible");
     await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.95);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.95, { steps: 6 });
     await page.mouse.up();
     await expect.poll(async () => (await hook<{ from: number; to: number }>(page, "visible"))!.from).not.toBe(v1.from);
-    await aligned(page, "l1"); await aligned(page, "l2");
+    await aligned(page, l1); await aligned(page, l2);
     await shot(page, "tl-03-zoomed-panned");
     // New server ticks: a bar is appended and the price scale may rescale; the lines stay on their tick and price.
     const n0 = (await hook<unknown[]>(page, "data")).length;
     await expect.poll(async () => (await hook<unknown[]>(page, "data")).length, { timeout: 20_000, intervals: [500] }).toBeGreaterThan(n0);
-    await aligned(page, "l1"); await aligned(page, "l2");
+    await aligned(page, l1); await aligned(page, l2);
 
     // Window resize (520): the plot narrows, the lines are re-mapped.
     const win = page.getByTestId("win-broker").filter({ has: page.getByTestId("br-ticker") }).first();
     const rh = (await win.getByTestId("resize-handle").boundingBox())!;
-    const xBefore = (await aligned(page, "l1"))[2];
+    const xBefore = (await aligned(page, l1))[2];
     await page.mouse.move(rh.x + 5, rh.y + 5);
     await page.mouse.down();
     await page.mouse.move(50, rh.y + 5, { steps: 5 });
     await page.mouse.up();
     expect((await win.boundingBox())!.width).toBe(520);
-    await expect.poll(async () => (await aligned(page, "l1"))[2]).not.toBe(xBefore);
-    await aligned(page, "l2");
+    await expect.poll(async () => (await aligned(page, l1))[2]).not.toBe(xBefore);
+    await aligned(page, l2);
     await shot(page, "tl-04-window-520");
 
     // Delete: Delete key on a focused line; the button on a selected one.
-    await sel("l2");
+    await sel(l2);
     await page.keyboard.press("Delete");
-    expect(await lineIds(page)).toEqual(["l1"]);
+    expect(await lineIds(page)).toEqual([l1]);
     await expect(tool).toBeFocused();
-    await sel("l1");
+    await sel(l1);
     await chart.getByTestId("br-trend-delete").click();
     expect(await lineIds(page)).toEqual([]);
     await expect(chart.getByTestId("br-trend-delete")).toHaveCount(0);
@@ -200,13 +200,13 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await tool.click();
     await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.3);
     await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.6);
-    const keep = await anchors(page, "l1");
+    const [k] = await lineIds(page); const keep = await anchors(page, k!);
     await page.evaluate(() => (window as unknown as { __quayFlush?: () => Promise<void> }).__quayFlush?.());
     await page.reload();
     await plotted(page, "server");
-    expect(await lineIds(page)).toEqual(["l1"]);
-    expect(await anchors(page, "l1")).toEqual(keep);
-    await aligned(page, "l1");
+    expect(await lineIds(page)).toEqual([k]);
+    expect(await anchors(page, k!)).toEqual(keep);
+    await aligned(page, k!);
     await shot(page, "tl-05-after-reload");
 
     // Another asset: none of HALC's. A line drawn there stays there. (One Broker window at a time: the shell restores
@@ -223,13 +223,13 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await signedBr(page).getByTestId("br-trend-tool").click();
     await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.7);
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.2);
-    const mrdn = await anchors(page, "l1");
+    const [m] = await lineIds(page); const mrdn = await anchors(page, m!);
     await page.evaluate(() => (window as unknown as { __quayFlush?: () => Promise<void> }).__quayFlush?.());
     await closeBroker();
     await page.goto("/broker?asset=HALC");
     await plotted(page, "server");
-    expect(await lineIds(page)).toEqual(["l1"]);
-    expect(await anchors(page, "l1")).toEqual(keep);
+    expect(await lineIds(page)).toEqual([k]);
+    expect(await anchors(page, k!)).toEqual(keep);
 
     // Signed out on this device: the guest sees none of the account's lines; a guest line stays the guest's.
     await page.getByTestId("account-chip").first().click();
@@ -243,7 +243,7 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await g.getByTestId("br-trend-tool").click();
     await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
     await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.5);
-    const guest = await anchors(page, "l1");
+    const [gl] = await lineIds(page); const guest = await anchors(page, gl!);
     await shot(page, "tl-06-guest-own-line");
     await page.evaluate(() => (window as unknown as { __quayFlush?: () => Promise<void> }).__quayFlush?.());
 
@@ -259,13 +259,13 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     expect(signIn.status(), await signIn.text()).toBe(200);
     await page.reload();
     await plotted(page, "server");
-    expect(await lineIds(page)).toEqual(["l1"]);
-    expect(await anchors(page, "l1")).toEqual(keep);
+    expect(await lineIds(page)).toEqual([k]);
+    expect(await anchors(page, k!)).toEqual(keep);
     expect(keep).not.toEqual(guest);
     await closeBroker();
     await page.goto("/broker?asset=MRDN");
     await plotted(page, "server");
-    expect(await anchors(page, "l1")).toEqual(mrdn);
+    expect(await anchors(page, m!)).toEqual(mrdn);
     await shot(page, "tl-08-account-a-again");
   } finally {
     await ctx.close();
@@ -319,9 +319,9 @@ test("phone 390 touch: tap-tap a line, drag its end, no pan while placing, pan o
     box = await plotBox(page);
     await touchDrag(page, { x: box.x + box.width * 0.25, y: box.y + box.height * 0.7 }, { x: box.x + box.width * 0.6, y: box.y + box.height * 0.3 });
     expect(await hook<{ from: number; to: number }>(page, "visible")).toEqual(v1);
-    expect(await lineIds(page)).toEqual(["l1"]);
+    const one = await lineIds(page); expect(one).toHaveLength(1); const l1 = one[0]!;
     await expect(tool).toHaveAttribute("aria-pressed", "false");
-    await aligned(page, "l1");
+    await aligned(page, l1);
 
     // Tap, tap.
     await tool.tap();
@@ -329,23 +329,23 @@ test("phone 390 touch: tap-tap a line, drag its end, no pan while placing, pan o
     await page.touchscreen.tap(box.x + box.width * 0.2, box.y + box.height * 0.3);
     await expect(chart.getByTestId("br-trend-layer")).toHaveAttribute("data-first", "");
     await page.touchscreen.tap(box.x + box.width * 0.5, box.y + box.height * 0.6);
-    expect(await lineIds(page)).toEqual(["l1", "l2"]);
-    await aligned(page, "l2");
+    const two = await lineIds(page); expect(two).toHaveLength(2); expect(two[0]).toBe(l1); const l2 = two[1]!;
+    await aligned(page, l2);
     await shot(page, "tl-09-phone-two-lines");
 
     // The selected line's end by touch (a 32 px grab circle around the 10 px dot).
-    const was = await anchors(page, "l2");
+    const was = await anchors(page, l2);
     const eb = (await chart.getByTestId("br-trend-handle-b").boundingBox())!;
     await touchDrag(page, { x: eb.x + eb.width / 2 + 6, y: eb.y + eb.height / 2 + 6 }, { x: eb.x - 40, y: eb.y - 30 });
-    const now = await anchors(page, "l2");
+    const now = await anchors(page, l2);
     expect(now.a).toEqual(was.a);
     expect(now.b).not.toEqual(was.b);
-    await aligned(page, "l2");
+    await aligned(page, l2);
     const del = chart.getByTestId("br-trend-delete");
     expect((await del.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await shot(page, "tl-10-phone-end-dragged");
     await del.tap();
-    expect(await lineIds(page)).toEqual(["l1"]);
+    expect(await lineIds(page)).toEqual([l1]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   } finally {
     await ctx.close();
