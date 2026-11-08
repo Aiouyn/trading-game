@@ -135,6 +135,15 @@ test("desktop: buy → Portfolio = server ledger at server quotes; quote moves; 
     await register(a.request, baseURL!, `PfA${stamp}`);
     await register(b.request, baseURL!, `PfB${stamp}`);
     const page = await a.newPage();
+    // Every top bar NW text from the first paint of each page load (before the session is known, too).
+    await page.addInitScript(() => {
+      const w = window as unknown as { __stripSeen: string[] };
+      w.__stripSeen = [];
+      new MutationObserver(() => {
+        const t = document.querySelector('[data-testid="strip-nw"]')?.textContent;
+        if (t && w.__stripSeen.at(-1) !== t) w.__stripSeen.push(t);
+      }).observe(document, { subtree: true, childList: true, characterData: true });
+    });
 
     // Before any trade: $10,000.00 cash, NW = cash, no rows; not the example.
     await openPortfolio(page);
@@ -147,6 +156,13 @@ test("desktop: buy → Portfolio = server ledger at server quotes; quote moves; 
     await openPortfolio(page);
     await overviewMatches(page, a.request);
     await stripMatches(page, a.request);
+    // This load's top bar: only "loading" (no figure) before the valuation, never the guest fixture or the cash alone.
+    const v1 = await valuation(a.request);
+    const seen1 = await page.evaluate(() => (window as unknown as { __stripSeen: string[] }).__stripSeen);
+    expect(seen1.length).toBeGreaterThan(0);
+    // (A figure seen earlier may be the NW at an earlier tick; with holdings it is never the cash alone.)
+    for (const t of seen1) expect((!/\$\d/.test(t) && !/%/.test(t)) || (t.includes("Saved net worth") && !t.includes(v1.cash) && !/412/.test(t)), JSON.stringify(seen1)).toBe(true);
+    expect(seen1[0], JSON.stringify(seen1)).toMatch(/Net worth loading/);
     await shot(page, "pf-01-after-buy-overview");
     await positionsTab(page, false);
     await positionsMatch(page, a.request, false);

@@ -30,6 +30,7 @@ describe("M1-08 header NW truthfulness", () => {
   let meMode: Mode;
   let account: "A" | "B";
   let held: Array<() => void>;
+  let authHeld: boolean;
   const ledgers: Record<"A" | "B", () => BrokerLedgerView> = {
     A: () => ({ tick: snap.tick, cashCents: 987_304, reservedCashCents: 110, positions: { HALC: { assetId: "HALC", qty: "3", avgCost: "42.18" } }, orders: {}, fills: [], intents: [] }),
     B: () => ({ tick: snap.tick, cashCents: 1_000_000, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [] }),
@@ -47,7 +48,7 @@ describe("M1-08 header NW truthfulness", () => {
     root = createRoot(el);
     authSession._resetForTests();
     snap = structuredClone(new LiveMarket().snapshot());
-    marketMode = "ok"; meMode = "ok"; account = "A"; held = [];
+    marketMode = "ok"; meMode = "ok"; account = "A"; held = []; authHeld = false;
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
       if (input === "/api/market") return fail(marketMode) ?? Response.json(snap);
@@ -57,6 +58,7 @@ describe("M1-08 header NW truthfulness", () => {
         return fail(meMode) ?? Response.json(ledgers[who]());
       }
       if (input === "/api/auth/me") {
+        if (authHeld) await new Promise<void>((r) => held.push(r));
         return Response.json({
           account: { accountId: "acc_a", handle: "pf_header", createdAtMs: 1, worldId: "world_port_avalon" },
           session: { sessionId: "ses_a", expiresAtMs: 9e15 },
@@ -136,6 +138,15 @@ describe("M1-08 header NW truthfulness", () => {
     await mount(signedInStore(987_304));
     notCashOnly();
     expect(strip().textContent).not.toMatch(/\$\d/);
+    expect(strip().textContent).toMatch(/Net worth loading/);
+    expect(strip().dataset.nwState).toBe("loading");
+  });
+
+  it("page load before the session is known: no figure at all (not the guest fixture's $412k, not a pct)", async () => {
+    authHeld = true;
+    // The shell boots on the guest channels until auth answers (AuthAccountBoundary waits on status "loading").
+    await mount(createShellStore(mockChannels(new URLSearchParams())));
+    expect(strip().textContent).not.toMatch(/412|\$\d|%/);
     expect(strip().textContent).toMatch(/Net worth loading/);
     expect(strip().dataset.nwState).toBe("loading");
   });

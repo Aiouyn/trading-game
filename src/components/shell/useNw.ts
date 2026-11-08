@@ -19,16 +19,19 @@ export function useNw(): string {
 /** What the visible NW chips print (M1-08). Signed-in, the boot value is the sign-in cash with holdings left out, so
  *  until `me` (server ledger at server marks) has a body it is not shown as a net worth: the chip says loading, or
  *  unavailable after a failed read; the next snap brings the real value. Guest keeps the boot fallback (its demo feed
- *  opens with that value). Unlock rules keep useNw. */
+ *  opens with that value). Before the session is known nothing is shown (the guest boot is not yet known to be this
+ *  player's). Unlock rules keep useNw. */
 export type NwReading = { readonly state: "live"; readonly nw: string } | { readonly state: "loading" | "unavailable"; readonly nw: null };
 /** Label for a signed-in NW chip with no valuation (M1-08). */
 export const nwStateLabel = (state: NwReading["state"]) => (state === "loading" ? S.nwLoading : S.nwUnavailable);
 export function useNwReading(): NwReading {
   const boot = useShell((s) => s.channels.me.nw);
-  const signedIn = isSignedIn(useAuthSession());
+  const auth = useAuthSession();
   const me = useChannel("me");
+  // Session not known yet: the shell still holds the guest channels and feed, which may not be this player's.
+  if (auth.status === "loading") return { state: "loading", nw: null };
   if (me.body) return { state: "live", nw: me.body.nw };
-  if (!signedIn) return { state: "live", nw: boot };
+  if (!isSignedIn(auth)) return { state: "live", nw: boot };
   return me.state === "loading" ? { state: "loading", nw: null } : { state: "unavailable", nw: null };
 }
 

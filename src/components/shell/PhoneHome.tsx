@@ -192,7 +192,7 @@ function StatusBar() {
           {auth.account.handle}
         </button>
       ) : null}
-      <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={signedIn ? (nw.nw === null ? nwStateLabel(nw.state) : S.demoBalance) : undefined}>
+      <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
         {nw.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(nw.state)}>{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
       </span>
     </header>
@@ -203,7 +203,7 @@ export function PhoneHome() {
   const vis = useShell((s) => s.vis);
   const me = useShell((s) => s.channels.me);
   const reading = useNwReading();
-  const nw = reading.nw ?? "0.00"; // the rank bar only shows signed out, where the reading always has a value
+  const nw = reading.nw ?? "0.00"; // only read with a value: the rank bar and guest today row wait for one
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const rank = useShell((s) => s.channels.rank);
@@ -270,7 +270,7 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label" data-testid="widget-nw-label">{signedIn ? (reading.nw === null ? nwStateLabel(reading.state) : S.demoBalance) : S.netWorth}</span>
+            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.demoBalance : S.netWorth}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
@@ -287,15 +287,15 @@ export function PhoneHome() {
           <div className="widget-row">
             {signedIn ? (
               <span className="today muted" data-testid="today">{S.demoTradingNote}</span>
-            ) : (
+            ) : reading.nw === null ? null : (
               <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
             )}
-            {!signedIn && <Sparkline />}
+            {!signedIn && reading.nw !== null && <Sparkline />}
           </div>
           {signedIn ? (
             <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
           ) : null}
-          {next && (
+          {next && reading.nw !== null && (
             <>
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
                 <span style={{ width: `${progress * 100}%` }} />
