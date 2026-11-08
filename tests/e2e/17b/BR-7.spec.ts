@@ -415,9 +415,12 @@ for (const scale of ["1", "2"] as const) {
     const now = await page.evaluate(() => Date.now());
     await page.clock.pauseAt(new Date(now + 1_000));
     await plotted(page);
-    // The legend's reserved lines scale with the text; at 2.0 it may wrap to a third line, taken from the plot.
-    expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200 + LEGEND_H * Number(scale));
-    expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBeGreaterThanOrEqual(scale === "1" ? 200 : 200 - 16 * Number(scale));
+    // The legend's reserved lines scale with the text; at 2.0 it may wrap to a third line, which the box adds (the plot
+    // keeps its 200 px).
+    const lgH = (await chart(page).getByTestId("br-chart-legend").boundingBox())!.height;
+    expect(lgH).toBeGreaterThanOrEqual(LEGEND_H * Number(scale));
+    expect(Math.abs((await chart(page).getByTestId("br-chart-box").boundingBox())!.height - (200 + lgH))).toBeLessThanOrEqual(0.5);
+    expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(200);
     expect(await hits(chart(page), 44)).toEqual([]);
     const ys = [...new Set(await chart(page).getByTestId("br-chart-ranges").locator("button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().y))))];
     expect(ys.length).toBe(scale === "2" ? 2 : 1);

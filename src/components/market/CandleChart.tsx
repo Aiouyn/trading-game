@@ -212,6 +212,9 @@ const MAX_BAR_SPACING = 24;
 /** Each overlay's line look: SMA solid, EMA dashed, Bollinger long dashes, VWAP dotted, RSI solid in its own pane. */
 const STUDY_STYLE: Readonly<Record<StudyKind, LineStyle>> = { sma: LineStyle.Solid, ema: LineStyle.Dashed, bb: LineStyle.LargeDashed, vwap: LineStyle.Dotted, rsi: LineStyle.Solid };
 const RSI_RANGE = { priceRange: { minValue: 0, maxValue: 100 } };
+/** RSI's pane, px. candleChart.css (.cc-rsi) adds it, the pane separator and the time axis under the plot, so the
+ *  price pane keeps the whole 200 / 240 px plot (more than without RSI, whose plot also holds the time axis). */
+const RSI_PANE_H = 80;
 function studyOptions(th: ChartTheme, kind: StudyKind, precision: number, locale: string) {
   const rsiLine = kind === "rsi";
   const one = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -434,10 +437,8 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
           l = a.chart.addSeries(LineSeries, studyOptions(a.theme, s.kind, precision, locale), s.kind === "rsi" ? 1 : 0);
           lines.set(key, { kind: s.kind, s: l });
           if (s.kind === "rsi") {
-            // Its own pane, a quarter of the plot (at least 48 px), with the 70 / 30 guides.
-            const panes = a.chart.panes();
-            const total = panes.reduce((h, p) => h + p.getHeight(), 0);
-            panes[1]?.setHeight(Math.max(48, Math.round(total / 4)));
+            // Its own pane under the price pane (RSI_PANE_H), with the 70 / 30 guides.
+            a.chart.panes()[1]?.setHeight(RSI_PANE_H);
             l.priceScale().applyOptions({ scaleMargins: { top: 0.12, bottom: 0.12 } }); // 0 and 100 inside the pane
             guides.current = [70, 30].map((price) => l!.createPriceLine({ price, color: a.theme.colours.crosshair, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "" }));
           }
@@ -447,6 +448,17 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     }
     precisionRef.current = precision; // for a re-theme between renders
   }, [studyValues, precision, locale]);
+
+  // While RSI shows: the pane split keeps proportions on a resize, RSI keeps its pixels instead (after the chart's own
+  // resize, whose observer is older). No observer without RSI.
+  const rsiOn = studies.some((s) => s.kind === "rsi");
+  useEffect(() => {
+    const a = api.current, plot = plotRef.current;
+    if (!a || !plot || !rsiOn) return;
+    const fit = new ResizeObserver(() => a.chart.panes()[1]?.setHeight(RSI_PANE_H));
+    fit.observe(plot);
+    return () => fit.disconnect();
+  }, [rsiOn]);
 
   useEffect(() => { place(); }, [halted, place]);
 
@@ -496,7 +508,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
   const idle = vwapOut && vwapFrom !== null && vwapOut.lines[0]![lastAt] === null ? clockLabel(clockAt(vwapFrom)).hhmm : null;
   useEffect(() => { onVwapIdle?.(idle); }, [idle, onVwapIdle]);
   return (
-    <div className="cc" ref={hostRef} data-testid="br-chart-plot">
+    <div className={rsiOn ? "cc cc-rsi" : "cc"} ref={hostRef} data-testid="br-chart-plot">
       {/* Always laid out (two lines reserved), so the plot below never resizes when the bars arrive. */}
       <p className="cc-legend num" data-testid="br-chart-legend" data-t={shownBar?.t} aria-hidden="true">
         {shownBar && <span className="cc-legend-time">{barTime(shownBar.t, locale, t)}</span>}

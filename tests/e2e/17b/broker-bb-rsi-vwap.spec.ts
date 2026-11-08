@@ -5,7 +5,8 @@
 // pane. VWAP restarts each game day and names where its sum starts; signed in it uses executed volume: with nothing
 // traded that day it draws nothing and says so, and a market buy gives it a value. Choices are kept per account and
 // for the guest, alongside SMA / EMA and a trend line. Pan and zoom still move the plot (in the RSI pane too). Phone
-// 390 (touch pan) and the 520 window: every control fits, the legend stays above the plot.
+// 390 (touch pan) and the 520 window: every control fits, the legend stays above the plot; RSI's 80 px pane is added
+// under the price pane, which keeps the 200 px plot (a pointer there never draws a trend line).
 import { mkdirSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
@@ -134,10 +135,32 @@ test("desktop guest: Bollinger, RSI pane, VWAP on / off; values from the shown b
   await expect(c.getByTestId("br-chart-study-bb")).toHaveText(/^BB 20 ±2σ [\d.,]+ \/ [\d.,]+$/);
   await c.getByTestId("br-study-rsi").click();
   await drawn(page, ["bb", "rsi"]);
-  const panes = await hook<number[]>(page, "panes");
-  expect(panes).toHaveLength(2);
-  expect(panes[1]!).toBeGreaterThanOrEqual(48);
-  expect(panes[1]!).toBeLessThan(panes[0]!);
+  // The RSI pane is added under the price pane; the price pane keeps (here gains) its height, the trend line its place.
+  const pre = (await hook<number[]>(page, "panes"))[0]!;
+  const panes = await paneLayout(c, page, pre);
+  await trendAligned(page);
+  // A pointer in the RSI pane never starts a trend line (the drawing layer covers the price pane only).
+  await c.getByTestId("br-trend-tool").click();
+  await expect(page.getByTestId("br-trend-layer")).toHaveAttribute("data-placing", "");
+  const cvR = await rsiInView(c, page);
+  const r1 = { x: cvR.x + cvR.width * 0.3, y: cvR.y + panes[0]! + 1 + panes[1]! * 0.3 }, r2 = { x: cvR.x + cvR.width * 0.5, y: cvR.y + panes[0]! + 1 + panes[1]! * 0.7 };
+  for (const q of [r1, r2]) expect(await plotAt(page, q), "the click lands on the chart's RSI pane").toBe(true);
+  await page.mouse.click(r1.x, r1.y);
+  await page.mouse.click(r2.x, r2.y);
+  await expect(page.getByTestId("br-trend-layer")).not.toHaveAttribute("data-first", "");
+  await expect(page.locator('[data-testid="br-trend-layer"] g.cc-trend')).toHaveCount(1);
+  // Control: the same tool, still placing, does draw in the price pane above, on the library's pixels; then removed.
+  await expect(page.getByTestId("br-trend-layer")).toHaveAttribute("data-placing", "");
+  const p1 = { x: cvR.x + cvR.width * 0.35, y: cvR.y + panes[0]! * 0.6 }, p2 = { x: cvR.x + cvR.width * 0.6, y: cvR.y + panes[0]! * 0.75 };
+  for (const q of [p1, p2]) expect(await plotAt(page, q), "the click lands on the price pane").toBe(true);
+  await page.mouse.click(p1.x, p1.y);
+  await page.mouse.click(p2.x, p2.y);
+  await expect(page.locator('[data-testid="br-trend-layer"] g.cc-trend')).toHaveCount(2);
+  await trendAligned(page);
+  await page.locator('[data-testid="br-trend-layer"] g.cc-trend').last().focus();
+  await page.keyboard.press("Delete");
+  await expect(page.locator('[data-testid="br-trend-layer"] g.cc-trend')).toHaveCount(1);
+  await page.keyboard.press("Escape");
   expect((await hook<{ price: number }[]>(page, "guides")).map((g) => g.price)).toEqual([70, 30]);
   // Its scale reads 0..100 with one decimal (the guides' axis labels), never the asset's price format.
   await expect.poll(() => page.evaluate(() => {
@@ -186,8 +209,12 @@ test("desktop guest: Bollinger, RSI pane, VWAP on / off; values from the shown b
   await page.mouse.wheel(0, -400);
   await expect.poll(() => hook<unknown>(page, "visible")).not.toEqual(v0);
   const v1 = await hook<unknown>(page, "visible");
-  await page.mouse.move(cv.x + cv.width * 0.5, cv.y + cv.height * 0.92);
-  await page.mouse.down(); await page.mouse.move(cv.x + cv.width * 0.2, cv.y + cv.height * 0.92, { steps: 6 }); await page.mouse.up();
+  const pn = await hook<number[]>(page, "panes");
+  const cvP = await rsiInView(c, page); // the window scrolls to it (the box grew by the RSI pane)
+  const ry = cvP.y + pn[0]! + 1 + pn[1]! / 2; // the middle of the RSI pane
+  expect(await plotAt(page, { x: cvP.x + cvP.width * 0.5, y: ry })).toBe(true);
+  await page.mouse.move(cvP.x + cvP.width * 0.5, ry);
+  await page.mouse.down(); await page.mouse.move(cvP.x + cvP.width * 0.2, ry, { steps: 6 }); await page.mouse.up();
   await expect.poll(() => hook<unknown>(page, "visible")).not.toEqual(v1);
   expect((await hook<unknown[]>(page, "volume")).length).toBeGreaterThan(0);
 
@@ -289,6 +316,45 @@ test("signed in: VWAP of executed volume (none traded: no value, said; a buy giv
   }
 });
 
+/** With RSI on: two panes, RSI's 80 px under a price pane of at least `price` px (the drawing layer exactly over the price
+ *  pane, the RSI pane wholly below it), and the legend (every overlay label) above the plot. Returns the pane heights. */
+async function paneLayout(c: Locator, page: Page, price: number) {
+  await expect.poll(() => hook<number[]>(page, "panes")).toEqual([expect.any(Number), 80]);
+  const panes = await hook<number[]>(page, "panes");
+  expect(panes[0]!).toBeGreaterThanOrEqual(price);
+  const r = await c.evaluate((el) => {
+    const cv = el.querySelector('[data-testid="br-chart-canvas"]')!.getBoundingClientRect();
+    const lg = el.querySelector('[data-testid="br-chart-legend"]')!.getBoundingClientRect();
+    const layer = el.querySelector('[data-testid="br-trend-layer"]')?.getBoundingClientRect() ?? null;
+    return { cvTop: cv.top, cvH: cv.height, lgBottom: lg.bottom, layerTop: layer?.top ?? null, layerH: layer?.height ?? null };
+  });
+  expect(r.lgBottom).toBeLessThanOrEqual(r.cvTop + 0.5);
+  expect(r.cvH).toBeGreaterThanOrEqual(panes[0]! + 1 + 80); // both panes (and the axis) inside the plot, none overlaid
+  if (r.layerTop !== null) { expect(Math.abs(r.layerTop - r.cvTop)).toBeLessThanOrEqual(0.5); expect(Math.abs(r.layerH! - panes[0]!)).toBeLessThanOrEqual(0.5); }
+  return panes;
+}
+/** Scrolls the plot's bottom (the RSI pane) into view; the plot's box after. */
+async function rsiInView(c: Locator, page: Page) {
+  await c.getByTestId("br-chart-canvas").evaluate((e) => e.scrollIntoView({ block: "end" }));
+  await page.waitForTimeout(150);
+  return (await c.getByTestId("br-chart-canvas").boundingBox())!;
+}
+/** The topmost element at a point is in the chart's stage (the plot or its drawing layer), not scrolled away or covered. */
+const plotAt = (page: Page, q: { x: number; y: number }) =>
+  page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest(".cc-stage"), q);
+/** Every trend line's ends on the library's own pixel for its tick and price (within half a pixel). */
+async function trendAligned(page: Page) {
+  const r = await page.evaluate(() => {
+    const h = (window as unknown as { __quayChart: { coord: (t: number, p: number) => { x: number | null; y: number | null } } }).__quayChart;
+    return [...document.querySelectorAll<SVGElement>('[data-testid="br-trend-layer"] g.cc-trend')].map((g) => {
+      const l = g.querySelector('[data-testid="br-trend-line"]')!, d = g.dataset;
+      const a = h.coord(Number(d.aT), Number(d.aP)), b = h.coord(Number(d.bT), Number(d.bP));
+      return { line: ["x1", "y1", "x2", "y2"].map((k) => Number(l.getAttribute(k))), want: [a.x, a.y, b.x, b.y] };
+    });
+  });
+  expect(r.length).toBeGreaterThan(0);
+  for (const { line, want } of r) for (let i = 0; i < 4; i++) expect(Math.abs(line[i]! - want[i]!), `${line} vs ${want}`).toBeLessThanOrEqual(0.5);
+}
 /** Every visible control of the foot inside the chart, none on another, at least `min` px tall; the legend (all
  *  overlay labels) above the plot's canvas. */
 async function fits(c: Locator, min: number) {
@@ -329,6 +395,7 @@ test("phone 390: all five on by tap, 44 px, fit, legend above the plot, touch pa
     await drawn(page, ["bb", "vwap", "rsi"], ["sma0", "ema0"]);
     await c.getByTestId("br-study-rsi").scrollIntoViewIfNeeded();
     await fits(c, 44);
+    await paneLayout(c, page, 200); // the price pane keeps the whole 200 px plot of the phone
     await c.getByTestId("br-chart-canvas").scrollIntoViewIfNeeded();
     const cv = (await c.getByTestId("br-chart-canvas").boundingBox())!;
     await shot(page, "ind-06-phone-390-all");
@@ -339,11 +406,20 @@ test("phone 390: all five on by tap, 44 px, fit, legend above the plot, touch pa
     const v0 = await hook<unknown>(page, "visible");
     await touchDrag(page, { x: cv.x + cv.width * 0.3, y: cv.y + cv.height * 0.4 }, { x: cv.x + cv.width * 0.8, y: cv.y + cv.height * 0.4 });
     await expect.poll(() => hook<unknown>(page, "visible")).not.toEqual(v0);
+    // And in the RSI pane (below the price pane): the shared time scale pans.
+    const v1 = await hook<unknown>(page, "visible");
+    const pn = await hook<number[]>(page, "panes");
+    const cvP = await rsiInView(c, page);
+    const ry = cvP.y + pn[0]! + 1 + pn[1]! / 2;
+    expect(await plotAt(page, { x: cvP.x + cvP.width * 0.5, y: ry })).toBe(true);
+    await touchDrag(page, { x: cvP.x + cvP.width * 0.7, y: ry }, { x: cvP.x + cvP.width * 0.3, y: ry });
+    await expect.poll(() => hook<unknown>(page, "visible")).not.toEqual(v1);
     await flush(page);
     await page.reload();
     const c2 = await plotted(page, "demo");
     expect(await states(c2)).toEqual({ sma: "true", ema: "true", bb: "true", vwap: "true", rsi: "true" });
     await drawn(page, ["bb", "vwap", "rsi"], ["sma0", "ema0"]);
+    await paneLayout(c2, page, 200);
   } finally {
     await ctx.close();
   }
@@ -365,6 +441,7 @@ test("the 520 window: all five on, controls fit (≥ 28 px), legend above the pl
   await drawn(page, ["bb", "vwap", "rsi"], ["sma0", "ema0"]);
   await c.getByTestId("br-study-rsi").scrollIntoViewIfNeeded();
   await fits(c, 28);
+  await paneLayout(c, page, 200);
   await c.getByTestId("br-chart-canvas").scrollIntoViewIfNeeded();
   await shot(page, "ind-07-window-520-all");
 });
