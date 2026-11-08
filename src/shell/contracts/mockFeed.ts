@@ -848,7 +848,7 @@ export class MockFeed {
     this.fills = [...v.fills];
     this.intents = [...v.intents];
     this.ledgerAdopted = true;
-    if (this.snapshotAccount) saveMeSnapshot(this.snapshotAccount, v); // refused unless still the current account
+    if (this.snapshotAccount) void saveMeSnapshot(this.snapshotAccount, v); // refused unless still the current account
     for (const sub of this.subs) {
       if (sub.ch !== "me") continue;
       if (sub.sent === null) { if (this.meReady()) this.sendSnap(sub); continue; }

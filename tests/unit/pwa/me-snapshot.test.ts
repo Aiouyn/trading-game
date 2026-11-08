@@ -7,9 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrokerLedgerView } from "@/market/brokerLedger";
 import type { OpenOrder } from "@/shell/contracts/channels";
 import { clockAt, clockLabel } from "@/shell/mockChannels";
-import {
-  ME_SNAPSHOT_KEY, _snapshotForTests, parseMeSnapshot, saveMeSnapshot, snapshotSignedIn, snapshotSignedOut, snapshotUnknown, toMeSnapshot,
-} from "@/pwa/meSnapshot";
+import { ME_SNAPSHOT_KEY, _snapshotForTests, saveMeSnapshot, snapshotSignedIn, snapshotSignedOut, snapshotUnknown } from "@/pwa/meSnapshot";
+import { parseMeSnapshot, toMeSnapshot } from "@/pwa/meSnapshotCodec";
 
 const A = `acc_${"a".repeat(32)}`;
 const B = `acc_${"b".repeat(32)}`;
@@ -38,9 +37,9 @@ afterEach(() => vi.unstubAllGlobals());
 const stored = () => parseMeSnapshot(mem.get(ME_SNAPSHOT_KEY) ?? null);
 
 describe("what is stored", () => {
-  it("only allowlisted own-ledger fields: no marks, values, fills, intents, order ids, handle, session or token", () => {
-    snapshotSignedIn(A);
-    expect(saveMeSnapshot(A, ledger(), 1_762_580_000_000)).toBe(true);
+  it("only allowlisted own-ledger fields: no marks, values, fills, intents, order ids, handle, session or token", async () => {
+    await snapshotSignedIn(A);
+    expect(await saveMeSnapshot(A, ledger(), 1_762_580_000_000)).toBe(true);
     const raw = mem.get(ME_SNAPSHOT_KEY)!;
     expect(JSON.parse(raw)).toEqual({
       v: 1, acct: A, savedAt: 1_762_580_000_000, tick: 27700, cash: 995_772, held: 12_006,
@@ -53,61 +52,61 @@ describe("what is stored", () => {
 });
 
 describe("account lifecycle", () => {
-  it("nothing is written before a sign-in, or for another account than the signed-in one", () => {
-    expect(saveMeSnapshot(A, ledger())).toBe(false);
-    snapshotSignedIn(B);
-    expect(saveMeSnapshot(A, ledger())).toBe(false);
+  it("nothing is written before a sign-in, or for another account than the signed-in one", async () => {
+    expect(await saveMeSnapshot(A, ledger())).toBe(false);
+    await snapshotSignedIn(B);
+    expect(await saveMeSnapshot(A, ledger())).toBe(false);
     expect(mem.size).toBe(0);
   });
-  it("sign-out deletes A's record; a delayed A ledger arriving afterwards cannot restore it", () => {
-    snapshotSignedIn(A); saveMeSnapshot(A, ledger());
+  it("sign-out deletes A's record; a delayed A ledger arriving afterwards cannot restore it", async () => {
+    await snapshotSignedIn(A); await saveMeSnapshot(A, ledger());
     snapshotSignedOut();
     expect(mem.size).toBe(0);
-    expect(saveMeSnapshot(A, ledger(1))).toBe(false);
+    expect(await saveMeSnapshot(A, ledger(1))).toBe(false);
     expect(mem.size).toBe(0);
   });
-  it("B signing in deletes A's record; a delayed A ledger after that is refused and B's own values are kept", () => {
-    snapshotSignedIn(A); saveMeSnapshot(A, ledger(111));
-    snapshotSignedIn(B);
+  it("B signing in deletes A's record; a delayed A ledger after that is refused and B's own values are kept", async () => {
+    await snapshotSignedIn(A); await saveMeSnapshot(A, ledger(111));
+    await snapshotSignedIn(B);
     expect(mem.size).toBe(0);
-    expect(saveMeSnapshot(B, ledger(222))).toBe(true);
-    expect(saveMeSnapshot(A, ledger(333))).toBe(false);
+    expect(await saveMeSnapshot(B, ledger(222))).toBe(true);
+    expect(await saveMeSnapshot(A, ledger(333))).toBe(false);
     expect(stored()).toMatchObject({ acct: B, cash: 222 });
   });
-  it("the same account signing in again keeps its record (cold offline after a reload still has it)", () => {
-    snapshotSignedIn(A); saveMeSnapshot(A, ledger(444));
+  it("the same account signing in again keeps its record (cold offline after a reload still has it)", async () => {
+    await snapshotSignedIn(A); await saveMeSnapshot(A, ledger(444));
     _snapshotForTests.reset(); // a page reload
-    snapshotSignedIn(A);
+    await snapshotSignedIn(A);
     expect(stored()).toMatchObject({ acct: A, cash: 444 });
   });
-  it("a network error stops writes but keeps the record for the offline page", () => {
-    snapshotSignedIn(A); saveMeSnapshot(A, ledger(555));
+  it("a network error stops writes but keeps the record for the offline page", async () => {
+    await snapshotSignedIn(A); await saveMeSnapshot(A, ledger(555));
     snapshotUnknown();
-    expect(saveMeSnapshot(A, ledger(666))).toBe(false);
+    expect(await saveMeSnapshot(A, ledger(666))).toBe(false);
     expect(stored()).toMatchObject({ acct: A, cash: 555 });
   });
-  it("an unreadable record found at sign-in is deleted", () => {
+  it("an unreadable record found at sign-in is deleted", async () => {
     mem.set(ME_SNAPSHOT_KEY, "{not json");
-    snapshotSignedIn(A);
+    await snapshotSignedIn(A);
     expect(mem.size).toBe(0);
   });
 });
 
 describe("storage failures", () => {
-  it("a failing write keeps nothing (no older record left looking current) and never throws", () => {
-    snapshotSignedIn(A); saveMeSnapshot(A, ledger(777));
+  it("a failing write keeps nothing (no older record left looking current) and never throws", async () => {
+    await snapshotSignedIn(A); await saveMeSnapshot(A, ledger(777));
     failSet = true;
-    expect(saveMeSnapshot(A, ledger(888))).toBe(false);
+    expect(await saveMeSnapshot(A, ledger(888))).toBe(false);
     expect(mem.size).toBe(0);
   });
-  it("blocked storage at sign-in never throws", () => {
+  it("blocked storage at sign-in never throws", async () => {
     failGet = true;
-    expect(() => snapshotSignedIn(A)).not.toThrow();
+    await expect(snapshotSignedIn(A)).resolves.toBeUndefined();
   });
-  it("a ledger the record cannot represent is not written and removes the older one", () => {
-    snapshotSignedIn(A); saveMeSnapshot(A, ledger(999));
+  it("a ledger the record cannot represent is not written and removes the older one", async () => {
+    await snapshotSignedIn(A); await saveMeSnapshot(A, ledger(999));
     const many = Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`o_${i}`, order({ orderId: `o_${i}` })]));
-    expect(saveMeSnapshot(A, ledger(1000, { orders: many }))).toBe(false);
+    expect(await saveMeSnapshot(A, ledger(1000, { orders: many }))).toBe(false);
     expect(mem.size).toBe(0);
   });
 });
@@ -147,7 +146,7 @@ describe("reader: corrupted / unknown / oversize records are rejected by the app
       expect(page.readSnapshot(text) !== null).toBe(ok);
     });
   }
-  it("the page's game time and cash match the app's (clockLabel(clockAt(tick)), $ with 2 decimals)", () => {
+  it("the page's game time and cash match the app's (clockLabel(clockAt(tick)), $ with 2 decimals)", async () => {
     for (const t of [0, 1, 719, 720, 27700, 27999]) {
       const { day, hhmm } = clockLabel(clockAt(t));
       expect(page.gameTime(t)).toBe(`Day ${day} ${hhmm}`);

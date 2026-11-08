@@ -41,7 +41,7 @@ async function refreshFromServer(): Promise<AuthUiState> {
       setState({ status: "signed_out" });
       return state;
     }
-    snapshotSignedIn(me.account.accountId); // M2-05: only this account may write; another account's record goes
+    void snapshotSignedIn(me.account.accountId); // M2-05: only this account may write; another account's record goes
     setState({
       status: "signed_in",
       account: me.account,
