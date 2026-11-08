@@ -76,6 +76,9 @@ const EN = {
     MKT_BAD_PRICE: "Check the price.",
     MKT_ORDER_TYPE_UNSUPPORTED: "Only market and limit orders are available.",
     MKT_TOO_MANY_ORDERS: "Too many open orders. Cancel one first.",
+    /** L4: a coin listed at graduation trades against its book at the market only. */
+    MKT_MARKET_ONLY: "Listed coins take market orders only.",
+    MKT_NO_LIQUIDITY: "The coin's book can't fill any of this order now.",
   } as Record<string, string>,
   halted: "Halted",
   /** E-98 (1) neutral default (BRK-A); Designer owns the final text. */
@@ -251,6 +254,8 @@ const FR: BrStrings = {
     MKT_BAD_PRICE: "Vérifiez le cours.",
     MKT_ORDER_TYPE_UNSUPPORTED: "Seuls les ordres au marché et à cours limité sont disponibles.",
     MKT_TOO_MANY_ORDERS: "Trop d’ordres en cours. Annulez-en un d’abord.",
+    MKT_MARKET_ONLY: "Les jetons cotés ne prennent que des ordres au marché.",
+    MKT_NO_LIQUIDITY: "Le carnet du jeton ne peut exécuter aucune part de cet ordre maintenant.",
   },
   halted: "Suspendu",
   /** [provisional] FR of the neutral default. */

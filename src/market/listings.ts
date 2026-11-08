@@ -3,7 +3,7 @@
 // existing consumer (the server clock's quotes, candles, the Broker door, the board, /api/world, and the signed-in
 // client's feed, Broker, Portfolio and asset pages) sees it like any asset. The list version counts appends.
 // Server: LiveMarket.list (src/server/market/clock.ts). Signed-in client: the market snapshot carries the listed defs and
-// the feed loads this module lazily the first time one is new (src/shell/contracts/mockFeed.ts), so first-load code does
+// the feed loads this module lazily on the first server quote read that carries listings (signed-in only) (src/shell/contracts/mockFeed.ts), so first-load code does
 // not grow. Defs are public data (name, ticker, class, decimals, listing price); nothing account-specific.
 // The catalog is passed in, not imported: a second (lazy) importer would split src/market/catalog.ts out of the
 // first-load module it is bundled into and cost the Broker route's first load (S1-20).
@@ -73,13 +73,17 @@ export function listAsset(assets: Map<string, AssetState>, a: AssetFixture): voi
   if (!assets.has(a.assetId)) assets.set(a.assetId, { last: a.base, prevClose: a.base, dayVol: 0, prints: [], lastQty: 0, dir: 0 });
 }
 
-/** Signed-in client: add the snapshot's listed defs to the catalog and have the feed quote them. Runs on every server
- *  quote that carries listings; a def already adopted changes nothing. False when the reply is not exactly listed defs
- *  or one collides with a different asset (nothing is quoted from it then). */
-export function adoptListed(raw: unknown, feed: { readonly assets: Map<string, AssetState> }, cat: Catalog): boolean {
+/** Signed-in client, on each server quote read that carries listings: add the read's listed defs (`snapshot.listed`, absent until a coin
+ *  graduates) to the catalog and have the feed quote them. A def already adopted changes nothing. False when `listed` is
+ *  not exactly listed defs or one collides with a different asset (nothing is quoted from that read then). The catalog
+ *  parts come as arguments (see the header). */
+export function adoptListed(snapshot: unknown, feed: { readonly assets: Map<string, AssetState> }, ASSETS: Catalog["ASSETS"], ASSET_BY_ID: Catalog["ASSET_BY_ID"], WATCHLISTS: Catalog["WATCHLISTS"]): boolean {
+  const raw = (snapshot as { listed?: unknown }).listed;
+  if (raw === undefined) return true;
+  const cat = { ASSETS, ASSET_BY_ID, WATCHLISTS };
   const defs = parseListed(raw);
   if (!defs || !defs.every((d) => appendAsset(d, cat))) return false;
-  for (const d of defs) listAsset(feed.assets, cat.ASSET_BY_ID[d.assetId]!);
+  for (const d of defs) listAsset(feed.assets, ASSET_BY_ID[d.assetId]!);
   return true;
 }
 

@@ -286,6 +286,13 @@ export class MockFeed {
   protected tradingState(id: string): TradingState { return this.scenario.halt === id ? "HALTED" : "CONTINUOUS"; }
 
   /** Tick of the last validated server book. Null while the constructor book is still unpublished. */
+  /** An asset this feed can trade. A coin listed at graduation (dp 8) trades only at the server: after a sign-out in the
+   *  same page the guest demo still lists it (the catalog grew), but its local fills cannot price it, so it is refused. */
+  private tradable(id: string): AssetFixture | undefined {
+    const a = ASSET_BY_ID[id];
+    return a && (this.authoritativeQuotes || a.displayDecimals < 3) ? a : undefined;
+  }
+
   adoptedServerTick(): number | null {
     return this.quotesAdopted ? this.tick : null;
   }
@@ -349,7 +356,7 @@ export class MockFeed {
         continue;
       }
       const { intentId, draft } = p;
-      const a = ASSET_BY_ID[draft.assetId];
+      const a = this.tradable(draft.assetId);
       // Halt (Quant E-96 (3), Producer E-98 (1)): a halted asset still takes orders; a market day order is accepted with
       // no fill and waits for the reopen auction (QUEUED_AUCTION). Sell beyond the holding (E-96 (4)): rejected whole,
       // MKT_NO_LOCATE (a cash-account ticket has no locate); never a negative lot.
@@ -523,7 +530,7 @@ export class MockFeed {
   }
   private heldMinor(): number {
     // The shared definition (src/market/valuation.ts), so the leaderboard values a ledger exactly as Portfolio does.
-    return heldValueMinor([...this.lots].map(([assetId, l]) => ({ assetId, qty: l.qty })), (id) => this.assets.get(id)!.last, (id) => ASSET_BY_ID[id]!.displayDecimals)!;
+    return heldValueMinor([...this.lots].map(([assetId, l]) => ({ assetId, qty: l.qty })), (id, qty) => centsOf(ASSET_BY_ID[id]!.displayDecimals, this.assets.get(id)!.last * qty))!;
   }
   /** `?nw=` pin: the FDL cash that keeps nw at the pinned value for the current marks. */
   private pinnedNwMinor(): number | null {
@@ -947,9 +954,9 @@ export class MockFeed {
     try {
       const res = await fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
       const raw = res.ok ? await res.json() : null;
-      // L4: coins the server listed since this page loaded join the catalog first (lazy: only when one is new). A ledger
-      // read before that could not be valued and is read again on the next server tick.
-      if (raw?.listed && !(await import("@/market/listings")).adoptListed(raw.listed, this, { ASSETS, ASSET_BY_ID, WATCHLISTS })) return this.quotesFailed();
+      // L4: coins listed at graduation join the catalog before the read's quotes are adopted (the module loads only once
+      // a read carries listings, never for guests). A ledger read before that could not be valued and is read again.
+      if (raw?.listed && !(await import("@/market/listings")).adoptListed(raw, this, ASSETS, ASSET_BY_ID, WATCHLISTS)) return this.quotesFailed();
       if (!raw || !this.adoptAuthoritativeQuotes(raw)) this.quotesFailed();
     } catch {
       this.quotesFailed();
@@ -961,15 +968,16 @@ export class MockFeed {
   // ---- req ops (19 Rule 3.8.5) and HTTP ----
   /** intent.preview: a fixed fee/impact table against the mock's committed state, never UI state (Q14). */
   preview(draft: OrderDraft): PreviewRes {
-    const a = ASSET_BY_ID[draft.assetId];
+    const a = this.tradable(draft.assetId);
     const s = a && this.assets.get(a.assetId);
     const qty = Number(draft.qty);
     // Halted stays valid: the preview reads only N-1 public data (Quant E-96 (3)). A sell beyond the holding is invalid.
     const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
     // Signed-in (M1-06): the server door takes market and limit day orders; stop types are not offered there.
     const dp = a?.displayDecimals ?? 2;
-    // dp 8 is only a coin listed at graduation (L4): market orders only.
-    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit" || (dp > 2 && draft.type !== "market"));
+    // dp 8 is only a coin listed at graduation (L4): market orders only (its own refusal code, as the server's).
+    const marketOnly = dp > 2 && draft.type !== "market";
+    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit" || marketOnly);
     let valid = wellFormed && !unsupported && !this.oversells(draft);
     const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
     const impactBp = valid ? IMPACT_BP(qty, a!.lot) : 0;
@@ -984,7 +992,7 @@ export class MockFeed {
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
-      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? "MKT_ORDER_TYPE_UNSUPPORTED" : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
+      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? (marketOnly ? "MKT_MARKET_ONLY" : "MKT_ORDER_TYPE_UNSUPPORTED") : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
       buyingPowerAfter: fmt(this.fdlCashMinor() - this.reservedCash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };

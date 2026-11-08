@@ -19,7 +19,7 @@ const QTY_RE = /^[1-9]\d{0,8}$/;
 
 export type RejectCode =
   | "MKT_UNKNOWN_ASSET" | "MKT_BAD_QTY" | "MKT_BAD_PRICE" | "MKT_ORDER_TYPE_UNSUPPORTED" | "MKT_HALTED"
-  | "MKT_INSUFFICIENT_BP" | "MKT_NO_LOCATE" | "MKT_TOO_MANY_ORDERS" | "MKT_NO_LIQUIDITY";
+  | "MKT_INSUFFICIENT_BP" | "MKT_NO_LOCATE" | "MKT_TOO_MANY_ORDERS" | "MKT_NO_LIQUIDITY" | "MKT_MARKET_ONLY";
 
 /** L4: a listed coin's liquidity book account (cents, tokens), seeded at graduation and owned by no player. Every Broker
  *  fill on the coin is against it at the server mark: a buy takes tokens from it, a sale takes cash from it, and a fill
@@ -209,7 +209,8 @@ function placeListed(
   rec: PlayerPrivateRecord, draft: OrderDraft, a: AssetFixture, quote: ServerQuote, ids: IdSource, book: BookAccount | undefined,
   reject: (c: RejectCode) => Decision, accept: (next: PlayerPrivateInput, effects: string[]) => Decision,
 ): Decision {
-  if (draft.type !== "market" || draft.tif !== "day" || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
+  if (draft.type !== "market") return reject("MKT_MARKET_ONLY"); // explicit: a listed coin takes market orders only
+  if (draft.tif !== "day" || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
   if (draft.limit !== undefined) return reject("MKT_BAD_PRICE");
   if (!QTY_RE.test(draft.qty)) return reject("MKT_BAD_QTY");
   const last = quote.last(a.assetId);

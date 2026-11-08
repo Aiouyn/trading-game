@@ -9,19 +9,20 @@
  *  refuses a fill whose price × qty is not a safe integer. */
 export const centsOf = (dp: number, minor: number, up = false): number => (up ? Math.ceil : Math.round)(minor / 10 ** (dp - 2));
 
-/** Holdings value at the given marks; null when any held asset has no mark (it cannot be valued). */
-export function heldValueMinor(positions: Iterable<{ readonly assetId: string; readonly qty: number }>, mark: (assetId: string) => number | null, dpOf: (assetId: string) => number = () => 2): number | null {
+/** Holdings value: the sum of each holding's value in cents (`value(assetId, qty)`, a mark × qty converted with
+ *  centsOf); null when any holding cannot be valued (no mark). */
+export function heldValueMinor(positions: Iterable<{ readonly assetId: string; readonly qty: number }>, value: (assetId: string, qty: number) => number | null): number | null {
   let held = 0;
   for (const p of positions) {
-    const m = mark(p.assetId);
-    if (m === null) return null;
-    held += centsOf(dpOf(p.assetId), m * p.qty);
+    const v = value(p.assetId, p.qty);
+    if (v === null) return null;
+    held += v;
   }
   return held;
 }
 
-/** Net worth = total cash + holdings at the marks (null when a holding cannot be valued). */
-export function netWorthMinor(cashCents: number, positions: Iterable<{ readonly assetId: string; readonly qty: number }>, mark: (assetId: string) => number | null, dpOf?: (assetId: string) => number): number | null {
-  const held = heldValueMinor(positions, mark, dpOf);
+/** Net worth = total cash + holdings value (null when a holding cannot be valued). */
+export function netWorthMinor(cashCents: number, positions: Iterable<{ readonly assetId: string; readonly qty: number }>, value: (assetId: string, qty: number) => number | null): number | null {
+  const held = heldValueMinor(positions, value);
   return held === null ? null : cashCents + held;
 }

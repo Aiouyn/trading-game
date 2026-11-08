@@ -133,7 +133,7 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
     await setCash(10_000_000);
     await trade(b, { side: "buy", amount: 10_000_000 });
     const w0 = await world();
-    expect((await order(c, "BUY", 5, { type: "limit", limit: "0.00021596" })).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_ORDER_TYPE_UNSUPPORTED" });
+    expect((await order(c, "BUY", 5, { type: "limit", limit: "0.00021596" })).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_MARKET_ONLY" });
     const r1 = await order(c, "BUY", 1_000_000);
     expect(r1.result.status).toBe("ACCEPTED");
     expect(r1.ledger.fills.at(-1)).toMatchObject({ assetId: "FROG", side: "BUY", qty: "1000000", price: "0.00021596", fee: "0.10" });
@@ -335,5 +335,30 @@ describe("listing leaves the existing market unchanged", () => {
     const w = withCoin.snapshot().quotes.rows;
     for (const id of Object.keys(p)) if (id !== "FROG") expect(w[id]).toEqual(p[id]);
     expect(w.FROG!.last).not.toBe("0.00021596");
+  });
+});
+
+describe("client feed and a listed coin (L4)", () => {
+  afterEach(() => { resetListingsForTests(); });
+  const draft = (type: "market" | "limit") => ({ assetId: "FROG", side: "BUY" as const, type, qty: "1000000", tif: "day" as const, ...(type === "limit" ? { limit: "0.00021596" } : {}) });
+  it("signed-in: adopts the snapshot's listed def, previews a market buy in cents and refuses a limit as market-only", async () => {
+    const { MockFeed } = await import("@/shell/contracts/mockFeed");
+    const { adoptListed } = await import("@/market/listings");
+    const cat = await import("@/market/catalog");
+    const feed = new MockFeed({ empty: true, seed: 17 }, { authoritativeQuotes: true, autoStart: false });
+    expect(adoptListed({ listed: [listedDef("FROG", "FROG Club", 21_596)] }, feed, cat.ASSETS, cat.ASSET_BY_ID, cat.WATCHLISTS)).toBe(true);
+    expect(adoptListed({}, feed, cat.ASSETS, cat.ASSET_BY_ID, cat.WATCHLISTS)).toBe(true); // no listings: nothing to do
+    expect(adoptListed({ listed: [{ ...listedDef("FROG", "FROG Club", 21_596), volBp: 5 }] }, feed, cat.ASSETS, cat.ASSET_BY_ID, cat.WATCHLISTS)).toBe(false);
+    // 1,000,000 × 21,596 (1e-8 $) = 21,596¢ ($215.96, not 1e6× that) + the 10¢ minimum fee.
+    expect(feed.preview(draft("market"))).toMatchObject({ valid: true, price: "0.00021596", fee: "0.10", total: "216.06" });
+    expect(feed.preview(draft("limit"))).toMatchObject({ valid: false, reasonCode: "MKT_MARKET_ONLY" });
+  });
+  it("guest demo in the same page: the listed coin is shown but not tradable (its local fills cannot price it)", async () => {
+    const { MockFeed } = await import("@/shell/contracts/mockFeed");
+    const cat = await import("@/market/catalog");
+    const { appendAsset } = await import("@/market/listings");
+    appendAsset(listedDef("FROG", "FROG Club", 21_596), cat);
+    const guest = new MockFeed({}, { autoStart: false });
+    expect(guest.preview(draft("market"))).toMatchObject({ valid: false, reasonCode: "MKT_UNKNOWN_ASSET" });
   });
 });
