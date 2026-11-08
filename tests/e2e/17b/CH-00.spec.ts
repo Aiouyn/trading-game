@@ -41,6 +41,7 @@ const BUILT = REGISTRY.filter((a) => a.built).map((a) => a.id);
 const LOCATE = (scope: Locator): Record<string, Locator> => ({
   boards: scope.getByText("Sign in to see the Port Avalon net worth board.", { exact: true }), // the guest (boot) body, M2-03
   broker: scope.getByRole("button", { name: "Review order" }),
+  launchpad: scope.getByText("Sign in to launch or trade coins. You can browse as a guest.", { exact: true }), // owner-restored Launchpad, guest body
   city: scope.getByText("Read-only view. Nothing here can be bought or changed.", { exact: true }), // M1-10
   portfolio: scope.getByText("Net worth", { exact: true }).first(),
   settings: scope.getByText("Appearance", { exact: true }).first(),

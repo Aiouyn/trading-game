@@ -37,7 +37,7 @@ test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, divider
 test("S1-07 every unlocked built:false app opens a ComingLater window; deep link shows the same", async ({ page }) => {
   await boot(page, "/?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
   const ids = await page.locator("[data-testid^=tile-][data-state=unlocked]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.slice(5)));
-  expect(ids).toHaveLength(32);
+  expect(ids).toHaveLength(33); // 32 of 17 §2.2 plus the owner-restored Launchpad
   // Wire is built (UI card 1, WIR-A): it renders its feed, covered by tests/e2e/17b/WIR-A.spec.ts.
   for (const id of ids.filter((i) => i !== "settings" && i !== "city" && i !== "wire")) {
     await page.getByTestId(`tile-${id}`).click();
@@ -45,6 +45,7 @@ test("S1-07 every unlocked built:false app opens a ComingLater window; deep link
     if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
     if (id === "broker") { await expect(win.getByTestId("broker")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 4 (BR-4)
     if (id === "boards") { await expect(win.getByTestId("leaderboard")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since M2-03 (net-worth board)
+    if (id === "launchpad") { await expect(win.getByTestId("launchpad")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built: owner-restored Launchpad
     await expect(win.getByTestId("coming-later")).toContainText("Coming later");
     await expect(win.getByRole("heading")).toHaveText(await win.locator(".tb-name").innerText());
     await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);
