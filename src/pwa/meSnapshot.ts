@@ -26,11 +26,7 @@ function remove(): void {
 /** Synchronous, codec-free ownership check. The writer (meSnapshotCodec.toMeSnapshot + JSON.stringify) always starts
  *  the record with {"v":1,"acct":"<id>", and "acct" appears exactly once (no other field can contain it). Anything
  *  else is not provably this account's record. */
-const OWNER = /^\{"v":1,"acct":"(acc_[0-9a-f]{32})",/;
-function ownedBy(text: string, acct: string): boolean {
-  const m = OWNER.exec(text);
-  return m !== null && m[1] === acct && text.indexOf('"acct"') === text.lastIndexOf('"acct"');
-}
+const ownedBy = (text: string, acct: string) => text.startsWith(`{"v":1,"acct":"${acct}",`) && text.split('"acct"').length === 2;
 
 /** The account the session currently belongs to (authSession sets it). Only its ledgers may be written. */
 let current: string | null = null;
