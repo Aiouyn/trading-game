@@ -23,7 +23,8 @@ import { AuthService, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTes
 import { setBrokerForTests } from "@/server/broker";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import type { NewsBody, TickerBody } from "@/shell/contracts/channels";
-import { MockFeed, SNAP_DELAY_MS, START_TICK, fmt, shockedMinor } from "@/shell/contracts/mockFeed";
+import { MockFeed, SNAP_DELAY_MS, START_TICK, fmt } from "@/shell/contracts/mockFeed";
+import { ShockFeed, shockedMinor } from "@/server/market/shockFeed";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 
@@ -90,7 +91,7 @@ describe("M1-09 story schedule", () => {
 describe("M1-09 server clock: stories move the authoritative quotes once", () => {
   it("the server is the seeded walk plus exactly the logged effects, each at its tick; reads publish and apply nothing", () => {
     const market = new LiveMarket();
-    const ref = new MockFeed({ seed: SEED, empty: true }, { autoStart: false });
+    const ref = new ShockFeed({ seed: SEED, empty: true }, { autoStart: false });
     let published = 0;
     for (let i = 0; i < 16 * STORY_EVERY * 2; i++) {
       // reads between steps: nothing changes

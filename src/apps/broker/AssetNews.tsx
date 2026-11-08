@@ -2,7 +2,7 @@
 // UI card 10 News: the `news` items naming this asset (an asset entity whose id is the assetId), newest tick first,
 // then id. A row is one button that opens the story in Wire (card 9 detail). `news` has its own states here.
 import { Button } from "@/components/ui/Button";
-import { KindChip } from "@/apps/wire/WireItemRow";
+import { KindChip } from "@/apps/wire/KindChip";
 import { headline, pctLabel, timeLabel, useWireStrings } from "@/apps/wire/strings";
 import { useShellStore } from "@/components/shell/ShellContext";
 import type { WireItem } from "@/shell/contracts/channels";

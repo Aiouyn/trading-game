@@ -58,19 +58,9 @@ export interface WireStrings {
   filingType: Record<Filing["type"], string>;
   filingMissing: string;
   notInFeed: string;
-  // ---- M1-09 server stories and their price effect ----
-  /** Guest feed: the stories are fixtures that move nothing. */
-  demo: string;
-  causeTitle: string;
-  effectTitle: string;
-  /** "{ticker} {from} → {to} ({pct})" */
-  effectLine: string;
-  realizedNote: string;
-  laterNote: string;
+  // ---- M1-09 row chips (the detail and demo copy: storyStrings.ts, Wire chunk only) ----
   forecast: string;
-  forecastNote: string;
   eased: string;
-  easedNote: string;
 }
 
 export const EN: WireStrings = {
@@ -142,16 +132,8 @@ export const EN: WireStrings = {
   },
   filingMissing: "Filing details aren't available.",
   notInFeed: "This story is no longer in your feed.",
-  demo: "Example stories · they don't move prices. Sign in for the live Port Avalon Wire.",
-  causeTitle: "Why it matters",
-  effectTitle: "Price effect",
-  effectLine: "{ticker} {from} → {to} ({pct})",
-  realizedNote: "Applied once by the Port Avalon market at {time}.",
-  laterNote: "Prices keep moving after this. Later moves aren't part of this story.",
   forecast: "Forecast",
-  forecastNote: "A forecast, not an outcome: no price effect. It may not happen.",
   eased: "No effect",
-  easedNote: "No price effect: the risk passed.",
 };
 
 export const FR: WireStrings = {
@@ -223,16 +205,8 @@ export const FR: WireStrings = {
   },
   filingMissing: "Les détails de la déclaration ne sont pas disponibles.",
   notInFeed: "Cette dépêche ne figure plus dans votre fil.",
-  demo: "Dépêches d’exemple · elles ne font pas bouger les cours. Connectez-vous pour le fil en direct de Port Avalon.",
-  causeTitle: "Pourquoi c’est important",
-  effectTitle: "Effet sur le cours",
-  effectLine: "{ticker} {from} → {to} ({pct})",
-  realizedNote: "Appliqué une fois par le marché de Port Avalon à {time}.",
-  laterNote: "Les cours continuent de bouger ensuite. Ces mouvements ne font pas partie de cette dépêche.",
   forecast: "Prévision",
-  forecastNote: "Une prévision, pas un résultat : aucun effet sur le cours. Elle peut ne pas se produire.",
   eased: "Sans effet",
-  easedNote: "Aucun effet sur le cours : le risque est passé.",
 };
 
 export const useWireStrings = (): WireStrings => (useShell((s) => s.prefs.locale) === "fr" ? FR : EN);

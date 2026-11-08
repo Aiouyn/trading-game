@@ -4,25 +4,17 @@
 // headline text itself (a span whose first child is the text node), as card 1's layout and line-break checks read it.
 "use client";
 import type { Ref } from "react";
-import { Glyph } from "@/components/shell/Glyph";
 import { Chip } from "@/components/ui/Chip";
-import type { WireItem, WireKind } from "@/shell/contracts/channels";
+import type { WireItem } from "@/shell/contracts/channels";
 import { fill, headline, pctLabel, timeLabel, type WireStrings } from "./strings";
+import { KindChip } from "./KindChip";
+
+/** Re-exported for the detail and existing imports; Broker imports ./KindChip alone, so the row stays out of its route. */
+export { KindChip };
 
 
 /** Source record shows for RUMOR, and for STATEMENT when it carries one. */
 export const showsRecord = (i: WireItem) => (i.kind === "RUMOR" || i.kind === "STATEMENT") && i.sourceRecord !== undefined;
-
-/** Every kind chip is neutral (--line outline, --fg-muted text; Studio: brass is only wealth, rank and the primary
- *  action). RUMOR alone is dashed (wire.css). Never a tone, never --acc or --signal. */
-export function KindChip({ kind, t }: { kind: WireKind; t: WireStrings }) {
-  return (
-    <Chip tone="neutral" className={`wire-kind wire-kind-${kind.toLowerCase()}`} data-testid="wire-kind" data-kind={kind}>
-      {kind === "WORLD_EVENT" && <Glyph name="world" size={12} />}
-      {t.kind[kind]}
-    </Chip>
-  );
-}
 
 /** M1-09: a server story's outcome on the row when it moved nothing: Forecast / No effect (a realized effect sits
  *  beside its asset label, see EntityLabel). */

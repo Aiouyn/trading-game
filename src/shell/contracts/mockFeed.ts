@@ -133,9 +133,6 @@ export function rng(seed: number): () => number {
 }
 
 /** Integer minor units -> decimal string with `dp` places (G2). */
-/** M1-09: a story's effect on a price in minor units: integer, at least 1 (as the quote walk). */
-export const shockedMinor = (last: number, bp: number): number => Math.max(1, Math.round((last * (10_000 + bp)) / 10_000));
-
 export function fmt(minor: number, dp: number): string {
   const neg = minor < 0;
   const s = String(Math.abs(Math.round(minor))).padStart(dp + 1, "0");
@@ -143,7 +140,7 @@ export function fmt(minor: number, dp: number): string {
   return neg && /[1-9]/.test(out) ? `-${out}` : out;
 }
 
-interface AssetState { last: number; prevClose: number; dayVol: number; prints: TapePrint[]; lastQty: number; dir: -1 | 0 | 1 }
+export interface AssetState { last: number; prevClose: number; dayVol: number; prints: TapePrint[]; lastQty: number; dir: -1 | 0 | 1 }
 export interface Lot { qty: number; avgCost: number }
 
 /** One fill's lot rule (shared by the mock and the M1-06 server door): a buy re-averages the cost (rounded to the minor
@@ -226,7 +223,8 @@ export class MockFeed {
     }
     return random;
   }
-  private assets = new Map<string, AssetState>();
+  /** protected: the server clock's ShockFeed (M1-09) moves a price on a story. */
+  protected assets = new Map<string, AssetState>();
   private cash: number;
   private lots = new Map<string, Lot>();
   private orders: Record<string, OpenOrder> = {};
@@ -277,7 +275,7 @@ export class MockFeed {
   }
 
   // ---- world ----
-  private tradingState(id: string): TradingState { return this.scenario.halt === id ? "HALTED" : "CONTINUOUS"; }
+  protected tradingState(id: string): TradingState { return this.scenario.halt === id ? "HALTED" : "CONTINUOUS"; }
 
   /** Tick of the last validated server book. Null while the constructor book is still unpublished. */
   adoptedServerTick(): number | null {
@@ -309,20 +307,6 @@ export class MockFeed {
       this.news = [...this.news, this.tierNews({ ...base, id: `n-t${this.tick}`, tick: this.tick })].slice(-NEWS_KEEP);
     }
     this.emitTick();
-  }
-
-  /** M1-09 (server clock only): move one asset's price by a story's effect at the current tick, after this tick's walk
-   *  step. Returns the price before and after in minor units, or null for an unknown or non-trading asset. The quote walk
-   *  itself is not redrawn: its next step starts from the new price. */
-  applyShock(assetId: string, bp: number): { from: number; to: number } | null {
-    const s = this.assets.get(assetId);
-    if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
-    const from = s.last, to = shockedMinor(from, bp);
-    s.last = to;
-    s.dir = to > from ? 1 : to < from ? -1 : s.dir;
-    const p = s.prints.at(-1);
-    if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
-    return { from, to };
   }
 
   private tierNews(n: WireItem): WireItem {

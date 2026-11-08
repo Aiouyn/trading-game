@@ -158,4 +158,4 @@
 
 /* M1-09: a server story's realized price effect on the row ("AVB −5.00%"), neutral like the kind chips. */
 .wire-effect { font-family: var(--font-num); font-size: var(--fs-10_5); color: var(--fg); white-space: nowrap; }
-.wire-demo { margin: 0; padding: var(--sp-4) var(--sp-8); font-size: var(--fs-11_5); color: var(--fg-muted); }
+.wire-demo { flex: none; margin: 0; padding: var(--sp-4) var(--sp-16); font-size: var(--fs-11_5); color: var(--fg-muted); }

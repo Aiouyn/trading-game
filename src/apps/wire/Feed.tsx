@@ -12,6 +12,7 @@ import { BreakingStrip } from "./BreakingStrip";
 import { FilterChips, filterItems } from "./FilterChips";
 import { ItemDetail } from "./ItemDetail";
 import { fill, type WireFilter, type WireStrings } from "./strings";
+import { storyStrings } from "./storyStrings";
 import { WireItemRow } from "./WireItemRow";
 import { WireSkeletonList } from "./Skeleton";
 
@@ -148,7 +149,7 @@ export function Feed({ view, t, host = NO_HOST, select, demo = false }: { view: 
   return (
     <div ref={root} className="wire" data-testid="wire" data-state={view.state} data-layout={split ? "split" : "single"} data-open={item ? item.id : undefined}>
       <div className="wire-feed" data-testid="wire-feed" hidden={replaced}>
-      {demo && <p className="wire-demo muted" data-testid="wire-demo">{t.demo}</p>}
+      {demo && <p className="wire-demo muted" data-testid="wire-demo">{storyStrings(t).demo}</p>}
       {breaking && <BreakingStrip item={breaking} t={t} />}
       <FilterChips value={filter} onChange={setFilter} t={t} />
       {view.state === "stale" && <p className="wire-updating" data-testid="wire-updating">{t.updating}</p>}

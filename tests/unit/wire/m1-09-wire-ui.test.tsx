@@ -102,7 +102,7 @@ describe("M1-09 Wire stories in the app", () => {
 
   it("guest: the feed is labelled as example stories that move nothing", async () => {
     await mount();
-    expect(q("wire-demo")!.textContent).toBe("Example stories · they don't move prices. Sign in for the live Port Avalon Wire.");
+    expect(q("wire-demo")!.textContent).toBe("Example stories · no price effect");
   });
 
   it("Broker News tab: the story's effect on this asset", async () => {

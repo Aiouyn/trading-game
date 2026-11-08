@@ -17,6 +17,7 @@ import {
 import { getLiveMarket, LiveMarket, setLiveMarketForTests, shouldAutostartClock } from "@/server/market/clock";
 import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { FEED_TICK_MS, MockFeed, SERVER_QUOTE_POLL_MS, SNAP_DELAY_MS, START_TICK } from "@/shell/contracts/mockFeed";
+import { ShockFeed } from "@/server/market/shockFeed";
 import { authoritativeQuoteProvenance, getFeed, openChannel, setFeed, staleAfterMs } from "@/shell/contracts/useChannel";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 import { createShellStore } from "@/shell/store";
@@ -48,7 +49,7 @@ describe("M1-05 authoritative live ticks", () => {
   // for every asset no story has moved yet.
   it("seed 17 matches the eight-asset tape at ticks 0, 1, 3 and 20, including NMBS and VRDN beside it", () => {
     const market = new LiveMarket();
-    const feed = new MockFeed({ seed: PORT_AVALON_MARKET_SEED }, { autoStart: false });
+    const feed = new ShockFeed({ seed: PORT_AVALON_MARKET_SEED }, { autoStart: false });
     const moved = new Set<string>();
     for (let step = 0; step <= 20; step++) {
       const snap = market.snapshot();

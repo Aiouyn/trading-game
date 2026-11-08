@@ -1,5 +1,5 @@
 // Single-process authoritative quote clock (M1-05).
-// One MockFeed, seed 17, advanced on FEED_TICK_MS. Reads never step it.
+// One MockFeed (the ShockFeed subclass, M1-09), seed 17, advanced on FEED_TICK_MS. Reads never step it.
 // Not durable across process restart and not multi-instance (same limit as the auth file store).
 // M1-09: each step also publishes that tick's Wire story (src/market/wireStories.ts) and applies its price effect to
 // these quotes once, before the step listeners (resting-order sweep, candles) see the tick. Reads never publish or
@@ -8,7 +8,8 @@ import { ASSET_BY_ID } from "@/market/catalog";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
-import { FEED_TICK_MS, MockFeed, fmt } from "@/shell/contracts/mockFeed";
+import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
+import { ShockFeed } from "./shockFeed";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 
@@ -25,7 +26,7 @@ export type LiveMarketOptions = {
 
 export class LiveMarket {
   readonly tickMs: number;
-  private readonly feed: MockFeed;
+  private readonly feed: ShockFeed;
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly stepListeners = new Set<() => void>();
   private stories: WireItem[] = [];
@@ -34,7 +35,7 @@ export class LiveMarket {
 
   constructor(opts: LiveMarketOptions = {}) {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
-    this.feed = new MockFeed(
+    this.feed = new ShockFeed(
       { seed: opts.seed ?? PORT_AVALON_MARKET_SEED, empty: true },
       { autoStart: false, tickMs: this.tickMs },
     );
