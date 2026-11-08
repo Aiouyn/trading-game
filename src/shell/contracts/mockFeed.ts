@@ -806,11 +806,14 @@ export class MockFeed {
         try {
           const res = await fetch("/api/broker/me", { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json" } });
           if (res.status === 401 || res.status === 403 || res.status === 409) { this.failMe(); return; }
-          if (!res.ok) continue;
+          // M1-08: a failed first read says so (error + Retry) instead of a skeleton that never ends; the next server
+          // tick (or Retry) reads again and its snap replaces the error. An adopted ledger is kept as it is.
+          if (!res.ok) { this.failMe(); continue; }
           const v = parseBrokerLedger(await res.json());
-          if (v && epoch === this.ledgerEpoch) this.applyLedger(v);
+          if (!v) this.failMe();
+          else if (epoch === this.ledgerEpoch) this.applyLedger(v);
         } catch {
-          // Keep the last adopted ledger; the next server tick pulls again.
+          this.failMe(); // network / unreadable reply: same as above; the last adopted ledger stays
         }
       } while (this.ledgerPullAgain);
     } finally {
@@ -818,7 +821,8 @@ export class MockFeed {
     }
   }
 
-  /** Signed out / ledger quarantined: `me` errors rather than showing a ledger the server did not send. */
+  /** Signed out / ledger quarantined / first read failed: `me` errors (only where nothing was shown yet) rather than
+   *  showing a ledger the server did not send. */
   private failMe(): void {
     for (const sub of this.subs) if (sub.ch === "me" && sub.sent === null) this.send(sub, { t: "err", ch: "me", code: "INTERNAL" });
   }
