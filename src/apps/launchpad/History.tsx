@@ -7,7 +7,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { LPS } from "./strings";
-import { PH, VH, W, barH, modelOf, parseHistory, priceStr, stepPath, xOf, type HistoryData, type Step } from "./history";
+import { PH, VH, W, barH, modelOf, parseHistory, priceStr, stepAt, stepPath, slotW, xOf, type HistoryData, type Step } from "./history";
 
 type St = { status: "loading" } | { status: "error" } | { status: "ok"; data: HistoryData; stale: boolean };
 
@@ -65,10 +65,10 @@ function Chart({ data, stale, onRetry }: { data: HistoryData; stale: boolean; on
   };
   const hover = (e: PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    if (n > 1 && r.width > 0) setPick(Math.round(((((e.clientX - r.left) / r.width) * W - 8) / (W - 16)) * (n - 1)));
+    if (n > 1 && r.width > 0) setPick(stepAt(((e.clientX - r.left) / r.width) * W, n));
   };
   const s = m.steps[i];
-  const bw = Math.max(1, Math.min(14, (W - 16) / Math.max(n, 1) * 0.6));
+  const bw = Math.max(1, Math.min(14, slotW(n) * 0.6));
   return (
     <section className="lpad-hist" data-testid="lp-history" data-points={data.pts.length} data-stale={stale ? "true" : undefined} aria-label={LPS.hTitle}>
       <h3>{LPS.hTitle}</h3>
@@ -106,7 +106,7 @@ function Chart({ data, stale, onRetry }: { data: HistoryData; stale: boolean; on
           <details className="lpad-hist-table">
             <summary data-testid="lp-hist-table-toggle">{LPS.hTable}</summary>
             <table data-testid="lp-hist-table">
-              <caption className="lpad-sub">{LPS.hDefs}</caption>
+              <caption>{LPS.hCaption}</caption>
               <thead><tr><th scope="col">{LPS.hNo}</th><th scope="col">{LPS.hTime}</th><th scope="col">{LPS.hSide}</th><th scope="col">{LPS.hTokens}</th><th scope="col">{LPS.hVolume}</th><th scope="col">{LPS.hPriceAfter}</th></tr></thead>
               <tbody>
                 {m.steps.map((st) => (

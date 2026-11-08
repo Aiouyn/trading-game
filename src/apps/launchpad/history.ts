@@ -56,22 +56,26 @@ export const W = 600;
 export const PH = 140;
 export const VH = 56;
 
-/** x of step i of n (one step per trade, evenly spaced, oldest left). */
-export const xOf = (i: number, n: number) => (n <= 1 ? W / 2 : (i / (n - 1)) * (W - 16) + 8);
+/** Each step owns one equal slot, oldest left: step i spans [left(i), left(i + 1)], the newest runs to the right edge. */
+export const slotW = (n: number) => (W - 16) / Math.max(n, 1);
+export const leftOf = (i: number, n: number) => 8 + i * slotW(n);
+/** The centre of step i's slot (its volume bar and the readout cursor). */
+export const xOf = (i: number, n: number) => leftOf(i, n) + slotW(n) / 2;
+/** The step under a horizontal position in viewBox units. */
+export const stepAt = (vx: number, n: number) => Math.max(0, Math.min(n - 1, Math.floor((vx - 8) / slotW(n))));
 /** y of a price inside the price plot (a flat history sits in the middle). */
 export function yOf(price: number, m: Model): number {
   const { min, max } = m.price;
   if (max <= min) return PH / 2;
   return PH - 8 - ((price - min) / (max - min)) * (PH - 16);
 }
-/** The price line: it holds each trade's price until the next trade (a step), never a straight line between trades. */
+/** The price line: each trade's price is held until the next trade (a step), never a straight line between trades. */
 export function stepPath(m: Model): string {
   const n = m.steps.length;
   if (n === 0) return "";
-  if (n === 1) return `M8 ${yOf(m.steps[0]!.price, m)}H${W - 8}`;
-  let d = `M${xOf(0, n)} ${yOf(m.steps[0]!.price, m)}`;
-  for (let i = 1; i < n; i++) d += `H${xOf(i, n)}V${yOf(m.steps[i]!.price, m)}`;
-  return d;
+  let d = `M8 ${yOf(m.steps[0]!.price, m)}`;
+  for (let i = 1; i < n; i++) d += `H${leftOf(i, n)}V${yOf(m.steps[i]!.price, m)}`;
+  return `${d}H${W - 8}`;
 }
 /** Height of a volume bar inside the volume plot. */
 export const barH = (cents: number, m: Model) => (m.volMax <= 0 ? 0 : Math.max(1, (cents / m.volMax) * (VH - 4)));

@@ -11,7 +11,7 @@ import { GET as histGet } from "@/app/api/launchpad/history/route";
 import { POST as launchRoute } from "@/app/api/launchpad/launch/route";
 import { POST as tradeRoute } from "@/app/api/launchpad/trade/route";
 import { LP, quoteBuy } from "@/launchpad/rules";
-import { modelOf, parseHistory, priceStr, spot } from "@/apps/launchpad/history";
+import { W, modelOf, parseHistory, priceStr, spot, stepAt, stepPath, xOf } from "@/apps/launchpad/history";
 import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, type AuthStore, type AuthStoreSnapshot } from "@/server/auth";
 import { parseLaunchpad, recordPoint, type LpCoin } from "@/server/launchpad/state";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
@@ -190,6 +190,16 @@ describe("Launchpad price/volume history", () => {
     const m = modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 7, pts: c.hist!.pts });
     expect(m.fromLaunch).toBe(false);
     expect(m.steps).toHaveLength(LP.HIST_KEEP);
+  });
+
+  it("the price line is steps only (H/V, no diagonal), each price held to the next trade and the newest to the right edge", () => {
+    const pts = [1, 2, 3].map((i) => ({ tick: i, atMs: 1 + i, side: "buy" as const, tokens: 5, cents: 100 * i, x: LP.X0 + 1000 * i, sold: 5 * i }));
+    const m = modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, pts });
+    const d = stepPath(m);
+    expect(d).toMatch(/^M8 [\d.]+(H[\d.]+V[\d.]+){3}H592$/);
+    expect(d.endsWith(`H${W - 8}`)).toBe(true);
+    expect(stepAt(xOf(2, 4), 4)).toBe(2);
+    expect(modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, pts: [] }).steps).toHaveLength(1);
   });
 
   it("the client drops a reply for another coin and malformed replies", () => {

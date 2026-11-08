@@ -81,6 +81,7 @@ export const LPS = {
   hVolume: "Volume",
   hNoVolume: "no trade",
   hTable: "Show as a table",
+  hCaption: "Recorded trades, oldest first. Price after: the curve's spot price after the trade. Volume: game dollars of the trade.",
   hNo: "#",
   hTime: "Time",
   hSide: "Side",

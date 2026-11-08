@@ -46,8 +46,9 @@ p.lpad-sub { white-space: normal; overflow-wrap: anywhere; } /* paragraphs (fee,
 .lpad-hist-axis span:nth-child(1), .lpad-hist-axis span:nth-child(4) { align-self: start; }
 .lpad-hist-axis span:nth-child(3), .lpad-hist-axis span:nth-child(6) { align-self: end; }
 .lpad-hist-axname { color: var(--fg); }
-.lpad-hist-readout { min-height: 2.6em; }
+.lpad .lpad-hist-readout { min-height: 2.6em; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .lpad-hist-table { font-size: var(--fs-12_5); max-height: 260px; overflow: auto; }
 .lpad-hist-table table { border-collapse: collapse; width: 100%; }
+.lpad-hist-table caption { text-align: left; color: var(--fg-muted); padding: var(--sp-4) 0; }
 .lpad-hist-table th, .lpad-hist-table td { padding: 2px var(--sp-4); border-bottom: 1px solid var(--line); text-align: left; }
 .lpad-hist-table td.num { text-align: right; }
