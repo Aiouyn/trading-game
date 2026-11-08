@@ -235,8 +235,13 @@ As built (head recorded in evidence/launchpad/README.md):
 - Tests: tests/unit/shell/server-sync-boundary.test.ts (guest loads nothing; first read before the chunk and reused;
   duplicate mount = one poller; swap during the load runs nothing; failed import then Retry; order with an unloadable
   half is not sent; known offline still sends nothing). Mutations checked: removing the still-check, keeping a failed
-  import, or not reusing the first read each fail a test. Existing tests that stepped a fake clock past the signed-in
-  half now evaluate serverSync up front (m2-03, the Broker chart helper) or await it (m1-05); no assertion changed.
+  import, or not reusing the first read each fail a test. Test readiness (corrected after GK NO-GO B2 at 4c8d4fbe): the half's load is real
+  module I/O, not a timer, so a fixed fake-clock step never waits for it; whether it had loaded depended on the runner's
+  transform cache (a lone file cold failed, the full suite warm passed: m1-06:372 3/3 on a clean archive). Every test
+  that drives a signed-in feed on fake time now awaits the explicit readiness `serverHalfLoaded(feed)`
+  (tests/unit/helpers/serverHalf.ts: the feed's own memoized `serverSync()` promise) before its first clock step: m1-06,
+  m1-08 portfolio, m1-09 Wire, m2-01 goal guide, m1-01 feed swap, m2-03 board, the Broker chart helper (m1-07); m1-05
+  already awaited it. The static preloads are removed. No assertion, delay, retry or skip changed.
 
 
 ### Book liquidity path, order types and template factors (GK NO-GO B3 at 4c8d4fbe; recorded before code)
@@ -309,3 +314,26 @@ unit. Nothing is built for it here.
    share zC.
 6. Rollback (failed save leaves ledger, book, flow and mark unchanged), replay by key, restart (book, flow, resting
    orders survive; sweep resumes), old saves without `flow` load, public reads never carry positions or orders.
+
+**As built (B3, same unit).**
+- src/server/broker/book.ts: the price law (BOOK_LAW constants from p10 DEFAULT_TRADING + FROG), `fillOnBook` (cap,
+  tokens / cash bounds with the 4 re-pricings, then one cut at the best sale price so a cut always converges, limit
+  check, fee to the book, flow update, permanent move). Pure; hand-worked in tests/unit/launchpad/
+  launchpad-book-liquidity.test.ts "book price law" and launchpad-graduation's fixture header (an independent
+  re-computation reproduced every number).
+- execution.ts: placeListed takes market and limit (day); the base sweep skips listed coins; `sweepListed` sweeps every
+  resting listed order across accounts oldest first; holds convert dp-8 limits to cents (reservedCashCents).
+  MKT_MARKET_ONLY is gone (strings, preview, server).
+- auth service: the book's `flow` is saved on the coin (LpCoin.flow, strict parse, absent on older saves) and written with
+  the book through one check (`withBooks`); `updateOwnLedgerWithBook` runs the fill's `saved` step (the permanent price
+  move) only after the persist succeeds, still in the lock; `sweepPrivateStates` takes the listed phase (ledgers and
+  books in the same persist, rolled back together).
+- Clock: ShockFeed draws the `lp:crypto` factor every tick and reads GX's walk step; MemeProcess.step(zM, zC) and
+  shift(move); LiveMarket.impactListed. The path stays not durable (a restart starts it again, M1-05 rule).
+- Client: the ticket previews a listed coin's limit like any limit; its estimate adds the 45 bp half spread (the server
+  adds the size impact); MKT_NO_LIQUIDITY copy says a limit can wait.
+- Measured, not assumed: with FROG's advNotional ($400M) the impact of the book's whole $43k is about 10 bp, so an
+  oversized sale still empties the book's cash at about 0.6% under the mark (spread + impact), as in p10. The bound is
+  the book (never minted, never overdrawn); the next holder's market sale is partial or MKT_NO_LIQUIDITY and its limit
+  waits for buyers. A $0.10 minimum fee on a sale the book can only pay a few cents for nets the seller nothing; that is
+  the base fee schedule, unchanged.
