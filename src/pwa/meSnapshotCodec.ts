@@ -7,15 +7,17 @@
 // - Written only from a server ledger adopted by a signed-in feed whose account is the session's current account;
 //   a late ledger from a previous account (after sign-out / another sign-in) is refused.
 // - Allowlisted fields only: tick, cash, cash held for working orders, positions {asset, qty, avg cost}, working
-//   orders {asset, side, type, qty, filled, limit, stop, status}. No marks, values, P/L or net worth (market data),
+//   orders {asset, side, type, qty, filled, limit, stop, status}, Launchpad coins {ticker, qty, cost basis} (so a coin
+//   holding is never silently missing offline; a record without the coins key is refused). No marks, values, P/L or net worth (market data),
 //   no fills, intents, alerts, order ids, handle, email, session, cookie, token or raw response.
 // - Deleted on sign-out, on a definite signed-out answer, and when another account signs in.
 import type { BrokerLedgerView } from "@/market/brokerLedger";
 
-export const ME_SNAPSHOT_LIMITS = { positions: 64, orders: 64, chars: 16384 } as const;
+export const ME_SNAPSHOT_LIMITS = { positions: 64, orders: 64, coins: 64, chars: 16384 } as const;
 
 export interface MeSnapshotPosition { asset: string; qty: string; avgCost: string }
 export interface MeSnapshotOrder { asset: string; side: "BUY" | "SELL"; type: string; qty: string; filled: string; limit?: string; stop?: string; status: string }
+export interface MeSnapshotCoin { ticker: string; qty: number; cost: number }
 export interface MeSnapshot {
   v: 1;
   acct: string; // opaque server account id: the record's namespace, not a credential
@@ -25,12 +27,14 @@ export interface MeSnapshot {
   held: number; // cents held by working orders
   positions: MeSnapshotPosition[];
   orders: MeSnapshotOrder[];
+  coins: MeSnapshotCoin[];
 }
 
 const ACCT = /^acc_[0-9a-f]{32}$/;
 const ASSET = /^[A-Z0-9]{1,12}$/;
 const QTY = /^\d{1,12}$/;
 const PRICE = /^\d{1,12}(\.\d{1,6})?$/;
+const COIN = /^[A-Z]{3,5}$/;
 const TYPES = ["market", "limit", "stop", "stop_limit"];
 const STATUSES = ["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"];
 const isInt = (n: unknown, max = Number.MAX_SAFE_INTEGER): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= max;
@@ -44,10 +48,12 @@ export function parseMeSnapshot(text: string | null): MeSnapshot | null {
   if (typeof text !== "string" || text.length > ME_SNAPSHOT_LIMITS.chars) return null;
   let o: unknown;
   try { o = JSON.parse(text); } catch { return null; }
-  if (!only(o, ["v", "acct", "savedAt", "tick", "cash", "held", "positions", "orders"])) return null;
+  if (!only(o, ["v", "acct", "savedAt", "tick", "cash", "held", "positions", "orders", "coins"])) return null;
   if (o.v !== 1 || !str(o.acct, ACCT) || !isInt(o.savedAt) || !isInt(o.tick) || !isInt(o.cash) || !isInt(o.held)) return null;
   if (!Array.isArray(o.positions) || o.positions.length > ME_SNAPSHOT_LIMITS.positions) return null;
   if (!Array.isArray(o.orders) || o.orders.length > ME_SNAPSHOT_LIMITS.orders) return null;
+  if (!Array.isArray(o.coins) || o.coins.length > ME_SNAPSHOT_LIMITS.coins) return null;
+  for (const c of o.coins) if (!only(c, ["ticker", "qty", "cost"]) || !str(c.ticker, COIN) || !isInt(c.qty) || c.qty < 1 || !isInt(c.cost)) return null;
   for (const p of o.positions) if (!only(p, ["asset", "qty", "avgCost"]) || !str(p.asset, ASSET) || !str(p.qty, QTY) || !str(p.avgCost, PRICE)) return null;
   for (const r of o.orders) {
     if (!only(r, ["asset", "side", "type", "qty", "filled", "status"], ["limit", "stop"])) return null;
@@ -67,6 +73,7 @@ export function toMeSnapshot(acct: string, v: BrokerLedgerView, savedAt: number)
       asset: o.assetId, side: o.side, type: o.type, qty: o.qty, filled: o.filled,
       ...(o.limit !== undefined ? { limit: o.limit } : {}), ...(o.stop !== undefined ? { stop: o.stop } : {}), status: o.status,
     })),
+    coins: v.coins.map((c) => ({ ticker: c.ticker, qty: c.qty, cost: c.cost })),
   };
   return parseMeSnapshot(JSON.stringify(snap)) ? snap : null;
 }

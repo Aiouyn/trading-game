@@ -30,7 +30,7 @@ A signed-in player A opens Launchpad, fills in name, ticker and tagline, and rev
 7. Proof: plain production preview at the exact head. A signs up → launches → B signs up → finds it → buys → sells → refresh → account switch → server restart. Ledger and Launchpad values compared with the server API. 390 and 520 layouts, keyboard.
 
 ## Deliberate deviations (to record for Gatekeeper / owner)
-- The p10 launch gates "rank R1 or higher" and "account age ≥ 3 real days" are NOT enforced. On this base, signed-in accounts have no server-side rank progression (they start at R0), so with the gates nobody could ever launch. A first journey would also be impossible. Recorded as an owner decision.
+- The p10 launch gates "rank R1 or higher" and "account age ≥ 3 real days" are NOT enforced. On this base, signed-in accounts have no server-side rank progression (they start at R0), so with the gates nobody could ever launch. A first journey would also be impossible. This is the currently implemented choice, PENDING product acceptance: it is not an approval to drop those gates. Today a launch is limited only by the reviewed $100 fee, the 24 h cooldown and 3 live coins per creator.
 - App id "launchpad" is added back to the registry (the V3 17 union listed it as legacy-removed).
 
 ## Remaining steps (not in this unit, recorded rather than omitted)
@@ -38,5 +38,14 @@ A signed-in player A opens Launchpad, fills in name, ticker and tagline, and rev
 - Creator allocation and vesting (L5; the allocation is fixed at 0 here). Rug flag and cases (L5).
 - Buzz/hype, NPC retail, snipers and death (L6): prices move only when players trade.
 - Buzz items, candles/chart, Trending/Graduated tabs, holder buckets, replies, icons (L7). Moderation beyond the minimal fictional-name checks. The balance gate (L8).
-- Coin holdings in net worth, Portfolio and the leaderboard (L8.1 values at liquidation). Until then Launchpad says holdings are not counted.
 - French copy.
+
+## Coins in account wealth (same unit, before Gatekeeper)
+- One valuation (lead-launchpad L8.1, "valued at liquidation (exit fee and slippage), not at spot, in the gate and in net worth"): `liquidationCents(curve, qty)` in src/launchpad/rules.ts = `quoteSell(curve, qty).pay`, what selling the whole holding alone, now, would pay after the 1% fee and the curve's price impact (0 when too small to sell). It is an indicative estimate, not a quote: each holder's estimate assumes they sell first, other trades move the curve, and a real sale is bounded by its own review's 5% floor. Copy says so (Portfolio and Launchpad).
+- Cost basis: `costs[account][ticker]` in the saved Launchpad section (cents spent, fees included); a sell removes the sold share pro rata; selling all clears it. Parsed strictly: costs must mirror holdings exactly. P&L = value − cost, both from the server.
+- Counted once: NW = cash (reserved cash stays inside it) + Broker positions at the server mark + Σ coin value. The creator's fee share is cash only; the sink and the curves' reserves belong to nobody.
+- Read in one locked step with the cash ledger: `AuthService.readOwnLedger` (GET /api/broker/me) and `updateOwnLedger` (Broker order/cancel replies) return the ledger and the caller's own coin rows together; `readStandings` gives the board each account's coin total only. The board still sends only handle, NW and rank.
+- Client: the strict Broker ledger schema has `coins` (`{ticker, qty, value, cost}`, integer cents); the signed-in feed adds Σ value to `me.nw` (Portfolio hero, header NW, goal) and passes the rows to Portfolio's separate "Launchpad coins" block (≈ value, cost, P&L). A malformed coin row refuses the whole ledger (NW unavailable, never cash-only).
+- Launchpad section unavailable (quarantined for repair): Broker ledger, Broker order/cancel and the board answer 503 LAUNCHPAD_UNAVAILABLE before any write, rather than state a cash-only wealth.
+- Offline snapshot: own coins {ticker, qty, cost} are allowlisted and listed on offline.html ("Launchpad coins"); no value (market data). A record without the coins key is refused.
+- Budget: S1-20 stays ≤ 215.0 KB (threshold unchanged). Offsets were dead copy only: Broker `haltedHelp` (never shown) and `orderKind` (duplicate of `kindDay`), and the Launchpad glyph drawn as one path. Portfolio's coin copy lives in Overview.tsx (lazy) since portfolio/strings.ts is on the Broker route's first load.

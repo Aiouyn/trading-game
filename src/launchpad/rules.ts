@@ -65,6 +65,16 @@ export function quoteSell(c: Curve, qty: number): SellQuote {
   return { ok: true, gross, fee, creatorFee: creator, pay, next: { x: x2, sold: c.sold - qty } };
 }
 
+/**
+ * Indicative value of a holding (old p10 L8.1: curve holdings count at liquidation, not at spot): what selling all
+ * `qty` alone, now, would pay after the fee and the curve's price impact; 0 when it is too small to sell. Not a quote:
+ * other trades move the curve, so an actual sale can pay less (its review keeps its own slippage floor).
+ */
+export function liquidationCents(c: Curve, qty: number): number {
+  const q = quoteSell(c, qty);
+  return q.ok ? q.pay : 0;
+}
+
 /** Tokens a buy could still take before the curve is full. */
 export const curveLeft = (c: Curve) => LP.Y0 - c.sold - LP.GRAD_Y;
 

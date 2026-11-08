@@ -12,7 +12,7 @@ describe("gk codec load failure on account switch", () => {
     const m = await import("@/pwa/meSnapshot");
     m.snapshotUnknown(); // boot network error: record kept (documented)
     await m.snapshotSignedIn(B);
-    const saved = await m.saveMeSnapshot(B, { tick: 27701, cashCents: 1000000, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [] } as never);
+    const saved = await m.saveMeSnapshot(B, { tick: 27701, cashCents: 1000000, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [], coins: [] } as never);
     console.log("B save kept:", saved, "record now:", mem.get(KEY));
     expect(mem.get(KEY)).toBeUndefined(); // EXPECTED for no cross-account exposure
   });

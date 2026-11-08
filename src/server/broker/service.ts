@@ -43,8 +43,8 @@ export class BrokerService {
 
   async read(session: AuthSessionView): Promise<BrokerLedgerView> {
     this.attach();
-    const rec = await this.deps.auth().getPlayerPrivate(session, session.account.accountId);
-    return ledgerView(rec, this.deps.market().snapshot().tick);
+    const { record, coins } = await this.deps.auth().readOwnLedger(session);
+    return ledgerView(record, this.deps.market().snapshot().tick, coins);
   }
 
   /** Place. Quote, checks and write happen in one locked read-modify-write on the caller's own ledger. */
@@ -53,7 +53,7 @@ export class BrokerService {
     let out: BrokerIntentReply["result"] | null = null;
     let executed: ExecutedFill[] = [];
     const market = this.deps.market();
-    const next = await this.deps.auth().updateOwnPrivateState(session, (cur) => {
+    const { record: next, coins } = await this.deps.auth().updateOwnLedger(session, (cur) => {
       const d = decidePlace(cur, key, draft, quoteFromSnapshot(market.snapshot()), this.ids);
       out = d.result;
       executed = d.replayed ? [] : newFills(cur, d.next);
@@ -62,21 +62,21 @@ export class BrokerService {
     if (!out) throw new AuthError("BAD_REQUEST", "Order was not decided.", 500);
     if (executed.length > 0) this.deps.onFills?.(executed);
     const result: BrokerIntentReply["result"] = out;
-    return { intentId: result.intentId, result, ledger: ledgerView(next, market.snapshot().tick) };
+    return { intentId: result.intentId, result, ledger: ledgerView(next, market.snapshot().tick, coins) };
   }
 
   async cancel(session: AuthSessionView, key: string, orderId: string): Promise<BrokerIntentReply> {
     this.attach();
     let out: BrokerIntentReply["result"] | null = null;
     const market = this.deps.market();
-    const next = await this.deps.auth().updateOwnPrivateState(session, (cur) => {
+    const { record: next, coins } = await this.deps.auth().updateOwnLedger(session, (cur) => {
       const d = decideCancel(cur, key, orderId, market.snapshot().tick, this.ids);
       out = d.result;
       return d.next;
     });
     if (!out) throw new AuthError("BAD_REQUEST", "Cancel was not decided.", 500);
     const result: BrokerIntentReply["result"] = out;
-    return { intentId: result.intentId, result, ledger: ledgerView(next, market.snapshot().tick) };
+    return { intentId: result.intentId, result, ledger: ledgerView(next, market.snapshot().tick, coins) };
   }
 
   /** One server tick: fill every working limit the mark reached, across all ledgers, in one commit. */

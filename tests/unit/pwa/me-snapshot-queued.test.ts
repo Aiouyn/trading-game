@@ -16,7 +16,7 @@ const A = `acc_${"a".repeat(32)}`;
 const B = `acc_${"b".repeat(32)}`;
 const KEY = "quay.offline.me.v1";
 const ledger = (cashCents: number, asset: string): BrokerLedgerView => ({
-  tick: 27700, cashCents, reservedCashCents: 0, positions: { [asset]: { assetId: asset, qty: "1", avgCost: "10.00" } }, orders: {}, fills: [], intents: [],
+  tick: 27700, cashCents, reservedCashCents: 0, positions: { [asset]: { assetId: asset, qty: "1", avgCost: "10.00" } }, orders: {}, fills: [], intents: [], coins: [],
 });
 
 let mem: Map<string, string>;

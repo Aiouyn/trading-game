@@ -25,8 +25,9 @@ export function snapshotMark(snap: MarketSnapshot): (assetId: string) => number 
 export function buildLeaderboard(inputs: readonly StandingInput[], snap: MarketSnapshot, selfId: string | null, top = LEADERBOARD_TOP): LeaderboardView {
   const mark = snapshotMark(snap);
   const valued = inputs.flatMap((p) => {
+    // Launchpad coins at the same indicative liquidation value Portfolio adds; only the total, never the holdings.
     const nw = netWorthMinor(p.cashCents, p.positions, mark);
-    return nw === null ? [] : [{ p, nw }];
+    return nw === null ? [] : [{ p, nw: nw + p.coinCents }];
   });
   valued.sort((a, b) => b.nw - a.nw || (a.p.handleKey < b.p.handleKey ? -1 : a.p.handleKey > b.p.handleKey ? 1 : a.p.accountId < b.p.accountId ? -1 : 1));
   let self: LeaderboardRow | null = null;

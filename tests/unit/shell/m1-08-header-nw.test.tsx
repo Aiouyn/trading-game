@@ -31,9 +31,10 @@ describe("M1-08 header NW truthfulness", () => {
   let account: "A" | "B";
   let held: Array<() => void>;
   let authHeld: boolean;
+  let coinsA: BrokerLedgerView["coins"] = [];
   const ledgers: Record<"A" | "B", () => BrokerLedgerView> = {
-    A: () => ({ tick: snap.tick, cashCents: 987_304, reservedCashCents: 110, positions: { HALC: { assetId: "HALC", qty: "3", avgCost: "42.18" } }, orders: {}, fills: [], intents: [] }),
-    B: () => ({ tick: snap.tick, cashCents: 1_000_000, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [] }),
+    A: () => ({ tick: snap.tick, cashCents: 987_304, reservedCashCents: 110, positions: { HALC: { assetId: "HALC", qty: "3", avgCost: "42.18" } }, orders: {}, fills: [], intents: [], coins: coinsA }),
+    B: () => ({ tick: snap.tick, cashCents: 1_000_000, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [], coins: [] }),
   };
   const mark = () => Math.round(Number(snap.quotes.rows.HALC!.last) * 100);
   const nwA = () => 987_304 + 3 * mark();
@@ -48,7 +49,7 @@ describe("M1-08 header NW truthfulness", () => {
     root = createRoot(el);
     authSession._resetForTests();
     snap = structuredClone(new LiveMarket().snapshot());
-    marketMode = "ok"; meMode = "ok"; account = "A"; held = []; authHeld = false;
+    marketMode = "ok"; meMode = "ok"; account = "A"; held = []; authHeld = false; coinsA = [];
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
       if (input === "/api/market") return fail(marketMode) ?? Response.json(snap);
@@ -106,6 +107,20 @@ describe("M1-08 header NW truthfulness", () => {
     expect(strip().textContent).toContain(money(nwA()));
     expect(strip().textContent).toMatch(/Saved net worth/);
     expect(strip().dataset.nwState).toBe("live");
+  });
+
+  it("Launchpad coins: a malformed coin row is unavailable, not cash-only; the strip adds the server's coin value once; a sell drops it", async () => {
+    coinsA = [{ ticker: "FROG", qty: 34_000_000, value: "489.95", cost: 50_000 } as never]; // not integer cents
+    await mount(signedInStore(987_304));
+    notCashOnly();
+    expect(strip().dataset.nwState).toBe("unavailable");
+    coinsA = [{ ticker: "FROG", qty: 34_000_000, value: 48_995, cost: 50_000 }];
+    await serverTick();
+    expect(strip().dataset.nwState).toBe("live");
+    expect(strip().querySelector(".money[title]")?.getAttribute("title")).toBe(money(nwA() + 48_995)); // ≥ $10k shows abbreviated
+    coinsA = [];
+    await serverTick();
+    expect(strip().textContent).toContain(money(nwA()));
   });
 
   for (const mode of ["500", "bad", "net"] as const) {

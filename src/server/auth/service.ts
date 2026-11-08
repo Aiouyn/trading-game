@@ -3,7 +3,7 @@ import type { AuthStore } from "./store";
 import { AttemptThrottle } from "./throttle";
 import { buildPlayerPrivate, clonePlayerPrivate, type PlayerPrivateInput } from "@/server/player";
 import type { QuarantinedPlayerRow } from "./store";
-import { cloneLaunchpad, emptyLaunchpad, parseLaunchpad, type LpState } from "@/server/launchpad/state";
+import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoinRow, type LpState } from "@/server/launchpad/state";
 import {
   AuthError,
   PORT_AVALON_WORLD_ID,
@@ -23,6 +23,8 @@ export interface StandingInput {
   readonly handleKey: string;
   readonly cashCents: number;
   readonly positions: readonly { readonly assetId: string; readonly qty: number }[];
+  /** Launchpad coins at the indicative liquidation value (cents), read in the same locked step. Only a total. */
+  readonly coinCents: number;
 }
 
 /** Match T19C session_idle_days / session_max_days defaults (real days). */
@@ -280,6 +282,7 @@ export class AuthService {
   async readStandings<T>(read: (rows: readonly StandingInput[], excluded: number) => T): Promise<T> {
     return this.withLock(async () => {
       await this.ready;
+      const lp = this.requireLaunchpad(); // coin holdings unknown → the board can't state wealth (503), never cash-only
       const rows: StandingInput[] = [];
       let excluded = 0;
       for (const account of this.accounts.values()) {
@@ -288,6 +291,7 @@ export class AuthService {
         rows.push({
           accountId: account.accountId, handle: account.handle, handleKey: account.handleKey, cashCents: player.cashCents,
           positions: Object.values(player.positions).map((p) => ({ assetId: p.assetId, qty: Number(p.qty) })),
+          coinCents: coinValueCents(coinRows(lp, account.accountId)),
         });
       }
       return read(rows, excluded);
@@ -327,18 +331,50 @@ export class AuthService {
   ): Promise<PlayerPrivateRecord> {
     return this.withLock(async () => {
       await this.ready;
-      const accountId = session.account.accountId;
-      const current = this.requireLedger(accountId);
-      const next = buildPlayerPrivate(accountId, mutate(clonePlayerPrivate(current)));
-      this.players.set(accountId, next);
-      try {
-        await this.persist();
-      } catch (err) {
-        this.players.set(accountId, current); // memory never runs ahead of disk
-        throw err;
-      }
-      return clonePlayerPrivate(next);
+      return this.commitOwn(session.account.accountId, mutate);
     });
+  }
+
+  /**
+   * The Broker's write door: `updateOwnPrivateState` plus the caller's own Launchpad coin rows read in the same locked
+   * step, so the reply ledger states cash and coins at one moment. Refuses before any change (503) while the Launchpad
+   * section is unavailable: the ledger's wealth could not be stated.
+   */
+  async updateOwnLedger(
+    session: AuthSessionView,
+    mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput,
+  ): Promise<{ record: PlayerPrivateRecord; coins: LpCoinRow[] }> {
+    return this.withLock(async () => {
+      await this.ready;
+      const lp = this.requireLaunchpad();
+      const accountId = session.account.accountId;
+      const record = await this.commitOwn(accountId, mutate);
+      return { record, coins: coinRows(lp, accountId) };
+    });
+  }
+
+  /** The caller's own ledger and Launchpad coin rows, read together inside the service lock. */
+  async readOwnLedger(session: AuthSessionView): Promise<{ record: PlayerPrivateRecord; coins: LpCoinRow[] }> {
+    return this.withLock(async () => {
+      await this.ready;
+      const lp = this.requireLaunchpad();
+      const accountId = session.account.accountId;
+      return { record: clonePlayerPrivate(this.requireLedger(accountId)), coins: coinRows(lp, accountId) };
+    });
+  }
+
+  /** Lock held by the caller. */
+  private async commitOwn(accountId: AccountId, mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput): Promise<PlayerPrivateRecord> {
+    const current = this.requireLedger(accountId);
+    const next = buildPlayerPrivate(accountId, mutate(clonePlayerPrivate(current)));
+    this.players.set(accountId, next);
+    try {
+      await this.persist();
+    } catch (err) {
+      this.players.set(accountId, current); // memory never runs ahead of disk
+      throw err;
+    }
+    return clonePlayerPrivate(next);
   }
 
   /**

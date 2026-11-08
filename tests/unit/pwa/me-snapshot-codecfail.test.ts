@@ -15,7 +15,7 @@ const mockCodec = () => vi.doMock("@/pwa/meSnapshotCodec", async () => {
 
 const A = `acc_${"a".repeat(32)}`, B = `acc_${"b".repeat(32)}`, KEY = "quay.offline.me.v1";
 const recordOf = (acct: string, cash: number, asset = "HALC") => JSON.stringify({ v: 1, acct, savedAt: 1, tick: 27700, cash, held: 0, positions: [{ asset, qty: "5", avgCost: "42.18" }], orders: [] });
-const ledger = (cashCents: number, asset: string): BrokerLedgerView => ({ tick: 27701, cashCents, reservedCashCents: 0, positions: { [asset]: { assetId: asset, qty: "1", avgCost: "10.00" } }, orders: {}, fills: [], intents: [] });
+const ledger = (cashCents: number, asset: string): BrokerLedgerView => ({ tick: 27701, cashCents, reservedCashCents: 0, positions: { [asset]: { assetId: asset, qty: "1", avgCost: "10.00" } }, orders: {}, fills: [], intents: [], coins: [] });
 
 let mem: Map<string, string>;
 let removeThrows = false, setThrows = false;

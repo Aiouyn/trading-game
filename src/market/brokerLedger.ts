@@ -1,7 +1,7 @@
 // M1-06 Broker ledger wire shape, shared by the server door (src/server/broker) and the signed-in feed.
 // The server owns every number here; the client parses it at the boundary and never trusts a malformed reply.
-import type { IntentResult, MyFill, OpenOrder, OrderDraft } from "@/shell/contracts/channels";
-import { arr, int, intentResult, myFill, obj, openOrder, ParseError, rec, str, dec } from "@/shell/contracts/schema";
+import type { CoinRow, IntentResult, MyFill, OpenOrder, OrderDraft } from "@/shell/contracts/channels";
+import { arr, coinRow, int, intentResult, myFill, obj, openOrder, ParseError, rec, str, dec } from "@/shell/contracts/schema";
 
 /** The caller's own saved Broker state at one server tick. */
 export interface BrokerLedgerView {
@@ -13,6 +13,8 @@ export interface BrokerLedgerView {
   readonly orders: Readonly<Record<string, OpenOrder>>;
   readonly fills: readonly MyFill[];
   readonly intents: readonly IntentResult[];
+  /** Own Launchpad coins, read with this ledger in one locked step; their value counts in net worth once. */
+  readonly coins: readonly CoinRow[];
 }
 
 /** POST /api/broker/orders and /api/broker/orders/cancel reply. */
@@ -34,6 +36,7 @@ const ledgerSchema = obj({
   orders: rec(openOrder),
   fills: arr(myFill),
   intents: arr(intentResult),
+  coins: arr(coinRow),
 });
 const replySchema = obj({ intentId: str, result: intentResult, ledger: ledgerSchema });
 

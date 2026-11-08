@@ -238,8 +238,8 @@ export function sweepLedger(rec: PlayerPrivateRecord, quote: ServerQuote, ids: I
   return changed ? ledger : null;
 }
 
-/** The caller's own ledger as the Broker reads it. */
-export function ledgerView(rec: PlayerPrivateRecord, tick: number): BrokerLedgerView {
+/** The caller's own ledger as the Broker reads it, with its Launchpad coin rows (read in the same locked step). */
+export function ledgerView(rec: PlayerPrivateRecord, tick: number, coins: BrokerLedgerView["coins"]): BrokerLedgerView {
   return {
     tick,
     cashCents: rec.cashCents,
@@ -248,5 +248,6 @@ export function ledgerView(rec: PlayerPrivateRecord, tick: number): BrokerLedger
     orders: rec.openOrders,
     fills: rec.fills ?? [],
     intents: (rec.intents ?? []).map((x) => x.result),
+    coins,
   };
 }

@@ -19,7 +19,7 @@ export function portAvalonServer(opts: ServerStubOptions = {}) {
     if (url.endsWith("/api/broker/me")) {
       const view: BrokerLedgerView = {
         tick: market.snapshot().tick, cashCents: opts.cashCents ?? 1_000_000, reservedCashCents: 0,
-        positions: {}, orders: {}, fills: [], intents: [], ...opts.ledger,
+        positions: {}, orders: {}, fills: [], intents: [], coins: [], ...opts.ledger,
       };
       return Response.json(view);
     }

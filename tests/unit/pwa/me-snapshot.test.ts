@@ -19,6 +19,7 @@ const ledger = (cashCents = 995_772, extra: Partial<BrokerLedgerView> = {}): Bro
   orders: { o_123: order() },
   fills: [{ fillId: "f1", tick: 27690, assetId: "HALC", orderId: "o_9", side: "BUY", qty: "2", price: "42.10", fee: "0.08", feeCcy: "FDL", liquidity: "TAKER", counterpartyKind: "NPC" }],
   intents: [{ intentId: "i1", tick: 27690, status: "ACCEPTED" }],
+  coins: [{ ticker: "FROG", qty: 34_000_000, value: 4_850, cost: 5_000 }],
   ...extra,
 });
 
@@ -45,6 +46,7 @@ describe("what is stored", () => {
       v: 1, acct: A, savedAt: 1_762_580_000_000, tick: 27700, cash: 995_772, held: 12_006,
       positions: [{ asset: "HALC", qty: "2", avgCost: "42.10" }],
       orders: [{ asset: "HALC", side: "BUY", type: "limit", qty: "3", filled: "0", limit: "40.00", status: "WORKING" }],
+      coins: [{ ticker: "FROG", qty: 34_000_000, cost: 5_000 }], // own saved coin + cost basis, never its (market) value
     });
     expect(raw).not.toMatch(/o_123|"(orderId|fills|intents|mark|value|upl|nw|handle|email|session\w*|token|cookie|hash|tif|placedTick|avgPrice)"/i);
     expect([...mem.keys()]).toEqual([ME_SNAPSHOT_KEY]);
@@ -137,6 +139,11 @@ describe("reader: corrupted / unknown / oversize records are rejected by the app
     ["markup in an asset", j({ ...good, positions: [{ asset: "<img src=x>", qty: "1", avgCost: "1.00" }] }), false],
     ["bad side", j({ ...good, orders: [{ ...good.orders[0], side: "HOLD" }] }), false],
     ["bad limit", j({ ...good, orders: [{ ...good.orders[0], limit: "1e9" }] }), false],
+    ["no coins key (an old record could hide a coin holding)", j({ ...good, coins: undefined }), false],
+    ["unknown coin field (e.g. a value)", j({ ...good, coins: [{ ...good.coins[0], value: 4850 }] }), false],
+    ["markup in a coin ticker", j({ ...good, coins: [{ ticker: "<b>", qty: 1, cost: 0 }] }), false],
+    ["zero coin qty", j({ ...good, coins: [{ ticker: "FROG", qty: 0, cost: 0 }] }), false],
+    ["65 coins", j({ ...good, coins: Array.from({ length: 65 }, () => good.coins[0]) }), false],
     ["65 positions", j({ ...good, positions: Array.from({ length: 65 }, () => good.positions[0]) }), false],
     ["over 16 KB", j(good).replace("}", `,"pad":"${"x".repeat(16400)}"}`), false],
   ];

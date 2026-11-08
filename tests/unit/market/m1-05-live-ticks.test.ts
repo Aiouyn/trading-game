@@ -185,7 +185,7 @@ describe("M1-05 authoritative live ticks", () => {
     expect(a.tick).toBe(START_TICK);
     expect(a.adoptAuthoritativeQuotes(snap)).toBe(true);
     expect(b.adoptAuthoritativeQuotes(snap)).toBe(true);
-    const ledger = (cashCents: number) => ({ tick: snap.tick, cashCents, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [] });
+    const ledger = (cashCents: number) => ({ tick: snap.tick, cashCents, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [], coins: [] });
     expect(a.adoptLedger(ledger(1_000_000))).toBe(true);
     expect(b.adoptLedger(ledger(2_500_000))).toBe(true);
     expect(a.body("ticker:wl_default")).toEqual(snap.quotes);

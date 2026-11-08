@@ -130,11 +130,18 @@ export class LaunchpadService {
       coin.sold = next.sold;
       coin.tape.push({ tick, atMs: now, side: input.side, tokens, cents, creator: coin.creatorId === me });
       if (coin.tape.length > LP.TAPE_KEEP) coin.tape.splice(0, coin.tape.length - LP.TAPE_KEEP);
-      const mine = (lp.holdings[me] ??= {});
+      const mine = (lp.holdings[me] ??= {}), cost = (lp.costs[me] ??= {});
       const after = held + (input.side === "buy" ? tokens : -tokens);
-      if (after > 0) mine[coin.ticker] = after;
-      else delete mine[coin.ticker];
-      if (Object.keys(mine).length === 0) delete lp.holdings[me];
+      // Cost basis: a buy adds what it cost (fee included); a sell removes the sold share of the cost, pro rata.
+      const was = cost[coin.ticker] ?? 0;
+      if (after > 0) {
+        mine[coin.ticker] = after;
+        cost[coin.ticker] = input.side === "buy" ? was + cents : was - Math.round((was * tokens) / held);
+      } else {
+        delete mine[coin.ticker];
+        delete cost[coin.ticker];
+      }
+      if (Object.keys(mine).length === 0) { delete lp.holdings[me]; delete lp.costs[me]; }
       lp.sinkCents += fee - creatorFee;
       const result: TradeReply = { status: "accepted", ticker: coin.ticker, side: input.side, tokens, cents, fee, cashCents: cash.get(me)!, held: after };
       remember(lp, me, key, fp, result);

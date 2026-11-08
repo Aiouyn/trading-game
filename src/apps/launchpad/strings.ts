@@ -3,7 +3,7 @@ export const LPS = {
   title: "Launchpad",
   gameOnly: "Fictional game coins, traded with Port Avalon game cash only. Nothing here is a real token, wallet or money.",
   risk: "Most coins lose value. Prices move only when players trade, and the fee comes off every buy and sell. Nothing here is a guaranteed profit.",
-  notCounted: "Coin holdings are not counted in your net worth, Portfolio or the leaderboard yet.",
+  notCounted: "Coins you hold count in your net worth, Portfolio and the leaderboard at an estimate of what selling them now would pay. That is not a guaranteed price.",
   tabCoins: "Coins",
   tabCreate: "Create",
   loading: "Loading the Launchpad",

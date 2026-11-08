@@ -10,7 +10,8 @@ import { lazy, Suspense } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { formatPercent } from "@/components/ui/percent";
 import { useShell } from "@/components/shell/ShellContext";
-import type { MeTradingBody, Money, NwStats, RestrictedBucket } from "@/shell/contracts/channels";
+import type { CoinRow, MeTradingBody, Money, NwStats, RestrictedBucket } from "@/shell/contracts/channels";
+import { fmt } from "@/shell/contracts/mockFeed";
 import { isRestrictedReason } from "@/shell/strings";
 import { getFeed, useChannel, type ChannelView } from "@/shell/contracts/useChannel";
 import type { RankChannel } from "@/shell/channels";
@@ -88,6 +89,36 @@ function Stats({ stats, t, locale }: { stats: NwStats; t: T; locale: string }) {
   );
 }
 
+/** Coin block copy. Kept here, in Portfolio's own lazy chunk: ./strings is also on the Broker route's first load. */
+const COIN_COPY = {
+  en: { coins: "Launchpad coins", cost: "cost", pnl: "P&L", note: "Counted in net worth at an estimate of what selling all of each now would pay, after the 1% fee and price impact. Not a quote: a real sale can pay less." },
+  fr: { coins: "Jetons Launchpad", cost: "coût", pnl: "P&P", note: "Comptés dans le patrimoine net à une estimation de ce que rapporterait la vente de chaque position maintenant, après les frais de 1\u202F% et l’impact sur le prix. Ce n’est pas une cotation\u202F: une vente réelle peut rapporter moins." },
+};
+
+/** Signed-in Launchpad coins: the server's indicative liquidation value (already inside NW), cost basis and P&L.
+ *  Integer cents from the server; only formatting happens here. */
+function CoinRows({ coins, locale }: { coins: CoinRow[]; locale: string }) {
+  const n = new Intl.NumberFormat(pfNumberLocale(locale));
+  const t = COIN_COPY[pfNumberLocale(locale) === "fr-FR" ? "fr" : "en"];
+  return (
+    <section className="pf-block pf-coins" data-testid="pf-coins" aria-label={t.coins}>
+      <Label className="pf-label">{t.coins}</Label>
+      <table className="pf-rows"><tbody>
+        {coins.map((c) => (
+          <tr key={c.ticker} data-testid="pf-coin" data-ticker={c.ticker} data-value={c.value} data-cost={c.cost}>
+            <th scope="row">{`${c.ticker} · ${n.format(c.qty)}`}</th>
+            <td>
+              <MoneyText amount={fmt(c.value, 2)} ctx="table" estimated />
+              <div className="pf-cell-note muted">{t.cost} <MoneyText amount={fmt(c.cost, 2)} ctx="table" />{` · ${t.pnl}`} <MoneyText amount={fmt(c.value - c.cost, 2)} ctx="delta" /></div>
+            </td>
+          </tr>
+        ))}
+      </tbody></table>
+      <p className="pf-empty muted" data-testid="pf-coin-note">{t.note}</p>
+    </section>
+  );
+}
+
 function RankBlock({ rank, t }: { rank: RankChannel; t: T }) {
   return (
     <section className="pf-block pf-rank" data-testid="pf-rank" aria-label={t.rank}>
@@ -144,7 +175,8 @@ export function OverviewView({ view, rank, locale, phone, stacked = false, onRet
     );
   }
   const me = view.body;
-  const empty = Object.keys(me.positions).length === 0;
+  const coins = me.coins ?? [];
+  const empty = Object.keys(me.positions).length === 0 && coins.length === 0;
   return (
     <div className={cls} data-testid="pf-overview" data-state={view.state} data-stats={me.nwStats ? "1" : "0"}>
       <Hero me={me} t={t} stale={view.state === "stale"} />
@@ -157,6 +189,7 @@ export function OverviewView({ view, rank, locale, phone, stacked = false, onRet
         </tbody></table>
         {empty && <p className="pf-empty muted" data-testid="pf-empty">{t.emptyCash}</p>}
       </section>
+      {coins.length > 0 && <CoinRows coins={coins} locale={locale} />}
       {me.restricted.length > 0 && <RestrictedRows buckets={me.restricted} t={t} locale={locale} />}
       {me.nwStats && <Stats stats={me.nwStats} t={t} locale={locale} />}
     </div>

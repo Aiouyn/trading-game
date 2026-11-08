@@ -2,7 +2,7 @@
 // snapshot file as the player ledgers and commits in the same persist, so a launch or trade and its cash effect are saved
 // together or not at all. Parsed strictly on load: a section that does not parse is kept verbatim (never reset) and the
 // Launchpad reads as unavailable until it is repaired.
-import { LP, type Curve, type TaglineId, isTagline, tickerOk } from "@/launchpad/rules";
+import { LP, type Curve, type TaglineId, isTagline, liquidationCents, tickerOk } from "@/launchpad/rules";
 
 export interface LpPrint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
 export interface LpCoin extends Curve {
@@ -21,6 +21,8 @@ export interface LpState {
   coins: LpCoin[];
   /** accountId → ticker → tokens held (> 0). */
   holdings: Record<string, Record<string, number>>;
+  /** accountId → ticker → cost basis in cents (what the tokens still held cost, fees included); keys mirror holdings. */
+  costs: Record<string, Record<string, number>>;
   receipts: Record<string, LpReceipt[]>;
   /** accountId → when its last launch was accepted (real ms), for the 24 h cooldown. */
   lastLaunchAtMs: Record<string, number>;
@@ -29,7 +31,7 @@ export interface LpState {
 }
 
 export const RECEIPTS_KEEP = 50;
-export const emptyLaunchpad = (): LpState => ({ v: 1, coins: [], holdings: {}, receipts: {}, lastLaunchAtMs: {}, sinkCents: 0 });
+export const emptyLaunchpad = (): LpState => ({ v: 1, coins: [], holdings: {}, costs: {}, receipts: {}, lastLaunchAtMs: {}, sinkCents: 0 });
 export const cloneLaunchpad = (s: LpState): LpState => structuredClone(s);
 
 const int = (v: unknown, min = 0): v is number => Number.isSafeInteger(v) && (v as number) >= min;
@@ -48,15 +50,19 @@ function coinOk(c: unknown): c is LpCoin {
 export function parseLaunchpad(raw: unknown): { ok: true; state: LpState } | { ok: false; reason: string } {
   if (raw === undefined) return { ok: true, state: emptyLaunchpad() };
   if (!obj(raw) || raw.v !== 1) return { ok: false, reason: "unknown launchpad version" };
-  const { coins, holdings, receipts, lastLaunchAtMs, sinkCents } = raw;
+  const { coins, holdings, costs, receipts, lastLaunchAtMs, sinkCents } = raw;
   if (!Array.isArray(coins) || !coins.every(coinOk)) return { ok: false, reason: "bad coin" };
   if (new Set(coins.map((c) => c.ticker)).size !== coins.length) return { ok: false, reason: "duplicate ticker" };
-  if (!obj(holdings) || !obj(receipts) || !obj(lastLaunchAtMs) || !int(sinkCents)) return { ok: false, reason: "bad section" };
+  if (!obj(holdings) || !obj(costs) || !obj(receipts) || !obj(lastLaunchAtMs) || !int(sinkCents)) return { ok: false, reason: "bad section" };
   const tickers = new Set(coins.map((c) => c.ticker));
   for (const [id, h] of Object.entries(holdings)) {
     if (!ACCT.test(id) || !obj(h)) return { ok: false, reason: "bad holding" };
     for (const [t, q] of Object.entries(h)) if (!tickers.has(t) || !int(q, 1)) return { ok: false, reason: "bad holding" };
   }
+  // A cost for every holding and nothing else.
+  const keys = (m: Record<string, unknown>) => Object.entries(m).flatMap(([id, h]) => (obj(h) ? Object.keys(h).map((t) => `${id}/${t}`) : [`${id}/?`])).sort().join();
+  if (keys(costs) !== keys(holdings)) return { ok: false, reason: "costs do not match holdings" };
+  for (const h of Object.values(costs)) for (const c of Object.values(h as Record<string, unknown>)) if (!int(c)) return { ok: false, reason: "bad cost" };
   // Tokens held must equal tokens sold by each curve: no coin is created or lost outside a trade.
   for (const c of coins) {
     let held = 0;
@@ -70,3 +76,13 @@ export function parseLaunchpad(raw: unknown): { ok: true; state: LpState } | { o
   for (const [id, t] of Object.entries(lastLaunchAtMs)) if (!ACCT.test(id) || !int(t)) return { ok: false, reason: "bad launch time" };
   return { ok: true, state: structuredClone(raw) as unknown as LpState };
 }
+
+/** One account's coin holdings at the indicative liquidation value (the one valuation NW, Portfolio and the board use). */
+export interface LpCoinRow { ticker: string; qty: number; value: number; cost: number }
+export function coinRows(lp: Readonly<LpState>, accountId: string): LpCoinRow[] {
+  const held = lp.holdings[accountId] ?? {};
+  return lp.coins.filter((c) => held[c.ticker]).map((c) => ({
+    ticker: c.ticker, qty: held[c.ticker]!, value: liquidationCents(c, held[c.ticker]!), cost: lp.costs[accountId]?.[c.ticker] ?? 0,
+  })).sort((a, b) => (a.ticker < b.ticker ? -1 : 1));
+}
+export const coinValueCents = (rows: readonly LpCoinRow[]) => rows.reduce((n, r) => n + r.value, 0);

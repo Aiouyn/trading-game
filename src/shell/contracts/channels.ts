@@ -41,7 +41,10 @@ export interface IntentResult { intentId: string; tick: Tick; status: 'ACCEPTED'
 export interface RestrictedBucket { reason: string /* engine code; known: RestrictedReason. Others render raw ("Restricted (CODE)") */; amount: Money; untilRealMs: number | null }
 /** The engine's restricted-cash codes that have a client label (#70 round 2, renamed from AD / START). */
 export type RestrictedReason = "AD_GRANT" | "FRESH_START";
-export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
+export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown; coins?: CoinRow[] } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
+/** A Launchpad coin the signed-in player holds, as the server valued it (cents). `value` is the indicative
+ *  liquidation value (sell all alone, now, after fee and price impact), already inside `nw`; not a quote. */
+export interface CoinRow { ticker: string; qty: number; value: number; cost: number }
 export type MarginSummary = Record<string, Money>; // 07 summary, opaque until 07
 /** `drawdownReal`: a bare decimal in PERCENT units, no "%" ("-4.2" = -4.2 %); the UI adds the sign glyph and the
  *  locale's percent sign (src/components/ui/percent.ts). */

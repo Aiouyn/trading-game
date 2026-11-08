@@ -28,7 +28,6 @@ const EN = {
   qty: "Quantity",
   qtyEmpty: "Enter a quantity.",
   qtyDigits: "Use digits only.",
-  orderKind: "Market · Day",
   youHold: (qty: string) => `You hold ${qty}`,
   /** Label before the FDL MoneyText (Portfolio's existing "Cash · {ccy}" copy). */
   cash: "Cash · FDL",
@@ -79,8 +78,6 @@ const EN = {
     MKT_TOO_MANY_ORDERS: "Too many open orders. Cancel one first.",
   } as Record<string, string>,
   halted: "Halted",
-  /** Not shown (E-98 (1)): Designer to replace. */
-  haltedHelp: "Orders are paused while trading is halted.",
   /** E-98 (1) neutral default (BRK-A); Designer owns the final text. */
   haltedQueued: "Waits for reopen",
   placeAria: (action: string) => `Place order: ${action}`,
@@ -212,7 +209,6 @@ const FR: BrStrings = {
   qty: "Quantité",
   qtyEmpty: "Saisissez une quantité.",
   qtyDigits: "Chiffres uniquement.",
-  orderKind: "Au marché · Jour",
   youHold: (qty) => `Vous détenez ${qty}`,
   cash: "Liquidités · FDL",
   last: "Cours",
@@ -257,7 +253,6 @@ const FR: BrStrings = {
     MKT_TOO_MANY_ORDERS: "Trop d’ordres en cours. Annulez-en un d’abord.",
   },
   halted: "Suspendu",
-  haltedHelp: "Les ordres sont suspendus pendant l’arrêt de la cotation.",
   /** [provisional] FR of the neutral default. */
   haltedQueued: "Attend la réouverture",
   placeAria: (action) => `Passer l’ordre${NNBSP}: ${action}`,

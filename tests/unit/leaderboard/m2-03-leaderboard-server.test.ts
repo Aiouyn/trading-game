@@ -251,7 +251,7 @@ describe("M2-03 net-worth leaderboard (server)", () => {
 
   it("top rows are capped and the caller's own row still comes back; ties share rank 1,2,2,4", () => {
     const snap = market.snapshot();
-    const mk = (id: string, cash: number): StandingInput => ({ accountId: id as StandingInput["accountId"], handle: id, handleKey: id.toLowerCase(), cashCents: cash, positions: [] });
+    const mk = (id: string, cash: number): StandingInput => ({ accountId: id as StandingInput["accountId"], handle: id, handleKey: id.toLowerCase(), cashCents: cash, positions: [], coinCents: 0 });
     const v = buildLeaderboard([mk("Dd", 100), mk("Aa", 500), mk("Cc", 300), mk("Bb", 300)], snap, "Dd", 2);
     expect(v.rows.map((r) => [r.rank, r.handle])).toEqual([[1, "Aa"], [2, "Bb"]]);
     expect(v.self).toEqual({ rank: 4, handle: "Dd", nw: "1.00", self: true });

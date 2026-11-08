@@ -46,11 +46,13 @@
   <div class="status" id="status" role="status" data-testid="offline-status"><span class="dot" aria-hidden="true"></span><span id="status-text">Offline · no connection</span></div>
   <section class="snap" id="snap" data-testid="offline-snapshot" data-state="empty" aria-labelledby="snap-label">
     <p class="last" id="snap-label" data-testid="offline-snapshot-label">No saved snapshot on this device</p>
-    <p id="snap-note" data-testid="offline-snapshot-note">Sign in and open Quay online to keep a read-only copy of your cash, positions and orders for when you're offline.</p>
+    <p id="snap-note" data-testid="offline-snapshot-note">Sign in and open Quay online to keep a read-only copy of your cash, positions, Launchpad coins and orders for when you're offline.</p>
     <div id="snap-body" hidden>
       <ul class="rows" data-testid="offline-snapshot-cash"><li><span>Cash</span><span id="snap-cash"></span></li><li id="snap-held-row"><span>Held for working orders</span><span id="snap-held"></span></li></ul>
       <h2>Positions</h2>
       <ul class="rows" id="snap-positions" data-testid="offline-snapshot-positions"></ul>
+      <h2>Launchpad coins</h2>
+      <ul class="rows" id="snap-coins" data-testid="offline-snapshot-coins"></ul>
       <h2>Working orders</h2>
       <ul class="rows" id="snap-orders" data-testid="offline-snapshot-orders"></ul>
     </div>
@@ -64,7 +66,7 @@
   // browser reports a connection, and every 10 s; when that answers it says so. It never reloads by itself.
   /* snapshot-reader:start (same rules as parseMeSnapshot in src/pwa/meSnapshot.ts; tests/unit/pwa pins both) */
   function readSnapshot(text) {
-    var ACCT = /^acc_[0-9a-f]{32}$/, ASSET = /^[A-Z0-9]{1,12}$/, QTY = /^\d{1,12}$/, PRICE = /^\d{1,12}(\.\d{1,6})?$/;
+    var ACCT = /^acc_[0-9a-f]{32}$/, COIN = /^[A-Z]{3,5}$/, ASSET = /^[A-Z0-9]{1,12}$/, QTY = /^\d{1,12}$/, PRICE = /^\d{1,12}(\.\d{1,6})?$/;
     var TYPES = ["market", "limit", "stop", "stop_limit"], STATUSES = ["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"];
     function isInt(n) { return typeof n === "number" && Number.isSafeInteger(n) && n >= 0; }
     function only(o, req, opt) {
@@ -79,9 +81,14 @@
     if (typeof text !== "string" || text.length > 16384) return null;
     var o;
     try { o = JSON.parse(text); } catch (e) { return null; }
-    if (!only(o, ["v", "acct", "savedAt", "tick", "cash", "held", "positions", "orders"])) return null;
+    if (!only(o, ["v", "acct", "savedAt", "tick", "cash", "held", "positions", "orders", "coins"])) return null;
     if (o.v !== 1 || !str(o.acct, ACCT) || !isInt(o.savedAt) || !isInt(o.tick) || !isInt(o.cash) || !isInt(o.held)) return null;
     if (!Array.isArray(o.positions) || o.positions.length > 64 || !Array.isArray(o.orders) || o.orders.length > 64) return null;
+    if (!Array.isArray(o.coins) || o.coins.length > 64) return null;
+    for (var k = 0; k < o.coins.length; k++) {
+      var c = o.coins[k];
+      if (!only(c, ["ticker", "qty", "cost"]) || !str(c.ticker, COIN) || !isInt(c.qty) || c.qty < 1 || !isInt(c.cost)) return null;
+    }
     for (var p = 0; p < o.positions.length; p++) {
       var x = o.positions[p];
       if (!only(x, ["asset", "qty", "avgCost"]) || !str(x.asset, ASSET) || !str(x.qty, QTY) || !str(x.avgCost, PRICE)) return null;
@@ -124,6 +131,9 @@
       var pos = document.getElementById("snap-positions"), ord = document.getElementById("snap-orders");
       if (!snap.positions.length) row(pos, "None", "");
       snap.positions.forEach(function (p) { row(pos, p.asset, p.qty + " @ $" + p.avgCost + " avg cost"); });
+      var lpc = document.getElementById("snap-coins");
+      if (!snap.coins.length) row(lpc, "None", "");
+      snap.coins.forEach(function (c) { row(lpc, c.ticker, String(c.qty).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + " coins · " + cents(c.cost) + " cost"); });
       if (!snap.orders.length) row(ord, "None", "");
       snap.orders.forEach(function (o) {
         var price = o.type === "market" ? "Market" : o.type === "limit" ? "Limit $" + o.limit : o.type === "stop" ? "Stop $" + o.stop : "Stop $" + o.stop + " · limit $" + o.limit;

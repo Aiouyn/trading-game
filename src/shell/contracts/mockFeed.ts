@@ -4,7 +4,7 @@
 // All arithmetic here is server-side mock arithmetic on integer minor units (G1 forbids it in the UI, not here).
 import type {
   AssetDetail, BoardBody, BookBody, Candle, CandleHistoryReq, CandleHistoryRes, CandleRes, CandlesBody, ChannelName,
-  DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes,
+  CoinRow, DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes,
   ServerFrame, TapeBody, TapePrint, TickerBody, TickerRow, TradingState, WireItem,
 } from "./channels";
 import { CANDLE_REV_RE } from "./candleRev";
@@ -235,6 +235,7 @@ export class MockFeed {
   private orders: Record<string, OpenOrder> = {};
   private fills: MyFill[] = [];
   private intents: IntentResult[] = [];
+  private coins: CoinRow[] = [];
   private news: WireItem[];
   private pending: Pending[] = [];
   readonly policy: OrderPolicy;
@@ -538,7 +539,8 @@ export class MockFeed {
   private meBody(): MeTradingBody {
     const held = this.heldMinor();
     const cash = this.fdlCashMinor();
-    const nw = cash + held;
+    // Server ledger's Launchpad coins at their server value (indicative liquidation), counted once, like the board.
+    const nw = this.coins.reduce((n, c) => n + c.value, cash + held);
     const positions: Record<string, Position> = {};
     for (const [id, l] of this.lots) {
       const a = ASSET_BY_ID[id]!, mark = this.assets.get(id)!.last;
@@ -558,7 +560,7 @@ export class MockFeed {
     return {
       balances: empty ? { FDL: fmt(cash, 2) } : { FDL: fmt(cash, 2), MDOL: MDOL_BALANCE },
       nw: fmt(nw, 2), nwi: fmt(Math.round((nw * 10_000) / START_NW_MINOR), 4), restricted,
-      positions, orders: this.orders, fills: this.fills, margin: null, holds: {}, intents: this.intents, alerts: [],
+      positions, orders: this.orders, fills: this.fills, margin: null, holds: {}, intents: this.intents, alerts: [], coins: this.coins,
       ...(empty ? {} : { nwStats: { ...NW_STATS } }),
     };
   }
@@ -847,6 +849,7 @@ export class MockFeed {
     this.orders = { ...v.orders };
     this.fills = [...v.fills];
     this.intents = [...v.intents];
+    this.coins = v.coins as CoinRow[]; // a fresh parsed copy, never mutated
     this.ledgerAdopted = true;
     if (this.snapshotAccount) void saveMeSnapshot(this.snapshotAccount, v); // refused unless still the current account
     for (const sub of this.subs) {
