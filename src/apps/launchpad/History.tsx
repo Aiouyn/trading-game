@@ -113,7 +113,7 @@ function Chart({ data, stale, onRetry }: { data: HistoryData; stale: boolean; on
               <tbody>
                 {m.steps.map((st) => (
                   <tr key={st.n} data-kind={st.kind}>
-                    <td className="num">{whenShort(st.atMs)}</td><td>{kindText(st)}</td>
+                    <td className="lpad-hist-time">{whenShort(st.atMs)}</td><td>{kindText(st)}</td>
                     <td className="num">{st.kind === "launch" ? "—" : qty(st.tokens)}</td><td className="num">{st.kind === "launch" ? "—" : usd(st.cents)}</td><td className="num">{priceStr(st.price)}</td>
                   </tr>
                 ))}

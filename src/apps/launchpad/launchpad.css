@@ -52,3 +52,4 @@ p.lpad-sub { white-space: normal; overflow-wrap: anywhere; } /* paragraphs (fee,
 .lpad-hist-table caption { text-align: left; color: var(--fg-muted); padding: var(--sp-4) 0; }
 .lpad-hist-table th, .lpad-hist-table td { padding: 2px 3px; font-size: 12px; border-bottom: 1px solid var(--line); text-align: left; }
 .lpad-hist-table td.num { text-align: right; }
+.lpad-hist-table th, .lpad-hist-time { white-space: normal; font-family: var(--font-num); }
