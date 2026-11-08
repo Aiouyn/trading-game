@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request): Promise<Response> {
   try {
     const body = await readBrokerMutation(request);
-    assertOnlyKeys(body, ["idempotencyKey", "ticker", "side", "amount", "min"]);
+    assertOnlyKeys(body, ["idempotencyKey", "ticker", "side", "amount", "min", "mode"]);
     const key = requireIdempotencyKey(body);
     const input = tradeInput(body);
     const session = await requireBrokerSession(request);

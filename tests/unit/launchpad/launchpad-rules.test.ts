@@ -41,12 +41,16 @@ describe("Launchpad curve", () => {
     expect(all.ok && all.next).toEqual({ x: LP.X0, sold: 0 });
   });
 
-  it("refuses a buy under $1, a sale of nothing or more than sold, and a buy past the 800M curve (graduation is not built)", () => {
+  it("refuses a buy under $1 and a sale of nothing or more than sold; a buy past the 800M is clipped to the last token (graduation)", () => {
     const c = { x: LP.X0, sold: 0 };
     expect(quoteBuy(c, 99)).toEqual({ ok: false, why: "MIN" });
     expect(quoteSell(c, 1)).toEqual({ ok: false, why: "NONE" });
-    expect(quoteBuy(c, 10_000_000)).toEqual({ ok: false, why: "CURVE_FULL" });
     expect(curveLeft(c)).toBe(800_000_000);
+    // Hand-worked: k = 1,500,000 × 1,073,000,000 = 1,609,500,000,000,000; the curve holds GRAD_Y = 273M tokens once its cash
+    // is ceil(k / 273M) = 5,895,605¢, so it needs 4,395,605¢ net. The least outlay s with s − ceil(s/100) ≥ 4,395,605 is
+    // 4,440,006¢ (fee 44,401¢, creator 22,200¢); 4,440,005¢ nets one cent short. A $100,000 order pays only that.
+    expect(quoteBuy(c, 10_000_000)).toEqual({ ok: true, tokens: 800_000_000, spend: 4_440_006, fee: 44_401, creatorFee: 22_200, net: 4_395_605, next: { x: 5_895_605, sold: 800_000_000 }, graduates: true });
+    expect(quoteBuy({ x: 5_895_605, sold: 800_000_000 }, 10_000)).toEqual({ ok: false, why: "CURVE_FULL" });
   });
 
   it("fee rounds up, the creator's half rounds down", () => {

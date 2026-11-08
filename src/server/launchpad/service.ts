@@ -5,22 +5,25 @@
 import { AuthError, type AuthService, type AuthSessionView, type PlayerPrivateRecord } from "@/server/auth";
 import { reservedCashCents } from "@/server/broker/execution";
 import { ASSETS } from "@/market/catalog";
-import { LP, nameOk, quoteBuy, quoteSell, tickerOk, type TaglineId } from "@/launchpad/rules";
+import { LP, graduationOf, nameOk, quote, tickerOk, type Pool, type TaglineId } from "@/launchpad/rules";
 import { moderateName, normalizeName } from "./moderate";
 import { RECEIPTS_KEEP, recordPoint, type LpCoin, type LpState } from "./state";
 
 export interface LaunchInput { name: string; ticker: string; tagline: TaglineId; fee: number }
-export interface TradeInput { ticker: string; side: "buy" | "sell"; amount: number; min: number }
+/** `mode` is the market the trade was reviewed in (absent = "curve", what clients before graduation sent). */
+export interface TradeInput { ticker: string; side: "buy" | "sell"; amount: number; min: number; mode?: "curve" | "pool" }
 
 export type Refusal = { status: "refused"; code: string; message: string; nextAtMs?: number };
 export type LaunchReply = { status: "accepted"; ticker: string; cashCents: number } | Refusal;
 export type TradeReply =
-  | { status: "accepted"; ticker: string; side: "buy" | "sell"; tokens: number; cents: number; fee: number; cashCents: number; held: number }
+  | { status: "accepted"; ticker: string; side: "buy" | "sell"; mode: "curve" | "pool"; tokens: number; cents: number; fee: number; cashCents: number; held: number; graduated: boolean }
   | Refusal;
 
 export interface CoinView {
   ticker: string; name: string; tagline: TaglineId; creator: string | null; mine: boolean;
   createdAtMs: number; x: number; sold: number; holders: number;
+  /** Null while the coin is on its curve. The book's reserves, the raise and the fee are public, like the curve's. */
+  pool: Pool | null; grad: { atMs: number; raise: number; fee: number } | null;
   tape: { atMs: number; tick: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }[];
 }
 export interface LaunchpadView {
@@ -33,7 +36,9 @@ export interface LaunchpadView {
  *  holdings). `since` is null for a legacy coin that has not traded since history was recorded. */
 export interface HistoryView {
   ticker: string; createdAtMs: number; startX: number; since: number | null; dropped: number;
-  pts: { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; x: number; sold: number }[];
+  pts: { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; x: number; sold: number; pc?: number; pt?: number }[];
+  /** The graduation: when, after how many recorded trades, and the book's seed (its first price). */
+  grad: { atMs: number; at: number; cash: number; tokens: number } | null;
 }
 
 const refuse = (code: string, message: string, extra: Partial<Refusal> = {}): Refusal => ({ status: "refused", code, message, ...extra });
@@ -53,12 +58,13 @@ export class LaunchpadService {
       coins: [...lp.coins].reverse().map((c) => ({
         ticker: c.ticker, name: c.name, tagline: c.tagline, creator: handleOf(c.creatorId), mine: c.creatorId === me,
         createdAtMs: c.createdAtMs, x: c.x, sold: c.sold,
+        pool: c.pool ? { ...c.pool } : null, grad: c.grad ? { atMs: c.grad.atMs, raise: c.grad.raise, fee: c.grad.fee } : null,
         holders: Object.values(lp.holdings).filter((h) => (h[c.ticker] ?? 0) > 0).length,
         tape: [...c.tape].reverse(),
       })),
       self: me && self ? {
         cashCents: self.cashCents, spendableCents: spendable(self), holdings: { ...lp.holdings[me] },
-        live: lp.coins.filter((c) => c.creatorId === me).length,
+        live: lp.coins.filter((c) => c.creatorId === me && !c.grad).length,
         nextLaunchAtMs: next !== null && next > now ? next : null,
       } : null,
       };
@@ -72,7 +78,8 @@ export class LaunchpadService {
       if (!c) return null;
       return {
         ticker: c.ticker, createdAtMs: c.createdAtMs, startX: LP.X0, since: c.hist?.since ?? null, dropped: c.hist?.dropped ?? 0,
-        pts: (c.hist?.pts ?? []).map(({ tick, atMs, side, tokens, cents, x, sold }) => ({ tick, atMs, side, tokens, cents, x, sold })),
+        pts: (c.hist?.pts ?? []).map(({ tick, atMs, side, tokens, cents, x, sold, pc, pt }) => ({ tick, atMs, side, tokens, cents, x, sold, ...(pc !== undefined ? { pc, pt } : {}) })),
+        grad: c.grad ? { atMs: c.grad.atMs, at: c.grad.at, ...graduationOf(c).pool } : null,
       };
     });
   }
@@ -98,7 +105,7 @@ export class LaunchpadService {
       if (last !== undefined && now < last + LP.COOLDOWN_MS) {
         return { result: refuse("COOLDOWN", "One launch per account every 24 hours.", { nextAtMs: last + LP.COOLDOWN_MS }) };
       }
-      if (lp.coins.filter((c) => c.creatorId === me).length >= LP.MAX_LIVE) return { result: refuse("MAX_LIVE", "You already have 3 live coins.") };
+      if (lp.coins.filter((c) => c.creatorId === me && !c.grad).length >= LP.MAX_LIVE) return { result: refuse("MAX_LIVE", "You already have 3 live coins.") };
       if (spendable(self) < LP.LAUNCH_FEE) return { result: refuse("CASH", "Not enough spendable cash for the $1,000.00 launch fee.") };
       const cashCents = self.cashCents - LP.LAUNCH_FEE;
       const coin: LpCoin = { ticker: input.ticker, name, tagline: input.tagline, creatorId: me, createdAtMs: now, createdTick: tick, x: LP.X0, sold: 0, tape: [], hist: { since: now, dropped: 0, pts: [] } };
@@ -112,7 +119,9 @@ export class LaunchpadService {
   }
 
   trade(session: AuthSessionView, key: string, input: TradeInput): Promise<TradeReply> {
-    const fp = JSON.stringify(["trade", input.ticker, input.side, input.amount, input.min]);
+    const reviewed = input.mode ?? "curve";
+    // The mode is part of the request: a curve review and a book review of the same amount are different requests.
+    const fp = JSON.stringify(input.mode === undefined ? ["trade", input.ticker, input.side, input.amount, input.min] : ["trade", input.ticker, input.side, input.amount, input.min, input.mode]);
     const tick = this.deps.tick();
     return this.deps.auth().commitLaunchpad<TradeReply>(session, ({ lp, self, ledgerOf, now }) => {
       const me = self.accountId;
@@ -120,35 +129,30 @@ export class LaunchpadService {
       if (replay) return { result: replay as TradeReply };
       const coin = lp.coins.find((c) => c.ticker === input.ticker);
       if (!coin) return { result: refuse("UNKNOWN_COIN", "No coin with that ticker.") };
-      const creator = coin.creatorId === me ? self : ledgerOf(coin.creatorId);
-      if (!creator) return { result: refuse("COIN_UNAVAILABLE", "This coin can't be traded right now.") };
-      const held = lp.holdings[me]?.[coin.ticker] ?? 0;
-      const cash = new Map<string, number>();
-      let tokens: number, cents: number, fee: number, creatorFee: number, next: { x: number; sold: number };
-      if (input.side === "buy") {
-        if (input.amount > spendable(self)) return { result: refuse("CASH", "Not enough spendable cash.") };
-        const q = quoteBuy(coin, input.amount);
-        if (!q.ok) return { result: refuseQuote(q.why) };
-        if (q.tokens < input.min) return { result: refuse("PRICE_MOVED", "The price moved past your 5% limit. Review again.") };
-        if (coin.creatorId === me && held + q.tokens > LP.CREATOR_CAP) return { result: refuse("CREATOR_CAP", "A creator can hold at most 10% of the supply.") };
-        ({ tokens, fee, creatorFee, next } = q);
-        cents = input.amount;
-        cash.set(me, self.cashCents - cents);
-      } else {
-        if (input.amount > held) return { result: refuse("HELD", "You can't sell more than you hold.") };
-        const q = quoteSell(coin, input.amount);
-        if (!q.ok) return { result: refuseQuote(q.why) };
-        if (q.pay < input.min) return { result: refuse("PRICE_MOVED", "The price moved past your 5% limit. Review again.") };
-        ({ fee, creatorFee, next } = q);
-        tokens = input.amount;
-        cents = q.pay;
-        cash.set(me, self.cashCents + cents);
+      const mode = coin.pool ? "pool" : "curve";
+      if (reviewed !== mode) {
+        return { result: refuse("MODE_CHANGED", mode === "pool"
+          ? "This coin has graduated: it now trades against its locked liquidity pool, with another fee. Review again."
+          : "This coin has not graduated: it still trades on its bonding curve. Review again.") };
       }
-      cash.set(coin.creatorId, (cash.get(coin.creatorId) ?? creator.cashCents) + creatorFee);
-      coin.x = next.x;
-      coin.sold = next.sold;
+      // The creator's fee share exists only on the curve; after graduation the creator's ledger is not touched.
+      const creator = mode === "pool" ? null : coin.creatorId === me ? self : ledgerOf(coin.creatorId);
+      if (mode === "curve" && !creator) return { result: refuse("COIN_UNAVAILABLE", "This coin can't be traded right now.") };
+      const held = lp.holdings[me]?.[coin.ticker] ?? 0;
+      if (input.side === "buy" && input.amount > spendable(self)) return { result: refuse("CASH", "Not enough spendable cash.") };
+      if (input.side === "sell" && input.amount > held) return { result: refuse("HELD", "You can't sell more than you hold.") };
+      const q = quote(coin, input.side, input.amount);
+      if (!q.ok) return { result: refuseQuote(q.why) };
+      if ((input.side === "buy" ? q.tokens : q.cents) < input.min) return { result: refuse("PRICE_MOVED", "The price moved past your 5% limit. Review again.") };
+      if (input.side === "buy" && mode === "curve" && coin.creatorId === me && held + q.tokens > LP.CREATOR_CAP) return { result: refuse("CREATOR_CAP", "A creator can hold at most 10% of the supply.") };
+      const { tokens, cents } = q;
+      const cash = new Map<string, number>([[me, input.side === "buy" ? self.cashCents - cents : self.cashCents + cents]]);
+      if (creator && q.creatorFee > 0) cash.set(coin.creatorId, (cash.get(coin.creatorId) ?? creator.cashCents) + q.creatorFee);
+      coin.x = q.after.x;
+      coin.sold = q.after.sold;
+      if (q.after.pool) coin.pool = { ...q.after.pool };
       // The tape must be read before the trade is on it: recordPoint starts a legacy coin's history from its tape.
-      recordPoint(coin, { tick, atMs: now, side: input.side, tokens, cents, x: next.x, sold: next.sold });
+      recordPoint(coin, { tick, atMs: now, side: input.side, tokens, cents, x: coin.x, sold: coin.sold, ...(coin.pool ? { pc: coin.pool.cash, pt: coin.pool.tokens } : {}) });
       coin.tape.push({ tick, atMs: now, side: input.side, tokens, cents, creator: coin.creatorId === me });
       if (coin.tape.length > LP.TAPE_KEEP) coin.tape.splice(0, coin.tape.length - LP.TAPE_KEEP);
       const mine = (lp.holdings[me] ??= {}), cost = (lp.costs[me] ??= {});
@@ -163,8 +167,16 @@ export class LaunchpadService {
         delete cost[coin.ticker];
       }
       if (Object.keys(mine).length === 0) { delete lp.holdings[me]; delete lp.costs[me]; }
-      lp.sinkCents += fee - creatorFee;
-      const result: TradeReply = { status: "accepted", ticker: coin.ticker, side: input.side, tokens, cents, fee, cashCents: cash.get(me)!, held: after };
+      lp.sinkCents += q.fee - q.creatorFee;
+      if (q.graduates) {
+        // L4, once, in this same commit: the raise leaves the curve; 1.5% is a sink, the rest and the 200M tokens the
+        // curve never sold seed the locked book. Holdings stay as they are (held + book = the supply).
+        const g = graduationOf(coin);
+        lp.sinkCents += g.fee;
+        coin.pool = g.pool;
+        coin.grad = { atMs: now, tick, raise: g.raise, fee: g.fee, at: coin.hist!.dropped + coin.hist!.pts.length };
+      }
+      const result: TradeReply = { status: "accepted", ticker: coin.ticker, side: input.side, mode, tokens, cents, fee: q.fee, cashCents: cash.get(me)!, held: after, graduated: q.graduates };
       remember(lp, me, key, fp, result);
       return { result, lp, cash };
     });
@@ -172,7 +184,7 @@ export class LaunchpadService {
 }
 
 function refuseQuote(why: string): Refusal {
-  if (why === "CURVE_FULL") return refuse("CURVE_FULL", "This coin's curve is nearly full; graduation is not in this build. Try a smaller buy.");
+  if (why === "CURVE_FULL") return refuse("CURVE_FULL", "This coin's curve has no tokens left to sell.");
   if (why === "MIN") return refuse("MIN", "The smallest buy is $1.00.");
   return refuse("TOO_SMALL", "That trade is too small to fill.");
 }

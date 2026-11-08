@@ -16,13 +16,13 @@ const qty = (n: number) => n.toLocaleString("en-US");
 const when = (ms: number) => new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 /** The table's compact time (the readout gives the full one). */
 const whenShort = (ms: number) => new Date(ms).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
-const kindText = (s: Step) => (s.kind === "launch" ? LPS.hLaunch : s.kind === "buy" ? LPS.buy : LPS.sell);
+const kindText = (s: Step) => (s.kind === "launch" ? LPS.hLaunch : s.kind === "graduation" ? LPS.hGrad : s.kind === "buy" ? LPS.buy : LPS.sell);
 
-/** The readout of one step: trades are numbered from 1 (step 0 is the launch when the history starts there). */
-export function readout(s: Step, trades: number, fromLaunch: boolean): string {
-  const head = `${s.kind === "launch" ? LPS.hLaunch : LPS.hTrade(fromLaunch ? s.n : s.n + 1, trades)} · ${when(s.atMs)}`;
-  const trade = s.kind === "launch" ? LPS.hNoVolume : `${kindText(s)} ${qty(s.tokens)} · ${LPS.hVolume} ${usd(s.cents)}`;
-  return `${head} · ${LPS.hPriceAfter} ${priceStr(s.price)} · ${trade}`;
+/** The readout of one step: kept trades are numbered from 1; the launch and the graduation are named. */
+export function readout(s: Step, trades: number): string {
+  const head = `${s.kind === "launch" || s.kind === "graduation" ? kindText(s) : LPS.hTrade(s.trade, trades)} · ${when(s.atMs)}`;
+  const trade = s.kind === "launch" || s.kind === "graduation" ? LPS.hNoVolume : `${kindText(s)} ${qty(s.tokens)} · ${LPS.hVolume} ${usd(s.cents)}`;
+  return `${head} · ${LPS.hPriceAfter} ${priceStr(s.price)} (${s.market === "pool" ? LPS.hPool : LPS.hCurve}) · ${trade}`;
 }
 
 export default function History({ ticker, version }: { ticker: string; version: string }) {
@@ -104,7 +104,7 @@ function Chart({ data, stale, onRetry }: { data: HistoryData; stale: boolean; on
               <span>{usd(0)}</span>
             </div>
           </div>
-          {s && <p className="lpad-sub num lpad-hist-readout" aria-live="polite" data-testid="lp-hist-readout" data-step={i}>{readout(s, data.pts.length, m.fromLaunch)}</p>}
+          {s && <p className="lpad-sub num lpad-hist-readout" aria-live="polite" data-testid="lp-hist-readout" data-step={i}>{readout(s, data.pts.length)}</p>}
           <details className="lpad-hist-table">
             <summary data-testid="lp-hist-table-toggle">{LPS.hTable}</summary>
             <table data-testid="lp-hist-table">
@@ -114,7 +114,7 @@ function Chart({ data, stale, onRetry }: { data: HistoryData; stale: boolean; on
                 {m.steps.map((st) => (
                   <tr key={st.n} data-kind={st.kind}>
                     <td className="lpad-hist-time">{whenShort(st.atMs)}</td><td>{kindText(st)}</td>
-                    <td className="num">{st.kind === "launch" ? "—" : qty(st.tokens)}</td><td className="num">{st.kind === "launch" ? "—" : usd(st.cents)}</td><td className="num">{priceStr(st.price)}</td>
+                    <td className="num">{st.trade === 0 ? "—" : qty(st.tokens)}</td><td className="num">{st.trade === 0 ? "—" : usd(st.cents)}</td><td className="num">{priceStr(st.price)}</td>
                   </tr>
                 ))}
               </tbody>

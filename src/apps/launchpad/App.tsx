@@ -12,8 +12,8 @@ import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { viewportOf } from "@/shell/wm";
 import {
-  LP, TAGLINES, curveLeft, feeOf, impactBp, marketCapCents, minAfterSlip, nameOk, priceText, quoteBuy, quoteSell, tickerOk,
-  type Curve, type TaglineId,
+  LP, POOL_FEE_TEXT, TAGLINES, curveLeft, feeOf, graduationOf, impactBp, marketCapCents, minAfterSlip, nameOk, priceText, quote, tickerOk,
+  type Market, type Pool, type Quote, type TaglineId,
 } from "@/launchpad/rules";
 import { LPS } from "./strings";
 import "./launchpad.css";
@@ -24,7 +24,7 @@ const History = lazy(() => import("./History"));
 export const LAUNCHPAD_POLL_MS = 5_000;
 
 interface Print { atMs: number; tick: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
-interface Coin extends Curve { ticker: string; name: string; tagline: TaglineId; creator: string | null; mine: boolean; createdAtMs: number; holders: number; tape: Print[] }
+interface Coin extends Market { ticker: string; name: string; tagline: TaglineId; creator: string | null; mine: boolean; createdAtMs: number; holders: number; tape: Print[]; pool: Pool | null; grad: { atMs: number; raise: number; fee: number } | null }
 interface Self { cashCents: number; spendableCents: number; holdings: Record<string, number>; live: number; nextLaunchAtMs: number | null }
 interface View { coins: Coin[]; self: Self | null }
 type Reply = { status: "accepted"; [k: string]: unknown } | { status: "refused"; code: string; message: string };
@@ -38,7 +38,11 @@ function parseView(v: unknown): View | null {
   if (!v || typeof v !== "object") return null;
   const o = v as { coins?: unknown; self?: unknown };
   if (!Array.isArray(o.coins)) return null;
-  const coins = o.coins.filter((c): c is Coin => !!c && typeof c === "object" && typeof (c as Coin).ticker === "string" && Number.isSafeInteger((c as Coin).x) && Number.isSafeInteger((c as Coin).sold) && Array.isArray((c as Coin).tape));
+  const int = (v: unknown, min = 0) => Number.isSafeInteger(v) && (v as number) >= min;
+  // A graduated coin carries its book and its graduation record together; a coin with only one of them is not drawn.
+  const modeOk = (c: Coin) => (c.pool === null && c.grad === null)
+    || (!!c.pool && !!c.grad && int(c.pool.cash, 1) && int(c.pool.tokens, 1) && int(c.grad.atMs) && int(c.grad.raise) && int(c.grad.fee));
+  const coins = o.coins.filter((c): c is Coin => !!c && typeof c === "object" && typeof (c as Coin).ticker === "string" && int((c as Coin).x) && int((c as Coin).sold) && Array.isArray((c as Coin).tape) && modeOk(c as Coin));
   return { coins, self: o.self && typeof o.self === "object" ? (o.self as Self) : null };
 }
 
@@ -119,7 +123,7 @@ function Board({ signedIn }: { signedIn: boolean }) {
               {view.coins.map((c) => (
                 <li key={c.ticker}>
                   <button type="button" className="lpad-coin" data-testid="lp-coin" data-ticker={c.ticker} aria-current={c.ticker === sel ? "true" : undefined} onClick={() => setSel(c.ticker)}>
-                    <span><b>{c.ticker}</b> {c.name} {c.mine && <Chip>{LPS.yours}</Chip>}</span>
+                    <span><b>{c.ticker}</b> {c.name} {c.mine && <Chip>{LPS.yours}</Chip>} {c.pool && <Chip data-testid="lp-graduated-chip">{LPS.graduated}</Chip>}</span>
                     <span className="num">{priceText(c)}</span>
                     <span className="lpad-sub">{`${LPS.by(c.creator)} · ${LPS.holders(c.holders)}`}</span>
                     <span className="lpad-sub num">{`${LPS.mcap} ${usd(marketCapCents(c))}`}</span>
@@ -138,23 +142,24 @@ function Board({ signedIn }: { signedIn: boolean }) {
 function CoinPanel({ coin, self, onDone }: { coin: Coin; self: Self | null; onDone: () => Promise<void> }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
-  const [review, setReview] = useState<null | { key: string; amount: number; min: number }>(null);
+  const [review, setReview] = useState<null | { key: string; amount: number; min: number; mode: "curve" | "pool" }>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<null | { kind: "ok" | "refused" | "unknown"; text: string }>(null);
   const held = self?.holdings[coin.ticker] ?? 0;
+  const mode = coin.pool ? "pool" : "curve";
   const sold = ((coin.sold / (LP.Y0 - LP.GRAD_Y)) * 100).toFixed(1) + "%";
   const n = side === "buy" ? Math.round(Number(amount) * 100) : Math.floor(Number(amount));
-  const q = !Number.isFinite(n) || n <= 0 ? null : side === "buy" ? quoteBuy(coin, n) : quoteSell(coin, n);
-  const why = !q ? null : !q.ok ? (q.why === "CURVE_FULL" ? `At most ${qty(curveLeft(coin))} tokens are left on this curve.` : q.why === "MIN" ? "The smallest buy is $1.00." : "Too small to fill.")
+  const q = !Number.isFinite(n) || n <= 0 ? null : quote(coin, side, n);
+  const why = !q ? null : !q.ok ? (q.why === "CURVE_FULL" ? LPS.curveFull : q.why === "MIN" ? "The smallest buy is $1.00." : "Too small to fill.")
     : side === "buy" && self && n > self.spendableCents ? "More than your spendable cash." : side === "sell" && n > held ? "More than you hold." : null;
   const send = async () => {
     if (!review || busy) return;
     setBusy(true);
-    const r = await post("/api/launchpad/trade", { idempotencyKey: review.key, ticker: coin.ticker, side, amount: review.amount, min: review.min });
+    const r = await post("/api/launchpad/trade", { idempotencyKey: review.key, ticker: coin.ticker, side, amount: review.amount, min: review.min, mode: review.mode });
     setBusy(false);
     if (!r) { setMsg({ kind: "unknown", text: LPS.unknown }); return; }
     if (r.status === "refused") setMsg({ kind: "refused", text: r.message });
-    else setMsg({ kind: "ok", text: (side === "buy" ? LPS.bought : LPS.soldMsg)(qty(r.tokens as number), coin.ticker, usd(r.cents as number)) });
+    else setMsg({ kind: "ok", text: (side === "buy" ? LPS.bought : LPS.soldMsg)(qty(r.tokens as number), coin.ticker, usd(r.cents as number)) + (r.graduated ? ` ${LPS.justGraduated(coin.ticker)}` : "") });
     setReview(null);
     setAmount("");
     await onDone();
@@ -166,11 +171,14 @@ function CoinPanel({ coin, self, onDone }: { coin: Coin; self: Self | null; onDo
       <dl className="lpad-dl">
         <dt>{LPS.price}</dt><dd className="num" data-testid="lp-price">{priceText(coin)}</dd>
         <dt>{LPS.mcap}</dt><dd className="num">{usd(marketCapCents(coin))}</dd>
-        <dt>{LPS.sold(sold)}</dt><dd className="num">{LPS.holders(coin.holders)}</dd>
+        {!coin.pool && <><dt>{LPS.sold(sold)}</dt><dd className="num">{LPS.holders(coin.holders)}</dd></>}
+        {coin.pool && <><dt>{LPS.holdersLabel}</dt><dd className="num">{LPS.holders(coin.holders)}</dd></>}
       </dl>
+      <Status coin={coin} />
       {self && <p data-testid="lp-held" data-qty={held}>{LPS.youHold(`${qty(held)} ${coin.ticker}`)}</p>}
       {self && !review && (
-        <form className="lpad-panel" onSubmit={(e) => { e.preventDefault(); if (q?.ok && !why) setReview({ key: key(), amount: n, min: minAfterSlip(q.ok && "tokens" in q ? q.tokens : (q as { pay: number }).pay) }); }}>
+        <form className="lpad-panel" onSubmit={(e) => { e.preventDefault(); if (q?.ok && !why) setReview({ key: key(), amount: n, min: minAfterSlip(side === "buy" ? q.tokens : q.cents), mode: q.mode }); }}>
+          <p className="lpad-sub" data-testid="lp-mode">{mode === "pool" ? LPS.modePool(POOL_FEE_TEXT) : LPS.modeCurve}</p>
           <div className="lpad-tabs" role="radiogroup" aria-label="Side">
             <Button size="sm" role="radio" aria-checked={side === "buy"} data-testid="lp-side-buy" onClick={() => { setSide("buy"); setAmount(""); }}>{LPS.buy}</Button>
             <Button size="sm" role="radio" aria-checked={side === "sell"} data-testid="lp-side-sell" disabled={held === 0} onClick={() => { setSide("sell"); setAmount(""); }}>{LPS.sell}</Button>
@@ -185,11 +193,11 @@ function CoinPanel({ coin, self, onDone }: { coin: Coin; self: Self | null; onDo
           <div className="lpad-actions"><Button type="submit" data-testid="lp-review" disabled={!q?.ok || !!why}>{side === "buy" ? LPS.reviewBuy : LPS.reviewSell}</Button></div>
         </form>
       )}
-      {self && review && q?.ok && <TradeReview coin={coin} side={side} self={self} q={q} min={review.min} busy={busy} onBack={() => setReview(null)} onConfirm={() => void send()} />}
+      {self && review && q?.ok && <TradeReview coin={coin} side={side} self={self} q={q} amount={review.amount} min={review.min} changed={review.mode !== mode} busy={busy} onBack={() => setReview(null)} onConfirm={() => void send()} />}
       {msg && <p className="lpad-msg" role="status" data-kind={msg.kind} data-testid="lp-result">{msg.text}</p>}
       {/* Below the ticket and its review, so the chart never covers Review or Confirm. Re-read when the curve or tape moves. */}
       <Suspense fallback={<div className="lpad-skel lpad-hist-skel" aria-busy="true" aria-label={LPS.hLoading} data-testid="lp-hist-loading" />}>
-        <History ticker={coin.ticker} version={`${coin.x}/${coin.sold}/${coin.tape.length}/${coin.tape[0]?.atMs ?? 0}`} />
+        <History ticker={coin.ticker} version={`${coin.x}/${coin.sold}/${coin.pool?.cash ?? 0}/${coin.tape.length}/${coin.tape[0]?.atMs ?? 0}`} />
       </Suspense>
       <h3>{LPS.tape}</h3>
       {coin.tape.length === 0 ? <p className="lpad-sub">{LPS.noTape}</p> : (
@@ -206,29 +214,61 @@ function CoinPanel({ coin, self, onDone }: { coin: Coin; self: Self | null; onDo
   );
 }
 
-function TradeReview({ coin, side, self, q, min, busy, onBack, onConfirm }: {
-  coin: Coin; side: "buy" | "sell"; self: Self; q: Extract<ReturnType<typeof quoteBuy> | ReturnType<typeof quoteSell>, { ok: true }>;
-  min: number; busy: boolean; onBack: () => void; onConfirm: () => void;
+/** Where the coin trades now, and how far its curve is from graduation (or when it graduated, and into what). */
+function Status({ coin }: { coin: Coin }) {
+  if (coin.pool && coin.grad) {
+    return (
+      <div className="lpad-panel" data-testid="lp-status" data-mode="pool">
+        <p><b>{LPS.graduatedOn(new Date(coin.grad.atMs).toLocaleString())}</b></p>
+        <p className="lpad-sub" data-testid="lp-grad-detail">{LPS.gradDetail(usd(coin.grad.raise), usd(coin.grad.fee), usd(coin.grad.raise - coin.grad.fee), qty(LP.POOL_TOKENS))}</p>
+        <p className="lpad-sub">{LPS.poolNow(usd(coin.pool.cash), qty(coin.pool.tokens))}</p>
+        <p className="lpad-sub">{LPS.notListed}</p>
+      </div>
+    );
+  }
+  const total = LP.Y0 - LP.GRAD_Y;
+  const raiseAtGrad = graduationOf({ x: Math.ceil((LP.X0 * LP.Y0) / LP.GRAD_Y), sold: total }).raise;
+  return (
+    <div className="lpad-panel" data-testid="lp-status" data-mode="curve">
+      <label>{LPS.progressLabel}
+        <progress data-testid="lp-progress" max={total} value={coin.sold} aria-valuetext={LPS.progress(qty(coin.sold), qty(total))} />
+      </label>
+      <p className="lpad-sub">{LPS.progress(qty(coin.sold), qty(total))}</p>
+      <p className="lpad-sub">{LPS.gradRule(usd(coin.x - LP.X0), usd(raiseAtGrad), qty(curveLeft(coin)))}</p>
+    </div>
+  );
+}
+
+function TradeReview({ coin, side, self, q, amount, min, changed, busy, onBack, onConfirm }: {
+  coin: Coin; side: "buy" | "sell"; self: Self; q: Extract<Quote, { ok: true }>; amount: number;
+  min: number; changed: boolean; busy: boolean; onBack: () => void; onConfirm: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { ref.current?.focus(); }, []);
-  const buy = "tokens" in q;
-  const tokens = buy ? q.tokens : coin.sold - q.next.sold;
-  const cents = buy ? q.net + q.fee : q.pay;
+  const buy = side === "buy";
+  const g = q.graduates ? graduationOf(q.after) : null;
   return (
-    <div className="lpad-panel" data-testid="lp-review-panel" tabIndex={-1} ref={ref} aria-label={side === "buy" ? LPS.reviewBuy : LPS.reviewSell}>
+    <div className="lpad-panel" data-testid="lp-review-panel" data-mode={q.mode} tabIndex={-1} ref={ref} aria-label={buy ? LPS.reviewBuy : LPS.reviewSell}>
+      <p className="lpad-sub" data-testid="lp-review-mode">{q.mode === "pool" ? LPS.modePool(POOL_FEE_TEXT) : LPS.modeCurve}</p>
+      {changed && <p className="lpad-msg" data-kind="refused" role="alert" data-testid="lp-mode-changed">{LPS.modeChanged}</p>}
       <dl className="lpad-dl">
-        {buy ? <><dt>{LPS.youPay}</dt><dd className="num">{usd(cents)}</dd><dt>{LPS.youGet}</dt><dd className="num" data-testid="lp-est">{`${qty(tokens)} ${coin.ticker}`}</dd></>
-          : <><dt>{LPS.sell}</dt><dd className="num">{`${qty(tokens)} ${coin.ticker}`}</dd><dt>{LPS.youReceive}</dt><dd className="num" data-testid="lp-est">{usd(cents)}</dd></>}
-        <dt>{LPS.fee}</dt><dd className="num">{usd(q.fee)}</dd>
-        <dt>{LPS.avg}</dt><dd className="num">{`$${((buy ? cents : q.gross) / 100 / tokens).toPrecision(4)}`}</dd>
-        <dt>{LPS.impact}</dt><dd className="num">{pct(impactBp(coin, q.next))}</dd>
+        {buy ? <><dt>{LPS.youPay}</dt><dd className="num" data-testid="lp-pay">{usd(q.cents)}</dd><dt>{LPS.youGet}</dt><dd className="num" data-testid="lp-est">{`${qty(q.tokens)} ${coin.ticker}`}</dd></>
+          : <><dt>{LPS.sell}</dt><dd className="num">{`${qty(q.tokens)} ${coin.ticker}`}</dd><dt>{LPS.youReceive}</dt><dd className="num" data-testid="lp-est">{usd(q.cents)}</dd></>}
+        <dt>{q.mode === "pool" ? LPS.feePool : LPS.fee}</dt><dd className="num" data-testid="lp-fee">{usd(q.fee)}</dd>
+        <dt>{LPS.avg}</dt><dd className="num">{`$${(q.gross / 100 / q.tokens).toPrecision(4)}`}</dd>
+        <dt>{LPS.impact}</dt><dd className="num" data-testid="lp-impact">{pct(impactBp(coin, q.after))}</dd>
         <dt>{LPS.minAccepted}</dt><dd className="num">{buy ? `${qty(min)} ${coin.ticker}` : usd(min)}</dd>
-        <dt>{LPS.cashAfter}</dt><dd className="num" data-testid="lp-cash-after">{usd(self.cashCents + (buy ? -cents : cents))}</dd>
+        <dt>{LPS.cashAfter}</dt><dd className="num" data-testid="lp-cash-after">{usd(self.cashCents + (buy ? -q.cents : q.cents))}</dd>
       </dl>
+      {g && (
+        <div className="lpad-msg" data-testid="lp-review-graduates" role="note">
+          <p>{LPS.clipped(qty(q.tokens), usd(q.cents), usd(amount))}</p>
+          <p>{LPS.willGraduate(usd(g.raise), usd(g.fee), usd(g.pool.cash), qty(g.pool.tokens))}</p>
+        </div>
+      )}
       <p className="lpad-sub">{LPS.risk}</p>
       <div className="lpad-actions">
-        <Button variant="primary" data-testid="lp-confirm" disabled={busy} onClick={onConfirm}>{busy ? LPS.working : buy ? LPS.confirmBuy : LPS.confirmSell}</Button>
+        <Button variant="primary" data-testid="lp-confirm" disabled={busy || changed} onClick={onConfirm}>{busy ? LPS.working : buy ? LPS.confirmBuy : LPS.confirmSell}</Button>
         <Button data-testid="lp-back" disabled={busy} onClick={onBack}>{LPS.back}</Button>
       </div>
     </div>

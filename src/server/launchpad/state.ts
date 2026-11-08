@@ -2,11 +2,14 @@
 // snapshot file as the player ledgers and commits in the same persist, so a launch or trade and its cash effect are saved
 // together or not at all. Parsed strictly on load: a section that does not parse is kept verbatim (never reset) and the
 // Launchpad reads as unavailable until it is repaired.
-import { LP, type Curve, type TaglineId, isTagline, liquidationCents, tickerOk } from "@/launchpad/rules";
+import { LP, type Curve, type Pool, type TaglineId, graduationOf, isTagline, liquidationCents, tickerOk } from "@/launchpad/rules";
 
 export interface LpPrint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
-/** One executed trade on the coin's price/volume history: the curve after it (x, sold) and the tape's volume. */
-export interface LpPoint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; x: number; sold: number }
+/** One executed trade on the coin's price/volume history: the curve after it (x, sold) and the tape's volume. A trade
+ *  after graduation also carries the book after it (pc cash, pt tokens); the curve is frozen then. */
+export interface LpPoint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; x: number; sold: number; pc?: number; pt?: number }
+/** The graduation (L4), saved once by the buy that sold the curve's last token. `at` = trades recorded before it. */
+export interface LpGrad { atMs: number; tick: number; raise: number; fee: number; at: number }
 /** The recorded history: points since `since` (the launch, or the first trade after history existed); `dropped` older
  *  points were removed by the HIST_KEEP bound. */
 export interface LpHistory { since: number; dropped: number; pts: LpPoint[] }
@@ -20,6 +23,9 @@ export interface LpCoin extends Curve {
   tape: LpPrint[];
   /** Absent on a coin saved before history was recorded (never back-filled). */
   hist?: LpHistory;
+  /** Set together, once, at graduation: the record, and the locked book the coin trades against from then on. */
+  grad?: LpGrad;
+  pool?: Pool;
 }
 /** One account's replies by idempotency key (newest last, 50 kept). `fp` is the request it answered. */
 export interface LpReceipt { key: string; fp: string; reply: unknown }
@@ -51,18 +57,40 @@ function coinOk(c: unknown): c is LpCoin {
   if (typeof c.creatorId !== "string" || !ACCT.test(c.creatorId) || !int(c.createdAtMs) || !int(c.createdTick)) return false;
   if (!int(c.x, LP.X0) || !int(c.sold) || c.sold > LP.Y0 - LP.GRAD_Y || !Array.isArray(c.tape) || c.tape.length > LP.TAPE_KEEP) return false;
   if (!c.tape.every((p: unknown) => obj(p) && (p.side === "buy" || p.side === "sell") && int(p.tick) && int(p.atMs) && int(p.tokens, 1) && int(p.cents) && typeof p.creator === "boolean")) return false;
+  if ((c.grad === undefined) !== (c.pool === undefined)) return false;
+  if (c.grad !== undefined && !gradOk(c as unknown as LpCoin)) return false;
   return c.hist === undefined || histOk(c.hist, c as unknown as LpCoin);
+}
+
+/** A graduated coin: the curve sold its 800M, the raise and fee follow from it, the book holds at least its seed's k. */
+function gradOk(c: LpCoin): boolean {
+  const g = c.grad as unknown, p = c.pool as unknown;
+  if (!obj(g) || !obj(p) || !int(g.atMs, c.createdAtMs) || !int(g.tick) || !int(g.at, 1) || !int(p.cash, 1) || !int(p.tokens, 1)) return false;
+  if (c.sold !== LP.Y0 - LP.GRAD_Y) return false;
+  const want = graduationOf(c);
+  if (g.raise !== want.raise || g.fee !== want.fee) return false;
+  return BigInt(p.cash as number) * BigInt(p.tokens as number) >= BigInt(want.pool.cash) * BigInt(want.pool.tokens);
 }
 
 const curveOk = (x: unknown, sold: unknown) => int(x, LP.X0) && int(sold) && (sold as number) <= LP.Y0 - LP.GRAD_Y;
 function histOk(h: unknown, c: LpCoin): boolean {
   if (!obj(h) || !int(h.since, c.createdAtMs) || !int(h.dropped) || !Array.isArray(h.pts) || h.pts.length > LP.HIST_KEEP) return false;
   const pts = h.pts as unknown[];
-  if (!pts.every((p) => obj(p) && (p.side === "buy" || p.side === "sell") && int(p.tick) && int(p.atMs, h.since as number) && int(p.tokens, 1) && int(p.cents) && curveOk(p.x, p.sold))) return false;
+  const poolPt = (p: Record<string, unknown>) => p.pc !== undefined || p.pt !== undefined;
+  if (!pts.every((p) => obj(p) && (p.side === "buy" || p.side === "sell") && int(p.tick) && int(p.atMs, h.since as number) && int(p.tokens, 1) && int(p.cents) && curveOk(p.x, p.sold)
+    && (!poolPt(p) || (int(p.pc, 1) && int(p.pt, 1))))) return false;
+  // Book points only after the graduation, curve points only before it.
+  const at = c.grad ? c.grad.at - (h.dropped as number) : pts.length;
+  if (!pts.every((p, i) => poolPt(p as Record<string, unknown>) === (i >= at))) return false;
   const last = pts[pts.length - 1] as LpPoint | undefined;
-  // The newest point is the curve as saved: the history cannot drift from the coin it describes.
-  return !last || (last.x === c.x && last.sold === c.sold);
+  // The newest point is the coin as saved (its book once it has traded after graduation): history cannot drift from it.
+  if (!last) return true;
+  if (last.pc !== undefined) return last.x === c.x && last.sold === c.sold && last.pc === c.pool?.cash && last.pt === c.pool?.tokens;
+  return last.x === c.x && last.sold === c.sold;
 }
+
+/** The cash a coin's market holds for its holders: the curve's real cash while live, the book's cash once graduated. */
+export const marketCashCents = (c: LpCoin) => (c.pool ? c.pool.cash : c.x - LP.X0);
 
 /** Append one executed trade to the coin's history (starting it on a legacy coin), keeping at most HIST_KEEP points. */
 export function recordPoint(c: LpCoin, p: LpPoint): void {
@@ -89,11 +117,12 @@ export function parseLaunchpad(raw: unknown): { ok: true; state: LpState } | { o
   const keys = (m: Record<string, unknown>) => Object.entries(m).flatMap(([id, h]) => (obj(h) ? Object.keys(h).map((t) => `${id}/${t}`) : [`${id}/?`])).sort().join();
   if (keys(costs) !== keys(holdings)) return { ok: false, reason: "costs do not match holdings" };
   for (const h of Object.values(costs)) for (const c of Object.values(h as Record<string, unknown>)) if (!int(c)) return { ok: false, reason: "bad cost" };
-  // Tokens held must equal tokens sold by each curve: no coin is created or lost outside a trade.
+  // Tokens held equal tokens sold by the curve, and after graduation held + book = the whole supply: no coin is created or
+  // lost outside a trade.
   for (const c of coins) {
     let held = 0;
     for (const h of Object.values(holdings as Record<string, Record<string, number>>)) held += h[c.ticker] ?? 0;
-    if (held !== c.sold) return { ok: false, reason: `holdings of ${c.ticker} do not match its curve` };
+    if (held !== (c.pool ? LP.SUPPLY - c.pool.tokens : c.sold)) return { ok: false, reason: `holdings of ${c.ticker} do not match its curve` };
   }
   for (const [id, r] of Object.entries(receipts)) {
     if (!ACCT.test(id) || !Array.isArray(r) || r.length > RECEIPTS_KEEP) return { ok: false, reason: "bad receipts" };
