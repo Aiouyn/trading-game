@@ -30,14 +30,18 @@ describe("manifest + icon", () => {
 
 describe("offline screen", () => {
   const html = read("public/offline.html");
-  it("is static and truthful: no figures, no data or storage access, a status line and a keyboard button", () => {
+  it("is static and truthful: no figures in its markup, reads only the snapshot record, a status line and a keyboard button", () => {
     const text = html.replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>|<[^>]+>/g, " ");
     expect(text).not.toMatch(/\$|\d+\.\d|net worth|balance:/i);
     expect(text).toContain("You're offline");
     expect(text).toContain("Nothing is sent or queued while you're offline.");
     expect(html).toMatch(/role="status"/);
     expect(html).toMatch(/<button type="button" id="reload"/);
-    expect(html).not.toMatch(/XMLHttpRequest|localStorage|sessionStorage|indexedDB|caches\.|serviceWorker|document\.cookie/);
+    // Storage: it only READS the one sanitised `me` snapshot record (src/pwa/meSnapshot.ts); never writes, no other store,
+    // no cookies, no Cache Storage; it renders with textContent only.
+    expect(html.match(/localStorage/g)).toHaveLength(1);
+    expect(html).toContain(`window.localStorage.getItem("quay.offline.me.v1")`);
+    expect(html).not.toMatch(/XMLHttpRequest|setItem|removeItem|sessionStorage|indexedDB|caches\.|serviceWorker|document\.cookie|innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
     // The one request: a reachability probe of the public manifest, uncached and without cookies.
     expect(html.match(/fetch\(/g)).toHaveLength(1);
     expect(html).toContain(`fetch("/manifest.webmanifest?reachable=" + Date.now(), { cache: "no-store", credentials: "omit" })`);

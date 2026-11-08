@@ -7,22 +7,32 @@
 <title>Quay · Offline</title>
 <link rel="icon" href="/quay-icon.svg" type="image/svg+xml">
 <!-- M2-05: static offline screen, served by /sw.js only when a navigation cannot reach the network. It holds no
-     prices, balances or account data, and it never reloads by itself. -->
+     prices or market data. It shows the last own `me` snapshot read-only with its tick (doc 19 Rule 3.17.5), read from
+     the sanitised record the app keeps in local storage (src/pwa/meSnapshot.ts) and re-validated here. It never sends
+     anything and never reloads by itself. -->
 <style>
-  /* Colours: tokens.css ink-brass (--bg0, --fg, --fg-muted, --line, --steel, --gain, --acc). */
+  /* Colours: tokens.css ink-brass (--bg0, --bg1, --fg, --fg-muted, --line, --steel, --gain, --acc). */
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #0B0D10; color: #ECE9E2;
     font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { width: 100%; max-width: 440px; }
+  main { width: 100%; max-width: 480px; }
   .mark { display: flex; align-items: center; gap: 10px; color: #9AA0A8; font-size: 14px; }
   .mark img { width: 40px; height: 40px; border-radius: 8px; }
   h1 { margin: 24px 0 8px; font-size: 28px; font-weight: 400; line-height: 1.2; }
+  h2 { margin: 16px 0 6px; font-size: 14px; font-weight: 600; color: #9AA0A8; }
   p { margin: 0 0 16px; color: #9AA0A8; }
   .status { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 20px; padding: 6px 12px; border: 1px solid #262B33;
     border-radius: 999px; font-size: 14px; color: #ECE9E2; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #7C8A99; }
   .online .dot { background: #3FD1B0; }
+  .snap { margin: 0 0 20px; padding: 16px; border: 1px dashed #262B33; border-radius: 8px; background: #11141A; }
+  .last { margin: 0 0 4px; font-size: 22px; line-height: 1.25; color: #ECE9E2; }
+  .snap p { margin: 0 0 8px; font-size: 14px; }
+  .rows { margin: 0; padding: 0; list-style: none; font-variant-numeric: tabular-nums; }
+  .rows li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-top: 1px solid #262B33; font-size: 15px; }
+  .rows li span:last-child { text-align: right; overflow-wrap: anywhere; }
+  .none { font-size: 14px; color: #9AA0A8; }
   button { min-height: 44px; padding: 0 20px; border: 1px solid #ECE9E2; border-radius: 8px; background: transparent; color: #ECE9E2;
     font: inherit; cursor: pointer; }
   button:focus-visible { outline: 2px solid #C9A45C; outline-offset: 2px; }
@@ -32,23 +42,102 @@
 <main>
   <div class="mark"><img src="/quay-icon.svg" alt=""><span>Quay · Port Avalon</span></div>
   <h1 id="heading">You're offline</h1>
-  <p>Quay needs a connection for live prices, your balances and orders. This screen shows none of them.</p>
-  <p>Nothing is sent or queued while you're offline. Orders can only be placed when you're back online.</p>
   <div class="status" id="status" role="status" data-testid="offline-status"><span class="dot" aria-hidden="true"></span><span id="status-text">Offline · no connection</span></div>
+  <section class="snap" id="snap" data-testid="offline-snapshot" data-state="empty" aria-labelledby="snap-label">
+    <p class="last" id="snap-label" data-testid="offline-snapshot-label">No saved snapshot on this device</p>
+    <p id="snap-note" data-testid="offline-snapshot-note">Sign in and open Quay online to keep a read-only copy of your cash, positions and orders for when you're offline.</p>
+    <div id="snap-body" hidden>
+      <ul class="rows" data-testid="offline-snapshot-cash"><li><span>Cash</span><span id="snap-cash"></span></li><li id="snap-held-row"><span>Held for working orders</span><span id="snap-held"></span></li></ul>
+      <h2>Positions</h2>
+      <ul class="rows" id="snap-positions" data-testid="offline-snapshot-positions"></ul>
+      <h2>Working orders</h2>
+      <ul class="rows" id="snap-orders" data-testid="offline-snapshot-orders"></ul>
+    </div>
+  </section>
+  <p>Quay needs a connection for live prices, balances and orders. Nothing is sent or queued while you're offline. Orders can only be placed when you're back online.</p>
   <div><button type="button" id="reload" data-testid="offline-reload">Try again</button></div>
 </main>
 <script>
   // This page is only shown because a navigation could not reach Quay, so it starts "Offline" whatever
   // navigator.onLine says. It asks Quay's server for the public manifest (no cookies, not cached) on load, when the
   // browser reports a connection, and every 10 s; when that answers it says so. It never reloads by itself.
+  /* snapshot-reader:start (same rules as parseMeSnapshot in src/pwa/meSnapshot.ts; tests/unit/pwa pins both) */
+  function readSnapshot(text) {
+    var ACCT = /^acc_[0-9a-f]{32}$/, ASSET = /^[A-Z0-9]{1,12}$/, QTY = /^\d{1,12}$/, PRICE = /^\d{1,12}(\.\d{1,6})?$/;
+    var TYPES = ["market", "limit", "stop", "stop_limit"], STATUSES = ["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"];
+    function isInt(n) { return typeof n === "number" && Number.isSafeInteger(n) && n >= 0; }
+    function only(o, req, opt) {
+      if (typeof o !== "object" || o === null || Array.isArray(o)) return false;
+      opt = opt || [];
+      for (var i = 0; i < req.length; i++) if (!Object.prototype.hasOwnProperty.call(o, req[i])) return false;
+      var ks = Object.keys(o);
+      for (var j = 0; j < ks.length; j++) if (req.indexOf(ks[j]) < 0 && opt.indexOf(ks[j]) < 0) return false;
+      return true;
+    }
+    function str(v, re) { return typeof v === "string" && re.test(v); }
+    if (typeof text !== "string" || text.length > 16384) return null;
+    var o;
+    try { o = JSON.parse(text); } catch (e) { return null; }
+    if (!only(o, ["v", "acct", "savedAt", "tick", "cash", "held", "positions", "orders"])) return null;
+    if (o.v !== 1 || !str(o.acct, ACCT) || !isInt(o.savedAt) || !isInt(o.tick) || !isInt(o.cash) || !isInt(o.held)) return null;
+    if (!Array.isArray(o.positions) || o.positions.length > 64 || !Array.isArray(o.orders) || o.orders.length > 64) return null;
+    for (var p = 0; p < o.positions.length; p++) {
+      var x = o.positions[p];
+      if (!only(x, ["asset", "qty", "avgCost"]) || !str(x.asset, ASSET) || !str(x.qty, QTY) || !str(x.avgCost, PRICE)) return null;
+    }
+    for (var q = 0; q < o.orders.length; q++) {
+      var r = o.orders[q];
+      if (!only(r, ["asset", "side", "type", "qty", "filled", "status"], ["limit", "stop"])) return null;
+      if (!str(r.asset, ASSET) || (r.side !== "BUY" && r.side !== "SELL") || TYPES.indexOf(r.type) < 0 || !str(r.qty, QTY) || !str(r.filled, QTY) || STATUSES.indexOf(r.status) < 0) return null;
+      if ((r.limit !== undefined && !str(r.limit, PRICE)) || (r.stop !== undefined && !str(r.stop, PRICE))) return null;
+    }
+    return o;
+  }
+  /** 720 ticks per game day, 2 game minutes per tick, Day is 1-based (src/shell/mockChannels.ts clockAt / clockLabel). */
+  function gameTime(tick) {
+    var m = (tick % 720) * 2, hh = String(Math.floor(m / 60)), mm = String(m % 60);
+    return "Day " + (Math.floor(tick / 720) + 1) + " " + (hh.length < 2 ? "0" + hh : hh) + ":" + (mm.length < 2 ? "0" + mm : mm);
+  }
+  function cents(c) {
+    var s = String(c); while (s.length < 3) s = "0" + s;
+    return "$" + s.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + "." + s.slice(-2);
+  }
+  /* snapshot-reader:end */
   (function () {
     var box = document.getElementById("status"), text = document.getElementById("status-text"), btn = document.getElementById("reload"), head = document.getElementById("heading");
+    var snap = null;
+    try { snap = readSnapshot(window.localStorage.getItem("quay.offline.me.v1")); } catch (e) { snap = null; } // storage off: honest empty
+    var label = document.getElementById("snap-label");
+    function row(list, left, right) {
+      var li = document.createElement("li"), a = document.createElement("span"), b = document.createElement("span");
+      a.textContent = left; b.textContent = right; li.appendChild(a); li.appendChild(b); list.appendChild(li);
+    }
+    if (snap) {
+      document.getElementById("snap").setAttribute("data-state", "shown");
+      document.getElementById("snap-note").textContent = "Read-only snapshot from tick " + snap.tick + ", saved on this device " +
+        new Date(snap.savedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) +
+        ". Not live: prices, cash and orders may have changed since. It stays on this device until you sign out or another account signs in.";
+      document.getElementById("snap-cash").textContent = cents(snap.cash);
+      if (snap.held > 0) document.getElementById("snap-held").textContent = cents(snap.held);
+      else document.getElementById("snap-held-row").hidden = true;
+      var pos = document.getElementById("snap-positions"), ord = document.getElementById("snap-orders");
+      if (!snap.positions.length) row(pos, "None", "");
+      snap.positions.forEach(function (p) { row(pos, p.asset, p.qty + " @ $" + p.avgCost + " avg cost"); });
+      if (!snap.orders.length) row(ord, "None", "");
+      snap.orders.forEach(function (o) {
+        var price = o.type === "market" ? "Market" : o.type === "limit" ? "Limit $" + o.limit : o.type === "stop" ? "Stop $" + o.stop : "Stop $" + o.stop + " · limit $" + o.limit;
+        var st = { PENDING: "Pending", WORKING: "Working", PARTIAL: "Partly filled " + o.filled + "/" + o.qty, QUEUED_AUCTION: "Queued for auction" }[o.status];
+        row(ord, (o.side === "BUY" ? "Buy " : "Sell ") + o.qty + " " + o.asset, price + " · " + st);
+      });
+      document.getElementById("snap-body").hidden = false;
+    }
     function show(on) {
       box.className = on ? "status online" : "status";
       text.textContent = on ? "Back online · reload to continue" : "Offline · no connection";
       btn.textContent = on ? "Reload Quay" : "Try again";
       head.textContent = on ? "You're back online" : "You're offline";
       document.title = on ? "Quay · Back online" : "Quay · Offline";
+      if (snap) label.textContent = (on ? "Not live · last update " : "Offline · last update ") + gameTime(snap.tick);
     }
     function probe() {
       fetch("/manifest.webmanifest?reachable=" + Date.now(), { cache: "no-store", credentials: "omit" })

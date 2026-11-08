@@ -10,6 +10,7 @@ import {
   type AuthPlayerView,
   type AuthWorldView,
 } from "./authClient";
+import { snapshotSignedIn, snapshotSignedOut, snapshotUnknown } from "@/pwa/meSnapshot";
 
 export type AuthUiState =
   | { status: "loading" }
@@ -36,9 +37,11 @@ async function refreshFromServer(): Promise<AuthUiState> {
   try {
     const me = await fetchMe();
     if (!me) {
+      snapshotSignedOut(); // M2-05: the server says no session: the offline snapshot goes
       setState({ status: "signed_out" });
       return state;
     }
+    snapshotSignedIn(me.account.accountId); // M2-05: only this account may write; another account's record goes
     setState({
       status: "signed_in",
       account: me.account,
@@ -48,6 +51,7 @@ async function refreshFromServer(): Promise<AuthUiState> {
     });
     return state;
   } catch {
+    snapshotUnknown(); // M2-05: network error: stop writing, keep the record for the offline page
     setState({ status: "signed_out" });
     return state;
   }
@@ -77,6 +81,7 @@ export const authSession = {
   },
   async logout(): Promise<void> {
     await logoutAccount();
+    snapshotSignedOut(); // M2-05
     setState({ status: "signed_out" });
   },
   /** Test helper */

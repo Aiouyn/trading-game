@@ -9,6 +9,7 @@ import type {
 } from "./channels";
 import { CANDLE_REV_RE } from "./candleRev";
 import { IntentNotSentOffline, IntentOutcomeUnknown, knownOffline } from "./network";
+import { saveMeSnapshot } from "@/pwa/meSnapshot";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
@@ -186,7 +187,9 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
    * The server clock owns the seed-17 path; this feed only adopts that snapshot.
    * M1-06: `me` is the server ledger (GET /api/broker/me) and the order door is the server's (POST /api/broker/orders).
    */
-  authoritativeQuotes?: boolean }
+  authoritativeQuotes?: boolean;
+  /** M2-05: the signed-in account whose adopted server ledgers feed the offline `me` snapshot (src/pwa/meSnapshot.ts). */
+  snapshotAccount?: string }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
 type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string; held?: true /* ?cancelFill: its fill landed */ }
@@ -197,6 +200,7 @@ export class MockFeed {
   readonly tickMs: number;
   /** True when prices are adopted from the server clock and advance() is a no-op. */
   readonly authoritativeQuotes: boolean;
+  private readonly snapshotAccount: string | null;
   /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
   private quotesAdopted = false;
   /** M1-06 signed-in: set once a validated /api/broker/me (or order reply) ledger replaced the constructor `me`. */
@@ -263,6 +267,7 @@ export class MockFeed {
     this.policy = opts.policy ?? ORDER_POLICY;
     this.historyPolicy = opts.historyPolicy ?? ORDER_HISTORY_POLICY;
     this.authoritativeQuotes = opts.authoritativeQuotes === true;
+    this.snapshotAccount = this.authoritativeQuotes ? opts.snapshotAccount ?? null : null; // guests never write
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
       const prevClose = Math.round(a.base * (1 + (this.assetRandom(a.assetId)() - 0.5) * 0.02));
@@ -843,6 +848,7 @@ export class MockFeed {
     this.fills = [...v.fills];
     this.intents = [...v.intents];
     this.ledgerAdopted = true;
+    if (this.snapshotAccount) saveMeSnapshot(this.snapshotAccount, v); // refused unless still the current account
     for (const sub of this.subs) {
       if (sub.ch !== "me") continue;
       if (sub.sent === null) { if (this.meReady()) this.sendSnap(sub); continue; }

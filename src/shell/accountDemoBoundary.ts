@@ -56,12 +56,13 @@ export function applySignedInDemo(
   marketSeed: number = PORT_AVALON_MARKET_SEED,
   privateSnap?: SignedInPrivateSnap,
 ): void {
-  void accountId; // identity remount key only — market seed is world-owned (M1-02).
+  // accountId: identity remount key, and the account whose server ledgers feed the offline `me` snapshot (M2-05).
+  // The market seed is world-owned (M1-02).
   const cashCents = privateSnap?.cashCents ?? 1_000_000;
   const nw = cashCentsToMoney(cashCents);
   // Quotes come from the server clock and `me` from the saved server ledger (M1-06): orders go to the server door,
   // which prices, fills and saves them. No NW pin: cash and lots are the server's, marked at server quotes.
-  setFeed(new MockFeed({ empty: true, seed: marketSeed }, { authoritativeQuotes: true }));
+  setFeed(new MockFeed({ empty: true, seed: marketSeed }, { authoritativeQuotes: true, snapshotAccount: accountId }));
   const channels = starterChannels();
   channels.me.nw = nw;
   // Saved cash seeds the boot NW only until `me` (server ledger at server marks) is live.
