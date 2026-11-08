@@ -85,6 +85,8 @@ function Board({ signedIn }: { signedIn: boolean }) {
   const [{ view, state }, setBoard] = useState<{ view: View | null; state: "loading" | "error" | "live" | "stale" }>({ view: null, state: "loading" });
   const [tab, setTab] = useState<"coins" | "graduated" | "create">("coins");
   const [sel, setSel] = useState<string | null>(null);
+  // The buy that graduated the selected coin: its result stays on screen in the coin's Graduated panel.
+  const [gradNote, setGradNote] = useState<{ ticker: string; text: string } | null>(null);
   const seq = useRef(0);
   const load = useCallback(async () => {
     const mine = ++seq.current;
@@ -105,7 +107,8 @@ function Board({ signedIn }: { signedIn: boolean }) {
     return <div className="lpad-row2" data-testid="lp-error"><span role="alert">{LPS.couldntLoad}</span><Button onClick={() => { setBoard({ view: null, state: "loading" }); void load(); }}>{LPS.retry}</Button></div>;
   }
   const list = view.coins.filter((c) => !c.grad === (tab !== "graduated"));
-  const coin = list.find((c) => c.ticker === sel) ?? null;
+  // A selected coin that graduates (this player's buy or another's) stays selected, now as its Graduated panel.
+  const coin = list.find((c) => c.ticker === sel) ?? (tab === "coins" ? view.coins.find((c) => c.ticker === sel && c.grad) : undefined) ?? null;
   return (
     <>
       {state === "stale" && <p className="lpad-msg" role="status" data-testid="lp-stale">{LPS.couldntUpdate}</p>}
@@ -137,14 +140,14 @@ function Board({ signedIn }: { signedIn: boolean }) {
               ))}
             </ul>
           )}
-          {coin && (coin.grad ? <GradPanel key={coin.ticker} coin={coin} grad={coin.grad} /> : <CoinPanel key={coin.ticker} coin={coin} self={view.self} onDone={load} />)}
+          {coin && (coin.grad ? <GradPanel key={coin.ticker} coin={coin} grad={coin.grad} note={gradNote?.ticker === coin.ticker ? gradNote.text : null} /> : <CoinPanel key={coin.ticker} coin={coin} self={view.self} onDone={load} onGraduated={(text) => setGradNote({ ticker: coin.ticker, text })} />)}
         </div>
       )}
     </>
   );
 }
 
-function CoinPanel({ coin, self, onDone }: { coin: Coin; self: Self | null; onDone: () => Promise<void> }) {
+function CoinPanel({ coin, self, onDone, onGraduated }: { coin: Coin; self: Self | null; onDone: () => Promise<void>; onGraduated: (text: string) => void }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [review, setReview] = useState<null | { key: string; amount: number; min: number }>(null);
@@ -163,7 +166,11 @@ function CoinPanel({ coin, self, onDone }: { coin: Coin; self: Self | null; onDo
     setBusy(false);
     if (!r) { setMsg({ kind: "unknown", text: LPS.unknown }); return; }
     if (r.status === "refused") setMsg({ kind: "refused", text: r.message });
-    else setMsg({ kind: "ok", text: (side === "buy" ? LPS.bought : LPS.soldMsg)(qty(r.tokens as number), coin.ticker, usd(r.cents as number)) + (r.graduated ? ` ${LPS.justGraduated(coin.ticker)}` : "") });
+    else {
+      const text = (side === "buy" ? LPS.bought : LPS.soldMsg)(qty(r.tokens as number), coin.ticker, usd(r.cents as number)) + (r.graduated ? ` ${LPS.justGraduated(coin.ticker)}` : "");
+      setMsg({ kind: "ok", text });
+      if (r.graduated) onGraduated(text); // this panel gives way to the Graduated one on the reload below
+    }
     setReview(null);
     setAmount("");
     await onDone();
@@ -260,11 +267,12 @@ function TradeReview({ coin, side, self, q, asked, min, busy, onBack, onConfirm 
 }
 
 /** A graduated coin: its graduation, its listing and Broker price now, its book, and the way to the Broker. */
-function GradPanel({ coin, grad }: { coin: Coin; grad: Grad }) {
+function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string | null }) {
   const store = useShellStore();
   return (
     <section className="lpad-panel" data-testid="lp-grad-panel" data-ticker={coin.ticker} aria-label={`${coin.ticker} ${coin.name}`}>
       <h3>{`${coin.ticker} · ${coin.name}`} <Chip>{LPS.graduated}</Chip></h3>
+      {note && <p className="lpad-msg" role="status" data-kind="ok" data-testid="lp-result">{note}</p>}
       <p className="lpad-sub">{`“${TAGLINES[coin.tagline] ?? ""}” ${LPS.by(coin.creator)}`}</p>
       <p><b>{LPS.graduatedOn(new Date(grad.atMs).toLocaleString())}</b></p>
       <dl className="lpad-dl">
