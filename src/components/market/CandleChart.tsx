@@ -11,9 +11,11 @@
 //    game clock (no Date, so no timezone).
 //  - Trend lines (TrendLayer) are drawn over the plot when PriceChart passes `draw`; a series primitive tells the layer
 //    each time the chart redraws, so the lines follow pan, zoom, resize and new bars in the same frame.
-//  - Overlays (PriceChart passes the ones on): SMA / EMA lines of the shown closes (movingAverages.ts), on the price
-//    scale, recomputed from the bars on every change (a live bar replaced, a correction, a new range or history); an
-//    overlay turned off is removed. Their values for the legend's bar sit in a line of their own under it.
+//  - Overlays (PriceChart passes the ones on): SMA, EMA, Bollinger (two lines) and VWAP on the price scale, RSI in a
+//    pane of its own under the plot (fixed 0..100 scale, 30 / 70 guides; never a price). All from the shown bars
+//    (movingAverages.ts), recomputed on every change (a live bar replaced, a corrected close or volume, a new range or
+//    history); an overlay turned off is removed (the RSI pane with it). Their values for the legend's bar sit on a
+//    line of their own under it; VWAP's name says where its sum starts.
 //  - Colours are tokens read with getComputedStyle (chartTheme.ts) and re-read when the palette, hc, motion or text
 //    scale changes. The last-price tag and the halt band are DOM overlays moved with transforms (no layout shift).
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -31,7 +33,7 @@ import { barTime } from "./ChartTable";
 import { parseSrgb } from "./chartColor";
 import { THEME_ATTRS, readChartTheme, type ChartTheme } from "./chartTheme";
 import type { StudyKind } from "./chartStudies";
-import { study } from "./movingAverages";
+import { bollinger, ema, rsi, sma, vwap } from "./movingAverages";
 import { TrendLayer, chartGeo } from "./TrendLayer";
 import type { TrendDraw } from "./trendlines";
 import "./candleChart.css";
@@ -146,8 +148,10 @@ export interface CandleChartProps {
   readonly onFail: () => void;
   /** Trend lines (signed in or guest, once this device's copy is read); absent: no drawing layer. */
   readonly draw?: TrendDraw;
-  /** The moving-average overlays that are on, in order, with their periods (bars). */
+  /** The overlays that are on, in order, with their periods (bars; VWAP: its session in ticks). */
   readonly studies?: readonly StudyOn[];
+  /** VWAP is on and the newest bar's day has no traded volume yet: since when (clock), else null. */
+  readonly onVwapIdle?: (since: string | null) => void;
 }
 export interface StudyOn { readonly kind: StudyKind; readonly n: number }
 const NO_STUDIES: readonly StudyOn[] = [];
@@ -156,10 +160,13 @@ interface Api { chart: IChartApi; series: ISeriesApi<"Candlestick">; volume: ISe
 
 function chartOptions(th: ChartTheme, locale: string, precision: number, s: Pick<BrStrings, "tickLabel">) {
   const c = th.colours;
-  const fmt = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: precision, maximumFractionDigits: precision });
   return {
     autoSize: true,
-    layout: { background: { type: ColorType.Solid, color: c.bg }, textColor: c.text, fontFamily: th.fontFamily, fontSize: th.fontSize, attributionLogo: false, colorParsers: [parseSrgb] },
+    layout: {
+      background: { type: ColorType.Solid, color: c.bg }, textColor: c.text, fontFamily: th.fontFamily, fontSize: th.fontSize, attributionLogo: false, colorParsers: [parseSrgb],
+      // The RSI pane's top edge: the axis border colour, not the library's default.
+      panes: { separatorColor: c.crosshair, separatorHoverColor: c.grid },
+    },
     grid: { vertLines: { color: c.grid, visible: !th.hc }, horzLines: { color: c.grid, visible: !th.hc } },
     crosshair: {
       mode: CrosshairMode.Magnet,
@@ -175,32 +182,58 @@ function chartOptions(th: ChartTheme, locale: string, precision: number, s: Pick
       tickMarkMaxCharacterLength: 12,
       tickMarkFormatter: (time: Time, type: TickMarkType) => axisLabel(time, type, locale),
     },
-    localization: { locale: pfNumberLocale(locale), timeFormatter: (time: Time) => barTime(tickOfTime(time), locale, s), priceFormatter: (p: number) => fmt.format(p) },
+    // Prices are formatted per series (priceFormat below): a chart-wide price formatter would print the RSI pane's 0..100
+    // scale with the asset's decimals too.
+    localization: { locale: pfNumberLocale(locale), timeFormatter: (time: Time) => barTime(tickOfTime(time), locale, s) },
     kineticScroll: { touch: !th.reducedMotion, mouse: false },
     // A vertical drag on a phone scrolls the page, never the chart.
     handleScroll: { vertTouchDrag: false },
   };
 }
 
-function seriesOptions(th: ChartTheme, precision: number) {
+/** A price in the asset's decimals and the locale's digits (candles, price-scale overlays, their axis and crosshair). */
+function priceFormat(locale: string, precision: number) {
+  const f = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: precision, maximumFractionDigits: precision });
+  return { type: "custom" as const, minMove: 1 / 10 ** precision, formatter: (p: number) => f.format(p) };
+}
+function seriesOptions(th: ChartTheme, precision: number, locale: string) {
   const { up, down } = th.colours;
   return {
     upColor: up, downColor: down, wickUpColor: up, wickDownColor: down,
     // hc: an outlined body in the same colour, so a thin candle still reads at 1 px.
     borderVisible: th.hc, borderUpColor: up, borderDownColor: down,
     priceLineVisible: false, lastValueVisible: false,
-    priceFormat: { type: "price", precision, minMove: 1 / 10 ** precision },
+    priceFormat: priceFormat(locale, precision),
   } as const;
 }
 
 /** Widest a bar may draw, px: a handful of server bars must not stretch across the plot. */
 const MAX_BAR_SPACING = 24;
-function studyOptions(th: ChartTheme, kind: StudyKind, precision: number) {
+/** Each overlay's line look: SMA solid, EMA dashed, Bollinger long dashes, VWAP dotted, RSI solid in its own pane. */
+const STUDY_STYLE: Readonly<Record<StudyKind, LineStyle>> = { sma: LineStyle.Solid, ema: LineStyle.Dashed, bb: LineStyle.LargeDashed, vwap: LineStyle.Dotted, rsi: LineStyle.Solid };
+const RSI_RANGE = { priceRange: { minValue: 0, maxValue: 100 } };
+function studyOptions(th: ChartTheme, kind: StudyKind, precision: number, locale: string) {
+  const rsiLine = kind === "rsi";
+  const one = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return {
-    color: th.colours[kind], lineWidth: th.hc ? 3 : 2, lineStyle: kind === "ema" ? LineStyle.Dashed : LineStyle.Solid,
+    color: th.colours[kind], lineWidth: th.hc ? 3 : 2, lineStyle: STUDY_STYLE[kind],
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-    priceFormat: { type: "price", precision, minMove: 1 / 10 ** precision },
+    // RSI is 0..100 on its own scale, one decimal: never a price.
+    // (its own formatter: the chart's price formatter would print it with the asset's decimals)
+    priceFormat: rsiLine ? { type: "custom" as const, minMove: 0.1, formatter: (v: number) => one.format(v) } : priceFormat(locale, precision),
+    autoscaleInfoProvider: rsiLine ? () => RSI_RANGE : undefined,
   } as const;
+}
+/** An overlay's values per shown bar: one line, or Bollinger's upper and lower; VWAP's start tick per bar. */
+interface StudyOut extends StudyOn { readonly lines: readonly (readonly (number | null)[])[]; readonly from?: readonly (number | null)[] }
+function computeStudy(s: StudyOn, p: Points): StudyOut {
+  const c = p.data.map((d) => d.close);
+  if (s.kind === "sma") return { ...s, lines: [sma(c, s.n)] };
+  if (s.kind === "ema") return { ...s, lines: [ema(c, s.n)] };
+  if (s.kind === "bb") return { ...s, lines: bollinger(c, s.n) };
+  if (s.kind === "rsi") return { ...s, lines: [rsi(c, s.n)] };
+  const w = vwap(p.data.map((d, i) => ({ t: d.time / SECONDS_PER_TICK, h: d.high, l: d.low, c: d.close, v: p.vol[i]!.value })), s.n);
+  return { ...s, lines: [w.values], from: w.from };
 }
 /** An overlay's values on the bars' times; a bar without a value (before n closes) has no point. */
 export function studyPoints(data: readonly { time: UTCTimestamp }[], values: readonly (number | null)[]): LineData<UTCTimestamp>[] {
@@ -210,7 +243,7 @@ export function studyPoints(data: readonly { time: UTCTimestamp }[], values: rea
 }
 const VOLUME_OPTIONS = { priceScaleId: "vol", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false } as const;
 
-export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw, studies = NO_STUDIES }: CandleChartProps) {
+export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw, studies = NO_STUDIES, onVwapIdle }: CandleChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const tagRef = useRef<HTMLSpanElement>(null);
@@ -225,13 +258,15 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
   const precision = decimalsOf(last ?? bars[bars.length - 1]?.c ?? "");
   const precisionRef = useRef(precision);
   /** The overlays' values per bar (from the same numbers the canvas gets), and their line series. */
-  const closes = useMemo(() => toPoints(bars, null).data.map((d) => d.close), [bars]);
+  const numbers = useMemo(() => toPoints(bars, null), [bars]);
   const studyKey = studies.map((s) => `${s.kind}${s.n}`).join(",");
-  const studyValues = useMemo(() => studies.map((s) => ({ ...s, values: study(s.kind, closes, s.n) })),
+  const studyValues = useMemo(() => studies.map((s) => computeStudy(s, numbers)),
     // studyKey stands for `studies` (a new array per render with the same overlays)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [closes, studyKey]);
-  const studyLines = useRef(new Map<StudyKind, ISeriesApi<"Line">>());
+    [numbers, studyKey]);
+  /** Line series by overlay and line ("bb0", "bb1"), and RSI's 30 / 70 guides. */
+  const studyLines = useRef(new Map<string, { kind: StudyKind; s: ISeriesApi<"Line"> }>());
+  const guides = useRef<IPriceLine[]>([]);
   /** Called on every chart redraw (the trend layer re-maps its points). */
   const [redraw] = useState(() => new Set<() => void>());
   const geoOf = useCallback(() => {
@@ -267,7 +302,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     let volume: ISeriesApi<"Histogram">;
     try {
       chart = createChart(plot, chartOptions(th, locale, precision, t));
-      series = chart.addSeries(CandlestickSeries, seriesOptions(th, precision));
+      series = chart.addSeries(CandlestickSeries, seriesOptions(th, precision, locale));
       volume = chart.addSeries(HistogramSeries, VOLUME_OPTIONS);
       series.attachPrimitive({ updateAllViews: () => redraw.forEach((f) => f()) });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: VOLUME_TOP, bottom: 0 }, visible: false });
@@ -293,10 +328,11 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
       a.theme = next;
       try {
         chart.applyOptions(chartOptions(th, locale, precision, t));
-        series.applyOptions(seriesOptions(th, precision));
+        series.applyOptions(seriesOptions(th, precision, locale));
         volume.setData(points.current.vol.map((v) => volPoint(v, th)));
         a.line?.applyOptions({ color: th.colours.lastLine });
-        for (const [k, l] of lines) l.applyOptions(studyOptions(th, k, precisionRef.current));
+        for (const l of lines.values()) l.s.applyOptions(studyOptions(th, l.kind, precisionRef.current, locale));
+        for (const g of guides.current) g.applyOptions({ color: th.colours.crosshair });
       } catch {
         onFail();
         return;
@@ -310,7 +346,11 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
         theme: () => th, visible: () => chart.timeScale().getVisibleLogicalRange(), data: () => series.data(),
         volume: () => volume.data(), volumeOptions: () => volume.options(),
         // The overlays' line series as drawn (kind, options, points).
-        studies: () => [...lines].map(([kind, l]) => ({ kind, options: l.options(), data: l.data() })),
+        studies: () => [...lines].map(([key, l]) => ({ key, kind: l.kind, pane: l.s.getPane().paneIndex(), options: l.s.options(), data: l.s.data() })),
+        panes: () => chart.panes().map((p) => p.getHeight()),
+        guides: () => guides.current.map((g) => g.options()),
+        // The RSI scale's own labels for 70 and 30 (the series formatter its axis uses).
+        rsiScale: () => { const r = lines.get("rsi0")?.s.priceFormatter(); return r ? [r.format(70), r.format(30)] : []; },
         // A tick and price in pane pixels by the library's own scales (the e2e checks a trend line against them).
         coord: (tick: number, price: number) => ({ x: chart.timeScale().timeToCoordinate((tick * SECONDS_PER_TICK) as UTCTimestamp), y: series.priceToCoordinate(price) }),
       };
@@ -333,7 +373,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     const a = api.current;
     if (!a) return;
     a.chart.applyOptions(chartOptions(a.theme, locale, precision, t));
-    a.series.applyOptions(seriesOptions(a.theme, precision));
+    a.series.applyOptions(seriesOptions(a.theme, precision, locale));
   }, [locale, precision, t]);
 
   // Bars: a frame that only replaces bars in place (same t: the live bar, a closed bar's final values, late volume) and/or
@@ -378,17 +418,35 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     const a = api.current;
     if (!a) return;
     const lines = studyLines.current;
-    const on = new Set(studyValues.map((s) => s.kind));
-    for (const [k, l] of lines) if (!on.has(k)) { a.chart.removeSeries(l); lines.delete(k); }
+    const on = new Set(studyValues.flatMap((s) => s.lines.map((_, i) => `${s.kind}${i}`)));
+    for (const [k, l] of lines) {
+      if (on.has(k)) continue;
+      if (l.kind === "rsi") guides.current = []; // removed with their series (and the pane, now empty)
+      a.chart.removeSeries(l.s);
+      lines.delete(k);
+    }
     const data = points.current.data;
     for (const s of studyValues) {
-      let l = lines.get(s.kind);
-      if (!l) { l = a.chart.addSeries(LineSeries, studyOptions(a.theme, s.kind, precision)); lines.set(s.kind, l); }
-      else l.applyOptions(studyOptions(a.theme, s.kind, precision));
-      l.setData(studyPoints(data, s.values));
+      s.lines.forEach((values, i) => {
+        const key = `${s.kind}${i}`;
+        let l = lines.get(key)?.s;
+        if (!l) {
+          l = a.chart.addSeries(LineSeries, studyOptions(a.theme, s.kind, precision, locale), s.kind === "rsi" ? 1 : 0);
+          lines.set(key, { kind: s.kind, s: l });
+          if (s.kind === "rsi") {
+            // Its own pane, a quarter of the plot (at least 48 px), with the 70 / 30 guides.
+            const panes = a.chart.panes();
+            const total = panes.reduce((h, p) => h + p.getHeight(), 0);
+            panes[1]?.setHeight(Math.max(48, Math.round(total / 4)));
+            l.priceScale().applyOptions({ scaleMargins: { top: 0.12, bottom: 0.12 } }); // 0 and 100 inside the pane
+            guides.current = [70, 30].map((price) => l!.createPriceLine({ price, color: a.theme.colours.crosshair, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "" }));
+          }
+        } else l.applyOptions(studyOptions(a.theme, s.kind, precision, locale));
+        l.setData(studyPoints(data, values));
+      });
     }
     precisionRef.current = precision; // for a re-theme between renders
-  }, [studyValues, precision]);
+  }, [studyValues, precision, locale]);
 
   useEffect(() => { place(); }, [halted, place]);
 
@@ -419,10 +477,24 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
   const shownAt = Math.min(cursor.index ?? hover ?? bars.length - 1, bars.length - 1);
   const shownBar = bars[shownAt];
   const fmt = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: precision, maximumFractionDigits: precision });
-  /** Each overlay's value on bar i, as the legend reads it ("–" before it has n closes). */
-  function studyText(i: number): string[] {
-    return studyValues.map((s) => { const v = s.values[i] ?? null; return `${t.study[s.kind]} ${s.n} ${v === null ? "–" : fmt.format(v)}`; });
+  const fmtRsi = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  /** An overlay's name and value(s) on bar i, as the legend reads them ("–" where it has no value). */
+  function studyAt(s: StudyOut, i: number): { name: string; vals: (number | null)[]; text: string } {
+    const vals = s.lines.map((l) => l[i] ?? null);
+    const from = s.from?.[i] ?? null;
+    const name = s.kind === "vwap" ? t.studyVwap(from === null || from % s.n === 0 ? null : clockLabel(clockAt(from)).hhmm) : t.studyName[s.kind](s.n);
+    const f = s.kind === "rsi" ? fmtRsi : fmt;
+    return { name, vals, text: vals.every((v) => v === null) ? "–" : vals.map((v) => (v === null ? "–" : f.format(v))).join(" / ") };
   }
+  function studyText(i: number): string[] {
+    return studyValues.map((s) => { const r = studyAt(s, i); return `${r.name} ${r.text}`; });
+  }
+  // VWAP with nothing traded yet on the newest bar's day: PriceChart says so (it reads no volumes itself).
+  const vwapOut = studyValues.find((s) => s.kind === "vwap");
+  const lastAt = bars.length - 1;
+  const vwapFrom = vwapOut?.from?.[lastAt] ?? null;
+  const idle = vwapOut && vwapFrom !== null && vwapOut.lines[0]![lastAt] === null ? clockLabel(clockAt(vwapFrom)).hhmm : null;
+  useEffect(() => { onVwapIdle?.(idle); }, [idle, onVwapIdle]);
   return (
     <div className="cc" ref={hostRef} data-testid="br-chart-plot">
       {/* Always laid out (two lines reserved), so the plot below never resizes when the bars arrive. */}
@@ -434,10 +506,11 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
         {/* The overlays on their own line (the legend's second reserved line on a wide plot). */}
         {studyValues.length > 0 && <span className="cc-legend-br" />}
         {studyValues.map((s) => {
-          const v = s.values[shownAt] ?? null;
+          const r = studyAt(s, shownAt);
           return (
-            <span key={s.kind} className={`cc-study cc-study-${s.kind}`} data-testid={`br-chart-study-${s.kind}`} data-n={s.n} data-v={v ?? ""}>
-              <span className="cc-legend-k">{t.study[s.kind]} {s.n}</span> {v === null ? "–" : fmt.format(v)}
+            <span key={s.kind} className={`cc-study cc-study-${s.kind}`} data-testid={`br-chart-study-${s.kind}`} data-n={s.n}
+              data-v={r.vals[0] ?? ""} data-v2={r.vals[1] ?? undefined} data-from={s.from?.[shownAt] ?? undefined}>
+              <span className="cc-legend-k">{r.name}</span> {r.text}
             </span>
           );
         })}

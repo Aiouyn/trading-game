@@ -29,6 +29,9 @@ html[data-hc="1"] .cc-plot { border: 1px solid var(--fg-muted); }
 .cc-study::before { content: ""; display: inline-block; width: 12px; vertical-align: middle; margin-right: var(--sp-4); border-top: 2px solid; }
 .cc-study-sma::before { border-top-color: var(--info); }
 .cc-study-ema::before { border-top-style: dashed; border-top-color: var(--warn); }
+.cc-study-bb::before { border-top-style: dashed; border-top-color: var(--steel); }
+.cc-study-vwap::before { border-top-style: dotted; border-top-color: var(--fg-muted); }
+.cc-study-rsi::before { border-top-color: var(--steel); }
 .cc-halted { position: absolute; top: var(--sp-8); left: var(--sp-8); z-index: 2; color: var(--steel); font-size: var(--fs-12_5); font-weight: 500; pointer-events: none; }
 /* Trend lines (TrendLayer): an SVG the size of the plot pane, over the canvas and under nothing that takes the pointer.
    It lets the pointer through to the chart (pan, zoom) except on a line and a selected line's ends; while placing it

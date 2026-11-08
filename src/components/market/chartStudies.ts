@@ -1,5 +1,5 @@
 "use client";
-// Broker chart overlay choices (SMA, EMA: on or off, and the period), per account on this device: its own IndexedDB
+// Broker chart overlay choices (SMA, EMA, Bollinger, VWAP, RSI: on or off, and the period), per account on this device: its own IndexedDB
 // record `quay.<accountId>.chart` ("guest" when signed out), never the drawings' or the shell's (persist.ts).
 //  - Read before anything is shown: while the session or the read is pending there are no overlay controls (no
 //    flash of the guest's choices in an account). A read that fails is not "all off": no controls, nothing written,
@@ -11,14 +11,17 @@
 import { useSyncExternalStore } from "react";
 import { loadChartPrefs, updateChartPrefs } from "@/shell/persist";
 
-export type StudyKind = "sma" | "ema";
-export const STUDY_KINDS: readonly StudyKind[] = ["sma", "ema"];
-/** The periods offered (bars); the first is the default. p10's chart had SMA 20, SMA 50 and EMA 12; EMA 26 is EMA 12's
- *  usual pair. */
-export const STUDY_PERIODS: Readonly<Record<StudyKind, readonly number[]>> = { sma: [20, 50], ema: [12, 26] };
+export type StudyKind = "sma" | "ema" | "bb" | "vwap" | "rsi";
+export const STUDY_KINDS: readonly StudyKind[] = ["sma", "ema", "bb", "vwap", "rsi"];
+/** The periods offered (bars); the first is the default. p10's chart had SMA 20, SMA 50, EMA 12, Bollinger 20 (± 2σ)
+ *  and RSI 14; EMA 26 is EMA 12's usual pair. VWAP's "period" is its session: one game day (720 ticks), as p10's. A
+ *  kind with one period has no period picker. */
+export const STUDY_PERIODS: Readonly<Record<StudyKind, readonly number[]>> = { sma: [20, 50], ema: [12, 26], bb: [20], vwap: [720], rsi: [14] };
 export interface StudyPref { readonly on: boolean; readonly n: number }
 export type StudyPrefs = Readonly<Record<StudyKind, StudyPref>>;
-export const DEFAULT_STUDIES: StudyPrefs = { sma: { on: false, n: STUDY_PERIODS.sma[0]! }, ema: { on: false, n: STUDY_PERIODS.ema[0]! } };
+export const DEFAULT_STUDIES = Object.fromEntries(STUDY_KINDS.map((k) => [k, { on: false, n: STUDY_PERIODS[k][0]! }])) as StudyPrefs;
+/** Bars an overlay needs before its first value: n closes (RSI: n changes, so n + 1). VWAP: one bar with volume. */
+export const warmup = (kind: StudyKind, n: number): number => (kind === "rsi" ? n + 1 : kind === "vwap" ? 1 : n);
 
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 /** What the device kept, validated: an unknown period or a broken entry is that overlay's default (off). */

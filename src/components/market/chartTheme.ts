@@ -17,6 +17,10 @@ export const CHART_TOKENS = {
   /** Moving-average overlays (the p10 chart's SMA colour; EMA also dashed, so the pair never rests on colour alone). */
   sma: "--info",
   ema: "--warn",
+  /** p10's: Bollinger steel (long dashes), VWAP the muted text colour (dotted); RSI steel in its own pane. */
+  bb: "--steel",
+  vwap: "--fg-muted",
+  rsi: "--steel",
 } as const;
 /** Volume bars: the candle tokens mixed with transparent (DESIGN.md: 22 %; hc 60 % so a bar still reads). */
 export const VOLUME_MIX = { upVol: "--gain", downVol: "--loss" } as const;

@@ -44,7 +44,7 @@ async function shown(s: Store, scope: string | null): Promise<StudyPrefs | null>
   await act(async () => r.unmount());
   return seen;
 }
-const OFF = { sma: { on: false, n: 20 }, ema: { on: false, n: 12 } };
+const OFF = { sma: { on: false, n: 20 }, ema: { on: false, n: 12 }, bb: { on: false, n: 20 }, vwap: { on: false, n: 720 }, rsi: { on: false, n: 14 } };
 
 beforeEach(() => { device.kept.clear(); device.failReads = 0; device.failWrites = 0; device.writes = 0; });
 
@@ -54,7 +54,7 @@ describe("chart overlay choices on this device", () => {
     expect(await shown(t, "accA")).toEqual(OFF);
     t.setStudy("accA", "sma", { on: true, n: 50 });
     await tick();
-    expect(await shown(await tab(), "accA")).toEqual({ sma: { on: true, n: 50 }, ema: { on: false, n: 12 } });
+    expect(await shown(await tab(), "accA")).toEqual({ ...OFF, sma: { on: true, n: 50 } });
   });
 
   it("accounts and the guest each have their own; nothing shows until the session's scope is known", async () => {
@@ -79,7 +79,7 @@ describe("chart overlay choices on this device", () => {
     await tick();
     expect(device.writes).toBe(0);
     t.retryStudies("accA");
-    expect(await shown(t, "accA")).toEqual({ sma: { on: true, n: 20 }, ema: { on: true, n: 26 } });
+    expect(await shown(t, "accA")).toEqual({ ...OFF, sma: { on: true, n: 20 }, ema: { on: true, n: 26 } });
   });
 
   it("two tabs, each changing another overlay from the same stale copy: both kept", async () => {
@@ -88,8 +88,8 @@ describe("chart overlay choices on this device", () => {
     a.setStudy("accA", "sma", { on: true, n: 50 });
     b.setStudy("accA", "ema", { on: true, n: 26 });
     await tick();
-    const want = { sma: { on: true, n: 50 }, ema: { on: true, n: 26 } };
-    expect(device.kept.get("quay.accA.chart")).toEqual(want);
+    const want = { ...OFF, sma: { on: true, n: 50 }, ema: { on: true, n: 26 } };
+    expect(device.kept.get("quay.accA.chart")).toEqual({ sma: { on: true, n: 50 }, ema: { on: true, n: 26 } }); // only what was set
     expect(await shown(await tab(), "accA")).toEqual(want);
     expect(b.studiesOf("accA")).toEqual(want); // the page adopts what the device kept
   });
@@ -122,7 +122,30 @@ describe("chart overlay choices on this device", () => {
   });
 
   it("a broken or unknown stored entry is that overlay's default, not a made-up period", async () => {
-    device.kept.set("quay.accA.chart", { sma: { on: true, n: 7 }, ema: "x" });
+    device.kept.set("quay.accA.chart", { sma: { on: true, n: 7 }, ema: "x", bb: { on: true, n: 30 }, rsi: { on: "yes", n: 14 } });
     expect(await shown(await tab(), "accA")).toEqual(OFF);
+  });
+
+  it("a record from before Bollinger / VWAP / RSI: those off; turning them on keeps SMA / EMA as stored", async () => {
+    device.kept.set("quay.accA.chart", { sma: { on: true, n: 50 }, ema: { on: true, n: 26 } });
+    const t = await tab();
+    expect(await shown(t, "accA")).toEqual({ ...OFF, sma: { on: true, n: 50 }, ema: { on: true, n: 26 } });
+    t.setStudy("accA", "bb", { on: true, n: 20 });
+    t.setStudy("accA", "rsi", { on: true, n: 14 });
+    t.setStudy("accA", "vwap", { on: true, n: 720 });
+    t.setStudy("accA", "rsi", { on: true, n: 21 }); // not an offered period: refused, nothing written
+    await tick();
+    expect(device.kept.get("quay.accA.chart")).toEqual({ sma: { on: true, n: 50 }, ema: { on: true, n: 26 }, bb: { on: true, n: 20 }, rsi: { on: true, n: 14 }, vwap: { on: true, n: 720 } });
+    expect(device.writes).toBe(3);
+  });
+
+  it("two tabs: one turns RSI on while the other turns SMA off, from the same stale copy: both kept", async () => {
+    device.kept.set("quay.accA.chart", { sma: { on: true, n: 20 } });
+    const a = await tab(); await shown(a, "accA");
+    const b = await tab(); await shown(b, "accA");
+    a.setStudy("accA", "rsi", { on: true, n: 14 });
+    b.setStudy("accA", "sma", { on: false, n: 20 });
+    await tick();
+    expect(device.kept.get("quay.accA.chart")).toEqual({ sma: { on: false, n: 20 }, rsi: { on: true, n: 14 } });
   });
 });

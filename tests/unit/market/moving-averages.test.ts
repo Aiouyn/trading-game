@@ -2,7 +2,7 @@
 // series following the bars as they change (a live bar replaced in place, a correction to an older close, a new
 // history after an epoch reset). The plot draws exactly these on the shown closes: tests/e2e/17b/broker-sma-ema.spec.ts.
 import { describe, expect, it } from "vitest";
-import { ema, sma, study } from "@/components/market/movingAverages";
+import { ema, sma } from "@/components/market/movingAverages";
 import { studyPoints } from "@/components/market/CandleChart";
 import type { UTCTimestamp } from "lightweight-charts";
 
@@ -64,8 +64,8 @@ describe("the series follows the shown bars", () => {
     for (let i = 2; i < 6; i++) expect(e1[i]).not.toBeCloseTo(e0[i]!, 6);
   });
   it("an epoch reset (a new, shorter history) has nothing of the old one", () => {
-    expect(study("sma", [50, 51], 3)).toEqual([null, null]);
-    expect(study("ema", [50, 51, 52], 3)).toEqual([null, null, 51]);
+    expect(sma([50, 51], 3)).toEqual([null, null]);
+    expect(ema([50, 51, 52], 3)).toEqual([null, null, 51]);
   });
   it("the plot's points are the bars' times with a value: none for the bars before n", () => {
     const data = [1, 2, 3, 4].map((t) => ({ time: (t * 60) as UTCTimestamp }));

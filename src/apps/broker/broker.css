@@ -132,6 +132,9 @@
 .br-study-on[aria-pressed="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
 .br-study-on[aria-pressed="true"]::before { content: ""; display: inline-block; width: 12px; margin-right: var(--sp-4); vertical-align: middle; border-top: 2px solid var(--info); }
 .br-study-ema[aria-pressed="true"]::before { border-top-style: dashed; border-top-color: var(--warn); }
+.br-study-bb[aria-pressed="true"]::before { border-top-style: dashed; border-top-color: var(--steel); }
+.br-study-vwap[aria-pressed="true"]::before { border-top-style: dotted; border-top-color: var(--fg-muted); }
+.br-study-rsi[aria-pressed="true"]::before { border-top-color: var(--steel); }
 html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { border-bottom-color: var(--fg-muted); }
 
 /* Phone: one column, 16 px padding, 44 px controls. */
