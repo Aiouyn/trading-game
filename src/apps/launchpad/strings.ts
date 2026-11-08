@@ -106,6 +106,10 @@ export const LPS = {
   npcPrint: (name: string, side: "BUY" | "SELL", tokens: string, px: string) => `${name} ${side === "BUY" ? "bought" : "sold"} ${tokens} at ${px}`,
   npcWaiting: "The pools start on the next server tick.",
   npcNone: "No NPC trade yet.",
+  npcInputs: (regime: string, fear: string, attention: string, news: string, mentions: string, volMult: string, driftPct: string) =>
+    `What the traders read: the economy is in ${regime}, Fear Index ${fear}, attention ×${attention} (${news}), Wire mentions ${mentions}. Hype moves the price: volatility ×${volMult}, drift +${driftPct}% a game year.`,
+  regimes: { EXPANSION: "expansion", OVERHEATING: "overheating", CONTRACTION: "contraction", RECOVERY: "recovery" } as Record<string, string>,
+  newsSign: (s: number) => (s > 0 ? "good news today" : s < 0 ? "bad news today" : "no directional news today"),
   brokerOnly: "This coin trades in the Broker now, with market orders, the Broker's fee and its price path; not here.",
   openBroker: "Open in Broker",
   clipped: (tokens: string, pay: string, asked: string) => `This buy completes the curve: you get the last ${tokens} tokens for ${pay}, not the ${asked} you entered.`,

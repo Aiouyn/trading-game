@@ -27,7 +27,11 @@ export const LAUNCHPAD_POLL_MS = 5_000;
 
 interface Print { atMs: number; tick: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
 interface NpcAcct { cash: number; tokens: number }
-interface Npc { h: number; funded: number; vol: number; pools: Record<"retail" | "value" | "degen", NpcAcct>; tape: { tick: number; pool: string; side: "BUY" | "SELL"; qty: number; px: number }[] }
+interface NpcWorld { rg: string; f: number; att: number; ns: number; m: number }
+interface Npc {
+  h: number; funded: number; vol: number; pools: Record<"retail" | "value" | "degen", NpcAcct>; tape: { tick: number; pool: string; side: "BUY" | "SELL"; qty: number; px: number }[];
+  w?: NpcWorld | null; path?: { hypeVol: number; regimeVol: number | null; drift: number };
+}
 interface Grad { atMs: number; raise: number; fee: number; price: number; book: Book; mark: number | null; npc?: Npc | null }
 interface Coin extends Curve { ticker: string; name: string; tagline: TaglineId; creator: string | null; mine: boolean; createdAtMs: number; holders: number; tape: Print[]; grad?: Grad | null }
 interface Self { cashCents: number; spendableCents: number; holdings: Record<string, number>; live: number; nextLaunchAtMs: number | null }
@@ -295,6 +299,9 @@ function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string 
             {(["retail", "value", "degen"] as const).map((k) => <li key={k} data-testid={`lp-npc-${k}`}><span>{LPS.npcPool(LPS.npcPools[k]!, qty(grad.npc!.pools[k].tokens), usd(grad.npc!.pools[k].cash))}</span></li>)}
           </ul>
           <p className="lpad-sub" data-testid="lp-npc-funded">{LPS.npcFunded(usd(grad.npc.funded), grad.npc.h.toFixed(2), qty(grad.npc.vol))}</p>
+          {grad.npc.w && grad.npc.path && typeof grad.npc.w.f === "number" && typeof grad.npc.w.att === "number" && typeof grad.npc.w.m === "number" ? (
+            <p className="lpad-sub" data-testid="lp-npc-inputs">{LPS.npcInputs(LPS.regimes[grad.npc.w.rg] ?? grad.npc.w.rg, grad.npc.w.f.toFixed(0), grad.npc.w.att.toFixed(2), LPS.newsSign(grad.npc.w.ns), grad.npc.w.m.toFixed(2), grad.npc.path.hypeVol.toFixed(2), (grad.npc.path.drift * 100).toFixed(0))}</p>
+          ) : null}
           {grad.npc.tape.length === 0 ? <p className="lpad-sub" data-testid="lp-npc-none">{LPS.npcNone}</p> : (
             <ul className="lpad-tape" data-testid="lp-npc-tape">
               {[...grad.npc.tape].reverse().slice(0, 8).map((t) => <li key={`${t.tick}-${t.pool}`}><span>{LPS.npcPrint(LPS.npcPools[t.pool] ?? t.pool, t.side, qty(t.qty), px8(t.px))}</span><span className="num">{`#${t.tick}`}</span></li>)}

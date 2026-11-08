@@ -11,7 +11,9 @@ import { reservedCashCents } from "@/server/broker/execution";
 import type { PersistedPosition } from "@/server/auth/types";
 import { ASSETS } from "@/market/catalog";
 import { LISTED_DP, listedDef } from "@/market/listings";
-import type { NpcPrint, PoolAccount, PoolKind } from "@/server/broker/pools";
+import type { NpcPrint, PoolAccount, PoolKind, PoolWorld } from "@/server/broker/pools";
+import { HYPE } from "@/server/market/meme";
+import { REGIME_MULTS } from "@/server/market/world";
 import { LP, graduationOf, listPriceMinor, nameOk, quote, tickerOk, type Book, type TaglineId } from "@/launchpad/rules";
 import { fmt } from "@/shell/contracts/mockFeed";
 import { moderateName, normalizeName } from "./moderate";
@@ -36,7 +38,13 @@ export interface CoinView {
 }
 /** A graduated coin's trader pools, public (NPC accounts, not players'): hype, the booked funding, each pool's cash,
  *  tokens and tracking position, the tokens they traded in all, and the last NPC prints. Null before the first pool step. */
-export interface NpcView { h: number; funded: number; vol: number; pools: Record<PoolKind, PoolAccount>; tape: NpcPrint[] }
+export interface NpcView {
+  h: number; funded: number; vol: number; pools: Record<PoolKind, PoolAccount>; tape: NpcPrint[];
+  /** What the last step read: regime, Fear Index, attention, news sign, Wire mentions (null before a step read them). */
+  w: PoolWorld | null;
+  /** The path's multipliers from the saved hype and regime: vol × (1 + 2H), the regime's vol, drift + 3.0·H a year. */
+  path: { hypeVol: number; regimeVol: number | null; drift: number };
+}
 export interface LaunchpadView {
   coins: CoinView[];
   /** Only the caller's own values; null for a guest (or an account whose ledger cannot be loaded). */
@@ -78,7 +86,11 @@ export class LaunchpadService {
         ticker: c.ticker, name: c.name, tagline: c.tagline, creator: handleOf(c.creatorId), mine: c.creatorId === me,
         createdAtMs: c.createdAtMs, x: c.x, sold: c.sold,
         grad: c.grad && c.book ? { atMs: c.grad.atMs, raise: c.grad.raise, fee: c.grad.fee, price: c.grad.price, book: { ...c.book }, mark: this.deps.mark?.(c.ticker) ?? null,
-          npc: c.pools ? { h: c.pools.h, funded: c.pools.funded, vol: c.pools.vol, pools: { value: { ...c.pools.value }, retail: { ...c.pools.retail }, degen: { ...c.pools.degen } }, tape: c.pools.tape.map((t) => ({ ...t })) } : null } : null,
+          npc: c.pools ? {
+            h: c.pools.h, funded: c.pools.funded, vol: c.pools.vol, pools: { value: { ...c.pools.value }, retail: { ...c.pools.retail }, degen: { ...c.pools.degen } }, tape: c.pools.tape.map((t) => ({ ...t })),
+            w: c.pools.w ? { ...c.pools.w } : null,
+            path: { hypeVol: 1 + HYPE.volK * c.pools.h, regimeVol: c.pools.w ? REGIME_MULTS[c.pools.w.rg].vol : null, drift: HYPE.c * c.pools.h },
+          } : null } : null,
         holders: Object.values(lp.holdings).filter((h) => (h[c.ticker] ?? 0) > 0).length,
         tape: [...c.tape].reverse(),
       })),

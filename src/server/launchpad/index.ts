@@ -13,7 +13,7 @@ export function getLaunchpad(): LaunchpadService {
   return (g.__portAvalonLaunchpad ??= new LaunchpadService({
     auth: getAuthService,
     tick: () => getLiveMarket().snapshot().tick,
-    list: (def) => getLiveMarket().list(def),
+    list: (def) => getLiveMarket().list(def, { announce: true }), // a fresh graduation: its listing on the Wire
     mark: (ticker) => getLiveMarket().listedMark(ticker),
   }));
 }
@@ -37,7 +37,7 @@ export async function syncListings(): Promise<void> {
   }
   if (!coins) return; // the save is not trusted (503): nothing is listed, and the next read checks again
   for (const c of coins) {
-    if (!market.isListed(c.ticker)) market.list(listedDef(c.ticker, c.name, c.price));
+    if (!market.isListed(c.ticker)) market.list(listedDef(c.ticker, c.name, c.price), { hype: c.hype });
   }
   if (!synced.has(auth)) synced.set(auth, new WeakSet());
   synced.get(auth)!.add(market);

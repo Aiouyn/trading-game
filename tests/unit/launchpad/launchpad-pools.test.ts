@@ -25,6 +25,8 @@ import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { memeParams } from "@/server/market/meme";
 import { getCandles } from "@/server/market/candles";
 import { ADV_TOKENS, CRYPTO_POOL_WEIGHTS, MEME_POOL_WEIGHTS, POOL_KINDS, hypeF, hypeStep, newPools, retailNoise, stepPools, type CoinPools, type PoolWeights } from "@/server/broker/pools";
+import type { PoolInputs } from "@/server/market/shockFeed";
+import type { Regime } from "@/server/market/world";
 import { readFileSync, writeFileSync } from "node:fs";
 
 class Store implements AuthStore {
@@ -67,7 +69,10 @@ const cashFlow = (fills: Fill[]) => fills.reduce((s, f) => {
 const coin: AssetFixture = listedDef("FROG", "FROG Club", 21_596);
 const vol = memeParams("FROG").vol, sd = vol / Math.sqrt(252), sh = sd / Math.sqrt(24);
 const lnRef = Math.log(21_596 / 1e8);
-const inputs = (tick: number, g: number, r1h: number | null, r1d: number | null) => ({ tick, ref: 21_596, lnV: lnRef - g, r1h, r1d, vol });
+/** The world at its floor terms: EXPANSION (turnover ×1.0), F = 20 (ADV fear term 0), no coin news (attention 1). */
+const QUIET = { regime: "EXPANSION" as Regime, fear: 20, attention: 1, newsSign: 0 as -1 | 0 | 1, mentions: 0 };
+const inputs = (tick: number, g: number, r1h: number | null, r1d: number | null, w: Partial<typeof QUIET> = {}): PoolInputs =>
+  ({ tick, ref: 21_596, lnV: lnRef - g, r1h, r1d, vol, ...QUIET, ...w });
 
 describe("trader pools: one tick by hand (pure)", () => {
   // Hour 921 (ticks 27,630–27,659): RETAIL's noise is +1.6615 (stream lp:FROG:retail:921).
@@ -83,9 +88,10 @@ describe("trader pools: one tick by hand (pure)", () => {
     expect(retailNoise("FROG", 921)).toBeCloseTo(1.66152392221008, 14);
     const book: BookAccount = { cash: 4_329_671, tokens: 200_000_000 };
     const s = stepPools(coin, MEME_POOL_WEIGHTS, 21_596, undefined, book, 21_600, inputs(T, -0.01, 0.004, 0.02), "e1")!;
-    // targets (unweighted, ADV): VALUE −tanh(G/g0), G = −0.01, g0 = σd√5; RETAIL z + 0.5 tanh(r1d/σd); DEGEN (1+2H) tanh(r1h/σh)
-    const tv = -Math.tanh(-0.01 / (sd * Math.sqrt(5))), tr = 1.66152392221008 + 0.5 * Math.tanh(0.02 / sd), td = 2.2 * Math.tanh(0.004 / sh);
-    expect([tv, tr, td].map((x) => +x.toFixed(6))).toEqual([0.036774, 1.743056, 0.35162]);
+    // targets (unweighted, ADV): VALUE −tanh(G/g0), G = −0.01, g0 = σd√5; RETAIL tanh(z + 0.5 tanh(r1d/σd)) (no news,
+    // no dip: the day rose); DEGEN (1+2H) tanh(r1h/σh)
+    const tv = -Math.tanh(-0.01 / (sd * Math.sqrt(5))), tr = Math.tanh(1.66152392221008 + 0.5 * Math.tanh(0.02 / sd)), td = 2.2 * Math.tanh(0.004 / sh);
+    expect([tv, tr, td].map((x) => +x.toFixed(6))).toEqual([0.036774, 0.94058, 0.35162]);
     // every weighted target is past its cap, so each order is its cap: w × rate / 720 ADV
     expect(0.2 * tv).toBeGreaterThan(0.2 * 0.9 / 720); expect(3 * tr).toBeGreaterThan(3 * 0.15 / 720); expect(td).toBeGreaterThan(0.4 / 720);
     // 0.00025 × 150M = 37,500; 0.000625 × 150M = 93,750; 0.000556 × 150M = 83,333 (toward zero); buy limit floor(21,596 e^{0.0135}) = 21,889
@@ -130,7 +136,7 @@ describe("trader pools: one tick by hand (pure)", () => {
     const f = Math.min(1, net / cap * 20);
     expect(hypeF(net, cap)).toBe(f);
     expect(s.pools.h).toBeCloseTo(0.6 + 0.15 * (f - 0.6) - 0.06 * 0.6, 15);
-    expect(hypeStep(0.6, f)).toBe(s.pools.h);
+    expect(hypeStep(0.6, 0, f)).toBe(s.pools.h); // no Wire item names the coin: m = 0
     expect(s.pools.pnet).toEqual([[922, net]]);
     expect(s.pools).toMatchObject({ hr: 922, bk: 199_000_000 });
     expect(s.prints).toEqual([]); // zero weights trade nothing
@@ -138,7 +144,7 @@ describe("trader pools: one tick by hand (pure)", () => {
     const later = stepPools(coin, { value: 0, retail: 0, degen: 0 }, 21_596, s.pools, { cash: 4_329_671, tokens: 199_000_000 }, 21_596, inputs(946 * 30, 0, null, null), "e1")!;
     expect(later.pools.pnet).toEqual([]);
     let h = s.pools.h;
-    for (let i = 0; i < 24; i++) h = hypeStep(h, 0);
+    for (let i = 0; i < 24; i++) h = hypeStep(h, 0, 0);
     expect(later.pools.h).toBeCloseTo(h, 15);
   });
   it("a buy never exceeds the pool's cash; a pool with nothing to sell sends nothing; inputs it cannot read add nothing", () => {
@@ -311,6 +317,43 @@ describe("trader pools in the world: clock, book, players alongside", () => {
     expect(acted).toBe(true);
   });
 
+  it("the event chain on the clock: the listing item → attention and mentions the pools read and save → the saved H the path reads; a failed save pushes no H", async () => {
+    await graduate();
+    const listed = market.wire().items.filter((i) => i.headlineKey === "wire.news.coinListed");
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.causeEventIds).toEqual(["lp-grad:FROG"]);
+    const w0 = await world();
+    await tick();
+    let c = await frog();
+    expect(c.pools!.w).toMatchObject({ att: 1.15, ns: 0, m: 0.15, rg: "EXPANSION" });
+    // the next game hour: H = hypeStep(H, m, f) with this coin's m; pushed to the path after the save
+    const hr = c.pools!.hr, h0 = c.pools!.h;
+    while ((await frog()).pools!.hr === hr) await tick();
+    c = await frog();
+    expect(c.pools!.h).toBeCloseTo(hypeStep(h0, 0.15, 0), 12);
+    expect(market.hypeOf("FROG")).toBe(c.pools!.h);
+    await checks(w0);
+    // a failed save at the next hour boundary: pools, and the path's H, stay as saved
+    while (market.snapshot().tick % 30 !== 29) await tick();
+    const before = await lp();
+    store.failNext = true;
+    market.step();
+    expect(await lp()).toEqual(before);
+    expect(market.hypeOf("FROG")).toBe(before.coins[0]!.pools!.h);
+    await getBroker().sweep();
+    expect(market.hypeOf("FROG")).toBe((await frog()).pools!.h);
+    expect((await frog()).pools!.h).not.toBe(before.coins[0]!.pools!.h);
+  });
+
+  it("DEGEN trades in the world: the hype-scaled path gives it hour returns to act on, within its own cash and tokens", async () => {
+    await graduate();
+    const w0 = await world();
+    let degen = 0;
+    for (let i = 0; i < 120; i++) { await tick(); degen += (await frog()).pools!.tape.filter((p) => p.pool === "degen" && p.tick === market.snapshot().tick).length; }
+    expect(degen).toBeGreaterThan(0);
+    await checks(w0);
+  });
+
   it("restart: the pools' accounts and positions survive on disk; the new process (new epoch) acts again; an old save without pools is funded once", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "lp-pools-"));
     const file = path.join(dir, "auth.json");
@@ -319,7 +362,7 @@ describe("trader pools in the world: clock, book, players alongside", () => {
     await graduate();
     // the save as it was before pools existed: graduated, no pool step yet
     expect((await frog()).pools).toBeUndefined();
-    for (let i = 0; i < 20; i++) await tick();
+    for (let i = 0; i < 31; i++) await tick(); // past a game hour boundary
     const saved = (await frog()).pools!;
     expect(saved.funded).toBe(13_605_480);
     resetListingsForTests();
@@ -331,6 +374,10 @@ describe("trader pools in the world: clock, book, players alongside", () => {
     expect((await frog()).pools).toEqual(saved);
     await get(marketGet, "/api/market"); // a read attaches the sweep; it changes nothing
     expect((await frog()).pools).toEqual(saved);
+    // the relist reads the saved H (not H₀) and publishes no listing item again
+    expect(saved.h).not.toBe(0.6); // an hour passed: H moved off H₀
+    expect(market.hypeOf("FROG")).toBe(saved.h);
+    expect(market.wire().items.some((i) => i.headlineKey === "wire.news.coinListed")).toBe(false);
     for (let i = 0; i < 3; i++) await tick();
     const after = (await frog()).pools!;
     expect(after.ep).not.toBe(saved.ep);
@@ -357,7 +404,11 @@ describe("trader pools in the world: clock, book, players alongside", () => {
     await get(lpGet, "/api/launchpad", b);
     expect(await lp()).toEqual(s0);
     for (const x of ["openOrders", "positions", "acc_", "pnet", "\"bk\"", "\"ep\""]) expect(pub).not.toContain(x);
-    expect(JSON.parse(pub).coins[0].grad.npc).toEqual({ h: s0.coins[0]!.pools!.h, funded: 13_605_480, vol: s0.coins[0]!.pools!.vol, pools: { value: s0.coins[0]!.pools!.value, retail: s0.coins[0]!.pools!.retail, degen: s0.coins[0]!.pools!.degen }, tape: s0.coins[0]!.pools!.tape });
+    expect(JSON.parse(pub).coins[0].grad.npc).toEqual({ h: s0.coins[0]!.pools!.h, funded: 13_605_480, vol: s0.coins[0]!.pools!.vol, pools: { value: s0.coins[0]!.pools!.value, retail: s0.coins[0]!.pools!.retail, degen: s0.coins[0]!.pools!.degen }, tape: s0.coins[0]!.pools!.tape,
+      // what the last step read (public world/news inputs: the fresh listing's item, nw 0.5 × 1 × 0.3 = 0.15) and the
+      // path multipliers its saved H and regime give: vol × (1 + 2H), EXPANSION 0.90, drift + 3.0 H a game year
+      w: { rg: "EXPANSION", f: s0.coins[0]!.pools!.w!.f, att: 1.15, ns: 0, m: 0.15 },
+      path: { hypeVol: 1 + 2 * s0.coins[0]!.pools!.h, regimeVol: 0.9, drift: 3 * s0.coins[0]!.pools!.h } });
   });
 
   it("determinism: the same seed and the same actions give the same pools (but the epoch name)", async () => {

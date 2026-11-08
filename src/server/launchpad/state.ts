@@ -91,8 +91,15 @@ function flowOk(f: unknown): boolean {
 
 const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const sint = (v: unknown): v is number => Number.isSafeInteger(v);
+const REGIMES = ["EXPANSION", "OVERHEATING", "CONTRACTION", "RECOVERY"];
+/** The inputs the last pool step read (absent until a step read them): exactly 5 keys, each in its range. */
+function worldOk(w: unknown): boolean {
+  return obj(w) && Object.keys(w).length === 5 && REGIMES.includes(w.rg as string) && fin(w.f) && w.f >= 0 && w.f <= 100
+    && fin(w.att) && w.att >= 1 && w.att <= 2 && (w.ns === -1 || w.ns === 0 || w.ns === 1) && fin(w.m) && w.m >= 0 && w.m <= 1;
+}
 function poolsOk(p: unknown): boolean {
-  if (!obj(p) || Object.keys(p).length !== 9 + POOL_KINDS.length || !int(p.vol)) return false;
+  if (!obj(p) || Object.keys(p).length !== 9 + POOL_KINDS.length + ("w" in p ? 1 : 0) || !int(p.vol)) return false;
+  if ("w" in p && !worldOk(p.w)) return false;
   if (typeof p.ep !== "string" || !/^[0-9a-z]{1,16}$/.test(p.ep) || !int(p.t) || !int(p.hr) || !fin(p.h) || p.h < 0 || p.h > 1) return false;
   if (!int(p.bk) || p.bk > LP.SUPPLY || !int(p.funded) || !Array.isArray(p.pnet) || p.pnet.length > 24 || !Array.isArray(p.tape) || p.tape.length > 20) return false;
   if (!p.pnet.every((e: unknown) => Array.isArray(e) && e.length === 2 && int(e[0]) && sint(e[1]))) return false;

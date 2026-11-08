@@ -23,6 +23,8 @@ export const CAUSES: Readonly<Record<string, string>> = {
     "wire.cause.credit-watch": "Lenders are tightening loan terms. Borrowers such as property firms would be hit first.",
     "wire.cause.credit-hit": "Credit dried up. Tidewater REIT falls hardest; Avalon Bank and Kiln Materials slip.",
     "wire.cause.credit-eased": "Lending conditions steadied. The risk passed.",
+    "wire.cause.coin-listed": "A Launchpad coin sold its whole curve and graduated: it now trades in the Broker, against its book and simulated NPC traders. News of a listing draws traders' attention for about a day.",
+    "wire.cause.coin-move": "The coin moved this far from today's open. A large move is news: it draws more traders for about a day, and each further level is reported once a day.",
 };
 
 /** Cause → consequence copy for a server story; null when the item has none (fixtures) or the key is unknown. */

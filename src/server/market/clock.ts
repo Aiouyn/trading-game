@@ -10,7 +10,9 @@ import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
-import { ShockFeed, type PoolInputs } from "./shockFeed";
+import { MARKET_FACTOR_ASSET, ShockFeed, type CoinNewsOut, type PoolInputs } from "./shockFeed";
+import { TICKS_PER_DAY } from "./meme";
+import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 
@@ -61,7 +63,25 @@ export class LiveMarket {
   step(): void {
     this.feed.advance();
     this.publishStory();
+    for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const fn of this.stepListeners) fn();
+  }
+
+  /** A listed coin's 16 news item (src/server/market/coinNews.ts) on the Wire, naming the coin; it cites its committed
+   *  event and states only what is true now (16 N1/N2). */
+  private publishCoinNews({ assetId, item }: CoinNewsOut): void {
+    const a = ASSET_BY_ID[assetId];
+    if (!a) return;
+    const entities = [{ id: assetId, kind: "asset", label: a.ticker }];
+    const base = { kind: "NEWS" as const, entities, tick: item.tick, breaking: false, phase: "realized" as const };
+    const wi: WireItem = item.kind === "listing"
+      ? { ...base, id: `w-${item.tick}-${assetId}-listed`, headlineKey: "wire.news.coinListed", slots: { coin: a.ticker }, causeEventIds: [`lp-grad:${assetId}`], causeKey: "wire.cause.coin-listed" }
+      : {
+        ...base, id: `w-${item.tick}-${assetId}-move${Math.round(item.level! * 100)}`, headlineKey: item.sign > 0 ? "wire.news.coinUp" : "wire.news.coinDown",
+        slots: { coin: a.ticker, move: fmt(Math.round(Math.abs(item.to! / item.from! - 1) * 1000), 1) },
+        causeEventIds: [`mkt-move:${assetId}:${Math.floor((item.tick - 1) / TICKS_PER_DAY)}:${Math.round(item.level! * 100)}`], causeKey: "wire.cause.coin-move",
+      };
+    this.stories = [...this.stories, wi].slice(-STORY_KEEP);
   }
 
   /** The story of the tick just reached, if any: its effects move these quotes now, once (the tick only grows). */
@@ -74,6 +94,13 @@ export class LiveMarket {
       const a = ASSET_BY_ID[e.assetId], r = this.feed.applyShock(e.assetId, e.bp);
       if (!a || !r) continue;
       effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
+      // 05 §3.3 factor jumps: a story that moves the index moves each listed coin through its market loading, now
+      if (e.assetId === MARKET_FACTOR_ASSET) {
+        for (const c of this.feed.factorJump(Math.log(r.to / r.from))) {
+          const ca = ASSET_BY_ID[c.assetId];
+          if (ca) effects.push({ assetId: c.assetId, from: fmt(c.from, ca.displayDecimals), to: fmt(c.to, ca.displayDecimals), pct: fmt(Math.round(((c.to - c.from) * 10_000) / c.from), 2) });
+        }
+      }
     }
     const item: WireItem = {
       id: `w-${tick}`, kind: def.kind, headlineKey: def.headlineKey, slots: { ...def.slots },
@@ -92,13 +119,26 @@ export class LiveMarket {
   /** L4 listing path: append the def to the catalog (list version + 1) and quote it on this clock from the current tick,
    *  with its meme-template path. Idempotent: listing the same def again changes nothing. Throws on a def that collides
    *  with a different asset (never silently replaced). */
-  list(def: AssetFixture): void {
+  list(def: AssetFixture, opts: { hype?: number | null; announce?: boolean } = {}): void {
     if (!appendAsset(def, { ASSETS, ASSET_BY_ID, WATCHLISTS })) throw new Error(`listing ${def.assetId} collides with an existing asset`);
-    if (this.listedDefs.some((d) => d.assetId === def.assetId)) return;
-    this.feed.listMeme(ASSET_BY_ID[def.assetId]!);
-    this.listedDefs.push({ ...def });
-    for (const fn of this.listListeners) fn(); // candles sample the new asset at its listing tick (fills there count)
+    if (!this.listedDefs.some((d) => d.assetId === def.assetId)) {
+      this.feed.listMeme(ASSET_BY_ID[def.assetId]!, opts.hype ?? undefined);
+      this.listedDefs.push({ ...def });
+      for (const fn of this.listListeners) fn(); // candles sample the new asset at its listing tick (fills there count)
+    }
+    // a fresh graduation (not a relist after a restart): its listing on the Wire, once per coin on this clock
+    if (opts.announce) {
+      const item = this.feed.announceListing(def.assetId);
+      if (item) this.publishCoinNews({ assetId: def.assetId, item });
+    }
   }
+
+  /** The saved hype of a listed coin (its pools' H), read by its next path step; called after the pools' save. */
+  setHype(assetId: string, h: number): void { if (this.isListed(assetId)) this.feed.setHype(assetId, h); }
+  /** The hype a listed coin's next path step reads, or null. */
+  hypeOf(assetId: string): number | null { return this.isListed(assetId) ? this.feed.hypeOf(assetId) : null; }
+  /** 04's regime and Fear Index on this clock now (world.ts). */
+  worldView(): WorldView { return this.feed.world.view(); }
 
   /** A listed coin's mark now (1e-8 $), or null when this clock has not listed it. */
   listedMark(assetId: string): number | null {

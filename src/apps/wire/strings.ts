@@ -98,6 +98,9 @@ export const EN: WireStrings = {
     "wire.news.contractWin": "{company} wins a major contract",
     "wire.news.demandWarning": "{company} warns on demand",
     "wire.news.recall": "{company} recalls a product line",
+    "wire.news.coinListed": "{coin} lists in the Broker after graduating",
+    "wire.news.coinUp": "{coin} up {move}% today",
+    "wire.news.coinDown": "{coin} down {move}% today",
     "wire.crisis.oil.watch": "Watch: crude supply under threat",
     "wire.crisis.oil.hit": "Oil shock: crude supply cut",
     "wire.crisis.oil.eased": "Crude supply fears ease",
@@ -171,6 +174,9 @@ export const FR: WireStrings = {
     "wire.news.contractWin": "{company} remporte un contrat majeur",
     "wire.news.demandWarning": "{company} alerte sur la demande",
     "wire.news.recall": "{company} rappelle une gamme de produits",
+    "wire.news.coinListed": "{coin} entre au Broker après sa graduation",
+    "wire.news.coinUp": "{coin} gagne {move} % aujourd’hui",
+    "wire.news.coinDown": "{coin} perd {move} % aujourd’hui",
     "wire.crisis.oil.watch": "À surveiller : l’offre de brut menacée",
     "wire.crisis.oil.hit": "Choc pétrolier : l’offre de brut coupée",
     "wire.crisis.oil.eased": "Les craintes sur le brut s’apaisent",
@@ -222,7 +228,7 @@ export function fill(tpl: string, vals: Readonly<Record<string, string>>): strin
 }
 
 /** Slots that carry a quantity: shown with the locale's digit grouping (EN 50,000 · FR 50 000). */
-const QUANTITY_SLOTS: ReadonlySet<string> = new Set(["qty"]);
+const QUANTITY_SLOTS: ReadonlySet<string> = new Set(["qty", "move"]);
 const DECIMAL = /^\d+(\.\d+)?$/;
 const numberFormats = new Map<ShellLocale, Intl.NumberFormat>();
 

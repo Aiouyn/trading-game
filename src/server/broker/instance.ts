@@ -14,7 +14,7 @@ export function getBroker(): BrokerService {
       onFills: (fills) => getCandles(getLiveMarket()).recordFills(fills),
       list: (coins) => {
         const market = getLiveMarket();
-        for (const c of coins) if (!market.isListed(c.ticker)) market.list(listedDef(c.ticker, c.name, c.price));
+        for (const c of coins) if (!market.isListed(c.ticker)) market.list(listedDef(c.ticker, c.name, c.price), { hype: c.hype });
       },
     });
   }

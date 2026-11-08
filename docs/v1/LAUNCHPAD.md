@@ -549,7 +549,7 @@ with real committed events and state, and fixes one form error (T05-14 RETAIL `p
      listing is the whole first-trade event). nw = 0.5 × 1 × 0.3 × novelty.
    - **Large moves.** Checked at each tick on the published end of N−1 (16: publishTick = eventTick + 1): a move of 15%
      or 30% from the day's open, each level at most once a game day. Kind CRYPTO_INCIDENT 0.55 (IMPLEMENTATION CHOICE: the
-     22 table authors no row for 05 moves, and this is its crypto event row). magnitude = min(1, |ln move| / ln 1.30).
+     22 table authors no row for 05 moves, and this is its crypto event row). magnitude = min(1, |move| / 0.30) (as built: the simple return from the day's open, the same unit as the 15% / 30% levels).
    - Published only when nw ≥ 0.05.
    - `attention = 1 + min(1, Σ nw today)`. `newsSign = sign(Σ sign·nw today)`, where the listing's sign is 0.
      `m = min(1, Σ nw over the last 24 game hours)` (IMPLEMENTATION CHOICE: the normalization).
@@ -591,3 +591,28 @@ with real committed events and state, and fixes one form error (T05-14 RETAIL `p
      shares);
    - DEGEN liquidations (07/06);
    - 20 calibration and the L8 gate.
+
+**As built (this step; verified by tests and the evidence under evidence/launchpad/).**
+- src/server/market/world.ts: `WorldInputs` (F hourly from GX, regime daily on `macro:global:regime:<day>`, 5-day blend),
+  `regimeStep`, `fearRaw`, `stepFear`, the 05 §3.3.5 / §3.14.1 tables. The clock observes it once per tick, before the
+  path step, on GX's end-of-N−1 mark. A restarted clock starts again at START_TICK, so F and the regime replay.
+- src/server/market/coinNews.ts: `CoinNews` per listed coin (listing, 15% / 30% moves, nw, novelty, threshold) and its
+  inputs (attention, newsSign, mentions). In memory with the Wire.
+- src/server/market/meme.ts: `HYPE` constants; `MemeProcess.step(zM, zC, {hype, reg})` with σ × m_reg × (1 + 2H),
+  μ + 3.0·H, the regime's jump rate and down shift, the same draws in the same order whatever the inputs; `jump()` for
+  factor jumps.
+- src/server/market/shockFeed.ts / clock.ts: hype per coin (H₀ on a fresh listing, the saved H on a relist; set only by
+  the sweep's `saved()`), `announceListing` (once per coin per clock), `factorJump` on every story whose realized effect
+  moves GX (the coin is appended to the story's effects), coin news Wire items (`wire.news.coinListed`, `coinUp`,
+  `coinDown`, citing `lp-grad:<T>` / `mkt-move:<T>:<day>:<level>`, kind NEWS, phase realized, with cause copy).
+- src/server/broker/pools.ts: `advTokens(inp)` (ADV_t) for the caps and positions; RETAIL `tanh(…)` with the news and
+  EXPANSION dip terms; `hypeStep(h, m, f)`; the inputs read saved as `pools.w` (strictly parsed: 5 keys in range).
+  Funding unchanged (once, at the base ADV: the explicit one-time NPC faucet, 13,605,480¢ per coin).
+- src/server/launchpad/service.ts + App.tsx: the panel line `lp-npc-inputs` (regime, F, attention, news, mentions, vol
+  multiplier, drift), from the saved values (public NPC state only).
+- Wire strings EN/FR and causes (lazy chunk).
+- Tests: tests/unit/launchpad/launchpad-trader-inputs.test.ts (hand fixtures; independent check
+  evidence/launchpad/tools/hand_trader_inputs.py) and launchpad-pools.test.ts (the event chain on the clock, hype pushed
+  only after a save, DEGEN trading in the world, restart with the saved H and no repeated listing item, public view).
+- Belief, hype shock, the market maker (spread / impactY / print shares), DEGEN liquidations and calibration stay
+  remaining, as listed in Acceptance 5.

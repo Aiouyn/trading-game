@@ -12,8 +12,11 @@
 //    idio = sqrt(1 - 0.625) on the coin's own Student-t (docs/v1/LAUNCHPAD.md "Book liquidity path ... template factors").
 //    The market factor is this base's index GX, read (its own tick step standardized), never redrawn; the crypto factor is
 //    one normal a tick from the world stream `lp:crypto` (FactorDraws), shared by every listed coin.
-// Not copied, because this base has no such model: regimes and cycleBeta (no regime drift here), GARCH and the value
-// pull. The trader pools (05 §6.2 meme weights) trade the coin through its book: src/server/broker/pools.ts.
+// Not copied, because this base has no such model: cycleBeta, GARCH and the value pull. The trader pools (05 §6.2 meme
+// weights) trade the coin through its book: src/server/broker/pools.ts.
+// Applied on top (docs/v1/LAUNCHPAD.md "Graduated-coin trader inputs"): 06 §3.11.3 hype H on the path (vol × (1 + 2H),
+// drift + 3.0·H a game year for MEME, "05 applies"), 05 §3.3.5 the global regime's multipliers (vol, jump intensity,
+// jump down-probability shift; a crypto asset reads 04's global regime) and 05 §3.3 factor jumps (`jump`).
 // Its own streams (`lp:<TICKER>` for the draws, `lp:<TICKER>:px` for the path), so no other asset's path changes.
 import { rng } from "@/shell/contracts/mockFeed";
 
@@ -29,6 +32,18 @@ export const TICKS_PER_DAY = 720;
 export const TICKS_PER_HOUR = TICKS_PER_DAY / 24;
 export const DAYS_PER_YEAR = 252;
 export const DT = 1 / (TICKS_PER_DAY * DAYS_PER_YEAR);
+
+/** 06 §3.11.3 hype, per token per game hour: dH = a(m + f − H) − bH + shock; a 0.15, b 0.06 (MEME); f = clamp(net
+ *  player buy over 24 game hours / circulating cap × 20, 0, 1); drift_bonus c·H with c = 3.0 a game year (MEME);
+ *  vol_multiplier 1 + 2H. 06 §3.11.4: a new meme token's H₀ = 0.6. */
+export const HYPE = { a: 0.15, b: 0.06, h0: 0.6, f: 20, c: 3.0, volK: 2 } as const;
+
+/** The regime's price multipliers on the path (05 §3.3.5): vol, jump intensity, jump down-probability shift. */
+export interface RegimeMults { vol: number; jump: number; skew: number }
+/** What the path reads each tick besides its own draws: hype and the (blended) regime multipliers. */
+export interface PathInputs { hype: number; reg: RegimeMults }
+/** Neutral inputs: no hype, multipliers 1 (only for a caller with no world, e.g. a pure test of the template). */
+export const NEUTRAL_PATH: PathInputs = { hype: 0, reg: { vol: 1, jump: 1, skew: 0 } };
 
 /** p10's Rng draws over this base's mulberry32 stream. */
 export class Draws {
@@ -79,15 +94,25 @@ export class MemeProcess {
     this.lnP = Math.log(baseMinor / 10 ** dp);
     this.draws = new Draws(`lp:${ticker}:px`);
   }
+  /** The path's effective annual vol now: vol × m_reg × (1 + 2H) (05 §3.3 σ_ann,eff without the 1.15 print scale, GARCH
+   *  and m_event, which this base does not have). */
+  sigmaEff(inp: PathInputs): number { return this.vol * inp.reg.vol * (1 + HYPE.volK * inp.hype); }
   /** One tick: diffusion (zMarket, zCrypto: this tick's unit-variance factor shocks, shared) plus at most one jump;
-   *  returns the new price in minor units (at least the floor, at least 1). */
-  step(zMarket: number, zCrypto: number): number {
+   *  returns the new price in minor units (at least the floor, at least 1). Same draws, in the same order, whatever the
+   *  inputs: hype and the regime scale the step, never the stream. */
+  step(zMarket: number, zCrypto: number, inp: PathInputs): number {
     const t = MEME_TEMPLATE, d = this.draws;
+    const sigma = this.sigmaEff(inp), mu = this.drift + HYPE.c * inp.hype;
     let jump = 0;
-    if (d.chance(t.jumpsPerYear * DT)) jump = d.chance(t.jumpUpProb) ? d.exponential(t.jumpUpMean) : -d.exponential(t.jumpDownMean);
+    if (d.chance(t.jumpsPerYear * inp.reg.jump * DT)) jump = d.chance(t.jumpUpProb - inp.reg.skew) ? d.exponential(t.jumpUpMean) : -d.exponential(t.jumpDownMean);
     const shock = t.wMarket * zMarket + t.wCrypto * zCrypto + IDIO_LOADING * d.studentT(t.studentNu);
-    this.lnP += (this.drift - 0.5 * this.vol * this.vol) * DT + this.vol * Math.sqrt(DT) * shock + jump;
+    this.lnP += (mu - 0.5 * sigma * sigma) * DT + sigma * Math.sqrt(DT) * shock + jump;
     this.lnP = Math.max(this.lnP, Math.log(t.floor));
+    return this.minor();
+  }
+  /** A factor jump (05 §3.3): a value move of `logMove` on the path (lnV moves with it: no gap). */
+  jump(logMove: number): number {
+    this.lnP = Math.max(this.lnP + logMove, Math.log(MEME_TEMPLATE.floor));
     return this.minor();
   }
   /** A fill's permanent impact (src/server/broker/book.ts): the path moves by `logMove` now and steps on from there. */

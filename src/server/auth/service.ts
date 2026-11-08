@@ -32,7 +32,8 @@ export interface StandingInput {
 }
 
 /** L4: a graduated coin's public listing inputs (ticker, name, listing price in 1e-8 $). */
-export interface ListedCoin { ticker: string; name: string; price: number }
+/** A graduated coin to list on the clock: its def's fields and its saved hype (null before its pools first step). */
+export interface ListedCoin { ticker: string; name: string; price: number; hype: number | null }
 /** L4 sweep phase over listed coins (src/server/broker/execution.ts sweepListed): the clock lists the graduated coins,
  *  then `sweep` decides on copies of every loadable ledger and the books; `saved` runs once the commit is saved. */
 export interface ListedSweepStep {
@@ -62,7 +63,7 @@ function withBooks(lpBefore: LpState, books: ReadonlyMap<string, BookAccount>, p
   if (!parsed.ok) throw new Error(`Book fill failed its own check: ${parsed.reason}`);
   return parsed.state;
 }
-const listedOf = (lp: LpState): ListedCoin[] => lp.coins.flatMap((c) => (c.grad ? [{ ticker: c.ticker, name: c.name, price: c.grad.price }] : []));
+const listedOf = (lp: LpState): ListedCoin[] => lp.coins.flatMap((c) => (c.grad ? [{ ticker: c.ticker, name: c.name, price: c.grad.price, hype: c.pools?.h ?? null }] : []));
 
 /** Match T19C session_idle_days / session_max_days defaults (real days). */
 export const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;

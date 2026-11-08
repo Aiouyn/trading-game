@@ -124,7 +124,11 @@ export class BrokerService {
             moves.push({ assetId: ticker, move: step.moves[i]! });
           }
         }
-        return { ledgers: out.ledgers, books: out.books, pools, saved: () => { for (const m of moves) market.impactListed(m.assetId, m.move); } };
+        // after the save only: the fills' permanent moves and the saved hype the coins' paths read next (06 "05 applies")
+        return { ledgers: out.ledgers, books: out.books, pools, saved: () => {
+          for (const m of moves) market.impactListed(m.assetId, m.move);
+          for (const [ticker, p] of pools) market.setHype(ticker, p.h);
+        } };
       },
     });
     // Only after the commit: a failed write throws above and adds no volume.
