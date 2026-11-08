@@ -125,6 +125,13 @@
 .br-chart-draw { display: inline-flex; flex-wrap: wrap; gap: var(--sp-8); }
 .br-chart-tool.btn { min-height: var(--hit-pointer); }
 .br-phone .br-chart-tool.btn { min-height: var(--hit-touch); }
+/* Overlays: each a toggle (pressed = drawn) and its period, kept together when the foot wraps. */
+.br-chart-studies { display: inline-flex; flex-wrap: wrap; gap: var(--sp-8); }
+.br-study { display: inline-flex; gap: var(--sp-4); align-items: center; }
+/* Pressed = drawn: the segment's pressed look plus a sample of its line (SMA solid, EMA dashed), as in the legend. */
+.br-study-on[aria-pressed="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
+.br-study-on[aria-pressed="true"]::before { content: ""; display: inline-block; width: 12px; margin-right: var(--sp-4); vertical-align: middle; border-top: 2px solid var(--info); }
+.br-study-ema[aria-pressed="true"]::before { border-top-style: dashed; border-top-color: var(--warn); }
 html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { border-bottom-color: var(--fg-muted); }
 
 /* Phone: one column, 16 px padding, 44 px controls. */

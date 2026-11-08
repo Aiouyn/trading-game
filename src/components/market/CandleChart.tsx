@@ -11,12 +11,15 @@
 //    game clock (no Date, so no timezone).
 //  - Trend lines (TrendLayer) are drawn over the plot when PriceChart passes `draw`; a series primitive tells the layer
 //    each time the chart redraws, so the lines follow pan, zoom, resize and new bars in the same frame.
+//  - Overlays (PriceChart passes the ones on): SMA / EMA lines of the shown closes (movingAverages.ts), on the price
+//    scale, recomputed from the bars on every change (a live bar replaced, a correction, a new range or history); an
+//    overlay turned off is removed. Their values for the legend's bar sit in a line of their own under it.
 //  - Colours are tokens read with getComputedStyle (chartTheme.ts) and re-read when the palette, hc, motion or text
 //    scale changes. The last-price tag and the halt band are DOM overlays moved with transforms (no layout shift).
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
-  CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineStyle, TickMarkType, createChart,
-  type CandlestickData, type HistogramData, type IChartApi, type IPriceLine, type ISeriesApi, type MouseEventParams, type Time, type UTCTimestamp,
+  CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, TickMarkType, createChart,
+  type CandlestickData, type HistogramData, type IChartApi, type IPriceLine, type ISeriesApi, type LineData, type MouseEventParams, type Time, type UTCTimestamp,
 } from "lightweight-charts";
 import type { BrStrings } from "@/apps/broker/strings";
 import { decText } from "@/apps/portfolio/positions/format";
@@ -27,6 +30,8 @@ import { clockStrings } from "@/shell/strings";
 import { barTime } from "./ChartTable";
 import { parseSrgb } from "./chartColor";
 import { THEME_ATTRS, readChartTheme, type ChartTheme } from "./chartTheme";
+import type { StudyKind } from "./chartStudies";
+import { study } from "./movingAverages";
 import { TrendLayer, chartGeo } from "./TrendLayer";
 import type { TrendDraw } from "./trendlines";
 import "./candleChart.css";
@@ -141,7 +146,11 @@ export interface CandleChartProps {
   readonly onFail: () => void;
   /** Trend lines (signed in or guest, once this device's copy is read); absent: no drawing layer. */
   readonly draw?: TrendDraw;
+  /** The moving-average overlays that are on, in order, with their periods (bars). */
+  readonly studies?: readonly StudyOn[];
 }
+export interface StudyOn { readonly kind: StudyKind; readonly n: number }
+const NO_STUDIES: readonly StudyOn[] = [];
 
 interface Api { chart: IChartApi; series: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Histogram">; line: IPriceLine | null; theme: ChartTheme }
 
@@ -186,9 +195,22 @@ function seriesOptions(th: ChartTheme, precision: number) {
 
 /** Widest a bar may draw, px: a handful of server bars must not stretch across the plot. */
 const MAX_BAR_SPACING = 24;
+function studyOptions(th: ChartTheme, kind: StudyKind, precision: number) {
+  return {
+    color: th.colours[kind], lineWidth: th.hc ? 3 : 2, lineStyle: kind === "ema" ? LineStyle.Dashed : LineStyle.Solid,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    priceFormat: { type: "price", precision, minMove: 1 / 10 ** precision },
+  } as const;
+}
+/** An overlay's values on the bars' times; a bar without a value (before n closes) has no point. */
+export function studyPoints(data: readonly { time: UTCTimestamp }[], values: readonly (number | null)[]): LineData<UTCTimestamp>[] {
+  const out: LineData<UTCTimestamp>[] = [];
+  values.forEach((v, i) => { if (v !== null) out.push({ time: data[i]!.time, value: v }); });
+  return out;
+}
 const VOLUME_OPTIONS = { priceScaleId: "vol", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false } as const;
 
-export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw }: CandleChartProps) {
+export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw, studies = NO_STUDIES }: CandleChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const tagRef = useRef<HTMLSpanElement>(null);
@@ -201,6 +223,15 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
   /** The bar the legend shows: the pointer's or keyboard's bar, else the newest. */
   const [hover, setHover] = useState<number | null>(null);
   const precision = decimalsOf(last ?? bars[bars.length - 1]?.c ?? "");
+  const precisionRef = useRef(precision);
+  /** The overlays' values per bar (from the same numbers the canvas gets), and their line series. */
+  const closes = useMemo(() => toPoints(bars, null).data.map((d) => d.close), [bars]);
+  const studyKey = studies.map((s) => `${s.kind}${s.n}`).join(",");
+  const studyValues = useMemo(() => studies.map((s) => ({ ...s, values: study(s.kind, closes, s.n) })),
+    // studyKey stands for `studies` (a new array per render with the same overlays)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [closes, studyKey]);
+  const studyLines = useRef(new Map<StudyKind, ISeriesApi<"Line">>());
   /** Called on every chart redraw (the trend layer re-maps its points). */
   const [redraw] = useState(() => new Set<() => void>());
   const geoOf = useCallback(() => {
@@ -246,6 +277,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     }
     const a: Api = { chart, series, volume, line: null, theme: th };
     api.current = a;
+    const lines = studyLines.current;
     const onMove = () => place();
     chart.timeScale().subscribeVisibleLogicalRangeChange(onMove);
     chart.timeScale().subscribeSizeChange(onMove);
@@ -264,6 +296,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
         series.applyOptions(seriesOptions(th, precision));
         volume.setData(points.current.vol.map((v) => volPoint(v, th)));
         a.line?.applyOptions({ color: th.colours.lastLine });
+        for (const [k, l] of lines) l.applyOptions(studyOptions(th, k, precisionRef.current));
       } catch {
         onFail();
         return;
@@ -276,6 +309,8 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
         chart: () => chart.options(), series: () => series.options(), line: () => a.line?.options() ?? null,
         theme: () => th, visible: () => chart.timeScale().getVisibleLogicalRange(), data: () => series.data(),
         volume: () => volume.data(), volumeOptions: () => volume.options(),
+        // The overlays' line series as drawn (kind, options, points).
+        studies: () => [...lines].map(([kind, l]) => ({ kind, options: l.options(), data: l.data() })),
         // A tick and price in pane pixels by the library's own scales (the e2e checks a trend line against them).
         coord: (tick: number, price: number) => ({ x: chart.timeScale().timeToCoordinate((tick * SECONDS_PER_TICK) as UTCTimestamp), y: series.priceToCoordinate(price) }),
       };
@@ -288,6 +323,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
       chart.remove();
       api.current = null;
       shown.current = [];
+      lines.clear();
     };
     // Locale and precision re-create the formatters; the chart itself is created once per mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -336,6 +372,24 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     return () => cancelAnimationFrame(id);
   }, [bars, last, place]);
 
+  // Overlays: one line series per overlay that is on, its points replaced whenever the bars or the period change (the
+  // whole series is recomputed, so a replaced live bar or a corrected close never leaves a stale point behind).
+  useEffect(() => {
+    const a = api.current;
+    if (!a) return;
+    const lines = studyLines.current;
+    const on = new Set(studyValues.map((s) => s.kind));
+    for (const [k, l] of lines) if (!on.has(k)) { a.chart.removeSeries(l); lines.delete(k); }
+    const data = points.current.data;
+    for (const s of studyValues) {
+      let l = lines.get(s.kind);
+      if (!l) { l = a.chart.addSeries(LineSeries, studyOptions(a.theme, s.kind, precision)); lines.set(s.kind, l); }
+      else l.applyOptions(studyOptions(a.theme, s.kind, precision));
+      l.setData(studyPoints(data, s.values));
+    }
+    precisionRef.current = precision; // for a re-theme between renders
+  }, [studyValues, precision]);
+
   useEffect(() => { place(); }, [halted, place]);
 
   // Keyboard crosshair and zoom.
@@ -359,10 +413,16 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     e.stopPropagation();
     setCursor(next);
     const b = next.index !== null ? bars[next.index] : undefined;
-    if (b && next.index !== cursor.index) setAnnounce(t.crosshairAria(barTime(b.t, locale, t), ...ohlcv(b, locale)));
+    if (b && next.index !== cursor.index) setAnnounce([t.crosshairAria(barTime(b.t, locale, t), ...ohlcv(b, locale)), ...studyText(next.index!)].join(" · "));
   };
 
-  const shownBar = bars[cursor.index ?? hover ?? bars.length - 1] ?? bars[bars.length - 1];
+  const shownAt = Math.min(cursor.index ?? hover ?? bars.length - 1, bars.length - 1);
+  const shownBar = bars[shownAt];
+  const fmt = new Intl.NumberFormat(pfNumberLocale(locale), { minimumFractionDigits: precision, maximumFractionDigits: precision });
+  /** Each overlay's value on bar i, as the legend reads it ("–" before it has n closes). */
+  function studyText(i: number): string[] {
+    return studyValues.map((s) => { const v = s.values[i] ?? null; return `${t.study[s.kind]} ${s.n} ${v === null ? "–" : fmt.format(v)}`; });
+  }
   return (
     <div className="cc" ref={hostRef} data-testid="br-chart-plot">
       {/* Always laid out (two lines reserved), so the plot below never resizes when the bars arrive. */}
@@ -371,6 +431,16 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
         {shownBar && (["o", "h", "l", "c", "v"] as const).map((k) => (
           <span key={k} data-k={k}><span className="cc-legend-k">{t.legend[k]}</span> {decText(shownBar[k], locale)}</span>
         ))}
+        {/* The overlays on their own line (the legend's second reserved line on a wide plot). */}
+        {studyValues.length > 0 && <span className="cc-legend-br" />}
+        {studyValues.map((s) => {
+          const v = s.values[shownAt] ?? null;
+          return (
+            <span key={s.kind} className={`cc-study cc-study-${s.kind}`} data-testid={`br-chart-study-${s.kind}`} data-n={s.n} data-v={v ?? ""}>
+              <span className="cc-legend-k">{t.study[s.kind]} {s.n}</span> {v === null ? "–" : fmt.format(v)}
+            </span>
+          );
+        })}
       </p>
       <div className="cc-stage" onPointerDown={(e) => {
         // A press anywhere on the plot but a line lets go of the selection (the press still pans the chart).

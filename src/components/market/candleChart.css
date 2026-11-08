@@ -24,6 +24,11 @@ html[data-hc="1"] .cc-plot { border: 1px solid var(--fg-muted); }
   line-height: calc(16px * var(--text-scale)); /* whole pixels, so nothing below lands on a half pixel */
 }
 .cc-legend-time, .cc-legend-k { color: var(--fg-faint); }
+/* Overlays in the legend: a new line, each value after a short sample of its line (SMA solid, EMA dashed). */
+.cc-legend-br { flex-basis: 100%; height: 0; }
+.cc-study::before { content: ""; display: inline-block; width: 12px; vertical-align: middle; margin-right: var(--sp-4); border-top: 2px solid; }
+.cc-study-sma::before { border-top-color: var(--info); }
+.cc-study-ema::before { border-top-style: dashed; border-top-color: var(--warn); }
 .cc-halted { position: absolute; top: var(--sp-8); left: var(--sp-8); z-index: 2; color: var(--steel); font-size: var(--fs-12_5); font-weight: 500; pointer-events: none; }
 /* Trend lines (TrendLayer): an SVG the size of the plot pane, over the canvas and under nothing that takes the pointer.
    It lets the pointer through to the chart (pan, zoom) except on a line and a selected line's ends; while placing it

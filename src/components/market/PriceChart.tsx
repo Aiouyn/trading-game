@@ -17,6 +17,9 @@
 //    signed out; none until the session and the device copy are read). The Trend line button picks the tool (Cancel
 //    or Esc drops it), a line is selected on the plot (Delete or the Delete line button removes it). A device copy that
 //    cannot be read shows a Retry instead of the tool; a change the device did not keep is taken back and said so.
+//  - Overlays (chartStudies.ts): SMA and EMA, each on/off with a period, the player's own on this device (account or
+//    guest, read before the controls show; a failed read shows a Retry). The plot draws them from the shown closes; a
+//    range shorter than an overlay's period says so instead of drawing a partial line.
 //  - M1-07: signed-in bars are the server's recorded quote candles + executed volume (history.ts); a guest sees the mock's
 //    demo bars, labelled as such. History is keyed by the feed epoch, so an account switch never shows the other feed's bars.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -30,6 +33,7 @@ import { feedEpoch, getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { useAuthSession } from "@/shell/authSession";
 import { ChartTable, barTime } from "./ChartTable";
 import type { CandleChartProps } from "./CandleChart";
+import { STUDY_KINDS, STUDY_PERIODS, retryStudies, setStudy, useStudies, useStudiesStatus, type StudyKind } from "./chartStudies";
 import { MAX_LINES, drawScope, retryTrendlines, setTrendlines, useTrendStatus, useTrendlines, type TrendDraw } from "./trendlines";
 
 type Hist =
@@ -196,6 +200,17 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
     e.stopPropagation();
   };
 
+  // Overlays: shown once this device's choices are read (none on the table, which lists the bars only).
+  const prefs = useStudies(scope);
+  const prefsStatus = useStudiesStatus(scope);
+  const showStudies = view === "plot" && !table && plot !== null && scope !== null;
+  const studiesOn = useMemo(() => (prefs ? STUDY_KINDS.filter((k) => prefs[k].on).map((k) => ({ kind: k, n: prefs[k].n })) : []), [prefs]);
+  const short = bars ? studiesOn.filter((s) => s.n > bars.length) : [];
+  const pickPeriod = (k: StudyKind, value: string) => {
+    const n = STUDY_PERIODS[k].find((p) => String(p) === value);
+    if (n !== undefined && scope !== null) setStudy(scope, k, { on: true, n });
+  };
+
   const titleId = useId();
   const first = bars?.[0];
   const newest = bars?.[bars.length - 1];
@@ -228,7 +243,7 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
         {view === "empty" && <p className="br-chart-msg muted" data-testid="br-chart-empty">{t.noHistory}</p>}
         {view === "plot" && bars && (table
           ? <ChartTable bars={bars} t={t} locale={locale} label={label} />
-          : Plot ? <Plot bars={bars} last={last} halted={halted} t={t} locale={locale} label={label} onFail={onPlotFail} draw={draw} /> : skeleton)}
+          : Plot ? <Plot bars={bars} last={last} halted={halted} t={t} locale={locale} label={label} onFail={onPlotFail} draw={draw} studies={showStudies ? studiesOn : undefined} /> : skeleton)}
       </div>
       <div className={view === "plot" ? "br-chart-foot" : "br-chart-foot off"}>
         <Button variant="ghost" size="sm" className="br-chart-toggle" data-testid="br-chart-toggle" onClick={() => { setTable((v) => !v); setPlacing(null); }}>
@@ -252,6 +267,32 @@ export function PriceChart({ assetId, last, halted, frameStale, t, locale }: Pri
           </span>
         )}
         {canDraw && linesStatus === "unsaved" && <p className="br-chart-source" data-testid="br-trend-unsaved" role="alert">{t.trendUnsaved}</p>}
+        {showStudies && prefs && (
+          <span className="br-chart-studies" role="group" aria-label={t.studiesLabel} title={t.studiesLocal} data-testid="br-chart-studies">
+            {STUDY_KINDS.map((k) => (
+              <span key={k} className="br-study" data-study={k}>
+                <Button variant="ghost" size="sm" className={`br-chart-tool br-study-on br-study-${k}`} data-testid={`br-study-${k}`} aria-pressed={prefs[k].on}
+                  title={t.studyHint[k]} onClick={() => setStudy(scope, k, { on: !prefs[k].on, n: prefs[k].n })}>
+                  {t.study[k]}
+                </Button>
+                <select className="br-select br-study-n" data-testid={`br-study-${k}-n`} aria-label={t.studyPeriodAria(t.study[k])}
+                  value={String(prefs[k].n)} onChange={(e) => pickPeriod(k, e.currentTarget.value)}>
+                  {STUDY_PERIODS[k].map((n) => <option key={n} value={String(n)}>{t.studyPeriod(n)}</option>)}
+                </select>
+              </span>
+            ))}
+          </span>
+        )}
+        {showStudies && prefsStatus === "error" && (
+          <span className="br-chart-draw" role="group" aria-label={t.studiesLabel}>
+            <span className="br-chart-source" data-testid="br-studies-error" role="alert">{t.studiesReadError}</span>
+            <Button variant="ghost" size="sm" className="br-chart-tool" data-testid="br-studies-retry" onClick={() => retryStudies(scope)}>{t.retry}</Button>
+          </span>
+        )}
+        {showStudies && prefsStatus === "unsaved" && <p className="br-chart-source" data-testid="br-studies-unsaved" role="alert">{t.studiesUnsaved}</p>}
+        {showStudies && bars && short.map((s) => (
+          <p key={s.kind} className="br-chart-source muted" data-testid="br-study-short" data-study={s.kind} role="status">{t.studyShort(t.study[s.kind], s.n, bars.length)}</p>
+        ))}
         {placingNow !== null && <p className="br-chart-source muted" data-testid="br-trend-hint" role="status">{t.trendHint}</p>}
         {view === "plot" && <p className="br-chart-source muted" data-testid="br-chart-source" data-source={server ? "server" : "demo"}>{source}</p>}
         {stale && !frameStale && view === "plot" && <p className="br-updating muted" data-testid="br-chart-updating">{t.updating}</p>}
