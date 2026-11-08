@@ -33,11 +33,11 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 describe("queued A work while the codec chunk is still loading", () => {
   it("A's queued save, then sign-out, then B signs in: A never writes; B's snapshot stays B's", async () => {
     const m = await load();
-    mem.set(KEY, "left by A's earlier visit"); // whatever A left on the device
+    mem.set(KEY, JSON.stringify({ v: 1, acct: A, savedAt: 1, tick: 27690, cash: 100, held: 0, positions: [], orders: [] })); // A's own earlier record
     const signedInA = m.snapshotSignedIn(A);
     const savedA = m.saveMeSnapshot(A, ledger(111, "HALC"));
     await tick();
-    expect(mem.has(KEY)).toBe(true); // nothing ran yet: the codec is held
+    expect(mem.has(KEY)).toBe(true); // A's own record stays at A's sign-in; nothing queued ran yet: the codec is held
 
     m.snapshotSignedOut();
     expect(mem.has(KEY)).toBe(false); // sign-out clears at once, before the codec arrives

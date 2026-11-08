@@ -59,6 +59,7 @@ export function parseMeSnapshot(text: string | null): MeSnapshot | null {
 
 /** The allowlisted record for one server ledger (null when it would not pass the reader). */
 export function toMeSnapshot(acct: string, v: BrokerLedgerView, savedAt: number): MeSnapshot | null {
+  // Key order matters: v then acct first. meSnapshot.ts checks ownership on the serialised prefix without this codec.
   const snap: MeSnapshot = {
     v: 1, acct, savedAt, tick: v.tick, cash: v.cashCents, held: v.reservedCashCents,
     positions: Object.values(v.positions).map((p) => ({ asset: p.assetId, qty: p.qty, avgCost: p.avgCost })),
