@@ -9,7 +9,7 @@ Restored at the owner's explicit request. Code: src/launchpad/rules.ts (shared c
 
 ## Reused definitions (p10 LP / lead-launchpad L2, L3)
 - Curve: constant product on virtual reserves X0 = $15,000 and Y0 = 1,073,000,000 tokens. A buy gets Y − k/(X + net); a sell pays X − k/(Y + q). Supply 1,000,000,000; 800M sold on the curve (graduation at Y = 273M).
-- Fee 1% of notional each way, half to the creator, half a sink. Launch fee $100 (R-10-6). Ticket default max slippage 5%; a worse fill is refused.
+- Fee 1% of notional each way, half to the creator, half a sink. Launch fee $1,000 of game money (owner decision 2026-11-08, replacing p10 R-10-6's $100; see Owner decisions). Ticket default max slippage 5%; a worse fill is refused.
 - Limits: one launch per account per 24 real hours; at most 3 live tokens per account. Creator's holding before graduation is at most 10% of supply.
 - Ticker 3–5 letters A–Z; name 3–24 characters. A tagline is picked from a template list (no free text, L2 V1). Fictional names only: refuse catalog tickers and names, existing coin tickers, and a short list of real crypto tickers.
 - Public tape without handles; the creator's trades are flagged (L1 no-reveal). Other players' holdings are never shown.
@@ -18,7 +18,7 @@ Restored at the owner's explicit request. Code: src/launchpad/rules.ts (shared c
 Guest first-load JS (S1-20 hooks build) does not grow: the registry row, name, glyph and lazy entry are offset by removing seven unused shell strings (S.marketOpen, layouts, more, settingsPalette, settingsMotion, settingsTransparency, accountSavedDemo). The app body, its CSS and the curve rules load only when Launchpad opens.
 
 ## Smallest observable outcome
-A signed-in player A opens Launchpad, fills in name, ticker and tagline, and reviews the launch. The review shows the $100 fee, A's cash after, and that it is fictional game money. On confirm the coin is listed for everyone. Player B (another account) sees it in the list, opens it, and reviews a buy: dollars in, estimated tokens, fee, average price, price impact, cash after. B confirms. B's cash goes down and B holds the tokens. A's cash goes up by the creator half of the fee. The coin's price, sold count and public tape move. B can then review and sell, and receives cash minus the fee. Everything is server-authoritative, persists across refresh and server restart, and stays isolated per account.
+A signed-in player A opens Launchpad, fills in name, ticker and tagline, and reviews the launch. The review shows the $1,000 fee, A's cash after, and that it is fictional game money. On confirm the coin is listed for everyone. Player B (another account) sees it in the list, opens it, and reviews a buy: dollars in, estimated tokens, fee, average price, price impact, cash after. B confirms. B's cash goes down and B holds the tokens. A's cash goes up by the creator half of the fee. The coin's price, sold count and public tape move. B can then review and sell, and receives cash minus the fee. Everything is server-authoritative, persists across refresh and server restart, and stays isolated per account.
 
 ## Acceptance
 1. Server owns identity, validation, cash effects, idempotency and concurrency. Launch and trade commit inside the auth service lock in one persist, together with the player ledgers. A failed save publishes nothing and changes no cash (memory rolls back). An idempotency key replays its first reply; reusing a key for a different request is 409.
@@ -30,8 +30,12 @@ A signed-in player A opens Launchpad, fills in name, ticker and tagline, and rev
 7. Proof: plain production preview at the exact head. A signs up → launches → B signs up → finds it → buys → sells → refresh → account switch → server restart. Ledger and Launchpad values compared with the server API. 390 and 520 layouts, keyboard.
 
 ## Deliberate deviations (to record for Gatekeeper / owner)
-- The p10 launch gates "rank R1 or higher" and "account age ≥ 3 real days" are NOT enforced. On this base, signed-in accounts have no server-side rank progression (they start at R0), so with the gates nobody could ever launch. A first journey would also be impossible. This is the currently implemented choice, PENDING product acceptance: it is not an approval to drop those gates. Today a launch is limited only by the reviewed $100 fee, the 24 h cooldown and 3 live coins per creator.
+- The p10 launch gates "rank R1 or higher" and "account age ≥ 3 real days" are not enforced: approved by the owner on 2026-11-08 (see Owner decisions).
 - App id "launchpad" is added back to the registry (the V3 17 union listed it as legacy-removed).
+
+## Owner decisions
+- 2026-11-08, answered directly by the owner in the gate-choice widget ("immediatly, with the 1000 game-money fee, I prefer"): new accounts can launch immediately, with no rank R1 gate and no 3-day account-age gate; the launch fee is $1,000 of game money (`LP.LAUNCH_FEE` = 100,000 cents), not the old $100. Every other limit is unchanged: 24 h cooldown, 3 live coins per creator, 1% trade fee (half to the creator), 5% slippage limit, creator cap. This approves the feature parameters only, not a merge or deploy.
+- The fee is debited once, in the launch's single persist, from spendable cash only (cash held by working Broker buy limits is never spent) and goes to the sink. A stale review that sends another fee is refused (FEE_CHANGED). History saved under the $100 fee is kept as saved: coins, holdings, cost basis, sink and receipts are not re-charged or reinterpreted, and an old receipt replays its old reply.
 
 ## Remaining steps (not in this unit, recorded rather than omitted)
 - Graduation to an engine asset and liquidity book (L4). The curve stops accepting buys at its 800M cap ("curve full").

@@ -89,13 +89,13 @@ describe("Launchpad coins in account wealth", () => {
     expect(vb.cashCents).toBe(950_000);
     expect(vb.coins).toEqual([{ ticker: "FROG", qty: q.tokens, value: value, cost: 50_000 }]);
     const va = await me(a);
-    expect(va.cashCents).toBe(990_250); // launch fee gone, half of B's $5.00 fee in, as cash
+    expect(va.cashCents).toBe(900_250); // launch fee gone, half of B's $5.00 fee in, as cash
     expect(va.coins).toEqual([]); // the creator's fee is not counted again as a coin value or a share of the curve
 
     const bb = await board(b), ba = await board(a);
     expect(bb.self!.nw).toBe(fmt(nwOf(vb), 2));
     expect(ba.self!.nw).toBe(fmt(nwOf(va), 2));
-    expect(bb.rows.map((r) => [r.handle, r.nw])).toEqual([["bob", fmt(950_000 + value, 2)], ["alice", "9902.50"]]);
+    expect(bb.rows.map((r) => [r.handle, r.nw])).toEqual([["bob", fmt(950_000 + value, 2)], ["alice", "9002.50"]]);
     const text = JSON.stringify(ba);
     expect(text).not.toMatch(/FROG|coins|qty|cost|acc_[0-9a-f]{32}/); // only handles, NW and ranks leave
     expect(text).not.toContain(String(q.tokens));

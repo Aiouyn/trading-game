@@ -14,7 +14,7 @@ export const LP = {
   SUPPLY: 1_000_000_000,
   GRAD_Y: 273_000_000, // 800M sold on the curve
   FEE_BP: 100, // 1% each way: half to the creator, half a sink
-  LAUNCH_FEE: 10_000, // $100 (R-10-6), a sink
+  LAUNCH_FEE: 100_000, // $1,000 game money, a sink. Owner decision 2026-11-08 (replaces p10 R-10-6's $100)
   MAX_SLIP_BP: 500, // the ticket's default limit: a worse fill than reviewed is refused
   CREATOR_CAP: 100_000_000, // 10% of supply before graduation
   MAX_LIVE: 3,

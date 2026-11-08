@@ -250,6 +250,7 @@ function Create({ self, onDone }: { self: Self; onDone: (ticker: string) => void
     <section className="lpad-panel" data-testid="lp-create" aria-label={LPS.tabCreate}>
       <p className="lpad-sub">{LPS.createIntro}</p>
       <p className="lpad-sub">{LPS.limits}</p>
+      {self.spendableCents < LP.LAUNCH_FEE && <p className="lpad-msg" data-testid="lp-launch-cash">{LPS.launchCash(usd(self.spendableCents))}</p>}
       {cooling && <p className="lpad-msg" data-testid="lp-cooldown">{LPS.nextLaunch(new Date(self.nextLaunchAtMs!).toLocaleString())}</p>}
       {!review ? (
         <form className="lpad-panel" onSubmit={(e) => { e.preventDefault(); if (ok) { setMsg(null); setReview(key()); } }}>

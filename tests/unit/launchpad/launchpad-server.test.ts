@@ -1,4 +1,4 @@
-// Launchpad first playable loop through the real routes and AuthService: A launches a fictional coin (reviewed $100 fee),
+// Launchpad first playable loop through the real routes and AuthService: A launches a fictional coin (reviewed $1,000 fee),
 // B finds it and buys and sells it with real ledger cash; the creator earns half the fee; every operation conserves
 // game cash (players + curves' real cash + sink). Server-owned validation, idempotency, ordering; GET writes nothing and
 // leaks no account id or other account's holdings; a failed save publishes nothing and moves no cash; restart keeps
@@ -74,7 +74,7 @@ describe("Launchpad first loop (server)", () => {
     expect(start).toBe(2_000_000);
 
     const l = await launch(a, { name: "Frog Club", ticker: "FROG" });
-    expect(l).toEqual({ status: "accepted", ticker: "FROG", cashCents: 990_000 });
+    expect(l).toEqual({ status: "accepted", ticker: "FROG", cashCents: 900_000 });
 
     const vb = await view(b);
     expect(vb.coins.map((c) => [c.ticker, c.name, c.creator, c.mine, c.x, c.sold])).toEqual([["FROG", "Frog Club", "alice", false, LP.X0, 0]]);
@@ -91,7 +91,7 @@ describe("Launchpad first loop (server)", () => {
     expect(after.coins[0]).toMatchObject({ x: LP.X0 + 49_500, sold: q.tokens, holders: 1 });
     expect(after.coins[0]!.tape).toEqual([expect.objectContaining({ side: "buy", tokens: q.tokens, cents: 50_000, creator: false })]);
     const va = await view(a);
-    expect(va.self).toMatchObject({ cashCents: 990_250, holdings: {} }); // creator's half of the $5.00 fee; never B's holdings
+    expect(va.self).toMatchObject({ cashCents: 900_250, holdings: {} }); // creator's half of the $5.00 fee; never B's holdings
     expect(await worldCash(auth)).toBe(start);
 
     const s = quoteSell(after.coins[0]!, q.tokens);
@@ -102,7 +102,7 @@ describe("Launchpad first loop (server)", () => {
     const end = await view(b);
     expect(end.self).toMatchObject({ cashCents: 950_000 + s.pay, holdings: {} });
     expect(end.coins[0]).toMatchObject({ x: LP.X0, sold: 0, holders: 0 });
-    expect((await view(a)).self!.cashCents).toBe(990_250 + s.creatorFee);
+    expect((await view(a)).self!.cashCents).toBe(900_250 + s.creatorFee);
     expect(await worldCash(auth)).toBe(start);
   });
 
@@ -110,7 +110,7 @@ describe("Launchpad first loop (server)", () => {
     const a = await signUp("alice");
     const b = await signUp("bob");
     await launch(a, { name: "Frog Club", ticker: "FROG" }, "lp-key-launch-1");
-    expect(await launch(a, { name: "Frog Club", ticker: "FROG" }, "lp-key-launch-1")).toEqual({ status: "accepted", ticker: "FROG", cashCents: 990_000 });
+    expect(await launch(a, { name: "Frog Club", ticker: "FROG" }, "lp-key-launch-1")).toEqual({ status: "accepted", ticker: "FROG", cashCents: 900_000 });
     expect((await view(a)).coins).toHaveLength(1);
     const body = { ticker: "FROG", side: "buy", amount: 10_000, min: 1 };
     const first = await trade(b, body, "lp-key-buy-1");
@@ -163,9 +163,9 @@ describe("Launchpad first loop (server)", () => {
     await launch(a, { name: "Frog Club", ticker: "FROG" });
     const r = await trade(a, { ticker: "FROG", side: "buy", amount: 20_000, min: 0 });
     expect(r.status).toBe("accepted");
-    expect((await view(a)).self!.cashCents).toBe(990_000 - 20_000 + 100); // pays the fee, earns its own half
+    expect((await view(a)).self!.cashCents).toBe(900_000 - 20_000 + 100); // pays the fee, earns its own half
     expect((await view()).coins[0]!.tape[0]!.creator).toBe(true);
-    expect((await trade(a, { ticker: "FROG", side: "buy", amount: 900_000, min: 0 })).code).toBe("CREATOR_CAP");
+    expect((await trade(a, { ticker: "FROG", side: "buy", amount: 800_000, min: 0 })).code).toBe("CREATOR_CAP");
   });
 
   it("concurrent buys are ordered by the server: cash never goes negative and nothing is lost", async () => {
@@ -223,7 +223,7 @@ describe("Launchpad first loop (server)", () => {
     store.failNext = true;
     expect((await tradeRaw(b, { idempotencyKey: "lp-key-fail-1", ticker: "FROG", side: "buy", amount: 10_000, min: 0 })).status).toBe(500);
     expect((await view(b)).self).toMatchObject({ cashCents: 1_000_000, holdings: {} });
-    expect((await view(a)).self!.cashCents).toBe(990_000);
+    expect((await view(a)).self!.cashCents).toBe(900_000);
     expect((await view()).coins[0]).toMatchObject({ x: LP.X0, sold: 0, tape: [] });
     // The same key after the failure acts once (nothing of the failed attempt was kept).
     expect((await trade(b, { ticker: "FROG", side: "buy", amount: 10_000, min: 0 }, "lp-key-fail-1")).status).toBe("accepted");

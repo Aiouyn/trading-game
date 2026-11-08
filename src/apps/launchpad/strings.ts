@@ -59,7 +59,8 @@ export const LPS = {
   launchFee: "Launch fee",
   startPrice: "Starting price",
   creatorShare: "You earn half the 1% fee on every trade in your coin.",
-  limits: "One launch per 24 hours, at most 3 coins per account.",
+  limits: "Launching costs a $1,000.00 fee in game money. One launch per 24 hours, at most 3 coins per account.",
+  launchCash: (have: string) => `You need $1,000.00 of spendable cash to launch; you have ${have}.`,
   nextLaunch: (s: string) => `Your next launch opens ${s}.`,
   unavailable: "Your account's ledger can't be loaded right now, so you can browse but not trade.",
 } as const;

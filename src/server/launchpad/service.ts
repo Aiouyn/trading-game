@@ -66,7 +66,7 @@ export class LaunchpadService {
       const replay = replayOf(lp, me, key, fp);
       if (replay) return { result: replay as LaunchReply };
       const name = input.name.trim().replace(/\s+/g, " ");
-      if (input.fee !== LP.LAUNCH_FEE) return { result: refuse("FEE_CHANGED", "The launch fee is $100.00. Review the launch again.") };
+      if (input.fee !== LP.LAUNCH_FEE) return { result: refuse("FEE_CHANGED", "The launch fee is $1,000.00. Review the launch again.") };
       if (!tickerOk(input.ticker)) return { result: refuse("TICKER_INVALID", "A ticker is 3 to 5 letters A–Z.") };
       if (!nameOk(name)) return { result: refuse("NAME_INVALID", "A name is 3 to 24 letters, digits, spaces, dots, apostrophes or hyphens.") };
       const takenNames = new Set([...ASSETS.map((a) => a.name), ...lp.coins.map((c) => c.name)].map((n) => normalizeName(n).joined));
@@ -80,7 +80,7 @@ export class LaunchpadService {
         return { result: refuse("COOLDOWN", "One launch per account every 24 hours.", { nextAtMs: last + LP.COOLDOWN_MS }) };
       }
       if (lp.coins.filter((c) => c.creatorId === me).length >= LP.MAX_LIVE) return { result: refuse("MAX_LIVE", "You already have 3 live coins.") };
-      if (spendable(self) < LP.LAUNCH_FEE) return { result: refuse("CASH", "Not enough spendable cash for the $100.00 launch fee.") };
+      if (spendable(self) < LP.LAUNCH_FEE) return { result: refuse("CASH", "Not enough spendable cash for the $1,000.00 launch fee.") };
       const cashCents = self.cashCents - LP.LAUNCH_FEE;
       const coin: LpCoin = { ticker: input.ticker, name, tagline: input.tagline, creatorId: me, createdAtMs: now, createdTick: tick, x: LP.X0, sold: 0, tape: [] };
       lp.coins.push(coin);
