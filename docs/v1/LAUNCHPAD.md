@@ -161,3 +161,47 @@ quotes in `ticker:wl_default`, candles sampled from it (src/server/market/candle
 **Not in this unit (tracked).** Limit orders on listed coins (book-bound sweep); the NPC cohort's unwind (L6.2; this base has
 no NPC cohort); the graduation Wire item and creator notice; vesting (L5.1, allocation 0); ecology/factor loadings (no such
 model here); death (L3); listing for the signed-out guest demo (guests run a local demo market).
+
+### Signed-in server-sync loading boundary (same L4 unit, S1-20; recorded before code)
+
+Why: the listing code and the cents conversions L4 needs (plus explicit market-only and no-liquidity copy) cost about
+340 B gz of Broker first-load JS. Base leaves 30 B under the unchanged 220160 limit. The evidence is in
+evidence/launchpad/budget-l4/BUDGET.md. Lazy-loading one parser was shown not to help: its shared schema dependency only
+moves chunk. The boundary below moves the signed-in feed's whole network half instead, which a guest never runs.
+
+Boundary: `src/shell/contracts/serverSync.ts` (new, loaded by dynamic import). It holds every signed-in-only network
+step of MockFeed: the /api/market poll and snapshot adoption (with L4 listing adoption), the live candle pull and the
+candle history doors, the Wire pull and adoption, the /api/broker/me pull and ledger adoption (offline `me` snapshot
+save), and the order door's POSTs (idempotency key, retries, offline / unknown outcome). It also carries the state only
+those steps use: pull flags, ledger epoch, Wire epoch and tick. MockFeed keeps the channel transport, the bodies, the
+guest demo, preview, and every flag an eager path reads (quotesAdopted, ledgerAdopted, wireAdopted, server candles,
+quoteSync timer). serverSync.ts parses with the same strict parsers, unchanged.
+
+Acceptance (all must hold):
+1. Guests: no serverSync chunk is requested; the guest demo is byte-identical (same frames, same fills).
+2. First live quote: the first /api/market request starts when the first quote, `me` or `news` subscription starts, in
+   parallel with the chunk, not after it. Channels stay `loading` until validated server data arrives, as before. There
+   is no constructor-book flash.
+3. One poller per feed. The interval stays in MockFeed, and stop() / feed swap clears it. A step that waited for the chunk
+   checks, when the chunk arrives, that the feed still wants it (subscription present, not stopped), so a feed replaced
+   during the load starts nothing.
+4. Failed chunk load: nothing cached. The next step (interval tick, Retry, resync) imports again. Meanwhile quotes and `me`
+   error only where nothing was shown yet (as a failed read does today), `news` errors likewise, and an order is
+   refused as not sent (IntentNotSentOffline: nothing left the page).
+5. Auth switch / logout during the load: the old feed's late steps cannot write the new account's ledger anywhere
+   visible. The offline snapshot write stays refused unless the account is current (unchanged guard), and the old feed
+   has no subscribers.
+6. Offline: an order is never sent while offline (unchanged knownOffline check, now also covered when the chunk
+   cannot load). The offline screen and snapshot read do not depend on the chunk.
+7. Existing contracts validated as before (parseMarketSnapshot, parseBrokerLedger, parseBrokerIntentReply,
+   parseWireSnapshot, candle checks). No schema is relaxed, and no private data is cached by the service worker.
+8. S1-20 ≤ 220160 on the hooks build, measured once on the proposed boundary from the real module graph.
+
+Blast radius: src/shell/contracts/mockFeed.ts (signed-in methods move out; some members lose `private` so the
+boundary module can reach them, documented), the new serverSync.ts, and listings adoption (now called from
+serverSync). Callers: useChannel (adoptedServerTick, unchanged), history.ts / PriceChart (serverCandleHistory /
+serverCandleChanges, still on the feed, now async through the boundary), and orders.ts (orderDoor, same error classes).
+Tests that drive the signed-in feed synchronously (m1-05 adopt*, m1-06, m1-07, m1-08, m1-09, M2-05 offline) must await
+the boundary where they used microtask flushes. New targeted tests: auth switch / logout during the load, failed import
+then retry, immediate Broker readiness (parallel first read), duplicate mount (one poller), guest (no chunk), offline
+order while the chunk cannot load.
