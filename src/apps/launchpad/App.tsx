@@ -269,10 +269,12 @@ function TradeReview({ coin, side, self, q, asked, min, busy, onBack, onConfirm 
 /** A graduated coin: its graduation, its listing and Broker price now, its book, and the way to the Broker. */
 function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string | null }) {
   const store = useShellStore();
+  const noteRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { noteRef.current?.scrollIntoView?.({ block: "nearest" }); }, [note]); // the curve panel it replaced may have been scrolled
   return (
     <section className="lpad-panel" data-testid="lp-grad-panel" data-ticker={coin.ticker} aria-label={`${coin.ticker} ${coin.name}`}>
       <h3>{`${coin.ticker} · ${coin.name}`} <Chip>{LPS.graduated}</Chip></h3>
-      {note && <p className="lpad-msg" role="status" data-kind="ok" data-testid="lp-result">{note}</p>}
+      {note && <p className="lpad-msg" role="status" data-kind="ok" data-testid="lp-result" ref={noteRef}>{note}</p>}
       <p className="lpad-sub">{`“${TAGLINES[coin.tagline] ?? ""}” ${LPS.by(coin.creator)}`}</p>
       <p><b>{LPS.graduatedOn(new Date(grad.atMs).toLocaleString())}</b></p>
       <dl className="lpad-dl">
