@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Label } from "@/components/ui/Label";
 import { MINUS, fullDigits, parseAmount } from "@/components/ui/money";
+import { lazy, Suspense } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { formatPercent } from "@/components/ui/percent";
 import { useShell } from "@/components/shell/ShellContext";
@@ -14,6 +15,7 @@ import { isRestrictedReason } from "@/shell/strings";
 import { getFeed, useChannel, type ChannelView } from "@/shell/contracts/useChannel";
 import type { RankChannel } from "@/shell/channels";
 import { RANK_NAMES } from "@/shell/registry";
+import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
 import { STACK_SCALE, pfNumberLocale, pfStrings, type ReleaseUnit } from "./strings";
 
 type T = ReturnType<typeof pfStrings>;
@@ -161,12 +163,21 @@ export function OverviewView({ view, rank, locale, phone, stacked = false, onRet
   );
 }
 
+/** M2-01/02: signed-in only, its own chunk (not on a guest's or the Broker route's first load). */
+const GoalGuide = lazy(() => import("./GoalGuide"));
+
 export function Overview({ phone }: { phone: boolean }) {
   const view = useChannel("me");
   const rank = useShell((s) => s.channels.rank);
   const locale = useShell((s) => s.prefs.locale);
   const stacked = useShell((s) => s.prefs.textScale >= STACK_SCALE);
+  const auth = useAuthChrome();
+  // The goal and guide show only with a loaded `me` body for the signed-in account (the server ledger), never during
+  // loading or an error, and never for a guest (whose `me` is the example portfolio).
+  const goal = isSignedIn(auth) && view.body !== null
+    ? <Suspense fallback={null}><GoalGuide me={view.body} accountId={auth.account.accountId} locale={locale} phone={phone} /></Suspense>
+    : auth.status === "signed_out" ? <p className={`pf-goal-guest muted${phone ? " pf-phone" : ""}`} data-testid="pf-goal-guest">{pfStrings(locale).guestGoal}</p> : null;
   // Retry asks the feed for a fresh snap. Against the mock's error / denied modes it is a no-op by design (the mode is
   // fixed for the page); against the server it re-requests the channel.
-  return <OverviewView view={view} rank={rank} locale={locale} phone={phone} stacked={stacked} onRetry={() => getFeed().resync("me")} />;
+  return <>{goal}<OverviewView view={view} rank={rank} locale={locale} phone={phone} stacked={stacked} onRetry={() => getFeed().resync("me")} /></>;
 }

@@ -293,7 +293,11 @@ export function PhoneHome() {
             {!signedIn && reading.nw !== null && <Sparkline />}
           </div>
           {signedIn ? (
-            <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
+            <>
+              <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
+              <p data-testid="phone-goal">{S.goalLine}</p>
+              <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="phone-first-trade-guide" onClick={() => store.getState().open("portfolio")}>{S.firstTradeGuide}</Button>
+            </>
           ) : null}
           {next && reading.nw !== null && (
             <>

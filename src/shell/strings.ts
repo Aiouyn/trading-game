@@ -93,6 +93,9 @@ export const S = {
   nwUnknown: "—",
   demoTradingNote: "Your trades, cash and positions are saved on the server.",
   starterPlaceholder: "Starter account: $10,000 in game money.",
+  /** M2-02 phone home (signed in): the goal, and the way to the first-trade guide (Portfolio). */
+  goalLine: "Goal: grow $10,000 to $20,000.",
+  firstTradeGuide: "First trade guide",
   accountSavedDemo: "Your account, trades and balances are saved.",
 } as const;
 
