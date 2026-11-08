@@ -41,7 +41,7 @@ A signed-in player A opens Launchpad, fills in name, ticker and tagline, and rev
 - Graduation to an engine asset and liquidity book (L4). The curve stops accepting buys at its 800M cap ("curve full").
 - Creator allocation and vesting (L5; the allocation is fixed at 0 here). Rug flag and cases (L5).
 - Buzz/hype, NPC retail, snipers and death (L6): prices move only when players trade.
-- Buzz items, candles/chart, Trending/Graduated tabs, holder buckets, replies, icons (L7). Moderation beyond the minimal fictional-name checks. The balance gate (L8).
+- Buzz items, candles and timeframes (a per-trade price/volume history chart exists, see below), market-cap axis, Trending/Graduated tabs, holder buckets, replies, icons (L7). Moderation beyond the minimal fictional-name checks. The balance gate (L8).
 - French copy.
 
 ## Coins in account wealth (same unit, before Gatekeeper)
@@ -73,3 +73,5 @@ Inspected first: old p10 (origin/p10/chart: LaunchChart.tsx wraps the full Broke
 6. Proof: plain exact-head preview, readiness checked once: A creates, B buys and sells; chart points equal the saved history and tape (price and volume), readout and table, reload, coin A→B switch, server restart, 390 and 520. Automated checks are kept apart from any human look.
 
 Out of this unit: candles and timeframes, market-cap axis, Trending/Graduated tabs, buzz, NPC flow, graduation, vesting, court, social.
+
+**As built.** Server: `recordPoint` (src/server/launchpad/state.ts) appends {tick, atMs, side, tokens, cents, x, sold} to `coin.hist` inside the trade's commit (LaunchpadService.trade, same lock and persist as cash, holdings, cost basis and tape); a launch saves `hist = {since: launch time, dropped: 0, pts: []}`; LP.HIST_KEEP = 500; `parseLaunchpad` checks every point and that the newest equals the coin's curve. GET /api/launchpad/history (src/app/api/launchpad/history/route.ts, LaunchpadService.history) reads under the same lock with no session; the board view (GET /api/launchpad) is unchanged and does not carry the history. Client: src/apps/launchpad/history.ts (parse, model, step geometry, pure) and History.tsx (React.lazy chunk inside the lazy Launchpad app): step line held to the next trade, buy/sell volume bars, price and volume scales as text beside the plot, a focusable plot with arrow/Home/End readout (aria-live), a "Show as a table" equivalent, loading/error + Retry/"not updated" (offline: "not live") states, latest-request-wins and a ticker check on every reply. It renders below the ticket, so a review and Confirm are always above it. Tests: tests/unit/launchpad/launchpad-history.test.ts (server, legacy, bound, privacy, restart, parse) and launchpad-history-ui.test.tsx (late reply, keyboard, table, stale/offline, Retry).
