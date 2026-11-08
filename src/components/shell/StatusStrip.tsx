@@ -8,7 +8,7 @@ import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
-import { useNw } from "./useNw";
+import { nwStateLabel, useNwReading } from "./useNw";
 import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
@@ -21,7 +21,7 @@ export function StatusStrip() {
   const rank = useShell((s) => s.channels.rank.rank);
   const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
-  const nw = useNw();
+  const nw = useNwReading();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const focusMode = useShell((s) => s.local.focusMode);
@@ -33,10 +33,10 @@ export function StatusStrip() {
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const nwChip = (
-    <span className="strip-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}>
-      <MoneyText amount={nw} ctx="chip" />
+    <span className="strip-nw" data-testid="strip-nw" data-nw-state={nw.state} title={signedIn ? (nw.nw === null ? nwStateLabel(nw.state) : S.demoBalance) : undefined}>
+      {nw.nw === null ? <span className="num muted" aria-hidden="true">{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
       {signedIn ? (
-        <span className="muted strip-demo-tag" data-testid="strip-demo-tag"><span aria-hidden="true">{" · "}</span>{S.demoBalance}</span>
+        <span className="muted strip-demo-tag" data-testid="strip-demo-tag"><span aria-hidden="true">{" · "}</span>{nw.nw === null ? nwStateLabel(nw.state) : S.demoBalance}</span>
       ) : (
         <> <PctText value={me.todayPct} /></>
       )}

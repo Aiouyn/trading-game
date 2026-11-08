@@ -3,6 +3,8 @@
 // /api/market, valued here independently). Working limits neither hide nor double holdings or cash; a full sell clears
 // the rows; refresh, a second account and the first again keep each ledger apart; a failed account read says so with
 // Retry (no demo values); signed out, Portfolio is the labelled example. Phone 390 and the 520 window fit.
+// The top bar NW is the same valuation; while it is unknown (a failed or pending account or quote read) it says so and
+// shows no number, never the sign-in cash as "Saved net worth".
 // Real timers against the production build. Repo CI evidence only, not the desktop played gate.
 import { mkdirSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -76,6 +78,26 @@ async function overviewMatches(page: Page, request: APIRequestContext) {
     return o.hero === v.nw && o.cash === v.cash && o.balances === 1 && !o.guest ? "ok" : JSON.stringify({ o, nw: v.nw, cash: v.cash });
   }, { timeout: 20_000 }).toBe("ok");
 }
+/** The top bar NW chip: live = the server valuation, labelled saved (polled). */
+async function stripMatches(page: Page, request: APIRequestContext) {
+  await expect.poll(async () => {
+    const [st, v] = await Promise.all([stripState(page), valuation(request)]);
+    return st.state === "live" && st.money === v.nw && st.text.includes("Saved net worth") ? "ok" : JSON.stringify({ st, nw: v.nw });
+  }, { timeout: 20_000 }).toBe("ok");
+}
+const stripState = (page: Page) => page.getByTestId("strip-nw").first().evaluate((el) => ({
+  state: el.getAttribute("data-nw-state"), text: el.textContent ?? "",
+  money: el.querySelector(".money")?.getAttribute("title") ?? el.querySelector(".money")?.textContent ?? null,
+}));
+/** Unknown NW: the state label, no dollar figure at all. */
+async function stripUnavailable(page: Page) {
+  await expect(page.getByTestId("strip-nw").first()).toHaveAttribute("data-nw-state", "unavailable", { timeout: 15_000 });
+  const st = await stripState(page);
+  expect(st.money).toBeNull();
+  expect(st.text).not.toMatch(/\$\d/);
+  expect(st.text).not.toContain("Saved net worth");
+}
+
 async function positionsTab(page: Page, phone: boolean) {
   if (phone) await pf(page).getByTestId("pf-open-positions").click();
   else await pf(page).getByTestId("pf-tab-positions").click();
@@ -124,6 +146,7 @@ test("desktop: buy → Portfolio = server ledger at server quotes; quote moves; 
     const buy = (await ledger(a.request)).fills.at(-1)!;
     await openPortfolio(page);
     await overviewMatches(page, a.request);
+    await stripMatches(page, a.request);
     await shot(page, "pf-01-after-buy-overview");
     await positionsTab(page, false);
     await positionsMatch(page, a.request, false);
@@ -187,11 +210,29 @@ test("desktop: buy → Portfolio = server ledger at server quotes; quote moves; 
     await expect(pf(page).getByTestId("pf-error")).toBeVisible({ timeout: 15_000 });
     await expect(pf(page).getByTestId("pf-hero-nw")).toHaveCount(0);
     await expect(pf(page).getByTestId("pf-guest-example")).toHaveCount(0);
+    await stripUnavailable(page); // not the sign-in cash as "Saved net worth"
     await shot(page, "pf-04-read-failed");
     await page.unroute("**/api/broker/me");
     await pf(page).getByTestId("pf-retry").click();
     await expect(pf(page).getByTestId("pf-overview")).toHaveAttribute("data-state", "live", { timeout: 20_000 });
     await overviewMatches(page, a.request);
+    await stripMatches(page, a.request);
+
+    // A failed first QUOTE read (500, then network abort): the same error + Retry and an unknown header, never NW at
+    // the constructor book or the cash alone; Retry after it recovers shows the true valuation.
+    for (const fail of ["500", "abort"] as const) {
+      await page.route("**/api/market", (r) => (fail === "500" ? r.fulfill({ status: 500, contentType: "application/json", body: "{}" }) : r.abort("failed")));
+      await page.reload();
+      await expect(pf(page).getByTestId("pf-error")).toBeVisible({ timeout: 15_000 });
+      await expect(pf(page).getByTestId("pf-hero-nw")).toHaveCount(0);
+      await stripUnavailable(page);
+      if (fail === "500") await shot(page, "pf-04b-quote-read-failed");
+      await page.unroute("**/api/market");
+      await pf(page).getByTestId("pf-retry").click();
+      await expect(pf(page).getByTestId("pf-overview")).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+      await overviewMatches(page, a.request);
+      await stripMatches(page, a.request);
+    }
 
     // Cancel the sell limit, then sell all 3: the rows clear and NW = cash (the buy limit still holds its cash).
     const sellOrder = Object.values(lw.orders).find((o) => o.side === "SELL")!;
@@ -229,11 +270,29 @@ test("phone 390 and the 520 window: signed-in Portfolio after a buy fits and mat
     await openPortfolio(page, true);
     await overviewMatches(page, ctx.request);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    // Phone status bar NW: the same valuation (no visible label there: the title says saved).
+    await expect.poll(async () => {
+      const [t, v] = await Promise.all([page.locator(".sb-nw").evaluate((el) => ({ s: el.getAttribute("data-nw-state"), title: el.getAttribute("title"), m: el.querySelector(".money")?.textContent ?? null })), valuation(ctx.request)]);
+      return t.s === "live" && t.title === "Saved net worth" && t.m === v.nw ? "ok" : JSON.stringify({ t, nw: v.nw });
+    }, { timeout: 20_000 }).toBe("ok");
     await shot(page, "pf-06-phone-390-overview");
     await positionsTab(page, true);
     await positionsMatch(page, ctx.request, true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await shot(page, "pf-07-phone-390-positions");
+
+    // Phone, failed first quote read: the error + Retry, and the status bar shows no number.
+    await page.route("**/api/market", (r) => r.fulfill({ status: 500, contentType: "application/json", body: "{}" }));
+    await page.reload();
+    await expect(pf(page).getByTestId("pf-error")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".sb-nw")).toHaveAttribute("data-nw-state", "unavailable");
+    expect(await page.locator(".sb-nw").textContent()).not.toMatch(/\$\d/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await shot(page, "pf-07b-phone-390-quote-failed");
+    await page.unroute("**/api/market");
+    await pf(page).getByTestId("pf-retry").click();
+    await expect(pf(page).getByTestId("pf-overview")).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+    await overviewMatches(page, ctx.request);
 
     // The same account in a 520 px desktop window.
     const login = await desk.request.post("/api/auth/login", { headers: { origin: baseURL! }, data: { handle: `PfP${stamp}`, password: "local-portfolio-test" } });

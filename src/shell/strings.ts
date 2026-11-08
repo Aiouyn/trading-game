@@ -87,6 +87,10 @@ export const S = {
   account: "Account",
   /** Signed-in NW label (M1-06): server ledger at server quotes, saved. Key name kept from M1-01. */
   demoBalance: "Saved net worth",
+  /** Signed-in NW chip before the first valuation, or after a failed read (M1-08): no number is shown. */
+  nwLoading: "Net worth loading…",
+  nwUnavailable: "Net worth unavailable",
+  nwUnknown: "—",
   demoTradingNote: "Your trades, cash and positions are saved on the server.",
   starterPlaceholder: "Starter account: $10,000 in game money.",
   accountSavedDemo: "Your account, trades and balances are saved.",

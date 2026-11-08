@@ -13,7 +13,7 @@ import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
-import { useNw } from "./useNw";
+import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 
@@ -155,7 +155,7 @@ function StatusBar() {
   const clock = useShell((s) => s.channels.clock);
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const nw = useNw();
+  const nw = useNwReading();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const timer = useRef<number | null>(null);
@@ -192,7 +192,9 @@ function StatusBar() {
           {auth.account.handle}
         </button>
       ) : null}
-      <span className="sb-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}><MoneyText amount={nw} ctx="chip" /></span>
+      <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={signedIn ? (nw.nw === null ? nwStateLabel(nw.state) : S.demoBalance) : undefined}>
+        {nw.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(nw.state)}>{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
+      </span>
     </header>
   );
 }
@@ -200,7 +202,8 @@ function StatusBar() {
 export function PhoneHome() {
   const vis = useShell((s) => s.vis);
   const me = useShell((s) => s.channels.me);
-  const nw = useNw();
+  const reading = useNwReading();
+  const nw = reading.nw ?? "0.00"; // the rank bar only shows signed out, where the reading always has a value
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const rank = useShell((s) => s.channels.rank);
@@ -267,7 +270,7 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label">{signedIn ? S.demoBalance : S.netWorth}</span>
+            <span className="label" data-testid="widget-nw-label">{signedIn ? (reading.nw === null ? nwStateLabel(reading.state) : S.demoBalance) : S.netWorth}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
@@ -278,7 +281,9 @@ export function PhoneHome() {
           {!signedIn ? (
             <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
           ) : null}
-          <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>
+          <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
+            {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
+          </div>
           <div className="widget-row">
             {signedIn ? (
               <span className="today muted" data-testid="today">{S.demoTradingNote}</span>

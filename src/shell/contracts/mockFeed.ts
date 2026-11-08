@@ -588,7 +588,10 @@ export class MockFeed {
   resync(ch: ChannelName): void {
     if (this.authoritativeQuotes && ch.startsWith("candles:")) void this.pullServerCandle(ch);
     if (this.authoritativeQuotes && ch.startsWith("ticker:")) void this.pullServerQuotes();
-    if (this.authoritativeQuotes && ch === "me") void this.pullLedger();
+    if (this.authoritativeQuotes && ch === "me") {
+      void this.pullLedger();
+      if (!this.quotesAdopted) void this.pullServerQuotes(); // M1-08: Retry after a failed first quote read reads quotes too
+    }
     for (const s of this.subs) {
       if (s.ch !== ch) continue;
       if (MOCK_HOOKS && hookErrored?.delete(s)) this.sendSnap(s);
@@ -821,10 +824,17 @@ export class MockFeed {
     }
   }
 
-  /** Signed out / ledger quarantined / first read failed: `me` errors (only where nothing was shown yet) rather than
+  /** Signed out / ledger quarantined / first ledger or quote read failed: `me` errors (only where nothing was shown yet) rather than
    *  showing a ledger the server did not send. */
   private failMe(): void {
     for (const sub of this.subs) if (sub.ch === "me" && sub.sent === null) this.send(sub, { t: "err", ch: "me", code: "INTERNAL" });
+  }
+
+  /** A failed or unreadable quote read. Before the first server book (M1-08), `me` cannot be valued: it errors (Retry)
+   *  where nothing was shown yet, and the next good read snaps it. After that the last adopted snapshot stays, and a
+   *  long outage lets the channel watchdog mark quotes stale. */
+  private quotesFailed(): void {
+    if (!this.quotesAdopted) this.failMe();
   }
 
   /** POST one order intent with one key; retried only on network / 5xx failures, with the same key. */
@@ -864,10 +874,9 @@ export class MockFeed {
     this.quotePulling = true;
     try {
       const res = await fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
-      if (!res.ok) return;
-      this.adoptAuthoritativeQuotes(await res.json());
+      if (!res.ok || !this.adoptAuthoritativeQuotes(await res.json())) this.quotesFailed();
     } catch {
-      // Keep the last adopted snapshot. A long outage lets the channel watchdog mark quotes stale.
+      this.quotesFailed();
     } finally {
       this.quotePulling = false;
     }

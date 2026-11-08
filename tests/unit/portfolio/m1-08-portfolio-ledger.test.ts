@@ -77,6 +77,7 @@ const shown = (b: MeTradingBody) => ({
 describe("M1-08 Portfolio = server ledger at server marks", () => {
   let market: ControlledMarket;
   let meFails: null | "500" | "bad" | "net" = null;
+  let marketFails: null | "500" | "bad" | "net" = null;
   let cookie = "";
   let stores: ChannelStore<unknown>[] = [];
 
@@ -87,8 +88,14 @@ describe("M1-08 Portfolio = server ledger at server marks", () => {
     setLiveMarketForTests(market as unknown as LiveMarket);
     setBrokerForTests(undefined);
     meFails = null;
+    marketFails = null;
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-      if (input === "/api/market") return Response.json(market.snapshot());
+      if (input === "/api/market") {
+        if (marketFails === "500") return new Response("{}", { status: 500 });
+        if (marketFails === "bad") return Response.json({ tick: "x" });
+        if (marketFails === "net") throw new TypeError("network down");
+        return Response.json(market.snapshot());
+      }
       if (input === "/api/broker/me") {
         if (meFails === "500") return new Response("{}", { status: 500 });
         if (meFails === "bad") return Response.json({ cashCents: -1 });
@@ -204,6 +211,40 @@ describe("M1-08 Portfolio = server ledger at server marks", () => {
     await tick();
     expect(me.get().state).toBe("live");
     expect((me.get().body as MeTradingBody).nw).toBe(fmt(START_CASH_CENTS, 2));
+  });
+
+  it("a failed first quote read (500 / bad body / network) is an error too, and the next good quote read restores the true NW", async () => {
+    cookie = await signUp("PfQuote");
+    const h0 = market.last("HALC");
+    await place(cookie, "k1", mkt("HALC", "BUY", "5"));
+    for (const mode of ["500", "bad", "net"] as const) {
+      marketFails = mode;
+      const { me } = openMe();
+      await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 50);
+      expect(me.get(), mode).toEqual({ state: "error", body: null, tick: null });
+      // Still failing a poll later: still an error, never a body priced at the constructor book.
+      await vi.advanceTimersByTimeAsync(SERVER_QUOTE_POLL_MS + 50);
+      expect(me.get(), mode).toEqual({ state: "error", body: null, tick: null });
+      marketFails = null;
+      await tick({ HALC: h0 + 25 });
+      expect(me.get().state, mode).toBe("live");
+      expect(shown(me.get().body as MeTradingBody), mode).toEqual(expected(await ledger(cookie), { HALC: h0 + 25 }));
+    }
+  });
+
+  it("Retry on a quote-failed me reads the quotes again (not only the ledger)", async () => {
+    cookie = await signUp("PfRetry");
+    marketFails = "500";
+    const { feed, me } = openMe();
+    await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 50);
+    expect(me.get().state).toBe("error");
+    const calls = (globalThis.fetch as unknown as { mock: { calls: [string][] } }).mock.calls;
+    const before = calls.filter(([u]) => u === "/api/market").length;
+    marketFails = null;
+    feed.resync("me");
+    await vi.advanceTimersByTimeAsync(50); // well inside the 1 s poll: only Retry can have read
+    expect(calls.filter(([u]) => u === "/api/market").length).toBe(before + 1);
+    expect(me.get().state).toBe("live");
   });
 
   it("an account switch replaces the feed: a read the old account started cannot install its holdings on the new one", async () => {
