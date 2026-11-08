@@ -24,18 +24,22 @@ export function KindChip({ kind, t }: { kind: WireKind; t: WireStrings }) {
   );
 }
 
-/** M1-09: a server story's outcome on the row: each realized price effect ("AVB −5.00%"), or Forecast / No effect. */
+/** M1-09: a server story's outcome on the row when it moved nothing: Forecast / No effect (a realized effect sits
+ *  beside its asset label, see EntityLabel). */
 export function StoryOutcome({ item, t }: { item: WireItem; t: WireStrings }) {
   if (item.phase === "forecast") return <Chip tone="neutral" outline className="wire-outcome" data-testid="wire-forecast">{t.forecast}</Chip>;
   if (item.phase === "eased") return <Chip tone="neutral" outline className="wire-outcome" data-testid="wire-no-effect">{t.eased}</Chip>;
-  if (!item.effects?.length) return null;
+  return null;
+}
+
+/** An entity label; with the realized effect on that asset beside it ("ORCA −4.48%"). */
+function EntityLabel({ item, e }: { item: WireItem; e: WireItem["entities"][number] }) {
+  const fx = item.effects?.find((x) => x.assetId === e.id);
   return (
-    <>
-      {item.effects.map((e) => {
-        const label = item.entities.find((x) => x.id === e.assetId)?.label ?? e.assetId;
-        return <span key={e.assetId} className="wire-effect" data-testid="wire-effect" data-asset={e.assetId} data-pct={e.pct}>{label} {pctLabel(e.pct)}</span>;
-      })}
-    </>
+    <span className="wire-entity" data-testid="wire-entity">
+      {e.label}
+      {fx && <span className="wire-effect" data-testid="wire-effect" data-asset={fx.assetId} data-pct={fx.pct}> {pctLabel(fx.pct)}</span>}
+    </span>
   );
 }
 
@@ -77,7 +81,7 @@ export function WireItemRow({ item, t, fresh, selected = false, onOpen, buttonRe
       </p>
       <time className="wire-row-time" data-testid="wire-time">{timeLabel(item.tick, t)}</time>
       <div className="wire-row-meta">
-        {item.entities.map((e) => <span key={e.id} className="wire-entity" data-testid="wire-entity">{e.label}</span>)}
+        {item.entities.map((e) => <EntityLabel key={e.id} item={item} e={e} />)}
         {record && (
           <span className="wire-record" data-testid="wire-record">
             {fill(t.sourceRecord, { hits: String(record.hits), resolved: String(record.resolved) })}

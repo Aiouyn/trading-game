@@ -70,7 +70,8 @@ describe("M1-09 Wire stories in the app", () => {
     expect(q("wire-demo")).toBeNull();
     const r = byPhase("realized"), e = r.effects![0]!;
     const row = el.querySelector<HTMLElement>(`[data-testid=wire-row][data-id="${r.id}"]`)!;
-    expect(row.querySelector('[data-testid="wire-effect"]')!.textContent).toBe(`${e.assetId} −${e.pct.slice(1)}%`);
+    expect(row.querySelector('[data-testid="wire-entity"]')!.textContent).toBe(`ORCA −${e.pct.slice(1)}%`);
+    expect(row.querySelector('[data-testid="wire-effect"]')!.textContent).toBe(` −${e.pct.slice(1)}%`);
     await open(r.id);
     expect(q("wire-detail-headline")!.textContent).toBe("Orca Biologics drug trial misses its endpoint");
     expect(q("wire-detail-cause")!.textContent).toContain("Orca Biologics' lead drug missed its trial goal.");
