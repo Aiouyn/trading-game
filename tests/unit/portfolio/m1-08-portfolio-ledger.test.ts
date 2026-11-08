@@ -15,6 +15,7 @@ import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import type { MeTradingBody, OrderDraft } from "@/shell/contracts/channels";
 import { exchangeFeeMinor, fmt, MockFeed, SERVER_QUOTE_POLL_MS, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { openChannel, setFeed, type ChannelStore } from "@/shell/contracts/useChannel";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 const fee = (n: number) => exchangeFeeMinor(n, 3);
 const minor = (s: string) => Math.round(Number(s) * 100);
@@ -139,6 +140,7 @@ describe("M1-08 Portfolio = server ledger at server marks", () => {
     expect(l1.cashCents).toBe(START_CASH_CENTS - 5 * h0 - fee(5 * h0) - 2 * m0 - fee(2 * m0));
     expect(l1.positions.HALC).toEqual({ assetId: "HALC", qty: "5", avgCost: fmt(h0, 2) });
     const { me } = openMe();
+    await serverHalfLoaded();
     await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 50);
     expect(me.get().state).toBe("live");
     expect(shown(me.get().body as MeTradingBody)).toEqual(expected(l1, { HALC: h0, MRDN: m0 }));

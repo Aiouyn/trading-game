@@ -18,6 +18,7 @@ import type { OrderDraft } from "@/shell/contracts/channels";
 import { exchangeFeeMinor, fmt, MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { previewOrder, placeOrder, cancelOrder, parseOrderId, mockTransport, type DayDraft } from "@/shell/contracts/orders";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 const fee = (n: number) => exchangeFeeMinor(n, 3);
 const minor = (s: string) => Math.round(Number(s) * 100);
@@ -368,6 +369,7 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     const meStore = openChannel(feed, "me");
     const ticker = openChannel(feed, "ticker:wl_default");
     expect(meStore.get().state).toBe("loading");
+    await serverHalfLoaded(feed);
     await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 50);
     expect(meStore.get().state).toBe("live");
     expect(meStore.get().body!.balances.FDL).toBe("10000.00");

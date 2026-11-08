@@ -21,7 +21,7 @@ import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import type { MeTradingBody, OrderDraft } from "@/shell/contracts/channels";
 import { exchangeFeeMinor, fmt, MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
-import "@/shell/contracts/serverSync"; // the lazy signed-in half, evaluated up front: fixed fake-clock steps must not race its real module load
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 const fee = (n: number) => exchangeFeeMinor(n, 3);
 
@@ -144,6 +144,7 @@ describe("M2-03 net-worth leaderboard (server)", () => {
     const feed = new MockFeed({ empty: true, seed: 17 }, { authoritativeQuotes: true });
     setFeed(feed);
     const me = openChannel(feed, "me");
+    await serverHalfLoaded(feed);
     await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 50);
     const body = me.get().body as MeTradingBody;
     const meTick = me.get().tick;

@@ -27,6 +27,7 @@ import { MockFeed, SNAP_DELAY_MS, START_TICK, fmt } from "@/shell/contracts/mock
 import { ShockFeed, shockedMinor } from "@/server/market/shockFeed";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 const SEED = PORT_AVALON_MARKET_SEED;
 const minor = (q: TickerBody, id: string) => Math.round(Number(q.rows[id]!.last) * 10 ** ASSET_BY_ID[id]!.displayDecimals);
@@ -225,6 +226,7 @@ describe("M1-09 routes", () => {
     const feed = new MockFeed({ empty: true, seed: SEED }, { authoritativeQuotes: true });
     setFeed(feed);
     const news = openChannel(feed, "news");
+    await serverHalfLoaded(feed);
     await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 50);
     expect(news.get().state).toBe("error");
     mode = "ok";

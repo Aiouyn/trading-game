@@ -15,6 +15,7 @@ import { setFeed, useChannel, getFeed } from "@/shell/contracts/useChannel";
 import { createShellStore } from "@/shell/store";
 import { mockChannels } from "@/shell/mockChannels";
 import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -89,6 +90,7 @@ describe("useChannel feed swap while mounted", () => {
     await act(async () => {
       applySignedInDemo(store, "acc_crash_repro");
     });
+    await serverHalfLoaded();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS);
     });
@@ -138,6 +140,7 @@ describe("useChannel feed swap while mounted", () => {
     await act(async () => {
       vi.advanceTimersByTime(5);
     });
+    await serverHalfLoaded();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS);
     });

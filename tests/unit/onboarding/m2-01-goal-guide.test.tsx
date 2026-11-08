@@ -21,6 +21,7 @@ import { mockChannels, RANK_THRESHOLDS } from "@/shell/mockChannels";
 import { RANK_NAMES } from "@/shell/registry";
 import { createShellStore } from "@/shell/store";
 import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -174,6 +175,7 @@ describe("M2-01/02 goal + first-trade guide", () => {
     applySignedInDemo(store, "acc_pf");
     await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(Overview, { phone: false }))); });
     expect(q("pf-goal")).toBeNull(); // loading
+    await serverHalfLoaded();
     await act(async () => { await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 20); });
     expect(q("pf-overview")!.dataset.state).toBe("error");
     expect(q("pf-goal")).toBeNull();

@@ -16,7 +16,7 @@ import { MockFeed } from "@/shell/contracts/mockFeed";
 import { click, mount, q, setup, teardown, type Harness } from "../17b/br-harness";
 import { ControlledMarket, asMarket } from "./controlledMarket";
 import { portAvalonServer } from "./portAvalonServer";
-import "@/shell/contracts/serverSync"; // the lazy signed-in half, evaluated up front: fixed fake-clock steps must not race its real module load
+import { serverHalfLoaded } from "./serverHalf";
 
 /** Memory store that holds the save carrying `key` (an order's own persist in flight) until the test commits or fails
  *  it; other saves (e.g. a session touch) pass. */
@@ -108,6 +108,7 @@ export function brokerChartEnv(asset = "HALC") {
       const feed = new MockFeed({ empty: true }, { authoritativeQuotes: true });
       env.holdHistory = true;
       await mount(env.h, { context: asset, feed });
+      await serverHalfLoaded(feed);
       await env.poll(1);
       expect(env.release).not.toBeNull();
       await click(q(env.h, "br-chart-toggle")!);
