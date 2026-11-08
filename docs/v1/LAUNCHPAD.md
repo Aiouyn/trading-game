@@ -238,3 +238,74 @@ As built (head recorded in evidence/launchpad/README.md):
   import, or not reusing the first read each fail a test. Existing tests that stepped a fake clock past the signed-in
   half now evaluate serverSync up front (m2-03, the Broker chart helper) or await it (m1-05); no assertion changed.
 
+
+### Book liquidity path, order types and template factors (GK NO-GO B3 at 4c8d4fbe; recorded before code)
+
+**Approved source, exact.** lead-launchpad.md L4 (origin/p10/lp): "Its fills run against the liquidity book account (the
+company-stock path, as `supplyAccount` + NPC book; a fill the book cannot cover is partial, never minted)." "Ecology:
+the token gets the retail-heavy pool weights of the meme template. Graduated tokens show in the Broker like any crypto
+and in Launchpad's Graduated tab." Its code: graduate.ts lists the token with the template def (FROG) and
+`supplyAccount: bookId, bookCashBound: true`; trading.ts clearOrders, for an asset with a supply account: "a company
+stock's fills run against its NPC book only: a book the state does not hold means no float, so nothing fills; a buy takes
+only the float the book holds"; "a bounded book (a Launchpad token, lead-launchpad.md L4) pays for a sell only from the
+cash it holds: the fill is cut to what the book can pay, and the order waits when it cannot pay for any (the book is
+never in overdraft, nothing is minted)"; the limit is checked against the fill price; routeToSupply books the opposite
+side and the commission to the book. So "supplyAccount + NPC book" is one account: the book is the coin's NPC book and
+its only counterparty (no other NPC depth exists on this path in p10 either). L6.2 (the NPC cohort's unwind into the
+book) is a separate item, not this one.
+
+**Premise corrected.** 4c8d4fbe filled at the bare mark, market only, fee to the sink, and called the rest a base
+limit. The p10 path prices every book fill and lets every order type of the engine work against the book. The base
+engine does have the primitives (resting day limits with held cash/units, cancel, the per-tick sweep), so "market only"
+was not a product rule.
+
+**Mapping onto this base (minimum, existing primitives).**
+1. Fill price (p10 tickPrice / halfSpread / impact / marginalImpact, constants copied): mid = the server mark; buy at
+   mid × (1 + h + m), sell at mid × (1 − h − m), floored at 0; h = FROG spreadBps 90 / 2 / 1e4 (volScale 1: this base
+   has no regime or GARCH); m = the marginal impact of the fill's notional at mid over the coin's decayed same-side flow
+   (half-life 360 ticks), impact(n) = impactY 0.8 × σ_daily × √(n / advNotional), σ_daily = the coin's vol / √252,
+   advNotional = FROG's 400e6 (graduate.ts copies it). Integer minor units: a buy price rounds up, a sale down (the book
+   never pays more than the law). Permanent impact (permanentImpactShare 0.5): after the commit, the coin's path moves by
+   sign × log1p(f(before + n) − f(before)), f = 0.5 × impact.
+2. Per-tick cap (maxAdvPerTick 3 × advNotional per side per tick, shared by every account): what fills this tick
+   counts against it; the rest waits (a limit) or is not filled (a market order).
+3. Bounds (bookCashBound): a buy takes at most the book's tokens; a sale is cut to what the book's cash pays at the
+   fill price (up to 4 re-pricings, then cut until it pays); nothing is minted, the book is never below 0.
+4. Commission: the Broker's exchange fee (this base's one fee schedule, taker 3 bp, min $0.10, as for every asset),
+   paid to the book (routeToSupply), not to the sink. Σ player cash + curves' cash + books' cash + sinks stays constant.
+5. Order types "like any crypto" = like any asset of this base's server door: market and limit, day tif; stop types are
+   refused MKT_ORDER_TYPE_UNSUPPORTED for every asset (the base door has none). MKT_MARKET_ONLY is removed.
+   - Market: fills now what bounds 2–3 allow at the priced fill (partial, its fill qty in the ledger); nothing fillable
+     now is MKT_NO_LIQUIDITY. A base market order never rests (every asset), so the unfilled part is not kept; a limit is
+     the order that waits for the book.
+   - Limit: at placement it fills like a market order if the priced fill is within the limit; the rest (or all) rests
+     WORKING/PARTIAL with the base reservation (a buy holds remaining × limit + fee in cents, a sale holds its units).
+     Each server tick the sweep fills resting coin orders against the book, oldest first across all accounts (placed
+     tick, order id), priced and bounded as above, within the limit; a partial fill keeps the rest working. Cancel
+     releases the hold (base door). Day tif: no server expiry for any asset in this base (unchanged).
+6. Template factors (p10 sim.ts shock, FROG loadings through normalizeLoadings: wMarket 0.25, wSector 0, wCrypto 0.75,
+   idio √(1 − 0.625)): the coin's diffusive shock is 0.25 zM + 0.75 zC + idio × t₄. zM = the base index GX's own tick
+   step standardized to unit variance (its uniform walk: step / last / (volBp / 1e4 / √3)), 0 when GX did not step; zC =
+   one standard normal per tick from a new world stream `lp:crypto` shared by every listed coin. GX and every existing
+   asset are read, never redrawn: their paths stay byte-identical. cycleBeta and regime terms are 0 here (no regimes).
+
+**Genuine contradiction (owner product decision, not implemented as a stand-in).** L4: "the token gets the retail-heavy
+pool weights of the meme template." In p10 there is no per-asset pool weight: ecology.ts sizes four global pools
+(POOL_SIZES value 15, trend 1, retail 4.5, pension 7.5) for every asset, and graduate.ts sets none (it copies the FROG
+def). This base has no ecology model at all. Minimum decision: either (a) the L4 ecology line is satisfied by the
+template parameters copied above and has no separate effect in this base, or (b) an ecology port (pools) is a separate
+unit. Nothing is built for it here.
+
+**Acceptance (before code; tests named in the as-built note).**
+1. Multi-holder: a large sale fills only what the book's cash pays at the priced fill (worse than the mark by spread +
+   impact), the next holder's market sale gets MKT_NO_LIQUIDITY or a partial, and its limit sale rests and fills on a
+   later sweep after a buy brings cash to the book.
+2. Limit: placement review/preview valid for a listed coin; marketable part fills, the rest rests with the right hold
+   (dp-8 limit converted to cents); partial sweep fill; cancel releases the hold; a buy never fills above its limit.
+3. Conservation: tokens Σ positions + book = supply; cash Σ ledgers + books + sinks constant; the book never below 0.
+4. Price law exact on a hand fixture (h, m, rounding); the cap binds on a fixture; permanent impact moves the mark only
+   after a successful save.
+5. Factors deterministic per seed; existing assets byte-identical with and without a listed coin; two listed coins
+   share zC.
+6. Rollback (failed save leaves ledger, book, flow and mark unchanged), replay by key, restart (book, flow, resting
+   orders survive; sweep resumes), old saves without `flow` load, public reads never carry positions or orders.
