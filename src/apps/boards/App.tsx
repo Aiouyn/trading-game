@@ -30,7 +30,13 @@ async function readBoard(signal: AbortSignal): Promise<LeaderboardView | null> {
   return parseLeaderboard(await res.json());
 }
 
+/** Built-app root contract (17B CH-08): the body's root carries data-testid=<app id>. `display: contents` (boards.css),
+ *  so the leaderboard below keeps its own box, layout and semantics, and its `leaderboard` test id. */
 export default function BoardsApp() {
+  return <div className="boards" data-testid="boards"><BoardsBody /></div>;
+}
+
+function BoardsBody() {
   const auth = useAuthChrome();
   const store = useShellStore();
   const phone = useShell((s) => viewportOf(s.vw) === "phone");

@@ -1,5 +1,6 @@
 /* Boards (M2-03 net-worth leaderboard). Tokens only. 36 px rows like Positions; numbers mono, tabular, right-aligned.
    No horizontal scroll at 390 px or in the 420 px minimum window: the handle cell ellipsizes, rank and NW never wrap. */
+.boards { display: contents; }
 .lb { container-type: inline-size; display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
 .lb.lb-phone { padding: var(--sp-16); }
 .lb-head { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
