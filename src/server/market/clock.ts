@@ -73,7 +73,8 @@ export class LiveMarket {
     const a = ASSET_BY_ID[assetId];
     if (!a) return;
     const entities = [{ id: assetId, kind: "asset", label: a.ticker }];
-    const base = { kind: "NEWS" as const, entities, tick: item.tick, breaking: false, phase: "realized" as const };
+    // no `phase`: the item causes no price effect of its own (the Wire's "Price effect" section is for stories)
+    const base = { kind: "NEWS" as const, entities, tick: item.tick, breaking: false };
     const wi: WireItem = item.kind === "listing"
       ? { ...base, id: `w-${item.tick}-${assetId}-listed`, headlineKey: "wire.news.coinListed", slots: { coin: a.ticker }, causeEventIds: [`lp-grad:${assetId}`], causeKey: "wire.cause.coin-listed" }
       : {

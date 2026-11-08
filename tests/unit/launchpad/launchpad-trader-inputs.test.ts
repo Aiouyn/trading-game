@@ -158,7 +158,8 @@ describe("on the clock: Wire items name the coin; index stories move it (05 §3.
     m.list(coin, { announce: true }); // once per coin on this clock
     const items = m.wire().items.filter((i) => i.headlineKey === "wire.news.coinListed");
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: "NEWS", slots: { coin: "FROG" }, causeEventIds: ["lp-grad:FROG"], phase: "realized", causeKey: "wire.cause.coin-listed" });
+    expect(items[0]).toMatchObject({ kind: "NEWS", slots: { coin: "FROG" }, causeEventIds: ["lp-grad:FROG"], causeKey: "wire.cause.coin-listed" });
+    expect(items[0]!.phase).toBeUndefined(); // no "Price effect" section: the item moves no price itself
     m.step();
     expect(m.poolInputs("FROG")).toMatchObject({ attention: 1.15, newsSign: 0, mentions: 0.15, regime: "EXPANSION" });
     resetListingsForTests();
@@ -175,7 +176,7 @@ describe("on the clock: Wire items name the coin; index stories move it (05 §3.
     m.step();
     const up = m.wire().items.find((i) => i.headlineKey === "wire.news.coinUp")!;
     expect(up).toMatchObject({ slots: { coin: "FROG" }, causeKey: "wire.cause.coin-move" });
-    expect(Number(up.slots.move)).toBeGreaterThanOrEqual(15);
+    expect(Number(up.slots!.move)).toBeGreaterThanOrEqual(15);
     m.step();
     const i = m.poolInputs("FROG")!;
     expect(i.newsSign).toBe(1);
