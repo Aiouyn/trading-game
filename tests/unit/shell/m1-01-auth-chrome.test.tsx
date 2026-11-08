@@ -12,6 +12,7 @@ import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { setFeed } from "@/shell/contracts/useChannel";
 import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -78,6 +79,7 @@ describe("M1-01 shell auth chrome", () => {
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(StatusStrip)));
     });
+    await serverHalfLoaded();
     await act(async () => { await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 20); await Promise.resolve(); });
     expect(el.querySelector("[data-testid=account-chip]")?.textContent).toBe("qa_player");
     expect(el.querySelector("[data-testid=sign-in-entry]")).toBeNull();

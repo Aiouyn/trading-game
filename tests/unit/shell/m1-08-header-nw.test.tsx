@@ -16,6 +16,7 @@ import { SERVER_QUOTE_POLL_MS, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed"
 import { setFeed } from "@/shell/contracts/useChannel";
 import { mockChannels } from "@/shell/mockChannels";
 import { createShellStore, type ShellStore } from "@/shell/store";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -81,6 +82,7 @@ describe("M1-08 header NW truthfulness", () => {
   const strip = () => el.querySelector("[data-testid=strip-nw]") as HTMLElement;
   async function mount(store: ShellStore) {
     await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(StatusStrip))); });
+    await serverHalfLoaded();
     await settle();
   }
   async function settle(ms = SNAP_DELAY_MS + 50) {

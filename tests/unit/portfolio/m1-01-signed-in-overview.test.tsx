@@ -12,6 +12,7 @@ import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { mockChannels } from "@/shell/mockChannels";
 import { createShellStore } from "@/shell/store";
 import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -42,6 +43,7 @@ describe("M1-01 signed-in Portfolio + Appearance use account demo boundary", () 
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(Overview, { phone: false })));
     });
+    await serverHalfLoaded();
     await act(async () => { await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 20); });
     const text = el.textContent ?? "";
     expect(el.querySelector("[data-testid=pf-hero-nw]")?.textContent).toMatch(/\$10k|10,?000/);

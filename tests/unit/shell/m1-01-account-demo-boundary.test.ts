@@ -14,6 +14,7 @@ import { createShellStore } from "@/shell/store";
 import { mockChannels } from "@/shell/mockChannels";
 import { vi } from "vitest";
 import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 describe("premise: chrome labeling is NOT enough", () => {
   it("observation: guest channels still carry Owner/START_NW (canned educational mock)", () => {
@@ -53,6 +54,7 @@ describe("account demo boundary", () => {
     const feed = getFeed() as MockFeed;
     const bodies: unknown[] = [];
     const off = feed.subscribe("me", (raw) => bodies.push(raw));
+    await serverHalfLoaded(feed);
     await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 5);
     const snap = bodies.find((b) => (b as { t?: string }).t === "snap") as { body: { nw: string; positions: Record<string, unknown>; nwStats?: unknown; balances: Record<string, string> } };
     expect(snap.body.nw).toBe(DEMO_STARTER_NW);

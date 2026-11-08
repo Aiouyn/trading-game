@@ -240,8 +240,10 @@ As built (head recorded in evidence/launchpad/README.md):
   transform cache (a lone file cold failed, the full suite warm passed: m1-06:372 3/3 on a clean archive). Every test
   that drives a signed-in feed on fake time now awaits the explicit readiness `serverHalfLoaded(feed)`
   (tests/unit/helpers/serverHalf.ts: the feed's own memoized `serverSync()` promise) before its first clock step: m1-06,
-  m1-08 portfolio, m1-09 Wire, m2-01 goal guide, m1-01 feed swap, m2-03 board, the Broker chart helper (m1-07); m1-05
-  already awaited it. The static preloads are removed. No assertion, delay, retry or skip changed.
+  m1-08 portfolio, m1-09 Wire, m2-01 goal guide, m1-01 feed swap, m2-03 board, the Broker chart helper (m1-07), and
+  (found by the clean-archive cold per-file scan at b0b6fc7a) m1-01 signed-in overview, m1-01 account/demo boundary,
+  m1-01 auth chrome and the m1-08 header strip; m1-05 already awaited it. The static preloads are removed. No
+  assertion, delay, retry or skip changed.
 
 
 ### Book liquidity path, order types and template factors (GK NO-GO B3 at 4c8d4fbe; recorded before code)
