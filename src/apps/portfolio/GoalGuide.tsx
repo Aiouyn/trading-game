@@ -19,7 +19,7 @@ import "./goalGuide.css";
 export type GuideStage = "start" | "waiting" | "done";
 /** Bring the app's window on this workspace to the front (desktop's Trade layout already has Broker and Wire); open it
  *  only when none is there, so the guide never stacks a second Broker over the first. Phone pushes the app screen. */
-function show(store: ReturnType<typeof useShellStore>, app: "wire" | "broker") {
+function show(store: ReturnType<typeof useShellStore>, app: "wire" | "broker" | "portfolio") {
   const s = store.getState();
   const w = s.local.windows.filter((x) => x.app === app && x.workspace === s.local.activeWorkspace && !x.collapsed).at(-1);
   if (w && viewportOf(s.vw) === "desktop") s.focus(w); else s.open(app);
@@ -58,7 +58,7 @@ export default function GoalGuide({ me, accountId, locale, phone }: { me: MeTrad
   const w = last ? fillWords(locale, last) : null;
   return (
     <section className={`pf-goal${phone ? " pf-phone" : ""}`} data-testid="pf-goal" data-stage={stage} aria-labelledby="pf-goal-h">
-      <h2 id="pf-goal-h" className="pf-goal-title label">{t.title}</h2>
+      <h2 id="pf-goal-h" className="pf-goal-title label" tabIndex={-1}>{t.title}</h2>
       <p className="pf-goal-line" data-testid="pf-goal-line">{t.goal}</p>
       <div className="pf-goal-bar" data-testid="pf-goal-bar" role="progressbar" aria-label={t.progress} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
         <span style={{ width: `${pct}%` }} />
@@ -87,5 +87,31 @@ export default function GoalGuide({ me, accountId, locale, phone }: { me: MeTrad
       )}
       {isHidden === true && <Button size="sm" variant="ghost" data-testid="pf-guide-show" onClick={() => setH(false)}>{t.show}</Button>}
     </section>
+  );
+}
+
+/** M2-02 entry where Portfolio is not on screen: desktop below the Trade layout's width (1024–1263) opens Broker alone.
+ *  BrokerFrame shows it for a signed-in player with a loaded ledger while no Portfolio window is open on this workspace
+ *  (same lazy chunk as the guide). It names the goal only (no figures: the saved NW and progress are in Portfolio) and
+ *  its one button is an explicit request for the guide: it un-hides the guide for this account, brings Portfolio up
+ *  and moves keyboard focus to the goal heading. */
+export function GoalEntry({ accountId, locale }: { accountId: string; locale: string }) {
+  const t = goalStrings(locale);
+  const store = useShellStore();
+  const open = () => {
+    writeHidden(accountId, false);
+    show(store, "portfolio");
+    let n = 0;
+    const tryFocus = () => {
+      const h = [...document.querySelectorAll<HTMLElement>('[data-testid="win-portfolio"] #pf-goal-h')].at(-1);
+      if (h) h.focus(); else if (++n < 40) window.setTimeout(tryFocus, 100);
+    };
+    window.setTimeout(tryFocus, 0);
+  };
+  return (
+    <div className="br-goal" data-testid="br-goal">
+      <p className="br-goal-line" data-testid="br-goal-line"><span className="label">{t.title}</span> {t.goal}</p>
+      <Button size="sm" data-testid="br-goal-open" onClick={open}>{t.openGuide}</Button>
+    </div>
   );
 }

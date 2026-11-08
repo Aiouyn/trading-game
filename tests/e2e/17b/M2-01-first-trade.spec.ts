@@ -108,6 +108,53 @@ test("desktop: goal + guide → Open Broker → waiting order is not done → a 
   }
 });
 
+test("supported desktop 1024 / 1200 / 1263 (Broker alone): Broker names the goal; its keyboard entry opens the guide; 1440 and guests have no entry", async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name !== "desktop", "desktop widths");
+  test.setTimeout(150_000);
+  const stamp = Date.now().toString(36);
+  const guest = await browser.newContext({ viewport: { width: 1200, height: 768 } });
+  try {
+    const g = await guest.newPage();
+    await g.goto("/");
+    await expect(br(g)).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+    await expect(g.getByTestId("br-goal")).toHaveCount(0);
+  } finally { await guest.close(); }
+  for (const width of [1024, 1200, 1263]) {
+    const ctx = await browser.newContext({ viewport: { width, height: 768 } });
+    try {
+      await register(ctx.request, baseURL!, `GdW${width}${stamp}`);
+      const page = await ctx.newPage();
+      await page.goto("/");
+      await expect(br(page)).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+      expect(await page.locator('[data-testid^="win-"]:not([data-testid="win-close"])').evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")))).toEqual(["win-broker"]);
+      await expect(page.getByTestId("br-goal-line")).toHaveText("Your goal Grow your $10,000 to $20,000 (Hustler).", { timeout: 15_000 });
+      const open = page.getByTestId("br-goal-open");
+      const bx = (await open.boundingBox())!;
+      expect(bx.y + bx.height).toBeLessThanOrEqual(768);
+      expect(await page.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.closest("[data-testid]")?.getAttribute("data-testid"), [bx.x + bx.width / 2, bx.y + bx.height / 2])).toBe("br-goal-open");
+      expect(await page.getByTestId("br-goal").evaluate((el) => [el, ...el.querySelectorAll("*")].filter((e) => e.scrollWidth > e.clientWidth + 1).length)).toBe(0);
+      await shot(page, `g05-desktop-${width}-broker-goal`);
+      await open.focus();
+      await page.keyboard.press("Enter");
+      const pfw = page.getByTestId("win-portfolio").first();
+      await expect(pfw.getByTestId("pf-goal")).toHaveAttribute("data-stage", "start", { timeout: 20_000 });
+      await expect(pfw.getByTestId("pf-guide-steps")).toBeVisible();
+      await expect(pfw.getByTestId("pf-goal-now")).toHaveText("Saved net worth now $10,000.00 of $20,000.00");
+      await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe("pf-goal-h");
+      await expect(page.getByTestId("br-goal")).toHaveCount(0); // Portfolio shows the goal now: no second copy
+      await shot(page, `g06-desktop-${width}-guide`);
+    } finally { await ctx.close(); }
+  }
+  const wide = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  try {
+    await register(wide.request, baseURL!, `GdW1440${stamp}`);
+    const page = await wide.newPage();
+    await page.goto("/");
+    await expect(goal(page)).toHaveAttribute("data-stage", "start", { timeout: 20_000 });
+    await expect(page.getByTestId("br-goal")).toHaveCount(0);
+  } finally { await wide.close(); }
+});
+
 test("phone 390 home names the goal and opens the guide; a 520 Portfolio window fits", async ({ browser, baseURL }, info) => {
   test.skip(info.project.name !== "phone", "phone project runs both layouts once");
   test.setTimeout(90_000);

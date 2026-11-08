@@ -24,6 +24,7 @@ const EN = {
   doneSee: "See it in Positions. Prices keep moving: the goal is not guaranteed.",
   hide: "Hide guide",
   show: "Show first-trade guide",
+  openGuide: "Open first-trade guide",
 };
 type GoalStrings = typeof EN;
 
@@ -48,6 +49,7 @@ const FR: GoalStrings = {
   doneSee: "Voyez-le dans Positions. Les cours continuent de bouger\u202F: l’objectif n’est pas garanti.",
   hide: "Masquer le guide",
   show: "Afficher le guide du premier ordre",
+  openGuide: "Ouvrir le guide du premier ordre",
 };
 
 export const goalStrings = (locale: string): GoalStrings => ((locale as PfLocale) === "fr" ? FR : EN);

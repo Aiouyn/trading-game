@@ -15,6 +15,7 @@ import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/cont
 import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
 import { authoritativeQuoteProvenance, getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
+import { GoalSlot } from "@/apps/portfolio/GoalSlot";
 import { PriceChart } from "@/components/market/PriceChart";
 import { AssetHeader } from "./AssetHeader";
 import { AssetPage, ViewSwitch, type BrokerView } from "./AssetPage";
@@ -267,6 +268,7 @@ export function BrokerFrame({ context }: { context?: string }) {
         <div className="br-col br-col-ticket">
           {ack || (phone ? ticket : review || ticket)}
           {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
+          {!phone && <GoalSlot locale={locale} />}{/* M2-02 goal entry where no Portfolio window shows it (desktop 1024–1263) */}
         </div>
         {orders}
       </div>

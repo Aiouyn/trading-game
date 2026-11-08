@@ -5,7 +5,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import GoalGuide, { guideStage, hiddenKey } from "@/apps/portfolio/GoalGuide";
+import GoalGuide, { GoalEntry, guideStage, hiddenKey } from "@/apps/portfolio/GoalGuide";
 import { GOAL_START, GOAL_TARGET, goalProgress } from "@/market/goal";
 import { goalStrings } from "@/apps/portfolio/goalStrings";
 import { Overview } from "@/apps/portfolio/Overview";
@@ -104,6 +104,25 @@ describe("M2-01/02 goal + first-trade guide", () => {
     const ws = store.getState().local.windows;
     expect(ws.filter((w) => w.app === "broker")).toHaveLength(1);
     expect(ws.at(-1)!.app).toBe("broker");
+  });
+
+  it("Broker's goal entry (desktop without Portfolio): names the goal, no figures; its button un-hides the guide for this account and brings Portfolio up", async () => {
+    const store = createShellStore(mockChannels(new URLSearchParams()));
+    store.getState().setViewport(1200, 768);
+    window.localStorage.setItem(hiddenKey("acc_a"), "1");
+    window.localStorage.setItem(hiddenKey("acc_b"), "1");
+    await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(GoalEntry, { accountId: "acc_a", locale: "en" }))); });
+    expect(q("br-goal-line")!.textContent).toBe("Your goal Grow your $10,000 to $20,000 (Hustler).");
+    expect(q("br-goal")!.textContent).not.toMatch(/\d+\.\d\d/); // names the target only; the saved NW is Portfolio's
+    expect(q("br-goal-open")!.tagName).toBe("BUTTON");
+    expect(q("br-goal-open")!.textContent).toBe("Open first-trade guide");
+    const before = store.getState().local.windows.filter((w) => w.app === "portfolio").length;
+    await act(async () => { q("br-goal-open")!.click(); });
+    expect(window.localStorage.getItem(hiddenKey("acc_a"))).toBeNull();
+    expect(window.localStorage.getItem(hiddenKey("acc_b"))).toBe("1");
+    const ws = store.getState().local.windows;
+    expect(ws.filter((w) => w.app === "portfolio")).toHaveLength(before + 1);
+    expect(ws.at(-1)!.app).toBe("portfolio");
   });
 
   it("an open order waits; a fill shows done with the Portfolio fill words; below start says prices can fall", async () => {
