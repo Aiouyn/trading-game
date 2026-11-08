@@ -16,6 +16,7 @@ import { MockFeed } from "@/shell/contracts/mockFeed";
 import { click, mount, q, setup, teardown, type Harness } from "../17b/br-harness";
 import { ControlledMarket, asMarket } from "./controlledMarket";
 import { portAvalonServer } from "./portAvalonServer";
+import "@/shell/contracts/serverSync"; // the lazy signed-in half, evaluated up front: fixed fake-clock steps must not race its real module load
 
 /** Memory store that holds the save carrying `key` (an order's own persist in flight) until the test commits or fails
  *  it; other saves (e.g. a session touch) pass. */

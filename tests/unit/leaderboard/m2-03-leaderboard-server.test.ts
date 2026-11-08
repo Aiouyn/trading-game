@@ -21,6 +21,7 @@ import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import type { MeTradingBody, OrderDraft } from "@/shell/contracts/channels";
 import { exchangeFeeMinor, fmt, MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
+import "@/shell/contracts/serverSync"; // the lazy signed-in half, evaluated up front: fixed fake-clock steps must not race its real module load
 
 const fee = (n: number) => exchangeFeeMinor(n, 3);
 

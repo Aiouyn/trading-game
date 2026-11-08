@@ -7,14 +7,10 @@ import type {
   CoinRow, DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes,
   ServerFrame, TapeBody, TapePrint, TickerBody, TickerRow, TradingState, WireItem,
 } from "./channels";
-import { CANDLE_REV_RE } from "./candleRev";
-import { IntentNotSentOffline, IntentOutcomeUnknown, knownOffline } from "./network";
-import { saveMeSnapshot } from "@/pwa/meSnapshot";
+import { IntentNotSentOffline } from "./network";
+import type { ServerSync } from "./serverSync";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
-import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
-import { parseWireSnapshot, type WireSnapshot } from "@/market/wireSnapshot";
-import { parseBrokerIntentReply, parseBrokerLedger, type BrokerLedgerView } from "@/market/brokerLedger";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { centsOf, heldValueMinor } from "@/market/valuation";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
@@ -32,8 +28,6 @@ export const FEED_TICK_MS = 5000; // spec: 5,000 ms tick; tests use a fake clock
  *  before the channel watchdog (2 ticks + slack) marks quotes stale. This interval does not advance prices. */
 export const SERVER_QUOTE_POLL_MS = 1000;
 /** M1-06: retries of one signed-in place / cancel after a network or 5xx failure, all with the same idempotency key. */
-export const ORDER_SEND_ATTEMPTS = 3;
-export const ORDER_RETRY_MS = 300;
 export const SNAP_DELAY_MS = 40; // mock latency before the first snap (state `loading` until then)
 export const START_TICK = 38 * 720 + 340;
 export const TAPE_KEEP = 200; // keepLast 200 [P]
@@ -196,21 +190,20 @@ type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: 
   | { kind: "partFill"; orderId: string; qty: number } /* ?partFill: the tick after the order rests */;
 
 export class MockFeed {
+  // Members without `private` below that only the feed itself used before are shared with serverSync.ts, the signed-in
+  // network half behind the dynamic import (docs/v1/LAUNCHPAD.md "Signed-in server-sync loading boundary"); no other
+  // caller uses them.
   readonly scenario: Scenario;
   readonly tickMs: number;
   /** True when prices are adopted from the server clock and advance() is a no-op. */
   readonly authoritativeQuotes: boolean;
-  private readonly snapshotAccount: string | null;
+  readonly snapshotAccount: string | null;
   /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
-  private quotesAdopted = false;
+  quotesAdopted = false;
   /** M1-06 signed-in: set once a validated /api/broker/me (or order reply) ledger replaced the constructor `me`. */
-  private ledgerAdopted = false;
+  ledgerAdopted = false;
   /** Signed-in: cash the server holds for working buy limits (spendable = cash − this). */
-  private reservedCash = 0;
-  /** Bumped by every adopted order reply, so a ledger read that started before it cannot roll it back. */
-  private ledgerEpoch = 0;
-  private ledgerPulling = false;
-  private ledgerPullAgain = false;
+  reservedCash = 0;
   tick: number;
   private rand: () => number;
   private extraAssetRandom = new Map<string, () => number>();
@@ -231,35 +224,29 @@ export class MockFeed {
   /** protected: the server clock's ShockFeed (M1-09) moves a price on a story. */
   /** Per-asset quote state. Public only so a coin listed at graduation can be added from outside first-load code (L4, src/market/listings.ts listAsset); nothing else writes it from outside. */
   readonly assets = new Map<string, AssetState>();
-  private cash: number;
-  private lots = new Map<string, Lot>();
-  private orders: Record<string, OpenOrder> = {};
-  private fills: MyFill[] = [];
-  private intents: IntentResult[] = [];
-  private coins: CoinRow[] = [];
-  private news: WireItem[];
+  cash: number;
+  lots = new Map<string, Lot>();
+  orders: Record<string, OpenOrder> = {};
+  fills: MyFill[] = [];
+  intents: IntentResult[] = [];
+  coins: CoinRow[] = [];
+  news: WireItem[];
   private pending: Pending[] = [];
   readonly policy: OrderPolicy;
   readonly historyPolicy: OrderHistoryPolicy;
   /** Closed orders for GET /orders/me (card 8), oldest first: FILLED, CANCELLED, REJECTED. ENGINE-TBD (orderHistory.ts). */
   private closed: OrderHistoryRow[] = [];
   private nextId = 1;
-  private subs = new Set<Sub>();
+  subs = new Set<Sub>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private quoteSync: ReturnType<typeof setInterval> | null = null;
-  private quotePulling = false;
   /** M1-07 signed-in: the server's live bar per `candles:{id}:{res}` channel (GET /api/market/candles). Never computed here. */
-  private serverCandles = new Map<string, Candle>();
-  private candlePulls = new Set<string>();
+  serverCandles = new Map<string, Candle>();
   /** Per candles channel: the server's candle revision (`<epoch>.<n>`) read with the live bar. */
-  private serverRevs = new Map<string, string>();
+  serverRevs = new Map<string, string>();
   private autoStart: boolean;
   /** M1-09 signed-in: the server's Wire (GET /api/wire) replaced the (empty) constructor news; its epoch and tick. */
-  private wireAdopted = false;
-  private wireEpoch: string | null = null;
-  private wireTick = -1;
-  private wirePulling = false;
-  private wirePullAgain = false;
+  wireAdopted = false;
 
   constructor(scenario: Partial<Scenario> = {}, opts: FeedOptions = {}) {
     this.scenario = { ...DEFAULT_SCENARIO, ...scenario };
@@ -330,7 +317,7 @@ export class MockFeed {
     return { ...n, pricedInBand: n.breaking ? "early" : "mid", pricedInAsOf: this.tick }; // as of the mock clock now, so "as of" reads like the top bar
   }
 
-  private settle(): void {
+  settle(): void {
     // Signed-in (M1-06): only the server fills. A stray local intent is dropped, never booked.
     if (this.authoritativeQuotes) { this.pending = []; return; }
     const due = this.pending;
@@ -584,8 +571,8 @@ export class MockFeed {
       // Signed-in: quotes poll /api/market; `me` also needs server marks, and reads its ledger from /api/broker/me.
       if (this.authoritativeQuotes) {
         if (ch.startsWith("ticker:") || ch === "me" || ch === "news") this.startQuoteSync();
-        if (ch === "me") void this.pullLedger();
-        if (ch === "news") void this.pullWire();
+        if (ch === "me") this.srv((s) => s.pullLedger(), () => this.failMe(), () => this.has("me"));
+        if (ch === "news") this.srv((s) => s.pullWire(), () => this.wireFailed(), () => this.has("news"));
       }
       else this.start();
     }
@@ -593,7 +580,7 @@ export class MockFeed {
     // Quote channels on a signed-in feed stay unpublished until /api/market validates.
     // The constructor book is not a server tick. `me` and other private channels still snap.
     const holdQuotes = this.authoritativeQuotes && ((this.isQuoteChannel(ch) && !this.quoteReady(ch)) || (ch === "me" && !this.meReady()) || (ch === "news" && !this.wireAdopted));
-    if (this.authoritativeQuotes && ch.startsWith("candles:") && this.quotesAdopted) void this.pullServerCandle(ch);
+    if (this.authoritativeQuotes && ch.startsWith("candles:") && this.quotesAdopted) this.srv((s) => s.pullServerCandle(ch), undefined, () => this.has(ch));
     if (mode !== "loading" && !holdQuotes) sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
@@ -611,12 +598,12 @@ export class MockFeed {
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
-    if (this.authoritativeQuotes && ch.startsWith("candles:")) void this.pullServerCandle(ch);
-    if (this.authoritativeQuotes && ch.startsWith("ticker:")) void this.pullServerQuotes();
-    if (this.authoritativeQuotes && ch === "news") void this.pullWire();
+    if (this.authoritativeQuotes && ch.startsWith("candles:")) this.srv((s) => s.pullServerCandle(ch));
+    if (this.authoritativeQuotes && ch.startsWith("ticker:")) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed());
+    if (this.authoritativeQuotes && ch === "news") this.srv((s) => s.pullWire(), () => this.wireFailed());
     if (this.authoritativeQuotes && ch === "me") {
-      void this.pullLedger();
-      if (!this.quotesAdopted) void this.pullServerQuotes(); // M1-08: Retry after a failed first quote read reads quotes too
+      this.srv((s) => s.pullLedger(), () => this.failMe());
+      if (!this.quotesAdopted) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed()); // M1-08: Retry after a failed first quote read reads quotes too
     }
     for (const s of this.subs) {
       if (s.ch !== ch) continue;
@@ -624,18 +611,18 @@ export class MockFeed {
       else if (s.sent !== null) this.sendSnap(s);
     }
   }
-  private isQuoteChannel(ch: string): boolean {
+  isQuoteChannel(ch: string): boolean {
     return ch.startsWith("ticker:") || ch.startsWith("book:") || ch.startsWith("tape:") || ch.startsWith("candles:");
   }
 
-  private sendSnap(sub: Sub) {
+  sendSnap(sub: Sub) {
     const body = this.body(sub.ch);
     sub.sent = body;
     this.send(sub, { t: "snap", ch: sub.ch, seq: ++sub.seq, tick: this.tick, body });
   }
-  private send(sub: Sub, f: ServerFrame) { sub.fn(JSON.parse(JSON.stringify(f))); }
+  send(sub: Sub, f: ServerFrame) { sub.fn(JSON.parse(JSON.stringify(f))); }
 
-  private emitTick() {
+  emitTick() {
     for (const sub of this.subs) {
       if (sub.sent === null) continue; // no snap yet (loading / denied / error)
       sub.count += 1;
@@ -645,11 +632,16 @@ export class MockFeed {
         if (phase >= 3) continue;
         if (phase === 0) { this.sendSnap(sub); continue; }
       }
-      const body = this.body(sub.ch);
-      const ops = diffOps(sub.sent, body, RINGS);
-      sub.sent = body;
-      this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
+      this.delta(sub, true);
     }
+  }
+  /** One delta frame: the channel's current body against what this subscriber last got (`empty`: sent even when
+   *  nothing changed, as a tick is). */
+  delta(sub: Sub, empty: boolean): void {
+    const body = this.body(sub.ch), ops = diffOps(sub.sent, body, RINGS);
+    if (!ops.length && !empty) return;
+    sub.sent = body;
+    this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
   }
 
   start(): void {
@@ -664,166 +656,14 @@ export class MockFeed {
     if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
   }
 
-  /**
-   * Replace marks with one server snapshot. Does not draw the price RNG.
-   * A newer tick settles session-local demo intents once. Those fills stay in this feed; nothing here writes the auth ledger.
-   * The same tick re-emits so the channel watchdog stays live between price steps.
-   */
-  adoptAuthoritativeQuotes(raw: unknown): boolean {
-    const snap = parseMarketSnapshot(raw);
-    if (!snap) return false;
-    const next = new Map<string, { last: number; prevClose: number; dayVol: number }>();
-    for (const a of ASSETS) {
-      const row = snap.quotes.rows[a.assetId];
-      if (!row || row.chg === null) return false;
-      const last = parseMinor(row.last, a.displayDecimals);
-      const chg = parseMinor(row.chg, a.displayDecimals);
-      if (last === null || chg === null || last <= 0) return false;
-      const prevClose = last - chg;
-      if (prevClose <= 0) return false;
-      const dayVol = Number(row.vol);
-      if (!Number.isSafeInteger(dayVol) || dayVol < 0) return false;
-      next.set(a.assetId, { last, prevClose, dayVol });
-    }
-    const prevTick = this.tick;
-    for (const [id, n] of next) {
-      const s = this.assets.get(id)!;
-      s.dir = n.last > s.last ? 1 : n.last < s.last ? -1 : 0;
-      s.last = n.last;
-      s.prevClose = n.prevClose;
-      s.dayVol = n.dayVol;
-    }
-    this.tick = snap.tick;
-    this.quotesAdopted = true;
-    if (snap.tick > prevTick) {
-      this.settle();
-      // A new server tick may have filled a working limit: re-read the ledger (M1-06).
-      if ([...this.subs].some((s) => s.ch === "me")) void this.pullLedger();
-      // M1-09: a new server tick may have published a story: re-read the Wire.
-      if ([...this.subs].some((s) => s.ch === "news")) void this.pullWire();
-    }
-    this.emitTick();
-    // First publication is a snap. emitTick only reaches subscribers that already have one.
-    for (const sub of this.subs) {
-      if (this.isQuoteChannel(sub.ch) && sub.sent === null && this.quoteReady(sub.ch)) this.sendSnap(sub);
-      if (sub.ch === "me" && sub.sent === null && this.meReady()) this.sendSnap(sub);
-    }
-    // M1-07: each server read also refreshes the live bar of every open candles channel.
-    for (const ch of new Set([...this.subs].map((x) => x.ch).filter((c) => c.startsWith("candles:")))) void this.pullServerCandle(ch);
-    return true;
-  }
-
   /** A quote channel may publish: server marks adopted, and for candles a server bar received. */
-  private quoteReady(ch: string): boolean {
+  quoteReady(ch: string): boolean {
     if (!this.authoritativeQuotes) return true;
     return this.quotesAdopted && (!ch.startsWith("candles:") || this.serverCandles.has(ch));
   }
 
-  /** Signed-in: the server's bar at the adopted tick for one candles channel, with the server's candle revision
-   *  (`x-candle-rev`); publishes them (snap or delta). Changes to older bars (a closed bar's last sample, a late save's
-   *  volume) are not sent here: the chart that holds the bars fetches everything changed since the revision of its own
-   *  bars (PriceChart), so a change counts as delivered only once it is installed. A failed or malformed read keeps the
-   *  last bar (a long outage reads as stale through the quote watchdog). */
-  private async pullServerCandle(ch: string): Promise<void> {
-    if (!this.authoritativeQuotes || !this.quotesAdopted || this.candlePulls.has(ch)) return;
-    const [, assetId, res] = ch.split(":") as [string, string, CandleRes];
-    if (!ASSET_BY_ID[assetId] || (res !== "tick" && res !== "hour" && res !== "day")) return;
-    const span = res === "tick" ? 1 : res === "hour" ? 30 : 720;
-    const t = this.tick - (this.tick % span);
-    this.candlePulls.add(ch);
-    try {
-      const reply = await this.serverCandleChanges({ assetId, res, from: t, to: t });
-      if (!reply) return;
-      const list = reply.raw && typeof reply.raw === "object" ? (reply.raw as { bars?: unknown }).bars : null;
-      const bar = Array.isArray(list) ? list[list.length - 1] : undefined;
-      if (!isCandle(bar) || bar.t !== t) return;
-      const prev = this.serverCandles.get(ch);
-      const sameHistory = (reply.rev ?? "").split(".")[0] === (this.serverRevs.get(ch) ?? "").split(".")[0];
-      // Within one server history an older reply never replaces a newer bar; a restarted server (new epoch) starts its
-      // own clock and history, possibly at an earlier tick, and replaces the old one.
-      if (prev && prev.t > bar.t && sameHistory) return;
-      if (reply.rev !== null) this.serverRevs.set(ch, reply.rev);
-      this.serverCandles.set(ch, bar);
-      for (const sub of this.subs) {
-        if (sub.ch !== ch) continue;
-        if (sub.sent === null) { if (!sub.snapTimer) this.sendSnap(sub); continue; }
-        const body = this.body(ch as ChannelName);
-        const ops = diffOps(sub.sent, body, RINGS);
-        if (ops.length === 0) continue;
-        sub.sent = body;
-        this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
-      }
-    } catch {
-      // keep the last bar
-    } finally {
-      this.candlePulls.delete(ch);
-    }
-  }
-
-  /** Signed-in history door: GET /api/market/candles (server quote OHLC + executed volume). Raw JSON: history.ts parses it. */
-  serverCandleHistory(req: CandleHistoryReq): Promise<unknown> {
-    const q = new URLSearchParams({ assetId: req.assetId, res: req.res, from: String(req.from), to: String(req.to) });
-    return fetch(`/api/market/candles?${q}`, { cache: "no-store", headers: { accept: "application/json" } })
-      .then((r) => (r.ok ? r.json() : null));
-  }
-
-  /** The same door, read with the reply's `x-candle-rev` (null when absent or malformed); `since` adds every other bar
-   *  changed after that revision. The live pull uses it, and so does the chart catching its bars up. */
-  serverCandleChanges(req: CandleHistoryReq, since?: number): Promise<{ raw: unknown; rev: string | null } | null> {
-    const q = new URLSearchParams({ assetId: req.assetId, res: req.res, from: String(req.from), to: String(req.to) });
-    if (since !== undefined) q.set("since", String(since));
-    return fetch(`/api/market/candles?${q}`, { cache: "no-store", headers: { accept: "application/json" } }).then(async (r) => {
-      if (!r.ok) return null;
-      const h = r.headers.get("x-candle-rev") ?? "";
-      return { raw: await r.json(), rev: CANDLE_REV_RE.test(h) ? h : null };
-    });
-  }
-
-  /** M1-09 signed-in: read the server's Wire. A failed first read errors the news channel (Retry, or the next server
-   *  tick reads again); after one good read the last adopted Wire stays and a long outage reads as stale. */
-  private async pullWire(): Promise<void> {
-    if (!this.authoritativeQuotes) return;
-    if (this.wirePulling) { this.wirePullAgain = true; return; }
-    this.wirePulling = true;
-    try {
-      do {
-        this.wirePullAgain = false;
-        let v: WireSnapshot | null = null;
-        try {
-          const res = await fetch("/api/wire", { cache: "no-store", headers: { accept: "application/json" } });
-          v = res.ok ? parseWireSnapshot(await res.json()) : null;
-        } catch { v = null; }
-        if (v) this.adoptWire(v);
-        else if (!this.wireAdopted) for (const sub of this.subs) if (sub.ch === "news" && sub.sent === null) this.send(sub, { t: "err", ch: "news", code: "INTERNAL" });
-      } while (this.wirePullAgain);
-    } finally {
-      this.wirePulling = false;
-    }
-  }
-
-  /** Replace news with one server Wire reply. Within one epoch an older reply is dropped; a new epoch (restarted
-   *  server) replaces the list with a snap. Nothing here moves a price: the server did, once, at the story's tick. */
-  adoptWire(v: WireSnapshot): boolean {
-    if (!this.authoritativeQuotes) return false;
-    if (this.wireEpoch === v.epoch && v.tick < this.wireTick) return false;
-    const newEpoch = this.wireEpoch !== null && this.wireEpoch !== v.epoch;
-    this.news = v.items;
-    this.wireEpoch = v.epoch;
-    this.wireTick = v.tick;
-    this.wireAdopted = true;
-    for (const sub of this.subs) {
-      if (sub.ch !== "news") continue;
-      if (sub.sent === null || newEpoch) { this.sendSnap(sub); continue; }
-      const body = this.body(sub.ch);
-      const ops = diffOps(sub.sent, body, RINGS);
-      sub.sent = body;
-      if (ops.length) this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
-    }
-    return true;
-  }
-
   /** Signed-in `me` publishes only with a server ledger and server marks, never the constructor state. */
-  private meReady(): boolean {
+  meReady(): boolean {
     return !this.authoritativeQuotes || (this.ledgerAdopted && this.quotesAdopted);
   }
 
@@ -832,137 +672,62 @@ export class MockFeed {
     return this.ledgerAdopted;
   }
 
-  /**
-   * Replace cash, lots, working orders, fills and intents with one server ledger (M1-06). Nothing here prices or fills:
-   * the server did. Marks for `me` still come from the adopted server book.
-   */
-  adoptLedger(raw: unknown): boolean {
-    if (!this.authoritativeQuotes) return false;
-    const v = parseBrokerLedger(raw);
-    if (!v) return false;
-    return this.applyLedger(v);
-  }
-
-  private applyLedger(v: BrokerLedgerView): boolean {
-    const lots = new Map<string, Lot>();
-    for (const p of Object.values(v.positions)) {
-      const a = ASSET_BY_ID[p.assetId];
-      const qty = Number(p.qty), avg = a ? parseMinor(p.avgCost, a.displayDecimals) : null;
-      if (!a || !Number.isSafeInteger(qty) || qty <= 0 || avg === null) return false;
-      lots.set(p.assetId, { qty, avgCost: avg });
-    }
-    this.cash = v.cashCents;
-    this.reservedCash = v.reservedCashCents;
-    this.lots = lots;
-    this.orders = { ...v.orders };
-    this.fills = [...v.fills];
-    this.intents = [...v.intents];
-    this.coins = v.coins as CoinRow[]; // a fresh parsed copy, never mutated
-    this.ledgerAdopted = true;
-    if (this.snapshotAccount) void saveMeSnapshot(this.snapshotAccount, v); // refused unless still the current account
-    for (const sub of this.subs) {
-      if (sub.ch !== "me") continue;
-      if (sub.sent === null) { if (this.meReady()) this.sendSnap(sub); continue; }
-      const body = this.body(sub.ch);
-      const ops = diffOps(sub.sent, body, RINGS);
-      sub.sent = body;
-      this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
-    }
-    return true;
-  }
-
-  private async pullLedger(): Promise<void> {
-    if (!this.authoritativeQuotes) return;
-    if (this.ledgerPulling) { this.ledgerPullAgain = true; return; }
-    this.ledgerPulling = true;
-    try {
-      do {
-        this.ledgerPullAgain = false;
-        const epoch = this.ledgerEpoch;
-        try {
-          const res = await fetch("/api/broker/me", { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json" } });
-          if (res.status === 401 || res.status === 403 || res.status === 409) { this.failMe(); return; }
-          // M1-08: a failed first read says so (error + Retry) instead of a skeleton that never ends; the next server
-          // tick (or Retry) reads again and its snap replaces the error. An adopted ledger is kept as it is.
-          if (!res.ok) { this.failMe(); continue; }
-          const v = parseBrokerLedger(await res.json());
-          if (!v) this.failMe();
-          else if (epoch === this.ledgerEpoch) this.applyLedger(v);
-        } catch {
-          this.failMe(); // network / unreadable reply: same as above; the last adopted ledger stays
-        }
-      } while (this.ledgerPullAgain);
-    } finally {
-      this.ledgerPulling = false;
-    }
-  }
-
   /** Signed out / ledger quarantined / first ledger or quote read failed: `me` errors (only where nothing was shown yet) rather than
    *  showing a ledger the server did not send. */
-  private failMe(): void {
-    for (const sub of this.subs) if (sub.ch === "me" && sub.sent === null) this.send(sub, { t: "err", ch: "me", code: "INTERNAL" });
+  failMe(): void { this.fail("me"); }
+  /** A failed first Wire read: `news` errors where nothing was shown yet (Retry, or the next server tick reads again). */
+  wireFailed(): void { if (!this.wireAdopted) this.fail("news"); }
+  private fail(ch: "me" | "news"): void {
+    for (const sub of this.subs) if (sub.ch === ch && sub.sent === null) this.send(sub, { t: "err", ch, code: "INTERNAL" });
+  }
+  private has(ch: string): boolean {
+    return [...this.subs].some((s) => s.ch === ch);
   }
 
   /** A failed or unreadable quote read. Before the first server book (M1-08), `me` cannot be valued: it errors (Retry)
    *  where nothing was shown yet, and the next good read snaps it. After that the last adopted snapshot stays, and a
    *  long outage lets the channel watchdog mark quotes stale. */
-  private quotesFailed(): void {
+  quotesFailed(): void {
     if (!this.quotesAdopted) this.failMe();
-  }
-
-  /** POST one order intent with one key; retried only on network / 5xx failures, with the same key.
-   *  M2-05: never sent while the browser reports offline (IntentNotSentOffline). Once a request may have left
-   *  (a network error) and the browser then reports offline, retrying stops and the outcome is unknown
-   *  (IntentOutcomeUnknown): the key and the `me` sync settle it; nothing is re-sent on reconnect. */
-  private async sendIntent(path: string, body: Record<string, unknown>): Promise<string> {
-    let maybeSent = false;
-    for (let attempt = 1; attempt <= ORDER_SEND_ATTEMPTS; attempt++) {
-      if (knownOffline()) throw maybeSent ? new IntentOutcomeUnknown() : new IntentNotSentOffline();
-      let res: Response;
-      try {
-        res = await fetch(path, {
-          method: "POST", cache: "no-store", credentials: "same-origin",
-          headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body),
-        });
-      } catch {
-        maybeSent = true;
-        if (attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
-        throw new IntentOutcomeUnknown();
-      }
-      if (res.status >= 500 && attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
-      if (!res.ok) return "";
-      let reply;
-      try { reply = parseBrokerIntentReply(await res.json()); } catch { reply = null; }
-      if (!reply) return "";
-      this.ledgerEpoch += 1;
-      this.applyLedger(reply.ledger);
-      return reply.intentId;
-    }
-    return "";
   }
 
   private startQuoteSync(): void {
     if (this.quoteSync) return;
-    const pull = () => { void this.pullServerQuotes(); };
-    void pull();
+    // The first read starts now, in parallel with the server half's chunk, so the first live quote waits for neither in
+    // turn. Each later read starts in the half. A step that finds the poll stopped (feed swapped, unsubscribed) is dropped.
+    let first: Promise<Response> | undefined = fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
+    first.catch(() => undefined); // read (or dropped) by the half; never an unhandled rejection
+    const pull = () => {
+      const started = first;
+      first = undefined;
+      this.srv((s) => s.pullServerQuotes(started), () => this.quotesFailed(), () => this.quoteSync !== null);
+    };
+    pull();
     this.quoteSync = setInterval(pull, SERVER_QUOTE_POLL_MS);
   }
 
-  private async pullServerQuotes(): Promise<void> {
-    if (!this.authoritativeQuotes || this.quotePulling) return;
-    this.quotePulling = true;
-    try {
-      const res = await fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
-      const raw = res.ok ? await res.json() : null;
-      // L4: coins listed at graduation join the catalog before the read's quotes are adopted (the module loads only once
-      // a read carries listings, never for guests). A ledger read before that could not be valued and is read again.
-      if (raw?.listed && !(await import("@/market/listings")).adoptListed(raw, this, ASSETS, ASSET_BY_ID, WATCHLISTS)) return this.quotesFailed();
-      if (!raw || !this.adoptAuthoritativeQuotes(raw)) this.quotesFailed();
-    } catch {
-      this.quotesFailed();
-    } finally {
-      this.quotePulling = false;
-    }
+  /** Signed-in only: the server half (serverSync.ts), imported once per feed. A failed import is not kept, so the next
+   *  step (poll, Retry, order) imports again. Never called by a guest feed. */
+  serverSync(): Promise<ServerSync> {
+    return (this.sync ??= import("./serverSync").then((m) => new m.ServerSync(this), (e: unknown) => { this.sync = null; throw e; }));
+  }
+  private sync: Promise<ServerSync> | null = null;
+  /** Run one server step once the half is here, if `still()` (the feed still wants it); `failed` when it cannot load. */
+  private srv(step: (s: ServerSync) => unknown, failed: () => void = () => undefined, still: () => boolean = () => true): void {
+    this.serverSync().then((s) => { if (still()) void step(s); }, failed);
+  }
+
+  /** Signed-in history door: GET /api/market/candles (raw JSON; history.ts parses it). */
+  serverCandleHistory(req: CandleHistoryReq): Promise<unknown> {
+    return this.serverSync().then((s) => s.serverCandleHistory(req));
+  }
+  /** The same door with the reply's candle revision; `since` adds every bar changed after it (serverSync.ts). */
+  serverCandleChanges(req: CandleHistoryReq, since?: number): Promise<{ raw: unknown; rev: string | null } | null> {
+    return this.serverSync().then((s) => s.serverCandleChanges(req, since));
+  }
+  /** One order intent POST through the half; if it cannot load, nothing left the page: not sent. */
+  private post(path: string, body: Record<string, unknown>): Promise<string> {
+    return this.serverSync().then((s) => s.sendIntent(path, body), () => { throw new IntentNotSentOffline(); });
   }
 
   // ---- req ops (19 Rule 3.8.5) and HTTP ----
@@ -1067,11 +832,11 @@ export class MockFeed {
           if (d.limit !== undefined) draft.limit = d.limit;
           if (d.stop !== undefined) draft.stop = d.stop;
           submitIntent({ kind: "mkt.order.place", payload: { ...draft } });
-          return this.sendIntent("/api/broker/orders", { idempotencyKey: idempotencyKey(), draft });
+          return this.post("/api/broker/orders", { idempotencyKey: idempotencyKey(), draft });
         },
         cancel: (orderId) => {
           submitIntent({ kind: "mkt.order.cancel", payload: { orderId } });
-          return this.sendIntent("/api/broker/orders/cancel", { idempotencyKey: idempotencyKey(), orderId });
+          return this.post("/api/broker/orders/cancel", { idempotencyKey: idempotencyKey(), orderId });
         },
       };
     }
@@ -1090,14 +855,6 @@ export function idempotencyKey(): string {
   const b = new Uint8Array(16);
   globalThis.crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-}
-
-const DEC_RE = /^\d{1,15}(\.\d{1,8})?$/;
-function isCandle(v: unknown): v is Candle {
-  if (!v || typeof v !== "object") return false;
-  const c = v as Record<string, unknown>;
-  return Number.isSafeInteger(c.t) && (c.t as number) >= 0
-    && [c.o, c.h, c.l, c.c, c.v].every((x) => typeof x === "string" && DEC_RE.test(x));
 }
 
 /** Append-only rings (Q4): diffed to `ins` + `trim`. */

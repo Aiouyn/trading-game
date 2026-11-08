@@ -2,7 +2,8 @@
 // Review / Place) and the order door sends nothing; a request lost in flight is "unknown", never retried once the
 // browser reports offline, and never re-sent on reconnect. Online transient retries are unchanged (m1-06 test).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MockFeed, ORDER_SEND_ATTEMPTS, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
+import { MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
+import { ORDER_SEND_ATTEMPTS } from "@/shell/contracts/serverSync";
 import { placeOrder, cancelOrder, parseOrderId, type DayDraft } from "@/shell/contracts/orders";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
 

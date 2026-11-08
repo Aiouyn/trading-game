@@ -175,19 +175,21 @@ describe("M1-05 authoritative live ticks", () => {
     }
   });
 
-  it("two clients adopt one snapshot; private ledgers stay apart; local advance and local intents do nothing", () => {
+  it("two clients adopt one snapshot; private ledgers stay apart; local advance and local intents do nothing", async () => {
     const market = new LiveMarket();
     market.step();
     const snap = market.snapshot();
     const a = new MockFeed({ empty: true, seed: 17 }, { authoritativeQuotes: true, autoStart: false });
     const b = new MockFeed({ empty: true, seed: 99 }, { authoritativeQuotes: true, autoStart: false });
-    expect(a.adoptAuthoritativeQuotes({ worldId: "other" })).toBe(false);
+    // The signed-in network half (serverSync.ts) loads lazily; these steps run in it.
+    const [sa, sb] = [await a.serverSync(), await b.serverSync()];
+    expect(sa.adoptAuthoritativeQuotes({ worldId: "other" })).toBe(false);
     expect(a.tick).toBe(START_TICK);
-    expect(a.adoptAuthoritativeQuotes(snap)).toBe(true);
-    expect(b.adoptAuthoritativeQuotes(snap)).toBe(true);
+    expect(sa.adoptAuthoritativeQuotes(snap)).toBe(true);
+    expect(sb.adoptAuthoritativeQuotes(snap)).toBe(true);
     const ledger = (cashCents: number) => ({ tick: snap.tick, cashCents, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [], coins: [] });
-    expect(a.adoptLedger(ledger(1_000_000))).toBe(true);
-    expect(b.adoptLedger(ledger(2_500_000))).toBe(true);
+    expect(sa.adoptLedger(ledger(1_000_000))).toBe(true);
+    expect(sb.adoptLedger(ledger(2_500_000))).toBe(true);
     expect(a.body("ticker:wl_default")).toEqual(snap.quotes);
     expect(b.body("ticker:wl_default")).toEqual(snap.quotes);
     expect(a.tick).toBe(snap.tick);
@@ -202,8 +204,8 @@ describe("M1-05 authoritative live ticks", () => {
     a.submit({ assetId: "HALC", side: "BUY", type: "market", qty: "2", tif: "day" });
     market.step();
     const next = market.snapshot();
-    expect(a.adoptAuthoritativeQuotes(next)).toBe(true);
-    expect(b.adoptAuthoritativeQuotes(next)).toBe(true);
+    expect(sa.adoptAuthoritativeQuotes(next)).toBe(true);
+    expect(sb.adoptAuthoritativeQuotes(next)).toBe(true);
     expect(a.body("ticker:wl_default")).toEqual(b.body("ticker:wl_default"));
     expect((a.body("me") as { positions: Record<string, unknown> }).positions.HALC).toBeUndefined();
     expect((a.body("me") as { nw: string }).nw).toBe("10000.00");
