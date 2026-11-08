@@ -16,6 +16,7 @@
 .lpad-coin:focus-visible, .lpad input:focus-visible, .lpad select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .lpad-coin .num, .lpad .num { font-family: var(--font-num); font-feature-settings: "tnum"; white-space: nowrap; text-align: right; }
 .lpad-sub { font-size: var(--fs-12_5); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+p.lpad-sub { white-space: normal; overflow-wrap: anywhere; } /* paragraphs (fee, limits, risk copy) wrap; one-line spans in coin rows still truncate */
 .lpad-panel { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-12); background: var(--win); border: 1px solid var(--line); border-radius: var(--r-input); min-width: 0; }
 .lpad-dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-4) var(--sp-12); margin: 0; }
 .lpad-dl dt { color: var(--fg-muted); }
