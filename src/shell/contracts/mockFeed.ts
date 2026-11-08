@@ -16,7 +16,7 @@ import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
 import { parseWireSnapshot, type WireSnapshot } from "@/market/wireSnapshot";
 import { parseBrokerIntentReply, parseBrokerLedger, type BrokerLedgerView } from "@/market/brokerLedger";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
-import { heldValueMinor } from "@/market/valuation";
+import { centsOf, heldValueMinor } from "@/market/valuation";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
 import { ORDER_HISTORY_POLICY, ORDER_POLICY, type OrderHistoryPolicy, type OrderPolicy } from "./orderPolicy";
@@ -168,8 +168,6 @@ export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number 
   const fee = r > 5_000 || (r === 5_000 && q % 2 === 1) ? q + 1 : q;
   return Math.max(MIN_FEE_MINOR, fee);
 }
-/** The taker fee on a notional: what a market order pays, and the Launchpad book's fee after graduation. */
-export const takerFeeMinor = (notionalMinor: number) => exchangeFeeMinor(notionalMinor, FEE_BP.taker);
 const IMPACT_BP = (qty: number, lot: number) => (lot <= 0 ? 0 : qty <= lot ? 1 : qty <= lot * 5 ? 4 : qty <= lot * 20 ? 12 : 30); // fixed table
 
 type Listener = (raw: unknown) => void;
@@ -231,7 +229,8 @@ export class MockFeed {
     return random;
   }
   /** protected: the server clock's ShockFeed (M1-09) moves a price on a story. */
-  protected assets = new Map<string, AssetState>();
+  /** Per-asset quote state. Public only so a coin listed at graduation can be added from outside first-load code (L4, src/market/listings.ts listAsset); nothing else writes it from outside. */
+  readonly assets = new Map<string, AssetState>();
   private cash: number;
   private lots = new Map<string, Lot>();
   private orders: Record<string, OpenOrder> = {};
@@ -388,7 +387,7 @@ export class MockFeed {
 
   /** One fill: position, cash and `me.fills` (fee at the taker rate [P]; the mock has no maker rate). Returns the fillId. */
   private bookFill(a: AssetFixture, orderId: string, side: OpenOrder["side"], qty: number, px: number, liquidity: MyFill["liquidity"]): string {
-    const fee = takerFeeMinor(px * qty);
+    const fee = exchangeFeeMinor(px * qty, FEE_BP.taker);
     const signed = side === "BUY" ? qty : -qty;
     const lot = nextLot(this.lots.get(a.assetId) ?? null, side, qty, px);
     if (lot === null) this.lots.delete(a.assetId); else this.lots.set(a.assetId, lot);
@@ -524,7 +523,7 @@ export class MockFeed {
   }
   private heldMinor(): number {
     // The shared definition (src/market/valuation.ts), so the leaderboard values a ledger exactly as Portfolio does.
-    return heldValueMinor([...this.lots].map(([assetId, l]) => ({ assetId, qty: l.qty })), (id) => this.assets.get(id)!.last)!;
+    return heldValueMinor([...this.lots].map(([assetId, l]) => ({ assetId, qty: l.qty })), (id) => this.assets.get(id)!.last, (id) => ASSET_BY_ID[id]!.displayDecimals)!;
   }
   /** `?nw=` pin: the FDL cash that keeps nw at the pinned value for the current marks. */
   private pinnedNwMinor(): number | null {
@@ -549,8 +548,8 @@ export class MockFeed {
       // Proposed PF-B fields (server side, so the client never computes): pnlPct = upl / cost, weightPct = value / nw,
       // both percent units with 1 dp, integer maths on minor units.
       const pnlPct = l.avgCost ? fmt(((mark - l.avgCost) * 1000) / l.avgCost, 1) : "0.0";
-      const weightPct = nw > 0 ? fmt((mark * l.qty * 1000) / nw, 1) : "0.0";
-      positions[id] = { assetId: id, qty: String(l.qty), avgCost: fmt(l.avgCost, a.displayDecimals), mark: fmt(mark, a.displayDecimals), value: fmt(mark * l.qty, 2), upl: fmt((mark - l.avgCost) * l.qty, 2), pledgedQty: this.scenario.pledge?.assetId === id ? String(Math.min(this.scenario.pledge.qty, l.qty)) : "0", lentQty: "0", pnlPct, weightPct };
+      const weightPct = nw > 0 ? fmt((centsOf(a.displayDecimals, mark * l.qty) * 1000) / nw, 1) : "0.0";
+      positions[id] = { assetId: id, qty: String(l.qty), avgCost: fmt(l.avgCost, a.displayDecimals), mark: fmt(mark, a.displayDecimals), value: fmt(centsOf(a.displayDecimals, mark * l.qty), 2), upl: fmt(centsOf(a.displayDecimals, (mark - l.avgCost) * l.qty), 2), pledgedQty: this.scenario.pledge?.assetId === id ? String(Math.min(this.scenario.pledge.qty, l.qty)) : "0", lentQty: "0", pnlPct, weightPct };
     }
     const empty = this.scenario.empty;
     // Restricted buckets live inside the FDL balance (so inside nw); untilRealMs = real ms remaining (5 s per tick),
@@ -947,7 +946,11 @@ export class MockFeed {
     this.quotePulling = true;
     try {
       const res = await fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
-      if (!res.ok || !this.adoptAuthoritativeQuotes(await res.json())) this.quotesFailed();
+      const raw = res.ok ? await res.json() : null;
+      // L4: coins the server listed since this page loaded join the catalog first (lazy: only when one is new). A ledger
+      // read before that could not be valued and is read again on the next server tick.
+      if (raw?.listed && !(await import("@/market/listings")).adoptListed(raw.listed, this, { ASSETS, ASSET_BY_ID, WATCHLISTS })) return this.quotesFailed();
+      if (!raw || !this.adoptAuthoritativeQuotes(raw)) this.quotesFailed();
     } catch {
       this.quotesFailed();
     } finally {
@@ -964,18 +967,20 @@ export class MockFeed {
     // Halted stays valid: the preview reads only N-1 public data (Quant E-96 (3)). A sell beyond the holding is invalid.
     const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
     // Signed-in (M1-06): the server door takes market and limit day orders; stop types are not offered there.
-    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit");
-    let valid = wellFormed && !unsupported && !this.oversells(draft);
     const dp = a?.displayDecimals ?? 2;
+    // dp 8 is only a coin listed at graduation (L4): market orders only.
+    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit" || (dp > 2 && draft.type !== "market"));
+    let valid = wellFormed && !unsupported && !this.oversells(draft);
     const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
     const impactBp = valid ? IMPACT_BP(qty, a!.lot) : 0;
-    const impact = Math.round((px * qty * impactBp) / 10_000);
+    const n = centsOf(dp, px * qty, draft.side === "BUY"); // notional in cents (identity at dp 2)
+    const impact = Math.round((n * impactBp) / 10_000);
     const halted = !!a && this.tradingState(a.assetId) === "HALTED";
     // Signed-in: the server's own check (notional + fee within spendable cash), advisory here; the server re-decides.
-    const short = this.authoritativeQuotes && valid && draft.side === "BUY" && px * qty + takerFeeMinor(px * qty) > this.cash - this.reservedCash;
+    const short = this.authoritativeQuotes && valid && draft.side === "BUY" && n + exchangeFeeMinor(n, FEE_BP.taker) > this.cash - this.reservedCash;
     if (short) valid = false;
-    const fee = valid ? exchangeFeeMinor(px * qty, draft.type === "market" && halted ? FEE_BP.auction : FEE_BP.taker) : 0;
-    const gross = valid ? px * qty : 0;
+    const fee = valid ? exchangeFeeMinor(n, draft.type === "market" && halted ? FEE_BP.auction : FEE_BP.taker) : 0;
+    const gross = valid ? n : 0;
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,

@@ -4,6 +4,8 @@
 // the latest committed ledger and its cash / holding checks are atomic with the write.
 import { ASSET_BY_ID, type AssetFixture } from "@/market/catalog";
 import type { BrokerLedgerView } from "@/market/brokerLedger";
+import { isListed } from "@/market/listings";
+import { centsOf } from "@/market/valuation";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
 import { AuthError, type PersistedIntent, type PersistedOpenOrder, type PersistedPosition, type PlayerPrivateRecord } from "@/server/auth/types";
 import { MAX_FILLS, MAX_INTENTS, type PlayerPrivateInput } from "@/server/player/privateState";
@@ -17,7 +19,12 @@ const QTY_RE = /^[1-9]\d{0,8}$/;
 
 export type RejectCode =
   | "MKT_UNKNOWN_ASSET" | "MKT_BAD_QTY" | "MKT_BAD_PRICE" | "MKT_ORDER_TYPE_UNSUPPORTED" | "MKT_HALTED"
-  | "MKT_INSUFFICIENT_BP" | "MKT_NO_LOCATE" | "MKT_TOO_MANY_ORDERS";
+  | "MKT_INSUFFICIENT_BP" | "MKT_NO_LOCATE" | "MKT_TOO_MANY_ORDERS" | "MKT_NO_LIQUIDITY";
+
+/** L4: a listed coin's liquidity book account (cents, tokens), seeded at graduation and owned by no player. Every Broker
+ *  fill on the coin is against it at the server mark: a buy takes tokens from it, a sale takes cash from it, and a fill
+ *  it cannot cover is partial (or refused when nothing fills); no token or cent is minted. */
+export interface BookAccount { readonly cash: number; readonly tokens: number }
 
 export interface IdSource { next(kind: "o" | "x" | "i"): string }
 
@@ -37,7 +44,7 @@ export function quoteFromSnapshot(snap: MarketSnapshot): ServerQuote {
   };
 }
 
-export type Decision = { readonly next: PlayerPrivateInput; readonly result: IntentResult; readonly replayed: boolean };
+export type Decision = { readonly next: PlayerPrivateInput; readonly result: IntentResult; readonly replayed: boolean; readonly book?: BookAccount };
 
 // ---- ledger <-> integer helpers ----
 function integrity(msg: string): never {
@@ -107,12 +114,16 @@ const asInput = (rec: PlayerPrivateRecord): PlayerPrivateInput => ({
   cashCents: rec.cashCents, positions: rec.positions, openOrders: rec.openOrders, fills: rec.fills ?? [], intents: rec.intents ?? [],
 });
 
+/** A fill's notional in cents: price × qty in the asset's minor unit, converted (identity for the dp-2 catalog; a buy of a
+ *  listed coin pays any part of a cent, a sale receives it rounded half up, so the book never pays out more than it has). */
+export const notionalCents = (a: AssetFixture, side: "BUY" | "SELL", qty: number, px: number) => centsOf(a.displayDecimals, px * qty, side === "BUY");
+
 /** Book one fill on the ledger: lot, cash, fills ring. Caller has already checked cash / holdings. */
 function bookFill(
   ledger: PlayerPrivateInput, a: AssetFixture, orderId: string, side: "BUY" | "SELL", qty: number, px: number,
   liquidity: MyFill["liquidity"], tick: number, ids: IdSource,
 ): { next: PlayerPrivateInput; fill: MyFill } {
-  const notional = px * qty, fee = feeOf(notional);
+  const notional = notionalCents(a, side, qty, px), fee = feeOf(notional);
   const cashCents = side === "BUY" ? ledger.cashCents - notional - fee : ledger.cashCents + notional - fee;
   const lot = nextLot(lotOf(ledger.positions[a.assetId]), side, qty, px);
   const positions: Record<string, PersistedPosition> = { ...ledger.positions };
@@ -128,7 +139,7 @@ function bookFill(
  * Decide one place intent. Business refusals are REJECTED results (stored, so a retry gets the same answer); only a
  * reused key with a different request throws (409).
  */
-export function decidePlace(rec: PlayerPrivateRecord, key: string, draft: OrderDraft, quote: ServerQuote, ids: IdSource): Decision {
+export function decidePlace(rec: PlayerPrivateRecord, key: string, draft: OrderDraft, quote: ServerQuote, ids: IdSource, book?: BookAccount): Decision {
   const fingerprint = placeFingerprint(draft);
   const prior = replayOf(rec, key, fingerprint);
   if (prior) return { next: asInput(rec), result: prior, replayed: true };
@@ -145,6 +156,7 @@ export function decidePlace(rec: PlayerPrivateRecord, key: string, draft: OrderD
 
   const a = ASSET_BY_ID[draft.assetId];
   if (!a) return reject("MKT_UNKNOWN_ASSET");
+  if (isListed(a.assetId)) return placeListed(rec, draft, a, quote, ids, book, reject, accept);
   if (draft.type !== "market" && draft.type !== "limit") return reject("MKT_ORDER_TYPE_UNSUPPORTED");
   if (draft.tif !== "day" || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
   if (!QTY_RE.test(draft.qty)) return reject("MKT_BAD_QTY");
@@ -185,6 +197,41 @@ export function decidePlace(rec: PlayerPrivateRecord, key: string, draft: OrderD
     tif: "day", status: "WORKING", placedTick: quote.tick, avgPrice: fmt(0, a.displayDecimals),
   };
   return accept({ ...ledger, openOrders: { ...rec.openOrders, [orderId]: order } }, [`order:${orderId}`]);
+}
+
+/**
+ * L4: one market order on a coin listed at graduation, filled now at the server mark (its meme-template path) against
+ * the coin's book account. Market orders only (no resting order can be reserved against a book other players move).
+ * The fill is the requested qty or what the book can cover (partial); none refuses MKT_NO_LIQUIDITY. The same lot,
+ * fee and fills rules as every other asset (bookFill); the book moves by exactly the cash and tokens the ledger did.
+ */
+function placeListed(
+  rec: PlayerPrivateRecord, draft: OrderDraft, a: AssetFixture, quote: ServerQuote, ids: IdSource, book: BookAccount | undefined,
+  reject: (c: RejectCode) => Decision, accept: (next: PlayerPrivateInput, effects: string[]) => Decision,
+): Decision {
+  if (draft.type !== "market" || draft.tif !== "day" || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
+  if (draft.limit !== undefined) return reject("MKT_BAD_PRICE");
+  if (!QTY_RE.test(draft.qty)) return reject("MKT_BAD_QTY");
+  const last = quote.last(a.assetId);
+  if (last === null || !book) return reject("MKT_UNKNOWN_ASSET");
+  if (!quote.tradable(a.assetId)) return reject("MKT_HALTED");
+  const want = Number(draft.qty);
+  if (!Number.isSafeInteger(last * want)) return reject("MKT_BAD_QTY");
+  const spendable = rec.cashCents - reservedCashCents(rec);
+  const sellable = lotOf(rec.positions[a.assetId])?.qty ?? 0; // no resting orders on a listed coin
+  if (draft.side === "SELL" && want > sellable) return reject("MKT_NO_LOCATE");
+  // What the book can cover: its tokens for a buy; for a sale, the most whose proceeds its cash pays (price × qty never
+  // above its cash in the minor unit, so the half-up cents are not either).
+  const qty = Math.min(want, draft.side === "BUY" ? book.tokens : Math.floor((book.cash * 10 ** (a.displayDecimals - 2)) / last));
+  if (qty <= 0) return reject("MKT_NO_LIQUIDITY");
+  const notional = notionalCents(a, draft.side, qty, last), fee = feeOf(notional);
+  if (notional < 1) return reject("MKT_BAD_QTY"); // worth less than half a cent: nothing to pay or receive
+  if (draft.side === "BUY" && notional + fee > spendable) return reject("MKT_INSUFFICIENT_BP");
+  if (draft.side === "SELL" && rec.cashCents + notional - fee < 0) return reject("MKT_INSUFFICIENT_BP");
+  const { next, fill } = bookFill(asInput(rec), a, ids.next("o"), draft.side, qty, last, "TAKER", quote.tick, ids);
+  const d = accept(next, [`fill:${fill.fillId}`]);
+  const nextBook = draft.side === "BUY" ? { cash: book.cash + notional, tokens: book.tokens - qty } : { cash: book.cash - notional, tokens: book.tokens + qty };
+  return { ...d, book: nextBook };
 }
 
 /** Decide one cancel. Only the caller's own open orders exist here; any other id is "unknown" (ORDER_POLICY Gap 1). */

@@ -1,4 +1,5 @@
 import { assertLocalSingleProcessAuth, jsonResponse } from "@/server/auth";
+import { syncListings } from "@/server/launchpad";
 import { getBroker } from "@/server/broker";
 import { getCandles } from "@/server/market/candles";
 import { getLiveMarket } from "@/server/market/clock";
@@ -29,6 +30,7 @@ export async function GET(request: Request): Promise<Response> {
     return jsonResponse({ error: { code: "BAD_REQUEST", message: "since must be a revision (a whole number)." } }, 400);
   }
   getBroker(); // the same first-read wiring as /api/market: the sweep and the candle volume attach to the clock
+  await syncListings();
   const rec = getCandles(getLiveMarket());
   // Revision read with the bars, synchronously: a fill counted after this reply has a higher revision.
   return jsonResponse({ bars: rec.history(req, since) }, 200, { "x-candle-rev": `${rec.epoch}.${rec.revision}` });

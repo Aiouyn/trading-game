@@ -1,5 +1,6 @@
 import { assertLocalSingleProcessAuth, AuthError, authErrorResponse, getAuthService, jsonResponse, tokenFromRequest } from "@/server/auth";
 import { buildLeaderboard } from "@/server/leaderboard/board";
+import { syncListings } from "@/server/launchpad";
 import { getLiveMarket } from "@/server/market/clock";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export async function GET(request: Request): Promise<Response> {
     const auth = getAuthService();
     const session = await auth.peekSession(tokenFromRequest(request));
     if (!session) throw new AuthError("UNAUTHORIZED", "Not signed in.", 401);
+    await syncListings(); // L4: listed coins are marked like every asset
     const market = getLiveMarket();
     return jsonResponse(await auth.readStandings((rows) => buildLeaderboard(rows, market.snapshot(), session.account.accountId)));
   } catch (err) {

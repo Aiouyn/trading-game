@@ -54,7 +54,9 @@ export class CandleRecorder {
       const row = snap.quotes.rows[a.assetId];
       const px = row ? parseMinor(row.last, a.displayDecimals) : null;
       if (px === null || px <= 0) continue;
-      const per = this.bars.get(a.assetId)!;
+      // An asset listed at run time (L4) gets its bars from its first sample on: nothing before it is invented.
+      let per = this.bars.get(a.assetId);
+      if (!per) this.bars.set(a.assetId, (per = { tick: [], hour: [], day: [] }));
       for (const res of CANDLE_RES) {
         const list = per[res];
         const t = snap.tick - (snap.tick % CANDLE_SPAN[res]);

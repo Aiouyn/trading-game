@@ -1,6 +1,6 @@
 // Shared quote snapshot for the single-process Port Avalon clock (M1-05).
 // The server builds this from one MockFeed. Clients parse it and do not evolve prices themselves.
-import { ASSETS } from "@/market/catalog";
+import { ASSETS, type AssetFixture } from "@/market/catalog";
 import type { TickerBody, TickerRow } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 
@@ -10,6 +10,9 @@ export interface MarketSnapshot {
   readonly tick: number;
   readonly tickMs: number;
   readonly quotes: TickerBody;
+  /** L4 runtime listings (server snapshot; clients read them from the raw reply, src/market/listings.ts). */
+  readonly listVersion?: number;
+  readonly listed?: readonly AssetFixture[];
 }
 
 /** Integer minor units from a decimal price string. Null when the shape does not match `dp`. */

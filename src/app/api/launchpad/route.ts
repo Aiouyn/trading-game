@@ -1,5 +1,5 @@
 import { assertLocalSingleProcessAuth, authErrorResponse, getAuthService, jsonResponse, tokenFromRequest } from "@/server/auth";
-import { getLaunchpad } from "@/server/launchpad";
+import { getLaunchpad, syncListings } from "@/server/launchpad";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,7 @@ export async function GET(request: Request): Promise<Response> {
   try {
     assertLocalSingleProcessAuth();
     const session = await getAuthService().peekSession(tokenFromRequest(request));
+    await syncListings(); // a graduated coin's mark is the listed asset's
     return jsonResponse(await getLaunchpad().view(session));
   } catch (err) {
     return authErrorResponse(err);

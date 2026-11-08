@@ -4,7 +4,8 @@
 // M1-09: each step also publishes that tick's Wire story (src/market/wireStories.ts) and applies its price effect to
 // these quotes once, before the step listeners (resting-order sweep, candles) see the tick. Reads never publish or
 // apply. A restart starts a new epoch: the clock and its stories start again at the first tick (the same seeded replay).
-import { ASSET_BY_ID } from "@/market/catalog";
+import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
+import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
@@ -30,6 +31,8 @@ export class LiveMarket {
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly stepListeners = new Set<() => void>();
   private stories: WireItem[] = [];
+  /** L4 listings on this clock, oldest first (public defs). */
+  private readonly listedDefs: AssetFixture[] = [];
   /** Names this clock's history (new per process / clock), so a client never mixes two runs' stories. */
   readonly epoch = Math.random().toString(36).slice(2, 10) || "0";
 
@@ -85,6 +88,25 @@ export class LiveMarket {
     return structuredClone({ worldId: PORT_AVALON_WORLD_ID, epoch: this.epoch, tick: this.feed.tick, items: this.stories });
   }
 
+  /** L4 listing path: append the def to the catalog (list version + 1) and quote it on this clock from the current tick,
+   *  with its meme-template path. Idempotent: listing the same def again changes nothing. Throws on a def that collides
+   *  with a different asset (never silently replaced). */
+  list(def: AssetFixture): void {
+    if (!appendAsset(def, { ASSETS, ASSET_BY_ID, WATCHLISTS })) throw new Error(`listing ${def.assetId} collides with an existing asset`);
+    if (this.listedDefs.some((d) => d.assetId === def.assetId)) return;
+    this.feed.listMeme(ASSET_BY_ID[def.assetId]!);
+    this.listedDefs.push({ ...def });
+  }
+
+  /** A listed coin's mark now (1e-8 $), or null when this clock has not listed it. */
+  listedMark(assetId: string): number | null {
+    return this.isListed(assetId) ? this.feed.lastMinor(assetId) : null;
+  }
+
+  isListed(assetId: string): boolean {
+    return this.listedDefs.some((d) => d.assetId === assetId);
+  }
+
   /** Run `fn` after every step. Returns the unsubscribe. */
   onStep(fn: () => void): () => void {
     this.stepListeners.add(fn);
@@ -99,6 +121,9 @@ export class LiveMarket {
       tick: this.feed.tick,
       tickMs: this.tickMs,
       quotes,
+      // L4: once a coin is listed, the list version and every listed def, so a client adds them to its catalog before
+      // reading their rows (absent until then: the snapshot is exactly the pre-listing shape).
+      ...(this.listedDefs.length ? { listVersion: listVersion(), listed: this.listedDefs.map((d) => ({ ...d })) } : {}),
     };
   }
 }

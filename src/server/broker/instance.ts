@@ -1,6 +1,7 @@
 import { getAuthService } from "@/server/auth";
 import { getCandles } from "@/server/market/candles";
 import { getLiveMarket } from "@/server/market/clock";
+import { listedDef } from "@/market/listings";
 import { BrokerService } from "./service";
 
 const globalForBroker = globalThis as typeof globalThis & { __portAvalonBroker?: BrokerService };
@@ -11,6 +12,10 @@ export function getBroker(): BrokerService {
     globalForBroker.__portAvalonBroker = new BrokerService({
       auth: getAuthService, market: getLiveMarket,
       onFills: (fills) => getCandles(getLiveMarket()).recordFills(fills),
+      list: (coins) => {
+        const market = getLiveMarket();
+        for (const c of coins) if (!market.isListed(c.ticker)) market.list(listedDef(c.ticker, c.name, c.price));
+      },
     });
   }
   const broker = globalForBroker.__portAvalonBroker;

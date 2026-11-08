@@ -4,6 +4,8 @@ import { AttemptThrottle } from "./throttle";
 import { buildPlayerPrivate, clonePlayerPrivate, type PlayerPrivateInput } from "@/server/player";
 import type { QuarantinedPlayerRow } from "./store";
 import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoinRow, type LpState } from "@/server/launchpad/state";
+import { LP, type Book } from "@/launchpad/rules";
+import type { PersistedPosition } from "./types";
 import {
   AuthError,
   PORT_AVALON_WORLD_ID,
@@ -26,6 +28,10 @@ export interface StandingInput {
   /** Launchpad coins at the indicative liquidation value (cents), read in the same locked step. Only a total. */
   readonly coinCents: number;
 }
+
+/** L4: a graduated coin's public listing inputs (ticker, name, listing price in 1e-8 $). */
+export interface ListedCoin { ticker: string; name: string; price: number }
+const listedOf = (lp: LpState): ListedCoin[] => lp.coins.flatMap((c) => (c.grad ? [{ ticker: c.ticker, name: c.name, price: c.grad.price }] : []));
 
 /** Match T19C session_idle_days / session_max_days defaults (real days). */
 export const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -91,7 +97,33 @@ export class AuthService {
     this.players = new Map(snap.players.map((p) => [p.accountId, p]));
     this.quarantinedPlayers = snap.quarantinedPlayers;
     const lp = parseLaunchpad(snap.launchpad);
-    this.launchpad = lp.ok ? lp : { ok: false, raw: snap.launchpad };
+    this.launchpad = lp.ok && this.supplyHolds(lp.state) ? lp : { ok: false, raw: snap.launchpad };
+  }
+
+  /** L4 cross-store check at load: for each graduated coin, the Broker positions in it across the loaded ledgers plus
+   *  its book's tokens are its whole supply (at most the supply while a ledger is quarantined: its units are unseen). A
+   *  save that breaks this is preserved verbatim and the Launchpad reads 503, never "repaired". */
+  private supplyHolds(lp: LpState): boolean {
+    const partial = this.quarantinedPlayers.length > 0;
+    for (const c of lp.coins) {
+      if (!c.book) continue;
+      let held = c.book.tokens;
+      for (const p of this.players.values()) {
+        const q = p.positions[c.ticker];
+        if (q) held += Number(q.qty);
+      }
+      if (partial ? held > LP.SUPPLY : held !== LP.SUPPLY) return false;
+    }
+    return true;
+  }
+
+  /** L4: the graduated coins' public listing inputs (ticker, name, listing price), for the server clock's listing
+   *  sync. Null while the Launchpad section is unavailable (nothing is listed from a save that is not trusted). */
+  async listedCoins(): Promise<ListedCoin[] | null> {
+    return this.withLock(async () => {
+      await this.ready;
+      return this.launchpad.ok ? listedOf(this.launchpad.state) : null;
+    });
   }
 
   private async persist(): Promise<void> {
@@ -353,11 +385,55 @@ export class AuthService {
     });
   }
 
+  /**
+   * L4: the Broker's write door for a coin listed at graduation. Like updateOwnLedger, and the coin's book account (cash,
+   * tokens) is read and written in the same locked step and the same persist, so a fill moves the player's ledger and
+   * the book together or not at all (a failed save rolls back both). `mutate` returns the next ledger and the next book
+   * (no book: unchanged, e.g. a refusal or a replay). Refuses (503) while the Launchpad section is unavailable.
+   */
+  async updateOwnLedgerWithBook(
+    session: AuthSessionView,
+    ticker: string,
+    mutate: (current: PlayerPrivateRecord, book: Book | undefined) => { next: PlayerPrivateInput; book?: Book },
+    list?: (coins: ListedCoin[]) => void,
+  ): Promise<{ record: PlayerPrivateRecord; coins: LpCoinRow[] }> {
+    return this.withLock(async () => {
+      await this.ready;
+      const lpBefore = this.requireLaunchpad();
+      list?.(listedOf(lpBefore)); // the caller's clock quotes every graduated coin before it decides (one lock turn)
+      const accountId = session.account.accountId;
+      const current = this.requireLedger(accountId);
+      const coin = lpBefore.coins.find((c) => c.ticker === ticker);
+      const out = mutate(clonePlayerPrivate(current), coin?.book ? { ...coin.book } : undefined);
+      const next = buildPlayerPrivate(accountId, out.next);
+      let lpNext = lpBefore;
+      if (out.book) {
+        if (!coin?.book) throw new Error("A book fill on a coin without a book.");
+        const lp = cloneLaunchpad(lpBefore);
+        lp.coins.find((c) => c.ticker === ticker)!.book = { cash: out.book.cash, tokens: out.book.tokens };
+        const parsed = parseLaunchpad(lp);
+        if (!parsed.ok) throw new Error(`Book fill failed its own check: ${parsed.reason}`);
+        lpNext = parsed.state;
+      }
+      this.players.set(accountId, next);
+      this.launchpad = { ok: true, state: lpNext };
+      try {
+        await this.persist();
+      } catch (err) {
+        this.players.set(accountId, current);
+        this.launchpad = { ok: true, state: lpBefore };
+        throw err;
+      }
+      return { record: clonePlayerPrivate(next), coins: coinRows(lpNext, accountId) };
+    });
+  }
+
   /** The caller's own ledger and Launchpad coin rows, read together inside the service lock. */
-  async readOwnLedger(session: AuthSessionView): Promise<{ record: PlayerPrivateRecord; coins: LpCoinRow[] }> {
+  async readOwnLedger(session: AuthSessionView, list?: (coins: ListedCoin[]) => void): Promise<{ record: PlayerPrivateRecord; coins: LpCoinRow[] }> {
     return this.withLock(async () => {
       await this.ready;
       const lp = this.requireLaunchpad();
+      list?.(listedOf(lp));
       const accountId = session.account.accountId;
       return { record: clonePlayerPrivate(this.requireLedger(accountId)), coins: coinRows(lp, accountId) };
     });
@@ -441,7 +517,13 @@ export class AuthService {
       self: PlayerPrivateRecord;
       ledgerOf: (id: string) => PlayerPrivateRecord | null;
       now: number;
-    }) => { result: T; lp?: LpState; cash?: ReadonlyMap<string, number> },
+    }) => {
+      result: T; lp?: LpState; cash?: ReadonlyMap<string, number>;
+      /** L4 graduation: Broker positions granted to these accounts in this same commit (each a new asset for them). */
+      grants?: ReadonlyMap<string, Readonly<Record<string, PersistedPosition>>>;
+      /** Run inside the lock once the commit is saved (the graduation's listing), before any other caller sees it. */
+      after?: () => void;
+    },
   ): Promise<T> {
     return this.withLock(async () => {
       await this.ready;
@@ -457,10 +539,14 @@ export class AuthService {
       if (!out.lp) return out.result;
       const before = new Map<AccountId, PlayerPrivateRecord>();
       const next = new Map<AccountId, PlayerPrivateRecord>();
-      for (const [id, cashCents] of out.cash ?? []) {
+      for (const id of new Set([...(out.cash?.keys() ?? []), ...(out.grants?.keys() ?? [])])) {
         const current = ledgerOf(id);
         if (!current) throw new AuthError("LEDGER_QUARANTINED", "A ledger this trade pays could not be loaded.", 409);
-        next.set(id as AccountId, buildPlayerPrivate(id as AccountId, { ...current, cashCents }));
+        const grant = out.grants?.get(id) ?? {};
+        if (Object.keys(grant).some((k) => Object.hasOwn(current.positions, k))) throw new Error(`grant to ${id} overlaps a position`);
+        next.set(id as AccountId, buildPlayerPrivate(id as AccountId, {
+          ...current, cashCents: out.cash?.get(id) ?? current.cashCents, positions: { ...current.positions, ...grant },
+        }));
         before.set(id as AccountId, this.players.get(id as AccountId)!);
       }
       const nextLp = parseLaunchpad(out.lp);
@@ -473,6 +559,11 @@ export class AuthService {
         for (const [id, r] of before) this.players.set(id, r);
         this.launchpad = { ok: true, state: lpBefore };
         throw err;
+      }
+      try {
+        out.after?.();
+      } catch (err) {
+        console.error("[launchpad] post-commit step failed", err); // saved; the listing sync retries it on the next read
       }
       return out.result;
     });

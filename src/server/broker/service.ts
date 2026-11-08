@@ -2,6 +2,7 @@
 import { AuthError, type AuthService, type AuthSessionView } from "@/server/auth";
 import { newId } from "@/server/auth/crypto";
 import type { LiveMarket } from "@/server/market/clock";
+import type { ListedCoin } from "@/server/auth/service";
 import type { BrokerIntentReply, BrokerLedgerView } from "@/market/brokerLedger";
 import type { MyFill, OrderDraft } from "@/shell/contracts/channels";
 import type { ExecutedFill } from "@/server/market/candles";
@@ -15,6 +16,9 @@ export interface BrokerDeps {
   readonly ids?: IdSource;
   /** M1-07: fills that a committed decision executed (public fields only), for the market's candle volume. */
   readonly onFills?: (fills: readonly ExecutedFill[]) => void;
+  /** L4: list the saved Launchpad's graduated coins on the clock (idempotent), inside the ledger's own lock turn, before
+   *  a read or a decision (src/server/launchpad). */
+  readonly list?: (coins: readonly ListedCoin[]) => void;
 }
 
 /** Fills in `next` that `cur` did not have: the ones this decision executed. */
@@ -43,7 +47,7 @@ export class BrokerService {
 
   async read(session: AuthSessionView): Promise<BrokerLedgerView> {
     this.attach();
-    const { record, coins } = await this.deps.auth().readOwnLedger(session);
+    const { record, coins } = await this.deps.auth().readOwnLedger(session, this.deps.list);
     return ledgerView(record, this.deps.market().snapshot().tick, coins);
   }
 
@@ -53,12 +57,14 @@ export class BrokerService {
     let out: BrokerIntentReply["result"] | null = null;
     let executed: ExecutedFill[] = [];
     const market = this.deps.market();
-    const { record: next, coins } = await this.deps.auth().updateOwnLedger(session, (cur) => {
-      const d = decidePlace(cur, key, draft, quoteFromSnapshot(market.snapshot()), this.ids);
+    // One locked step: the clock lists any graduated coin, then the decision; a listed coin (L4) fills against its book
+    // account, and the ledger and the book commit together (any other asset has no book: the ledger alone changes).
+    const { record: next, coins } = await this.deps.auth().updateOwnLedgerWithBook(session, draft.assetId, (cur, book) => {
+      const d = decidePlace(cur, key, draft, quoteFromSnapshot(market.snapshot()), this.ids, book);
       out = d.result;
       executed = d.replayed ? [] : newFills(cur, d.next);
-      return d.next;
-    });
+      return { next: d.next, ...(d.book ? { book: d.book } : {}) };
+    }, this.deps.list);
     if (!out) throw new AuthError("BAD_REQUEST", "Order was not decided.", 500);
     if (executed.length > 0) this.deps.onFills?.(executed);
     const result: BrokerIntentReply["result"] = out;

@@ -10,10 +10,9 @@
 //
 // Graduation (L4): a buy that reaches the curve's last token is clipped to exactly the tokens left (the old p10 quoteBuy
 // rule: the trader pays only for what fills) and graduates the coin. 1.5% of the raised cash is a sink; the rest and the
-// 200M tokens left of the supply seed a locked book that nobody owns. After graduation the coin trades against that book's
-// own real reserves at constant product (this build's stand-in for the engine listing, see docs/v1/LAUNCHPAD.md
-// "Graduation"), with the Broker's exchange fee as a sink and no creator share.
-import { takerFeeMinor } from "@/shell/contracts/mockFeed";
+// 200M tokens left of the supply seed the coin's liquidity book account, which nobody owns. The coin then leaves the
+// Launchpad: it is listed as a runtime crypto asset on the server clock and trades in the Broker against that book
+// (src/market/listings.ts, src/server/broker; docs/v1/LAUNCHPAD.md "Graduation").
 import { CURVE } from "./curve";
 
 export const LP = {
@@ -86,105 +85,65 @@ export function quoteSell(c: Curve, qty: number): SellQuote {
   return { ok: true, gross, fee, creatorFee: creator, pay, next: { x: x2, sold: c.sold - qty } };
 }
 
-// ---- graduation and the locked book (L4) ----
+// ---- graduation (L4) ----
 
-/** The locked book of a graduated coin: its real cash in cents and its tokens. Nobody owns it. */
-export interface Pool { cash: number; tokens: number }
-/** A coin's market: its curve, and its book once it has graduated (then the curve is frozen and holds nothing). */
-export interface Market extends Curve { pool?: Pool | null }
+/** A graduated coin's liquidity book account: its cash in cents and its tokens. Nobody owns it; Broker fills on the
+ *  listed coin take tokens out of it and pay cash into it (and the reverse), never more than it holds. */
+export interface Book { cash: number; tokens: number }
 
 /** What graduating a curve that has sold its 800M does: the raise, the 1.5% fee (rounded half up) and the book's seed. */
-export function graduationOf(c: Curve): { raise: number; fee: number; pool: Pool } {
+export function graduationOf(c: Curve): { raise: number; fee: number; book: Book } {
   const raise = c.x - LP.X0;
   const fee = Math.floor((raise * LP.GRAD_FEE_BP + 5_000) / 10_000);
-  return { raise, fee, pool: { cash: raise - fee, tokens: LP.POOL_TOKENS } };
+  return { raise, fee, book: { cash: raise - fee, tokens: LP.POOL_TOKENS } };
 }
 
-/** The Broker's exchange fee (taker), the fee of every fill after graduation (L4: engine fills), a sink. */
-export const poolFee = takerFeeMinor;
-// Read off the Broker fee itself, so the copy cannot drift from it: the rate on $10,000 and the minimum on $0.
-export const POOL_FEE_TEXT = `${(takerFeeMinor(1_000_000) / 10_000).toFixed(2)}% (at least $${(takerFeeMinor(0) / 100).toFixed(2)})`;
+/** The listing price (L4 initialPrice = the last curve price) in the listed asset's minor unit, 1e-8 dollars:
+ *  x cents / (Y0 - sold) tokens, rounded half up. */
+export const listPriceMinor = (c: Curve) => Number((BigInt(c.x) * BigInt(2_000_000) / BigInt(LP.Y0 - c.sold) + ONE) / BigInt(2));
 
-export type PoolBuy = { ok: true; tokens: number; fee: number; net: number; next: Pool } | { ok: false; why: QuoteRefusal };
-export type PoolSell = { ok: true; gross: number; fee: number; pay: number; next: Pool } | { ok: false; why: QuoteRefusal };
-
-/** A buy spending `cents` in total against the book: the fee comes off, the rest goes in, tokens come out of the book only. */
-export function quotePoolBuy(p: Pool, cents: number): PoolBuy {
-  if (!Number.isSafeInteger(cents) || cents < LP.MIN_BUY) return { ok: false, why: "MIN" };
-  const fee = poolFee(cents), net = cents - fee;
-  if (net < 1) return { ok: false, why: "TOO_SMALL" };
-  const k = BigInt(p.cash) * BigInt(p.tokens);
-  const t2 = ceilDiv(k, BigInt(p.cash + net));
-  const tokens = p.tokens - Number(t2);
-  if (tokens < 1) return { ok: false, why: "TOO_SMALL" };
-  return { ok: true, tokens, fee, net, next: { cash: p.cash + net, tokens: Number(t2) } };
-}
-
-/** A sale of `qty` tokens to the book, paid from the book's own cash only (constant product: it can always pay). */
-export function quotePoolSell(p: Pool, qty: number): PoolSell {
-  if (!Number.isSafeInteger(qty) || qty < 1) return { ok: false, why: "NONE" };
-  const k = BigInt(p.cash) * BigInt(p.tokens);
-  const c2 = Number(ceilDiv(k, BigInt(p.tokens + qty)));
-  const gross = p.cash - c2;
-  const fee = gross > 0 ? poolFee(gross) : 0;
-  const pay = gross - fee;
-  if (gross < 1 || pay < 1) return { ok: false, why: "TOO_SMALL" };
-  return { ok: true, gross, fee, pay, next: { cash: c2, tokens: p.tokens + qty } };
-}
-
-/** One quote in the coin's current mode, in one shape for the ticket, the review and the server. `cents` is what a buy
- *  costs or a sale pays; `gross` the notional before the fee; `after` the market after the fill. */
+/** One curve quote in one shape for the ticket, the review and the server. `cents` is what a buy costs or a sale pays;
+ *  `gross` the notional before the fee; `after` the curve after the fill. */
 export type Quote =
-  | { ok: true; mode: "curve" | "pool"; side: "buy" | "sell"; tokens: number; cents: number; gross: number; fee: number; creatorFee: number; graduates: boolean; after: Market }
+  | { ok: true; side: "buy" | "sell"; tokens: number; cents: number; gross: number; fee: number; creatorFee: number; graduates: boolean; after: Curve }
   | { ok: false; why: QuoteRefusal };
-export function quote(m: Market, side: "buy" | "sell", amount: number): Quote {
-  if (m.pool) {
-    const pool = m.pool;
-    if (side === "buy") {
-      const q = quotePoolBuy(pool, amount);
-      return q.ok ? { ok: true, mode: "pool", side, tokens: q.tokens, cents: amount, gross: q.net, fee: q.fee, creatorFee: 0, graduates: false, after: { x: m.x, sold: m.sold, pool: q.next } } : q;
-    }
-    const q = quotePoolSell(pool, amount);
-    return q.ok ? { ok: true, mode: "pool", side, tokens: amount, cents: q.pay, gross: q.gross, fee: q.fee, creatorFee: 0, graduates: false, after: { x: m.x, sold: m.sold, pool: q.next } } : q;
-  }
+export function quote(m: Curve, side: "buy" | "sell", amount: number): Quote {
   if (side === "buy") {
     const q = quoteBuy(m, amount);
-    return q.ok ? { ok: true, mode: "curve", side, tokens: q.tokens, cents: q.spend, gross: q.net, fee: q.fee, creatorFee: q.creatorFee, graduates: q.graduates, after: q.next } : q;
+    return q.ok ? { ok: true, side, tokens: q.tokens, cents: q.spend, gross: q.net, fee: q.fee, creatorFee: q.creatorFee, graduates: q.graduates, after: q.next } : q;
   }
   const q = quoteSell(m, amount);
-  return q.ok ? { ok: true, mode: "curve", side, tokens: amount, cents: q.pay, gross: q.gross, fee: q.fee, creatorFee: q.creatorFee, graduates: false, after: q.next } : q;
+  return q.ok ? { ok: true, side, tokens: amount, cents: q.pay, gross: q.gross, fee: q.fee, creatorFee: q.creatorFee, graduates: false, after: q.next } : q;
 }
 
 /**
- * Indicative value of a holding (old p10 L8.1: holdings count at liquidation, not at spot): what selling all `qty` alone,
- * now, would pay after the fee and the price impact, against the curve before graduation and against the book after; 0
- * when it is too small to sell. Not a quote: other trades move the price (a real sale keeps its own 5% review floor).
+ * Indicative value of a curve holding (old p10 L8.1: holdings count at liquidation, not at spot): what selling all `qty`
+ * alone, now, would pay after the fee and the price impact; 0 when it is too small to sell. Not a quote: other trades
+ * move the price (a real sale keeps its own 5% review floor). A graduated coin has no Launchpad holdings (they became
+ * Broker positions, valued at the server mark).
  */
-export function liquidationCents(m: Market, qty: number): number {
-  if (m.pool) { const q = quotePoolSell(m.pool, qty); return q.ok ? q.pay : 0; }
+export function liquidationCents(m: Curve, qty: number): number {
   const q = quoteSell(m, qty);
   return q.ok ? q.pay : 0;
 }
 
-/** Tokens a buy could still take before the curve has sold its 800M (0 once graduated). */
-export const curveLeft = (c: Market) => (c.pool ? 0 : LP.Y0 - c.sold - LP.GRAD_Y);
+/** Tokens a buy could still take before the curve has sold its 800M. */
+export const curveLeft = (c: Curve) => LP.Y0 - c.sold - LP.GRAD_Y;
 
-/** The spot price in cents per token: the curve's before graduation, the book's after. */
-export const spotCents = (m: Market) => (m.pool ? m.pool.cash / m.pool.tokens : m.x / (LP.Y0 - m.sold));
+/** The curve's spot price in cents per token. */
+export const spotCents = (m: Curve) => m.x / (LP.Y0 - m.sold);
 
 /** The spot price in dollars, as text with four significant digits ("$0.00001398"). */
-export function priceText(m: Market): string {
+export function priceText(m: Curve): string {
   const p = spotCents(m) / 100;
   return `$${p.toPrecision(4).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")}`;
 }
 
 /** Market cap in cents at the spot price (price × 1B supply), rounded down. */
-export const marketCapCents = (m: Market) => (m.pool
-  ? Number((BigInt(m.pool.cash) * BigInt(LP.SUPPLY)) / BigInt(m.pool.tokens))
-  : Number((BigInt(m.x) * BigInt(LP.SUPPLY)) / BigInt(LP.Y0 - m.sold)));
+export const marketCapCents = (m: Curve) => Number((BigInt(m.x) * BigInt(LP.SUPPLY)) / BigInt(LP.Y0 - m.sold));
 
 /** Price impact of a fill in basis points: how far the spot price moves. */
-export function impactBp(m: Market, next: Market): number {
+export function impactBp(m: Curve, next: Curve): number {
   const p0 = spotCents(m), p1 = spotCents(next);
   return Math.round((Math.abs(p1 - p0) / p0) * 10_000);
 }

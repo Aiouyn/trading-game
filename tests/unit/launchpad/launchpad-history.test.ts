@@ -65,7 +65,7 @@ describe("Launchpad price/volume history", () => {
     const m = modelOf(parseHistory(h, "FROG")!);
     expect(m.fromLaunch).toBe(true);
     expect(m.gap).toBeNull();
-    expect(m.steps).toEqual([{ n: 0, kind: "launch", market: "curve", atMs: h.createdAtMs, price: spot(LP.X0, 0), cents: 0, tokens: 0, trade: 0 }]);
+    expect(m.steps).toEqual([{ n: 0, kind: "launch", atMs: h.createdAtMs, price: spot(LP.X0, 0), cents: 0, tokens: 0 }]);
     expect(priceStr(m.steps[0]!.price)).toBe("$0.00001398"); // the review's starting price
   });
 
@@ -187,23 +187,23 @@ describe("Launchpad price/volume history", () => {
     expect(c.hist!.pts).toHaveLength(LP.HIST_KEEP);
     expect(c.hist!.dropped).toBe(7);
     expect(c.hist!.pts[0]!.tick).toBe(7);
-    const m = modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 7, pts: c.hist!.pts, grad: null });
+    const m = modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 7, pts: c.hist!.pts });
     expect(m.fromLaunch).toBe(false);
     expect(m.steps).toHaveLength(LP.HIST_KEEP);
   });
 
   it("the price line is steps only (H/V, no diagonal), each price held to the next trade and the newest to the right edge", () => {
     const pts = [1, 2, 3].map((i) => ({ tick: i, atMs: 1 + i, side: "buy" as const, tokens: 5, cents: 100 * i, x: LP.X0 + 1000 * i, sold: 5 * i }));
-    const m = modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, pts, grad: null });
+    const m = modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, pts });
     const d = stepPath(m);
     expect(d).toMatch(/^M8 [\d.]+(H[\d.]+V[\d.]+){3}H592$/);
     expect(d.endsWith(`H${W - 8}`)).toBe(true);
     expect(stepAt(xOf(2, 4), 4)).toBe(2);
-    expect(modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, pts: [], grad: null }).steps).toHaveLength(1);
+    expect(modelOf({ ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, pts: [] }).steps).toHaveLength(1);
   });
 
   it("the client drops a reply for another coin and malformed replies", () => {
-    const ok = { ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, grad: null, pts: [{ tick: 1, atMs: 2, side: "buy", tokens: 5, cents: 100, x: LP.X0 + 99, sold: 5 }] };
+    const ok = { ticker: "FROG", createdAtMs: 1, startX: LP.X0, since: 1, dropped: 0, pts: [{ tick: 1, atMs: 2, side: "buy", tokens: 5, cents: 100, x: LP.X0 + 99, sold: 5 }] };
     expect(parseHistory(ok, "FROG")).not.toBeNull();
     expect(parseHistory(ok, "TOAD")).toBeNull();
     expect(parseHistory({ ...ok, pts: [{ ...ok.pts[0], side: "hold" }] }, "FROG")).toBeNull();

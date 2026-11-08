@@ -8,7 +8,7 @@ import History from "@/apps/launchpad/History";
 import { LP } from "@/launchpad/rules";
 
 const pt = (i: number, side: "buy" | "sell" = "buy") => ({ tick: i, atMs: 1_000 + i, side, tokens: 10 + i, cents: 100 * (i + 1), x: LP.X0 + 100 * (i + 1), sold: 10 * (i + 1) });
-const body = (pts: unknown[]) => ({ ticker: "FROG", createdAtMs: 1_000, startX: LP.X0, since: 1_000, dropped: 0, pts, grad: null });
+const body = (pts: unknown[]) => ({ ticker: "FROG", createdAtMs: 1_000, startX: LP.X0, since: 1_000, dropped: 0, pts });
 const reply = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
 
 let root: Root, host: HTMLDivElement;
@@ -44,7 +44,7 @@ describe("Launchpad history chart", () => {
     expect(q("lp-hist-readout")!.textContent).toContain("Trade 2 of 2");
     expect(q("lp-hist-readout")!.textContent).toContain("Sell 11 · Volume $2.00");
     act(() => { plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })); });
-    expect(q("lp-hist-readout")!.textContent).toMatch(/^Launch · .* · Price after \$0\.00001398 \(curve\) · no trade$/);
+    expect(q("lp-hist-readout")!.textContent).toMatch(/^Launch · .* · Price after \$0\.00001398 · no trade$/);
     act(() => { plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); });
     expect(q("lp-hist-readout")!.textContent).toContain("Trade 1 of 2");
     const rows = host.querySelectorAll('[data-testid="lp-hist-table"] tbody tr');

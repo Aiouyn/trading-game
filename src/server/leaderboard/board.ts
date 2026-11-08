@@ -26,7 +26,7 @@ export function buildLeaderboard(inputs: readonly StandingInput[], snap: MarketS
   const mark = snapshotMark(snap);
   const valued = inputs.flatMap((p) => {
     // Launchpad coins at the same indicative liquidation value Portfolio adds; only the total, never the holdings.
-    const nw = netWorthMinor(p.cashCents, p.positions, mark);
+    const nw = netWorthMinor(p.cashCents, p.positions, mark, (id) => ASSET_BY_ID[id]?.displayDecimals ?? 2);
     return nw === null ? [] : [{ p, nw: nw + p.coinCents }];
   });
   valued.sort((a, b) => b.nw - a.nw || (a.p.handleKey < b.p.handleKey ? -1 : a.p.handleKey > b.p.handleKey ? 1 : a.p.accountId < b.p.accountId ? -1 : 1));

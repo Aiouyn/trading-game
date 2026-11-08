@@ -1,4 +1,5 @@
 import { assertLocalSingleProcessAuth, jsonResponse } from "@/server/auth";
+import { syncListings } from "@/server/launchpad";
 import { getBroker } from "@/server/broker";
 import { getLiveMarket } from "@/server/market/clock";
 
@@ -13,5 +14,6 @@ export const dynamic = "force-dynamic";
 export async function GET(): Promise<Response> {
   assertLocalSingleProcessAuth();
   getBroker();
+  await syncListings(); // L4: graduated coins are quoted from the first read after a start
   return jsonResponse(getLiveMarket().snapshot());
 }
