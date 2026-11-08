@@ -12,6 +12,7 @@ import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
 import { loadLocal, queueSave } from "@/shell/persist";
 import { initLoader } from "@/shell/loader";
+import { registerServiceWorker } from "@/pwa/register";
 import { LoadState } from "./LoadState";
 import { createShellStore } from "@/shell/store";
 import { viewportOf } from "@/shell/wm";
@@ -187,6 +188,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     let live = true;
     docBoot ??= (() => {
       initLoader(store, new URLSearchParams(query));
+      registerServiceWorker(); // M2-05: offline fallback + installability (production only)
       return loadLocal(ACCOUNT).then((saved) => {
         if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
         // A new account starts in the Trade layout (17 §3.2.5), desktop only.

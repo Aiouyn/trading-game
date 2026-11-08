@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0B0D10">
+<title>Quay · Offline</title>
+<link rel="icon" href="/quay-icon.svg" type="image/svg+xml">
+<!-- M2-05: static offline screen, served by /sw.js only when a navigation cannot reach the network. It holds no
+     prices, balances or account data, and it never reloads by itself. -->
+<style>
+  /* Colours: tokens.css ink-brass (--bg0, --fg, --fg-muted, --line, --steel, --gain, --acc). */
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #0B0D10; color: #ECE9E2;
+    font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { width: 100%; max-width: 440px; }
+  .mark { display: flex; align-items: center; gap: 10px; color: #9AA0A8; font-size: 14px; }
+  .mark img { width: 40px; height: 40px; border-radius: 8px; }
+  h1 { margin: 24px 0 8px; font-size: 28px; font-weight: 400; line-height: 1.2; }
+  p { margin: 0 0 16px; color: #9AA0A8; }
+  .status { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 20px; padding: 6px 12px; border: 1px solid #262B33;
+    border-radius: 999px; font-size: 14px; color: #ECE9E2; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #7C8A99; }
+  .online .dot { background: #3FD1B0; }
+  button { min-height: 44px; padding: 0 20px; border: 1px solid #ECE9E2; border-radius: 8px; background: transparent; color: #ECE9E2;
+    font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid #C9A45C; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark"><img src="/quay-icon.svg" alt=""><span>Quay · Port Avalon</span></div>
+  <h1>You're offline</h1>
+  <p>Quay needs a connection for live prices, your balances and orders. This screen shows none of them.</p>
+  <p>Nothing is sent or queued while you're offline. Orders can only be placed when you're back online.</p>
+  <div class="status" id="status" role="status" data-testid="offline-status"><span class="dot" aria-hidden="true"></span><span id="status-text">Offline · no connection</span></div>
+  <div><button type="button" id="reload" data-testid="offline-reload">Try again</button></div>
+</main>
+<script>
+  // This page is only shown because a navigation could not reach Quay, so it starts "Offline" whatever
+  // navigator.onLine says. It asks Quay's server for the public manifest (no cookies, not cached) on load, when the
+  // browser reports a connection, and every 10 s; when that answers it says so. It never reloads by itself.
+  (function () {
+    var box = document.getElementById("status"), text = document.getElementById("status-text"), btn = document.getElementById("reload");
+    function show(on) {
+      box.className = on ? "status online" : "status";
+      text.textContent = on ? "Back online · reload to continue" : "Offline · no connection";
+      btn.textContent = on ? "Reload Quay" : "Try again";
+    }
+    function probe() {
+      fetch("/manifest.webmanifest?reachable=" + Date.now(), { cache: "no-store", credentials: "omit" })
+        .then(function (r) { show(r.ok); }, function () { show(false); });
+    }
+    window.addEventListener("online", probe);
+    window.addEventListener("offline", function () { show(false); });
+    setInterval(probe, 10000);
+    btn.addEventListener("click", function () { location.reload(); });
+    show(false);
+    probe();
+  })();
+</script>
+</body>
+</html>
