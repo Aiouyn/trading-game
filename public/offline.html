@@ -31,7 +31,7 @@
 <body>
 <main>
   <div class="mark"><img src="/quay-icon.svg" alt=""><span>Quay · Port Avalon</span></div>
-  <h1>You're offline</h1>
+  <h1 id="heading">You're offline</h1>
   <p>Quay needs a connection for live prices, your balances and orders. This screen shows none of them.</p>
   <p>Nothing is sent or queued while you're offline. Orders can only be placed when you're back online.</p>
   <div class="status" id="status" role="status" data-testid="offline-status"><span class="dot" aria-hidden="true"></span><span id="status-text">Offline · no connection</span></div>
@@ -42,11 +42,13 @@
   // navigator.onLine says. It asks Quay's server for the public manifest (no cookies, not cached) on load, when the
   // browser reports a connection, and every 10 s; when that answers it says so. It never reloads by itself.
   (function () {
-    var box = document.getElementById("status"), text = document.getElementById("status-text"), btn = document.getElementById("reload");
+    var box = document.getElementById("status"), text = document.getElementById("status-text"), btn = document.getElementById("reload"), head = document.getElementById("heading");
     function show(on) {
       box.className = on ? "status online" : "status";
       text.textContent = on ? "Back online · reload to continue" : "Offline · no connection";
       btn.textContent = on ? "Reload Quay" : "Try again";
+      head.textContent = on ? "You're back online" : "You're offline";
+      document.title = on ? "Quay · Back online" : "Quay · Offline";
     }
     function probe() {
       fetch("/manifest.webmanifest?reachable=" + Date.now(), { cache: "no-store", credentials: "omit" })

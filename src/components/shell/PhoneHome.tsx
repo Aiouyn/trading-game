@@ -155,6 +155,7 @@ function StatusBar() {
   const clock = useShell((s) => s.channels.clock);
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
+  const offline = useShell((s) => s.channels.system.offline);
   const nw = useNwReading();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
@@ -185,7 +186,7 @@ function StatusBar() {
         <Glyph name="quay" size={20} />
       </button>
       <span className="num clock">{clockText}</span>
-      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
+      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />
       <HaltChip halted={halted} />
       {signedIn ? (
         <button type="button" className="chip chip-acc sb-account" data-testid="account-chip" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>

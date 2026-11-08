@@ -8,6 +8,7 @@ import type {
   ServerFrame, TapeBody, TapePrint, TickerBody, TickerRow, TradingState, WireItem,
 } from "./channels";
 import { CANDLE_REV_RE } from "./candleRev";
+import { IntentNotSentOffline, IntentOutcomeUnknown, knownOffline } from "./network";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
@@ -892,9 +893,14 @@ export class MockFeed {
     if (!this.quotesAdopted) this.failMe();
   }
 
-  /** POST one order intent with one key; retried only on network / 5xx failures, with the same key. */
+  /** POST one order intent with one key; retried only on network / 5xx failures, with the same key.
+   *  M2-05: never sent while the browser reports offline (IntentNotSentOffline). Once a request may have left
+   *  (a network error) and the browser then reports offline, retrying stops and the outcome is unknown
+   *  (IntentOutcomeUnknown): the key and the `me` sync settle it; nothing is re-sent on reconnect. */
   private async sendIntent(path: string, body: Record<string, unknown>): Promise<string> {
+    let maybeSent = false;
     for (let attempt = 1; attempt <= ORDER_SEND_ATTEMPTS; attempt++) {
+      if (knownOffline()) throw maybeSent ? new IntentOutcomeUnknown() : new IntentNotSentOffline();
       let res: Response;
       try {
         res = await fetch(path, {
@@ -902,8 +908,9 @@ export class MockFeed {
           headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body),
         });
       } catch {
+        maybeSent = true;
         if (attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
-        return "";
+        throw new IntentOutcomeUnknown();
       }
       if (res.status >= 500 && attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
       if (!res.ok) return "";

@@ -8,6 +8,10 @@ import { applyOps } from "./delta";
 import { PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 import { MockFeed, scenarioFromQuery } from "./mockFeed";
 import { bodySchema, parseFrame } from "./schema";
+import { knownOffline, onNetworkChange } from "./network";
+
+/** Re-exported for apps that may only read the channel contract (BR-4-03): the browser reports offline. */
+export { knownOffline };
 
 /** What a channel subscription exposes. `denied` and `error` never carry a body or an entity hint (CH-03). */
 export type ChannelView<B> =
@@ -39,6 +43,14 @@ export function openChannel<C extends ChannelName>(feed: FeedTransport, ch: C, n
   const set = (v: ChannelView<B>) => { view = v; fns.forEach((f) => f()); };
   const schema = bodySchema(ch);
   const resync = () => { if (view.state === "live") set({ ...view, state: "stale" }); feed.resync(ch); };
+  // M2-05: while the browser reports offline nothing shown is live, whatever frames still arrive (the mock clock
+  // keeps emitting): the view stays `stale` (Broker freezes Review / Place, panes say Updating…). Back online, a fresh
+  // snap is requested and the next frame makes it live again.
+  const live = () => (knownOffline() ? "stale" : "live") as "live" | "stale";
+  const offNet = onNetworkChange(() => {
+    if (knownOffline()) { if (view.state === "live") set({ ...view, state: "stale" }); }
+    else feed.resync(ch);
+  });
 
   const onRaw = (raw: unknown) => {
     let f;
@@ -46,13 +58,13 @@ export function openChannel<C extends ChannelName>(feed: FeedTransport, ch: C, n
     if (f.ch !== ch) return;
     lastAt = now();
     if (f.t === "err") return set({ state: f.code === "CHANNEL_DENIED" ? "denied" : "error", body: null, tick: null });
-    if (f.t === "snap") { seq = f.seq; return set({ state: "live", body: f.body as B, tick: f.tick }); }
+    if (f.t === "snap") { seq = f.seq; return set({ state: live(), body: f.body as B, tick: f.tick }); }
     if (view.state !== "live" && view.state !== "stale") return; // delta before any snap: ignore
     if (f.seq !== seq + 1) return resync(); // gap
     try {
       const body = schema(applyOps(view.body, f.ops)) as B;
       seq = f.seq;
-      set({ state: "live", body, tick: f.tick });
+      set({ state: live(), body, tick: f.tick });
     } catch { resync(); }
   };
   const unsub = feed.subscribe(ch, onRaw);
@@ -62,7 +74,7 @@ export function openChannel<C extends ChannelName>(feed: FeedTransport, ch: C, n
   return {
     get: () => view,
     listen: (fn) => { fns.add(fn); return () => { fns.delete(fn); }; },
-    close: () => { clearInterval(watchdog); unsub(); fns.clear(); },
+    close: () => { clearInterval(watchdog); offNet(); unsub(); fns.clear(); },
   };
 }
 

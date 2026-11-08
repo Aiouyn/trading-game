@@ -32,6 +32,7 @@ export function StatusStrip() {
     : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
+  const offline = useShell((s) => s.channels.system.offline);
   const nwChip = (
     <span className="strip-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
       {nw.nw === null ? <span className="num muted" aria-hidden="true">{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
@@ -67,7 +68,7 @@ export function StatusStrip() {
       </button>
       <div className="strip-mid">
         <span className="num clock" data-testid="clock" data-tick={clock.tick}>{clockText}</span>
-        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} />
+        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} />
         <TickRing tick={clock.tick} />
       </div>
       <div className="strip-right">

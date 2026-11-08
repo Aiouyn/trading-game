@@ -45,6 +45,7 @@ export const S = {
   held: "Held",
   heldBody: "Your account is held. Read-only screens stay open.",
   reconnecting: "Reconnecting…",
+  offlinePhase: "Offline · not live", // M2-05: replaces the market phase while the browser reports offline
   home: "Home",
   locked: "Locked",
   more: "More",

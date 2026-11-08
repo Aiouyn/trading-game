@@ -56,7 +56,8 @@ function Surface({ query }: { query: string }) {
   const keySheetOpen = useShell((s) => s.keySheetOpen);
   const focusMode = useShell((s) => s.local.focusMode);
   const rank = useShell((s) => s.channels.rank.rank);
-  const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
+  // M2-05: offline dims the strip clock like reconnecting (pulse.css); nothing shown is live.
+  const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting" || s.channels.system.offline);
   const booted = useShell((s) => s.booted);
   const store = useShellStore();
   useHtmlAttributes();
