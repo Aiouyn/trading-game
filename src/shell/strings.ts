@@ -9,6 +9,7 @@ export const APP_NAMES: Record<AppId, string> = {
   institutions: "Institutions", ailab: "AI Lab", security: "Security", legal: "Legal & Court", estate: "Estate",
   boards: "Boards", profile: "Profile", alliance: "Alliance", contracts: "Contracts", auctions: "Auctions",
   civic: "Civic", academy: "Academy", help: "Help", atelier: "Atelier", settings: "Settings", replay: "Replay", api: "API",
+  launchpad: "Launchpad",
 };
 
 export const S = {
@@ -18,10 +19,8 @@ export const S = {
   ctrlDot: "Ctrl .",
   comingLater: "Coming later",
   loadingCity: "Loading city…",
-  marketOpen: "Market open · Port Avalon",
   focus: "Focus",
   layout: "Layout",
-  layouts: "Layouts",
   workspace: "Workspace",
   workspaces: "Workspaces",
   shelf: "Shelf",
@@ -48,12 +47,8 @@ export const S = {
   offlinePhase: "Offline · not live", // M2-05: replaces the market phase while the browser reports offline
   home: "Home",
   locked: "Locked",
-  more: "More",
   next: "Next",
   protected: "Protected",
-  settingsPalette: "Palette",
-  settingsMotion: "Reduce motion",
-  settingsTransparency: "Reduce transparency",
   keySheet: "Keys",
   keySheetFooter: "Nothing executes without Enter.",
   couldntLoad: "Couldn't load",
@@ -97,7 +92,6 @@ export const S = {
   /** M2-02 phone home (signed in): the goal, and the way to the first-trade guide (Portfolio). */
   goalLine: "Goal: grow $10,000 to $20,000.",
   firstTradeGuide: "First trade guide",
-  accountSavedDemo: "Your account, trades and balances are saved.",
 } as const;
 
 

@@ -13,6 +13,11 @@ export interface AuthStoreSnapshot {
    * LEDGER_QUARANTINED until repaired by hand.
    */
   readonly quarantinedPlayers: QuarantinedPlayerRow[];
+  /**
+   * The Launchpad section (src/server/launchpad/state.ts), saved as it is: the auth service parses it and, when it cannot,
+   * writes the raw value back unchanged. Absent on a store that never had a launch.
+   */
+  readonly launchpad?: unknown;
 }
 
 export interface QuarantinedPlayerRow {
@@ -29,6 +34,7 @@ function cloneSnapshot(s: AuthStoreSnapshot): AuthStoreSnapshot {
     sessions: s.sessions.map((x) => ({ ...x })),
     players: s.players.map(clonePlayerPrivate),
     quarantinedPlayers: s.quarantinedPlayers.map((q) => structuredClone(q)),
+    ...(s.launchpad === undefined ? {} : { launchpad: structuredClone(s.launchpad) }),
   };
 }
 
@@ -81,6 +87,7 @@ export class FileAuthStore implements AuthStore {
         sessions: snapshot.sessions,
         players: snapshot.players,
         quarantinedPlayers: snapshot.quarantinedPlayers,
+        launchpad: snapshot.launchpad,
       },
       null,
       0,
@@ -128,5 +135,5 @@ function normalizeSnapshot(parsed: unknown): AuthStoreSnapshot {
       rawById.set(id, row);
     }
   }
-  return { accounts, sessions, players: [...byAccount.values()], quarantinedPlayers };
+  return { accounts, sessions, players: [...byAccount.values()], quarantinedPlayers, ...(obj.launchpad === undefined ? {} : { launchpad: obj.launchpad }) };
 }

@@ -48,7 +48,7 @@ const LOCATE = (scope: Locator): Record<string, Locator> => ({
 });
 
 test("CH-08 every built app deep-links to its real body and shows its own copy, never ComingLater or a stuck skeleton", async ({ page }, info) => {
-  expect([...BUILT].sort()).toEqual(["boards", "broker", "city", "portfolio", "settings", "wire"]); // also pinned by tests/unit/shell/app-modules.test.tsx
+  expect([...BUILT].sort()).toEqual(["boards", "broker", "city", "launchpad", "portfolio", "settings", "wire"]); // also pinned by tests/unit/shell/app-modules.test.tsx
   for (const id of BUILT) {
     await boot(page, `/${id}`);
     const scope = info.project.name === "desktop" ? page.getByTestId(`win-${id}`) : page.locator(`[data-testid="phone-appview"][data-app="${id}"]`);

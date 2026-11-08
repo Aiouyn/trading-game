@@ -22,14 +22,14 @@ const STATE = { focused: true, collapsed: false, background: false };
 const html = (app: AppId) => renderToStaticMarkup(createElement(AppBody, { app, state: STATE }));
 
 describe("built apps: one source of truth (APP_MODULES)", () => {
-  it("registry built === has an APP_MODULES entry, for all 32 apps", () => {
+  it("registry built === has an APP_MODULES entry, for all 33 apps", () => {
     for (const a of REGISTRY) expect([a.id, a.built]).toEqual([a.id, Object.hasOwn(APP_MODULES, a.id)]);
-    expect(Object.keys(APP_MODULES).sort()).toEqual(["boards", "broker", "city", "portfolio", "settings", "wire"]);
+    expect(Object.keys(APP_MODULES).sort()).toEqual(["boards", "broker", "city", "launchpad", "portfolio", "settings", "wire"]);
   });
 
   it("type level: Broker is built by its lazy module (UI card 4, BRK-A); an id without a module fails typecheck", () => {
-    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire" | "boards" | "city">();
-    expectTypeOf<LazyAppId>().toEqualTypeOf<"broker" | "portfolio" | "wire" | "boards" | "city">();
+    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire" | "boards" | "city" | "launchpad">();
+    expectTypeOf<LazyAppId>().toEqualTypeOf<"broker" | "portfolio" | "wire" | "boards" | "city" | "launchpad">();
     expectTypeOf<EagerAppId>().toEqualTypeOf<"settings">();
   });
 

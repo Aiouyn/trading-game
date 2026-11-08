@@ -2,11 +2,13 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { APP_IDS, APPS, REGISTRY, type AppId } from "@/shell/registry";
 import { APP_NAMES } from "@/shell/strings";
 
-// S1-05: the 32 ids of 17 §2.2 in the §2 table order, plus each row of the table.
+// S1-05: the 32 ids of 17 §2.2 in the §2 table order, plus each row of the table, plus the owner-restored Launchpad
+// (added after Markets; 17 §2.2 had listed "launchpad" as a removed legacy app).
 const TABLE: [AppId, string, string, string, number, number, number][] = [
   ["broker", "Broker", "trade", "always", 520, 420, 4], ["portfolio", "Portfolio", "trade", "always", 520, 220, 1],
   ["wire", "Wire", "trade", "always", 360, 280, 1], ["messages", "Messages", "trade", "always", 420, 300, 1],
-  ["markets", "Markets", "trade", "always", 420, 300, 1], ["risk", "Risk", "trade", "license", 420, 300, 1],
+  ["markets", "Markets", "trade", "always", 420, 300, 1],
+  ["launchpad", "Launchpad", "trade", "always", 420, 300, 1], ["risk", "Risk", "trade", "license", 420, 300, 1],
   ["quantlab", "Quant Lab", "trade", "rank", 420, 300, 1], ["research", "Research Desk", "trade", "rank", 420, 300, 1],
   ["businesses", "Businesses", "build", "always", 420, 300, 1], ["company", "Company", "build", "rank", 420, 300, 1],
   ["property", "Property", "build", "always", 420, 300, 1], ["city", "City", "build", "always", 560, 400, 1],
@@ -26,8 +28,8 @@ describe("registry (S1-05)", () => {
   it("AppId union equals APP_IDS (type test)", () => {
     expectTypeOf<(typeof APP_IDS)[number]>().toEqualTypeOf<AppId>();
   });
-  it("APP_IDS is the 32 ids in §2 order", () => {
-    expect(APP_IDS).toHaveLength(32);
+  it("APP_IDS is the 32 ids in §2 order plus Launchpad", () => {
+    expect(APP_IDS).toHaveLength(33);
     expect([...APP_IDS]).toEqual(TABLE.map((r) => r[0]));
     expect(REGISTRY.map((a) => a.id)).toEqual([...APP_IDS]);
   });
@@ -38,11 +40,11 @@ describe("registry (S1-05)", () => {
     expect(a.group).toBe(group);
     expect(a.unlock.kind).toBe(unlock);
     expect([a.minW, a.minH, a.maxInstances]).toEqual([minW, minH, max]);
-    expect(a.built).toBe(["broker", "settings", "portfolio", "wire", "boards", "city"].includes(id)); // 17B CH-00 flips portfolio/wire; UI card 4 (BRK-A) flips Broker; M2-03 flips Boards; M1-10 flips City (static district view)
+    expect(a.built).toBe(["broker", "settings", "portfolio", "wire", "boards", "city", "launchpad"].includes(id)); // the owner-restored Launchpad is built (first loop); 17B CH-00 flips portfolio/wire; UI card 4 (BRK-A) flips Broker; M2-03 flips Boards; M1-10 flips City (static district view)
   });
-  it("Broker narrow form is 480; no legacy apps exist", () => {
+  it("Broker narrow form is 480; no legacy apps exist (Launchpad is restored by the owner)", () => {
     expect(APPS.broker.narrowMinW).toBe(480);
-    for (const legacy of ["boutique", "exchange", "launchpad", "calendar", "learn"]) {
+    for (const legacy of ["boutique", "exchange", "calendar", "learn"]) {
       expect((APP_IDS as readonly string[]).includes(legacy)).toBe(false);
     }
   });

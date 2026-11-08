@@ -3,6 +3,7 @@ import type { AuthStore } from "./store";
 import { AttemptThrottle } from "./throttle";
 import { buildPlayerPrivate, clonePlayerPrivate, type PlayerPrivateInput } from "@/server/player";
 import type { QuarantinedPlayerRow } from "./store";
+import { cloneLaunchpad, emptyLaunchpad, parseLaunchpad, type LpState } from "@/server/launchpad/state";
 import {
   AuthError,
   PORT_AVALON_WORLD_ID,
@@ -53,6 +54,8 @@ export class AuthService {
   private players = new Map<AccountId, PlayerPrivateRecord>();
   /** Unloadable ledger rows, preserved verbatim on every persist (never wiped). */
   private quarantinedPlayers: QuarantinedPlayerRow[] = [];
+  /** The Launchpad section: parsed, or kept raw (never rewritten or reset) when it could not be parsed. */
+  private launchpad: { ok: true; state: LpState } | { ok: false; raw: unknown } = { ok: true, state: emptyLaunchpad() };
   private ready: Promise<void>;
   /** Serializes mutating ops so async scrypt cannot race handle uniqueness / file writes. */
   private queue: Promise<void> = Promise.resolve();
@@ -85,6 +88,8 @@ export class AuthService {
     this.tokenIndex = new Map(snap.sessions.filter((s) => s.revokedAtMs === null).map((s) => [s.tokenHash, s.sessionId]));
     this.players = new Map(snap.players.map((p) => [p.accountId, p]));
     this.quarantinedPlayers = snap.quarantinedPlayers;
+    const lp = parseLaunchpad(snap.launchpad);
+    this.launchpad = lp.ok ? lp : { ok: false, raw: snap.launchpad };
   }
 
   private async persist(): Promise<void> {
@@ -93,6 +98,7 @@ export class AuthService {
       sessions: [...this.sessions.values()],
       players: [...this.players.values()],
       quarantinedPlayers: this.quarantinedPlayers,
+      launchpad: this.launchpad.ok ? this.launchpad.state : this.launchpad.raw,
     });
   }
 
@@ -364,6 +370,83 @@ export class AuthService {
       }
       return next.size;
     });
+  }
+
+  /**
+   * Read the Launchpad inside the service lock (a commit is seen whole or not at all). Read-only: nothing is persisted.
+   * `self` is the caller's own ledger (null for a guest, a quarantined or a missing one); no other account's ledger
+   * is reachable from here, only public handles.
+   */
+  async readLaunchpad<T>(
+    session: AuthSessionView | null,
+    read: (lp: Readonly<LpState>, self: PlayerPrivateRecord | null, handleOf: (id: string) => string | null, now: number) => T,
+  ): Promise<T> {
+    return this.withLock(async () => {
+      await this.ready;
+      const lp = this.requireLaunchpad();
+      const id = session?.account.accountId;
+      const self = id && !this.quarantinedPlayers.some((q) => q.accountId === id) ? this.players.get(id) ?? null : null;
+      return read(cloneLaunchpad(lp), self ? clonePlayerPrivate(self) : null, (a) => this.accounts.get(a as AccountId)?.handle ?? null, this.now());
+    });
+  }
+
+  /**
+   * One Launchpad commit for the caller (a launch or a trade), atomic with its cash effects. `decide` runs inside the
+   * service lock on copies: the Launchpad, the caller's own ledger, and a read of other loadable ledgers (only ever used
+   * by the server's rules, for the creator's fee share; never returned to the caller). It returns the next Launchpad
+   * and the next cash of each account it changes, or no `lp` for "no change" (a refusal or a replay). Every next ledger is
+   * validated before any becomes visible; everything commits in one persist, and on a failed persist the Launchpad and
+   * every ledger roll back (no coin is published and no cash moves).
+   */
+  async commitLaunchpad<T>(
+    session: AuthSessionView,
+    decide: (ctx: {
+      lp: LpState;
+      self: PlayerPrivateRecord;
+      ledgerOf: (id: string) => PlayerPrivateRecord | null;
+      now: number;
+    }) => { result: T; lp?: LpState; cash?: ReadonlyMap<string, number> },
+  ): Promise<T> {
+    return this.withLock(async () => {
+      await this.ready;
+      const lpBefore = this.requireLaunchpad();
+      const selfId = session.account.accountId;
+      const self = this.requireLedger(selfId);
+      const ledgerOf = (id: string) => {
+        if (this.quarantinedPlayers.some((q) => q.accountId === id)) return null;
+        const p = this.players.get(id as AccountId);
+        return p ? clonePlayerPrivate(p) : null;
+      };
+      const out = decide({ lp: cloneLaunchpad(lpBefore), self: clonePlayerPrivate(self), ledgerOf, now: this.now() });
+      if (!out.lp) return out.result;
+      const before = new Map<AccountId, PlayerPrivateRecord>();
+      const next = new Map<AccountId, PlayerPrivateRecord>();
+      for (const [id, cashCents] of out.cash ?? []) {
+        const current = ledgerOf(id);
+        if (!current) throw new AuthError("LEDGER_QUARANTINED", "A ledger this trade pays could not be loaded.", 409);
+        next.set(id as AccountId, buildPlayerPrivate(id as AccountId, { ...current, cashCents }));
+        before.set(id as AccountId, this.players.get(id as AccountId)!);
+      }
+      const nextLp = parseLaunchpad(out.lp);
+      if (!nextLp.ok) throw new Error(`Launchpad commit failed its own check: ${nextLp.reason}`);
+      for (const [id, r] of next) this.players.set(id, r);
+      this.launchpad = nextLp;
+      try {
+        await this.persist();
+      } catch (err) {
+        for (const [id, r] of before) this.players.set(id, r);
+        this.launchpad = { ok: true, state: lpBefore };
+        throw err;
+      }
+      return out.result;
+    });
+  }
+
+  private requireLaunchpad(): LpState {
+    if (!this.launchpad.ok) {
+      throw new AuthError("LAUNCHPAD_UNAVAILABLE", "Saved Launchpad data could not be loaded; it is preserved for repair.", 503);
+    }
+    return this.launchpad.state;
   }
 
   private async createSession(accountId: AccountId): Promise<{ view: AuthSessionView; rawToken: string }> {
