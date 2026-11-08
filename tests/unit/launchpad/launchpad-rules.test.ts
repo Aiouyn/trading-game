@@ -1,7 +1,9 @@
 // Launchpad curve rules (lead-launchpad.md L3, reused constants): integer cents and tokens, rounding in the curve's
 // favour, so X·Y never drops below X0·Y0 and the curve's real cash always covers selling everything sold; fees split exactly.
 import { describe, expect, it } from "vitest";
-import { LP, curveLeft, feeOf, marketCapCents, priceText, quoteBuy, quoteSell, type Curve } from "@/launchpad/rules";
+import { LP, POOL_FEE_TEXT, curveLeft, feeOf, marketCapCents, poolFee, priceText, quoteBuy, quoteSell, type Curve } from "@/launchpad/rules";
+import { CURVE } from "@/launchpad/curve";
+import { FEE_BP, exchangeFeeMinor } from "@/shell/contracts/mockFeed";
 
 const k = (c: Curve) => BigInt(c.x) * BigInt(LP.Y0 - c.sold);
 const K0 = BigInt(LP.X0) * BigInt(LP.Y0);
@@ -56,5 +58,14 @@ describe("Launchpad curve", () => {
   it("fee rounds up, the creator's half rounds down", () => {
     expect(feeOf(101)).toEqual({ fee: 2, creator: 1 });
     expect(feeOf(5_000)).toEqual({ fee: 50, creator: 25 });
+  });
+});
+
+describe("graduated book fee = the Broker's taker fee (one source)", () => {
+  it("poolFee is mockFeed's exchange fee at the taker rate, and the copy reads off it", () => {
+    for (const n of [0, 1, 3_333, 33_333, 33_334, 50_000, 1_000_000, 4_339_661, 123_456_789]) expect(poolFee(n)).toBe(exchangeFeeMinor(n, FEE_BP.taker));
+    expect(poolFee(10_000)).toBe(10); // $100 → 3¢ < min $0.10
+    expect(POOL_FEE_TEXT).toBe("0.03% (at least $0.10)");
+    expect(LP.X0).toBe(CURVE.X0); expect(LP.Y0).toBe(CURVE.Y0);
   });
 });

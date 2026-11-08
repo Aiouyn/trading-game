@@ -13,11 +13,12 @@
 // 200M tokens left of the supply seed a locked book that nobody owns. After graduation the coin trades against that book's
 // own real reserves at constant product (this build's stand-in for the engine listing, see docs/v1/LAUNCHPAD.md
 // "Graduation"), with the Broker's exchange fee as a sink and no creator share.
-import { FEE_BP, exchangeFeeMinor } from "@/shell/contracts/mockFeed";
+import { takerFeeMinor } from "@/shell/contracts/mockFeed";
+import { CURVE } from "./curve";
 
 export const LP = {
-  X0: 1_500_000, // $15,000 virtual cash, in cents
-  Y0: 1_073_000_000,
+  X0: CURVE.X0, // $15,000 virtual cash, in cents
+  Y0: CURVE.Y0,
   SUPPLY: 1_000_000_000,
   GRAD_Y: 273_000_000, // 800M sold on the curve
   FEE_BP: 100, // 1% each way: half to the creator, half a sink
@@ -100,8 +101,9 @@ export function graduationOf(c: Curve): { raise: number; fee: number; pool: Pool
 }
 
 /** The Broker's exchange fee (taker), the fee of every fill after graduation (L4: engine fills), a sink. */
-export const poolFee = (notional: number) => exchangeFeeMinor(notional, FEE_BP.taker);
-export const POOL_FEE_TEXT = `${(FEE_BP.taker / 100).toFixed(2)}% (at least $0.10)`;
+export const poolFee = takerFeeMinor;
+// Read off the Broker fee itself, so the copy cannot drift from it: the rate on $10,000 and the minimum on $0.
+export const POOL_FEE_TEXT = `${(takerFeeMinor(1_000_000) / 10_000).toFixed(2)}% (at least $${(takerFeeMinor(0) / 100).toFixed(2)})`;
 
 export type PoolBuy = { ok: true; tokens: number; fee: number; net: number; next: Pool } | { ok: false; why: QuoteRefusal };
 export type PoolSell = { ok: true; gross: number; fee: number; pay: number; next: Pool } | { ok: false; why: QuoteRefusal };

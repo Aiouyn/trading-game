@@ -2,7 +2,7 @@
 // per executed trade (src/server/launchpad/state.ts recordPoint): the curve after it and the trade's tape volume. Here
 // those points become the chart's steps; nothing is interpolated, smoothed or invented. Price is the curve's spot price
 // after each trade (x / (Y0 − sold), the panel's "Price"), never the liquidation estimate used for net worth.
-import { LP } from "@/launchpad/rules";
+import { CURVE as LP } from "@/launchpad/curve";
 
 /** A trade point: the curve after it, and after graduation also the book after it (pc cash, pt tokens). */
 export interface HistPoint { tick: number; atMs: number; side: "buy" | "sell"; tokens: number; cents: number; x: number; sold: number; pc?: number; pt?: number }

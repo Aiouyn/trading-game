@@ -168,6 +168,8 @@ export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number 
   const fee = r > 5_000 || (r === 5_000 && q % 2 === 1) ? q + 1 : q;
   return Math.max(MIN_FEE_MINOR, fee);
 }
+/** The taker fee on a notional: what a market order pays, and the Launchpad book's fee after graduation. */
+export const takerFeeMinor = (notionalMinor: number) => exchangeFeeMinor(notionalMinor, FEE_BP.taker);
 const IMPACT_BP = (qty: number, lot: number) => (lot <= 0 ? 0 : qty <= lot ? 1 : qty <= lot * 5 ? 4 : qty <= lot * 20 ? 12 : 30); // fixed table
 
 type Listener = (raw: unknown) => void;
@@ -386,7 +388,7 @@ export class MockFeed {
 
   /** One fill: position, cash and `me.fills` (fee at the taker rate [P]; the mock has no maker rate). Returns the fillId. */
   private bookFill(a: AssetFixture, orderId: string, side: OpenOrder["side"], qty: number, px: number, liquidity: MyFill["liquidity"]): string {
-    const fee = exchangeFeeMinor(px * qty, FEE_BP.taker);
+    const fee = takerFeeMinor(px * qty);
     const signed = side === "BUY" ? qty : -qty;
     const lot = nextLot(this.lots.get(a.assetId) ?? null, side, qty, px);
     if (lot === null) this.lots.delete(a.assetId); else this.lots.set(a.assetId, lot);
@@ -970,7 +972,7 @@ export class MockFeed {
     const impact = Math.round((px * qty * impactBp) / 10_000);
     const halted = !!a && this.tradingState(a.assetId) === "HALTED";
     // Signed-in: the server's own check (notional + fee within spendable cash), advisory here; the server re-decides.
-    const short = this.authoritativeQuotes && valid && draft.side === "BUY" && px * qty + exchangeFeeMinor(px * qty, FEE_BP.taker) > this.cash - this.reservedCash;
+    const short = this.authoritativeQuotes && valid && draft.side === "BUY" && px * qty + takerFeeMinor(px * qty) > this.cash - this.reservedCash;
     if (short) valid = false;
     const fee = valid ? exchangeFeeMinor(px * qty, draft.type === "market" && halted ? FEE_BP.auction : FEE_BP.taker) : 0;
     const gross = valid ? px * qty : 0;
