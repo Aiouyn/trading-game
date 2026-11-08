@@ -100,6 +100,9 @@
 @container (min-width: 640px) { .br:not(.br-phone) .br-chart-box { --cc-stage-h: 240px; } }
 /* (>= 760 px: the box grows with the window from 240 px, above.) */
 .br-chart-box.stale { opacity: 0.6; }
+/* M2-05: offline now (truthfully) holds the chart stale; at 0.6 the muted/faint legend fell below 4.5:1 (axe). The
+   legend reads in --fg while dimmed so it stays legible; the box keeps the approved 0.6 dim (BR-7-11). */
+.br-chart-box.stale .cc-legend, .br-chart-box.stale .cc-legend-time, .br-chart-box.stale .cc-legend-k { color: var(--fg); }
 .br-chart-skel { position: absolute; inset: 0; }
 .br-chart-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-8); margin: 0; padding: var(--sp-12); text-align: center; border: 1px solid var(--line); border-radius: var(--r-input); }
 .br-chart-msg.muted { color: var(--fg-muted); }
