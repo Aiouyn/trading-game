@@ -339,3 +339,70 @@ unit. Nothing is built for it here.
   the book (never minted, never overdrawn); the next holder's market sale is partial or MKT_NO_LIQUIDITY and its limit
   waits for buyers. A $0.10 minimum fee on a sale the book can only pay a few cents for nets the seller nothing; that is
   the base fee schedule, unchanged.
+
+### Graduated-coin trader pools (L4 "retail-heavy pool weights", owner pt106u/pt107u; recorded before code)
+
+**Owner decision.** pt106u keeps the feature (build, not defer); pt107u names the source: the documented complete game,
+export/vision-review/complete/. The ecology contradiction above is resolved by it, not by p10 (whose pools are global).
+
+**Source, exact.** 05 §6.2: "Each pool is a stylized population of NPC traders with a target position `pos*` (ADV units)
+per asset and an order per tick `o = clamp(speed × (pos* − pos), ±rate / ticksPerDay)` sent as an IOC limit at
+`lnRef_{N−1} ± (s + allowance)`, where `allowance = 2s` ... Every pool reads only state published at the end of tick N−1
+... Pool positions decay toward zero off-book with half-life `PARAM.mkt_pool_pos_hl_days (10)` game days ...
+`poolWeights` in `MarketSpec` scales each pool per asset (class defaults below). Pool sizes scale with ADV." Meme class
+rows: VALUE `pos* = −capV × tanh(G / g0)`, g0 = 1.0 × σ_d × √5, soft capacity × 1/(1 + 3|pos|), rate 0.9, "crypto 0.5,
+meme 0.2"; RETAIL "noise N(0, 1) per hour + 0.5 × tanh(r_1d / σ_d) (chasing) + attention (16 newsworthiness) + 0.3 ×
+dip-buying in EXPANSION; × (1 + 2 × |b| / 0.1) when belief is active", rate 0.15, "crypto (1.0), meme (3.0)"; DEGEN
+"`pos* = (1 + 2H) × tanh(r_1h / σ_h)`", rate 0.4, classes "crypto alts, meme, perps". TREND, PENSION, CARRY, HEDGER,
+ARB, RATES_RV, MANDATE, OPT_HEDGE, CB, TSY do not list meme. 05 §3.3.6 Meme turnover 0.1500 (daily share of size).
+T05-14: "capV = 1 ADV (the pool weight scales it)". 06 §3.11.3 hype, per token per game hour: "dH = a · (m + f − H) · dt_h
+− b · H · dt_h + shock", m = Wire mentions of the token, f = "clamp(net player buy volume over 24 game hours /
+circulating market cap · 20, 0, 1)", a = 0.15, b = 0.06 (MEME). 06 §3.11.4: a new meme token's H₀ = 0.6. p10 L6: "NPCs
+never sell tokens they do not hold"; "The NPC cash used is a booked faucet/sink line ... so the world identity closes."
+
+**Dependencies traced to this base.** Present and used: the coin's mark path and permanent impact (B3), its template vol
+(σ_d = vol/√252, σ_h = σ_d/√24), the book fill law, the server clock (720 ticks a game day, 30 an hour), player fills on
+the book. Absent here (no such system exists for any asset): 16 newsworthiness/attention, 04 regimes (EXPANSION), 05
+§6.3 beliefs, 06 hype shocks (news templates, Media campaigns), Wire stories naming a coin (the story catalog is fixed
+assets), 07/06 margin and perps (DEGEN liquidations). Those terms are 0 (belief multiplier 1) because their inputs do not
+exist, and they are listed as remaining, not as implemented.
+
+**Mapping (minimum, on the B3 book path).**
+1. Weights: MEME {VALUE 0.2, RETAIL 3.0, DEGEN 1.0}. DEGEN lists meme with no number; the table's unnumbered classes take
+   the default weight 1.0 (reading of the table). A weighted pool is the same population × w: target w·pos*, rate cap
+   w·rate.
+2. ADV = turnover 0.15 × the coin's supply 1,000,000,000 = 150,000,000 tokens a game day. pos is in ADV units.
+3. lnV = the template path without flow impacts (the coin's log mark minus the sum of applied permanent impacts), so
+   G = lnRef − lnV is the price's flow-made gap (05: "the rest of every value move becomes a gap G").
+4. Per server tick N, once (saved epoch + tick), after the player resting-order sweep, in the order VALUE, RETAIL, DEGEN:
+   pos decays by 0.5^(Δticks/7200) (tracking position only); o = clamp(speed × (w·pos* − pos), ±w·rate/720) (VALUE then
+   × 1/(1+3|pos|)); qty = trunc(|o| × ADV); an IOC limit at floor(P_{N−1}·e^{3s}) (buy) or ceil(P_{N−1}·e^{−3s}) (sale),
+   s = the book's half spread; filled by `fillOnBook` against the book at the tick's mark (same spread, impact, cap,
+   fee to the book, cash/token bounds); pos += ±qty/ADV. **speed = 1 per tick: implementation choice** (05 leaves it
+   undefined; with 1 the documented rate cap is the binding limit; no tuning).
+5. Inputs read at the end of N−1: P_{N−1}, r_1h = ln(P_{N−1}/P_{N−31}), r_1d = ln(P_{N−1}/P_{N−721}) from the clock's
+   marks of this coin (a lookback the clock has not yet covered since listing or a restart reads 0). RETAIL noise: one
+   N(0,1) per game hour from stream `lp:<T>:retail:<hour>`. H: H₀ 0.6, one update per game hour with m = 0 and shock 0,
+   f from the player net buy volume of the last 24 game hours (book token change between pool steps × P, hourly
+   buckets, this clock epoch) over (supply − book tokens) × P.
+6. Accounts: each pool is an explicit NPC account {cash cents, tokens} saved on the coin. Created once on the first pool
+   step after graduation, funded from the booked NPC line `funded` = Σ round(w × ADV × listing price) (cash enough for w
+   ADV at the listing price, T05-14 capV; implementation choice), tokens 0. A pool never sells tokens it does not hold,
+   never buys past its cash, never borrows; decay moves only pos, never tokens or cash. No token is minted.
+7. Public: the Launchpad view's graduated coin carries the pools (cash, tokens, pos), H, funded and the last 20 NPC prints
+   (tick, pool, side, qty, price); pool fills count in the Broker candles' volume. Nothing private is added.
+
+**Acceptance (before code).**
+1. Observable: after a player graduates a coin, the server's pools trade it on the clock's ticks (real fills against the
+   book, candle volume = player + NPC fills), the Launchpad Graduated panel shows each pool's holdings and its recent
+   prints, and players' market, limit, sweep and cancel keep working alongside.
+2. Hand math: one tick's VALUE, RETAIL and DEGEN orders (targets, clamps, soft capacity, qty, limits, fills, pos) match an
+   independent computation; H's hourly update and f match by hand.
+3. Weights by behavior: the same world with MEME weights vs weights {VALUE 0.5, RETAIL 1.0, DEGEN 1.0} (the crypto row)
+   gives about 3× the RETAIL volume while the cap binds and a lower VALUE response to the same gap.
+4. Conservation every tick of a random interleave: tokens Σ positions + book + pools = 1e9; cash Σ ledgers + curves +
+   books + pools + sinks = start cash + funded; no account below 0; pools never sell more than they hold.
+5. Exactly once: two sweeps at one tick act once; a failed save rolls ledgers, books, pools and marks back and the next
+   tick acts; restart (new epoch) keeps the pools' accounts and pos and acts again; an old save without pools loads and
+   is funded once; determinism: the same seed and inputs give byte-identical pools.
+6. Existing assets' paths and every B3 test unchanged; GET routes read only; no private field in any public read.
