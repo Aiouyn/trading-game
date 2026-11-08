@@ -3,7 +3,7 @@
 // then id. A row is one button that opens the story in Wire (card 9 detail). `news` has its own states here.
 import { Button } from "@/components/ui/Button";
 import { KindChip } from "@/apps/wire/WireItemRow";
-import { headline, timeLabel, useWireStrings } from "@/apps/wire/strings";
+import { headline, pctLabel, timeLabel, useWireStrings } from "@/apps/wire/strings";
 import { useShellStore } from "@/components/shell/ShellContext";
 import type { WireItem } from "@/shell/contracts/channels";
 import { getFeed, useChannel } from "@/shell/contracts/useChannel";
@@ -54,6 +54,7 @@ export function AssetNews({ t, assetId }: { t: BrStrings; assetId: string }) {
                   <span aria-hidden="true"><KindChip kind={item.kind} t={wt} /></span>
                   <span className="sr-only">{storyPrefix(t, text)}</span>
                   <span className="ap-story-hl" data-testid="ap-story-hl">{text}</span>
+                  {(() => { const e = item.effects?.find((x) => x.assetId === assetId); return e ? <span className="ap-story-effect" data-testid="ap-story-effect" data-pct={e.pct}>{pctLabel(e.pct)}</span> : null; })()}
                   <time className="ap-story-time" aria-hidden="true">{timeLabel(item.tick, wt)}</time>
                 </button>
               </li>

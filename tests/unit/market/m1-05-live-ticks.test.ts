@@ -5,6 +5,7 @@ import * as marketRoute from "@/app/api/market/route";
 import { POST as register } from "@/app/api/auth/register/route";
 import { GET as me } from "@/app/api/auth/me/route";
 import { ASSETS } from "@/market/catalog";
+import { storyAt } from "@/market/wireStories";
 import { parseMarketSnapshot } from "@/market/quoteSnapshot";
 import { settingsStrings } from "@/apps/settings/strings";
 import {
@@ -42,9 +43,13 @@ describe("M1-05 authoritative live ticks", () => {
     vi.useRealTimers();
   });
 
+  // M1-09: the server is the seeded walk PLUS the Wire stories' effects, applied at their ticks. The reference feed gets
+  // exactly the scheduled effects (storyAt) and must then equal the server at every tick; the legacy tape still holds
+  // for every asset no story has moved yet.
   it("seed 17 matches the eight-asset tape at ticks 0, 1, 3 and 20, including NMBS and VRDN beside it", () => {
     const market = new LiveMarket();
     const feed = new MockFeed({ seed: PORT_AVALON_MARKET_SEED }, { autoStart: false });
+    const moved = new Set<string>();
     for (let step = 0; step <= 20; step++) {
       const snap = market.snapshot();
       expect(snap.tick).toBe(START_TICK + step);
@@ -55,10 +60,14 @@ describe("M1-05 authoritative live ticks", () => {
       expect(snap.quotes).toEqual(feed.body("ticker:wl_default"));
       expect(parseMarketSnapshot(snap)).toEqual(snap);
       const golden = legacyTape.find((sample) => sample.tick === step);
-      if (golden) expect(snap.quotes).toMatchObject(golden.body);
+      if (golden) expect(snap.quotes.rows).toMatchObject(Object.fromEntries(Object.entries(golden.body.rows).filter(([id]) => !moved.has(id))));
+      if (golden && moved.size === 0) expect(snap.quotes).toMatchObject(golden.body);
       market.step();
       feed.advance();
+      for (const e of storyAt(PORT_AVALON_MARKET_SEED, feed.tick)?.effects ?? []) { expect(feed.applyShock(e.assetId, e.bp)).not.toBeNull(); moved.add(e.assetId); }
     }
+    expect(moved.size).toBeGreaterThan(0); // stories did move prices inside the window
+    expect(moved.size).toBeLessThan(ASSETS.length); // and the tape is still checked for the rest
   });
 
   it("same seed stays identical and a different seed diverges; reads do not step", () => {

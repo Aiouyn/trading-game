@@ -60,7 +60,7 @@ interface Open { id: string; last: WireItem }
 
 /** `select`: a story id to open (UI card 10). Each new value opens that item once the feed has it; an id that is not
  * in the ring shows the feed with nothing selected. */
-export function Feed({ view, t, host = NO_HOST, select }: { view: ChannelView<NewsBody>; t: WireStrings; host?: WireHost; select?: string }) {
+export function Feed({ view, t, host = NO_HOST, select, demo = false }: { view: ChannelView<NewsBody>; t: WireStrings; host?: WireHost; select?: string; /** guest fixtures (M1-09) */ demo?: boolean }) {
   const [filter, setFilter] = useState<WireFilter>("all");
   const [scrolled, setScrolled] = useState(false);
   const [track, setTrack] = useState<Track>({ body: null, seen: NONE, fresh: NONE });
@@ -148,6 +148,7 @@ export function Feed({ view, t, host = NO_HOST, select }: { view: ChannelView<Ne
   return (
     <div ref={root} className="wire" data-testid="wire" data-state={view.state} data-layout={split ? "split" : "single"} data-open={item ? item.id : undefined}>
       <div className="wire-feed" data-testid="wire-feed" hidden={replaced}>
+      {demo && <p className="wire-demo muted" data-testid="wire-demo">{t.demo}</p>}
       {breaking && <BreakingStrip item={breaking} t={t} />}
       <FilterChips value={filter} onChange={setFilter} t={t} />
       {view.state === "stale" && <p className="wire-updating" data-testid="wire-updating">{t.updating}</p>}

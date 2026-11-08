@@ -7,7 +7,7 @@ import type { Ref } from "react";
 import { Glyph } from "@/components/shell/Glyph";
 import { Chip } from "@/components/ui/Chip";
 import type { WireItem, WireKind } from "@/shell/contracts/channels";
-import { fill, headline, timeLabel, type WireStrings } from "./strings";
+import { fill, headline, pctLabel, timeLabel, type WireStrings } from "./strings";
 
 
 /** Source record shows for RUMOR, and for STATEMENT when it carries one. */
@@ -21,6 +21,21 @@ export function KindChip({ kind, t }: { kind: WireKind; t: WireStrings }) {
       {kind === "WORLD_EVENT" && <Glyph name="world" size={12} />}
       {t.kind[kind]}
     </Chip>
+  );
+}
+
+/** M1-09: a server story's outcome on the row: each realized price effect ("AVB −5.00%"), or Forecast / No effect. */
+export function StoryOutcome({ item, t }: { item: WireItem; t: WireStrings }) {
+  if (item.phase === "forecast") return <Chip tone="neutral" outline className="wire-outcome" data-testid="wire-forecast">{t.forecast}</Chip>;
+  if (item.phase === "eased") return <Chip tone="neutral" outline className="wire-outcome" data-testid="wire-no-effect">{t.eased}</Chip>;
+  if (!item.effects?.length) return null;
+  return (
+    <>
+      {item.effects.map((e) => {
+        const label = item.entities.find((x) => x.id === e.assetId)?.label ?? e.assetId;
+        return <span key={e.assetId} className="wire-effect" data-testid="wire-effect" data-asset={e.assetId} data-pct={e.pct}>{label} {pctLabel(e.pct)}</span>;
+      })}
+    </>
   );
 }
 
@@ -70,6 +85,7 @@ export function WireItemRow({ item, t, fresh, selected = false, onOpen, buttonRe
         )}
         {band && <Chip className="wire-band" data-testid="wire-band" data-band={band}>{t.band[band]}</Chip>}
         <PricedIn item={item} t={t} />
+        <StoryOutcome item={item} t={t} />
       </div>
     </li>
   );

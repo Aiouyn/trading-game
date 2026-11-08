@@ -114,6 +114,7 @@ const wireItem: Schema<WireItem> = obj(
   {
     slots: rec(str), sourceRecord: obj({ hits: int, resolved: int }), sourceBand: lit("low", "mixed", "solid"),
     pricedInBand: lit("early", "mid", "late", "done"), pricedInAsOf: int, filingId: str, outletId: str, body: rec(str),
+    phase: lit("forecast", "realized", "eased"), causeKey: str, effects: arr(obj({ assetId: str, from: dec, to: dec, pct: dec })),
   },
 );
 export const newsBody: Schema<NewsBody> = obj({ items: arr(wireItem) });

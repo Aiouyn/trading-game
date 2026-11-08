@@ -11,6 +11,7 @@ import { CANDLE_REV_RE } from "./candleRev";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
+import { parseWireSnapshot, type WireSnapshot } from "@/market/wireSnapshot";
 import { parseBrokerIntentReply, parseBrokerLedger, type BrokerLedgerView } from "@/market/brokerLedger";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { heldValueMinor } from "@/market/valuation";
@@ -132,6 +133,9 @@ export function rng(seed: number): () => number {
 }
 
 /** Integer minor units -> decimal string with `dp` places (G2). */
+/** M1-09: a story's effect on a price in minor units: integer, at least 1 (as the quote walk). */
+export const shockedMinor = (last: number, bp: number): number => Math.max(1, Math.round((last * (10_000 + bp)) / 10_000));
+
 export function fmt(minor: number, dp: number): string {
   const neg = minor < 0;
   const s = String(Math.abs(Math.round(minor))).padStart(dp + 1, "0");
@@ -245,6 +249,12 @@ export class MockFeed {
   /** Per candles channel: the server's candle revision (`<epoch>.<n>`) read with the live bar. */
   private serverRevs = new Map<string, string>();
   private autoStart: boolean;
+  /** M1-09 signed-in: the server's Wire (GET /api/wire) replaced the (empty) constructor news; its epoch and tick. */
+  private wireAdopted = false;
+  private wireEpoch: string | null = null;
+  private wireTick = -1;
+  private wirePulling = false;
+  private wirePullAgain = false;
 
   constructor(scenario: Partial<Scenario> = {}, opts: FeedOptions = {}) {
     this.scenario = { ...DEFAULT_SCENARIO, ...scenario };
@@ -299,6 +309,20 @@ export class MockFeed {
       this.news = [...this.news, this.tierNews({ ...base, id: `n-t${this.tick}`, tick: this.tick })].slice(-NEWS_KEEP);
     }
     this.emitTick();
+  }
+
+  /** M1-09 (server clock only): move one asset's price by a story's effect at the current tick, after this tick's walk
+   *  step. Returns the price before and after in minor units, or null for an unknown or non-trading asset. The quote walk
+   *  itself is not redrawn: its next step starts from the new price. */
+  applyShock(assetId: string, bp: number): { from: number; to: number } | null {
+    const s = this.assets.get(assetId);
+    if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
+    const from = s.last, to = shockedMinor(from, bp);
+    s.last = to;
+    s.dir = to > from ? 1 : to < from ? -1 : s.dir;
+    const p = s.prints.at(-1);
+    if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
+    return { from, to };
   }
 
   private tierNews(n: WireItem): WireItem {
@@ -559,15 +583,16 @@ export class MockFeed {
     if (this.autoStart) {
       // Signed-in: quotes poll /api/market; `me` also needs server marks, and reads its ledger from /api/broker/me.
       if (this.authoritativeQuotes) {
-        if (ch.startsWith("ticker:") || ch === "me") this.startQuoteSync();
+        if (ch.startsWith("ticker:") || ch === "me" || ch === "news") this.startQuoteSync();
         if (ch === "me") void this.pullLedger();
+        if (ch === "news") void this.pullWire();
       }
       else this.start();
     }
     const mode = hook ?? this.scenario.feed;
     // Quote channels on a signed-in feed stay unpublished until /api/market validates.
     // The constructor book is not a server tick. `me` and other private channels still snap.
-    const holdQuotes = this.authoritativeQuotes && ((this.isQuoteChannel(ch) && !this.quoteReady(ch)) || (ch === "me" && !this.meReady()));
+    const holdQuotes = this.authoritativeQuotes && ((this.isQuoteChannel(ch) && !this.quoteReady(ch)) || (ch === "me" && !this.meReady()) || (ch === "news" && !this.wireAdopted));
     if (this.authoritativeQuotes && ch.startsWith("candles:") && this.quotesAdopted) void this.pullServerCandle(ch);
     if (mode !== "loading" && !holdQuotes) sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
@@ -578,7 +603,7 @@ export class MockFeed {
     return () => {
       if (sub.snapTimer) clearTimeout(sub.snapTimer);
       this.subs.delete(sub);
-      if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:") || s.ch === "me")) {
+      if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:") || s.ch === "me" || s.ch === "news")) {
         if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
       }
       if (this.subs.size === 0) this.stop();
@@ -588,6 +613,7 @@ export class MockFeed {
   resync(ch: ChannelName): void {
     if (this.authoritativeQuotes && ch.startsWith("candles:")) void this.pullServerCandle(ch);
     if (this.authoritativeQuotes && ch.startsWith("ticker:")) void this.pullServerQuotes();
+    if (this.authoritativeQuotes && ch === "news") void this.pullWire();
     if (this.authoritativeQuotes && ch === "me") {
       void this.pullLedger();
       if (!this.quotesAdopted) void this.pullServerQuotes(); // M1-08: Retry after a failed first quote read reads quotes too
@@ -673,6 +699,8 @@ export class MockFeed {
       this.settle();
       // A new server tick may have filled a working limit: re-read the ledger (M1-06).
       if ([...this.subs].some((s) => s.ch === "me")) void this.pullLedger();
+      // M1-09: a new server tick may have published a story: re-read the Wire.
+      if ([...this.subs].some((s) => s.ch === "news")) void this.pullWire();
     }
     this.emitTick();
     // First publication is a snap. emitTick only reaches subscribers that already have one.
@@ -749,6 +777,49 @@ export class MockFeed {
       const h = r.headers.get("x-candle-rev") ?? "";
       return { raw: await r.json(), rev: CANDLE_REV_RE.test(h) ? h : null };
     });
+  }
+
+  /** M1-09 signed-in: read the server's Wire. A failed first read errors the news channel (Retry, or the next server
+   *  tick reads again); after one good read the last adopted Wire stays and a long outage reads as stale. */
+  private async pullWire(): Promise<void> {
+    if (!this.authoritativeQuotes) return;
+    if (this.wirePulling) { this.wirePullAgain = true; return; }
+    this.wirePulling = true;
+    try {
+      do {
+        this.wirePullAgain = false;
+        let v: WireSnapshot | null = null;
+        try {
+          const res = await fetch("/api/wire", { cache: "no-store", headers: { accept: "application/json" } });
+          v = res.ok ? parseWireSnapshot(await res.json()) : null;
+        } catch { v = null; }
+        if (v) this.adoptWire(v);
+        else if (!this.wireAdopted) for (const sub of this.subs) if (sub.ch === "news" && sub.sent === null) this.send(sub, { t: "err", ch: "news", code: "INTERNAL" });
+      } while (this.wirePullAgain);
+    } finally {
+      this.wirePulling = false;
+    }
+  }
+
+  /** Replace news with one server Wire reply. Within one epoch an older reply is dropped; a new epoch (restarted
+   *  server) replaces the list with a snap. Nothing here moves a price: the server did, once, at the story's tick. */
+  adoptWire(v: WireSnapshot): boolean {
+    if (!this.authoritativeQuotes) return false;
+    if (this.wireEpoch === v.epoch && v.tick < this.wireTick) return false;
+    const newEpoch = this.wireEpoch !== null && this.wireEpoch !== v.epoch;
+    this.news = v.items;
+    this.wireEpoch = v.epoch;
+    this.wireTick = v.tick;
+    this.wireAdopted = true;
+    for (const sub of this.subs) {
+      if (sub.ch !== "news") continue;
+      if (sub.sent === null || newEpoch) { this.sendSnap(sub); continue; }
+      const body = this.body(sub.ch);
+      const ops = diffOps(sub.sent, body, RINGS);
+      sub.sent = body;
+      if (ops.length) this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
+    }
+    return true;
   }
 
   /** Signed-in `me` publishes only with a server ledger and server marks, never the constructor state. */

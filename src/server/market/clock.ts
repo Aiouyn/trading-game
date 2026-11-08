@@ -1,9 +1,15 @@
 // Single-process authoritative quote clock (M1-05).
 // One MockFeed, seed 17, advanced on FEED_TICK_MS. Reads never step it.
 // Not durable across process restart and not multi-instance (same limit as the auth file store).
+// M1-09: each step also publishes that tick's Wire story (src/market/wireStories.ts) and applies its price effect to
+// these quotes once, before the step listeners (resting-order sweep, candles) see the tick. Reads never publish or
+// apply. A restart starts a new epoch: the clock and its stories start again at the first tick (the same seeded replay).
+import { ASSET_BY_ID } from "@/market/catalog";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
-import { FEED_TICK_MS, MockFeed } from "@/shell/contracts/mockFeed";
-import type { TickerBody } from "@/shell/contracts/channels";
+import { STORY_KEEP, storyAt } from "@/market/wireStories";
+import type { WireSnapshot } from "@/market/wireSnapshot";
+import { FEED_TICK_MS, MockFeed, fmt } from "@/shell/contracts/mockFeed";
+import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 
 const globalForMarket = globalThis as typeof globalThis & {
@@ -22,6 +28,9 @@ export class LiveMarket {
   private readonly feed: MockFeed;
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly stepListeners = new Set<() => void>();
+  private stories: WireItem[] = [];
+  /** Names this clock's history (new per process / clock), so a client never mixes two runs' stories. */
+  readonly epoch = Math.random().toString(36).slice(2, 10) || "0";
 
   constructor(opts: LiveMarketOptions = {}) {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
@@ -46,7 +55,33 @@ export class LiveMarket {
   /** One cadence step. The HTTP route never calls this. Listeners (the M1-06 resting-order sweep) run after it. */
   step(): void {
     this.feed.advance();
+    this.publishStory();
     for (const fn of this.stepListeners) fn();
+  }
+
+  /** The story of the tick just reached, if any: its effects move these quotes now, once (the tick only grows). */
+  private publishStory(): void {
+    const tick = this.feed.tick;
+    const def = storyAt(this.feed.scenario.seed, tick);
+    if (!def) return;
+    const effects: PriceEffect[] = [];
+    for (const e of def.effects) {
+      const a = ASSET_BY_ID[e.assetId], r = this.feed.applyShock(e.assetId, e.bp);
+      if (!a || !r) continue;
+      effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
+    }
+    const item: WireItem = {
+      id: `w-${tick}`, kind: def.kind, headlineKey: def.headlineKey, slots: { ...def.slots },
+      entities: def.assets.map((id) => ({ id, kind: "asset", label: ASSET_BY_ID[id]?.ticker ?? id })),
+      tick, breaking: def.breaking, causeEventIds: [def.defId], phase: def.phase, causeKey: def.causeKey,
+      ...(effects.length ? { effects } : {}),
+    };
+    this.stories = [...this.stories, item].slice(-STORY_KEEP);
+  }
+
+  /** The stories published so far (newest last), at the current tick. A copy: reading changes nothing. */
+  wire(): WireSnapshot {
+    return structuredClone({ worldId: PORT_AVALON_WORLD_ID, epoch: this.epoch, tick: this.feed.tick, items: this.stories });
   }
 
   /** Run `fn` after every step. Returns the unsubscribe. */

@@ -155,3 +155,7 @@
   .wire-filters::after { display: none; }
   .wire-row { grid-template-areas: "kind hl time" ". meta ."; grid-template-columns: 96px minmax(0, 1fr) auto; }
 }
+
+/* M1-09: a server story's realized price effect on the row ("AVB −5.00%"), neutral like the kind chips. */
+.wire-effect { font-family: var(--font-num); font-size: var(--fs-10_5); color: var(--fg); white-space: nowrap; }
+.wire-demo { margin: 0; padding: var(--sp-4) var(--sp-8); font-size: var(--fs-11_5); color: var(--fg-muted); }

@@ -36,3 +36,4 @@
 @media (pointer: coarse) { .ap-story { min-height: var(--hit-touch); } }
 .ap-skel { height: 96px; border-radius: var(--r-input); background: var(--win2); }
 .ap-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); color: var(--fg-muted); }
+.ap-story-effect { font-family: var(--font-num); font-size: var(--fs-10_5); white-space: nowrap; }

@@ -4,6 +4,7 @@
 "use client";
 import { useCallback, useMemo } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
+import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
 import { useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
 import { Feed, type WireHost } from "./Feed";
@@ -19,6 +20,8 @@ function FilingSection({ filingId, t }: { filingId: string; t: WireStrings }) {
 export default function WireApp({ context }: { context?: string }) {
   const view = useChannel("news");
   const t = useWireStrings();
+  // M1-09: signed in, `news` is the server's Wire (stories that moved server quotes); otherwise the feed's fixtures.
+  const demo = !isSignedIn(useAuthChrome());
   const store = useShellStore();
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   // Stable across renders: Feed's phone push effect depends on it.
@@ -30,5 +33,5 @@ export default function WireApp({ context }: { context?: string }) {
     filing: (filingId) => <FilingSection filingId={filingId} t={t} />,
     pushPhone,
   }), [phone, store, t, pushPhone]);
-  return <Feed view={view} t={t} host={host} select={context} />;
+  return <Feed view={view} t={t} host={host} select={context} demo={demo} />;
 }

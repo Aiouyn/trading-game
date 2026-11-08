@@ -58,6 +58,21 @@ export interface WireStrings {
   filingType: Record<Filing["type"], string>;
   filingMissing: string;
   notInFeed: string;
+  // ---- M1-09 server stories and their price effect ----
+  /** Guest feed: the stories are fixtures that move nothing. */
+  demo: string;
+  /** Cause → consequence, by WireItem.causeKey. */
+  causes: Record<string, string>;
+  causeTitle: string;
+  effectTitle: string;
+  /** "{ticker} {from} → {to} ({pct})" */
+  effectLine: string;
+  realizedNote: string;
+  laterNote: string;
+  forecast: string;
+  forecastNote: string;
+  eased: string;
+  easedNote: string;
 }
 
 export const EN: WireStrings = {
@@ -91,6 +106,22 @@ export const EN: WireStrings = {
     "wire.news.guidanceRaised": "{company} raises guidance",
     "wire.statement.ceo": "{company} CEO issues a statement",
     "wire.rumor.downgrade": "Downgrade rumored for {company}",
+    "wire.news.trialMiss": "{company} drug trial misses its endpoint",
+    "wire.news.contractWin": "{company} wins a major contract",
+    "wire.news.demandWarning": "{company} warns on demand",
+    "wire.news.recall": "{company} recalls a product line",
+    "wire.crisis.oil.watch": "Watch: crude supply under threat",
+    "wire.crisis.oil.hit": "Oil shock: crude supply cut",
+    "wire.crisis.oil.eased": "Crude supply fears ease",
+    "wire.crisis.bank.watch": "Watch: banks strain to borrow from each other",
+    "wire.crisis.bank.hit": "Banking panic: depositors pull their cash",
+    "wire.crisis.bank.eased": "Bank funding fears ease",
+    "wire.crisis.tech.watch": "Watch: tech valuations stretched",
+    "wire.crisis.tech.hit": "Tech bubble bursts",
+    "wire.crisis.tech.eased": "Tech valuations cool off",
+    "wire.crisis.credit.watch": "Watch: lenders tighten terms",
+    "wire.crisis.credit.hit": "Credit crunch hits borrowers",
+    "wire.crisis.credit.eased": "Credit conditions steady",
   },
   openItem: "Open: {headline}",
   backToWire: "Back to Wire",
@@ -113,6 +144,38 @@ export const EN: WireStrings = {
   },
   filingMissing: "Filing details aren't available.",
   notInFeed: "This story is no longer in your feed.",
+  demo: "Example stories · they don't move prices. Sign in for the live Port Avalon Wire.",
+  causes: {
+    "wire.cause.halc-volumes": "Halcyon Shipping carried more cargo than expected this quarter. Higher earnings lift the stock.",
+    "wire.cause.volt-guidance": "Voltaic Grid expects more demand for the rest of the year. Higher expected profits lift the stock.",
+    "wire.cause.tide-downgrade": "Talk that Tidewater REIT's rating will be cut. Even unconfirmed, the rumor weighs on the price.",
+    "wire.cause.orca-trial": "Orca Biologics' lead drug missed its trial goal. Lost future sales take value out of the stock.",
+    "wire.cause.nmbs-contract": "Nimbus Compute won a large multi-year computing contract. New revenue lifts the stock.",
+    "wire.cause.kiln-demand": "Kiln Materials sees weaker building demand. Lower expected sales push the stock down.",
+    "wire.cause.mrdn-recall": "Meridian Foods recalls a product line. Costs and lost sales weigh on the stock.",
+    "wire.cause.avb-earnings": "Avalon Bank earned more on its loans than expected. The stock rises.",
+    "wire.cause.oil-watch": "Tension over crude supply is rising. If supply is cut, energy producers would gain and fuel-hungry shipping and materials firms would lose.",
+    "wire.cause.oil-hit": "Crude supply was cut. Verdane Energy gains on higher oil prices; Halcyon Shipping and Kiln Materials pay more for fuel and energy.",
+    "wire.cause.oil-eased": "Crude supply held up. The risk passed.",
+    "wire.cause.bank-watch": "Banks are paying more to borrow from each other, a sign of funding strain. A run would hit bank and property stocks.",
+    "wire.cause.bank-hit": "Depositors pulled money from weaker banks. Avalon Bank falls; Tidewater REIT and the Gilt Exchange Index follow.",
+    "wire.cause.bank-eased": "Funding strain faded. The risk passed.",
+    "wire.cause.tech-watch": "Tech valuations are stretched far above earnings. A sharp correction could follow.",
+    "wire.cause.tech-hit": "The tech rally broke. Nimbus Compute drops and the index slips with it.",
+    "wire.cause.tech-eased": "Tech valuations cooled without a break. The risk passed.",
+    "wire.cause.credit-watch": "Lenders are tightening loan terms. Borrowers such as property firms would be hit first.",
+    "wire.cause.credit-hit": "Credit dried up. Tidewater REIT falls hardest; Avalon Bank and Kiln Materials slip.",
+    "wire.cause.credit-eased": "Lending conditions steadied. The risk passed.",
+  },
+  causeTitle: "Why it matters",
+  effectTitle: "Price effect",
+  effectLine: "{ticker} {from} → {to} ({pct})",
+  realizedNote: "Applied once by the Port Avalon market at {time}.",
+  laterNote: "Prices keep moving after this. Later moves aren't part of this story.",
+  forecast: "Forecast",
+  forecastNote: "A forecast, not an outcome: no price effect. It may not happen.",
+  eased: "No effect",
+  easedNote: "No price effect: the risk passed.",
 };
 
 export const FR: WireStrings = {
@@ -146,6 +209,22 @@ export const FR: WireStrings = {
     "wire.news.guidanceRaised": "{company} relève ses prévisions",
     "wire.statement.ceo": "Le PDG de {company} publie un communiqué",
     "wire.rumor.downgrade": "Rumeur de dégradation pour {company}",
+    "wire.news.trialMiss": "L’essai clinique de {company} manque son objectif",
+    "wire.news.contractWin": "{company} remporte un contrat majeur",
+    "wire.news.demandWarning": "{company} alerte sur la demande",
+    "wire.news.recall": "{company} rappelle une gamme de produits",
+    "wire.crisis.oil.watch": "À surveiller : l’offre de brut menacée",
+    "wire.crisis.oil.hit": "Choc pétrolier : l’offre de brut coupée",
+    "wire.crisis.oil.eased": "Les craintes sur le brut s’apaisent",
+    "wire.crisis.bank.watch": "À surveiller : les banques peinent à se refinancer",
+    "wire.crisis.bank.hit": "Panique bancaire : les déposants retirent leurs fonds",
+    "wire.crisis.bank.eased": "Les craintes de financement bancaire s’apaisent",
+    "wire.crisis.tech.watch": "À surveiller : valorisations tech tendues",
+    "wire.crisis.tech.hit": "La bulle tech éclate",
+    "wire.crisis.tech.eased": "Les valorisations tech se calment",
+    "wire.crisis.credit.watch": "À surveiller : les prêteurs durcissent leurs conditions",
+    "wire.crisis.credit.hit": "Le resserrement du crédit frappe les emprunteurs",
+    "wire.crisis.credit.eased": "Les conditions de crédit se stabilisent",
   },
   openItem: `Ouvrir${NNBSP}: {headline}`,
   backToWire: "Retour au fil",
@@ -168,6 +247,17 @@ export const FR: WireStrings = {
   },
   filingMissing: "Les détails de la déclaration ne sont pas disponibles.",
   notInFeed: "Cette dépêche ne figure plus dans votre fil.",
+  demo: "Dépêches d’exemple · elles ne font pas bouger les cours. Connectez-vous pour le fil en direct de Port Avalon.",
+  causes: EN.causes, // [P] FR copy pending (Studio)
+  causeTitle: "Pourquoi c’est important",
+  effectTitle: "Effet sur le cours",
+  effectLine: "{ticker} {from} → {to} ({pct})",
+  realizedNote: "Appliqué une fois par le marché de Port Avalon à {time}.",
+  laterNote: "Les cours continuent de bouger ensuite. Ces mouvements ne font pas partie de cette dépêche.",
+  forecast: "Prévision",
+  forecastNote: "Une prévision, pas un résultat : aucun effet sur le cours. Elle peut ne pas se produire.",
+  eased: "Sans effet",
+  easedNote: "Aucun effet sur le cours : le risque est passé.",
 };
 
 export const useWireStrings = (): WireStrings => (useShell((s) => s.prefs.locale) === "fr" ? FR : EN);
@@ -207,6 +297,17 @@ export function headline(item: WireItem, t: WireStrings): string {
   const labels = item.entities.map((e) => e.label).join(", ");
   return labels ? `${t.kind[item.kind]} · ${labels}` : t.kind[item.kind];
 }
+
+/** A server percent ("-5.00", "3.00") as shown: sign always, U+2212 minus, "%" (no parsing or rounding). */
+export function pctLabel(pct: string): string {
+  const neg = pct.startsWith("-");
+  const abs = neg ? pct.slice(1) : pct;
+  return `${neg ? "\u2212" : /[1-9]/.test(abs) ? "+" : ""}${abs}%`;
+}
+
+/** Cause → consequence copy for a server story; null when the item has none (fixtures) or the key is unknown. */
+export const causeText = (item: WireItem, t: WireStrings): string | null =>
+  item.causeKey !== undefined && Object.hasOwn(t.causes, item.causeKey) ? t.causes[item.causeKey]! : null;
 
 /** Game time for a tick: the SAME clock source (`clockAt`) and formatter (`clockLabel` + `clockStrings().strip`) as the
  *  top bar, so a Wire stamp and the status strip always read the same "Day N · HH:MM" for the same tick. */
