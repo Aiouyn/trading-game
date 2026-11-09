@@ -129,7 +129,7 @@ export class ShockFeed extends MockFeed {
     const gxFrom = gx?.last ?? 0;
     // the end of the previous tick, as published (after its fills' permanent moves): the world's and the pools' N−1
     // state, and the coins' large moves of N−1 (published at N)
-    // crisisTerm from current storm state (end of N); majors unbuilt → never 1. Demo Wire crises do not set this.
+    // crisisTerm from storm/major state (end of N); majors → 1 in TRIGGER/CONTAGION. Demo Wire crises do not set this.
     if (gxFrom > 0) this.world.observe(this.tick + 1, gxFrom, this.storms.crisisTerm());
     for (const [id, m] of this.memes) {
       const s = this.assets.get(id);
@@ -180,6 +180,7 @@ export class ShockFeed extends MockFeed {
   }
 
   takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
+  takeCrisisWire() { return this.storms.takeCrisisWire(); }
   takeStormHype(): StormHypeShock[] { return this.storms.takeHypeShocks(); }
   takeStormPrices(): StormPriceShock[] { return this.storms.takePriceShocks(); }
 }

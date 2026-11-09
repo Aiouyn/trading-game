@@ -145,6 +145,8 @@ export const poolIm = (notionalCents: number): number => Math.ceil(Math.max(0, n
 export const poolMm = (im: number): number => Math.ceil(im * POOL_LAW.degenMmMult);
 /** Status from equity vs IM/MM (07 §3.16.2 retail). */
 export function degenStatus(equity: number, im: number): LiqStatus {
+  // 07 §3.16.2 / 07:821: close when equity ≤ 0 even if notional rounds im to 0 (dust leftover).
+  if (equity <= 0) return "LIQ";
   if (im <= 0) return "OK";
   if (equity < poolMm(im)) return "LIQ";
   if (equity < im) return "CALL";

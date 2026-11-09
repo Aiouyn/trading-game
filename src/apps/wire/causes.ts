@@ -34,6 +34,18 @@ export const CAUSES: Readonly<Record<string, string>> = {
     "wire.cause.storm.sector-rotation.hit": "Sector risk premiums reshuffled. One sector cheapens relative to another.",
     "wire.cause.storm.earnings-scare.hit": "Broad consensus EPS cuts. Equity marks soften until guidance catches up.",
     "wire.cause.storm.liquidity-hiccup.hit": "Maker depth halved briefly. Larger orders move prices more than usual.",
+    "wire.cause.major.equity-bubble-burst.hit": "Equity risk premiums jumped. Broad equities and the index reprice lower.",
+    "wire.cause.major.oil-shock.hit": "Crude supply was cut hard. Energy producers gain; fuel-heavy names and the index soften.",
+    "wire.cause.major.flash-crash.hit": "Maker depth collapsed and forced selling hit the index in-session.",
+    "wire.cause.major.crypto-winter.hit": "Crypto hype froze. Graduated meme coins lose the attention bid; no CB backstop.",
+    "wire.cause.major.trade-war.hit": "Tariffs landed between blocs. Trade-exposed equities and the index softens.",
+    "wire.cause.major.stagflation.hit": "Growth slowed while prices stayed sticky. Risk assets and banks reprice.",
+    "wire.cause.ripple.sector-shock.hit": "A short sector shock moved names in that industry for a few game days.",
+    "wire.cause.ripple.commodity-supply.hit": "A local commodity supply wobble. Full commodity books are not in this base yet (Wire-only).",
+    "wire.cause.ripple.commodity-demand.hit": "A local commodity demand wobble. Full commodity books are not in this base yet (Wire-only).",
+    "wire.cause.ripple.regulatory-note.hit": "A regulatory note hit one sector's equities.",
+    "wire.cause.ripple.local-boom.hit": "A city activity boom. City engines are not in this base yet (Wire-only).",
+    "wire.cause.crisis-week.announced": "A themed Crisis Week is scheduled. Storms are more frequent and a major is more likely while it runs.",
 };
 
 /** Cause → consequence copy for a server story; null when the item has none (fixtures) or the key is unknown. */

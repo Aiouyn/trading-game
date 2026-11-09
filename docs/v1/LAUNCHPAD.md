@@ -734,19 +734,20 @@ import the engine packages — same pattern as world.ts). world.ts day-catch-up 
    real server stop/start during an active stock storm on the durable storm-world path. Plain GUI desktop localhost
    remains infra-blocked.
 
-**Out of scope / disclosed.** Majors, ripples, Crisis Week, full 04 day-close engine, 09 campaigns, CRYPTO_WINTER,
-wiring `@tycoon/engine-macro` into the Next app, 07 credit, FX pairs, yield curve / PE / commodity books, multi-day
-stock shock decay (one-shot proxy at trigger). Spec conflict: 04 prose says storm shocks are "scaled by severity"
-and lists CRYPTO_FLUSH hype −0.4; engine `stormShocks` uses a fixed −0.4 with no severity factor. This unit uses
-−0.4 × severity (matches the scaled-shocks sentence and the owner brief). Severity stays in [0.6, 1.4].
+**Out of scope / disclosed (storm unit).** Full 04 day-close engine, 09 campaigns, wiring `@tycoon/engine-macro`
+into the Next app, 07 credit, FX pairs, yield curve / PE / commodity books, multi-day stock shock decay (one-shot
+proxy at trigger). Majors / ripples / Crisis Week / CRYPTO_WINTER are built in the later "Major crises" unit below.
+Spec conflict: 04 prose says storm shocks are "scaled by severity" and lists CRYPTO_FLUSH hype −0.4; engine
+`stormShocks` uses a fixed −0.4 with no severity factor. This unit uses −0.4 × severity. Severity stays in [0.6, 1.4].
 
 ### Fear Index full inputs (04 §3.14.1; this unit)
 
 **Smallest observable player outcome.** The Fear Index F uses the full 04 §3.14.1 formula (same as
 `packages/engine/macro/rules/fear.ts`). Live inputs: GX `rv21`, day and 63-day returns, and `crisisTerm = 0.5`
-while a 04 storm is active (PRECURSOR or TRIGGER). Held / genesis (disclosed; V1-OUT / unbuilt): creditSpreadIdx 1,
-FSI 0, geopoliticalTension 30, worldHackRate 0. Majors unbuilt → crisisTerm never 1. Demo Wire crises still do **not**
-set crisisTerm. F and RA (= 1 − F/50) are PUBLIC on GET `/api/market` (`macro.fear`). Broker header shows a Fear chip;
+while a 04 storm is active (PRECURSOR or TRIGGER), and `crisisTerm = 1` while a major is in TRIGGER or CONTAGION
+(see Major crises unit). Held / genesis (disclosed; V1-OUT / unbuilt): creditSpreadIdx 1, FSI 0, geopoliticalTension 30,
+worldHackRate 0. Demo Wire crises still do **not** set crisisTerm. F and RA (= 1 − F/50) are PUBLIC on GET `/api/market`
+(`macro.fear`). Broker header shows a Fear chip;
 Launchpad `lp-npc-inputs` continues to show F. Higher F widens half-spread, thins depth, and raises ADV for NPC pools.
 Fear/regime bookkeeping persists in the storm-world store with the scheduler. No mint/credit/refill.
 
@@ -765,6 +766,7 @@ ClearingDebt, insurance fund, and 06 perps are **V1-OUT** in this base.
 2. `imRate = 0.20` (5×) — IMPLEMENTATION CHOICE between spot-equity 50% and crypto-perp 10%. `MM = 0.5 · IM`.
 3. When equity < MM → LIQ. Each tick forced sell through `fillOnBook` (same finite-book path), qty ≤
    `liq_max_participation` (0.20) × ADV_t / 720. Cure when IM(remaining) ≤ equity / 1.1 or flat.
+   Same-unit fix (GK ac538196 backlog): `equity ≤ 0` → LIQ even when `im == 0` (dust leftover; 07:821).
 4. CALL: only risk-reducing sells. VALUE/RETAIL unchanged (cash-only).
 5. Visible: Wire `wire.news.coinLiq` once per episode; Launchpad DEGEN line + tape `liq` / forced-sold.
 6. Conservation: world cash identity includes Σ pool.debt; supply 1B; no mint/refill.
@@ -775,3 +777,22 @@ restart mid-LIQ; preview==fill; repo checks + affected desktop+phone batch.
 **As built.** `src/server/broker/pools.ts` (DEGEN debt/IM/MM/LIQ slice), `state.ts` parse (`debt`, `liq`, tape `liq`),
 `service.ts` / `clock.announceDegenLiq`, Launchpad `lp-npc-degen-liq` + forced tape, Wire strings/causes.
 Tests: `launchpad-degen-liq.test.ts`.
+
+### Major crises + ripples + Crisis Week (04 §3.16; this unit)
+
+**Smallest observable player outcome.** Scheduled MAJORs (precursor 8–16 GD, Wire at trigger only), RIPPLEs (Poisson 1/7,
+≤3 active), and Crisis Week (p=0.6 per chapter, announce 48 GD ahead; storm rate ×2, major rate ×1.5, forced storm on
+day 3) run on the shared scheduler. V1-IN majors with stock proxies via `applyShock` (bound per WireOut): EQUITY_BUBBLE_BURST,
+OIL_SHOCK, FLASH_CRASH, CRYPTO_WINTER (hype → 0), TRADE_WAR, STAGFLATION. Fear `crisisTerm = 1` in TRIGGER/CONTAGION.
+Restart-safe in storm-world store; catch-up ≡ tick-by-tick; no mint/credit/refill. Owner "just like real life" finite book unchanged.
+
+**Sources.** 04 §3.16.1–4; 16 §3.7.3; 23 `macro_major_base_rate` / `macro_ripple_rate` / `macro_major_min_gap_days`;
+engine `scheduler.ts` / `crisisCatalog.ts` / `fear.ts` (shapes copied; app does not import engine-macro).
+
+**Disclosed V1 choices.** LiveMarket `bootstrapTo(START_TICK)` walks history bookkeeping-only (no Wire/shock emit) so virgin marks stay the seeded path; live-forward observe emits normally. Equal weights among the six V1-IN majors (live eligibility/vuln held until CatalogInputs);
+trigger = precursor end (no UTC band snap; `timezoneBandNext` still rotates); phases PRECURSOR→TRIGGER→CONTAGION→ENDED
+(POLICY/RECOVERY engines out); one-shot stock proxies; SECTOR_SHOCK/REGULATORY_NOTE ripples move sector equities, other
+ripple kinds Wire-only; storms stay on `macro:storm:<day>`, events on `macro:events:<day>`, CW on `macro:crisis-week:<chapter>`.
+
+**Acceptance.** Constraints; crisisTerm 1; CW announce + multipliers; ripple sector marks; Wire + Fear + restart proof;
+DEGEN dust LIQ; repo checks + affected desktop+phone batch. Plain GUI / remote CI / Node22 / full suite / installer out.

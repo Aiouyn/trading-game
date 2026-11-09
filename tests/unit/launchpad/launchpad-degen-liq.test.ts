@@ -32,6 +32,9 @@ describe("DEGEN margin math (hand fixtures)", () => {
     expect(degenStatus(150_000, im)).toBe("CALL");
     expect(degenStatus(99_999, im)).toBe("LIQ");
     expect(degenStatus(100_000, im)).toBe("CALL"); // equity == MM → still CALL? 07: equity < MM → LIQ; == MM is CALL
+    // GK backlog: equity ≤ 0 → LIQ even when im rounds to 0 (dust leftover).
+    expect(degenStatus(0, 0)).toBe("LIQ");
+    expect(degenStatus(-1, 0)).toBe("LIQ");
   });
 
   it("borrow raises cash+debt together (equity unchanged); repay on sell", () => {

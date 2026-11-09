@@ -13,6 +13,7 @@ import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
 import { MARKET_FACTOR_ASSET, ShockFeed, type CoinNewsOut, type PoolInputs } from "./shockFeed";
 import type { StormKind, StormWireOut } from "./storms";
+import type { CrisisWireOut, MajorKindV1 } from "./crises";
 import { TICKS_PER_DAY } from "./meme";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
@@ -61,6 +62,12 @@ export class LiveMarket {
     this.stormWorld = opts.stormWorld ?? createDefaultStormWorldStore();
     this.persistStorms = opts.persistStorms !== false;
     if (this.persistStorms) this.restoreStormWorld();
+    // Bookkeeping-only catch-up from tick 0 so day closes 24–37 (and ripples/majors) do not reprice virgin marks
+    // or flood the Wire at boot (GK latent historical-trigger note). Live-forward observe emits normally.
+    if (this.feed.storms.observedTick() === null) {
+      this.feed.storms.bootstrapTo(this.feed.tick);
+      if (this.persistStorms) this.saveStormWorld();
+    }
   }
 
   /** Load durable scheduler + Fear/regime + re-apply permanent stock shocks onto fresh marks (once per storm id). */
@@ -98,6 +105,7 @@ export class LiveMarket {
     this.publishStory();
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const s of this.feed.takeStormWire()) this.publishStorm(s);
+    for (const s of this.feed.takeCrisisWire()) this.publishCrisis(s);
     this.saveStormWorld();
     for (const fn of this.stepListeners) fn();
   }
@@ -196,6 +204,48 @@ export class LiveMarket {
     this.stories = [...this.stories, item].slice(-STORY_KEEP);
   }
 
+  /** 04 §3.16 major / ripple / Crisis Week announce on the Wire. Prices bound per WireOut (no shared drain). */
+  private publishCrisis(s: CrisisWireOut): void {
+    const tick = this.feed.tick;
+    const priceShocks = s.prices;
+    const effects: PriceEffect[] = [];
+    const already = this.stockAppliedThisEpoch.has(s.id);
+    for (const e of priceShocks) {
+      const a = ASSET_BY_ID[e.assetId];
+      if (!a) continue;
+      if (already) {
+        const last = this.feed.lastMinor(e.assetId);
+        if (last == null) continue;
+        const from = Math.max(1, Math.round((last * 10_000) / (10_000 + e.bp)));
+        effects.push({
+          assetId: e.assetId,
+          from: fmt(from, a.displayDecimals),
+          to: fmt(last, a.displayDecimals),
+          pct: fmt(Math.round(((last - from) * 10_000) / from), 2),
+        });
+        continue;
+      }
+      const r = this.feed.applyShock(e.assetId, e.bp);
+      if (!r) continue;
+      effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
+      if (e.assetId === MARKET_FACTOR_ASSET) {
+        for (const c of this.feed.factorJump(Math.log(r.to / r.from))) {
+          const ca = ASSET_BY_ID[c.assetId];
+          if (ca) effects.push({ assetId: c.assetId, from: fmt(c.from, ca.displayDecimals), to: fmt(c.to, ca.displayDecimals), pct: fmt(Math.round(((c.to - c.from) * 10_000) / c.from), 2) });
+        }
+      }
+    }
+    if (priceShocks.length && !already) this.stockAppliedThisEpoch.add(s.id);
+    const assets = [...new Set(effects.map((e) => e.assetId))];
+    const item: WireItem = {
+      id: `w-${tick}-${s.id}`, kind: "WORLD_EVENT", headlineKey: s.headlineKey, slots: {},
+      entities: assets.map((id) => ({ id, kind: "asset", label: ASSET_BY_ID[id]?.ticker ?? id })),
+      tick, breaking: s.breaking, causeEventIds: [s.id], phase: s.phase, causeKey: s.causeKey,
+      ...(effects.length ? { effects } : {}),
+    };
+    this.stories = [...this.stories, item].slice(-STORY_KEEP);
+  }
+
   /** The stories published so far (newest last), at the current tick. A copy: reading changes nothing. */
   wire(): WireSnapshot {
     return structuredClone({ worldId: PORT_AVALON_WORLD_ID, epoch: this.epoch, tick: this.feed.tick, items: this.stories });
@@ -262,6 +312,12 @@ export class LiveMarket {
   /** Test-only: arm a storm bypassing the day-close rate (engine forceEvent analogue). */
   forceStormForTests(kind: StormKind, opts: { severity?: number; precursorDays?: number; sectorIndex?: number } = {}): void {
     this.feed.storms.forceStorm(kind, { atTick: this.feed.tick, ...opts });
+    this.saveStormWorld();
+  }
+
+  /** Test-only: arm a V1 major bypassing rate/constraints. */
+  forceMajorForTests(kind: MajorKindV1, opts: { severity?: number; precursorDays?: number; contagionDays?: number } = {}): void {
+    this.feed.storms.forceMajor(kind, { atTick: this.feed.tick, ...opts });
     this.saveStormWorld();
   }
 

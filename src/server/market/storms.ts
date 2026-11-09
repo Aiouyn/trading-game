@@ -1,13 +1,17 @@
 // Shared storm scheduler for this base (docs/v1/LAUNCHPAD.md "Storm durable correctness").
-// 04 §3.16.1–3 storm tier only: rate 1/91, 8 kinds, one active, 7-day cooldown, no start in first 24 game days
-// from tick 0, precursor 1–2 game days. Plays 04's role here the same way world.ts plays Fear/regime: formulas
-// copied and cited; the app does not import packages/engine/macro. Majors, ripples and Crisis Week are out of scope.
+// 04 §3.16 storm + major + ripple + Crisis Week. Storms: rate 1/91 (×2 in CW), 8 kinds, one active, 7d cooldown,
+// no start in first 24 GD. Majors/ripples/CW per crises.ts. Plays 04's role like world.ts for Fear: formulas
+// copied and cited; the app does not import packages/engine/macro. Majors, ripples and Crisis Week live in crises.ts (composed here).
 // Deterministic: per-day stream `macro:storm:<day>` only, so a restarted clock replays the same schedule (M1-05).
 // Catch-up: when observe jumps across ticks, every skipped day-close and phase edge is evaluated in order (world.ts day loop).
 // Cold start: the first observe evaluates from tick origin 0 (does not skip day closes 24–37 when booting at START_TICK).
 // Per-wire prices: each StormWireOut carries its own stock shocks (no shared queue drain across two triggers in one step).
 import { ASSETS } from "@/market/catalog";
 import { Draws, TICKS_PER_DAY } from "./meme";
+import {
+  CrisisBook, CRISIS_WEEK_STORM_MULT, emptyCrisisBookkeeping, type CrisisBookkeeping, type CrisisWireOut,
+  type MajorKindV1,
+} from "./crises";
 
 export const STORM_KINDS = [
   "RATE_SCARE", "OIL_SPIKE_LITE", "CRYPTO_FLUSH", "CREDIT_WOBBLE", "FX_SQUALL",
@@ -84,6 +88,8 @@ export interface StormWorldSnapshot {
   readonly stockApplied: ReadonlyArray<{ readonly stormId: string; readonly shocks: readonly StormPriceShock[] }>;
   /** Optional durable Fear/regime bookkeeping (world.ts). Absent on older files → genesis world. */
   readonly world?: import("./world").WorldSnapshot | null;
+  /** Majors / ripples / Crisis Week bookkeeping. Absent on older files → empty. */
+  readonly crises?: CrisisBookkeeping | null;
 }
 
 const pFromRate = (r: number) => 1 - Math.exp(-r);
@@ -160,7 +166,7 @@ export function stormStockShocks(kind: StormKind, severity: number, sectorIndex:
 }
 
 export function emptyStormWorld(): StormWorldSnapshot {
-  return { active: null, lastEndTick: null, lastDayClose: null, lastTick: null, depth: null, stockApplied: [], world: null };
+  return { active: null, lastEndTick: null, lastDayClose: null, lastTick: null, depth: null, stockApplied: [], world: null, crises: emptyCrisisBookkeeping() };
 }
 
 /**
@@ -182,12 +188,21 @@ export class StormScheduler {
   private depth: { mult: number; untilTick: number } | null = null;
   /** Permanent stock applyShock sets by storm id (durable via storm-world store). */
   private stockApplied: { stormId: string; shocks: StormPriceShock[] }[] = [];
+  /** Majors / ripples / Crisis Week (04 §3.16); composed, own stream. */
+  readonly crises = new CrisisBook();
+  /** True while cold-start catch-up walks history (no Wire / stock apply; bookkeeping only). */
+  private replaying = false;
 
   /** Current active storm (PRECURSOR or TRIGGER), or null. */
   peek(): StormEvent | null { return this.active ? { ...this.active } : null; }
+  /** Current active major (any non-ENDED phase), or null. */
+  peekMajor() { return this.crises.activeMajor ? { ...this.crises.activeMajor } : null; }
 
-  /** 04 §3.14.1 crisisTerm: 0.5 while a storm is active (PRECURSOR or TRIGGER); majors unbuilt → never 1. */
-  crisisTerm(): 0 | 0.5 | 1 { return this.active && this.active.phase !== "ENDED" ? 0.5 : 0; }
+  /** 04 §3.14.1 crisisTerm: 1 while a major is in TRIGGER/CONTAGION; else 0.5 while a storm is active; else 0. */
+  crisisTerm(): 0 | 0.5 | 1 {
+    if (this.crises.majorCrisisTerm() === 1) return 1;
+    return this.active && this.active.phase !== "ENDED" ? 0.5 : 0;
+  }
   lastStormEndTick(): number | null { return this.lastEndTick; }
   observedTick(): number | null { return this.lastTick; }
   /** Maker depth multiplier for graduated crypto at `tick` (1 when none). */
@@ -197,12 +212,24 @@ export class StormScheduler {
   }
 
   takeWire(): StormWireOut[] { const out = this.wire; this.wire = []; return out; }
-  takeHypeShocks(): StormHypeShock[] { const out = this.hype; this.hype = []; return out; }
+  /** Majors / ripples / Crisis Week Wire outs (separate from storm Wire). */
+  takeCrisisWire(): CrisisWireOut[] { return this.crises.takeWire(); }
+  takeHypeShocks(): StormHypeShock[] {
+    const fromStorm = this.hype; this.hype = [];
+    const fromCrisis = this.crises.takeHype();
+    return [...fromStorm, ...fromCrisis];
+  }
   /** Flat drain of any leftover queue (tests). Prefer StormWireOut.prices for attribution. */
   takePriceShocks(): StormPriceShock[] { const out = this.prices; this.prices = []; return out; }
 
   /** Durable snapshot (scheduler bookkeeping + permanent stock shock sets). Pending wire/hype/price queues are not stored. */
   snapshot(): StormWorldSnapshot {
+    // Merge crisis stockApplied into the durable list (idempotent by id).
+    for (const r of this.crises.stockApplied) {
+      if (!this.stockApplied.some((x) => x.stormId === r.stormId)) {
+        this.stockApplied.push({ stormId: r.stormId, shocks: r.shocks.map((p) => ({ ...p })) });
+      }
+    }
     return {
       active: this.active ? { ...this.active } : null,
       lastEndTick: this.lastEndTick,
@@ -210,6 +237,7 @@ export class StormScheduler {
       lastTick: this.lastTick,
       depth: this.depth ? { ...this.depth } : null,
       stockApplied: this.stockApplied.map((r) => ({ stormId: r.stormId, shocks: r.shocks.map((p) => ({ ...p })) })),
+      crises: this.crises.snapshot(),
     };
   }
 
@@ -224,6 +252,11 @@ export class StormScheduler {
       stormId: r.stormId,
       shocks: r.shocks.map((p) => ({ ...p })),
     }));
+    this.crises.hydrate(snap.crises ?? emptyCrisisBookkeeping());
+    // Rebuild crisis.stockApplied from durable rows whose ids look like major:/ripple:
+    this.crises.stockApplied = this.stockApplied
+      .filter((r) => r.stormId.startsWith("major:") || r.stormId.startsWith("ripple:"))
+      .map((r) => ({ stormId: r.stormId, shocks: r.shocks.map((p) => ({ ...p })) }));
     this.wire = [];
     this.hype = [];
     this.prices = [];
@@ -247,6 +280,8 @@ export class StormScheduler {
     if (!Number.isSafeInteger(tick) || tick < 0) return;
     if (this.lastTick === null) {
       // Cold start from origin: do not skip day closes before the boot tick (GK 41d0f984 gap).
+      // Unit/scheduler tests rely on Wire emission during this walk. LiveMarket boot uses bootstrapTo()
+      // (bookkeeping-only) before the first observe so virgin marks are not repriced by history.
       let t = -1;
       while (t < tick) {
         const next = this.nextCriticalTick(Math.max(0, t + 1), tick);
@@ -280,34 +315,43 @@ export class StormScheduler {
       if (ev.phase === "PRECURSOR" && ev.triggerTick >= from && ev.triggerTick <= until) n = Math.min(n, ev.triggerTick);
       if (ev.phase !== "ENDED" && ev.plannedEndTick >= from && ev.plannedEndTick <= until) n = Math.min(n, ev.plannedEndTick);
     }
+    const c = this.crises.nextCritical(from, until);
+    if (c !== null && c < n) n = c;
     return n;
   }
 
   /** Apply phase edges and (if this tick is a day-close) the day-close start draw at exactly `tick`. */
   private advanceTo(tick: number): void {
+    // Majors / ripples / CW announce phase edges first (same tick order as day-close after).
+    this.crises.advancePhases(tick);
+    const depthReq = this.crises.takeDepthReq();
+    if (depthReq) this.depth = depthReq;
+
     if (this.active) {
       const ev = this.active;
       if (ev.phase === "PRECURSOR" && tick >= ev.triggerTick) {
         ev.phase = "TRIGGER";
-        const prices = stormStockShocks(ev.kind, ev.severity, ev.sectorIndex);
-        this.wire.push({
-          id: ev.id, kind: ev.kind, severity: ev.severity, sectorIndex: ev.sectorIndex,
-          headlineKey: `wire.storm.${slugOf(ev.kind)}.hit`,
-          causeKey: `wire.cause.storm.${slugOf(ev.kind)}.hit`,
-          phase: "realized", breaking: true, slug: slugOf(ev.kind),
-          prices,
-        });
-        if (ev.kind === "CRYPTO_FLUSH") {
-          this.hype.push({ stormId: ev.id, delta: CRYPTO_FLUSH_HYPE * ev.severity });
-          this.depth = { mult: CRYPTO_FLUSH_DEPTH_MULT, untilTick: ev.triggerTick + CRYPTO_FLUSH_DEPTH_TICKS };
-        } else if (ev.kind === "LIQUIDITY_HICCUP") {
-          // 04: assetFilter ALL in this base lands on graduated crypto (the only depth-using class here)
-          this.depth = { mult: LIQUIDITY_HICCUP_DEPTH_MULT, untilTick: ev.triggerTick + LIQUIDITY_HICCUP_DEPTH_TICKS };
-        } else if (prices.length) {
-          // Flat queue kept for unit tests that still drain it; publish uses WireOut.prices only.
-          for (const p of prices) this.prices.push(p);
-          if (!this.stockApplied.some((r) => r.stormId === ev.id)) {
-            this.stockApplied.push({ stormId: ev.id, shocks: prices.map((p) => ({ ...p })) });
+        if (!this.replaying) {
+          const prices = stormStockShocks(ev.kind, ev.severity, ev.sectorIndex);
+          this.wire.push({
+            id: ev.id, kind: ev.kind, severity: ev.severity, sectorIndex: ev.sectorIndex,
+            headlineKey: `wire.storm.${slugOf(ev.kind)}.hit`,
+            causeKey: `wire.cause.storm.${slugOf(ev.kind)}.hit`,
+            phase: "realized", breaking: true, slug: slugOf(ev.kind),
+            prices,
+          });
+          if (ev.kind === "CRYPTO_FLUSH") {
+            this.hype.push({ stormId: ev.id, delta: CRYPTO_FLUSH_HYPE * ev.severity });
+            this.depth = { mult: CRYPTO_FLUSH_DEPTH_MULT, untilTick: ev.triggerTick + CRYPTO_FLUSH_DEPTH_TICKS };
+          } else if (ev.kind === "LIQUIDITY_HICCUP") {
+            // 04: assetFilter ALL in this base lands on graduated crypto (the only depth-using class here)
+            this.depth = { mult: LIQUIDITY_HICCUP_DEPTH_MULT, untilTick: ev.triggerTick + LIQUIDITY_HICCUP_DEPTH_TICKS };
+          } else if (prices.length) {
+            // Flat queue kept for unit tests that still drain it; publish uses WireOut.prices only.
+            for (const p of prices) this.prices.push(p);
+            if (!this.stockApplied.some((r) => r.stormId === ev.id)) {
+              this.stockApplied.push({ stormId: ev.id, shocks: prices.map((p) => ({ ...p })) });
+            }
           }
         }
       }
@@ -321,11 +365,47 @@ export class StormScheduler {
     const day = dayOf(tick);
     if (this.lastDayClose !== null && day <= this.lastDayClose) return;
     this.lastDayClose = day;
+
+    // Ripples + majors + CW forced-storm request (always; does not require storm free).
+    this.crises.dayClose(tick, {
+      stormActive: this.active !== null,
+      tryForceStorm: () => {
+        if (this.active) return false;
+        // Forced RATE_SCARE (stable) with 1-day precursor; does not consume storm day draw.
+        const precursorStartTick = tick + 1;
+        const triggerTick = tick + 1 + TICKS_PER_DAY;
+        const plannedEndTick = triggerTick + STORM_EFFECT_DAYS.RATE_SCARE * TICKS_PER_DAY;
+        this.active = {
+          id: `storm:cwforce:${day}:RATE_SCARE`,
+          kind: "RATE_SCARE", severity: 1, sectorIndex: 0,
+          precursorStartTick, triggerTick, plannedEndTick, phase: "PRECURSOR",
+        };
+        return true;
+      },
+    });
+    for (const r of this.crises.stockApplied) {
+      if (!this.stockApplied.some((x) => x.stormId === r.stormId)) {
+        this.stockApplied.push({ stormId: r.stormId, shocks: r.shocks.map((p) => ({ ...p })) });
+      }
+    }
+
+    // Natural storm start (rate ×2 in Crisis Week).
     if (this.active) return;
     if (day < STORM_NO_START_FIRST_DAYS) return;
     if (this.lastEndTick !== null && tick - this.lastEndTick < STORM_COOLDOWN_DAYS * TICKS_PER_DAY) return;
+    const inCw = this.crises.inCrisisWeek(tick);
     const d = stormDayDraw(day);
-    if (!d.start) return;
+    // stormDayDraw uses base rate 1/91. In Crisis Week, also start with residual P so overall ≈ 1-e^(-2/91)
+    // without re-consuming macro:storm:<day> (kind/severity/precursor stay identical for the same day).
+    let doStart = d.start;
+    if (inCw && !d.start) {
+      const rate = STORM_RATE * CRISIS_WEEK_STORM_MULT;
+      const u = new Draws(`macro:storm-cw:${day}`).uniform();
+      const pBase = 1 - Math.exp(-STORM_RATE);
+      const pCw = 1 - Math.exp(-rate);
+      doStart = u < (pCw - pBase) / Math.max(1e-12, 1 - pBase);
+    }
+    if (!doStart) return;
     const pre = d.precursorDays;
     const precursorStartTick = tick + 1;
     const triggerTick = tick + 1 + pre * TICKS_PER_DAY;
@@ -340,6 +420,33 @@ export class StormScheduler {
       plannedEndTick,
       phase: "PRECURSOR",
     };
+  }
+
+  /**
+   * LiveMarket boot only: walk day-closes/phase edges from origin to `tick` with Wire/shock emission
+   * suppressed (bookkeeping only). Sets lastTick so the next observe is live-forward.
+   * Clears any Wire/hype/price queues. Does not apply marks (caller has virgin path).
+   */
+  bootstrapTo(tick: number): void {
+    if (!Number.isSafeInteger(tick) || tick < 0) return;
+    if (this.lastTick !== null) return;
+    this.replaying = true;
+    this.crises.replaying = true;
+    let t = -1;
+    while (t < tick) {
+      const next = this.nextCriticalTick(Math.max(0, t + 1), tick);
+      this.advanceTo(next);
+      t = next;
+    }
+    this.replaying = false;
+    this.crises.replaying = false;
+    this.lastTick = tick;
+    this.wire = [];
+    this.hype = [];
+    this.prices = [];
+    this.crises.wire = [];
+    this.crises.hype = [];
+    this.crises.depthReq = null;
   }
 
   /** Tests/admin: start `kind` now, bypassing rate and constraints (engine forceEvent analogue). Default precursor 0
@@ -361,5 +468,12 @@ export class StormScheduler {
     };
     this.active = ev;
     return { ...ev };
+  }
+
+  /** Tests/admin: start a V1 major now, bypassing rate and constraints. */
+  forceMajor(kind: MajorKindV1, opts: {
+    severity?: number; precursorDays?: number; contagionDays?: number; atTick: number;
+  }) {
+    return this.crises.forceMajor(kind, opts);
   }
 }

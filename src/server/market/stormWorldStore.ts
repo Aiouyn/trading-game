@@ -6,6 +6,10 @@ import path from "node:path";
 import {
   emptyStormWorld, STORM_KINDS, type StormEvent, type StormKind, type StormPriceShock, type StormWorldSnapshot,
 } from "./storms";
+import {
+  emptyCrisisBookkeeping, MAJOR_KINDS_V1, RIPPLE_KINDS,
+  type CrisisBookkeeping, type MajorEvent, type MajorKindV1, type MajorPhase, type RippleEvent, type RippleKind,
+} from "./crises";
 
 export interface StormWorldStore {
   load(): StormWorldSnapshot;
@@ -62,6 +66,22 @@ export function cloneStormWorld(s: StormWorldSnapshot): StormWorldSnapshot {
       closes: s.world.closes.slice(), dayOpen: s.world.dayOpen,
       lastHour: s.world.lastHour, lastDay: s.world.lastDay,
     } : s.world === null ? null : undefined,
+    crises: s.crises ? cloneCrises(s.crises) : s.crises === null ? null : undefined,
+  };
+}
+
+function cloneCrises(c: CrisisBookkeeping): CrisisBookkeeping {
+  return {
+    activeMajor: c.activeMajor ? { ...c.activeMajor } : null,
+    activeRipples: c.activeRipples.map((r) => ({ ...r })),
+    lastMajorTriggerTick: c.lastMajorTriggerTick,
+    lastMajorEndTick: c.lastMajorEndTick,
+    crisisWeek: c.crisisWeek ? { ...c.crisisWeek } : null,
+    crisisWeekUsedThisChapter: c.crisisWeekUsedThisChapter,
+    crisisWeekChapter: c.crisisWeekChapter,
+    timezoneBandNext: c.timezoneBandNext,
+    playerCausedSuppressUntil: c.playerCausedSuppressUntil,
+    crisisWeekForcedStormAt: c.crisisWeekForcedStormAt,
   };
 }
 
@@ -122,6 +142,78 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     depth,
     stockApplied,
     world: normalizeWorld(o.world),
+    crises: normalizeCrises(o.crises),
+  };
+}
+
+function isMajorKind(x: unknown): x is MajorKindV1 {
+  return typeof x === "string" && (MAJOR_KINDS_V1 as readonly string[]).includes(x);
+}
+function isRippleKind(x: unknown): x is RippleKind {
+  return typeof x === "string" && (RIPPLE_KINDS as readonly string[]).includes(x);
+}
+function normalizeMajor(raw: unknown): MajorEvent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== "string" || !isMajorKind(o.kind)) return null;
+  if (typeof o.severity !== "number" || typeof o.precursorStartTick !== "number") return null;
+  if (typeof o.triggerTick !== "number" || typeof o.contagionStartTick !== "number" || typeof o.plannedEndTick !== "number") return null;
+  const phase = o.phase;
+  if (phase !== "PRECURSOR" && phase !== "TRIGGER" && phase !== "CONTAGION" && phase !== "ENDED") return null;
+  return {
+    id: o.id, kind: o.kind, severity: o.severity,
+    precursorStartTick: o.precursorStartTick, triggerTick: o.triggerTick,
+    contagionStartTick: o.contagionStartTick, plannedEndTick: o.plannedEndTick,
+    phase: phase as MajorPhase,
+  };
+}
+function normalizeRipple(raw: unknown): RippleEvent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== "string" || !isRippleKind(o.kind)) return null;
+  if (o.sign !== 1 && o.sign !== -1) return null;
+  if (typeof o.size !== "number" || typeof o.lengthDays !== "number" || typeof o.sectorIndex !== "number") return null;
+  if (typeof o.startTick !== "number" || typeof o.plannedEndTick !== "number") return null;
+  if (o.phase !== "ACTIVE" && o.phase !== "ENDED") return null;
+  return {
+    id: o.id, kind: o.kind, sign: o.sign, size: o.size, lengthDays: o.lengthDays,
+    sectorIndex: o.sectorIndex, startTick: o.startTick, plannedEndTick: o.plannedEndTick, phase: o.phase,
+  };
+}
+function normalizeCrises(raw: unknown): CrisisBookkeeping | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object") return emptyCrisisBookkeeping();
+  const o = raw as Record<string, unknown>;
+  const ripples: RippleEvent[] = [];
+  if (Array.isArray(o.activeRipples)) {
+    for (const r of o.activeRipples) {
+      const n = normalizeRipple(r);
+      if (n) ripples.push(n);
+    }
+  }
+  const band = o.timezoneBandNext;
+  const timezoneBandNext: 0 | 1 | 2 = band === 1 || band === 2 ? band : 0;
+  let crisisWeek = null;
+  if (o.crisisWeek && typeof o.crisisWeek === "object") {
+    const w = o.crisisWeek as Record<string, unknown>;
+    if (typeof w.announcedTick === "number" && typeof w.startTick === "number" && typeof w.endTick === "number" && typeof w.themeKey === "string") {
+      crisisWeek = { announcedTick: w.announcedTick, startTick: w.startTick, endTick: w.endTick, themeKey: w.themeKey };
+    }
+  }
+  const numOrNull = (v: unknown): number | null =>
+    typeof v === "number" && Number.isSafeInteger(v) ? v : v === null ? null : null;
+  return {
+    activeMajor: normalizeMajor(o.activeMajor),
+    activeRipples: ripples,
+    lastMajorTriggerTick: numOrNull(o.lastMajorTriggerTick),
+    lastMajorEndTick: numOrNull(o.lastMajorEndTick),
+    crisisWeek,
+    crisisWeekUsedThisChapter: o.crisisWeekUsedThisChapter === true,
+    crisisWeekChapter: numOrNull(o.crisisWeekChapter),
+    timezoneBandNext,
+    playerCausedSuppressUntil: numOrNull(o.playerCausedSuppressUntil),
+    crisisWeekForcedStormAt: numOrNull(o.crisisWeekForcedStormAt),
   };
 }
 

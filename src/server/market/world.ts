@@ -88,7 +88,7 @@ export const stepFear = (F: number, raw: number): number => F + (raw - F) * (1 -
 /** RA = 1 − F/50 (04 §3.14.1). */
 export const riskAppetite = (F: number): number => 1 - F / 50;
 
-/** 1 while a major is in TRIGGER/CONTAGION (majors unbuilt → never); 0.5 while a storm is active; else 0. */
+/** 1 while a major is in TRIGGER/CONTAGION; 0.5 while a storm is active; else 0. */
 export type CrisisTerm = 0 | 0.5 | 1;
 export function crisisTermFromStorm(active: boolean): CrisisTerm {
   return active ? 0.5 : 0;
