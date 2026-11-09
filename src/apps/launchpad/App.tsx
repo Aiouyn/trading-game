@@ -21,7 +21,7 @@ import { LPS } from "./strings";
 import "./launchpad.css";
 
 // The price/volume chart is its own chunk, loaded when a coin panel opens.
-const History = lazy(() => import("./History"));
+const History = lazy(() => import("./HistoryChart"));
 
 export const LAUNCHPAD_POLL_MS = 5_000;
 

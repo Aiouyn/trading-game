@@ -1,4 +1,4 @@
-// Launchpad coin history model (pure, read by History.tsx and the unit tests without a DOM). The server records one point
+// Launchpad coin history model (pure, read by HistoryChart.tsx and the unit tests without a DOM). The server records one point
 // per executed trade (src/server/launchpad/state.ts recordPoint): the curve after it and the trade's tape volume. Here
 // those points become the chart's steps; nothing is interpolated, smoothed or invented. Price is the curve's spot price
 // after each trade (x / (Y0 − sold), the panel's "Price"), never the liquidation estimate used for net worth.

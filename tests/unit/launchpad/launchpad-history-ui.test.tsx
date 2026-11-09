@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 // The lazy history chart: latest request wins (a late reply for an older version is dropped), a failed refresh keeps the
 // last history labelled "not updated" (offline says so), keyboard readout and table equivalent, Retry from an error.
+import { readdirSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import History from "@/apps/launchpad/History";
+import History from "@/apps/launchpad/HistoryChart";
 import { LP } from "@/launchpad/rules";
 
 const pt = (i: number, side: "buy" | "sell" = "buy") => ({ tick: i, atMs: 1_000 + i, side, tokens: 10 + i, cents: 100 * (i + 1), x: LP.X0 + 100 * (i + 1), sold: 10 * (i + 1) });
@@ -19,6 +20,11 @@ beforeEach(() => { host = document.createElement("div"); document.body.append(ho
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 describe("Launchpad history chart", () => {
+  it("Launchpad TypeScript module basenames are unambiguous on case-insensitive filesystems", () => {
+    const names = readdirSync("src/apps/launchpad")
+      .filter((name) => /\.tsx?$/.test(name)).map((name) => name.replace(/\.tsx?$/, "").toLowerCase());
+    expect(new Set(names).size).toBe(names.length);
+  });
   it("draws the latest reply only: a late reply for the previous version is dropped", async () => {
     let late!: (r: Response) => void;
     const fetch = vi.fn()
