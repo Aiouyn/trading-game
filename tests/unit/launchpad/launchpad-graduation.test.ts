@@ -29,7 +29,7 @@ import { isListed, listVersion, listedDef, resetListingsForTests } from "@/marke
 import { LP, minAfterSlip } from "@/launchpad/rules";
 import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, type AuthStore, type AuthStoreSnapshot } from "@/server/auth";
 import { setBrokerForTests } from "@/server/broker";
-import { marketCashCents, poolCashCents, poolFundedCents, poolTokens } from "@/server/launchpad/state";
+import { marketCashCents, poolCashCents, poolDebtCents, poolFundedCents, poolTokens } from "@/server/launchpad/state";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { getCandles } from "@/server/market/candles";
 
@@ -79,7 +79,7 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
   const setCash = (cents: number) => auth.sweepPrivateStates((cur) => ({ ...cur, cashCents: cents }));
   /** Σ player cash + Σ live curves' real cash + Σ books' cash + the Launchpad sink (Broker fees on a listed coin go to its book). */
   const world = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + r.cashCents, 0)))
-    + (await auth.readLaunchpad(null, (lp) => lp.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0) + poolCashCents(c) - poolFundedCents(c), 0) + lp.sinkCents)); // the pools' booked funding is the one NPC cash line
+    + (await auth.readLaunchpad(null, (lp) => lp.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0) + poolCashCents(c) - poolDebtCents(c) - poolFundedCents(c), 0) + lp.sinkCents)); // the pools' booked funding is the one NPC cash line
   const lp = () => auth.readLaunchpad(null, (s) => s);
   /** Σ Broker positions in FROG over every ledger + the book's tokens + the trader pools' tokens. */
   const supply = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + (r.positions.find((p) => p.assetId === "FROG")?.qty ?? 0), 0)))

@@ -20,7 +20,7 @@ import { LP } from "@/launchpad/rules";
 import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, type AuthStore, type AuthStoreSnapshot } from "@/server/auth";
 import { getBroker, setBrokerForTests } from "@/server/broker";
 import { BOOK_LAW, fillOnBook, type BookAccount } from "@/server/broker/book";
-import { marketCashCents, poolCashCents, poolFundedCents, poolTokens } from "@/server/launchpad/state";
+import { marketCashCents, poolCashCents, poolDebtCents, poolFundedCents, poolTokens } from "@/server/launchpad/state";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { memeParams } from "@/server/market/meme";
 import { getCandles } from "@/server/market/candles";
@@ -229,7 +229,7 @@ describe("trader pools in the world: clock, book, players alongside", () => {
   const frog = async () => (await lp()).coins[0]!;
   /** Σ ledgers + curves + books + pools + sinks − the pools' booked funding: constant. */
   const world = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + r.cashCents, 0)))
-    + (await auth.readLaunchpad(null, (l) => l.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0) + poolCashCents(c) - poolFundedCents(c), 0) + l.sinkCents));
+    + (await auth.readLaunchpad(null, (l) => l.coins.reduce((s, c) => s + marketCashCents(c) + (c.book?.cash ?? 0) + poolCashCents(c) - poolDebtCents(c) - poolFundedCents(c), 0) + l.sinkCents));
   const supply = async () => (await auth.readStandings((rows) => rows.reduce((s, r) => s + (r.positions.find((p) => p.assetId === "FROG")?.qty ?? 0), 0))) + (await frog()).book!.tokens + poolTokens(await frog());
   const mark = () => market.listedMark("FROG")!;
   const tick = async () => { market.step(); await getBroker().sweep(); };
@@ -424,6 +424,7 @@ describe("trader pools in the world: clock, book, players alongside", () => {
       // what the last step read (public world/news inputs: the fresh listing's item, nw 0.5 × 1 × 0.3 = 0.15) and the
       // path multipliers its saved H and regime give: vol × (1 + 2H), EXPANSION 0.90, drift + 3.0 H a game year
       w: { rg: "EXPANSION", f: s0.coins[0]!.pools!.w!.f, att: 1.15, ns: 0, m: 0.15 },
+      liq: s0.coins[0]!.pools!.liq ? { ...s0.coins[0]!.pools!.liq } : null,
       path: { hypeVol: 1 + 2 * s0.coins[0]!.pools!.h, regimeVol: 0.9, drift: 3 * s0.coins[0]!.pools!.h } });
   });
 

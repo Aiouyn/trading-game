@@ -220,6 +220,24 @@ export class LiveMarket {
 
   /** The saved hype of a listed coin (its pools' H), read by its next path step; called after the pools' save. */
   setHype(assetId: string, h: number): void { if (this.isListed(assetId)) this.feed.setHype(assetId, h); }
+
+  /** DEGEN liquidation episode start on the Wire (after pools' save). Once per episode; idempotent id. */
+  announceDegenLiq(ev: { assetId: string; tick: number; qty: number }): void {
+    if (!this.isListed(ev.assetId)) return;
+    const a = ASSET_BY_ID[ev.assetId];
+    if (!a) return;
+    const id = `w-${ev.tick}-${ev.assetId}-degenliq`;
+    if (this.stories.some((s) => s.id === id)) return;
+    const wi: WireItem = {
+      id, kind: "NEWS", headlineKey: "wire.news.coinLiq",
+      slots: { coin: a.ticker, qty: String(ev.qty) },
+      entities: [{ id: ev.assetId, kind: "asset", label: a.ticker }],
+      tick: ev.tick, breaking: true,
+      causeEventIds: [`lp-degen-liq:${ev.assetId}:${ev.tick}`],
+      causeKey: "wire.cause.coin-liq",
+    };
+    this.stories = [...this.stories, wi].slice(-STORY_KEEP);
+  }
   /** The hype a listed coin's next path step reads, or null. */
   hypeOf(assetId: string): number | null { return this.isListed(assetId) ? this.feed.hypeOf(assetId) : null; }
   /** 04's regime and Fear Index on this clock now (world.ts). */

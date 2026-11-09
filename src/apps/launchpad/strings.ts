@@ -103,7 +103,10 @@ export const LPS = {
   npcPool: (name: string, tokens: string, cash: string) => `${name}: holds ${tokens} tokens and ${cash}`,
   npcPools: { retail: "Retail", value: "Value", degen: "Degen" } as Record<string, string>,
   npcFunded: (cash: string, hype: string, traded: string) => `Funded with ${cash} of NPC game cash at their start; ${traded} tokens traded so far. Hype now ${hype}.`,
-  npcPrint: (name: string, side: "BUY" | "SELL", tokens: string, px: string) => `${name} ${side === "BUY" ? "bought" : "sold"} ${tokens} at ${px}`,
+  npcPrint: (name: string, side: "BUY" | "SELL", tokens: string, px: string, forced?: boolean) =>
+    `${name} ${forced ? "forced-sold" : side === "BUY" ? "bought" : "sold"} ${tokens} at ${px}`,
+  npcDegenLiq: (status: string, lev: string, debt: string) => `Degen margin: ${status} · leverage ${lev}× · debt ${debt}`,
+  npcLiqStatuses: { OK: "OK", CALL: "margin call", LIQ: "liquidating" } as Record<string, string>,
   npcWaiting: "The pools start on the next server tick.",
   npcNone: "No NPC trade yet.",
   npcInputs: (regime: string, fear: string, attention: string, news: string, mentions: string, volMult: string, drift: string) =>

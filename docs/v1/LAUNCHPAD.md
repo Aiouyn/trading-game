@@ -752,3 +752,26 @@ Fear/regime bookkeeping persists in the storm-world store with the scheduler. No
 
 **Acceptance.** Engine T04-15 worked numbers; storm raises F vs calm twin; depth/ADV move with F; snapshot + Broker chip;
 restart restores F; demo crises ≠ crisisTerm; owner "just like real life" finite book unchanged.
+
+### DEGEN leverage / liquidations (graduated meme coins; recorded before code at eng/degen-liquidations)
+
+**Source.** 05 §6.2 DEGEN are leveraged crypto/meme traders; liquidations from 07 and 06 perps flow through LIQUIDATION.
+07 §3.15.1–2 retail IM/MM; §3.16.2–4 status transitions and liquidation participation. Full 07 broker margin, CCP,
+ClearingDebt, insurance fund, and 06 perps are **V1-OUT** in this base.
+
+**Mapping (disclosed approximation for the DEGEN NPC pool only).**
+1. Local margin debt on the DEGEN account: borrow raises cash+debt together (net equity unchanged); sells repay debt
+   first. No player credit, no CCP, no insurance fund. Penalty 1% omitted (no fund account).
+2. `imRate = 0.20` (5×) — IMPLEMENTATION CHOICE between spot-equity 50% and crypto-perp 10%. `MM = 0.5 · IM`.
+3. When equity < MM → LIQ. Each tick forced sell through `fillOnBook` (same finite-book path), qty ≤
+   `liq_max_participation` (0.20) × ADV_t / 720. Cure when IM(remaining) ≤ equity / 1.1 or flat.
+4. CALL: only risk-reducing sells. VALUE/RETAIL unchanged (cash-only).
+5. Visible: Wire `wire.news.coinLiq` once per episode; Launchpad DEGEN line + tape `liq` / forced-sold.
+6. Conservation: world cash identity includes Σ pool.debt; supply 1B; no mint/refill.
+
+**Acceptance.** Hand IM/MM/status; cascade (drop → forced sell → further permanent move vs unlevered twin); Wire once;
+restart mid-LIQ; preview==fill; repo checks + affected desktop+phone batch.
+
+**As built.** `src/server/broker/pools.ts` (DEGEN debt/IM/MM/LIQ slice), `state.ts` parse (`debt`, `liq`, tape `liq`),
+`service.ts` / `clock.announceDegenLiq`, Launchpad `lp-npc-degen-liq` + forced tape, Wire strings/causes.
+Tests: `launchpad-degen-liq.test.ts`.

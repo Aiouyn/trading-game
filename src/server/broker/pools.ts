@@ -5,7 +5,9 @@
 // Each pool is an explicit NPC account on the coin (cash cents, tokens) plus its tracking position `pos` (ADV units).
 // Once a server tick, after the players' resting orders, every pool sends one IOC limit that `fillOnBook` fills against
 // the coin's book like any order (spread, impact, per-tick cap, fee to the book, the book's cash and token bounds).
-// A pool never sells tokens it does not hold and never pays more than its cash; the decay moves only `pos`.
+// A pool never sells tokens it does not hold. VALUE/RETAIL never pay more than their cash. DEGEN may borrow
+// local margin debt (disclosed 07 retail approximation): borrow raises cash+debt together (net equity 0); sells repay
+// debt first. When equity < MM, DEGEN forced-sells through the same fillOnBook path (no special pricing).
 // Pure: the caller (BrokerService.sweep) commits the result with the ledgers and books in one persist.
 import type { AssetFixture } from "@/market/catalog";
 import { LP } from "@/launchpad/rules";
@@ -46,6 +48,15 @@ export const POOL_LAW = {
   advFearK: 0.01, advFearFloor: 20,
   /** Public NPC prints kept per coin. */
   tapeKeep: 20,
+  /** DEGEN local margin (07 §3.15.1–2 / §3.16.4 approximation for meme NPC only; full 07/06 V1-OUT).
+   *  imRate 0.20 → 5× max leverage: IMPLEMENTATION CHOICE between spot-equity 50% and crypto-perp 10%. */
+  degenImRate: 0.20,
+  /** 07 retail MM = 0.5 × IM. */
+  degenMmMult: 0.5,
+  /** PARAM.liq_max_participation: max share of expected tick volume per forced slice. */
+  liqParticipation: 0.20,
+  /** 07 §3.16.4 stop when IM(remaining) ≤ equity / 1.1. */
+  liqEquityImRatio: 1.1,
 } as const;
 /** The coin's base ADV in tokens: 0.15 × 1,000,000,000 = 150,000,000 a game day (turnover × size; the funding base). */
 export const ADV_TOKENS = POOL_LAW.turnover * LP.SUPPLY;
@@ -54,10 +65,13 @@ export const ADV_TOKENS = POOL_LAW.turnover * LP.SUPPLY;
 export const advTokens = (inp: Pick<PoolInputs, "fear" | "attention" | "regime">): number =>
   ADV_TOKENS * (1 + POOL_LAW.advFearK * Math.max(0, inp.fear - POOL_LAW.advFearFloor)) * inp.attention * REGIME_TURNOVER[inp.regime];
 
-export interface PoolAccount { cash: number; tokens: number; pos: number }
+export interface PoolAccount { cash: number; tokens: number; pos: number; /** DEGEN margin loan cents (0/absent on VALUE/RETAIL). */ debt?: number }
+export type LiqStatus = "OK" | "CALL" | "LIQ"
+/** Saved DEGEN margin state: status, tick status last changed, whether Wire already fired for this LIQ episode. */
+export interface DegenLiq { st: LiqStatus; t: number; wired?: boolean }
 /** The world and news inputs the pools' last step read (public): regime, Fear Index, attention, news sign, mentions. */
 export interface PoolWorld { rg: Regime; f: number; att: number; ns: -1 | 0 | 1; m: number }
-export interface NpcPrint { tick: number; pool: PoolKind; side: "BUY" | "SELL"; qty: number; px: number }
+export interface NpcPrint { tick: number; pool: PoolKind; side: "BUY" | "SELL"; qty: number; px: number; /** Forced DEGEN liquidation fill. */ liq?: true }
 /** The pools of one graduated coin, saved on the coin. `ep`/`t`: the clock epoch and tick the pools last acted at (once a
  *  tick); `hr`: the game hour of the last hype update; `h`: hype H; `bk`: the book's tokens after the last pool step (the
  *  player net flow since is the change); `pnet`: [game hour, cents] net player buy volume, last 24 game hours of this
@@ -70,6 +84,8 @@ export interface CoinPools extends Record<PoolKind, PoolAccount> {
   w?: PoolWorld;
   /** Storm ids whose CRYPTO_FLUSH hype shock was already applied (idempotent across clock-epoch restarts). */
   sx?: string[];
+  /** DEGEN margin status (absent = OK / never leveraged). */
+  liq?: DegenLiq;
 }
 
 /** Cash a pool is funded with: enough for w ADV at the listing price (T05-14 capV = 1 ADV, scaled by the weight).
@@ -121,12 +137,83 @@ export function applyStormHype(p: CoinPools, stormId: string, delta: number): Co
 /** f = clamp(net player buy volume over 24 game hours / circulating market cap × 20, 0, 1), both in cents. */
 export const hypeF = (netCents: number, capCents: number): number => (capCents > 0 ? clamp((netCents / capCents) * HYPE.f, 0, 1) : 0);
 
-export interface PoolStep { pools: CoinPools; book: BookAccount; prints: NpcPrint[]; moves: number[] }
+/** Mark-to-market equity of a pool account at `mark` minor (cents). */
+export const poolEquity = (acct: PoolAccount, mark: number, dp: number): number =>
+  acct.cash + centsAt(acct.tokens, mark, dp) - (acct.debt ?? 0);
+/** Initial margin for a long notional (cents). */
+export const poolIm = (notionalCents: number): number => Math.ceil(Math.max(0, notionalCents) * POOL_LAW.degenImRate);
+export const poolMm = (im: number): number => Math.ceil(im * POOL_LAW.degenMmMult);
+/** Status from equity vs IM/MM (07 §3.16.2 retail). */
+export function degenStatus(equity: number, im: number): LiqStatus {
+  if (im <= 0) return "OK";
+  if (equity < poolMm(im)) return "LIQ";
+  if (equity < im) return "CALL";
+  return "OK";
+}
+/** Max tokens DEGEN may buy this tick under IM after the fill (and cash+borrow). */
+export function degenBuyCap(acct: PoolAccount, mark: number, dp: number): number {
+  const eq = poolEquity(acct, mark, dp);
+  if (eq <= 0) return 0;
+  // Max notional after buy: equity / imRate; remaining room = that − current notional.
+  const maxNotional = Math.floor(eq / POOL_LAW.degenImRate);
+  const cur = centsAt(acct.tokens, mark, dp);
+  const room = Math.max(0, maxNotional - cur);
+  // Buying power in cents = min(room, cash + unused credit). Unused credit keeps post-borrow equity ≥ IM.
+  // After borrow B and spend C: cash' = cash+B-C, debt' = debt+B, equity' = equity - C + (token value of buy ≈ C for small fee).
+  // Cap spend by room (IM) and by notional we can finance: equity stays non-negative.
+  const buyPower = Math.min(room, Math.max(0, eq)); // never spend past equity (no negative equity open)
+  if (buyPower < 1 || mark <= 0) return 0;
+  return Math.max(0, Math.floor(buyPower / (mark * 10 ** (2 - dp))));
+}
+
+export interface LiqWireEvent { assetId: string; tick: number; qty: number; px: number; equity: number; im: number }
+export interface PoolStep {
+  pools: CoinPools; book: BookAccount; prints: NpcPrint[]; moves: number[];
+  /** Set once when DEGEN first enters LIQ this episode (caller publishes Wire after save). */
+  liqWire?: LiqWireEvent;
+}
+
+/** Apply a fill to an account; DEGEN borrows/repays debt. Returns false if it would go negative. */
+function applyFill(acct: PoolAccount, side: "BUY" | "SELL", fill: { qty: number; notional: number; fee: number }, adv: number, kind: PoolKind): boolean {
+  if (side === "BUY") {
+    const cost = fill.notional + fill.fee;
+    let debt = acct.debt ?? 0;
+    if (cost > acct.cash) {
+      if (kind !== "degen") return false;
+      const borrow = cost - acct.cash;
+      acct.cash += borrow;
+      debt += borrow;
+      acct.debt = debt;
+    }
+    if (acct.cash < cost) return false;
+    acct.cash -= cost;
+    acct.tokens += fill.qty;
+    acct.pos += fill.qty / adv;
+    return true;
+  }
+  // SELL: proceeds after fee; repay debt first
+  const net = fill.notional - fill.fee;
+  if (net < 0 && acct.cash + net < 0) return false;
+  let cash = acct.cash + fill.notional; // gross first
+  cash -= fill.fee;
+  let debt = acct.debt ?? 0;
+  if (debt > 0 && cash > 0) {
+    const repay = Math.min(debt, cash);
+    debt -= repay;
+    cash -= repay;
+  }
+  if (cash < 0 || fill.qty > acct.tokens) return false;
+  acct.cash = cash;
+  acct.tokens -= fill.qty;
+  acct.pos -= fill.qty / adv;
+  if (debt > 0) acct.debt = debt; else delete acct.debt;
+  return true;
+}
 
 /**
  * One tick of a coin's pools: `mark` is the tick's mark (the book's mid), `inp` the end of N−1. Null when the pools
  * already acted at this tick of this epoch (exactly once) or the tick is idle. `pools` undefined: create and fund them
- * first.
+ * first. DEGEN may borrow local margin; when equity < MM it forced-sells through fillOnBook (07 §3.16.4 participation).
  */
 export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: number, prior: CoinPools | undefined, book: BookAccount, mark: number, inp: PoolInputs, ep: string, depth?: DepthInputs): PoolStep | null {
   const tick = inp.tick;
@@ -160,38 +247,136 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
   const s = (depth ? depthQuote(inp.ref, depth, book.flow?.m?.inv ?? 0, "BUY").s : HALF_SPREAD * (1 + 1.5 * 22 / 100)) * POOL_LAW.limitSpreads;
   let b = book;
   const prints: NpcPrint[] = [], moves: number[] = [];
+  let liqWire: LiqWireEvent | undefined;
+  const prevLiq = p.liq?.st ?? "OK";
+
+  // Mark DEGEN against the open mark before discretionary orders (07: consequences from prior tick's marks).
+  {
+    const d = p.degen;
+    const notional = centsAt(d.tokens, mark, dp);
+    const eq = poolEquity(d, mark, dp);
+    const im = poolIm(notional);
+    const st = degenStatus(eq, im);
+    if (st !== (p.liq?.st ?? "OK")) p.liq = { st, t: tick, wired: st === "LIQ" ? p.liq?.wired : undefined };
+    else if (st === "OK") delete p.liq;
+    else if (p.liq) p.liq.st = st;
+  }
+
+  // Forced DEGEN liquidation slice first (risk-reducing only; 07 §3.16.4).
+  if ((p.liq?.st ?? "OK") === "LIQ" && weights.degen > 0) {
+    const d = p.degen;
+    const eq0 = poolEquity(d, mark, dp);
+    const im0 = poolIm(centsAt(d.tokens, mark, dp));
+    const firstEpisode = prevLiq !== "LIQ" && !(p.liq?.wired);
+    if (d.tokens >= 1) {
+      const slice = Math.max(1, Math.floor((POOL_LAW.liqParticipation * adv) / TICKS_PER_DAY));
+      const qty = Math.min(d.tokens, slice);
+      const limit = Math.ceil(inp.ref * Math.exp(-s));
+      let fill = fillOnBook(a, "SELL", qty, mark, b, tick, limit, depth);
+      // book cash bound: shrink if needed
+      for (let pass = 0; fill && fill.notional - fill.fee + d.cash < 0 && pass < 4; pass++) {
+        const q = Math.floor(fill.qty / 2);
+        fill = q >= 1 ? fillOnBook(a, "SELL", q, mark, b, tick, limit, depth) : null;
+      }
+      if (fill && applyFill(d, "SELL", fill, adv, "degen")) {
+        b = fill.book;
+        prints.push({ tick, pool: "degen", side: "SELL", qty: fill.qty, px: fill.px, liq: true });
+        p.vol += fill.qty;
+        moves.push(fill.move);
+      }
+    }
+    const eq = poolEquity(d, mark, dp);
+    const im = poolIm(centsAt(d.tokens, mark, dp));
+    const st = degenStatus(eq, im);
+    const cured = d.tokens < 1 || (im > 0 && im <= eq / POOL_LAW.liqEquityImRatio) || st === "OK";
+    if (cured && (st === "OK" || d.tokens < 1)) delete p.liq;
+    else if (cured) p.liq = { st, t: tick };
+    else {
+      p.liq = { st: "LIQ", t: p.liq?.t ?? tick, wired: Boolean(p.liq?.wired) || firstEpisode };
+      if (firstEpisode) liqWire = { assetId: a.assetId, tick, qty: prints.find((x) => x.liq)?.qty ?? 0, px: prints.find((x) => x.liq)?.px ?? mark, equity: eq0, im: im0 };
+    }
+  }
+
   for (const kind of POOL_KINDS) {
-    const w = weights[kind], acct = p[kind];
-    if (!(w > 0)) continue;
-    const cap = (w * POOL_LAW.rate[kind]) / TICKS_PER_DAY;
-    let o = clamp(POOL_LAW.speed * (w * want[kind] - acct.pos), -cap, cap);
+    const ww = weights[kind], acct = p[kind];
+    if (!(ww > 0)) continue;
+    // While DEGEN is CALL/LIQ: only risk-reducing sells (07); skip discretionary buys and skip another DEGEN sell if we
+    // already forced one this tick.
+    if (kind === "degen") {
+      const st = p.liq?.st ?? "OK";
+      if (st === "LIQ") continue; // forced path above owns the tick
+      if (st === "CALL") {
+        // only allow sells that reduce notional
+        const cap = (ww * POOL_LAW.rate[kind]) / TICKS_PER_DAY;
+        const o = clamp(POOL_LAW.speed * (ww * want[kind] - acct.pos), -cap, cap);
+        if (o >= 0) continue;
+        const qty = Math.min(acct.tokens, Math.trunc(Math.round(Math.abs(o) * adv * 1e6) / 1e6));
+        if (qty < 1) continue;
+        const limit = Math.ceil(inp.ref * Math.exp(-s));
+        const fill = fillOnBook(a, "SELL", qty, mark, b, tick, limit, depth);
+        if (!fill || !applyFill(acct, "SELL", fill, adv, kind)) continue;
+        b = fill.book;
+        prints.push({ tick, pool: kind, side: "SELL", qty: fill.qty, px: fill.px });
+        p.vol += fill.qty;
+        moves.push(fill.move);
+        const eq = poolEquity(acct, mark, dp);
+        const im = poolIm(centsAt(acct.tokens, mark, dp));
+        const nst = degenStatus(eq, im);
+        if (nst === "OK") delete p.liq; else p.liq = { st: nst, t: tick, wired: p.liq?.wired };
+        continue;
+      }
+    }
+    const cap = (ww * POOL_LAW.rate[kind]) / TICKS_PER_DAY;
+    let o = clamp(POOL_LAW.speed * (ww * want[kind] - acct.pos), -cap, cap);
     if (kind === "value") o /= 1 + POOL_LAW.valueSoft * Math.abs(acct.pos);
     const side = o > 0 ? "BUY" : "SELL";
-    // whole tokens toward zero; rounded to 1e-6 token first so a float's last bit (0.45 / 720 × 150M = 93,749.99…)
-    // never drops a whole token
     let qty = Math.trunc(Math.round(Math.abs(o) * adv * 1e6) / 1e6);
     if (side === "SELL") qty = Math.min(qty, acct.tokens);
+    if (side === "BUY" && kind === "degen") qty = Math.min(qty, degenBuyCap(acct, mark, dp));
     if (qty < 1) continue;
     const limit = side === "BUY" ? Math.floor(inp.ref * Math.exp(s)) : Math.ceil(inp.ref * Math.exp(-s));
     let fill = fillOnBook(a, side, qty, mark, b, tick, limit, depth);
-    // a buy within the pool's cash (fee included): cut and re-price, as the book's own cash bound
-    for (let pass = 0; side === "BUY" && fill && fill.notional + fill.fee > acct.cash && pass < 4; pass++) {
-      const q = Math.floor((fill.qty * acct.cash) / (fill.notional + fill.fee));
-      fill = q >= 1 ? fillOnBook(a, side, q, mark, b, tick, limit, depth) : null;
+    if (side === "BUY" && kind !== "degen") {
+      for (let pass = 0; fill && fill.notional + fill.fee > acct.cash && pass < 4; pass++) {
+        const q = Math.floor((fill.qty * acct.cash) / (fill.notional + fill.fee));
+        fill = q >= 1 ? fillOnBook(a, side, q, mark, b, tick, limit, depth) : null;
+      }
     }
-    if (!fill || (side === "BUY" ? fill.notional + fill.fee > acct.cash : acct.cash + fill.notional - fill.fee < 0)) continue;
-    acct.cash += side === "BUY" ? -(fill.notional + fill.fee) : fill.notional - fill.fee;
-    acct.tokens += side === "BUY" ? fill.qty : -fill.qty;
-    acct.pos += (side === "BUY" ? fill.qty : -fill.qty) / adv;
+    if (side === "BUY" && kind === "degen" && fill) {
+      // shrink to buying power (IM + cash/credit)
+      for (let pass = 0; pass < 4; pass++) {
+        const cost = fill.notional + fill.fee;
+        const eq = poolEquity(acct, mark, dp);
+        const nextNotional = centsAt(acct.tokens + fill.qty, mark, dp);
+        const nextIm = poolIm(nextNotional);
+        // after buy equity ≈ eq - fee (token value offsets notional); require equity' >= IM'
+        const eqAfter = eq - fill.fee;
+        if (cost <= acct.cash + Math.max(0, eqAfter - nextIm) && eqAfter >= nextIm) break;
+        const q = Math.floor(fill.qty * 0.5);
+        fill = q >= 1 ? fillOnBook(a, side, q, mark, b, tick, limit, depth) : null;
+        if (!fill) break;
+      }
+    }
+    if (!fill) continue;
+    if (side === "SELL" && acct.cash + fill.notional - fill.fee < 0 && !(acct.debt ?? 0)) continue;
+    if (!applyFill(acct, side, fill, adv, kind)) continue;
     b = fill.book;
     prints.push({ tick, pool: kind, side, qty: fill.qty, px: fill.px });
     p.vol += fill.qty;
     moves.push(fill.move);
+    if (kind === "degen") {
+      const eq = poolEquity(acct, mark, dp);
+      const im = poolIm(centsAt(acct.tokens, mark, dp));
+      const nst = degenStatus(eq, im);
+      if (nst === "OK") delete p.liq; else p.liq = { st: nst, t: tick, wired: nst === "LIQ" ? p.liq?.wired : undefined };
+    }
   }
+
+  const liqChanged = (p.liq?.st ?? "OK") !== prevLiq || !!liqWire;
   // An idle tick (no fill, no player flow to record, no hour, nothing new) changes nothing saved: the decay composes
   // (0.5^(Δ/hl)), so the next step that acts decays over the whole gap, and nothing is written for it.
-  if (prior && same && prints.length === 0 && net === 0 && !hourly && !wChanged) return null;
+  if (prior && same && prints.length === 0 && net === 0 && !hourly && !wChanged && !liqChanged) return null;
   p.ep = ep; p.t = tick; p.bk = b.tokens;
   p.tape = [...p.tape, ...prints].slice(-POOL_LAW.tapeKeep);
-  return { pools: p, book: b, prints, moves };
+  return { pools: p, book: b, prints, moves, ...(liqWire ? { liqWire } : {}) };
 }

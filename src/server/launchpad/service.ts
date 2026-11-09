@@ -42,6 +42,8 @@ export interface NpcView {
   h: number; funded: number; vol: number; pools: Record<PoolKind, PoolAccount>; tape: NpcPrint[];
   /** What the last step read: regime, Fear Index, attention, news sign, Wire mentions (null before a step read them). */
   w: PoolWorld | null;
+  /** DEGEN margin status (null when OK / never leveraged). */
+  liq: { st: string; t: number; wired?: boolean } | null;
   /** The path's multipliers from the saved hype and regime: vol × (1 + 2H), the regime's vol, and hype's annualized log
    *  drift contribution 3.0·H per 364-day game year (not a guaranteed return). */
   path: { hypeVol: number; regimeVol: number | null; drift: number };
@@ -90,6 +92,7 @@ export class LaunchpadService {
           npc: c.pools ? {
             h: c.pools.h, funded: c.pools.funded, vol: c.pools.vol, pools: { value: { ...c.pools.value }, retail: { ...c.pools.retail }, degen: { ...c.pools.degen } }, tape: c.pools.tape.map((t) => ({ ...t })),
             w: c.pools.w ? { ...c.pools.w } : null,
+            liq: c.pools.liq ? { ...c.pools.liq } : null,
             path: { hypeVol: 1 + HYPE.volK * c.pools.h, regimeVol: c.pools.w ? REGIME_MULTS[c.pools.w.rg].vol : null, drift: HYPE.c * c.pools.h },
           } : null } : null,
         holders: Object.values(lp.holdings).filter((h) => (h[c.ticker] ?? 0) > 0).length,

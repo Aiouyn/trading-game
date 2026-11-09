@@ -135,6 +135,7 @@ export class BrokerService {
         // then the coins' trader pools (src/server/broker/pools.ts), once a tick, against the books as just swept
         const pools = new Map<string, CoinPools>();
         const moves = [...out.moves];
+        const liqWires: { assetId: string; tick: number; qty: number }[] = [];
         const shocks = market.takeStormHype?.() ?? [];
         for (const [ticker, c] of coins) {
           const a = ASSET_BY_ID[ticker], inp = market.poolInputs?.(ticker) ?? null, mark = q.last(ticker), book = out.books.get(ticker) ?? books.get(ticker);
@@ -151,6 +152,7 @@ export class BrokerService {
               executed.push({ fillId: `npc_${market.epoch}_${pr.tick}_${ticker}_${pr.pool}`, assetId: ticker, tick: pr.tick, qty: String(pr.qty) });
               moves.push({ assetId: ticker, move: step.moves[i]! });
             }
+            if (step.liqWire) liqWires.push({ assetId: step.liqWire.assetId, tick: step.liqWire.tick, qty: step.liqWire.qty });
           }
           if (nextPools && (step || shocks.length)) pools.set(ticker, nextPools);
         }
@@ -158,6 +160,7 @@ export class BrokerService {
         return { ledgers: out.ledgers, books: out.books, pools, saved: () => {
           for (const m of moves) market.impactListed(m.assetId, m.move);
           for (const [ticker, p] of pools) market.setHype(ticker, p.h);
+          for (const ev of liqWires) market.announceDegenLiq?.(ev);
         } };
       },
     });

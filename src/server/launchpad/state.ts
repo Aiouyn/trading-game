@@ -106,17 +106,34 @@ function worldOk(w: unknown): boolean {
 function stormsOk(sx: unknown): boolean {
   return Array.isArray(sx) && sx.length <= 32 && sx.every((s) => typeof s === "string" && /^[A-Za-z0-9:_-]{1,64}$/.test(s));
 }
+function liqOk(l: unknown): boolean {
+  return obj(l) && (l.st === "OK" || l.st === "CALL" || l.st === "LIQ") && int(l.t)
+    && Object.keys(l).length === (l.wired === undefined ? 2 : 3)
+    && (l.wired === undefined || l.wired === true || l.wired === false);
+}
+function acctOk(a: unknown): boolean {
+  if (!obj(a) || !int(a.cash) || !int(a.tokens) || (a.tokens as number) > LP.SUPPLY || !fin(a.pos)) return false;
+  const n = Object.keys(a).length;
+  if (n === 3) return true;
+  return n === 4 && "debt" in a && int(a.debt) && (a.debt as number) >= 0;
+}
 function poolsOk(p: unknown): boolean {
   if (!obj(p)) return false;
-  const extra = ("w" in p ? 1 : 0) + ("sx" in p ? 1 : 0);
+  const extra = ("w" in p ? 1 : 0) + ("sx" in p ? 1 : 0) + ("liq" in p ? 1 : 0);
   if (Object.keys(p).length !== 9 + POOL_KINDS.length + extra || !int(p.vol)) return false;
   if ("w" in p && !worldOk(p.w)) return false;
   if ("sx" in p && !stormsOk(p.sx)) return false;
+  if ("liq" in p && !liqOk(p.liq)) return false;
   if (typeof p.ep !== "string" || !/^[0-9a-z]{1,16}$/.test(p.ep) || !int(p.t) || !int(p.hr) || !fin(p.h) || p.h < 0 || p.h > 1) return false;
   if (!int(p.bk) || p.bk > LP.SUPPLY || !int(p.funded) || !Array.isArray(p.pnet) || p.pnet.length > 24 || !Array.isArray(p.tape) || p.tape.length > 20) return false;
   if (!p.pnet.every((e: unknown) => Array.isArray(e) && e.length === 2 && int(e[0]) && sint(e[1]))) return false;
-  if (!p.tape.every((x: unknown) => obj(x) && Object.keys(x).length === 5 && int(x.tick) && POOL_KINDS.includes(x.pool as never) && (x.side === "BUY" || x.side === "SELL") && int(x.qty, 1) && int(x.px))) return false;
-  return POOL_KINDS.every((k) => { const a = p[k]; return obj(a) && Object.keys(a).length === 3 && int(a.cash) && int(a.tokens) && (a.tokens as number) <= LP.SUPPLY && fin(a.pos); });
+  if (!p.tape.every((x: unknown) => {
+    if (!obj(x) || !int(x.tick) || !POOL_KINDS.includes(x.pool as never) || (x.side !== "BUY" && x.side !== "SELL") || !int(x.qty, 1) || !int(x.px)) return false;
+    const n = Object.keys(x).length;
+    if (n === 5) return true;
+    return n === 6 && x.liq === true;
+  })) return false;
+  return POOL_KINDS.every((k) => acctOk(p[k]));
 }
 
 const curveOk = (x: unknown, sold: unknown) => int(x, LP.X0) && int(sold) && (sold as number) <= LP.Y0 - LP.GRAD_Y;
@@ -137,9 +154,11 @@ function histOk(h: unknown, c: LpCoin): boolean {
 export const marketCashCents = (c: LpCoin) => (c.book ? 0 : c.x - LP.X0);
 
 /** A coin's trader pools (src/server/broker/pools.ts): their cash and tokens, and the cash the booked NPC line funded
- *  them with (0 before their first step). World cash identity: Σ ledgers + curves + books + pools + sinks = start cash +
- *  Σ funded; supply: Σ positions + book + pools' tokens = the supply. */
+ *  them with (0 before their first step). World cash identity: Σ ledgers + curves + books + pools.cash + sinks
+ *  = start cash + Σ funded + Σ pool.debt (borrow raises cash+debt together); supply: Σ positions + book + pools' tokens
+ *  = the supply. */
 export const poolCashCents = (c: LpCoin) => POOL_KINDS.reduce((s, k) => s + (c.pools?.[k].cash ?? 0), 0);
+export const poolDebtCents = (c: LpCoin) => POOL_KINDS.reduce((s, k) => s + (c.pools?.[k].debt ?? 0), 0);
 export const poolTokens = (c: LpCoin) => POOL_KINDS.reduce((s, k) => s + (c.pools?.[k].tokens ?? 0), 0);
 export const poolFundedCents = (c: LpCoin) => c.pools?.funded ?? 0;
 
