@@ -137,3 +137,37 @@ export function updateBelief(
 
   return { claims: kept, pump, b: sumBelief(kept, tick) };
 }
+
+/** One tick of public inputs for a multi-day belief catch-up (storm-style jump). */
+export interface BeliefPathTick {
+  tick: number;
+  h: number;
+  attention: number;
+  fear: number;
+  mentions: number;
+  moves?: readonly BeliefMoveSeed[];
+}
+
+/**
+ * Advance belief across a multi-tick window in one call (ordered path ticks).
+ * Semantically identical to calling `updateBelief` once per path entry tick-by-tick.
+ * Used to prove jump ≡ step for GK (eng/trader-belief ask).
+ */
+export function catchUpBelief(
+  prior: readonly BeliefClaim[],
+  pump: number,
+  path: readonly BeliefPathTick[],
+): BeliefUpdate {
+  let claims: BeliefClaim[] = prior.map((c) => ({ ...c }));
+  let p = pump;
+  let b = 0;
+  for (const step of path) {
+    const u = updateBelief(claims, step.tick, step.h, p, {
+      attention: step.attention, fear: step.fear, mentions: step.mentions, moves: step.moves,
+    });
+    claims = u.claims;
+    p = u.pump;
+    b = u.b;
+  }
+  return { claims, pump: p, b };
+}

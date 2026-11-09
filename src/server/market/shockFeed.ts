@@ -3,7 +3,7 @@
 import { ASSET_BY_ID, type AssetFixture } from "@/market/catalog";
 import { MockFeed, fmt } from "@/shell/contracts/mockFeed";
 import { listAsset } from "@/market/listings";
-import { CRYPTO_FACTOR_STREAM, DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
+import { CRYPTO_FACTOR_STREAM, CRYPTO_DAYS_PER_YEAR, SESSION_DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
 import { moveAsserted, type BeliefMoveSeed } from "@/server/broker/belief";
 import type { DepthInputs } from "@/server/broker/book";
@@ -67,7 +67,7 @@ export class ShockFeed extends MockFeed {
   takeNews(): CoinNewsOut[] { const out = this.fresh; this.fresh = []; return out; }
 
   /** σ_GX: the index walk's annual vol (uniform ±volBp a tick: sd volBp/√3), the factor's reference (05 §3.3). */
-  private static readonly SIGMA_GX = ((ASSET_BY_ID[MARKET_FACTOR_ASSET]?.volBp ?? 0) / 10_000 / Math.sqrt(3)) * Math.sqrt(TICKS_PER_DAY * DAYS_PER_YEAR);
+  private static readonly SIGMA_GX = ((ASSET_BY_ID[MARKET_FACTOR_ASSET]?.volBp ?? 0) / 10_000 / Math.sqrt(3)) * Math.sqrt(TICKS_PER_DAY * SESSION_DAYS_PER_YEAR);
 
   /** 05 §3.3 factor jump: the index moved by `j` (log) on a story; each listed, trading coin's path moves by
    *  wMarket × σ_coin,eff / σ_GX × j (a value move). Returns the coins' moves (minor units). */
@@ -97,7 +97,7 @@ export class ShockFeed extends MockFeed {
     const eventDepth = this.storms.depthMult(this.tick);
     return { fear, regimeDepth: this.world.depth(this.tick) * eventDepth,
       adv: 150e6 * (1 + 0.01 * Math.max(0, fear - 20)) * att * REGIME_TURNOVER[this.world.regime],
-      sigmaDaily: m.sigmaEff(this.pathInputs(id)) / Math.sqrt(364) };
+      sigmaDaily: m.sigmaEff(this.pathInputs(id)) / Math.sqrt(CRYPTO_DAYS_PER_YEAR) };
   }
 
   /** Each listed coin's marks and template values (lnV) at the end of its recent ticks, newest last (at most

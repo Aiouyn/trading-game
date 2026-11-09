@@ -67,7 +67,7 @@ const cashFlow = (fills: Fill[]) => fills.reduce((s, f) => {
 
 
 const coin: AssetFixture = listedDef("FROG", "FROG Club", 21_596);
-const vol = memeParams("FROG").vol, sd = vol / Math.sqrt(252), sh = sd / Math.sqrt(24);
+const vol = memeParams("FROG").vol, sd = vol / Math.sqrt(364), sh = sd / Math.sqrt(24);
 const lnRef = Math.log(21_596 / 1e8);
 /** The world at its floor terms: EXPANSION (turnover ×1.0), F = 20 (ADV fear term 0), no coin news (attention 1). */
 const QUIET = { regime: "EXPANSION" as Regime, fear: 20, riskAppetite: 1 - 20 / 50, attention: 1, newsSign: 0 as -1 | 0 | 1, mentions: 0 };
@@ -91,7 +91,7 @@ describe("trader pools: one tick by hand (pure)", () => {
     // targets (unweighted, ADV): VALUE −tanh(G/g0), G = −0.01, g0 = σd√5; RETAIL tanh(z + 0.5 tanh(r1d/σd)) (no news,
     // no dip: the day rose); DEGEN (1+2H) tanh(r1h/σh)
     const tv = -Math.tanh(-0.01 / (sd * Math.sqrt(5))), tr = Math.tanh(1.66152392221008 + 0.5 * Math.tanh(0.02 / sd)), td = 2.2 * Math.tanh(0.004 / sh);
-    expect([tv, tr, td].map((x) => +x.toFixed(6))).toEqual([0.036774, 0.94058, 0.35162]);
+    expect([tv, tr, td].map((x) => +x.toFixed(6))).toEqual([0.044188, 0.942405, 0.420994]);
     // every weighted target is past its cap, so each order is its cap: w × rate / 720 ADV
     expect(0.2 * tv).toBeGreaterThan(0.2 * 0.9 / 720); expect(3 * tr).toBeGreaterThan(3 * 0.15 / 720); expect(td).toBeGreaterThan(0.4 / 720);
     // 0.00025 × 150M = 37,500; 0.000625 × 150M = 93,750; 0.000556 × 150M = 83,333 (toward zero); buy limit floor(21,596 e^{3×0.0266}); execution s=0.0266, D=0.9548, σd=vol/√364, Y=1.2

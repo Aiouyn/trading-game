@@ -7,13 +7,13 @@ import { listedDef, resetListingsForTests } from "@/market/listings";
 import { MEME_POOL_WEIGHTS, advTokens, hypeStep, newPools, retailNoise, stepPools, targets } from "@/server/broker/pools";
 import { LiveMarket } from "@/server/market/clock";
 import { CoinNews, novelty } from "@/server/market/coinNews";
-import { DAYS_PER_YEAR, DT, HYPE, MEME_TEMPLATE, MemeProcess, NEUTRAL_PATH, TICKS_PER_DAY, memeParams } from "@/server/market/meme";
+import { CRYPTO_DAYS_PER_YEAR, SESSION_DAYS_PER_YEAR, DT, HYPE, MEME_TEMPLATE, MemeProcess, NEUTRAL_PATH, TICKS_PER_DAY, memeParams } from "@/server/market/meme";
 import type { PoolInputs } from "@/server/market/shockFeed";
 import { FEAR_HELD, REGIME_MULTS, WorldInputs, fearRaw, fearRawGx, regimeStep, riskAppetite, stepFear, type Regime } from "@/server/market/world";
 
 const coin = listedDef("FROG", "FROG Club", 21_596);
 const { vol, drift } = memeParams("FROG");
-const sd = vol / Math.sqrt(DAYS_PER_YEAR);
+const sd = vol / Math.sqrt(CRYPTO_DAYS_PER_YEAR);
 const lnRef = Math.log(21_596 / 1e8);
 const QUIET = { regime: "EXPANSION" as Regime, fear: 20, riskAppetite: 1 - 20 / 50, attention: 1, newsSign: 0 as -1 | 0 | 1, mentions: 0 };
 const inputs = (tick: number, r1h: number | null, r1d: number | null, w: Partial<typeof QUIET> = {}): PoolInputs =>
@@ -226,7 +226,7 @@ describe("on the clock: Wire items name the coin; index stories move it (05 §3.
       if (gx) { expect(frog).toBeDefined(); found = { gx, frog: frog! }; }
     }
     expect(found).not.toBeNull();
-    const sGX = (ASSET_BY_ID.GX!.volBp / 10_000 / Math.sqrt(3)) * Math.sqrt(TICKS_PER_DAY * DAYS_PER_YEAR);
+    const sGX = (ASSET_BY_ID.GX!.volBp / 10_000 / Math.sqrt(3)) * Math.sqrt(TICKS_PER_DAY * SESSION_DAYS_PER_YEAR);
     const J = Math.log(Number(found!.gx.to) / Number(found!.gx.from));
     const want = MEME_TEMPLATE.wMarket * (vol * REGIME_MULTS[m.worldView().regime].vol * (1 + 2 * 0.6) / sGX) * J;
     expect(Math.log(Number(found!.frog.to) / Number(found!.frog.from))).toBeCloseTo(want, 3); // marks in whole 1e-8 $

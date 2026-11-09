@@ -814,3 +814,15 @@ DEGEN dust LIQ; repo checks + affected desktop+phone batch. Plain GUI / remote C
 
 **Acceptance.** Hand fixtures; belief twin vs b=0 changes NPC flow; conservation; restart no double-open; digest
 `fc1359d1` unchanged; repo checks + affected desktop+phone batch.
+
+### Market calibration + belief jump + Dy reconcile (this unit)
+
+**Smallest observable player outcome.**
+
+1. **Belief multi-day jump ≡ tick-by-tick** (`catchUpBelief`): same seed path → same claims / pump / `b` / pool targets as per-tick `updateBelief` (GK 26a2be36 ask).
+2. **Documented CALIBRATION bands** from `export/vision-review/complete/20-VERIFICATION-AND-BALANCE.md` §3.7.3–3.7.4, `05` §6.2 / acc., `06` spread/meme are executable via `src/server/market/calibration.ts` + `launchpad-calibration.test.ts` on the real engine (stocks + listed meme + storms/majors/Fear/belief/DEGEN). Reachable bands assert; structural misses **REPORT** (no invented equity GARCH/Student-t).
+3. **Dy reconcile (spec clear):** `SESSION_DAYS_PER_YEAR=260` for Fear `rv21` / SIGMA_GX; `CRYPTO_DAYS_PER_YEAR=364` for meme `σ_d` (pools/book/shockFeed); inherited `DAYS_PER_YEAR=252` kept only for meme SDE `DT`. Digest `fc1359d1` unchanged (no volBp/shock tune).
+
+**Measured (seed 17, disclosed):** calm MKT.vol_ratio≈0.99 PASS; calm autocorr≈0.007 PASS; MAC.storm_rate≈1.02/q PASS; MAC.major_crisis≈0.375 PASS; MEME.half_spread=2% PASS. REPORT (not invented): calm kurtosis≈0, calm vol_cluster≈0, event-on GX CAGR, meme vol_ratio with hype/jumps.
+
+**Owner.** "just like real life" finite book / no mint unchanged.

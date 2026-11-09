@@ -11,7 +11,7 @@
 // Pure: the caller (BrokerService.sweep) commits the result with the ledgers and books in one persist.
 import type { AssetFixture } from "@/market/catalog";
 import { LP } from "@/launchpad/rules";
-import { Draws, DAYS_PER_YEAR, HYPE, TICKS_PER_DAY, TICKS_PER_HOUR } from "@/server/market/meme";
+import { Draws, CRYPTO_DAYS_PER_YEAR, HYPE, TICKS_PER_DAY, TICKS_PER_HOUR } from "@/server/market/meme";
 import type { PoolInputs } from "@/server/market/shockFeed";
 import { REGIME_TURNOVER, type Regime } from "@/server/market/world";
 import { HALF_SPREAD, depthQuote, fillOnBook, type DepthInputs, type BookAccount } from "./book";
@@ -117,7 +117,7 @@ export const retailNoise = (ticker: string, hour: number): number => new Draws(`
  *  - DEGEN (1 + 2H) tanh(r_1h/σ_h) × amplify.
  *  `b` is the 05 §6.3 overlay from updateBelief (synthetic Wire-move + PUMP_CLAIM). A return the clock does not have yet reads 0. */
 export function targets(inp: PoolInputs, h: number, z: number, dp = 8, b = 0): Record<PoolKind, number> {
-  const sd = inp.vol / Math.sqrt(DAYS_PER_YEAR), sh = sd / Math.sqrt(24);
+  const sd = inp.vol / Math.sqrt(CRYPTO_DAYS_PER_YEAR), sh = sd / Math.sqrt(24);
   const g = Math.log(inp.ref / 10 ** dp) + b - inp.lnV, g0 = POOL_LAW.valueG0 * sd * Math.sqrt(5);
   const d = inp.r1d === null ? 0 : inp.r1d / sd;
   const dip = inp.regime === "EXPANSION" ? POOL_LAW.retailDip * Math.tanh(Math.max(0, -d)) : 0;

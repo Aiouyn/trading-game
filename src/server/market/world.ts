@@ -5,7 +5,7 @@
 // not imported). Inputs this base cannot supply hold their genesis / last values (04 §3.14.5), named below.
 // Deterministic: GX path + per-day streams + live crisisTerm from the storm scheduler. Fear/regime bookkeeping is
 // persisted with the storm-world store so a restart restores F (M1-05 / storm-durable pattern).
-import { DAYS_PER_YEAR, Draws, TICKS_PER_DAY, TICKS_PER_HOUR, type RegimeMults } from "./meme";
+import { SESSION_DAYS_PER_YEAR, Draws, TICKS_PER_DAY, TICKS_PER_HOUR, type RegimeMults } from "./meme";
 
 export type Regime = "EXPANSION" | "OVERHEATING" | "CONTRACTION" | "RECOVERY";
 
@@ -180,14 +180,14 @@ export class WorldInputs {
     }
   }
 
-  /** rv21 from the last 21 GX day returns (annualized, √364), else genesis; today's and the 63-day return; live crisisTerm. */
+  /** rv21 from the last 21 GX day returns (annualized, √260 session Dy per 05 §3.3.1 / 20), else genesis; today's and the 63-day return; live crisisTerm. */
   fearInputs(gx: number, crisisTerm: CrisisTerm = 0): FearInputs {
     const c = this.closes, n = c.length;
     let rv21 = RV21_GENESIS;
     if (n >= 22) {
       const r = c.slice(-22).slice(1).map((v, i) => Math.log(v / c[n - 22 + i]!));
       const m = r.reduce((s, v) => s + v, 0) / r.length;
-      rv21 = Math.sqrt(r.reduce((s, v) => s + (v - m) ** 2, 0) / (r.length - 1)) * Math.sqrt(DAYS_PER_YEAR);
+      rv21 = Math.sqrt(r.reduce((s, v) => s + (v - m) ** 2, 0) / (r.length - 1)) * Math.sqrt(SESSION_DAYS_PER_YEAR);
     }
     return {
       rv21Gx: rv21,

@@ -4,7 +4,7 @@
 import type { AssetFixture } from "@/market/catalog";
 import { centsOf } from "@/market/valuation";
 import { exchangeFeeMinor, FEE_BP } from "@/shell/contracts/mockFeed";
-import { memeParams, TICKS_PER_DAY } from "@/server/market/meme";
+import { CRYPTO_DAYS_PER_YEAR, memeParams, TICKS_PER_DAY } from "@/server/market/meme";
 
 export const BOOK_LAW = {
   /** 06 §3.21 / 05 §3.4.6: meme BASE HALF-spread 1–3%; midpoint 2% (implementation choice). */
@@ -23,7 +23,7 @@ export interface BookAccount { readonly cash: number; readonly tokens: number; r
 export const feeOf = (notional: number) => exchangeFeeMinor(notional, FEE_BP.taker);
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 /** Pure callers without a clock use genesis Fear/regime and base token ADV (not a fake event input). */
-export const baseDepthInputs = (ticker: string): DepthInputs => ({ fear: 22, regimeDepth: 1.1, adv: 150e6, sigmaDaily: memeParams(ticker).vol / Math.sqrt(364) });
+export const baseDepthInputs = (ticker: string): DepthInputs => ({ fear: 22, regimeDepth: 1.1, adv: 150e6, sigmaDaily: memeParams(ticker).vol / Math.sqrt(CRYPTO_DAYS_PER_YEAR) });
 export function depthQuote(mark: number, inp: DepthInputs, inv: number, side: "BUY" | "SELL") {
   const s = Math.max(HALF_SPREAD * (1 + 1.5 * inp.fear / 100), 0.5 / mark);
   // positive inv: maker long, so a player SELL increases |inv|; a player BUY reduces it (vice versa when short)

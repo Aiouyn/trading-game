@@ -30,11 +30,18 @@ export const CRYPTO_FACTOR_STREAM = "lp:crypto";
 export const TICKS_PER_DAY = 720;
 /** Game ticks a game hour (24 a game day). */
 export const TICKS_PER_HOUR = TICKS_PER_DAY / 24;
+/**
+ * Day-counts (05 §3.3.1 / 20 / 00) — do not conflate:
+ * - SESSION_DAYS_PER_YEAR (260): session assets + Fear rv21 annualization (05 Dy session; 20 tm_trading_days_per_year).
+ * - CRYPTO_DAYS_PER_YEAR / GAME_DAYS_PER_GAME_YEAR (364): crypto σ_d and 00 game-year length / hype c·H basis.
+ * - DAYS_PER_YEAR (252): inherited p10 meme SDE DT only (`DT = 1/(720·252)`). Not σ_d and not rv21.
+ */
+export const SESSION_DAYS_PER_YEAR = 260;
+export const CRYPTO_DAYS_PER_YEAR = 364;
+export const GAME_DAYS_PER_GAME_YEAR = CRYPTO_DAYS_PER_YEAR;
+/** @deprecated alias — p10 meme SDE day-count only; prefer SESSION_/CRYPTO_ names for σ_d / rv21. */
 export const DAYS_PER_YEAR = 252;
 export const DT = 1 / (TICKS_PER_DAY * DAYS_PER_YEAR);
-/** 00 GAME_DAYS_PER_GAME_YEAR: the unit of 06's "c per game year" (the template's 252 basis above is inherited and
- *  unchanged). One tick in game years: 1/(720 × 364). */
-export const GAME_DAYS_PER_GAME_YEAR = 364;
 export const DT_GAME_YEAR = 1 / (TICKS_PER_DAY * GAME_DAYS_PER_GAME_YEAR);
 
 /** 06 §3.11.3 hype, per token per game hour: dH = a(m + f − H) − bH + shock; a 0.15, b 0.06 (MEME); f = clamp(net
