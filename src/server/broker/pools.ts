@@ -168,7 +168,7 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
     // a buy within the pool's cash (fee included): cut and re-price, as the book's own cash bound
     for (let pass = 0; side === "BUY" && fill && fill.notional + fill.fee > acct.cash && pass < 4; pass++) {
       const q = Math.floor((fill.qty * acct.cash) / (fill.notional + fill.fee));
-      fill = q >= 1 ? fillOnBook(a, side, q, mark, b, tick, limit) : null;
+      fill = q >= 1 ? fillOnBook(a, side, q, mark, b, tick, limit, depth) : null;
     }
     if (!fill || (side === "BUY" ? fill.notional + fill.fee > acct.cash : acct.cash + fill.notional - fill.fee < 0)) continue;
     acct.cash += side === "BUY" ? -(fill.notional + fill.fee) : fill.notional - fill.fee;

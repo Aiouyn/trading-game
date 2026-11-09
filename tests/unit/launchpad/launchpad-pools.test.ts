@@ -109,6 +109,22 @@ describe("trader pools: one tick by hand (pure)", () => {
     expect(s.moves.every((m) => m > 0)).toBe(true);
     expect(s.pools).toMatchObject({ t: T, bk: 200_000_000 - 214_583, ep: "e1", vol: 214_583 });
   });
+  it("cash-limited NPC repricing retains authoritative Fear, ADV, depth and effective volatility, just like a player", () => {
+    const weights = { value: .2, retail: 0, degen: 0 };
+    const prior = newPools(weights, 21_596, "e1", T, 200_000_000);
+    prior.value.cash = 100; // already depleted funded account, not a fresh backing line
+    const depth = { fear: 60, regimeDepth: 1, adv: 210e6, sigmaDaily: .4 };
+    const s = stepPools(coin, weights, 21_596, prior, { cash: 4_329_671, tokens: 200_000_000 }, 21_600, inputs(T, -.01, .004, .02, { fear: 60 }), "e1", depth)!;
+    expect(s.prints).toHaveLength(1);
+    const f = s.prints[0]!;
+    expect(f.qty).toBeGreaterThan(0); expect(f.qty).toBeLessThan(37_500);
+    // Independent source ladder at the actual reduced quantity; dropping context would silently use F22/σ_template.
+    expect(f.px).toBe(Math.ceil(21_600 * Math.exp(.038 + .48 * Math.sqrt(f.qty / (.64 * 210e6)))));
+    expect(s.pools.value.cash).toBe(100 - Math.ceil(f.qty * f.px / 1e6) - 10);
+    expect(s.pools.value.cash).toBeGreaterThanOrEqual(0);
+    const player = fillOnBook(coin, "BUY", f.qty, 21_600, { cash: 4_329_671, tokens: 200_000_000 }, T, null, depth)!;
+    expect([f.qty, f.px, s.book]).toEqual([player.qty, player.px, player.book]);
+  });
   it("tick 2: price 1% over value and a falling hour: VALUE and DEGEN sell only what they hold; RETAIL keeps buying", () => {
     const book: BookAccount = { cash: 4_329_671, tokens: 200_000_000 };
     const s1 = stepPools(coin, MEME_POOL_WEIGHTS, 21_596, undefined, book, 21_600, inputs(T, -0.01, 0.004, 0.02), "e1")!;
