@@ -7,7 +7,7 @@ import { CRYPTO_FACTOR_STREAM, DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemePr
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
 import type { DepthInputs } from "@/server/broker/book";
 import { WorldInputs, REGIME_TURNOVER, type WorldView } from "./world";
-import { StormScheduler, type StormHypeShock, type StormWireOut } from "./storms";
+import { StormScheduler, type StormHypeShock, type StormPriceShock, type StormWireOut } from "./storms";
 
 /** What the trader pools read of a listed coin (src/server/broker/pools.ts): its mark P_{N−1} and template value, its
  *  returns and template vol, the world (04 regime and Fear Index) and its news (attention, sign, mentions). */
@@ -180,4 +180,5 @@ export class ShockFeed extends MockFeed {
 
   takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
   takeStormHype(): StormHypeShock[] { return this.storms.takeHypeShocks(); }
+  takeStormPrices(): StormPriceShock[] { return this.storms.takePriceShocks(); }
 }

@@ -114,15 +114,32 @@ export class LiveMarket {
     this.stories = [...this.stories, item].slice(-STORY_KEEP);
   }
 
-  /** 04 §3.16 storm trigger on the Wire (precursor is not announced). CRYPTO_FLUSH names listed coins. */
+  /** 04 §3.16 storm trigger on the Wire (precursor is not announced). CRYPTO_FLUSH names listed coins;
+   *  stock-effect kinds apply one-shot catalog mark moves (applyShock) and list them on the item. */
   private publishStorm(s: { id: string; kind: string; headlineKey: string; causeKey: string; phase: "realized"; breaking: boolean }): void {
     const tick = this.feed.tick;
     const listed = this.listedDefs.map((d) => d.assetId);
-    const assets = s.kind === "CRYPTO_FLUSH" && listed.length ? listed : [];
+    const priceShocks = this.feed.takeStormPrices();
+    const effects: PriceEffect[] = [];
+    for (const e of priceShocks) {
+      const a = ASSET_BY_ID[e.assetId], r = this.feed.applyShock(e.assetId, e.bp);
+      if (!a || !r) continue;
+      effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
+      if (e.assetId === MARKET_FACTOR_ASSET) {
+        for (const c of this.feed.factorJump(Math.log(r.to / r.from))) {
+          const ca = ASSET_BY_ID[c.assetId];
+          if (ca) effects.push({ assetId: c.assetId, from: fmt(c.from, ca.displayDecimals), to: fmt(c.to, ca.displayDecimals), pct: fmt(Math.round(((c.to - c.from) * 10_000) / c.from), 2) });
+        }
+      }
+    }
+    const assets = s.kind === "CRYPTO_FLUSH" && listed.length
+      ? listed
+      : [...new Set(effects.map((e) => e.assetId))];
     const item: WireItem = {
       id: `w-${tick}-${s.id}`, kind: "WORLD_EVENT", headlineKey: s.headlineKey, slots: {},
       entities: assets.map((id) => ({ id, kind: "asset", label: ASSET_BY_ID[id]?.ticker ?? id })),
       tick, breaking: s.breaking, causeEventIds: [s.id], phase: s.phase, causeKey: s.causeKey,
+      ...(effects.length ? { effects } : {}),
     };
     this.stories = [...this.stories, item].slice(-STORY_KEEP);
   }
@@ -173,7 +190,7 @@ export class LiveMarket {
   takeStormHype() { return this.feed.takeStormHype(); }
 
   /** Test-only: arm a storm bypassing the day-close rate (engine forceEvent analogue). */
-  forceStormForTests(kind: StormKind, opts: { severity?: number; precursorDays?: number } = {}): void {
+  forceStormForTests(kind: StormKind, opts: { severity?: number; precursorDays?: number; sectorIndex?: number } = {}): void {
     this.feed.storms.forceStorm(kind, { atTick: this.feed.tick, ...opts });
   }
 
