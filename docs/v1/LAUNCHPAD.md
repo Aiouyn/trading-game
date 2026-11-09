@@ -624,3 +624,59 @@ with real committed events and state, and fixes one form error (T05-14 RETAIL `p
 (H = 0.6: 0.714% vs 0.495% a game day). The fix: the hype term alone uses DT_GAME_YEAR = 1/(720 × 364), so it adds c·H/364 a
 game day. The template's own drift, its vol and the pools' σ_d keep their inherited 252 basis (accepted earlier; backlog vs
 05:262 crypto Dy 364, unchanged here). The panel and this doc call it an annualized log-drift contribution, not a return.
+
+### Graduated-coin maker/depth prerequisite: source and acceptance before implementation
+
+Smallest player outcome: player market/limit orders and NPC orders share the same finite, depth-sensitive executable
+maker; a lower D changes ladder prices/quantities, not the ownership of reserves. Preview and fills use one bound quote
+state. No storm producer is included.
+
+Sources: 05 §3.4.2–7 (log-price ladder, Fear/regime/side depth, signed daily tally, transient half-life 15 ticks,
+inventory skew and 12% layoff); §3.5 (one clearing price per asset/tick); §3.6/§3.8 (limits and validation);
+06 §3.21 and 05 §3.4.6 (meme base HALF-spread 1–3%, not a full spread), 05 §3.3.6 (meme Y 1.2, turnover 0.15).
+
+Acceptance: source-derived grid/lot fixtures for ladder inversion, Fear/regime/inventory D and half-spread, signed-flow
+permanent/transient impact and day close; bound-state preview/fill agreement; shared player/NPC execution and priority;
+finite cash/holdings, all 1B tokens owned, no new faucet; concurrency, rollback/retry/replay/restart and read-only GETs;
+plain-preview buy/sell/resting limit/NPC and affected mobile UI. Existing 45bp/0.8 pricing is not waived.
+
+Source conflict found before executable edits: 05 §3.4.5/§3.13 says the logical maker is not a ledger entity, its layoff
+has no posting, and NPC-pool/maker fills have no postings (lines 364, 415–417, 650). In contrast 03 §6.2 (line 1588)
+requires NPC liquidity-provider cash/inventory rebalancing against row using LP_REFILL_FROM_ROW, LP_SWEEP_TO_ROW and
+LP_INVENTORY_* postings. Neither statement defines a finite token/cash backing for 05's always-available ladder after
+inventory exhaustion. This app currently accounts for those same NPC fills and all 1B tokens with a finite book.
+
+Proposed conservative reconciliation: retain the existing finite book as the actual settlement counterparty; cap the
+executable ladder by its owned tokens/cash without mint, credit or refill; keep 05's inv/skew/layoff as a separate
+signed flow-risk diagnostic (decaying inv transfers no actual tokens or cash). Report exhausted liquidity explicitly.
+This preserves the owner's conservation constraint, but deliberately does NOT implement 05's unbounded last-resort
+availability or 03's row-refill economics. A full-spec implementation cannot truthfully claim both those semantics and
+the finite-book semantics at once. That assessment preceded the owner-bounded finite-book authorization below; the full backing conflict remains open.
+
+**Owner-bounded implementation: finite-book depth execution (not the full maker).** The existing funded book remains
+settlement backing. There is no credit, refill, new funding or mint. Source 05 depth/spread/ladder/skew math applies to
+player and NPC execution through the same pure fill function. Base half-spread is a disclosed midpoint 2% of 06's
+1–3% interval; Y=1.2; quantities are tokens (ADV=0.15×1B with existing attention/Fear/regime multipliers), not the
+inherited $400M constant. Execution σ_d uses effective annual vol/√364; inherited template/target time bases do not
+change. Fear spread multiplier 1+1.5F/100; D=max(0.2,(1−0.6F/100)×regimeDepth×invSide); invCap=0.5 ADV and skew=−s×
+clamp(inv/0.5,−1,1). inv is a separate signed flow-risk statistic, initialized zero for legacy books; no diagnostic
+layoff transfers assets. Resource limits remain executable liquidity limits. The source conflict above stays open.
+
+The bounded execution retains synchronous orders and oldest-first resting-limit sweeps; it does not claim the full
+uniform-price cross-player auction, lnB/value-print/transient engine, off-book layoff or row backing. Within a tick,
+each side consumes a common cumulative log-price ladder; fill price is the endpoint on the minor-unit grid. Limits
+and tick bands invert that ladder to whole tokens, never execute past the limit, and can partially fill. Permanent
+impact uses the source signed daily net tally (φ=0.5), with observed depth averaged across elapsed ticks; opposite
+flow cancels. This is one impact, applied only after persistence. Previews dry-run the exact decision read-only on
+current authoritative book/ledger/quote state; matching bound states must give identical fills. Later state can differ.
+
+Additional acceptance: half-depth raises the square-root term by √2, not by deleting reserves; price-grid/fee/finite-cash
+bounds; positive/negative flow statistics do not mint or erase tokens; failed persist/replay changes neither stats nor
+path; source-derived fixtures and actual player/NPC/limit/mobile/restart evidence. Event scheduling and an inert event
+hook are excluded. Neutral GARCH/event/crowding terms are conditional on their absent active sources, not full-spec claims.
+
+The executable-quantity preview row is an estimate at its labeled server tick, not a guaranteed reserved quote.
+Market residual cancels; a limit residual rests subject to its existing cash/token hold. The tick reference and
+per-side consumed tokens are frozen through the tick (including its price-grid band), so splitting an order cannot
+reset the ladder. Legacy six-field dollar flow is readable but starts fresh token statistics on its first new fill.
+New flow statistics are strictly validated and saved with the same book; they never substitute for holdings.

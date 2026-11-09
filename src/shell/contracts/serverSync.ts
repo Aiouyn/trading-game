@@ -242,10 +242,21 @@ export class ServerSync {
     }
   }
 
+  /** Read-only calculation over the own ledger and finite book; no intent or mutation. */
+  async previewListed(draft: import("./channels").OrderDraft): Promise<import("./channels").PreviewRes> {
+    if (knownOffline()) throw new IntentNotSentOffline();
+    const r = await fetch("/api/broker/preview", { method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ draft }) });
+    if (!r.ok) throw new IntentNotSentOffline();
+    return (await import("./schema")).previewRes(await r.json(), "preview");
+  }
+
+
   /** POST one order intent with one key; retried only on network / 5xx failures, with the same key.
    *  M2-05: never sent while the browser reports offline (IntentNotSentOffline). Once a request may have left
    *  (a network error) and the browser then reports offline, retrying stops and the outcome is unknown
    *  (IntentOutcomeUnknown): the key and the `me` sync settle it; nothing is re-sent on reconnect. */
+
   async sendIntent(path: string, body: Record<string, unknown>): Promise<string> {
     let maybeSent = false;
     for (let attempt = 1; attempt <= ORDER_SEND_ATTEMPTS; attempt++) {

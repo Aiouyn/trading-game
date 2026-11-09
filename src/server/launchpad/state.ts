@@ -86,7 +86,13 @@ function gradOk(c: LpCoin): boolean {
 
 const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
 function flowOk(f: unknown): boolean {
-  return obj(f) && Object.keys(f).length === 6 && int(f.t) && int(f.mid, 1) && num(f.buy) && num(f.sell) && num(f.tb) && num(f.ts);
+  if (!obj(f)) return false;
+  if ("m" in f) {
+    const m = f.m;
+    if (!obj(m) || Object.keys(m).length !== 8 || !int(m.day) || !Number.isFinite(m.inv) || !Number.isFinite(m.qc)
+      || !Number.isFinite(m.pi) || !num(m.ds) || !num(m.dt) || !num(m.d) || m.d < 0.2 || !Number.isFinite(m.skew)) return false;
+  }
+  return Object.keys(f).length === ("m" in f ? 7 : 6) && int(f.t) && int(f.mid, 1) && num(f.buy) && num(f.sell) && num(f.tb) && num(f.ts);
 }
 
 const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);

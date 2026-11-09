@@ -4,11 +4,13 @@ import { newId } from "@/server/auth/crypto";
 import type { LiveMarket } from "@/server/market/clock";
 import type { ListedCoin } from "@/server/auth/service";
 import type { BrokerIntentReply, BrokerLedgerView } from "@/market/brokerLedger";
-import type { MyFill, OrderDraft } from "@/shell/contracts/channels";
+import type { MyFill, OrderDraft, PreviewRes } from "@/shell/contracts/channels";
 import type { ExecutedFill } from "@/server/market/candles";
+import { fmt } from "@/shell/contracts/mockFeed";
+import { parseMinor } from "@/market/quoteSnapshot";
 import { ASSET_BY_ID } from "@/market/catalog";
 import { MEME_POOL_WEIGHTS, stepPools, type CoinPools } from "./pools";
-import { decideCancel, decidePlace, ledgerView, quoteFromSnapshot, sweepLedger, sweepListed, type IdSource } from "./execution";
+import { decideCancel, decidePlace, ledgerView, reservedCashCents, quoteFromSnapshot, sweepLedger, sweepListed, type IdSource } from "./execution";
 
 const randomIds: IdSource = { next: (kind) => newId(kind) };
 
@@ -53,6 +55,27 @@ export class BrokerService {
     return ledgerView(record, this.deps.market().snapshot().tick, coins);
   }
 
+  /** Authoritative dry-run: no ledger/book save, id allocation, candle volume, or path impact. */
+  async preview(session: AuthSessionView, draft: OrderDraft): Promise<PreviewRes> {
+    const market = this.deps.market();
+    return this.deps.auth().previewOwnBook(session, draft.assetId, (cur, book) => {
+      let n = 0;
+      const q = { ...quoteFromSnapshot(market.snapshot()), depthInputs: (id: string) => market.depthInputs(id) };
+      const d = decidePlace({ ...cur, intents: [] }, "preview", draft, q, { next: (kind) => `preview_${kind}_${++n}` }, book);
+      const fill = d.next.fills?.at(-1);
+      const fresh = fill && !(cur.fills ?? []).some((f) => f.fillId === fill.fillId) ? fill : undefined;
+      const a = ASSET_BY_ID[draft.assetId], mark = q.last(draft.assetId) ?? 1, dp = a?.displayDecimals ?? 8;
+      const px = fresh ? parseMinor(fresh.price, dp) ?? mark : mark;
+      const paid = cur.cashCents - d.next.cashCents;
+      const fee = fresh ? Math.round(Number(fresh.fee) * 100) : 0;
+      const reason = d.result.status === "REJECTED" ? d.result.rejectCode : undefined;
+      return { price: fmt(mark, dp), estFill: fmt(px, dp), fee: fmt(fee, 2), valid: !reason,
+        ...(reason ? { reasonCode: reason } : {}), buyingPowerAfter: fmt(d.next.cashCents - reservedCashCents(d.next), 2),
+        impactBp: String(Math.round(Math.abs(px / mark - 1) * 10000)), impactMoney: fmt(Math.round(Math.abs(px - mark) * Number(fresh?.qty ?? 0) / 10 ** (dp - 2)), 2),
+        total: fmt(Math.abs(paid), 2), firstTradeCapRemaining: null, computedAtTick: q.tick, executableQty: fresh?.qty ?? "0" };
+    }, this.deps.list);
+  }
+
   /** Place. Quote, checks and write happen in one locked read-modify-write on the caller's own ledger. */
   async place(session: AuthSessionView, key: string, draft: OrderDraft): Promise<BrokerIntentReply> {
     this.attach();
@@ -62,7 +85,7 @@ export class BrokerService {
     // One locked step: the clock lists any graduated coin, then the decision; a listed coin (L4) fills against its book
     // account, and the ledger and the book commit together (any other asset has no book: the ledger alone changes).
     const { record: next, coins } = await this.deps.auth().updateOwnLedgerWithBook(session, draft.assetId, (cur, book) => {
-      const d = decidePlace(cur, key, draft, quoteFromSnapshot(market.snapshot()), this.ids, book);
+      const d = decidePlace(cur, key, draft, { ...quoteFromSnapshot(market.snapshot()), depthInputs: (id: string) => market.depthInputs(id) }, this.ids, book);
       out = d.result;
       executed = d.replayed ? [] : newFills(cur, d.next);
       const move = d.move;
@@ -93,7 +116,7 @@ export class BrokerService {
    *  listed coin against its book, all in one commit. */
   async sweep(): Promise<number> {
     const market = this.deps.market();
-    const quote = quoteFromSnapshot(market.snapshot());
+    const quote = { ...quoteFromSnapshot(market.snapshot()), depthInputs: (id: string) => market.depthInputs(id) };
     const executed: ExecutedFill[] = [];
     const n = await this.deps.auth().sweepPrivateStates((cur) => {
       try {
@@ -106,7 +129,7 @@ export class BrokerService {
     }, {
       ...(this.deps.list ? { list: this.deps.list } : {}),
       sweep: (ledgers, books, coins) => {
-        const q = quoteFromSnapshot(market.snapshot()); // after list(): a coin listed in this turn has its mark
+        const q = { ...quoteFromSnapshot(market.snapshot()), depthInputs: (id: string) => market.depthInputs(id) }; // after list(): a coin listed in this turn has its mark
         const out = sweepListed(ledgers, books, q, this.ids);
         for (const [id, next] of out.ledgers) executed.push(...newFills(ledgers.get(id)!, next));
         // then the coins' trader pools (src/server/broker/pools.ts), once a tick, against the books as just swept
@@ -115,7 +138,7 @@ export class BrokerService {
         for (const [ticker, c] of coins) {
           const a = ASSET_BY_ID[ticker], inp = market.poolInputs?.(ticker) ?? null, mark = q.last(ticker), book = out.books.get(ticker) ?? books.get(ticker);
           if (!a || !inp || mark === null || !book || !q.tradable(ticker) || inp.tick !== q.tick) continue;
-          const step = stepPools(a, MEME_POOL_WEIGHTS, c.price, c.pools, book, mark, inp, market.epoch);
+          const step = stepPools(a, MEME_POOL_WEIGHTS, c.price, c.pools, book, mark, inp, market.epoch, market.depthInputs(ticker) ?? undefined);
           if (!step) continue;
           pools.set(ticker, step.pools);
           out.books.set(ticker, step.book);

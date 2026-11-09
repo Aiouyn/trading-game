@@ -134,7 +134,7 @@ export const orderDraft: Schema<OrderDraft> = obj(
 );
 export const previewRes: Schema<PreviewRes> = obj(
   { price: dec, estFill: dec, fee: dec, valid: bool, buyingPowerAfter: dec, impactBp: dec, impactMoney: dec, total: dec, firstTradeCapRemaining: nullable(dec), computedAtTick: int },
-  { reasonCode: str, marginAfter: dec },
+  { reasonCode: str, marginAfter: dec, executableQty: dec },
 );
 export const assetDetail: Schema<AssetDetail> = obj(
   { assetId: str, ticker: str, name: str, class: str, sector: str, bloc: str, ccy: str, displayDecimals: int, qtyDecimals: int, licenseTier: str, tradingState },

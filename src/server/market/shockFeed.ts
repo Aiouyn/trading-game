@@ -5,7 +5,8 @@ import { MockFeed, fmt } from "@/shell/contracts/mockFeed";
 import { listAsset } from "@/market/listings";
 import { CRYPTO_FACTOR_STREAM, DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
-import { WorldInputs, type WorldView } from "./world";
+import type { DepthInputs } from "@/server/broker/book";
+import { WorldInputs, REGIME_TURNOVER, type WorldView } from "./world";
 
 /** What the trader pools read of a listed coin (src/server/broker/pools.ts): its mark P_{N−1} and template value, its
  *  returns and template vol, the world (04 regime and Fear Index) and its news (attention, sign, mentions). */
@@ -78,6 +79,16 @@ export class ShockFeed extends MockFeed {
   }
 
   private pathInputs(id: string) { return { hype: this.hype.get(id) ?? HYPE.h0, reg: this.world.mults(this.tick) }; }
+
+  /** Public execution inputs on this tick (source 05: Fear/regime depth, token ADV; 364-day crypto σd). */
+  depthInputs(id: string): DepthInputs | null {
+    const m = this.memes.get(id);
+    if (!m) return null;
+    const fear = this.world.fear, att = this.coinNews.get(id)!.inputs(this.tick).attention;
+    return { fear, regimeDepth: this.world.depth(this.tick),
+      adv: 150e6 * (1 + 0.01 * Math.max(0, fear - 20)) * att * REGIME_TURNOVER[this.world.regime],
+      sigmaDaily: m.sigmaEff(this.pathInputs(id)) / Math.sqrt(364) };
+  }
 
   /** Each listed coin's marks and template values (lnV) at the end of its recent ticks, newest last (at most
    *  POOL_LOOKBACK + 1): what the trader pools read as "state published at the end of tick N−1" (05 §6.2). In memory,

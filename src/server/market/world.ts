@@ -32,6 +32,7 @@ export const REGIME_MULTS: Readonly<Record<Regime, RegimeMults>> = {
 /** 05 §3.14.1 regimeTurnover (the ADV multiplier). */
 export const REGIME_TURNOVER: Readonly<Record<Regime, number>> = { EXPANSION: 1.0, OVERHEATING: 1.1, CONTRACTION: 1.3, RECOVERY: 1.1 };
 /** 05 §3.3.5: a regime change moves the multipliers linearly over 5 trading days. */
+export const REGIME_DEPTH: Readonly<Record<Regime, number>> = { EXPANSION: 1.1, OVERHEATING: 1, CONTRACTION: 0.8, RECOVERY: 0.9 };
 export const REGIME_BLEND_TICKS = 5 * TICKS_PER_DAY;
 
 /** One day of 04 §3.3.2 for the global chain (no coupling): no transition before the minimum length; hazard
@@ -126,6 +127,13 @@ export class WorldInputs {
     if (!this.change) return to;
     const k = Math.min(1, (tick - this.change.tick) / REGIME_BLEND_TICKS), from = REGIME_MULTS[this.change.from];
     return { vol: from.vol + (to.vol - from.vol) * k, jump: from.jump + (to.jump - from.jump) * k, skew: from.skew + (to.skew - from.skew) * k };
+  }
+
+  depth(tick: number): number {
+    const to = REGIME_DEPTH[this.regime];
+    if (!this.change) return to;
+    const k = Math.min(1, Math.max(0, (tick - this.change.tick) / REGIME_BLEND_TICKS));
+    return REGIME_DEPTH[this.change.from] + (to - REGIME_DEPTH[this.change.from]) * k;
   }
 
   view(): WorldView { return { regime: this.regime, fear: this.fear }; }

@@ -55,7 +55,7 @@ export interface OrderHistoryRow { orderId: string; assetId: string; side: Side;
 
 // req ops over the socket (19 Rule 3.8.5): intent.preview ≤ 5 per tick, asset.detail
 export interface PreviewReq { kind: 'mkt.order.place'; payload: OrderDraft }
-export interface PreviewRes { price: Price; estFill: Price; fee: Money; valid: boolean; reasonCode?: string; buyingPowerAfter: Money; marginAfter?: Money /* 05 PreviewResult fields, names re-checked on SWAP */; impactBp: string /* integer bp */; impactMoney: Money; total: Money; firstTradeCapRemaining: Money | null; computedAtTick: Tick } // Q14 answered (E-56 §9): advisory, the real order re-validates
+export interface PreviewRes { executableQty?: Qty; price: Price; estFill: Price; fee: Money; valid: boolean; reasonCode?: string; buyingPowerAfter: Money; marginAfter?: Money /* 05 PreviewResult fields, names re-checked on SWAP */; impactBp: string /* integer bp */; impactMoney: Money; total: Money; firstTradeCapRemaining: Money | null; computedAtTick: Tick } // Q14 answered (E-56 §9): advisory, the real order re-validates
 export interface OrderDraft { assetId: string; side: Side; type: 'market'|'limit'|'stop'|'stop_limit'; qty: Qty; limit?: Price; stop?: Price; tif: 'day'|'gtc'|'ioc'|'fok' } // 17 §2.2, BRK-02
 export interface AssetDetail { assetId: string; ticker: string; name: string; class: string; sector: string; bloc: string; ccy: string; displayDecimals: number; qtyDecimals: number; licenseTier: string; tradingState: TradingState; stateUntilTick?: Tick } // 05 §2.2 public fields
 

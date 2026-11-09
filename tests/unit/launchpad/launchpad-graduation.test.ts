@@ -6,14 +6,9 @@
 //   graduation fee round(1.5% R) = 65,934¢; book = 4,329,671¢ + 200,000,000 tokens. Listing price = last curve price
 //   5,895,605¢ / 273,000,000 = $0.000215956… → 21,596 × 1e-8 $. B's position: 800,000,000 at cost 4,440,006¢ →
 //   avgCost 5,550.0075 → 5,550 (1e-8 $) = "0.00005550". Value at the mark: 21,596 × 8e8 / 1e6 = 17,276,800¢.
-//   Broker fills against the book (src/server/broker/book.ts, p10 supply-account path; fee 3 bp, min 10¢, half-even, paid
-//   to the book). FROG's vol = 1.929637 (its own stream), σ_daily = vol/√252 = 0.1215557; impact(n$) = 0.8 σ_daily √(n/4e8);
-//   half spread 45 bp; every fill of one tick is priced off that tick's mid (21,596) and the same-side flow before it.
-//   C buys 1,000,000: n = $215.96, impact 7.1453e-5 → 21,596 × 1.0045715 = 21,694.7 → 21,695 (up); 21,695¢ + 10¢.
-//   C buys 300,000,000 → the book has 199,000,000: marginal impact over $215.96 of flow → 21,716; 4,321,484¢ (up) + 1,296¢;
-//   book 4,329,671 + 21,705 + 4,322,780 = 8,674,156¢ / 0 tokens. B sells 800,000,000: priced 21,467 the book pays 404,069,315
-//   tokens (cut to its cash, re-priced) for 8,674,156¢, fee 2,602¢ back to the book → book 2,602¢ / 404,069,315.
-//   Permanent impact (half of impact on the flow) moves the mark after each saved fill: 21,597 → 21,607 → 21,591.
+//   Broker execution now uses the finite-book source depth ladder (05/06): F22 half-spread .0266, D .9548,
+//   ADV153M and effective crypto σd=.200258141606525. The grid-band inversion fixture appears at the actual fill below.
+//   Fees still use 3bp/min10c; conservation includes the book and the already funded NPC pools.
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -142,40 +137,38 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
     const w0 = await world();
     const r1 = await order(c, "BUY", 1_000_000);
     expect(r1.result.status).toBe("ACCEPTED");
-    expect(r1.ledger.fills.at(-1)).toMatchObject({ assetId: "FROG", side: "BUY", qty: "1000000", price: "0.00021695", fee: "0.10" });
-    expect(r1.ledger.cashCents).toBe(10_000_000 - 21_695 - 10);
-    expect((await lp()).coins[0]!.book).toEqual({ cash: 4_329_671 + 21_705, tokens: 199_000_000 });
-    expect(market.snapshot().quotes.rows.FROG!.last).toBe("0.00021597"); // permanent impact, after the save
-    // Partial: the book holds 199,000,000 tokens.
-    const r2 = await order(c, "BUY", 300_000_000);
-    expect(r2.ledger.fills.at(-1)).toMatchObject({ qty: "199000000", price: "0.00021716", fee: "12.96" });
-    expect(r2.ledger.cashCents).toBe(10_000_000 - 21_705 - 4_321_484 - 1_296);
-    expect((await lp()).coins[0]!.book).toEqual({ cash: 8_674_156, tokens: 0 });
-    // Candles from the listing tick: both fills landed on it (no clock step since the graduation) and count as its volume.
+    // Hand fixture: σd=1.9296372897108085×.9×2.2/√364, ADV=153M (F22), s=.0266, D=.9548.
+    // Band=6σd/√720=.04477908, hi=floor(21596 exp(band))=22585; invert log ladder at that grid point.
+    const f1 = r1.ledger.fills.at(-1);
+    expect(f1).toMatchObject({ assetId: "FROG", side: "BUY", qty: "835884", price: "0.00022585", fee: "0.10" });
+    const paid1 = Math.ceil(835884 * 22585 / 1e6) + 10;
+    expect(r1.ledger.cashCents).toBe(10_000_000 - paid1);
+    expect((await lp()).coins[0]!.book).toEqual({ cash: 4_329_671 + paid1, tokens: 200_000_000 - 835884 });
+    expect(Number(market.snapshot().quotes.rows.FROG!.last)).toBeGreaterThan(0.00021596); // only after save
+    // The shared side ladder is at its tick band, not "out of tokens". No unbacked or out-of-band buy.
+    expect((await order(c, "BUY", 300_000_000)).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LIQUIDITY" });
     const t0 = market.snapshot().tick;
-    expect(getCandles(market).history({ assetId: "FROG", res: "tick", from: t0, to: t0 })).toMatchObject([{ t: t0, v: "200000000" }]);
-    expect((await order(c, "BUY", 1)).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LIQUIDITY" });
-    // An oversized sale: the book's cash pays 404,069,315 tokens at 21,467 (below the mark by spread + impact), no more.
-    const r3 = await order(b, "SELL", 800_000_000);
-    expect(r3.ledger.fills.at(-1)).toMatchObject({ side: "SELL", qty: "404069315", price: "0.00021467", fee: "26.02" });
-    expect(r3.ledger.cashCents).toBe(5_559_994 + 8_674_156 - 2_602);
-    expect(r3.ledger.positions.FROG).toEqual({ assetId: "FROG", qty: "395930685", avgCost: "0.00005550" });
-    expect((await lp()).coins[0]!.book).toEqual({ cash: 2_602, tokens: 404_069_315 });
-    expect(market.snapshot().quotes.rows.FROG!.last).toBe("0.00021591");
-    expect((await order(b, "SELL", 1)).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LIQUIDITY" });
-    expect((await order(c, "SELL", 200_000_001)).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LOCATE" });
+    expect(getCandles(market).history({ assetId: "FROG", res: "tick", from: t0, to: t0 })).toMatchObject([{ t: t0, v: "835884" }]);
+    const beforeSell = await me(b), bk = (await lp()).coins[0]!.book!;
+    const r3 = await order(b, "SELL", 800_000_000), sale = r3.ledger.fills.at(-1);
+    expect(sale.side).toBe("SELL");
+    const q = Number(sale.qty), px = Math.round(Number(sale.price) * 1e8), fee = Math.round(Number(sale.fee) * 100);
+    expect(q).toBeGreaterThan(0); expect(q).toBeLessThan(800_000_000);
+    const received = Math.round(q * px / 1e6);
+    expect(received).toBeLessThanOrEqual(bk.cash);
+    expect(r3.ledger.cashCents).toBe(beforeSell.cashCents + received - fee);
+    expect(r3.ledger.positions.FROG.qty).toBe(String(800_000_000 - q));
+    expect((await lp()).coins[0]!.book).toEqual({ cash: bk.cash - received + fee, tokens: bk.tokens + q });
+    expect((await order(c, "SELL", 835885)).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LOCATE" });
     expect((await order(c, "SELL", 1, { type: "stop", stop: "0.00020000" })).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_ORDER_TYPE_UNSUPPORTED" });
-    // Conservation: tokens across positions and book; cash across ledgers, books and sinks (the fees stayed in the book).
     expect(await supply()).toBe(LP.SUPPLY);
     expect(await world()).toBe(w0);
-    // The mark moves on the meme path; a later tick prices off its own mark: above it by at least the half spread.
     for (let i = 0; i < 50; i++) market.step();
-    const mark = Number((await get(marketGet, "/api/market")).quotes.rows.FROG.last.replace(".", ""));
-    expect(mark).not.toBe(21_591);
-    const r4 = await order(c, "BUY", 1_000_000);
-    const px = Number(r4.ledger.fills.at(-1).price.replace(".", ""));
-    expect(px).toBeGreaterThanOrEqual(Math.ceil(mark * 1.0045));
-    expect(px).toBeLessThan(mark * 1.01);
+    const mark = Number((await get(marketGet, "/api/market")).quotes.rows.FROG.last);
+    const r4 = await order(c, "BUY", 10_000);
+    expect(r4.result.status).toBe("ACCEPTED");
+    expect(Number(r4.ledger.fills.at(-1).price)).toBeGreaterThan(mark * 1.02);
+
   });
 
   it("Broker replay and a failed save: the same key returns the first fill; a failed save moves neither ledger nor book", async () => {
@@ -192,7 +185,7 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
     const res = await orderRes(b, "SELL", 1_000_000);
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect((await lp()).coins[0]!.book).toEqual(book1);
-    expect((await me(b)).positions.FROG.qty).toBe("799000000");
+    expect((await me(b)).positions.FROG.qty).toBe(first.ledger.positions.FROG.qty);
     expect(await supply()).toBe(LP.SUPPLY);
   });
 
@@ -279,10 +272,10 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
     atListing.coins.find((x: { ticker: string }) => x.ticker === "FROG").grad.mark = 21_596;
     expect(await get(lpGet, "/api/launchpad", b)).toEqual(atListing);
     // The book's flow (the price law's memory) is saved with the book and loads again.
-    expect(JSON.parse(readFileSync(file, "utf8")).launchpad.coins[0].flow).toMatchObject({ t: expect.any(Number), mid: 21_596, ts: 1_000_000 * 0.00021596 });
+    expect(JSON.parse(readFileSync(file, "utf8")).launchpad.coins[0].flow).toMatchObject({ t: expect.any(Number), mid: 21_596, ts: 832807 });
     expect(await get(histGet, "/api/launchpad/history?ticker=FROG")).toEqual(hist);
     type Raw = {
-      launchpad: { coins: { book?: { tokens: number }; flow?: { mid: number; buy: number }; grad: { price: number }; creatorId: string }[]; holdings: Record<string, Record<string, number>>; costs: Record<string, Record<string, number>> };
+      launchpad: { coins: { book?: { tokens: number }; flow?: { mid: number; buy: number; m: { d: number; inv: number; dt: number } }; grad: { price: number }; creatorId: string }[]; holdings: Record<string, Record<string, number>>; costs: Record<string, Record<string, number>> };
       players: { positions: Record<string, { qty: string }> }[];
     };
     for (const tamper of [
@@ -292,6 +285,9 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
       (raw: Raw) => { delete raw.launchpad.coins[0]!.book; },
       (raw: Raw) => { raw.launchpad.coins[0]!.flow!.mid = 0; }, // a flow that does not parse
       (raw: Raw) => { raw.launchpad.coins[0]!.flow!.buy = -1; },
+      (raw: Raw) => { raw.launchpad.coins[0]!.flow!.m.d = .19; },
+      (raw: Raw) => { raw.launchpad.coins[0]!.flow!.m.inv = Infinity; },
+      (raw: Raw) => { raw.launchpad.coins[0]!.flow!.m.dt = -1; },
       (raw: Raw) => { const id = raw.launchpad.coins[0]!.creatorId; raw.launchpad.holdings[id] = { FROG: 1 }; raw.launchpad.costs[id] = { FROG: 0 }; },
     ]) {
       const raw = JSON.parse(readFileSync(file, "utf8")) as Raw;

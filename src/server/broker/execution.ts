@@ -9,7 +9,7 @@ import { centsOf } from "@/market/valuation";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
 import { AuthError, type PersistedIntent, type PersistedOpenOrder, type PersistedPosition, type PlayerPrivateRecord } from "@/server/auth/types";
 import { MAX_FILLS, MAX_INTENTS, type PlayerPrivateInput } from "@/server/player/privateState";
-import { feeOf, fillOnBook, type BookAccount } from "./book";
+import { feeOf, fillOnBook, type BookAccount, type DepthInputs } from "./book";
 import type { IntentResult, MyFill, OrderDraft } from "@/shell/contracts/channels";
 import { FEE_BP, fmt, nextLot, type Lot } from "@/shell/contracts/mockFeed";
 import { ORDER_POLICY } from "@/shell/contracts/orderPolicy";
@@ -27,7 +27,7 @@ export type { BookAccount } from "./book";
 export interface IdSource { next(kind: "o" | "x" | "i"): string }
 
 /** Server marks at one tick, in minor units. */
-export interface ServerQuote { readonly tick: number; last(assetId: string): number | null; tradable(assetId: string): boolean }
+export interface ServerQuote { readonly tick: number; depthInputs?(assetId: string): DepthInputs | null; last(assetId: string): number | null; tradable(assetId: string): boolean }
 
 export function quoteFromSnapshot(snap: MarketSnapshot): ServerQuote {
   return {
@@ -226,7 +226,7 @@ function placeListed(
   const sellable = (lotOf(rec.positions[a.assetId])?.qty ?? 0) - reservedQty(rec, a.assetId);
   if (draft.side === "SELL" && want > sellable) return reject("MKT_NO_LOCATE");
   if (draft.side === "BUY" && limit !== null && holdCents(a, want, limit) > spendable) return reject("MKT_INSUFFICIENT_BP");
-  const fill = fillOnBook(a, draft.side, want, last, book, quote.tick, limit);
+  const fill = fillOnBook(a, draft.side, want, last, book, quote.tick, limit, quote.depthInputs?.(a.assetId) ?? undefined);
   const rest = want - (fill?.qty ?? 0);
   if (!fill && limit === null) return reject("MKT_NO_LIQUIDITY");
   if (rest > 0 && limit !== null && Object.keys(rec.openOrders).length >= MAX_WORKING_ORDERS) return reject("MKT_TOO_MANY_ORDERS");
@@ -334,7 +334,7 @@ export function sweepListed<K extends string>(ledgers: ReadonlyMap<K, PlayerPriv
     if (!a || last === null || !quote.tradable(a.assetId)) return;
     const ledger = out.ledgers.get(owner) ?? asInput(ledgers.get(owner)!);
     const book = out.books.get(a.assetId) ?? books.get(a.assetId)!;
-    const fill = fillOnBook(a, o.side, remainingOf(o), last, book, quote.tick, limitMinor(o));
+    const fill = fillOnBook(a, o.side, remainingOf(o), last, book, quote.tick, limitMinor(o), quote.depthInputs?.(a.assetId) ?? undefined);
     if (!fill) return;
     const openOrders = { ...ledger.openOrders };
     delete openOrders[o.orderId];

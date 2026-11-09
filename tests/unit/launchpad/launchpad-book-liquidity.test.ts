@@ -8,6 +8,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { POST as register } from "@/app/api/auth/register/route";
 import { GET as brokerMe } from "@/app/api/broker/me/route";
+import { POST as previewRoute } from "@/app/api/broker/preview/route";
 import { POST as orderRoute } from "@/app/api/broker/orders/route";
 import { POST as cancelRoute } from "@/app/api/broker/orders/cancel/route";
 import { GET as lpGet } from "@/app/api/launchpad/route";
@@ -19,16 +20,18 @@ import { listedDef, resetListingsForTests } from "@/market/listings";
 import { LP } from "@/launchpad/rules";
 import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, type AuthStore, type AuthStoreSnapshot } from "@/server/auth";
 import { getBroker, setBrokerForTests } from "@/server/broker";
-import { BOOK_LAW, fillOnBook, type BookAccount } from "@/server/broker/book";
+import { BOOK_LAW, depthQuote, ladderImpact, fillOnBook, type BookAccount } from "@/server/broker/book";
 import { marketCashCents, poolCashCents, poolFundedCents, poolTokens } from "@/server/launchpad/state";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { memeParams } from "@/server/market/meme";
 
 class Store implements AuthStore {
   failNext = false;
+  saves = 0;
   constructor(private readonly inner: AuthStore) {}
   load(): Promise<AuthStoreSnapshot> { return this.inner.load(); }
   save(s: AuthStoreSnapshot): Promise<void> {
+    this.saves++;
     if (this.failNext) { this.failNext = false; return Promise.reject(new Error("disk full")); }
     return this.inner.save(s);
   }
@@ -84,7 +87,38 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
   const tick = async () => { market.step(); await getBroker().sweep(); };
   const holds = async () => { expect(await supply()).toBe(LP.SUPPLY); expect((await book()).cash).toBeGreaterThanOrEqual(0); expect((await book()).tokens).toBeGreaterThanOrEqual(0); };
 
-  it("several holders: an oversized sale is bounded by the book's cash; the next holder's market sale is partial or refused, its limit rests and fills after a buyer pays the book", async () => {
+  it("authoritative preview: repeat reads save nothing; exact-bound-state fills agree including partials, resting limits and sell fees", async () => {
+    const a = await signUp("alice"), b = await signUp("bob"), c = await signUp("carol");
+    await launch(a); await setCash(10_000_000); await trade(b, 10_000_000);
+    const preview = async (side: "BUY" | "SELL", qty: number, extra: Extra = {}) => {
+      const res = await post(previewRoute, "/api/broker/preview", c, { draft: { assetId: "FROG", side, qty: String(qty), type: "market", tif: "day", ...extra } });
+      expect(res.status).toBe(200); return res.json();
+    };
+    const before = { lp: await lp(), c: await me(c), b: await me(b), mark: mark(), saves: store.saves };
+    const p = await preview("BUY", 1_000_000);
+    expect(p).toMatchObject({ valid: true, executableQty: "835884", estFill: "0.00022585", fee: "0.10", computedAtTick: market.snapshot().tick });
+    expect(await preview("BUY", 1_000_000)).toEqual(p);
+    const resting = await preview("BUY", 1000, { type: "limit", limit: "0.00020000" });
+    expect(resting).toMatchObject({ valid: true, executableQty: "0", total: "0.00" });
+    expect(store.saves).toBe(before.saves);
+    expect({ lp: await lp(), c: await me(c), b: await me(b), mark: mark() }).toEqual({ lp: before.lp, c: before.c, b: before.b, mark: before.mark });
+    const placed = await order(c, "BUY", 1_000_000), fill = placed.ledger.fills.at(-1);
+    expect(fill).toMatchObject({ qty: p.executableQty, price: p.estFill, fee: p.fee });
+    expect(placed.ledger.cashCents).toBe(before.c.cashCents - Math.round(Number(p.total) * 100));
+    const ps = await preview("SELL", 10_000), cash = placed.ledger.cashCents;
+    const sold = await order(c, "SELL", 10_000);
+    expect(sold.ledger.fills.at(-1)).toMatchObject({ qty: ps.executableQty, price: ps.estFill, fee: ps.fee });
+    expect(sold.ledger.cashCents).toBe(cash + Math.round(Number(ps.total) * 100));
+    // No caller-private ledger/holds are serialized by the preview route; authentication and origin remain required.
+    expect(Object.keys(p).sort()).toEqual(["buyingPowerAfter", "computedAtTick", "estFill", "executableQty", "fee", "firstTradeCapRemaining", "impactBp", "impactMoney", "price", "total", "valid"].sort());
+    const draft = { assetId: "FROG", side: "BUY", qty: "1000", type: "market", tif: "day" };
+    expect((await post(previewRoute, "/api/broker/preview", "", { draft })).status).toBe(401);
+    expect((await post(previewRoute, "/api/broker/preview", c, { draft, userId: "bob" })).status).toBe(400);
+    expect((await previewRoute(new Request("http://localhost/api/broker/preview", { method: "POST", headers: { origin: "https://evil.invalid", "content-type": "application/json", cookie: c }, body: JSON.stringify({ draft }) }))).status).toBe(403);
+    await holds();
+  });
+
+  it("several holders: an oversized sale is bounded by source depth and book cash; the next holder's market sale is partial or refused, its limit rests and fills after a buyer pays the book", async () => {
     const a = await signUp("alice"), b = await signUp("bob"), c = await signUp("carol"), d = await signUp("dave");
     await launch(a);
     await setCash(10_000_000);
@@ -94,7 +128,7 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
     const bQty = Number((await me(b)).positions.FROG.qty);
     const cash0 = new Map(await Promise.all([b, c, d].map(async (ck) => [ck, (await me(ck)).cashCents as number] as const)));
     const book0 = await book(), m0 = mark();
-    // B sells everything: what B holds is worth more at the mark than the book has, so the sale stops at the book's cash.
+    // B requests everything: both the source tick band and the finite cash limit the executable quantity.
     expect(bQty * m0 / 1e6).toBeGreaterThan(book0.cash);
     const rb = await order(b, "SELL", bQty);
     const fb = rb.ledger.fills.at(-1) as Fill;
@@ -105,7 +139,7 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
     expect(await book()).toEqual({ cash: book0.cash - paid + fee, tokens: book0.tokens + Number(fb.qty) });
     expect(rb.ledger.positions.FROG.qty).toBe(String(bQty - Number(fb.qty)));
     await holds();
-    // C, the other holder: a market sale fills only what is left in the book (its fee cash), never more.
+    // C, the other holder: any additional sale stays within the remaining source side ladder and actual book cash.
     const left = (await book()).cash;
     const rc = await order(c, "SELL", 100_000_000);
     if (rc.result.status === "ACCEPTED") expect(Math.round(minor(rc.ledger.fills.at(-1).price) * Number(rc.ledger.fills.at(-1).qty) / 1e6)).toBeLessThanOrEqual(left);
@@ -155,30 +189,27 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
     await tick();
     expect((await me(c)).orders[id1]).toMatchObject({ status: "WORKING" }); // still past its limit: waits
     expect((await cancel(c, id1)).ledger.reservedCashCents).toBe(0);
-    // Marketable and bigger than the book's 200,000,000 tokens: the book's tokens fill now, the rest rests PARTIAL.
+    // Source tick-band depth, not a reserve deletion: only the marketable ladder slice fills; the rest rests.
     const r2 = await order(c, "BUY", 300_000_000, { type: "limit", limit: "0.00030000" });
     const id2 = String(r2.result.effects.find((e: string) => e.startsWith("order:"))).slice(6);
-    const f2 = r2.ledger.fills.at(-1) as Fill;
-    expect(f2).toMatchObject({ side: "BUY", qty: "200000000", orderId: id2 });
+    const f2 = r2.ledger.fills.at(-1) as Fill, q2 = Number(f2.qty);
+    expect(f2).toMatchObject({ side: "BUY", orderId: id2 });
+    expect(q2).toBeGreaterThan(0); expect(q2).toBeLessThan(200_000_000);
     expect(minor(f2.price)).toBeLessThanOrEqual(30_000);
-    expect(r2.ledger.orders[id2]).toMatchObject({ status: "PARTIAL", filled: "200000000", avgPrice: f2.price });
-    expect(r2.ledger.reservedCashCents).toBe(3_000_000 + 900); // 100,000,000 × 30,000 / 1e6 + 3 bp
-    expect((await book()).tokens).toBe(0);
+    expect(r2.ledger.orders[id2]).toMatchObject({ status: "PARTIAL", filled: f2.qty, avgPrice: f2.price });
+    const remaining = 300_000_000 - q2, held = Math.ceil(remaining * 30_000 / 1e6);
+    expect(r2.ledger.reservedCashCents).toBe(held + Math.max(10, Math.round(held * 3 / 10000)));
+    expect((await book()).tokens).toBeGreaterThan(0); // band exhaustion does not destroy float
     await tick();
-    expect((await me(c)).orders[id2]).toMatchObject({ status: "PARTIAL", filled: "200000000" }); // no float: waits
-    // B sells 100,000,000 into the book; the sweep fills C's rest within its limit.
-    expect((await order(b, "SELL", 100_000_000)).result.status).toBe("ACCEPTED");
-    await tick();
-    const l = await me(c);
-    expect(l.orders[id2]).toBeUndefined();
-    expect(l.reservedCashCents).toBe(0);
-    expect(l.positions.FROG.qty).toBe("300000000");
-    const mine = (l.fills as Fill[]).filter((f) => f.orderId === id2);
-    expect(mine.map((f) => f.qty)).toEqual(["200000000", "100000000"]);
+    const l = await me(c), mine = (l.fills as Fill[]).filter((f) => f.orderId === id2);
+    expect(mine.length).toBeGreaterThan(1);
+    const filled = mine.reduce((sum, f) => sum + Number(f.qty), 0);
+    expect(filled).toBeGreaterThan(q2);
+    expect(l.orders[id2]).toMatchObject({ status: "PARTIAL", filled: String(filled) });
     for (const f of mine) expect(minor(f.price)).toBeLessThanOrEqual(30_000);
     expect(l.cashCents).toBe(10_000_000 - cashFlow(l.fills));
-    expect(await world()).toBe(w0);
-    await holds();
+    expect(await world()).toBe(w0); await holds();
+    expect((await cancel(c, id2)).ledger.reservedCashCents).toBe(0);
     // Stop types: as every asset of this door.
     expect((await order(c, "SELL", 1, { type: "stop", stop: "0.00020000" })).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_ORDER_TYPE_UNSUPPORTED" });
   });
@@ -201,23 +232,23 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
     expect(await order(c, "BUY", 50_000_000, {}, k)).toEqual(first);
     expect(mark()).toBe(m1);
     expect(await lp()).toEqual(s1);
-    // A resting buy (the book's float is gone), then a seller refills the book: a failed sweep commit moves nothing; the
-    // next sweep fills it once.
-    expect((await order(c, "BUY", 200_000_000)).result.status).toBe("ACCEPTED");
-    const lim = await order(c, "BUY", 5_000_000, { type: "limit", limit: "0.00030000" });
+    // A genuinely resting limit (below the mark), then a public price move makes it marketable. Failed sweep rolls back.
+    const lim = await order(c, "BUY", 50_000, { type: "limit", limit: "0.00020000" });
     const oid = Object.keys(lim.ledger.orders)[0]!;
-    expect((await order(b, "SELL", 5_000_000)).result.status).toBe("ACCEPTED");
-    // No clock step here: a step also runs the clock's own sweep (BrokerService.attach); this tick's sweep is explicit.
+    expect(lim.ledger.orders[oid]).toMatchObject({ status: "WORKING" });
+    market.impactListed("FROG", Math.log(0.8));
     const before = { lp: await lp(), c: await me(c), m: mark() };
     store.failNext = true;
-    await expect(getBroker().sweep()).rejects.toThrow("disk full");
+    market.step(); // new tick releases the old side ladder; attached sweep attempts and fails its save
+    const stepped = mark();
     expect(await lp()).toEqual(before.lp);
     expect({ ...(await me(c)), tick: 0 }).toEqual({ ...before.c, tick: 0 });
-    expect(mark()).toBe(before.m);
+    expect(mark()).toBe(stepped);
     await getBroker().sweep();
     expect((await me(c)).orders[oid]).toBeUndefined();
     expect(mark()).toBeGreaterThanOrEqual(before.m); // the saved fill's impact (under a minor unit at this size), once
-    expect((await lp()).coins[0]!.flow!.buy).toBeGreaterThan(before.lp.coins[0]!.flow!.buy);
+    const committed = (await lp()).coins[0]!;
+    expect(committed.flow!.buy).toBe(50_000 + committed.pools!.tape.filter((p) => p.tick === market.snapshot().tick && p.side === "BUY").reduce((sum, p) => sum + p.qty, 0));
     await getBroker().sweep();
     expect((await me(c)).fills.filter((f: Fill) => f.orderId === oid)).toHaveLength(1);
     await holds();
@@ -233,8 +264,8 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
     await fresh.sweepPrivateStates((cur) => ({ ...cur, cashCents: 10_000_000 }));
     setAuthServiceForTests(fresh);
     await trade(b, 10_000_000);
-    expect((await order(c, "BUY", 200_000_000)).result.status).toBe("ACCEPTED"); // the book's float is gone
-    const lim = await order(c, "BUY", 5_000_000, { type: "limit", limit: "0.00030000" });
+    expect((await order(c, "BUY", 100_000)).result.status).toBe("ACCEPTED");
+    const lim = await order(c, "BUY", 50_000, { type: "limit", limit: "0.00020000" });
     const oid = Object.keys(lim.ledger.orders)[0]!;
     expect(lim.ledger.orders[oid]).toMatchObject({ status: "WORKING" });
     const view = await me(c);
@@ -247,12 +278,12 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
     setAuthServiceForTests(again);
     expect({ ...(await me(c)), tick: 0 }).toEqual({ ...view, tick: 0 });
     expect(await again.readLaunchpad(null, (s) => s.coins[0]!.flow)).toMatchObject({ mid: 21_596 });
-    expect((await order(b, "SELL", 5_000_000)).result.status).toBe("ACCEPTED");
+    next.impactListed("FROG", Math.log(0.8));
     next.step();
     await getBroker().sweep();
     const l = await me(c);
     expect(l.orders[oid]).toBeUndefined();
-    expect(l.positions.FROG.qty).toBe("205000000");
+    expect(l.positions.FROG.qty).toBe("150000");
   });
 
   it("privacy: public reads carry the book's reserves only, never an order, a position or the book's flow", async () => {
@@ -271,29 +302,29 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
 
 describe("book price law (pure, hand-worked)", () => {
   const coin: AssetFixture = listedDef("FROG", "FROG Club", 100_000_000); // $1.00 a token, dp 8
-  const sd = memeParams("FROG").vol / Math.sqrt(252);
-  it("buy: mid × (1 + 45 bp + impact), up to the minor unit; sale: down; the fee goes to the book", () => {
-    const b: BookAccount = { cash: 1_000_000_000, tokens: 2_000_000_000 };
-    // 10,000 tokens at $1: n = $10,000, impact = 0.8 × sd × √(1e4 / 4e8).
-    const imp = 0.8 * sd * Math.sqrt(1e4 / 4e8);
+  it("log-price token ladder: s=.02×(1+1.5×.22), D=(1−.6×.22)×1.1, Y=1.2, σd=vol/√364; grid rounding and fees", () => {
+    const b: BookAccount = { cash: 1_000_000_000, tokens: 200_000_000 };
+    const sd = memeParams("FROG").vol / Math.sqrt(364), s = 0.0266, d = 0.9548;
+    const imp = 1.2 * sd * Math.sqrt(10_000 / (d * 150e6));
     const buy = fillOnBook(coin, "BUY", 10_000, 100_000_000, b, 5)!;
-    expect(buy.px).toBe(Math.ceil(100_000_000 * (1 + 0.0045 + imp)));
+    expect(buy.px).toBe(Math.ceil(100_000_000 * Math.exp(s + imp)));
     expect(buy.notional).toBe(Math.ceil(buy.px * 10_000 / 1e6));
     expect(buy.fee).toBe(Math.round(buy.notional * 3 / 1e4));
     expect(buy.book).toMatchObject({ cash: b.cash + buy.notional + buy.fee, tokens: b.tokens - 10_000 });
     const sell = fillOnBook(coin, "SELL", 10_000, 100_000_000, b, 5)!;
-    expect(sell.px).toBe(Math.floor(100_000_000 * (1 - 0.0045 - imp)));
+    expect(sell.px).toBe(Math.floor(100_000_000 * Math.exp(-s - imp)));
     expect(sell.book).toMatchObject({ cash: b.cash - sell.notional + sell.fee, tokens: b.tokens + 10_000 });
-    expect(Math.exp(buy.move) - 1).toBeCloseTo(0.5 * imp, 12);
+    expect(buy.move).toBeCloseTo(0.5 * imp + s * (10_000 / 150e6) / 0.5, 12); // signed permanent + skew change, no second impact
   });
-  it("the per-tick cap (3 × ADV a side) is shared: a second order in the same tick waits, the next tick fills", () => {
-    const b: BookAccount = { cash: 1e15, tokens: 5_000_000_000 };
-    const first = fillOnBook(coin, "BUY", 2_000_000_000, 100_000_000, b, 7)!;
-    expect(first.qty).toBe(1_200_000_000); // $1.2e9 at $1
+  it("the source 4% tick band bounds ladder volume; the same tick shares consumption, a new tick starts its side ladder again", () => {
+    const b: BookAccount = { cash: 1e15, tokens: 200_000_000 };
+    const sd = memeParams("FROG").vol / Math.sqrt(364);
+    const cap = Math.floor(0.9548 * 150e6 * ((Math.log(Math.floor(1e8 * Math.exp(0.04)) / 1e8) - 0.0266) / (1.2 * sd)) ** 2);
+    const first = fillOnBook(coin, "BUY", 200_000_000, 100_000_000, b, 7)!;
+    expect(first.qty).toBe(cap);
+    expect(first.px).toBeLessThanOrEqual(Math.floor(1e8 * Math.exp(0.04)));
     expect(fillOnBook(coin, "BUY", 1, 100_000_000, first.book, 7)).toBeNull();
     expect(fillOnBook(coin, "BUY", 1, 100_000_000, first.book, 8)?.qty).toBe(1);
-    // The other side has its own cap; the same tick's fills share its mid.
-    expect(fillOnBook(coin, "SELL", 10, 200_000_000, first.book, 7)?.px).toBeLessThan(100_000_000);
   });
   it("a sale is cut to the book's cash at the priced fill and never overdraws it; a buy takes at most the book's tokens; a limit past the price waits", () => {
     const b: BookAccount = { cash: 5_000, tokens: 3 }; // $50
@@ -306,13 +337,18 @@ describe("book price law (pure, hand-worked)", () => {
     expect(fillOnBook(coin, "SELL", 1, 100_000_000, b, 1, 100_000_000)).toBeNull();
     expect(fillOnBook(coin, "SELL", 1, 100_000_000, { cash: 0, tokens: 0 }, 1)).toBeNull();
   });
-  it("flow decays with a 360-tick half-life: the same buy later costs less impact", () => {
-    const b: BookAccount = { cash: 1e15, tokens: 5e9 };
-    const big = fillOnBook(coin, "BUY", 100_000_000, 100_000_000, b, 0)!;
-    const soon = fillOnBook(coin, "BUY", 1_000, 100_000_000, big.book, 1)!;
-    const later = fillOnBook(coin, "BUY", 1_000, 100_000_000, big.book, 1 + 3600)!;
-    expect(soon.px).toBeGreaterThan(later.px);
-    expect(big.book.flow).toMatchObject({ t: 0, mid: 100_000_000, buy: 1e8, tb: 1e8, sell: 0, ts: 0 });
+  it("signed flow-risk statistics survive a day boundary without moving assets or pretending to lay off real tokens", () => {
+    const b: BookAccount = { cash: 1e15, tokens: 200_000_000 };
+    const buy = fillOnBook(coin, "BUY", 100_000, 100_000_000, b, 0)!;
+    expect(buy.book.flow?.m?.inv).toBeCloseTo(-100_000 / 150e6, 15);
+    const sell = fillOnBook(coin, "SELL", 100_000, 100_000_000, buy.book, 1)!;
+    expect(sell.book.tokens).toBe(b.tokens);
+    expect(sell.book.flow?.m?.inv).toBeCloseTo(0, 15);
+    expect(sell.book.flow?.m?.qc).toBeCloseTo(0, 15);
+    expect(sell.book.flow?.m?.pi).toBeCloseTo(0, 15);
+    const tomorrow = fillOnBook(coin, "BUY", 10, 100_000_000, sell.book, 720)!;
+    expect(tomorrow.book.tokens).toBe(b.tokens - 10);
+    expect(tomorrow.book.flow?.m).toMatchObject({ day: 1, qc: 10 / 150e6, inv: -10 / 150e6 });
   });
 });
 
@@ -363,5 +399,45 @@ describe("template factors: deterministic, shared, existing assets untouched", (
     const wRows = withCoins.snapshot().quotes.rows;
     for (const id of Object.keys(pRows)) expect(wRows[id]).toEqual(pRows[id]);
     expect(ASSET_BY_ID.FROG).toBeDefined();
+  });
+});
+
+
+describe("finite depth hand/adversarial contracts", () => {
+  const a: AssetFixture = { ...ASSET_BY_ID.BTC!, assetId: "FROG", displayDecimals: 8 };
+  const inp = { fear: 0, regimeDepth: 1, adv: 150e6, sigmaDaily: .1 };
+  it("depth is in the square-root ladder, not reserves; Fear/regime/adverse signed inventory change source spread/depth/skew", () => {
+    const q = 150_000;
+    expect(ladderImpact(q, inp, .5) / ladderImpact(q, inp, 1)).toBeCloseTo(Math.sqrt(2), 14);
+    expect(depthQuote(1e8, inp, 0, "BUY")).toEqual({ s: .02, d: 1, skew: -0 });
+    expect(depthQuote(1e8, { ...inp, fear: 100, regimeDepth: .8 }, 0, "BUY")).toEqual({ s: .05, d: .32000000000000006, skew: -0 });
+    expect(depthQuote(1e8, inp, .5, "SELL")).toEqual({ s: .02, d: .2, skew: -.02 });
+    expect(depthQuote(1e8, inp, .5, "BUY")).toEqual({ s: .02, d: 1, skew: -.02 });
+    expect(depthQuote(1e8, inp, -.5, "BUY")).toEqual({ s: .02, d: .2, skew: .02 });
+  });
+  it("a one-token limit boundary is maximal on the grid and used side quantity cannot be spent twice", () => {
+    const book = { cash: 1e9, tokens: 2e8 }, limit = 103_000_000;
+    const one = fillOnBook(a, "BUY", 2e8, 1e8, book, 1, limit, inp)!;
+    expect(one.qty).toBe(Math.floor(150e6 * ((Math.log(1.03) - .02) / .12) ** 2));
+    expect(one.px).toBeLessThanOrEqual(limit);
+    expect(fillOnBook(a, "BUY", 1, 1e8, one.book, 1, limit, inp)).toBeNull();
+    const constrained = fillOnBook(a, "BUY", 1000, 1e8, { cash: 0, tokens: 7 }, 1, null, inp)!;
+    expect(constrained.qty).toBe(7); expect(constrained.book.tokens).toBe(0);
+    expect(fillOnBook(a, "BUY", 1, 1e8, constrained.book, 1, null, inp)).toBeNull();
+  });
+  it("sale cash is maximal, fee stays in book, no diagnostic statistic moves tokens and no legacy dollar flow becomes token usage", () => {
+    const base = { cash: 10000, tokens: 0 };
+    const sale = fillOnBook(a, "SELL", 1000, 1e8, base, 1, null, inp)!;
+    expect(sale.notional).toBeLessThanOrEqual(10000);
+    expect(Math.round((sale.qty + 1) * Math.floor(1e8 * Math.exp(-.02 - .12 * Math.sqrt((sale.qty + 1) / 150e6))) / 1e6)).toBeGreaterThan(10000);
+    expect(sale.book).toMatchObject({ tokens: sale.qty, cash: 10000 - sale.notional + sale.fee });
+    expect(sale.book.flow!.m!.inv).toBeCloseTo(sale.qty / 150e6);
+    const legacy = { ...base, tokens: 1000, flow: { t: 1, mid: 1e8, buy: 4e8, sell: 2e8, tb: 4e8, ts: 2e8 } };
+    const migrated = fillOnBook(a, "BUY", 1000, 1e8, legacy, 1, null, inp)!;
+    expect(migrated.qty).toBe(1000); expect(migrated.book.flow!.tb).toBe(1000);
+    // No round-trip profit: same quantity opposite side always pays spread + commissions.
+    const back = fillOnBook(a, "SELL", migrated.qty, 1e8, migrated.book, 1, null, inp)!;
+    expect(back.notional - back.fee).toBeLessThan(migrated.notional + migrated.fee);
+    expect(back.book.tokens).toBe(1000);
   });
 });

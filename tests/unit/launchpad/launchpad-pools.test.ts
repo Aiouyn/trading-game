@@ -94,17 +94,17 @@ describe("trader pools: one tick by hand (pure)", () => {
     expect([tv, tr, td].map((x) => +x.toFixed(6))).toEqual([0.036774, 0.94058, 0.35162]);
     // every weighted target is past its cap, so each order is its cap: w × rate / 720 ADV
     expect(0.2 * tv).toBeGreaterThan(0.2 * 0.9 / 720); expect(3 * tr).toBeGreaterThan(3 * 0.15 / 720); expect(td).toBeGreaterThan(0.4 / 720);
-    // 0.00025 × 150M = 37,500; 0.000625 × 150M = 93,750; 0.000556 × 150M = 83,333 (toward zero); buy limit floor(21,596 e^{0.0135}) = 21,889
+    // 0.00025 × 150M = 37,500; 0.000625 × 150M = 93,750; 0.000556 × 150M = 83,333 (toward zero); buy limit floor(21,596 e^{3×0.0266}); execution s=0.0266, D=0.9548, σd=vol/√364, Y=1.2
     expect(s.prints).toEqual([
-      { tick: T, pool: "value", side: "BUY", qty: 37_500, px: 21_698 },
-      { tick: T, pool: "retail", side: "BUY", qty: 93_750, px: 21_698 },
-      { tick: T, pool: "degen", side: "BUY", qty: 83_333, px: 21_699 },
+      { tick: T, pool: "value", side: "BUY", qty: 37_500, px: 22_226 },
+      { tick: T, pool: "retail", side: "BUY", qty: 93_750, px: 22_264 },
+      { tick: T, pool: "degen", side: "BUY", qty: 83_333, px: 22_287 },
     ]);
-    // cash: notional (cents up) + the 10¢ minimum fee, paid to the book
-    expect([s.pools.value, s.pools.retail, s.pools.degen].map((a) => [a.cash, a.tokens])).toEqual([[647_880 - 814 - 10, 37_500], [9_718_200 - 2_035 - 10, 93_750], [3_239_400 - 1_809 - 10, 83_333]]);
+    // Source depth ladder: px=ceil(21600 exp(s+1.2σd√(cumulative tokens/(D×150M)))); cash: notional (cents up) + the 10¢ minimum fee, paid to the book
+    expect([s.pools.value, s.pools.retail, s.pools.degen].map((a) => [a.cash, a.tokens])).toEqual([[647_880 - 834 - 10, 37_500], [9_718_200 - 2_088 - 10, 93_750], [3_239_400 - 1_858 - 10, 83_333]]);
     expect(s.pools.value.pos).toBeCloseTo(0.00025, 15);
     expect(s.pools.retail.pos).toBeCloseTo(0.000625, 15);
-    expect(s.book).toMatchObject({ cash: 4_329_671 + 814 + 2_035 + 1_809 + 30, tokens: 200_000_000 - 214_583 });
+    expect(s.book).toMatchObject({ cash: 4_329_671 + 834 + 2_088 + 1_858 + 30, tokens: 200_000_000 - 214_583 });
     expect(s.book.flow).toMatchObject({ t: T, mid: 21_600 });
     expect(s.moves.every((m) => m > 0)).toBe(true);
     expect(s.pools).toMatchObject({ t: T, bk: 200_000_000 - 214_583, ep: "e1", vol: 214_583 });
@@ -115,13 +115,13 @@ describe("trader pools: one tick by hand (pure)", () => {
     const s2 = stepPools(coin, MEME_POOL_WEIGHTS, 21_596, s1.pools, s1.book, 21_600, inputs(T + 1, 0.01, -0.004, 0.02), "e1")!;
     // VALUE: cap 0.00025 over 1 + 3|pos| (pos 0.00025 decayed one tick) → 37,471; DEGEN: cap → 83,333 = all it holds
     expect(s2.prints).toEqual([
-      { tick: T + 1, pool: "value", side: "SELL", qty: 37_471, px: 21_502 },
-      { tick: T + 1, pool: "retail", side: "BUY", qty: 93_750, px: 21_699 },
-      { tick: T + 1, pool: "degen", side: "SELL", qty: 83_333, px: 21_502 },
+      { tick: T + 1, pool: "value", side: "SELL", qty: 37_471, px: 20_991 },
+      { tick: T + 1, pool: "retail", side: "BUY", qty: 93_750, px: 22_252 },
+      { tick: T + 1, pool: "degen", side: "SELL", qty: 83_333, px: 20_959 },
     ]);
     expect([s2.pools.value.tokens, s2.pools.retail.tokens, s2.pools.degen.tokens]).toEqual([29, 187_500, 0]);
-    expect([s2.pools.value.cash, s2.pools.retail.cash, s2.pools.degen.cash]).toEqual([647_852, 9_714_110, 3_239_363]);
-    expect(s2.book).toMatchObject({ cash: 4_333_826, tokens: 199_812_471 });
+    expect([s2.pools.value.cash, s2.pools.retail.cash, s2.pools.degen.cash]).toEqual([647_813, 9_714_005, 3_239_269]);
+    expect(s2.book).toMatchObject({ cash: 4_334_064, tokens: 199_812_471 });
     // the decay moves only the tracking position: VALUE's 0.00025 × 0.5^(1/7200), less what it sold
     expect(s2.pools.value.pos).toBeCloseTo(0.00025 * Math.pow(0.5, 1 / 7200) - 37_471 / 150e6, 15);
     // once a tick: the same tick again does nothing

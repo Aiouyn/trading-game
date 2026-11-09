@@ -12,7 +12,7 @@ import { LP } from "@/launchpad/rules";
 import { Draws, DAYS_PER_YEAR, HYPE, TICKS_PER_DAY, TICKS_PER_HOUR } from "@/server/market/meme";
 import type { PoolInputs } from "@/server/market/shockFeed";
 import { REGIME_TURNOVER, type Regime } from "@/server/market/world";
-import { HALF_SPREAD, fillOnBook, type BookAccount } from "./book";
+import { HALF_SPREAD, depthQuote, fillOnBook, type DepthInputs, type BookAccount } from "./book";
 
 export type PoolKind = "value" | "retail" | "degen";
 /** 05 §6.2 table order: the order in which the pools trade within a tick. */
@@ -119,7 +119,7 @@ export interface PoolStep { pools: CoinPools; book: BookAccount; prints: NpcPrin
  * already acted at this tick of this epoch (exactly once) or the tick is idle. `pools` undefined: create and fund them
  * first.
  */
-export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: number, prior: CoinPools | undefined, book: BookAccount, mark: number, inp: PoolInputs, ep: string): PoolStep | null {
+export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: number, prior: CoinPools | undefined, book: BookAccount, mark: number, inp: PoolInputs, ep: string, depth?: DepthInputs): PoolStep | null {
   const tick = inp.tick;
   const dp = a.displayDecimals;
   const p: CoinPools = prior ? structuredClone(prior) : newPools(weights, listMinor, ep, tick, book.tokens, dp);
@@ -148,7 +148,7 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
   const w: PoolWorld = { rg: inp.regime, f: inp.fear, att: inp.attention, ns: inp.newsSign, m: inp.mentions };
   const wChanged = JSON.stringify(w) !== JSON.stringify(p.w);
   p.w = w;
-  const s = HALF_SPREAD * POOL_LAW.limitSpreads;
+  const s = (depth ? depthQuote(inp.ref, depth, book.flow?.m?.inv ?? 0, "BUY").s : HALF_SPREAD * (1 + 1.5 * 22 / 100)) * POOL_LAW.limitSpreads;
   let b = book;
   const prints: NpcPrint[] = [], moves: number[] = [];
   for (const kind of POOL_KINDS) {
@@ -164,7 +164,7 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
     if (side === "SELL") qty = Math.min(qty, acct.tokens);
     if (qty < 1) continue;
     const limit = side === "BUY" ? Math.floor(inp.ref * Math.exp(s)) : Math.ceil(inp.ref * Math.exp(-s));
-    let fill = fillOnBook(a, side, qty, mark, b, tick, limit);
+    let fill = fillOnBook(a, side, qty, mark, b, tick, limit, depth);
     // a buy within the pool's cash (fee included): cut and re-price, as the book's own cash bound
     for (let pass = 0; side === "BUY" && fill && fill.notional + fill.fee > acct.cash && pass < 4; pass++) {
       const q = Math.floor((fill.qty * acct.cash) / (fill.notional + fill.fee));

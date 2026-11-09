@@ -20,6 +20,7 @@ export function PreviewRows({ t, locale, res, stale = false }: { t: BrStrings; l
     ["total", t.total, <MoneyText key="v" amount={res.total} ctx="table" />],
     ["bpAfter", t.bpAfter, <MoneyText key="v" amount={res.buyingPowerAfter} ctx="table" />],
   ];
+  if (res.executableQty !== undefined) rows.push(["executable", t.executable, <span key="v">{res.executableQty}</span>]);
   if (res.firstTradeCapRemaining !== null) rows.push(["capLeft", t.capLeft, <MoneyText key="v" amount={res.firstTradeCapRemaining} ctx="table" />]);
   return (
     <section className={`br-est${stale ? " stale" : ""}`} data-testid="br-est" data-stale={stale ? "1" : undefined} aria-label={t.estimateAt(String(res.computedAtTick))}>

@@ -465,6 +465,17 @@ export class AuthService {
     });
   }
 
+  /** Read-only bound preview: own ledger, finite book and clock callback in ONE lock turn; no saved mutation. */
+  async previewOwnBook<T>(session: AuthSessionView, assetId: string, read: (rec: PlayerPrivateRecord, book: BookAccount | undefined) => T, list?: (coins: ListedCoin[]) => void): Promise<T> {
+    return this.withLock(async () => {
+      await this.ready;
+      const lp = this.requireLaunchpad();
+      list?.(listedOf(lp));
+      const c = lp.coins.find((x) => x.ticker === assetId);
+      return read(clonePlayerPrivate(this.requireLedger(session.account.accountId)), c ? structuredClone(bookOf(c)) : undefined);
+    });
+  }
+
   /** Lock held by the caller. */
   private async commitOwn(accountId: AccountId, mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput): Promise<PlayerPrivateRecord> {
     const current = this.requireLedger(accountId);

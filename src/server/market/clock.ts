@@ -152,6 +152,8 @@ export class LiveMarket {
     return this.isListed(assetId) ? this.feed.impactListed(assetId, logMove) : null;
   }
 
+  depthInputs(assetId: string) { return this.feed.depthInputs(assetId); }
+
   /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
   poolInputs(assetId: string): PoolInputs | null {
     return this.isListed(assetId) ? this.feed.poolInputs(assetId) : null;

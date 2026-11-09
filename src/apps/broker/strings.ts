@@ -50,6 +50,7 @@ const EN = {
   bp: (n: string) => `${n} bp`,
   total: "Est. total",
   bpAfter: "Buying power after",
+  executable: "Executable now (tokens)",
   capLeft: "First-trade cap left",
   refreshing: "Refreshing estimate…",
   // M2-05 known-offline boundary
@@ -230,6 +231,7 @@ const FR: BrStrings = {
   bp: (n) => `${n}${NNBSP}pb`,
   total: "Total est.",
   bpAfter: "Pouvoir d’achat après",
+  executable: "Exécutable maintenant (jetons)",
   capLeft: "Plafond premier ordre restant",
   refreshing: "Actualisation de l’estimation…",
   offlineNoPlace: "Vous êtes hors ligne. Les cours affichés sont les derniers reçus. Placer est désactivé jusqu’au retour de la connexion.",

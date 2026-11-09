@@ -822,11 +822,11 @@ export class MockFeed {
   }
   /** The order door (orders.ts `mockTransport`): `preview`, `submit` and `cancel`, with the submit and cancel replies
    *  held `scenario.replyMs`. */
-  orderDoor(): { preview(draft: OrderDraft): PreviewRes; submit(draft: OrderDraft): string | Promise<string>; cancel(orderId: string): string | Promise<string> } {
+  orderDoor(): { preview(draft: OrderDraft): PreviewRes | Promise<PreviewRes>; submit(draft: OrderDraft): string | Promise<string>; cancel(orderId: string): string | Promise<string> } {
     if (this.authoritativeQuotes) {
       // Signed-in (M1-06): the server decides. One idempotency key per Place / "Yes, cancel"; retries reuse it.
       return {
-        preview: (d) => this.preview(d),
+        preview: (d) => ASSET_BY_ID[d.assetId]?.displayDecimals === 8 ? this.serverSync().then((s) => s.previewListed(d)) : this.preview(d),
         submit: (d) => {
           const draft: Record<string, string> = { assetId: d.assetId, side: d.side, type: d.type, qty: d.qty, tif: d.tif };
           if (d.limit !== undefined) draft.limit = d.limit;
