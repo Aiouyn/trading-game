@@ -796,3 +796,21 @@ ripple kinds Wire-only; storms stay on `macro:storm:<day>`, events on `macro:eve
 
 **Acceptance.** Constraints; crisisTerm 1; CW announce + multipliers; ripple sector marks; Wire + Fear + restart proof;
 DEGEN dust LIQ; repo checks + affected desktop+phone batch. Plain GUI / remote CI / Node22 / full suite / installer out.
+
+### NPC trader belief (05 §6.3; this unit)
+
+**Smallest observable player outcome.** Graduated meme coins carry a 05 §6.3 belief overlay `b ∈ [−0.5,+0.5]` from
+**synthetic claims** fed by existing signals (full 15 structured claims / 16 rumor authors / analyst notes are V1-OUT):
+
+1. **Wire large-move news** (coinNews `move`): one claim per published item. `a = sign × min(|ln(to/from)|, 0.15)`;
+   `cr` from nw; `reach` from attention excess. Publish tick = news tick.
+2. **PUMP_CLAIM** (22 §4.11, `a = +0.10`): opens when `H ≥ H₀+0.15`, `attention > 1`, `F < 50`; closes when
+   `H < H₀` or `F ≥ 70` or `attention ≤ 1`. Credibility mixes H, attention and Fear.
+3. Overlay math: `b_c = a·cr·reach·(1−e^{−age/30})·0.5^{age/(5·720)}`; `b = clamp(Σb_c, ±0.5)`.
+4. **Flow:** VALUE gap `G = ln(mark)+b−lnV`; RETAIL/DEGEN × `(1+2|b|/0.1)` when active; IOC at `ref·e^b`. All fills via
+   `fillOnBook`. No mint/credit/refill. Claims + `b` persist on the coin's pools (restart-safe).
+5. **Visible:** Launchpad `lp-npc-inputs` shows `b`. Stocks unchanged (no meme VALUE/RETAIL/DEGEN path on equities).
+6. **Disclosed:** no TRUE/FALSE → `lnV` handoff (no coin fact owner); cause-vector BELIEF / Research fair-value line out.
+
+**Acceptance.** Hand fixtures; belief twin vs b=0 changes NPC flow; conservation; restart no double-open; digest
+`fc1359d1` unchanged; repo checks + affected desktop+phone batch.

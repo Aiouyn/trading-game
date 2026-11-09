@@ -423,7 +423,7 @@ describe("trader pools in the world: clock, book, players alongside", () => {
     expect(JSON.parse(pub).coins[0].grad.npc).toEqual({ h: s0.coins[0]!.pools!.h, funded: 13_605_480, vol: s0.coins[0]!.pools!.vol, pools: { value: s0.coins[0]!.pools!.value, retail: s0.coins[0]!.pools!.retail, degen: s0.coins[0]!.pools!.degen }, tape: s0.coins[0]!.pools!.tape,
       // what the last step read (public world/news inputs: the fresh listing's item, nw 0.5 × 1 × 0.3 = 0.15) and the
       // path multipliers its saved H and regime give: vol × (1 + 2H), EXPANSION 0.90, drift + 3.0 H a game year
-      w: { rg: "EXPANSION", f: s0.coins[0]!.pools!.w!.f, att: 1.15, ns: 0, m: 0.15 },
+      w: { rg: "EXPANSION", f: s0.coins[0]!.pools!.w!.f, att: 1.15, ns: 0, m: 0.15, b: s0.coins[0]!.pools!.w!.b },
       liq: s0.coins[0]!.pools!.liq ? { ...s0.coins[0]!.pools!.liq } : null,
       path: { hypeVol: 1 + 2 * s0.coins[0]!.pools!.h, regimeVol: 0.9, drift: 3 * s0.coins[0]!.pools!.h } });
   });

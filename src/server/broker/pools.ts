@@ -15,6 +15,7 @@ import { Draws, DAYS_PER_YEAR, HYPE, TICKS_PER_DAY, TICKS_PER_HOUR } from "@/ser
 import type { PoolInputs } from "@/server/market/shockFeed";
 import { REGIME_TURNOVER, type Regime } from "@/server/market/world";
 import { HALF_SPREAD, depthQuote, fillOnBook, type DepthInputs, type BookAccount } from "./book";
+import { beliefAmplify, updateBelief, type BeliefClaim } from "./belief";
 
 export type PoolKind = "value" | "retail" | "degen";
 /** 05 §6.2 table order: the order in which the pools trade within a tick. */
@@ -69,8 +70,8 @@ export interface PoolAccount { cash: number; tokens: number; pos: number; /** DE
 export type LiqStatus = "OK" | "CALL" | "LIQ"
 /** Saved DEGEN margin state: status, tick status last changed, whether Wire already fired for this LIQ episode. */
 export interface DegenLiq { st: LiqStatus; t: number; wired?: boolean }
-/** The world and news inputs the pools' last step read (public): regime, Fear Index, attention, news sign, mentions. */
-export interface PoolWorld { rg: Regime; f: number; att: number; ns: -1 | 0 | 1; m: number }
+/** The world and news inputs the pools' last step read (public): regime, Fear Index, attention, news sign, mentions, belief b. */
+export interface PoolWorld { rg: Regime; f: number; att: number; ns: -1 | 0 | 1; m: number; b: number }
 export interface NpcPrint { tick: number; pool: PoolKind; side: "BUY" | "SELL"; qty: number; px: number; /** Forced DEGEN liquidation fill. */ liq?: true }
 /** The pools of one graduated coin, saved on the coin. `ep`/`t`: the clock epoch and tick the pools last acted at (once a
  *  tick); `hr`: the game hour of the last hype update; `h`: hype H; `bk`: the book's tokens after the last pool step (the
@@ -86,6 +87,10 @@ export interface CoinPools extends Record<PoolKind, PoolAccount> {
   sx?: string[];
   /** DEGEN margin status (absent = OK / never leveraged). */
   liq?: DegenLiq;
+  /** 05 §6.3 open/decaying synthetic claims (Wire moves + PUMP_CLAIM). */
+  cl?: BeliefClaim[];
+  /** Highest PUMP_CLAIM episode index used (ids are pump:<n>). */
+  pu?: number;
 }
 
 /** Cash a pool is funded with: enough for w ADV at the listing price (T05-14 capV = 1 ADV, scaled by the weight).
@@ -107,20 +112,21 @@ const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x
 export const retailNoise = (ticker: string, hour: number): number => new Draws(`lp:${ticker}:retail:${hour}`).normal();
 
 /** The unweighted targets (ADV units) from the inputs at the end of N−1 (05 §6.2 with T05-14's forms):
- *  - VALUE −tanh(G/g0);
- *  - RETAIL tanh(n_h + 0.5 tanh(r_1d/σ_d) + newsSign × (attention − 1) + 0.3 × [EXPANSION] × tanh(max(0, −r_1d/σ_d)));
- *  - DEGEN (1 + 2H) tanh(r_1h/σ_h).
- *  Belief (× (1 + 2|b|/0.1) on RETAIL and DEGEN when a belief is active) is inactive: no claim on a coin exists in this
- *  base (docs/v1/LAUNCHPAD.md "Graduated-coin trader inputs"). A return the clock does not have yet reads 0. */
-export function targets(inp: PoolInputs, h: number, z: number, dp = 8): Record<PoolKind, number> {
+ *  - VALUE −tanh(G/g0) with G = ln(mark) + b − lnV (05 §3.4.1 belief in lnRef; VALUE still sees lnV);
+ *  - RETAIL tanh(signal × amplify) where amplify = (1 + 2|b|/0.1) when belief active;
+ *  - DEGEN (1 + 2H) tanh(r_1h/σ_h) × amplify.
+ *  `b` is the 05 §6.3 overlay from updateBelief (synthetic Wire-move + PUMP_CLAIM). A return the clock does not have yet reads 0. */
+export function targets(inp: PoolInputs, h: number, z: number, dp = 8, b = 0): Record<PoolKind, number> {
   const sd = inp.vol / Math.sqrt(DAYS_PER_YEAR), sh = sd / Math.sqrt(24);
-  const g = Math.log(inp.ref / 10 ** dp) - inp.lnV, g0 = POOL_LAW.valueG0 * sd * Math.sqrt(5);
+  const g = Math.log(inp.ref / 10 ** dp) + b - inp.lnV, g0 = POOL_LAW.valueG0 * sd * Math.sqrt(5);
   const d = inp.r1d === null ? 0 : inp.r1d / sd;
   const dip = inp.regime === "EXPANSION" ? POOL_LAW.retailDip * Math.tanh(Math.max(0, -d)) : 0;
+  const amp = beliefAmplify(b);
+  const retailRaw = z + POOL_LAW.retailChase * Math.tanh(d) + inp.newsSign * (inp.attention - 1) + dip;
   return {
     value: -Math.tanh(g / g0),
-    retail: Math.tanh(z + POOL_LAW.retailChase * Math.tanh(d) + inp.newsSign * (inp.attention - 1) + dip),
-    degen: (1 + HYPE.volK * h) * (inp.r1h === null ? 0 : Math.tanh(inp.r1h / sh)),
+    retail: Math.tanh(retailRaw * amp),
+    degen: (1 + HYPE.volK * h) * (inp.r1h === null ? 0 : Math.tanh(inp.r1h / sh)) * amp,
   };
 }
 
@@ -241,12 +247,23 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
     for (let i = 0; i < Math.min(hour - p.hr, 24); i++) p.h = hypeStep(p.h, inp.mentions, f);
     p.hr = hour;
   }
-  const want = targets(inp, p.h, retailNoise(a.assetId, hour), dp);
+  // 05 §6.3 belief overlay from synthetic claims (Wire moves + PUMP_CLAIM); persists on the coin.
+  const bel = updateBelief(p.cl ?? [], tick, p.h, p.pu ?? 0, {
+    attention: inp.attention, fear: inp.fear, mentions: inp.mentions, moves: inp.moves,
+  });
+  const bPrev = p.w?.b ?? 0;
+  p.cl = bel.claims.length ? bel.claims : undefined;
+  if (bel.pump > 0) p.pu = bel.pump; else delete p.pu;
+  if (!p.cl?.length) delete p.cl;
+  const overlay = bel.b;
+  const want = targets(inp, p.h, retailNoise(a.assetId, hour), dp, overlay);
   const adv = advTokens(inp);
-  const w: PoolWorld = { rg: inp.regime, f: inp.fear, att: inp.attention, ns: inp.newsSign, m: inp.mentions };
+  const w: PoolWorld = { rg: inp.regime, f: inp.fear, att: inp.attention, ns: inp.newsSign, m: inp.mentions, b: overlay };
   const wChanged = JSON.stringify(w) !== JSON.stringify(p.w);
   p.w = w;
-  const s = (depth ? depthQuote(inp.ref, depth, book.flow?.m?.inv ?? 0, "BUY").s : HALF_SPREAD * (1 + 1.5 * 22 / 100)) * POOL_LAW.limitSpreads;
+  // IOC at lnRef ± (s+allowance); lnRef includes belief overlay (05 §3.4.1).
+  const refB = Math.max(1, Math.round(inp.ref * Math.exp(overlay)));
+  const s = (depth ? depthQuote(refB, depth, book.flow?.m?.inv ?? 0, "BUY").s : HALF_SPREAD * (1 + 1.5 * 22 / 100)) * POOL_LAW.limitSpreads;
   let b = book;
   const prints: NpcPrint[] = [], moves: number[] = [];
   let liqWire: LiqWireEvent | undefined;
@@ -273,7 +290,7 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
     if (d.tokens >= 1) {
       const slice = Math.max(1, Math.floor((POOL_LAW.liqParticipation * adv) / TICKS_PER_DAY));
       const qty = Math.min(d.tokens, slice);
-      const limit = Math.ceil(inp.ref * Math.exp(-s));
+      const limit = Math.ceil(refB * Math.exp(-s));
       let fill = fillOnBook(a, "SELL", qty, mark, b, tick, limit, depth);
       // book cash bound: shrink if needed
       for (let pass = 0; fill && fill.notional - fill.fee + d.cash < 0 && pass < 4; pass++) {
@@ -314,7 +331,7 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
         if (o >= 0) continue;
         const qty = Math.min(acct.tokens, Math.trunc(Math.round(Math.abs(o) * adv * 1e6) / 1e6));
         if (qty < 1) continue;
-        const limit = Math.ceil(inp.ref * Math.exp(-s));
+        const limit = Math.ceil(refB * Math.exp(-s));
         const fill = fillOnBook(a, "SELL", qty, mark, b, tick, limit, depth);
         if (!fill || !applyFill(acct, "SELL", fill, adv, kind)) continue;
         b = fill.book;
@@ -336,7 +353,7 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
     if (side === "SELL") qty = Math.min(qty, acct.tokens);
     if (side === "BUY" && kind === "degen") qty = Math.min(qty, degenBuyCap(acct, mark, dp));
     if (qty < 1) continue;
-    const limit = side === "BUY" ? Math.floor(inp.ref * Math.exp(s)) : Math.ceil(inp.ref * Math.exp(-s));
+    const limit = side === "BUY" ? Math.floor(refB * Math.exp(s)) : Math.ceil(refB * Math.exp(-s));
     let fill = fillOnBook(a, side, qty, mark, b, tick, limit, depth);
     if (side === "BUY" && kind !== "degen") {
       for (let pass = 0; fill && fill.notional + fill.fee > acct.cash && pass < 4; pass++) {
@@ -375,9 +392,11 @@ export function stepPools(a: AssetFixture, weights: PoolWeights, listMinor: numb
   }
 
   const liqChanged = (p.liq?.st ?? "OK") !== prevLiq || !!liqWire;
+  const beliefChanged = overlay !== bPrev || JSON.stringify(p.cl ?? []) !== JSON.stringify(prior?.cl ?? []);
   // An idle tick (no fill, no player flow to record, no hour, nothing new) changes nothing saved: the decay composes
   // (0.5^(Δ/hl)), so the next step that acts decays over the whole gap, and nothing is written for it.
-  if (prior && same && prints.length === 0 && net === 0 && !hourly && !wChanged && !liqChanged) return null;
+  // Belief overlay still saves when claims/b move so restart restores the path.
+  if (prior && same && prints.length === 0 && net === 0 && !hourly && !wChanged && !liqChanged && !beliefChanged) return null;
   p.ep = ep; p.t = tick; p.bk = b.tokens;
   p.tape = [...p.tape, ...prints].slice(-POOL_LAW.tapeKeep);
   return { pools: p, book: b, prints, moves, ...(liqWire ? { liqWire } : {}) };

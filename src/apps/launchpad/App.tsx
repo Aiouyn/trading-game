@@ -27,7 +27,7 @@ export const LAUNCHPAD_POLL_MS = 5_000;
 
 interface Print { atMs: number; tick: number; side: "buy" | "sell"; tokens: number; cents: number; creator: boolean }
 interface NpcAcct { cash: number; tokens: number; debt?: number }
-interface NpcWorld { rg: string; f: number; att: number; ns: number; m: number }
+interface NpcWorld { rg: string; f: number; att: number; ns: number; m: number; b?: number }
 interface Npc {
   h: number; funded: number; vol: number; pools: Record<"retail" | "value" | "degen", NpcAcct>; tape: { tick: number; pool: string; side: "BUY" | "SELL"; qty: number; px: number; liq?: true }[];
   w?: NpcWorld | null; liq?: { st: string; t: number } | null; path?: { hypeVol: number; regimeVol: number | null; drift: number };
@@ -300,7 +300,7 @@ function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string 
           </ul>
           <p className="lpad-sub" data-testid="lp-npc-funded">{LPS.npcFunded(usd(grad.npc.funded), grad.npc.h.toFixed(2), qty(grad.npc.vol))}</p>
           {grad.npc.w && grad.npc.path && typeof grad.npc.w.f === "number" && typeof grad.npc.w.att === "number" && typeof grad.npc.w.m === "number" ? (
-            <p className="lpad-sub" data-testid="lp-npc-inputs">{LPS.npcInputs(LPS.regimes[grad.npc.w.rg] ?? grad.npc.w.rg, grad.npc.w.f.toFixed(0), grad.npc.w.att.toFixed(2), LPS.newsSign(grad.npc.w.ns), grad.npc.w.m.toFixed(2), grad.npc.path.hypeVol.toFixed(2), grad.npc.path.drift.toFixed(2))}</p>
+            <p className="lpad-sub" data-testid="lp-npc-inputs">{LPS.npcInputs(LPS.regimes[grad.npc.w.rg] ?? grad.npc.w.rg, grad.npc.w.f.toFixed(0), grad.npc.w.att.toFixed(2), LPS.newsSign(grad.npc.w.ns), grad.npc.w.m.toFixed(2), grad.npc.path.hypeVol.toFixed(2), grad.npc.path.drift.toFixed(2), (typeof grad.npc.w.b === "number" ? grad.npc.w.b : 0).toFixed(3))}</p>
           ) : null}
           {(() => {
             const d = grad.npc!.pools.degen;

@@ -98,10 +98,22 @@ function flowOk(f: unknown): boolean {
 const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const sint = (v: unknown): v is number => Number.isSafeInteger(v);
 const REGIMES = ["EXPANSION", "OVERHEATING", "CONTRACTION", "RECOVERY"];
-/** The inputs the last pool step read (absent until a step read them): exactly 5 keys, each in its range. */
+/** The inputs the last pool step read (absent until a step read them): 5 keys pre-belief, or 6 with b ∈ [-0.5,0.5]. */
 function worldOk(w: unknown): boolean {
-  return obj(w) && Object.keys(w).length === 5 && REGIMES.includes(w.rg as string) && fin(w.f) && w.f >= 0 && w.f <= 100
-    && fin(w.att) && w.att >= 1 && w.att <= 2 && (w.ns === -1 || w.ns === 0 || w.ns === 1) && fin(w.m) && w.m >= 0 && w.m <= 1;
+  if (!obj(w) || !REGIMES.includes(w.rg as string) || !fin(w.f) || w.f < 0 || w.f > 100
+    || !fin(w.att) || w.att < 1 || w.att > 2 || (w.ns !== -1 && w.ns !== 0 && w.ns !== 1) || !fin(w.m) || w.m < 0 || w.m > 1) return false;
+  const n = Object.keys(w).length;
+  if (n === 5) return true; // pre-belief saves
+  return n === 6 && "b" in w && fin(w.b) && (w.b as number) >= -0.5 && (w.b as number) <= 0.5;
+}
+function claimsOk(cl: unknown): boolean {
+  return Array.isArray(cl) && cl.length <= 16 && cl.every((c) => {
+    if (!obj(c) || typeof c.id !== "string" || !/^[A-Za-z0-9:_-]{1,64}$/.test(c.id) || !fin(c.a) || (c.a as number) < -1 || (c.a as number) > 1
+      || !fin(c.cr) || (c.cr as number) < 0 || (c.cr as number) > 1 || !fin(c.reach) || (c.reach as number) < 0 || (c.reach as number) > 1 || !int(c.t0)) return false;
+    const n = Object.keys(c).length;
+    if (n === 5) return c.closed === undefined;
+    return n === 6 && c.closed === true;
+  });
 }
 function stormsOk(sx: unknown): boolean {
   return Array.isArray(sx) && sx.length <= 32 && sx.every((s) => typeof s === "string" && /^[A-Za-z0-9:_-]{1,64}$/.test(s));
@@ -119,11 +131,13 @@ function acctOk(a: unknown): boolean {
 }
 function poolsOk(p: unknown): boolean {
   if (!obj(p)) return false;
-  const extra = ("w" in p ? 1 : 0) + ("sx" in p ? 1 : 0) + ("liq" in p ? 1 : 0);
+  const extra = ("w" in p ? 1 : 0) + ("sx" in p ? 1 : 0) + ("liq" in p ? 1 : 0) + ("cl" in p ? 1 : 0) + ("pu" in p ? 1 : 0);
   if (Object.keys(p).length !== 9 + POOL_KINDS.length + extra || !int(p.vol)) return false;
   if ("w" in p && !worldOk(p.w)) return false;
   if ("sx" in p && !stormsOk(p.sx)) return false;
   if ("liq" in p && !liqOk(p.liq)) return false;
+  if ("cl" in p && !claimsOk(p.cl)) return false;
+  if ("pu" in p && !(int(p.pu) && (p.pu as number) >= 1 && (p.pu as number) <= 1_000_000)) return false;
   if (typeof p.ep !== "string" || !/^[0-9a-z]{1,16}$/.test(p.ep) || !int(p.t) || !int(p.hr) || !fin(p.h) || p.h < 0 || p.h > 1) return false;
   if (!int(p.bk) || p.bk > LP.SUPPLY || !int(p.funded) || !Array.isArray(p.pnet) || p.pnet.length > 24 || !Array.isArray(p.tape) || p.tape.length > 20) return false;
   if (!p.pnet.every((e: unknown) => Array.isArray(e) && e.length === 2 && int(e[0]) && sint(e[1]))) return false;

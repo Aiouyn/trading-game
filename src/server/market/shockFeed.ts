@@ -5,13 +5,18 @@ import { MockFeed, fmt } from "@/shell/contracts/mockFeed";
 import { listAsset } from "@/market/listings";
 import { CRYPTO_FACTOR_STREAM, DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
+import { moveAsserted, type BeliefMoveSeed } from "@/server/broker/belief";
 import type { DepthInputs } from "@/server/broker/book";
 import { WorldInputs, REGIME_TURNOVER, type WorldView } from "./world";
 import { StormScheduler, type StormHypeShock, type StormPriceShock, type StormWireOut } from "./storms";
 
 /** What the trader pools read of a listed coin (src/server/broker/pools.ts): its mark P_{N−1} and template value, its
  *  returns and template vol, the world (04 regime and Fear Index) and its news (attention, sign, mentions). */
-export interface PoolInputs extends WorldView, NewsInputs { tick: number; ref: number; lnV: number; r1h: number | null; r1d: number | null; vol: number }
+export interface PoolInputs extends WorldView, NewsInputs {
+  tick: number; ref: number; lnV: number; r1h: number | null; r1d: number | null; vol: number;
+  /** Wire large-move claims published before this tick (05 §6.3 synthetic inputs). */
+  moves?: BeliefMoveSeed[];
+}
 /** A coin news item the clock publishes on the Wire at this tick. */
 export interface CoinNewsOut { assetId: string; item: CoinNewsItem }
 
@@ -108,7 +113,19 @@ export class ShockFeed extends MockFeed {
     if (!m || !h || h.p.length === 0) return null;
     const n = h.p.length, ref = h.p[n - 1]!;
     const back = (k: number) => (n > k ? Math.log(ref / h.p[n - 1 - k]!) : null);
-    return { tick: this.tick, ref, lnV: h.v[n - 1]!, r1h: back(TICKS_PER_HOUR), r1d: back(TICKS_PER_DAY), vol: m.vol, ...this.world.view(), ...this.coinNews.get(assetId)!.inputs(this.tick) };
+    const news = this.coinNews.get(assetId)!;
+    const moves: BeliefMoveSeed[] = [];
+    for (const it of news.items) {
+      if (it.kind !== "move" || it.tick >= this.tick || it.from === undefined || it.to === undefined) continue;
+      const a = moveAsserted(it.sign, it.from, it.to);
+      if (a === 0) continue;
+      moves.push({ id: `move:${it.tick}`, tick: it.tick, a, nw: it.nw });
+    }
+    return {
+      tick: this.tick, ref, lnV: h.v[n - 1]!, r1h: back(TICKS_PER_HOUR), r1d: back(TICKS_PER_DAY), vol: m.vol,
+      ...this.world.view(), ...news.inputs(this.tick),
+      ...(moves.length ? { moves } : {}),
+    };
   }
 
   /** The current mark of an asset in its minor unit, or null. */

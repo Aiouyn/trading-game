@@ -154,7 +154,7 @@ describe("05 §3.14.1 ADV and T05-14 RETAIL in the pools (by hand)", () => {
     const paid = (["value", "retail", "degen"] as const).reduce((t, k) => t + (newPools(MEME_POOL_WEIGHTS, 21_596, "e1", T, 200_000_000)[k].cash - s.pools[k].cash), 0);
     expect(s.book.cash - 4_329_671).toBe(paid);
     expect(paid).toBe(4_556); // finite depth: s=.0266, D=.9548, Y=1.2, sigmaDaily=vol/√364
-    expect(s.pools.w).toEqual({ rg: "EXPANSION", f: 20, att: 1.15, ns: 0, m: 0 });
+    expect(s.pools.w).toEqual({ rg: "EXPANSION", f: 20, att: 1.15, ns: 0, m: 0, b: 0 });
   });
   it("RETAIL = tanh(n_h + 0.5 tanh(r1d/σd) + newsSign(attention − 1) + 0.3 [EXPANSION] tanh(max(0, −r1d/σd)))", () => {
     const z = retailNoise("FROG", 922);
