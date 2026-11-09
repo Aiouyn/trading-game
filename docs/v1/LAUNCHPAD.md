@@ -680,3 +680,43 @@ Market residual cancels; a limit residual rests subject to its existing cash/tok
 per-side consumed tokens are frozen through the tick (including its price-grid band), so splitting an order cannot
 reset the ladder. Legacy six-field dollar flow is readable but starts fresh token statistics on its first new fill.
 New flow statistics are strictly validated and saved with the same book; they never substitute for holdings.
+
+### Shared storm scheduler + CRYPTO_FLUSH (this unit)
+
+**Smallest observable player outcome.** After the first 24 game days from tick 0, the authoritative clock
+may start at most one STORM at a time (04 §3.16.1–3): rate 1/91 per game day, 8 kinds, 7-day cooldown after the
+last storm ended, precursor 1–2 game days then trigger. The Wire shows the trigger headline (realized, breaking;
+04: precursor is not announced). When the kind is CRYPTO_FLUSH, every graduated coin's hype moves by −0.4 × severity (clamped
+to [0, 1]) once per storm id, and crypto maker depth is ×0.5 for 720 ticks. The player sees the storm on the Wire
+and sees graduated-coin marks/execution move under those effects. Deterministic from the market seed; server-side
+only. No majors, ripples, or Crisis Week in this unit.
+
+**Sources.** 04 §3.16.1–3 (tiers, rates, constraints, scheduling algorithm); 04 §3.16.4 storm shock list
+(CRYPTO_FLUSH hype −0.4 and maker depth ×0.5 for 1 game day / 720 ticks; eight StormKinds including
+SECTOR_ROTATION, EARNINGS_SCARE, LIQUIDITY_HICCUP); 23 `macro_storm_rate` 1/91; 16 §3.7.3 / 24 R08 (04 owns
+storm scheduling); packages/engine/macro/rules/scheduler.ts + shocks.ts (reference shapes; this base does not
+import the engine packages — same pattern as world.ts).
+
+**Acceptance.**
+1. Hand fixtures: no storm start before day 24; one active; cooldown 7 days from end; kind uniform over 8;
+   precursor length in {1,2}; severity in [0.6, 1.4]; start probability 1−e^(−1/91) on a free day; same seed+day
+   draws byte-identical.
+2. Wire: 04 §3.16.3 — precursor is timed but not announced; the first headline is at triggerTick (realized,
+   breaking). CRYPTO_FLUSH trigger lists graduated coins when any are listed. (ROADMAP "precursor headlines" yields
+   to 04.)
+3. CRYPTO_FLUSH: H ← clamp(H − 0.4·severity, 0, 1) once per storm id (saved on the coin's pools; restart does not
+   re-apply); event depth multiplier 0.5 for 720 ticks on graduated (crypto) coins through the shared depthInputs.
+4. Other seven kinds: Wire only in this base (their 06/07 hooks are absent); LIQUIDITY_HICCUP also applies depth ×0.5
+   for 60 ticks when its filter is CRYPTO or ALL and a graduated coin is listed.
+5. Kept: existing demo Wire crisis schedule (not 04 storms); Fear/regime; finite-book depth math; no mint/credit/refill;
+   GETs read-only; demo crises still do not feed crisisTerm into Fear.
+6. Restart: scheduler + depth window replay with the clock epoch (M1-05); CRYPTO_FLUSH hype is durable via pools and
+   idempotent on storm id. Not seamless clock-tick persistence.
+7. Real proof: HTTP/automation that a storm appears on `/api/wire` (or the wire snapshot) and a graduated coin's
+   mark or depth-sensitive quote moves under CRYPTO_FLUSH. Plain GUI desktop localhost remains infra-blocked.
+
+**Out of scope / disclosed.** Majors, ripples, Crisis Week, full 04 day-close engine, 09 campaigns, CRYPTO_WINTER,
+wiring `@tycoon/engine-macro` into the Next app, and non-crypto hooks for the other six storm kinds. Spec conflict:
+04 prose says storm shocks are "scaled by severity" and lists CRYPTO_FLUSH hype −0.4; engine `stormShocks` uses a
+fixed −0.4 with no severity factor. This unit uses −0.4 × severity (matches the scaled-shocks sentence and the
+owner brief). Severity stays in [0.6, 1.4].

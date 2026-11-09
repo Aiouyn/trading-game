@@ -7,6 +7,7 @@ import { CRYPTO_FACTOR_STREAM, DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemePr
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
 import type { DepthInputs } from "@/server/broker/book";
 import { WorldInputs, REGIME_TURNOVER, type WorldView } from "./world";
+import { StormScheduler, type StormHypeShock, type StormWireOut } from "./storms";
 
 /** What the trader pools read of a listed coin (src/server/broker/pools.ts): its mark P_{N−1} and template value, its
  *  returns and template vol, the world (04 regime and Fear Index) and its news (attention, sign, mentions). */
@@ -31,6 +32,8 @@ export class ShockFeed extends MockFeed {
   private fresh: CoinNewsOut[] = [];
   /** 04's Fear Index and global regime in this base (world.ts). */
   readonly world = new WorldInputs();
+  /** 04 §3.16 storm tier in this base (storms.ts). */
+  readonly storms = new StormScheduler();
 
   /** L4: give a def the catalog just appended its quote state at its listing price and its meme-template path, at hype
    *  `hype` (a fresh listing: H₀; a relist after a restart: the saved H). Idempotent. */
@@ -85,7 +88,9 @@ export class ShockFeed extends MockFeed {
     const m = this.memes.get(id);
     if (!m) return null;
     const fear = this.world.fear, att = this.coinNews.get(id)!.inputs(this.tick).attention;
-    return { fear, regimeDepth: this.world.depth(this.tick),
+    // 04 storm makerWithdrawal: CRYPTO_FLUSH / LIQUIDITY_HICCUP multiply depth for graduated crypto
+    const eventDepth = this.storms.depthMult(this.tick);
+    return { fear, regimeDepth: this.world.depth(this.tick) * eventDepth,
       adv: 150e6 * (1 + 0.01 * Math.max(0, fear - 20)) * att * REGIME_TURNOVER[this.world.regime],
       sigmaDaily: m.sigmaEff(this.pathInputs(id)) / Math.sqrt(364) };
   }
@@ -136,6 +141,7 @@ export class ShockFeed extends MockFeed {
       if (item) this.fresh.push({ assetId: id, item });
     }
     super.advance();
+    this.storms.observe(this.tick);
     const zCrypto = this.cryptoFactor.normal();
     const zMarket = gx && gxDef && gxDef.volBp > 0 && gxFrom > 0 ? (gx.last - gxFrom) / gxFrom / (gxDef.volBp / 10_000 / Math.sqrt(3)) : 0;
     for (const [id, m] of this.memes) {
@@ -171,4 +177,7 @@ export class ShockFeed extends MockFeed {
     if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
     return { from, to };
   }
+
+  takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
+  takeStormHype(): StormHypeShock[] { return this.storms.takeHypeShocks(); }
 }

@@ -25,6 +25,14 @@ export const CAUSES: Readonly<Record<string, string>> = {
     "wire.cause.credit-eased": "Lending conditions steadied. The risk passed.",
     "wire.cause.coin-listed": "A Launchpad coin sold its whole curve and graduated: it now trades in the Broker, against its book and simulated NPC traders. News of a listing draws traders' attention for about a day.",
     "wire.cause.coin-move": "The coin moved this far from today's open. A large move is news: it draws more traders for about a day, and each further level is reported once a day.",
+    "wire.cause.storm.rate-scare.hit": "Bond term premiums jumped in one bloc. Funding costs rise and duration-sensitive assets reprice.",
+    "wire.cause.storm.oil-spike-lite.hit": "A short crude-supply cut. Energy producers firm; fuel-heavy names feel the cost.",
+    "wire.cause.storm.crypto-flush.hit": "Meme-coin hype falls sharply and maker depth halves for a game day. Graduated coins reprice under thinner books.",
+    "wire.cause.storm.credit-wobble.hit": "Corporate default odds jumped. Credit-sensitive names and leveraged borrowers weaken.",
+    "wire.cause.storm.fx-squall.hit": "Capital flows reversed in an emerging-market bloc. Local FX and linked assets wobble.",
+    "wire.cause.storm.sector-rotation.hit": "Sector risk premiums reshuffled. One sector cheapens relative to another.",
+    "wire.cause.storm.earnings-scare.hit": "Broad consensus EPS cuts. Equity marks soften until guidance catches up.",
+    "wire.cause.storm.liquidity-hiccup.hit": "Maker depth halved briefly. Larger orders move prices more than usual.",
 };
 
 /** Cause → consequence copy for a server story; null when the item has none (fixtures) or the key is unknown. */

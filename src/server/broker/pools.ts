@@ -68,6 +68,8 @@ export interface CoinPools extends Record<PoolKind, PoolAccount> {
   vol: number;
   /** What the last step read of the world and the coin's news (absent until a step reads them). */
   w?: PoolWorld;
+  /** Storm ids whose CRYPTO_FLUSH hype shock was already applied (idempotent across clock-epoch restarts). */
+  sx?: string[];
 }
 
 /** Cash a pool is funded with: enough for w ADV at the listing price (T05-14 capV = 1 ADV, scaled by the weight).
@@ -107,8 +109,15 @@ export function targets(inp: PoolInputs, h: number, z: number, dp = 8): Record<P
 }
 
 /** The hype after one game hour: dH = a(m + f − H) − bH + shock, m = the coin's Wire mentions (0–1), clamped to [0, 1].
- *  shock = 0: its sized sources (04's CRYPTO_FLUSH storm and CRYPTO_WINTER major, 09 campaigns) do not exist here. */
+ *  The continuous `shock` term stays 0 here; CRYPTO_FLUSH is a discrete add via applyStormHype (04 §3.16.4). */
 export const hypeStep = (h: number, m: number, f: number): number => clamp(h + HYPE.a * (m + f - h) - HYPE.b * h, 0, 1);
+/** Apply a CRYPTO_FLUSH hype delta once per storm id; returns the pools (possibly unchanged). */
+export function applyStormHype(p: CoinPools, stormId: string, delta: number): CoinPools {
+  if (!Number.isFinite(delta) || delta === 0) return p;
+  if (p.sx?.includes(stormId)) return p;
+  const next: CoinPools = { ...p, h: clamp(p.h + delta, 0, 1), sx: [...(p.sx ?? []), stormId].slice(-32) };
+  return next;
+}
 /** f = clamp(net player buy volume over 24 game hours / circulating market cap × 20, 0, 1), both in cents. */
 export const hypeF = (netCents: number, capCents: number): number => (capCents > 0 ? clamp((netCents / capCents) * HYPE.f, 0, 1) : 0);
 

@@ -11,6 +11,7 @@ import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
 import { MARKET_FACTOR_ASSET, ShockFeed, type CoinNewsOut, type PoolInputs } from "./shockFeed";
+import type { StormKind } from "./storms";
 import { TICKS_PER_DAY } from "./meme";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
@@ -64,6 +65,7 @@ export class LiveMarket {
     this.feed.advance();
     this.publishStory();
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
+    for (const s of this.feed.takeStormWire()) this.publishStorm(s);
     for (const fn of this.stepListeners) fn();
   }
 
@@ -112,6 +114,19 @@ export class LiveMarket {
     this.stories = [...this.stories, item].slice(-STORY_KEEP);
   }
 
+  /** 04 §3.16 storm trigger on the Wire (precursor is not announced). CRYPTO_FLUSH names listed coins. */
+  private publishStorm(s: { id: string; kind: string; headlineKey: string; causeKey: string; phase: "realized"; breaking: boolean }): void {
+    const tick = this.feed.tick;
+    const listed = this.listedDefs.map((d) => d.assetId);
+    const assets = s.kind === "CRYPTO_FLUSH" && listed.length ? listed : [];
+    const item: WireItem = {
+      id: `w-${tick}-${s.id}`, kind: "WORLD_EVENT", headlineKey: s.headlineKey, slots: {},
+      entities: assets.map((id) => ({ id, kind: "asset", label: ASSET_BY_ID[id]?.ticker ?? id })),
+      tick, breaking: s.breaking, causeEventIds: [s.id], phase: s.phase, causeKey: s.causeKey,
+    };
+    this.stories = [...this.stories, item].slice(-STORY_KEEP);
+  }
+
   /** The stories published so far (newest last), at the current tick. A copy: reading changes nothing. */
   wire(): WireSnapshot {
     return structuredClone({ worldId: PORT_AVALON_WORLD_ID, epoch: this.epoch, tick: this.feed.tick, items: this.stories });
@@ -153,6 +168,14 @@ export class LiveMarket {
   }
 
   depthInputs(assetId: string) { return this.feed.depthInputs(assetId); }
+
+  /** CRYPTO_FLUSH hype shocks armed this tick (consumed once; broker applies into saved pools). */
+  takeStormHype() { return this.feed.takeStormHype(); }
+
+  /** Test-only: arm a storm bypassing the day-close rate (engine forceEvent analogue). */
+  forceStormForTests(kind: StormKind, opts: { severity?: number; precursorDays?: number } = {}): void {
+    this.feed.storms.forceStorm(kind, { atTick: this.feed.tick, ...opts });
+  }
 
   /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
   poolInputs(assetId: string): PoolInputs | null {

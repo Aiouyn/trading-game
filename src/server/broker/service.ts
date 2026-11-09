@@ -9,7 +9,7 @@ import type { ExecutedFill } from "@/server/market/candles";
 import { fmt } from "@/shell/contracts/mockFeed";
 import { parseMinor } from "@/market/quoteSnapshot";
 import { ASSET_BY_ID } from "@/market/catalog";
-import { MEME_POOL_WEIGHTS, stepPools, type CoinPools } from "./pools";
+import { MEME_POOL_WEIGHTS, stepPools, applyStormHype, type CoinPools } from "./pools";
 import { decideCancel, decidePlace, ledgerView, reservedCashCents, quoteFromSnapshot, sweepLedger, sweepListed, type IdSource } from "./execution";
 
 const randomIds: IdSource = { next: (kind) => newId(kind) };
@@ -135,17 +135,24 @@ export class BrokerService {
         // then the coins' trader pools (src/server/broker/pools.ts), once a tick, against the books as just swept
         const pools = new Map<string, CoinPools>();
         const moves = [...out.moves];
+        const shocks = market.takeStormHype?.() ?? [];
         for (const [ticker, c] of coins) {
           const a = ASSET_BY_ID[ticker], inp = market.poolInputs?.(ticker) ?? null, mark = q.last(ticker), book = out.books.get(ticker) ?? books.get(ticker);
           if (!a || !inp || mark === null || !book || !q.tradable(ticker) || inp.tick !== q.tick) continue;
           const step = stepPools(a, MEME_POOL_WEIGHTS, c.price, c.pools, book, mark, inp, market.epoch, market.depthInputs(ticker) ?? undefined);
-          if (!step) continue;
-          pools.set(ticker, step.pools);
-          out.books.set(ticker, step.book);
-          for (const [i, pr] of step.prints.entries()) {
-            executed.push({ fillId: `npc_${market.epoch}_${pr.tick}_${ticker}_${pr.pool}`, assetId: ticker, tick: pr.tick, qty: String(pr.qty) });
-            moves.push({ assetId: ticker, move: step.moves[i]! });
+          // CRYPTO_FLUSH hype: apply even when the pools already acted this tick (still durable + idempotent)
+          let nextPools = step?.pools ?? (c.pools ? structuredClone(c.pools) : null);
+          if (nextPools && shocks.length) {
+            for (const s of shocks) nextPools = applyStormHype(nextPools, s.stormId, s.delta);
           }
+          if (step) {
+            out.books.set(ticker, step.book);
+            for (const [i, pr] of step.prints.entries()) {
+              executed.push({ fillId: `npc_${market.epoch}_${pr.tick}_${ticker}_${pr.pool}`, assetId: ticker, tick: pr.tick, qty: String(pr.qty) });
+              moves.push({ assetId: ticker, move: step.moves[i]! });
+            }
+          }
+          if (nextPools && (step || shocks.length)) pools.set(ticker, nextPools);
         }
         // after the save only: the fills' permanent moves and the saved hype the coins' paths read next (06 "05 applies")
         return { ledgers: out.ledgers, books: out.books, pools, saved: () => {

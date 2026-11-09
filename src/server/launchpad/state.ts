@@ -103,9 +103,15 @@ function worldOk(w: unknown): boolean {
   return obj(w) && Object.keys(w).length === 5 && REGIMES.includes(w.rg as string) && fin(w.f) && w.f >= 0 && w.f <= 100
     && fin(w.att) && w.att >= 1 && w.att <= 2 && (w.ns === -1 || w.ns === 0 || w.ns === 1) && fin(w.m) && w.m >= 0 && w.m <= 1;
 }
+function stormsOk(sx: unknown): boolean {
+  return Array.isArray(sx) && sx.length <= 32 && sx.every((s) => typeof s === "string" && /^[A-Za-z0-9:_-]{1,64}$/.test(s));
+}
 function poolsOk(p: unknown): boolean {
-  if (!obj(p) || Object.keys(p).length !== 9 + POOL_KINDS.length + ("w" in p ? 1 : 0) || !int(p.vol)) return false;
+  if (!obj(p)) return false;
+  const extra = ("w" in p ? 1 : 0) + ("sx" in p ? 1 : 0);
+  if (Object.keys(p).length !== 9 + POOL_KINDS.length + extra || !int(p.vol)) return false;
   if ("w" in p && !worldOk(p.w)) return false;
+  if ("sx" in p && !stormsOk(p.sx)) return false;
   if (typeof p.ep !== "string" || !/^[0-9a-z]{1,16}$/.test(p.ep) || !int(p.t) || !int(p.hr) || !fin(p.h) || p.h < 0 || p.h > 1) return false;
   if (!int(p.bk) || p.bk > LP.SUPPLY || !int(p.funded) || !Array.isArray(p.pnet) || p.pnet.length > 24 || !Array.isArray(p.tape) || p.tape.length > 20) return false;
   if (!p.pnet.every((e: unknown) => Array.isArray(e) && e.length === 2 && int(e[0]) && sint(e[1]))) return false;
