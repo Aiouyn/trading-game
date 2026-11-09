@@ -26,6 +26,46 @@ export const MARKET_FACTOR_ASSET = "GX";
 /** A story's effect on a price in minor units: integer, at least 1 (as the quote walk). */
 export const shockedMinor = (last: number, bp: number): number => Math.max(1, Math.round((last * (10_000 + bp)) / 10_000));
 
+/** 06 §3.21 equity large-cap κ half-life (game days). Catalog `base` is the V1 lnF stand-in. */
+export const EQUITY_KAPPA_HALF_LIFE_DAYS = 20;
+/** 04:1031 RATE_SCARE "decays 30 d" — default storm residual half-life when a kind has no tighter schedule. */
+export const DEFAULT_SHOCK_HALF_LIFE_DAYS = 30;
+
+/** Per-tick decay / κ coefficient: k = 1 − 2^(−1/(hlDays·TICKS_PER_DAY)). */
+export function halfLifeK(hlDays: number): number {
+  if (!(hlDays > 0)) return 1;
+  return 1 - Math.pow(2, -1 / (hlDays * TICKS_PER_DAY));
+}
+
+/** 04:1031 / 04:1015 shock residual half-lives (game days). Cite 04:1033 "Shocks decay on their own schedules". */
+
+/** Extract the 04 kind token from a durable stockApplied stormId (`storm:day:KIND`, `major:force:KIND:tick`, …). */
+export function kindFromAppliedId(id: string): string {
+  const p = id.split(":");
+  if (p[1] === "cwforce") return p[3] ?? "RATE_SCARE";
+  if (p[1] === "force") return p[2] ?? "RATE_SCARE";
+  return p[2] ?? "RATE_SCARE";
+}
+
+export function shockHalfLifeDays(kind: string): number {
+  switch (kind) {
+    case "RATE_SCARE": return 30;
+    case "OIL_SPIKE_LITE": return 20;
+    case "CREDIT_WOBBLE": return 30;
+    case "FX_SQUALL": return 10;
+    case "CRYPTO_FLUSH": return 1;
+    case "LIQUIDITY_HICCUP": return 1 / 12; // 60 ticks
+    case "SECTOR_ROTATION": return 30;
+    case "EARNINGS_SCARE": return 30;
+    case "EQUITY_BUBBLE_BURST": return 120; // 04:1015 erpShock half-life 120 d
+    case "FLASH_CRASH": return 1 / Math.log2(1 / 0.3); // 04:1024 ~70% recovered within 1 GD
+    case "OIL_SHOCK": return 20;
+    case "BANKING_PANIC": return 30;
+    case "CREDIT_CRUNCH": return 30;
+    default: return DEFAULT_SHOCK_HALF_LIFE_DAYS;
+  }
+}
+
 export class ShockFeed extends MockFeed {
   /** Listed (graduated) coins and their meme-template paths, in listing order (L4). */
   private readonly memes = new Map<string, MemeProcess>();
@@ -39,6 +79,8 @@ export class ShockFeed extends MockFeed {
   readonly world = new WorldInputs();
   /** 04 §3.16 storm tier in this base (storms.ts). */
   readonly storms = new StormScheduler();
+  /** Remaining log-gap from decaying applyShock moves (04:1033). Unwound each advance tick. */
+  private readonly shockResidual = new Map<string, { log: number; k: number }>();
 
   /** L4: give a def the catalog just appended its quote state at its listing price and its meme-template path, at hype
    *  `hype` (a fresh listing: H₀; a relist after a restart: the saved H). Idempotent. */
@@ -162,11 +204,46 @@ export class ShockFeed extends MockFeed {
     this.storms.observe(this.tick);
     const zCrypto = this.cryptoFactor.normal();
     const zMarket = gx && gxDef && gxDef.volBp > 0 && gxFrom > 0 ? (gx.last - gxFrom) / gxFrom / (gxDef.volBp / 10_000 / Math.sqrt(3)) : 0;
+    // 04:1033 residual unwind, then 05:274 A_N = −k(lnP−lnF) / 06 §3.21 equity κ HL=20 toward catalog base.
+    this.unwindShockResiduals();
+    this.pullTowardAnchor();
     for (const [id, m] of this.memes) {
       const s = this.assets.get(id);
       if (!s || this.tradingState(id) !== "CONTINUOUS") continue;
       const to = m.step(zMarket, zCrypto, this.pathInputs(id));
       s.dir = to > s.last ? 1 : to < s.last ? -1 : 0;
+      s.last = to;
+    }
+  }
+
+  /** 04:1033: unwind each registered shock log-residual one tick toward 0 on its own half-life. */
+  private unwindShockResiduals(): void {
+    for (const [id, r] of [...this.shockResidual.entries()]) {
+      const s = this.assets.get(id);
+      if (!s || this.tradingState(id) !== "CONTINUOUS" || r.log === 0) {
+        this.shockResidual.delete(id);
+        continue;
+      }
+      const dec = r.k * r.log;
+      const to = Math.max(1, Math.round(s.last * Math.exp(-dec)));
+      s.dir = to > s.last ? 1 : to < s.last ? -1 : s.dir;
+      s.last = to;
+      const next = r.log - dec;
+      if (Math.abs(next) < 1e-12) this.shockResidual.delete(id);
+      else this.shockResidual.set(id, { log: next, k: r.k });
+    }
+  }
+
+  /** 05 §3.3.1 / 06 §3.21: pull equity + index marks toward catalog base (V1 lnF) with κ HL=20 GD. */
+  private pullTowardAnchor(): void {
+    const k = halfLifeK(EQUITY_KAPPA_HALF_LIFE_DAYS);
+    for (const [id, s] of this.assets) {
+      const def = ASSET_BY_ID[id];
+      if (!def || (def.class !== "equity" && def.class !== "index")) continue;
+      if (this.tradingState(id) !== "CONTINUOUS" || !(s.last > 0) || !(def.base > 0)) continue;
+      const lnP = Math.log(s.last), lnF = Math.log(def.base);
+      const to = Math.max(1, Math.round(Math.exp(lnP - k * (lnP - lnF))));
+      s.dir = to > s.last ? 1 : to < s.last ? -1 : s.dir;
       s.last = to;
     }
   }
@@ -182,10 +259,11 @@ export class ShockFeed extends MockFeed {
     return to;
   }
 
-  /** Move one asset's price by a story's effect at the current tick, after this tick's walk step. Returns the price
-   *  before and after in minor units, or null for an unknown or non-trading asset. The quote walk itself is not
-   *  redrawn: its next step starts from the new price. */
-  applyShock(assetId: string, bp: number): { from: number; to: number } | null {
+  /** Move one asset's price by a story/storm effect at the current tick, after this tick's walk step. Returns the price
+   *  before and after in minor units, or null for an unknown or non-trading asset. When `halfLifeDays` is set
+   *  (04 scheduler shocks), the log-move is registered as a residual that unwinds per 04:1033; omit it for company
+   *  NEWS/RUMOR story effects (fundamental-ish; κ to catalog base is the V1 recovery). */
+  applyShock(assetId: string, bp: number, halfLifeDays?: number): { from: number; to: number } | null {
     const s = this.assets.get(assetId);
     if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
     const from = s.last, to = shockedMinor(from, bp);
@@ -193,6 +271,12 @@ export class ShockFeed extends MockFeed {
     s.dir = to > from ? 1 : to < from ? -1 : s.dir;
     const p = s.prints.at(-1);
     if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
+    if (halfLifeDays != null && from > 0 && to !== from) {
+      const prev = this.shockResidual.get(assetId);
+      const log = Math.log(to / from) + (prev?.log ?? 0);
+      const k = halfLifeK(halfLifeDays);
+      this.shockResidual.set(assetId, { log, k: prev ? Math.max(prev.k, k) : k });
+    }
     return { from, to };
   }
 

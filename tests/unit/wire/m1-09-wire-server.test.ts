@@ -64,7 +64,7 @@ describe("M1-09 story schedule", () => {
       const out = storyAt(SEED, t + 2 * STORY_EVERY)!;
       expect(out.crisis).toBe(s.crisis);
       expect(storyAt(SEED, t + STORY_EVERY)!.crisis).toBeUndefined(); // a company story in between
-      if (out.phase === "realized") { hits++; expect(out.effects.length).toBeGreaterThan(0); expect(out.breaking).toBe(true); }
+      if (out.phase === "realized") { hits++; expect(out.effects).toEqual([]); expect(out.breaking).toBe(true); } // Wire-only marks; 04 scheduler owns crisis prices
       else { eased++; expect(out.phase).toBe("eased"); expect(out.effects).toEqual([]); }
       seen.add(s.crisis!);
     }
@@ -128,7 +128,7 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
       expect(w.items.length).toBe(published); // one item per story tick, never two
     }
     expect(published).toBe(32);
-    expect(market.wire().items.filter((i) => i.effects?.length).length).toBeGreaterThan(16);
+    expect(market.wire().items.filter((i) => i.effects?.length).length).toBe(16); // company stories only; demo crises Wire-only
   });
 
   it("same seed replays the same stories and prices (a restart is a new epoch with the same replay)", () => {

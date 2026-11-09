@@ -215,21 +215,22 @@ describe("on the clock: Wire items name the coin; index stories move it (05 §3.
     expect(i.newsSign).toBe(1);
     expect(i.attention).toBeGreaterThan(1);
   });
-  it("an index story moves the coin by wMarket × σ_eff/σ_GX × J, listed in the story's effects", () => {
-    const m = new LiveMarket();
+  it("an index storm shock moves the coin by wMarket × σ_eff/σ_GX × J, listed in the storm's effects", () => {
+    // Demo Wire crises are Wire-only for marks (04 scheduler owns crisis prices). Drive GX via RATE_SCARE.
+    const m = new LiveMarket({ persistStorms: false });
     m.list(coin);
-    let found: { gx: { from: string; to: string }; frog: { from: string; to: string } } | null = null;
-    for (let i = 0; i < 3000 && !found; i++) {
-      m.step();
-      const it = m.wire().items.filter((x) => x.tick === m.snapshot().tick && x.kind !== "NEWS").at(-1);
-      const gx = it?.effects?.find((e) => e.assetId === "GX"), frog = it?.effects?.find((e) => e.assetId === "FROG");
-      if (gx) { expect(frog).toBeDefined(); found = { gx, frog: frog! }; }
-    }
-    expect(found).not.toBeNull();
+    m.step();
+    m.forceStormForTests("RATE_SCARE", { precursorDays: 0, severity: 1 });
+    m.step();
+    const it = m.wire().items.find((x) => x.headlineKey === "wire.storm.rate-scare.hit");
+    const gx = it?.effects?.find((e) => e.assetId === "GX");
+    const frog = it?.effects?.find((e) => e.assetId === "FROG");
+    expect(gx).toBeDefined();
+    expect(frog).toBeDefined();
     const sGX = (ASSET_BY_ID.GX!.volBp / 10_000 / Math.sqrt(3)) * Math.sqrt(TICKS_PER_DAY * SESSION_DAYS_PER_YEAR);
-    const J = Math.log(Number(found!.gx.to) / Number(found!.gx.from));
+    const J = Math.log(Number(gx!.to) / Number(gx!.from));
     const want = MEME_TEMPLATE.wMarket * (vol * REGIME_MULTS[m.worldView().regime].vol * (1 + 2 * 0.6) / sGX) * J;
-    expect(Math.log(Number(found!.frog.to) / Number(found!.frog.from))).toBeCloseTo(want, 3); // marks in whole 1e-8 $
-    expect(Math.abs(want)).toBeGreaterThan(Math.abs(J)); // the coin's vol is far above the index's
+    expect(Math.log(Number(frog!.to) / Number(frog!.from))).toBeCloseTo(want, 3);
+    expect(Math.abs(want)).toBeGreaterThan(Math.abs(J));
   });
 });

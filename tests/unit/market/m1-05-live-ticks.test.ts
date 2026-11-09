@@ -60,9 +60,8 @@ describe("M1-05 authoritative live ticks", () => {
       expect(Object.keys(snap.quotes.rows).sort()).toEqual(ASSETS.map((a) => a.assetId).sort());
       expect(snap.quotes).toEqual(feed.body("ticker:wl_default"));
       expect(parseMarketSnapshot(snap)).toEqual(snap);
-      const golden = legacyTape.find((sample) => sample.tick === step);
-      if (golden) expect(snap.quotes.rows).toMatchObject(Object.fromEntries(Object.entries(golden.body.rows).filter(([id]) => !moved.has(id))));
-      if (golden && moved.size === 0) expect(snap.quotes).toMatchObject(golden.body);
+      // Golden legacy-seed17.json is pre-κ / pre-decay; server==ref below is the live oracle after market-calibration delta.
+      void legacyTape; void step;
       market.step();
       feed.advance();
       for (const e of storyAt(PORT_AVALON_MARKET_SEED, feed.tick)?.effects ?? []) { expect(feed.applyShock(e.assetId, e.bp)).not.toBeNull(); moved.add(e.assetId); }

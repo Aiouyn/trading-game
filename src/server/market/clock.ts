@@ -11,7 +11,7 @@ import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
-import { MARKET_FACTOR_ASSET, ShockFeed, type CoinNewsOut, type PoolInputs } from "./shockFeed";
+import { MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
 import type { StormKind, StormWireOut } from "./storms";
 import type { CrisisWireOut, MajorKindV1 } from "./crises";
 import { TICKS_PER_DAY } from "./meme";
@@ -77,7 +77,7 @@ export class LiveMarket {
     if (snap.world) this.feed.world.hydrate(snap.world);
     for (const row of snap.stockApplied) {
       if (this.stockAppliedThisEpoch.has(row.stormId)) continue;
-      for (const e of row.shocks) this.feed.applyShock(e.assetId, e.bp);
+      for (const e of row.shocks) this.feed.applyShock(e.assetId, e.bp, shockHalfLifeDays(kindFromAppliedId(row.stormId)));
       this.stockAppliedThisEpoch.add(row.stormId);
     }
   }
@@ -181,7 +181,7 @@ export class LiveMarket {
         });
         continue;
       }
-      const r = this.feed.applyShock(e.assetId, e.bp);
+      const r = this.feed.applyShock(e.assetId, e.bp, shockHalfLifeDays(s.kind));
       if (!r) continue;
       effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
       if (e.assetId === MARKET_FACTOR_ASSET) {
@@ -225,7 +225,7 @@ export class LiveMarket {
         });
         continue;
       }
-      const r = this.feed.applyShock(e.assetId, e.bp);
+      const r = this.feed.applyShock(e.assetId, e.bp, shockHalfLifeDays(s.kind));
       if (!r) continue;
       effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
       if (e.assetId === MARKET_FACTOR_ASSET) {
