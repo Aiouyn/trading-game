@@ -1,9 +1,11 @@
-// Shared storm scheduler for this base (docs/v1/LAUNCHPAD.md "Storm catch-up + non-crypto stock effects").
+// Shared storm scheduler for this base (docs/v1/LAUNCHPAD.md "Storm durable correctness").
 // 04 §3.16.1–3 storm tier only: rate 1/91, 8 kinds, one active, 7-day cooldown, no start in first 24 game days
 // from tick 0, precursor 1–2 game days. Plays 04's role here the same way world.ts plays Fear/regime: formulas
 // copied and cited; the app does not import packages/engine/macro. Majors, ripples and Crisis Week are out of scope.
 // Deterministic: per-day stream `macro:storm:<day>` only, so a restarted clock replays the same schedule (M1-05).
 // Catch-up: when observe jumps across ticks, every skipped day-close and phase edge is evaluated in order (world.ts day loop).
+// Cold start: the first observe evaluates from tick origin 0 (does not skip day closes 24–37 when booting at START_TICK).
+// Per-wire prices: each StormWireOut carries its own stock shocks (no shared queue drain across two triggers in one step).
 import { ASSETS } from "@/market/catalog";
 import { Draws, TICKS_PER_DAY } from "./meme";
 
@@ -63,11 +65,24 @@ export interface StormWireOut {
   readonly phase: "realized";
   readonly breaking: boolean;
   readonly slug: string;
+  /** Stock applyShock vector for this storm only (empty for wire-only / crypto depth kinds). Bound at emit — not a shared queue. */
+  readonly prices: readonly StormPriceShock[];
 }
 /** Durable CRYPTO_FLUSH hype once per storm id (applied by the broker sweep into saved pools). */
 export interface StormHypeShock { readonly stormId: string; readonly delta: number }
 /** One-shot catalog mark move at trigger (ShockFeed.applyShock), bp × severity already applied. */
 export interface StormPriceShock { readonly assetId: string; readonly bp: number }
+
+/** Durable storm bookkeeping + permanent stock applyShock sets (survives process restart with the storm-world store). */
+export interface StormWorldSnapshot {
+  readonly active: StormEvent | null;
+  readonly lastEndTick: number | null;
+  readonly lastDayClose: number | null;
+  readonly lastTick: number | null;
+  readonly depth: { readonly mult: number; readonly untilTick: number } | null;
+  /** Permanent stock mark shocks already applied, idempotent by storm id (like pools.sx for hype). */
+  readonly stockApplied: ReadonlyArray<{ readonly stormId: string; readonly shocks: readonly StormPriceShock[] }>;
+}
 
 const pFromRate = (r: number) => 1 - Math.exp(-r);
 const dayOf = (tick: number) => Math.floor(tick / TICKS_PER_DAY);
@@ -142,9 +157,14 @@ export function stormStockShocks(kind: StormKind, severity: number, sectorIndex:
   }
 }
 
+export function emptyStormWorld(): StormWorldSnapshot {
+  return { active: null, lastEndTick: null, lastDayClose: null, lastTick: null, depth: null, stockApplied: [] };
+}
+
 /**
  * The clock's storm state. Observed after the feed advances to `tick` (day-close = tick % 720 === 719).
  * Emits Wire / hype / price shocks at trigger; catch-up walks every skipped day-close and phase edge in order.
+ * Cold start (lastTick null) evaluates from tick origin 0 through `tick` so day closes before START_TICK are not skipped.
  */
 export class StormScheduler {
   private active: StormEvent | null = null;
@@ -154,13 +174,17 @@ export class StormScheduler {
   private lastTick: number | null = null;
   private wire: StormWireOut[] = [];
   private hype: StormHypeShock[] = [];
+  /** Legacy flat queue (tests); publish path uses StormWireOut.prices only. */
   private prices: StormPriceShock[] = [];
   /** Depth multiplier window for graduated crypto coins: mult applies while tick < untilTick. */
   private depth: { mult: number; untilTick: number } | null = null;
+  /** Permanent stock applyShock sets by storm id (durable via storm-world store). */
+  private stockApplied: { stormId: string; shocks: StormPriceShock[] }[] = [];
 
   /** Current active storm (PRECURSOR or TRIGGER), or null. */
   peek(): StormEvent | null { return this.active ? { ...this.active } : null; }
   lastStormEndTick(): number | null { return this.lastEndTick; }
+  observedTick(): number | null { return this.lastTick; }
   /** Maker depth multiplier for graduated crypto at `tick` (1 when none). */
   depthMult(tick: number): number {
     if (!this.depth || tick >= this.depth.untilTick) return 1;
@@ -169,16 +193,61 @@ export class StormScheduler {
 
   takeWire(): StormWireOut[] { const out = this.wire; this.wire = []; return out; }
   takeHypeShocks(): StormHypeShock[] { const out = this.hype; this.hype = []; return out; }
+  /** Flat drain of any leftover queue (tests). Prefer StormWireOut.prices for attribution. */
   takePriceShocks(): StormPriceShock[] { const out = this.prices; this.prices = []; return out; }
+
+  /** Durable snapshot (scheduler bookkeeping + permanent stock shock sets). Pending wire/hype/price queues are not stored. */
+  snapshot(): StormWorldSnapshot {
+    return {
+      active: this.active ? { ...this.active } : null,
+      lastEndTick: this.lastEndTick,
+      lastDayClose: this.lastDayClose,
+      lastTick: this.lastTick,
+      depth: this.depth ? { ...this.depth } : null,
+      stockApplied: this.stockApplied.map((r) => ({ stormId: r.stormId, shocks: r.shocks.map((p) => ({ ...p })) })),
+    };
+  }
+
+  /** Restore durable bookkeeping. Clears pending wire/hype/price queues. Does not apply marks (caller re-applies stockApplied). */
+  hydrate(snap: StormWorldSnapshot): void {
+    this.active = snap.active ? { ...snap.active } : null;
+    this.lastEndTick = snap.lastEndTick;
+    this.lastDayClose = snap.lastDayClose;
+    this.lastTick = snap.lastTick;
+    this.depth = snap.depth ? { ...snap.depth } : null;
+    this.stockApplied = snap.stockApplied.map((r) => ({
+      stormId: r.stormId,
+      shocks: r.shocks.map((p) => ({ ...p })),
+    }));
+    this.wire = [];
+    this.hype = [];
+    this.prices = [];
+  }
+
+  /** Storm ids whose stock applyShock set is already recorded (restart idempotency). */
+  stockAppliedIds(): ReadonlySet<string> {
+    return new Set(this.stockApplied.map((r) => r.stormId));
+  }
+
+  stockAppliedRows(): ReadonlyArray<{ stormId: string; shocks: readonly StormPriceShock[] }> {
+    return this.stockApplied;
+  }
 
   /**
    * Advance bookkeeping to `tick` (the tick just reached). If `tick` jumps past the last observed tick,
    * every day-close and phase edge in between is evaluated in chronological order (same draws as tick-by-tick).
+   * First observe (cold start): evaluates from origin tick 0 through `tick` (closes day closes 24–37 at START_TICK).
    */
   observe(tick: number): void {
     if (!Number.isSafeInteger(tick) || tick < 0) return;
     if (this.lastTick === null) {
-      this.advanceTo(tick);
+      // Cold start from origin: do not skip day closes before the boot tick (GK 41d0f984 gap).
+      let t = -1;
+      while (t < tick) {
+        const next = this.nextCriticalTick(Math.max(0, t + 1), tick);
+        this.advanceTo(next);
+        t = next;
+      }
       this.lastTick = tick;
       return;
     }
@@ -215,11 +284,13 @@ export class StormScheduler {
       const ev = this.active;
       if (ev.phase === "PRECURSOR" && tick >= ev.triggerTick) {
         ev.phase = "TRIGGER";
+        const prices = stormStockShocks(ev.kind, ev.severity, ev.sectorIndex);
         this.wire.push({
           id: ev.id, kind: ev.kind, severity: ev.severity, sectorIndex: ev.sectorIndex,
           headlineKey: `wire.storm.${slugOf(ev.kind)}.hit`,
           causeKey: `wire.cause.storm.${slugOf(ev.kind)}.hit`,
           phase: "realized", breaking: true, slug: slugOf(ev.kind),
+          prices,
         });
         if (ev.kind === "CRYPTO_FLUSH") {
           this.hype.push({ stormId: ev.id, delta: CRYPTO_FLUSH_HYPE * ev.severity });
@@ -227,8 +298,12 @@ export class StormScheduler {
         } else if (ev.kind === "LIQUIDITY_HICCUP") {
           // 04: assetFilter ALL in this base lands on graduated crypto (the only depth-using class here)
           this.depth = { mult: LIQUIDITY_HICCUP_DEPTH_MULT, untilTick: ev.triggerTick + LIQUIDITY_HICCUP_DEPTH_TICKS };
-        } else {
-          for (const p of stormStockShocks(ev.kind, ev.severity, ev.sectorIndex)) this.prices.push(p);
+        } else if (prices.length) {
+          // Flat queue kept for unit tests that still drain it; publish uses WireOut.prices only.
+          for (const p of prices) this.prices.push(p);
+          if (!this.stockApplied.some((r) => r.stormId === ev.id)) {
+            this.stockApplied.push({ stormId: ev.id, shocks: prices.map((p) => ({ ...p })) });
+          }
         }
       }
       if (ev.phase !== "ENDED" && tick >= ev.plannedEndTick) {

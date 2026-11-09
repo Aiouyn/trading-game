@@ -1,9 +1,10 @@
 // Single-process authoritative quote clock (M1-05).
 // One MockFeed (the ShockFeed subclass, M1-09), seed 17, advanced on FEED_TICK_MS. Reads never step it.
-// Not durable across process restart and not multi-instance (same limit as the auth file store).
+// Not multi-instance (same limit as the auth file store).
 // M1-09: each step also publishes that tick's Wire story (src/market/wireStories.ts) and applies its price effect to
 // these quotes once, before the step listeners (resting-order sweep, candles) see the tick. Reads never publish or
-// apply. A restart starts a new epoch: the clock and its stories start again at the first tick (the same seeded replay).
+// apply. A restart starts a new epoch for the walk; storm scheduler bookkeeping + permanent stock applyShock sets are
+// restored from the storm-world store so stock storm effects survive stop/start (docs/v1/LAUNCHPAD.md).
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
@@ -11,11 +12,14 @@ import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
 import { MARKET_FACTOR_ASSET, ShockFeed, type CoinNewsOut, type PoolInputs } from "./shockFeed";
-import type { StormKind } from "./storms";
+import type { StormKind, StormWireOut } from "./storms";
 import { TICKS_PER_DAY } from "./meme";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
+import {
+  createDefaultStormWorldStore, type StormWorldStore,
+} from "./stormWorldStore";
 
 const globalForMarket = globalThis as typeof globalThis & {
   __portAvalonLiveMarket?: LiveMarket;
@@ -26,6 +30,10 @@ export type LiveMarketOptions = {
   tickMs?: number;
   /** Override only in tests. Production uses PORT_AVALON_MARKET_SEED. */
   seed?: number;
+  /** Override storm-world store (tests). Default: createDefaultStormWorldStore(). */
+  stormWorld?: StormWorldStore;
+  /** When false, skip loading/saving the storm-world store (pure unit clocks). Default true. */
+  persistStorms?: boolean;
 };
 
 export class LiveMarket {
@@ -39,6 +47,10 @@ export class LiveMarket {
   private readonly listedDefs: AssetFixture[] = [];
   /** Names this clock's history (new per process / clock), so a client never mixes two runs' stories. */
   readonly epoch = Math.random().toString(36).slice(2, 10) || "0";
+  private readonly stormWorld: StormWorldStore;
+  private readonly persistStorms: boolean;
+  /** Storm ids whose stock shocks were already applied onto this epoch's marks (restart idempotency). */
+  private readonly stockAppliedThisEpoch = new Set<string>();
 
   constructor(opts: LiveMarketOptions = {}) {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
@@ -46,6 +58,25 @@ export class LiveMarket {
       { seed: opts.seed ?? PORT_AVALON_MARKET_SEED, empty: true },
       { autoStart: false, tickMs: this.tickMs },
     );
+    this.stormWorld = opts.stormWorld ?? createDefaultStormWorldStore();
+    this.persistStorms = opts.persistStorms !== false;
+    if (this.persistStorms) this.restoreStormWorld();
+  }
+
+  /** Load durable scheduler + re-apply permanent stock shocks onto fresh marks (once per storm id). */
+  private restoreStormWorld(): void {
+    const snap = this.stormWorld.load();
+    this.feed.storms.hydrate(snap);
+    for (const row of snap.stockApplied) {
+      if (this.stockAppliedThisEpoch.has(row.stormId)) continue;
+      for (const e of row.shocks) this.feed.applyShock(e.assetId, e.bp);
+      this.stockAppliedThisEpoch.add(row.stormId);
+    }
+  }
+
+  private saveStormWorld(): void {
+    if (!this.persistStorms) return;
+    this.stormWorld.save(this.feed.storms.snapshot());
   }
 
   /** Idempotent. A second start does not add another interval. */
@@ -66,6 +97,7 @@ export class LiveMarket {
     this.publishStory();
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const s of this.feed.takeStormWire()) this.publishStorm(s);
+    this.saveStormWorld();
     for (const fn of this.stepListeners) fn();
   }
 
@@ -115,15 +147,33 @@ export class LiveMarket {
   }
 
   /** 04 §3.16 storm trigger on the Wire (precursor is not announced). CRYPTO_FLUSH names listed coins;
-   *  stock-effect kinds apply one-shot catalog mark moves (applyShock) and list them on the item. */
-  private publishStorm(s: { id: string; kind: string; headlineKey: string; causeKey: string; phase: "realized"; breaking: boolean }): void {
+   *  stock-effect kinds apply one-shot catalog mark moves (applyShock) from the WireOut-bound prices only. */
+  private publishStorm(s: StormWireOut): void {
     const tick = this.feed.tick;
     const listed = this.listedDefs.map((d) => d.assetId);
-    const priceShocks = this.feed.takeStormPrices();
+    // Bound per WireOut — do not drain the shared queue (GK DRAIN_HAZARD).
+    const priceShocks = s.prices;
+    this.feed.takeStormPrices(); // clear any legacy flat queue leftover so tests stay honest
     const effects: PriceEffect[] = [];
+    const already = this.stockAppliedThisEpoch.has(s.id);
     for (const e of priceShocks) {
-      const a = ASSET_BY_ID[e.assetId], r = this.feed.applyShock(e.assetId, e.bp);
-      if (!a || !r) continue;
+      const a = ASSET_BY_ID[e.assetId];
+      if (!a) continue;
+      if (already) {
+        // Restored at boot: mark already includes this bp; list a synthetic effect from current last for Wire honesty.
+        const last = this.feed.lastMinor(e.assetId);
+        if (last == null) continue;
+        const from = Math.max(1, Math.round((last * 10_000) / (10_000 + e.bp)));
+        effects.push({
+          assetId: e.assetId,
+          from: fmt(from, a.displayDecimals),
+          to: fmt(last, a.displayDecimals),
+          pct: fmt(Math.round(((last - from) * 10_000) / from), 2),
+        });
+        continue;
+      }
+      const r = this.feed.applyShock(e.assetId, e.bp);
+      if (!r) continue;
       effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
       if (e.assetId === MARKET_FACTOR_ASSET) {
         for (const c of this.feed.factorJump(Math.log(r.to / r.from))) {
@@ -132,6 +182,7 @@ export class LiveMarket {
         }
       }
     }
+    if (priceShocks.length && !already) this.stockAppliedThisEpoch.add(s.id);
     const assets = s.kind === "CRYPTO_FLUSH" && listed.length
       ? listed
       : [...new Set(effects.map((e) => e.assetId))];
@@ -179,7 +230,7 @@ export class LiveMarket {
   }
 
   /** L4: a committed book fill's permanent impact on a listed coin (src/server/broker/book.ts). Not durable, like the
-   *  path itself (a restart starts the clock again). Returns the new mark, or null when not listed here. */
+   *  path itself (a restart starts it again). Returns the new mark, or null when not listed here. */
   impactListed(assetId: string, logMove: number): number | null {
     return this.isListed(assetId) ? this.feed.impactListed(assetId, logMove) : null;
   }
@@ -192,7 +243,11 @@ export class LiveMarket {
   /** Test-only: arm a storm bypassing the day-close rate (engine forceEvent analogue). */
   forceStormForTests(kind: StormKind, opts: { severity?: number; precursorDays?: number; sectorIndex?: number } = {}): void {
     this.feed.storms.forceStorm(kind, { atTick: this.feed.tick, ...opts });
+    this.saveStormWorld();
   }
+
+  /** Durable storm snapshot (tests / restart proof). */
+  stormSnapshot() { return this.feed.storms.snapshot(); }
 
   /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
   poolInputs(assetId: string): PoolInputs | null {

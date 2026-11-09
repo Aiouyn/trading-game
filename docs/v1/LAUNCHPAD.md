@@ -681,7 +681,7 @@ per-side consumed tokens are frozen through the tick (including its price-grid b
 reset the ladder. Legacy six-field dollar flow is readable but starts fresh token statistics on its first new fill.
 New flow statistics are strictly validated and saved with the same book; they never substitute for holdings.
 
-### Shared storm scheduler + CRYPTO_FLUSH (prior unit) and catch-up + stock effects (this unit)
+### Shared storm scheduler + CRYPTO_FLUSH + catch-up/stock effects + durable correctness (this unit)
 
 **Smallest observable player outcome.** After the first 24 game days from tick 0, the authoritative clock
 may start at most one STORM at a time (04 §3.16.1–3): rate 1/91 per game day, 8 kinds, 7-day cooldown after the
@@ -690,7 +690,8 @@ last storm ended, precursor 1–2 game days then trigger. The Wire shows the tri
 to [0, 1]) once per storm id, and crypto maker depth is ×0.5 for 720 ticks. When the clock jumps across multiple
 game-day closes, every skipped day-close and phase edge is evaluated in order (same draws as tick-by-tick from the
 same last-observed tick). Non-crypto kinds with an in-base stock path move catalog marks once through
-`ShockFeed.applyShock` (same path as demo Wire crises) and list those moves on the Wire item. Deterministic from
+`ShockFeed.applyShock` (same path as demo Wire crises) and list those moves on the Wire item (prices bound per
+WireOut). Stock shock sets and scheduler bookkeeping survive process restart via the storm-world store. Deterministic from
 the market seed; server-side only. No majors, ripples, or Crisis Week in this unit.
 
 **Sources.** 04 §3.16.1–3 (tiers, rates, constraints, scheduling algorithm); 04 §3.16.4 storm shock list
@@ -724,10 +725,14 @@ import the engine packages — same pattern as world.ts). world.ts day-catch-up 
 5. Stock kinds above move marks via applyShock; CREDIT_WOBBLE / FX_SQUALL stay Wire-only (disclosed).
 6. Kept: existing demo Wire crisis schedule (not 04 storms); Fear/regime; finite-book depth math; no mint/credit/refill;
    GETs read-only; demo crises still do not feed crisisTerm into Fear; owner "just like real life" finite book.
-7. Restart: scheduler + depth window replay with the clock epoch (M1-05); CRYPTO_FLUSH hype is durable via pools and
-   idempotent on storm id. Stock applyShock moves are not durable across restart (same as demo Wire story shocks).
-8. Real proof: automation that a non-crypto storm appears on the wire snapshot with stock mark moves, plus catch-up
-   equivalence. Plain GUI desktop localhost remains infra-blocked.
+7. Restart: CRYPTO_FLUSH hype remains durable via pools.sx (idempotent on storm id). Stock applyShock sets and
+   scheduler bookkeeping (active / lastEnd / lastDayClose / lastTick / depth) persist in `.data/market/storm-world.json`
+   (QUAY_STORM_DATA_DIR); a stop/start re-applies stock shocks once per storm id onto the new epoch's marks and restores
+   the active storm. Cold start evaluates day closes from tick origin 0 (days 24–37 are not skipped at START_TICK).
+   Each StormWireOut carries its own `prices` (no shared queue drain across two triggers in one step).
+8. Real proof: automation for catch-up, per-wire binding (DRAIN_HAZARD closed), cold-start origin equivalence, and a
+   real server stop/start during an active stock storm on the durable storm-world path. Plain GUI desktop localhost
+   remains infra-blocked.
 
 **Out of scope / disclosed.** Majors, ripples, Crisis Week, full 04 day-close engine, 09 campaigns, CRYPTO_WINTER,
 wiring `@tycoon/engine-macro` into the Next app, 07 credit, FX pairs, yield curve / PE / commodity books, multi-day

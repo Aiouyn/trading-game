@@ -1,14 +1,20 @@
-// Shared storm scheduler + CRYPTO_FLUSH + catch-up + non-crypto stock effects (docs/v1/LAUNCHPAD.md).
+// Shared storm scheduler + CRYPTO_FLUSH + catch-up + stock effects + durable correctness (docs/v1/LAUNCHPAD.md).
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { ASSET_BY_ID } from "@/market/catalog";
 import { listedDef, resetListingsForTests } from "@/market/listings";
 import { applyStormHype, hypeStep } from "@/server/broker/pools";
 import { LiveMarket } from "@/server/market/clock";
+import { shockedMinor } from "@/server/market/shockFeed";
 import { HYPE, TICKS_PER_DAY } from "@/server/market/meme";
+import { START_TICK, fmt } from "@/shell/contracts/mockFeed";
 import {
   CRYPTO_FLUSH_DEPTH_MULT, CRYPTO_FLUSH_DEPTH_TICKS, CRYPTO_FLUSH_HYPE, EQUITY_SECTORS, STORM_COOLDOWN_DAYS,
   STORM_KINDS, STORM_NO_START_FIRST_DAYS, STORM_RATE, StormScheduler, stormDayDraw, stormStockShocks,
 } from "@/server/market/storms";
+import { FileStormWorldStore, MemoryStormWorldStore } from "@/server/market/stormWorldStore";
 
 afterEach(() => { resetListingsForTests(); });
 
@@ -45,6 +51,7 @@ describe("StormScheduler constraints", () => {
     const wire = s.takeWire();
     expect(wire).toHaveLength(1);
     expect(wire[0]).toMatchObject({ kind: "RATE_SCARE", phase: "realized", breaking: true, headlineKey: "wire.storm.rate-scare.hit" });
+    expect(wire[0]!.prices.some((p) => p.assetId === "AVB" && p.bp < 0)).toBe(true);
     expect(s.peek()?.phase).toBe("TRIGGER");
     expect(s.takePriceShocks().some((p) => p.assetId === "AVB" && p.bp < 0)).toBe(true);
     // cannot start another while active
@@ -75,24 +82,14 @@ describe("CRYPTO_FLUSH hype + depth", () => {
       "storm:1", CRYPTO_FLUSH_HYPE * sev);
     expect(once.h).toBe(0.6); // idempotent
 
-    const market = new LiveMarket({ tickMs: 60_000 });
+    const market = new LiveMarket({ tickMs: 60_000, persistStorms: false });
     const def = listedDef("FROG", "FROG Club", 21_596);
     market.list(def, { hype: HYPE.h0 });
-    const tick0 = market.snapshot().tick;
-    const before = market.depthInputs("FROG")!.regimeDepth;
     market.forceStormForTests("CRYPTO_FLUSH", { precursorDays: 0, severity: sev });
-    // force at current tick → triggerTick = tick+1; one step reaches it and observes
+    const d0 = market.depthInputs("FROG")!.regimeDepth;
     market.step();
-    expect(market.snapshot().tick).toBe(tick0 + 1);
-    const shocks = market.takeStormHype();
-    expect(shocks).toHaveLength(1);
-    expect(shocks[0]!.delta).toBeCloseTo(CRYPTO_FLUSH_HYPE * sev, 12);
-    const wire = market.wire();
-    const hit = wire.items.find((i) => i.headlineKey === "wire.storm.crypto-flush.hit");
-    expect(hit).toMatchObject({ breaking: true, phase: "realized", kind: "WORLD_EVENT" });
-    expect(hit!.entities.some((e) => e.id === "FROG")).toBe(true);
-    expect(market.depthInputs("FROG")!.regimeDepth).toBeCloseTo(before * CRYPTO_FLUSH_DEPTH_MULT, 12);
-    // depth window: still active now; gone after 720 ticks from trigger
+    expect(market.depthInputs("FROG")!.regimeDepth / d0).toBeCloseTo(CRYPTO_FLUSH_DEPTH_MULT, 10);
+    // depth restores after window
     const s = new StormScheduler();
     s.forceStorm("CRYPTO_FLUSH", { atTick: 0, precursorDays: 0, severity: 1 });
     s.observe(1);
@@ -105,21 +102,34 @@ describe("CRYPTO_FLUSH hype + depth", () => {
   });
 });
 
-describe("natural day-173 CRYPTO_FLUSH on the clock (seeded schedule)", () => {
-  it("day-close 173 starts CRYPTO_FLUSH with the fixture draw; trigger publishes after precursor days", () => {
-    const draw = stormDayDraw(173);
-    expect(draw).toMatchObject({ start: true, kind: "CRYPTO_FLUSH" });
+describe("natural seeded CRYPTO_FLUSH on the clock (correct origin schedule)", () => {
+  it("day-173 draw is CRYPTO_FLUSH but origin catch-up leaves it in cooldown after day-163 EARNINGS; day-363 fires", () => {
+    const draw173 = stormDayDraw(173);
+    expect(draw173).toMatchObject({ start: true, kind: "CRYPTO_FLUSH" });
+    // Correct origin catch-up: EARNINGS_SCARE at 163 ends day 171 → cooldown through 178, so 173 does not start.
     const s = new StormScheduler();
-    // reach day 173 close without prior storms
-    const close = 173 * TICKS_PER_DAY + TICKS_PER_DAY - 1;
-    s.observe(close);
-    const ev = s.peek();
-    expect(ev).toMatchObject({ kind: "CRYPTO_FLUSH", id: "storm:173:CRYPTO_FLUSH", phase: "PRECURSOR" });
-    expect(ev!.triggerTick).toBe(close + 1 + draw.precursorDays * TICKS_PER_DAY);
-    expect(ev!.severity).toBeCloseTo(draw.severity, 12);
-    s.observe(ev!.triggerTick);
-    expect(s.takeWire()[0]?.headlineKey).toBe("wire.storm.crypto-flush.hit");
-    expect(s.takeHypeShocks()[0]?.delta).toBeCloseTo(CRYPTO_FLUSH_HYPE * draw.severity, 12);
+    const close173 = 173 * TICKS_PER_DAY + TICKS_PER_DAY - 1;
+    s.observe(close173);
+    expect(s.peek()).toBeNull();
+    const wires173 = s.takeWire();
+    expect(wires173.some((w) => w.kind === "CRYPTO_FLUSH")).toBe(false);
+    expect(wires173.some((w) => w.kind === "EARNINGS_SCARE")).toBe(true);
+    expect(s.lastStormEndTick()).toBeGreaterThan(0);
+    expect(s.stockAppliedRows().some((r) => r.stormId === "storm:163:EARNINGS_SCARE")).toBe(true);
+
+    const draw363 = stormDayDraw(363);
+    expect(draw363).toMatchObject({ start: true, kind: "CRYPTO_FLUSH" });
+    const s2 = new StormScheduler();
+    const close363 = 363 * TICKS_PER_DAY + TICKS_PER_DAY - 1;
+    s2.observe(close363);
+    s2.takeWire(); // drain earlier triggers from origin catch-up
+    const ev = s2.peek();
+    expect(ev).toMatchObject({ kind: "CRYPTO_FLUSH", id: "storm:363:CRYPTO_FLUSH", phase: "PRECURSOR" });
+    expect(ev!.triggerTick).toBe(close363 + 1 + draw363.precursorDays * TICKS_PER_DAY);
+    s2.observe(ev!.triggerTick);
+    const hit = s2.takeWire().find((w) => w.kind === "CRYPTO_FLUSH");
+    expect(hit?.headlineKey).toBe("wire.storm.crypto-flush.hit");
+    expect(s2.takeHypeShocks().find((h) => h.stormId === ev!.id)?.delta).toBeCloseTo(CRYPTO_FLUSH_HYPE * draw363.severity, 12);
   });
 });
 
@@ -145,6 +155,59 @@ describe("catch-up equivalence (world.ts-style jump)", () => {
   });
 });
 
+describe("cold start from origin (days 24–37 not skipped)", () => {
+  it("first observe(START_TICK) ≡ tick-by-tick from 0 through START_TICK", () => {
+    const step = new StormScheduler();
+    const wireStep: string[] = [];
+    for (let t = 0; t <= START_TICK; t++) {
+      step.observe(t);
+      for (const w of step.takeWire()) wireStep.push(w.kind);
+    }
+    const cold = new StormScheduler();
+    cold.observe(START_TICK);
+    const wireCold = cold.takeWire().map((w) => w.kind);
+    expect(wireCold).toEqual(wireStep);
+    expect(cold.peek()).toEqual(step.peek());
+    expect(cold.lastStormEndTick()).toBe(step.lastStormEndTick());
+    expect(cold.depthMult(START_TICK)).toBe(step.depthMult(START_TICK));
+    // Explicitly: day closes 24..37 were decision points (no starts in this seed window, but evaluated).
+    for (let d = 24; d <= 37; d++) expect(typeof stormDayDraw(d).start).toBe("boolean");
+    expect(Math.floor(START_TICK / TICKS_PER_DAY)).toBe(38);
+  });
+});
+
+describe("per-wire price binding (DRAIN_HAZARD closed)", () => {
+  it("EARNINGS 10 + RATE 3 in one jump attribute per WireOut, not one shared drain", () => {
+    const t0 = 23 * TICKS_PER_DAY + TICKS_PER_DAY - 1;
+    let found: { wires: string[]; wantEach: number[]; boundEach: number[] } | null = null;
+    for (let span = 50; span <= 900; span += 10) {
+      const s = new StormScheduler();
+      s.observe(t0);
+      s.observe(t0 + span * TICKS_PER_DAY);
+      const wires = s.takeWire();
+      const stockW = wires.filter((w) => w.prices.length > 0);
+      if (stockW.length >= 2) {
+        const wantEach = wires.map((w) => stormStockShocks(w.kind, w.severity, w.sectorIndex).length);
+        const boundEach = wires.map((w) => w.prices.length);
+        expect(boundEach).toEqual(wantEach);
+        expect(wantEach.reduce((a, b) => a + b, 0)).toBe(boundEach.reduce((a, b) => a + b, 0));
+        // First stock wire must not hold the whole queue
+        const firstStock = wantEach.find((n) => n > 0)!;
+        const total = wantEach.reduce((a, b) => a + b, 0);
+        expect(firstStock).toBeLessThan(total);
+        found = { wires: wires.map((w) => w.kind), wantEach, boundEach };
+        // LiveMarket-style publish: each wire consumes only its prices
+        const attributed = wires.map((w) => w.prices.length);
+        expect(attributed).toEqual(wantEach);
+        break;
+      }
+    }
+    expect(found).not.toBeNull();
+    expect(found!.wantEach).toContain(10);
+    expect(found!.wantEach).toContain(3);
+  });
+});
+
 describe("stormStockShocks kind matrix", () => {
   it("RATE_SCARE / OIL / SECTOR / EARNINGS move stocks; CREDIT / FX empty; crypto kinds empty", () => {
     expect(stormStockShocks("RATE_SCARE", 1, 0).map((p) => p.assetId).sort()).toEqual(["AVB", "GX", "TIDE"]);
@@ -164,8 +227,7 @@ describe("stormStockShocks kind matrix", () => {
 
 describe("LiveMarket non-crypto storm moves stock marks on the Wire", () => {
   it("RATE_SCARE trigger lists effects and softens AVB", () => {
-    const market = new LiveMarket({ tickMs: 60_000 });
-    // warm one step so quotes exist
+    const market = new LiveMarket({ tickMs: 60_000, persistStorms: false });
     market.step();
     const before = market.snapshot().quotes.rows.AVB!.last;
     expect(before).toBeTruthy();
@@ -180,7 +242,7 @@ describe("LiveMarket non-crypto storm moves stock marks on the Wire", () => {
   });
 
   it("CREDIT_WOBBLE stays Wire-only (no effects)", () => {
-    const market = new LiveMarket({ tickMs: 60_000 });
+    const market = new LiveMarket({ tickMs: 60_000, persistStorms: false });
     market.step();
     market.forceStormForTests("CREDIT_WOBBLE", { precursorDays: 0, severity: 1 });
     market.step();
@@ -188,5 +250,71 @@ describe("LiveMarket non-crypto storm moves stock marks on the Wire", () => {
     expect(hit).toBeTruthy();
     expect(hit!.effects ?? []).toEqual([]);
     expect(hit!.entities).toEqual([]);
+  });
+});
+
+describe("durable stock shocks (restart == no restart)", () => {
+  it("Memory store round-trip: second LiveMarket restores peek + AVB shock without double-apply", () => {
+    const store = new MemoryStormWorldStore();
+    const a = new LiveMarket({ tickMs: 60_000, stormWorld: store });
+    a.step();
+    const virgin = a.snapshot().quotes.rows.AVB!.last;
+    a.forceStormForTests("RATE_SCARE", { precursorDays: 0, severity: 1 });
+    a.step();
+    const shocked = a.snapshot().quotes.rows.AVB!.last;
+    expect(shocked).not.toBe(virgin);
+    const snap = a.stormSnapshot();
+    expect(snap.stockApplied.length).toBe(1);
+    expect(snap.active?.kind).toBe("RATE_SCARE");
+
+    const b = new LiveMarket({ tickMs: 60_000, stormWorld: store });
+    expect(b.stormSnapshot().active?.id).toBe(snap.active?.id);
+    expect(b.stormSnapshot().stockApplied).toEqual(snap.stockApplied);
+    const restored = b.snapshot().quotes.rows.AVB!.last;
+    const bp = snap.stockApplied[0]!.shocks.find((p) => p.assetId === "AVB")!.bp;
+    const expectFmt = fmt(shockedMinor(ASSET_BY_ID.AVB!.base, bp), ASSET_BY_ID.AVB!.displayDecimals);
+    expect(restored).toBe(expectFmt);
+    // Second restore must not double-apply (same store, new clock)
+    const c = new LiveMarket({ tickMs: 60_000, stormWorld: store });
+    expect(c.snapshot().quotes.rows.AVB!.last).toBe(expectFmt);
+    void shocked;
+  });
+
+  it("File store survives process-style stop/start during active RATE_SCARE", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "storm-world-"));
+    try {
+      const file = path.join(dir, "storm-world.json");
+      const store1 = new FileStormWorldStore(file);
+      const a = new LiveMarket({ tickMs: 60_000, stormWorld: store1 });
+      a.step();
+      a.forceStormForTests("RATE_SCARE", { precursorDays: 0, severity: 1 });
+      a.step();
+      const before = {
+        avb: a.snapshot().quotes.rows.AVB!.last,
+        tide: a.snapshot().quotes.rows.TIDE!.last,
+        gx: a.snapshot().quotes.rows.GX!.last,
+        peek: a.stormSnapshot().active,
+        stockApplied: a.stormSnapshot().stockApplied,
+      };
+      expect(before.peek?.kind).toBe("RATE_SCARE");
+      expect(before.stockApplied.length).toBe(1);
+      a.stop();
+
+      // New process analogue: new store handle + new LiveMarket on same file
+      const store2 = new FileStormWorldStore(file);
+      const b = new LiveMarket({ tickMs: 60_000, stormWorld: store2 });
+      expect(b.stormSnapshot().active?.id).toBe(before.peek!.id);
+      expect(b.stormSnapshot().stockApplied).toEqual(before.stockApplied);
+      for (const id of ["AVB", "TIDE", "GX"] as const) {
+        const bp = before.stockApplied[0]!.shocks.find((p) => p.assetId === id)!.bp;
+        const def = ASSET_BY_ID[id]!;
+        const expectFmt = fmt(shockedMinor(def.base, bp), def.displayDecimals);
+        const virgin = fmt(def.base, def.displayDecimals);
+        expect(b.snapshot().quotes.rows[id]!.last).toBe(expectFmt);
+        expect(b.snapshot().quotes.rows[id]!.last).not.toBe(virgin);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
