@@ -122,6 +122,12 @@ export function poissonInverse(u: number, mean: number): number {
   return k;
 }
 
+/** Inclusive integer U(lo, hi) from u∈[0,1). Matches kind/sector index draw pattern. */
+export function inclusiveInt(u: number, lo: number, hi: number): number {
+  const n = hi - lo + 1;
+  return lo + Math.min(n - 1, Math.floor(n * u));
+}
+
 export function crisisWeekActive(week: CrisisWeek | null, tick: number): boolean {
   return week !== null && tick >= week.startTick && tick < week.endTick;
 }
@@ -463,7 +469,7 @@ export class CrisisBook {
     const c0 = chapterStartDay(ch) * TICKS_PER_DAY;
     const cEnd = c0 + GAME_DAYS_PER_CHAPTER * TICKS_PER_DAY;
     const lambda = MACRO_MAJOR_BASE_RATE * (inCw ? CRISIS_WEEK_MAJOR_MULT : 1);
-    const pre = Math.max(MAJOR_PRECURSOR_MIN_DAYS, 8 + Math.floor(8 * d.majorPreU));
+    const pre = inclusiveInt(d.majorPreU, MAJOR_PRECURSOR_MIN_DAYS, 16); // U(8,16) inclusive
     const plannedTrigger = tick + 1 + pre * TICKS_PER_DAY;
     const want = d.majorStartU < pFromRate(lambda);
     if (want) {
@@ -481,7 +487,7 @@ export class CrisisBook {
         const i = Math.min(MAJOR_KINDS_V1.length - 1, Math.floor(x));
         const kind = MAJOR_KINDS_V1[i]!;
         const severity = 0.6 + 0.8 * d.majorSevU;
-        const contagionDays = 5 + Math.floor(25 * d.majorContU); // U(5,30) via floor
+        const contagionDays = inclusiveInt(d.majorContU, 5, 30); // U(5,30) inclusive
         const precursorStartTick = tick + 1;
         const triggerTick = plannedTrigger;
         const contagionStartTick = triggerTick + TICKS_PER_DAY; // TRIGGER lasts 1 GD

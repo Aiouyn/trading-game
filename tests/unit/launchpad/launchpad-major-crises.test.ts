@@ -9,7 +9,7 @@ import { TICKS_PER_DAY } from "@/server/market/meme";
 import {
   CrisisBook, CRISIS_WEEK_DAYS, CRISIS_WEEK_MAJOR_MULT, GAME_DAYS_PER_CHAPTER, MACRO_MAJOR_BASE_RATE,
   MACRO_MAJOR_MIN_GAP_DAYS, MACRO_RIPPLE_RATE, MAJOR_KINDS_V1, constraintsAllowMajor, crisisWeekChapterDraw,
-  eventsDayDraw, majorStockShocks, poissonInverse, rippleStockShocks,
+  eventsDayDraw, inclusiveInt, majorStockShocks, poissonInverse, rippleStockShocks,
 } from "@/server/market/crises";
 import { StormScheduler } from "@/server/market/storms";
 import { FileStormWorldStore } from "@/server/market/stormWorldStore";
@@ -29,6 +29,39 @@ describe("04 §3.16 major/ripple draws (by hand)", () => {
     const a = eventsDayDraw(200), b = eventsDayDraw(200);
     expect(a).toEqual(b);
     expect(poissonInverse(0, 1 / 7)).toBe(0);
+  });
+
+  it("precursor U(8,16) and contagion U(5,30) inclusive; max reachable; deterministic", () => {
+    // Old floor formulas never reached the inclusive max (Gatekeeper 5bb50ae0).
+    expect(8 + Math.floor(8 * 0.999999)).toBe(15);
+    expect(5 + Math.floor(25 * 0.999999)).toBe(29);
+    expect(inclusiveInt(0, 8, 16)).toBe(8);
+    expect(inclusiveInt(0.999999, 8, 16)).toBe(16);
+    expect(inclusiveInt(0, 5, 30)).toBe(5);
+    expect(inclusiveInt(0.999999, 5, 30)).toBe(30);
+    expect(inclusiveInt(1, 8, 16)).toBe(16); // clamp at hi even if u==1
+    expect(inclusiveInt(1, 5, 30)).toBe(30);
+
+    const pres = new Set<number>();
+    const conts = new Set<number>();
+    for (let day = 0; day < 40_000; day++) {
+      const d = eventsDayDraw(day);
+      const pre = inclusiveInt(d.majorPreU, 8, 16);
+      const cont = inclusiveInt(d.majorContU, 5, 30);
+      expect(pre).toBeGreaterThanOrEqual(8);
+      expect(pre).toBeLessThanOrEqual(16);
+      expect(cont).toBeGreaterThanOrEqual(5);
+      expect(cont).toBeLessThanOrEqual(30);
+      pres.add(pre);
+      conts.add(cont);
+    }
+    expect(pres.has(8)).toBe(true);
+    expect(pres.has(16)).toBe(true);
+    expect(conts.has(5)).toBe(true);
+    expect(conts.has(30)).toBe(true);
+    expect(pres.size).toBe(9);
+    expect(conts.size).toBe(26);
+    expect(eventsDayDraw(777)).toEqual(eventsDayDraw(777));
   });
 
   it("constraints: ACTIVE / GAP / FIRST_24 / FINAL_48", () => {
