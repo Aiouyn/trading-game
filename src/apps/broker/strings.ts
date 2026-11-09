@@ -34,6 +34,8 @@ const EN = {
   /** [provisional] header labels: Positions' column copy (PF-B); the card does not say whether Last/Today carry labels. */
   last: "Last",
   today: "Today",
+  fearIndex: "Fear",
+  fearAria: (f: string, ra: string) => `Fear Index ${f}, risk appetite ${ra}`,
   /** Signed-in provenance: the server clock tick, not a per-browser counter. */
   serverTick: (n: number) => `Server tick ${n}`,
   none: "—",
@@ -216,6 +218,8 @@ const FR: BrStrings = {
   cash: "Liquidités · FDL",
   last: "Cours",
   today: "Jour",
+  fearIndex: "Peur",
+  fearAria: (f: string, ra: string) => `Indice de peur ${f}, appétit pour le risque ${ra}`,
   serverTick: (n: number) => `Tick serveur ${n}`,
   none: "—",
   review: "Vérifier l’ordre",

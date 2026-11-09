@@ -200,6 +200,10 @@ export class MockFeed {
   readonly snapshotAccount: string | null;
   /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
   quotesAdopted = false;
+  /** 04 Fear Index from the last adopted /api/market snapshot (null until adopted or guest). */
+  fearIndex: number | null = null;
+  /** 04 risk appetite RA = 1 − F/50 from the same snapshot. */
+  riskAppetite: number | null = null;
   /** M1-06 signed-in: set once a validated /api/broker/me (or order reply) ledger replaced the constructor `me`. */
   ledgerAdopted = false;
   /** Signed-in: cash the server holds for working buy limits (spendable = cash − this). */

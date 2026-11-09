@@ -108,6 +108,13 @@ export function authoritativeQuoteProvenance(tick: number | null): { worldId: st
   return { worldId: PORT_AVALON_WORLD_ID, tick };
 }
 
+/** 04 Fear Index from the last adopted /api/market snapshot (macro.fear PUBLIC). Null for guest / not yet adopted. */
+export function authoritativeFear(): { F: number; RA: number } | null {
+  const feed = getFeed();
+  if (!(feed instanceof MockFeed) || feed.fearIndex === null || feed.riskAppetite === null) return null;
+  return { F: feed.fearIndex, RA: feed.riskAppetite };
+}
+
 /**
  * Replace the page feed. Safe while useChannel subscribers are mounted (M1-01 account boundary):
  * closes live channel stores, clears the shared map, and bumps feedGeneration so the next

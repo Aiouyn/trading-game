@@ -66,6 +66,10 @@ export class ServerSync {
     }
     this.f.tick = snap.tick;
     this.f.quotesAdopted = true;
+    if (snap.fear !== undefined && snap.riskAppetite !== undefined) {
+      this.f.fearIndex = snap.fear;
+      this.f.riskAppetite = snap.riskAppetite;
+    }
     if (snap.tick > prevTick) {
       this.f.settle();
       // A new server tick may have filled a working limit: re-read the ledger (M1-06).

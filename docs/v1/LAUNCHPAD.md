@@ -739,3 +739,16 @@ wiring `@tycoon/engine-macro` into the Next app, 07 credit, FX pairs, yield curv
 stock shock decay (one-shot proxy at trigger). Spec conflict: 04 prose says storm shocks are "scaled by severity"
 and lists CRYPTO_FLUSH hype −0.4; engine `stormShocks` uses a fixed −0.4 with no severity factor. This unit uses
 −0.4 × severity (matches the scaled-shocks sentence and the owner brief). Severity stays in [0.6, 1.4].
+
+### Fear Index full inputs (04 §3.14.1; this unit)
+
+**Smallest observable player outcome.** The Fear Index F uses the full 04 §3.14.1 formula (same as
+`packages/engine/macro/rules/fear.ts`). Live inputs: GX `rv21`, day and 63-day returns, and `crisisTerm = 0.5`
+while a 04 storm is active (PRECURSOR or TRIGGER). Held / genesis (disclosed; V1-OUT / unbuilt): creditSpreadIdx 1,
+FSI 0, geopoliticalTension 30, worldHackRate 0. Majors unbuilt → crisisTerm never 1. Demo Wire crises still do **not**
+set crisisTerm. F and RA (= 1 − F/50) are PUBLIC on GET `/api/market` (`macro.fear`). Broker header shows a Fear chip;
+Launchpad `lp-npc-inputs` continues to show F. Higher F widens half-spread, thins depth, and raises ADV for NPC pools.
+Fear/regime bookkeeping persists in the storm-world store with the scheduler. No mint/credit/refill.
+
+**Acceptance.** Engine T04-15 worked numbers; storm raises F vs calm twin; depth/ADV move with F; snapshot + Broker chip;
+restart restores F; demo crises ≠ crisisTerm; owner "just like real life" finite book unchanged.

@@ -129,7 +129,8 @@ export class ShockFeed extends MockFeed {
     const gxFrom = gx?.last ?? 0;
     // the end of the previous tick, as published (after its fills' permanent moves): the world's and the pools' N−1
     // state, and the coins' large moves of N−1 (published at N)
-    if (gxFrom > 0) this.world.observe(this.tick + 1, gxFrom);
+    // crisisTerm from current storm state (end of N); majors unbuilt → never 1. Demo Wire crises do not set this.
+    if (gxFrom > 0) this.world.observe(this.tick + 1, gxFrom, this.storms.crisisTerm());
     for (const [id, m] of this.memes) {
       const s = this.assets.get(id);
       if (!s) continue;

@@ -70,7 +70,7 @@ const coin: AssetFixture = listedDef("FROG", "FROG Club", 21_596);
 const vol = memeParams("FROG").vol, sd = vol / Math.sqrt(252), sh = sd / Math.sqrt(24);
 const lnRef = Math.log(21_596 / 1e8);
 /** The world at its floor terms: EXPANSION (turnover ×1.0), F = 20 (ADV fear term 0), no coin news (attention 1). */
-const QUIET = { regime: "EXPANSION" as Regime, fear: 20, attention: 1, newsSign: 0 as -1 | 0 | 1, mentions: 0 };
+const QUIET = { regime: "EXPANSION" as Regime, fear: 20, riskAppetite: 1 - 20 / 50, attention: 1, newsSign: 0 as -1 | 0 | 1, mentions: 0 };
 const inputs = (tick: number, g: number, r1h: number | null, r1d: number | null, w: Partial<typeof QUIET> = {}): PoolInputs =>
   ({ tick, ref: 21_596, lnV: lnRef - g, r1h, r1d, vol, ...QUIET, ...w });
 

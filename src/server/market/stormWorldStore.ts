@@ -1,4 +1,4 @@
-// Durable storm-world snapshot (scheduler bookkeeping + permanent stock applyShock sets).
+// Durable storm-world snapshot (scheduler bookkeeping + permanent stock applyShock sets + Fear/regime).
 // Survives process restart for local M1, same class of store as `.data/auth/` (not multi-instance).
 // Tests / QUAY_STORM_STORE=memory: no file (caller keeps state in the LiveMarket / scheduler only).
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -56,6 +56,12 @@ export function cloneStormWorld(s: StormWorldSnapshot): StormWorldSnapshot {
       stormId: r.stormId,
       shocks: r.shocks.map((p) => ({ ...p })),
     })),
+    world: s.world ? {
+      fear: s.world.fear, regime: s.world.regime, daysIn: s.world.daysIn,
+      change: s.world.change ? { ...s.world.change } : null,
+      closes: s.world.closes.slice(), dayOpen: s.world.dayOpen,
+      lastHour: s.world.lastHour, lastDay: s.world.lastDay,
+    } : s.world === null ? null : undefined,
   };
 }
 
@@ -115,6 +121,39 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     lastTick: numOrNull(o.lastTick),
     depth,
     stockApplied,
+    world: normalizeWorld(o.world),
+  };
+}
+
+const REGIMES = new Set(["EXPANSION", "OVERHEATING", "CONTRACTION", "RECOVERY"]);
+
+function normalizeWorld(raw: unknown): StormWorldSnapshot["world"] {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object") return null;
+  const w = raw as Record<string, unknown>;
+  if (typeof w.fear !== "number" || !Number.isFinite(w.fear) || w.fear < 0 || w.fear > 100) return null;
+  if (typeof w.regime !== "string" || !REGIMES.has(w.regime)) return null;
+  if (typeof w.daysIn !== "number" || !Number.isSafeInteger(w.daysIn) || w.daysIn < 0) return null;
+  if (typeof w.dayOpen !== "number" || !Number.isFinite(w.dayOpen)) return null;
+  const lastHour = w.lastHour === null ? null : (typeof w.lastHour === "number" && Number.isSafeInteger(w.lastHour) ? w.lastHour : null);
+  const lastDay = w.lastDay === null ? null : (typeof w.lastDay === "number" && Number.isSafeInteger(w.lastDay) ? w.lastDay : null);
+  let change: { from: import("./world").Regime; tick: number } | null = null;
+  if (w.change && typeof w.change === "object") {
+    const c = w.change as Record<string, unknown>;
+    if (typeof c.from === "string" && REGIMES.has(c.from) && typeof c.tick === "number" && Number.isSafeInteger(c.tick)) {
+      change = { from: c.from as import("./world").Regime, tick: c.tick };
+    }
+  }
+  const closes: number[] = [];
+  if (Array.isArray(w.closes)) {
+    for (const v of w.closes) {
+      if (typeof v === "number" && Number.isFinite(v) && v > 0) closes.push(v);
+    }
+  }
+  return {
+    fear: w.fear, regime: w.regime as import("./world").Regime, daysIn: w.daysIn, change,
+    closes, dayOpen: w.dayOpen, lastHour, lastDay,
   };
 }
 

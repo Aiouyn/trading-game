@@ -9,13 +9,13 @@ import { LiveMarket } from "@/server/market/clock";
 import { CoinNews, novelty } from "@/server/market/coinNews";
 import { DAYS_PER_YEAR, DT, HYPE, MEME_TEMPLATE, MemeProcess, NEUTRAL_PATH, TICKS_PER_DAY, memeParams } from "@/server/market/meme";
 import type { PoolInputs } from "@/server/market/shockFeed";
-import { REGIME_MULTS, WorldInputs, fearRaw, regimeStep, stepFear, type Regime } from "@/server/market/world";
+import { FEAR_HELD, REGIME_MULTS, WorldInputs, fearRaw, fearRawGx, regimeStep, riskAppetite, stepFear, type Regime } from "@/server/market/world";
 
 const coin = listedDef("FROG", "FROG Club", 21_596);
 const { vol, drift } = memeParams("FROG");
 const sd = vol / Math.sqrt(DAYS_PER_YEAR);
 const lnRef = Math.log(21_596 / 1e8);
-const QUIET = { regime: "EXPANSION" as Regime, fear: 20, attention: 1, newsSign: 0 as -1 | 0 | 1, mentions: 0 };
+const QUIET = { regime: "EXPANSION" as Regime, fear: 20, riskAppetite: 1 - 20 / 50, attention: 1, newsSign: 0 as -1 | 0 | 1, mentions: 0 };
 const inputs = (tick: number, r1h: number | null, r1d: number | null, w: Partial<typeof QUIET> = {}): PoolInputs =>
   ({ tick, ref: 21_596, lnV: lnRef, r1h, r1d, vol, ...QUIET, ...w });
 
@@ -56,16 +56,29 @@ describe("16 coin news → attention, news sign, mentions (by hand)", () => {
 describe("04 Fear Index and global regime (by hand)", () => {
   it("F_raw at the genesis inputs is 100σ(−2.02); a −3% index day adds 2 to z; F steps a 2-hour half-life an hour", () => {
     const sig = (x: number) => 100 / (1 + Math.exp(-x));
-    expect(fearRaw({ rv21: 0.16, rToday: 0, r63: 0 })).toBeCloseTo(sig(-1.2 - 0.32 - 0.5), 12);
-    expect(fearRaw({ rv21: 0.16, rToday: -0.03, r63: 0 })).toBeCloseTo(sig(-2.02 + 2), 12);
-    expect(fearRaw({ rv21: 0.32, rToday: 0, r63: 0 })).toBeCloseTo(sig(-2.02 + 3), 12);
+    // genesis held: csi 1, fsi 0, crisisTerm 0, tension 30, hack 0 → z = −1.2 − 0.32 − 0.5 = −2.02
+    expect(fearRawGx({ rv21: 0.16, rToday: 0, r63: 0 })).toBeCloseTo(sig(-1.2 - 0.32 - 0.5), 12);
+    expect(fearRawGx({ rv21: 0.16, rToday: -0.03, r63: 0 })).toBeCloseTo(sig(-2.02 + 2), 12);
+    expect(fearRawGx({ rv21: 0.32, rToday: 0, r63: 0 })).toBeCloseTo(sig(-2.02 + 3), 12);
     expect(stepFear(22, 12)).toBeCloseTo(22 + (12 - 22) * (1 - Math.pow(2, -0.5)), 15);
+    expect(riskAppetite(75)).toBe(-0.5);
     const w = new WorldInputs();
     w.observe(0, 420_015);
     w.observe(29, 420_015);
     expect(w.fear).toBe(22); // no game hour passed
     w.observe(30, 420_015);
-    expect(w.fear).toBeCloseTo(stepFear(22, fearRaw({ rv21: 0.16, rToday: 0, r63: 0 })), 15);
+    expect(w.fear).toBeCloseTo(stepFear(22, fearRawGx({ rv21: 0.16, rToday: 0, r63: 0 })), 15);
+    expect(w.view().riskAppetite).toBeCloseTo(riskAppetite(w.fear), 15);
+  });
+  it("T04-15 engine worked numbers: neutral (T=50,H=50) raw 23.147522; storm example raw 94.409994; crisisTerm 0.5 moves z by +0.5", () => {
+    const NEUTRAL = { rv21Gx: 0.16, creditSpreadIdx: 1, fsi: 0, crisisTerm: 0, tension: 50, hackRate: 50, gxReturnToday: 0, gxReturn63d: 0 };
+    const STORM = { rv21Gx: 0.24, creditSpreadIdx: 1.1, fsi: 0.3, crisisTerm: 0.5, tension: 60, hackRate: 50, gxReturnToday: -0.01, gxReturn63d: -0.05 };
+    expect(fearRaw(NEUTRAL)).toBeCloseTo(23.147522, 6);
+    expect(fearRaw(STORM)).toBeCloseTo(94.409994, 6);
+    expect(stepFear(22, fearRaw(STORM))).toBeCloseTo(43.208396, 6);
+    const z = (x: typeof NEUTRAL) => Math.log(fearRaw(x) / (100 - fearRaw(x)));
+    expect(z({ ...NEUTRAL, crisisTerm: 0.5 }) - z(NEUTRAL)).toBeCloseTo(0.5, 9);
+    expect(FEAR_HELD).toEqual({ creditSpreadIdx: 1, fsi: 0, tension: 30, hackRate: 0 });
   });
   it("regime: none before the minimum length; hazard λΣP·M; the fear z tilts the target pick", () => {
     expect(regimeStep("EXPANSION", 181, 0, 0, 0)).toBe("EXPANSION");

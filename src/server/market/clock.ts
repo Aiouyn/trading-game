@@ -63,10 +63,11 @@ export class LiveMarket {
     if (this.persistStorms) this.restoreStormWorld();
   }
 
-  /** Load durable scheduler + re-apply permanent stock shocks onto fresh marks (once per storm id). */
+  /** Load durable scheduler + Fear/regime + re-apply permanent stock shocks onto fresh marks (once per storm id). */
   private restoreStormWorld(): void {
     const snap = this.stormWorld.load();
     this.feed.storms.hydrate(snap);
+    if (snap.world) this.feed.world.hydrate(snap.world);
     for (const row of snap.stockApplied) {
       if (this.stockAppliedThisEpoch.has(row.stormId)) continue;
       for (const e of row.shocks) this.feed.applyShock(e.assetId, e.bp);
@@ -76,7 +77,7 @@ export class LiveMarket {
 
   private saveStormWorld(): void {
     if (!this.persistStorms) return;
-    this.stormWorld.save(this.feed.storms.snapshot());
+    this.stormWorld.save({ ...this.feed.storms.snapshot(), world: this.feed.world.snapshot() });
   }
 
   /** Idempotent. A second start does not add another interval. */
@@ -272,12 +273,16 @@ export class LiveMarket {
 
   snapshot(): MarketSnapshot {
     const quotes = this.feed.body("ticker:wl_default") as TickerBody;
+    const w = this.feed.world.view();
     return {
       worldId: PORT_AVALON_WORLD_ID,
       marketSeed: this.feed.scenario.seed,
       tick: this.feed.tick,
       tickMs: this.tickMs,
       quotes,
+      // 04 §3.14.1 macro.fear PUBLIC (hourly F, RA).
+      fear: w.fear,
+      riskAppetite: w.riskAppetite,
       // L4: once a coin is listed, the list version and every listed def, so a client adds them to its catalog before
       // reading their rows (absent until then: the snapshot is exactly the pre-listing shape).
       ...(this.listedDefs.length ? { listVersion: listVersion(), listed: this.listedDefs.map((d) => ({ ...d })) } : {}),

@@ -131,7 +131,7 @@ describe("M1-05 authoritative live ticks", () => {
     expect(bodies[0]).toEqual(bodies[1]);
     expect(bodies[1]).toEqual(bodies[2]);
     expect(market.snapshot().tick).toBe(t0);
-    expect(Object.keys(bodies[0] as object).sort()).toEqual(["marketSeed", "quotes", "tick", "tickMs", "worldId"]);
+    expect(Object.keys(bodies[0] as object).sort()).toEqual(["fear", "marketSeed", "quotes", "riskAppetite", "tick", "tickMs", "worldId"]);
     await vi.advanceTimersByTimeAsync(5000);
     const againA = await (await marketGet()).json();
     const againB = await (await marketGet()).json();

@@ -82,6 +82,8 @@ export interface StormWorldSnapshot {
   readonly depth: { readonly mult: number; readonly untilTick: number } | null;
   /** Permanent stock mark shocks already applied, idempotent by storm id (like pools.sx for hype). */
   readonly stockApplied: ReadonlyArray<{ readonly stormId: string; readonly shocks: readonly StormPriceShock[] }>;
+  /** Optional durable Fear/regime bookkeeping (world.ts). Absent on older files → genesis world. */
+  readonly world?: import("./world").WorldSnapshot | null;
 }
 
 const pFromRate = (r: number) => 1 - Math.exp(-r);
@@ -158,7 +160,7 @@ export function stormStockShocks(kind: StormKind, severity: number, sectorIndex:
 }
 
 export function emptyStormWorld(): StormWorldSnapshot {
-  return { active: null, lastEndTick: null, lastDayClose: null, lastTick: null, depth: null, stockApplied: [] };
+  return { active: null, lastEndTick: null, lastDayClose: null, lastTick: null, depth: null, stockApplied: [], world: null };
 }
 
 /**
@@ -183,6 +185,9 @@ export class StormScheduler {
 
   /** Current active storm (PRECURSOR or TRIGGER), or null. */
   peek(): StormEvent | null { return this.active ? { ...this.active } : null; }
+
+  /** 04 §3.14.1 crisisTerm: 0.5 while a storm is active (PRECURSOR or TRIGGER); majors unbuilt → never 1. */
+  crisisTerm(): 0 | 0.5 | 1 { return this.active && this.active.phase !== "ENDED" ? 0.5 : 0; }
   lastStormEndTick(): number | null { return this.lastEndTick; }
   observedTick(): number | null { return this.lastTick; }
   /** Maker depth multiplier for graduated crypto at `tick` (1 when none). */

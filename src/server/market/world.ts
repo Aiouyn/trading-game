@@ -1,10 +1,10 @@
-// The world inputs a graduated coin's path and trader pools read in this base (docs/v1/LAUNCHPAD.md "Graduated-coin
-// trader inputs"): 04's Fear Index F (hourly) and 04's global business-cycle regime (daily), with 05 §3.3.5's regime
-// multipliers. This base has no 04 engine on the live clock (packages/engine/macro is not wired to it), so this file
-// plays 04's role for these two states only, with 04's own formulas and parameters (copied, cited; not imported:
-// the app does not build the engine packages). Inputs this base cannot supply hold their genesis values (04 §3.14.5
-// "Missing inputs hold their last value"), named below. Deterministic: the GX index path and per-day streams only, so
-// a restarted clock replays the same F and regime from its first tick (M1-05 rule, like the Wire stories).
+// The world inputs a graduated coin's path and trader pools read in this base (docs/v1/LAUNCHPAD.md "Fear Index full
+// inputs"): 04's Fear Index F (hourly, full §3.14.1 formula) and 04's global business-cycle regime (daily), with
+// 05 §3.3.5's regime multipliers. This base has no 04 engine on the live clock (packages/engine/macro is not wired to
+// it), so this file plays 04's role for these two states only, with 04's own formulas and parameters (copied, cited;
+// not imported). Inputs this base cannot supply hold their genesis / last values (04 §3.14.5), named below.
+// Deterministic: GX path + per-day streams + live crisisTerm from the storm scheduler. Fear/regime bookkeeping is
+// persisted with the storm-world store so a restart restores F (M1-05 / storm-durable pattern).
 import { DAYS_PER_YEAR, Draws, TICKS_PER_DAY, TICKS_PER_HOUR, type RegimeMults } from "./meme";
 
 export type Regime = "EXPANSION" | "OVERHEATING" | "CONTRACTION" | "RECOVERY";
@@ -50,29 +50,81 @@ export function regimeStep(from: Regime, daysIn: number, zFear: number, u1: numb
   return REGIME_ALLOWED[from].at(-1)!;
 }
 
-/** 04 §3.14.1 inputs. */
-export interface FearInputs { rv21: number; rToday: number; r63: number }
-/** The inputs with no source in this base, at their genesis values (T04-15): credit-spread index 1, FSI 0, crisisTerm 0
- *  (the Wire's crises are a demo schedule, not 04 majors: docs/v1/LAUNCHPAD.md), tension 30, hack rate 0. */
-export const FEAR_HELD = { csi: 1, fsi: 0, crisisTerm: 0, tension: 30, hackRate: 0 } as const;
+/**
+ * 04 §3.14.1 inputs (same shape as packages/engine/macro/rules/fear.ts FearInputs).
+ * Live in this base: rv21Gx, gxReturnToday, gxReturn63d (from GX), crisisTerm (from StormScheduler).
+ * Held / genesis (04 §3.14.5; V1-OUT / unbuilt sources disclosed in LAUNCHPAD): creditSpreadIdx, fsi, tension, hackRate.
+ */
+export interface FearInputs {
+  rv21Gx: number;
+  creditSpreadIdx: number;
+  fsi: number;
+  crisisTerm: number;
+  tension: number;
+  hackRate: number;
+  gxReturnToday: number;
+  gxReturn63d: number;
+}
+
+/** Genesis / held values for inputs with no 06/07/08/12/16 source on the live clock (T04-15 / 04 §3.14.5). */
+export const FEAR_HELD = { creditSpreadIdx: 1, fsi: 0, tension: 30, hackRate: 0 } as const;
 export const FEAR_GENESIS = 22;
 /** Genesis rv21 (T04-15), held until 21 day returns of GX exist. */
 export const RV21_GENESIS = 0.16;
+
 const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+
+/** 100·σ(−1.2 + 3(rv − 0.16)/0.16 + 2(csi − 1) + 2.5·FSI + crisis + 0.8(T − 50)/50 + 0.5(H − 50)/50 + 2·max(0, −r)/0.03 − 0.5·r63/0.10). */
 export function fearRaw(x: FearInputs): number {
-  const h = FEAR_HELD;
-  const z = -1.2 + (3 * (x.rv21 - 0.16)) / 0.16 + 2 * (h.csi - 1) + 2.5 * h.fsi + h.crisisTerm + (0.8 * (h.tension - 50)) / 50
-    + (0.5 * (h.hackRate - 50)) / 50 + (2 * Math.max(0, -x.rToday)) / 0.03 - (0.5 * x.r63) / 0.1;
+  const z = -1.2 + (3 * (x.rv21Gx - 0.16)) / 0.16 + 2 * (x.creditSpreadIdx - 1) + 2.5 * x.fsi + 1.0 * x.crisisTerm
+    + (0.8 * (x.tension - 50)) / 50 + (0.5 * (x.hackRate - 50)) / 50
+    + (2 * Math.max(0, -x.gxReturnToday)) / 0.03 - (0.5 * x.gxReturn63d) / 0.1;
   return 100 * sigmoid(z);
 }
+
 /** One game hour of a 2-hour half-life. */
 export const stepFear = (F: number, raw: number): number => F + (raw - F) * (1 - Math.SQRT1_2);
 
-export interface WorldView { regime: Regime; fear: number }
+/** RA = 1 − F/50 (04 §3.14.1). */
+export const riskAppetite = (F: number): number => 1 - F / 50;
+
+/** 1 while a major is in TRIGGER/CONTAGION (majors unbuilt → never); 0.5 while a storm is active; else 0. */
+export type CrisisTerm = 0 | 0.5 | 1;
+export function crisisTermFromStorm(active: boolean): CrisisTerm {
+  return active ? 0.5 : 0;
+}
+
+/** Backward-compat helper for tests that pass only the GX legs (held inputs filled from FEAR_HELD). */
+export function fearRawGx(x: { rv21: number; rToday: number; r63: number; crisisTerm?: number }): number {
+  return fearRaw({
+    rv21Gx: x.rv21, gxReturnToday: x.rToday, gxReturn63d: x.r63,
+    creditSpreadIdx: FEAR_HELD.creditSpreadIdx, fsi: FEAR_HELD.fsi, tension: FEAR_HELD.tension, hackRate: FEAR_HELD.hackRate,
+    crisisTerm: x.crisisTerm ?? 0,
+  });
+}
+
+export interface WorldView { regime: Regime; fear: number; riskAppetite: number }
+
+/** Durable Fear / regime bookkeeping (persisted with the storm-world store). */
+export interface WorldSnapshot {
+  readonly fear: number;
+  readonly regime: Regime;
+  readonly daysIn: number;
+  readonly change: { from: Regime; tick: number } | null;
+  readonly closes: readonly number[];
+  readonly dayOpen: number;
+  readonly lastHour: number | null;
+  readonly lastDay: number | null;
+}
+
+export function emptyWorldSnapshot(): WorldSnapshot {
+  return { fear: FEAR_GENESIS, regime: "EXPANSION", daysIn: 0, change: null, closes: [], dayOpen: 0, lastHour: null, lastDay: null };
+}
 
 /**
  * The clock's world state, observed once per tick at its start (the state published at the end of N−1): every game
  * hour F steps; every game day the GX day close is kept and the regime steps once on `macro:global:regime:<day>`.
+ * `crisisTerm` is the live 04 term from the storm scheduler (0.5 while a storm is active).
  */
 export class WorldInputs {
   fear = FEAR_GENESIS;
@@ -85,8 +137,27 @@ export class WorldInputs {
   private lastHour: number | null = null;
   private lastDay: number | null = null;
 
-  /** Tick N is about to run; `gx` is GX's mark at the end of N−1 (minor units). */
-  observe(tick: number, gx: number): void {
+  snapshot(): WorldSnapshot {
+    return {
+      fear: this.fear, regime: this.regime, daysIn: this.daysIn,
+      change: this.change ? { ...this.change } : null,
+      closes: this.closes.slice(), dayOpen: this.dayOpen, lastHour: this.lastHour, lastDay: this.lastDay,
+    };
+  }
+
+  hydrate(snap: WorldSnapshot): void {
+    this.fear = snap.fear;
+    this.regime = snap.regime;
+    this.daysIn = snap.daysIn;
+    this.change = snap.change ? { ...snap.change } : null;
+    this.closes = snap.closes.slice();
+    this.dayOpen = snap.dayOpen;
+    this.lastHour = snap.lastHour;
+    this.lastDay = snap.lastDay;
+  }
+
+  /** Tick N is about to run; `gx` is GX's mark at the end of N−1 (minor units). `crisisTerm` from storms at that tick. */
+  observe(tick: number, gx: number, crisisTerm: CrisisTerm = 0): void {
     const day = Math.floor(tick / TICKS_PER_DAY), hour = Math.floor(tick / TICKS_PER_HOUR);
     if (this.lastDay === null) { this.lastDay = day; this.dayOpen = gx; this.lastHour = hour; return; }
     if (day > this.lastDay) {
@@ -103,14 +174,14 @@ export class WorldInputs {
       this.dayOpen = gx;
     }
     if (hour > this.lastHour!) {
-      const x = this.fearInputs(gx);
+      const x = this.fearInputs(gx, crisisTerm);
       for (let h = this.lastHour! + 1; h <= hour; h++) this.fear = stepFear(this.fear, fearRaw(x));
       this.lastHour = hour;
     }
   }
 
-  /** rv21 from the last 21 GX day returns (annualized, √252), else its genesis value; today's and the 63-day return. */
-  fearInputs(gx: number): FearInputs {
+  /** rv21 from the last 21 GX day returns (annualized, √364), else genesis; today's and the 63-day return; live crisisTerm. */
+  fearInputs(gx: number, crisisTerm: CrisisTerm = 0): FearInputs {
     const c = this.closes, n = c.length;
     let rv21 = RV21_GENESIS;
     if (n >= 22) {
@@ -118,7 +189,16 @@ export class WorldInputs {
       const m = r.reduce((s, v) => s + v, 0) / r.length;
       rv21 = Math.sqrt(r.reduce((s, v) => s + (v - m) ** 2, 0) / (r.length - 1)) * Math.sqrt(DAYS_PER_YEAR);
     }
-    return { rv21, rToday: this.dayOpen > 0 ? Math.log(gx / this.dayOpen) : 0, r63: n >= 64 ? Math.log(gx / c[n - 64]!) : 0 };
+    return {
+      rv21Gx: rv21,
+      creditSpreadIdx: FEAR_HELD.creditSpreadIdx,
+      fsi: FEAR_HELD.fsi,
+      crisisTerm,
+      tension: FEAR_HELD.tension,
+      hackRate: FEAR_HELD.hackRate,
+      gxReturnToday: this.dayOpen > 0 ? Math.log(gx / this.dayOpen) : 0,
+      gxReturn63d: n >= 64 ? Math.log(gx / c[n - 64]!) : 0,
+    };
   }
 
   /** The regime multipliers at `tick`, moving linearly over 5 trading days after a change. */
@@ -136,5 +216,5 @@ export class WorldInputs {
     return REGIME_DEPTH[this.change.from] + (to - REGIME_DEPTH[this.change.from]) * k;
   }
 
-  view(): WorldView { return { regime: this.regime, fear: this.fear }; }
+  view(): WorldView { return { regime: this.regime, fear: this.fear, riskAppetite: riskAppetite(this.fear) }; }
 }
