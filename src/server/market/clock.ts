@@ -11,7 +11,7 @@ import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
-import { MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
+import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
 import type { StormKind, StormWireOut } from "./storms";
 import type { CrisisWireOut, MajorKindV1 } from "./crises";
 import { TICKS_PER_DAY } from "./meme";
@@ -70,21 +70,34 @@ export class LiveMarket {
     }
   }
 
-  /** Load durable scheduler + Fear/regime + re-apply permanent stock shocks onto fresh marks (once per storm id). */
+  /** Load durable scheduler + Fear/regime + residual (or legacy full stockApplied re-apply). */
   private restoreStormWorld(): void {
     const snap = this.stormWorld.load();
     this.feed.storms.hydrate(snap);
     if (snap.world) this.feed.world.hydrate(snap.world);
-    for (const row of snap.stockApplied) {
-      if (this.stockAppliedThisEpoch.has(row.stormId)) continue;
-      for (const e of row.shocks) this.feed.applyShock(e.assetId, e.bp, shockHalfLifeDays(kindFromAppliedId(row.stormId)));
-      this.stockAppliedThisEpoch.add(row.stormId);
+    const hasResidual = Array.isArray(snap.shockResidual) && snap.shockResidual.length > 0;
+    if (hasResidual) {
+      // Mid-decay continue: hydrate residual; marks already include prior shock — do not re-apply stockApplied bp.
+      this.feed.hydrateResidual(snap.shockResidual);
+      for (const row of snap.stockApplied) this.stockAppliedThisEpoch.add(row.stormId);
+    } else {
+      // Old schema / empty residual: re-apply stockApplied once with kind HL, then decay goes forward.
+      this.feed.hydrateResidual([]);
+      for (const row of snap.stockApplied) {
+        if (this.stockAppliedThisEpoch.has(row.stormId)) continue;
+        for (const e of row.shocks) this.feed.applyShock(e.assetId, e.bp, shockHalfLifeDays(kindFromAppliedId(row.stormId)));
+        this.stockAppliedThisEpoch.add(row.stormId);
+      }
     }
   }
 
   private saveStormWorld(): void {
     if (!this.persistStorms) return;
-    this.stormWorld.save({ ...this.feed.storms.snapshot(), world: this.feed.world.snapshot() });
+    this.stormWorld.save({
+      ...this.feed.storms.snapshot(),
+      world: this.feed.world.snapshot(),
+      shockResidual: this.feed.residualSnapshot(),
+    });
   }
 
   /** Idempotent. A second start does not add another interval. */
@@ -135,7 +148,8 @@ export class LiveMarket {
     if (!def) return;
     const effects: PriceEffect[] = [];
     for (const e of def.effects) {
-      const a = ASSET_BY_ID[e.assetId], r = this.feed.applyShock(e.assetId, e.bp);
+      const hl = def.crisis ? DEMO_CRISIS_HALF_LIFE_DAYS : undefined;
+      const a = ASSET_BY_ID[e.assetId], r = this.feed.applyShock(e.assetId, e.bp, hl);
       if (!a || !r) continue;
       effects.push({ assetId: e.assetId, from: fmt(r.from, a.displayDecimals), to: fmt(r.to, a.displayDecimals), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
       // 05 §3.3 factor jumps: a story that moves the index moves each listed coin through its market loading, now
@@ -322,7 +336,7 @@ export class LiveMarket {
   }
 
   /** Durable storm snapshot (tests / restart proof). */
-  stormSnapshot() { return this.feed.storms.snapshot(); }
+  stormSnapshot() { return { ...this.feed.storms.snapshot(), shockResidual: this.feed.residualSnapshot() }; }
 
   /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
   poolInputs(assetId: string): PoolInputs | null {

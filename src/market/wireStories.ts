@@ -1,6 +1,6 @@
-// M1-09 Wire stories. Company stories still move marks (applyShock once). Four demo crises named after macro catalog
-// kinds (OIL_SHOCK, BANKING_PANIC, EQUITY_BUBBLE_BURST, CREDIT_CRUNCH) stay on the Wire as narrative only — 04 §3.16
-// storms/majors/ripples own crisis-tier mark shocks (Gatekeeper bfe09b0e: demo crisis stacking ruined GX). Pure schedule.
+// M1-09 Wire stories that move prices (V1-BOARD:44/:82). Company NEWS/RUMOR and four demo crises (OIL_SHOCK,
+// BANKING_PANIC, EQUITY_BUBBLE_BURST, CREDIT_CRUNCH) publish effects; the clock applies them once per story tick.
+// Demo crisis marks unwind as session-scale residuals (04:1033) so high M1-09 cadence cannot permanently ruin GX.
 import type { StoryPhase, WireKind } from "@/shell/contracts/channels";
 import { START_TICK } from "@/shell/contracts/mockFeed";
 
@@ -81,10 +81,9 @@ export function storyAt(seed: number, tick: number): StoryDef | null {
   }
   const base = { kind: "WORLD_EVENT" as const, slots: {}, assets: crisis.assets, crisis: crisis.kind };
   if (step === 1) return { ...base, defId: `${crisis.slug}-watch`, headlineKey: `wire.crisis.${crisis.slug}.watch`, causeKey: `wire.cause.${crisis.slug}-watch`, phase: "forecast", effects: [], breaking: false };
-  // 04 §3.16 is authoritative for crisis-tier rates and mark shocks (storms/majors/ripples).
-  // M1-09 demo crises stay on the Wire as narrative; they must not mint a parallel permanent crash engine
-  // (Gatekeeper bfe09b0e: ~675 GX hits / 60 GD → index ruin). Hit effects cleared; catalog `hit` kept for docs.
+  // V1-BOARD:44/:82 crises → prices. Hits apply catalog `crisis.hit` bp; clock registers them as
+  // session-scale decaying residuals (04:1033 / DEMO_CRISIS_HALF_LIFE) so the index has no permanent drift.
   return crisisHits(seed, cycle, quartet)
-    ? { ...base, defId: `${crisis.slug}-hit`, headlineKey: `wire.crisis.${crisis.slug}.hit`, causeKey: `wire.cause.${crisis.slug}-hit`, phase: "realized", effects: [], breaking: true }
+    ? { ...base, defId: `${crisis.slug}-hit`, headlineKey: `wire.crisis.${crisis.slug}.hit`, causeKey: `wire.cause.${crisis.slug}-hit`, phase: "realized", effects: crisis.hit, breaking: true }
     : { ...base, defId: `${crisis.slug}-eased`, headlineKey: `wire.crisis.${crisis.slug}.eased`, causeKey: `wire.cause.${crisis.slug}-eased`, phase: "eased", effects: [], breaking: false };
 }

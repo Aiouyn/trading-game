@@ -5,6 +5,7 @@ import { ASSETS, ASSET_BY_ID, type AssetFixture } from "@/market/catalog";
 import { listedDef } from "@/market/listings";
 import { HALF_SPREAD, BOOK_LAW, depthQuote, baseDepthInputs } from "@/server/broker/book";
 import { LiveMarket } from "@/server/market/clock";
+import { ShockFeed } from "@/server/market/shockFeed";
 import {
   CRYPTO_DAYS_PER_YEAR, SESSION_DAYS_PER_YEAR, TICKS_PER_DAY, memeParams,
 } from "@/server/market/meme";
@@ -155,6 +156,8 @@ export function runCalibration(opts: {
   cagrSeeds?: number;
   /** Game days for the live index window (default 60). */
   liveDays?: number;
+  /** Seeds for live calm autocorr/vol_ratio median (default 8; proof uses more). */
+  calmSeeds?: number;
 } = {}): CalibrationReport {
   const days = opts.days ?? 260;
   const seed = opts.seed ?? 17;
@@ -162,21 +165,41 @@ export function runCalibration(opts: {
   const nCagrSeeds = opts.cagrSeeds ?? 60;
   const rows: BandRow[] = [];
 
-  // --- calm equity vol_ratio / autocorr (pure walk) ---
-  const equities = ASSETS.filter((a) => a.class === "equity" || a.assetId === "GX");
+  // --- calm equity vol_ratio / autocorr on the LIVE empty ShockFeed path (same advance as production; no κ) ---
+  // Live path: GX + a few equities × modest seed count (full 60-seed farm is proof/, not every unit call)
+  const equities = ASSETS.filter((a) => a.assetId === "GX" || a.assetId === "AVB" || a.assetId === "NMBS");
   const ratios: number[] = [];
   const autocorr: number[] = [];
   const kurt: number[] = [];
   const clusters: number[] = [];
+  const calmSeeds = Array.from({ length: opts.calmSeeds ?? 8 }, (_, i) => seed + i);
   for (const a of equities) {
-    const closes = pureWalkCloses(a, days, seed + a.volBp);
-    const st = returnStats(dailyLogReturns(closes), SESSION_DAYS_PER_YEAR);
-    if (!st) continue;
-    const tgt = targetAnnVol(a.volBp, SESSION_DAYS_PER_YEAR);
-    ratios.push(st.annVol / tgt);
-    autocorr.push(st.autocorr1);
-    kurt.push(st.excessKurtosis);
-    clusters.push(st.volCluster);
+    const seedAc: number[] = [];
+    const seedRatio: number[] = [];
+    const seedKurt: number[] = [];
+    const seedVc: number[] = [];
+    for (const s0 of calmSeeds) {
+      const feed = new ShockFeed({ seed: s0, empty: true }, { autoStart: false });
+      const closes: number[] = [];
+      for (let d = 0; d < Math.min(days, 60); d++) {
+        for (let t = 0; t < TICKS_PER_DAY; t++) feed.advance();
+        const row = (feed.body("ticker:wl_default") as { rows: Record<string, { last: string }> }).rows[a.assetId];
+        if (row) closes.push(Number(row.last));
+      }
+      const st = returnStats(dailyLogReturns(closes), SESSION_DAYS_PER_YEAR);
+      if (!st) continue;
+      const tgt = targetAnnVol(a.volBp, SESSION_DAYS_PER_YEAR);
+      seedRatio.push(st.annVol / tgt);
+      seedAc.push(st.autocorr1);
+      seedKurt.push(st.excessKurtosis);
+      seedVc.push(st.volCluster);
+    }
+    if (seedRatio.length) {
+      ratios.push(median(seedRatio));
+      autocorr.push(median(seedAc));
+      kurt.push(median(seedKurt));
+      clusters.push(median(seedVc));
+    }
   }
   const medRatio = median(ratios);
   const medAc = median(autocorr);
@@ -222,8 +245,8 @@ export function runCalibration(opts: {
     status: cagrInBand ? "PASS" : "MISS",
     note: `n=${nCagrSeeds} seeds × ${liveDays} GD; median maxDD=${medDd.toFixed(2)}%; `
       + (cagrInBand
-        ? "demo Wire crises Wire-only for marks; 04:1033 shock decay + 05/06 κ HL=20 on equity/index"
-        : "out of band after 04 decay + 05 κ + Wire-only demo crises — not inventing ERP/drift outside spec"),
+        ? "demo Wire crises + DEMO_CRISIS_HALF_LIFE (60 ticks) decay + owner-approved EQUITY_ERP_LOG_ANNUAL=0.16 (t125s460); catalog-base κ removed"
+        : "out of band after visible transient crises + owner-approved ERP — stop and report"),
   });
 
   // Single-seed meme smoke (events on) for vol_ratio REPORT vs calm band
@@ -363,6 +386,6 @@ export function runCalibration(opts: {
     days,
     seeds: cagrSeedList,
     gxPaths,
-    digestNote: "Stock path changed this unit (Wire-only demo crises + 04 shock decay + 05/06 κ). Re-run digest4000 and disclose new digest (was fc1359d1).",
+    digestNote: "Stock path: restored demo crisis effects with session residual decay; owner-approved equity ERP (t125s460); catalog-base κ removed; residual persisted. Re-run digest4000 and disclose.",
   };
 }

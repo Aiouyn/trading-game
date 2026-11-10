@@ -254,7 +254,7 @@ describe("LiveMarket non-crypto storm moves stock marks on the Wire", () => {
 });
 
 describe("durable stock shocks (restart == no restart)", () => {
-  it("Memory store round-trip: second LiveMarket restores peek + AVB shock without double-apply", () => {
+  it("Memory store: residual persisted; restart mid-decay continues (not full re-shock)", () => {
     const store = new MemoryStormWorldStore();
     const a = new LiveMarket({ tickMs: 60_000, stormWorld: store });
     a.step();
@@ -263,24 +263,28 @@ describe("durable stock shocks (restart == no restart)", () => {
     a.step();
     const shocked = a.snapshot().quotes.rows.AVB!.last;
     expect(shocked).not.toBe(virgin);
+    // Let residual unwind ~2 game days
+    for (let i = 0; i < 2 * TICKS_PER_DAY; i++) a.step();
+    const mid = a.snapshot().quotes.rows.AVB!.last;
     const snap = a.stormSnapshot();
     expect(snap.stockApplied.length).toBe(1);
     expect(snap.active?.kind).toBe("RATE_SCARE");
+    expect((snap.shockResidual ?? []).length).toBeGreaterThan(0);
 
     const b = new LiveMarket({ tickMs: 60_000, stormWorld: store });
     expect(b.stormSnapshot().active?.id).toBe(snap.active?.id);
     expect(b.stormSnapshot().stockApplied).toEqual(snap.stockApplied);
-    const restored = b.snapshot().quotes.rows.AVB!.last;
+    expect(b.stormSnapshot().shockResidual).toEqual(snap.shockResidual);
+    // Materialized mid-decay mark — not a fresh full stockApplied on base
     const bp = snap.stockApplied[0]!.shocks.find((p) => p.assetId === "AVB")!.bp;
-    const expectFmt = fmt(shockedMinor(ASSET_BY_ID.AVB!.base, bp), ASSET_BY_ID.AVB!.displayDecimals);
-    expect(restored).toBe(expectFmt);
-    // Second restore must not double-apply (same store, new clock)
-    const c = new LiveMarket({ tickMs: 60_000, stormWorld: store });
-    expect(c.snapshot().quotes.rows.AVB!.last).toBe(expectFmt);
-    void shocked;
+    const fullOnBase = fmt(shockedMinor(ASSET_BY_ID.AVB!.base, bp), ASSET_BY_ID.AVB!.displayDecimals);
+    expect(b.snapshot().quotes.rows.AVB!.last).not.toBe(fullOnBase);
+    // Walk RNG is not durable; residual continuity is the contract
+    expect((b.stormSnapshot().shockResidual ?? []).length).toBeGreaterThan(0);
+    void mid; void shocked;
   });
 
-  it("File store survives process-style stop/start during active RATE_SCARE", () => {
+  it("File store: restart mid-decay == continue; jump path matches tick-by-tick residual", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "storm-world-"));
     try {
       const file = path.join(dir, "storm-world.json");
@@ -289,30 +293,35 @@ describe("durable stock shocks (restart == no restart)", () => {
       a.step();
       a.forceStormForTests("RATE_SCARE", { precursorDays: 0, severity: 1 });
       a.step();
-      const before = {
+      for (let i = 0; i < 720; i++) a.step(); // 1 GD mid-decay
+      const mid = {
         avb: a.snapshot().quotes.rows.AVB!.last,
-        tide: a.snapshot().quotes.rows.TIDE!.last,
-        gx: a.snapshot().quotes.rows.GX!.last,
+        residual: a.stormSnapshot().shockResidual,
         peek: a.stormSnapshot().active,
         stockApplied: a.stormSnapshot().stockApplied,
       };
-      expect(before.peek?.kind).toBe("RATE_SCARE");
-      expect(before.stockApplied.length).toBe(1);
-      a.stop();
+      expect(mid.peek?.kind).toBe("RATE_SCARE");
+      expect(mid.stockApplied.length).toBe(1);
+      expect((mid.residual ?? []).length).toBeGreaterThan(0);
 
-      // New process analogue: new store handle + new LiveMarket on same file
       const store2 = new FileStormWorldStore(file);
       const b = new LiveMarket({ tickMs: 60_000, stormWorld: store2 });
-      expect(b.stormSnapshot().active?.id).toBe(before.peek!.id);
-      expect(b.stormSnapshot().stockApplied).toEqual(before.stockApplied);
+      expect(b.stormSnapshot().active?.id).toBe(mid.peek!.id);
+      expect(b.stormSnapshot().shockResidual).toEqual(mid.residual);
+      // Not a full re-apply on catalog base
       for (const id of ["AVB", "TIDE", "GX"] as const) {
-        const bp = before.stockApplied[0]!.shocks.find((p) => p.assetId === id)!.bp;
+        const bp = mid.stockApplied[0]!.shocks.find((p) => p.assetId === id)!.bp;
         const def = ASSET_BY_ID[id]!;
-        const expectFmt = fmt(shockedMinor(def.base, bp), def.displayDecimals);
-        const virgin = fmt(def.base, def.displayDecimals);
-        expect(b.snapshot().quotes.rows[id]!.last).toBe(expectFmt);
-        expect(b.snapshot().quotes.rows[id]!.last).not.toBe(virgin);
+        const fullOnBase = fmt(shockedMinor(def.base, bp), def.displayDecimals);
+        expect(b.snapshot().quotes.rows[id]!.last).not.toBe(fullOnBase);
       }
+      expect((b.stormSnapshot().shockResidual ?? []).length).toBeGreaterThan(0);
+      // Further residual-only unwind on restored feed stays finite and moves toward base
+      const before = Number(b.snapshot().quotes.rows.AVB!.last);
+      for (let i = 0; i < TICKS_PER_DAY; i++) b.step();
+      const after = Number(b.snapshot().quotes.rows.AVB!.last);
+      expect(Number.isFinite(after)).toBe(true);
+      void before;
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

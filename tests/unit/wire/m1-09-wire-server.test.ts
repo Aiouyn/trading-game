@@ -24,7 +24,7 @@ import { setBrokerForTests } from "@/server/broker";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import type { NewsBody, TickerBody } from "@/shell/contracts/channels";
 import { MockFeed, SNAP_DELAY_MS, START_TICK, fmt } from "@/shell/contracts/mockFeed";
-import { ShockFeed, shockedMinor } from "@/server/market/shockFeed";
+import { DEMO_CRISIS_HALF_LIFE_DAYS, ShockFeed, shockedMinor } from "@/server/market/shockFeed";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 import { serverHalfLoaded } from "../helpers/serverHalf";
@@ -64,7 +64,7 @@ describe("M1-09 story schedule", () => {
       const out = storyAt(SEED, t + 2 * STORY_EVERY)!;
       expect(out.crisis).toBe(s.crisis);
       expect(storyAt(SEED, t + STORY_EVERY)!.crisis).toBeUndefined(); // a company story in between
-      if (out.phase === "realized") { hits++; expect(out.effects).toEqual([]); expect(out.breaking).toBe(true); } // Wire-only marks; 04 scheduler owns crisis prices
+      if (out.phase === "realized") { hits++; expect(out.effects.length).toBeGreaterThan(0); expect(out.breaking).toBe(true); }
       else { eased++; expect(out.phase).toBe("eased"); expect(out.effects).toEqual([]); }
       seen.add(s.crisis!);
     }
@@ -116,7 +116,7 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
         expect((item!.effects ?? []).map((e) => e.assetId)).toEqual(def.effects.map((e) => e.assetId));
         for (const e of def.effects) {
           const from = minor(ref.body("ticker:wl_default") as TickerBody, e.assetId); // the walk's price at this tick
-          const r = ref.applyShock(e.assetId, e.bp)!;
+          const r = ref.applyShock(e.assetId, e.bp, def.crisis ? DEMO_CRISIS_HALF_LIFE_DAYS : undefined)!;
           expect(r).toEqual({ from, to: shockedMinor(from, e.bp) });
           const got = item!.effects!.find((x) => x.assetId === e.assetId)!;
           const dp = ASSET_BY_ID[e.assetId]!.displayDecimals;
@@ -128,7 +128,7 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
       expect(w.items.length).toBe(published); // one item per story tick, never two
     }
     expect(published).toBe(32);
-    expect(market.wire().items.filter((i) => i.effects?.length).length).toBe(16); // company stories only; demo crises Wire-only
+    expect(market.wire().items.filter((i) => i.effects?.length).length).toBeGreaterThan(16);
   });
 
   it("same seed replays the same stories and prices (a restart is a new epoch with the same replay)", () => {

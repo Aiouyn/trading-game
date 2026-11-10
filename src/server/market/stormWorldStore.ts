@@ -67,6 +67,7 @@ export function cloneStormWorld(s: StormWorldSnapshot): StormWorldSnapshot {
       lastHour: s.world.lastHour, lastDay: s.world.lastDay,
     } : s.world === null ? null : undefined,
     crises: s.crises ? cloneCrises(s.crises) : s.crises === null ? null : undefined,
+    shockResidual: s.shockResidual ? s.shockResidual.map((r) => ({ ...r })) : s.shockResidual === null ? null : undefined,
   };
 }
 
@@ -143,7 +144,24 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     stockApplied,
     world: normalizeWorld(o.world),
     crises: normalizeCrises(o.crises),
+    shockResidual: normalizeResidual(o.shockResidual),
   };
+}
+
+function normalizeResidual(raw: unknown): StormWorldSnapshot["shockResidual"] {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!Array.isArray(raw)) return [];
+  const out: { assetId: string; log: number; k: number }[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const o = row as Record<string, unknown>;
+    if (typeof o.assetId !== "string") continue;
+    if (typeof o.log !== "number" || !Number.isFinite(o.log)) continue;
+    if (typeof o.k !== "number" || !Number.isFinite(o.k) || !(o.k > 0)) continue;
+    out.push({ assetId: o.assetId, log: o.log, k: o.k });
+  }
+  return out;
 }
 
 function isMajorKind(x: unknown): x is MajorKindV1 {

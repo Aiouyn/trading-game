@@ -6,6 +6,7 @@ import { POST as register } from "@/app/api/auth/register/route";
 import { GET as me } from "@/app/api/auth/me/route";
 import { ASSETS } from "@/market/catalog";
 import { storyAt } from "@/market/wireStories";
+import { DEMO_CRISIS_HALF_LIFE_DAYS } from "@/server/market/shockFeed";
 import { parseMarketSnapshot } from "@/market/quoteSnapshot";
 import { settingsStrings } from "@/apps/settings/strings";
 import {
@@ -60,11 +61,30 @@ describe("M1-05 authoritative live ticks", () => {
       expect(Object.keys(snap.quotes.rows).sort()).toEqual(ASSETS.map((a) => a.assetId).sort());
       expect(snap.quotes).toEqual(feed.body("ticker:wl_default"));
       expect(parseMarketSnapshot(snap)).toEqual(snap);
-      // Golden legacy-seed17.json is pre-κ / pre-decay; server==ref below is the live oracle after market-calibration delta.
-      void legacyTape; void step;
+      const golden = legacyTape.find((sample) => sample.tick === step);
+      // legacy-seed17.json is the MockFeed (no ERP) tape, shared with m1-04. Intended ERP (t125s460) diffs vs that tape:
+      //   tick 3  GX last 4201.46→4201.47, chg 27.13→27.14
+      //   tick 20 GX last 4190.94→4191.01, chg 16.61→16.68
+      // tick 0 and 1 unchanged (accrual has not yet printed a minor). Unmoved non-GX fields still match the tape.
+      const erpAdjust: Record<number, Record<string, { last: string; chg: string }>> = {
+        3: { GX: { last: "4201.47", chg: "27.14" } },
+        20: { GX: { last: "4191.01", chg: "16.68" } },
+      };
+      if (golden) {
+        const rows = Object.fromEntries(Object.entries(golden.body.rows).filter(([id]) => !moved.has(id)));
+        for (const [id, patch] of Object.entries(erpAdjust[step] ?? {})) {
+          if (rows[id]) rows[id] = { ...rows[id], ...patch };
+        }
+        expect(snap.quotes.rows).toMatchObject(rows);
+      }
+      if (golden && moved.size === 0 && !erpAdjust[step]) expect(snap.quotes).toMatchObject(golden.body);
       market.step();
       feed.advance();
-      for (const e of storyAt(PORT_AVALON_MARKET_SEED, feed.tick)?.effects ?? []) { expect(feed.applyShock(e.assetId, e.bp)).not.toBeNull(); moved.add(e.assetId); }
+      for (const e of storyAt(PORT_AVALON_MARKET_SEED, feed.tick)?.effects ?? []) {
+        const st = storyAt(PORT_AVALON_MARKET_SEED, feed.tick)!;
+        expect(feed.applyShock(e.assetId, e.bp, st.crisis ? DEMO_CRISIS_HALF_LIFE_DAYS : undefined)).not.toBeNull();
+        moved.add(e.assetId);
+      }
     }
     expect(moved.size).toBeGreaterThan(0); // stories did move prices inside the window
     expect(moved.size).toBeLessThan(ASSETS.length); // and the tape is still checked for the rest

@@ -26,10 +26,28 @@ export const MARKET_FACTOR_ASSET = "GX";
 /** A story's effect on a price in minor units: integer, at least 1 (as the quote walk). */
 export const shockedMinor = (last: number, bp: number): number => Math.max(1, Math.round((last * (10_000 + bp)) / 10_000));
 
-/** 06 §3.21 equity large-cap κ half-life (game days). Catalog `base` is the V1 lnF stand-in. */
-export const EQUITY_KAPPA_HALF_LIFE_DAYS = 20;
 /** 04:1031 RATE_SCARE "decays 30 d" — default storm residual half-life when a kind has no tighter schedule. */
 export const DEFAULT_SHOCK_HALF_LIFE_DAYS = 30;
+/**
+ * M1-09 demo Wire crisis residual half-life (game days) = 60 ticks.
+ * Cite 04:1033 decay; timescale matches 04:1031 LIQUIDITY_HICCUP (60 ticks) / FLASH session recovery so
+ * V1-BOARD crises→prices stay visible while multi-seed index CAGR can land in 20:769 0–12%.
+ */
+export const DEMO_CRISIS_HALF_LIFE_DAYS = 60 / TICKS_PER_DAY;
+
+/**
+ * Owner-approved long-run upward drift (card t125s460, 2026-11-10 11:02 Europe/Paris):
+ * "like real life: the market should grow over time and recover after crashes, even with crises".
+ * Equity-risk-premium style: constant annual log drift on catalog equity+index marks (not listed memes).
+ * Deterministic (no extra RNG). Session year = SESSION_DAYS_PER_YEAR (260). Recovery after crashes is 04:1033 residual unwind.
+ * Chosen 0.16 after n=60 premise: events-on median without drift −11.611%; analytical lift → +3.73% in 0–12% (20:769).
+ */
+export const EQUITY_ERP_LOG_ANNUAL = 0.16;
+
+/** Per-tick log ERP: μ / (720 · 260). */
+export function equityErpTickLog(): number {
+  return EQUITY_ERP_LOG_ANNUAL / (TICKS_PER_DAY * SESSION_DAYS_PER_YEAR);
+}
 
 /** Per-tick decay / κ coefficient: k = 1 − 2^(−1/(hlDays·TICKS_PER_DAY)). */
 export function halfLifeK(hlDays: number): number {
@@ -81,6 +99,8 @@ export class ShockFeed extends MockFeed {
   readonly storms = new StormScheduler();
   /** Remaining log-gap from decaying applyShock moves (04:1033). Unwound each advance tick. */
   private readonly shockResidual = new Map<string, { log: number; k: number }>();
+  /** Unused equity-ERP log (per asset) so per-tick μ is not lost to minor-unit rounding. */
+  private readonly erpAccrued = new Map<string, number>();
 
   /** L4: give a def the catalog just appended its quote state at its listing price and its meme-template path, at hype
    *  `hype` (a fresh listing: H₀; a relist after a restart: the saved H). Idempotent. */
@@ -204,14 +224,38 @@ export class ShockFeed extends MockFeed {
     this.storms.observe(this.tick);
     const zCrypto = this.cryptoFactor.normal();
     const zMarket = gx && gxDef && gxDef.volBp > 0 && gxFrom > 0 ? (gx.last - gxFrom) / gxFrom / (gxDef.volBp / 10_000 / Math.sqrt(3)) : 0;
-    // 04:1033 residual unwind, then 05:274 A_N = −k(lnP−lnF) / 06 §3.21 equity κ HL=20 toward catalog base.
+    // 04:1033 residual unwind only. No catalog-base κ: 05:274 is lnV→lnF, not lnP→listing base (GK 05146978).
     this.unwindShockResiduals();
-    this.pullTowardAnchor();
+    this.applyEquityErp();
     for (const [id, m] of this.memes) {
       const s = this.assets.get(id);
       if (!s || this.tradingState(id) !== "CONTINUOUS") continue;
       const to = m.step(zMarket, zCrypto, this.pathInputs(id));
       s.dir = to > s.last ? 1 : to < s.last ? -1 : 0;
+      s.last = to;
+    }
+  }
+
+  /**
+   * Owner card t125s460 (2026-11-10 11:02 Europe/Paris): "like real life: the market should grow over time and recover after crashes, even with crises".
+   * Apply the constant equity-risk-premium log drift for `ticks` (default 1) to catalog equity+index marks.
+   */
+  private applyEquityErp(ticks = 1): void {
+    if (!(ticks > 0) || !(EQUITY_ERP_LOG_ANNUAL > 0)) return;
+    const add = equityErpTickLog() * ticks;
+    if (add === 0) return;
+    for (const [id, s] of this.assets) {
+      const def = ASSET_BY_ID[id];
+      if (!def || (def.class !== "equity" && def.class !== "index")) continue;
+      if (this.memes.has(id)) continue;
+      if (!s || this.tradingState(id) !== "CONTINUOUS" || !(s.last > 0)) continue;
+      const from = s.last;
+      const acc = (this.erpAccrued.get(id) ?? 0) + add;
+      const to = Math.max(1, Math.round(from * Math.exp(acc)));
+      // Keep the unused log so per-tick μ (≪ 1 minor) still compounds (GX would otherwise round away every tick).
+      this.erpAccrued.set(id, acc - (to !== from ? Math.log(to / from) : 0));
+      if (to === from) continue;
+      s.dir = to > from ? 1 : to < from ? -1 : s.dir;
       s.last = to;
     }
   }
@@ -234,18 +278,18 @@ export class ShockFeed extends MockFeed {
     }
   }
 
-  /** 05 §3.3.1 / 06 §3.21: pull equity + index marks toward catalog base (V1 lnF) with κ HL=20 GD. */
-  private pullTowardAnchor(): void {
-    const k = halfLifeK(EQUITY_KAPPA_HALF_LIFE_DAYS);
-    for (const [id, s] of this.assets) {
-      const def = ASSET_BY_ID[id];
-      if (!def || (def.class !== "equity" && def.class !== "index")) continue;
-      if (this.tradingState(id) !== "CONTINUOUS" || !(s.last > 0) || !(def.base > 0)) continue;
-      const lnP = Math.log(s.last), lnF = Math.log(def.base);
-      const to = Math.max(1, Math.round(Math.exp(lnP - k * (lnP - lnF))));
-      s.dir = to > s.last ? 1 : to < s.last ? -1 : s.dir;
-      s.last = to;
-    }
+  /** One-tick residual unwind + ERP, no walk — the tick-by-tick primitive for catchUpDecay. */
+  advanceDecay(): void {
+    this.unwindShockResiduals();
+    this.applyEquityErp();
+  }
+
+  /**
+   * Multi-day residual + ERP jump (no walk, no stories). Same per-tick primitive as advanceDecay,
+   * so jump ≡ tick-by-tick bit-for-bit (rounding included).
+   */
+  catchUpDecay(n: number): void {
+    for (let i = 0; i < n; i++) this.advanceDecay();
   }
 
   /** L4: a committed book fill's permanent impact on a listed coin's mark (log move). Returns the new mark, or null when
@@ -261,8 +305,8 @@ export class ShockFeed extends MockFeed {
 
   /** Move one asset's price by a story/storm effect at the current tick, after this tick's walk step. Returns the price
    *  before and after in minor units, or null for an unknown or non-trading asset. When `halfLifeDays` is set
-   *  (04 scheduler shocks), the log-move is registered as a residual that unwinds per 04:1033; omit it for company
-   *  NEWS/RUMOR story effects (fundamental-ish; κ to catalog base is the V1 recovery). */
+   *  (04 scheduler / M1-09 demo crises), the log-move is registered as a residual that unwinds per 04:1033; omit it
+   *  for company NEWS/RUMOR (fundamental-ish permanent print). */
   applyShock(assetId: string, bp: number, halfLifeDays?: number): { from: number; to: number } | null {
     const s = this.assets.get(assetId);
     if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
@@ -278,6 +322,30 @@ export class ShockFeed extends MockFeed {
       this.shockResidual.set(assetId, { log, k: prev ? Math.max(prev.k, k) : k });
     }
     return { from, to };
+  }
+
+  /** Durable residual rows for StormWorldSnapshot (04:1033 mid-decay restart). */
+  residualSnapshot(): ReadonlyArray<{ assetId: string; log: number; k: number }> {
+    return [...this.shockResidual.entries()].map(([assetId, r]) => ({ assetId, log: r.log, k: r.k }));
+  }
+
+  /** Restore residuals without re-applying stockApplied bp (restart mid-decay).
+   *  `materialize` (default true): fresh marks start at catalog base; apply remaining log-gap onto them.
+   *  Set false when marks already include the residual (continue mid-decay on a copied book). */
+  hydrateResidual(rows: ReadonlyArray<{ assetId: string; log: number; k: number }> | null | undefined, materialize = true): void {
+    this.shockResidual.clear();
+    if (!rows) return;
+    for (const r of rows) {
+      if (!r || typeof r.assetId !== "string") continue;
+      if (!Number.isFinite(r.log) || !Number.isFinite(r.k) || r.k <= 0) continue;
+      this.shockResidual.set(r.assetId, { log: r.log, k: r.k });
+      if (!materialize) continue;
+      const s = this.assets.get(r.assetId);
+      if (!s || this.tradingState(r.assetId) !== "CONTINUOUS" || !(s.last > 0) || r.log === 0) continue;
+      const to = Math.max(1, Math.round(s.last * Math.exp(r.log)));
+      s.dir = to > s.last ? 1 : to < s.last ? -1 : s.dir;
+      s.last = to;
+    }
   }
 
   takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
