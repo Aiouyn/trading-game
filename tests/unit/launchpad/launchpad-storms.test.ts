@@ -297,6 +297,7 @@ describe("durable stock shocks (restart == no restart)", () => {
       const mid = {
         avb: a.snapshot().quotes.rows.AVB!.last,
         residual: a.stormSnapshot().shockResidual,
+        erp: a.stormSnapshot().erpAccrued,
         peek: a.stormSnapshot().active,
         stockApplied: a.stormSnapshot().stockApplied,
       };
@@ -308,6 +309,7 @@ describe("durable stock shocks (restart == no restart)", () => {
       const b = new LiveMarket({ tickMs: 60_000, stormWorld: store2 });
       expect(b.stormSnapshot().active?.id).toBe(mid.peek!.id);
       expect(b.stormSnapshot().shockResidual).toEqual(mid.residual);
+      expect(b.stormSnapshot().erpAccrued).toEqual(mid.erp);
       // Not a full re-apply on catalog base
       for (const id of ["AVB", "TIDE", "GX"] as const) {
         const bp = mid.stockApplied[0]!.shocks.find((p) => p.assetId === id)!.bp;

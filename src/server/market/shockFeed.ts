@@ -36,11 +36,13 @@ export const DEFAULT_SHOCK_HALF_LIFE_DAYS = 30;
 export const DEMO_CRISIS_HALF_LIFE_DAYS = 60 / TICKS_PER_DAY;
 
 /**
- * Owner-approved long-run upward drift (card t125s460, 2026-11-10 11:02 Europe/Paris):
+ * Long-run upward drift. Direction from owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris (owner's selected reply):
  * "like real life: the market should grow over time and recover after crashes, even with crises".
+ * The owner approved that direction; he did not approve the 0.16 number — the size is our calibration choice.
  * Equity-risk-premium style: constant annual log drift on catalog equity+index marks (not listed memes).
  * Deterministic (no extra RNG). Session year = SESSION_DAYS_PER_YEAR (260). Recovery after crashes is 04:1033 residual unwind.
- * Chosen 0.16 after n=60 premise: events-on median without drift −11.611%; analytical lift → +3.73% in 0–12% (20:769).
+ * 0.16 was chosen so the 60 GD 60-seed median lands in 0–12%, but the long-run floor e^0.16−1 ≈ 17.35% climbs
+ * out of band at 260/520 GD. UNIT-DELTA3: no single constant satisfies both 60 GD ≥ 0 and a floor ≤ 12%.
  */
 export const EQUITY_ERP_LOG_ANNUAL = 0.16;
 
@@ -237,7 +239,9 @@ export class ShockFeed extends MockFeed {
   }
 
   /**
-   * Owner card t125s460 (2026-11-10 11:02 Europe/Paris): "like real life: the market should grow over time and recover after crashes, even with crises".
+   * Owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris (owner's selected reply):
+   * "like real life: the market should grow over time and recover after crashes, even with crises".
+   * Direction is owner-approved; the 0.16 size is our calibration choice (not an owner-approved number).
    * Apply the constant equity-risk-premium log drift for `ticks` (default 1) to catalog equity+index marks.
    */
   private applyEquityErp(ticks = 1): void {
@@ -345,6 +349,22 @@ export class ShockFeed extends MockFeed {
       const to = Math.max(1, Math.round(s.last * Math.exp(r.log)));
       s.dir = to > s.last ? 1 : to < s.last ? -1 : s.dir;
       s.last = to;
+    }
+  }
+
+  /** Durable unused ERP log rows for StormWorldSnapshot (restart mid-accrual). */
+  erpSnapshot(): ReadonlyArray<{ assetId: string; log: number }> {
+    return [...this.erpAccrued.entries()].map(([assetId, log]) => ({ assetId, log }));
+  }
+
+  /** Restore unused ERP log without changing marks (the leftover has not printed yet). */
+  hydrateErp(rows: ReadonlyArray<{ assetId: string; log: number }> | null | undefined): void {
+    this.erpAccrued.clear();
+    if (!rows) return;
+    for (const r of rows) {
+      if (!r || typeof r.assetId !== "string") continue;
+      if (!Number.isFinite(r.log)) continue;
+      this.erpAccrued.set(r.assetId, r.log);
     }
   }
 

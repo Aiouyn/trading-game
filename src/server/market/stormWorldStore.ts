@@ -68,6 +68,7 @@ export function cloneStormWorld(s: StormWorldSnapshot): StormWorldSnapshot {
     } : s.world === null ? null : undefined,
     crises: s.crises ? cloneCrises(s.crises) : s.crises === null ? null : undefined,
     shockResidual: s.shockResidual ? s.shockResidual.map((r) => ({ ...r })) : s.shockResidual === null ? null : undefined,
+    erpAccrued: s.erpAccrued ? s.erpAccrued.map((r) => ({ ...r })) : s.erpAccrued === null ? null : undefined,
   };
 }
 
@@ -145,6 +146,7 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     world: normalizeWorld(o.world),
     crises: normalizeCrises(o.crises),
     shockResidual: normalizeResidual(o.shockResidual),
+    erpAccrued: normalizeErpAccrued(o.erpAccrued),
   };
 }
 
@@ -160,6 +162,21 @@ function normalizeResidual(raw: unknown): StormWorldSnapshot["shockResidual"] {
     if (typeof o.log !== "number" || !Number.isFinite(o.log)) continue;
     if (typeof o.k !== "number" || !Number.isFinite(o.k) || !(o.k > 0)) continue;
     out.push({ assetId: o.assetId, log: o.log, k: o.k });
+  }
+  return out;
+}
+
+function normalizeErpAccrued(raw: unknown): StormWorldSnapshot["erpAccrued"] {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!Array.isArray(raw)) return [];
+  const out: { assetId: string; log: number }[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const o = row as Record<string, unknown>;
+    if (typeof o.assetId !== "string") continue;
+    if (typeof o.log !== "number" || !Number.isFinite(o.log)) continue;
+    out.push({ assetId: o.assetId, log: o.log });
   }
   return out;
 }

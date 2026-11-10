@@ -245,7 +245,7 @@ export function runCalibration(opts: {
     status: cagrInBand ? "PASS" : "MISS",
     note: `n=${nCagrSeeds} seeds × ${liveDays} GD; median maxDD=${medDd.toFixed(2)}%; `
       + (cagrInBand
-        ? "demo Wire crises + DEMO_CRISIS_HALF_LIFE (60 ticks) decay + owner-approved EQUITY_ERP_LOG_ANNUAL=0.16 (t125s460); catalog-base κ removed"
+        ? "demo Wire crises + DEMO_CRISIS_HALF_LIFE (60 ticks) decay + EQUITY_ERP_LOG_ANNUAL=0.16 (calibration choice; direction from owner card answer to t125s460); catalog-base κ removed"
         : "out of band after visible transient crises + owner-approved ERP — stop and report"),
   });
 
@@ -386,6 +386,6 @@ export function runCalibration(opts: {
     days,
     seeds: cagrSeedList,
     gxPaths,
-    digestNote: "Stock path: restored demo crisis effects with session residual decay; owner-approved equity ERP (t125s460); catalog-base κ removed; residual persisted. Re-run digest4000 and disclose.",
+    digestNote: "Stock path: restored demo crisis effects with session residual decay; equity ERP 0.16 (calibration choice; direction from owner card answer to t125s460); catalog-base κ removed; residual+erpAccrued persisted. Re-run digest4000 and disclose.",
   };
 }

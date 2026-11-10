@@ -92,6 +92,8 @@ export interface StormWorldSnapshot {
   readonly crises?: CrisisBookkeeping | null;
   /** Mid-decay applyShock residuals (04:1033). Absent on older files → re-apply full stockApplied then decay. */
   readonly shockResidual?: ReadonlyArray<{ readonly assetId: string; readonly log: number; readonly k: number }> | null;
+  /** Unused per-asset equity-ERP log so per-tick μ survives minor rounding. Absent on older files → start at 0. */
+  readonly erpAccrued?: ReadonlyArray<{ readonly assetId: string; readonly log: number }> | null;
 }
 
 const pFromRate = (r: number) => 1 - Math.exp(-r);
@@ -168,7 +170,7 @@ export function stormStockShocks(kind: StormKind, severity: number, sectorIndex:
 }
 
 export function emptyStormWorld(): StormWorldSnapshot {
-  return { active: null, lastEndTick: null, lastDayClose: null, lastTick: null, depth: null, stockApplied: [], world: null, crises: emptyCrisisBookkeeping(), shockResidual: [] };
+  return { active: null, lastEndTick: null, lastDayClose: null, lastTick: null, depth: null, stockApplied: [], world: null, crises: emptyCrisisBookkeeping(), shockResidual: [], erpAccrued: [] };
 }
 
 /**

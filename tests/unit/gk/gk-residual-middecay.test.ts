@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ASSET_BY_ID } from "@/market/catalog";
+import { ASSET_BY_ID, ASSETS } from "@/market/catalog";
 import { DEMO_CRISIS_HALF_LIFE_DAYS, ShockFeed, halfLifeK, shockedMinor } from "@/server/market/shockFeed";
 import { TICKS_PER_DAY } from "@/server/market/meme";
 import { MemoryStormWorldStore } from "@/server/market/stormWorldStore";
@@ -19,7 +19,9 @@ describe("GK residual mid-decay durability", () => {
     for (let i = 0; i < 10 * TICKS_PER_DAY; i++) a.step();
     const decayed = Number(a.snapshot().quotes.rows.AVB!.last);
     const residual = a.stormSnapshot().shockResidual ?? [];
+    const erp = a.stormSnapshot().erpAccrued ?? [];
     expect(residual.length).toBeGreaterThan(0);
+    expect(erp.length).toBeGreaterThan(0);
 
     const b = new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true });
     const restored = Number(b.snapshot().quotes.rows.AVB!.last);
@@ -27,12 +29,14 @@ describe("GK residual mid-decay durability", () => {
     const fullOnBase = shockedMinor(ASSET_BY_ID.AVB!.base, bp) / 10 ** ASSET_BY_ID.AVB!.displayDecimals;
     // eslint-disable-next-line no-console
     console.log("GK_RES_MID", JSON.stringify({
-      after, decayed, restored, fullOnBase, residualN: residual.length,
+      after, decayed, restored, fullOnBase, residualN: residual.length, erpN: erp.length,
       residualRestored: b.stormSnapshot().shockResidual,
+      erpRestored: b.stormSnapshot().erpAccrued,
       demoHL: DEMO_CRISIS_HALF_LIFE_DAYS, k30: halfLifeK(30),
     }));
     expect(Math.abs(decayed - after)).toBeGreaterThan(0);
     expect(b.stormSnapshot().shockResidual).toEqual(residual);
+    expect(b.stormSnapshot().erpAccrued).toEqual(erp);
     expect(Math.abs(restored - fullOnBase)).toBeGreaterThan(0.5);
   });
 
@@ -42,20 +46,28 @@ describe("GK residual mid-decay durability", () => {
     for (let i = 0; i < 200; i++) a.advanceDecay();
     const midLast = lastOf(a);
     const midRes = a.residualSnapshot();
+    const midErp = a.erpSnapshot();
+    const midMinors = new Map([...a.assets].map(([id, s]) => [id, s.last]));
     expect(midRes.length).toBeGreaterThan(0);
+    expect(midErp.length).toBeGreaterThan(0);
 
     // Continue on A
     for (let i = 0; i < 500; i++) a.advanceDecay();
 
-    // Restart: fresh feed, copy mid-decay last, hydrate residual without rematerializing
+    // Restart: fresh feed, copy mid-decay last for every catalog name, hydrate residual (no rematerialize) + ERP leftover
     const b = new ShockFeed({ seed: 17, empty: true }, { autoStart: false });
-    const s = b.assets.get("AVB")!;
-    s.last = Math.round(midLast * 10 ** ASSET_BY_ID.AVB!.displayDecimals);
+    for (const def of ASSETS) {
+      const dst = b.assets.get(def.assetId), mid = midMinors.get(def.assetId);
+      if (dst && mid != null) dst.last = mid;
+    }
     b.hydrateResidual(midRes, false);
+    b.hydrateErp(midErp);
     expect(lastOf(b)).toBe(midLast);
     expect(b.residualSnapshot()).toEqual(midRes);
+    expect(b.erpSnapshot()).toEqual(midErp);
     for (let i = 0; i < 500; i++) b.advanceDecay();
     expect(b.residualSnapshot()).toEqual(a.residualSnapshot());
+    expect(b.erpSnapshot()).toEqual(a.erpSnapshot());
     expect(lastOf(b)).toBe(lastOf(a));
   });
 
@@ -74,6 +86,17 @@ describe("GK residual mid-decay durability", () => {
     // eslint-disable-next-line no-console
     console.log("GK_RES_JUMP", JSON.stringify({ n, tickLast, jumpLast, dLast: jumpLast - tickLast, tickRes, jumpRes }));
     expect(jumpRes).toEqual(tickRes);
+    expect(jump.erpSnapshot()).toEqual(tick.erpSnapshot());
     expect(jumpLast).toBe(tickLast);
+  });
+
+  it("LiveMarket restart restores erpAccrued (atomic with residual)", () => {
+    const store = new MemoryStormWorldStore();
+    const a = new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true });
+    for (let i = 0; i < 400; i++) a.step(); // accrue unused ERP log
+    const midErp = a.stormSnapshot().erpAccrued ?? [];
+    expect(midErp.length).toBeGreaterThan(0);
+    const b = new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true });
+    expect(b.stormSnapshot().erpAccrued).toEqual(midErp);
   });
 });

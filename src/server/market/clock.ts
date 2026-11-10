@@ -89,6 +89,8 @@ export class LiveMarket {
         this.stockAppliedThisEpoch.add(row.stormId);
       }
     }
+    // ERP leftover is independent of residual; older snapshots without erpAccrued start at 0.
+    this.feed.hydrateErp(snap.erpAccrued);
   }
 
   private saveStormWorld(): void {
@@ -97,6 +99,7 @@ export class LiveMarket {
       ...this.feed.storms.snapshot(),
       world: this.feed.world.snapshot(),
       shockResidual: this.feed.residualSnapshot(),
+      erpAccrued: this.feed.erpSnapshot(),
     });
   }
 
@@ -336,7 +339,7 @@ export class LiveMarket {
   }
 
   /** Durable storm snapshot (tests / restart proof). */
-  stormSnapshot() { return { ...this.feed.storms.snapshot(), shockResidual: this.feed.residualSnapshot() }; }
+  stormSnapshot() { return { ...this.feed.storms.snapshot(), shockResidual: this.feed.residualSnapshot(), erpAccrued: this.feed.erpSnapshot() }; }
 
   /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
   poolInputs(assetId: string): PoolInputs | null {

@@ -62,7 +62,8 @@ describe("M1-05 authoritative live ticks", () => {
       expect(snap.quotes).toEqual(feed.body("ticker:wl_default"));
       expect(parseMarketSnapshot(snap)).toEqual(snap);
       const golden = legacyTape.find((sample) => sample.tick === step);
-      // legacy-seed17.json is the MockFeed (no ERP) tape, shared with m1-04. Intended ERP (t125s460) diffs vs that tape:
+      // legacy-seed17.json is the MockFeed (no ERP) tape, shared with m1-04. Intended ERP diffs vs that tape
+      // (calibration size 0.16; direction from owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris):
       //   tick 3  GX last 4201.46→4201.47, chg 27.13→27.14
       //   tick 20 GX last 4190.94→4191.01, chg 16.61→16.68
       // tick 0 and 1 unchanged (accrual has not yet printed a minor). Unmoved non-GX fields still match the tape.
