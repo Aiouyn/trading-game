@@ -63,13 +63,13 @@ describe("M1-05 authoritative live ticks", () => {
       expect(parseMarketSnapshot(snap)).toEqual(snap);
       const golden = legacyTape.find((sample) => sample.tick === step);
       // legacy-seed17.json is the MockFeed (no ERP) tape, shared with m1-04. Intended ERP diffs vs that tape
-      // (calibration size 0.16; direction from owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris):
+      // (calibration size 0.10; direction from owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris):
       //   tick 3  GX last 4201.46→4201.47, chg 27.13→27.14
-      //   tick 20 GX last 4190.94→4191.01, chg 16.61→16.68
+      //   tick 20 GX last 4190.94→4190.98, chg 16.61→16.65
       // tick 0 and 1 unchanged (accrual has not yet printed a minor). Unmoved non-GX fields still match the tape.
       const erpAdjust: Record<number, Record<string, { last: string; chg: string }>> = {
         3: { GX: { last: "4201.47", chg: "27.14" } },
-        20: { GX: { last: "4191.01", chg: "16.68" } },
+        20: { GX: { last: "4190.98", chg: "16.65" } },
       };
       if (golden) {
         const rows = Object.fromEntries(Object.entries(golden.body.rows).filter(([id]) => !moved.has(id)));

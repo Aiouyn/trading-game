@@ -38,13 +38,13 @@ export const DEMO_CRISIS_HALF_LIFE_DAYS = 60 / TICKS_PER_DAY;
 /**
  * Long-run upward drift. Direction from owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris (owner's selected reply):
  * "like real life: the market should grow over time and recover after crashes, even with crises".
- * The owner approved that direction; he did not approve the 0.16 number — the size is our calibration choice.
+ * The owner approved that direction; he did not approve the number — the size is our calibration choice.
  * Equity-risk-premium style: constant annual log drift on catalog equity+index marks (not listed memes).
  * Deterministic (no extra RNG). Session year = SESSION_DAYS_PER_YEAR (260). Recovery after crashes is 04:1033 residual unwind.
- * 0.16 was chosen so the 60 GD 60-seed median lands in 0–12%, but the long-run floor e^0.16−1 ≈ 17.35% climbs
- * out of band at 260/520 GD. UNIT-DELTA3: no single constant satisfies both 60 GD ≥ 0 and a floor ≤ 12%.
+ * EQUITY_ERP_LOG_ANNUAL = 0.10 so the long-run floor e^0.10−1 ≈ 10.52% stays under 12% (20:769 is an annual
+ * band; Gatekeeper gates 260 GD in 0–12% and 520 GD not climbing). 60/120 GD annualized figures are short-horizon disclosures.
  */
-export const EQUITY_ERP_LOG_ANNUAL = 0.16;
+export const EQUITY_ERP_LOG_ANNUAL = 0.10;
 
 /** Per-tick log ERP: μ / (720 · 260). */
 export function equityErpTickLog(): number {
@@ -241,7 +241,7 @@ export class ShockFeed extends MockFeed {
   /**
    * Owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris (owner's selected reply):
    * "like real life: the market should grow over time and recover after crashes, even with crises".
-   * Direction is owner-approved; the 0.16 size is our calibration choice (not an owner-approved number).
+   * Direction is owner-approved; the 0.10 size is our calibration choice (not an owner-approved number).
    * Apply the constant equity-risk-premium log drift for `ticks` (default 1) to catalog equity+index marks.
    */
   private applyEquityErp(ticks = 1): void {

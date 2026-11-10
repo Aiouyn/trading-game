@@ -244,9 +244,10 @@ export function runCalibration(opts: {
     target: "0–12% (20:769 median over seeds)",
     status: cagrInBand ? "PASS" : "MISS",
     note: `n=${nCagrSeeds} seeds × ${liveDays} GD; median maxDD=${medDd.toFixed(2)}%; `
-      + (cagrInBand
-        ? "demo Wire crises + DEMO_CRISIS_HALF_LIFE (60 ticks) decay + EQUITY_ERP_LOG_ANNUAL=0.16 (calibration choice; direction from owner card answer to t125s460); catalog-base κ removed"
-        : "out of band after visible transient crises + owner-approved ERP — stop and report"),
+      + "60 GD is a short-horizon disclosure (20:769 is an annual band; gate is 260/520 GD). "
+      + "EQUITY_ERP_LOG_ANNUAL=0.10 (calibration choice; direction from owner card answer to t125s460); "
+      + "demo Wire crises + DEMO_CRISIS_HALF_LIFE (60 ticks) decay; catalog-base κ removed"
+      + (cagrInBand ? "" : " — 60 GD median outside 0–12% (disclosed, not a stop)"),
   });
 
   // Single-seed meme smoke (events on) for vol_ratio REPORT vs calm band
@@ -386,6 +387,6 @@ export function runCalibration(opts: {
     days,
     seeds: cagrSeedList,
     gxPaths,
-    digestNote: "Stock path: restored demo crisis effects with session residual decay; equity ERP 0.16 (calibration choice; direction from owner card answer to t125s460); catalog-base κ removed; residual+erpAccrued persisted. Re-run digest4000 and disclose.",
+    digestNote: "Stock path: equity ERP 0.10 (calibration choice; direction from owner card answer to t125s460); floor e^0.10-1≈10.52%. Re-run digest4000 and disclose.",
   };
 }
