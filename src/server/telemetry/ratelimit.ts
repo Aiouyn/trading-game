@@ -11,7 +11,11 @@ const hits = new Map<string, number[]>();
 let limits: Record<string, Limit> = { ...DEFAULTS };
 
 export function setTelemetryLimits(next: Partial<Record<string, Limit>>): void {
-  limits = { ...limits, ...next };
+  const merged: Record<string, Limit> = { ...limits };
+  for (const [k, v] of Object.entries(next)) {
+    if (v) merged[k] = v;
+  }
+  limits = merged;
 }
 
 export function resetTelemetryLimits(): void {

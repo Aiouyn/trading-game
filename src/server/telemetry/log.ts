@@ -25,8 +25,8 @@ async function appendLine(file: string, row: unknown): Promise<void> {
   if (!dir) return;
   const line = JSON.stringify(row) + "\n";
   const next = chain.then(async () => {
-    await mkdir(dir, { recursive: true });
-    await appendFile(path.join(dir, file), line, "utf8");
+    await mkdir(/* turbopackIgnore: true */ dir, { recursive: true });
+    await appendFile(path.join(/* turbopackIgnore: true */ dir, file), line, "utf8");
   });
   chain = next.catch(() => {});
   await next;
@@ -84,7 +84,7 @@ export async function isOptedOut(anonId: string): Promise<boolean> {
     const dir = telemetryDir();
     if (dir) {
       try {
-        const raw = await readFile(path.join(dir, "optout.jsonl"), "utf8");
+        const raw = await readFile(path.join(/* turbopackIgnore: true */ dir, "optout.jsonl"), "utf8");
         for (const line of raw.split("\n")) {
           if (!line.trim()) continue;
           try {
