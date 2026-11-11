@@ -22,7 +22,8 @@ async function openWire(page: Page) {
 async function postStatement(page: Page, text: string, asset = "HALC") {
   const composer = page.getByTestId("wire-composer");
   await expect(composer).toBeVisible();
-  if (!(await composer.getAttribute("open") ?? "")) await page.getByTestId("wire-composer-toggle").click();
+  const isOpen = await composer.evaluate((el) => (el as HTMLDetailsElement).open);
+  if (!isOpen) await page.getByTestId("wire-composer-toggle").click();
   await expect(page.getByTestId("wire-composer-form")).toBeVisible();
   const chip = page.getByTestId(`wire-composer-asset-${asset}`);
   if ((await chip.getAttribute("aria-pressed")) !== "true") await chip.click();

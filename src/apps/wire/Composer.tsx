@@ -16,7 +16,6 @@ function newKey(): string {
 
 export function Composer({ t }: { t: WireStrings }) {
   const c = t.composer;
-  const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [assets, setAssets] = useState<string[]>(["HALC"]);
   const [busy, setBusy] = useState(false);
@@ -68,7 +67,7 @@ export function Composer({ t }: { t: WireStrings }) {
   };
 
   return (
-    <details className="wire-composer" data-testid="wire-composer" open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+    <details className="wire-composer" data-testid="wire-composer">
       <summary className="wire-composer-summary wire-hit" data-testid="wire-composer-toggle">{c.summary}</summary>
       <form className="wire-composer-form" data-testid="wire-composer-form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <label className="wire-composer-label" htmlFor="wire-composer-text">{c.textLabel}</label>
