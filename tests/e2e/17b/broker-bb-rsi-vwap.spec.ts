@@ -103,6 +103,7 @@ async function closeBrokers(page: Page) {
   const w = page.getByTestId("win-broker");
   for (let i = 0; i < 6 && (await w.count()) > 0; i++) await w.first().getByTestId("win-close").press("Enter");
   await expect(w).toHaveCount(0);
+  await flush(page);
 }
 async function range(page: Page, c: Locator, r: string) {
   await c.getByTestId("br-chart-ranges").locator(`[data-range="${r}"]`).click();
