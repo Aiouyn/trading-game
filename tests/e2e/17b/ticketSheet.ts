@@ -4,7 +4,13 @@ export async function openPhoneTicket(broker: Locator) {
   const trade = broker.getByTestId("br-trade");
   if (await trade.count() && await trade.getAttribute("aria-expanded") === "false") {
     await trade.click();
-    await expect(broker.getByTestId("br-sheet")).toBeVisible();
+    const sheet = broker.getByTestId("br-sheet");
+    await expect(sheet).toBeVisible();
+    await sheet.evaluate((el) => {
+      for (const animation of el.getAnimations()) {
+        if (animation instanceof CSSAnimation && animation.animationName === "sheet-up") animation.finish();
+      }
+    });
   }
 }
 
