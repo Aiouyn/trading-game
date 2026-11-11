@@ -11,8 +11,11 @@ import { POST as cancelRoute } from "@/app/api/broker/orders/cancel/route";
 import * as meRoute from "@/app/api/broker/me/route";
 import type { BrokerIntentReply, BrokerLedgerView } from "@/market/brokerLedger";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
-import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, START_CASH_CENTS } from "@/server/auth";
+import { AuthError, AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, START_CASH_CENTS } from "@/server/auth";
+import type { AccountId } from "@/server/auth/types";
 import { BrokerService, setBrokerForTests } from "@/server/broker";
+import { decidePlace, type IdSource, type ServerQuote } from "@/server/broker/execution";
+import { MAX_IDEMPOTENCY, buildPlayerPrivate } from "@/server/player/privateState";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import type { OrderDraft } from "@/shell/contracts/channels";
 import { exchangeFeeMinor, fmt, MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
@@ -461,6 +464,31 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     expect(disk.players[0]!.intents).toHaveLength(50);
     expect(disk.players[0]!.idempotency).toHaveLength(51);
     expect(traded.mock.calls.filter((c) => c[0] === "first_trade")).toHaveLength(1);
+  });
+
+  it("a full idempotency journal fails closed with IDEMPOTENCY_JOURNAL_FULL and does not execute", () => {
+    const rec = buildPlayerPrivate(`acc_${"b".repeat(32)}` as AccountId, {
+      cashCents: START_CASH_CENTS,
+      positions: {},
+      openOrders: {},
+      idempotency: Array.from({ length: MAX_IDEMPOTENCY }, (_, i) => ({
+        key: `full${String(i).padStart(4, "0")}`,
+        fingerprint: '["place","HALC","BUY","market","1",null,null,"day"]',
+        result: { intentId: `i_full${i}`, tick: 1, status: "REJECTED" as const, rejectCode: "MKT_BAD_QTY" },
+      })),
+    });
+    const quote: ServerQuote = { tick: market.snapshot().tick, last: (id) => (id === "HALC" ? market.last("HALC") : null), tradable: () => true };
+    const ids: IdSource = { next: (kind) => `${kind}_full` };
+    try {
+      decidePlace(rec, "newkey01", mkt("HALC", "BUY", "1"), quote, ids);
+      throw new Error("expected IDEMPOTENCY_JOURNAL_FULL");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AuthError);
+      expect(err).toMatchObject({ code: "IDEMPOTENCY_JOURNAL_FULL", status: 503, message: "Idempotency journal is full." });
+    }
+    expect(rec.cashCents).toBe(START_CASH_CENTS);
+    expect(rec.openOrders).toEqual({});
+    expect(rec.fills ?? []).toEqual([]);
   });
 
   it("guests keep the local example Broker and never call the server door", async () => {

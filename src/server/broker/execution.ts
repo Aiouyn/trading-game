@@ -116,7 +116,7 @@ function withIntent(base: PlayerPrivateInput, rec: PlayerPrivateRecord, intent: 
     return { ...base, fills: base.fills ?? rec.fills ?? [], intents: base.intents ?? rec.intents ?? [], idempotency: journal };
   }
   if (journal.length >= MAX_IDEMPOTENCY) {
-    throw new AuthError("BAD_REQUEST", "Idempotency journal is full.", 503);
+    throw new AuthError("IDEMPOTENCY_JOURNAL_FULL", "Idempotency journal is full.", 503);
   }
   return {
     ...base,

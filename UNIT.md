@@ -37,7 +37,7 @@ Existing same-key replay and 409 behaviour inside the 50-window stays unchanged.
 
 ## Plan
 
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
+Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key). A full journal answers **503** `IDEMPOTENCY_JOURNAL_FULL` (not `BAD_REQUEST`). Preview is a read-only dry run: it decides against a **copy** whose receipt and journal rings are empty so it cannot replay a prior key. It does not clear receipts, fills, or the journal on the stored ledger.
 
 ## Acceptance
 
