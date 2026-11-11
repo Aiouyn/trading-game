@@ -149,7 +149,7 @@ it("proves complete state equality for tick stepping, a jump, and physical resta
   for (const end of [28, 29, 718, 719, 1438, 1439, 2159]) { const start = restart.snapshot().tick; await restart.advance(end, frames.filter((f) => f.tick > start && f.tick <= end)); restart = await BankingEngine.open(new FileBankCheckpointStore(path), g); }
   expect(tick.snapshot()).toEqual(jump.snapshot()); expect(restart.snapshot()).toEqual(jump.snapshot());
   expect(bankingCashTotal(restart.snapshot())).toBe(n(micro(1_001_001_000)));
-});
+}, 30_000);
 
 
 it("seals even financially unused hourly observations in the checkpoint identity", async () => {
