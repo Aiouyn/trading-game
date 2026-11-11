@@ -44,7 +44,7 @@ it("destroys repaid principal, transfers interest, and preserves the equity-corr
 });
 it("writes off an overdue loan against equity without destroying circulated deposits", async () => {
   const { g, store, engine } = await setup();
-  await engine.advance(719, through(719, [bankFrame(0, [openDeposit("o", "business", "bankA", "SIGHT", "company"), openDeposit("other", "other", "bankB", "SIGHT", "company"), lend()]), bankFrame(1, [{ kind: "MOVE", id: "spend", actor: "company", from: "business", to: "other", amount: micro(1000) }])]));
+  await engine.advance(719, through(719, [bankFrame(0, [openDeposit("o", "business", "bankA", "SIGHT", "company"), openDeposit("other", "other", "bankB", "SIGHT", "alice"), lend()]), bankFrame(1, [{ kind: "PAY", id: "spend", actor: "company", from: "business", to: "other", amount: micro(1000) }])]));
   expect(engine.snapshot().businessLoans[0].status).toBe("OVERDUE");
   const money = bankingDepositMoney(engine.snapshot()), reserves = bankingCashTotal(engine.snapshot());
   await engine.advance(720, [bankFrame(720, [{ kind: "WRITE_OFF", id: "loss", actor: "bankA", loanId: "loan" }])]);
@@ -95,4 +95,12 @@ it("rejects and preserves custody v1 journals rather than silently reinterpretin
   await store.save(loaded.payload, loaded.revision); const bytes = await readFile(file, "utf8");
   await expect(BankingEngine.open(store, g)).rejects.toThrow("BANK_CHECKPOINT");
   expect(await readFile(file, "utf8")).toBe(bytes);
+});
+
+it("recovers repayments from the borrower's other bank before allowing a write-off", async () => {
+  const { engine, g } = await setup();
+  await engine.advance(719, through(719, [bankFrame(0, [openDeposit("o", "business", "bankA", "SIGHT", "company"), openDeposit("other", "other", "bankB", "SIGHT", "company"), lend()]), bankFrame(1, [{ kind: "MOVE", id: "move-own", actor: "company", from: "business", to: "other", amount: micro(1000) }])]));
+  expect(engine.snapshot().businessLoans[0].status).toBe("REPAID");
+  expect(engine.snapshot().deposits.find((d) => d.id === "other")!.cash).toBe(BigInt(0));
+  expect(auditBanking(decodeGenesis(g), engine.snapshot()).principalDestroyedMicro).toBe(micro(1000));
 });

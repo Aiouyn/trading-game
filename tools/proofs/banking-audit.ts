@@ -26,12 +26,18 @@ export function auditBanking(g: BankingGenesis, s: BankingState) {
   }
   check();
   for (const m of s.movements) {
-    assert(m.amount > zero); const a = m.amount, beforeM2 = sum(wallets) + sum(deposits);
+    assert(m.amount > zero);
+    if (m.kind === "CREDIT_CREATE" || m.kind === "CREDIT_DESTROY" || m.kind === "LOAN_INTEREST") {
+      const claim = s.businessLoans.find((l) => l.id === m.loanId)!;
+      assert.equal(claim.depositId, m.depositId); assert.equal(claim.lenderId, m.bankId);
+      assert.equal(g.clients.find((c) => c.id === deposit(m.depositId).holderId)!.kind, "BUSINESS");
+    }
+    const a = m.amount, beforeM2 = sum(wallets) + sum(deposits);
     const reservesBefore = new Map(reserves), walletsBefore = sum(wallets);
     switch (m.kind) {
       case "DEPOSIT": change(wallets, m.clientId, -a); change(reserves, m.bankId, a); change(deposits, m.depositId, a); break;
       case "WITHDRAW": change(wallets, m.clientId, a); change(reserves, m.bankId, -a); change(deposits, m.depositId, -a); break;
-      case "MOVE": {
+      case "MOVE": case "PAY": {
         const from = deposit(m.fromDeposit), to = deposit(m.toDeposit);
         change(deposits, from.id, -a); change(deposits, to.id, a);
         if (from.bankId !== to.bankId) { change(reserves, from.bankId, -a); change(reserves, to.bankId, a); }

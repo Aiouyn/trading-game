@@ -28,9 +28,31 @@ function reserveTransfer(s: BankingState, from: BankState, to: BankState, amount
   from.cash -= amount; to.cash += amount;
   s.movements.push({ tick: s.tick, fromBank: from.id, toBank: to.id, amount, kind });
 }
+function transferDeposits(s: BankingState, from: BankDeposit, to: BankDeposit, amount: Money, kind: "MOVE" | "PAY"): void {
+  from.cash -= amount; to.cash += amount;
+  if (from.bankId !== to.bankId) { bank(s, from.bankId).cash -= amount; bank(s, to.bankId).cash += amount; }
+  s.movements.push({ tick: s.tick, kind, fromDeposit: from.id, toDeposit: to.id, amount });
+}
+function loanFunds(s: BankingState, loan: BusinessLoan): Money {
+  const home = account(s, loan.depositId), holder = s.clients.find((c) => c.id === home.holderId)!;
+  let available = holder.cash;
+  for (const b of s.banks) {
+    const balances = s.deposits.filter((d) => d.holderId === holder.id && d.bankId === b.id).reduce((n, d) => n + d.cash, ZERO);
+    available += b.id === home.bankId ? balances : min(b.cash, balances);
+  }
+  return available;
+}
 function repay(s: BankingState, loan: BusinessLoan, budget: Money): void {
   const d = account(s, loan.depositId), b = bank(s, loan.lenderId);
-  let available = min(d.cash, budget);
+  const needed = min(budget, loan.principal + loan.accrued);
+  const others = s.deposits.filter((a) => a.id !== d.id && a.holderId === d.holderId).sort((a, b) => Number(b.bankId === d.bankId) - Number(a.bankId === d.bankId) || cmpStr(a.bankId, b.bankId) || cmpStr(a.id, b.id));
+  for (const source of others) {
+    const amount = min(max0(needed - d.cash), source.cash, source.bankId === d.bankId ? source.cash : bank(s, source.bankId).cash);
+    if (amount > ZERO) transferDeposits(s, source, d, amount, "MOVE");
+  }
+  const holder = s.clients.find((c) => c.id === d.holderId)!, fromWallet = min(max0(needed - d.cash), holder.cash);
+  if (fromWallet > ZERO) { holder.cash -= fromWallet; b.cash += fromWallet; d.cash += fromWallet; s.movements.push({ tick: s.tick, kind: "DEPOSIT", clientId: holder.id, bankId: b.id, depositId: d.id, amount: fromWallet }); }
+  let available = min(d.cash, needed);
   const paidInterest = min(available, loan.accrued);
   if (paidInterest > ZERO) {
     d.cash -= paidInterest; loan.accrued -= paidInterest; b.equity += paidInterest; available -= paidInterest;
@@ -63,7 +85,7 @@ function execute(s: BankingState, c: BankCommand): void {
     const loan = s.businessLoans.find((l) => l.id === c.loanId);
     if (!loan || loan.lenderId !== c.actor) reason = "NOT_LENDER";
     else if (loan.status !== "OVERDUE") reason = "NOT_OVERDUE";
-    else if (account(s, loan.depositId).cash !== ZERO) reason = "UNAPPLIED_FUNDS";
+    else if (loanFunds(s, loan) !== ZERO) reason = "UNAPPLIED_FUNDS";
     else {
       const amount = loan.principal;
       bank(s, loan.lenderId).equity -= amount;
@@ -75,24 +97,23 @@ function execute(s: BankingState, c: BankCommand): void {
     const loan = s.businessLoans.find((l) => l.id === c.loanId);
     if (!loan || account(s, loan.depositId).holderId !== actor.id) reason = "NOT_OWNER";
     else if (loan.status === "WRITTEN_OFF" || loan.status === "REPAID") reason = "CLOSED_LOAN";
-    else if (account(s, loan.depositId).cash < c.amount) reason = "FUNDS";
+    else if (loanFunds(s, loan) < min(c.amount, loan.principal + loan.accrued)) reason = "FUNDS";
     else repay(s, loan, c.amount);
   } else if (c.kind === "OPEN") {
     if (!s.banks.some((b) => b.id === c.bankId)) reason = "UNKNOWN_BANK";
     else if (!actor.presence.includes(c.bankId)) reason = "NO_PRESENCE";
     else if (s.deposits.some((d) => d.id === c.depositId)) reason = "DEPOSIT_EXISTS";
     else s.deposits.push({ id: c.depositId, bankId: c.bankId, holderId: c.actor, product: c.product, cash: ZERO, interestDue: ZERO });
-  } else if (c.kind === "MOVE") {
+  } else if (c.kind === "MOVE" || c.kind === "PAY") {
     const from = s.deposits.find((d) => d.id === c.from), to = s.deposits.find((d) => d.id === c.to);
     if (!from || !to) reason = "UNKNOWN_DEPOSIT";
-    else if (from.holderId !== actor.id || to.holderId !== actor.id) reason = "NOT_OWNER";
+    else if (from.holderId !== actor.id || (c.kind === "MOVE" && to.holderId !== actor.id)) reason = "NOT_OWNER";
+    else if (c.kind === "PAY" && actor.kind !== "BUSINESS") reason = "BUSINESS_ONLY";
     else if (from.id === to.id) reason = "SAME_DEPOSIT";
     else if (from.cash < c.amount) reason = "FUNDS";
     else if (from.bankId !== to.bankId && bank(s, from.bankId).cash < c.amount) reason = "RESERVES";
     else {
-      from.cash -= c.amount; to.cash += c.amount;
-      if (from.bankId !== to.bankId) { bank(s, from.bankId).cash -= c.amount; bank(s, to.bankId).cash += c.amount; }
-      s.movements.push({ tick: s.tick, kind: "MOVE", fromDeposit: from.id, toDeposit: to.id, amount: c.amount });
+      transferDeposits(s, from, to, c.amount, c.kind);
     }
   } else {
     const d = s.deposits.find((d) => d.id === c.depositId);
@@ -114,7 +135,7 @@ function dayClose(s: BankingState): void {
   for (const loan of s.businessLoans) {
     if (loan.status === "REPAID" || loan.status === "WRITTEN_OFF") continue;
     loan.accrued += interest(loan.principal, loan.ratePpm);
-    if (loan.maturityTick <= s.tick) { repay(s, loan, account(s, loan.depositId).cash); if (loan.principal > ZERO || loan.accrued > ZERO) loan.status = "OVERDUE"; }
+    if (loan.maturityTick <= s.tick) { repay(s, loan, loanFunds(s, loan)); if (loan.principal > ZERO || loan.accrued > ZERO) loan.status = "OVERDUE"; }
   }
   for (const loan of s.loans) if (loan.status !== "REPAID") loan.accrued += interest(loan.principal, loan.ratePpm);
   for (const loan of [...s.loans].sort((a, b) => cmpStr(tie(a.id, s.tick), tie(b.id, s.tick)))) {

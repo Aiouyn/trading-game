@@ -93,9 +93,9 @@ function command(v: Json): BankCommand {
     const c = record(v, [...common, "depositId", "amount"]);
     return { id: text(c.id), actor: text(c.actor), kind: v.kind, depositId: text(c.depositId), amount: cash(c.amount, true) };
   }
-  if (v.kind === "MOVE") {
+  if (v.kind === "MOVE" || v.kind === "PAY") {
     const c = record(v, [...common, "from", "to", "amount"]);
-    return { id: text(c.id), actor: text(c.actor), kind: "MOVE", from: text(c.from), to: text(c.to), amount: cash(c.amount, true) };
+    return { id: text(c.id), actor: text(c.actor), kind: v.kind, from: text(c.from), to: text(c.to), amount: cash(c.amount, true) };
   }
   throw new Error("BANK_COMMAND");
 }
