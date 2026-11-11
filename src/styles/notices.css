@@ -29,7 +29,7 @@
 .qs-scrim { position: absolute; inset: 0; background: color-mix(in oklab, var(--bg0) 60%, transparent); backdrop-filter: none; }
 .qsheet { position: absolute; background: var(--win); box-shadow: var(--elev-sheet); backdrop-filter: none; display: flex; flex-direction: column; outline: none; }
 .qsheet:focus-visible { box-shadow: var(--elev-sheet), var(--focus-ring); }
-.qs-bottom { left: 0; right: 0; bottom: 0; max-height: 85%; border-radius: var(--r-sheet) var(--r-sheet) 0 0; animation: sheet-up var(--dur-base) var(--ease-out); }
+.qs-bottom { left: 0; right: 0; bottom: 0; max-height: 85%; padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--sa-bottom, 0px)); border-radius: var(--r-sheet) var(--r-sheet) 0 0; animation: sheet-up var(--dur-base) var(--ease-out); }
 .qs-right { top: 0; right: 0; bottom: 0; width: min(420px, 100%); border-radius: var(--r-sheet) 0 0 var(--r-sheet); animation: sheet-left var(--dur-base) var(--ease-out); }
 .qs-handle { align-self: center; width: 36px; height: 4px; margin: 8px 0 4px; border-radius: 2px; background: var(--line); flex: none; }
 .qs-body { overflow: auto; padding: 16px; }
