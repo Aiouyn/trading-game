@@ -225,3 +225,24 @@ export function planFarmDay(seed: number, day: number): FarmDraft[] {
 export function farmHeadlineSlots(d: FarmDraft): Record<string, string> {
   return { source: d.sourceName, company: d.company, claim: d.claim };
 }
+
+/** Seed-only denial schedule. Never pass the server secret through this hash. */
+export function companyDenialTick(
+  seed: number,
+  id: string,
+  publishTick: number,
+  resolvesByTick: number,
+  channel: "desk" | "farm" | undefined,
+): number | null {
+  const span = resolvesByTick - publishTick - 1;
+  if (!(span >= 1)) return null;
+  if (channel === "farm" && farmUnit(`deny:${seed}:take:${id}`) >= 0.5) return null;
+  const window = Math.min(span, 120);
+  const delay = 1 + (rumorHash(`deny:${seed}:at:${id}`) % window);
+  return publishTick + delay;
+}
+
+export function denialItemId(claimId: string): string {
+  return `w-d-${claimId}`;
+}
+

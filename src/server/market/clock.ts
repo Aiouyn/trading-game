@@ -10,7 +10,7 @@ import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import { claimCauseKey, claimPhase, publicRecord, sourceBand, type RumorClaim, type RumorStepEvent } from "./rumorClaims";
-import { farmBand, farmSourceName, isFarmSourceId } from "./rumorFarm";
+import { denialItemId, farmBand, farmSourceName, isFarmSourceId } from "./rumorFarm";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, START_TICK, fmt } from "@/shell/contracts/mockFeed";
 import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
@@ -141,8 +141,9 @@ export class LiveMarket {
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const s of this.feed.takeStormWire()) this.publishStorm(s);
     for (const s of this.feed.takeCrisisWire()) this.publishCrisis(s);
-    const resolved = this.feed.advanceRumors(this.feed.tick);
-    this.applyRumorResolutions(resolved);
+    const evs = this.feed.advanceRumors(this.feed.tick);
+    this.publishCompanyDenials(evs);
+    this.applyRumorResolutions(evs.filter((e) => e.kind !== "denied"));
     this.saveStormWorld();
     for (const fn of this.stepListeners) fn();
   }
@@ -317,8 +318,9 @@ export class LiveMarket {
     const tick = this.feed.tick;
     const byId = new Map(this.feed.rumorClaims().map((c) => [c.id, c]));
     const hold = (it: WireItem): boolean => {
-      if (it.kind !== "RUMOR") return false;
-      const c = byId.get(it.id);
+      const rumorId = it.kind === "RUMOR" ? it.id : it.kind === "STATEMENT" ? it.slots?.rumorId : undefined;
+      if (!rumorId) return false;
+      const c = byId.get(rumorId);
       if (!c) return false;
       if (c.resolution === "PENDING") return true;
       return tick - c.resolvesByTick <= 60;
@@ -397,6 +399,34 @@ export class LiveMarket {
     };
   }
 
+  private companyDenialItem(c: RumorClaim): WireItem {
+    const company = c.slots.company ?? ASSET_BY_ID[c.assetId]?.name ?? c.assetId;
+    const tick = c.deniedAtTick ?? c.publishTick;
+    return {
+      id: denialItemId(c.id),
+      kind: "STATEMENT",
+      headlineKey: "wire.statement.denies",
+      slots: { company, rumorId: c.id },
+      entities: [{ id: c.assetId, kind: "asset", label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId }],
+      tick,
+      breaking: false,
+      causeEventIds: [c.id],
+      causeKey: "wire.cause.company-denial",
+    };
+  }
+
+  private publishCompanyDenials(evs: RumorStepEvent[]): void {
+    const denials = evs.filter((e) => e.kind === "denied");
+    if (!denials.length) return;
+    const have = new Set(this.stories.map((it) => it.id));
+    const added: WireItem[] = [];
+    for (const ev of denials) {
+      const item = this.companyDenialItem(ev.claim);
+      if (!have.has(item.id)) { have.add(item.id); added.push(item); }
+    }
+    if (added.length) this.stories = this.retainStories([...this.stories, ...added]);
+  }
+
   private applyRumorResolutions(resolved: RumorStepEvent[]): void {
     // Stamp only when a claim resolves: phase/cause/effects/appliedTick change then,
     // and that author's other pending items need the updated public record. Mid-pending
@@ -416,6 +446,9 @@ export class LiveMarket {
   /** Rebuild Wire rows for persisted rumors after a restart (other stories are a new epoch, as today). */
   private rebuildRumorStories(): WireItem[] {
     const items = this.feed.rumorClaims().map((c) => this.farmWireItem(c));
+    for (const c of this.feed.rumorClaims()) {
+      if (c.deniedAtTick != null) items.push(this.companyDenialItem(c));
+    }
     items.sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
     return this.retainStories(items);
   }

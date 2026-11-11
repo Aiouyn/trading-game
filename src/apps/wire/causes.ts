@@ -13,6 +13,7 @@ export const CAUSES: Readonly<Record<string, string>> = {
     "wire.cause.farm-rumor-confirmed": "The claim was confirmed. The named company's value moves with the fact.",
     "wire.cause.farm-rumor-fizzled": "The claim faded. It did not hold, and the price pressure unwinds.",
     "wire.cause.farm-rumor-denied": "The claim was denied. It did not hold, and the price pressure unwinds.",
+    "wire.cause.company-denial": "The company publicly denied the pending claim. The market puts less weight on the rumor.",
     "wire.cause.orca-trial": "Orca Biologics' lead drug missed its trial goal. Lost future sales take value out of the stock.",
     "wire.cause.nmbs-contract": "Nimbus Compute won a large multi-year computing contract. New revenue lifts the stock.",
     "wire.cause.kiln-demand": "Kiln Materials sees weaker building demand. Lower expected sales push the stock down.",

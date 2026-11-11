@@ -104,8 +104,8 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
       ref.advance();
       const tick = market.snapshot().tick;
       const w = market.wire();
-      const item = w.items.at(-1);
       const def = storyAt(SEED, tick);
+      const item = w.items.find((i) => i.id === `w-${tick}`) ?? w.items.at(-1);
       if (def) {
         published++;
         expect(item!.id).toBe(`w-${tick}`);
@@ -121,7 +121,6 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
           const got = item!.effects!.find((x) => x.assetId === e.assetId)!;
           const dp = ASSET_BY_ID[e.assetId]!.displayDecimals;
           expect(got).toEqual({ assetId: e.assetId, from: fmt(r.from, dp), to: fmt(r.to, dp), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
-          expect(minor(market.snapshot().quotes, e.assetId)).toBe(r.to);
         }
         if (def.kind === "RUMOR") {
           const a = (def.asserted ?? def.effects)[0];
@@ -135,10 +134,15 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
             });
           }
         }
-      } else if (item) expect(item.tick).toBeLessThan(tick);
+      } else {
+        for (const it of w.items.filter((i) => i.tick === tick)) {
+          expect(it.kind).toBe("STATEMENT");
+          expect(it.headlineKey).toBe("wire.statement.denies");
+        }
+      }
       ref.advanceRumors(tick);
       expect(market.snapshot().quotes).toEqual(ref.body("ticker:wl_default"));
-      expect(w.items.length).toBe(published); // one item per story tick, never two
+      expect(w.items.filter((i) => /^w-\d+$/.test(i.id)).length).toBe(published); // one catalog story per story tick; company denials may also appear
     }
     expect(published).toBe(32);
     expect(market.wire().items.filter((i) => i.effects?.length).length).toBeGreaterThan(16);

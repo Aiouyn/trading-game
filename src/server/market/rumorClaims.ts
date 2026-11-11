@@ -6,7 +6,7 @@ import { TICKS_PER_DAY } from "@/server/market/meme";
 import type { SourceBand } from "@/shell/contracts/channels";
 import { START_TICK } from "@/shell/contracts/mockFeed";
 import {
-  FARM, dayCloseTick, dayOfTick, farmAccuracy, farmHeadlineSlots, farmImpulse, farmSourceId, farmSourceName,
+  FARM, companyDenialTick, dayCloseTick, dayOfTick, farmAccuracy, farmHeadlineSlots, farmImpulse, farmSourceId, farmSourceName,
   isFarmSourceId, planFarmDay, type FarmDraft,
 } from "@/server/market/rumorFarm";
 
@@ -54,6 +54,10 @@ export interface RumorClaim {
   sourceId?: string;
   factKind?: string;
   channel?: "desk" | "farm";
+  /** 05:860: 0 none, 0.5 unverifiable denial, 1 verifiable rebuttal (12 M4, out of this slice). */
+  rebuttal?: 0 | 0.5 | 1;
+  /** Tick the company denial was published; absent until then. */
+  deniedAtTick?: number;
 }
 
 export interface RumorSource {
@@ -113,6 +117,7 @@ export interface RumorOpenInput {
 
 export interface RumorStepEvent {
   claim: RumorClaim;
+  kind?: "resolved" | "denied";
 }
 
 export type RumorBookOptions = {
@@ -123,6 +128,25 @@ export type RumorBookOptions = {
 /** 32-byte hex. Server-only; never shipped to a client. */
 export function newRumorSecret(): string {
   return randomBytes(32).toString("hex");
+}
+
+export function usableRumorSecret(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0;
+}
+
+/** Thrown when a rumors snapshot exists but its secret is missing or empty. A new key is not generated. */
+export class MissingRumorSecretError extends Error {
+  readonly code = "RUMOR_SECRET_MISSING";
+  constructor() {
+    super("Refusing to start the rumor book: a rumors snapshot exists but its secret is missing or empty. A new key was not generated.");
+    this.name = "MissingRumorSecretError";
+  }
+}
+
+export function refuseMissingRumorSecret(): never {
+  const err = new MissingRumorSecretError();
+  console.error(`[rumorClaims] ${err.message}`);
+  throw err;
 }
 
 /**
@@ -172,9 +196,17 @@ export function srcRecord(hits: number, resolved: number): number {
   return (hits + 2) / (resolved + 4);
 }
 
-/** 05:854 credibility with only the source-record term (no evidence/prestige/rebuttal in this slice). */
-export function claimCredibility(hits: number, resolved: number): number {
-  return Math.min(1, Math.max(0, 0.15 + 0.45 * srcRecord(hits, resolved)));
+/** 05:854–860. Evidence and prestige stay 0 in this catalog slice. */
+export function claimCredibility(hits: number, resolved: number, rebuttal: 0 | 0.5 | 1 = 0): number {
+  return Math.min(1, Math.max(0, 0.15 + 0.45 * srcRecord(hits, resolved) - 0.30 * rebuttal));
+}
+
+/** Scale a 16:566 farm overlay by the 05 rebuttal ratio so a denial shrinks belief without flipping sign. */
+export function farmRebuttalScale(hits: number, resolved: number, rebuttal: 0 | 0.5 | 1 = 0): number {
+  if (!rebuttal) return 1;
+  const before = claimCredibility(hits, resolved, 0);
+  if (!(before > 0)) return 0;
+  return claimCredibility(hits, resolved, rebuttal) / before;
 }
 
 /** Catalog bp as the owner-module asserted log move, capped (05:851 / 05:867). */
@@ -200,7 +232,7 @@ export function claimContribution(c: Pick<RumorClaim, "a" | "cr" | "reach" | "pu
 
 /** Farm pending overlay: 16:566 impulse × 05 spread × 1-game-day fade (23:1053 fade HL). */
 export function farmContribution(
-  c: Pick<RumorClaim, "a" | "publishTick">,
+  c: Pick<RumorClaim, "a" | "publishTick" | "rebuttal">,
   tick: number,
   hits: number,
   resolved: number,
@@ -209,7 +241,7 @@ export function farmContribution(
   if (age === 0) return 0;
   const spread = 1 - Math.exp(-age / RUMOR.spreadTicks);
   const fade = Math.pow(0.5, age / FARM.fadeHlTicks);
-  return farmImpulse(c.a, hits, resolved) * spread * fade;
+  return farmImpulse(c.a, hits, resolved) * spread * fade * farmRebuttalScale(hits, resolved, c.rebuttal ?? 0);
 }
 
 export function pendingBelief(
@@ -282,7 +314,13 @@ export class RumorBook {
   private lastTick: number | null = null;
   private secret: string;
   constructor(private readonly seed: number, snap?: RumorSnapshot, opts: RumorBookOptions = {}) {
-    this.secret = (opts.secret && opts.secret.length > 0) ? opts.secret : (snap?.secret && snap.secret.length > 0 ? snap.secret : newRumorSecret());
+    if (snap) {
+      const secret = usableRumorSecret(opts.secret) ? opts.secret : (usableRumorSecret(snap.secret) ? snap.secret : null);
+      if (!secret) refuseMissingRumorSecret();
+      this.secret = secret;
+    } else {
+      this.secret = usableRumorSecret(opts.secret) ? opts.secret : newRumorSecret();
+    }
     this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(seed, this.secret), hits: 0, resolved: 0 };
     this.ensureFarm();
     if (snap) this.hydrate(snap, opts);
@@ -321,7 +359,7 @@ export class RumorBook {
 
   hydrate(snap: RumorSnapshot | null | undefined, opts: RumorBookOptions = {}): void {
     if (!snap) {
-      if (opts.secret && opts.secret.length > 0) this.secret = opts.secret;
+      if (usableRumorSecret(opts.secret)) this.secret = opts.secret;
       else if (!this.secret) this.secret = newRumorSecret();
       this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(this.seed, this.secret), hits: 0, resolved: 0 };
       this.farm.clear();
@@ -334,7 +372,9 @@ export class RumorBook {
       this.lastTick = null;
       return;
     }
-    this.secret = (opts.secret && opts.secret.length > 0) ? opts.secret : (snap.secret && snap.secret.length > 0 ? snap.secret : this.secret);
+    const secret = usableRumorSecret(opts.secret) ? opts.secret : (usableRumorSecret(snap.secret) ? snap.secret : null);
+    if (!secret) refuseMissingRumorSecret();
+    this.secret = secret;
     this.source = { ...snap.source };
     this.farm.clear();
     for (const s of snap.sources ?? []) {
@@ -459,15 +499,35 @@ export class RumorBook {
     }
     for (let t = start; t <= tick; t++) {
       this.openFarmDue(t);
+      const denials = this.applyCompanyDenials(t);
+      for (const ev of denials) out.push(ev);
       this.stepPendingBelief(t);
       this.syncMarks(applyLog);
       const evs = this.resolveDue(t, applyLog, applyConfirmed);
       for (const ev of evs) out.push(ev);
       const released = this.stepRelease();
-      if (evs.length || released) this.syncMarks(applyLog);
+      if (evs.length || released || denials.length) this.syncMarks(applyLog);
     }
     this.lastTick = tick;
     return out;
+  }
+
+  private applyCompanyDenials(tick: number): RumorStepEvent[] {
+    const evs: RumorStepEvent[] = [];
+    for (const c of this.claims) {
+      if (c.resolution !== "PENDING") continue;
+      if ((c.rebuttal ?? 0) !== 0 || c.deniedAtTick != null) continue;
+      const at = companyDenialTick(this.seed, c.id, c.publishTick, c.resolvesByTick, c.channel);
+      if (at == null || tick !== at) continue;
+      c.rebuttal = 0.5;
+      c.deniedAtTick = tick;
+      if (c.channel !== "farm") {
+        const src = this.liveSource(c.sourceId);
+        c.cr = claimCredibility(src.hits, src.resolved, 0.5);
+      }
+      evs.push({ claim: cloneClaim(c), kind: "denied" });
+    }
+    return evs;
   }
 
   private stepPendingBelief(tick: number): void {
@@ -538,7 +598,7 @@ export class RumorBook {
           this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: have, mode: "handoff", startLog: have, ticksLeft: RUMOR.handoffTicks });
         }
         this.credit(c, true);
-        evs.push({ claim: cloneClaim(c) });
+        evs.push({ claim: cloneClaim(c), kind: "resolved" });
       } else {
         c.resolution = drawFalseKind(this.seed, c.id, this.secret);
         const have = this.belief.get(c.id)?.log ?? 0;
@@ -546,7 +606,7 @@ export class RumorBook {
           this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: have, mode: "falseRelease", startLog: have });
         } else this.belief.delete(c.id);
         this.credit(c, false);
-        evs.push({ claim: cloneClaim(c) });
+        evs.push({ claim: cloneClaim(c), kind: "resolved" });
       }
     }
     return evs;
@@ -692,10 +752,12 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
     const sourceId = typeof c.sourceId === "string" ? c.sourceId : undefined;
     const factKind = typeof c.factKind === "string" ? c.factKind : undefined;
     const channel = c.channel === "farm" || c.channel === "desk" ? c.channel : undefined;
+    const rebuttal = c.rebuttal === 0.5 || c.rebuttal === 1 || c.rebuttal === 0 ? c.rebuttal : undefined;
+    const deniedAtTick = c.deniedAtTick === undefined ? undefined : int(c.deniedAtTick) ?? undefined;
     claims.push({
       id: c.id, defId: c.defId, assetId: c.assetId, headlineKey: c.headlineKey, slots, causeKey: c.causeKey,
       publishTick, resolvesByTick: resolvesByTickN, bp, a, cr, reach, isTrue: c.isTrue, resolution, effect,
-      sourceId, factKind, channel,
+      sourceId, factKind, channel, rebuttal, deniedAtTick,
     });
   }
   const belief: BeliefPos[] = [];
@@ -754,7 +816,8 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
   }
   const lastTick = o.lastTick === null ? null : int(o.lastTick);
   if (o.lastTick !== null && o.lastTick !== undefined && lastTick == null) return undefined;
-  const secret = typeof o.secret === "string" && o.secret.length > 0 ? o.secret : newRumorSecret();
+  if (!usableRumorSecret(o.secret)) refuseMissingRumorSecret();
+  const secret = o.secret as string;
   return {
     source: { sourceId: srcRaw.sourceId, hiddenAccuracy: acc, hits, resolved },
     sources: sources.length ? sources : undefined,
