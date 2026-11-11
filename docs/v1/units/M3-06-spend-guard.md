@@ -28,7 +28,7 @@ The private alpha must not start, or enable, a paid provider unless the owner se
 
 Do not edit `src/server/broker/*`, Wire statement code, `src/server/auth/*`, `src/app/api/auth/*`, or `src/server/telemetry/*`. Alpha-telemetry already owns logging and analytics volume on this base. No monetization, no SDK, no deploy.
 
-Known gap, left alone: `assertLocalSingleProcessAuth` still returns 503 when `VERCEL` is set, even after spend opt-in. The file-backed session store is not a hosted auth store. Opt-in is not a deploy yes.
+Hosting prerequisite, not a defect: `assertLocalSingleProcessAuth` returns 503 when `VERCEL` is set, even after spend opt-in. Sessions are file-backed, the plan is a persistent single-process host, and no host is chosen or approved yet. A serverless host would first need a hosted session store, owned by the auth lane. See `docs/v1/ops/spend-guard.md`.
 
 ## Acceptance
 

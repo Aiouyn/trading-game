@@ -4,13 +4,21 @@ Nothing in this repo provisions a host or spends money. The owner turns the dash
 
 Planned host, from M0-06: **Vercel Pro + Supabase Pro, about $45/month** before tax ($20 Vercel Pro seat + $25 Supabase Pro). Confirm the live invoices; an extra Vercel seat changes the Vercel side. Tick-host cost is still TBD. This build does not start a tick host.
 
-`QUAY_SPEND_OPT_IN=1` is the only in-app yes. It lets the process accept a paid configuration. It does not open a connection, create a project, or make the file-backed auth store deployable. `assertLocalSingleProcessAuth` still returns 503 when `VERCEL` is set.
+`QUAY_SPEND_OPT_IN=1` is the only in-app yes. It lets the process accept a paid configuration. It does not open a connection or create a project. See Hosting prerequisites for why auth stays 503 when `VERCEL` is set.
+
+## Hosting prerequisites
+
+No host is chosen or approved yet. The M0-06 line (Vercel Pro + Supabase Pro, about $45/month) is a cost sketch, not a decision to deploy.
+
+Sessions are file-backed, and this build is one process. The current plan is a persistent single-process host. `assertLocalSingleProcessAuth` returns 503 `UNSUPPORTED_DEPLOY` when `VERCEL` is set. That refusal is intended for now. Spend opt-in does not lift it.
+
+A serverless host would first need a hosted session store. That store is owned by the auth lane. Until the auth lane lands it, leave the 503 in place. It is a prerequisite, not a spend-guard defect, and not a reason to pick a serverless target.
 
 ## In-app gate
 
 | Paid provider | Env that requests it | Without `QUAY_SPEND_OPT_IN=1` | With the flag set to `1` |
 |---|---|---|---|
-| Hosting | `VERCEL` | Boot throws. Nothing is enabled. | Boot may continue. This build still serves the local single-process app. Auth on Vercel stays 503. |
+| Hosting | `VERCEL` | Boot throws. Nothing is enabled. | Boot may continue. This build still serves the local single-process app. Auth stays 503 on Vercel until the auth lane has a hosted session store (Hosting prerequisites). |
 | Database | `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL` | Boot throws. No client is constructed. | The guard marks `database` enabled. `npm run ready` does not connect. |
 | Analytics sink | `QUAY_ANALYTICS_SINK`, `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_POSTHOG_KEY`, `POSTHOG_KEY` | Boot throws. | Marked enabled. No sink is opened. Local jsonl telemetry is a different path and is not this. |
 | Log sink | `QUAY_LOG_SINK`, `LOGTAIL_SOURCE_TOKEN`, `AXIOM_TOKEN`, `DATADOG_API_KEY` | Boot throws. | Marked enabled. No drain is opened. |
