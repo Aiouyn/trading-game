@@ -389,8 +389,9 @@ export class ShockFeed extends MockFeed {
     if (!Number.isFinite(log) || log === 0) return { from: s.last, to: s.last };
     const from = s.last;
     const to = Math.max(1, Math.round(from * Math.exp(log)));
+    if (to === from) return { from, to };
     s.last = to;
-    s.dir = to > from ? 1 : to < from ? -1 : s.dir;
+    s.dir = to > from ? 1 : -1;
     const p = s.prints.at(-1);
     if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
     return { from, to };
@@ -437,7 +438,10 @@ export class ShockFeed extends MockFeed {
   rumorBelief(assetId: string): number { return this.rumorBook().beliefLog(assetId); }
   rumorClaim(id: string) { return this.rumorBook().claim(id); }
   rumorSource() { return this.rumorBook().sourceState(); }
+  rumorSourceOf(id: string | undefined) { return this.rumorBook().sourceOf(id); }
   rumorClaims() { return this.rumorBook().allClaims(); }
+  farmSources() { return this.rumorBook().farmSources(); }
+  openFarmDue(tick: number) { return this.rumorBook().openFarmDue(tick); }
 
   takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
   takeCrisisWire() { return this.storms.takeCrisisWire(); }

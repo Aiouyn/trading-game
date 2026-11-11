@@ -10,6 +10,7 @@ import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
 import { claimCauseKey, claimPhase, publicRecord, sourceBand, type RumorClaim, type RumorStepEvent } from "./rumorClaims";
+import { farmBand, farmSourceName, isFarmSourceId } from "./rumorFarm";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, START_TICK, fmt } from "@/shell/contracts/mockFeed";
 import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
@@ -136,6 +137,7 @@ export class LiveMarket {
   step(): void {
     this.feed.advance();
     this.publishStory();
+    this.publishFarm();
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const s of this.feed.takeStormWire()) this.publishStorm(s);
     for (const s of this.feed.takeCrisisWire()) this.publishCrisis(s);
@@ -189,7 +191,7 @@ export class LiveMarket {
         tick, breaking: def.breaking, causeEventIds: [def.defId],
         phase: claim ? claimPhase(claim) : def.phase,
         causeKey: claim ? claimCauseKey(claim) : def.causeKey,
-        ...this.rumorRecordFields(),
+        ...this.rumorRecordFields(claim),
       };
       this.stories = this.retainStories([...this.stories, item]);
       return;
@@ -328,10 +330,39 @@ export class LiveMarket {
     return [...rest.slice(-room), ...held].sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
   }
 
-  private rumorRecordFields(): { sourceRecord: { hits: number; resolved: number }; sourceBand: import("@/shell/contracts/channels").SourceBand } {
-    const s = this.feed.rumorSource();
+  private rumorRecordFields(claim?: RumorClaim | null): { sourceRecord: { hits: number; resolved: number }; sourceBand: import("@/shell/contracts/channels").SourceBand } {
+    const id = claim?.sourceId;
+    const s = id ? this.feed.rumorSourceOf(id) : this.feed.rumorSource();
     const rec = publicRecord(s);
-    return { sourceRecord: rec, sourceBand: sourceBand(rec.hits, rec.resolved) };
+    const band = (claim && (claim.channel === "farm" || isFarmSourceId(claim.sourceId)))
+      ? farmBand(rec.hits, rec.resolved)
+      : sourceBand(rec.hits, rec.resolved);
+    return { sourceRecord: rec, sourceBand: band };
+  }
+
+  private farmEntities(c: RumorClaim): WireItem["entities"] {
+    const asset = { id: c.assetId, kind: "asset" as const, label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId };
+    if (!(c.channel === "farm" || isFarmSourceId(c.sourceId)) || !c.sourceId) return [asset];
+    return [asset, { id: c.sourceId, kind: "actor", label: c.slots.source ?? farmSourceName(c.sourceId) }];
+  }
+
+  private farmWireItem(c: RumorClaim): WireItem {
+    const effects = this.rumorEffect(c);
+    return {
+      id: c.id, kind: "RUMOR", headlineKey: c.headlineKey, slots: this.rumorItemSlots(c),
+      entities: this.farmEntities(c),
+      tick: c.publishTick, breaking: false, causeEventIds: [c.defId],
+      phase: claimPhase(c), causeKey: claimCauseKey(c),
+      ...this.rumorRecordFields(c),
+      ...(effects.length ? { effects } : {}),
+    };
+  }
+
+  /** Farm rumors due at this tick (16:562: generated at the previous day close). */
+  private publishFarm(): void {
+    const opened = this.feed.openFarmDue(this.feed.tick);
+    if (!opened.length) return;
+    this.stories = this.retainStories([...this.stories, ...opened.map((c) => this.farmWireItem(c))]);
   }
 
   private rumorEffect(c: RumorClaim): PriceEffect[] {
@@ -361,36 +392,30 @@ export class LiveMarket {
       slots: this.rumorItemSlots(claim, item.slots),
       phase: claimPhase(claim),
       causeKey: claimCauseKey(claim),
-      ...this.rumorRecordFields(),
+      ...this.rumorRecordFields(claim),
       ...(effects.length ? { effects } : {}),
     };
   }
 
   private applyRumorResolutions(resolved: RumorStepEvent[]): void {
-    if (!resolved.length && !this.stories.some((s) => s.kind === "RUMOR")) return;
+    // Stamp only when a claim resolves: phase/cause/effects/appliedTick change then,
+    // and that author's other pending items need the updated public record. Mid-pending
+    // restamping every tick does not change the Wire row and is too expensive for 8/day farm.
+    if (!resolved.length) return;
     const byId = new Map(this.feed.rumorClaims().map((c) => [c.id, c]));
+    const touched = new Set(resolved.map((e) => e.claim.id));
+    const sources = new Set(resolved.map((e) => e.claim.sourceId).filter((id): id is string => !!id));
     this.stories = this.stories.map((item) => {
       const c = byId.get(item.id);
       if (!c) return item;
-      return this.stampRumorItem(item, c);
+      if (touched.has(item.id) || (c.sourceId && sources.has(c.sourceId))) return this.stampRumorItem(item, c);
+      return item;
     });
   }
 
   /** Rebuild Wire rows for persisted rumors after a restart (other stories are a new epoch, as today). */
   private rebuildRumorStories(): WireItem[] {
-    const rec = this.rumorRecordFields();
-    const items: WireItem[] = [];
-    for (const c of this.feed.rumorClaims()) {
-      const effects = this.rumorEffect(c);
-      items.push({
-        id: c.id, kind: "RUMOR", headlineKey: c.headlineKey, slots: this.rumorItemSlots(c),
-        entities: [{ id: c.assetId, kind: "asset", label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId }],
-        tick: c.publishTick, breaking: false, causeEventIds: [c.defId],
-        phase: claimPhase(c), causeKey: claimCauseKey(c),
-        ...rec,
-        ...(effects.length ? { effects } : {}),
-      });
-    }
+    const items = this.feed.rumorClaims().map((c) => this.farmWireItem(c));
     items.sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
     return this.retainStories(items);
   }

@@ -4,6 +4,11 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { TICKS_PER_DAY } from "@/server/market/meme";
 import type { SourceBand } from "@/shell/contracts/channels";
+import { START_TICK } from "@/shell/contracts/mockFeed";
+import {
+  FARM, dayCloseTick, dayOfTick, farmAccuracy, farmHeadlineSlots, farmImpulse, farmSourceId, farmSourceName,
+  isFarmSourceId, planFarmDay, type FarmDraft,
+} from "@/server/market/rumorFarm";
 
 export const RUMOR = {
   sourceId: "wire-desk",
@@ -45,6 +50,10 @@ export interface RumorClaim {
   resolution: RumorResolution;
   /** Printed integer marks at confirmation; absent until CONFIRMED. */
   effect?: { assetId: string; from: number; to: number };
+  /** Desk claims omit this (the catalog `wire-desk`). Farm claims name an `rs-NN` author. */
+  sourceId?: string;
+  factKind?: string;
+  channel?: "desk" | "farm";
 }
 
 export interface RumorSource {
@@ -52,6 +61,7 @@ export interface RumorSource {
   hiddenAccuracy: number;
   hits: number;
   resolved: number;
+  nameKey?: string;
 }
 
 /** One claim's contribution to the asset overlay (05:864–865). */
@@ -73,6 +83,8 @@ export interface BeliefMark {
 
 export interface RumorSnapshot {
   source: RumorSource;
+  /** 20 farm authors. Absent on older snapshots → created from seed+secret with empty records. */
+  sources?: RumorSource[];
   claims: RumorClaim[];
   belief: BeliefPos[];
   beliefMarks: BeliefMark[];
@@ -92,6 +104,11 @@ export interface RumorOpenInput {
   causeKey: string;
   publishTick: number;
   bp: number;
+  sourceId?: string;
+  factKind?: string;
+  channel?: "desk" | "farm";
+  /** Farm: 22 §4.11 asserted log. Desk: derived from bp. */
+  a?: number;
 }
 
 export interface RumorStepEvent {
@@ -141,6 +158,11 @@ export function drawIsTrue(seed: number, id: string, acc: number, secret: string
   return unitFromDigest(rumorMac(secret, seed, "true", id)) < acc;
 }
 
+/** Farm truth: HMAC-SHA256(secret, seed|farm-true|sourceId|id). */
+export function drawFarmIsTrue(seed: number, id: string, sourceId: string, acc: number, secret: string): boolean {
+  return unitFromDigest(rumorMac(secret, seed, "farm-true", `${sourceId}|${id}`)) < acc;
+}
+
 export function drawFalseKind(seed: number, id: string, secret: string): "FIZZLED" | "DENIED" {
   return unitFromDigest(rumorMac(secret, seed, "false", id)) < RUMOR.fizzleGivenFalse ? "FIZZLED" : "DENIED";
 }
@@ -176,11 +198,36 @@ export function claimContribution(c: Pick<RumorClaim, "a" | "cr" | "reach" | "pu
   return c.a * c.cr * c.reach * spread * decay;
 }
 
-export function pendingBelief(claims: readonly RumorClaim[], tick: number): Map<string, number> {
+/** Farm pending overlay: 16:566 impulse × 05 spread × 1-game-day fade (23:1053 fade HL). */
+export function farmContribution(
+  c: Pick<RumorClaim, "a" | "publishTick">,
+  tick: number,
+  hits: number,
+  resolved: number,
+): number {
+  const age = Math.max(0, tick - c.publishTick);
+  if (age === 0) return 0;
+  const spread = 1 - Math.exp(-age / RUMOR.spreadTicks);
+  const fade = Math.pow(0.5, age / FARM.fadeHlTicks);
+  return farmImpulse(c.a, hits, resolved) * spread * fade;
+}
+
+export function pendingBelief(
+  claims: readonly RumorClaim[],
+  tick: number,
+  sourceOf?: (id: string) => Pick<RumorSource, "hits" | "resolved">,
+): Map<string, number> {
   const raw = new Map<string, number>();
   for (const c of claims) {
     if (c.resolution !== "PENDING") continue;
-    raw.set(c.assetId, (raw.get(c.assetId) ?? 0) + claimContribution(c, tick));
+    let add: number;
+    if (c.channel === "farm" || isFarmSourceId(c.sourceId)) {
+      const s = sourceOf?.(c.sourceId ?? "") ?? { hits: 0, resolved: 0 };
+      add = farmContribution(c, tick, s.hits, s.resolved);
+    } else {
+      add = claimContribution(c, tick);
+    }
+    raw.set(c.assetId, (raw.get(c.assetId) ?? 0) + add);
   }
   for (const [id, v] of raw) raw.set(id, Math.min(RUMOR.cap, Math.max(-RUMOR.cap, v)));
   return raw;
@@ -224,6 +271,7 @@ export function emptyRumorSnapshot(seed: number, secret: string): RumorSnapshot 
 
 export class RumorBook {
   private source: RumorSource;
+  private farm = new Map<string, RumorSource>();
   private claims: RumorClaim[] = [];
   /** Per-claim overlay. Keyed by claimId. */
   private belief = new Map<string, BeliefPos>();
@@ -236,7 +284,22 @@ export class RumorBook {
   constructor(private readonly seed: number, snap?: RumorSnapshot, opts: RumorBookOptions = {}) {
     this.secret = (opts.secret && opts.secret.length > 0) ? opts.secret : (snap?.secret && snap.secret.length > 0 ? snap.secret : newRumorSecret());
     this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(seed, this.secret), hits: 0, resolved: 0 };
+    this.ensureFarm();
     if (snap) this.hydrate(snap, opts);
+  }
+
+  private ensureFarm(): void {
+    for (let i = 0; i < FARM.authorCount; i++) {
+      const id = farmSourceId(i);
+      if (this.farm.has(id)) continue;
+      this.farm.set(id, {
+        sourceId: id,
+        nameKey: farmSourceName(id),
+        hiddenAccuracy: farmAccuracy(this.seed, id, this.secret),
+        hits: 0,
+        resolved: 0,
+      });
+    }
   }
 
   /** Server-only. Tests inject this; production persists it. */
@@ -245,6 +308,7 @@ export class RumorBook {
   snapshot(): RumorSnapshot {
     return {
       source: { ...this.source },
+      sources: [...this.farm.values()].map((s) => ({ ...s })),
       claims: this.claims.map(cloneClaim),
       belief: [...this.belief.values()].map((b) => ({ ...b })),
       beliefMarks: [...this.marks.values()].map((m) => ({ ...m })),
@@ -260,6 +324,8 @@ export class RumorBook {
       if (opts.secret && opts.secret.length > 0) this.secret = opts.secret;
       else if (!this.secret) this.secret = newRumorSecret();
       this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(this.seed, this.secret), hits: 0, resolved: 0 };
+      this.farm.clear();
+      this.ensureFarm();
       this.claims = [];
       this.belief.clear();
       this.marks.clear();
@@ -270,6 +336,12 @@ export class RumorBook {
     }
     this.secret = (opts.secret && opts.secret.length > 0) ? opts.secret : (snap.secret && snap.secret.length > 0 ? snap.secret : this.secret);
     this.source = { ...snap.source };
+    this.farm.clear();
+    for (const s of snap.sources ?? []) {
+      if (!isFarmSourceId(s.sourceId)) continue;
+      this.farm.set(s.sourceId, { ...s, nameKey: s.nameKey ?? farmSourceName(s.sourceId) });
+    }
+    this.ensureFarm();
     this.claims = snap.claims.map(cloneClaim);
     this.belief = new Map();
     for (const b of snap.belief) {
@@ -299,6 +371,13 @@ export class RumorBook {
   valueLog(assetId: string): number { return this.valueApplied.get(assetId) ?? 0; }
   printedBelief(assetId: string): number { return this.marks.get(assetId)?.printed ?? 0; }
   sourceState(): RumorSource { return { ...this.source }; }
+  sourceOf(id: string | undefined): RumorSource {
+    if (!id || id === RUMOR.sourceId) return { ...this.source };
+    this.ensureFarm();
+    const s = this.farm.get(id);
+    return s ? { ...s } : { ...this.source };
+  }
+  farmSources(): RumorSource[] { this.ensureFarm(); return [...this.farm.values()].map((s) => ({ ...s })); }
   claim(id: string): RumorClaim | undefined { return this.claims.find((c) => c.id === id); }
   allClaims(): readonly RumorClaim[] { return this.claims; }
 
@@ -323,8 +402,16 @@ export class RumorBook {
   open(input: RumorOpenInput): RumorClaim {
     const existing = this.claims.find((c) => c.id === input.id);
     if (existing) return existing;
-    const acc = this.source.hiddenAccuracy;
-    const isTrue = drawIsTrue(this.seed, input.id, acc, this.secret);
+    const src = this.liveSource(input.sourceId);
+    const acc = src.hiddenAccuracy;
+    const channel: "desk" | "farm" = input.channel ?? (isFarmSourceId(input.sourceId) ? "farm" : "desk");
+    const isTrue = channel === "farm" && input.sourceId
+      ? drawFarmIsTrue(this.seed, input.id, input.sourceId, acc, this.secret)
+      : drawIsTrue(this.seed, input.id, acc, this.secret);
+    const a = input.a !== undefined ? input.a : assertedLog(input.bp);
+    const cr = channel === "farm"
+      ? (src.hits + 5) / (src.resolved + 10)
+      : claimCredibility(src.hits, src.resolved);
     const claim: RumorClaim = {
       id: input.id,
       defId: input.defId,
@@ -335,11 +422,14 @@ export class RumorBook {
       publishTick: input.publishTick,
       resolvesByTick: resolvesByTick(this.seed, input.id, input.publishTick, this.secret),
       bp: input.bp,
-      a: assertedLog(input.bp),
-      cr: claimCredibility(this.source.hits, this.source.resolved),
+      a,
+      cr,
       reach: RUMOR.reach,
       isTrue,
       resolution: "PENDING",
+      sourceId: input.sourceId,
+      factKind: input.factKind,
+      channel,
     };
     this.claims.push(claim);
     return claim;
@@ -361,17 +451,20 @@ export class RumorBook {
     if (this.lastTick != null && tick < this.lastTick) return out;
     let start: number;
     if (this.lastTick == null) {
-      if (this.claims.length === 0) { this.lastTick = tick; return out; }
-      start = Math.min(...this.claims.map((c) => c.publishTick));
+      const pubs = this.claims.map((c) => c.publishTick);
+      start = pubs.length ? Math.min(...pubs, START_TICK) : Math.min(tick, START_TICK);
+      if (start > tick) { this.lastTick = tick; return out; }
     } else {
       start = this.lastTick + 1;
     }
     for (let t = start; t <= tick; t++) {
+      this.openFarmDue(t);
       this.stepPendingBelief(t);
       this.syncMarks(applyLog);
-      for (const ev of this.resolveDue(t, applyLog, applyConfirmed)) out.push(ev);
-      this.stepRelease();
-      this.syncMarks(applyLog);
+      const evs = this.resolveDue(t, applyLog, applyConfirmed);
+      for (const ev of evs) out.push(ev);
+      const released = this.stepRelease();
+      if (evs.length || released) this.syncMarks(applyLog);
     }
     this.lastTick = tick;
     return out;
@@ -380,7 +473,9 @@ export class RumorBook {
   private stepPendingBelief(tick: number): void {
     for (const c of this.claims) {
       if (c.resolution !== "PENDING") continue;
-      const want = claimContribution(c, tick);
+      const want = (c.channel === "farm" || isFarmSourceId(c.sourceId))
+        ? farmContribution(c, tick, this.liveSource(c.sourceId).hits, this.liveSource(c.sourceId).resolved)
+        : claimContribution(c, tick);
       if (want === 0) this.belief.delete(c.id);
       else this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: want, mode: "pending" });
     }
@@ -442,8 +537,7 @@ export class RumorBook {
         if (have !== 0) {
           this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: have, mode: "handoff", startLog: have, ticksLeft: RUMOR.handoffTicks });
         }
-        this.source.hits += 1;
-        this.source.resolved += 1;
+        this.credit(c, true);
         evs.push({ claim: cloneClaim(c) });
       } else {
         c.resolution = drawFalseKind(this.seed, c.id, this.secret);
@@ -451,14 +545,15 @@ export class RumorBook {
         if (have !== 0) {
           this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: have, mode: "falseRelease", startLog: have });
         } else this.belief.delete(c.id);
-        this.source.resolved += 1;
+        this.credit(c, false);
         evs.push({ claim: cloneClaim(c) });
       }
     }
     return evs;
   }
 
-  private stepRelease(): void {
+  private stepRelease(): boolean {
+    let changed = false;
     for (const [id, pos] of [...this.belief.entries()]) {
       if (pos.mode === "pending") continue;
       if (pos.mode === "handoff") {
@@ -467,6 +562,7 @@ export class RumorBook {
         const want = left <= 0 ? 0 : start * (left / RUMOR.handoffTicks);
         if (left <= 0 || want === 0) this.belief.delete(id);
         else this.belief.set(id, { claimId: id, assetId: pos.assetId, log: want, mode: "handoff", startLog: start, ticksLeft: left });
+        changed = true;
         continue;
       }
       const k = ticksHalfLifeK(RUMOR.falseHlTicks);
@@ -474,7 +570,51 @@ export class RumorBook {
       const next = pos.log - dec;
       if (Math.abs(next) < 1e-12) this.belief.delete(id);
       else this.belief.set(id, { claimId: id, assetId: pos.assetId, log: next, mode: "falseRelease", startLog: pos.startLog });
+      changed = true;
     }
+    return changed;
+  }
+
+  private liveSource(id: string | undefined): RumorSource {
+    if (!id || id === RUMOR.sourceId || !isFarmSourceId(id)) return this.source;
+    this.ensureFarm();
+    return this.farm.get(id) ?? this.source;
+  }
+
+  private credit(c: RumorClaim, hit: boolean): void {
+    const src = this.liveSource(c.sourceId);
+    if (hit) src.hits += 1;
+    src.resolved += 1;
+  }
+
+  /** Open farm rumors scheduled at `tick` (idempotent). A day's book is live only after the previous day close, and only once that close is at or after START_TICK. */
+  openFarmDue(tick: number): RumorClaim[] {
+    const day = dayOfTick(tick);
+    if (dayCloseTick(day - 1) < START_TICK) return [];
+    if (tick <= dayCloseTick(day - 1)) return [];
+    const out: RumorClaim[] = [];
+    for (const d of planFarmDay(this.seed, day)) {
+      if (d.publishTick !== tick) continue;
+      out.push(this.openFromDraft(d));
+    }
+    return out;
+  }
+
+  openFromDraft(d: FarmDraft): RumorClaim {
+    return this.open({
+      id: d.id,
+      defId: d.factKind,
+      assetId: d.assetId,
+      headlineKey: "wire.rumor.hears",
+      slots: farmHeadlineSlots(d),
+      causeKey: "wire.cause.farm-rumor",
+      publishTick: d.publishTick,
+      bp: d.bp,
+      sourceId: d.sourceId,
+      factKind: d.factKind,
+      channel: "farm",
+      a: d.assertedMove,
+    });
   }
 }
 
@@ -494,6 +634,7 @@ export function claimCauseKey(c: Pick<RumorClaim, "causeKey" | "resolution">): s
 export function cloneRumorSnapshot(s: RumorSnapshot): RumorSnapshot {
   return {
     source: { ...s.source },
+    sources: s.sources ? s.sources.map((x) => ({ ...x })) : s.sources,
     claims: s.claims.map(cloneClaim),
     belief: s.belief.map((b) => ({ ...b })),
     beliefMarks: (s.beliefMarks ?? []).map((m) => ({ ...m })),
@@ -548,9 +689,13 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
         effect = { assetId: e.assetId, from, to };
       }
     }
+    const sourceId = typeof c.sourceId === "string" ? c.sourceId : undefined;
+    const factKind = typeof c.factKind === "string" ? c.factKind : undefined;
+    const channel = c.channel === "farm" || c.channel === "desk" ? c.channel : undefined;
     claims.push({
       id: c.id, defId: c.defId, assetId: c.assetId, headlineKey: c.headlineKey, slots, causeKey: c.causeKey,
       publishTick, resolvesByTick: resolvesByTickN, bp, a, cr, reach, isTrue: c.isTrue, resolution, effect,
+      sourceId, factKind, channel,
     });
   }
   const belief: BeliefPos[] = [];
@@ -595,11 +740,24 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
     }
     return out;
   };
+  const sources: RumorSource[] = [];
+  if (Array.isArray(o.sources)) {
+    for (const row of o.sources) {
+      if (!row || typeof row !== "object") continue;
+      const s = row as Record<string, unknown>;
+      if (typeof s.sourceId !== "string") continue;
+      const sacc = num(s.hiddenAccuracy), sh = int(s.hits), sr = int(s.resolved);
+      if (sacc == null || sh == null || sr == null || sh < 0 || sr < 0 || sh > sr) continue;
+      const nameKey = typeof s.nameKey === "string" ? s.nameKey : undefined;
+      sources.push({ sourceId: s.sourceId, hiddenAccuracy: sacc, hits: sh, resolved: sr, nameKey });
+    }
+  }
   const lastTick = o.lastTick === null ? null : int(o.lastTick);
   if (o.lastTick !== null && o.lastTick !== undefined && lastTick == null) return undefined;
   const secret = typeof o.secret === "string" && o.secret.length > 0 ? o.secret : newRumorSecret();
   return {
     source: { sourceId: srcRaw.sourceId, hiddenAccuracy: acc, hits, resolved },
+    sources: sources.length ? sources : undefined,
     claims, belief, beliefMarks, lnV: rows(o.lnV), valueApplied: rows(o.valueApplied), lastTick: lastTick ?? null, secret,
   };
 }
