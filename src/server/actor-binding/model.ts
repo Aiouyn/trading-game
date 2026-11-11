@@ -34,6 +34,7 @@ export type BindingErrorCode =
   | "CLAIM_MISSING"
   | "CLAIM_MALFORMED"
   | "ACTOR_MISMATCH"
+  | "FORGED_CONTEXT"
   | "INVALID_ACCOUNT_ID"
   | "INVALID_BINDING_CHECKPOINT"
   | "ACTOR_REMAP";
@@ -79,7 +80,26 @@ export function classifyToken(raw: unknown): TokenClass {
   return "PRESENT";
 }
 
+const issuedContexts = new WeakSet<object>();
+
+/** Mark a context as issued by ActorBinding. Not exported from the package index. */
+export function issueActorContext(context: ActorContext): ActorContext {
+  const issued: ActorContext = Object.freeze({
+    actorId: context.actorId,
+    accountId: context.accountId,
+    sessionId: context.sessionId,
+    boundAtMs: context.boundAtMs,
+  });
+  issuedContexts.add(issued);
+  return issued;
+}
+
+export function isIssuedActorContext(value: unknown): value is ActorContext {
+  return typeof value === "object" && value !== null && issuedContexts.has(value);
+}
+
 export function requireBoundActor(context: ActorContext, claimed: unknown): ActorId {
+  if (!isIssuedActorContext(context)) throw new BindingError("FORGED_CONTEXT");
   if (claimed === undefined || claimed === null || claimed === "") {
     throw new BindingError("CLAIM_MISSING");
   }

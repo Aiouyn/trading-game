@@ -88,3 +88,10 @@ inspectSession(
 3. Rejection reasons still collapse to `SESSION_REJECTED` until `inspectSession` lands (Builder lane, under review).
 4. Known window, same as existing routes: a logout that lands after the session lookup returns does not abort an in-flight `authorizeCommand`. Engines that adopt the guard must re-check or accept that window; not closed here.
 5. `chr_` ids are a public, keyless derivation of `acc_` ids. They are identifiers, not secrets: isolation rests entirely on the session check, never on the id being unguessable.
+
+## Gatekeeper quals: issued contexts (2026-11-12 00:56 Europe/Paris)
+
+A well-formed `ActorContext` can be forged: `chr_` is a public derivation of `acc_`, and a `ses_` value is just a string. Isolation therefore cannot rest on field shape alone.
+
+1. Only `ActorBinding.bindToken` / `bindRequest` / `authorizeCommand` issue a context. Issued objects are held in a module-private `WeakSet` and frozen. `requireBoundActor` rejects any other object, including a field-wise copy and a `structuredClone`, as `FORGED_CONTEXT`.
+2. `ActorBinding.assertLiveSession(context)` re-peeks the issuing session (via the existing `peekSession` token lookup) and rejects logout, expiry, or a session/account mismatch as `SESSION_REJECTED`. Adopting engines must call this immediately before they commit a write, which closes the logout window recorded in the previous quals batch (item 4). This adapter still does not edit auth, broker or Wire.
