@@ -60,3 +60,9 @@
 .pos-cards .pos-skel { height: 56px; }
 .pos-empty p { margin: 0; }
 .pos-empty-title { color: var(--fg); }
+
+/* Label the existing three card rows; the sent numbers keep their no-wrap clusters. */
+.pos-reading-key { margin: 0; color: var(--fg-muted); font-size: var(--fs-13); }
+.pos-card-field { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+.pos-card-end { align-items: flex-end; }
+.pos-card-label { color: var(--fg-muted); font-family: var(--font-ui); font-size: var(--fs-12_5); }

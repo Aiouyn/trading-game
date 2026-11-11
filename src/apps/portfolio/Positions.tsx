@@ -59,6 +59,7 @@ export function PositionsView({ view, tickers, locale, cards, phone, big = false
   return (
     <section className={cls} data-testid="pf-positions" data-state={view.state} aria-label={t.table}>
       {stale && <p className="pf-updating muted" role="status" data-testid="pos-updating">{t.updating}</p>}
+      {rows.length > 0 && <p className="pos-reading-key" data-testid="pos-reading-key">{t.readingKey}</p>}
       {rows.length === 0 ? (
         <div className="pos-empty" data-testid="pos-empty">
           <p className="pos-empty-title">{t.emptyTitle}</p>
