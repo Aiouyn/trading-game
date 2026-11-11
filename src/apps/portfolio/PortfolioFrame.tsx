@@ -27,6 +27,10 @@ export function PortfolioFrame() {
   const t = pfStrings(locale);
   const auth = useAuthChrome();
   const guest = !isSignedIn(auth);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (phone && document.activeElement === document.body) rootRef.current?.focus({ preventScroll: true });
+  }, [phone]);
   const [tab, setTab] = useState<PfTab>("overview");
   const tabRefs = useRef<Record<PfTab, HTMLButtonElement | null>>({ overview: null, positions: null, orders: null });
   const label: Record<PfTab, string> = { overview: t.overview, positions: t.positions, orders: t.orders };
@@ -40,7 +44,7 @@ export function PortfolioFrame() {
 
   if (phone) {
     return (
-      <div className="pf pf-phone-root" data-testid="portfolio" data-tab={tab}>
+      <div ref={rootRef} className="pf pf-phone-root" data-testid="portfolio" data-tab={tab} tabIndex={-1}>
         {/* Guest example label on Overview only — Orders/Positions shots stay baseline-stable (PF-8). */}
         {guest && tab === "overview" && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
         {tab === "positions" ? <Positions phone /> : tab === "orders" ? <Orders phone /> : (

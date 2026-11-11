@@ -185,3 +185,7 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-sheet-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-8); margin-bottom: var(--sp-16); }
 .br-sheet-head h2 { margin: 0; min-width: 0; font-size: var(--fs-16); overflow-wrap: anywhere; }
 .br-sheet-head .btn { max-width: 100%; white-space: normal; }
+
+.br-receipt, .br-fill-position { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; overflow-wrap: anywhere; }
+.br-fill-position { border-top: 1px solid var(--line); padding-top: var(--sp-12); }
+.br-fill-pnl { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); }

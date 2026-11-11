@@ -280,7 +280,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const ack = result && (
     <RetryableAck t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
       queued={(() => { const id = orderIdOf(result); return id !== null && body.orders[id]?.status === "QUEUED_AUCTION"; })()}
-      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject}
+      resting={restingId !== null} position={body.positions[assetId] ?? null} stale={frozen} onNew={newOrder} onEdit={editAfterReject}
       fallback={panelFallback("br-ack-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
       errorTestId="br-ack-error" retryTestId="br-ack-retry" />
   );
