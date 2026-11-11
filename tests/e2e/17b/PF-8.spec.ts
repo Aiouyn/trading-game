@@ -11,6 +11,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { boot, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
+import { closePhoneTicket, openPhoneTicket } from "./ticketSheet";
 import { pinHtml } from "./pin";
 import { SPEC_COLOUR } from "./specColours";
 
@@ -63,6 +64,8 @@ async function openPaused(page: Page, query = "") {
 }
 /** Ticket → Review → Place → the ack (resting limit, market fill, or a halted market order waiting). */
 async function order(page: Page, type: "market" | "limit", qty: string, limit?: string) {
+  await openPhoneTicket(br(page));
+  await page.clock.runFor(300);
   await br(page).getByTestId(`br-type-${type}`).click();
   if (limit) await br(page).getByTestId("br-price-limit").fill(limit);
   await br(page).getByTestId("br-qty").fill(qty);
@@ -94,6 +97,7 @@ async function clickWhenShown(page: Page, l: Locator) {
 /** Portfolio › Orders next to the Broker: desktop opens a second window from the shelf; phone goes Home → Portfolio → Orders. */
 async function toOrders(page: Page, phone: boolean, state = "live") {
   if (phone) {
+    await closePhoneTicket(page);
     for (let i = 0; i < 3 && (await page.getByTestId("icon-portfolio").count()) === 0; i++) await page.getByTestId("app-back").click();
     await page.getByTestId("icon-portfolio").click();
     await clickWhenShown(page, page.getByTestId("pf-open-orders"));

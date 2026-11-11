@@ -179,6 +179,8 @@ const EN = {
   /** [provisional] aria-label of the chart skeleton (aria-busy). */
   chartLoading: "Loading price chart",
   // ---- UI card 10: asset page (updating / couldntLoad / retry / halted reuse card 4 keys) ----
+  tradeTicket: "Order ticket",
+  closeTicket: "Close ticket",
   viewTrade: "Trade",
   viewAbout: "About",
   /** [provisional] accessible names of the Trade | About and the Overview | News tab lists. */
@@ -343,6 +345,8 @@ const FR: BrStrings = {
   chartError: "Impossible de charger le graphique",
   noHistory: "Pas encore d’historique de cours.",
   chartLoading: "Chargement du graphique de cours",
+  tradeTicket: "Ticket d’ordre",
+  closeTicket: "Fermer le ticket",
   viewTrade: "Trader",
   viewAbout: "À propos",
   viewAria: "Vue du courtier",

@@ -6,6 +6,7 @@
 // The top bar NW is the same valuation; while it is unknown (a failed or pending account or quote read) it says so and
 // shows no number, never the sign-in cash as "Saved net worth".
 // Real timers against the production build. Repo CI evidence only, not the desktop played gate.
+import { openPhoneTicket } from "./ticketSheet";
 import { mkdirSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
@@ -50,6 +51,7 @@ async function trade(page: Page, side: "buy" | "sell", qty: string, limit?: stri
   await page.goto("/broker?asset=HALC");
   const b = br(page);
   await expect(b).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+  await openPhoneTicket(b);
   await b.getByTestId(`br-side-${side}`).click();
   await b.getByTestId(limit ? "br-type-limit" : "br-type-market").click();
   if (limit) await b.getByTestId("br-price-limit").fill(limit);

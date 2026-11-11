@@ -157,3 +157,20 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-stacked .br-row dd { text-align: left; }
 
 /* High contrast: data-hc raises --line, so the segment, input, select, review and ack borders above stay visible. */
+
+/* BRK-01 phone entry replaces Card1's scroll shortcut only in the approved merged stack. */
+.br-phone .br-ticket-entry { display: none; }
+.br-phone[data-view="trade"] { padding-bottom: calc(44px + var(--sp-32) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
+.br-trade-fab.btn {
+  position: fixed; right: max(var(--sp-16), env(safe-area-inset-right));
+  bottom: calc(var(--edge-bar-h) + env(safe-area-inset-bottom) + var(--sp-12));
+  z-index: var(--z-toast); min-width: var(--hit-touch); min-height: var(--hit-touch);
+  max-width: calc(100% - max(var(--sp-16), env(safe-area-inset-left)) - max(var(--sp-16), env(safe-area-inset-right)));
+}
+.br-phone-order .qs-body {
+  overscroll-behavior: contain;
+  padding: var(--sp-16) max(var(--sp-16), env(safe-area-inset-right)) max(var(--sp-16), env(safe-area-inset-bottom)) max(var(--sp-16), env(safe-area-inset-left));
+}
+.br-sheet-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-8); margin-bottom: var(--sp-16); }
+.br-sheet-head h2 { margin: 0; min-width: 0; font-size: var(--fs-16); overflow-wrap: anywhere; }
+.br-sheet-head .btn { max-width: 100%; white-space: normal; }

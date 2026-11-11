@@ -9,6 +9,7 @@ import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
 import { boot, intents, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
+import { closePhoneTicket, openPhoneTicket } from "./ticketSheet";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -71,9 +72,13 @@ type Prices = { stop?: string; limit?: string };
 /** Fake-clock Broker: one feed tick = 5,000 ms, only when a test runs the clock. */
 async function openPaused(page: Page, query = "?asset=HALC") {
   await openBrokerPaused(page, `/broker${query}`, br(page));
+  await openPhoneTicket(br(page));
+  await page.clock.runFor(300);
 }
 /** Pick a type, fill its prices and the quantity, and wait out the 300 ms preview debounce. */
 async function ticket(page: Page, type: Type, prices: Prices, qty = "40") {
+  await openPhoneTicket(br(page));
+  await page.clock.runFor(300);
   await br(page).getByTestId(`br-type-${type}`).click();
   for (const [f, v] of Object.entries(prices)) await br(page).getByTestId(`br-price-${f}`).fill(v);
   await br(page).getByTestId("br-qty").fill(qty);
@@ -95,6 +100,7 @@ async function order(page: Page, type: Type, prices: Prices, qty = "40") {
   await review(page);
   await placeAndAck(page);
   await br(page).getByTestId("br-new").click();
+  await closePhoneTicket(page);
 }
 
 test("BR-5-01 segment computed colours: idle --fg-muted on transparent, pressed --fg on --win2, --line border; never --acc / --gain / --loss", async ({ page }) => {
@@ -144,6 +150,7 @@ test("BR-5-04 a stale preview disables Place on a limit review", async ({ page }
   await page.clock.install({ time: new Date("2026-10-27T12:00:00Z") });
   await boot(page, "/broker?asset=HALC&feed=stale");
   await expect(br(page)).toHaveAttribute("data-state", "live");
+  await openPhoneTicket(br(page));
   await br(page).getByTestId("br-type-limit").click();
   await br(page).getByTestId("br-price-limit").fill("42.10");
   await br(page).getByTestId("br-qty").fill("40");
@@ -316,6 +323,8 @@ for (const scale of ["1", "2"] as const) {
     if (scale === "1") await shot(page, "review-sheet");
     await placeAndAck(page);
     await br(page).getByTestId("br-new").click();
+    await expect(br(page).getByTestId("br-qty")).toBeFocused();
+    await closePhoneTicket(page);
     await expect(rows(page)).toHaveCount(1);
     const row = rows(page).first();
     expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -332,10 +341,9 @@ for (const scale of ["1", "2"] as const) {
       // QA #87 carry-over: scrolled to the end, the list's bottom padding (--edge-bar-h) keeps the last Cancel clear of
       // #edge-bar, and a real tap opens the confirm.
       const cancel = row.getByTestId("br-oo-cancel");
-      // New order left the empty Qty focused. The tap below blurs it, which shows "Enter a quantity." in its reserved
-      // line (card 4), so nothing moves between touchstart and click and the tap lands on Cancel.
-      await expect(br(page).getByTestId("br-qty")).toBeFocused();
-      await expect(br(page).getByTestId("br-qty-msg")).toHaveCount(0);
+      // Card6 dismisses the modal before touching Open orders; the old inline-Qty blur crossing is no longer possible.
+      await expect(br(page).getByTestId("br-trade")).toBeFocused();
+      await expect(br(page).getByTestId("br-qty")).toHaveCount(0);
       const edge = (await page.getByTestId("edge-bar").boundingBox())!;
       const clear = await cancel.evaluate((el) => {
         for (let s = el.parentElement; s; s = s.parentElement) {
@@ -353,7 +361,7 @@ for (const scale of ["1", "2"] as const) {
       await cancel.tap();
       const yes = row.getByTestId("br-oo-yes");
       await expect(yes).toBeVisible();
-      await expect(br(page).getByTestId("br-qty-msg")).toBeVisible(); // the same tap blurred Qty
+      await expect(br(page).getByTestId("br-qty-msg")).toHaveCount(0); // no hidden second ticket
       await expect.poll(() => yes.evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).borderTopColor])).toEqual([SPEC_COLOUR.cbLoss, SPEC_COLOUR.cbLoss]);
       await shot(page, "open-orders-cb");
       await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-cb-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
@@ -363,7 +371,10 @@ for (const scale of ["1", "2"] as const) {
       await pinHtml(page, "cb", false);
       await pinHtml(page, "hc", true);
       expect(await row.evaluate((e) => getComputedStyle(e).borderBottomColor)).toBe(SPEC_COLOUR.fgMuted);
+      await openPhoneTicket(br(page));
+      await page.clock.runFor(300);
       expect(await br(page).getByTestId("br-price-limit").evaluate((e) => getComputedStyle(e).borderTopColor)).toBe(SPEC_COLOUR.hcLine);
+      await closePhoneTicket(page);
       await expect.poll(() => row.getByTestId("br-oo-cancel").evaluate((e) => getComputedStyle(e).borderTopColor), "once the border transition settles").toBe(SPEC_COLOUR.hcLine);
       await shot(page, "open-orders-hc");
       await expect(list(page)).toHaveScreenshot(["BR-5", "open-orders-hc-390x844.png"], { mask: [list(page).getByTestId("br-oo-meta")] });
