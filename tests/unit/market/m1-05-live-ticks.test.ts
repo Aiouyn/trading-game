@@ -133,11 +133,11 @@ describe("M1-05 authoritative live ticks", () => {
     market.start();
     setLiveMarketForTests(market);
     const regA = await register(new Request("http://localhost/api/auth/register", {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" },
       body: JSON.stringify({ handle: "TickA", password: "password1" }),
     }));
     const regB = await register(new Request("http://localhost/api/auth/register", {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" },
       body: JSON.stringify({ handle: "TickB", password: "password1" }),
     }));
     expect(regA.status).toBe(201);
@@ -159,10 +159,10 @@ describe("M1-05 authoritative live ticks", () => {
     expect(againA.tick).toBe(t0 + 1);
     expect(againA.quotes).not.toEqual((bodies[0] as { quotes: unknown }).quotes);
 
-    const meA = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieA } }))).json() as {
+    const meA = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieA, origin: "http://localhost" } }))).json() as {
       account: { accountId: string }; player: { cashCents: number; accountId: string };
     };
-    const meB = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB } }))).json() as {
+    const meB = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB, origin: "http://localhost" } }))).json() as {
       account: { accountId: string }; player: { cashCents: number; accountId: string };
     };
     expect(meA.account.accountId).not.toBe(meB.account.accountId);

@@ -24,6 +24,14 @@ export function HistoryLabel({ item, t }: { item: WireItem; t: WireStrings }) {
   return <Chip tone="neutral" outline className="wire-earlier" data-testid="wire-earlier">{t.earlier}</Chip>;
 }
 
+/** Player STATEMENT (`soc.wire.post`), visually distinct from an official company statement. */
+export const isPlayerStatementItem = (i: WireItem): boolean => i.headlineKey === "wire.statement.player" || i.slots?.player === "1";
+
+export function PlayerLabel({ item, t }: { item: WireItem; t: WireStrings }) {
+  if (!isPlayerStatementItem(item)) return null;
+  return <Chip tone="neutral" outline className="wire-player" data-testid="wire-player">{t.playerPost}</Chip>;
+}
+
 /** M1-09: a server story's outcome on the row when it moved nothing: Forecast / No effect (a realized effect sits
  *  beside its asset label, see EntityLabel). */
 export function StoryOutcome({ item, t }: { item: WireItem; t: WireStrings }) {
@@ -90,6 +98,7 @@ export function WireItemRow({ item, t, fresh, selected = false, onOpen, buttonRe
         {band && <Chip className="wire-band" data-testid="wire-band" data-band={band}>{t.band[band]}</Chip>}
         <PricedIn item={item} t={t} />
         <HistoryLabel item={item} t={t} />
+        <PlayerLabel item={item} t={t} />
         <StoryOutcome item={item} t={t} />
       </div>
     </li>

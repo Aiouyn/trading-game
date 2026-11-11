@@ -75,6 +75,24 @@ export async function readJsonObject(request: Request): Promise<Record<string, u
   return parsed as Record<string, unknown>;
 }
 
+/** Read a JSON object, but refuse the raw body above `maxBytes` before parsing. */
+export async function readJsonObjectCapped(request: Request, maxBytes: number): Promise<Record<string, unknown>> {
+  const buf = Buffer.from(await request.arrayBuffer());
+  if (buf.byteLength > maxBytes) {
+    throw new AuthError("BAD_REQUEST", "Request body is too large.", 400);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(buf.toString("utf8")) as unknown;
+  } catch {
+    throw new AuthError("BAD_REQUEST", "Expected JSON body.", 400);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new AuthError("BAD_REQUEST", "Expected JSON object.", 400);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export function requireString(obj: Record<string, unknown>, key: string): string {
   const value = obj[key];
   if (typeof value !== "string") {
@@ -123,7 +141,7 @@ function parseBrowserOrigin(raw: string, kind: "Origin" | "Referer"): URL {
 
 /**
  * CSRF guard for auth mutations. Origin (preferred) or Referer must match an allowed host.
- * Does not trust X-Forwarded-* unless QUAY_TRUST_PROXY + allowlist. Missing both allowed for non-browser smoke.
+ * Does not trust X-Forwarded-* unless QUAY_TRUST_PROXY + allowlist. Missing both is 403 (fail closed).
  */
 export function assertSameOriginMutation(request: Request): void {
   // Fail closed on known multi-instance deploy shapes before any cookie work.
@@ -143,5 +161,7 @@ export function assertSameOriginMutation(request: Request): void {
     if (!allowed.has(parsed.host)) {
       throw new AuthError("FORBIDDEN", "Cross-origin auth mutation blocked.", 403);
     }
+    return;
   }
+  throw new AuthError("FORBIDDEN", "Cross-origin auth mutation blocked.", 403);
 }

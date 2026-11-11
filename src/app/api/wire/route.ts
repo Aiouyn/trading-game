@@ -1,8 +1,8 @@
-import { assertLocalSingleProcessAuth, assertSameOriginMutation, authErrorResponse, getAuthService, jsonResponse, readJsonObject, tokenFromRequest, AuthError } from "@/server/auth";
+import { assertLocalSingleProcessAuth, assertSameOriginMutation, authErrorResponse, getAuthService, jsonResponse, readJsonObjectCapped, tokenFromRequest, AuthError } from "@/server/auth";
 import { getBroker } from "@/server/broker";
 import { isIdempotencyKey } from "@/server/player/privateState";
 import { getLiveMarket } from "@/server/market/clock";
-import { WirePostError, mergePlayerStatements, playerPostToWireItem } from "@/server/wire/playerStatements";
+import { WIRE_POST_MAX_BODY_BYTES, WirePostError, mergePlayerStatements, playerPostToWireItem } from "@/server/wire/playerStatements";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +18,16 @@ function wireErrorResponse(err: unknown): Response {
  * durable player posts from the auth store. GET is public and writes nothing. A clock restart is a new `epoch`
  * for catalog stories; player posts rematerialize from the auth store.
  */
-export async function GET(): Promise<Response> {
+export async function GET(request?: Request): Promise<Response> {
   assertLocalSingleProcessAuth();
   getBroker();
   const snap = getLiveMarket().wire();
-  const posts = await getAuthService().listPublicWirePosts();
-  return jsonResponse({ ...snap, items: mergePlayerStatements(snap.items, posts) });
+  const auth = getAuthService();
+  const posts = await auth.listPublicWirePosts();
+  const body: Record<string, unknown> = { ...snap, items: mergePlayerStatements(snap.items, posts) };
+  const view = await auth.resolveSession(tokenFromRequest(request ?? new Request("http://localhost/api/wire")));
+  if (view) body.remainingToday = await auth.remainingWirePostsToday(view.account.accountId, snap.tick);
+  return jsonResponse(body);
 }
 
 /**
@@ -38,7 +42,15 @@ export async function POST(request: Request): Promise<Response> {
     if (!/^application\/json\b/i.test(type)) throw new AuthError("BAD_REQUEST", "Expected application/json.", 415);
     const view = await getAuthService().resolveSession(tokenFromRequest(request));
     if (!view) throw new AuthError("UNAUTHORIZED", "Not signed in.", 401);
-    const body = await readJsonObject(request);
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonObjectCapped(request, WIRE_POST_MAX_BODY_BYTES);
+    } catch (err) {
+      if (err instanceof AuthError && /too large/i.test(err.message)) {
+        throw new WirePostError("BODY_TOO_LARGE", "Request body is too large.", 400);
+      }
+      throw err;
+    }
     for (const k of Object.keys(body)) {
       if (!["idempotencyKey", "text", "assetTags"].includes(k)) throw new AuthError("BAD_REQUEST", `Unexpected field: ${k}.`, 400);
     }

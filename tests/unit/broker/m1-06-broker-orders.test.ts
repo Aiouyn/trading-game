@@ -32,7 +32,7 @@ function cookieFrom(res: Response): string {
 
 async function signUp(handle: string): Promise<string> {
   const res = await register(new Request("http://localhost/api/auth/register", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle, password: "password1" }),
+    method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle, password: "password1" }),
   }));
   expect(res.status).toBe(201);
   return cookieFrom(res);
@@ -163,7 +163,7 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     expect((await placeRoute(post("/api/broker/orders", "", body))).status).toBe(401);
     expect((await placeRoute(post("/api/broker/orders", a, body, { origin: "https://evil.example" }))).status).toBe(403);
     expect((await placeRoute(new Request("http://localhost/api/broker/orders", {
-      method: "POST", headers: { "content-type": "text/plain", cookie: a }, body: JSON.stringify(body),
+      method: "POST", headers: { "content-type": "text/plain", cookie: a, origin: "http://localhost" }, body: JSON.stringify(body),
     }))).status).toBe(415);
     expect((await brokerMe(new Request("http://localhost/api/broker/me"))).status).toBe(401);
     expect((await ledger(a)).cashCents).toBe(START_CASH_CENTS);
@@ -357,7 +357,7 @@ describe("M1-06 Broker market + limit orders on the server", () => {
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
       sent.push({ url: input, body });
       if (input === "/api/market") return Response.json(market.snapshot());
-      if (input === "/api/broker/me") return brokerMe(new Request("http://localhost/api/broker/me", { headers: { cookie: a } }));
+      if (input === "/api/broker/me") return brokerMe(new Request("http://localhost/api/broker/me", { headers: { cookie: a, origin: "http://localhost" } }));
       if (input === "/api/broker/orders") {
         if (dropNext) { dropNext = false; throw new TypeError("network down"); } // reply lost: client must retry with the same key
         return placeRoute(post(input, a, body));

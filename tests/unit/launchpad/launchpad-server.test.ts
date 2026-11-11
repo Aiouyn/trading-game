@@ -33,7 +33,7 @@ let n = 0;
 const nextKey = () => `lp-test-key-${++n}`;
 async function signUp(handle: string): Promise<string> {
   const res = await register(new Request("http://localhost/api/auth/register", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle, password: "password1" }),
+    method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle, password: "password1" }),
   }));
   expect(res.status).toBe(201);
   return (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))!.split(";")[0]!;
@@ -257,7 +257,7 @@ describe("Launchpad persistence", () => {
     raw.launchpad.coins[0].sold = 5; // tokens sold no longer match tokens held
     writeFileSync(file, JSON.stringify(raw));
     setAuthServiceForTests(new AuthService({ store: new FileAuthStore(file) }));
-    const res = await lpGet(new Request("http://localhost/api/launchpad", { headers: { cookie: a } }));
+    const res = await lpGet(new Request("http://localhost/api/launchpad", { headers: { cookie: a, origin: "http://localhost" } }));
     expect(res.status).toBe(503);
     expect((await res.json()).error.code).toBe("LAUNCHPAD_UNAVAILABLE");
     expect((await launchRaw(a, { idempotencyKey: nextKey(), name: "Toad Club", ticker: "TOAD", fee: LP.LAUNCH_FEE, tagline: "tg1" })).status).toBe(503);

@@ -63,6 +63,8 @@ export interface WireStrings {
   eased: string;
   /** t0 history rows (w-h-*): already happened; this clock did not apply the catalog move. */
   earlier: string;
+  /** Distinct label for a player STATEMENT (soc.wire.post), not an official company statement. */
+  playerPost: string;
   composer: {
     summary: string;
     textLabel: string;
@@ -180,6 +182,7 @@ export const EN: WireStrings = {
   forecast: "Forecast",
   eased: "No effect",
   earlier: "Earlier",
+  playerPost: "Player",
   composer: {
     summary: "Post a statement",
     textLabel: "Statement",
@@ -197,6 +200,8 @@ export const EN: WireStrings = {
       DAY_CAP: "You can post three times per game day.",
       IDEMPOTENCY_CONFLICT: "That request was already used for a different statement.",
       UNAUTHORIZED: "Sign in to post a statement.",
+      STORED_UNREADABLE: "That statement could not be read back. It was not charged again.",
+      BODY_TOO_LARGE: "That statement is too large.",
       BAD_REQUEST: "That statement could not be posted.",
     },
   },
@@ -307,6 +312,7 @@ export const FR: WireStrings = {
   forecast: "Prévision",
   eased: "Sans effet",
   earlier: "Plus tôt",
+  playerPost: "Joueur",
   composer: {
     summary: "Publier une déclaration",
     textLabel: "Déclaration",
@@ -324,6 +330,8 @@ export const FR: WireStrings = {
       DAY_CAP: "Trois déclarations par jour de jeu au plus.",
       IDEMPOTENCY_CONFLICT: "Cette requête a déjà été utilisée pour une autre déclaration.",
       UNAUTHORIZED: "Connectez-vous pour publier.",
+      STORED_UNREADABLE: "Impossible de relire cette déclaration. Aucun nouveau débit.",
+      BODY_TOO_LARGE: "Cette déclaration est trop volumineuse.",
       BAD_REQUEST: "Impossible de publier cette déclaration.",
     },
   },

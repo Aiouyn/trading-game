@@ -16,6 +16,7 @@ import {
   remainingPostsToday,
   spendableCashCents,
   type PlayerWirePost,
+  type QuarantinedWireRow,
   type WirePostIntent,
 } from "@/server/wire/playerStatements";
 import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoin, type LpCoinRow, type LpState } from "@/server/launchpad/state";
@@ -113,6 +114,8 @@ export class AuthService {
   private launchpad: { ok: true; state: LpState } | { ok: false; raw: unknown } = { ok: true, state: emptyLaunchpad() };
   private wirePosts: PlayerWirePost[] = [];
   private wirePostIntents: WirePostIntent[] = [];
+  private quarantinedWirePosts: QuarantinedWireRow[] = [];
+  private quarantinedWirePostIntents: QuarantinedWireRow[] = [];
   private ready: Promise<void>;
   /** Serializes mutating ops so async scrypt cannot race handle uniqueness / file writes. */
   private queue: Promise<void> = Promise.resolve();
@@ -147,6 +150,8 @@ export class AuthService {
     this.quarantinedPlayers = snap.quarantinedPlayers;
     this.wirePosts = snap.wirePosts.map(clonePlayerWirePost);
     this.wirePostIntents = snap.wirePostIntents.map(cloneWirePostIntent);
+    this.quarantinedWirePosts = snap.quarantinedWirePosts.map((q) => structuredClone(q));
+    this.quarantinedWirePostIntents = snap.quarantinedWirePostIntents.map((q) => structuredClone(q));
     const lp = parseLaunchpad(snap.launchpad);
     this.launchpad = lp.ok && this.supplyHolds(lp.state) ? lp : { ok: false, raw: snap.launchpad };
   }
@@ -186,6 +191,8 @@ export class AuthService {
       quarantinedPlayers: this.quarantinedPlayers,
       wirePosts: this.wirePosts.map(clonePlayerWirePost),
       wirePostIntents: this.wirePostIntents.map(cloneWirePostIntent),
+      quarantinedWirePosts: this.quarantinedWirePosts.map((q) => structuredClone(q)),
+      quarantinedWirePostIntents: this.quarantinedWirePostIntents.map((q) => structuredClone(q)),
       launchpad: this.launchpad.ok ? this.launchpad.state : this.launchpad.raw,
     });
   }
@@ -506,6 +513,13 @@ export class AuthService {
     });
   }
 
+  async remainingWirePostsToday(accountId: string, tick: number): Promise<number> {
+    return this.withLock(async () => {
+      await this.ready;
+      return remainingPostsToday(this.wirePosts, accountId, tick);
+    });
+  }
+
   /**
    * soc.wire.post: debit spendable cash, append the public row, record idempotency, one persist.
    * Callers pass the live market tick so the daily cap and publishTick share the clock.
@@ -532,27 +546,15 @@ export class AuthService {
         if (!(err instanceof WirePostError)) throw err;
         const fp = `__reject__:${err.code}:${typeof input.text === "string" ? input.text : ""}:${JSON.stringify(input.assetTags)}`;
         if (prior) {
+          if (prior.result === "ACCEPTED") {
+            throw new WirePostError("IDEMPOTENCY_CONFLICT", "idempotencyKey was already used with a different body.", 409);
+          }
           if (prior.fingerprint === fp) {
             throw new WirePostError(prior.rejectCode ?? err.code, err.message, prior.status ?? err.status);
           }
           throw new WirePostError("IDEMPOTENCY_CONFLICT", "idempotencyKey was already used with a different body.", 409);
         }
-        const intent: WirePostIntent = {
-          accountId,
-          key: input.idempotencyKey,
-          fingerprint: fp,
-          result: "REJECTED",
-          rejectCode: err.code,
-          status: err.status,
-        };
-        const intentsBefore = this.wirePostIntents;
-        this.wirePostIntents = [...this.wirePostIntents, intent];
-        try {
-          await this.persist();
-        } catch (e) {
-          this.wirePostIntents = intentsBefore;
-          throw e;
-        }
+        // Rejected attempts are not persisted (disk-growth / DoS). Retry is a fresh decision.
         throw err;
       }
 
@@ -565,7 +567,9 @@ export class AuthService {
           throw new WirePostError(prior.rejectCode ?? "BAD_REQUEST", "Statement was rejected.", prior.status ?? 400);
         }
         const post = this.wirePosts.find((p) => p.id === prior.postId);
-        if (!post) throw new WirePostError("BAD_REQUEST", "Stored statement is missing.", 500);
+        if (!post) {
+          throw new WirePostError("STORED_UNREADABLE", "A previous statement with this key could not be read.", 409);
+        }
         return {
           post: clonePlayerWirePost(post),
           cashCents: current.cashCents,
@@ -574,15 +578,18 @@ export class AuthService {
         };
       }
 
+      const quarantinedPrior = this.quarantinedWirePostIntents.find(
+        (q) => q.accountId === accountId && q.key === input.idempotencyKey,
+      );
+      if (quarantinedPrior) {
+        throw new WirePostError("STORED_UNREADABLE", "A previous statement with this key could not be read.", 409);
+      }
+
       if (spendableCashCents(current) < WIRE_POST_FEE_CENTS) {
-        const err = new WirePostError("INSUFFICIENT_CASH", "Not enough spendable cash to post (needs $500).", 409);
-        await this.recordWireReject(accountId, input.idempotencyKey, fp, err);
-        throw err;
+        throw new WirePostError("INSUFFICIENT_CASH", "Not enough spendable cash to post (needs $500).", 409);
       }
       if (postsOnDay(this.wirePosts, accountId, input.tick) >= WIRE_POST_DAY_CAP) {
-        const err = new WirePostError("DAY_CAP", "At most three statements per game day.", 409);
-        await this.recordWireReject(accountId, input.idempotencyKey, fp, err);
-        throw err;
+        throw new WirePostError("DAY_CAP", "At most three statements per game day.", 409);
       }
 
       const post: PlayerWirePost = {
@@ -621,25 +628,6 @@ export class AuthService {
         replayed: false,
       };
     });
-  }
-
-  private async recordWireReject(accountId: AccountId, key: string, fingerprint: string, err: WirePostError): Promise<void> {
-    const intent: WirePostIntent = {
-      accountId,
-      key,
-      fingerprint,
-      result: "REJECTED",
-      rejectCode: err.code,
-      status: err.status,
-    };
-    const intentsBefore = this.wirePostIntents;
-    this.wirePostIntents = [...this.wirePostIntents, intent];
-    try {
-      await this.persist();
-    } catch (e) {
-      this.wirePostIntents = intentsBefore;
-      throw e;
-    }
   }
 
   private async commitOwn(accountId: AccountId, mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput): Promise<PlayerPrivateRecord> {

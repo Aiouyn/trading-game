@@ -217,7 +217,7 @@ describe("M1-09 routes", () => {
     expect(e).toBeDefined();
     expect(item!.tick).toBe(at);
     expect((await marketRoute().then((r) => r.json()) as { quotes: TickerBody }).quotes.rows[e!.assetId]!.last).toBe(e!.to);
-    const reg = await register(new Request("http://localhost/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle: "WireBuyer", password: "password1" }) }));
+    const reg = await register(new Request("http://localhost/api/auth/register", { method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle: "WireBuyer", password: "password1" }) }));
     const cookie = (reg.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))!.split(";")[0]!;
     const res = await placeRoute(new Request("http://localhost/api/broker/orders", {
       method: "POST", headers: { "content-type": "application/json", cookie, origin: "http://localhost" },

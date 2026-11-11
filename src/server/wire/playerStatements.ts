@@ -1,7 +1,7 @@
 // Player Wire statements (`soc.wire.post`, 15:625). A signed-in player posts a short STATEMENT about
 // listed assets. The $500 fee, the public row, the daily cap, and the idempotency record commit in one
 // auth-store save. 16:573: no direct price effect (no applyShock / openRumor / claim).
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { ASSET_BY_ID } from "@/market/catalog";
 import { dayOfTick } from "@/server/market/rumorFarm";
 import { reservedCashCents } from "@/server/broker/execution";
@@ -16,6 +16,9 @@ export const WIRE_POST_MAX_ASSETS = 3;
 export const WIRE_POST_ID_PREFIX = "w-p-";
 export const WIRE_POST_HEADLINE = "wire.statement.player";
 export const WIRE_POST_CAUSE = "wire.cause.player-statement";
+/** Raw POST /api/wire body cap: above a 280-char statement + key, far below a 200k payload. */
+export const WIRE_POST_MAX_BODY_BYTES = 8_192;
+
 
 export type WirePostErrorCode =
   | "UNAUTHORIZED"
@@ -26,7 +29,9 @@ export type WirePostErrorCode =
   | "BAD_ASSET"
   | "INSUFFICIENT_CASH"
   | "DAY_CAP"
-  | "IDEMPOTENCY_CONFLICT";
+  | "IDEMPOTENCY_CONFLICT"
+  | "STORED_UNREADABLE"
+  | "BODY_TOO_LARGE";
 
 export class WirePostError extends Error {
   readonly code: WirePostErrorCode;
@@ -59,10 +64,41 @@ export interface WirePostIntent {
   readonly status?: number;
 }
 
+/** A wirePosts / wirePostIntents row that could not be loaded. Kept verbatim; never a silent drop. */
+export interface QuarantinedWireRow {
+  readonly reason: string;
+  readonly row: unknown;
+  readonly accountId?: string;
+  readonly key?: string;
+  readonly postId?: string;
+}
+
+/** Stable public poster id: not the acc_ account id, stable if the handle later changes. */
+export function publicHandleId(accountId: string): string {
+  const hex = createHash("sha256").update(`wire-public:${accountId}`).digest("hex").slice(0, 16);
+  return `ph_${hex}`;
+}
+
 const EMAIL = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const PHONE = /(?:\+?\d[\d\s().-]{7,}\d)/;
 const CONTROLS = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g;
+const FORMAT_CHARS = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
+const DIGIT_WORDS: Record<string, string> = {
+  zero: "0", oh: "0", one: "1", two: "2", three: "3", four: "4",
+  five: "5", six: "6", seven: "7", eight: "8", nine: "9",
+};
+const DIGIT_WORD_RE = /\b(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)(?:\s+(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)){6,}\b/gi;
 const ABUSE_RE = new RegExp(`(?:${ABUSE_TERMS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+
+/** Detection-only fold: NFKC, strip ZWSP/format chars, fold obfuscated at-signs and digit words. */
+export function foldForPersonalData(text: string): string {
+  let s = text.normalize("NFKC").replace(FORMAT_CHARS, "").replace(CONTROLS, "");
+  s = s.replace(DIGIT_WORD_RE, (m) => m.split(/\s+/).map((w) => DIGIT_WORDS[w.toLowerCase()] ?? "").join(""));
+  s = s.replace(/[\[\(\{]\s*at\s*[\]\)\}]/gi, "@");
+  s = s.replace(/\s+at\s+/gi, "@");
+  s = s.replace(/\s*@\s*/g, "@");
+  return s;
+}
 
 export function spendableCashCents(rec: PlayerPrivateRecord): number {
   return rec.cashCents - reservedCashCents(rec);
@@ -82,7 +118,8 @@ export function codePointLength(text: string): number {
 }
 
 export function hasPersonalData(text: string): boolean {
-  return EMAIL.test(text) || PHONE.test(text);
+  const folded = foldForPersonalData(text);
+  return EMAIL.test(folded) || PHONE.test(folded) || EMAIL.test(text) || PHONE.test(text);
 }
 
 export function listedAssetId(id: string): boolean {
@@ -106,17 +143,35 @@ export function remainingPostsToday(posts: readonly PlayerWirePost[], accountId:
 
 /** Missing or a non-array is an empty list (old stores, or a bad key that must not fail the auth store). */
 export function parsePlayerWirePosts(raw: unknown): PlayerWirePost[] {
-  if (raw === undefined || raw === null) return [];
-  if (!Array.isArray(raw)) return [];
-  const out: PlayerWirePost[] = [];
+  return loadPlayerWirePosts(raw).posts;
+}
+
+export function loadPlayerWirePosts(raw: unknown): { posts: PlayerWirePost[]; quarantined: QuarantinedWireRow[] } {
+  if (raw === undefined || raw === null) return { posts: [], quarantined: [] };
+  if (!Array.isArray(raw)) return { posts: [], quarantined: [{ reason: "wirePosts is not an array", row: raw }] };
+  const posts: PlayerWirePost[] = [];
+  const quarantined: QuarantinedWireRow[] = [];
   const seen = new Set<string>();
   for (const row of raw) {
     const post = parsePlayerWirePost(row);
-    if (!post || seen.has(post.id)) continue;
+    if (!post) {
+      const o = row && typeof row === "object" ? (row as Record<string, unknown>) : undefined;
+      quarantined.push({
+        reason: "malformed wire post row",
+        row,
+        ...(typeof o?.accountId === "string" ? { accountId: o.accountId } : {}),
+        ...(typeof o?.id === "string" ? { postId: o.id } : {}),
+      });
+      continue;
+    }
+    if (seen.has(post.id)) {
+      quarantined.push({ reason: "duplicate wire post id", row, accountId: post.accountId, postId: post.id });
+      continue;
+    }
     seen.add(post.id);
-    out.push(post);
+    posts.push(post);
   }
-  return out;
+  return { posts, quarantined };
 }
 
 export function parsePlayerWirePost(row: unknown): PlayerWirePost | null {
@@ -140,25 +195,44 @@ export function parsePlayerWirePost(row: unknown): PlayerWirePost | null {
 }
 
 export function parseWirePostIntents(raw: unknown): WirePostIntent[] {
-  if (raw === undefined || raw === null || !Array.isArray(raw)) return [];
-  const out: WirePostIntent[] = [];
+  return loadWirePostIntents(raw).intents;
+}
+
+export function loadWirePostIntents(raw: unknown): { intents: WirePostIntent[]; quarantined: QuarantinedWireRow[] } {
+  if (raw === undefined || raw === null) return { intents: [], quarantined: [] };
+  if (!Array.isArray(raw)) return { intents: [], quarantined: [{ reason: "wirePostIntents is not an array", row: raw }] };
+  const intents: WirePostIntent[] = [];
+  const quarantined: QuarantinedWireRow[] = [];
   for (const row of raw) {
-    if (!row || typeof row !== "object") continue;
+    if (!row || typeof row !== "object") {
+      quarantined.push({ reason: "malformed wire post intent", row });
+      continue;
+    }
     const o = row as Record<string, unknown>;
-    if (typeof o.accountId !== "string" || typeof o.key !== "string" || typeof o.fingerprint !== "string") continue;
-    if (o.result !== "ACCEPTED" && o.result !== "REJECTED") continue;
+    const accountId = typeof o.accountId === "string" ? o.accountId : undefined;
+    const key = typeof o.key === "string" ? o.key : undefined;
+    if (!accountId || !key || typeof o.fingerprint !== "string" || (o.result !== "ACCEPTED" && o.result !== "REJECTED")) {
+      quarantined.push({
+        reason: "malformed wire post intent",
+        row,
+        ...(accountId ? { accountId } : {}),
+        ...(key ? { key } : {}),
+        ...(typeof o.postId === "string" ? { postId: o.postId } : {}),
+      });
+      continue;
+    }
     const intent: WirePostIntent = {
-      accountId: o.accountId,
-      key: o.key,
+      accountId,
+      key,
       fingerprint: o.fingerprint,
       result: o.result,
       ...(typeof o.postId === "string" ? { postId: o.postId } : {}),
       ...(typeof o.rejectCode === "string" ? { rejectCode: o.rejectCode as WirePostErrorCode } : {}),
       ...(typeof o.status === "number" && Number.isInteger(o.status) ? { status: o.status } : {}),
     };
-    out.push(intent);
+    intents.push(intent);
   }
-  return out;
+  return { intents, quarantined };
 }
 
 export function decidePostText(raw: unknown, assetTagsRaw: unknown): { text: string; assetTags: string[] } {
@@ -185,8 +259,9 @@ export function decidePostText(raw: unknown, assetTagsRaw: unknown): { text: str
 
 export function playerPostToWireItem(post: PlayerWirePost): WireItem {
   const asset = ASSET_BY_ID[post.assetTags[0]!];
+  const publicId = publicHandleId(post.accountId);
   const entities: WireItem["entities"] = [
-    { kind: "actor", id: `player:${post.accountId}`, label: post.handle },
+    { kind: "actor", id: `player:${publicId}`, label: post.handle },
     ...post.assetTags.map((id) => {
       const a = ASSET_BY_ID[id]!;
       return { kind: "asset", id, label: a.name };
@@ -202,7 +277,8 @@ export function playerPostToWireItem(post: PlayerWirePost): WireItem {
       asset: asset?.ticker ?? post.assetTags[0]!,
       company: asset?.name ?? post.assetTags[0]!,
       assets: post.assetTags.join(", "),
-      authorId: post.accountId,
+      publicId,
+      player: "1",
     },
     entities,
     tick: post.tick,
@@ -210,6 +286,10 @@ export function playerPostToWireItem(post: PlayerWirePost): WireItem {
     causeEventIds: [],
     causeKey: WIRE_POST_CAUSE,
   };
+}
+
+export function isPlayerStatement(item: WireItem): boolean {
+  return item.headlineKey === WIRE_POST_HEADLINE || item.slots?.player === "1";
 }
 
 export function mergePlayerStatements(items: readonly WireItem[], posts: readonly PlayerWirePost[]): WireItem[] {

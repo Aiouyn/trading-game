@@ -36,6 +36,7 @@ export {
   authErrorResponse,
   jsonResponse,
   readJsonObject,
+  readJsonObjectCapped,
   requireString,
   sessionBody,
   tokenFromRequest,

@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ASSETS } from "@/market/catalog";
 import { getFeed } from "@/shell/contracts/useChannel";
@@ -20,13 +20,27 @@ export function Composer({ t }: { t: WireStrings }) {
   const [assets, setAssets] = useState<string[]>(["HALC"]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [remaining, setRemaining] = useState(3);
+  const [remaining, setRemaining] = useState<number | null>(null);
   const [key, setKey] = useState(newKey);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/wire", { credentials: "include", headers: { accept: "application/json" } });
+        const body = (await res.json().catch(() => ({}))) as { remainingToday?: number };
+        if (!cancelled && typeof body.remainingToday === "number") setRemaining(body.remainingToday);
+      } catch {
+        /* keep null until a POST response arrives */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const n = [...text].length;
   const canSubmit = !busy && n > 0 && n <= MAX && assets.length >= 1;
 
-  const fee = useMemo(() => fill(c.fee, { n: String(remaining) }), [c.fee, remaining]);
+  const fee = useMemo(() => fill(c.fee, { n: remaining === null ? "..." : String(remaining) }), [c.fee, remaining]);
 
   const toggle = (id: string) => {
     setAssets((cur) => {

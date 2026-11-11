@@ -58,14 +58,14 @@ describe("M1-02 shared world identity", () => {
     const regA = await register(
       new Request("http://localhost/api/auth/register", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ handle: "WorldA", password: "password1" }),
       }),
     );
     const regB = await register(
       new Request("http://localhost/api/auth/register", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ handle: "WorldB", password: "password1" }),
       }),
     );
@@ -89,12 +89,12 @@ describe("M1-02 shared world identity", () => {
 
     const cookieA = cookieFrom(regA)!;
     const cookieB = cookieFrom(regB)!;
-    const meA = (await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieA } }))).json()) as {
+    const meA = (await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieA, origin: "http://localhost" } }))).json()) as {
       account: { accountId: string; worldId: string };
       player: { accountId: string; cashCents: number };
       world: { worldId: string; marketSeed: number };
     };
-    const meB = (await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB } }))).json()) as {
+    const meB = (await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB, origin: "http://localhost" } }))).json()) as {
       account: { accountId: string; worldId: string };
       player: { accountId: string; cashCents: number };
       world: { worldId: string; marketSeed: number };

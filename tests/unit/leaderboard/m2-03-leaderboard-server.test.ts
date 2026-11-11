@@ -52,7 +52,7 @@ class CountingStore implements AuthStore {
 let now = 1_700_000_000_000;
 async function signUp(handle: string): Promise<string> {
   const res = await register(new Request("http://localhost/api/auth/register", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle, password: "password1" }),
+    method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle, password: "password1" }),
   }));
   expect(res.status).toBe(201);
   return (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))!.split(";")[0]!;
@@ -139,7 +139,7 @@ describe("M2-03 net-worth leaderboard (server)", () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
       if (input === "/api/market") return Response.json(market.snapshot());
-      if (input === "/api/broker/me") return brokerMe(new Request("http://localhost/api/broker/me", { headers: { cookie: a } }));
+      if (input === "/api/broker/me") return brokerMe(new Request("http://localhost/api/broker/me", { headers: { cookie: a, origin: "http://localhost" } }));
       return new Response(null, { status: 404 });
     }));
     const feed = new MockFeed({ empty: true, seed: 17 }, { authoritativeQuotes: true });

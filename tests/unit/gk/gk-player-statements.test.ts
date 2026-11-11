@@ -12,6 +12,7 @@ import {
   codePointLength,
   hasPersonalData,
   mergePlayerStatements,
+  loadPlayerWirePosts,
   parsePlayerWirePosts,
   playerPostToWireItem,
   sanitizeWireText,
@@ -45,6 +46,11 @@ describe("player Wire statements (soc.wire.post)", () => {
     expect(sanitizeWireText("this is shit luck")).toBe("this is **** luck");
     expect(hasPersonalData("write me at a@b.com please")).toBe(true);
     expect(hasPersonalData("call +1 415 555 0100 now")).toBe(true);
+    expect(hasPersonalData("foo [at] bar.com")).toBe(true);
+    expect(hasPersonalData("foo(at)bar.com")).toBe(true);
+    expect(hasPersonalData("foo＠bar.com")).toBe(true);
+    expect(hasPersonalData("foo@exam\u200bple.com")).toBe(true);
+    expect(hasPersonalData("５５５１２３４５６７")).toBe(true);
     expect(codePointLength("a".repeat(WIRE_POST_MAX_CHARS))).toBe(WIRE_POST_MAX_CHARS);
   });
 
@@ -212,9 +218,11 @@ describe("player Wire statements (soc.wire.post)", () => {
     await expect(auth.getPlayerPrivate(b.view, a.view.account.accountId)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("skips a malformed wirePosts row and treats a non-array as empty, without failing the store", async () => {
+  it("quarantines a malformed wirePosts row and treats a missing key as empty, without failing the store", async () => {
     expect(parsePlayerWirePosts(undefined)).toEqual([]);
+    expect(loadPlayerWirePosts(undefined).quarantined).toEqual([]);
     expect(parsePlayerWirePosts({ not: "array" })).toEqual([]);
+    expect(loadPlayerWirePosts({ not: "array" }).quarantined).toHaveLength(1);
     const good = {
       id: "w-p-abcdabcdabcdabcd",
       accountId: "acc_1",
@@ -223,8 +231,9 @@ describe("player Wire statements (soc.wire.post)", () => {
       assetTags: ["HALC"],
       tick: TICK,
     };
-    const parsed = parsePlayerWirePosts([good, { id: "nope" }, { ...good, id: "w-x-wrong" }, "x"]);
-    expect(parsed).toEqual([good]);
+    const loaded = loadPlayerWirePosts([good, { id: "nope" }, { ...good, id: "w-x-wrong" }, "x"]);
+    expect(loaded.posts).toEqual([good]);
+    expect(loaded.quarantined).toHaveLength(3);
   });
 });
 
