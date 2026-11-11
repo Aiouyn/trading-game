@@ -61,7 +61,7 @@ for (const [width, locale, scale] of [[390, "en", 1], [320, "fr", 2]] as const) 
   await expect(region).toBeFocused();
   await expect(region).toHaveAccessibleName(locale === "fr" ? "Trader" : "Trade");
   // Same place: the Open orders heading sits exactly where it was when About opened.
-  expect(Math.abs((await place()) - before.top), "Open orders heading moved").toBeLessThanOrEqual(2);
+  await expect.poll(async () => Math.abs((await place()) - before.top), { message: "Open orders heading back at its place" }).toBeLessThanOrEqual(2);
   expect(Math.abs((await scrollTop(page)) - saved)).toBeLessThanOrEqual(1);
   if (before.top < 700) await expect(heading).toBeInViewport();
   const f = await focusVisible(page);

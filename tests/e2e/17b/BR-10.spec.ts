@@ -398,7 +398,9 @@ for (const scale of ["1", "2"] as const) {
     await page.getByTestId("app-back").click();
     await expect(page.getByTestId("app-title")).toHaveText(appTitle);
     await expect(brk(page)).toHaveAttribute("data-view", "trade");
-    await expect(page.getByTestId("br-asset-select")).toBeFocused();
+    // Card 8: Back keeps the place. At scale 2 the About tab sits below the first screen, so the kept place has the
+    // select off-screen and focus goes to the named Trade region instead; at scale 1 the select is visible and focused.
+    await expect(page.getByTestId(scale === "1" ? "br-asset-select" : "br-trade-region")).toBeFocused();
   });
 }
 
