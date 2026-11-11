@@ -19,6 +19,7 @@ export const CAUSES: Readonly<Record<string, string>> = {
     "wire.cause.kiln-demand": "Kiln Materials sees weaker building demand. Lower expected sales push the stock down.",
     "wire.cause.mrdn-recall": "Meridian Foods recalls a product line. Costs and lost sales weigh on the stock.",
     "wire.cause.avb-earnings": "Avalon Bank earned more on its loans than expected. The stock rises.",
+    "wire.cause.history": "This story already happened before you arrived. This session did not apply a price move for it.",
     "wire.cause.oil-watch": "Tension over crude supply is rising. If supply is cut, energy producers would gain and fuel-hungry shipping and materials firms would lose.",
     "wire.cause.oil-hit": "Crude supply was cut. Verdane Energy gains on higher oil prices; Halcyon Shipping and Kiln Materials pay more for fuel and energy.",
     "wire.cause.oil-eased": "Crude supply held up. The risk passed.",

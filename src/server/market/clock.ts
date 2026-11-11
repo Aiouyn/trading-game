@@ -181,12 +181,13 @@ export class LiveMarket {
         id,
         kind: def.kind,
         headlineKey: def.headlineKey,
-        slots: { ...def.slots },
+        slots: { ...def.slots, earlier: "1" },
         entities: def.assets.map((assetId) => ({ id: assetId, kind: "asset" as const, label: ASSET_BY_ID[assetId]?.ticker ?? assetId })),
         tick,
         breaking: def.breaking,
         causeEventIds: [def.defId],
-        causeKey: def.causeKey,
+        // History-only cause: never the live catalog cause (those describe a move this clock did not apply).
+        causeKey: "wire.cause.history",
         // no phase / effects: this clock did not apply the catalog move (same as coin-news).
       });
     }

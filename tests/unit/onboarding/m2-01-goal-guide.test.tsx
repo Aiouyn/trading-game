@@ -81,7 +81,7 @@ describe("M2-01/02 goal + first-trade guide", () => {
     const bar = q("pf-goal-bar")!;
     expect([bar.getAttribute("role"), bar.getAttribute("aria-valuenow"), bar.getAttribute("aria-label")]).toEqual(["progressbar", "0", "Progress from $10,000 to $20,000"]);
     expect([1, 2, 3].map((n) => q(`pf-guide-step-${n}`)!.textContent)).toEqual([
-      "Read a Wire story: it names an asset and why its price moved. Stories are clues, not promises.Open Wire",
+      "Read a Wire story: it names an asset. Some stories also say why a price moved. Stories are clues, not promises.Open Wire",
       "In Broker, pick an asset, enter a quantity and press Review order. Check the price, the fee and the total.Open Broker",
       "Place the order to confirm it. It counts once it fills, and it is saved to your account.",
     ]);
