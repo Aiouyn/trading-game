@@ -9,6 +9,7 @@ import { moveAsserted, type BeliefMoveSeed } from "@/server/broker/belief";
 import type { DepthInputs } from "@/server/broker/book";
 import { WorldInputs, REGIME_TURNOVER, type WorldView } from "./world";
 import { StormScheduler, type StormHypeShock, type StormPriceShock, type StormWireOut } from "./storms";
+import { RumorBook, type RumorOpenInput, type RumorSnapshot, type RumorStepEvent } from "./rumorClaims";
 
 /** What the trader pools read of a listed coin (src/server/broker/pools.ts): its mark P_{N−1} and template value, its
  *  returns and template vol, the world (04 regime and Fear Index) and its news (attention, sign, mentions). */
@@ -103,6 +104,12 @@ export class ShockFeed extends MockFeed {
   private readonly shockResidual = new Map<string, { log: number; k: number }>();
   /** Unused equity-ERP log (per asset) so per-tick μ is not lost to minor-unit rounding. */
   private readonly erpAccrued = new Map<string, number>();
+  /** Catalog RUMOR book (15/16 first slice). Lazy so the MockFeed seed is already set. */
+  private _rumors: RumorBook | null = null;
+
+  private rumorBook(): RumorBook {
+    return this._rumors ??= new RumorBook(this.scenario.seed);
+  }
 
   /** L4: give a def the catalog just appended its quote state at its listing price and its meme-template path, at hype
    *  `hype` (a fresh listing: H₀; a relist after a restart: the saved H). Idempotent. */
@@ -310,7 +317,7 @@ export class ShockFeed extends MockFeed {
   /** Move one asset's price by a story/storm effect at the current tick, after this tick's walk step. Returns the price
    *  before and after in minor units, or null for an unknown or non-trading asset. When `halfLifeDays` is set
    *  (04 scheduler / M1-09 demo crises), the log-move is registered as a residual that unwinds per 04:1033; omit it
-   *  for company NEWS/RUMOR (fundamental-ish permanent print). */
+   *  for company NEWS and for a CONFIRMED rumor's value print. Pending rumor belief uses applyLogMove, not this. */
   applyShock(assetId: string, bp: number, halfLifeDays?: number): { from: number; to: number } | null {
     const s = this.assets.get(assetId);
     if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
@@ -367,6 +374,51 @@ export class ShockFeed extends MockFeed {
       this.erpAccrued.set(r.assetId, r.log);
     }
   }
+
+  /** Continuous log move (belief / handoff / false release / rematerialize). No residual. */
+  applyLogMove(assetId: string, log: number): { from: number; to: number } | null {
+    const s = this.assets.get(assetId);
+    if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
+    if (!Number.isFinite(log) || log === 0) return { from: s.last, to: s.last };
+    const from = s.last;
+    const to = Math.max(1, Math.round(from * Math.exp(log)));
+    s.last = to;
+    s.dir = to > from ? 1 : to < from ? -1 : s.dir;
+    const p = s.prints.at(-1);
+    if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
+    return { from, to };
+  }
+
+  openRumor(input: RumorOpenInput) { return this.rumorBook().open(input); }
+
+  advanceRumors(tick: number): RumorStepEvent[] {
+    const book = this.rumorBook();
+    return book.advanceTo(
+      tick,
+      (assetId, log) => this.applyLogMove(assetId, log),
+      (assetId, bp) => this.applyShock(assetId, bp),
+    );
+  }
+
+  rumorSnapshot(): RumorSnapshot { return this.rumorBook().snapshot(); }
+
+  hydrateRumors(snap: RumorSnapshot | null | undefined, materialize = true): void {
+    const book = this.rumorBook();
+    book.hydrate(snap ?? undefined);
+    if (!materialize || !snap) return;
+    for (const row of snap.valueApplied) {
+      if (row.log !== 0) this.applyLogMove(row.assetId, row.log);
+    }
+    for (const b of snap.belief) {
+      if (b.log !== 0) this.applyLogMove(b.assetId, b.log);
+    }
+  }
+
+  rumorLnV(assetId: string): number { return this.rumorBook().lnVOf(assetId) ?? 0; }
+  rumorBelief(assetId: string): number { return this.rumorBook().beliefLog(assetId); }
+  rumorClaim(id: string) { return this.rumorBook().claim(id); }
+  rumorSource() { return this.rumorBook().sourceState(); }
+  rumorClaims() { return this.rumorBook().allClaims(); }
 
   takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
   takeCrisisWire() { return this.storms.takeCrisisWire(); }

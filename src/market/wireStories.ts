@@ -24,8 +24,10 @@ export interface StoryDef {
   /** Strings key of the cause / consequence explanation. */
   readonly causeKey: string;
   readonly phase: StoryPhase;
-  /** Applied by the server at the story's tick, once. Empty for a forecast or an all-clear. */
+  /** Applied by the server at the story's tick, once. Empty for a forecast, an all-clear, or a pending RUMOR. */
   readonly effects: readonly StoryEffect[];
+  /** Catalog bp for a pending RUMOR (X if the claim later confirms). Absent on NEWS/crises. */
+  readonly asserted?: readonly StoryEffect[];
   readonly breaking: boolean;
   readonly crisis?: CrisisKind;
 }
@@ -77,7 +79,10 @@ export function storyAt(seed: number, tick: number): StoryDef | null {
   const crisis = CRISES[(hash(`${seed}:order`) + quartet + cycle) % CRISES.length]!;
   if (step === 0 || step === 2) {
     const c = COMPANY_STORIES[(hash(`${seed}:co`) + quartet * 2 + step / 2 + cycle * 3) % COMPANY_STORIES.length]!;
-    return { ...c, phase: "realized", breaking: false };
+    // RUMOR publishes as a forecast: belief may later move the mark; lnV waits on confirmation (05:324).
+    return c.kind === "RUMOR"
+      ? { ...c, phase: "forecast", breaking: false, effects: [], asserted: c.effects }
+      : { ...c, phase: "realized", breaking: false };
   }
   const base = { kind: "WORLD_EVENT" as const, slots: {}, assets: crisis.assets, crisis: crisis.kind };
   if (step === 1) return { ...base, defId: `${crisis.slug}-watch`, headlineKey: `wire.crisis.${crisis.slug}.watch`, causeKey: `wire.cause.${crisis.slug}-watch`, phase: "forecast", effects: [], breaking: false };

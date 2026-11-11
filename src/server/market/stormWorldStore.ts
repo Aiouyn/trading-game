@@ -10,6 +10,7 @@ import {
   emptyCrisisBookkeeping, MAJOR_KINDS_V1, RIPPLE_KINDS,
   type CrisisBookkeeping, type MajorEvent, type MajorKindV1, type MajorPhase, type RippleEvent, type RippleKind,
 } from "./crises";
+import { cloneRumorSnapshot, normalizeRumorSnapshot } from "./rumorClaims";
 
 export interface StormWorldStore {
   load(): StormWorldSnapshot;
@@ -69,6 +70,7 @@ export function cloneStormWorld(s: StormWorldSnapshot): StormWorldSnapshot {
     crises: s.crises ? cloneCrises(s.crises) : s.crises === null ? null : undefined,
     shockResidual: s.shockResidual ? s.shockResidual.map((r) => ({ ...r })) : s.shockResidual === null ? null : undefined,
     erpAccrued: s.erpAccrued ? s.erpAccrued.map((r) => ({ ...r })) : s.erpAccrued === null ? null : undefined,
+    rumors: s.rumors ? cloneRumorSnapshot(s.rumors) : s.rumors === null ? null : undefined,
   };
 }
 
@@ -147,6 +149,7 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     crises: normalizeCrises(o.crises),
     shockResidual: normalizeResidual(o.shockResidual),
     erpAccrued: normalizeErpAccrued(o.erpAccrued),
+    rumors: normalizeRumorSnapshot(o.rumors),
   };
 }
 

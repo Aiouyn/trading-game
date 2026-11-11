@@ -9,6 +9,7 @@ import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/cat
 import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, storyAt } from "@/market/wireStories";
+import { claimCauseKey, claimPhase, publicRecord, sourceBand, type RumorClaim, type RumorStepEvent } from "./rumorClaims";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
 import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
@@ -91,6 +92,9 @@ export class LiveMarket {
     }
     // ERP leftover is independent of residual; older snapshots without erpAccrued start at 0.
     this.feed.hydrateErp(snap.erpAccrued);
+    // Older snapshots without rumors start empty. Rematerialize confirmed X + belief onto virgin marks.
+    this.feed.hydrateRumors(snap.rumors, true);
+    this.stories = this.rebuildRumorStories();
   }
 
   private saveStormWorld(): void {
@@ -100,6 +104,7 @@ export class LiveMarket {
       world: this.feed.world.snapshot(),
       shockResidual: this.feed.residualSnapshot(),
       erpAccrued: this.feed.erpSnapshot(),
+      rumors: this.feed.rumorSnapshot(),
     });
   }
 
@@ -122,6 +127,8 @@ export class LiveMarket {
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const s of this.feed.takeStormWire()) this.publishStorm(s);
     for (const s of this.feed.takeCrisisWire()) this.publishCrisis(s);
+    const resolved = this.feed.advanceRumors(this.feed.tick);
+    this.applyRumorResolutions(resolved);
     this.saveStormWorld();
     for (const fn of this.stepListeners) fn();
   }
@@ -149,6 +156,32 @@ export class LiveMarket {
     const tick = this.feed.tick;
     const def = storyAt(this.feed.scenario.seed, tick);
     if (!def) return;
+    if (def.kind === "RUMOR") {
+      const asserted = (def.asserted ?? def.effects)[0];
+      if (asserted) {
+        this.feed.openRumor({
+          id: `w-${tick}`,
+          defId: def.defId,
+          assetId: asserted.assetId,
+          headlineKey: def.headlineKey,
+          slots: { ...def.slots },
+          causeKey: def.causeKey,
+          publishTick: tick,
+          bp: asserted.bp,
+        });
+      }
+      const claim = this.feed.rumorClaim(`w-${tick}`);
+      const item: WireItem = {
+        id: `w-${tick}`, kind: def.kind, headlineKey: def.headlineKey, slots: { ...def.slots },
+        entities: def.assets.map((id) => ({ id, kind: "asset", label: ASSET_BY_ID[id]?.ticker ?? id })),
+        tick, breaking: def.breaking, causeEventIds: [def.defId],
+        phase: claim ? claimPhase(claim) : def.phase,
+        causeKey: claim ? claimCauseKey(claim) : def.causeKey,
+        ...this.rumorRecordFields(),
+      };
+      this.stories = [...this.stories, item].slice(-STORY_KEEP);
+      return;
+    }
     const effects: PriceEffect[] = [];
     for (const e of def.effects) {
       const hl = def.crisis ? DEMO_CRISIS_HALF_LIFE_DAYS : undefined;
@@ -263,6 +296,67 @@ export class LiveMarket {
     this.stories = [...this.stories, item].slice(-STORY_KEEP);
   }
 
+
+  private rumorRecordFields(): { sourceRecord: { hits: number; resolved: number }; sourceBand: import("@/shell/contracts/channels").SourceBand } {
+    const s = this.feed.rumorSource();
+    const rec = publicRecord(s);
+    return { sourceRecord: rec, sourceBand: sourceBand(rec.hits, rec.resolved) };
+  }
+
+  private rumorEffect(c: RumorClaim): PriceEffect[] {
+    if (!c.effect) return [];
+    const a = ASSET_BY_ID[c.effect.assetId];
+    if (!a || !(c.effect.from > 0)) return [];
+    return [{
+      assetId: c.effect.assetId,
+      from: fmt(c.effect.from, a.displayDecimals),
+      to: fmt(c.effect.to, a.displayDecimals),
+      pct: fmt(Math.round(((c.effect.to - c.effect.from) * 10_000) / c.effect.from), 2),
+    }];
+  }
+
+  private stampRumorItem(item: WireItem, claim: RumorClaim): WireItem {
+    const rest = { ...item };
+    delete rest.effects;
+    const effects = this.rumorEffect(claim);
+    return {
+      ...rest,
+      phase: claimPhase(claim),
+      causeKey: claimCauseKey(claim),
+      ...this.rumorRecordFields(),
+      ...(effects.length ? { effects } : {}),
+    };
+  }
+
+  private applyRumorResolutions(resolved: RumorStepEvent[]): void {
+    if (!resolved.length && !this.stories.some((s) => s.kind === "RUMOR")) return;
+    const byId = new Map(this.feed.rumorClaims().map((c) => [c.id, c]));
+    this.stories = this.stories.map((item) => {
+      const c = byId.get(item.id);
+      if (!c) return item;
+      return this.stampRumorItem(item, c);
+    });
+  }
+
+  /** Rebuild Wire rows for persisted rumors after a restart (other stories are a new epoch, as today). */
+  private rebuildRumorStories(): WireItem[] {
+    const rec = this.rumorRecordFields();
+    const items: WireItem[] = [];
+    for (const c of this.feed.rumorClaims()) {
+      const effects = this.rumorEffect(c);
+      items.push({
+        id: c.id, kind: "RUMOR", headlineKey: c.headlineKey, slots: { ...c.slots },
+        entities: [{ id: c.assetId, kind: "asset", label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId }],
+        tick: c.publishTick, breaking: false, causeEventIds: [c.defId],
+        phase: claimPhase(c), causeKey: claimCauseKey(c),
+        ...rec,
+        ...(effects.length ? { effects } : {}),
+      });
+    }
+    items.sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
+    return items.slice(-STORY_KEEP);
+  }
+
   /** The stories published so far (newest last), at the current tick. A copy: reading changes nothing. */
   wire(): WireSnapshot {
     return structuredClone({ worldId: PORT_AVALON_WORLD_ID, epoch: this.epoch, tick: this.feed.tick, items: this.stories });
@@ -339,7 +433,7 @@ export class LiveMarket {
   }
 
   /** Durable storm snapshot (tests / restart proof). */
-  stormSnapshot() { return { ...this.feed.storms.snapshot(), shockResidual: this.feed.residualSnapshot(), erpAccrued: this.feed.erpSnapshot() }; }
+  stormSnapshot() { return { ...this.feed.storms.snapshot(), shockResidual: this.feed.residualSnapshot(), erpAccrued: this.feed.erpSnapshot(), rumors: this.feed.rumorSnapshot() }; }
 
   /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
   poolInputs(assetId: string): PoolInputs | null {
