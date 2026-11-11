@@ -5,6 +5,8 @@ import {
   BindingError,
   classifyToken,
   isAccountId,
+  isIssuedActorContext,
+  issueActorContext,
   makeCheckpoint,
   parseCheckpoint,
   type ActorContext,
@@ -25,6 +27,7 @@ export type SessionLookup = {
 export class ActorBinding {
   private queue: Promise<void> = Promise.resolve();
   private bindings = new Map<string, BindingRecord>();
+  private readonly tokens = new WeakMap<ActorContext, string>();
 
   private constructor(
     private readonly auth: SessionLookup,
@@ -80,22 +83,44 @@ export class ActorBinding {
     const token = rawToken as string;
     const view = options?.refresh === true ? await this.auth.resolveSession(token) : await this.auth.peekSession(token);
     if (!view) throw new BindingError("SESSION_REJECTED");
-    return this.remember(view);
+    return this.remember(view, token);
   }
 
-  private async remember(view: AuthSessionView): Promise<ActorContext> {
+  /**
+   * Re-peek the session that issued this context. Call immediately before a
+   * guarded engine write. Logout, expiry, a missing token, or a session/account
+   * mismatch fail closed as SESSION_REJECTED. A context not issued by ActorBinding
+   * is FORGED_CONTEXT.
+   */
+  async assertLiveSession(context: ActorContext): Promise<void> {
+    if (!isIssuedActorContext(context)) throw new BindingError("FORGED_CONTEXT");
+    const token = this.tokens.get(context);
+    if (token === undefined) throw new BindingError("SESSION_REJECTED");
+    const view = await this.auth.peekSession(token);
+    if (!view || view.sessionId !== context.sessionId || view.account.accountId !== context.accountId) {
+      throw new BindingError("SESSION_REJECTED");
+    }
+  }
+
+  private async remember(view: AuthSessionView, token: string): Promise<ActorContext> {
     const accountId = view.account.accountId;
     if (!isAccountId(accountId)) throw new BindingError("INVALID_ACCOUNT_ID");
     const actorId = actorIdFor(accountId);
     const existing = this.bindings.get(accountId);
     if (existing) {
       if (existing.actorId !== actorId) throw new BindingError("ACTOR_REMAP");
-      return { actorId, accountId, sessionId: view.sessionId, boundAtMs: existing.boundAtMs };
+      return this.issue({ actorId, accountId, sessionId: view.sessionId, boundAtMs: existing.boundAtMs }, token);
     }
     const record: BindingRecord = { accountId, actorId, boundAtMs: this.now() };
     this.bindings.set(accountId, record);
     await this.store.save(this.snapshot());
-    return { ...record, sessionId: view.sessionId };
+    return this.issue({ ...record, sessionId: view.sessionId }, token);
+  }
+
+  private issue(context: ActorContext, token: string): ActorContext {
+    const issued = issueActorContext(context);
+    this.tokens.set(issued, token);
+    return issued;
   }
 
   private enqueue<T>(run: () => Promise<T>): Promise<T> {
