@@ -186,8 +186,9 @@ describe("M1-06 Broker market + limit orders on the server", () => {
       [mkt("HALC", "BUY", "1.5"), "MKT_BAD_QTY"],
       [lmt("HALC", "BUY", "1", "0"), "MKT_BAD_PRICE"],
       [lmt("HALC", "BUY", "1", "42.123"), "MKT_BAD_PRICE"],
-      [{ assetId: "HALC", side: "SELL", type: "stop", qty: "1", stop: "40.00", tif: "day" }, "MKT_ORDER_TYPE_UNSUPPORTED"],
-      [{ ...mkt("HALC", "BUY", "1"), tif: "gtc" }, "MKT_ORDER_TYPE_UNSUPPORTED"],
+      [{ assetId: "HALC", side: "BUY", type: "stop", qty: "1", stop: "0", tif: "day" }, "MKT_BAD_PRICE"],
+      [{ ...mkt("HALC", "BUY", "1"), tif: "ioc" }, "MKT_ORDER_TYPE_UNSUPPORTED"],
+      [{ ...mkt("HALC", "BUY", "1"), tif: "fok" }, "MKT_ORDER_TYPE_UNSUPPORTED"],
       [mkt("GX", "BUY", "100"), "MKT_INSUFFICIENT_BP"],
       [mkt("HALC", "SELL", "1"), "MKT_NO_LOCATE"],
     ];
@@ -284,7 +285,9 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     expect((await place(a, "key-lim-00004", mkt("HALC", "SELL", "41"))).body.result.rejectCode).toBe("MKT_NO_LOCATE");
     const c = await cancel(a, "key-cxl-00001", sellId);
     expect(c.body.result).toMatchObject({ status: "ACCEPTED", effects: [`order:${sellId}`] });
-    expect(c.body.ledger.orders[sellId]).toBeUndefined();
+    expect(c.body.ledger.orders[sellId]).toMatchObject({ status: "CANCELLED" });
+    expect(c.body.ledger.reservedCashCents).toBe(0);
+    expect(c.body.ledger.history).toEqual([expect.objectContaining({ orderId: sellId, status: "CANCELLED" })]);
     const replay = await cancel(a, "key-cxl-00001", sellId);
     expect(replay.body.intentId).toBe(c.body.intentId);
     expect((await place(a, "key-lim-00005", mkt("HALC", "SELL", "41"))).body.result.status).toBe("ACCEPTED");
@@ -389,7 +392,7 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     const tooBig = await previewOrder({ assetId: "GX", side: "BUY", type: "market", qty: "100", tif: "day" } as DayDraft);
     expect(tooBig.ok && tooBig.value).toMatchObject({ valid: false, reasonCode: "MKT_INSUFFICIENT_BP" });
     const stop = await previewOrder({ assetId: "HALC", side: "SELL", type: "stop", qty: "1", stop: "1.00", tif: "day" } as DayDraft);
-    expect(stop.ok && stop.value).toMatchObject({ valid: false, reasonCode: "MKT_ORDER_TYPE_UNSUPPORTED" });
+    expect(stop.ok && stop.value).toMatchObject({ valid: false, reasonCode: "MKT_NO_LOCATE" });
 
     const p = market.last("HALC");
     const placed = placeOrder({ assetId: "HALC", side: "BUY", type: "market", qty: "4", tif: "day" } as DayDraft);
@@ -413,7 +416,7 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     expect(lim.ok).toBe(true);
     const c = await cancelOrder(parseOrderId(oid)!);
     expect(c.ok).toBe(true);
-    expect(meStore.get().body!.orders).toEqual({});
+    expect(Object.values(meStore.get().body!.orders)).toEqual([expect.objectContaining({ orderId: oid, status: "CANCELLED" })]);
     expect(mockTransport()).not.toBeNull();
     meStore.close();
     ticker.close();

@@ -234,6 +234,8 @@ export class MockFeed {
   fills: MyFill[] = [];
   intents: IntentResult[] = [];
   coins: CoinRow[] = [];
+  /** Signed-in order history copied from the server ledger (Triggered, Expired, Cancelled). Guests leave this empty. */
+  orderHistory: OrderHistoryRow[] = [];
   news: WireItem[];
   private pending: Pending[] = [];
   readonly policy: OrderPolicy;
@@ -560,6 +562,7 @@ export class MockFeed {
       balances: empty ? { FDL: fmt(cash, 2) } : { FDL: fmt(cash, 2), MDOL: MDOL_BALANCE },
       nw: fmt(nw, 2), nwi: fmt(Math.round((nw * 10_000) / START_NW_MINOR), 4), restricted,
       positions, orders: this.orders, fills: this.fills, margin: null, holds: {}, intents: this.intents, alerts: [], coins: this.coins,
+      ...(this.orderHistory.length ? { history: this.orderHistory } : {}),
       ...(empty ? {} : { nwStats: { ...NW_STATS } }),
     };
   }
@@ -742,11 +745,13 @@ export class MockFeed {
     const qty = Number(draft.qty);
     // Halted stays valid: the preview reads only N-1 public data (Quant E-96 (3)). A sell beyond the holding is invalid.
     const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
-    // Signed-in (M1-06): the server door takes market and limit day orders; stop types are not offered there.
+    // Signed-in: IOC and FOK stay refused. Stop, stop-limit, day and GTC are the server's.
     const dp = a?.displayDecimals ?? 2;
-    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit");
-    let valid = wellFormed && !unsupported && !this.oversells(draft);
-    const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
+    const unsupported = this.authoritativeQuotes && (draft.tif === "ioc" || draft.tif === "fok");
+    const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp)
+      : draft.type === "stop" ? Math.round(Number(draft.stop ?? 0) * 10 ** dp) : (s?.last ?? 0);
+    const priced = draft.type === "market" || px > 0;
+    let valid = wellFormed && !unsupported && priced && !this.oversells(draft);
     // dp 8 is only a coin listed at graduation (L4): it fills against its book at no better than its half spread (45 bp;
     // the server adds the size impact, src/server/broker/book.ts), so the estimate shows at least that.
     const impactBp = valid ? (dp > 2 ? 45 : IMPACT_BP(qty, a!.lot)) : 0;
@@ -761,7 +766,7 @@ export class MockFeed {
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
-      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? "MKT_ORDER_TYPE_UNSUPPORTED" : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
+      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? "MKT_ORDER_TYPE_UNSUPPORTED" : !priced ? "MKT_BAD_PRICE" : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
       buyingPowerAfter: fmt(this.fdlCashMinor() - this.reservedCash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };
@@ -802,8 +807,9 @@ export class MockFeed {
   /** A SELL for more than the account holds (E-96 (4)): a short sale of the excess, which this mock never allows. */
   private oversells(draft: OrderDraft): boolean {
     // Signed-in: units already held back by working sells are not sellable again (the server's rule).
+    const live = (s: string) => s === "WORKING" || s === "PARTIAL" || s === "PENDING" || s === "QUEUED_AUCTION" || s === "TRIGGERED";
     const held = this.authoritativeQuotes
-      ? Object.values(this.orders).reduce((n, o) => n + (o.side === "SELL" && o.assetId === draft.assetId ? Number(o.qty) - Number(o.filled) : 0), 0)
+      ? Object.values(this.orders).reduce((n, o) => n + (o.side === "SELL" && o.assetId === draft.assetId && live(o.status) ? Number(o.qty) - Number(o.filled) : 0), 0)
       : 0;
     return draft.side === "SELL" && Number(draft.qty) > (this.lots.get(draft.assetId)?.qty ?? 0) - held;
   }
@@ -862,4 +868,4 @@ export function idempotencyKey(): string {
 }
 
 /** Append-only rings (Q4): diffed to `ins` + `trim`. */
-const RINGS: ReadonlySet<string> = new Set(["/prints", "/fills", "/intents", "/alerts", "/items"]);
+const RINGS: ReadonlySet<string> = new Set(["/prints", "/fills", "/intents", "/alerts", "/items", "/history"]);

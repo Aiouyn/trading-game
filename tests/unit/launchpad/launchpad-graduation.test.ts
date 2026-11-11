@@ -160,7 +160,7 @@ describe("Launchpad graduation (L4): listing, positions, Broker trading against 
     expect(r3.ledger.positions.FROG.qty).toBe(String(800_000_000 - q));
     expect((await lp()).coins[0]!.book).toEqual({ cash: bk.cash - received + fee, tokens: bk.tokens + q });
     expect((await order(c, "SELL", 835885)).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_NO_LOCATE" });
-    expect((await order(c, "SELL", 1, { type: "stop", stop: "0.00020000" })).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_ORDER_TYPE_UNSUPPORTED" });
+    expect((await order(c, "SELL", 1, { type: "stop", stop: "0.00000001" })).result).toMatchObject({ status: "ACCEPTED" });
     expect(await supply()).toBe(LP.SUPPLY);
     expect(await world()).toBe(w0);
     for (let i = 0; i < 50; i++) market.step();
@@ -379,7 +379,7 @@ describe("client feed and a listed coin (L4)", () => {
     // the size impact) + the 10¢ minimum fee.
     expect(feed.preview(draft("market"))).toMatchObject({ valid: true, price: "0.00021596", estFill: "0.00021693", impactBp: "45", fee: "0.10", total: "217.03" });
     expect(feed.preview(draft("limit"))).toMatchObject({ valid: true, price: "0.00021596", fee: "0.10" });
-    expect(feed.preview({ ...draft("limit"), type: "stop", stop: "0.00021596" } as never)).toMatchObject({ valid: false, reasonCode: "MKT_ORDER_TYPE_UNSUPPORTED" });
+    expect(feed.preview({ ...draft("limit"), type: "stop", stop: "0.00021596" } as never).reasonCode).not.toBe("MKT_ORDER_TYPE_UNSUPPORTED");
   });
   it("guest demo in the same page: the listed coin is shown but not tradable (its local fills cannot price it)", async () => {
     const { MockFeed } = await import("@/shell/contracts/mockFeed");

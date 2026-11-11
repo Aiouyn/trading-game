@@ -209,6 +209,7 @@ export class ServerSync {
     this.f.orders = { ...v.orders };
     this.f.fills = [...v.fills];
     this.f.intents = [...v.intents];
+    this.f.orderHistory = [...(v.history ?? [])];
     this.f.coins = v.coins as CoinRow[]; // a fresh parsed copy, never mutated
     this.f.ledgerAdopted = true;
     if (this.f.snapshotAccount) void saveMeSnapshot(this.f.snapshotAccount, v); // refused unless still the current account

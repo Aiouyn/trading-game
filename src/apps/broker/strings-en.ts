@@ -77,7 +77,7 @@ export const EN = {
     MKT_NO_LOCATE: "You can't sell more than you hold.",
     /** [provisional] M1-06 server door codes. */
     MKT_BAD_PRICE: "Check the price.",
-    MKT_ORDER_TYPE_UNSUPPORTED: "Only market and limit orders are available.",
+    MKT_ORDER_TYPE_UNSUPPORTED: "This order isn't available.",
     MKT_TOO_MANY_ORDERS: "Too many open orders. Cancel one first.",
     /** L4: a coin listed at graduation trades against its book only. */
     MKT_NO_LIQUIDITY: "The coin's book can't fill any of this order now. A limit order can wait for it.",
@@ -95,6 +95,13 @@ export const EN = {
   orderType: "Order type",
   t: { market: "Market", limit: "Limit", stop: "Stop", stopLimit: "Stop limit" },
   kindDay: (type: string) => `${type} · Day`,
+  kindGtc: (type: string) => `${type} · GTC`,
+  timeInForce: "Time in force",
+  tifDay: "Day",
+  tifGtc: "GTC",
+  /** Review line for a stop: the price is the stop, formatted for the locale. */
+  sellStop: (p: string) => `Sells if price falls to ${p}`,
+  buyStop: (p: string) => `Buys if price rises to ${p}`,
   limitPrice: "Limit price",
   stopPrice: "Stop price",
   priceEmpty: "Enter a price.",
@@ -108,8 +115,9 @@ export const EN = {
   openOrders: "Open orders",
   noOpenOrders: "No open orders.",
   filledOf: (filled: string, qty: string) => `${filled} / ${qty} filled`,
-  s: { PENDING: "Pending", WORKING: "Working", PARTIAL: "Partly filled", EXPIRED: "Expired" },
-  rowMeta: (n: string) => `Day · tick ${n}`,
+  s: { PENDING: "Pending", WORKING: "Working", PARTIAL: "Partly filled", TRIGGERED: "Triggered", EXPIRED: "Expired", CANCELLED: "Cancelled", FILLED: "Filled", REJECTED: "Rejected" },
+  orderHistory: "History",
+  rowMeta: (n: string, tif?: string) => `${tif === "gtc" ? "GTC" : "Day"} · tick ${n}`,
   rowAria: (side: string, qty: string, ticker: string, terms: string, status: string) => `${side} ${qty} ${ticker}, ${terms}, ${status}`,
   /** [provisional] aria-label of the list skeleton (aria-busy). */
   loadingOrders: "Loading open orders",

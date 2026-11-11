@@ -36,7 +36,7 @@ const QTY = /^\d{1,12}$/;
 const PRICE = /^\d{1,12}(\.\d{1,6})?$/;
 const COIN = /^[A-Z]{3,5}$/;
 const TYPES = ["market", "limit", "stop", "stop_limit"];
-const STATUSES = ["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"];
+const STATUSES = ["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION", "TRIGGERED"];
 const isInt = (n: unknown, max = Number.MAX_SAFE_INTEGER): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= max;
 const only = (o: unknown, req: readonly string[], opt: readonly string[] = []): o is Record<string, unknown> =>
   typeof o === "object" && o !== null && !Array.isArray(o) &&
@@ -69,7 +69,7 @@ export function toMeSnapshot(acct: string, v: BrokerLedgerView, savedAt: number)
   const snap: MeSnapshot = {
     v: 1, acct, savedAt, tick: v.tick, cash: v.cashCents, held: v.reservedCashCents,
     positions: Object.values(v.positions).map((p) => ({ asset: p.assetId, qty: p.qty, avgCost: p.avgCost })),
-    orders: Object.values(v.orders).filter((o) => o.status !== "EXPIRED").map((o) => ({
+    orders: Object.values(v.orders).filter((o) => o.status !== "EXPIRED" && o.status !== "CANCELLED").map((o) => ({
       asset: o.assetId, side: o.side, type: o.type, qty: o.qty, filled: o.filled,
       ...(o.limit !== undefined ? { limit: o.limit } : {}), ...(o.stop !== undefined ? { stop: o.stop } : {}), status: o.status,
     })),

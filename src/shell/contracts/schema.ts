@@ -4,8 +4,8 @@
 // by tests/unit/17b/CH-00-schema.test.ts, so the two can't drift.
 import type {
   AuctionResult, BoardBody, BoardRow, BookBody, Candle, CandleHistoryReq, CandleHistoryRes, CandleRes, CandlesBody, ChannelErr,
-  ChannelName, CoinRow, Delta, DeltaOp, DepthLevel, Filing, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, NwBreakdown,
-  NwStats, OpenOrder, OrderDraft, Position, PreviewRes, AssetDetail, RestrictedBucket, ServerFrame, Side, Snap, TapeBody,
+  ChannelName,   CoinRow, Delta, DeltaOp, DepthLevel, Filing, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, NwBreakdown,
+  NwStats, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes, AssetDetail, RestrictedBucket, ServerFrame, Side, Snap, TapeBody,
   TapePrint, TickerBody, TickerRow, TradingState, WireItem, WireKind,
 } from "./channels";
 
@@ -83,8 +83,17 @@ export const candleHistoryRes: Schema<CandleHistoryRes> = obj({ bars: arr(candle
 const position: Schema<Position> = obj({ assetId: str, qty: dec, avgCost: dec, mark: dec, value: dec, upl: dec, pledgedQty: dec, lentQty: dec }, { pnlPct: dec, weightPct: dec }); // optional: proposed (PF-B), Engine to confirm
 export const coinRow: Schema<CoinRow> = obj({ ticker: str, qty: int, value: int, cost: int });
 export const openOrder: Schema<OpenOrder> = obj(
-  { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, tif: str, status: lit("PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION", "EXPIRED"), placedTick: int, avgPrice: dec },
+  { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, tif: str, status: lit("PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION", "TRIGGERED", "EXPIRED", "CANCELLED"), placedTick: int, avgPrice: dec },
   { limit: dec, stop: dec },
+);
+const nonNegTick: Schema<number> = (v, p = "") => {
+  const n = int(v, p);
+  if (n < 0) return fail(p, "expected a tick (safe integer >= 0)");
+  return n;
+};
+export const orderHistoryRow: Schema<OrderHistoryRow> = obj(
+  { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, avgPrice: dec, status: lit("FILLED", "CANCELLED", "REJECTED", "EXPIRED", "TRIGGERED"), tick: nonNegTick },
+  { rejectCode: str },
 );
 export const myFill: Schema<MyFill> = obj({
   fillId: str, tick: int, assetId: str, orderId: str, side, qty: dec, price: dec, fee: dec, feeCcy: str,
@@ -106,7 +115,7 @@ export const meBody: Schema<MeTradingBody> = obj(
     balances: rec(dec), nw: dec, nwi: dec, restricted: arr(restricted), positions: rec(position), orders: rec(openOrder),
     fills: arr(myFill), margin: nullable(rec(dec)), holds: rec(unknownV), intents: arr(intentResult), alerts: arr(unknownV),
   },
-  { nwStats, nwBreakdown, coins: arr(coinRow) },
+  { nwStats, nwBreakdown, coins: arr(coinRow), history: arr(orderHistoryRow) },
 );
 
 const wireKind: Schema<WireKind> = lit("NEWS", "RUMOR", "FILING", "VERDICT", "MARKET", "PURCHASE", "ALLIANCE", "STATEMENT", "OUTLET", "CHAPTER", "RECORD", "RANK", "PHILANTHROPY", "WORLD_EVENT", "DAILY_CLOSE");

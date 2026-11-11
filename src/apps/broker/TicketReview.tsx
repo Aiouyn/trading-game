@@ -28,15 +28,18 @@ export interface ReviewBlockProps {
   offline: boolean;
   onEdit: () => void;
   onPlace: () => void;
+  /** Stop / stop-limit: "Sells if price falls to …" / "Buys if price rises to …". */
+  trigger?: string | null;
   /** Preview rows rendered by the first-load ticket, so this lazy chunk does not import SimpleTicket. */
   previewRows?: ReactNode;
 }
 
-export function ReviewBlock({ t, action, stale, halted, canPlace, pendingTick, failed, offline, onEdit, onPlace, previewRows }: ReviewBlockProps) {
+export function ReviewBlock({ t, action, stale, halted, canPlace, pendingTick, failed, offline, onEdit, onPlace, trigger, previewRows }: ReviewBlockProps) {
   const submitting = pendingTick !== null;
   return (
     <section className="br-review-block" data-testid="br-review-block" aria-labelledby="br-review-title">
       <h3 id="br-review-title" className="br-action" data-testid="br-action">{action}</h3>
+      {trigger && <p className="br-note" data-testid="br-trigger">{trigger}</p>}
       {previewRows}
       {offline ? <p className="br-msg warn" data-testid="br-offline">{t.offlineNoPlace}</p>
         : stale && <p className="br-refreshing muted" data-testid="br-refreshing">{t.refreshing}</p>}

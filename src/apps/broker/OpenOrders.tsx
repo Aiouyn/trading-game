@@ -26,9 +26,9 @@ export function statusText(t: BrStrings, status: string): string {
   return status in t.s ? t.s[status as keyof BrStrings["s"]] : status;
 }
 
-/** Still cancelable / counted as open. EXPIRED stays in the list so the close is visible, without a Cancel control. */
+/** Still cancelable / counted as open. EXPIRED and CANCELLED stay visible, without a Cancel control. */
 export function isOpenOrder(o: OpenOrder): boolean {
-  return o.status !== "EXPIRED";
+  return o.status !== "EXPIRED" && o.status !== "CANCELLED";
 }
 
 export interface OpenOrdersProps {
@@ -180,6 +180,20 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
       {me.state === "stale" && <p className="br-oo-updating muted" data-testid="br-oo-updating">{t.updating}</p>}
       <p className="br-oo-line" role="status" data-testid="br-oo-line">{line}</p>
       {body && orders.length === 0 && <p className="br-oo-empty muted" data-testid="br-oo-empty">{t.noOpenOrders}</p>}
+      {body && body.history && body.history.length > 0 && (
+        <div data-testid="br-hist">
+          <h3 className="br-oo-title" data-testid="br-hist-title">{t.orderHistory}</h3>
+          <ul className="br-oo-list">
+            {[...body.history].reverse().map((h) => (
+              <li key={`${h.orderId}:${h.status}:${h.tick}`} className="br-oo-row" data-testid={`br-hist-${h.orderId}-${h.status}`} data-status={h.status}>
+                <span className="br-oo-side">{h.side === "BUY" ? t.buy : t.sell}</span>
+                <span className="br-oo-ticker">{h.assetId}</span>
+                <Chip className="br-oo-chip" data-testid="br-hist-status">{statusText(t, h.status)}</Chip>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {rows.length > 0 && (
         <ul className="br-oo-list" data-testid="br-oo-list">
           {rows.map(({ o, ghost }) => {
@@ -234,7 +248,7 @@ function Cells({ t, o, w, status }: { t: BrStrings; o: OpenOrder; w: ReturnType<
       <span className="br-oo-terms num" data-testid="br-oo-terms">{w.terms}</span>
       <span className="br-oo-qty num" data-testid="br-oo-qty">{w.amount}</span>
       <Chip className="br-oo-chip" data-testid="br-oo-status">{status}</Chip>
-      <span className="br-oo-meta muted" data-testid="br-oo-meta">{t.rowMeta(String(o.placedTick))}</span>
+      <span className="br-oo-meta muted" data-testid="br-oo-meta">{t.rowMeta(String(o.placedTick), o.tif)}</span>
     </>
   );
 }

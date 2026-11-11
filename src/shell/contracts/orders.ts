@@ -74,12 +74,14 @@ export function parsePriceInput(text: string): PriceInput {
   return PRICE.test(text) ? { kind: "price", price: text.replace(",", ".") as PriceText } : { kind: "badFormat" };
 }
 
-/** Fields every day draft shares. Assignable to `OrderDraft`. */
+export type OrderTif = "day" | "gtc";
+
+/** Fields every ticket draft shares. Assignable to `OrderDraft`. Day is the default; GTC is the other time in force. */
 interface DayDraftBase extends OrderDraft {
   readonly assetId: AssetId;
   readonly side: Side;
   readonly qty: WholeQty;
-  readonly tif: "day";
+  readonly tif: OrderTif;
 }
 export interface MarketDayDraft extends DayDraftBase { readonly type: "market"; readonly limit?: never; readonly stop?: never }
 export interface LimitDayDraft extends DayDraftBase { readonly type: "limit"; readonly limit: PriceText; readonly stop?: never }
@@ -96,17 +98,17 @@ export type OrderTerms =
   | { readonly type: "stop"; readonly stop: PriceText }
   | { readonly type: "stop_limit"; readonly stop: PriceText; readonly limit: PriceText };
 
-export function marketDayDraft(assetId: AssetId, side: Side, qty: WholeQty): MarketDayDraft {
-  return { assetId, side, type: "market", qty, tif: "day" };
+export function marketDayDraft(assetId: AssetId, side: Side, qty: WholeQty, tif: OrderTif = "day"): MarketDayDraft {
+  return { assetId, side, type: "market", qty, tif };
 }
 
-/** A day draft with exactly the terms' price fields (no `stop` on a limit, both on a stop limit). */
-export function dayDraft(assetId: AssetId, side: Side, qty: WholeQty, terms: OrderTerms): DayDraft {
+/** A draft with exactly the terms' price fields (no `stop` on a limit, both on a stop limit). `tif` defaults to day. */
+export function dayDraft(assetId: AssetId, side: Side, qty: WholeQty, terms: OrderTerms, tif: OrderTif = "day"): DayDraft {
   switch (terms.type) {
-    case "market": return marketDayDraft(assetId, side, qty);
-    case "limit": return { assetId, side, type: "limit", qty, limit: terms.limit, tif: "day" };
-    case "stop": return { assetId, side, type: "stop", qty, stop: terms.stop, tif: "day" };
-    case "stop_limit": return { assetId, side, type: "stop_limit", qty, stop: terms.stop, limit: terms.limit, tif: "day" };
+    case "market": return marketDayDraft(assetId, side, qty, tif);
+    case "limit": return { assetId, side, type: "limit", qty, limit: terms.limit, tif };
+    case "stop": return { assetId, side, type: "stop", qty, stop: terms.stop, tif };
+    case "stop_limit": return { assetId, side, type: "stop_limit", qty, stop: terms.stop, limit: terms.limit, tif };
   }
 }
 

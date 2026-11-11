@@ -12,9 +12,10 @@ import { useShell } from "@/components/shell/ShellContext";
 import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
 import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/contracts/channels";
-import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
+import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms, type OrderTif } from "@/shell/contracts/orders";
 import { authoritativeFear, authoritativeQuoteProvenance, getFeed, knownOffline, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
+import { decText } from "@/apps/portfolio/positions/format";
 import { GoalSlot } from "@/apps/portfolio/GoalSlot";
 import { PriceChart } from "@/components/market/PriceChart";
 import { asDefault, retryableLazy } from "@/components/shell/retryableLazy";
@@ -46,8 +47,8 @@ type Phase =
   | { kind: "review" }
   | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: false | "error" | "offline" | "unknown" };
 
-interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string }
-const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}`;
+interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string; tif: OrderTif }
+const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}|${d.tif}`;
 /** The type's prices, once each box the type shows has a well-formed price; null otherwise. */
 function termsOf(type: DayOrderType, limitText: string, stopText: string): OrderTerms | null {
   const limit = parsePriceInput(limitText);
@@ -74,7 +75,7 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const choices = useMemo(() => (ticker.body ? Object.keys(ticker.body.rows).sort() : []), [ticker.body]);
   const fixedAsset = context ? parseAssetId(context) : null;
-  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" });
+  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "", tif: "day" });
   const assetId = fixedAsset ?? (draft.assetId || choices[0] || "");
   const [touched, setTouched] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "edit" });
@@ -97,8 +98,8 @@ export function BrokerFrame({ context }: { context?: string }) {
     const a = parseAssetId(assetId);
     const q = parseQtyInput(draft.qtyText);
     const terms = termsOf(draft.type, draft.limitText, draft.stopText);
-    return a && q.kind === "whole" && terms ? dayDraft(a, draft.side, q.qty, terms) : null;
-  }, [assetId, draft.side, draft.qtyText, draft.type, draft.limitText, draft.stopText]);
+    return a && q.kind === "whole" && terms ? dayDraft(a, draft.side, q.qty, terms, draft.tif) : null;
+  }, [assetId, draft.side, draft.qtyText, draft.type, draft.limitText, draft.stopText, draft.tif]);
   const key = order ? draftKey(order) : null;
   const preview = est && est.key === key ? est.res : null;
   const tickerTick = ticker.tick;
@@ -147,6 +148,9 @@ export function BrokerFrame({ context }: { context?: string }) {
   const bare = order ? (order.side === "BUY" ? t.actionBuy : t.actionSell)(order.qty, assetId) : "";
   // Review title: action + terms for priced types ("Buy 40 HALC · Limit 42.10"); market keeps card 4's bare action.
   const action = order && order.type !== "market" ? t.actionTerms(bare, termsText(t, locale, order)) : bare;
+  const trigger = order && (order.type === "stop" || order.type === "stop_limit")
+    ? (order.side === "SELL" ? t.sellStop : t.buyStop)(decText(order.stop, locale))
+    : null;
   const reviewStale = preview !== null && tickerTick !== null && preview.computedAtTick < tickerTick;
   const canReview = phase.kind === "edit" && preview !== null && preview.valid && !frozen;
   const canPlace = phase.kind === "review" && preview !== null && preview.valid && !reviewStale && !frozen;
@@ -268,6 +272,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const review = reviewing && (
     <RetryableReview t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace}
       pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} offline={offline} onEdit={toEdit} onPlace={place}
+      trigger={trigger}
       previewRows={preview ? <PreviewRows t={t} locale={locale} res={preview} stale={reviewStale && phase.kind === "review"} /> : null}
       fallback={panelFallback("br-review-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
       errorTestId="br-review-error" retryTestId="br-review-retry" />
@@ -281,8 +286,8 @@ export function BrokerFrame({ context }: { context?: string }) {
   );
   const ticket = (
     <SimpleTicket t={t} locale={locale} side={draft.side} qtyText={draft.qtyText} qtyRef={qtyRef}
-      orderType={<OrderType t={t} type={draft.type} limitText={draft.limitText} stopText={draft.stopText} readOnly={phase.kind !== "edit"} stacked={stacked} onType={setType} onPrice={setPrice} />}
-      kind={t.kindDay(typeLabel(t, draft.type))}
+      orderType={<OrderType t={t} type={draft.type} limitText={draft.limitText} stopText={draft.stopText} readOnly={phase.kind !== "edit"} stacked={stacked} tif={draft.tif} onType={setType} onTif={(tif) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, tif })); }} onPrice={setPrice} />}
+      kind={(draft.tif === "gtc" ? t.kindGtc : t.kindDay)(typeLabel(t, draft.type))}
       onSide={setSide} onQty={(q) => { setTouched(true); setDraft((d) => ({ ...d, qtyText: q })); }} onQtyBlur={() => setTouched(true)}
       message={qtyMessage} preview={preview} pending={phase.kind === "edit" && order !== null && preview === null}
       reviewDisabled={!canReview} onReview={toReview} readOnly={phase.kind !== "edit"} />

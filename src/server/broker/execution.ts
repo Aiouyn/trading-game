@@ -9,7 +9,7 @@ import { centsOf } from "@/market/valuation";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
 import { AuthError, type PersistedIntent, type PersistedOpenOrder, type PersistedPosition, type PlayerPrivateRecord } from "@/server/auth/types";
 import { MAX_FILLS, MAX_IDEMPOTENCY, MAX_INTENTS, MAX_ORDER_HISTORY, type PlayerPrivateInput } from "@/server/player/privateState";
-import { feeOf, fillOnBook, type BookAccount, type DepthInputs } from "./book";
+import { feeOf, fillOnBook, type BookAccount, type BookFillResult, type DepthInputs } from "./book";
 import type { IntentResult, MyFill, OrderDraft, OrderHistoryRow } from "@/shell/contracts/channels";
 import { FEE_BP, fmt, nextLot, type Lot } from "@/shell/contracts/mockFeed";
 import { ORDER_POLICY } from "@/shell/contracts/orderPolicy";
@@ -70,13 +70,26 @@ function limitMinor(o: PersistedOpenOrder): number {
   if (m === null || m <= 0) integrity(`order ${o.orderId}`);
   return m;
 }
-/** Cash a working buy limit holds back: remaining × limit in cents (what a buyer pays: any part of a cent up) + its fee
- *  at that notional. */
+function stopMinor(o: PersistedOpenOrder): number {
+  const a = ASSET_BY_ID[o.assetId];
+  const m = a && o.stop !== undefined ? parseMinor(o.stop, a.displayDecimals) : null;
+  if (m === null || m <= 0) integrity(`order ${o.orderId}`);
+  return m;
+}
+/** Buy stops hold the stop (the estimated price). Buy limits and stop-limits hold the limit (the most the buy can pay). */
+function reservePx(o: PersistedOpenOrder): number | null {
+  if (!isActiveOrder(o) || o.side !== "BUY") return null;
+  if ((o.type === "limit" || o.type === "stop_limit") && o.limit !== undefined) return limitMinor(o);
+  if (o.type === "stop" && o.stop !== undefined) return stopMinor(o);
+  return null;
+}
+/** Cash a working buy holds back: remaining × its reserve price in cents + the fee at that notional. */
 export function reservedCashCents(rec: PlayerPrivateRecord | PlayerPrivateInput): number {
   let held = 0;
   for (const o of Object.values(rec.openOrders)) {
-    if (!isActiveOrder(o) || o.side !== "BUY" || o.limit === undefined) continue; // the server never fills an unpriced (stop) order
-    held += holdCents(ASSET_BY_ID[o.assetId]!, remainingOf(o), limitMinor(o));
+    const px = reservePx(o);
+    if (px === null) continue;
+    held += holdCents(ASSET_BY_ID[o.assetId]!, remainingOf(o), px);
   }
   return held;
 }
@@ -88,9 +101,9 @@ export function reservedQty(rec: PlayerPrivateRecord | PlayerPrivateInput, asset
   return held;
 }
 
-/** Still on the book for cash/unit holds and the working-order cap (EXPIRED has already released its hold). */
+/** Still on the book for cash/unit holds and the working-order cap (EXPIRED and CANCELLED have released their hold). */
 export function isActiveOrder(o: PersistedOpenOrder): boolean {
-  return o.status === "WORKING" || o.status === "PARTIAL" || o.status === "QUEUED_AUCTION" || o.status === "PENDING";
+  return o.status === "WORKING" || o.status === "PARTIAL" || o.status === "QUEUED_AUCTION" || o.status === "PENDING" || o.status === "TRIGGERED";
 }
 const workingCount = (rec: PlayerPrivateRecord | PlayerPrivateInput) => Object.values(rec.openOrders).filter(isActiveOrder).length;
 
@@ -108,12 +121,48 @@ function pruneExpired(openOrders: Readonly<Record<string, PersistedOpenOrder>>):
   const overflow = entries.length - MAX_WORKING_ORDERS;
   if (overflow <= 0) return { ...openOrders };
   const drop = new Set(
-    entries.filter((o) => o.status === "EXPIRED").sort(byAge).slice(0, overflow).map((o) => o.orderId),
+    entries.filter((o) => o.status === "EXPIRED" || o.status === "CANCELLED").sort(byAge).slice(0, overflow).map((o) => o.orderId),
   );
   if (drop.size === 0) return { ...openOrders };
   const next: Record<string, PersistedOpenOrder> = {};
   for (const [id, o] of Object.entries(openOrders)) if (!drop.has(id)) next[id] = o;
   return next;
+}
+
+function withHistory(ledger: PlayerPrivateInput, row: OrderHistoryRow): PlayerPrivateInput {
+  const prior = historyOf(ledger);
+  if (prior.some((h) => h.orderId === row.orderId && h.status === row.status)) return ledger;
+  return { ...ledger, orderHistory: [...prior, row].slice(-MAX_ORDER_HISTORY) };
+}
+/** A DAY order's remainder is not fillable once the clock has jumped past its close. GTC ignores the close. */
+function closedForFill(o: PersistedOpenOrder, tick: number): boolean {
+  return o.tif === "day" && tick > dayExpiryTick(o.placedTick);
+}
+/** Sell: last at or below the stop. Buy: last at or above. */
+function crossed(o: PersistedOpenOrder, last: number): boolean {
+  const stop = stopMinor(o);
+  return o.side === "SELL" ? last <= stop : last >= stop;
+}
+function historyRow(o: PersistedOpenOrder, status: OrderHistoryRow["status"], tick: number): OrderHistoryRow {
+  return { orderId: o.orderId, assetId: o.assetId, side: o.side, type: o.type, qty: o.qty, filled: o.filled, avgPrice: o.avgPrice, status, tick };
+}
+/** Arm a resting stop. Idempotent: a second sweep does not add another Triggered row. */
+function armStop(ledger: PlayerPrivateInput, o: PersistedOpenOrder, tick: number): PlayerPrivateInput {
+  if (o.status === "TRIGGERED" || !isActiveOrder(o)) return ledger;
+  const armed: PersistedOpenOrder = { ...o, status: "TRIGGERED" };
+  return withHistory({ ...ledger, openOrders: { ...ledger.openOrders, [o.orderId]: armed } }, historyRow(armed, "TRIGGERED", tick));
+}
+/** Largest whole buy qty whose notional + fee fits in `budget` cents. */
+function affordableBuyQty(a: AssetFixture, budget: number, px: number, want: number): number {
+  if (budget <= 0 || want < 1 || px <= 0) return 0;
+  const cost = (q: number) => { const n = notionalCents(a, "BUY", q, px); return n + feeOf(n); };
+  if (cost(1) > budget) return 0;
+  let lo = 1, hi = want;
+  while (lo < hi) {
+    const q = Math.floor((lo + hi + 1) / 2);
+    if (cost(q) <= budget) lo = q; else hi = q - 1;
+  }
+  return lo;
 }
 
 /** Record EXPIRED on the order and in history; release happens because reservations ignore EXPIRED. Idempotent per orderId. */
@@ -228,8 +277,9 @@ export function decidePlace(rec: PlayerPrivateRecord, key: string, draft: OrderD
   const a = ASSET_BY_ID[draft.assetId];
   if (!a) return reject("MKT_UNKNOWN_ASSET");
   if (isListed(a.assetId)) return placeListed(rec, draft, a, quote, ids, book, reject, accept);
+  if (draft.type === "stop" || draft.type === "stop_limit") return restStop(rec, draft, a, quote, ids, reject, accept);
   if (draft.type !== "market" && draft.type !== "limit") return reject("MKT_ORDER_TYPE_UNSUPPORTED");
-  if (draft.tif !== "day" || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
+  if ((draft.tif !== "day" && draft.tif !== "gtc") || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
   if (!QTY_RE.test(draft.qty)) return reject("MKT_BAD_QTY");
   const qty = Number(draft.qty);
   let limit: number | null = null;
@@ -265,7 +315,7 @@ export function decidePlace(rec: PlayerPrivateRecord, key: string, draft: OrderD
   const orderId = ids.next("o");
   const order: PersistedOpenOrder = {
     orderId, assetId: a.assetId, side: draft.side, type: "limit", qty: String(qty), filled: "0", limit: fmt(limit!, a.displayDecimals),
-    tif: "day", status: "WORKING", placedTick: quote.tick, avgPrice: fmt(0, a.displayDecimals),
+    tif: draft.tif, status: "WORKING", placedTick: quote.tick, avgPrice: fmt(0, a.displayDecimals),
   };
   return accept({ ...ledger, openOrders: { ...rec.openOrders, [orderId]: order } }, [`order:${orderId}`]);
 }
@@ -282,8 +332,12 @@ function placeListed(
   rec: PlayerPrivateRecord, draft: OrderDraft, a: AssetFixture, quote: ServerQuote, ids: IdSource, book: BookAccount | undefined,
   reject: (c: RejectCode) => Decision, accept: (next: PlayerPrivateInput, effects: string[]) => Decision,
 ): Decision {
+  if (draft.type === "stop" || draft.type === "stop_limit") {
+    if (!book) return reject("MKT_UNKNOWN_ASSET");
+    return restStop(rec, draft, a, quote, ids, reject, accept);
+  }
   if (draft.type !== "market" && draft.type !== "limit") return reject("MKT_ORDER_TYPE_UNSUPPORTED");
-  if (draft.tif !== "day" || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
+  if ((draft.tif !== "day" && draft.tif !== "gtc") || draft.stop !== undefined) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
   if (!QTY_RE.test(draft.qty)) return reject("MKT_BAD_QTY");
   const want = Number(draft.qty);
   let limit: number | null = null;
@@ -316,13 +370,54 @@ function placeListed(
   if (rest > 0 && limit !== null) {
     const order: PersistedOpenOrder = {
       orderId, assetId: a.assetId, side: draft.side, type: "limit", qty: String(want), filled: String(fill?.qty ?? 0), limit: fmt(limit, a.displayDecimals),
-      tif: "day", status: fill ? "PARTIAL" : "WORKING", placedTick: quote.tick, avgPrice: fmt(fill?.px ?? 0, a.displayDecimals),
+      tif: draft.tif, status: fill ? "PARTIAL" : "WORKING", placedTick: quote.tick, avgPrice: fmt(fill?.px ?? 0, a.displayDecimals),
     };
     next = { ...next, openOrders: { ...next.openOrders, [orderId]: order } };
     effects.push(`order:${orderId}`);
   }
   const d = accept(next, effects);
   return fill ? { ...d, book: fill.book, move: fill.move } : d;
+}
+
+function acceptedTif(draft: OrderDraft): "day" | "gtc" | null {
+  return draft.tif === "day" || draft.tif === "gtc" ? draft.tif : null;
+}
+
+/**
+ * A stop or stop-limit rests until the sweep. It never fills on place or on a read. A buy holds cash at the stop
+ * (stop market) or the limit (stop-limit); a sell holds the shares.
+ */
+function restStop(
+  rec: PlayerPrivateRecord, draft: OrderDraft, a: AssetFixture, quote: ServerQuote, ids: IdSource,
+  reject: (c: RejectCode) => Decision, accept: (next: PlayerPrivateInput, effects: string[]) => Decision,
+): Decision {
+  const tif = acceptedTif(draft);
+  if ((draft.type !== "stop" && draft.type !== "stop_limit") || !tif) return reject("MKT_ORDER_TYPE_UNSUPPORTED");
+  if (!QTY_RE.test(draft.qty)) return reject("MKT_BAD_QTY");
+  const qty = Number(draft.qty);
+  const stop = draft.stop === undefined ? null : parseMinor(draft.stop, a.displayDecimals);
+  if (stop === null || stop <= 0 || !Number.isSafeInteger(stop * qty * FEE_BP.taker)) return reject("MKT_BAD_PRICE");
+  let limit: number | null = null;
+  if (draft.type === "stop_limit") {
+    limit = draft.limit === undefined ? null : parseMinor(draft.limit, a.displayDecimals);
+    if (limit === null || limit <= 0 || !Number.isSafeInteger(limit * qty * FEE_BP.taker)) return reject("MKT_BAD_PRICE");
+  } else if (draft.limit !== undefined) return reject("MKT_BAD_PRICE");
+  const last = quote.last(a.assetId);
+  if (last === null) return reject("MKT_UNKNOWN_ASSET");
+  if (!quote.tradable(a.assetId)) return reject("MKT_HALTED");
+  if (workingCount(rec) >= MAX_WORKING_ORDERS) return reject("MKT_TOO_MANY_ORDERS");
+  const spendable = rec.cashCents - reservedCashCents(rec);
+  const sellable = (lotOf(rec.positions[a.assetId])?.qty ?? 0) - reservedQty(rec, a.assetId);
+  const holdPx = limit ?? stop;
+  if (draft.side === "BUY" && holdCents(a, qty, holdPx) > spendable) return reject("MKT_INSUFFICIENT_BP");
+  if (draft.side === "SELL" && qty > sellable) return reject("MKT_NO_LOCATE");
+  const orderId = ids.next("o");
+  const order: PersistedOpenOrder = {
+    orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: String(qty), filled: "0",
+    stop: fmt(stop, a.displayDecimals), ...(limit !== null ? { limit: fmt(limit, a.displayDecimals) } : {}),
+    tif, status: "WORKING", placedTick: quote.tick, avgPrice: fmt(0, a.displayDecimals),
+  };
+  return accept({ ...asInput(rec), openOrders: { ...rec.openOrders, [orderId]: order } }, [`order:${orderId}`]);
 }
 
 /** Decide one cancel. Only the caller's own open orders exist here; any other id is "unknown" (ORDER_POLICY Gap 1). */
@@ -339,27 +434,39 @@ export function decideCancel(rec: PlayerPrivateRecord, key: string, orderId: str
     const u = ORDER_POLICY.cancelUnknown;
     result = u.status === "ACCEPTED" ? { intentId, tick, status: "ACCEPTED" } : { intentId, tick, status: "REJECTED", rejectCode: u.code };
   } else {
-    const openOrders = { ...rec.openOrders };
-    delete openOrders[orderId];
-    next = { ...next, openOrders };
+    const cancelled: PersistedOpenOrder = { ...o, status: "CANCELLED" };
+    next = withHistory({ ...next, openOrders: pruneExpired({ ...rec.openOrders, [orderId]: cancelled }) }, historyRow(cancelled, "CANCELLED", tick));
     result = { intentId, tick, status: "ACCEPTED", effects: [`order:${orderId}`] };
   }
   return { next: withIntent(next, rec, { key, fingerprint, result }), result, replayed: false };
 }
 
 /**
- * One server tick over one ledger: every working limit the mark has reached fills in full at its limit (maker, NPC
- * liquidity), oldest first. Null when nothing fills. Reservations guarantee the cash / units are there; a lot that is
- * somehow short is left working rather than overdrawn.
+ * One server tick over one ledger. Stops arm when the last trade crosses them, then a stop market fills at that last
+ * (a gap does not print at the stop) and a stop-limit fills only as its limit. Limits still fill at their limit.
+ * A jump past a DAY close does not fill. Null when nothing changes.
  */
 export function sweepLedger(rec: PlayerPrivateRecord, quote: ServerQuote, ids: IdSource): PlayerPrivateInput | null {
-  const due = Object.values(rec.openOrders)
-    .filter((o) => o.type === "limit" && isActiveOrder(o) && !isListed(o.assetId)) // listed: sweepListed
-    .sort((x, y) => x.placedTick - y.placedTick || (x.orderId < y.orderId ? -1 : x.orderId > y.orderId ? 1 : 0));
+  const age = (x: PersistedOpenOrder, y: PersistedOpenOrder) => x.placedTick - y.placedTick || (x.orderId < y.orderId ? -1 : x.orderId > y.orderId ? 1 : 0);
+  const catalog = (o: PersistedOpenOrder) => isActiveOrder(o) && !isListed(o.assetId);
   let ledger = asInput(rec);
   let changed = false;
-  for (const o of due) {
-    if (quote.tick > dayExpiryTick(o.placedTick)) continue; // a jump past the close does not fill at a later mark
+  const live = () => Object.values(ledger.openOrders).filter(catalog).sort(age);
+
+  for (const o of live()) {
+    if ((o.type !== "stop" && o.type !== "stop_limit") || o.status === "TRIGGERED" || closedForFill(o, quote.tick)) continue;
+    const a = ASSET_BY_ID[o.assetId];
+    const last = a ? quote.last(a.assetId) : null;
+    if (!a || last === null || !quote.tradable(a.assetId) || !crossed(o, last)) continue;
+    const cur = ledger.openOrders[o.orderId];
+    if (!cur) continue;
+    ledger = armStop(ledger, cur, quote.tick);
+    changed = true;
+  }
+  for (const o0 of live()) {
+    const o = ledger.openOrders[o0.orderId];
+    if (!o || closedForFill(o, quote.tick)) continue;
+    if (!(o.type === "limit" || (o.type === "stop_limit" && o.status === "TRIGGERED"))) continue;
     const a = ASSET_BY_ID[o.assetId];
     const last = a ? quote.last(a.assetId) : null;
     if (!a || last === null || !quote.tradable(a.assetId)) continue;
@@ -373,6 +480,32 @@ export function sweepLedger(rec: PlayerPrivateRecord, quote: ServerQuote, ids: I
     if (o.side === "SELL" && (lotOf(without.positions[a.assetId])?.qty ?? 0) < qty) continue;
     if (o.side === "SELL" && without.cashCents + px * qty - feeOf(px * qty) < 0) continue;
     ledger = bookFill(without, a, o.orderId, o.side, qty, px, "MAKER", quote.tick, ids).next;
+    changed = true;
+  }
+  for (const o0 of live()) {
+    const o = ledger.openOrders[o0.orderId];
+    if (!o || o.type !== "stop" || o.status !== "TRIGGERED" || closedForFill(o, quote.tick)) continue;
+    const a = ASSET_BY_ID[o.assetId];
+    const last = a ? quote.last(a.assetId) : null;
+    if (!a || last === null || !quote.tradable(a.assetId)) continue;
+    const openOrders = { ...ledger.openOrders };
+    delete openOrders[o.orderId];
+    const without = { ...ledger, openOrders };
+    let qty = remainingOf(o);
+    if (o.side === "BUY") qty = affordableBuyQty(a, without.cashCents - reservedCashCents(without), last, qty);
+    else {
+      qty = Math.min(qty, lotOf(without.positions[a.assetId])?.qty ?? 0);
+      while (qty > 0 && without.cashCents + notionalCents(a, "SELL", qty, last) - feeOf(notionalCents(a, "SELL", qty, last)) < 0) qty -= 1;
+    }
+    if (qty < 1) continue;
+    let next = bookFill(without, a, o.orderId, o.side, qty, last, "TAKER", quote.tick, ids).next;
+    const filled = Number(o.filled) + qty;
+    if (filled < Number(o.qty)) {
+      const prev = parseMinor(o.avgPrice, a.displayDecimals) ?? 0;
+      const avg = Math.round((Number(o.filled) * prev + qty * last) / filled);
+      next = { ...next, openOrders: { ...next.openOrders, [o.orderId]: { ...o, filled: String(filled), status: "TRIGGERED", avgPrice: fmt(avg, a.displayDecimals) } } };
+    }
+    ledger = next;
     changed = true;
   }
   const expired = expireDueDayOrders(ledger, quote.tick, false);
@@ -395,12 +528,14 @@ export function sweepListed<K extends string>(ledgers: ReadonlyMap<K, PlayerPriv
   const out: ListedSweep<K> = { ledgers: new Map(), books: new Map(), moves: [] };
   const due: { owner: K; o: PersistedOpenOrder }[] = [];
   for (const [owner, rec] of ledgers) {
-    for (const o of Object.values(rec.openOrders)) if (o.type === "limit" && isActiveOrder(o) && isListed(o.assetId) && books.has(o.assetId)) due.push({ owner, o });
+    for (const o of Object.values(rec.openOrders)) {
+      if ((o.type === "limit" || o.type === "stop" || o.type === "stop_limit") && isActiveOrder(o) && isListed(o.assetId) && books.has(o.assetId)) due.push({ owner, o });
+    }
   }
   due.sort((x, y) => byAge(x.o, y.o) || (x.owner < y.owner ? -1 : 1));
   for (const { owner, o } of due) {
-    if (quote.tick > dayExpiryTick(o.placedTick)) continue;
-    try { sweepOne(owner, o); } catch (err) {
+    if (closedForFill(o, quote.tick)) continue;
+    try { sweepResting(owner, o); } catch (err) {
       if (!(err instanceof AuthError)) throw err; // an untradable ledger (integrity) is left as it is, as in sweepLedger
     }
   }
@@ -411,13 +546,66 @@ export function sweepListed<K extends string>(ledgers: ReadonlyMap<K, PlayerPriv
   }
   return out;
 
-  function sweepOne(owner: K, o: PersistedOpenOrder): void {
+  function sweepResting(owner: K, o: PersistedOpenOrder): void {
+    let order = (out.ledgers.get(owner) ?? asInput(ledgers.get(owner)!)).openOrders[o.orderId] ?? o;
+    if (!isActiveOrder(order) || closedForFill(order, quote.tick)) return;
+    const a = ASSET_BY_ID[order.assetId];
+    const last = a ? quote.last(a.assetId) : null;
+    if (!a || last === null || !quote.tradable(a.assetId)) return;
+    if ((order.type === "stop" || order.type === "stop_limit") && order.status !== "TRIGGERED") {
+      if (!crossed(order, last)) return;
+      const armed = armStop(out.ledgers.get(owner) ?? asInput(ledgers.get(owner)!), order, quote.tick);
+      out.ledgers.set(owner, armed);
+      order = armed.openOrders[order.orderId] ?? order;
+    }
+    if (order.type === "stop" && order.status === "TRIGGERED") sweepStop(owner, order);
+    else if (order.type === "limit" || (order.type === "stop_limit" && order.status === "TRIGGERED")) sweepOne(owner, order, limitMinor(order));
+  }
+
+  /** Stop market: only the size the book can pay or deliver, at the book's price, never at the stop. */
+  function sweepStop(owner: K, o: PersistedOpenOrder): void {
+    const a = ASSET_BY_ID[o.assetId]!;
+    const last = quote.last(a.assetId)!;
+    const ledger = out.ledgers.get(owner) ?? asInput(ledgers.get(owner)!);
+    const book = out.books.get(a.assetId) ?? books.get(a.assetId)!;
+    const openOrders = { ...ledger.openOrders };
+    delete openOrders[o.orderId];
+    const without = { ...ledger, openOrders };
+    const want = o.side === "SELL" ? Math.min(remainingOf(o), lotOf(without.positions[a.assetId])?.qty ?? 0) : remainingOf(o);
+    const budget = without.cashCents - reservedCashCents(without);
+    const inp = quote.depthInputs?.(a.assetId) ?? undefined;
+    const fits = (q: number): BookFillResult | null => {
+      const f = fillOnBook(a, o.side, q, last, book, quote.tick, null, inp);
+      if (!f) return null;
+      if (o.side === "BUY" && f.notional + f.fee > budget) return null;
+      if (o.side === "SELL" && without.cashCents + f.notional - f.fee < 0) return null;
+      return f;
+    };
+    let lo = 0, hi = want, fill: BookFillResult | null = null;
+    while (lo < hi) {
+      const q = Math.floor((lo + hi + 1) / 2);
+      const f = fits(q);
+      if (f) { fill = f; lo = q; } else hi = q - 1;
+    }
+    if (!fill) return;
+    let next = bookFill(without, a, o.orderId, o.side, fill.qty, fill.px, "TAKER", quote.tick, ids).next;
+    const filled = Number(o.filled) + fill.qty;
+    if (filled < Number(o.qty)) {
+      const avg = Math.round((Number(o.filled) * (parseMinor(o.avgPrice, a.displayDecimals) ?? 0) + fill.qty * fill.px) / filled);
+      next = { ...next, openOrders: { ...next.openOrders, [o.orderId]: { ...o, filled: String(filled), status: "TRIGGERED", avgPrice: fmt(avg, a.displayDecimals) } } };
+    }
+    out.ledgers.set(owner, next);
+    out.books.set(a.assetId, fill.book);
+    out.moves.push({ assetId: a.assetId, move: fill.move });
+  }
+
+  function sweepOne(owner: K, o: PersistedOpenOrder, limit: number): void {
     const a = ASSET_BY_ID[o.assetId];
     const last = a ? quote.last(a.assetId) : null;
     if (!a || last === null || !quote.tradable(a.assetId)) return;
     const ledger = out.ledgers.get(owner) ?? asInput(ledgers.get(owner)!);
     const book = out.books.get(a.assetId) ?? books.get(a.assetId)!;
-    const fill = fillOnBook(a, o.side, remainingOf(o), last, book, quote.tick, limitMinor(o), quote.depthInputs?.(a.assetId) ?? undefined);
+    const fill = fillOnBook(a, o.side, remainingOf(o), last, book, quote.tick, limit, quote.depthInputs?.(a.assetId) ?? undefined);
     if (!fill) return;
     const openOrders = { ...ledger.openOrders };
     delete openOrders[o.orderId];
@@ -428,7 +616,8 @@ export function sweepListed<K extends string>(ledgers: ReadonlyMap<K, PlayerPriv
     const filled = Number(o.filled) + fill.qty;
     if (filled < Number(o.qty)) {
       const avg = Math.round((Number(o.filled) * (parseMinor(o.avgPrice, a.displayDecimals) ?? 0) + fill.qty * fill.px) / filled);
-      next = { ...next, openOrders: { ...next.openOrders, [o.orderId]: { ...o, filled: String(filled), status: "PARTIAL", avgPrice: fmt(avg, a.displayDecimals) } } };
+      const status = o.type === "limit" ? "PARTIAL" : "TRIGGERED";
+      next = { ...next, openOrders: { ...next.openOrders, [o.orderId]: { ...o, filled: String(filled), status, avgPrice: fmt(avg, a.displayDecimals) } } };
     }
     out.ledgers.set(owner, next);
     out.books.set(a.assetId, fill.book);

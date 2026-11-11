@@ -211,7 +211,7 @@ describe("L4 book liquidity: holders, order types, sweep, conservation", () => {
     expect(await world()).toBe(w0); await holds();
     expect((await cancel(c, id2)).ledger.reservedCashCents).toBe(0);
     // Stop types: as every asset of this door.
-    expect((await order(c, "SELL", 1, { type: "stop", stop: "0.00020000" })).result).toMatchObject({ status: "REJECTED", rejectCode: "MKT_ORDER_TYPE_UNSUPPORTED" });
+    expect((await order(c, "SELL", 1, { type: "stop", stop: "0.00000001" })).result).toMatchObject({ status: "ACCEPTED" });
   });
 
   it("rollback and replay: a failed save moves no ledger, book, flow or mark (place and sweep); the same key replays without a second impact", async () => {

@@ -33,7 +33,7 @@ export interface CandleHistoryRes { bars: Candle[] }
 
 // me: own character, every tick (17 §2.6; 19 Rule 3.8.2; IntentResult 19 §2.3; Fill 05 §2.5). Shape per Q4 answered (E-56 §2); delta paths keyed by id are stable; rings use `trim`.
 export interface Position { assetId: string; qty: Qty; avgCost: Price; mark: Price; value: Money; upl: Money; pledgedQty: Qty; lentQty: Qty; pnlPct?: string; weightPct?: string } // Q4 (06 §2). pnlPct (upl / cost) and weightPct (value / nw): optional pp strings, 1 dp, server-computed; PROPOSED contract addition for UI card 3 (Studio PF-B), Engine to confirm. No class/marginState/liqPrice in me.positions; see PF-B open points
-export interface OpenOrder { orderId: string; assetId: string; side: Side; type: string; qty: Qty; filled: Qty; limit?: Price; stop?: Price; tif: string; status: 'PENDING'|'WORKING'|'PARTIAL'|'QUEUED_AUCTION'|'EXPIRED'; placedTick: Tick; avgPrice: Price } // Q4: 05 Order minus ownerGroupId/actorId/holdId/arrivalRefPrice/priorityTick/displayedRemaining; avgPrice server-computed. Field names mirror 05 Order on SWAP
+export interface OpenOrder { orderId: string; assetId: string; side: Side; type: string; qty: Qty; filled: Qty; limit?: Price; stop?: Price; tif: string; status: 'PENDING'|'WORKING'|'PARTIAL'|'QUEUED_AUCTION'|'TRIGGERED'|'EXPIRED'|'CANCELLED'; placedTick: Tick; avgPrice: Price } // Q4: 05 Order minus ownerGroupId/actorId/holdId/arrivalRefPrice/priorityTick/displayedRemaining; avgPrice server-computed. Field names mirror 05 Order on SWAP
 export interface MyFill { fillId: string; tick: Tick; assetId: string; orderId: string; side: Side; qty: Qty; price: Price; fee: Money; feeCcy: string; liquidity: 'MAKER'|'TAKER'|'AUCTION'; counterpartyKind: 'PLAYER'|'NPC' }
 export interface IntentResult { intentId: string; tick: Tick; status: 'ACCEPTED'|'REJECTED'|'PARTIAL'|'QUEUED_NEXT'; rejectCode?: string; rejectParams?: Record<string,string>; effects?: string[] }
 /** One restricted-cash bucket. `untilRealMs`: real (wall-clock) MILLISECONDS REMAINING until release, counted down by
@@ -41,7 +41,7 @@ export interface IntentResult { intentId: string; tick: Tick; status: 'ACCEPTED'
 export interface RestrictedBucket { reason: string /* engine code; known: RestrictedReason. Others render raw ("Restricted (CODE)") */; amount: Money; untilRealMs: number | null }
 /** The engine's restricted-cash codes that have a client label (#70 round 2, renamed from AD / START). */
 export type RestrictedReason = "AD_GRANT" | "FRESH_START";
-export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown; coins?: CoinRow[] } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
+export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown; coins?: CoinRow[]; history?: readonly OrderHistoryRow[] } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
 /** A Launchpad coin the signed-in player holds, as the server valued it (cents). `value` is the indicative
  *  liquidation value (sell all alone, now, after fee and price impact), already inside `nw`; not a quote. */
 export interface CoinRow { ticker: string; qty: number; value: number; cost: number }
@@ -51,7 +51,7 @@ export type MarginSummary = Record<string, Money>; // 07 summary, opaque until 0
 export interface NwStats { window: string; drawdownReal: string; sharpe: string | null /* null below 63 trading days */; twrIdx: string; bench: string } // Q10, E-56 §12; strings as sent
 export interface NwBreakdown { byClass: { key: string; value: Money; sharePct: string }[]; byCcy: { key: string; value: Money; sharePct: string }[]; liabilities: Money } // Q10: sharePct 1 dp, sums to 100.0 server-side
 export interface NwPoint { t: Tick; nw: Money; nwi: string; realNw: Money; twrIdx: string; bench: string } // GET /api/v1/me/nw-history (Q9/Q10, E-56 §5)
-export interface OrderHistoryRow { orderId: string; assetId: string; side: Side; type: string; qty: Qty; filled: Qty; avgPrice: Price; status: 'FILLED'|'CANCELLED'|'REJECTED'|'EXPIRED'; rejectCode?: string; tick: Tick } // GET /api/v1/orders/me (Q11, E-56 §6); shape [P] until 05 read model
+export interface OrderHistoryRow { orderId: string; assetId: string; side: Side; type: string; qty: Qty; filled: Qty; avgPrice: Price; status: 'FILLED'|'CANCELLED'|'REJECTED'|'EXPIRED'|'TRIGGERED'; rejectCode?: string; tick: Tick } // GET /api/v1/orders/me (Q11, E-56 §6); shape [P] until 05 read model
 
 // req ops over the socket (19 Rule 3.8.5): intent.preview ≤ 5 per tick, asset.detail
 export interface PreviewReq { kind: 'mkt.order.place'; payload: OrderDraft }
