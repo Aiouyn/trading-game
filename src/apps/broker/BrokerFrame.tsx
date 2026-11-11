@@ -93,9 +93,45 @@ export function BrokerFrame({ context }: { context?: string }) {
   const headEl = useRef<HTMLElement | null>(null);
   const setHead = useCallback((el: HTMLElement | null) => { headEl.current = el; }, []);
   const focusHead = useRef(false);
-  useEffect(() => { if (focusHead.current && view === "trade" && headEl.current) { focusHead.current = false; headEl.current.focus(); } });
+  // Phone: Back to trade returns to the place the player left (the app scroller's offset), not the top of Trade.
+  const tradeScroll = useRef<number | null>(null);
+  const restoreRaf = useRef(0); // the kept-offset settle loop outlives the per-tick re-renders; cancelled on unmount only
+  useEffect(() => {
+    if (!focusHead.current || view !== "trade" || !headEl.current) return;
+    focusHead.current = false;
+    const head = headEl.current, saved = tradeScroll.current;
+    tradeScroll.current = null;
+    const scroller = phone && saved !== null ? phoneScroller(head) : null;
+    if (!scroller) { head.focus(); return; }
+    // Trade re-renders shorter than it ends up (chart/legend settle), so a single assignment is clamped: keep
+    // re-applying the kept offset each frame until it and the height hold for 3 frames, the player scrolls or touches, or
+    // ~1.5 s passes. Focus is decided only then, against the settled layout.
+    let frame = 0, stable = 0, lastHeight = -1, stopped = false;
+    const stop = () => { stopped = true; };
+    const opts = { passive: true, once: true } as const;
+    for (const ev of ["wheel", "touchstart", "keydown", "pointerdown"] as const) scroller.addEventListener(ev, stop, opts);
+    const settle = () => {
+      if (!stopped) scroller.scrollTop = saved!;
+      stable = scroller.scrollHeight === lastHeight && scroller.scrollTop >= saved! - 1 ? stable + 1 : 0;
+      lastHeight = scroller.scrollHeight;
+      if (!stopped && stable < 3 && ++frame < 90) { restoreRaf.current = requestAnimationFrame(settle); return; }
+      for (const ev of ["wheel", "touchstart", "keydown", "pointerdown"] as const) scroller.removeEventListener(ev, stop);
+      if (!head.isConnected) return;
+      if (inView(head, scroller)) { head.focus({ preventScroll: true }); return; }
+      // The select is off-screen at the kept place: focus the Trade region the player is looking at, without scrolling,
+      // so the place stays exact and focus is never on something off-screen.
+      const region = scroller.querySelector<HTMLElement>('[data-testid="br-trade-region"]') ?? head;
+      region.focus({ preventScroll: true });
+    };
+    settle();
+  });
+  useEffect(() => () => cancelAnimationFrame(restoreRaf.current), []);
   const toTrade = useCallback(() => { focusHead.current = true; setView("trade"); }, []);
-  const onView = (v: BrokerView) => (v === "trade" ? toTrade() : setView("about"));
+  const toAbout = useCallback(() => {
+    tradeScroll.current = phone && headEl.current ? (phoneScroller(headEl.current)?.scrollTop ?? null) : null;
+    setView("about");
+  }, [phone]);
+  const onView = (v: BrokerView) => (v === "trade" ? toTrade() : toAbout());
 
   const qty = parseQtyInput(draft.qtyText);
   const order = useMemo(() => {
@@ -295,7 +331,7 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   return (
     <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-view="trade" data-phase={result ? "acked" : phase.kind === "placed" ? "submitting" : phase.kind} onKeyDown={phone ? undefined : onKey}>
-      <div className="br-grid" id={viewIds.trade}>
+      <div className="br-grid" id={viewIds.trade} {...(phone ? { role: "region", "aria-label": t.viewTrade, tabIndex: -1, "data-testid": "br-trade-region" } : {})}>
         {header(true)}
         {!phone && <div className="br-col br-col-ticket">
           {ack || review || ticket}
@@ -315,4 +351,20 @@ function restingOrderId(result: IntentResult, body: MeTradingBody): string | nul
   const id = orderIdOf(result);
   const o = id !== null ? body.orders[id] : undefined;
   return o && o.status !== "QUEUED_AUCTION" && fillOf(result, body.fills) === null ? o.orderId : null;
+}
+
+/** The phone app body that scrolls the Broker (shell nav.css), if this Broker is in one. */
+function phoneScroller(el: HTMLElement): HTMLElement | null { return el.closest<HTMLElement>(".phone-appbody"); }
+
+/** The scroller's visible band: its box, ending at the sticky Trade bar when there is one. */
+function band(scroller: HTMLElement): { top: number; bottom: number } {
+  const box = scroller.getBoundingClientRect();
+  const bar = scroller.querySelector<HTMLElement>('[data-testid="br-trade-bar"]')?.getBoundingClientRect();
+  return { top: box.top, bottom: bar && bar.height > 0 ? Math.min(box.bottom, bar.top) : box.bottom };
+}
+
+/** Fully inside the visible band. */
+function inView(el: HTMLElement, scroller: HTMLElement): boolean {
+  const r = el.getBoundingClientRect(), b = band(scroller);
+  return r.height > 0 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5;
 }

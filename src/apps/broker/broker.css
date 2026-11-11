@@ -189,3 +189,5 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-receipt, .br-fill-position { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; overflow-wrap: anywhere; }
 .br-fill-position { border-top: 1px solid var(--line); padding-top: var(--sp-12); }
 .br-fill-pnl { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); }
+/* Card 8: phone Back to trade may focus the whole Trade region (keeps the place); it is not a control. */
+.br-phone .br-grid[tabindex="-1"]:focus { outline: none; }
