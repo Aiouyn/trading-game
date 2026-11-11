@@ -144,8 +144,89 @@ export function postsOnDay(posts: readonly PlayerWirePost[], accountId: string, 
   return n;
 }
 
-export function remainingPostsToday(posts: readonly PlayerWirePost[], accountId: string, tick: number): number {
-  return Math.max(0, WIRE_POST_DAY_CAP - postsOnDay(posts, accountId, tick));
+function tickFromUnknownRow(row: unknown): number | undefined {
+  if (!row || typeof row !== "object") return undefined;
+  const t = (row as Record<string, unknown>).tick;
+  if (typeof t === "number" && Number.isInteger(t) && t >= 0) return t;
+  return undefined;
+}
+
+function quarantineAccountId(q: QuarantinedWireRow): string | undefined {
+  if (typeof q.accountId === "string" && q.accountId.length > 0) return q.accountId;
+  if (q.row && typeof q.row === "object") {
+    const a = (q.row as Record<string, unknown>).accountId;
+    if (typeof a === "string" && a.length > 0) return a;
+  }
+  return undefined;
+}
+
+function quarantinePostId(q: QuarantinedWireRow): string | undefined {
+  if (typeof q.postId === "string" && q.postId.length > 0) return q.postId;
+  if (q.row && typeof q.row === "object") {
+    const id = (q.row as Record<string, unknown>).id;
+    if (typeof id === "string" && id.length > 0) return id;
+  }
+  return undefined;
+}
+
+function countsTowardDay(row: unknown, day: number): boolean {
+  const t = tickFromUnknownRow(row);
+  return t === undefined || dayOfTick(t) === day;
+}
+
+/**
+ * Readable posts today, plus quarantined paid rows (and unpaired ACCEPTED intents) for this account.
+ * An unreadable tick fails closed and counts toward `tick`'s day so a quarantined payment cannot free a slot.
+ * Each paid slot is counted once.
+ */
+export function paidPostsOnDay(
+  posts: readonly PlayerWirePost[],
+  accountId: string,
+  tick: number,
+  quarantinedPosts: readonly QuarantinedWireRow[] = [],
+  intents: readonly WirePostIntent[] = [],
+): number {
+  const day = dayOfTick(tick);
+  let n = postsOnDay(posts, accountId, tick);
+  const readableIds = new Set(posts.filter((p) => p.accountId === accountId).map((p) => p.id));
+  const unused = quarantinedPosts.filter((q) => quarantineAccountId(q) === accountId);
+  const used = new Set<QuarantinedWireRow>();
+
+  const takeQuarantine = (postId: string | undefined): QuarantinedWireRow | undefined => {
+    if (postId) {
+      const hit = unused.find((q) => !used.has(q) && quarantinePostId(q) === postId);
+      if (hit) return hit;
+    }
+    return unused.find((q) => !used.has(q));
+  };
+
+  for (const intent of intents) {
+    if (intent.accountId !== accountId || intent.result !== "ACCEPTED") continue;
+    if (intent.postId && readableIds.has(intent.postId)) continue;
+    const q = takeQuarantine(intent.postId);
+    if (q) {
+      used.add(q);
+      if (countsTowardDay(q.row, day)) n += 1;
+    } else {
+      n += 1;
+    }
+  }
+
+  for (const q of unused) {
+    if (used.has(q)) continue;
+    if (countsTowardDay(q.row, day)) n += 1;
+  }
+  return n;
+}
+
+export function remainingPostsToday(
+  posts: readonly PlayerWirePost[],
+  accountId: string,
+  tick: number,
+  quarantinedPosts: readonly QuarantinedWireRow[] = [],
+  intents: readonly WirePostIntent[] = [],
+): number {
+  return Math.max(0, WIRE_POST_DAY_CAP - paidPostsOnDay(posts, accountId, tick, quarantinedPosts, intents));
 }
 
 /** Missing or a non-array is an empty list (old stores, or a bad key that must not fail the auth store). */

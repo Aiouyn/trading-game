@@ -19,6 +19,7 @@ import {
   playerPostToWireItem,
   publicHandleId,
   remainingPostsToday,
+  paidPostsOnDay,
   sanitizeWireText,
 } from "@/server/wire/playerStatements";
 import { EN } from "@/apps/wire/strings";
@@ -330,6 +331,144 @@ describe("gatekeeper probes: money / idempotency / quarantine / PII / CSRF", () 
     const led = await second.getPlayerPrivate(a.view, a.view.account.accountId);
     expect(led.cashCents).toBe(START_CASH_CENTS - WIRE_POST_FEE_CENTS);
     expect(await second.listPublicWirePosts()).toEqual([]);
+  });
+
+  it("a quarantined paid row still counts toward the daily cap; a fourth post is DAY_CAP", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "wire-cap-q-"));
+    temps.push(dir);
+    const file = path.join(dir, "auth.json");
+    const first = new AuthService({ store: new FileAuthStore(file) });
+    const a = await first.register({ handle: "CapQxxx", password: PASS });
+    await first.postWireStatement({
+      accountId: a.view.account.accountId,
+      handle: a.view.account.handle,
+      idempotencyKey: "cap-q-1",
+      text: "paid then quarantined",
+      assetTags: ["HALC"],
+      tick: TICK,
+    });
+    const raw = JSON.parse(await readFile(file, "utf8")) as { wirePosts: Array<Record<string, unknown>> };
+    raw.wirePosts[0]!.id = "w-x-not-a-valid-id";
+    await writeFile(file, JSON.stringify(raw));
+    const second = new AuthService({ store: new FileAuthStore(file) });
+    await second.reload();
+    expect(await second.listPublicWirePosts()).toEqual([]);
+    expect(await second.remainingWirePostsToday(a.view.account.accountId, TICK)).toBe(2);
+    for (let i = 0; i < 2; i++) {
+      const out = await second.postWireStatement({
+        accountId: a.view.account.accountId,
+        handle: a.view.account.handle,
+        idempotencyKey: `cap-q-more-${i}`,
+        text: `readable ${i}`,
+        assetTags: ["HALC"],
+        tick: TICK,
+      });
+      expect(out.replayed).toBe(false);
+    }
+    expect((await second.listPublicWirePosts()).length).toBe(2);
+    await expect(
+      second.postWireStatement({
+        accountId: a.view.account.accountId,
+        handle: a.view.account.handle,
+        idempotencyKey: "cap-q-fourth",
+        text: "should cap",
+        assetTags: ["HALC"],
+        tick: TICK,
+      }),
+    ).rejects.toMatchObject({ code: "DAY_CAP", status: 409 });
+    expect((await second.listPublicWirePosts()).length).toBe(2);
+    const led = await second.getPlayerPrivate(a.view, a.view.account.accountId);
+    expect(led.cashCents).toBe(START_CASH_CENTS - 3 * WIRE_POST_FEE_CENTS);
+    expect(await second.remainingWirePostsToday(a.view.account.accountId, TICK)).toBe(0);
+  });
+
+  it("a quarantined paid row still counts when the intent is also unreadable", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "wire-cap-q2-"));
+    temps.push(dir);
+    const file = path.join(dir, "auth.json");
+    const first = new AuthService({ store: new FileAuthStore(file) });
+    const a = await first.register({ handle: "CapQ2xx", password: PASS });
+    await first.postWireStatement({
+      accountId: a.view.account.accountId,
+      handle: a.view.account.handle,
+      idempotencyKey: "cap-q2-1",
+      text: "paid both unreadable",
+      assetTags: ["HALC"],
+      tick: TICK,
+    });
+    const raw = JSON.parse(await readFile(file, "utf8")) as {
+      wirePosts: Array<Record<string, unknown>>;
+      wirePostIntents: Array<Record<string, unknown>>;
+    };
+    raw.wirePosts[0]!.id = "w-x-bad";
+    raw.wirePostIntents[0]!.result = "NOT_A_RESULT";
+    await writeFile(file, JSON.stringify(raw));
+    const second = new AuthService({ store: new FileAuthStore(file) });
+    await second.reload();
+    expect(await second.remainingWirePostsToday(a.view.account.accountId, TICK)).toBe(2);
+    for (let i = 0; i < 2; i++) {
+      await second.postWireStatement({
+        accountId: a.view.account.accountId,
+        handle: a.view.account.handle,
+        idempotencyKey: `cap-q2-more-${i}`,
+        text: `readable ${i}`,
+        assetTags: ["HALC"],
+        tick: TICK,
+      });
+    }
+    await expect(
+      second.postWireStatement({
+        accountId: a.view.account.accountId,
+        handle: a.view.account.handle,
+        idempotencyKey: "cap-q2-fourth",
+        text: "should cap",
+        assetTags: ["HALC"],
+        tick: TICK,
+      }),
+    ).rejects.toMatchObject({ code: "DAY_CAP" });
+    expect((await second.getPlayerPrivate(a.view, a.view.account.accountId)).cashCents).toBe(
+      START_CASH_CENTS - 3 * WIRE_POST_FEE_CENTS,
+    );
+  });
+
+  it("a quarantined paid row from a previous game day does not consume today's cap", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "wire-cap-yday-"));
+    temps.push(dir);
+    const file = path.join(dir, "auth.json");
+    const first = new AuthService({ store: new FileAuthStore(file) });
+    const a = await first.register({ handle: "CapYday", password: PASS });
+    const yday = TICK - 720;
+    await first.postWireStatement({
+      accountId: a.view.account.accountId,
+      handle: a.view.account.handle,
+      idempotencyKey: "cap-yday-1",
+      text: "yesterday paid",
+      assetTags: ["HALC"],
+      tick: yday,
+    });
+    const raw = JSON.parse(await readFile(file, "utf8")) as { wirePosts: Array<Record<string, unknown>> };
+    raw.wirePosts[0]!.id = "w-x-yday";
+    await writeFile(file, JSON.stringify(raw));
+    const second = new AuthService({ store: new FileAuthStore(file) });
+    await second.reload();
+    expect(await second.remainingWirePostsToday(a.view.account.accountId, TICK)).toBe(3);
+    expect(
+      paidPostsOnDay([], a.view.account.accountId, TICK, loadPlayerWirePosts(raw.wirePosts).quarantined, []),
+    ).toBe(0);
+    for (let i = 0; i < 3; i++) {
+      await second.postWireStatement({
+        accountId: a.view.account.accountId,
+        handle: a.view.account.handle,
+        idempotencyKey: `cap-yday-today-${i}`,
+        text: `today ${i}`,
+        assetTags: ["HALC"],
+        tick: TICK,
+      });
+    }
+    expect((await second.listPublicWirePosts()).length).toBe(3);
+    expect((await second.getPlayerPrivate(a.view, a.view.account.accountId)).cashCents).toBe(
+      START_CASH_CENTS - 4 * WIRE_POST_FEE_CENTS,
+    );
   });
 
   it("public item uses a public handle id and does not expose the account id", async () => {

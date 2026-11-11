@@ -12,7 +12,7 @@ import {
   decidePostText,
   fingerprintPost,
   newWirePostId,
-  postsOnDay,
+  paidPostsOnDay,
   remainingPostsToday,
   spendableCashCents,
   type PlayerWirePost,
@@ -517,7 +517,7 @@ export class AuthService {
   async remainingWirePostsToday(accountId: string, tick: number): Promise<number> {
     return this.withLock(async () => {
       await this.ready;
-      return remainingPostsToday(this.wirePosts, accountId, tick);
+      return remainingPostsToday(this.wirePosts, accountId, tick, this.quarantinedWirePosts, this.wirePostIntents);
     });
   }
 
@@ -597,7 +597,7 @@ export class AuthService {
         return {
           post: clonePlayerWirePost(post),
           cashCents: current.cashCents,
-          remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick),
+          remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick, this.quarantinedWirePosts, this.wirePostIntents),
           replayed: true,
         };
       }
@@ -612,7 +612,7 @@ export class AuthService {
       if (spendableCashCents(current) < WIRE_POST_FEE_CENTS) {
         throw new WirePostError("INSUFFICIENT_CASH", "Not enough spendable cash to post (needs $500).", 409);
       }
-      if (postsOnDay(this.wirePosts, accountId, input.tick) >= WIRE_POST_DAY_CAP) {
+      if (paidPostsOnDay(this.wirePosts, accountId, input.tick, this.quarantinedWirePosts, this.wirePostIntents) >= WIRE_POST_DAY_CAP) {
         throw new WirePostError("DAY_CAP", "At most three statements per game day.", 409);
       }
 
@@ -654,7 +654,7 @@ export class AuthService {
       return {
         post: clonePlayerWirePost(post),
         cashCents: nextPlayer.cashCents,
-        remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick),
+        remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick, this.quarantinedWirePosts, this.wirePostIntents),
         replayed: false,
       };
     });
