@@ -1,9 +1,11 @@
 import { LP, graduationOf, liquidationCents, listPriceMinor, nameOk, quote, tickerOk } from "@/launchpad/rules";
 import { ASSETS } from "@/market/catalog";
 import { listedDef } from "@/market/listings";
-import { fillOnBook, type BookFillResult } from "@/server/broker/book";
+import { BOOK_LAW, baseDepthInputs, depthQuote, fillOnBook, ladderImpact, type BookFillResult } from "@/server/broker/book";
+import { centsOf } from "@/market/valuation";
+import { ADV_TOKENS, MEME_POOL_WEIGHTS, POOL_LAW } from "@/server/broker/pools";
 import { hypeF, hypeStep } from "@/server/broker/pools";
-import { Draws, HYPE, TICKS_PER_HOUR } from "@/server/market/meme";
+import { CRYPTO_DAYS_PER_YEAR, Draws, HYPE, TICKS_PER_HOUR, memeParams } from "@/server/market/meme";
 import { moderateName, normalizeName } from "@/server/launchpad/moderate";
 import { parseFarmCommand, parseFarmFrames } from "./boundary";
 import { isPlainJson } from "./json";
@@ -17,6 +19,25 @@ const own = <T>(r: Record<string, T>, key: string): T | undefined => Object.hasO
 const held = (w: FarmWallet, c: FarmCoin) => own(w.tokens, c.ticker) ?? 0;
 const realCash = (c: FarmCoin) => c.venue.kind === "CURVE" ? c.venue.curve.x - LP.X0 : c.venue.book.cash;
 const refuse = (code: string): FarmReply => ({ kind: "REFUSED", code });
+/** Pre-registered Rule A (docs/v1/units/meme-failure-farm.md): the band below the mark within which book bids count as
+ *  liquidity, max(0.05, 3 sigma_d) "measured from the last price" (05:560 settlement/fix band; meme daily reference 05:255). */
+export const liquidityBand = (ticker: string): number => Math.max(0.05, 3 * memeParams(ticker).vol / Math.sqrt(CRYPTO_DAYS_PER_YEAR));
+/** 06:762 "pool liquidity". Curve: real reserve cash (falls with price, like a pool). Book: the cash a seller can receive
+ *  within the band below the mark on the base ladder (same spread, skew, impact, depth and rounding as fillOnBook, used = 0),
+ *  capped by book cash. Resting cash reachable only far below the price is not liquidity. Measurement only: moves nothing. */
+export function liquidity(c: FarmCoin): number {
+  if (c.venue.kind === "CURVE") return realCash(c);
+  const book = c.venue.book, inp = baseDepthInputs(c.ticker), band = liquidityBand(c.ticker);
+  const inv = book.flow?.m?.inv ?? 0, dq = depthQuote(c.mark, inp, inv, "SELL");
+  const qmax = Math.floor(dq.d * inp.adv * Math.pow(Math.max(0, band - dq.s) / (BOOK_LAW.impactY * inp.sigmaDaily), 2));
+  if (qmax < 1) return 0;
+  const ref = Math.max(1, Math.round(c.mark * Math.exp(dq.skew - (book.flow?.m?.skew ?? 0))));
+  const px = Math.floor(ref * Math.exp(-(dq.s + ladderImpact(qmax, inp, dq.d))));
+  const dp = listedDef(c.ticker, c.name, c.venue.listedPrice).displayDecimals;
+  return Math.min(book.cash, Math.max(0, centsOf(dp, px * qmax, false)));
+}
+/** Pre-registered Rule B: 05 §6.2 RETAIL (05:832) for memes, weight 3.0, rate 0.15 ADV/day, the base targets() form. */
+export const RETAIL_LAW = { weight: MEME_POOL_WEIGHTS.retail, chase: POOL_LAW.retailChase, rate: POOL_LAW.rate.retail, adv: ADV_TOKENS } as const;
 const setHeld = (w: FarmWallet, ticker: string, qty: number) => { if (qty > 0) w.tokens[ticker] = qty; else delete w.tokens[ticker]; };
 
 export function cashTotal(s: FarmState): number {
@@ -43,16 +64,16 @@ export function createFarm(seed: string, wallets: readonly { id: string; kind: W
   const accounts: Record<string, FarmWallet> = {};
   for (const w of wallets) {
     if (typeof w !== "object" || w === null || Object.keys(w).length !== 3 || !["id", "kind", "cash"].every((k) => Object.hasOwn(w, k)) || typeof w.id !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(w.id) || w.id === "constructor" || w.id === "__proto__" || Object.hasOwn(accounts, w.id) || !integer(w.cash)
-      || (w.kind !== "NPC" && w.kind !== "PLAYER")) throw new Error("BAD_GENESIS");
+      || (w.kind !== "NPC" && w.kind !== "PLAYER" && w.kind !== "RETAIL")) throw new Error("BAD_GENESIS");
     accounts[w.id] = { kind: w.kind, cash: w.cash, tokens: {}, lastLaunchAtMs: null };
   }
-  const s: FarmState = { v: 1, seed, hour: 0, initialCash: wallets.reduce((n, w) => n + w.cash, 0), sink: 0, wallets: accounts, coins: {}, receipts: {} };
+  const s: FarmState = { v: 2, seed, hour: 0, initialCash: wallets.reduce((n, w) => n + w.cash, 0), sink: 0, wallets: accounts, coins: {}, receipts: {} };
   assertConservation(s);
   return s;
 }
 function thin(c: FarmCoin, hour: number): void {
   if (c.discovery.kind === "DELISTED") return;
-  if (realCash(c) >= FAILURE_LAW.liquidityCents) c.thinSince = null;
+  if (liquidity(c) >= FAILURE_LAW.liquidityCents) c.thinSince = null;
   else {
     c.thinSince ??= hour;
     if (hour - c.thinSince >= FAILURE_LAW.thinHours) c.discovery = { kind: "DELISTED", hour };
@@ -127,6 +148,18 @@ function trade(s: FarmState, wallet: string, ticker: string, side: "BUY" | "SELL
   thin(c, s.hour);
   return reply;
 }
+/** One hourly RETAIL order (05:826 per-tick caps summed over the hour). Spot only: target >= 0, buys bounded by own cash
+ *  and sells by own tokens inside trade(); refusals (e.g. delisted buys, no liquidity) are simply no trade. */
+function retailStep(s: FarmState, id: string, c: FarmCoin, r1d: number | null): void {
+  const z = new Draws(`farm:${s.seed}:${c.ticker}:retail:${id}:${s.hour}`).normal();
+  const sd = memeParams(c.ticker).vol / Math.sqrt(CRYPTO_DAYS_PER_YEAR);
+  const signal = z + RETAIL_LAW.chase * Math.tanh(r1d === null ? 0 : r1d / sd); // attention, dip and belief terms are 0 here
+  const target = Math.floor(Math.max(0, RETAIL_LAW.weight * Math.tanh(signal)) * RETAIL_LAW.adv);
+  const cap = Math.floor(RETAIL_LAW.weight * RETAIL_LAW.rate / 24 * RETAIL_LAW.adv);
+  const order = Math.max(-cap, Math.min(cap, target - held(s.wallets[id]!, c)));
+  if (order >= 1) trade(s, id, c.ticker, "BUY", order);
+  else if (order <= -1) trade(s, id, c.ticker, "SELL", -order);
+}
 function launch(s: FarmState, cmd: Extract<FarmCommand, { kind: "LAUNCH" }>): FarmReply {
   const w = own(s.wallets, cmd.wallet);
   if (!w) return refuse("UNKNOWN_ACCOUNT");
@@ -139,12 +172,13 @@ function launch(s: FarmState, cmd: Extract<FarmCommand, { kind: "LAUNCH" }>): Fa
   if (!integer(cmd.nowMs) || cmd.fee !== LP.LAUNCH_FEE) return refuse("BAD_LAUNCH");
   if (w.lastLaunchAtMs !== null && cmd.nowMs < w.lastLaunchAtMs + LP.COOLDOWN_MS) return refuse("COOLDOWN");
   if (Object.values(s.coins).filter((c) => c.creator === cmd.wallet && c.venue.kind === "CURVE" && c.discovery.kind === "LIVE").length >= LP.MAX_LIVE) return refuse("MAX_LIVE");
+  if (w.kind === "RETAIL") return refuse("BAD_LAUNCH"); // a trader pool never launches
   if (w.cash < LP.LAUNCH_FEE) return refuse("CASH");
   w.cash -= LP.LAUNCH_FEE; s.sink += LP.LAUNCH_FEE; w.lastLaunchAtMs = cmd.nowMs;
   const curve = { x: LP.X0, sold: 0 }, mark = listPriceMinor(curve);
   s.coins[cmd.ticker] = { ticker: cmd.ticker, name: cmd.name, creator: cmd.wallet, createdHour: s.hour,
     venue: { kind: "CURVE", curve }, discovery: { kind: "LIVE" }, launcher: { kind: w.kind === "NPC" ? "NPC_ACTIVE" : "PLAYER" },
-    mark, lastHourMark: mark, hype: HYPE.h0, thinSince: s.hour, rug: null, day: Math.floor(s.hour / 24), dayOpen: mark, creatorDaySold: 0, hourVolume: 0, playerNet: [] };
+    mark, lastHourMark: mark, hype: HYPE.h0, thinSince: s.hour, rug: null, day: Math.floor(s.hour / 24), dayOpen: mark, creatorDaySold: 0, hourVolume: 0, playerNet: [], closes: [] };
   return { kind: "LAUNCHED", ticker: cmd.ticker };
 }
 function fingerprintOf(value: unknown): string {
@@ -181,6 +215,7 @@ export function advanceFarm(prior: FarmState, input: unknown): FarmState {
         || (obs.hypeShock !== undefined && !Number.isFinite(obs.hypeShock))) throw new Error("BAD_OBSERVATION");
     }
     s.hour = frame.hour;
+    const retailIds = Object.keys(s.wallets).filter((id) => s.wallets[id]!.kind === "RETAIL").sort();
     for (const c of Object.values(s.coins)) {
       const obs = own(frame.coins, c.ticker) ?? {}, previousMark = c.lastHourMark;
       if (c.day !== Math.floor(s.hour / 24)) { c.day = Math.floor(s.hour / 24); c.dayOpen = c.mark; c.creatorDaySold = 0; }
@@ -200,6 +235,10 @@ export function advanceFarm(prior: FarmState, input: unknown): FarmState {
       }
       if (!c.rug && c.creatorDaySold >= .03 * LP.SUPPLY && c.mark <= .6 * c.dayOpen) c.rug = { kind: "DAILY_DUMP", hour: s.hour };
       c.hourVolume = 0;
+      // Rule B: the RETAIL pools see this hour's public close and its 24-hour return, then trade through the real book.
+      const r1d = c.closes.length === 24 ? Math.log(c.mark / c.closes[0]!) : null;
+      c.closes = [...c.closes, c.mark].slice(-24);
+      if (c.venue.kind === "BOOK") for (const id of retailIds) retailStep(s, id, c, r1d);
       c.lastHourMark = c.mark;
       thin(c, s.hour);
     }
@@ -210,7 +249,7 @@ export function advanceFarm(prior: FarmState, input: unknown): FarmState {
 /** Discovery never leaks holder/creator account ids; delisted tokens remain in private wallets. */
 export function publicCoins(s: FarmState) {
   return Object.values(s.coins).filter((c) => c.discovery.kind === "LIVE").map((c) => ({ ticker: c.ticker, name: c.name, mark: c.mark,
-    hype: c.hype, launcher: structuredClone(c.launcher), rug: structuredClone(c.rug), venue: c.venue.kind, liquidityCents: realCash(c) }));
+    hype: c.hype, launcher: structuredClone(c.launcher), rug: structuredClone(c.rug), venue: c.venue.kind, liquidityCents: liquidity(c) }));
 }
 export function walletValue(s: FarmState, wallet: string, ticker: string): number {
   const c = own(s.coins, ticker), w = own(s.wallets, wallet);

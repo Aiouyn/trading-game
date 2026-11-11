@@ -1,5 +1,6 @@
 import { LP, listPriceMinor, tickerOk } from "@/launchpad/rules";
-import { FAILURE_LAW, assertConservation } from "./engine";
+import { FAILURE_LAW, assertConservation, liquidity } from "./engine";
+import { FARM_LIMITS, stringsWithin } from "./boundary";
 import { isPlainJson } from "./json";
 import type { FarmCoin, FarmReceipt, FarmReply, FarmState, FarmVenue, FarmWallet } from "./model";
 
@@ -10,7 +11,7 @@ const keys = (v: Record<string, unknown>, expected: string[]) => Object.keys(v).
 const mapOf = <T>(v: unknown, check: (x: unknown) => x is T): v is Record<string, T> => obj(v) && Object.values(v).every(check);
 const accountId = (s: string) => /^[a-z][a-z0-9_-]{0,63}$/.test(s) && s !== "constructor" && s !== "__proto__";
 function wallet(v: unknown): v is FarmWallet {
-  return obj(v) && keys(v, ["kind", "cash", "tokens", "lastLaunchAtMs"]) && (v.kind === "PLAYER" || v.kind === "NPC") && int(v.cash)
+  return obj(v) && keys(v, ["kind", "cash", "tokens", "lastLaunchAtMs"]) && (v.kind === "PLAYER" || v.kind === "NPC" || v.kind === "RETAIL") && int(v.cash)
     && (v.lastLaunchAtMs === null || int(v.lastLaunchAtMs)) && mapOf(v.tokens, (n): n is number => int(n, 1));
 }
 function book(v: unknown): boolean {
@@ -31,7 +32,7 @@ function venue(v: unknown): v is FarmVenue {
     && book(v.book) && int(v.listedPrice, 1) && int(v.graduatedHour) && int(v.creatorAtGraduation) && v.creatorAtGraduation <= LP.SUPPLY && int(v.creatorSold);
 }
 function coin(v: unknown): v is FarmCoin {
-  if (!obj(v) || !keys(v, ["ticker", "name", "creator", "createdHour", "venue", "discovery", "launcher", "mark", "lastHourMark", "hype", "thinSince", "rug", "day", "dayOpen", "creatorDaySold", "hourVolume", "playerNet"])) return false;
+  if (!obj(v) || !keys(v, ["ticker", "name", "creator", "createdHour", "venue", "discovery", "launcher", "mark", "lastHourMark", "hype", "thinSince", "rug", "day", "dayOpen", "creatorDaySold", "hourVolume", "playerNet", "closes"])) return false;
   if (typeof v.ticker !== "string" || !tickerOk(v.ticker) || typeof v.name !== "string" || typeof v.creator !== "string" || !accountId(v.creator) || !int(v.createdHour)
     || !venue(v.venue) || !int(v.mark, 1) || !int(v.lastHourMark, 1) || !finite(v.hype) || v.hype < 0 || v.hype > 1
     || !(v.thinSince === null || int(v.thinSince)) || !int(v.day) || !int(v.dayOpen, 1) || !int(v.creatorDaySold) || !int(v.hourVolume)) return false;
@@ -39,6 +40,7 @@ function coin(v: unknown): v is FarmCoin {
   if (!obj(d) || !((d.kind === "LIVE" && keys(d, ["kind"])) || (d.kind === "DELISTED" && keys(d, ["kind", "hour"]) && int(d.hour)))) return false;
   if (!obj(l) || !(((l.kind === "PLAYER" || l.kind === "NPC_ACTIVE") && keys(l, ["kind"])) || (l.kind === "NPC_ABANDONED" && keys(l, ["kind", "hour"]) && int(l.hour)))) return false;
   if (!(r === null || (obj(r) && keys(r, ["kind", "hour"]) && (r.kind === "EARLY_EXIT" || r.kind === "DAILY_DUMP") && int(r.hour)))) return false;
+  if (!Array.isArray(v.closes) || v.closes.length > 24 || !v.closes.every((x) => int(x, 1))) return false;
   return Array.isArray(v.playerNet) && v.playerNet.length <= 24 && v.playerNet.every((x) => Array.isArray(x) && x.length === 2 && int(x[0]) && typeof x[1] === "number" && Number.isSafeInteger(x[1]));
 }
 function reply(v: unknown): v is FarmReply {
@@ -49,24 +51,23 @@ function reply(v: unknown): v is FarmReply {
 }
 function receipt(v: unknown): v is FarmReceipt { return obj(v) && keys(v, ["fingerprint", "reply"]) && typeof v.fingerprint === "string" && reply(v.reply); }
 function shape(v: unknown): v is FarmState {
-  return obj(v) && keys(v, ["v", "seed", "hour", "initialCash", "sink", "wallets", "coins", "receipts"]) && v.v === 1
+  return obj(v) && keys(v, ["v", "seed", "hour", "initialCash", "sink", "wallets", "coins", "receipts"]) && v.v === 2
     && typeof v.seed === "string" && v.seed.length > 0 && v.seed.length <= 128 && int(v.hour) && int(v.initialCash) && int(v.sink)
     && mapOf(v.wallets, wallet) && Object.keys(v.wallets).length > 0 && Object.keys(v.wallets).every(accountId) && mapOf(v.coins, coin) && mapOf(v.receipts, receipt);
 }
 /** Unknown JSON is narrowed once here. Corrupt or unknown-version saves are never repaired/reset. */
 export function parseFarm(raw: unknown): FarmState {
   // Descriptor-only plain-JSON check first: no getter, toJSON or Proxy trap runs, and no sparse/NaN/class value survives.
-  if (!isPlainJson(raw) || !shape(raw)) throw new Error("BAD_FARM_CHECKPOINT");
+  if (!isPlainJson(raw) || !stringsWithin(raw, FARM_LIMITS.checkpointString) || !shape(raw)) throw new Error("BAD_FARM_CHECKPOINT");
   for (const [ticker, c] of Object.entries(raw.coins)) {
     const owner = raw.wallets[c.creator];
     if (ticker !== c.ticker || !Object.hasOwn(raw.wallets, c.creator) || !owner || c.createdHour > raw.hour || c.day !== Math.floor(raw.hour / 24)
       || (c.thinSince !== null && (c.thinSince < c.createdHour || c.thinSince > raw.hour))
       || (c.discovery.kind === "DELISTED" && (c.discovery.hour > raw.hour || c.discovery.hour < c.createdHour))
-      || (owner.kind === "PLAYER") !== (c.launcher.kind === "PLAYER")
+      || owner.kind === "RETAIL" || (owner.kind === "PLAYER") !== (c.launcher.kind === "PLAYER")
       || (c.launcher.kind === "NPC_ABANDONED" && (c.launcher.hour > raw.hour || c.launcher.hour < c.createdHour))
       || (c.rug !== null && (c.rug.hour > raw.hour || c.rug.hour < c.createdHour))) throw new Error("BAD_FARM_TIMELINE");
-    const cash = c.venue.kind === "CURVE" ? c.venue.curve.x - LP.X0 : c.venue.book.cash;
-    if (c.discovery.kind === "LIVE" && ((cash < FAILURE_LAW.liquidityCents) !== (c.thinSince !== null)
+    if (c.discovery.kind === "LIVE" && ((liquidity(c) < FAILURE_LAW.liquidityCents) !== (c.thinSince !== null)
       || (c.thinSince !== null && raw.hour - c.thinSince >= FAILURE_LAW.thinHours))) throw new Error("BAD_THIN_CLOCK");
     if (c.discovery.kind === "DELISTED" && (c.thinSince === null || c.discovery.hour - c.thinSince < FAILURE_LAW.thinHours)) throw new Error("BAD_DELISTING");
     if (c.venue.kind === "CURVE" && c.mark !== listPriceMinor(c.venue.curve)) throw new Error("BAD_CURVE_MARK");

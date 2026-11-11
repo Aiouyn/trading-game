@@ -75,7 +75,7 @@ Written at the start, before code changes. Tip `c7b31bd5`; commits are appended,
 
 No forced outcome, no minting, no money destroyed.
 
-## Premise attack — pre-registered rules (written 2026-11-12T00:50+01:00 Europe/Paris, BEFORE implementation or any run)
+## Premise attack — pre-registered rules (written 2026-11-12T00:48+01:00 Europe/Paris, BEFORE implementation or any run)
 Moved from the root `UNIT.md` to this file at this point. The calibration missed twice: 214/288 under the authored 1% cutoff, then 72/288 under the 06:762 death state. The premise under attack is that a graduated coin's *raw book cash* is the 06:762 "pool liquidity", and that holders may stay frozen. I resolve both gaps here, with citations, before running anything. "~0" stays the 06:762 death state: liquidity below $1,000 for 7 game days, then `DELISTED` and marked at 0. Only the liquidity measurement and holder behaviour change. Seeds 17–40, 12 coins each, one 1,344-game-day chapter. Whatever comes out is reported, and nothing is tuned afterwards.
 
 ### Rule A — liquidity of a graduated coin on the finite book
