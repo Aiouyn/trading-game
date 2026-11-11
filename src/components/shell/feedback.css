@@ -38,3 +38,5 @@
   text-decoration: underline;
   font-size: var(--fs-12);
 }
+
+.quay-feedback-skel { min-height: 72px; }

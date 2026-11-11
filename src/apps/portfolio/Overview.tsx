@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Label } from "@/components/ui/Label";
 import { MINUS, fullDigits, parseAmount } from "@/components/ui/money";
-import { lazy, Suspense } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { formatPercent } from "@/components/ui/percent";
+import { retryableLazy } from "@/components/shell/retryableLazy";
 import { useShell } from "@/components/shell/ShellContext";
+import { S } from "@/shell/strings";
+import "./goalSlot.css";
 import type { CoinRow, MeTradingBody, Money, NwStats, RestrictedBucket } from "@/shell/contracts/channels";
 import { fmt } from "@/shell/contracts/mockFeed";
 import { isRestrictedReason } from "@/shell/strings";
@@ -197,7 +199,7 @@ export function OverviewView({ view, rank, locale, phone, stacked = false, onRet
 }
 
 /** M2-01/02: signed-in only, its own chunk (not on a guest's or the Broker route's first load). */
-const GoalGuide = lazy(() => import("./GoalGuide"));
+const RetryableGoalGuide = retryableLazy(() => import("./GoalGuide"));
 
 export function Overview({ phone }: { phone: boolean }) {
   const view = useChannel("me");
@@ -208,7 +210,10 @@ export function Overview({ phone }: { phone: boolean }) {
   // The goal and guide show only with a loaded `me` body for the signed-in account (the server ledger), never during
   // loading or an error, and never for a guest (whose `me` is the example portfolio).
   const goal = isSignedIn(auth) && view.body !== null
-    ? <Suspense fallback={null}><GoalGuide me={view.body} accountId={auth.account.accountId} locale={locale} phone={phone} /></Suspense>
+    ? <RetryableGoalGuide me={view.body} accountId={auth.account.accountId} locale={locale} phone={phone}
+        fallback={<div className="pf-goal-skel" data-testid="pf-goal-loading" aria-busy="true" role="status" />}
+        errorMessage={S.couldntLoad} retryLabel={S.retry}
+        errorTestId="pf-goal-error" retryTestId="pf-goal-retry" />
     : auth.status === "signed_out" ? <p className={`pf-goal-guest muted${phone ? " pf-phone" : ""}`} data-testid="pf-goal-guest">{pfStrings(locale).guestGoal}</p> : null;
   // Retry asks the feed for a fresh snap. Against the mock's error / denied modes it is a no-op by design (the mode is
   // fixed for the page); against the server it re-requests the channel.

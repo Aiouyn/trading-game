@@ -67,6 +67,43 @@ If a listed move fails the hoisting test (counted gz rises or stays above 205), 
 3. One broad affected e2e batch on a clean temp tree, fresh `.data`, desktop and phone: existing /broker and Wire batch plus every panel made lazy (Settings, Broker About, ticket review, Wire including detail, district, leaderboard, launchpad, and an onboarding/guide open if its chunk moved). Delete the temp tree.
 4. Pre-push stray-init; normal push, no force, no PR. Evidence-only GK-HANDOFF.
 
+
+## After (this unit) — 13 chunks, **196.4 KB** counted
+
+Measured 2026-11-11 23:08 Europe/Paris, production `next start`, no e2e flags, BUDGET_PORT=3974 (inventory) and official `tools/ci/route-budget.mjs /broker` on 3917: both **196.4 KB** gz counted, lazy plot 59.3 KB excluded (cap 60). Inventory: `/workspace/avalon/evidence/launchpad/broker-headroom/after-chunks.tsv`. Budget cap stays **215 KB**.
+
+| chunk | gz | counted? | what it is | vs before |
+|---|---:|:---:|---|---|
+| 01s_f_3qlcqtb.js | 70.3 KB | yes | react-dom / react | unchanged |
+| 3i7bb4yv5vlj-.js | 44.4 KB | yes | Next router runtime | unchanged |
+| 442124kmyz329.js | 19.3 KB | yes | Broker ticket, Open orders, chart chrome (EN only) | was 12.8 + 11.1; About/review/ack and FR dropped out |
+| 1i0ie0s_wnl4f.js | 17.4 KB | yes | shell chrome, auth, feedback button, registry copy | was 27.1; Settings/Appearance body dropped out |
+| 2lk6qxzqmtd1j.js | 15.0 KB | yes | asset catalog (HALC, names, base/vol/lot) | was 13.4 (re-chunked) |
+| 002t9n4owrkkz.js | 11.3 KB | yes | hoisted shell/wire-boot/goal copy; Wire boot label only (no Wire string table) | was 17.4; FR tables and Wire detail copy dropped out |
+| 2kzd2bib-2ux6.js | 8.5 KB | yes | Next prerender / cache client | unchanged |
+| turbopack-3-ry682tkyiqk.js | 3.8 KB | yes | Turbopack runtime | unchanged |
+| 0umf92h1sb77c.js | 3.4 KB | yes | Next layout router | unchanged |
+| 1x6obpmlu1_c2.js | 1.9 KB | yes | Next error-page chrome | unchanged |
+| 1y020fgwh_1zs.js | 0.6 KB | yes | chunk map (lazy app CSS/JS) | re-chunked |
+| 185l4etpom5k4.js | 0.3 KB | yes | chunk map (plot) | re-chunked |
+| 3kgx6wsko74_w.js | 59.3 KB | **excluded** | lightweight-charts plot (after chart mount; cap 60 KB) | unchanged |
+| **Counted total** | **196.4 KB** | | | **−18.5 KB** vs 214.9; **8.6 KB** under the 205 target |
+
+Official route-budget agrees: `13 chunks, 196.4 KB gz (budget 215 KB; lazy plot chunk 59.3 KB gz, cap 60 KB)`.
+
+FR broker/wire/settings tables, Settings body, AssetPage/News, TicketReview/Ack, Feedback panel, Consent prompt, district/leaderboard/launchpad/Wire app, and GoalGuide are not in the first-load script list (only named in the small chunk maps, or absent until opened). The only French on first load is the two-word Wire boot label (`Chargement du fil`) used by the stringless shell fallback.
+
+## `NEXT_PUBLIC_QUAY_E2E` scoping (Gatekeeper)
+
+The first-launch consent prompt is skipped only in the official Playwright e2e artifact, so it cannot intercept taps or land in screenshot baselines. This is a **build-time** inline, not a runtime switch:
+
+- `next.config.ts` always defines `NEXT_PUBLIC_QUAY_E2E` as `"1"` or `"0"` (same pattern as the other e2e hooks), so the bundler inlines a literal and folds the skip.
+- Only `playwright.config.ts` `webServer.env` sets the flag to `"1"` (together with `QUAY_DS` / `QUAY_HOOKS` / mock flags).
+- A normal no-flag production build (`npm run build`, route-budget, production `next start`) inlines `"0"` and the skip is dead-code-eliminated. Setting `NEXT_PUBLIC_QUAY_E2E=1` in the process environment of `next start` cannot turn consent off.
+- `tools/check-hooks.mjs` treats `NEXT_PUBLIC_QUAY_E2E` like the other e2e hook names: a no-flag `.next` tree must not contain the string (0 hits on this head).
+
+The `?telemetry_consent=1` query only *forces the prompt on* for the consent e2e; it cannot turn consent collection off.
+
 ## Not in this unit
 
 Raising the 215 KB cap. Changing ticket or market behaviour. 05/13, Voices, 16:557, 18:204, POLICY/RECOVERY, 07/FX, meme-failure farm. No overall GO.

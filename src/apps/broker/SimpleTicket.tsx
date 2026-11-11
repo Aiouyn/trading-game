@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
 import { decText } from "@/apps/portfolio/positions/format";
 import type { PreviewRes, Side } from "@/shell/contracts/channels";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 
 /** The estimate rows, verbatim from PreviewRes (BRK spec). `stale` greys them while a fresh preview is due. */
 export function PreviewRows({ t, locale, res, stale = false }: { t: BrStrings; locale: string; res: PreviewRes; stale?: boolean }) {

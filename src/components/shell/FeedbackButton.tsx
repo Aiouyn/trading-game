@@ -1,8 +1,9 @@
 "use client";
-import { lazy, Suspense, useCallback, useState } from "react";
+import { useCallback, useState } from "react";
+import { asDefault, retryableLazy } from "@/components/shell/retryableLazy";
 import { S } from "@/shell/strings";
 
-const FeedbackPanel = lazy(() => import("./FeedbackPanel").then((m) => ({ default: m.FeedbackPanel })));
+const RetryableFeedbackPanel = retryableLazy(async () => asDefault((await import("./FeedbackPanel")).FeedbackPanel));
 
 function CommentMark() {
   return (
@@ -22,9 +23,14 @@ export function FeedbackButton({ compact = false }: { compact?: boolean }) {
         {compact ? <CommentMark /> : S.feedback}
       </button>
       {open ? (
-        <Suspense fallback={null}>
-          <FeedbackPanel onClose={close} />
-        </Suspense>
+        <RetryableFeedbackPanel
+          onClose={close}
+          fallback={<div className="quay-feedback-panel quay-feedback-skel" data-testid="quay-feedback-loading" aria-busy="true" role="status" />}
+          errorMessage={S.couldntLoad}
+          retryLabel={S.retry}
+          errorTestId="quay-feedback-error"
+          retryTestId="quay-feedback-retry"
+        />
       ) : null}
     </div>
   );

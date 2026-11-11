@@ -1,11 +1,14 @@
 "use client";
 // Review / submitting / acked (UI cards 4 and 5). Review repeats the server's estimate and holds the Broker's only primary
 // ("Place order"). The acked panel reads our IntentResult (and its MyFill) from `me`: nothing is computed here.
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { decText } from "@/apps/portfolio/positions/format";
 import type { IntentResult, MyFill, PreviewRes } from "@/shell/contracts/channels";
-import { PreviewRows } from "./SimpleTicket";
-import { rejectCopy, type BrStrings } from "./strings";
+import { rejectCopy, type BrStrings } from "./strings-en";
+import { fillOf, orderIdOf } from "./ticketResult";
+
+export { fillOf, orderIdOf };
 
 export interface ReviewBlockProps {
   t: BrStrings;
@@ -25,14 +28,16 @@ export interface ReviewBlockProps {
   offline: boolean;
   onEdit: () => void;
   onPlace: () => void;
+  /** Preview rows rendered by the first-load ticket, so this lazy chunk does not import SimpleTicket. */
+  previewRows?: ReactNode;
 }
 
-export function ReviewBlock({ t, locale, action, preview, stale, halted, canPlace, pendingTick, failed, offline, onEdit, onPlace }: ReviewBlockProps) {
+export function ReviewBlock({ t, action, stale, halted, canPlace, pendingTick, failed, offline, onEdit, onPlace, previewRows }: ReviewBlockProps) {
   const submitting = pendingTick !== null;
   return (
     <section className="br-review-block" data-testid="br-review-block" aria-labelledby="br-review-title">
       <h3 id="br-review-title" className="br-action" data-testid="br-action">{action}</h3>
-      {preview && <PreviewRows t={t} locale={locale} res={preview} stale={stale} />}
+      {previewRows}
       {offline ? <p className="br-msg warn" data-testid="br-offline">{t.offlineNoPlace}</p>
         : stale && <p className="br-refreshing muted" data-testid="br-refreshing">{t.refreshing}</p>}
       {halted && <p className="br-queued" data-testid="br-queued">{t.haltedQueued}</p>}
@@ -45,17 +50,6 @@ export function ReviewBlock({ t, locale, action, preview, stale, halted, canPlac
       </div>
     </section>
   );
-}
-
-/** The fill an ACCEPTED market intent names in `effects` ("fill:{id}"), if `me` carries it. */
-export function fillOf(result: IntentResult, fills: readonly MyFill[]): MyFill | null {
-  const ids = (result.effects ?? []).filter((e) => e.startsWith("fill:")).map((e) => e.slice(5));
-  return fills.find((f) => ids.includes(f.fillId)) ?? null;
-}
-/** The open order an intent created ("order:{id}"), for the queued-for-reopen label and the resting ack. */
-export function orderIdOf(result: IntentResult): string | null {
-  const e = (result.effects ?? []).find((x) => x.startsWith("order:"));
-  return e ? e.slice(6) : null;
 }
 
 export interface AckPanelProps {

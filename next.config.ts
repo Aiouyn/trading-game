@@ -34,6 +34,9 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_BUILD_SHA: buildSha(),
     QUAY_DS: process.env.QUAY_DS === "1" ? "1" : "0",
     NEXT_PUBLIC_CITY_E2E: process.env.NEXT_PUBLIC_CITY_E2E === "1" ? "1" : "0",
+    // Official e2e only (playwright.config webServer). Inlined as "1" or "0" so a no-flag production
+    // build folds the consent-prompt skip out; setting the var at `next start` cannot turn consent off.
+    NEXT_PUBLIC_QUAY_E2E: process.env.NEXT_PUBLIC_QUAY_E2E === "1" ? "1" : "0",
     // Mock URL overrides (?alerts=, ?world=): on in `next dev`, and in a production build only with QUAY_HOOKS=1 (e2e).
     QUAY_HOOKS: process.env.NODE_ENV !== "production" || process.env.QUAY_HOOKS === "1" ? "1" : "0",
     NEXT_PUBLIC_QUAY_MOCK_PHASE: process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1" ? "1" : "0",

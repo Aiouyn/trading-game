@@ -17,14 +17,24 @@ import { authoritativeFear, authoritativeQuoteProvenance, getFeed, knownOffline,
 import { viewportOf } from "@/shell/wm";
 import { GoalSlot } from "@/apps/portfolio/GoalSlot";
 import { PriceChart } from "@/components/market/PriceChart";
+import { asDefault, retryableLazy } from "@/components/shell/retryableLazy";
 import { AssetHeader } from "./AssetHeader";
-import { AssetPage, ViewSwitch, type BrokerView } from "./AssetPage";
 import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
-import { SimpleTicket } from "./SimpleTicket";
-import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
-import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
+import { PreviewRows, SimpleTicket } from "./SimpleTicket";
+import { fillOf, orderIdOf } from "./ticketResult";
+import { BR_STACK_SCALE, reasonCopy } from "./strings-en";
+import { useBrStrings } from "./useBrStrings";
+import { ViewSwitch, type BrokerView } from "./ViewSwitch";
 import "./broker.css";
+
+const RetryableAssetPage = retryableLazy(() => import("./AssetPage"));
+const RetryableReview = retryableLazy(async () => asDefault((await import("./TicketReview")).ReviewBlock));
+const RetryableAck = retryableLazy(async () => asDefault((await import("./TicketReview")).AckPanel));
+
+const panelFallback = (testId: string) => (
+  <div className="br-skel br-skel-ticket" data-testid={testId} aria-busy="true" role="status" />
+);
 
 /** 19 Rule 3.8.5: never more than 5 preview requests per tick. */
 export const MAX_PREVIEWS_PER_TICK = 5;
@@ -58,7 +68,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const locale = useShell((s) => s.prefs.locale);
   const stacked = useShell((s) => s.prefs.textScale >= BR_STACK_SCALE);
-  const t = brStrings(locale);
+  const t = useBrStrings(locale);
   const ticker = useChannel("ticker:wl_default");
   const me = useChannel("me");
 
@@ -235,7 +245,9 @@ export function BrokerFrame({ context }: { context?: string }) {
         <div className="br-grid">
           {header(false)}
           <div className="br-col br-col-ticket">
-            <AssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade} />
+            <RetryableAssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade}
+              fallback={panelFallback("br-about-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+              errorTestId="br-about-error" retryTestId="br-about-retry" />
           </div>
         </div>
       </div>
@@ -248,13 +260,18 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const reviewing = phase.kind === "review" || (placed !== null && result === null);
   const review = reviewing && (
-    <ReviewBlock t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace}
-      pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} offline={offline} onEdit={toEdit} onPlace={place} />
+    <RetryableReview t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace}
+      pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} offline={offline} onEdit={toEdit} onPlace={place}
+      previewRows={preview ? <PreviewRows t={t} locale={locale} res={preview} stale={reviewStale && phase.kind === "review"} /> : null}
+      fallback={panelFallback("br-review-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+      errorTestId="br-review-error" retryTestId="br-review-retry" />
   );
   const ack = result && (
-    <AckPanel t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
+    <RetryableAck t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
       queued={(() => { const id = orderIdOf(result); return id !== null && body.orders[id]?.status === "QUEUED_AUCTION"; })()}
-      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject} />
+      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject}
+      fallback={panelFallback("br-ack-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+      errorTestId="br-ack-error" retryTestId="br-ack-retry" />
   );
   const ticket = (
     <SimpleTicket t={t} locale={locale} side={draft.side} qtyText={draft.qtyText} qtyRef={qtyRef}

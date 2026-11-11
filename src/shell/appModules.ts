@@ -1,7 +1,7 @@
 // The one list of apps with a real body (QA #71 follow-up). An app is built exactly when it has an entry here: the
 // registry derives `built` from these keys and AppBody renders from the same record, so "built, but no body" cannot be
-// written down. A lazy entry names its module, so an id without a real app module fails to compile; an eager entry
-// must be matched by a component in AppBody's EAGER_BODIES (typed exhaustive), so it cannot be a bare id either.
+// written down. A lazy entry names its module, so an id without a real app module fails to compile. All built apps
+// in this tree are lazy (Settings included): none of their bodies sit on the /broker first-load graph.
 // No React at runtime: the import thunks run only when AppBody first opens the app.
 import type { ComponentType } from "react";
 import type { AppId } from "./registry";
@@ -14,7 +14,7 @@ interface LazyBody { kind: "lazy"; load: () => Promise<{ default: ComponentType<
 interface EagerBody { kind: "eager" }
 
 export const APP_MODULES = {
-  settings: { kind: "eager" },
+  settings: { kind: "lazy", load: () => import("@/apps/settings/SettingsApp") },
   broker: { kind: "lazy", load: () => import("@/apps/broker/App") }, // UI card 4 (BRK-A)
   portfolio: { kind: "lazy", load: () => import("@/apps/portfolio/App") },
   wire: { kind: "lazy", load: () => import("@/apps/wire/App") },

@@ -17,7 +17,7 @@ import { ASSETS } from "@/shell/contracts/fixtures/assets";
 import { NEWS, NEWS_EVERY } from "@/shell/contracts/fixtures/news";
 import { MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { intentLog } from "@/shell/intentLog";
-import { click, key, mount, q, setup, teardown, text, tick, typeInto, wait, type Harness } from "./br-harness";
+import { click, key, mount, q, setup, teardown, text, tick, typeInto, wait, waitForTestId, type Harness } from "./br-harness";
 
 const EN = BR_STRINGS.en;
 let h: Harness;
@@ -28,7 +28,10 @@ const tickerBody = (feed: MockFeed) => feed.body("ticker:wl_default") as TickerB
 const meBody = (feed: MockFeed) => feed.body("me") as MeTradingBody;
 const all = (sel: string) => [...h.el.querySelectorAll<HTMLElement>(sel)];
 const viewBtn = (v: "trade" | "about") => q(h, `br-view-${v}`)!;
-const toAbout = () => click(viewBtn("about"));
+const toAbout = async () => {
+  await click(viewBtn("about"));
+  await waitForTestId(h, "br-about-panel");
+};
 const toNews = async () => { await click(q(h, "br-about-tabs-news")!); await wait(SNAP_DELAY_MS); };
 const rows = () => Object.fromEntries(all('[data-testid="ap-row"]').map((r) => [r.dataset.key!, r.querySelector("dd")!.textContent]));
 
