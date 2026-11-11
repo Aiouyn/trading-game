@@ -6,6 +6,7 @@ import type { AppId } from "@/shell/registry";
 import { AppSkeleton } from "./AppSkeleton";
 import { ComingLater } from "./ComingLater";
 import { LockTile } from "./LockTile";
+import { retryableModule } from "./RetryableModule";
 import { useShell } from "./ShellContext";
 
 /** focused window; collapsed; background = other workspace or covered in compact; hidden = not displayed at all. */
@@ -17,12 +18,16 @@ const LAZY_BODIES = {} as Record<BuiltAppId, LazyExoticComponent<ComponentType<A
 for (const id of Object.keys(APP_MODULES) as BuiltAppId[]) LAZY_BODIES[id] = lazy(APP_MODULES[id].load);
 /** App-specific chunk-loading skeletons, when an app's first paint has its own shape. Everything else: AppSkeleton. */
 const APP_SKELETONS: Partial<Record<BuiltAppId, ReactElement>> = { wire: <WireLoading /> };
+const SettingsModule = retryableModule<AppBodyProps>(APP_MODULES.settings.load);
 
 /** `context` is the window's (or phone app's) context: Broker reads it as the assetId (UI card 4). */
 export function AppBody({ app, context }: { app: AppId; state: BodyState; context?: string }) {
   const vis = useShell((s) => s.vis[app]);
+  const locale = useShell((s) => s.prefs.locale);
   if (vis !== "unlocked") return <LockTile app={app} />;
   if (!isBuiltApp(app)) return <ComingLater app={app} />; // built:false: no chunk, no fallback
+  if (app === "settings") return <SettingsModule name="settings" locale={locale}
+    componentProps={{ context }} fallback={<AppSkeleton app={app} />} />;
   const Body = LAZY_BODIES[app];
   // Studio Q3: while a built app's chunk loads, the window shows a skeleton, never "Coming later" (that is only for
   // built:false apps). The generic AppSkeleton is the default; Wire keeps its own, which is its first paint.

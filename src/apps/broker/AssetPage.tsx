@@ -2,14 +2,15 @@
 // UI card 10 (BRK-D): the Broker window's About view (Overview | News) and the Trade | About switch. A view inside the
 // Broker, not a window: Trade and About share the frame's asset and draft, so Trade is just switching back.
 // Both switches are one tab list (Studio #38 look: the .br-seg segment): arrows move focus, Enter / Space select.
-import { lazy, Suspense, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useShellStore } from "@/components/shell/ShellContext";
+import { retryableModule } from "@/components/shell/RetryableModule";
 import type { Position, TickerRow } from "@/shell/contracts/channels";
 import { AssetOverview } from "./AssetOverview";
 import type { BrStrings } from "./strings";
 import "./assetPage.css";
 
-const AssetNews = lazy(() => import("./AssetNews").then((m) => ({ default: m.AssetNews })));
+const AssetNews = retryableModule<Parameters<typeof import("./AssetNews").AssetNews>[0]>(() => import("./AssetNews").then((m) => ({ default: m.AssetNews })));
 
 export type BrokerView = "trade" | "about";
 type AboutTab = "overview" | "news";
@@ -91,9 +92,8 @@ export function AssetPage({ t, locale, id, assetId, row, position, phone, onTrad
       <div className="ap-panel" role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)} data-testid="br-about-panel" data-tab={tab}>
         {tab === "overview"
           ? <AssetOverview t={t} locale={locale} assetId={assetId} row={row} position={position} />
-          : <Suspense fallback={<div className="ap-skel" data-testid="ap-news-loading" aria-busy="true" aria-label={t.newsLoading} />}>
-              <AssetNews t={t} assetId={assetId} />
-            </Suspense>}
+          : <AssetNews name="news" locale={locale} componentProps={{ t, assetId }}
+              fallback={<div className="ap-skel" data-testid="ap-news-loading" aria-busy="true" aria-label={t.newsLoading} />} />}
       </div>
     </section>
   );
