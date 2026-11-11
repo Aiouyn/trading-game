@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 const shots = process.env.ACCOUNT_FIRST_STEP_SHOTS_DIR;
@@ -7,6 +8,9 @@ async function shot(page: Page, name: string) {
   mkdirSync(shots, { recursive: true });
   await page.screenshot({ path: `${shots}/${name}.png` });
 }
+/** The phone Trade sheet ships with Card 6. Which ticket a phone Broker uses is a property of the build under test, so the
+ *  path is decided here, not by sampling the DOM (which could race the Broker render). */
+const BUILD_HAS_PHONE_SHEET = existsSync(join(__dirname, "../../../src/apps/broker/PhoneTradeSheet.tsx"));
 const account = (page: Page) => page.getByTestId("settings-account");
 async function expectContinuationFocus(page: Page) {
   const btn = page.getByTestId("account-open-portfolio");
@@ -81,11 +85,20 @@ test("UI registration gives a clear goal and continuation; navigation places not
   const broker = page.getByTestId("broker").first();
   await expect(broker).toHaveAttribute("data-state", "live");
   await broker.getByTestId("br-asset-select").selectOption("HALC");
-  // Layout-agnostic: with the phone Trade sheet (Card 6) the ticket is in a modal opened by Trade and closed after the
-  // fill; otherwise it is inline in the Broker. The same assertions run on whichever holds the ticket.
+  // Deterministic path (Broker ready above): phone on a build with the Card 6 sheet => the ticket lives in the Trade sheet;
+  // otherwise it is inline in the Broker. Each path asserts it really is the one running.
+  const sheet = phone && BUILD_HAS_PHONE_SHEET;
+  test.info().annotations.push({ type: "ticket-path", description: sheet ? "phone-sheet" : "inline" });
   const tradeButton = broker.getByTestId("br-trade");
-  const sheet = (await tradeButton.count()) > 0;
-  if (sheet) await tradeButton.click();
+  if (sheet) {
+    await expect(tradeButton).toBeVisible();
+    await expect(broker.getByTestId("br-qty")).toHaveCount(0);
+    await tradeButton.click();
+    await expect(page.getByTestId("br-sheet")).toBeVisible();
+  } else {
+    await expect(tradeButton).toHaveCount(0);
+    await expect(broker.getByTestId("br-qty")).toBeVisible();
+  }
   const ticket = sheet ? page.getByTestId("br-sheet") : broker;
   await ticket.getByTestId("br-qty").fill("1");
   await expect(ticket.getByTestId("br-review")).toBeEnabled();
