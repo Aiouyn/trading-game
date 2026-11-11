@@ -79,7 +79,7 @@ export const FR: BrStrings = {
   openOrders: "Ordres en cours",
   noOpenOrders: "Aucun ordre en cours.",
   filledOf: (filled, qty) => `${filled} / ${qty} exécutés`,
-  s: { PENDING: "En attente", WORKING: "Actif", PARTIAL: "Partiellement exécuté" },
+  s: { PENDING: "En attente", WORKING: "Actif", PARTIAL: "Partiellement exécuté", EXPIRED: "Expiré" },
   rowMeta: (n) => `Jour · tick ${n}`,
   rowAria: (side, qty, ticker, terms, status) => `${side} ${qty} ${ticker}, ${terms}, ${status}`,
   loadingOrders: "Chargement des ordres en cours",

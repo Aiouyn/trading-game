@@ -108,7 +108,7 @@ export const EN = {
   openOrders: "Open orders",
   noOpenOrders: "No open orders.",
   filledOf: (filled: string, qty: string) => `${filled} / ${qty} filled`,
-  s: { PENDING: "Pending", WORKING: "Working", PARTIAL: "Partly filled" },
+  s: { PENDING: "Pending", WORKING: "Working", PARTIAL: "Partly filled", EXPIRED: "Expired" },
   rowMeta: (n: string) => `Day · tick ${n}`,
   rowAria: (side: string, qty: string, ticker: string, terms: string, status: string) => `${side} ${qty} ${ticker}, ${terms}, ${status}`,
   /** [provisional] aria-label of the list skeleton (aria-busy). */

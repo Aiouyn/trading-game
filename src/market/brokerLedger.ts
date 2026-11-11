@@ -1,7 +1,8 @@
 // M1-06 Broker ledger wire shape, shared by the server door (src/server/broker) and the signed-in feed.
 // The server owns every number here; the client parses it at the boundary and never trusts a malformed reply.
-import type { CoinRow, IntentResult, MyFill, OpenOrder, OrderDraft } from "@/shell/contracts/channels";
+import type { CoinRow, IntentResult, MyFill, OpenOrder, OrderDraft, OrderHistoryRow } from "@/shell/contracts/channels";
 import { arr, coinRow, int, intentResult, myFill, obj, openOrder, ParseError, rec, str, dec } from "@/shell/contracts/schema";
+import { orderHistoryRow } from "@/shell/contracts/orderHistory";
 
 /** The caller's own saved Broker state at one server tick. */
 export interface BrokerLedgerView {
@@ -13,6 +14,8 @@ export interface BrokerLedgerView {
   readonly orders: Readonly<Record<string, OpenOrder>>;
   readonly fills: readonly MyFill[];
   readonly intents: readonly IntentResult[];
+  /** Closed orders (EXPIRED at day close), oldest first, last 50. Omitted or empty if none; the server always sends the array. */
+  readonly history?: readonly OrderHistoryRow[];
   /** Own Launchpad coins, read with this ledger in one locked step; their value counts in net worth once. */
   readonly coins: readonly CoinRow[];
 }
@@ -37,7 +40,7 @@ const ledgerSchema = obj({
   fills: arr(myFill),
   intents: arr(intentResult),
   coins: arr(coinRow),
-});
+}, { history: arr(orderHistoryRow) });
 const replySchema = obj({ intentId: str, result: intentResult, ledger: ledgerSchema });
 
 /** Strict parse; null for anything that is not exactly this shape with non-negative cash. */
@@ -45,7 +48,7 @@ export function parseBrokerLedger(raw: unknown): BrokerLedgerView | null {
   try {
     const v = ledgerSchema(raw, "ledger");
     if (v.cashCents < 0 || v.reservedCashCents < 0 || v.reservedCashCents > v.cashCents || v.tick < 0) return null;
-    return v;
+    return { ...v, history: v.history ?? [] };
   } catch (e) {
     if (e instanceof ParseError) return null;
     throw e;

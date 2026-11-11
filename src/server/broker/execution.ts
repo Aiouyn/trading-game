@@ -8,11 +8,12 @@ import { isListed } from "@/market/listings";
 import { centsOf } from "@/market/valuation";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
 import { AuthError, type PersistedIntent, type PersistedOpenOrder, type PersistedPosition, type PlayerPrivateRecord } from "@/server/auth/types";
-import { MAX_FILLS, MAX_IDEMPOTENCY, MAX_INTENTS, type PlayerPrivateInput } from "@/server/player/privateState";
+import { MAX_FILLS, MAX_IDEMPOTENCY, MAX_INTENTS, MAX_ORDER_HISTORY, type PlayerPrivateInput } from "@/server/player/privateState";
 import { feeOf, fillOnBook, type BookAccount, type DepthInputs } from "./book";
-import type { IntentResult, MyFill, OrderDraft } from "@/shell/contracts/channels";
+import type { IntentResult, MyFill, OrderDraft, OrderHistoryRow } from "@/shell/contracts/channels";
 import { FEE_BP, fmt, nextLot, type Lot } from "@/shell/contracts/mockFeed";
 import { ORDER_POLICY } from "@/shell/contracts/orderPolicy";
+import { dayCloseTick, dayOfTick } from "@/server/market/rumorFarm";
 
 /** Same bound as the ledger schema (privateState MAX_OPEN_ORDERS). */
 export const MAX_WORKING_ORDERS = 128;
@@ -74,7 +75,7 @@ function limitMinor(o: PersistedOpenOrder): number {
 export function reservedCashCents(rec: PlayerPrivateRecord | PlayerPrivateInput): number {
   let held = 0;
   for (const o of Object.values(rec.openOrders)) {
-    if (o.side !== "BUY" || o.limit === undefined) continue; // the server never fills an unpriced (stop) order
+    if (!isActiveOrder(o) || o.side !== "BUY" || o.limit === undefined) continue; // the server never fills an unpriced (stop) order
     held += holdCents(ASSET_BY_ID[o.assetId]!, remainingOf(o), limitMinor(o));
   }
   return held;
@@ -83,8 +84,61 @@ const holdCents = (a: AssetFixture, qty: number, limit: number) => { const n = n
 /** Units a working sell limit holds back from further sells. */
 export function reservedQty(rec: PlayerPrivateRecord | PlayerPrivateInput, assetId: string): number {
   let held = 0;
-  for (const o of Object.values(rec.openOrders)) if (o.side === "SELL" && o.assetId === assetId) held += remainingOf(o);
+  for (const o of Object.values(rec.openOrders)) if (isActiveOrder(o) && o.side === "SELL" && o.assetId === assetId) held += remainingOf(o);
   return held;
+}
+
+/** Still on the book for cash/unit holds and the working-order cap (EXPIRED has already released its hold). */
+export function isActiveOrder(o: PersistedOpenOrder): boolean {
+  return o.status === "WORKING" || o.status === "PARTIAL" || o.status === "QUEUED_AUCTION" || o.status === "PENDING";
+}
+const workingCount = (rec: PlayerPrivateRecord | PlayerPrivateInput) => Object.values(rec.openOrders).filter(isActiveOrder).length;
+
+/** Close tick of the game day the order was placed; DAY remainder expires at or after this tick. */
+export function dayExpiryTick(placedTick: number): number {
+  return dayCloseTick(dayOfTick(placedTick));
+}
+
+function historyOf(rec: PlayerPrivateRecord | PlayerPrivateInput): readonly OrderHistoryRow[] {
+  return rec.orderHistory ?? [];
+}
+
+function pruneExpired(openOrders: Readonly<Record<string, PersistedOpenOrder>>): Record<string, PersistedOpenOrder> {
+  const entries = Object.values(openOrders);
+  const overflow = entries.length - MAX_WORKING_ORDERS;
+  if (overflow <= 0) return { ...openOrders };
+  const drop = new Set(
+    entries.filter((o) => o.status === "EXPIRED").sort(byAge).slice(0, overflow).map((o) => o.orderId),
+  );
+  if (drop.size === 0) return { ...openOrders };
+  const next: Record<string, PersistedOpenOrder> = {};
+  for (const [id, o] of Object.entries(openOrders)) if (!drop.has(id)) next[id] = o;
+  return next;
+}
+
+/** Record EXPIRED on the order and in history; release happens because reservations ignore EXPIRED. Idempotent per orderId. */
+export function expireDayOrder(ledger: PlayerPrivateInput, o: PersistedOpenOrder, tick: number): PlayerPrivateInput {
+  if (o.tif !== "day" || !isActiveOrder(o)) return ledger;
+  const eventTick = Math.min(tick, dayExpiryTick(o.placedTick));
+  const prior = historyOf(ledger);
+  const orderHistory = prior.some((h) => h.orderId === o.orderId && h.status === "EXPIRED")
+    ? [...prior]
+    : [...prior, {
+      orderId: o.orderId, assetId: o.assetId, side: o.side, type: o.type,
+      qty: o.qty, filled: o.filled, avgPrice: o.avgPrice, status: "EXPIRED" as const, tick: eventTick,
+    }].slice(-MAX_ORDER_HISTORY);
+  const openOrders = pruneExpired({ ...ledger.openOrders, [o.orderId]: { ...o, status: "EXPIRED" } });
+  return { ...ledger, openOrders, orderHistory };
+}
+
+/** Expire every due DAY remainder on this ledger. `listed` selects Launchpad coins (sweepListed) vs the catalog (sweepLedger). Same reference when nothing is due. */
+export function expireDueDayOrders(ledger: PlayerPrivateInput, tick: number, listed: boolean): PlayerPrivateInput {
+  let next = ledger;
+  for (const o of Object.values(ledger.openOrders)) {
+    if (o.tif !== "day" || !isActiveOrder(o) || isListed(o.assetId) !== listed || tick < dayExpiryTick(o.placedTick)) continue;
+    next = expireDayOrder(next, next.openOrders[o.orderId] ?? o, tick);
+  }
+  return next;
 }
 
 /** Canonical request text an idempotency key is bound to. */
@@ -128,6 +182,7 @@ function withIntent(base: PlayerPrivateInput, rec: PlayerPrivateRecord, intent: 
 const asInput = (rec: PlayerPrivateRecord): PlayerPrivateInput => ({
   cashCents: rec.cashCents, positions: rec.positions, openOrders: rec.openOrders, fills: rec.fills ?? [],
   intents: rec.intents ?? [], idempotency: idempotencyOf(rec),
+  ...(rec.orderHistory?.length ? { orderHistory: rec.orderHistory } : {}),
 });
 
 /** A fill's notional in cents: price × qty in the asset's minor unit, converted (identity for the dp-2 catalog; a buy of a
@@ -202,7 +257,7 @@ export function decidePlace(rec: PlayerPrivateRecord, key: string, draft: OrderD
     const { next, fill } = bookFill(ledger, a, orderId, draft.side, qty, last, "TAKER", quote.tick, ids);
     return accept(next, [`fill:${fill.fillId}`]);
   }
-  if (Object.keys(rec.openOrders).length >= MAX_WORKING_ORDERS) return reject("MKT_TOO_MANY_ORDERS");
+  if (workingCount(rec) >= MAX_WORKING_ORDERS) return reject("MKT_TOO_MANY_ORDERS");
   if (draft.side === "BUY") {
     const n = limit! * qty;
     if (n + feeOf(n) > spendable) return reject("MKT_INSUFFICIENT_BP");
@@ -247,7 +302,7 @@ function placeListed(
   const fill = fillOnBook(a, draft.side, want, last, book, quote.tick, limit, quote.depthInputs?.(a.assetId) ?? undefined);
   const rest = want - (fill?.qty ?? 0);
   if (!fill && limit === null) return reject("MKT_NO_LIQUIDITY");
-  if (rest > 0 && limit !== null && Object.keys(rec.openOrders).length >= MAX_WORKING_ORDERS) return reject("MKT_TOO_MANY_ORDERS");
+  if (rest > 0 && limit !== null && workingCount(rec) >= MAX_WORKING_ORDERS) return reject("MKT_TOO_MANY_ORDERS");
   if (fill && draft.side === "BUY" && fill.notional + fill.fee + (rest > 0 && limit !== null ? holdCents(a, rest, limit) : 0) > spendable) return reject("MKT_INSUFFICIENT_BP");
   if (fill && draft.side === "SELL" && rec.cashCents + fill.notional - fill.fee < 0) return reject("MKT_INSUFFICIENT_BP");
   const orderId = ids.next("o");
@@ -276,7 +331,8 @@ export function decideCancel(rec: PlayerPrivateRecord, key: string, orderId: str
   const prior = replayOf(rec, key, fingerprint);
   if (prior) return { next: asInput(rec), result: prior, replayed: true };
   const intentId = ids.next("i");
-  const o = Object.hasOwn(rec.openOrders, orderId) ? rec.openOrders[orderId] : undefined;
+  const found = Object.hasOwn(rec.openOrders, orderId) ? rec.openOrders[orderId] : undefined;
+  const o = found && isActiveOrder(found) ? found : undefined;
   let result: IntentResult;
   let next = asInput(rec);
   if (!o) {
@@ -298,11 +354,12 @@ export function decideCancel(rec: PlayerPrivateRecord, key: string, orderId: str
  */
 export function sweepLedger(rec: PlayerPrivateRecord, quote: ServerQuote, ids: IdSource): PlayerPrivateInput | null {
   const due = Object.values(rec.openOrders)
-    .filter((o) => o.type === "limit" && (o.status === "WORKING" || o.status === "PARTIAL") && !isListed(o.assetId)) // listed: sweepListed
+    .filter((o) => o.type === "limit" && isActiveOrder(o) && !isListed(o.assetId)) // listed: sweepListed
     .sort((x, y) => x.placedTick - y.placedTick || (x.orderId < y.orderId ? -1 : x.orderId > y.orderId ? 1 : 0));
   let ledger = asInput(rec);
   let changed = false;
   for (const o of due) {
+    if (quote.tick > dayExpiryTick(o.placedTick)) continue; // a jump past the close does not fill at a later mark
     const a = ASSET_BY_ID[o.assetId];
     const last = a ? quote.last(a.assetId) : null;
     if (!a || last === null || !quote.tradable(a.assetId)) continue;
@@ -318,6 +375,8 @@ export function sweepLedger(rec: PlayerPrivateRecord, quote: ServerQuote, ids: I
     ledger = bookFill(without, a, o.orderId, o.side, qty, px, "MAKER", quote.tick, ids).next;
     changed = true;
   }
+  const expired = expireDueDayOrders(ledger, quote.tick, false);
+  if (expired !== ledger) { ledger = expired; changed = true; }
   return changed ? ledger : null;
 }
 
@@ -336,13 +395,19 @@ export function sweepListed<K extends string>(ledgers: ReadonlyMap<K, PlayerPriv
   const out: ListedSweep<K> = { ledgers: new Map(), books: new Map(), moves: [] };
   const due: { owner: K; o: PersistedOpenOrder }[] = [];
   for (const [owner, rec] of ledgers) {
-    for (const o of Object.values(rec.openOrders)) if (o.type === "limit" && isListed(o.assetId) && books.has(o.assetId)) due.push({ owner, o });
+    for (const o of Object.values(rec.openOrders)) if (o.type === "limit" && isActiveOrder(o) && isListed(o.assetId) && books.has(o.assetId)) due.push({ owner, o });
   }
   due.sort((x, y) => byAge(x.o, y.o) || (x.owner < y.owner ? -1 : 1));
   for (const { owner, o } of due) {
+    if (quote.tick > dayExpiryTick(o.placedTick)) continue;
     try { sweepOne(owner, o); } catch (err) {
       if (!(err instanceof AuthError)) throw err; // an untradable ledger (integrity) is left as it is, as in sweepLedger
     }
+  }
+  for (const [owner, rec] of ledgers) {
+    const cur = out.ledgers.get(owner) ?? asInput(rec);
+    const next = expireDueDayOrders(cur, quote.tick, true);
+    if (next !== cur) out.ledgers.set(owner, next);
   }
   return out;
 
@@ -381,6 +446,7 @@ export function ledgerView(rec: PlayerPrivateRecord, tick: number, coins: Broker
     orders: rec.openOrders,
     fills: rec.fills ?? [],
     intents: (rec.intents ?? []).map((x) => x.result),
+    history: rec.orderHistory ?? [],
     coins,
   };
 }

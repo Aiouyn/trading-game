@@ -26,6 +26,11 @@ export function statusText(t: BrStrings, status: string): string {
   return status in t.s ? t.s[status as keyof BrStrings["s"]] : status;
 }
 
+/** Still cancelable / counted as open. EXPIRED stays in the list so the close is visible, without a Cancel control. */
+export function isOpenOrder(o: OpenOrder): boolean {
+  return o.status !== "EXPIRED";
+}
+
 export interface OpenOrdersProps {
   t: BrStrings;
   locale: string;
@@ -58,6 +63,7 @@ type FocusReq = { kind: "cancel" | "keep" | "row"; id: string } | { kind: "after
 export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   const body = me.body;
   const orders = body ? Object.values(body.orders).sort(byRecent) : [];
+  const openCount = orders.filter(isOpenOrder).length;
   const intents = body?.intents ?? [];
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [sent, setSent] = useState<Readonly<Record<string, Sent>>>({});
@@ -157,7 +163,7 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
       onKeyDownCapture={clearLine} onClickCapture={clearLine}>
       <h3 ref={titleRef} id={titleId} className="br-oo-title" data-testid="br-oo-title" tabIndex={-1}>
         {t.openOrders}
-        {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{String(orders.length)}</span>}
+        {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{String(openCount)}</span>}
       </h3>
       {me.state === "loading" && (
         <div className="br-oo-skel" data-testid="br-oo-loading" aria-label={t.loadingOrders}>
@@ -208,12 +214,13 @@ interface RowProps {
 function Row({ t, locale, o, fresh, phase, note, onCancel, onKeep, onYes }: RowProps) {
   const w = rowWords(t, locale, o);
   const status = statusText(t, o.status);
+  const closed = !isOpenOrder(o);
   return (
     <li className={`br-oo-row${fresh ? " fresh" : ""}`} data-testid={`br-oo-row-${o.orderId}`} data-fresh={fresh ? "1" : undefined} data-status={o.status}
-      data-cancel={phase.kind} aria-busy={phase.kind === "cancelling" || undefined}
+      data-cancel={closed ? undefined : phase.kind} aria-busy={!closed && (phase.kind === "cancelling") || undefined}
       tabIndex={0} aria-label={t.rowAria(w.side, w.amount, o.assetId, w.terms, status)}>
       <Cells t={t} o={o} w={w} status={status} />
-      <CancelControl t={t} phase={phase} label={t.cancelAria(w.sideName, w.amount, o.assetId, w.terms)} onCancel={onCancel} onKeep={onKeep} onYes={onYes} />
+      {!closed && <CancelControl t={t} phase={phase} label={t.cancelAria(w.sideName, w.amount, o.assetId, w.terms)} onCancel={onCancel} onKeep={onKeep} onYes={onYes} />}
       {note !== null && <CancelNote text={note} />}
     </li>
   );

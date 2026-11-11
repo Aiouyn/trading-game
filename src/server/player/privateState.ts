@@ -13,8 +13,9 @@ import {
   type PersistedPosition,
   type PlayerPrivateRecord,
 } from "@/server/auth/types";
-import type { MyFill } from "@/shell/contracts/channels";
+import type { MyFill, OrderHistoryRow } from "@/shell/contracts/channels";
 import { dec, intentResult as intentResultSchema, myFill as myFillSchema, obj, openOrder as openOrderSchema, str, ParseError } from "@/shell/contracts/schema";
+import { orderHistoryRow as orderHistoryRowSchema } from "@/shell/contracts/orderHistory";
 
 const ASSET_ID_RE = /^[A-Z][A-Z0-9]{0,11}$/;
 const ORDER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -27,6 +28,8 @@ export const MAX_FILLS = 50;
 export const MAX_INTENTS = 50;
 /** Durable idempotency journal: every decided key, not the last-50 receipt ring. Fail closed if full. */
 export const MAX_IDEMPOTENCY = 10_000;
+/** Closed-order history ring on `me` (Q4 keepLast 50). */
+export const MAX_ORDER_HISTORY = 50;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_FINGERPRINT = 512;
 const ORDER_TYPES = new Set(["market", "limit", "stop", "stop_limit"]);
@@ -41,6 +44,7 @@ export type PlayerPrivateInput = {
   readonly fills?: readonly MyFill[];
   readonly intents?: readonly PersistedIntent[];
   readonly idempotency?: readonly PersistedIntent[];
+  readonly orderHistory?: readonly OrderHistoryRow[];
 };
 
 export function isIdempotencyKey(v: unknown): v is string {
@@ -157,6 +161,18 @@ function buildIntent(i: number, raw: unknown): PersistedIntent {
   return { key: o.key as string, fingerprint: o.fingerprint as string, result };
 }
 
+function buildHistory(i: number, raw: unknown): OrderHistoryRow {
+  const h = parseWith(orderHistoryRowSchema, raw, `orderHistory/${i}`);
+  const at = `orderHistory/${i}`;
+  if (!ORDER_ID_RE.test(h.orderId)) bad(`${at}: invalid orderId.`);
+  if (!ASSET_ID_RE.test(h.assetId)) bad(`${at}: invalid assetId.`);
+  udec(h.qty, `${at}/qty`, { positive: true });
+  udec(h.filled, `${at}/filled`);
+  udec(h.avgPrice, `${at}/avgPrice`);
+  if (h.tick < 0) bad(`${at}: tick must be >= 0.`);
+  return { ...h };
+}
+
 function ring<T>(raw: unknown, field: string, max: number, build: (i: number, v: unknown) => T): T[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) bad(`${field} must be an array.`);
@@ -199,11 +215,13 @@ export function buildPlayerPrivate(accountId: AccountId, input: PlayerPrivateInp
   if (new Set(intents.map((x) => x.key)).size !== intents.length) bad("Duplicate idempotency key in intents.");
   const idempotency = mergeIdempotency(ring(input.idempotency ?? intents, "idempotency", MAX_IDEMPOTENCY, buildIntent), intents);
   if (new Set(idempotency.map((x) => x.key)).size !== idempotency.length) bad("Duplicate idempotency key.");
+  const orderHistory = ring(input.orderHistory, "orderHistory", MAX_ORDER_HISTORY, buildHistory);
   return {
     v: PLAYER_PRIVATE_SCHEMA_VERSION, accountId, cashCents: input.cashCents, positions: { ...positions }, openOrders: { ...openOrders },
     ...(fills.length ? { fills } : {}),
     ...(intents.length ? { intents } : {}),
     ...(idempotency.length ? { idempotency } : {}),
+    ...(orderHistory.length ? { orderHistory } : {}),
   };
 }
 
@@ -218,6 +236,7 @@ export function clonePlayerPrivate(p: PlayerPrivateRecord): PlayerPrivateRecord 
     ...(p.fills?.length ? { fills: p.fills.map((f) => ({ ...f })) } : {}),
     ...(p.intents?.length ? { intents: p.intents.map((x) => ({ key: x.key, fingerprint: x.fingerprint, result: structuredClone(x.result) })) } : {}),
     ...(p.idempotency?.length ? { idempotency: p.idempotency.map((x) => ({ key: x.key, fingerprint: x.fingerprint, result: structuredClone(x.result) })) } : {}),
+    ...(p.orderHistory?.length ? { orderHistory: p.orderHistory.map((h) => ({ ...h })) } : {}),
   };
 }
 
@@ -248,6 +267,7 @@ export function parsePlayerPrivateRow(raw: unknown): ParsedPlayerRow {
           fills: o.fills as MyFill[] | undefined,
           intents: o.intents as PersistedIntent[] | undefined,
           idempotency: o.idempotency as PersistedIntent[] | undefined,
+          orderHistory: o.orderHistory as PlayerPrivateRecord["orderHistory"],
         }),
       };
     }

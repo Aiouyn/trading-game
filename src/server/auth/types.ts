@@ -3,7 +3,7 @@
  * Compatible with a later Better Auth migration (T19C-02); no stub identity.
  */
 
-import type { IntentResult, MyFill, OpenOrder, Position } from "@/shell/contracts/channels";
+import type { IntentResult, MyFill, OpenOrder, OrderHistoryRow, Position } from "@/shell/contracts/channels";
 import { PORT_AVALON_WORLD_ID, type WorldId } from "@/shell/worldIdentity";
 
 export type AccountId = string & { readonly __brand: "AccountId" };
@@ -73,6 +73,8 @@ export interface PlayerPrivateRecord {
   readonly intents?: readonly PersistedIntent[];
   /** M1-06 durable idempotency journal (every decided key). Not the `me` ring. Absent until the first intent. */
   readonly idempotency?: readonly PersistedIntent[];
+  /** Closed orders (EXPIRED at day close), oldest first, last 50. Absent until the first close. */
+  readonly orderHistory?: readonly OrderHistoryRow[];
 }
 
 export interface PublicAccount {

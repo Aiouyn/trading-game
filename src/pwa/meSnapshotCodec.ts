@@ -69,7 +69,7 @@ export function toMeSnapshot(acct: string, v: BrokerLedgerView, savedAt: number)
   const snap: MeSnapshot = {
     v: 1, acct, savedAt, tick: v.tick, cash: v.cashCents, held: v.reservedCashCents,
     positions: Object.values(v.positions).map((p) => ({ asset: p.assetId, qty: p.qty, avgCost: p.avgCost })),
-    orders: Object.values(v.orders).map((o) => ({
+    orders: Object.values(v.orders).filter((o) => o.status !== "EXPIRED").map((o) => ({
       asset: o.assetId, side: o.side, type: o.type, qty: o.qty, filled: o.filled,
       ...(o.limit !== undefined ? { limit: o.limit } : {}), ...(o.stop !== undefined ? { stop: o.stop } : {}), status: o.status,
     })),

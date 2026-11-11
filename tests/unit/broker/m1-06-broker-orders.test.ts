@@ -14,9 +14,10 @@ import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { AuthError, AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, START_CASH_CENTS } from "@/server/auth";
 import type { AccountId } from "@/server/auth/types";
 import { BrokerService, setBrokerForTests } from "@/server/broker";
-import { decidePlace, type IdSource, type ServerQuote } from "@/server/broker/execution";
-import { MAX_IDEMPOTENCY, buildPlayerPrivate } from "@/server/player/privateState";
+import { dayExpiryTick, decidePlace, reservedCashCents, reservedQty, sweepLedger, type IdSource, type ServerQuote } from "@/server/broker/execution";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
+import { dayCloseTick, dayOfTick } from "@/server/market/rumorFarm";
+import { MAX_IDEMPOTENCY, buildPlayerPrivate } from "@/server/player/privateState";
 import type { OrderDraft } from "@/shell/contracts/channels";
 import { exchangeFeeMinor, fmt, MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { previewOrder, placeOrder, cancelOrder, parseOrderId, mockTransport, type DayDraft } from "@/shell/contracts/orders";
@@ -76,10 +77,14 @@ class ControlledMarket {
   impactListed() { return null; }
   /** Next tick with HALC (or another asset) at `lastMinor`. */
   step(marks: Record<string, number> = {}) {
+    this.goto(this.snap.tick + 1, marks, true);
+  }
+  /** Set the clock to `tick`. `notify` false is a read-only jump (GET must not expire). */
+  goto(tick: number, marks: Record<string, number> = {}, notify = true) {
     const rows = { ...this.snap.quotes.rows };
     for (const [id, m] of Object.entries(marks)) rows[id] = { ...rows[id]!, last: fmt(m, 2) };
-    this.snap = { ...this.snap, tick: this.snap.tick + 1, quotes: { ...this.snap.quotes, rows } };
-    for (const fn of this.fns) fn();
+    this.snap = { ...this.snap, tick, quotes: { ...this.snap.quotes, rows } };
+    if (notify) for (const fn of this.fns) fn();
   }
   last(id: string) { return minor(this.snap.quotes.rows[id]!.last); }
 }
@@ -502,5 +507,181 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     feed.advance();
     expect((feed.body("me") as { positions: Record<string, unknown> }).positions.HALC).toBeDefined();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+
+  it("a resting day limit expires at the placement day's close, releases its hold exactly, and stays idempotent", async () => {
+    const a = await signUp("DayBuy");
+    const p = market.last("HALC");
+    const limit = p - 100;
+    const w = await place(a, "key-day-00001", lmt("HALC", "BUY", "8", fmt(limit, 2)));
+    const orderId = w.body.result.effects![0]!.replace("order:", "");
+    const reserved = limit * 8 + fee(limit * 8);
+    expect(w.body.ledger.reservedCashCents).toBe(reserved);
+    const placed = market.snapshot().tick;
+    const close = dayExpiryTick(placed);
+    expect(close).toBe(dayCloseTick(dayOfTick(placed)));
+    expect(close).toBeGreaterThan(placed);
+
+    market.step({ HALC: p });
+    await auth.sweepPrivateStates(() => null);
+    let l = await ledger(a);
+    expect(l.orders[orderId]?.status).toBe("WORKING");
+    expect(l.reservedCashCents).toBe(reserved);
+    expect((l.history ?? [])).toEqual([]);
+
+    // GET at the close, without a sweep, must not expire or persist.
+    market.goto(close, { HALC: p }, false);
+    l = await ledger(a);
+    expect(l.orders[orderId]?.status).toBe("WORKING");
+    expect(l.reservedCashCents).toBe(reserved);
+    expect((l.history ?? [])).toEqual([]);
+    expect(l.cashCents).toBe(START_CASH_CENTS);
+
+    market.goto(close, { HALC: p }, true);
+    await vi.waitFor(async () => expect((await ledger(a)).orders[orderId]?.status).toBe("EXPIRED"));
+    l = await ledger(a);
+    expect(l.cashCents).toBe(START_CASH_CENTS);
+    expect(l.reservedCashCents).toBe(0);
+    expect(l.positions).toEqual({});
+    expect(l.orders[orderId]).toMatchObject({ status: "EXPIRED", qty: "8", filled: "0", tif: "day", limit: fmt(limit, 2) });
+    expect((l.history ?? [])).toEqual([expect.objectContaining({ orderId, status: "EXPIRED", qty: "8", filled: "0", tick: close })]);
+
+    market.goto(close + 1, { HALC: p }, true);
+    await auth.sweepPrivateStates(() => null);
+    const again = await ledger(a);
+    expect(again.cashCents).toBe(START_CASH_CENTS);
+    expect(again.reservedCashCents).toBe(0);
+    expect((again.history ?? [])).toHaveLength(1);
+    expect(again.orders[orderId]?.status).toBe("EXPIRED");
+  });
+
+  it("a resting day sell releases reserved shares exactly; a post-close jump does not fill at a later mark", async () => {
+    const a = await signUp("DaySell");
+    const p = market.last("HALC");
+    await place(a, "key-day-s0001", mkt("HALC", "BUY", "5"));
+    const afterBuy = await ledger(a);
+    const lot = 5;
+    const limit = p + 5_000;
+    const s = await place(a, "key-day-s0002", lmt("HALC", "SELL", "5", fmt(limit, 2)));
+    const orderId = s.body.result.effects![0]!.replace("order:", "");
+    expect((await place(a, "key-day-s0003", mkt("HALC", "SELL", "1"))).body.result.rejectCode).toBe("MKT_NO_LOCATE");
+    const close = dayExpiryTick(market.snapshot().tick);
+    // Jump past the close with a mark that would have filled the limit, had the order still been live.
+    market.goto(close + 25, { HALC: limit + 100 }, true);
+    await vi.waitFor(async () => expect((await ledger(a)).orders[orderId]?.status).toBe("EXPIRED"));
+    const l = await ledger(a);
+    expect(l.cashCents).toBe(afterBuy.cashCents);
+    expect(l.positions.HALC).toEqual(afterBuy.positions.HALC);
+    expect(l.positions.HALC!.qty).toBe(String(lot));
+    expect(l.reservedCashCents).toBe(0);
+    expect(l.fills.filter((f) => f.orderId === orderId)).toHaveLength(0);
+    expect((l.history ?? [])).toEqual([expect.objectContaining({ orderId, status: "EXPIRED", side: "SELL", tick: close })]);
+    expect((await place(a, "key-day-s0004", mkt("HALC", "SELL", "5"))).body.result.status).toBe("ACCEPTED");
+  });
+
+  it("a day limit that is marketable at the close fills there; GET does not write the store", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "m1-06-day-"));
+    temps.push(dir);
+    const file = path.join(dir, "store.json");
+    setAuthServiceForTests(new AuthService({ store: new FileAuthStore(file) }));
+    setBrokerForTests(undefined);
+    const a = await signUp("DayFill");
+    const p = market.last("HALC");
+    const limit = p - 50;
+    const w = await place(a, "key-day-f0001", lmt("HALC", "BUY", "4", fmt(limit, 2)));
+    const orderId = w.body.result.effects![0]!.replace("order:", "");
+    const reserved = limit * 4 + fee(limit * 4);
+    const close = dayExpiryTick(market.snapshot().tick);
+    const before = JSON.parse(await readFile(file, "utf8")) as { players: unknown };
+    market.goto(close, { HALC: p }, false);
+    const peeked = await ledger(a);
+    expect(peeked.orders[orderId]?.status).toBe("WORKING");
+    expect(peeked.reservedCashCents).toBe(reserved);
+    const afterGet = JSON.parse(await readFile(file, "utf8")) as { players: unknown };
+    expect(afterGet.players).toEqual(before.players); // session lastSeen may move; the ledger must not
+
+    market.goto(close, { HALC: limit - 10 }, true);
+    await vi.waitFor(async () => expect((await ledger(a)).orders[orderId]).toBeUndefined());
+    const l = await ledger(a);
+    expect(l.cashCents).toBe(START_CASH_CENTS - reserved);
+    expect(l.positions.HALC).toEqual({ assetId: "HALC", qty: "4", avgCost: fmt(limit, 2) });
+    expect((l.history ?? []).filter((h) => h.orderId === orderId)).toEqual([]);
+    expect(l.fills.at(-1)).toMatchObject({ orderId, liquidity: "MAKER", qty: "4", price: fmt(limit, 2) });
+  });
+
+  it("day expiry is isolated per account and survives a FileAuthStore restart", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "m1-06-day-r-"));
+    temps.push(dir);
+    const file = path.join(dir, "store.json");
+    setAuthServiceForTests(new AuthService({ store: new FileAuthStore(file) }));
+    setBrokerForTests(undefined);
+    useMarket(market);
+    const a = await signUp("DayIsoA");
+    const b = await signUp("DayIsoB");
+    const p = market.last("HALC");
+    const limitA = p - 80;
+    const limitB = p - 120;
+    const wa = await place(a, "key-day-a0001", lmt("HALC", "BUY", "2", fmt(limitA, 2)));
+    const wb = await place(b, "key-day-b0001", lmt("HALC", "BUY", "3", fmt(limitB, 2)));
+    const idA = wa.body.result.effects![0]!.replace("order:", "");
+    const idB = wb.body.result.effects![0]!.replace("order:", "");
+    const close = dayExpiryTick(market.snapshot().tick);
+    market.goto(close, { HALC: p }, true);
+    await vi.waitFor(async () => {
+      expect((await ledger(a)).orders[idA]?.status).toBe("EXPIRED");
+      expect((await ledger(b)).orders[idB]?.status).toBe("EXPIRED");
+    });
+    const la = await ledger(a);
+    const lb = await ledger(b);
+    expect(la.cashCents).toBe(START_CASH_CENTS);
+    expect(lb.cashCents).toBe(START_CASH_CENTS);
+    expect(la.reservedCashCents).toBe(0);
+    expect(lb.reservedCashCents).toBe(0);
+    expect(la.orders[idB]).toBeUndefined();
+    expect(lb.orders[idA]).toBeUndefined();
+    expect((la.history ?? [])).toEqual([expect.objectContaining({ orderId: idA, status: "EXPIRED" })]);
+    expect((lb.history ?? [])).toEqual([expect.objectContaining({ orderId: idB, status: "EXPIRED" })]);
+
+    const auth2 = new AuthService({ store: new FileAuthStore(file) });
+    setAuthServiceForTests(auth2);
+    setBrokerForTests(undefined);
+    await new BrokerService({ auth: () => auth2, market: () => market as unknown as LiveMarket }).sweep();
+    const ra = await ledger(a);
+    const rb = await ledger(b);
+    expect(ra.cashCents).toBe(START_CASH_CENTS);
+    expect(rb.cashCents).toBe(START_CASH_CENTS);
+    expect((ra.history ?? [])).toHaveLength(1);
+    expect((rb.history ?? [])).toHaveLength(1);
+    expect(ra.orders[idA]?.status).toBe("EXPIRED");
+    const disk = JSON.parse(await readFile(file, "utf8")) as { players: { orderHistory?: unknown[]; accountId: string }[] };
+    expect(disk.players.every((row) => (row.orderHistory ?? []).length === 1)).toBe(true);
+  });
+
+  it("a partly filled day remainder expires and releases only the leftover hold", () => {
+    const placed = market.snapshot().tick;
+    const close = dayExpiryTick(placed);
+    const rec = buildPlayerPrivate(`acc_${"a".repeat(32)}` as AccountId, {
+      cashCents: START_CASH_CENTS,
+      positions: { HALC: { assetId: "HALC", qty: "3", avgCost: "10.00" } },
+      openOrders: {
+        o_partial: {
+          orderId: "o_partial", assetId: "HALC", side: "BUY", type: "limit", qty: "10", filled: "3",
+          limit: "10.00", tif: "day", status: "PARTIAL", placedTick: placed, avgPrice: "10.00",
+        },
+      },
+    });
+    const leftover = 1000 * 7 + fee(1000 * 7);
+    expect(reservedCashCents(rec)).toBe(leftover);
+    const ids: IdSource = { next: (kind) => `${kind}_t` };
+    const quote = { tick: close, last: (id: string) => (id === "HALC" ? 1_500 : null), tradable: () => true };
+    const next = sweepLedger(rec, quote, ids);
+    expect(next).not.toBeNull();
+    expect(next!.cashCents).toBe(START_CASH_CENTS);
+    expect(next!.openOrders.o_partial).toMatchObject({ status: "EXPIRED", filled: "3", qty: "10" });
+    expect(reservedCashCents(next!)).toBe(0);
+    expect(reservedQty(next!, "HALC")).toBe(0);
+    expect(next!.orderHistory).toEqual([expect.objectContaining({ orderId: "o_partial", status: "EXPIRED", filled: "3", tick: close })]);
+    expect(sweepLedger(buildPlayerPrivate(rec.accountId, next!), quote, ids)).toBeNull();
   });
 });
