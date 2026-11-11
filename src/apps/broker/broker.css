@@ -42,6 +42,8 @@
 .br-today { font-family: var(--font-num); white-space: nowrap; }
 .br-hold { margin: 0; display: flex; flex-wrap: wrap; gap: 0 var(--sp-4); }
 .br-hold > span { white-space: nowrap; }
+/* Cash may break between its label and the unbreakable amount (FR 200%: no sideways scroll). */
+.br-hold > .br-cash { white-space: normal; min-width: 0; }
 .br-updating { margin: 0; color: var(--fg-muted); }
 
 /* Ticket */
