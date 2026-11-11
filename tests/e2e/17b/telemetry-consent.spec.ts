@@ -21,7 +21,7 @@ async function watchConsentChunk(page: Page): Promise<{ urls: string[] }> {
 
 test("first-launch consent prompt loads after interaction, Accept persists", async ({ page }) => {
   const seen = await watchConsentChunk(page);
-  await page.goto("/broker");
+  await page.goto("/broker?telemetry_consent=1");
   await expect(page.getByTestId("quay-ready")).toBeVisible({ timeout: 20_000 });
   expect(seen.urls, "consent chunk must not be requested before interaction").toEqual([]);
   await expect(page.getByTestId("quay-consent")).toHaveCount(0);
@@ -38,7 +38,7 @@ test("first-launch consent prompt loads after interaction, Accept persists", asy
 });
 
 test("first-launch Decline persists and keeps analytics off", async ({ page }) => {
-  await page.goto("/broker");
+  await page.goto("/broker?telemetry_consent=1");
   await expect(page.getByTestId("quay-ready")).toBeVisible({ timeout: 20_000 });
   await page.locator("body").click({ position: { x: 8, y: 80 } });
   await expect(page.getByTestId("quay-consent")).toBeVisible({ timeout: 10_000 });

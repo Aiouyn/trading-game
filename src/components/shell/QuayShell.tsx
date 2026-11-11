@@ -125,6 +125,11 @@ function ConsentBoot() {
     let cancelled = false;
     const start = () => {
       try {
+        const q = new URLSearchParams(window.location.search);
+        const force = q.get("telemetry_consent") === "1";
+        // Official e2e sets NEXT_PUBLIC_QUAY_E2E; keep the prompt off unless a test forces it,
+        // so it cannot intercept phone taps or land in screenshot baselines.
+        if (!force && process.env.NEXT_PUBLIC_QUAY_E2E === "1") return;
         const store = window.localStorage;
         if (store.getItem("quay.telemetry.consent") || store.getItem("quay.telemetry.optout")) return;
         const nav = navigator as Navigator & { globalPrivacyControl?: boolean; doNotTrack?: string | null };
