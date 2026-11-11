@@ -2,7 +2,8 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { S } from "@/shell/strings";
-import { isTelemetryOptedOut, sendFeedback, setTelemetryOptOut } from "@/shell/telemetryClient";
+import { CS } from "./consentStrings";
+import { hasAnalyticsConsent, sendFeedback, setTelemetryConsent } from "@/shell/telemetryConsent";
 import "./feedback.css";
 
 const MAX = 1000;
@@ -10,7 +11,7 @@ const MAX = 1000;
 export function FeedbackPanel({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState("");
   const [thanks, setThanks] = useState(false);
-  const [optedOut, setOptedOut] = useState(() => isTelemetryOptedOut());
+  const [consented, setConsented] = useState(() => hasAnalyticsConsent());
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: FormEvent) {
@@ -23,10 +24,10 @@ export function FeedbackPanel({ onClose }: { onClose: () => void }) {
     if (ok) setThanks(true);
   }
 
-  function onOptOut() {
-    const next = !optedOut;
-    setTelemetryOptOut(next);
-    setOptedOut(next);
+  function onConsentToggle() {
+    const next = !consented;
+    setTelemetryConsent(next);
+    setConsented(next);
   }
 
   return (
@@ -51,8 +52,8 @@ export function FeedbackPanel({ onClose }: { onClose: () => void }) {
           </div>
         </form>
       )}
-      <button type="button" className="quay-feedback-optout" data-testid="quay-feedback-optout" onClick={onOptOut}>
-        {optedOut ? S.feedbackOptOutOn : S.feedbackOptOut}
+      <button type="button" className="quay-feedback-optout" data-testid="quay-feedback-optout" onClick={onConsentToggle}>
+        {consented ? CS.turnOff : CS.share}
       </button>
     </div>
   );
