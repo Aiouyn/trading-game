@@ -9,7 +9,6 @@
 // pushed screen. The draft and phase live here, so switching back finds the ticket as it was.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useShell } from "@/components/shell/ShellContext";
-import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
 import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/contracts/channels";
 import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
@@ -22,6 +21,7 @@ import { AssetHeader } from "./AssetHeader";
 import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
 import { PreviewRows, SimpleTicket } from "./SimpleTicket";
+import { PhoneTradeSheet } from "./PhoneTradeSheet";
 import { fillOf, orderIdOf } from "./ticketResult";
 import { BR_STACK_SCALE, reasonCopy } from "./strings-en";
 import { useBrStrings } from "./useBrStrings";
@@ -294,16 +294,18 @@ export function BrokerFrame({ context }: { context?: string }) {
   );
 
   return (
-    <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-view="trade" data-phase={result ? "acked" : phase.kind === "placed" ? "submitting" : phase.kind} onKeyDown={onKey}>
+    <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-view="trade" data-phase={result ? "acked" : phase.kind === "placed" ? "submitting" : phase.kind} onKeyDown={phone ? undefined : onKey}>
       <div className="br-grid" id={viewIds.trade}>
         {header(true)}
-        <div className="br-col br-col-ticket">
-          {ack || (phone ? ticket : review || ticket)}
-          {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
-          {!phone && <GoalSlot locale={locale} />}{/* M2-02 goal entry where no Portfolio window shows it (desktop 1024–1263) */}
-        </div>
+        {!phone && <div className="br-col br-col-ticket">
+          {ack || review || ticket}
+          <GoalSlot locale={locale} />{/* M2-02 goal entry where no Portfolio window shows it (desktop 1024–1263) */}
+        </div>}
         {orders}
       </div>
+      {phone && <PhoneTradeSheet t={t} assetId={assetId} qtyRef={qtyRef} onDismiss={toEdit} onKeyDown={onKey}>
+        {ack || review || ticket}
+      </PhoneTradeSheet>}
     </div>
   );
 }

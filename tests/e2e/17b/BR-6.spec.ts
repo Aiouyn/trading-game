@@ -12,6 +12,7 @@ import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
 import { boot, setTextScale } from "../shell/helpers";
 import { openBrokerPaused, revealOnPausedClock } from "./openPaused";
+import { closePhoneTicket, openPhoneTicket } from "./ticketSheet";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -70,6 +71,8 @@ async function runUntil(page: Page, done: () => Promise<boolean>, ms = 6_000) {
 }
 /** Place a limit order through the ticket and wait for its resting ack (`settleMs` covers `?replyMs`). */
 async function limitOrder(page: Page, limit: string, qty = "40", settleMs = 6_000) {
+  await openPhoneTicket(br(page));
+  await page.clock.runFor(300);
   await br(page).getByTestId("br-type-limit").click();
   await br(page).getByTestId("br-price-limit").fill(limit);
   await br(page).getByTestId("br-qty").fill(qty);
@@ -80,6 +83,7 @@ async function limitOrder(page: Page, limit: string, qty = "40", settleMs = 6_00
   await place(page).evaluate((el: HTMLElement) => el.click()); // phone: Place may sit below the fold
   await runUntil(page, async () => (await br(page).getByTestId("br-ack").count()) > 0, settleMs);
   await br(page).getByTestId("br-new").click();
+  await closePhoneTicket(page);
   // Phone: leaving the ticket's qty field shifts the page (card 4 ticket), so a click that also blurs it lands on the row.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 }
@@ -606,6 +610,8 @@ test("BR-6-12 FR: Annuler, NNBSP before : and ?, « » around the code", async (
 
 test("Q1 (QA #85) a price edit hides the old estimate and disables Review until the preview for the new price lands, also under the per-tick cap", async ({ page }) => {
   await openPaused(page);
+  await openPhoneTicket(br(page));
+  await page.clock.runFor(300);
   const review = br(page).getByTestId("br-review");
   const est = br(page).getByTestId("br-est");
   const pending = br(page).getByTestId("br-est-pending");

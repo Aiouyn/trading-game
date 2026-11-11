@@ -179,6 +179,8 @@ export const EN = {
   /** [provisional] aria-label of the chart skeleton (aria-busy). */
   chartLoading: "Loading price chart",
   // ---- UI card 10: asset page (updating / couldntLoad / retry / halted reuse card 4 keys) ----
+  tradeTicket: "Order ticket",
+  closeTicket: "Close ticket",
   viewTrade: "Trade",
   viewAbout: "About",
   /** [provisional] accessible names of the Trade | About and the Overview | News tab lists. */

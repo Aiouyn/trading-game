@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { closePhoneTicket, openPhoneTicket } from "./ticketSheet";
 
 function scripts(page: Page) {
   const pending: Promise<string>[] = [];
@@ -33,8 +34,10 @@ test("Broker keeps Overview synchronous and defers News without losing entry foc
   // so first-load Trade JS does not contain Overview. News stays out until the News tab.
   expect(await loaded()).not.toContain('"ap-overview"');
   expect(await loaded()).not.toContain('"ap-news"');
+  await openPhoneTicket(page.getByTestId("broker").first());
   const qty = page.getByTestId("br-qty").first();
   await qty.fill("7");
+  await closePhoneTicket(page);
   await page.getByTestId("br-view-about").first().click();
   await expect(page.getByTestId("br-about-title")).toBeFocused();
   await expect(page.getByTestId("ap-overview")).toBeVisible();
@@ -46,5 +49,6 @@ test("Broker keeps Overview synchronous and defers News without losing entry foc
   expect(await loaded()).toContain('"ap-news"');
   if (info.project.name === "phone") await page.getByTestId("app-back").click();
   else await page.getByTestId("br-view-trade").first().click();
+  await openPhoneTicket(page.getByTestId("broker").first());
   await expect(qty).toHaveValue("7");
 });

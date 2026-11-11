@@ -138,6 +138,8 @@ export const FR: BrStrings = {
   chartError: "Impossible de charger le graphique",
   noHistory: "Pas encore d’historique de cours.",
   chartLoading: "Chargement du graphique de cours",
+  tradeTicket: "Ticket d’ordre",
+  closeTicket: "Fermer le ticket",
   viewTrade: "Trader",
   viewAbout: "À propos",
   viewAria: "Vue du courtier",

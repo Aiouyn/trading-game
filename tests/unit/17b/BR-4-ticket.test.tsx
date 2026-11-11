@@ -350,14 +350,18 @@ describe("BR-4-14 phone review Sheet", () => {
     await mount(h, { context: "HALC", vw: 390, textScale: 2 });
     expect(broker().className).toContain("br-phone");
     expect(broker().className).toContain("br-stacked");
+    await click(q(h, "br-trade")!);
     await typeQty(h, "40");
     await click(q(h, "br-review")!);
     const sheet = q(h, "br-sheet")!;
     expect(sheet.querySelector('[data-testid="br-place"]')).not.toBeNull();
-    expect(q(h, "br-ticket")).not.toBeNull(); // the ticket stays under the Sheet
+    expect(q(h, "br-ticket")).toBeNull(); // one modal swaps edit/review, never a second ticket underneath
     await act2(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(q(h, "br-sheet")).toBeNull();
     expect(broker().dataset.phase).toBe("edit");
+    expect(document.activeElement).toBe(q(h, "br-trade"));
+    await click(q(h, "br-trade")!);
+    expect(q(h, "br-qty")?.getAttribute("value")).toBe("40");
   });
 });
 async function act2(fn: () => void) { const { act } = await import("react"); await act(async () => { fn(); }); }

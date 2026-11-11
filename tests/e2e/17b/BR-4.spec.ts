@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { boot, intents, setTextScale } from "../shell/helpers";
 import { openBrokerPaused, revealOnPausedClock } from "./openPaused";
+import { openPhoneTicket } from "./ticketSheet";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -25,6 +26,7 @@ const brAny = (page: Page) => page.getByTestId("broker").first();
 async function open(page: Page, query = "?asset=HALC") {
   await boot(page, `/broker${query}`);
   await expect(br(page)).toHaveAttribute("data-state", "live");
+  await openPhoneTicket(br(page));
 }
 async function qty(page: Page, n: string) {
   await br(page).getByTestId("br-qty").fill(n);
@@ -72,6 +74,8 @@ const money = (c: number) => (c / 100).toLocaleString("en-US", { minimumFraction
 /** Fake-clock Broker: boots, then the clock only moves when a test runs it (one feed tick = 5,000 ms). */
 async function openPaused(page: Page, query = "?asset=HALC") {
   await openBrokerPaused(page, `/broker${query}`, br(page));
+  await openPhoneTicket(br(page));
+  await page.clock.runFor(300);
 }
 async function qtyPaused(page: Page, n: string) {
   await br(page).getByTestId("br-qty").fill(n);
@@ -132,7 +136,7 @@ test("BR-4-07 one primary: 0 while editing, exactly 1 in review; no --acc outsid
   for (const c of [acc, loss, gain]) expect(seg).not.toContain(c);
   await review(page);
   expect(await primaries(page)).toBe(1);
-  const ticketCol = br(page).locator(".br-col-ticket");
+  const ticketCol = br(page).locator(".br-col-ticket, .br-phone-order");
   const cols = await colours(ticketCol, ["br-place"]);
   expect(cols).not.toContain(acc);
   expect(cols).not.toContain(loss);
@@ -172,6 +176,7 @@ test("BR-4-08/09 fake clock: Enter places one intent with the exact payload, pen
   await page.keyboard.press("Enter"); // Enter in the ticket = Review
   await expect(br(page)).toHaveAttribute("data-phase", "review");
   await revealOnPausedClock(page, place(page));
+  if (await page.getByTestId("br-trade").count()) await place(page).focus(); // explicit keyboard Place in the phone modal
   await page.keyboard.press("Enter"); // Enter in review = Place
   await page.keyboard.press("Enter");
   await place(page).evaluate((el: HTMLElement) => { el.click(); el.click(); }); // a late double click while submitting (phone: Place may sit below the fold)
@@ -395,6 +400,8 @@ test("BR-4-14 phone: review in a bottom Sheet with focus trapped, Esc returns to
   await page.keyboard.press("Escape");
   await expect(sheet).toHaveCount(0);
   await expect(br(page)).toHaveAttribute("data-phase", "edit");
+  await expect(page.getByTestId("br-trade")).toBeFocused();
+  await openPhoneTicket(br(page));
   await expect(br(page).getByTestId("br-qty")).toHaveValue("40");
 });
 
@@ -424,6 +431,7 @@ test("BR-4-14 phone text scale 2: segment stacks, no horizontal overflow, amount
   await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
   await page.getByTestId("icon-broker").click();
   await expect(brAny(page)).toHaveAttribute("data-state", "live");
+  await openPhoneTicket(brAny(page));
   await brAny(page).getByTestId("br-qty").fill("40");
   await expect(brAny(page).getByTestId("br-est")).toBeVisible();
   const [buy, sell] = await Promise.all(["br-side-buy", "br-side-sell"].map(async (id) => (await brAny(page).getByTestId(id).boundingBox())!));
