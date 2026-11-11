@@ -115,7 +115,7 @@ function planOrders(s: MarginCcpState): void {
     s.orders = [];
     for (const r of s.facts!.risks) {
         const a = margin(s, r.memberId, r.service);
-        if (a.liquidationSince === null)
+        if (a.liquidationSince === null || s.defaults.some(e => e.memberId === r.memberId && e.service === r.service && e.closeout !== null))
             continue;
         const unfilled = new Map<string, number>();
         for (const p of r.positions) {
@@ -184,6 +184,7 @@ function closeouts(s: MarginCcpState): void {
             throw new Error("MARGIN_CCP_SCORE_COVERAGE");
         e.closeout = clone(report);
         e.reportFingerprint = fingerprint;
+        s.orders = s.orders.filter(o => o.memberId !== e.memberId || o.service !== e.service);
         e.remaining = report.loss;
         e.claims = report.claims.map(c => ({ ...c, paid: Z }));
         payLayer(s, e, marginBucket(e.memberId, e.service), e.remaining, "DEFAULTER_IM");
@@ -374,12 +375,14 @@ function process(s: MarginCcpState, f: MarginCcpFrame): void {
     }
     assertMarginCcpConservation(s);
 }
-function recoveryClockAfterPayments(s: MarginCcpState): void { for (const e of s.defaults) {
-    if ((e.stage === "ASSESSING" || e.stage === "SHORTFALL") && e.remaining === Z)
-        e.stage = "CLOSED";
-    if (e.ownerLosses.length)
-        e.ownerLosses = weights(s.services.find(x => x.id === e.service)!.owners, e.remaining, o => BigInt(o.weightPpm), o => o.memberId).map(r => ({ memberId: r.item.memberId, amount: r.amount }));
-} }
+function recoveryClockAfterPayments(s: MarginCcpState): void {
+    for (const e of s.defaults) {
+        if ((e.stage === "ASSESSING" || e.stage === "SHORTFALL") && e.remaining === Z)
+            e.stage = "CLOSED";
+        if (e.ownerLosses.length)
+            e.ownerLosses = weights(s.services.find(x => x.id === e.service)!.owners, e.remaining, o => BigInt(o.weightPpm), o => o.memberId).map(r => ({ memberId: r.item.memberId, amount: r.amount }));
+    }
+}
 function reconstruct(g: MarginCcpGenesis, frames: MarginCcpFrame[], targetTick: number): MarginCcpState {
     const s = newState(g), ordered = [...frames].sort((a, b) => a.tick - b.tick);
     if (ordered.length !== targetTick + 1 || ordered.some((f, i) => f.tick !== i))

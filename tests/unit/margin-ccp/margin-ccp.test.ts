@@ -191,6 +191,21 @@ describe("cash margin timing and liquidation plans", () => {
     });
 });
 describe("real CCP resources and recovery waterfall", () => {
+    it("seals liquidation instructions when a completed close-out supersedes stale readonly positions", async () => {
+        const g = marginFixture(), e = await fresh(g), frames = defaultFrames(g, 481, 600);
+        for (const f of frames) {
+            const r = f.facts.risks[0];
+            r.im = money(200);
+            r.positions = [{ assetId: "future", quantity: "100", fairValue: money(100), marginalIm: money(200), expectedCost: money(1), sigmaPpm: 100, expectedTickVolume: "100", marketOpen: true, opening: false, openingVolume: "100" }];
+        }
+        await e.advance(479, frames.slice(0, 480));
+        expect(e.snapshot().orders).toHaveLength(1);
+        await e.advance(480, [frames[480]]);
+        expect(e.snapshot().orders).toHaveLength(0);
+        await e.advance(481, [frames[481]]);
+        expect(e.snapshot().orders).toHaveLength(0);
+        independentCcpAccounting(e.snapshot());
+    });
     it("reduces the owner-loss handoff when a closed service receives a real overdue assessment", async () => {
         const g = marginFixture(), e = await fresh(g);
         await e.advance(9360, defaultFrames(g, 9360, 1000));
@@ -232,9 +247,12 @@ describe("real CCP resources and recovery waterfall", () => {
         independentCcpAccounting(s);
     }, 20000);
     it("does not fake a720 close-out and gives a late call seven days from actual issuance", async () => {
-        const g = marginFixture(), e = await fresh(g), frames = marginFrames(g, 800, f => { if (f.tick === 0)
-            f.facts.defaults = [{ memberId: "d", service: "LD", reason: "REGULATOR" }]; if (f.tick === 800)
-            f.facts.closeouts = [defaultReport(g, 1000)]; });
+        const g = marginFixture(), e = await fresh(g), frames = marginFrames(g, 800, f => {
+            if (f.tick === 0)
+                f.facts.defaults = [{ memberId: "d", service: "LD", reason: "REGULATOR" }];
+            if (f.tick === 800)
+                f.facts.closeouts = [defaultReport(g, 1000)];
+        });
         await e.advance(799, frames.slice(0, 800));
         expect(e.snapshot().defaults[0].managementClosed).toBe(false);
         await e.advance(800, frames.slice(800));

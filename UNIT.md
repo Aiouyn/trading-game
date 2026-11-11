@@ -42,3 +42,6 @@ Funding due dates are seven game days from the actual call, even if an upstream 
 
 ## Capital/restitution clarification — 2026-11-11T21:13:27.674778+01:00 Europe/Paris
 A service with either real SITG tranche below its certified genesis target stays RECOVERY even when loss creditors have been fully paid; no automatic capital restoration or new-risk permission is inferred from debt repayment. This is a conservative cash-only gate pending funded recapitalization/regulatory adapters, not a claim to implement full Cover-2/reopening. Later real overdue assessment receipts reduce the outstanding proportional owner-loss handoff; they cannot reopen a CLOSED service.
+
+## Sealed execution boundary — 2026-11-11T21:16:09.514992+01:00 Europe/Paris
+A completed close-out report cancels any pending instructions for that member/service and prevents later liquidation plans, even if a readonly risk producer still carries stale positions. The report is authoritative finality; the kernel must not ask an execution owner to close the same account twice. The initial final-check/e2e/proof results at aaf8330f remain evidence, but all gates and clean-worktree e2e will be rerun at the corrected final SHA.
