@@ -27,11 +27,15 @@ function buy(s: FarmState, wallet: string, ticker: string, amount: number) {
 }
 
 // The decision is recorded before measurement: report actual failure rates, never retune or kill a quota.
-// A chapter = 1344 game days (20:11). Near-zero = delisted OR mark <= 1% of listing price for graduated coins.
-await save("measurement-contract.json", { version: 1, seedCount: 8, coinsPerSeed: 12, chapterGameDays: GAME_DAYS_PER_CHAPTER,
-  horizon: "all cohort coins launched at hour 0 and observed for the entire chapter", nearZero: "DELISTED, or BOOK mark <= 1% listing price",
+// 20:11 defines 1344 game days. 06:762 does NOT define a numeric "~0" price threshold.
+// The 1% cutoff and final-observation cohort below are diagnostics, not a spec band.
+await save("measurement-contract.json", { version: 2, seedCount: 24, coinsPerSeed: 12, chapterGameDays: GAME_DAYS_PER_CHAPTER,
+  horizon: "all cohort coins launched at hour 0 and observed for the entire chapter", nearZero: "DELISTED, or BOOK final mark <= 1% listing price (authored diagnostic, NOT a spec-defined cutoff)",
+  citations: { targetAndDeath: "06-ASSET-CLASSES.md:759-762", chapterLength: "20-VERIFICATION-AND-BALANCE.md:11; 01-EVALUATION-OF-V3.md:145",
+    activationGate: "20-VERIFICATION-AND-BALANCE.md:1130", seedCohortMismatch: "06-ASSET-CLASSES.md:760 (Poisson births and Tidepool seeds, not this fixed curve/book cohort)" },
+  openBeforeMount: "Owner must define ~0 price cutoff/reference and within-chapter observation/cohort; full harness band and mechanism remain required. Do not force delisting or destroy balances.",
   target: "about 90% per complete 06:762; descriptive comparison, not formal G3 certification", decision: "report misses; no kill quotas or parameter tuning",
-  limits: ["isolated cohort, not a full population experiment", "8 DEV seeds, not 60/200 VALIDATION/WITHHELD seeds", "no new live app mounting", "base curve/finite book, not the 06 NPC AMM venue", "same template uses inherited 252-day SDE basis; no equity GARCH", "rugs flag actual sales, no linked-owner graph/Court"] });
+  limits: ["isolated cohort, not a full population experiment", "24 DEV seeds, not 60/200 VALIDATION/WITHHELD seeds", "no new live app mounting", "base curve/finite book, not the 06 NPC AMM venue", "same template uses inherited 252-day SDE basis; no equity GARCH", "rugs flag actual sales, no linked-owner graph/Court"] });
 
 // Real clean-file restart, durable idempotency, chunked jump, and dead-wallet proof.
 let fixture = createFarm("restart-proof", [{ id: "creator", kind: "PLAYER", cash: 10_000_000 }, { id: "holder", kind: "PLAYER", cash: 20_000_000 }]);
@@ -87,7 +91,7 @@ await save("rug-npc-proof.json", { actualCreatorSoldTokens: dumpSold, creatorFla
   supplyDump: tokenTotal(dumpEngine.snapshot(), "GULL"), supplyNpc: tokenTotal(npcWorld, "GULL"), ok: true });
 
 const reports: { seed: number; launched: number; graduated: number; delisted: number; abandoned: number; rugFlags: number; nearZero: number; nearZeroRate: number; cashDelta: number; supplyOk: boolean; stateSha256: string }[] = [];
-for (let seed = 17; seed < 25; seed++) {
+for (let seed = 17; seed < 41; seed++) {
   const n = 12, tickers = Array.from({ length: n }, (_, i) => `ZF${String.fromCharCode(65 + seed - 17)}${String.fromCharCode(65 + i)}`);
   let s = createFarm(`chapter-${seed}`, [
     ...tickers.map((_, i) => ({ id: `npc_${i}`, kind: "NPC" as const, cash: 30_000_000 })),

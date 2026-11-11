@@ -5,7 +5,7 @@ import { FailureFarmEngine, FileFarmStore, type FarmStore } from "@/server/launc
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FarmState, FarmFrame } from "@/server/launchpad/failureFarm/model";
+import type { FarmState, FarmFrame, FarmCommand } from "@/server/launchpad/failureFarm/model";
 import { Draws } from "@/server/market/meme";
 import { LP } from "@/launchpad/rules";
 
@@ -25,6 +25,20 @@ describe("isolated failure farm", () => {
     expect(cashTotal(state)).toBe(initial.initialCash);
     expect(launch(state)).toEqual(state);
     expect(state.coins.GULL?.venue.kind).toBe("CURVE");
+  });
+  it.each([
+    { ticker: "HALC", name: "Gull Club", code: "TICKER_TAKEN" },
+    { ticker: "ORCA", name: "Gull Club", code: "TICKER_TAKEN" },
+    { ticker: "GULL", name: "hAlCyOn ShIpPiNg", code: "NAME_TAKEN" },
+    { ticker: "GULL", name: "halc", code: "NAME_TAKEN" },
+  ])("rejects reserved catalog identity $ticker / $name without a fee", ({ ticker, name, code }) => {
+    const initial = genesis();
+    const result = commandFarm(initial, { kind: "LAUNCH", wallet: "creator", key: "reserved", ticker, name, fee: LP.LAUNCH_FEE, nowMs: 0 });
+    expect(result.reply).toEqual({ kind: "REFUSED", code });
+    expect(result.state.wallets).toEqual(initial.wallets);
+    expect(result.state.coins).toEqual(initial.coins);
+    expect(result.state.sink).toBe(initial.sink);
+    expect(cashTotal(result.state)).toBe(initial.initialCash);
   });
   it("delists after exactly seven thin days, retains wallet tokens and marks them zero", () => {
     const bought = commandFarm(launch(genesis()), { kind: "TRADE", wallet: "holder", key: "buy", ticker: "GULL", side: "BUY", amount: 50_000 }).state;
@@ -202,6 +216,35 @@ describe("failure-farm durable boundary", () => {
     const corrupt = '{"v":99}'; await writeFile(file, corrupt);
     await expect(FailureFarmEngine.open(new FileFarmStore(file), genesis())).rejects.toThrow("BAD_FARM_CHECKPOINT");
     expect(await readFile(file, "utf8")).toBe(corrupt);
+  });
+  it.each([false, true])("replays reordered launch and trade fields across restart (legacy receipt=%s)", async (legacy) => {
+    const dir = await mkdtemp(join(tmpdir(), "avalon-reordered-")), file = join(dir, "farm.json");
+    let engine = await FailureFarmEngine.open(new FileFarmStore(file), genesis());
+    const commands: FarmCommand[] = [
+      { kind: "LAUNCH", wallet: "creator", key: "ordered-launch", ticker: "GULL", name: "Gull Club", fee: LP.LAUNCH_FEE, nowMs: 0 },
+      { kind: "TRADE", wallet: "holder", key: "ordered-trade", ticker: "GULL", side: "BUY", amount: 50_000 },
+    ];
+    for (const cmd of commands) {
+      const first = await engine.execute(cmd);
+      expect(first.kind).toBe(cmd.kind === "LAUNCH" ? "LAUNCHED" : "FILLED");
+      if (legacy) {
+        const old = engine.snapshot();
+        old.receipts[`${cmd.wallet}:${cmd.key}`]!.fingerprint = JSON.stringify(cmd);
+        await new FileFarmStore(file).save(old);
+      }
+      engine = await FailureFarmEngine.open(new FileFarmStore(file));
+      const before = engine.snapshot(), bytes = await readFile(file, "utf8");
+      const reordered: FarmCommand = cmd.kind === "LAUNCH"
+        ? { nowMs: cmd.nowMs, fee: cmd.fee, name: cmd.name, ticker: cmd.ticker, key: cmd.key, wallet: cmd.wallet, kind: cmd.kind }
+        : { amount: cmd.amount, side: cmd.side, ticker: cmd.ticker, key: cmd.key, wallet: cmd.wallet, kind: cmd.kind };
+      expect(await engine.execute(reordered)).toEqual(first);
+      expect(engine.snapshot()).toEqual(before);
+      expect(await readFile(file, "utf8")).toBe(bytes);
+      const changed: FarmCommand = cmd.kind === "LAUNCH" ? { ...cmd, name: "Other Club" } : { ...cmd, amount: cmd.amount + 1 };
+      expect(await engine.execute(changed)).toEqual({ kind: "REFUSED", code: "IDEMPOTENCY_CONFLICT" });
+      expect(engine.snapshot()).toEqual(before);
+      expect(await readFile(file, "utf8")).toBe(bytes);
+    }
   });
   it("failed save rolls back, concurrent identical launch charges once, and caller mutations cannot leak in", async () => {
     let persisted: FarmState | null = null, fail = false;

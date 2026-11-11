@@ -1,9 +1,10 @@
 import { LP, graduationOf, liquidationCents, listPriceMinor, nameOk, quote, tickerOk } from "@/launchpad/rules";
+import { ASSETS } from "@/market/catalog";
 import { listedDef } from "@/market/listings";
 import { fillOnBook, type BookFillResult } from "@/server/broker/book";
 import { hypeF, hypeStep } from "@/server/broker/pools";
 import { Draws, HYPE, TICKS_PER_HOUR } from "@/server/market/meme";
-import { moderateName } from "@/server/launchpad/moderate";
+import { moderateName, normalizeName } from "@/server/launchpad/moderate";
 import type { FarmCoin, FarmCommand, FarmFrame, FarmReply, FarmState, FarmWallet, WalletKind } from "./model";
 export type { FarmState, FarmCommand, FarmFrame } from "./model";
 
@@ -127,8 +128,12 @@ function trade(s: FarmState, wallet: string, ticker: string, side: "BUY" | "SELL
 function launch(s: FarmState, cmd: Extract<FarmCommand, { kind: "LAUNCH" }>): FarmReply {
   const w = own(s.wallets, cmd.wallet);
   if (!w) return refuse("UNKNOWN_ACCOUNT");
-  if (!tickerOk(cmd.ticker) || !nameOk(cmd.name) || !moderateName(cmd.ticker, new Set()).ok || !moderateName(cmd.name, new Set()).ok) return refuse("BAD_NAME");
+  if (!tickerOk(cmd.ticker) || !nameOk(cmd.name)) return refuse("BAD_NAME");
   if (own(s.coins, cmd.ticker)) return refuse("TICKER_TAKEN");
+  const reserved = new Set(ASSETS.flatMap((a) => [a.ticker, a.name]).map((n) => normalizeName(n).joined));
+  const ticker = moderateName(cmd.ticker, reserved), name = moderateName(cmd.name, reserved);
+  if (!ticker.ok) return refuse(ticker.reason === "taken" ? "TICKER_TAKEN" : "BAD_NAME");
+  if (!name.ok) return refuse(name.reason === "taken" ? "NAME_TAKEN" : "BAD_NAME");
   if (!integer(cmd.nowMs) || cmd.fee !== LP.LAUNCH_FEE) return refuse("BAD_LAUNCH");
   if (w.lastLaunchAtMs !== null && cmd.nowMs < w.lastLaunchAtMs + LP.COOLDOWN_MS) return refuse("COOLDOWN");
   if (Object.values(s.coins).filter((c) => c.creator === cmd.wallet && c.venue.kind === "CURVE" && c.discovery.kind === "LIVE").length >= LP.MAX_LIVE) return refuse("MAX_LIVE");
@@ -140,11 +145,20 @@ function launch(s: FarmState, cmd: Extract<FarmCommand, { kind: "LAUNCH" }>): Fa
     mark, lastHourMark: mark, hype: HYPE.h0, thinSince: s.hour, rug: null, day: Math.floor(s.hour / 24), dayOpen: mark, creatorDaySold: 0, hourVolume: 0, playerNet: [] };
   return { kind: "LAUNCHED", ticker: cmd.ticker };
 }
+function fingerprintOf(value: unknown): string {
+  return JSON.stringify(value, (_key, part: unknown) => part !== null && typeof part === "object" && !Array.isArray(part)
+    ? Object.fromEntries(Object.entries(part).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : part);
+}
+function sameRequest(saved: string, fingerprint: string): boolean {
+  // V1 checkpoints already contain unsorted JSON; replay must not rewrite their receipts.
+  try { return fingerprintOf(JSON.parse(saved)) === fingerprint; }
+  catch { return false; }
+}
 /** Pure command boundary. Receipts are scoped to a wallet, persisted, and include refusals. */
 export function commandFarm(prior: FarmState, cmd: FarmCommand): { state: FarmState; reply: FarmReply } {
   if (!/^[A-Za-z0-9_-]{1,96}$/.test(cmd.key) || !own(prior.wallets, cmd.wallet)) return { state: prior, reply: refuse("BAD_REQUEST") };
-  const receiptKey = `${cmd.wallet}:${cmd.key}`, fingerprint = JSON.stringify(cmd), receipt = own(prior.receipts, receiptKey);
-  if (receipt) return { state: prior, reply: receipt.fingerprint === fingerprint ? structuredClone(receipt.reply) : refuse("IDEMPOTENCY_CONFLICT") };
+  const receiptKey = `${cmd.wallet}:${cmd.key}`, fingerprint = fingerprintOf(cmd), receipt = own(prior.receipts, receiptKey);
+  if (receipt) return { state: prior, reply: sameRequest(receipt.fingerprint, fingerprint) ? structuredClone(receipt.reply) : refuse("IDEMPOTENCY_CONFLICT") };
   const state = structuredClone(prior);
   const reply = cmd.kind === "LAUNCH" ? launch(state, cmd) : trade(state, cmd.wallet, cmd.ticker, cmd.side, cmd.amount);
   state.receipts[receiptKey] = { fingerprint, reply };
