@@ -160,13 +160,16 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 
 /* BRK-01 phone entry replaces Card1's scroll shortcut only in the approved merged stack. */
 .br-phone .br-ticket-entry { display: none; }
-.br-phone[data-view="trade"] { padding-bottom: calc(44px + var(--sp-32) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
-.br-trade-fab.btn {
-  position: fixed; right: max(var(--sp-16), env(safe-area-inset-right));
-  bottom: calc(var(--edge-bar-h) + env(safe-area-inset-bottom) + var(--sp-12));
-  z-index: var(--z-toast); min-width: var(--hit-touch); min-height: var(--hit-touch);
-  max-width: calc(100% - max(var(--sp-16), env(safe-area-inset-left)) - max(var(--sp-16), env(safe-area-inset-right)));
+/* In-flow sticky bar: its own box reserves its real height at the end of scroll (any text scale), and the opaque
+   full-width band means no content shows beside or behind the button; it lives in the app scroller, above the edge nav. */
+.br-phone[data-view="trade"] { padding-bottom: 0; }
+.br-trade-bar {
+  position: sticky; bottom: calc(-1 * var(--sp-16)); z-index: var(--z-toast);
+  display: flex; justify-content: flex-end; margin: var(--sp-16) calc(-2 * var(--sp-16)) calc(-1 * var(--sp-16));
+  padding: var(--sp-12) max(var(--sp-16), env(safe-area-inset-right)) max(var(--sp-12), env(safe-area-inset-bottom)) max(var(--sp-16), env(safe-area-inset-left));
+  background: var(--win); border-top: 1px solid var(--line);
 }
+.br-trade-fab.btn { min-width: var(--hit-touch); min-height: var(--hit-touch); max-width: 100%; white-space: normal; }
 .br-phone-order .qs-body {
   overscroll-behavior: contain;
   padding: var(--sp-16) max(var(--sp-16), env(safe-area-inset-right)) max(var(--sp-16), env(safe-area-inset-bottom)) max(var(--sp-16), env(safe-area-inset-left));
