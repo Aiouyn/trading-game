@@ -1,112 +1,92 @@
-# Unit: free-tier T1 NPC analyst notes as a second 05 claim source
+# Unit: player Wire statements (`soc.wire.post`)
 
-**Branch:** `eng/analyst-notes`  
-**Base:** `35803f3f81eb70329cc3dbb0e0c08b20e7d227ff` (`eng/wire-first-story`, stacked on `d23c141c`)  
-**Worktree:** `/workspace/avalon/analyst-notes`  
-**When written:** 2026-11-11 19:55:00 Europe/Paris — before product-code edits.  
-**Owner:** continue-nonstop after 35803f3f exact-head checks and handoff. Free-tier NPC analyst notes (16:557 T1 / free daily note only, no paid tiers), shown on the Wire, using existing claim and belief machinery, smallest coherent slice.
-
-Gatekeeper bounded PASS (qualified) on d23c141c arrived through the parent before this unit started. The remaining non-blocking qualification — malformed rows inside an otherwise valid `claims` array are still skipped silently — is **not** reopened on `eng/claims-statements`. It is the first product commit on this branch. Criteria for that fix live in `UNIT-DELTA-CORRUPT-CLAIM-ROWS.md`, written in the same docs pass, before any product-code edits. If further Gatekeeper findings on d23c141c, 35803f3f, or earlier claims heads arrive through the parent, those come first.
+**Branch:** `eng/player-statements`  
+**Base:** `19dd11861f102e5f812850c185f34dbc13a55cdf` (`eng/analyst-notes`)  
+**Worktree:** `/workspace/avalon/player-statements`  
+**When written:** 2026-11-11 20:11:26 Europe/Paris — before product-code edits.  
+**Owner:** continue-nonstop after 35803f3f and 19dd1186 were sent to Gatekeeper. First player-facing claim verb: a signed-in player posts a short statement about an asset on the Wire. If Gatekeeper findings on 19dd1186, 35803f3f, or earlier claims heads arrive through the parent, fix those first (on their own branches).
 
 ## Player outcome
 
-Once per game day, a signed-in player reading the Wire sees a named NPC sector analyst's daily note: a headline, the research house, a listed company, and a forecast claim about that company. The note is free (no hire, no fee). It is a 05 claim: it can move belief while pending and later resolves true or false through the existing book. Desktop and phone, All and Statements filters.
-
-## Why this slice, and what 16:557 is not in this unit
-
-16:557 prices Analyst T1 / T2 / T3 at $100 / $600 / $2,500 per game day and `soc.world.analyst.hire` / `.fire` (16:742) is a paid, per-sector subscription (≤ 5 per character). The parent asked for **T1 / free daily note only, no paid tiers**.
-
-This unit publishes the T1 *product* — a daily sector note from public data, forecast at σ 0.6 (the noisiest tier; E-29), by a named 22 §10.8 analyst — as a **free, public Wire item** for every player. It does not implement fees, `INFO_ANALYST_FEE`, hire/fire, the 5-analyst cap, QUANT_RAISED, Terminal, T2 (next-release forecasts with 04/09 model expectations), T3 (scenario chains), or a private subscriber-only feed.
+A signed-in player can post a short public statement about a listed asset from the Wire panel, on desktop and phone. The post costs **$500** game cash, taken atomically (insufficient cash is rejected, no row). A player may post at most **three times per game day**. The statement appears on the Wire as a **STATEMENT** that names the player's handle. It has **no direct price effect**. Guests cannot post. A second account can see the public statement and cannot see the first account's cash or other private ledger.
 
 ## Spec cites
 
-- **16:557** — T1: named NPC analyst per sector; daily sector note from public data; forecast at σ 0.6.
-- **22:2518, 22:2674–2703** — twelve sector analysts, EDITOR actors without an outlet, each at a fictional research house.
-- **22:1139–1145** — claim kinds tagged for an analyst note: `PRODUCT_DELAY` −0.08, `EARNINGS_BEAT` +0.05, `EARNINGS_MISS` −0.06.
-- **05:849–871** — an NPC analyst note is a claim source; 05 reads the structured claim; `claimCredibility` Beta(2,2) (05:857–860); belief overlay, 15-tick true handoff, 60-tick false release.
-- **15:307–308 / 15:606** — WireKind has no ANALYST kind. Do not add one in this slice.
+- **15:625 / 15:766** — `soc.wire.post` `{ text, assetTags, evidenceRefs }`: ≤ 3 per game day; fee; text filter → STATEMENT.
+- **15:625 §3.10.4** — ≤ 280 characters; fee `PARAM.wire_post_fee_real = $500` (23:954); sink `WIRE_POST_FEE` (15:747); max 3 per game day per character.
+- **16:573 §3.6.10** — statements are never `impactHint`ed; **05 applies no price effect for statements** (DEFAULT; prevents talk-up schemes). This slice follows that default.
+- **15:307–308** — STATEMENT is already a WireKind. Do not add a kind.
+- **15:828 / 16:573** — player statements are the player-facing path (NPC analysts already use STATEMENT as a note). Company denials and T1 notes stay as they are.
 
 ## Design
 
-### Wire kind and ids
+### Intent and API
 
-Do **not** edit `channels.ts` / `schema.ts`. There is no `ANALYST` WireKind. Publish the note as **STATEMENT** (named author and `sourceRecord` are already legal on STATEMENT; company denials already use this kind). Headline, slots, entities (asset + analyst actor), and cause copy name the analyst and house so the row is not mistaken for a company denial or a player statement.
+`POST /api/wire` is the first playable `soc.wire.post`. GET `/api/wire` stays a public read (no account, no write). POST requires a signed-in session (guests 401). Body: `{ idempotencyKey, text, assetTags }` only (no `evidenceRefs` this slice). At least one and at most three asset tags; each must be a listed catalog `assetId`.
 
-Ids: `w-a-${claimId}` (claim id itself may be `an-${day}` or similar). Must not collide with live `w-${tick}`, history `w-h-*`, farm `w-r-*`, or denial `w-d-*`. `slots.rumorId` holds the claim id so `retainStories` keeps a pending or just-resolved note the same way it keeps a denial's rumor.
+Idempotency: same key + same fingerprint returns the first decision and does not charge or append a second row (existing broker key rules: 8–64 `[A-Za-z0-9_-]`, conflict 409 when the key was used for a different body).
 
-15:828 ("NPCs do not post statements except as outlets") is recorded as a known tension: analysts are EDITOR actors without an outlet (22:2518). This slice still uses STATEMENT because that is the legal existing kind that carries a named author and a source record. We are not adding player `soc.wire.post` or outlet mastheads.
+### Fee, cap, cash
 
-### Schedule
+Fee is **50_000 cents** ($500). Debit **spendable** cash (`cashCents - reservedCashCents`) so working BUY reserves are not stolen. If spendable < 50_000, reject, write nothing. Starting cash remains $10,000 (`START_CASH_CENTS`), so a fresh account can post. The reason code is `WIRE_POST_FEE` (SINK) on any receipt the ledger already has a place for; do not invent a second money path.
 
-One note per game day, not one per sector per day (hired "per sector" stays out; eight daily notes on top of the farm's eight would flood `STORY_KEEP`).
+Cap: 3 posts per **game day** per account, using `dayOfTick` of the live market tick. A fourth post that day is rejected; cash unchanged. A new game day resets the count. Count published posts by this account for that day (idempotent retries of an accepted post do not consume an extra slot).
 
-Publish when `tick % TICKS_PER_DAY === 400` and `tick >= START_TICK + 21`. For seed-17's start day that is **27760**. The offset is after the M1-05 golden window (ticks 0, 1, 3, and 20 from START_TICK, i.e. 27700–27720) so that tape stays put. Mid-run resume does not open a second note for a day already opened (idempotent by id). Construct at START_TICK does not seed a note.
+Atomicity: the cash debit, the public Wire row, the cap count, and the idempotency record are committed in **one** `AuthService` lock and **one** store save (extend the auth snapshot with a public `wirePosts` array). A failed save rolls back all of it. Do not debit in the auth store and append the row somewhere else.
 
-Schedule is public clock (no secret). Asset, kind, and analyst are seed-only draws (same style as `planFarmDay` / `rumorHash`), from the public catalog.
+### Text: length and sanitizing
 
-### Analysts, assets, kinds
+- Trim, NFC, strip C0/C1 control characters (keep newline as space).
+- Length ≤ **280** Unicode code points after sanitize; empty text is rejected.
+- Personal-data patterns (emails, phone numbers) are **rejected** (21's chat rule, applied as the wire text filter).
+- Profanity and slurs from the existing Launchpad abuse floor (`ABUSE_TERMS` in `moderate.ts`) are **masked** in the stored and displayed text (21), not stored raw.
+- Server is the authority; the client may preview the limit but cannot bypass it.
 
-Map listed **equity** sectors onto the 22 §10.8 roster. Skip GX (index), graduated coins, and VOLT (Utilities has no 22 analyst):
+### Wire row (public)
 
-| asset | catalog sector | 22 sector | analyst | house |
-|---|---|---|---|---|
-| NMBS | Technology | TECH | Priya Holloway | Keystone Research |
-| VRDN | Energy | ENERGY | Ragna Sæther | Fjell Energy Research |
-| KILN | Materials | MATERIALS | Esteban Ferreyra | Cordillera Research |
-| HALC | Industrials | INDUSTRIALS | Marek Vogel | Brenner & Kessel Research |
-| AVB | Financials | FINANCIALS | Grace Abbott | Bayard Bank Research |
-| ORCA | Health | HEALTH | Elise Morel | Lumière Santé Research |
-| MRDN | Consumer | STAPLES | Camila Duarte | Granero Analytics |
-| TIDE | Real estate | REAL_ESTATE | Hana Mori | Kaiyo Land Research |
+Id `w-p-${id}` (no collision with `w-${tick}`, `w-h-*`, `w-r-*`, `w-d-*`, `w-a-*`). Kind **STATEMENT**. Headline key `wire.statement.player` (EN/FR), slots include `handle`, `text` (sanitized), `asset` / company, `authorId`. Entities: the tagged asset(s) and an actor for the handle. `causeKey` `wire.cause.player-statement`. **No `effects`, no `isTrue`, no `sourceRecord` / `sourceBand`** (no resolution yet). `publishTick` is the live market tick. `retainStories` / `STORY_KEEP` apply like other rows; pending-rumor holds are unchanged (these ids are not rumor ids).
 
-Consumer → STAPLES is a documented mapping (catalog has "Consumer", not STAPLES/DISCRETIONARY). SEMI, DISCRETIONARY, MEDIA, and SECURITY have no listed equity in this catalog and are unused this slice.
+GET `/api/wire` **merges** durable player posts into the clock's stories (sorted by tick then id). Player posts are **not** clock catalog stories and do not go through `publishStory` / `applyShock` / `openRumor` / the rumor book. Mid-run LiveMarket restart still shows them, because they live in the auth store, not in the clock epoch. A second process is out of scope (same single-process auth limit as today).
 
-Each day picks one of those eight (seed + day), one of the three analyst-note kinds, and the matching analyst. Same seed ⇒ same note. A different seed can differ.
+### No price effect (16:573)
 
-### Claim and belief
+Do not call `applyShock`, `applyLogMove`, `openRumor`, or write a rumor claim. Marks, M1-05 golden, M1-09 live catalog schedule, and digest4000 versus 19dd1186 stay unchanged. Do not claim digest identity if an unrelated file is touched; this unit must not move marks.
 
-Open through the existing `RumorBook.open()` as channel **`analyst`**. Belief uses the desk 05 path (`claimCredibility`, evidence 0, prestigeReach 0 this slice), **not** the farm 16:566 impulse. `normalizeRumorSnapshot` must persist and accept `channel: "analyst"`.
+### Persistence, isolation, restart
 
-Each of the eight analysts is a `RumorSource` (`sourceId` `an-TECH` … `an-REAL_ESTATE`), created from seed+secret on first book start and on hydrate when absent (same upgrade shape as farm authors). Hidden accuracy is HMAC-sealed in a noisy band **[0.40, 0.55]** — the noisiest tier, σ 0.6, without standing up a 04/09 release-expectation engine this slice. Truth and horizon use the existing HMAC-SHA256(secret, seed\|kind\|id) draws and `resolvesByTick` (720..3600). The secret is never FNV input.
+- Public: the STATEMENT row (handle, text, assets, tick). Any signed-in or guest GET of the server Wire may see it once it is on the merged feed (guest fixtures remain the mock feed, as today).
+- Private: cash, reserved cash, positions, orders, fills, idempotency records, remaining daily cap. `GET /api/broker/me` is the caller's ledger only. A second account's `me` does not include the first account's cash or keys. The Wire item must not carry cash or other ledger fields.
+- Restart: FileAuthStore rematerializes `wirePosts` and cash; GET `/api/wire` still lists the posts; the cap still counts them. Idempotent retry after restart still returns the first decision.
 
-Public data only: listed catalog equities, public claim kinds, no private positions, no NON_PUBLIC facts (16:557 guards / L11).
+### Composer (minimal)
 
-Company denials do **not** fire on analyst notes this slice (`companyDenialTick` / `applyCompanyDenials` skip `channel === "analyst"`). A research note is not on the rumor-denial schedule.
-
-On resolve, stamp the STATEMENT row (phase, cause, effects, source record) the same way farm rows are stamped. Causes: `wire.cause.analyst-note`, plus `-confirmed` / `-fizzled` / `-denied` if the shared resolver can still fizzle or deny (denied here means the claim resolved DENIED, not a company STATEMENT). Rebuild after restart includes these rows.
-
-No `applyShock` at publish (pending claim: belief only; 05:324). Confirmed true still prints X on lnV and hands off over 15 ticks.
-
-### Localization and filters
-
-EN and FR headline, cause, and kind-adjacent copy. Statements filter shows the row (STATEMENT). All shows it. Rumors filter does not. WIR-A `?empty=1` baselines stay. No new filter chip.
-
-## What must not change
-
-- Live `storyAt` schedule, first live story still orca-trial at 27706, history `w-h-*` at t0.
-- M1-05 golden / legacy tape at ticks 0, 1, 3, 20 (first note is at 27760).
-- HMAC seals, 15-tick handoff, fail-closed missing/corrupt rumors (and, after the first commit, fail-closed invalid claim rows), company denials on desk/farm claims, farm 8/day.
-- `channels.ts` / `schema.ts`. POLICY/RECOVERY, 07/FX, meme-failure farm, paid T2/T3.
-
-**digest4000 will change versus 35803f3f.** A new 05 claim that opens at 27760 and moves belief inside the 4000-tick window changes marks. Document the new digest in the proof/handoff; do not claim identity with 35803f3f. Do not claim 16:564 “never past real due time.” Boot hydration, not continuation-hash identity.
+Signed-in only, in the existing Wire panel (`Feed` / `App.tsx`), both desktop and phone. Follow existing Wire CSS, chips, 28/44 hit targets, focus ring, EN+FR strings. A compact control (a "Post a statement" disclosure or equivalent) so the **default** signed-in chrome stays close to today: M1-09 "the story and its effect fit" on a 390 / 520 window, and WIR-A `?empty=1` / guest fixtures, must not grow a permanent composer stack that breaks those tests. Opening the disclosure lets the player pick 1–3 listed assets, type ≤ 280, see the $500 fee and remaining posts today, and submit. The UI builder polishes later. No new filter chip (Statements already exists). No `channels.ts` / `schema.ts` edits unless a parse rejects a legal STATEMENT (it should not).
 
 ## Acceptance
 
-1. First commit (see UNIT-DELTA): any invalid claim row in a present `claims` array fails closed (`CorruptRumorSnapshotError`, loud log, store untouched) before mount; valid `claims: []` still boots.
-2. On a fresh world, the first T1 note opens at 27760 (seed 17: deterministic asset, kind, named analyst and house). `/api/wire` has a STATEMENT id `w-a-*`, headline, asset entity, analyst entity, cause, `sourceRecord`, no `effects` at publish. Quotes at t0 through 27720 still match M1-05. After 27760, the target's belief can move; a no-note reference does not.
-3. Same seed ⇒ same note. A second `wire()` / `snapshot()` does not open a second note that day. Jump ≡ step across the publish tick. Mid-run resume / boot hydration rematerializes the same claim id and Wire row, no second copy.
-4. Resolution uses the existing book: true prints X and 15-tick handoff; false releases with 60-tick half-life; the author's public record updates; the Wire row is stamped.
-5. No hire, fee, T2, or T3 path exists in this slice. Company denials do not append a `w-d-*` row for an analyst claim.
-6. Repo checks (lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, npm test) on the exact head. Affected e2e once on a clean temp tree, fresh `.data`, including M2-01 and the Wire specs (M1-09, WIR-9, WIR-A), both projects. Delete the temp tree after. Preview :3199 stays 200; never bind :3199 or :3102.
+1. Signed-in POST with valid text, one listed asset, spendable cash ≥ $500, under the daily cap: 200, STATEMENT `w-p-*` on GET `/api/wire` with the handle and sanitized text, cash down by exactly 50_000 cents, `WIRE_POST_FEE`. Quotes unchanged vs a no-post reference at the same tick.
+2. Insufficient spendable cash: rejected, no row, cash unchanged. A 4th post in the same game day: rejected, no 4th row, cash unchanged. Empty, too long, PII, or bad/missing asset tags: rejected, no charge. Guest POST: 401, no write.
+3. Same `idempotencyKey` + same body: first decision replayed, no second charge or row. Same key + different body: 409.
+4. After a process restart on the same FileAuthStore, the row and the cash debit are still there; a replay of the same key does not charge again.
+5. Account B sees A's public STATEMENT and does not see A's cash or private ledger.
+6. Composer works on desktop and phone for a signed-in player; guests do not get it. Repo checks (lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, npm test) on the exact head. Affected e2e once on a clean temp tree, fresh `.data`, including M2-01, M1-09, WIR-9, WIR-A, **and a new desktop+phone spec** that posts, sees the statement, checks cash dropped by 500, hits the cap, refreshes and sees it persist, and confirms a second account cannot see the first's private state. Delete the temp tree. Preview :3199 stays 200; never bind :3199 or :3102. Pre-push stray-init check (`pf@test` `init`, `tracked.txt`); normal push, no force, no PR.
+
+## Follow-ups (out unless a tiny hook is required for coherence)
+
+- 5-game-day TRUE/FALSE/OPINION resolution (`PARAM.statement_resolve_game_days`).
+- 05 belief / surveillance / 13 manipulation on false factual claims (16:573 already forbids a direct price effect in this slice).
+- Voices, `reachWeight`, followers-only distribution, evidence refs (up to 5).
+- 15:828-adjacent NPC outlet mastheads; player `soc.wire.mute`.
+- Full 21 moderator queue (`HELD_FOR_REVIEW`).
 
 ## Not in this unit
 
-Paid tiers, hire/fire, fees, T2/T3, Research Desk, 04/09 model expectations, a Gaussian forecast engine, private notes, a new WireKind, one-note-per-sector density, denials of analyst notes, player statements (`soc.wire.post`), mid-run re-seed of catalog NEWS, POLICY/RECOVERY, 07/FX, meme-failure farm. No overall GO.
+Paid analyst tiers, company-denial changes, POLICY/RECOVERY, 07/FX, meme-failure farm. No 16:564 due-time claim. No overall GO.
 
 ## Checklist
 
-- [ ] UNIT.md and UNIT-DELTA-CORRUPT-CLAIM-ROWS.md written and committed before product-code edits.
-- [ ] First product commit: fail-closed invalid claim rows + test.
-- [ ] Analyst notes: plan/open, sources, Wire STATEMENT, strings/causes EN+FR, resolve stamp, tests, proof (memory stores only, no product `.data`).
-- [ ] Checks on the exact head; affected e2e in a temp tree, then delete it.
-- [ ] Normal push, no PR, no force, no hook bypass. GK-HANDOFF under evidence only.
+- [ ] UNIT.md written and committed before product-code edits.
+- [ ] Post API, atomic fee, cap, sanitize, merge onto GET `/api/wire`, tests, proof (no product `.data`).
+- [ ] Minimal signed-in composer, EN+FR, desktop and phone.
+- [ ] Checks on the exact head; affected e2e in a temp tree including the new spec; delete the temp tree.
+- [ ] Pre-push stray-init check; normal push; GK-HANDOFF under evidence only.
