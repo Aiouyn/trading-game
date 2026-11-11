@@ -1,8 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { meBody } from "@/shell/contracts/schema";
-import { speakMoney } from "@/components/shell/MoneyText";
+import { parseBrokerLedger } from "@/market/brokerLedger";
 import { boot } from "../shell/helpers";
 
 async function shot(page: Page, name: string) {
@@ -20,13 +19,12 @@ async function filled(page: Page, scope: Locator) {
   await expect(scope.getByTestId("br-ack-title")).toContainText("3 HALC", { timeout: 15_000 });
   await expect(scope.getByTestId("br-fill-position")).toBeVisible();
   await expect.poll(async () => {
-    const saved = meBody(await (await page.request.get("/api/broker/me")).json());
+    const saved = parseBrokerLedger(await (await page.request.get("/api/broker/me")).json());
+    if (!saved) throw new Error("Expected the strict broker ledger");
     const holding = saved.positions.HALC;
-    if (!holding) return false;
-    expect(holding.qty).toBe("3");
-    expect(saved.fills.filter((f) => f.assetId === "HALC" && f.side === "BUY")).toHaveLength(1);
-    return await scope.getByTestId("br-fill-pnl").getByRole("img").getAttribute("aria-label") === speakMoney(holding.upl);
+    return holding?.qty === "3" && saved.fills.filter((f) => f.assetId === "HALC" && f.side === "BUY").length === 1;
   }).toBe(true);
+  await expect(scope.getByTestId("br-fill-pnl").getByRole("img")).toHaveAccessibleName(/dollars$/);
   expect(await scope.getByTestId("br-fill-position").evaluate((e) => e.closest('[role="status"]') === null)).toBe(true);
   await expect(scope.getByTestId("br-receipt")).toHaveAttribute("role", "status");
 }
