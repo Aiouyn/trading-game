@@ -21,9 +21,10 @@ export default defineConfig({
     command: `npm run build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     // QUAY_DS=1 serves the dev-only /__ds primitives sheet in the production build (17A T1).
-    // NEXT_PUBLIC_QUAY_E2E is a build-time inline (next.config) used only by this official e2e
-    // webServer. A normal no-flag production build inlines "0" and cannot skip the consent prompt.
-    env: { QUAY_DS: "1", QUAY_HOOKS: "1", NEXT_PUBLIC_CITY_E2E: "1", NEXT_PUBLIC_QUAY_E2E: "1", NEXT_PUBLIC_QUAY_MOCK_PHASE: "1", NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL: "1", NEXT_PUBLIC_QUAY_MOCK_LOAD_FAIL: "1" },
+    // NEXT_PUBLIC_QUAY_E2E is a build-time inline used only by this official e2e webServer, and
+    // only when QUAY_OFFICIAL_E2E_BUILD=1 is also set. A normal production build cannot skip consent:
+    // next.config throws if the flag is set without this marker, and otherwise inlines "0".
+    env: { QUAY_DS: "1", QUAY_HOOKS: "1", NEXT_PUBLIC_CITY_E2E: "1", NEXT_PUBLIC_QUAY_E2E: "1", QUAY_OFFICIAL_E2E_BUILD: "1", NEXT_PUBLIC_QUAY_MOCK_PHASE: "1", NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL: "1", NEXT_PUBLIC_QUAY_MOCK_LOAD_FAIL: "1" },
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,
   },

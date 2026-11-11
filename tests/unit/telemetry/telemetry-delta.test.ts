@@ -87,6 +87,10 @@ describe("telemetry delta: ceiling, scrub, stream, HMAC, per-client limit, opt-i
       { name: "URL query", input: "see https://quay.example/cb?token=sekrit&x=1#frag", forbidden: /token=sekrit|#frag|\?token/, must: /https:\/\/quay\.example\/cb/ },
       { name: "stack URL", input: "at https://cdn.example/app.js?token=abc#L12:4", forbidden: /token=abc|#L12/, must: /https:\/\/cdn\.example\/app\.js/ },
       { name: "path query", input: "GET /api/auth/me?token=sekrit ok", forbidden: /token=sekrit|\?token/, must: /\/api\/auth\/me/ },
+      { name: "posix home stack", input: "at /home/alice/src/quay/app.ts:10:2", forbidden: /\/home\/alice/, must: /\[redacted\]\/src\/quay\/app\.ts:10:2/ },
+      { name: "mac home stack", input: "at /Users/alice/src/quay/app.ts:10:2", forbidden: /\/Users\/alice/, must: /\[redacted\]\/src\/quay\/app\.ts:10:2/ },
+      { name: "windows home stack", input: "at C:\\Users\\Alice\\src\\quay\\app.ts:10:2", forbidden: /C:\\Users\\Alice/i, must: /\[redacted\]\\src\\quay\\app\.ts:10:2/ },
+      { name: "acc_ before phone", input: "id acc_0123456789abcdef0123456789abcdef done", forbidden: /acc_|0123456789abcdef/, must: /\[redacted\]/ },
     ];
     for (const row of rows) {
       const out = scrubTelemetryText(row.input);
@@ -95,6 +99,15 @@ describe("telemetry delta: ceiling, scrub, stream, HMAC, per-client limit, opt-i
     }
     // Clock times are not IPv6.
     expect(scrubTelemetryText("Day 39 · 11:20")).toContain("11:20");
+    // Phone / IPv4 must not eat decimals or UA versions.
+    expect(scrubTelemetryText("qty 123456.78 filled")).toContain("123456.78");
+    expect(scrubTelemetryText("Mozilla/5.0 Chrome/122.0.0.0 Safari/537")).toContain("Chrome/122.0.0.0");
+    expect(scrubTelemetryText("peer 203.0.113.44 timed out")).not.toMatch(/203\.0\.113\.44/);
+    // "at" folds only in email-like context.
+    expect(scrubTelemetryText("HALC will rise at 11:20")).toBe("HALC will rise at 11:20");
+    expect(scrubTelemetryText("resolved at tick 27700")).toBe("resolved at tick 27700");
+    expect(scrubTelemetryText("mail alice at example.com")).toMatch(/\[redacted\]/);
+    expect(scrubTelemetryText("mail alice at example.com")).not.toMatch(/alice@example\.com|alice at example/i);
   });
 
   it("a flood cannot grow the telemetry dir past the ceiling", async () => {
@@ -110,6 +123,7 @@ describe("telemetry delta: ceiling, scrub, stream, HMAC, per-client limit, opt-i
     const total = await dirBytes(dir);
     expect(total).toBeLessThanOrEqual(TELEMETRY_DIR_MAX_BYTES);
     const names = await readdir(dir);
+    expect(names.filter((n) => n.endsWith(".tmp")), "rotate leaves no .tmp files").toEqual([]);
     const errors = names.filter((n) => n === "errors.jsonl" || n.startsWith("errors.jsonl."));
     expect(errors.length).toBeGreaterThan(1); // rotation happened
     expect(errors.length).toBeLessThanOrEqual(1 + TELEMETRY_FILE_ROTATIONS);

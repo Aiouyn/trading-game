@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { scrubTelemetryText } from "./scrub";
 
@@ -69,17 +69,22 @@ async function dirTotal(dir: string): Promise<number> {
   return files.reduce((n, f) => n + f.size, 0);
 }
 
+/** Copy source to dest.tmp, atomically rename onto dest, then drop source. A crash mid-copy leaves dest untouched. */
+async function promoteRotation(dir: string, fromName: string, toName: string): Promise<void> {
+  const from = path.join(/* turbopackIgnore: true */ dir, fromName);
+  const to = path.join(/* turbopackIgnore: true */ dir, toName);
+  const tmp = `${to}.tmp`;
+  try { await unlink(tmp); } catch { /* no leftover */ }
+  try { await copyFile(from, tmp); } catch { return; /* no source */ }
+  await rename(tmp, to);
+  try { await unlink(from); } catch { /* already gone */ }
+}
+
 async function rotateStream(dir: string, file: string): Promise<void> {
-  const oldest = path.join(/* turbopackIgnore: true */ dir, rotationName(file, TELEMETRY_FILE_ROTATIONS));
-  try { await unlink(oldest); } catch { /* no oldest */ }
   for (let n = TELEMETRY_FILE_ROTATIONS - 1; n >= 1; n--) {
-    const from = path.join(/* turbopackIgnore: true */ dir, rotationName(file, n));
-    const to = path.join(/* turbopackIgnore: true */ dir, rotationName(file, n + 1));
-    try { await rename(from, to); } catch { /* gap in the chain */ }
+    await promoteRotation(dir, rotationName(file, n), rotationName(file, n + 1));
   }
-  const live = path.join(/* turbopackIgnore: true */ dir, file);
-  const first = path.join(/* turbopackIgnore: true */ dir, rotationName(file, 1));
-  try { await rename(live, first); } catch { /* no live file */ }
+  await promoteRotation(dir, file, rotationName(file, 1));
 }
 
 /** Drop oldest rotated jsonl files until `total + needed` fits, or we run out of rotations. */

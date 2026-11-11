@@ -14,6 +14,16 @@
   box-shadow: var(--elev-sheet);
 }
 .statusbar .quay-feedback-panel { right: auto; left: 0; }
+/* The phone status bar is 44 px and overflow:hidden; a relative sheet was clipped (y ≈ −13).
+   Pin it just below the bar so the form and thanks are fully visible. */
+.phone .quay-feedback-panel {
+  position: fixed;
+  top: calc(var(--statusbar-h) + 8px);
+  left: 8px;
+  right: 8px;
+  width: auto;
+  z-index: calc(var(--z-chrome) + 1);
+}
 .quay-feedback-label { display: block; margin-bottom: 6px; font-size: var(--fs-13); }
 .quay-feedback-panel textarea {
   width: 100%;

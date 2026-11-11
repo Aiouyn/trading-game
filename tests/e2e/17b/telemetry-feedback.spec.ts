@@ -23,7 +23,15 @@ async function submitFeedback(page: Page) {
   await expect(page.getByTestId("quay-feedback")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("quay-feedback-form")).toHaveCount(0);
   await page.getByTestId("quay-feedback").click();
-  await expect(page.getByTestId("quay-feedback-form")).toBeVisible({ timeout: 10_000 });
+  const form = page.getByTestId("quay-feedback-form");
+  await expect(form).toBeVisible({ timeout: 10_000 });
+  const formBox = await form.boundingBox();
+  expect(formBox, "feedback form should have a box").toBeTruthy();
+  expect(formBox!.y, "feedback form must not sit under the top chrome").toBeGreaterThanOrEqual(0);
+  if (await page.getByTestId("statusbar").count()) {
+    const chrome = await page.getByTestId("statusbar").boundingBox();
+    expect(formBox!.y).toBeGreaterThanOrEqual((chrome?.y ?? 0) + (chrome?.height ?? 44) - 1);
+  }
   await page.getByTestId("quay-feedback-text").fill("The ticket is confusing.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByTestId("quay-feedback-thanks")).toBeVisible({ timeout: 10_000 });

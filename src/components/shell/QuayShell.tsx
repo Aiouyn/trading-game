@@ -127,11 +127,11 @@ function ConsentBoot() {
       try {
         const q = new URLSearchParams(window.location.search);
         const force = q.get("telemetry_consent") === "1";
-        // Official e2e (playwright.config webServer) builds with NEXT_PUBLIC_QUAY_E2E=1 so the
-        // prompt cannot intercept taps or land in screenshot baselines. next.config inlines the
-        // flag as "1" or "0" at build time (same as the other e2e hooks). A normal no-flag
-        // production build therefore folds this skip out; setting the variable at `next start`
-        // runtime cannot turn consent off. check-hooks forbids the flag name in a no-flag .next tree.
+        // Official e2e (playwright.config webServer) builds with NEXT_PUBLIC_QUAY_E2E=1 and
+        // QUAY_OFFICIAL_E2E_BUILD=1 so the prompt cannot intercept taps or land in baselines.
+        // next.config inlines "1" only when both are set, and fails the build if the flag is
+        // set without the marker. A normal production build inlines "0"; `next start` cannot
+        // turn consent off. check-hooks forbids the flag name in a no-flag .next tree.
         if (!force && process.env.NEXT_PUBLIC_QUAY_E2E === "1") return;
         const store = window.localStorage;
         if (store.getItem("quay.telemetry.consent") || store.getItem("quay.telemetry.optout")) return;
