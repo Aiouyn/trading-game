@@ -58,6 +58,28 @@ export function halfLifeK(hlDays: number): number {
   return 1 - Math.pow(2, -1 / (hlDays * TICKS_PER_DAY));
 }
 
+/** 04:1024 FLASH_CRASH calibration: 70% of the price drawdown recovered within one game day. */
+export const FLASH_PRICE_RECOVERY_PER_DAY = 0.7;
+/**
+ * Legacy log-space half-life (game days): 70% of the *log* gap recovers in 1 GD.
+ * For a −10% session print that is only 68.886% of the price drawdown.
+ * `shockHalfLifeDays("FLASH_CRASH")` keeps this number so kind-table callers stay stable;
+ * `applyShock` re-solves k from the actual downward log move (04:1024 price recovery).
+ */
+export const FLASH_LOG_HALF_LIFE_DAYS = 1 / Math.log2(1 / 0.3);
+/**
+ * Residual half-life in game days so the price drawdown (not the log gap) recovers
+ * FLASH_PRICE_RECOVERY_PER_DAY in one game day: exp(L0·2^(−1/h)) = 1 − 0.3·(1 − exp(L0)).
+ */
+export function flashCrashHalfLifeDays(initialLog: number): number {
+  if (!(initialLog < 0) || !Number.isFinite(initialLog)) return FLASH_LOG_HALF_LIFE_DAYS;
+  const dayLog = Math.log(1 - (1 - FLASH_PRICE_RECOVERY_PER_DAY) * (1 - Math.exp(initialLog)));
+  if (!(dayLog < 0) || !Number.isFinite(dayLog)) return FLASH_LOG_HALF_LIFE_DAYS;
+  const ratio = dayLog / initialLog;
+  if (!(ratio > 0 && ratio < 1)) return FLASH_LOG_HALF_LIFE_DAYS;
+  return -1 / Math.log2(ratio);
+}
+
 /** 04:1031 / 04:1015 shock residual half-lives (game days). Cite 04:1033 "Shocks decay on their own schedules". */
 
 /** Extract the 04 kind token from a durable stockApplied stormId (`storm:day:KIND`, `major:force:KIND:tick`, …). */
@@ -68,7 +90,8 @@ export function kindFromAppliedId(id: string): string {
   return p[2] ?? "RATE_SCARE";
 }
 
-export function shockHalfLifeDays(kind: string): number {
+export function shockHalfLifeDays(kind: string, initialLog?: number): number {
+  if (kind === "FLASH_CRASH" && initialLog !== undefined) return flashCrashHalfLifeDays(initialLog);
   switch (kind) {
     case "RATE_SCARE": return 30;
     case "OIL_SPIKE_LITE": return 20;
@@ -79,7 +102,7 @@ export function shockHalfLifeDays(kind: string): number {
     case "SECTOR_ROTATION": return 30;
     case "EARNINGS_SCARE": return 30;
     case "EQUITY_BUBBLE_BURST": return 120; // 04:1015 erpShock half-life 120 d
-    case "FLASH_CRASH": return 1 / Math.log2(1 / 0.3); // 04:1024 ~70% recovered within 1 GD
+    case "FLASH_CRASH": return FLASH_LOG_HALF_LIFE_DAYS;
     case "OIL_SHOCK": return 20;
     case "BANKING_PANIC": return 30;
     case "CREDIT_CRUNCH": return 30;
@@ -335,8 +358,12 @@ export class ShockFeed extends MockFeed {
     if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
     if (halfLifeDays != null && from > 0 && to !== from) {
       const prev = this.shockResidual.get(assetId);
-      const log = Math.log(to / from) + (prev?.log ?? 0);
-      const k = halfLifeK(halfLifeDays);
+      const moveLog = Math.log(to / from);
+      const log = moveLog + (prev?.log ?? 0);
+      const days = halfLifeDays === FLASH_LOG_HALF_LIFE_DAYS && moveLog < 0
+        ? flashCrashHalfLifeDays(moveLog)
+        : halfLifeDays;
+      const k = halfLifeK(days);
       this.shockResidual.set(assetId, { log, k: prev ? Math.max(prev.k, k) : k });
     }
     return { from, to };

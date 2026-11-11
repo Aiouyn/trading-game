@@ -22,3 +22,12 @@ When a flash crash hits, the market bounces back 70% of that price drop in one g
 5. Conservation: the recovery path creates no money. Player cash and deposits are unchanged across a 1-GD FLASH recovery; only marks move.
 6. Deterministic: the same seed and the same forced crash produce the same marks and residual rows.
 7. Lint, typecheck, build, check-hooks, route-budget (BUDGET_PORT in 3460–3469), map-no-dup and `npm test` pass. One affected e2e (live ticks or a crisis/storm spec) runs in a fresh detached worktree with fresh `.data` on a port in 3460–3469, then that worktree is removed.
+
+## Results
+
+Recorded 2026-11-12T00:43:40+01:00 Europe/Paris, after the fix, checks, e2e and proofs, before the product commit.
+
+- Three FLASH_CRASH sizes (severities 0.6, 1, 1.4) recover 70% of the price drawdown in one game day on the residual-implied path, within `1e-9`. The official GX −10% session print moves from the legacy 68.886% to 0.7000000000000007.
+- The printed GX mark, net of the equity ERP actually printed that day, stayed within 3.18 minor units of the residual-implied price (stated test tolerance: 5 minor units). Per-tick residual+ERP rounding on GX over 720 ticks is a few minors; the 1-minor target in the pre-code acceptance list was slightly optimistic.
+- Trigger prints are unchanged. A before/after snapshot of every other shock and crisis output (kind-table half-lives, isolated non-FLASH runs, and a mixed 10-GD non-FLASH decay) is byte-identical. Only the FLASH residual `k` and its recovery path change.
+- Restart mid-FLASH-recovery and `catchUpDecay` jump equal tick-by-tick `advanceDecay`. Cash delta is 0; the feed does not create money.
