@@ -69,5 +69,6 @@ out/
 
 # local auth/session/world data (M1+)
 .data/
+.data-backups/
 # local preflight evidence (untracked)
 .preflight/
