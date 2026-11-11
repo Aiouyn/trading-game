@@ -1,40 +1,51 @@
-# Unit: server-side DAY order expiry at game-day close
+# Unit: resume the market path across a server restart
 
-**Branch:** `eng/broker-day-expiry`  
-**Base:** `81b5b144` (`eng/broker-idempotency`)  
-**Worktree:** `/workspace/avalon/broker-day-expiry`  
-**When written:** 2026-11-11 23:59:14 Europe/Paris — before product-code edits.  
-**Board / engine:** M1-06 place/cancel loop; `docs/ENGINE.md`: `tif: 'day'` expires at the next game-day boundary. On `81b5b144`, `docs/v1/M1-03-PERSISTENCE.md` still says “day orders have no session close yet.”
+**Branch:** `eng/market-restart-marks`  
+**Base:** `919cdb6d` (`eng/broker-day-expiry`)  
+**Worktree:** `/workspace/avalon/market-restart-marks`  
+**When written:** 2026-11-12 00:12:07 Europe/Paris — after reading the current restart behaviour, before product-code edits.  
+**Board:** M1-05 (approved V1 board): one shared, deterministic quote path (`same seed → same path`). Players should see **one persistent world**.
 
-## Why this unit
+## What players see on a restart today (`919cdb6d`)
 
-Resting day limit orders never expire. Reservations (buy cash, sell units) stay held across the close, and the open book keeps the order WORKING. That is not the DAY contract.
+`lastTick` already persists (storm-world store: storms, Fear/regime, shock residuals, ERP leftovers, rumors). The **quote walk does not**.
 
-Expiry must be **authoritative in the tick/engine** (`BrokerService.sweep` / `sweepLedger` / `sweepListed` on the market clock), **not** on `GET /api/broker/me` (or any other GET). A read must not rewrite the store.
+On boot, `LiveMarket` builds a `ShockFeed` at the persisted tick (`startTick: resume`) with **virgin marks**: each catalog `last` is the fixture `base` (HALC `4218` = 42.18), `rng` / `Draws` start at the seed, listed-coin `MemeProcess` starts at its listing price, and `CandleRecorder` is a new random `epoch` with no bars. Residuals, ERP and confirmed rumor X are then **rematerialized onto those virgin marks**. The clock does **not** replay the walk from tick 0 (by design: `bootstrapTo` is bookkeeping-only so history does not reprice a new epoch).
 
-The ticket's Stop / Stop limit options stay untouched (Avalon Builder UI).
+So this is **not** “prices already persist and only internal RNG state resets.” Both the last prices and the walk state reset; only the tick (and adjacent bookkeeping) resume.
+
+| What a player sees | On restart today |
+|---|---|
+| Last prices | **Jump** toward catalog base, plus rematerialized residuals — not the last walk. |
+| Unrealized P/L, net worth, leaderboard | **Jump with the marks** (they are mark-to-market on `/api/market`). |
+| Chart / candle history | **Snaps back**: a new epoch, empty bars; the first bar opens at the new last. The chart already tells the client “since when it has data.” |
+| Tick / calendar | Continues from persisted `lastTick`. |
+
+`eng/wire-read-only` is a parallel worker: this unit does not touch Wire statement code. Broker order/expiry code is read-only here.
 
 ## Smallest observable outcome
 
-On a signed-in account, a resting **day** limit (buy or sell, including a remaining PARTIAL) that is still working at the **close of the game day it was placed** (`dayCloseTick(dayOf(placedTick))`):
+After a mid-session process restart over the same store:
 
-1. After the close tick's fill attempt (a limit that is marketable **at the close mark** still fills; a jump **past** that close does not fill at a later mark), any remainder is recorded **EXPIRED** in the player's **orders** and **history**. Cash cents and position quantities are unchanged except for fills that already happened.
-2. Reserved cash (buy: remaining × limit + fee) or reserved shares (sell: remaining qty) are released **exactly**. Spendable cash / sellable units go up by that hold and no more.
-3. A second sweep, and a process restart over the same store followed by another sweep, does not move cash or positions again, does not add a second history row, and leaves the order EXPIRED.
-4. Another account's cash, reservations, orders, and history are untouched (player isolation).
-5. `GET /api/broker/me` at or past that close, if the sweep has not run, leaves the order working and writes nothing. The close is applied only by the tick sweep.
-6. The existing Open orders list shows the **Expired** status on that row (chip + `data-status`) and offers no Cancel. Ticket Stop / Stop limit controls are unchanged.
+1. The last price of each already-quoted asset is the last price from before the restart. The next ticks continue that walk: the same persisted state plus the same number of steps yields the **same quotes** (deterministic).
+2. Candle history continues: the same bars (open/high/low/close/volume) and the same live close, not an empty new epoch at catalog base.
+3. Two accounts (and two readers of `/api/market`) see the **same** shared quotes after the restart, as they did before.
+4. Because marks continue, mark-to-market P/L, net worth and the leaderboard do not jump solely because the process restarted.
+5. A **corrupt** path snapshot **fails closed** (same class as a corrupt rumor snapshot: do not boot a silent virgin market). An **absent** path field (old storm-world files, or no file) is the **upgrade path**: today’s virgin-at-`lastTick` behaviour, then the path is saved going forward.
+6. Writes stay **atomic** (temp + rename), in the existing storm-world persist.
 
-Charge path, taker/maker fees, the last-50 receipt ring, the durable idempotency journal, and the 215 KB first-load cap stay unchanged. GTC remains refused (`MKT_ORDER_TYPE_UNSUPPORTED`).
+Charge path, broker place/cancel/expiry, and Wire statement resolution are unchanged. First-load budget stays within 215 KB / 205 KB target.
 
 ## Plan
 
-Hook expiry into the existing per-tick sweep, after fill attempts when the clock is **on** the placement day's close, and as a no-fill expire when the clock has already passed that close (a jump or a late sweep). Persist an optional `orderHistory` keepLast-50 ring on the v2 private ledger (no schema bump; old saves have none). Keep the expired order in `me.orders` with status `EXPIRED` so the existing list can show it; ignore EXPIRED rows in reservations and the working-order cap. Prune the oldest expired rows out of `me.orders` if they would block the open-book cap; history still holds them. `ledgerView` exposes `history`. `read()` / GET do not sweep and do not expire.
+Extend the storm-world snapshot with an optional `path` (marks, serializable walk/RNG state, candle bars). The file store already uses temp + rename. On load, if `path` is present and valid, hydrate the feed and the candle recorder and **do not** rematerialize shocks/rumors onto virgin marks (the persisted last already includes them). If `path` is absent, keep the current upgrade behaviour. If `path` is present but unreadable, refuse like `refuseCorruptRumorSnapshot`. Persist `path` in the same `saveStormWorld` already called on each clock step.
+
+Do not replay the walk from tick 0 (slow, and this stack already chose not to reprice a boot that way). Do not edit broker execution or Wire statement modules except to read them.
 
 ## Acceptance
 
 1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage of (1)–(6) above, including FileAuthStore restart, two-account isolation, close-tick fill-then-expire, post-close jump with no late fill, and GET-does-not-write.
+2. Official unit coverage of (1)–(5): mid-session restart continues last and candles; two readers see the same quotes; a second restart on the same store still matches; same state + N steps matches a control clock that never restarted; a corrupt `path` fails closed; an absent `path` still boots (upgrade).
 3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, `BR-5`).
+4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: market/chart path (`BR-7` candle/chart specs if present, otherwise the Broker specs that read live marks).
 5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
