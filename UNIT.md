@@ -1,0 +1,27 @@
+# UNIT — meme failure farm
+Written **2026-11-11T17:50:27.979123+01:00 Europe/Paris**, before implementation or tests. Base `110583b0aa73ece1dc3b856665f3be0405f1acc3`; branch `sys/meme-failure-farm`; worktree `/workspace/avalon/sys-meme-failure-farm`.
+
+## Player outcome / scope
+A new isolated engine API models paid immediate launches and the complete token journey using the base's real curve, graduation and finite-book functions. A player can lose through actual creator dumping or vanishing liquidity: NPC launchers sell owned allocations into rallies, may abandon only at low hype, and a thin book for seven game days delists discovery and marks retained wallets at zero. A rug flag describes an executed creator dump, never random confiscation. Tokens/cash are not deleted to fake death; no cash, credit or refill is created. This is a standalone engine/farm integration seam, not silently mounted into the shared web runtime. Existing launchpad account/state formats and UI are unchanged.
+
+## Sources / resolved gaps
+- complete/06-ASSET-CLASSES.md:748-762: hourly hype formula, H0 .6; NPC rally sale cap 20% hourly volume, abandonment probability .5 at H<.15; liquidity<$1,000 for seven game days → delisted/zero marked retained wallets. 90% near-zero in a chapter is a measurement, not a kill quota.
+- complete/06-ASSET-CLASSES.md:1042-1045 and 1234: locked liquidity prevents LP withdrawal rugs. Owner overrides disabled launch/$5M with immediate $1,000 game money, already in base docs/v1/LAUNCHPAD.md:36-38 and rules.ts.
+- complete/05-MARKETS-PRICE-ENGINE.md:364,437,508 and owner override: use the existing finite `fillOnBook`, never a last-resort maker. Graduation reuses `graduationOf`, not an AMM stand-in.
+- Creator dump thresholds use the base's documented older design-of-record p10 L5 (origin/p10/lp docs/team/specs/lead-launchpad.md:58-67): >=50% graduation holding sold within 24 GD, or >=3% supply in a GD with >=40% price drop. No Court, identities graph, claims or Wire work.
+- Small gaps: abandonment draw once per game hour with a stateless seed/coin/hour stream; NPC reserve is explicit launcher's wallet, never implicit funding. Liquidity is settled real cash backing (virtual X0 excluded), not displayed market cap. Thin clock is continuous sampled game-hour state for both curve and graduated book, with seven consecutive days. Batch catch-up replays supplied hourly inputs, never fills a gap with a made-up path. Delisting irreversible per coin; market recovery comes from fresh finite-funded launches, not resurrecting holders for free.
+
+## Acceptance / proof contract
+1. A just-created wallet can launch with exactly 100,000 cents; replay is exactly once; insufficient cash/refused trades change nothing. Existing curve fees, creator cap and graduation math retained.
+2. Every operation conserves `sum(wallet cash)+real curve cash+book cash+sink`; each token's sum(wallet tokens)+unsold or book tokens equals 1B. Negative balances/over-selling impossible; book exhaustion partial/no fill; no LP withdrawal API.
+3. Creator dump positive cases and honest slow-sell negative cases; daily threshold/drop boundaries; flags are monotone and public without private wallet IDs.
+4. NPC actions bounded by owned tokens, cash, real hourly volume and hype; abandonment only NPC, deterministic, persisted, terminal for NPC activity; no random failure quota.
+5. <$1,000 exactly for seven days delists; equality resets clock; genuine replenishment before death resets it; retained tokens at zero valuation and removed discovery. New launches can grow the market after crashes using already existing money.
+6. Strict versioned checkpoints, atomic file save, corrupt state rejected without repair/reset; save failure leaves engine unchanged. Fresh file store restart equals uninterrupted state, repeat operations no-op, batch jump equals hourly stepping (full state equality).
+7. Multi-seed/multi-coin chapter failure report with measured denominators and near-zero definition; report target miss honestly, no parameter tuning to force a pass. Include finite-book/adversarial traces and clean-store evidence.
+8. Exact checks from package.json: npm run lint; npm run typecheck; npm run build; node tools/check-hooks.mjs .next/static .next/server; node tools/ci/route-budget.mjs /broker; ledger npx vitest run test/map-no-dup.test.ts; npm test. One clean-worktree affected e2e, ports 3400–3499, fresh .data. No skipped check called pass.
+
+## Architecture grounding / choice
+Existing LaunchpadService owns atomic player persistence, and BrokerService sweeps own finite books. Reusing those shared services' entire live state would require auth, order, catalog, quote and UI-parser changes and collide with Builder. Alternative A: mount lifecycle in existing auth/Broker sweep immediately (large shared blast radius). Alternative B (chosen): a self-contained engine with explicit state, commands and hourly input frames; existing pure settlement functions do all price/cash math, and a file-store adapter makes replay/proofs auditable. Runtime integration is an explicit later planned unit, not a claim of live behavior. No new generic engine framework or hidden global clock.
+
+Phases: [x] ground / [x] compare sketches / [x] select without human blocking / [ ] implement / [ ] prove / [ ] commit+push. No cloud/local-subagent tools are available or allowed; architectural comparison performed locally rather than spawning cloud workers.
