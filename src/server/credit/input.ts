@@ -169,14 +169,6 @@ function command(v: Json): CreditCommand {
         throw new Error("CREDIT_COMMAND");
     const keys = ["id", "actor", "kind"], common = { id: text(v.id), actor: text(v.actor) };
     switch (v.kind) {
-        case "FUND_LENDING": {
-            const c = record(v, [...keys, "accountId", "amount", "consent"]);
-            return { ...common, kind: v.kind, accountId: text(c.accountId), amount: money(c.amount, true), consent: flag(c.consent) };
-        }
-        case "WITHDRAW_FUND": {
-            const c = record(v, [...keys, "fundId", "accountId", "amount"]);
-            return { ...common, kind: v.kind, fundId: text(c.fundId), accountId: text(c.accountId), amount: money(c.amount, true) };
-        }
         case "APPLY": {
             const c = record(v, [...keys, "amount", "receivingAccountId", "terms"]);
             return { ...common, kind: v.kind, amount: money(c.amount, true), receivingAccountId: text(c.receivingAccountId), terms: terms(c.terms) };

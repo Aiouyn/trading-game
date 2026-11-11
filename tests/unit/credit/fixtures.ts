@@ -22,7 +22,6 @@ export function facts() {
     ] = [person("person"), company(), person("investor")];
     return { bankStatus: "ACTIVE", onrPpm: 20000, fearPpm: 0, standardsPpm: 0, profiles };
 }
-export const fund = (id = "fund") => ({ id, actor: "investor", kind: "FUND_LENDING", accountId: "investor-home", amount: usd(1000), consent: true });
 export const apply = (actor = "company", amount = 364, amortization = "LINEAR", frequencyDays = 28, id = "apply") => ({ id, actor, kind: "APPLY", amount: usd(amount), receivingAccountId: actor + "-home", terms: actor === "person" ? { product: "PERSONAL_LINE" } : { product: "BUSINESS_TERM", termYears: 1, frequencyDays, amortization } });
 export const offerId = (id = "apply") => creditFingerprint({ offerCommand: id });
 export const accept = (actor = "company", id = "accept", applicationId = "apply") => ({ id, actor, kind: "ACCEPT", offerId: offerId(applicationId) });
@@ -30,7 +29,7 @@ export const expense = (actor = "company", amount = 364, id = "expense") => ({ i
 export const repay = (actor = "company", amount = 100000, id = "repay") => ({ id, actor, kind: "REPAY", loanId: offerId(), amount: usd(amount) });
 export const frame = (tick: number, commands: unknown[] = [], f: unknown = facts()) => ({ tick, commands: structuredClone(commands), facts: structuredClone(f) });
 export const days = (count: number, makeFacts = (day: number) => { void day; return facts(); }, start = 0) => Array.from({ length: count }, (_, i) => frame((start + i + 1) * 720 - 1, [], makeFacts(start + i)));
-export function defaultFrames() { return [frame(0, [fund(), apply("company", 364, "LINEAR", 1)]), frame(1, [accept()]), frame(2, [expense()]), ...days(4)]; }
+export function defaultFrames() { return [frame(0, [apply("company", 364, "LINEAR", 1)]), frame(1, [accept()]), frame(2, [expense()]), ...days(4)]; }
 export class MemoryStore implements CreditCheckpointStore {
     revision: string | null = null;
     payload: unknown = null;

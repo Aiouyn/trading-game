@@ -7,7 +7,7 @@ import { CreditEngine } from "../../src/server/credit/engine";
 import { canonicalJson, creditWire } from "../../src/server/credit/input";
 import type { CreditState } from "../../src/server/credit/model";
 import { FileCreditCheckpointStore } from "../../src/server/credit/store";
-import { accept, apply, days, defaultFrames, facts, frame, fund, genesis, offerId, repay, usd } from "../../tests/unit/credit/fixtures";
+import { accept, apply, days, defaultFrames, facts, frame, genesis, offerId, repay, usd } from "../../tests/unit/credit/fixtures";
 type RawGenesis = ReturnType<typeof genesis>;
 type RawFrame = ReturnType<typeof frame>;
 const ZERO = BigInt(0), micro = (n: number) => BigInt(usd(n));
@@ -18,41 +18,73 @@ function audit(g: RawGenesis, s: CreditState) {
     for (const c of s.clients)
         for (const a of c.accounts)
             actual.set(account(c.id, a.id), a.cash);
-    for (const f of s.funds)
-        actual.set("fund:" + f.id, f.cash);
     actual.set("supplier:" + s.supplier.id, s.supplier.cash);
     const reconstructed = new Map([...actual.keys()].map(k => [k, ZERO]));
     for (const c of g.clients)
         for (const a of c.accounts)
             reconstructed.set(account(c.id, a.id), BigInt(a.cash));
-    const capital = s.funds.filter(f => f.depositorId === null);
-    assert.equal(capital.length, 1);
-    reconstructed.set("fund:" + capital[0].id, BigInt(g.bank.initialCapital));
     reconstructed.set("supplier:" + g.supplier.id, BigInt(g.supplier.cash));
-    const sum = (values: Iterable<bigint>) => [...values].reduce((a, b) => a + b, ZERO), budget = sum(reconstructed.values());
-    for (const m of s.movements) {
-        assert(m.amount > ZERO);
-        assert(reconstructed.has(m.from) && reconstructed.has(m.to));
-        assert((reconstructed.get(m.from) ?? ZERO) >= m.amount);
-        reconstructed.set(m.from, reconstructed.get(m.from)! - m.amount);
-        reconstructed.set(m.to, reconstructed.get(m.to)! + m.amount);
-        assert.equal(sum(reconstructed.values()), budget);
+    const sum = (a: Iterable<bigint>) => [...a].reduce((n, v) => n + v, ZERO), opening = sum(reconstructed.values()), physicalReserves = opening + BigInt(g.bank.initialCapital);
+    const principal = new Map<string, bigint>(), writtenOff = new Map<string, bigint>();
+    let created = ZERO, destroyed = ZERO, income = ZERO;
+    const ticks = [...new Set([...s.movements.map(m => m.tick), ...s.events.filter(e => e.kind === "LOAN_CHARGED_OFF").map(e => e.tick)])].sort((a, b) => a - b);
+    for (const tick of ticks) {
+        for (const m of s.movements.filter(m => m.tick === tick)) {
+            assert(m.amount > ZERO);
+            if (m.kind === "CREDIT_CREATE") {
+                assert.equal(m.from, "bank:loan-asset");
+                assert(m.loanId !== null && s.loans.some(l => l.id === m.loanId));
+                assert(reconstructed.has(m.to));
+                reconstructed.set(m.to, reconstructed.get(m.to)! + m.amount);
+                created += m.amount;
+                principal.set(m.loanId, (principal.get(m.loanId) ?? ZERO) + m.amount);
+            }
+            else {
+                assert(reconstructed.has(m.from));
+                assert(reconstructed.get(m.from)! >= m.amount);
+                reconstructed.set(m.from, reconstructed.get(m.from)! - m.amount);
+                if (m.to === "bank:destroy-principal") {
+                    assert.equal(m.kind, "REPAY_PRINCIPAL");
+                    assert(m.loanId !== null);
+                    assert((principal.get(m.loanId) ?? ZERO) >= m.amount);
+                    principal.set(m.loanId, principal.get(m.loanId)! - m.amount);
+                    destroyed += m.amount;
+                    const loss = writtenOff.get(m.loanId) ?? ZERO;
+                    writtenOff.set(m.loanId, loss - (m.amount < loss ? m.amount : loss));
+                }
+                else if (m.to === "bank:income") {
+                    assert(["REPAY_FEE", "REPAY_PENALTY", "REPAY_INTEREST"].includes(m.kind));
+                    assert(m.loanId !== null);
+                    income += m.amount;
+                }
+                else {
+                    assert(["EXPENSE", "REFUND", "ROUTE"].includes(m.kind));
+                    assert(reconstructed.has(m.to));
+                    reconstructed.set(m.to, reconstructed.get(m.to)! + m.amount);
+                }
+            }
+            assert.equal(sum(reconstructed.values()), opening + created - destroyed - income);
+        }
+        for (const e of s.events.filter(e => e.tick === tick && e.kind === "LOAN_CHARGED_OFF")) {
+            assert.equal(e.amount, principal.get(e.loanId) ?? ZERO);
+            writtenOff.set(e.loanId, e.amount);
+        }
+        const net = sum(principal.values()) - sum(writtenOff.values()), equity = BigInt(g.bank.initialCapital) + income - sum(writtenOff.values());
+        assert.equal(sum(reconstructed.values()) + equity, physicalReserves + net);
     }
     assert.deepEqual(reconstructed, actual);
-    let reserved = ZERO, principal = ZERO, loss = ZERO;
-    for (const f of s.funds) {
-        const held = s.offers.filter(o => o.status === "OPEN").flatMap(o => o.slices).filter(a => a.fundId === f.id).reduce((n, a) => n + a.amount, ZERO) + s.loans.flatMap(l => l.slices).filter(a => a.fundId === f.id).reduce((n, a) => n + a.reserved, ZERO);
-        assert(f.cash >= held);
-        reserved += held;
-        const shares = s.loans.flatMap(l => l.slices).filter(a => a.fundId === f.id), outstanding = sum(shares.map(a => a.principal));
-        const lent = sum(s.movements.filter(m => m.from === "fund:" + f.id && m.kind === "DRAW").map(m => m.amount)), returned = sum(s.movements.filter(m => m.to === "fund:" + f.id && m.kind === "REPAY_PRINCIPAL").map(m => m.amount));
-        assert.equal(outstanding, lent - returned);
-        assert.equal(f.loss, sum(shares.map(a => a.chargedOff)));
-        assert(shares.every(a => a.chargedOff <= a.principal));
-        principal += outstanding;
-        loss += f.loss;
+    for (const l of s.loans) {
+        assert.equal(l.principal, principal.get(l.id) ?? ZERO);
+        assert.equal(l.chargedOff, writtenOff.get(l.id) ?? ZERO);
+        assert(l.undrawn >= ZERO);
     }
-    return { cashMicro: sum(actual.values()).toString(), initialMicro: budget.toString(), createdMicro: (sum(actual.values()) - budget).toString(), reservedMicro: reserved.toString(), outstandingMicro: principal.toString(), lossMicro: loss.toString(), movements: s.movements.length, buckets: actual.size };
+    assert.equal(s.bankBook.reserves, physicalReserves);
+    assert.equal(s.bankBook.income, income);
+    assert.equal(s.bankBook.writtenOff, sum(writtenOff.values()));
+    assert.equal(s.bankBook.equity, BigInt(g.bank.initialCapital) + income - sum(writtenOff.values()));
+    const netLoans = sum(principal.values()) - sum(writtenOff.values()), deposits = sum(actual.values()), netReserves = physicalReserves - s.bankBook.equity;
+    assert.equal(deposits, netLoans + netReserves);
+    return { depositsMicro: deposits.toString(), openingReserveBackedDepositsMicro: opening.toString(), createdByLoanMicro: created.toString(), destroyedPrincipalMicro: destroyed.toString(), paidBankIncomeMicro: income.toString(), unexplainedCreationMicro: "0", grossLoansMicro: sum(principal.values()).toString(), netLoanAssetsMicro: netLoans.toString(), physicalReservesMicro: physicalReserves.toString(), equityMicro: s.bankBook.equity.toString(), reservesNetOfEquityMicro: netReserves.toString(), writeOffMicro: sum(writtenOff.values()).toString(), balanceSheetResidualMicro: "0", movements: s.movements.length };
 }
 async function run(out: string, label: string, g: RawGenesis, input: RawFrame[], target: number, literal = false) {
     const states: CreditState[] = [], bytes: string[] = [], results = [];
@@ -104,27 +136,36 @@ async function main() {
     const witness = await CreditEngine.open(new FileCreditCheckpointStore(join(out, "loss-witness.json")), genesis());
     let s = await witness.advance(2879, defaultFrames());
     assert.equal(s.loans[0].status, "DEFAULTED");
-    assert.deepEqual(s.funds.map(f => f.loss), [ZERO, ZERO]);
+    assert.equal(s.bankBook.writtenOff, ZERO);
     s = await witness.advance(2880, []);
     assert.equal(s.loans[0].status, "CHARGED_OFF");
-    assert.deepEqual(s.funds.map(f => f.loss), [micro(100), micro(264)]);
+    assert.equal(s.bankBook.writtenOff, micro(364));
+    assert.equal(s.bankBook.equity, -micro(264));
     assert.equal(s.supplier.cash, micro(364));
-    report.scenarios.push({ label: "default-before-recovery", ...audit(genesis(), s), bankLossMicro: usd(100), depositorLossMicro: usd(264), supplierRetainedMicro: usd(364) });
+    report.scenarios.push({ label: "default-before-recovery", ...audit(genesis(), s), bankEquityLossMicro: usd(364), depositorMoneyErasedMicro: "0", supplierRetainedMicro: usd(364) });
     await save();
     for (const amortization of ["LINEAR", "ANNUITY", "BULLET"]) {
         const g = genesis();
         g.clients[1].accounts[0].cash = usd(10000);
-        report.scenarios.push(await run(out, amortization.toLowerCase(), g, [frame(0, [fund(), apply("company", 364, amortization)]), frame(1, [accept()]), ...days(364)], 364 * 720 - 1));
+        report.scenarios.push(await run(out, amortization.toLowerCase(), g, [frame(0, [apply("company", 364, amortization)]), frame(1, [accept()]), ...days(364)], 364 * 720 - 1));
         await save();
     }
-    const retail = [frame(0, [fund(), apply("person", 1000)]), frame(1, [accept("person")]), frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(100) }]), ...days(35, d => { const f = facts(); if (d >= 27)
-            f.profiles[0].held = true; return f; })];
+    const retail = [frame(0, [apply("person", 1000)]), frame(1, [accept("person")]), frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(100) }]), ...days(35, d => {
+            const f = facts();
+            if (d >= 27)
+                f.profiles[0].held = true;
+            return f;
+        })];
     report.scenarios.push(await run(out, "retail-review", genesis(), retail, 35 * 720 - 1));
     await save();
     const g = genesis();
     g.clients[1].accounts[0].cash = usd(10000);
-    report.scenarios.push(await run(out, "covenant", g, [frame(0, [fund(), apply("company", 364, "BULLET")]), frame(1, [accept()]), ...days(120, d => { const f = facts(); if (d < 119)
-            f.profiles[1].outsideDebt = usd(46000); return f; })], 120 * 720 - 1));
+    report.scenarios.push(await run(out, "covenant", g, [frame(0, [apply("company", 364, "BULLET")]), frame(1, [accept()]), ...days(120, d => {
+            const f = facts();
+            if (d < 119)
+                f.profiles[1].outsideDebt = usd(46000);
+            return f;
+        })], 120 * 720 - 1));
     report.status = "PASS";
     await save();
     console.log(JSON.stringify(report, null, 2));

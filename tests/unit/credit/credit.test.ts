@@ -2,10 +2,11 @@ import { describe, it, expect } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { FileCreditCheckpointStore } from "../../../src/server/credit/store";
-import { CreditEngine, creditCashTotal, creditPrincipal, creditReserved } from "../../../src/server/credit/engine";
+import { CreditEngine, creditBalanceSheet, creditCashTotal, creditPrincipal, creditReserved } from "../../../src/server/credit/engine";
 import { canonicalJson, creditFingerprint, creditWire } from "../../../src/server/credit/input";
-import { accept, apply, days, defaultFrames, expense, facts, frame, fund, genesis, MemoryStore, offerId, opened, repay, usd } from "./fixtures";
+import { accept, apply, days, defaultFrames, expense, facts, frame, genesis, MemoryStore, offerId, opened, repay, usd } from "./fixtures";
 const n = (d: number) => BigInt(usd(d));
+function assertIdentity(s: ReturnType<CreditEngine["snapshot"]>) { const b = creditBalanceSheet(s); expect(b.deposits + b.equity).toBe(b.netLoans + b.physicalReserves); expect(b.deposits).toBe(b.netLoans + b.reservesNetOfEquity); }
 const last = (s: ReturnType<CreditEngine["snapshot"]>) => s.receipts.at(-1)!;
 function reversed(v: unknown): unknown {
     if (Array.isArray(v))
@@ -14,25 +15,57 @@ function reversed(v: unknown): unknown {
         return Object.fromEntries(Object.entries(v).reverse().map(([k, a]) => [k, reversed(a)]));
     return v;
 }
-describe("closed-world funded credit", () => {
-    it("requires explicit lending consent; held offers cannot be withdrawn or overbooked", async () => {
+describe("deposit-creating bank credit", () => {
+    it("creates deposits beyond existing reserves, with finite commitments and no other mint source", async () => {
         const { engine } = await opened();
-        const before = creditCashTotal(engine.snapshot());
-        await engine.advance(0, [frame(0, [{ ...fund("no"), consent: false }])]);
-        expect(last(engine.snapshot()).reason).toBe("NO_LENDING_CONSENT");
-        let s = await engine.advance(1, [frame(1, [fund(), apply("person", 1000)])]);
-        expect(creditReserved(s, s.funds[0].id)).toBe(n(100));
-        const fid = s.funds.find(f => f.depositorId === "investor")!.id;
-        s = await engine.advance(2, [frame(2, [{ id: "withdraw", actor: "investor", kind: "WITHDRAW_FUND", fundId: fid, accountId: "investor-home", amount: usd(101) }, apply("person", 101, "LINEAR", 28, "other")])]);
-        expect(s.receipts.find(r => r.id === "withdraw")!.reason).toBe("COMMITTED_FUNDS");
+        let s = await engine.advance(1, [frame(0, [apply("person", 1000)]), frame(1, [accept("person")])]);
+        expect(creditCashTotal(s)).toBe(n(1000));
+        expect(creditReserved(s)).toBe(n(1000));
+        s = await engine.advance(2, [frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(1000) }])]);
+        expect(s.loans[0].principal).toBe(n(1000));
+        expect(creditCashTotal(s)).toBe(n(2000));
+        expect(s.bankBook.reserves).toBe(n(1100));
+        expect(s.bankBook.equity).toBe(n(100));
+        expect(s.movements.filter(m => m.kind === "CREDIT_CREATE").map(m => m.amount)).toEqual([n(1000)]);
+        assertIdentity(s);
+        s = await engine.advance(3, [frame(3, [{ id: "overdraw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(1) }])]);
         expect(last(s).reason).toBe("CREDIT_EXHAUSTED");
-        s = await engine.advance(3, [frame(3, [accept("person"), { id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(500) }])]);
-        expect(creditPrincipal(s.loans[0])).toBe(n(500));
-        expect(s.clients[0].accounts.find(a => a.id === "person-home")!.cash).toBe(n(500));
-        expect(s.movements.filter(m => m.kind === "DRAW").map(m => m.amount)).toEqual([n(50), n(450)]);
-        expect(creditCashTotal(s)).toBe(before);
-        s = await engine.advance(4, [frame(4, [{ id: "too-big", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(501) }])]);
-        expect(last(s).reason).toBe("CREDIT_EXHAUSTED");
+    });
+    it("principal repayments destroy deposits and permit a finite revolving redraw", async () => {
+        const { engine } = await opened();
+        let s = await engine.advance(2, [frame(0, [apply("person", 1000)]), frame(1, [accept("person")]), frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(1000) }])]);
+        s = await engine.advance(3, [frame(3, [repay("person", 500)])]);
+        expect(creditCashTotal(s)).toBe(n(1500));
+        expect(s.loans[0].principal).toBe(n(500));
+        expect(s.loans[0].undrawn).toBe(n(500));
+        expect(s.bankBook.reserves).toBe(n(1100));
+        s = await engine.advance(4, [frame(4, [{ id: "redraw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(500) }])]);
+        expect(creditCashTotal(s)).toBe(n(2000));
+        expect(s.loans[0].principal).toBe(n(1000));
+        assertIdentity(s);
+    });
+    it("an insolvent bank cannot rescue itself by issuing another loan", async () => {
+        const { engine } = await opened();
+        await engine.advance(2880, defaultFrames());
+        const s = await engine.advance(2881, [frame(2881, [apply("person", 50, "LINEAR", 28, "rescue")])]);
+        expect(last(s).reason).toBe("BANK_INSOLVENT");
+        expect(s.bankBook.equity).toBe(n(-264));
+        expect(creditCashTotal(s)).toBe(n(1364));
+        expect(s.bankBook.reserves).toBe(n(1100));
+        assertIdentity(s);
+    });
+    it.each([[182, 0], [546, 2]])("daily half-even rounding for %i micro principal is %i micro interest", async (principal, expected) => {
+        const g = genesis();
+        g.bank.cet1TargetPpm = 0;
+        g.bank.grades.forEach(r => { r.marginPpm = 0; });
+        g.clients[1].accounts[0].cash = usd(1);
+        const f = facts();
+        f.onrPpm = 992500;
+        f.profiles[1].pdPpm = 0;
+        const { engine } = await opened(g);
+        const s = await engine.advance(719, [frame(0, [{ ...apply("company", 1, "LINEAR", 1), amount: String(principal) }], f), frame(1, [accept()], f), frame(719, [], f)]);
+        expect(s.movements.filter(m => m.kind === "REPAY_INTEREST").reduce((n, m) => n + m.amount, BigInt(0))).toBe(BigInt(expected));
+        assertIdentity(s);
     });
     it("expires before commands on tick30; acceptance on29 remains valid", async () => {
         for (const tick of [29, 30]) {
@@ -41,19 +74,20 @@ describe("closed-world funded credit", () => {
             const s = await engine.advance(tick, [frame(tick, [accept("person")])]);
             expect(last(s).accepted).toBe(tick === 29);
             expect(s.offers[0].status).toBe(tick === 29 ? "ACCEPTED" : "EXPIRED");
-            expect(creditReserved(s, s.funds[0].id)).toBe(tick === 29 ? n(100) : n(0));
+            expect(creditReserved(s)).toBe(tick === 29 ? n(100) : n(0));
         }
     });
     it.each(["LINEAR", "ANNUITY", "BULLET"])("repays the exact 364-day %s principal, final dust and actual interest", async (amortization) => {
         const g = genesis();
         g.clients[1].accounts[0].cash = usd(10000);
         const { engine } = await opened(g), initial = creditCashTotal(engine.snapshot());
-        const s = await engine.advance(364 * 720 - 1, [frame(0, [fund(), apply("company", 364, amortization)]), frame(1, [accept()]), ...days(364)]);
+        const s = await engine.advance(364 * 720 - 1, [frame(0, [apply("company", 364, amortization)]), frame(1, [accept()]), ...days(364)]);
         expect(s.loans[0].status).toBe("REPAID");
         expect(creditPrincipal(s.loans[0])).toBe(n(0));
         expect(s.movements.filter(m => m.kind === "REPAY_PRINCIPAL").reduce((a, m) => a + m.amount, n(0))).toBe(n(364));
         expect(s.movements.some(m => m.kind === "REPAY_INTEREST")).toBe(true);
-        expect(creditCashTotal(s)).toBe(initial);
+        assertIdentity(s);
+        expect(creditCashTotal(s)).toBe(initial - s.bankBook.income);
         expect(s.days).toHaveLength(364);
         const principalByDay = new Map<number, bigint>();
         for (const m of s.movements.filter(m => m.kind === "REPAY_PRINCIPAL"))
@@ -66,7 +100,7 @@ describe("closed-world funded credit", () => {
         const g = genesis();
         g.clients[1].accounts[0].cash = usd(100);
         const { engine } = await opened(g);
-        await engine.advance(718, [frame(0, [fund(), apply("company", 364, "LINEAR", 1)]), frame(1, [accept()])]);
+        await engine.advance(718, [frame(0, [apply("company", 364, "LINEAR", 1)]), frame(1, [accept()])]);
         expect(engine.snapshot().loans[0].interest).toBe(n(0));
         const f = facts();
         f.onrPpm = 40000;
@@ -79,7 +113,7 @@ describe("closed-world funded credit", () => {
     });
     it("charges only drawn line interest and undrawn fees; failed28-day review freezes commitments", async () => {
         const { engine } = await opened();
-        await engine.advance(2, [frame(0, [fund(), apply("person", 1000)]), frame(1, [accept("person")]), frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(100) }])]);
+        await engine.advance(2, [frame(0, [apply("person", 1000)]), frame(1, [accept("person")]), frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(100) }])]);
         let s = await engine.advance(719, [frame(719)]);
         expect(s.loans[0].interest).toBe(BigInt(16484));
         expect(s.loans[0].fees).toBe(BigInt(6181));
@@ -90,22 +124,21 @@ describe("closed-world funded credit", () => {
             return f;
         }, 1));
         expect(s.loans[0].frozen).toBe(true);
-        expect(s.loans[0].slices.every(a => a.reserved === n(0))).toBe(true);
+        expect(s.loans[0].undrawn).toBe(n(0));
         expect(creditPrincipal(s.loans[0])).toBe(n(100));
     });
     it("free prepayment clears accrued interest first, replenishes live line, and closes only empty lines", async () => {
         const { engine } = await opened();
-        await engine.advance(2, [frame(0, [fund(), apply("person", 1000)]), frame(1, [accept("person")]), frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(100) }])]);
+        await engine.advance(2, [frame(0, [apply("person", 1000)]), frame(1, [accept("person")]), frame(2, [{ id: "draw", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(100) }])]);
         let s = await engine.advance(3, [frame(3, [repay("person", 100), { id: "close", actor: "person", kind: "CLOSE_LINE", loanId: offerId() }])]);
         expect(last(s).accepted).toBe(true);
         expect(s.loans[0].status).toBe("REPAID");
-        expect(s.loans[0].slices.every(a => a.reserved === n(0))).toBe(true);
+        expect(s.loans[0].undrawn).toBe(n(0));
         s = await engine.advance(4, [frame(4, [{ id: "again", actor: "person", kind: "DRAW", loanId: offerId(), amount: usd(1) }])]);
         expect(last(s).reason).toBe("LINE_FROZEN");
     });
-    it("DPD1/3, next-tick chargeoff and exact original funder loss; real supplier refund recovers cash", async () => {
+    it("DPD1/3, next-tick chargeoff and real bank equity loss; real supplier refund recovers cash", async () => {
         const { engine } = await opened();
-        const total = creditCashTotal(engine.snapshot());
         let s = await engine.advance(719, defaultFrames().filter(f => f.tick <= 719));
         expect(s.loans[0].missedTick).toBe(719);
         expect(s.loans[0].status).toBe("PERFORMING");
@@ -114,18 +147,19 @@ describe("closed-world funded credit", () => {
         expect(s.loans[0].penalty).toBe(BigInt(143));
         s = await engine.advance(2879, [frame(2159), frame(2879)]);
         expect(s.loans[0].status).toBe("DEFAULTED");
-        expect(s.funds.every(f => f.loss === n(0))).toBe(true);
+        expect(s.bankBook.writtenOff).toBe(n(0));
         s = await engine.advance(2880, []);
         expect(s.loans[0].status).toBe("CHARGED_OFF");
-        expect(s.funds.map(f => f.loss)).toEqual([n(100), n(264)]);
+        expect(s.bankBook.writtenOff).toBe(n(364));
+        expect(s.bankBook.equity).toBe(n(-264));
         expect(s.supplier.cash).toBe(n(364));
-        expect(creditCashTotal(s)).toBe(total);
+        assertIdentity(s);
         s = await engine.advance(2881, [frame(2881, [{ id: "fake", actor: "person", kind: "REFUND_EXPENSE", expenseId: "expense", amount: usd(1) }, { id: "refund", actor: "supplier", kind: "REFUND_EXPENSE", expenseId: "expense", amount: usd(100) }, repay("company", 100)])]);
         expect(s.receipts.find(r => r.id === "fake")!.reason).toBe("NOT_SUPPLIER");
-        expect(s.funds.reduce((a, f) => a + f.loss, n(0))).toBeLessThan(n(265));
-        expect(s.funds.reduce((a, f) => a + f.loss, n(0))).toBeGreaterThan(n(264));
+        expect(s.bankBook.writtenOff).toBeLessThan(n(265));
+        expect(s.bankBook.writtenOff).toBeGreaterThan(n(264));
         expect(s.supplier.cash).toBe(n(264));
-        expect(creditCashTotal(s)).toBe(total);
+        assertIdentity(s);
         s = await engine.advance(2882, [frame(2882, [{ id: "refund-overflow", actor: "supplier", kind: "REFUND_EXPENSE", expenseId: "expense", amount: usd(265) }])]);
         expect(last(s).reason).toBe("REFUND_LIMIT");
     });
@@ -135,7 +169,7 @@ describe("closed-world funded credit", () => {
         const s = await engine.advance(31 * 720, [...days(3, () => facts(), 28)]);
         expect(s.loans[0].status).toBe("CHARGED_OFF");
         expect(creditPrincipal(s.loans[0])).toBe(n(0));
-        expect(s.funds[0].loss).toBe(n(0));
+        expect(s.bankBook.writtenOff).toBe(n(0));
     });
     it("cure gives WATCH for exactly7days, including an expiry between day closes", async () => {
         const g = genesis();
@@ -155,30 +189,28 @@ describe("closed-world funded credit", () => {
         g.clients[1].accounts[0].cash = usd(1);
         g.clients[1].accounts.push({ id: "settlement", bankId: null, cash: usd(2) }, { id: "lender", bankId: "bank", cash: usd(3) }, { id: "other", bankId: "z-bank", cash: usd(4) });
         const { engine } = await opened(g);
-        const s = await engine.advance(3, [frame(0, [fund(), apply()]), frame(1, [accept()]), frame(2, [expense()]), frame(3, [repay("company", 10)])]);
+        const s = await engine.advance(3, [frame(0, [apply()]), frame(1, [accept()]), frame(2, [expense()]), frame(3, [repay("company", 10)])]);
         expect(s.clients[1].accounts.every(a => a.cash === n(0))).toBe(true);
         expect(creditPrincipal(s.loans[0])).toBe(n(354));
         const sources = s.movements.filter(m => m.kind === "REPAY_PRINCIPAL").map(m => m.from), key = (accountId: string) => "account:" + creditFingerprint({ clientId: "company", accountId });
-        expect(sources).toEqual([key("company-home"), key("lender"), key("lender"), key("settlement"), key("other")]);
+        expect(sources).toEqual([key("company-home"), key("lender"), key("settlement"), key("other")]);
     });
-    it("default setoff cannot hide uncommitted borrower cash in an opted-in lending fund", async () => {
+    it("rejects the removed funded-credit API and enforces a global finite credit limit", async () => {
         const g = genesis();
-        g.clients[1].accounts[0].cash = usd(500);
-        const { engine } = await opened(g);
-        const inputs = defaultFrames();
-        inputs[0].commands.unshift({ id: "park", actor: "company", kind: "FUND_LENDING", accountId: "company-home", amount: usd(500), consent: true });
-        const s = await engine.advance(2880, inputs);
-        expect(s.loans[0].status).toBe("REPAID");
-        expect(s.funds.every(f => f.loss === n(0))).toBe(true);
-        expect(s.funds.find(f => f.depositorId === "company")!.cash).toBeLessThan(n(136));
-        expect(creditCashTotal(s)).toBe(n(1600));
+        g.bank.exposureLimit = usd(100);
+        const { engine } = await opened(g), before = engine.snapshot();
+        await expect(engine.advance(0, [frame(0, [{ id: "fund", actor: "person", kind: "FUND_LENDING", accountId: "person-home", amount: usd(1), consent: true }])])).rejects.toThrow("CREDIT_COMMAND");
+        expect(engine.snapshot()).toEqual(before);
+        const s = await engine.advance(0, [frame(0, [apply("person", 60), apply("company", 50, "LINEAR", 28, "company")])]);
+        expect(last(s).reason).toBe("CREDIT_EXHAUSTED");
+        expect(creditCashTotal(s)).toBe(n(1000));
     });
     it("tests covenants quarterly, waits28days, reprices200bp and clears on cure", async () => {
         const g = genesis();
         g.clients[1].accounts[0].cash = usd(10000);
         const { engine } = await opened(g);
         const bad = () => { const f = facts(); f.profiles[1].outsideDebt = usd(46000); return f; };
-        await engine.advance(90 * 720 - 1, [frame(0, [fund(), apply("company", 364, "BULLET")]), frame(1, [accept()]), ...days(90, bad)]);
+        await engine.advance(90 * 720 - 1, [frame(0, [apply("company", 364, "BULLET")]), frame(1, [accept()]), ...days(90, bad)]);
         expect(engine.snapshot().loans[0].covenantTick).toBe(null);
         let s = await engine.advance(91 * 720 - 1, [frame(91 * 720 - 1, [], bad())]);
         expect(s.loans[0].covenantTick).toBe(91 * 720 - 1);
@@ -195,17 +227,18 @@ describe("closed-world funded credit", () => {
         const { engine } = await opened();
         const bad = () => { const f = facts(); f.profiles[1].outsideDebt = usd(40000); f.fearPpm = 500001; return f; };
         const tick = 119 * 720 - 1;
-        let s = await engine.advance(tick, [frame(0, [fund(), apply("company", 364, "BULLET", 364)]), frame(1, [accept()]), frame(2, [expense()]), ...days(119, bad)]);
+        let s = await engine.advance(tick, [frame(0, [apply("company", 364, "BULLET", 364)]), frame(1, [accept()]), frame(2, [expense()]), ...days(119, bad)]);
         expect(s.loans[0].status).toBe("DEFAULTED");
         expect(s.loans[0].defaultedTick).toBe(tick);
         s = await engine.advance(tick + 1, []);
         expect(s.loans[0].status).toBe("CHARGED_OFF");
-        expect(s.funds.map(f => f.loss)).toEqual([n(100), n(264)]);
+        expect(s.bankBook.writtenOff).toBe(n(364));
+        expect(s.bankBook.equity).toBe(n(-264));
     }, 30000);
     it("existing DPD2 cannot overwrite immediate covenant acceleration", async () => {
         const { engine } = await opened();
         const bad = () => { const f = facts(); f.profiles[1].outsideDebt = usd(40000); f.fearPpm = 500001; return f; };
-        const prefix = [frame(0, [fund()]), frame(3600, [apply("company", 364, "BULLET")]), frame(3601, [accept()]), ...days(116, bad)].sort((a, b) => a.tick - b.tick);
+        const prefix = [frame(0, []), frame(3600, [apply("company", 364, "BULLET")]), frame(3601, [accept()]), ...days(116, bad)].sort((a, b) => a.tick - b.tick);
         let s = await engine.advance(116 * 720 - 1, prefix);
         const cash = s.clients[1].accounts.reduce((n, a) => n + a.cash, BigInt(0));
         s = await engine.advance(119 * 720 - 1, [frame(117 * 720 - 1, [{ ...expense(), amount: cash.toString() }], bad()), ...days(2, bad, 117)]);
@@ -219,15 +252,15 @@ describe("closed-world funded credit", () => {
         g.clients[1].accounts[0].cash = usd(10000);
         const { engine } = await opened(g);
         const bad = () => { const f = facts(); f.profiles[1].outsideDebt = usd(mode === "severe" ? 55000 : 46000); f.fearPpm = mode === "fear" ? 500001 : 0; return f; };
-        const s = await engine.advance(119 * 720 - 1, [frame(0, [fund(), apply("company", 364, "BULLET")]), frame(1, [accept()]), ...days(119, bad)]);
+        const s = await engine.advance(119 * 720 - 1, [frame(0, [apply("company", 364, "BULLET")]), frame(1, [accept()]), ...days(119, bad)]);
         expect(s.loans[0].status).toBe("REPAID");
-        expect(s.funds.every(f => f.loss === n(0))).toBe(true);
+        expect(s.bankBook.writtenOff).toBe(n(0));
         expect(s.loans[0].covenantRepricePpm).toBe(0);
     }, 30000);
 });
 describe("underwriting boundaries", () => {
     it.each([
-        ["held", "HELD"], ["locked", "BANKRUPTCY_LOCK"], ["grade", "GRADE"], ["rookie", "PERSONAL_LIMIT"], ["income", "PERSONAL_LIMIT"], ["dsr", "DSR"], ["restricted", "BANK_RESTRICTED"], ["watch", "SUPPLY"], ["ebitda", "EBITDA_LIMIT"], ["dscr", "DSCR"], ["leverage", "LEVERAGE"], ["cap", "BANK_LIMIT"], ["exhausted", "CREDIT_EXHAUSTED"], ["rate", "RATE_CAP"]
+        ["held", "HELD"], ["locked", "BANKRUPTCY_LOCK"], ["grade", "GRADE"], ["rookie", "PERSONAL_LIMIT"], ["income", "PERSONAL_LIMIT"], ["dsr", "DSR"], ["restricted", "BANK_RESTRICTED"], ["watch", "SUPPLY"], ["ebitda", "EBITDA_LIMIT"], ["dscr", "DSCR"], ["leverage", "LEVERAGE"], ["cap", "BANK_LIMIT"], ["exhausted", "BANK_LIMIT"], ["rate", "RATE_CAP"]
     ])("refuses %s (%s)", async (mode, reason) => {
         const g = genesis(), f = facts();
         let actor = "person", amount = 100;
@@ -267,15 +300,17 @@ describe("underwriting boundaries", () => {
         }
         if (mode === "cap")
             g.bank.borrowerLimit = usd(99);
-        if (mode === "exhausted")
+        if (mode === "exhausted") {
             amount = 101;
+            g.bank.exposureLimit = usd(100);
+        }
         if (mode === "rate")
             f.profiles[0].pdPpm = 200000;
         const { engine } = await opened(g);
         const s = await engine.advance(0, [frame(0, [apply(actor, amount)], f)]);
         expect(last(s).reason).toBe(reason);
         expect(s.loans).toHaveLength(0);
-        expect(creditReserved(s, s.funds[0].id)).toBe(n(0));
+        expect(creditReserved(s)).toBe(n(0));
     });
     it("adds own/pending loans to bureau limits and does not double count accepted offer", async () => {
         const { engine } = await opened();
@@ -305,12 +340,12 @@ describe("underwriting boundaries", () => {
 describe("accepted state = stored state = canonical replay", () => {
     it("reordered fields replay across restart; conflict and stale writer cannot overwrite", async () => {
         const g = genesis(), store = new MemoryStore();
-        const engine = await CreditEngine.open(store, g), stale = await CreditEngine.open(store, g), frames = [frame(0, [fund(), apply()]), frame(1, [accept()])];
+        const engine = await CreditEngine.open(store, g), stale = await CreditEngine.open(store, g), frames = [frame(0, [apply()]), frame(1, [accept()])];
         const before = await engine.advance(1, frames), bytes = JSON.stringify(store.payload), restarted = await CreditEngine.open(store, reversed(g));
         expect(await restarted.advance(1, reversed(frames))).toEqual(before);
         expect(JSON.stringify(store.payload)).toBe(bytes);
         await expect(stale.advance(2, [])).rejects.toThrow("CREDIT_STALE_STORE");
-        await expect(restarted.advance(2, [frame(2, [{ ...fund(), amount: usd(1) }])])).rejects.toThrow("CREDIT_COMMAND_CONFLICT");
+        await expect(restarted.advance(2, [frame(2, [{ ...apply(), amount: usd(1) }])])).rejects.toThrow("CREDIT_COMMAND_CONFLICT");
         expect(restarted.snapshot()).toEqual(before);
         const clone = restarted.snapshot();
         clone.clients[0].accounts[0].cash = n(999);
@@ -319,13 +354,36 @@ describe("accepted state = stored state = canonical replay", () => {
     it("failed save/bad batch rolls back and promise queue recovers", async () => {
         const { engine, store } = await opened(), before = engine.snapshot();
         store.fail = true;
-        await expect(engine.advance(0, [frame(0, [fund(), apply()])])).rejects.toThrow("TEST_DISK_FAILURE");
+        await expect(engine.advance(0, [frame(0, [apply()])])).rejects.toThrow("TEST_DISK_FAILURE");
         expect(engine.snapshot()).toEqual(before);
         store.fail = false;
-        await expect(engine.advance(1, [frame(0, [fund(), apply()]), frame(1, [{ ...fund(), amount: usd(1) }])])).rejects.toThrow("CREDIT_COMMAND_CONFLICT");
+        await expect(engine.advance(1, [frame(0, [apply()]), frame(1, [{ ...apply(), amount: usd(1) }])])).rejects.toThrow("CREDIT_COMMAND_CONFLICT");
         expect(engine.snapshot()).toEqual(before);
-        await engine.advance(0, [frame(0, [fund()])]);
-        expect(engine.snapshot().funds).toHaveLength(2);
+        await engine.advance(0, [frame(0, [apply()])]);
+        expect(engine.snapshot().offers).toHaveLength(1);
+    });
+    it("failed publication cannot leak a newly created deposit", async () => {
+        const { engine, store } = await opened();
+        await engine.advance(0, [frame(0, [apply()])]);
+        const before = engine.snapshot(), bytes = JSON.stringify(store.payload);
+        store.fail = true;
+        await expect(engine.advance(1, [frame(1, [accept()])])).rejects.toThrow("TEST_DISK_FAILURE");
+        expect(engine.snapshot()).toEqual(before);
+        expect(JSON.stringify(store.payload)).toBe(bytes);
+        store.fail = false;
+        const s = await engine.advance(1, [frame(1, [accept()])]);
+        expect(creditCashTotal(s)).toBe(n(1364));
+        expect(s.movements.filter(m => m.kind === "CREDIT_CREATE")).toHaveLength(1);
+        assertIdentity(s);
+    });
+    it("rejects superseded funded checkpoints instead of silently changing their money law", async () => {
+        const { store } = await opened();
+        (store.payload as {
+            version: number;
+        }).version = 1;
+        const bytes = JSON.stringify(store.payload);
+        await expect(CreditEngine.open(store, genesis())).rejects.toThrow("CREDIT_CHECKPOINT");
+        expect(JSON.stringify(store.payload)).toBe(bytes);
     });
     it("detects journal tampering in financially unused observation", async () => {
         const { engine, store } = await opened();
@@ -429,7 +487,7 @@ describe("accepted state = stored state = canonical replay", () => {
         const dir = await mkdtemp(join(parent, "credit-test-")), path = join(dir, "checkpoint.json"), g = genesis();
         try {
             const engine = await CreditEngine.open(new FileCreditCheckpointStore(path), g), stale = await CreditEngine.open(new FileCreditCheckpointStore(path), g);
-            const s = await engine.advance(0, [frame(0, [fund(), apply()])]), bytes = await readFile(path, "utf8");
+            const s = await engine.advance(0, [frame(0, [apply()])]), bytes = await readFile(path, "utf8");
             await expect(stale.advance(1, [])).rejects.toThrow("CREDIT_STALE_STORE");
             expect(await readFile(path, "utf8")).toBe(bytes);
             expect((await CreditEngine.open(new FileCreditCheckpointStore(path), g)).snapshot()).toEqual(s);
@@ -446,13 +504,13 @@ describe("accepted state = stored state = canonical replay", () => {
         }
     });
     it("persistent rejected command retry after reorder/restart does not gain a new decision", async () => {
-        const { engine, store } = await opened(), c = { ...fund("refused"), consent: false };
+        const { engine, store } = await opened(), c = { ...apply("person", 1, "LINEAR", 28, "refused"), receivingAccountId: "not-owned" };
         await engine.advance(0, [frame(0, [c])]);
         const restarted = await CreditEngine.open(store, genesis());
         const s = await restarted.advance(1, [frame(1, [reversed(c)])]);
         expect(s.receipts).toHaveLength(1);
-        expect(s.receipts[0].reason).toBe("NO_LENDING_CONSENT");
-        expect(s.funds).toHaveLength(1);
+        expect(s.receipts[0].reason).toBe("NOT_OWNER");
+        expect(s.offers).toHaveLength(0);
     });
     it("a Proxy checkpoint payload is rejected without running any trap", async () => {
         let traps = 0;

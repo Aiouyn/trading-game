@@ -75,20 +75,6 @@ export type CreditApplication = {
 export type CreditCommand = {
     id: string;
     actor: string;
-    kind: "FUND_LENDING";
-    accountId: string;
-    amount: Money;
-    consent: boolean;
-} | {
-    id: string;
-    actor: string;
-    kind: "WITHDRAW_FUND";
-    fundId: string;
-    accountId: string;
-    amount: Money;
-} | {
-    id: string;
-    actor: string;
     kind: "APPLY";
     amount: Money;
     receivingAccountId: string;
@@ -127,12 +113,6 @@ export interface CreditFrame {
     commands: CreditCommand[];
     facts: CreditFacts | null;
 }
-export interface CreditFund {
-    id: string;
-    depositorId: string | null;
-    cash: Money;
-    loss: Money;
-}
 export interface CreditOffer {
     id: string;
     clientId: string;
@@ -142,10 +122,6 @@ export interface CreditOffer {
     spreadPpm: number;
     expiresTick: Tick;
     status: "OPEN" | "EXPIRED" | "ACCEPTED";
-    slices: {
-        fundId: string;
-        amount: Money;
-    }[];
 }
 export interface CreditLoan {
     id: string;
@@ -173,19 +149,17 @@ export interface CreditLoan {
     covenantTick: Tick | null;
     covenantRepricePpm: number;
     status: "PERFORMING" | "WATCH" | "DELINQUENT" | "DEFAULTED" | "CHARGED_OFF" | "REPAID";
-    slices: {
-        fundId: string;
-        principal: Money;
-        reserved: Money;
-        chargedOff: Money;
-    }[];
+    principal: Money;
+    undrawn: Money;
+    chargedOff: Money;
 }
 export interface CreditMovement {
     tick: Tick;
     from: string;
     to: string;
     amount: Money;
-    kind: "FUND" | "WITHDRAW" | "DRAW" | "ROUTE" | "REPAY_PRINCIPAL" | "REPAY_INTEREST" | "REPAY_PENALTY" | "REPAY_FEE" | "EXPENSE" | "REFUND";
+    loanId: string | null;
+    kind: "CREDIT_CREATE" | "ROUTE" | "REPAY_PRINCIPAL" | "REPAY_INTEREST" | "REPAY_PENALTY" | "REPAY_FEE" | "EXPENSE" | "REFUND";
 }
 export interface CreditState {
     world: string;
@@ -197,7 +171,12 @@ export interface CreditState {
         id: string;
         cash: Money;
     };
-    funds: CreditFund[];
+    bankBook: {
+        reserves: Money;
+        equity: Money;
+        income: Money;
+        writtenOff: Money;
+    };
     offers: CreditOffer[];
     loans: CreditLoan[];
     receipts: {
