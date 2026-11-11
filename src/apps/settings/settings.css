@@ -98,3 +98,8 @@ html[data-motion="reduce"] .set-switch-knob { transition: none; }
 .account-starter { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-8); flex-wrap: wrap; }
 .strip-demo-tag { font-size: var(--fs-13); }
 .strip-account, .sb-account { cursor: pointer; border: 0; font: inherit; }
+
+.account-save-details summary { min-height: var(--hit-pointer); box-sizing: border-box; padding: var(--sp-8) 0; cursor: pointer; color: var(--fg-muted); }
+.account-save-details p { margin-top: var(--sp-8); }
+.settings-phone .account-save-details summary { min-height: var(--hit-touch); }
+@media (pointer: coarse) { .account-save-details summary { min-height: var(--hit-touch); } }
