@@ -102,7 +102,7 @@ test("PF-3-06 states: 3 skeleton rows, Couldn't load + Retry, stale Updating… 
 test("PF-3-07 HALC row label and focus", async ({ page }, info) => {
   await openPositions(page, "", isPhone(info.project.name));
   const halc = rows(page).nth(1);
-  await expect(halc).toHaveAttribute("aria-label", /^HALC, 1,200 shares, value 50,616\.00 dollars, (up|down) \d+\.\d\d percent today, average cost 39\.90, last \d+\.\d\d$|^HALC, 1,200 shares, value 50,616\.00 dollars, unchanged today/);
+  await expect(halc).toHaveAttribute("aria-label", /^HALC, 1,200 shares, value 50,616\.00 dollars, (up|down) \d+\.\d\d percent today, average cost 39\.90, last \d+\.\d\d, unrealized P&L 2,736\.00 dollars, before fees$|^HALC, 1,200 shares, value 50,616\.00 dollars, unchanged today/);
   await expect(halc).toHaveAttribute("tabindex", "0");
   await halc.focus();
   await expect(halc).toBeFocused();

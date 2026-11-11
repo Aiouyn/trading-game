@@ -19,7 +19,8 @@ export function rowLabel(pos: PositionData, ticker: TickerRow | undefined, t: Po
   const pct = ticker?.chgPct ?? null;
   const last = ticker?.last ?? pos.mark;
   return t.rowLabel(pos.assetId, decText(pos.qty, locale), speakMoney(pos.value), pct === null ? null : direction(pct), unsigned(pct ?? ""))
-    + t.avgLast(decText(pos.avgCost, locale), decText(last, locale));
+    + t.avgLast(decText(pos.avgCost, locale), decText(last, locale))
+    + t.pnlAria(speakMoney(pos.upl));
 }
 
 export function Today({ pct, t, locale }: { pct: string | null; t: PosStrings; locale: string }) {
@@ -92,17 +93,29 @@ export function PositionRow({ pos, ticker, t, locale, stale, layout }: RowProps)
       <li className="pos-card" tabIndex={0} aria-label={label} data-testid="pos-row" data-asset={pos.assetId}>
         <div className="pos-line pos-line1">
           <span className="pos-ticker" data-testid="pos-ticker">{pos.assetId}</span>
-          <Pnl upl={pos.upl} pct={pos.pnlPct} t={t} locale={locale} />
+          <span className="pos-card-field pos-card-end">
+            <span className="pos-card-label" data-testid="pos-card-label">{t.colPnl}</span>
+            <Pnl upl={pos.upl} pct={pos.pnlPct} t={t} locale={locale} />
+          </span>
         </div>
         <div className="pos-line pos-line2">
-          <span className="pos-value-w">
-            <span className="pos-value" data-testid="pos-value"><MoneyText amount={pos.value} ctx="table" /></span>
-            {pos.weightPct ? <><span className="pos-dot" aria-hidden="true">{t.dot}</span><Weight pct={pos.weightPct} t={t} locale={locale} /></> : null}
+          <span className="pos-value-w pos-card-field">
+            <span className="pos-card-label" data-testid="pos-card-label">{t.colValue}{pos.weightPct ? `${t.dot}${t.colWeight}` : ""}</span>
+            <span>
+              <span className="pos-value" data-testid="pos-value"><MoneyText amount={pos.value} ctx="table" /></span>
+              {pos.weightPct ? <><span className="pos-dot" aria-hidden="true">{t.dot}</span><Weight pct={pos.weightPct} t={t} locale={locale} /></> : null}
+            </span>
           </span>
         </div>
         <div className="pos-line pos-line3">
-          <span className="num pos-qtyat" data-testid="pos-qtyat">{t.qtyAt(decText(pos.qty, locale), decText(pos.avgCost, locale))}</span>
-          <Today pct={ticker?.chgPct ?? null} t={t} locale={locale} />
+          <span className="pos-card-field">
+            <span className="pos-card-label" data-testid="pos-card-label">{t.qtyAvg}</span>
+            <span className="num pos-qtyat" data-testid="pos-qtyat">{t.qtyAt(decText(pos.qty, locale), decText(pos.avgCost, locale))}</span>
+          </span>
+          <span className="pos-card-field pos-card-end">
+            <span className="pos-card-label" data-testid="pos-card-label">{t.colToday}</span>
+            <Today pct={ticker?.chgPct ?? null} t={t} locale={locale} />
+          </span>
         </div>
         <Badges pos={pos} ticker={ticker} t={t} locale={locale} />
       </li>
