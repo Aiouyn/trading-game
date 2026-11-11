@@ -45,6 +45,23 @@ describe("phone Trade entry", () => {
     expect(document.activeElement).toBe(trade);
   });
 
+  it("does not steal focus back from a still-connected input during native blur", async () => {
+    const feed = await mount(h, { context: "HALC", vw: 390 });
+    const trade = q(h, "br-trade");
+    if (!trade) throw new Error("Trade entry missing");
+    await click(trade);
+    const qty = q(h, "br-qty");
+    if (!qty) throw new Error("Quantity missing");
+    await act(async () => qty.blur());
+    await tick(feed);
+    expect(document.activeElement).toBe(document.body);
+    const close = q(h, "br-sheet-close");
+    if (!close) throw new Error("Close missing");
+    await click(close);
+    expect(q(h, "br-sheet")).toBeNull();
+    expect(document.activeElement).toBe(trade);
+  });
+
   it("refreshes do not steal Close focus; replacing edit/review/ack keeps focus in the one modal", async () => {
     const feed = await mount(h, { context: "HALC", vw: 390 });
     await click(q(h, "br-trade")!);

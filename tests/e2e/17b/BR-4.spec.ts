@@ -300,7 +300,7 @@ test("BR-4-11 halted: chip in --steel, entry enabled, review and ack say the ord
   expect(await colours(br(page).getByTestId("br-ticket"))).not.toContain(loss);
   await review(page);
   expect(await primaries(page)).toBe(1);
-  const cols = await colours(br(page).locator(".br-col-ticket"), ["br-place"]);
+  const cols = await colours(br(page).locator('.br-col-ticket, [data-testid="br-sheet"]'), ["br-place"]);
   expect(cols).not.toContain(acc);
   expect(cols).not.toContain(loss);
   await expect(page.getByTestId("br-queued").first()).toHaveText("Waits for reopen");
@@ -420,7 +420,8 @@ test("BR-4 Qty blur (QA #89 note): 'Enter a quantity.' fills its reserved line; 
   await expect(msg).toHaveText("Enter a quantity.");
   const after = { ticket: (await ticket.boundingBox())!, review: (await review.boundingBox())! };
   expect(after.ticket.height, "ticket height across the blur").toBe(before.ticket.height);
-  expect(after.review.y, "Review's y across the blur").toBe(before.review.y);
+  expect(after.review.y - after.ticket.y, "Review's position within the ticket across blur").toBe(before.review.y - before.ticket.y);
+  if (!await br(page).getByTestId("br-trade").count()) expect(after.review.y, "desktop Review's viewport y across blur").toBe(before.review.y);
   await shot(page, "qty-blur");
 });
 
