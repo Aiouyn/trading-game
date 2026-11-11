@@ -2,11 +2,23 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { clonePlayerPrivate, parsePlayerPrivateRow } from "@/server/player";
 import type { AccountRecord, PlayerPrivateRecord, SessionRecord } from "./types";
+import {
+  clonePlayerWirePost,
+  cloneWirePostIntent,
+  parsePlayerWirePosts,
+  parseWirePostIntents,
+  type PlayerWirePost,
+  type WirePostIntent,
+} from "@/server/wire/playerStatements";
 
 export interface AuthStoreSnapshot {
   readonly accounts: AccountRecord[];
   readonly sessions: SessionRecord[];
   readonly players: PlayerPrivateRecord[];
+  /** Public player Wire statements (`soc.wire.post`). Missing key = none. A bad row is skipped, never a store load failure. */
+  readonly wirePosts: PlayerWirePost[];
+  /** Private idempotency records for Wire posts, never served on GET /api/wire. */
+  readonly wirePostIntents: WirePostIntent[];
   /**
    * players[] rows that could not be loaded (corrupt, unknown version, lossy legacy, duplicate).
    * Kept verbatim and re-written on every save — never silently dropped. Their accounts read as
@@ -26,7 +38,7 @@ export interface QuarantinedPlayerRow {
   readonly row: unknown;
 }
 
-const emptySnapshot = (): AuthStoreSnapshot => ({ accounts: [], sessions: [], players: [], quarantinedPlayers: [] });
+const emptySnapshot = (): AuthStoreSnapshot => ({ accounts: [], sessions: [], players: [], quarantinedPlayers: [], wirePosts: [], wirePostIntents: [] });
 
 function cloneSnapshot(s: AuthStoreSnapshot): AuthStoreSnapshot {
   return {
@@ -34,6 +46,8 @@ function cloneSnapshot(s: AuthStoreSnapshot): AuthStoreSnapshot {
     sessions: s.sessions.map((x) => ({ ...x })),
     players: s.players.map(clonePlayerPrivate),
     quarantinedPlayers: s.quarantinedPlayers.map((q) => structuredClone(q)),
+    wirePosts: s.wirePosts.map(clonePlayerWirePost),
+    wirePostIntents: s.wirePostIntents.map(cloneWirePostIntent),
     ...(s.launchpad === undefined ? {} : { launchpad: structuredClone(s.launchpad) }),
   };
 }
@@ -87,6 +101,8 @@ export class FileAuthStore implements AuthStore {
         sessions: snapshot.sessions,
         players: snapshot.players,
         quarantinedPlayers: snapshot.quarantinedPlayers,
+        wirePosts: snapshot.wirePosts,
+        wirePostIntents: snapshot.wirePostIntents,
         launchpad: snapshot.launchpad,
       },
       null,
@@ -135,5 +151,5 @@ function normalizeSnapshot(parsed: unknown): AuthStoreSnapshot {
       rawById.set(id, row);
     }
   }
-  return { accounts, sessions, players: [...byAccount.values()], quarantinedPlayers, ...(obj.launchpad === undefined ? {} : { launchpad: obj.launchpad }) };
+  return { accounts, sessions, players: [...byAccount.values()], quarantinedPlayers, wirePosts: parsePlayerWirePosts(obj.wirePosts), wirePostIntents: parseWirePostIntents(obj.wirePostIntents), ...(obj.launchpad === undefined ? {} : { launchpad: obj.launchpad }) };
 }

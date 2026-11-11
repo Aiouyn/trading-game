@@ -61,6 +61,16 @@ export interface WireStrings {
   // ---- M1-09 row chips (the detail and demo copy: storyStrings.ts, Wire chunk only) ----
   forecast: string;
   eased: string;
+  composer: {
+    summary: string;
+    textLabel: string;
+    assetsLabel: string;
+    fee: string;
+    submit: string;
+    posting: string;
+    charCount: string;
+    errors: Record<string, string>;
+  };
 }
 
 export const EN: WireStrings = {
@@ -95,6 +105,7 @@ export const EN: WireStrings = {
     "wire.statement.ceo": "{company} CEO issues a statement",
     "wire.statement.denies": "{company} denies the rumor",
     "wire.statement.analyst-note": "{analyst} at {house} sees {claim}",
+    "wire.statement.player": "{handle} on {asset}: {text}",
     "wire.rumor.downgrade": "Downgrade rumored for {company}",
     "wire.rumor.hears": "{source} hears that {claim}",
     "wire.news.trialMiss": "{company} drug trial misses its endpoint",
@@ -166,6 +177,26 @@ export const EN: WireStrings = {
   notInFeed: "This story is no longer in your feed.",
   forecast: "Forecast",
   eased: "No effect",
+  composer: {
+    summary: "Post a statement",
+    textLabel: "Statement",
+    assetsLabel: "Assets",
+    fee: "Costs $500 · {n} left today",
+    submit: "Post",
+    posting: "Posting…",
+    charCount: "{n}/280",
+    errors: {
+      TEXT_EMPTY: "Write a short statement first.",
+      TEXT_TOO_LONG: "Keep it to 280 characters.",
+      TEXT_FILTER: "Remove any email or phone number.",
+      BAD_ASSET: "Pick one to three listed assets.",
+      INSUFFICIENT_CASH: "You need $500 spendable cash to post.",
+      DAY_CAP: "You can post three times per game day.",
+      IDEMPOTENCY_CONFLICT: "That request was already used for a different statement.",
+      UNAUTHORIZED: "Sign in to post a statement.",
+      BAD_REQUEST: "That statement could not be posted.",
+    },
+  },
 };
 
 export const FR: WireStrings = {
@@ -200,6 +231,7 @@ export const FR: WireStrings = {
     "wire.statement.ceo": "Le PDG de {company} publie un communiqué",
     "wire.statement.denies": "{company} dément la rumeur",
     "wire.statement.analyst-note": "{analyst} ({house}) anticipe {claim}",
+    "wire.statement.player": "{handle} sur {asset} : {text}",
     "wire.rumor.downgrade": "Rumeur de dégradation pour {company}",
     "wire.rumor.hears": "{source} entend que {claim}",
     "wire.news.trialMiss": "L’essai clinique de {company} manque son objectif",
@@ -271,6 +303,26 @@ export const FR: WireStrings = {
   notInFeed: "Cette dépêche ne figure plus dans votre fil.",
   forecast: "Prévision",
   eased: "Sans effet",
+  composer: {
+    summary: "Publier une déclaration",
+    textLabel: "Déclaration",
+    assetsLabel: "Actifs",
+    fee: "Coût : 500 $ · {n} restantes aujourd’hui",
+    submit: "Publier",
+    posting: "Publication…",
+    charCount: "{n}/280",
+    errors: {
+      TEXT_EMPTY: "Écrivez d’abord une courte déclaration.",
+      TEXT_TOO_LONG: "280 caractères au plus.",
+      TEXT_FILTER: "Retirez toute adresse e-mail ou tout numéro de téléphone.",
+      BAD_ASSET: "Choisissez un à trois actifs cotés.",
+      INSUFFICIENT_CASH: "Il faut 500 $ d’espèces disponibles pour publier.",
+      DAY_CAP: "Trois déclarations par jour de jeu au plus.",
+      IDEMPOTENCY_CONFLICT: "Cette requête a déjà été utilisée pour une autre déclaration.",
+      UNAUTHORIZED: "Connectez-vous pour publier.",
+      BAD_REQUEST: "Impossible de publier cette déclaration.",
+    },
+  },
 };
 
 export const useWireStrings = (): WireStrings => (useShell((s) => s.prefs.locale) === "fr" ? FR : EN);

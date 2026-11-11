@@ -159,3 +159,42 @@
 /* M1-09: a server story's realized price effect on the row ("AVB −5.00%"), neutral like the kind chips. */
 .wire-effect { font-family: var(--font-num); font-size: var(--fs-10_5); color: var(--fg); white-space: nowrap; }
 .wire-demo { flex: none; margin: 0; padding: var(--sp-4) var(--sp-16); font-size: var(--fs-11_5); color: var(--fg-muted); }
+
+/* Compact signed-in composer (player statements). Closed by default so M1-09 / WIR-A chrome stays close to today. */
+.wire-composer { flex: none; border-top: 1px solid var(--line); padding: 0 var(--sp-16) var(--sp-8); }
+.wire-composer-summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--hit-pointer);
+  cursor: pointer;
+  font-size: var(--fs-12_5);
+  color: var(--fg);
+  list-style: none;
+}
+.wire-composer-summary::-webkit-details-marker { display: none; }
+@media (pointer: coarse) {
+  .wire-composer-summary { min-height: var(--hit-touch); }
+}
+.wire-composer-form { display: flex; flex-direction: column; gap: var(--sp-8); padding: 0 0 var(--sp-8); }
+.wire-composer-label { font-size: var(--fs-11_5); color: var(--fg-muted); }
+.wire-composer-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 4.5em;
+  resize: vertical;
+  background: var(--win2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  padding: var(--sp-8);
+  font: inherit;
+  font-size: var(--fs-13);
+}
+.wire-composer-text:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.wire-composer-assets { margin: 0; padding: 0; border: 0; }
+.wire-composer-chips { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.wire-composer-meta { margin: 0; font-size: var(--fs-11_5); color: var(--fg-muted); }
+.wire-composer-error { margin: 0; font-size: var(--fs-11_5); color: var(--loss); }
+
+.wire-composer-chips .wire-chip[aria-pressed="true"] { color: var(--fg); }
+.wire-composer-chips .wire-chip[aria-pressed="true"] > .wire-chip-face { background: var(--win2); }

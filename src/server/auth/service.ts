@@ -3,6 +3,21 @@ import type { AuthStore } from "./store";
 import { AttemptThrottle } from "./throttle";
 import { buildPlayerPrivate, clonePlayerPrivate, type PlayerPrivateInput } from "@/server/player";
 import type { QuarantinedPlayerRow } from "./store";
+import {
+  WIRE_POST_FEE_CENTS,
+  WIRE_POST_DAY_CAP,
+  WirePostError,
+  clonePlayerWirePost,
+  cloneWirePostIntent,
+  decidePostText,
+  fingerprintPost,
+  newWirePostId,
+  postsOnDay,
+  remainingPostsToday,
+  spendableCashCents,
+  type PlayerWirePost,
+  type WirePostIntent,
+} from "@/server/wire/playerStatements";
 import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoin, type LpCoinRow, type LpState } from "@/server/launchpad/state";
 import { LP } from "@/launchpad/rules";
 import type { BookAccount } from "@/server/broker/book";
@@ -96,6 +111,8 @@ export class AuthService {
   private quarantinedPlayers: QuarantinedPlayerRow[] = [];
   /** The Launchpad section: parsed, or kept raw (never rewritten or reset) when it could not be parsed. */
   private launchpad: { ok: true; state: LpState } | { ok: false; raw: unknown } = { ok: true, state: emptyLaunchpad() };
+  private wirePosts: PlayerWirePost[] = [];
+  private wirePostIntents: WirePostIntent[] = [];
   private ready: Promise<void>;
   /** Serializes mutating ops so async scrypt cannot race handle uniqueness / file writes. */
   private queue: Promise<void> = Promise.resolve();
@@ -128,6 +145,8 @@ export class AuthService {
     this.tokenIndex = new Map(snap.sessions.filter((s) => s.revokedAtMs === null).map((s) => [s.tokenHash, s.sessionId]));
     this.players = new Map(snap.players.map((p) => [p.accountId, p]));
     this.quarantinedPlayers = snap.quarantinedPlayers;
+    this.wirePosts = snap.wirePosts.map(clonePlayerWirePost);
+    this.wirePostIntents = snap.wirePostIntents.map(cloneWirePostIntent);
     const lp = parseLaunchpad(snap.launchpad);
     this.launchpad = lp.ok && this.supplyHolds(lp.state) ? lp : { ok: false, raw: snap.launchpad };
   }
@@ -165,6 +184,8 @@ export class AuthService {
       sessions: [...this.sessions.values()],
       players: [...this.players.values()],
       quarantinedPlayers: this.quarantinedPlayers,
+      wirePosts: this.wirePosts.map(clonePlayerWirePost),
+      wirePostIntents: this.wirePostIntents.map(cloneWirePostIntent),
       launchpad: this.launchpad.ok ? this.launchpad.state : this.launchpad.raw,
     });
   }
@@ -477,6 +498,150 @@ export class AuthService {
   }
 
   /** Lock held by the caller. */
+  /** Public player statements for GET /api/wire. No cash, keys, or other ledger fields. */
+  async listPublicWirePosts(): Promise<PlayerWirePost[]> {
+    return this.withLock(async () => {
+      await this.ready;
+      return this.wirePosts.map(clonePlayerWirePost);
+    });
+  }
+
+  /**
+   * soc.wire.post: debit spendable cash, append the public row, record idempotency, one persist.
+   * Callers pass the live market tick so the daily cap and publishTick share the clock.
+   */
+  async postWireStatement(input: {
+    accountId: AccountId;
+    handle: string;
+    idempotencyKey: string;
+    text: unknown;
+    assetTags: unknown;
+    tick: number;
+  }): Promise<{ post: PlayerWirePost; cashCents: number; remainingToday: number; replayed: boolean }> {
+    return this.withLock(async () => {
+      await this.ready;
+      const accountId = input.accountId;
+      const current = this.requireLedger(accountId);
+      const prior = this.wirePostIntents.find((i) => i.accountId === accountId && i.key === input.idempotencyKey);
+
+      // Decide text first so a replay can compare the same fingerprint the first call stored.
+      let decided: { text: string; assetTags: string[] };
+      try {
+        decided = decidePostText(input.text, input.assetTags);
+      } catch (err) {
+        if (!(err instanceof WirePostError)) throw err;
+        const fp = `__reject__:${err.code}:${typeof input.text === "string" ? input.text : ""}:${JSON.stringify(input.assetTags)}`;
+        if (prior) {
+          if (prior.fingerprint === fp) {
+            throw new WirePostError(prior.rejectCode ?? err.code, err.message, prior.status ?? err.status);
+          }
+          throw new WirePostError("IDEMPOTENCY_CONFLICT", "idempotencyKey was already used with a different body.", 409);
+        }
+        const intent: WirePostIntent = {
+          accountId,
+          key: input.idempotencyKey,
+          fingerprint: fp,
+          result: "REJECTED",
+          rejectCode: err.code,
+          status: err.status,
+        };
+        const intentsBefore = this.wirePostIntents;
+        this.wirePostIntents = [...this.wirePostIntents, intent];
+        try {
+          await this.persist();
+        } catch (e) {
+          this.wirePostIntents = intentsBefore;
+          throw e;
+        }
+        throw err;
+      }
+
+      const fp = fingerprintPost(decided.text, decided.assetTags);
+      if (prior) {
+        if (prior.fingerprint !== fp) {
+          throw new WirePostError("IDEMPOTENCY_CONFLICT", "idempotencyKey was already used with a different body.", 409);
+        }
+        if (prior.result === "REJECTED") {
+          throw new WirePostError(prior.rejectCode ?? "BAD_REQUEST", "Statement was rejected.", prior.status ?? 400);
+        }
+        const post = this.wirePosts.find((p) => p.id === prior.postId);
+        if (!post) throw new WirePostError("BAD_REQUEST", "Stored statement is missing.", 500);
+        return {
+          post: clonePlayerWirePost(post),
+          cashCents: current.cashCents,
+          remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick),
+          replayed: true,
+        };
+      }
+
+      if (spendableCashCents(current) < WIRE_POST_FEE_CENTS) {
+        const err = new WirePostError("INSUFFICIENT_CASH", "Not enough spendable cash to post (needs $500).", 409);
+        await this.recordWireReject(accountId, input.idempotencyKey, fp, err);
+        throw err;
+      }
+      if (postsOnDay(this.wirePosts, accountId, input.tick) >= WIRE_POST_DAY_CAP) {
+        const err = new WirePostError("DAY_CAP", "At most three statements per game day.", 409);
+        await this.recordWireReject(accountId, input.idempotencyKey, fp, err);
+        throw err;
+      }
+
+      const post: PlayerWirePost = {
+        id: newWirePostId(),
+        accountId,
+        handle: input.handle,
+        text: decided.text,
+        assetTags: decided.assetTags,
+        tick: input.tick,
+      };
+      const intent: WirePostIntent = {
+        accountId,
+        key: input.idempotencyKey,
+        fingerprint: fp,
+        result: "ACCEPTED",
+        postId: post.id,
+      };
+      const nextPlayer = buildPlayerPrivate(accountId, { ...clonePlayerPrivate(current), cashCents: current.cashCents - WIRE_POST_FEE_CENTS });
+      const postsBefore = this.wirePosts;
+      const intentsBefore = this.wirePostIntents;
+      this.players.set(accountId, nextPlayer);
+      this.wirePosts = [...this.wirePosts, post];
+      this.wirePostIntents = [...this.wirePostIntents, intent];
+      try {
+        await this.persist();
+      } catch (e) {
+        this.players.set(accountId, current);
+        this.wirePosts = postsBefore;
+        this.wirePostIntents = intentsBefore;
+        throw e;
+      }
+      return {
+        post: clonePlayerWirePost(post),
+        cashCents: nextPlayer.cashCents,
+        remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick),
+        replayed: false,
+      };
+    });
+  }
+
+  private async recordWireReject(accountId: AccountId, key: string, fingerprint: string, err: WirePostError): Promise<void> {
+    const intent: WirePostIntent = {
+      accountId,
+      key,
+      fingerprint,
+      result: "REJECTED",
+      rejectCode: err.code,
+      status: err.status,
+    };
+    const intentsBefore = this.wirePostIntents;
+    this.wirePostIntents = [...this.wirePostIntents, intent];
+    try {
+      await this.persist();
+    } catch (e) {
+      this.wirePostIntents = intentsBefore;
+      throw e;
+    }
+  }
+
   private async commitOwn(accountId: AccountId, mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput): Promise<PlayerPrivateRecord> {
     const current = this.requireLedger(accountId);
     const next = buildPlayerPrivate(accountId, mutate(clonePlayerPrivate(current)));

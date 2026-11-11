@@ -33,5 +33,5 @@ export default function WireApp({ context }: { context?: string }) {
     filing: (filingId) => <FilingSection filingId={filingId} t={t} />,
     pushPhone,
   }), [phone, store, t, pushPhone]);
-  return <Feed view={view} t={t} host={host} select={context} demo={demo} />;
+  return <Feed view={view} t={t} host={host} select={context} demo={demo} canPost={!demo} />;
 }

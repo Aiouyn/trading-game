@@ -18,6 +18,7 @@ export const CAUSES: Readonly<Record<string, string>> = {
     "wire.cause.analyst-note-confirmed": "The analyst's call was confirmed. The named company's value moves with the fact.",
     "wire.cause.analyst-note-fizzled": "The analyst's call did not hold, and the price pressure unwinds.",
     "wire.cause.analyst-note-denied": "The analyst's call did not hold, and the price pressure unwinds.",
+    "wire.cause.player-statement": "A player posted this statement. It does not move the price on its own.",
     "wire.cause.orca-trial": "Orca Biologics' lead drug missed its trial goal. Lost future sales take value out of the stock.",
     "wire.cause.nmbs-contract": "Nimbus Compute won a large multi-year computing contract. New revenue lifts the stock.",
     "wire.cause.kiln-demand": "Kiln Materials sees weaker building demand. Lower expected sales push the stock down.",
