@@ -46,7 +46,7 @@ describe("built apps: one source of truth (APP_MODULES)", () => {
     expect(out).not.toContain("aria-busy");
   });
 
-  it.each(Object.entries(APP_MODULES).flatMap(([id, m]) => (m.kind === "lazy" ? [[id, m.load] as const] : [])))(
+  it.each(Object.entries(APP_MODULES).map(([id, m]) => [id, m.load] as const))(
     "%s: its lazy loader resolves to a real module with a default component", async (_id, load) => {
       expect(typeof (await load()).default).toBe("function");
     },

@@ -2,13 +2,14 @@
 // UI card 10 (BRK-D): the Broker window's About view (Overview | News) and the Trade | About switch. A view inside the
 // Broker, not a window: Trade and About share the frame's asset and draft, so Trade is just switching back.
 // Both switches are one tab list (Studio #38 look: the .br-seg segment): arrows move focus, Enter / Space select.
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useShellStore } from "@/components/shell/ShellContext";
 import type { Position, TickerRow } from "@/shell/contracts/channels";
-import { AssetNews } from "./AssetNews";
-import { AssetOverview } from "./AssetOverview";
 import type { BrStrings } from "./strings-en";
 import "./assetPage.css";
+
+const AssetNews = lazy(() => import("./AssetNews").then((m) => ({ default: m.AssetNews })));
+const AssetOverview = lazy(() => import("./AssetOverview").then((m) => ({ default: m.AssetOverview })));
 
 type AboutTab = "overview" | "news";
 
@@ -77,9 +78,11 @@ export function AssetPage({ t, locale, id, assetId, row, position, phone, onTrad
       <h2 ref={heading} id={`${base}-h`} className="ap-title label" tabIndex={-1} data-testid="br-about-title">{t.viewAbout}</h2>
       <Tabs label={t.tabsAria} tabs={tabs} value={tab} onSelect={setTab} testId="br-about-tabs" idOf={tabId} />
       <div className="ap-panel" role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)} data-testid="br-about-panel" data-tab={tab}>
-        {tab === "overview"
-          ? <AssetOverview t={t} locale={locale} assetId={assetId} row={row} position={position} />
-          : <AssetNews t={t} assetId={assetId} />}
+        <Suspense fallback={<div className="ap-skel" role="status" aria-busy="true" aria-label={tab === "news" ? t.newsLoading : t.viewAbout} />}>
+          {tab === "overview"
+            ? <AssetOverview t={t} locale={locale} assetId={assetId} row={row} position={position} />
+            : <AssetNews t={t} assetId={assetId} />}
+        </Suspense>
       </div>
     </section>
   );
