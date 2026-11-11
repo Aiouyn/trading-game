@@ -31,3 +31,24 @@ Candidate B (selected): `policyRecovery` module owns typed catalog observations,
 Red-flag screen: no shared state writer, no forwarding-only wrapper, one catalog registry derives kind order/types, new adapter only reads existing owners. New code can inspect state for deterministic proofs; production ownership/auth/quotas and durable hour mapping are explicit future adapter duties, not claimed here. No cloud/task workers used (forbidden/unavailable); two distinct designs compared locally.
 
 Phases: [x] ground [x] sketch [x] agree (autonomous) [ ] implement [ ] prove [ ] commit/push.
+
+## Gatekeeper delta (346176f4)
+
+### B1 — strict observation/persistence boundary
+`parseInputs` now rejects unsupported JSON representations before schema checks or cloning. Sparse arrays, non-finite values, undefined, Dates, functions, non-plain class instances, cyclic graphs, symbols, hidden properties, accessors and signed zero cannot be accepted then changed by JSON serialization. Every nested catalog aggregate, bloc row, emergency and reading wrapper has exact declared fields; unknown fields are refused even when their value is ordinary JSON. Batch/facade and checkpoint boundaries also reject non-JSON trees. Canonical fingerprinting is unchanged: no special case to disguise unsupported input as equal.
+
+Tests `rejects $name before saving, both before and after restart` cover each reported representation and unknown nested fields: refusal leaves both snapshot and file bytes unchanged; clean restart remains possible, then a valid observation saves/restarts/replays identically. Pre-fix run had 17 failures including the GX witness; one sparse bloc-row case was already rejected and stays rejected.
+
+The original `gk-policy-sparse.ts` calls `parseInputs` assuming acceptance and has no expected-rejection catch. Under the explicitly requested reject-at-boundary contract it necessarily exits 1 at `INVALID_CATALOG_INPUTS`, **before** observe/save, rather than reaching its old unreadable-checkpoint assertion. Do not weaken the boundary just to make that acceptance-assuming script exit 0. Retain its unmodified run/log and the focused refusal/restart tests as separate evidence; its expectation needs the reviewer to update it. The same caveat applies to the old non-JSON acceptance repro.
+
+### B2 — observed intraday GX peaks, not only closes
+04-MACRO-CENTRAL-BANKS-SOVEREIGNS.md:1036 requires checking each game hour for a 20% GX drawdown within 21 trading days, with no close-only peak limitation. Retain timestamped hourly candidate peaks in a monotone deque, pruning only after 21*24 weekday trading hours; weekends pause elapsed trading time. The boundary-hour peak is inclusive; the next trading hour expires it. Persist candidate ordering, timestamps, values and crash latch; an emergent label creates no extra trigger shock. The 12,500 → 10,000 one-hour witness now creates exactly one event across restart and full-state batch/hourly stepping. The test also checks peak expiry at the exact rolling boundary.
+
+Checkpoint schema moves to V2, with `{hour, mark}` peak entries instead of V1 `{day, mark}` closes. V1 is rejected explicitly; a migration cannot invent unobserved historical intraday peaks. There is no activated user store to migrate in this bounded unit. `docs/v1/SYS-POLICY-RECOVERY.md` no longer narrows the metric to closes.
+
+### Still OPEN before mount (unchanged)
+- Flash price recovery remains **68.886161%**, not 70% price drawdown recovery: inherited log-space half-life (`shockFeed.ts`, unchanged), 04:1024 target and 04:1011/1297 calibration, 20:1130 activation gate. No tolerance invented or parameters retuned.
+- Durable hour/epoch/tick-to-UTC ownership and UTC-band snapping remain unbuilt; full macro precursor/downstream hooks are absent. Do not claim full crisis machinery or population calibration.
+- Genuine FSI/bank/macro/emergency sources, one atomic real treasury owner, downstream response integration, fresh-hour calm policy review and public/live mounting remain coordinated activation work.
+
+Delta validation is recorded under `/workspace/avalon/evidence/sys-policy-recovery/<newSHA>/`: per-command statuses/logs, exact repro-source hashes and execution mapping, fresh-file restart/jump/conservation proofs, one clean affected browser invocation after `npm ci` (no apt step). The disposable e2e worktree is removed from `/workspace/avalon/repo` after artifacts are copied. No push, PR, merge, deploy or remote CI is performed here.

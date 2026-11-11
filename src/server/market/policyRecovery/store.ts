@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { advancePolicy, parsePolicyState, publicPolicy, type PolicyState } from "./engine";
-import { parseInputs, type CatalogInputs } from "./inputs";
+import { isPlainJson, parseInputs, type CatalogInputs } from "./inputs";
 
 export interface PolicyStore { load(): Promise<PolicyState | null>; save(state: PolicyState): Promise<void> }
 export class FilePolicyStore implements PolicyStore {
@@ -33,7 +33,7 @@ export class PolicyRecoveryEngine {
   view() { return publicPolicy(this.state); }
   observe(frames: readonly CatalogInputs[]): Promise<PolicyState> {
     let captured: CatalogInputs[];
-    try { captured = frames.map(parseInputs); } catch (e) { return Promise.reject(e); }
+    try { if (!isPlainJson(frames)) throw new Error("INVALID_CATALOG_INPUTS"); captured = frames.map(parseInputs); } catch (e) { return Promise.reject(e); }
     const run = this.queue.then(async () => { const next = advancePolicy(this.state, captured); await this.store.save(next); this.state = next; return this.snapshot(); });
     this.queue = run.then(() => undefined, () => undefined);
     return run;

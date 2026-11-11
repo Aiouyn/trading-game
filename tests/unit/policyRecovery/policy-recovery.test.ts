@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { BLOCS, missingInputs, observed, parseInputs } from "@/server/market/policyRecovery/inputs";
+import { BLOCS, missingInputs, observed, parseInputs, type CatalogInputs, type Bloc, type Credit, type Emergency } from "@/server/market/policyRecovery/inputs";
 import { catalogDecisions, chooseMajor, majorHazard } from "@/server/market/policyRecovery/catalog";
 import { advancePolicy, assertPolicyConservation, canonical, createPolicyState, parsePolicyState, proposeMajor, publicPolicy, residualLog, scheduledBlock } from "@/server/market/policyRecovery/engine";
 import { FilePolicyStore, PolicyRecoveryEngine, type PolicyStore } from "@/server/market/policyRecovery/store";
@@ -202,6 +202,7 @@ describe("persistence, parsing and replay", () => {
     const dir = await mkdtemp(path.join(tmpdir(), "sys-policy-corrupt-")), file = path.join(dir, "policy.json"), original = '{"v":99}';
     await writeFile(file, original); await expect(PolicyRecoveryEngine.open(new FilePolicyStore(file), genesis())).rejects.toThrow(); expect(await readFile(file, "utf8")).toBe(original);
     const s = scenario(); expect(() => parsePolicyState({ ...s, v: 99 })).toThrow();
+    expect(() => parsePolicyState({ ...s, v: 1 })).toThrow("INVALID_POLICY_CHECKPOINT");
     expect(() => parsePolicyState({ ...s, genesisCents: 1 })).toThrow("CASH_CONSERVATION");
     expect(() => parsePolicyState({ ...s, wallets: [...s.wallets, s.wallets[0]] })).toThrow();
     const paid = advancePolicy(s, frames(s.hour + 1, s.events[0]!.contagionHour));
@@ -236,4 +237,87 @@ it("reads actual live clock and locked committed Launchpad updates, no writes or
   expect(r.afterBook.launchpad).not.toEqual(r.afterHype.launchpad);
   expect(r.readOnlyCapture).toBe(true); expect(r.cashDelta).toBe(0);
   expect(canonical(r)).not.toMatch(/acc_|password|holdings|receipts|creatorId|sessionId/);
+});
+
+
+describe("JSON observation boundary survives restart", () => {
+  class Aggregate { graduated = 0; cashCents = 0; poolSamples = 0; liquidating = 0; }
+  const values: { name: string; value: () => unknown }[] = [
+    { name: "NaN", value: () => NaN }, { name: "Infinity", value: () => Infinity }, { name: "undefined", value: () => undefined },
+    { name: "Date", value: () => new Date(0) }, { name: "function", value: () => () => 1 }, { name: "class instance", value: () => new Aggregate() },
+    { name: "unknown plain JSON", value: () => null },
+  ];
+  const invalid = [
+    ...values.map(({ name, value }) => ({ name, make: () => {
+      const f = missingInputs(TEST_EPOCH, 0);
+      f.launchpad = observed({ graduated: 0, cashCents: 0, poolSamples: 0, liquidating: 0, extra: value() }, 0, "boundary fixture");
+      return f;
+    } })),
+    { name: "sparse emergency blocs", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0);
+      f.emergencies = observed([{ id: "record", hour: 0, blocs: new Array<Bloc>(1) }], 0, "boundary fixture"); return f;
+    } },
+    { name: "sparse emergency list", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0); f.emergencies = observed(new Array<Emergency>(1), 0, "boundary fixture"); return f;
+    } },
+    { name: "sparse bloc rows", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0); f.credit = observed(new Array<Credit>(5), 0, "boundary fixture"); return f;
+    } },
+    { name: "declared aggregate class instance", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0); f.launchpad = observed(new Aggregate(), 0, "boundary fixture"); return f;
+    } },
+    { name: "unknown row field", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0); f.credit = observed(BLOCS.map((bloc) => ({ bloc, z: 1, extra: null })), 0, "boundary fixture"); return f;
+    } },
+    { name: "unknown emergency field", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0); f.emergencies = observed([{ id: "record", hour: 0, blocs: [BLOCS[0]!], extra: null }], 0, "boundary fixture"); return f;
+    } },
+    { name: "symbol property", make: () => Object.assign(missingInputs(TEST_EPOCH, 0), { [Symbol("hidden")]: 1 }) },
+    { name: "nonenumerable property", make: () => Object.defineProperty(missingInputs(TEST_EPOCH, 0), "hidden", { value: 1 }) },
+    { name: "accessor property", make: () => Object.defineProperty(missingInputs(TEST_EPOCH, 0), "gx", { get: () => observed(10000, 0, "getter"), enumerable: true }) },
+    { name: "negative zero", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0); f.fear = observed(-0, 0, "boundary fixture"); return f;
+    } },
+  ] satisfies { name: string; make: () => CatalogInputs }[];
+  it.each(invalid)("rejects $name before saving, both before and after restart", async ({ make }) => {
+    const dir = await mkdtemp(path.join(tmpdir(), "sys-policy-boundary-")), store = new FilePolicyStore(path.join(dir, "policy.json"));
+    const initial = createPolicyState({ epoch: TEST_EPOCH, seed: 17, wallets: [] });
+    let engine = await PolicyRecoveryEngine.open(store, initial);
+    for (let restart = 0; restart < 2; restart++) {
+      if (restart) engine = await PolicyRecoveryEngine.open(store);
+      const f = make(), before = engine.snapshot(), bytes = await readFile(store.filePath, "utf8");
+      expect(() => parseInputs(f)).toThrow("INVALID_CATALOG_INPUTS");
+      await expect(engine.observe([f])).rejects.toThrow("INVALID_CATALOG_INPUTS");
+      expect(engine.snapshot()).toEqual(before);
+      expect(await readFile(store.filePath, "utf8")).toBe(bytes);
+      expect(await store.load()).toEqual(before);
+    }
+    const valid = missingInputs(TEST_EPOCH, 0); await engine.observe([valid]);
+    const accepted = engine.snapshot(); engine = await PolicyRecoveryEngine.open(store);
+    expect(engine.snapshot()).toEqual(accepted);
+    await engine.observe([valid]); expect(engine.snapshot()).toEqual(accepted);
+  });
+});
+
+it("retains an hourly GX peak across restart, labels 12500 to 10000 once, and expires it after 21 trading days", async () => {
+  const gx = (hour: number, value: number) => { const f = missingInputs(TEST_EPOCH, hour); f.gx = observed(value, hour, "hourly GX fixture"); return f; };
+  const initial = createPolicyState({ epoch: TEST_EPOCH, seed: 17, wallets: [] });
+  const tape = [...Array.from({ length: 24 }, (_, hour) => gx(hour, 10000)), gx(24, 12500), gx(25, 10000), gx(26, 10000)];
+  const dir = await mkdtemp(path.join(tmpdir(), "sys-policy-intraday-")), store = new FilePolicyStore(path.join(dir, "policy.json"));
+  let engine = await PolicyRecoveryEngine.open(store, initial);
+  await engine.observe(tape.slice(0, 25)); const atPeak = engine.snapshot();
+  engine = await PolicyRecoveryEngine.open(store); expect(engine.snapshot()).toEqual(atPeak);
+  await engine.observe(tape.slice(25));
+  const result = engine.snapshot();
+  expect(result.events).toHaveLength(1);
+  expect(result.events[0]).toMatchObject({ kind: "EQUITY_BUBBLE_BURST", origin: "EMERGENT" });
+  expect(result.residuals).toEqual([]);
+  expect(result).toEqual(advancePolicy(initial, tape));
+  expect(result).toEqual(tape.reduce((state, f) => advancePolicy(state, [f]), initial));
+  const lastIncluded = 30 * 24;
+  await engine.observe(Array.from({ length: lastIncluded - 26 }, (_, i) => gx(27 + i, 10000)));
+  expect(engine.snapshot().gxHistory.some((r) => r.mark === 12500)).toBe(true);
+  await engine.observe([gx(lastIncluded + 1, 10000)]);
+  expect(engine.snapshot().gxHistory.some((r) => r.mark === 12500)).toBe(false);
+  expect(engine.snapshot().gxCrash).toBe("CLEAR");
 });

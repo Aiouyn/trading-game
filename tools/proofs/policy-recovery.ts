@@ -41,13 +41,13 @@ async function main() {
     finalWallets: uninterrupted.wallets, genesisCashCents: uninterrupted.genesisCents, cashDelta: uninterrupted.wallets.reduce((n, w) => n + w.cents, 0) - uninterrupted.genesisCents, ok: true });
   await output("restart-final-state.json", uninterrupted);
   let gxInitial = createPolicyState({ epoch: TEST_EPOCH, seed: 17, wallets: [] });
-  gxInitial = advancePolicy(gxInitial, [...frames(0, 23), frame(24, { gx: 8000 })]);
+  gxInitial = advancePolicy(gxInitial, [...frames(0, 23), frame(24, { gx: 12500 })]);
   let gxEngine = await PolicyRecoveryEngine.open(new FilePolicyStore(path.join(clean, "gx-latch.json")), gxInitial);
   gxEngine = await PolicyRecoveryEngine.open(new FilePolicyStore(path.join(clean, "gx-latch.json")));
-  const gxTape = frames(25, 100, { gx: 8000 }); await gxEngine.observe(gxTape);
+  const gxTape = frames(25, 100, { gx: 10000 }); await gxEngine.observe(gxTape);
   assert.deepEqual(gxEngine.snapshot(), advancePolicy(gxInitial, gxTape)); assert.equal(gxEngine.snapshot().events.length, 1); assert.equal(gxEngine.snapshot().residuals.length, 0);
-  await output("emergent-restart-proof.json", { actualObservedDrawdown: .2, first24ConstraintNotApplied: true, savedLatch: gxInitial.gxCrash,
-    savedGxCloses: gxInitial.gxHistory, restartFullStateEqual: true, noDuplicateEvent: true, noExtraTriggerShock: true, finalStateSha256: digest(gxEngine.snapshot()), cashDelta: 0, ok: true });
+  await output("emergent-restart-proof.json", { actualObservedDrawdown: .2, hourlyPeakBeforeRestart: 12500, drawdownMarkAfterRestart: 10000, first24ConstraintNotApplied: true, savedLatch: gxEngine.snapshot().gxCrash,
+    savedGxPeaks: gxInitial.gxHistory, restartFullStateEqual: true, noDuplicateEvent: true, noExtraTriggerShock: true, finalStateSha256: digest(gxEngine.snapshot()), cashDelta: 0, ok: true });
   const naturalInitial = genesis(), naturalTape = frames(naturalInitial.hour + 1, 800 * 24, { fsi: null, tension: null, fear: 100 });
   const naturalBatch = advancePolicy(naturalInitial, naturalTape); let naturalStepping = naturalInitial;
   for (const f of naturalTape) naturalStepping = advancePolicy(naturalStepping, [f]);

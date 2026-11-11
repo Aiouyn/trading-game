@@ -20,6 +20,26 @@ export interface CatalogValues {
 export type CatalogKey = keyof CatalogValues;
 export type CatalogInputs = { epoch: string; hour: number } & { [K in CatalogKey]: Reading<CatalogValues[K]> };
 export const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+/** Boundary-only JSON tree check: no holes, exotic prototypes, hidden keys, accessors or coercion hooks. */
+export function isPlainJson(v: unknown, ancestors = new Set<object>()): boolean {
+  if (v === null || typeof v === "string" || typeof v === "boolean") return true;
+  if (typeof v === "number") return Number.isFinite(v) && !Object.is(v, -0);
+  if (typeof v !== "object" || ancestors.has(v)) return false;
+  const array = Array.isArray(v);
+  if (Object.getPrototypeOf(v) !== (array ? Array.prototype : Object.prototype)) return false;
+  const keys = Reflect.ownKeys(v);
+  if (array && (keys.length !== v.length + 1)) return false;
+  ancestors.add(v);
+  const valid = keys.every((key) => {
+    if (array && key === "length") return true;
+    if (array && (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= v.length)) return false;
+    const d = Object.getOwnPropertyDescriptor(v, key);
+    return typeof key === "string" && !!d && d.enumerable === true && "value" in d && isPlainJson(d.value, ancestors);
+  });
+  ancestors.delete(v);
+  return valid;
+}
+export const hasFields = (v: object, fields: readonly string[]) => Object.keys(v).length === fields.length && fields.every((k) => Object.hasOwn(v, k));
 export const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 export const integer = (v: unknown): v is number => Number.isSafeInteger(v) && typeof v === "number" && v >= 0;
 export const text = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 160;
@@ -34,22 +54,22 @@ const validators: { [K in CatalogKey]: (v: unknown) => v is CatalogValues[K] } =
   cryptoHype: range(0, 1), minStablecoinBacking: range(0, 100), semisValuationZ: finite, aiRace: range(0, 100),
   worldHeadlineInflation: range(-1, 100), poolUnderwritingQuality: range(0, 1), repoLeverageIndex: range(0, 1e6),
   defaultRateRising: (v: unknown): v is boolean => typeof v === "boolean",
-  valuation: rows((v: unknown): v is Valuation => object(v) && bloc(v.bloc) && finite(v.z) && range(0, 1)(v.gdpShare)),
-  credit: rows((v: unknown): v is Credit => object(v) && bloc(v.bloc) && finite(v.z)),
-  banks: rows((v: unknown): v is Bank => object(v) && bloc(v.bloc) && integer(v.below12x)),
-  fx: rows((v: unknown): v is Fx => object(v) && bloc(v.bloc) && range(0, 1e6)(v.reserveCover) && range(-100, 100)(v.currentAccount)),
-  sovereign: rows((v: unknown): v is Sovereign => object(v) && bloc(v.bloc) && range(0, 100)(v.hazard)),
-  housing: rows((v: unknown): v is Housing => object(v) && bloc(v.bloc) && finite(v.gap) && finite(v.z)),
-  launchpad: (v: unknown): v is LaunchpadAggregate => object(v) && integer(v.graduated) && integer(v.cashCents) && integer(v.poolSamples)
+  valuation: rows((v: unknown): v is Valuation => object(v) && hasFields(v, ["bloc", "z", "gdpShare"]) && bloc(v.bloc) && finite(v.z) && range(0, 1)(v.gdpShare)),
+  credit: rows((v: unknown): v is Credit => object(v) && hasFields(v, ["bloc", "z"]) && bloc(v.bloc) && finite(v.z)),
+  banks: rows((v: unknown): v is Bank => object(v) && hasFields(v, ["bloc", "below12x"]) && bloc(v.bloc) && integer(v.below12x)),
+  fx: rows((v: unknown): v is Fx => object(v) && hasFields(v, ["bloc", "reserveCover", "currentAccount"]) && bloc(v.bloc) && range(0, 1e6)(v.reserveCover) && range(-100, 100)(v.currentAccount)),
+  sovereign: rows((v: unknown): v is Sovereign => object(v) && hasFields(v, ["bloc", "hazard"]) && bloc(v.bloc) && range(0, 100)(v.hazard)),
+  housing: rows((v: unknown): v is Housing => object(v) && hasFields(v, ["bloc", "gap", "z"]) && bloc(v.bloc) && finite(v.gap) && finite(v.z)),
+  launchpad: (v: unknown): v is LaunchpadAggregate => object(v) && hasFields(v, ["graduated", "cashCents", "poolSamples", "liquidating"]) && integer(v.graduated) && integer(v.cashCents) && integer(v.poolSamples)
     && integer(v.liquidating) && v.poolSamples <= v.graduated && v.liquidating <= v.poolSamples,
-  emergencies: (v: unknown): v is Emergency[] => Array.isArray(v) && v.length <= 100 && v.every((e) => object(e) && text(e.id) && integer(e.hour)
+  emergencies: (v: unknown): v is Emergency[] => Array.isArray(v) && v.length <= 100 && v.every((e) => object(e) && hasFields(e, ["id", "hour", "blocs"]) && text(e.id) && integer(e.hour)
     && Array.isArray(e.blocs) && e.blocs.length > 0 && e.blocs.every(bloc) && new Set(e.blocs).size === e.blocs.length),
 };
 export function isKey(k: string): k is CatalogKey { return Object.hasOwn(validators, k); }
 function readingOk(v: unknown, guard: (x: unknown) => boolean, hour: number): boolean {
   if (!object(v) || !text(v.source)) return false;
-  if (v.kind === "MISSING") return Object.keys(v).length === 3 && text(v.reason);
-  return v.kind === "LIVE" && Object.keys(v).length === 4 && integer(v.observedHour) && v.observedHour <= hour && guard(v.value);
+  if (v.kind === "MISSING") return hasFields(v, ["kind", "source", "reason"]) && text(v.reason);
+  return v.kind === "LIVE" && hasFields(v, ["kind", "source", "observedHour", "value"]) && integer(v.observedHour) && v.observedHour <= hour && guard(v.value);
 }
 function isInputs(v: unknown): v is CatalogInputs {
   if (!object(v) || !text(v.epoch) || !integer(v.hour) || Object.keys(v).length !== Object.keys(validators).length + 2) return false;
@@ -63,7 +83,7 @@ function isInputs(v: unknown): v is CatalogInputs {
 
 }
 export function parseInputs(v: unknown): CatalogInputs {
-  if (!isInputs(v)) throw new Error("INVALID_CATALOG_INPUTS");
+  if (!isPlainJson(v) || !isInputs(v)) throw new Error("INVALID_CATALOG_INPUTS");
   return structuredClone(v);
 }
 export const missing = (source: string, reason = "source not implemented on base"): Reading<never> => ({ kind: "MISSING", source, reason });

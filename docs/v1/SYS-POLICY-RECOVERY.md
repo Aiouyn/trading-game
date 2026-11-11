@@ -16,6 +16,9 @@ No timer step or async commit can interleave inside that callback.
 Each reading is `LIVE` with `observedHour`, `source`, and `value`, or `MISSING` with a reason.
 A live reading from an older hour is stale. It cannot enable a draw or a calm day.
 A future observation, malformed value, or future emergency record fails parsing.
+The boundary accepts only dense, plain JSON trees and exact declared fields at every nesting level.
+It rejects unknown fields, non-finite numbers, negative zero, undefined, functions, Dates, class instances,
+cycles, sparse arrays, symbols, hidden properties and accessors before copying or saving inputs.
 
 The adapter reads these actual owners:
 
@@ -37,7 +40,9 @@ FSI, credit defaults, bank capital, GDP shares, valuation z, sovereign hazard, r
 stablecoin backing, AI, underwriting, repo leverage, and CB emergency records are missing on this base.
 DEGEN liquidation counts are not bank defaults or FSI.
 GX returns are not valuation z.
-The engine retains actual GX trading-day closes and labels an observed 20% drawdown within 21 trading days as emergent.
+At every supplied game hour, the engine checks the current GX mark against observed hourly peaks within the last 21 trading days (04:1036), not just closes.
+A persisted monotone deque retains candidate peaks with their actual observation hour; weekdays advance the 24-hour trading clock and weekends pause it.
+A peak exactly 21 trading days old remains eligible; it expires at the next trading hour. Observed peaks on weekends are not silently discarded.
 The saved crash latch prevents a duplicate label after restart.
 
 The adapter does not import the previous unmerged failure-farm branch.
@@ -124,7 +129,9 @@ The existing base's NPC funding and DEGEN credit are not imported or certified b
 
 `PolicyRecoveryEngine` copies inputs before queueing, serializes observations, and saves before publishing.
 Equal repeated observations are idempotent. Conflicting repeats, hourly gaps, and epoch changes fail without mutation.
-`FilePolicyStore` validates version, variants, cash, identities, times, program receipts, and residuals.
+`FilePolicyStore` validates version, exact variants/fields, plain JSON, cash, identities, times, program receipts, residuals and hourly peak ordering/window.
+The checkpoint is now **V2** because the GX history contains hourly candidates rather than V1 closing prints.
+V1 checkpoints are explicitly rejected, not silently upgraded: missing historical intraday peaks cannot be reconstructed honestly. This isolated engine is not mounted.
 It writes a temporary file then renames it. A corrupt existing file is rejected and retained, never reset from genesis.
 
 One engine owns one path. There is no multiprocess coordination, fsync guarantee, production authorization, quota system, or history-retention policy.
