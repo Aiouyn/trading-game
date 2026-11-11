@@ -194,7 +194,7 @@ function StatusBar() {
           {auth.account.handle}
         </button>
       ) : null}
-      <FeedbackButton />
+      <FeedbackButton compact />
       <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
         {nw.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(nw.state)}>{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
       </span>

@@ -1,6 +1,5 @@
 .quay-feedback { position: relative; }
 .quay-feedback-btn { cursor: pointer; }
-.statusbar .quay-feedback-btn { min-width: 44px; min-height: 44px; }
 .quay-feedback-panel {
   position: absolute;
   top: calc(100% + 8px);
