@@ -96,6 +96,8 @@ export interface StormWorldSnapshot {
   readonly erpAccrued?: ReadonlyArray<{ readonly assetId: string; readonly log: number }> | null;
   /** Catalog RUMOR claims, belief residuals, handoff, and confirmed lnV. Absent on older files → empty book. */
   readonly rumors?: import("./rumorClaims").RumorSnapshot | null;
+  /** Quote-path + candles. Absent on older files → virgin marks at lastTick (upgrade). Present but invalid fails closed. */
+  readonly path?: import("./pathSnapshot").PathSnapshot | null;
 }
 
 const pFromRate = (r: number) => 1 - Math.exp(-r);

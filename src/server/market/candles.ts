@@ -1,20 +1,21 @@
 // M1-07 server candle history: quote OHLC sampled from the one authoritative clock, volume from executed Broker fills.
 //  - Price: every clock step samples each asset's server `last`. A bar opens at the previous bar's close (the quote moved
-//    from there inside this span) and h/l/c follow the samples. The first bar after a process start opens at its first
-//    sample. Nothing before the first sample exists: no back-filled or invented history.
+//    from there inside this span) and h/l/c follow the samples. A resumed clock hydrates bars from the path snapshot
+//    so the chart continues; a new clock with no path opens its first bar at the first sample. No invented history.
 //  - Volume: the sum of executed fill quantities (place takers and swept makers) at the fill's tick, each fillId counted
 //    once, so a replayed idempotency key (no new fill) or a repeated notification never double counts. NPC quote motion
 //    is not volume. Only public aggregates leave this module (no account, order or fill ids).
 //  - Revisions: every change to a bar (a sample, or volume from a fill whose save may finish long after its bar closed)
 //    bumps one counter and marks the bar. A reader passing the last revision it holds (`since`) also gets every bar
 //    changed after it, however late (within the kept bars): no fixed re-read window. The counter belongs to this recorder
-//    (`epoch`, new per process / clock), so a revision from another history is never compared with this one.
-//  - Process-local, like the clock: a restart starts the history again (the chart says since when it has data).
+//    (`epoch`, stable across a path-hydrated restart), so a revision from another history is never compared with this one.
+//  - Persisted with the storm-world path when present. An absent path starts a new history at the first sample.
 import { ASSETS, ASSET_BY_ID } from "@/market/catalog";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
 import type { Candle, CandleHistoryReq, CandleRes } from "@/shell/contracts/channels";
 import { fmt } from "@/shell/contracts/mockFeed";
 import type { LiveMarket } from "./clock";
+import type { PathCandleSnapshot, PathMinorBar } from "./pathSnapshot";
 
 /** Ticks per bar (engine calendar: 30 ticks an hour, 720 a day), as the client's history.ts SPAN. */
 export const CANDLE_SPAN: Readonly<Record<CandleRes, number>> = { tick: 1, hour: 30, day: 720 };
@@ -35,8 +36,9 @@ export class CandleRecorder {
   private readonly seen = new Set<string>();
   private lastTick = -1;
   private rev = 0;
-  /** Names this history: a restarted process (or swapped clock) starts a new one, with revisions from 0 again. */
-  readonly epoch = Math.random().toString(36).slice(2, 10) || "0";
+  /** Names this history. Hydrate restores the persisted epoch so a restarted clock keeps one series. */
+  private epochId = Math.random().toString(36).slice(2, 10) || "0";
+  get epoch(): string { return this.epochId; }
 
   /** Bumped once per sample and once per counted fill; each bar remembers the revision of its last change. */
   get revision(): number { return this.rev; }
@@ -94,6 +96,27 @@ export class CandleRecorder {
     }
   }
 
+  snapshot(): PathCandleSnapshot {
+    const bars: PathCandleSnapshot["bars"] = {};
+    for (const [id, per] of this.bars) {
+      const next = { tick: per.tick.map((b) => ({ ...b })), hour: per.hour.map((b) => ({ ...b })), day: per.day.map((b) => ({ ...b })) };
+      (bars as Record<string, typeof next>)[id] = next;
+    }
+    return { epoch: this.epochId, rev: this.rev, lastTick: this.lastTick, bars };
+  }
+
+  hydrate(snap: PathCandleSnapshot): void {
+    this.epochId = snap.epoch;
+    this.rev = snap.rev;
+    this.lastTick = snap.lastTick;
+    this.seen.clear();
+    this.bars.clear();
+    for (const [id, per] of Object.entries(snap.bars)) {
+      const copy = (list: readonly PathMinorBar[]) => list.map((b) => ({ ...b }));
+      this.bars.set(id, { tick: copy(per.tick), hour: copy(per.hour), day: copy(per.day) });
+    }
+  }
+
   /** Bars with from (aligned down) <= t <= to, oldest first, at most CANDLE_KEEP. Unknown asset: none. With `since`, also
    *  every bar outside that range changed after that revision (older or newer; still oldest first). */
   history(req: CandleHistoryReq, since?: number): Candle[] {
@@ -130,7 +153,10 @@ export function getCandles(market: LiveMarket): CandleRecorder {
   const cur = globalForCandles.__portAvalonCandles;
   if (cur && cur.market === market) return cur.recorder;
   const recorder = new CandleRecorder();
-  recorder.sample(market.snapshot());
+  const pending = typeof market.takePendingPathCandles === "function" ? market.takePendingPathCandles() : null;
+  if (pending) recorder.hydrate(pending);
+  else recorder.sample(market.snapshot());
+  market.attachCandleSink?.(recorder);
   market.onStep(() => recorder.sample(market.snapshot()));
   market.onList(() => recorder.sample(market.snapshot(), true));
   globalForCandles.__portAvalonCandles = { recorder, market };

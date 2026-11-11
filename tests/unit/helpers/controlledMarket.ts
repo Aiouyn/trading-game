@@ -12,6 +12,9 @@ export class ControlledMarket {
   onStep(fn: () => void) { this.fns.add(fn); return () => { this.fns.delete(fn); }; }
   onList() { return () => {}; } // L4 listing hook: this stand-in clock lists nothing
   impactListed() { return null; }
+  // Stand-in clocks have no storm-world path; getCandles starts a fresh history (as a real clock with no path does).
+  takePendingPathCandles() { return null; }
+  attachCandleSink() {}
   step(marks: Record<string, number> = {}) {
     const rows = { ...this.snap.quotes.rows };
     for (const [id, m] of Object.entries(marks)) rows[id] = { ...rows[id]!, last: fmt(m, 2) };

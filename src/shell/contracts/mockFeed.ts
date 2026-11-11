@@ -116,16 +116,20 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   };
 }
 
-/** mulberry32: small, fast, deterministic. */
-export function rng(seed: number): () => number {
+/** mulberry32: small, fast, deterministic. `state` / `restore` let the server clock persist the walk. */
+export type Rng = (() => number) & { state(): number; restore(a: number): void };
+export function rng(seed: number): Rng {
   let a = seed >>> 0;
-  return () => {
+  const next = (() => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  }) as Rng;
+  next.state = () => a;
+  next.restore = (s: number) => { a = s >>> 0; };
+  return next;
 }
 
 /** Integer minor units -> decimal string with `dp` places (G2). */
@@ -209,8 +213,9 @@ export class MockFeed {
   /** Signed-in: cash the server holds for working buy limits (spendable = cash − this). */
   reservedCash = 0;
   tick: number;
-  private rand: () => number;
-  private extraAssetRandom = new Map<string, () => number>();
+  // protected: ShockFeed persists / hydrates these on restart (path snapshot). Not used by the client.
+  protected rand: Rng;
+  protected extraAssetRandom = new Map<string, Rng>();
 
   // Preserve the original eight-asset replay stream. Catalog extensions must not
   // consume it at initialization or on ticks (quotes, volumes and fills depend on it).

@@ -11,6 +11,7 @@ import {
   type CrisisBookkeeping, type MajorEvent, type MajorKindV1, type MajorPhase, type RippleEvent, type RippleKind,
 } from "./crises";
 import { cloneRumorSnapshot, normalizeRumorSnapshot, refuseCorruptRumorSnapshot } from "./rumorClaims";
+import { clonePathSnapshot, normalizePathSnapshot, refuseCorruptPathSnapshot } from "./pathSnapshot";
 
 export interface StormWorldStore {
   load(): StormWorldSnapshot;
@@ -71,6 +72,7 @@ export function cloneStormWorld(s: StormWorldSnapshot): StormWorldSnapshot {
     shockResidual: s.shockResidual ? s.shockResidual.map((r) => ({ ...r })) : s.shockResidual === null ? null : undefined,
     erpAccrued: s.erpAccrued ? s.erpAccrued.map((r) => ({ ...r })) : s.erpAccrued === null ? null : undefined,
     rumors: s.rumors ? cloneRumorSnapshot(s.rumors) : s.rumors === null ? null : undefined,
+    path: s.path ? clonePathSnapshot(s.path) : s.path === null ? null : undefined,
   };
 }
 
@@ -138,11 +140,16 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     const d = o.depth as Record<string, unknown>;
     if (typeof d.mult === "number" && typeof d.untilTick === "number") depth = { mult: d.mult, untilTick: d.untilTick };
   }
+  const path = Object.prototype.hasOwnProperty.call(o, "path")
+    ? (normalizePathSnapshot(o.path) ?? refuseCorruptPathSnapshot())
+    : undefined;
+  const lastTick = numOrNull(o.lastTick);
+  if (path && lastTick != null && path.tick !== lastTick) refuseCorruptPathSnapshot();
   return {
     active: normalizeActive(o.active),
     lastEndTick: numOrNull(o.lastEndTick),
     lastDayClose: numOrNull(o.lastDayClose),
-    lastTick: numOrNull(o.lastTick),
+    lastTick,
     depth,
     stockApplied,
     world: normalizeWorld(o.world),
@@ -152,6 +159,7 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     rumors: Object.prototype.hasOwnProperty.call(o, "rumors")
       ? (normalizeRumorSnapshot(o.rumors) ?? refuseCorruptRumorSnapshot())
       : undefined,
+    path,
   };
 }
 

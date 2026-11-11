@@ -1,7 +1,7 @@
 // M1-09 server only: the clock's feed, which can move a price on a Wire story. Kept out of MockFeed so the client bundle
 // (every signed-in and guest feed) does not carry code only the server clock runs.
 import { ASSET_BY_ID, type AssetFixture } from "@/market/catalog";
-import { MockFeed, fmt, type FeedOptions } from "@/shell/contracts/mockFeed";
+import { MockFeed, fmt, rng, type FeedOptions } from "@/shell/contracts/mockFeed";
 import { listAsset } from "@/market/listings";
 import { CRYPTO_FACTOR_STREAM, CRYPTO_DAYS_PER_YEAR, SESSION_DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
@@ -10,6 +10,7 @@ import type { DepthInputs } from "@/server/broker/book";
 import { WorldInputs, REGIME_TURNOVER, type WorldView } from "./world";
 import { StormScheduler, type StormHypeShock, type StormPriceShock, type StormWireOut } from "./storms";
 import { RumorBook, type RumorOpenInput, type RumorSnapshot, type RumorStepEvent } from "./rumorClaims";
+import { PATH_SNAPSHOT_V, type PathAssetSnapshot, type PathLookbackSnapshot, type PathMemeSnapshot, type PathSnapshot } from "./pathSnapshot";
 
 /** What the trader pools read of a listed coin (src/server/broker/pools.ts): its mark P_{N−1} and template value, its
  *  returns and template vol, the world (04 regime and Fear Index) and its news (attention, sign, mentions). */
@@ -118,6 +119,11 @@ export class ShockFeed extends MockFeed {
     return this._rumors ??= new RumorBook(this.scenario.seed, undefined, { secret: this.rumorSecret });
   }
 
+  /** Pending listed-coin path rows, applied when listMeme runs after a restart. */
+  private readonly pendingPathAssets = new Map<string, PathAssetSnapshot>();
+  private readonly pendingMemes = new Map<string, PathMemeSnapshot>();
+  private readonly pendingLookback = new Map<string, PathLookbackSnapshot>();
+
   /** L4: give a def the catalog just appended its quote state at its listing price and its meme-template path, at hype
    *  `hype` (a fresh listing: H₀; a relist after a restart: the saved H). Idempotent. */
   listMeme(a: AssetFixture, hype: number = HYPE.h0): void {
@@ -127,6 +133,7 @@ export class ShockFeed extends MockFeed {
     this.memes.set(a.assetId, new MemeProcess(a.assetId, a.base, a.displayDecimals));
     this.hype.set(a.assetId, hype);
     this.coinNews.set(a.assetId, new CoinNews());
+    this.applyPendingPath(a.assetId);
   }
 
   /** The saved hype of a listed coin, read by its next path step. */
@@ -180,7 +187,7 @@ export class ShockFeed extends MockFeed {
 
   /** Each listed coin's marks and template values (lnV) at the end of its recent ticks, newest last (at most
    *  POOL_LOOKBACK + 1): what the trader pools read as "state published at the end of tick N−1" (05 §6.2). In memory,
-   *  like the path: a restart starts it again. */
+   *  persisted with the path so r1h/r1d survive a restart. */
   private readonly marks = new Map<string, { p: number[]; v: number[] }>();
 
   /** The trader pools' inputs for a listed coin at this tick, read from the end of the previous tick: its mark P_{N−1}
@@ -448,4 +455,88 @@ export class ShockFeed extends MockFeed {
   takeCrisisWire() { return this.storms.takeCrisisWire(); }
   takeStormHype(): StormHypeShock[] { return this.storms.takeHypeShocks(); }
   takeStormPrices(): StormPriceShock[] { return this.storms.takePriceShocks(); }
+
+  private applyAssetPath(id: string, a: PathAssetSnapshot): void {
+    const s = this.assets.get(id);
+    if (!s) return;
+    s.last = a.last;
+    s.prevClose = a.prevClose;
+    s.dayVol = a.dayVol;
+    s.lastQty = a.lastQty;
+    s.dir = a.dir;
+    s.prints = a.prints.map((p) => ({ ...p }));
+  }
+
+  private applyPendingPath(id: string): void {
+    const asset = this.pendingPathAssets.get(id);
+    if (asset) {
+      this.applyAssetPath(id, asset);
+      this.pendingPathAssets.delete(id);
+    }
+    const meme = this.pendingMemes.get(id);
+    if (meme) {
+      this.memes.get(id)?.hydrate(meme);
+      this.pendingMemes.delete(id);
+    }
+    const look = this.pendingLookback.get(id);
+    if (look) {
+      this.marks.set(id, { p: look.p.slice(), v: look.v.slice() });
+      this.pendingLookback.delete(id);
+    }
+  }
+
+  /** Durable walk state (marks, RNG, listed memes, lookback) for the storm-world `path` field. */
+  snapshotPath(): PathSnapshot {
+    const assets: Record<string, PathAssetSnapshot> = {};
+    for (const [id, s] of this.assets) {
+      assets[id] = {
+        last: s.last, prevClose: s.prevClose, dayVol: s.dayVol, lastQty: s.lastQty, dir: s.dir,
+        prints: s.prints.map((p) => ({ ...p })),
+      };
+    }
+    const extraRand: Record<string, number> = {};
+    for (const [id, r] of this.extraAssetRandom) extraRand[id] = r.state();
+    const memes: Record<string, PathMemeSnapshot> = {};
+    for (const [id, m] of this.memes) memes[id] = m.snapshot();
+    const lookback: Record<string, PathLookbackSnapshot> = {};
+    for (const [id, h] of this.marks) lookback[id] = { p: h.p.slice(), v: h.v.slice() };
+    return {
+      v: PATH_SNAPSHOT_V,
+      tick: this.tick,
+      rand: this.rand.state(),
+      extraRand,
+      cryptoFactor: this.cryptoFactor.state(),
+      assets,
+      memes,
+      lookback,
+    };
+  }
+
+  /** Resume a persisted walk. Listed coins not yet listMeme'd stay pending until they are. */
+  hydratePath(path: PathSnapshot): void {
+    this.rand.restore(path.rand);
+    for (const [id, a] of Object.entries(path.extraRand)) {
+      const r = this.extraAssetRandom.get(id) ?? rng(0);
+      r.restore(a);
+      this.extraAssetRandom.set(id, r);
+    }
+    this.cryptoFactor.hydrate(path.cryptoFactor);
+    this.pendingPathAssets.clear();
+    this.pendingMemes.clear();
+    this.pendingLookback.clear();
+    for (const [id, a] of Object.entries(path.assets)) {
+      if (this.assets.has(id)) this.applyAssetPath(id, a);
+      else this.pendingPathAssets.set(id, a);
+    }
+    for (const [id, m] of Object.entries(path.memes)) {
+      const cur = this.memes.get(id);
+      if (cur) cur.hydrate(m);
+      else this.pendingMemes.set(id, m);
+    }
+    this.marks.clear();
+    for (const [id, h] of Object.entries(path.lookback)) {
+      if (this.memes.has(id)) this.marks.set(id, { p: h.p.slice(), v: h.v.slice() });
+      else this.pendingLookback.set(id, h);
+    }
+  }
 }

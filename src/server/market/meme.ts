@@ -18,7 +18,7 @@
 // log drift + 3.0·H per 364-day game year for MEME, "05 applies"), 05 §3.3.5 the global regime's multipliers (vol, jump intensity,
 // jump down-probability shift; a crypto asset reads 04's global regime) and 05 §3.3 factor jumps (`jump`).
 // Its own streams (`lp:<TICKER>` for the draws, `lp:<TICKER>:px` for the path), so no other asset's path changes.
-import { rng } from "@/shell/contracts/mockFeed";
+import { rng, type Rng } from "@/shell/contracts/mockFeed";
 
 export const MEME_TEMPLATE = {
   id: "FROG", jumpsPerYear: 20, jumpUpMean: 0.25, jumpDownMean: 0.22, jumpUpProb: 0.5, floor: 1e-7, studentNu: 4, wMarket: 0.25, wCrypto: 0.75,
@@ -59,13 +59,15 @@ export const NEUTRAL_PATH: PathInputs = { hype: 0, reg: { vol: 1, jump: 1, skew:
 
 /** p10's Rng draws over this base's mulberry32 stream. */
 export class Draws {
-  private readonly next: () => number;
+  private readonly next: Rng;
   private spare: number | null = null;
   constructor(stream: string) {
     let seed = 0x811c9dc5;
     for (const ch of stream) seed = Math.imul(seed ^ ch.charCodeAt(0), 0x01000193) >>> 0;
     this.next = rng(seed);
   }
+  state(): { a: number; spare: number | null } { return { a: this.next.state(), spare: this.spare }; }
+  hydrate(s: { a: number; spare: number | null }): void { this.next.restore(s.a); this.spare = s.spare; }
   /** Uniform in (0, 1), never exactly 0 or 1. */
   uniform(): number { return (Math.floor(this.next() * 4294967296) + 0.5) / 4294967296; }
   normal(): number {
@@ -138,4 +140,12 @@ export class MemeProcess {
   /** The template path's log value in dollars, without the flow's permanent moves. */
   lnV(): number { return this.lnP - this.offset; }
   minor(): number { return Math.max(1, Math.round(Math.exp(this.lnP) * 10 ** this.dp)); }
+  snapshot(): { lnP: number; offset: number; draws: { a: number; spare: number | null } } {
+    return { lnP: this.lnP, offset: this.offset, draws: this.draws.state() };
+  }
+  hydrate(s: { lnP: number; offset: number; draws: { a: number; spare: number | null } }): void {
+    this.lnP = s.lnP;
+    this.offset = s.offset;
+    this.draws.hydrate(s.draws);
+  }
 }

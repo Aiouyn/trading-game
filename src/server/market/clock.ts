@@ -3,7 +3,8 @@
 // Not multi-instance (same limit as the auth file store).
 // M1-09: each step also publishes that tick's Wire story (src/market/wireStories.ts) and applies its price effect to
 // these quotes once, before the step listeners (resting-order sweep, candles) see the tick. Reads never publish or
-// apply. A restart starts a new epoch for the walk (virgin marks + rematerialized residual / ERP / rumor X / printed belief).
+// apply. A restart resumes the quote walk from the persisted path (marks, RNG, memes, candles) on the storm-world snapshot.
+// An absent path is the upgrade (virgin marks at lastTick + rematerialized residual / ERP / rumor X / printed belief).
 // The feed and storm scheduler resume from persisted lastTick so Wire items and claim clocks stay aligned with the response tick.
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { appendAsset, listVersion } from "@/market/listings";
@@ -18,6 +19,7 @@ import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromApp
 import type { StormKind, StormWireOut } from "./storms";
 import type { CrisisWireOut, MajorKindV1 } from "./crises";
 import { TICKS_PER_DAY } from "./meme";
+import type { PathCandleSnapshot, PathSnapshot } from "./pathSnapshot";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
@@ -67,6 +69,10 @@ export class LiveMarket {
   private readonly persistStorms: boolean;
   /** Storm ids whose stock shocks were already applied onto this epoch's marks (restart idempotency). */
   private readonly stockAppliedThisEpoch = new Set<string>();
+  /** Candles hydrated from the path, consumed by the first getCandles() on this clock. */
+  private pendingPathCandles: PathCandleSnapshot | null = null;
+  /** Bound by getCandles so each tick's save includes the just-sampled bars. */
+  private candleSink: { sample(snap: MarketSnapshot, listed?: boolean): void; snapshot(): PathCandleSnapshot } | null = null;
 
   constructor(opts: LiveMarketOptions = {}) {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
@@ -88,14 +94,23 @@ export class LiveMarket {
     this.seedBootHistory();
   }
 
-  /** Load durable scheduler + Fear/regime + residual (or legacy full stockApplied re-apply). */
+  /** Load durable scheduler + Fear/regime + residual (or legacy full stockApplied re-apply) + optional path. */
   private restoreStormWorld(): void {
     const snap = this.stormWorld.load();
     this.feed.storms.hydrate(snap);
     if (snap.world) this.feed.world.hydrate(snap.world);
+    const hasPath = snap.path != null;
+    if (hasPath) {
+      this.feed.hydratePath(snap.path);
+      this.pendingPathCandles = snap.path.candles ?? null;
+    }
     const hasResidual = Array.isArray(snap.shockResidual) && snap.shockResidual.length > 0;
-    if (hasResidual) {
-      // Mid-decay continue: hydrate residual; marks already include prior shock — do not re-apply stockApplied bp.
+    if (hasPath) {
+      // Marks already include residuals, stock shocks, and rumor X — restore maps only, do not rematerialize.
+      this.feed.hydrateResidual(snap.shockResidual, false);
+      for (const row of snap.stockApplied) this.stockAppliedThisEpoch.add(row.stormId);
+    } else if (hasResidual) {
+      // Mid-decay continue on virgin marks: rematerialize remaining log-gap; do not re-apply stockApplied bp.
       this.feed.hydrateResidual(snap.shockResidual);
       for (const row of snap.stockApplied) this.stockAppliedThisEpoch.add(row.stormId);
     } else {
@@ -109,20 +124,38 @@ export class LiveMarket {
     }
     // ERP leftover is independent of residual; older snapshots without erpAccrued start at 0.
     this.feed.hydrateErp(snap.erpAccrued);
-    // Older snapshots without rumors start empty. Rematerialize confirmed X + belief onto virgin marks.
-    this.feed.hydrateRumors(snap.rumors, true);
+    // Older snapshots without rumors start empty. Rematerialize confirmed X + belief only onto virgin marks.
+    this.feed.hydrateRumors(snap.rumors, !hasPath);
     this.stories = this.rebuildRumorStories();
   }
 
   private saveStormWorld(): void {
     if (!this.persistStorms) return;
+    if (this.candleSink) this.candleSink.sample(this.snapshot());
+    const path: PathSnapshot = {
+      ...this.feed.snapshotPath(),
+      candles: this.candleSink?.snapshot() ?? this.pendingPathCandles ?? null,
+    };
     this.stormWorld.save({
       ...this.feed.storms.snapshot(),
       world: this.feed.world.snapshot(),
       shockResidual: this.feed.residualSnapshot(),
       erpAccrued: this.feed.erpSnapshot(),
       rumors: this.feed.rumorSnapshot(),
+      path,
     });
+  }
+
+  /** Bind the process candle recorder so mid-session saves include chart history. */
+  attachCandleSink(sink: { sample(snap: MarketSnapshot, listed?: boolean): void; snapshot(): PathCandleSnapshot }): void {
+    this.candleSink = sink;
+  }
+
+  /** First getCandles() on a resumed clock takes the hydrated bars (or null). */
+  takePendingPathCandles(): PathCandleSnapshot | null {
+    const s = this.pendingPathCandles;
+    this.pendingPathCandles = null;
+    return s;
   }
 
   /** Idempotent. A second start does not add another interval. */
@@ -149,7 +182,6 @@ export class LiveMarket {
     const evs = this.feed.advanceRumors(this.feed.tick);
     this.publishCompanyDenials(evs);
     this.applyRumorResolutions(evs.filter((e) => e.kind !== "denied"));
-    this.saveStormWorld();
     const auth = peekAuthService();
     if (auth) {
       void auth.resolveDueWireStatements({
@@ -158,6 +190,8 @@ export class LiveMarket {
       }).catch(() => { /* catch-up; GET /api/wire also resolves */ });
     }
     for (const fn of this.stepListeners) fn();
+    // After listeners so candle samples and listed-coin fill impact land in the same atomic snapshot.
+    this.saveStormWorld();
   }
 
   /** A listed coin's 16 news item (src/server/market/coinNews.ts) on the Wire, naming the coin; it cites its committed
@@ -566,8 +600,8 @@ export class LiveMarket {
     return this.isListed(assetId) ? this.feed.lastMinor(assetId) : null;
   }
 
-  /** L4: a committed book fill's permanent impact on a listed coin (src/server/broker/book.ts). Not durable, like the
-   *  path itself (a restart starts it again). Returns the new mark, or null when not listed here. */
+  /** L4: a committed book fill's permanent impact on a listed coin (src/server/broker/book.ts). The new mark is saved
+   *  with the path on the next tick. Returns the new mark, or null when not listed here. */
   impactListed(assetId: string, logMove: number): number | null {
     return this.isListed(assetId) ? this.feed.impactListed(assetId, logMove) : null;
   }

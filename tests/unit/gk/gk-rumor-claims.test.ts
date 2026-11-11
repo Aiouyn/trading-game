@@ -377,7 +377,7 @@ describe("jump ≡ step and restart", () => {
     expect(tideNow).not.toBe(shockedMinor(listing("TIDE"), -200));
   });
 
-  it("LiveMarket: true claim adds X to lnV once; restart rematerializes X and does not double it", () => {
+  it("LiveMarket: true claim adds X to lnV once; restart continues the mark and does not double X", () => {
     const store = new MemoryStormWorldStore();
     const a = new LiveMarket({ persistStorms: true, stormWorld: store, rumorSecret: SECRET });
     let hit: { tick: number; id: string; from: number; to: number } | null = null;
@@ -402,16 +402,11 @@ describe("jump ≡ step and restart", () => {
     const restored = b.stormSnapshot().rumors!;
     expect(restored.claims.find((c) => c.id === hit!.id)!.resolution).toBe("CONFIRMED");
     expect(restored.lnV.find((r) => r.assetId === "TIDE")!.log).toBeCloseTo(x, 12);
-    const printed = restored.beliefMarks.find((r) => r.assetId === "TIDE")?.printed
-      ?? restored.belief.filter((r) => r.assetId === "TIDE").reduce((s, r) => s + r.log, 0);
     const applied = restored.valueApplied.find((r) => r.assetId === "TIDE")!.log;
-    const residual = (b.stormSnapshot().shockResidual ?? []).find((r) => r.assetId === "TIDE")?.log ?? 0;
+    expect(applied).toBeCloseTo(x, 12);
     const tideLast = Math.round(Number(b.snapshot().quotes.rows.TIDE!.last) * 10 ** ASSET_BY_ID.TIDE!.displayDecimals);
-    let expectMinor = listing("TIDE");
-    if (residual !== 0) expectMinor = Math.max(1, Math.round(expectMinor * Math.exp(residual)));
-    if (applied !== 0) expectMinor = Math.max(1, Math.round(expectMinor * Math.exp(applied)));
-    if (printed !== 0) expectMinor = Math.max(1, Math.round(expectMinor * Math.exp(printed)));
-    expect(tideLast).toBe(expectMinor);
+    const priorLast = Math.round(Number(a.snapshot().quotes.rows.TIDE!.last) * 10 ** ASSET_BY_ID.TIDE!.displayDecimals);
+    expect(tideLast).toBe(priorLast);
     const item = b.wire().items.find((i) => i.id === hit!.id)!;
     expect(item.phase).toBe("realized");
     expect(item.effects?.[0]?.assetId).toBe("TIDE");
