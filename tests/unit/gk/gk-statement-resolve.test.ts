@@ -42,6 +42,32 @@ describe("statement claim lexicon", () => {
     expect(classifyStatementClaim("hello world")).toBeNull();
     expect(classifyStatementClaim("it may rise or fall")).toBeNull();
     expect(classifyStatementClaim("update the book")).toBeNull();
+    // Negation is OPINION (no direction flip).
+    expect(classifyStatementClaim("HALC will not rise")).toBeNull();
+    expect(classifyStatementClaim("won't go up")).toBeNull();
+    expect(classifyStatementClaim("wont go up")).toBeNull();
+    expect(classifyStatementClaim("HALC will never fall")).toBeNull();
+    expect(classifyStatementClaim("no gain")).toBeNull();
+    expect(classifyStatementClaim("HALC doesn't rise")).toBeNull();
+    expect(classifyStatementClaim("HALC isn’t falling")).toBeNull(); // typographic apostrophe
+    expect(classifyStatementClaim("HALC ne va pas monter")).toBeNull();
+    expect(classifyStatementClaim("jamais de hausse")).toBeNull();
+    expect(classifyStatementClaim("pas de baisse")).toBeNull();
+  });
+
+  it("a posted negated claim is OPINION immediately even when marks exist", async () => {
+    const { auth, view } = await account(new MemoryAuthStore(), "NegPost");
+    const out = await auth.postWireStatement({
+      accountId: view.account.accountId,
+      handle: view.account.handle,
+      idempotencyKey: "neg-01",
+      text: "HALC will not rise",
+      assetTags: ["HALC"],
+      tick: TICK,
+      marks: { HALC: "100" },
+    });
+    expect(out.post.verdict).toBe("OPINION");
+    expect(out.post.claimDir).toBeUndefined();
   });
 });
 
