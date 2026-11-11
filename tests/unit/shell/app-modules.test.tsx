@@ -15,7 +15,7 @@ vi.mock("@/components/shell/ShellContext", async (importOriginal) => {
 vi.mock("@/apps/settings/SettingsApp", () => ({ SettingsApp: () => createElement("div", { "data-testid": "settings" }) }));
 
 import { AppBody } from "@/components/shell/AppBody";
-import { APP_MODULES, type BuiltAppId, type EagerAppId, type LazyAppId } from "@/shell/appModules";
+import { APP_MODULES, type BuiltAppId } from "@/shell/appModules";
 import { REGISTRY, type AppId } from "@/shell/registry";
 
 const STATE = { focused: true, collapsed: false, background: false };
@@ -29,8 +29,6 @@ describe("built apps: one source of truth (APP_MODULES)", () => {
 
   it("type level: Broker is built by its lazy module (UI card 4, BRK-A); an id without a module fails typecheck", () => {
     expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire" | "boards" | "city" | "launchpad">();
-    expectTypeOf<LazyAppId>().toEqualTypeOf<"broker" | "portfolio" | "wire" | "boards" | "city" | "launchpad">();
-    expectTypeOf<EagerAppId>().toEqualTypeOf<"settings">();
   });
 
   it.each(REGISTRY.filter((a) => a.built).map((a) => a.id))("%s (built) renders a body or its loading skeleton, never ComingLater", (id) => {
@@ -43,7 +41,7 @@ describe("built apps: one source of truth (APP_MODULES)", () => {
     expect(out).not.toContain("aria-busy");
   });
 
-  it.each(Object.entries(APP_MODULES).flatMap(([id, m]) => (m.kind === "lazy" ? [[id, m.load] as const] : [])))(
+  it.each(Object.entries(APP_MODULES).map(([id, m]) => [id, m.load] as const))(
     "%s: its lazy loader resolves to a real module with a default component", async (_id, load) => {
       expect(typeof (await load()).default).toBe("function");
     },
