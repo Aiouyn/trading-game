@@ -20,6 +20,8 @@ import {
   type WirePostIntent,
 } from "@/server/wire/playerStatements";
 import { classifyStatementClaim, resolvePlayerWirePost, snapshotMarks } from "@/server/wire/statementResolve";
+import { anonIdForAccount } from "@/server/telemetry/ids";
+import { recordEventSafe } from "@/server/telemetry/events";
 import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoin, type LpCoinRow, type LpState } from "@/server/launchpad/state";
 import { LP } from "@/launchpad/rules";
 import type { BookAccount } from "@/server/broker/book";
@@ -249,6 +251,9 @@ export class AuthService {
 
       const session = await this.createSession(accountId);
       await this.persist();
+      const anon = anonIdForAccount(accountId);
+      recordEventSafe("signup", anon);
+      recordEventSafe("session_start", anon);
       return session;
     });
   }
@@ -286,6 +291,7 @@ export class AuthService {
       this.loginThrottle.clear(handleKey);
       const session = await this.createSession(account.accountId);
       await this.persist();
+      recordEventSafe("session_start", anonIdForAccount(account.accountId));
       return session;
     });
   }
@@ -651,6 +657,7 @@ export class AuthService {
         this.wirePostIntents = intentsBefore;
         throw e;
       }
+      recordEventSafe("statement_post", anonIdForAccount(accountId));
       return {
         post: clonePlayerWirePost(post),
         cashCents: nextPlayer.cashCents,

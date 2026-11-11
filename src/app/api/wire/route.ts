@@ -4,6 +4,7 @@ import { isIdempotencyKey } from "@/server/player/privateState";
 import { getLiveMarket } from "@/server/market/clock";
 import { WIRE_POST_MAX_BODY_BYTES, WirePostError, mergePlayerStatements, playerPostToWireItem } from "@/server/wire/playerStatements";
 import { marksFromTicker } from "@/server/wire/statementResolve";
+import { runTelemetryContext } from "@/server/telemetry";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export async function GET(): Promise<Response> {
  * spendable cash, at most three times per game day. Idempotent on idempotencyKey.
  */
 export async function POST(request: Request): Promise<Response> {
+  return runTelemetryContext(request, async () => {
   try {
     assertLocalSingleProcessAuth();
     assertSameOriginMutation(request);
@@ -79,4 +81,5 @@ export async function POST(request: Request): Promise<Response> {
   } catch (err) {
     return wireErrorResponse(err);
   }
+  });
 }

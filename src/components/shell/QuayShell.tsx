@@ -36,6 +36,7 @@ import { Sheet } from "./Sheet";
 import { FEED_HOOKS, mockFeedSource, useFeed } from "@/shell/feed";
 import { closeSheet, openSheet, useSheetRequest } from "@/shell/sheetHost";
 import { S } from "@/shell/strings";
+import { ShellErrorBoundary } from "./ShellErrorBoundary";
 
 const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 
@@ -203,9 +204,11 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
 
   return (
     <ShellCtx.Provider value={store}>
-      <ShellClock store={store} query={query} />
-      <LiveNwUnlock />
-      <Surface query={query} />
+      <ShellErrorBoundary>
+        <ShellClock store={store} query={query} />
+        <LiveNwUnlock />
+        <Surface query={query} />
+      </ShellErrorBoundary>
     </ShellCtx.Provider>
   );
 }

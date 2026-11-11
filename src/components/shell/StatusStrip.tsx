@@ -12,6 +12,7 @@ import { nwStateLabel, useNwReading } from "./useNw";
 import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
+import { FeedbackButton } from "./FeedbackButton";
 
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
@@ -99,6 +100,7 @@ export function StatusStrip() {
           </>
         )}
         {nwChip}
+        <FeedbackButton />
         <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>
       </div>
     </header>

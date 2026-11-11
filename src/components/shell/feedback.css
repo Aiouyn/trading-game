@@ -1,0 +1,41 @@
+.quay-feedback { position: relative; }
+.quay-feedback-btn { cursor: pointer; }
+.statusbar .quay-feedback-btn { min-width: 44px; min-height: 44px; }
+.quay-feedback-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-chrome, 40);
+  width: min(320px, 92vw);
+  padding: 12px;
+  background: var(--win, #111);
+  color: var(--fg, #eee);
+  border: 1px solid var(--line, #333);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+.statusbar .quay-feedback-panel { right: auto; left: 0; }
+.quay-feedback-label { display: block; margin-bottom: 6px; font-size: var(--fs-13, 13px); }
+.quay-feedback-panel textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  margin-bottom: 8px;
+  background: var(--bg, #0b0b0b);
+  color: inherit;
+  border: 1px solid var(--line, #333);
+  border-radius: 4px;
+  padding: 6px;
+}
+.quay-feedback-actions { display: flex; gap: 8px; }
+.quay-feedback-optout {
+  display: block;
+  margin-top: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--fg-muted, #999);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: var(--fs-12, 12px);
+}

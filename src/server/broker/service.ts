@@ -11,6 +11,8 @@ import { parseMinor } from "@/market/quoteSnapshot";
 import { ASSET_BY_ID } from "@/market/catalog";
 import { MEME_POOL_WEIGHTS, stepPools, applyStormHype, type CoinPools } from "./pools";
 import { decideCancel, decidePlace, ledgerView, reservedCashCents, quoteFromSnapshot, sweepLedger, sweepListed, type IdSource } from "./execution";
+import { anonIdForAccount } from "@/server/telemetry/ids";
+import { recordEventSafe } from "@/server/telemetry/events";
 
 const randomIds: IdSource = { next: (kind) => newId(kind) };
 
@@ -84,10 +86,14 @@ export class BrokerService {
     const market = this.deps.market();
     // One locked step: the clock lists any graduated coin, then the decision; a listed coin (L4) fills against its book
     // account, and the ledger and the book commit together (any other asset has no book: the ledger alone changes).
+    let firstAccepted = false;
     const { record: next, coins } = await this.deps.auth().updateOwnLedgerWithBook(session, draft.assetId, (cur, book) => {
       const d = decidePlace(cur, key, draft, { ...quoteFromSnapshot(market.snapshot()), depthInputs: (id: string) => market.depthInputs(id) }, this.ids, book);
       out = d.result;
       executed = d.replayed ? [] : newFills(cur, d.next);
+      if (!d.replayed && d.result.status === "ACCEPTED" && !(cur.intents ?? []).some((i) => i.result.status === "ACCEPTED")) {
+        firstAccepted = true;
+      }
       const move = d.move;
       // the fill's permanent impact moves the coin's mark only once the fill is saved (a failed save moves nothing)
       return { next: d.next, ...(d.book ? { book: d.book } : {}), ...(move ? { saved: () => { market.impactListed(draft.assetId, move); } } : {}) };
@@ -95,6 +101,7 @@ export class BrokerService {
     if (!out) throw new AuthError("BAD_REQUEST", "Order was not decided.", 500);
     if (executed.length > 0) this.deps.onFills?.(executed);
     const result: BrokerIntentReply["result"] = out;
+    if (firstAccepted) recordEventSafe("first_trade", anonIdForAccount(session.account.accountId));
     return { intentId: result.intentId, result, ledger: ledgerView(next, market.snapshot().tick, coins) };
   }
 
