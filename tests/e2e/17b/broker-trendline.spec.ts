@@ -196,8 +196,8 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await expect(chart.getByTestId("br-trend-delete")).toHaveCount(0);
 
     // One HALC line to keep; reload: the same line (same anchors), aligned.
-    box = await plotBox(page);
     await tool.click();
+    box = await plotBox(page);
     await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.3);
     await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.6);
     const [k] = await lineIds(page); const keep = await anchors(page, k!);
@@ -219,8 +219,8 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await page.goto("/broker?asset=MRDN");
     await plotted(page, "server");
     expect(await lineIds(page)).toEqual([]);
-    box = await plotBox(page);
     await signedBr(page).getByTestId("br-trend-tool").click();
+    box = await plotBox(page);
     await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.7);
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.2);
     const [m] = await lineIds(page); const mrdn = await anchors(page, m!);
@@ -239,8 +239,8 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await page.getByTestId("win-settings").getByTestId("win-close").click();
     await plotted(page, "demo", g);
     expect(await lineIds(page)).toEqual([]);
-    box = await plotBox(page);
     await g.getByTestId("br-trend-tool").click();
+    box = await plotBox(page);
     await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
     await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.5);
     const [gl] = await lineIds(page); const guest = await anchors(page, gl!);
