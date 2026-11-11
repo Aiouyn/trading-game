@@ -251,6 +251,8 @@ export async function expectOnlyBandMasked(page: Page, frame: Locator, rounded?:
     const plain = decodePng(await capture(page, clip, []));
     for (const el of labels ? await labels.all() : []) {
       if (!(await el.isVisible())) continue;
+      // A label covered by an opaque overlay (the phone Trade bar at the bottom of the scroller) shows no ink to measure.
+      if (!(await el.evaluate((e) => { const b = e.getBoundingClientRect(); const hit = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2); return !hit || e === hit || e.contains(hit); }))) continue;
       const { what, box } = await el.evaluate((e) => {
         const b = e.getBoundingClientRect(), cs = getComputedStyle(e), n = (v: string) => parseFloat(v) || 0;
         return {
