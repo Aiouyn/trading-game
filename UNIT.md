@@ -1,48 +1,33 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# Card 5 — Broker entry import boundaries
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+Written: 2026-11-11T19:20:13+01:00 (Europe/Paris, CET), before implementation.
+Base: `110583b0aa73ece1dc3b856665f3be0405f1acc3`.
+Branch: `ui/broker-entry-split`.
 
-## Why this unit
+## Player outcome
+Keep the existing Broker screens, trading, indicators, table, drawings, About/News, settings, locale and focus behavior. Reclaim at least 10 KiB (10240 bytes) of counted first-load gzip on the exact base AND on approved cards 1–4, so later phone trading UX has real room. No new product feature in this card.
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+## Sources
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:678–687`: Broker first-load budget and stable charts/inputs (historical spec says 200 KB; repository's existing authoritative gate is 215 KB, unchanged).
+- Same file `:824`: retain Settings About, licences/credits/integrity link.
+- Same file `:828–830`: retain Broker first-trade, chart indicators and drawings; saving budget enables the later phone ticket, not implemented here.
+- `docs/v1/V1-BOARD.md:42,53–56`: history/live within budget, first trade and ~390px mobile.
 
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+## Investigation and bounded design
+Actual ordinary-production baseline, two fresh-page probes: 218932 counted gzip bytes, plot 60678 bytes. Evidence: `/workspace/avalon/evidence/ui-broker-entry-split/base-probe-*.json` and analyzer graph/attribution. Module compressed-size estimates are NOT measured route savings. The plot is already lazy and nearly at its 60 KiB exclusion cap; moving more code into that exclusion is not the solution.
 
-### Readiness flags checked on `43127f9e` (not this unit)
+The shell eagerly imports the entire inactive Settings app. Broker's eager Trade/About switch shares a module with About/News, and the shell Wire skeleton imports the full Wire dictionary just for its loading label. These are UI-only import boundaries, not missing engine data. Start with Settings using the existing per-app lazy/Suspense contract. If insufficient, separate the eager switch from the lazy About body and isolate the unchanged EN/FR Wire-loading label. Stop once the target is met; do not rewrite indicator, trendline, market or channel logic. Cold optional app loads may use the shell's existing generic loading skeleton, not a new design. Keep stable UI and navigation/focus outcomes identical after load.
 
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
+Approved integration inputs (not moving branch tips):
+1. `0814d8e3b721d59726c2df8b51bd9f0c559fa967`
+2. `d1ce500958296e06fd18b1eaf942bfe252a0b41a`
+3. `f6610d6a3d8f1c21bed264a2584eb9566a690173`
+4. `1ef58ad0982d3798a10945287d73738073a674ca`
 
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
-
-## Smallest observable outcome
-
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
-
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
-
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
-
-## Plan
-
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
-
-## Acceptance
-
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+## Acceptance and proof
+- UNIT-only commit first. New isolated worktree only; no packages/engine, market, economy, budget/helper, or hook edits. No push/PR/deploy.
+- Normal lint, typecheck, build, check-hooks, locked ledger map-no-dup, npm test, unchanged route-budget gate. Exact two-probe asset gzip/SHA256 comparisons for own base and approved merged stack; >=10240 counted bytes saved on EACH and <=215 KiB. Explain hash/chunk regrouping honestly; no runtime speedup claim.
+- Before/after desktop1440x900 and phone390x844 screenshots, unchanged production UI at deterministic state; retain original files and compare meaningful pixels/DOM. Exercise any affected optional views and account navigation.
+- One fresh clean detached e2e worktree, fresh npm ci and .data; plain Chromium install, no apt/--with-deps (unprivileged apt unavailable, user explicitly omits only that step). Run Broker chart/table/candles/MA/BB/RSI/VWAP/trendline/storage and any affected About/settings/account e2e. Retain failed attempts honestly, delete temp checkout after evidence.
+- Local disposable scratch integration only, pin exact approved SHAs, resolve docs-only conflicts preserving all unit/evidence documents, assert no source conflicts. Preserve measurements then delete scratch.
+- Finish with committed clean worktree, exact HEAD/check/e2e/screenshot report; remote CI/Gatekeeper remain independent. Ports3300–3399 only; never3199/3102/3302. Queued phone focusPortfolio issue is out of scope.
