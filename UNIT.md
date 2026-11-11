@@ -1,57 +1,51 @@
-# Card 5 — Broker entry import boundaries
+# Card 6 — Phone Trade ticket sheet
 
-Written: 2026-11-11T19:20:13+01:00 (Europe/Paris, CET), before implementation.
-Base: `110583b0aa73ece1dc3b856665f3be0405f1acc3`.
-Branch: `ui/broker-entry-split`.
+Written 2026-11-11T20:17:40+01:00 Europe/Paris, before any implementation. This file is the only change in the first commit.
 
-## Player outcome
-Keep the existing Broker screens, trading, indicators, table, drawings, About/News, settings, locale and focus behavior. Reclaim at least 10 KiB (10240 bytes) of counted first-load gzip on the exact base AND on approved cards 1–4, so later phone trading UX has real room. No new product feature in this card.
+## Outcome and lane
+A new player can open the existing order ticket from a persistent, 44px-or-larger floating Trade button, without scrolling past the phone chart. Opening never submits. Quantity → Review → explicit Place still uses BrokerFrame's existing preview, intent, pending and acknowledgment path. Phone/narrow is the existing shell breakpoint, viewport width <768px; compact and wide desktop keep the inline ticket and their existing behavior. Front-end only: no engine/server/market/economy/shared-package, route-budget limit or script changes.
+
+## Exact stacked base and identity
+- Branch `ui/broker-trade-sheet`; isolated worktree `/workspace/avalon/ui-broker-trade-sheet`.
+- Base `bfe320dd57e9b6e58ddc671ef9f8717b09a27cae`, the local verified Settings/News recovery head on `ui/broker-entry-split`, on top of original `009f50bfd5bde60d0e05f9d28d3bc38d60d0c81d`. This is a stacked, UNMERGED UI branch, itself based on `110583b0aa73ece1dc3b856665f3be0405f1acc3`; not main and not the preflight fix.
+- New author identity verified as Forge (trading-game bot), forge@trading-game.local. The exact inherited card-5 base contains legitimate earlier pf@test-authored commits; do not mistake those for new fixture `init` commits or rewrite the required base. Before every commit inspect log -3 and all commits after this base; reject any new init/pf@test commit. All manual npm-test and git subprocesses have every GIT_* environment variable removed. No hook bypass.
+- No push, PR, owner/Gatekeeper handoff, merge into an owner branch, deployment or spending. Scratch-only integration merges are requested evidence, not integration authorization.
 
 ## Sources
-- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:678–687`: Broker first-load budget and stable charts/inputs (historical spec says 200 KB; repository's existing authoritative gate is 215 KB, unchanged).
-- Same file `:824`: retain Settings About, licences/credits/integrity link.
-- Same file `:828–830`: retain Broker first-trade, chart indicators and drawings; saving budget enables the later phone ticket, not implemented here.
-- `docs/v1/V1-BOARD.md:42,53–56`: history/live within budget, first trade and ~390px mobile.
+`export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md`:
+- :828 BRK-01: phone chart full width; bottom-sheet ticket opened by a floating accent Trade button; honest risk note; authoritative preview.
+- :474 BottomSheet: content, half/full, grab handle; drag-down dismissal is broader component-spec scope, see boundary below.
+- :389–396: sheet elevation/radius/z-order, phone <768, minimum width320, touch targets >=44x44.
+- :256–262: phone status/app bars and Recent; keep the existing shell navigation usable when the ticket is closed.
+- :1274, :1281: preview values authoritative; keyboard reachability and accessibility.
+`docs/v1/V1-BOARD.md`: :41–43 existing atomic/idempotent order path and Portfolio P/L; :53–56 first-trade clarity and ~390px mobile shell; :82–84 V1 lane and exclusions.
 
-## Investigation and bounded design
-Actual ordinary-production baseline, two fresh-page probes: 218932 counted gzip bytes, plot 60678 bytes. Evidence: `/workspace/avalon/evidence/ui-broker-entry-split/base-probe-*.json` and analyzer graph/attribution. Module compressed-size estimates are NOT measured route savings. The plot is already lazy and nearly at its 60 KiB exclusion cap; moving more code into that exclusion is not the solution.
+## Grounding: ownership and flow
+BrokerFrame owns the draft and edit/review/placed phase; SimpleTicket only edits and requests review. ReviewBlock alone exposes explicit Place; AckPanel reads the returned intent/fill. Phone currently renders the whole ticket below the chart and creates a SECOND sheet only for review. The existing shell Sheet already supplies modal semantics, Tab wrap, Escape, scrim close and opener return. The phone shell uses a36px edge-bar token plus bottom safe-area; Broker's phone class deliberately disables size containment so fixed sheets stay viewport-relative. Draft and phase must stay in BrokerFrame so dismiss/reopen never duplicates order state.
 
-The shell eagerly imports the entire inactive Settings app. Broker's eager Trade/About switch shares a module with About/News, and the shell Wire skeleton imports the full Wire dictionary just for its loading label. These are UI-only import boundaries, not missing engine data. Start with Settings using the existing per-app lazy/Suspense contract. If insufficient, separate the eager switch from the lazy About body and isolate the unchanged EN/FR Wire-loading label. Stop once the target is met; do not rewrite indicator, trendline, market or channel logic. Cold optional app loads may use the shell's existing generic loading skeleton, not a new design. Keep stable UI and navigation/focus outcomes identical after load.
+## Usage and chosen shape
+BrokerFrame renders its unchanged desktop ticket branch OR a small phone-only presentation wrapper around the SAME `ack || review || ticket` React node. The wrapper owns only open/closed UI state, calls the existing `toEdit` on dismissal, and renders one shared Sheet for editing, review, pending and acknowledgment (never nested modals). Its only external inputs are localized labels/asset context, the existing quantity focus ref, existing keyboard and dismiss callbacks, and children; it has no order/preview/intent API.
 
-Approved integration inputs (not moving branch tips):
-1. `0814d8e3b721d59726c2df8b51bd9f0c559fa967`
-2. `d1ce500958296e06fd18b1eaf942bfe252a0b41a`
-3. `f6610d6a3d8f1c21bed264a2584eb9566a690173`
-4. `1ef58ad0982d3798a10945287d73738073a674ca`
+Compare two structurally different local sketches (Task/arena tools are not exposed; no independent-runner claim):
+1. Chosen: Broker-local wrapper + existing Sheet, one mounted ticket and parent-owned draft/phase. Focus Quantity on open; when replacing edit/review/ack content would remove focus, land on an enabled action inside that content (or the persistent Close button while pending). Keep user-chosen close/action focus during quote refreshes. Explicitly focus Trade before mounting Sheet so touch and keyboard both restore correctly. Dismiss during pending does not cancel/re-submit; reopening displays current phase/result. Unmounting phone wrapper on a desktop resize naturally resets only its open UI state.
+2. Rejected: native dialog/new modal implementation or global sheet-host snapshots. Native dialog duplicates established shell modal policy; global snapshots split rendering/state ownership and require external synchronization for each preview/phase update. Both expose more coordination than the local wrapper.
 
-## Acceptance and proof
-- UNIT-only commit first. New isolated worktree only; no packages/engine, market, economy, budget/helper, or hook edits. No push/PR/deploy.
-- Normal lint, typecheck, build, check-hooks, locked ledger map-no-dup, npm test, unchanged route-budget gate. Exact two-probe asset gzip/SHA256 comparisons for own base and approved merged stack; >=10240 counted bytes saved on EACH and <=215 KiB. Explain hash/chunk regrouping honestly; no runtime speedup claim.
-- Before/after desktop1440x900 and phone390x844 screenshots, unchanged production UI at deterministic state; retain original files and compare meaningful pixels/DOM. Exercise any affected optional views and account navigation.
-- One fresh clean detached e2e worktree, fresh npm ci and .data; plain Chromium install, no apt/--with-deps (unprivileged apt unavailable, user explicitly omits only that step). Run Broker chart/table/candles/MA/BB/RSI/VWAP/trendline/storage and any affected About/settings/account e2e. Retain failed attempts honestly, delete temp checkout after evidence.
-- Local disposable scratch integration only, pin exact approved SHAs, resolve docs-only conflicts preserving all unit/evidence documents, assert no source conflicts. Preserve measurements then delete scratch.
-- Finish with committed clean worktree, exact HEAD/check/e2e/screenshot report; remote CI/Gatekeeper remain independent. Ports3300–3399 only; never3199/3102/3302. Queued phone focusPortfolio issue is out of scope.
+Accepted tradeoff: reuse the established shared Sheet rather than extend its global API or add a modal package. No swipe-to-dismiss work: spec :474 describes that general component capability, but this card's requested closes are Escape, backdrop and a visible 44px Close button; drag dismissal is not silently claimed. Existing Sheet has a grab handle. Check screen-reader semantics and keyboard containment on each content transition, including pending.
 
+## Relationship to Card 1
+Card1 (`ui/broker-ticket-entry` @0814d8e3) is NOT in this base. The new floating Trade button supersedes its Go to order ticket shortcut ON PHONE; hide `.br-phone .br-ticket-entry` as an explicit stacked-integration compatibility rule so phone never offers a shortcut targeting a now-unmounted inline form. Card1's compact-desktop shortcut and wide-desktop hidden state remain untouched. Measure/test an approved 1–5 scratch merge and document any source conflict resolution exactly; preserve Card1's desktop id/ref/shortcut and its existing tests except phone expectations deliberately superseded by the sheet. No cherry-pick of unrelated UI cards into this feature branch.
 
-## Gatekeeper recovery addendum — 2026-11-11T20:34:30+01:00 Europe/Paris
-Written before recovery implementation; this addendum is its own UNIT-only commit on top of009f50bf. Owner steering: code PASS qualified, but a failed Settings or News lazy import currently escapes to generic Next error UI; browser Back from a first-history visit can leave the product. Do not address that by changing global navigation or eagerly importing the modules again.
+## Acceptance and evidence plan
+- One SimpleTicket/order flow, no new request or calculation. Trade activation/repeated opening/closing produces zero order POSTs; only explicit Review then Place sends one request.
+- Focus Quantity initially; Tab/Shift+Tab stay within Sheet; transitions retain modal focus; Escape/backdrop/Close dismiss and focus Trade; draft survives reopen; About has no stale Trade overlay; resize leaves desktop inline ticket.
+- FAB and controls >=44px; reserve space after the last market/order row; FAB clears the existing36px edge nav + safe inset + gap; use safe-area-aware horizontal/panel padding and scrollable sheet body. Closed navigation remains reachable; modal intentionally owns interaction while open.
+- EN/FR at390px and FR at320px, textScale2: no viewport or sheet horizontal overflow, wrapped labels and readable full preview values; review/Close reachable by scrolling.
+- Run exact repo checks: `npm run lint`, `npm run typecheck`, `npm run build`, `node tools/check-hooks.mjs .next/static .next/server`, `node tools/ci/route-budget.mjs /broker`, ledger `npx vitest run test/map-no-dup.test.ts`, `npm test` (GIT_* scrubbed). Do not invoke apt/--with-deps; existing Chromium is installed, plain browser install only if needed. No budget/script edit.
+- Measure actual /broker counted gzip assets before/after on the exact recovered Card5 base AND approved merged cards1–5 stack, <=215KiB on each. Freeze preview build/PID during probes, retain hashes and exact input SHAs; this is bundle size, not a runtime speed claim.
+- One clean fresh-.data e2e worktree, fresh install if inode budget permits, ports3300–3399 only, no3199/3102. Targeted affected Broker and first-trade/Portfolio flows; full signed-in phone open→quantity→review→place→real fill displayed in Portfolio. Include desktop unchanged screenshot comparison and phone screenshots (including FR200%). Do not regenerate existing baselines unless an intentional phone expectation changes and is explained.
+- Keep raw failed attempts as evidence; delete only Card6 scratch checkouts and previews after capture, not primary worktree/evidence. Final clean committed tree, Forge author confirmed, exact SHA and normal push command reported without pushing. Remote CI/Gatekeeper are not certified locally.
 
-### Ground and intended outcome
-AppBody wraps module-level cached React.lazy instances only in Suspense; AssetPage does the same for News. Suspense handles waiting, not rejected imports. A reset around the same rejected lazy instance cannot recover because React caches its rejection. A legitimate offline/abort failure must be contained at the two optional module boundaries, leaving shell navigation and the rest of Broker usable. Retry must invoke a fresh lazy/import attempt, not reload the whole page or suggest history Back. Preserve existing skeletons, normal loaded visuals, parent draft state and EN/FR.
+## Ordered recovery/rebuild context
+Card6 was cleanly checkpointed atfc712431 before the scoped Card5 Settings/News recovery. Card5 UNIT-addendum-onlyd0f868bd preceded its fix, all core checks and fresh clean e2e (93 pass/57 project skips, all8 abort/re-import paths). Card6 is locally rebased, unpushed, onto the exact recovered head above; re-verify all Card6 paths on this source, not only its earlier checkpoint. Original own/stack measurements remain archived as checkpoint evidence, not final-base proof.
 
-### Small shape and alternatives
-Choose a small shared scoped lazy boundary, used ONLY for Settings and News. It owns a discriminated ready-with-lazy-component / failed state, the fresh lazy identity created at construction/retry, product-styled inline failure + Retry, and recovery focus. Caller supplies its existing import loader, typed component props, localized scope label, locale, and unchanged loading skeleton. No ordinary-success wrapper that changes Settings/News layout. A recovery-only visually hidden focus marker can focus the first loaded input/button/link or itself if there are no controls; do not steal focus if the player moved elsewhere while waiting. Initially failed first-history entry with BODY focus should land on Retry; News tab focus may stay on the still-live tab. No new order/server/engine logic, dependencies, budget limits, or preflight-test patch.
-
-Rejected alternative: clear only an error-boundary flag around existing module-level lazy (permanent cached rejection); also reject browser reload/global Back handling or making Settings/News eager (hides the actual boundary failure and forfeits split savings). Task/arena tools are unavailable here; these are local design alternatives, not independent review claims.
-
-### Proof and integration order
-- First reproduce with a real production chunk-request abort on exact existing app source; preserve the red failure. New e2e aborts Settings and News chunks, verifies inline EN/FR recovery, real second network/import attempt after Retry, sensible focus, usable Broker/shell and preserved draft. Include first-history navigation and phone/desktop.
-- Full lint, typecheck, build, check-hooks, unchanged route-budget, ledger map-no-dup and npm test (all GIT_* removed), clean fresh-.data e2e, real screenshots. Keep /broker delta tiny and record bytes; original >=10KiB savings target remains a regression guard where practical. No apt/--with-deps, no hook bypass, push, PR, deployment or spending.
-- All new commits must be Forge (trading-game bot), forge@trading-game.local. Inspect log -3 before each commit and reject newly introduced fixture init/pf@test commits; preserve legitimate inherited009f50bf metadata.
-- Merge order matters: apply Card5 registry/AppBody/type-test changes as one unit when combining approved cards1–4. Gatekeeper found old EagerAppId/LazyAppId expectations in app-modules.test.tsx needed reconciling in the 5-card stack; preserve Card5's all-built-apps-are-lazy test contract, not the pre-split Settings-eager assertion. Record exact integration test resolution and run merged-stack typecheck as well as budget, not build alone.
-- Card6 is cleanly checkpointed at fc712431 (no push), with two documented e2e harness assumptions still to correct; finish this recovery batch first, then locally rebase Card6 onto the new exact recovery head, update its stacked-base UNIT, and re-verify. Report both final SHAs. Delete only recovery-batch temporary checkouts after capture; preserve both primary worktrees and evidence.
-
-### Recovery implementation refinement and measured guard
-The small factory retains a module-level successful lazy generation, so normal Settings remounts and News tab returns keep the previous synchronous-after-load behavior. Each scoped boundary owns its failure/focus state and generation reference; Retry renews only that failed generation, reusing an already-retried generation for another failed scope. Order/draft state stays outside. There is no success-path DOM wrapper. EN/FR, actual second chunk request and conditional focus are tested, not inferred from clearing a flag.
-
-Recovery first-load increment is565 bytes on the exact009f50bf source (207793→208358),571 on the recorded approved1–5 stack (207937→208508). Full Card5 saving from110583b0 remains10574 bytes on its own and11211 on approved1–4, above10240; plot remains60678 bytes. The all-lazy app-modules.test.tsx on recorded stack5f03d95b is already byte-identical to Card5; the recovery merge needed no further test resolution. Do not revive the removed EagerAppId/LazyAppId assertions when merging from another order. Merged-stack typecheck, npm test and unchanged budget passed; exact inputs, hashes and results are in the recovery evidence directory.
+Merge order: preserve Card5's all-built-apps-lazy app-modules.test.tsx contract; removed EagerAppId/LazyAppId assertions from older cards must not return. The recorded five-card stack5f03d95b already had the correct test byte-identical to Card5; its recovery merge needed no new source/test resolution. Re-run merged-stack typecheck/npm test as well as build/budget. Merge Card6 last, preserve Card1 compact-desktop entry id/ref, and deliberately replace only its phone shortcut expectations with the Trade sheet.
