@@ -149,6 +149,7 @@ async function barGeometry(page: Page, at: "top" | "middle" | "end") {
     const scroller = document.querySelector<HTMLElement>(".phone-appbody")!, bar = document.querySelector<HTMLElement>('[data-testid="br-trade-bar"]')!;
     const max = scroller.scrollHeight - scroller.clientHeight;
     scroller.scrollTop = where === "top" ? 0 : where === "middle" ? Math.floor(max / 2) : max;
+    const root = document.querySelector<HTMLElement>(".br")!.getBoundingClientRect();
     const b = bar.getBoundingClientRect(), edge = document.querySelector('[data-testid="edge-bar"]')!.getBoundingClientRect();
     const leaves = [...document.querySelectorAll<HTMLElement>(".br *")].filter((e) => e.children.length === 0 && e.textContent!.trim() && !bar.contains(e))
       .map((e) => ({ id: e.dataset.testid ?? e.className, r: e.getBoundingClientRect() })).filter(({ r }) => r.width > 0 && r.height > 0);
@@ -157,7 +158,7 @@ async function barGeometry(page: Page, at: "top" | "middle" | "end") {
       return { id, covered: !!hit && bar.contains(hit) };
     });
     const bg = getComputedStyle(bar).backgroundColor;
-    return { scrolled: scroller.scrollTop, max, barTop: b.top, barBottom: b.bottom, barLeft: b.left, barRight: b.right, edgeTop: edge.top, vw: innerWidth,
+    return { scrolled: scroller.scrollTop, max, barTop: b.top, barBottom: b.bottom, barLeft: b.left, barRight: b.right, edgeTop: edge.top, rootLeft: root.left, rootRight: root.right, rootOverflow: document.querySelector<HTMLElement>(".br")!.scrollWidth > document.querySelector<HTMLElement>(".br")!.clientWidth, scrollerOverflow: scroller.scrollWidth > scroller.clientWidth,
       opaque: !/rgba\(.*,\s*0(\.\d+)?\)$|transparent/.test(bg), under, below: leaves.filter(({ r }) => r.bottom > b.top + 0.5).map(({ id }) => id),
       provenance: document.querySelector('[data-testid="br-chart-source"]')?.getBoundingClientRect().bottom ?? null, overflow: document.documentElement.scrollWidth > innerWidth };
   }, at);
@@ -173,7 +174,7 @@ for (const [width, locale, scale] of [[390, "en", 1], [320, "en", 1], [390, "fr"
   for (const at of ["top", "middle", "end"] as const) {
     const g = await barGeometry(page, at);
     expect(g.opaque, at).toBe(true); expect(g.overflow, at).toBe(false);
-    expect(g.barLeft).toBe(0); expect(g.barRight).toBe(g.vw);
+    expect(g.barLeft).toBe(g.rootLeft); expect(g.barRight).toBe(g.rootRight); expect(g.rootOverflow, at).toBe(false); expect(g.scrollerOverflow, at).toBe(false);
     expect(g.barBottom, `${at}: bar above the edge nav`).toBeLessThanOrEqual(g.edgeTop);
     expect(g.under.filter((u) => !u.covered), `${at}: text visible behind the Trade bar`).toEqual([]);
     if (at === "end") {
