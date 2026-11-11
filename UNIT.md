@@ -1,48 +1,46 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# Unit: internal session lookup reasons
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+**Branch:** `cursor/auth-inspect-session-8b52`  
+**Cut from:** `81b5b144` (`eng/broker-idempotency`) — `peekSession` is not on `main`  
+**PR target:** `main` (do not merge)  
+**When written:** 2026-11-11 — before product-code edits.
 
 ## Why this unit
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
-
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
-
-### Readiness flags checked on `43127f9e` (not this unit)
-
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
-
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
+`resolveSession` and `peekSession` both collapse every failure to `null`. Callers cannot tell a missing cookie from a revoked or expired row, and the two methods duplicate the validity rules. HTTP routes must keep returning a generic unauthorized response: the reason is an internal result, not an `AuthError` code.
 
 ## Smallest observable outcome
 
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
+`AuthService.inspectSession` is the only validity path.
 
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
+- `inspectSession(token, { refresh: true })` matches today's `resolveSession`, including the sliding `lastSeenAtMs` / `expiresAtMs` write and the expiry revocation write.
+- `inspectSession(token)` and `inspectSession(token, { refresh: false })` match today's `peekSession`: same acceptance rules, no in-memory mutation and no `persist`.
+- `resolveSession` and `peekSession` keep their signatures and observable results, implemented as wrappers. No route file changes.
 
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
+### How each rejection is detected
 
-## Plan
+The store keeps every session row, including revoked ones (`tokenHash` + `revokedAtMs`). `tokenIndex` only maps hashes whose `revokedAtMs` is null. A hash miss in that index is therefore not "unknown": the row may still be there. Nothing in the row records *why* it was revoked (logout vs a previous expiry stamp), so a later lookup of a row that expiry handling already revoked is `REVOKED_SESSION`. That is the stored fact. This unit does not add a second flag.
 
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
+Check order, first match:
+
+| Code | Detection |
+|---|---|
+| `MISSING_TOKEN` | `null`, `undefined`, or `""`. Same branch as today's `if (!rawToken)`. |
+| `MALFORMED_TOKEN` | Any other string that is not a minted token: 32 bytes, base64url, no padding (43 chars), and `Buffer.from(raw, "base64url").toString("base64url") === raw`. Minted by `mintSessionToken` in `src/server/auth/crypto.ts`. Not a hash lookup. |
+| `UNKNOWN_SESSION` | Minted shape, and no session row has that `tokenHash`. |
+| `REVOKED_SESSION` | A row has that `tokenHash` and `revokedAtMs !== null`. |
+| `EXPIRED_SESSION` | The row is not revoked, and `now` is past `createdAtMs + SESSION_MAX_MS`, `lastSeenAtMs + SESSION_IDLE_MS`, or `expiresAtMs` (strict `>`, same as today). `refresh: true` then revokes and persists, and this call still returns `EXPIRED_SESSION`. |
+| `UNKNOWN_ACCOUNT` | The row is live and inside all three deadlines, and `accounts` has no `session.accountId`. `refresh: true` still applies today's slide-and-persist *before* that account check. |
+
+Success is `{ ok: true, view, refreshed }`. `refreshed` is true only when this call applied the sliding write. It is false on the peek path. Failure has no `refreshed` field.
+
+`SessionRejectionCode` is not added to `AuthErrorCode`. `authErrorResponse` cannot emit it. Routes keep calling `resolveSession` / `peekSession` and still answer `{ error: { code: "UNAUTHORIZED", message: "Not signed in." } }`.
 
 ## Acceptance
 
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+1. This file is written before product-code edits.
+2. `inspectSession` exists on `AuthService`. `SessionRejectionCode` and `SessionLookupResult` live in `src/server/auth/types.ts` and are exported from `src/server/auth/index.ts`.
+3. One unit test per rejection code, plus refresh vs no-refresh write behavior (store `save` count and session fields), plus parity: `resolveSession` equals the view-or-null of `inspectSession(..., { refresh: true })` including side effects on a cloned store; `peekSession` equals `inspectSession` without refresh and neither writes. Existing auth tests stay unchanged and pass.
+4. A route-level test shows `/api/auth/me` and `/api/leaderboard` never write a `SessionRejectionCode` into the response.
+5. `npm run lint`, `npm run typecheck`, `npm run build`, `npm test`, `node tools/check-hooks.mjs .next/static .next/server`, `node tools/ci/route-budget.mjs /broker`, and `npx vitest run test/map-no-dup.test.ts` in `packages/engine/ledger` pass.
+6. No route edits, no refactors beyond this path, no deploy, no merge.
