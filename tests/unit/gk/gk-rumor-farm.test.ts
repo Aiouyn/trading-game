@@ -8,8 +8,9 @@ import { shockedMinor } from "@/server/market/shockFeed";
 import { parseWireSnapshot } from "@/market/wireSnapshot";
 import {
   FARM_AUTHOR_NAMES, FARM_EQUITIES, dayCloseTick, farmAccuracy, farmBand, farmCred, farmImpulse,
-  farmUnit, isDayClose, planFarmDay,
+  farmUnit, isDayClose, isFarmSourceId, planFarmDay,
 } from "@/server/market/rumorFarm";
+import { isAnalystSourceId } from "@/server/market/analystNotes";
 import { TICKS_PER_DAY } from "@/server/market/meme";
 import { START_TICK } from "@/shell/contracts/mockFeed";
 import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
@@ -235,7 +236,9 @@ describe("LiveMarket farm publish, jump, restart", () => {
       expect(it.sourceRecord).toBeDefined();
     }
     // catalog desk path still exists in the book alongside the farm
-    expect(m.stormSnapshot().rumors!.sources).toHaveLength(20);
+    const srcs = m.stormSnapshot().rumors!.sources ?? [];
+    expect(srcs.filter((s) => isFarmSourceId(s.sourceId))).toHaveLength(20);
+    expect(srcs.filter((s) => isAnalystSourceId(s.sourceId))).toHaveLength(8);
   });
 
   it("advanceTo(jump) matches tick-by-tick across a day close and a resolve", () => {
@@ -274,7 +277,8 @@ describe("LiveMarket farm publish, jump, restart", () => {
     const b = new LiveMarket({ persistStorms: true, stormWorld: store });
     const after = b.stormSnapshot().rumors!;
     expect(after.claims.find((c) => c.id === hit!.id)?.resolution).toBe("CONFIRMED");
-    expect(after.sources).toHaveLength(20);
+    expect((after.sources ?? []).filter((s) => isFarmSourceId(s.sourceId))).toHaveLength(20);
+    expect((after.sources ?? []).filter((s) => isAnalystSourceId(s.sourceId))).toHaveLength(8);
     expect(after.lnV.reduce((s, r) => s + r.log, 0)).toBeCloseTo(x, 12);
     expect(b.snapshot().tick).toBe(a.snapshot().tick);
     expect(parseWireSnapshot(b.wire())).not.toBeNull();
