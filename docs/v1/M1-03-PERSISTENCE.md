@@ -11,7 +11,8 @@ PlayerPrivateRecord = {
   positions:  Record<assetId, Pick<Position, "assetId" | "qty" | "avgCost">>,  // domain me.positions, durable subset
   openOrders: Record<orderId, OpenOrder>,      // exactly the domain me.orders row (channels.ts)
   fills?:   MyFill[],                          // M1-06: server fills, last 50; omitted until the first
-  intents?: { key, fingerprint, result: IntentResult }[], // M1-06: decided intents, last 50 (idempotency + receipts)
+  intents?: { key, fingerprint, result: IntentResult }[], // M1-06: intent receipts on me, last 50
+  idempotency?: { key, fingerprint, result: IntentResult }[], // M1-06: durable idempotency journal (every decided key)
 }
 ```
 - `Position` / `OpenOrder` are the shared contract types (`src/shell/contracts/channels.ts`); the stored order is parsed with the contract's own `openOrder` runtime schema, then ledger invariants: decimal strings ≥ 0, qty > 0, `filled < qty` (remaining > 0), PARTIAL ⇒ filled > 0, avgPrice 0 before a fill, `limit` iff limit/stop_limit, `stop` iff stop/stop_limit, type ∈ market|limit|stop|stop_limit, tif ∈ day|gtc|ioc|fok, map key = assetId / orderId, ≤ 64 positions, ≤ 128 orders.
@@ -22,7 +23,7 @@ Before (v1): `{ accountId, cashCents, positions: { HALC: 2 }, openOrderIds: ["or
 ## Write seam
 `AuthService.updateOwnPrivateState(session, current => next)` — atomic read-modify-write under the service lock, validated, persisted (temp + rename), memory rolled back if the write fails. Server-only: no HTTP route writes cash/holdings/orders directly; `/api/auth/me` only reads the caller's own ledger.
 
-M1-06 order door (`src/server/broker`): `POST /api/broker/orders` and `/api/broker/orders/cancel` take only `{idempotencyKey, draft}` / `{idempotencyKey, orderId}` (same-origin, JSON). Inside `updateOwnPrivateState` the server reads its own quote, checks spendable cash (cash − working buy-limit holds) or sellable units (lot − working sells), fills market and marketable limits at the server mark (taker fee, NPC liquidity), rests other limits WORKING, and stores the decision under the key; the same key replays it, a reused key with another request is 409. On every server tick, `AuthService.sweepPrivateStates` fills working limits the mark reached, at their limit, in one commit. `GET /api/broker/me` reads the caller's ledger. Stop types and non-day TIF are refused (`MKT_ORDER_TYPE_UNSUPPORTED`); day orders have no session close yet.
+M1-06 order door (`src/server/broker`): `POST /api/broker/orders` and `/api/broker/orders/cancel` take only `{idempotencyKey, draft}` / `{idempotencyKey, orderId}` (same-origin, JSON). Inside `updateOwnPrivateState` the server reads its own quote, checks spendable cash (cash − working buy-limit holds) or sellable units (lot − working sells), fills market and marketable limits at the server mark (taker fee, NPC liquidity), rests other limits WORKING, and stores the decision under the key in a durable idempotency journal (the last-50 `intents` ring on `me` is only the receipt window). The same key replays from the journal even after the receipt has aged out of that ring; a reused key with another request is 409. On every server tick, `AuthService.sweepPrivateStates` fills working limits the mark reached, at their limit, in one commit. `GET /api/broker/me` reads the caller's ledger. Stop types and non-day TIF are refused (`MKT_ORDER_TYPE_UNSUPPORTED`); day orders have no session close yet.
 
 ## Migration (never wipes)
 - v1 rows with empty positions and openOrderIds (every row the M1-01/M1-02 build wrote) migrate to v2 with cash preserved and are re-written as v2 on the next save.

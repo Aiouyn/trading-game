@@ -63,7 +63,7 @@ export class BrokerService {
     return this.deps.auth().previewOwnBook(session, draft.assetId, (cur, book) => {
       let n = 0;
       const q = { ...quoteFromSnapshot(market.snapshot()), depthInputs: (id: string) => market.depthInputs(id) };
-      const d = decidePlace({ ...cur, intents: [] }, "preview", draft, q, { next: (kind) => `preview_${kind}_${++n}` }, book);
+      const d = decidePlace({ ...cur, intents: [], idempotency: [] }, "preview", draft, q, { next: (kind) => `preview_${kind}_${++n}` }, book);
       const fill = d.next.fills?.at(-1);
       const fresh = fill && !(cur.fills ?? []).some((f) => f.fillId === fill.fillId) ? fill : undefined;
       const a = ASSET_BY_ID[draft.assetId], mark = q.last(draft.assetId) ?? 1, dp = a?.displayDecimals ?? 8;
@@ -91,7 +91,7 @@ export class BrokerService {
       const d = decidePlace(cur, key, draft, { ...quoteFromSnapshot(market.snapshot()), depthInputs: (id: string) => market.depthInputs(id) }, this.ids, book);
       out = d.result;
       executed = d.replayed ? [] : newFills(cur, d.next);
-      if (!d.replayed && d.result.status === "ACCEPTED" && !(cur.intents ?? []).some((i) => i.result.status === "ACCEPTED")) {
+      if (!d.replayed && d.result.status === "ACCEPTED" && !(cur.idempotency ?? cur.intents ?? []).some((i) => i.result.status === "ACCEPTED")) {
         firstAccepted = true;
       }
       const move = d.move;

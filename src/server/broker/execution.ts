@@ -8,7 +8,7 @@ import { isListed } from "@/market/listings";
 import { centsOf } from "@/market/valuation";
 import { parseMinor, type MarketSnapshot } from "@/market/quoteSnapshot";
 import { AuthError, type PersistedIntent, type PersistedOpenOrder, type PersistedPosition, type PlayerPrivateRecord } from "@/server/auth/types";
-import { MAX_FILLS, MAX_INTENTS, type PlayerPrivateInput } from "@/server/player/privateState";
+import { MAX_FILLS, MAX_IDEMPOTENCY, MAX_INTENTS, type PlayerPrivateInput } from "@/server/player/privateState";
 import { feeOf, fillOnBook, type BookAccount, type DepthInputs } from "./book";
 import type { IntentResult, MyFill, OrderDraft } from "@/shell/contracts/channels";
 import { FEE_BP, fmt, nextLot, type Lot } from "@/shell/contracts/mockFeed";
@@ -95,9 +95,14 @@ export function cancelFingerprint(orderId: string): string {
   return JSON.stringify(["cancel", orderId]);
 }
 
+/** Journal of every decided key (not the last-50 receipt ring). Old saves have only the ring. */
+function idempotencyOf(rec: Pick<PlayerPrivateRecord, "intents" | "idempotency">): readonly PersistedIntent[] {
+  return rec.idempotency ?? rec.intents ?? [];
+}
+
 /** A key already decided: the stored result (same request) or 409 (same key, different request). */
 function replayOf(rec: PlayerPrivateRecord, key: string, fingerprint: string): IntentResult | null {
-  const hit = rec.intents?.find((x) => x.key === key);
+  const hit = idempotencyOf(rec).find((x) => x.key === key);
   if (!hit) return null;
   if (hit.fingerprint !== fingerprint) {
     throw new AuthError("IDEMPOTENCY_CONFLICT", "This idempotency key was already used for a different request.", 409);
@@ -106,10 +111,23 @@ function replayOf(rec: PlayerPrivateRecord, key: string, fingerprint: string): I
 }
 
 function withIntent(base: PlayerPrivateInput, rec: PlayerPrivateRecord, intent: PersistedIntent): PlayerPrivateInput {
-  return { ...base, fills: base.fills ?? rec.fills ?? [], intents: [...(rec.intents ?? []), intent].slice(-MAX_INTENTS) };
+  const journal = base.idempotency ?? idempotencyOf(rec);
+  if (journal.some((x) => x.key === intent.key)) {
+    return { ...base, fills: base.fills ?? rec.fills ?? [], intents: base.intents ?? rec.intents ?? [], idempotency: journal };
+  }
+  if (journal.length >= MAX_IDEMPOTENCY) {
+    throw new AuthError("BAD_REQUEST", "Idempotency journal is full.", 503);
+  }
+  return {
+    ...base,
+    fills: base.fills ?? rec.fills ?? [],
+    intents: [...(base.intents ?? rec.intents ?? []), intent].slice(-MAX_INTENTS),
+    idempotency: [...journal, intent],
+  };
 }
 const asInput = (rec: PlayerPrivateRecord): PlayerPrivateInput => ({
-  cashCents: rec.cashCents, positions: rec.positions, openOrders: rec.openOrders, fills: rec.fills ?? [], intents: rec.intents ?? [],
+  cashCents: rec.cashCents, positions: rec.positions, openOrders: rec.openOrders, fills: rec.fills ?? [],
+  intents: rec.intents ?? [], idempotency: idempotencyOf(rec),
 });
 
 /** A fill's notional in cents: price × qty in the asset's minor unit, converted (identity for the dp-2 catalog; a buy of a

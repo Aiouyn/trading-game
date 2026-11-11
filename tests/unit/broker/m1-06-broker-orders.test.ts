@@ -19,6 +19,7 @@ import { exchangeFeeMinor, fmt, MockFeed, SNAP_DELAY_MS } from "@/shell/contract
 import { previewOrder, placeOrder, cancelOrder, parseOrderId, mockTransport, type DayDraft } from "@/shell/contracts/orders";
 import { openChannel, setFeed } from "@/shell/contracts/useChannel";
 import { serverHalfLoaded } from "../helpers/serverHalf";
+import * as telemetryEvents from "@/server/telemetry/events";
 
 const fee = (n: number) => exchangeFeeMinor(n, 3);
 const minor = (s: string) => Math.round(Number(s) * 100);
@@ -323,9 +324,10 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     expect(again.body.intentId).toBe(buy.body.intentId);
     expect(again.body.ledger.cashCents).toBe(before.cashCents);
     expect(w.body.result.status).toBe("ACCEPTED");
-    const disk = JSON.parse(await readFile(file, "utf8")) as { players: { fills?: unknown[]; intents?: unknown[] }[] };
+    const disk = JSON.parse(await readFile(file, "utf8")) as { players: { fills?: unknown[]; intents?: unknown[]; idempotency?: unknown[] }[] };
     expect(disk.players[0]!.fills).toHaveLength(1);
     expect(disk.players[0]!.intents).toHaveLength(2);
+    expect(disk.players[0]!.idempotency).toHaveLength(2);
   });
 
   it("a failed persist rolls back the order and the sweep (memory never runs ahead of disk)", async () => {
@@ -407,6 +409,58 @@ describe("M1-06 Broker market + limit orders on the server", () => {
     expect(mockTransport()).not.toBeNull();
     meStore.close();
     ticker.close();
+  });
+
+
+  it("a key evicted from the last-50 receipt ring still replays and does not fill again, including after restart", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "m1-06-win-"));
+    temps.push(dir);
+    const file = path.join(dir, "store.json");
+    setAuthServiceForTests(new AuthService({ store: new FileAuthStore(file) }));
+    setBrokerForTests(undefined);
+    const traded = vi.spyOn(telemetryEvents, "recordEventSafe");
+    const a = await signUp("Window");
+    const p = market.last("HALC");
+    const first = await place(a, "key-win-00001", mkt("HALC", "BUY", "1"));
+    expect(first.status).toBe(200);
+    expect(first.body.result.status).toBe("ACCEPTED");
+    const firstId = first.body.intentId;
+    for (let i = 2; i <= 51; i++) {
+      const r = await place(a, `key-win-${String(i).padStart(5, "0")}`, mkt("HALC", "BUY", "1"));
+      expect(r.status, `place ${i}`).toBe(200);
+      expect(r.body.result.status).toBe("ACCEPTED");
+    }
+    const mid = await ledger(a);
+    expect(mid.intents).toHaveLength(50);
+    expect(mid.intents.map((x) => x.intentId)).not.toContain(firstId);
+    expect(mid.fills).toHaveLength(50);
+    const cash = mid.cashCents;
+    expect(cash).toBe(START_CASH_CENTS - 51 * (p + fee(p)));
+
+    const again = await place(a, "key-win-00001", mkt("HALC", "BUY", "1"));
+    expect(again.status).toBe(200);
+    expect(again.body.intentId).toBe(firstId);
+    expect(again.body.result).toEqual(first.body.result);
+    expect(again.body.ledger.cashCents).toBe(cash);
+    expect((await ledger(a)).fills).toHaveLength(50);
+
+    const clash = await placeRoute(post("/api/broker/orders", a, { idempotencyKey: "key-win-00001", draft: mkt("HALC", "BUY", "2") }));
+    expect(clash.status).toBe(409);
+    expect((await clash.json()).error.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect((await ledger(a)).cashCents).toBe(cash);
+
+    setAuthServiceForTests(new AuthService({ store: new FileAuthStore(file) }));
+    setBrokerForTests(undefined);
+    useMarket(new ControlledMarket());
+    const after = await place(a, "key-win-00001", mkt("HALC", "BUY", "1"));
+    expect(after.body.intentId).toBe(firstId);
+    expect(after.body.ledger.cashCents).toBe(cash);
+    const clash2 = await placeRoute(post("/api/broker/orders", a, { idempotencyKey: "key-win-00001", draft: mkt("HALC", "BUY", "2") }));
+    expect(clash2.status).toBe(409);
+    const disk = JSON.parse(await readFile(file, "utf8")) as { players: { fills?: unknown[]; intents?: unknown[]; idempotency?: unknown[] }[] };
+    expect(disk.players[0]!.intents).toHaveLength(50);
+    expect(disk.players[0]!.idempotency).toHaveLength(51);
+    expect(traded.mock.calls.filter((c) => c[0] === "first_trade")).toHaveLength(1);
   });
 
   it("guests keep the local example Broker and never call the server door", async () => {
