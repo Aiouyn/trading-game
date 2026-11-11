@@ -32,7 +32,8 @@ While a catalog rumor (desk or farm) is still **PENDING**, the subject company c
 - **05:849, 05:854–860, 05:864–867** — a claim includes a company rebuttal; credibility is  
   `cr_c = clamp(0.15 + 0.45 × srcRecord + 0.25 × evidence + 0.15 × prestigeReach − 0.30 × rebuttal, 0, 1)`  
   with `rebuttal` **1** if the target published a verifiable rebuttal (12 M4), **0.5** for an unverifiable denial, else **0**. Belief `b_c` is proportional to `cr_c`. This catalog slice still has no evidence refs and no 14 prestige, so those terms stay 0 (already the 90e8cae7 desk formula). This unit adds only the `rebuttal` term.
-- **05:860 / 12:520** — M4 is a verifiable rebuttal (counsel/PR, filings, a 13 case). That player verb, its cost, and `rebuttal = 1` are **out**. NPC catalog companies in this slice issue **unverifiable denials only** (`rebuttal = 0.5`).
+- **05:860** — the rebuttal term on `cr_c`: `0.5` for an unverifiable denial, `1` for a verifiable rebuttal, else `0`. This unit uses `0.5`.
+- **12:520** — the M4 verifiable-rebuttal path (counsel/PR, filings, a 13 case). Scope cite only: that player verb, its cost, and `rebuttal = 1` are **out**. It does not define the `0.5` term.
 - **16:565** — at horizon, a false rumor is FIZZLED (70%) or DENIED (30%: "the subject issues a public denial, a news item"). That **resolution-time** DENIED path already exists and is unchanged. This unit's denial is a **mid-pending** Wire statement; it is not a resolution.
 - **15:606, 15:625 (§3.10.1 / §3.10.4)** — the Wire carries `STATEMENT`; player statements are a separate `soc.wire.post` verb (≤ 280 characters, $500 fee, 3 per game day, 5-game-day resolve, Voices). Company denials use the existing `STATEMENT` kind so they are visible in the feed. No `channels.ts` / `schema.ts` edit (`STATEMENT` is already a `WireKind`).
 - **16:573** — "05 applies no price effect for statements (DEFAULT, Mathis may override: prevents talk-up schemes)." 15:625 says 05 may read player statements with asset tags as bounded sentiment. This unit follows **16:573**: the company denial moves belief only through the **05:860 rebuttal term on the existing rumor claim**, not by treating the STATEMENT as its own 05 impulse. Player-authored statements do not move marks in this unit.
@@ -42,7 +43,7 @@ While a catalog rumor (desk or farm) is still **PENDING**, the subject company c
 
 **In**
 
-- Fail-closed missing/empty secret, with tests; new worlds still generate a key.
+- Fail-closed missing/empty secret, and fail-closed when a `rumors` key is present but not a valid snapshot; a missing `rumors` key still generates a key.
 - One unverifiable company denial per eligible pending rumor, published as a Wire `STATEMENT` (`{company} denies the rumor` / FR), with a cause string, the company and asset as entities, and a slot linking it to the rumor id. No `isTrue`, no secret, no `hiddenAccuracy`.
 - Scheduling is **seed-only** (never the HMAC secret): a denial tick strictly after `publishTick` and strictly before `resolvesByTick`. Every desk catalog rumor that has room for that tick gets a denial (so TIDE is reliably visible). Farm rumors get a denial on a seeded subset (enough to prove the path; not necessarily all 8/day). At most one denial per claim; idempotent across jump and restart.
 - On the denial tick: set `rebuttal = 0.5` on that claim and recompute pending belief immediately.

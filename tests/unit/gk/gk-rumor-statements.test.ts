@@ -1,13 +1,17 @@
-// Fail-closed rumor secret (b8257aaf qualification) and mid-pending company denials (05:860, 15:625 STATEMENT).
+// Fail-closed rumor secret (b8257aaf / cb2c813e) and mid-pending company denials (05:860 term; 12:520 is the M4 path, out).
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ASSET_BY_ID } from "@/market/catalog";
 import { parseWireSnapshot } from "@/market/wireSnapshot";
 import { LiveMarket } from "@/server/market/clock";
 import {
-  MissingRumorSecretError, RumorBook, claimContribution, claimCredibility, farmRebuttalScale,
+  CorruptRumorSnapshotError, MissingRumorSecretError, RumorBook, claimContribution, claimCredibility, farmRebuttalScale,
   normalizeRumorSnapshot,
 } from "@/server/market/rumorClaims";
-import { MemoryStormWorldStore } from "@/server/market/stormWorldStore";
+import { FileStormWorldStore, MemoryStormWorldStore, normalizeStormWorld } from "@/server/market/stormWorldStore";
 import { companyDenialTick, denialItemId } from "@/server/market/rumorFarm";
 import { START_TICK } from "@/shell/contracts/mockFeed";
 import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
@@ -77,7 +81,52 @@ describe("fail-closed rumor secret", () => {
     expect(() => normalizeRumorSnapshot(raw)).toThrow(MissingRumorSecretError);
     err.mockRestore();
     expect(normalizeRumorSnapshot(undefined)).toBeUndefined();
-    expect(normalizeRumorSnapshot(null)).toBeUndefined();
+  });
+
+  it("a present but non-parseable rumors object fails closed and does not invent a key; only a missing key is the upgrade path", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const raw of [{}, { source: {} }, { source: { sourceId: "x" }, claims: "nope" }, "rumors", 1]) {
+      expect(() => normalizeRumorSnapshot(raw), JSON.stringify(raw)).toThrow(CorruptRumorSnapshotError);
+    }
+    expect(String(err.mock.calls[0]![0])).toMatch(/\[rumorClaims\].*not a valid rumor snapshot/);
+    expect(() => normalizeStormWorld({ rumors: {} })).toThrow(CorruptRumorSnapshotError);
+    expect(() => normalizeStormWorld({ rumors: null })).toThrow(CorruptRumorSnapshotError);
+    err.mockRestore();
+    expect(normalizeStormWorld({}).rumors).toBeUndefined();
+    expect(normalizeRumorSnapshot(undefined)).toBeUndefined();
+  });
+
+  it("LiveMarket refuses a file store whose rumors key is present but invalid, and leaves the bytes untouched; a snap with no rumors key still generates a key", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rumor-corrupt-"));
+    const file = join(dir, "storm-world.json");
+    const sha = () => createHash("sha256").update(readFileSync(file)).digest("hex");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const ok = new LiveMarket({ persistStorms: true, stormWorld: new FileStormWorldStore(file), rumorSecret: SECRET });
+      ok.step();
+      const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      const poison = (rumors: unknown) => {
+        writeFileSync(file, JSON.stringify({ ...raw, rumors }));
+        const hash = sha();
+        const mtime = statSync(file).mtimeMs;
+        const body = readFileSync(file);
+        expect(() => new LiveMarket({ persistStorms: true, stormWorld: new FileStormWorldStore(file) })).toThrow(CorruptRumorSnapshotError);
+        expect(sha()).toBe(hash);
+        expect(statSync(file).mtimeMs).toBe(mtime);
+        expect(readFileSync(file).equals(body)).toBe(true);
+      };
+      poison({});
+      poison(null);
+      poison({ claims: [] });
+      // no rumors key: pre-rumor upgrade, a new key is generated
+      const { rumors: _drop, ...without } = raw;
+      writeFileSync(file, JSON.stringify(without));
+      const upgraded = new LiveMarket({ persistStorms: true, stormWorld: new FileStormWorldStore(file) });
+      expect(upgraded.stormSnapshot().rumors!.secret).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      err.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("LiveMarket refuses to boot a store whose rumors snapshot has no secret; an empty store still generates a key", () => {

@@ -54,7 +54,7 @@ export interface RumorClaim {
   sourceId?: string;
   factKind?: string;
   channel?: "desk" | "farm";
-  /** 05:860: 0 none, 0.5 unverifiable denial, 1 verifiable rebuttal (12 M4, out of this slice). */
+  /** 05:860 rebuttal term: 0 none, 0.5 unverifiable denial, 1 verifiable rebuttal. 12:520 is the M4 path (out of this slice). */
   rebuttal?: 0 | 0.5 | 1;
   /** Tick the company denial was published; absent until then. */
   deniedAtTick?: number;
@@ -143,8 +143,23 @@ export class MissingRumorSecretError extends Error {
   }
 }
 
+/** Thrown when a `rumors` key is present but the value is not a valid rumor snapshot. A new key is not generated. */
+export class CorruptRumorSnapshotError extends Error {
+  readonly code = "RUMOR_SNAPSHOT_CORRUPT";
+  constructor() {
+    super("Refusing to start the rumor book: a rumors snapshot is present but is not a valid rumor snapshot. A new key was not generated.");
+    this.name = "CorruptRumorSnapshotError";
+  }
+}
+
 export function refuseMissingRumorSecret(): never {
   const err = new MissingRumorSecretError();
+  console.error(`[rumorClaims] ${err.message}`);
+  throw err;
+}
+
+export function refuseCorruptRumorSnapshot(): never {
+  const err = new CorruptRumorSnapshotError();
   console.error(`[rumorClaims] ${err.message}`);
   throw err;
 }
@@ -712,18 +727,19 @@ function int(v: unknown): number | null {
   return typeof v === "number" && Number.isSafeInteger(v) ? v : null;
 }
 
-/** Older / missing / garbage snapshots start empty (caller hydrates nothing). */
+/** Absent (`undefined`) is the pre-rumor upgrade path. A present non-parseable value fails closed. */
 export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined {
-  if (raw === undefined || raw === null || typeof raw !== "object") return undefined;
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== "object") refuseCorruptRumorSnapshot();
   const o = raw as Record<string, unknown>;
   const srcRaw = o.source && typeof o.source === "object" ? o.source as Record<string, unknown> : null;
-  if (!srcRaw || typeof srcRaw.sourceId !== "string") return undefined;
+  if (!srcRaw || typeof srcRaw.sourceId !== "string") refuseCorruptRumorSnapshot();
   const acc = num(srcRaw.hiddenAccuracy);
   const hits = int(srcRaw.hits);
   const resolved = int(srcRaw.resolved);
-  if (acc == null || hits == null || resolved == null || hits < 0 || resolved < 0 || hits > resolved) return undefined;
+  if (acc == null || hits == null || resolved == null || hits < 0 || resolved < 0 || hits > resolved) refuseCorruptRumorSnapshot();
   const claims: RumorClaim[] = [];
-  if (!Array.isArray(o.claims)) return undefined;
+  if (!Array.isArray(o.claims)) refuseCorruptRumorSnapshot();
   for (const row of o.claims) {
     if (!row || typeof row !== "object") continue;
     const c = row as Record<string, unknown>;
@@ -815,7 +831,7 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
     }
   }
   const lastTick = o.lastTick === null ? null : int(o.lastTick);
-  if (o.lastTick !== null && o.lastTick !== undefined && lastTick == null) return undefined;
+  if (o.lastTick !== null && o.lastTick !== undefined && lastTick == null) refuseCorruptRumorSnapshot();
   if (!usableRumorSecret(o.secret)) refuseMissingRumorSecret();
   const secret = o.secret as string;
   return {
