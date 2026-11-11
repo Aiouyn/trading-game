@@ -5,7 +5,9 @@ import { fillOnBook, type BookFillResult } from "@/server/broker/book";
 import { hypeF, hypeStep } from "@/server/broker/pools";
 import { Draws, HYPE, TICKS_PER_HOUR } from "@/server/market/meme";
 import { moderateName, normalizeName } from "@/server/launchpad/moderate";
-import type { FarmCoin, FarmCommand, FarmFrame, FarmReply, FarmState, FarmWallet, WalletKind } from "./model";
+import { parseFarmCommand, parseFarmFrames } from "./boundary";
+import { isPlainJson } from "./json";
+import type { FarmCoin, FarmCommand, FarmReply, FarmState, FarmWallet, WalletKind } from "./model";
 export type { FarmState, FarmCommand, FarmFrame } from "./model";
 
 export const FAILURE_LAW = { liquidityCents: 100_000, thinHours: 7 * 24, earlyExitHours: 24 * 24, rallyHype: .4, abandonHype: .15, npcSaleFraction: .2 } as const;
@@ -37,10 +39,10 @@ export function assertConservation(s: FarmState): void {
   }
 }
 export function createFarm(seed: string, wallets: readonly { id: string; kind: WalletKind; cash: number }[]): FarmState {
-  if (!seed || seed.length > 128 || wallets.length === 0) throw new Error("BAD_GENESIS");
+  if (typeof seed !== "string" || !isPlainJson(wallets) || !Array.isArray(wallets) || !seed || seed.length > 128 || wallets.length === 0) throw new Error("BAD_GENESIS");
   const accounts: Record<string, FarmWallet> = {};
   for (const w of wallets) {
-    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(w.id) || w.id === "constructor" || w.id === "__proto__" || Object.hasOwn(accounts, w.id) || !integer(w.cash)
+    if (typeof w !== "object" || w === null || Object.keys(w).length !== 3 || !["id", "kind", "cash"].every((k) => Object.hasOwn(w, k)) || typeof w.id !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(w.id) || w.id === "constructor" || w.id === "__proto__" || Object.hasOwn(accounts, w.id) || !integer(w.cash)
       || (w.kind !== "NPC" && w.kind !== "PLAYER")) throw new Error("BAD_GENESIS");
     accounts[w.id] = { kind: w.kind, cash: w.cash, tokens: {}, lastLaunchAtMs: null };
   }
@@ -155,7 +157,8 @@ function sameRequest(saved: string, fingerprint: string): boolean {
   catch { return false; }
 }
 /** Pure command boundary. Receipts are scoped to a wallet, persisted, and include refusals. */
-export function commandFarm(prior: FarmState, cmd: FarmCommand): { state: FarmState; reply: FarmReply } {
+export function commandFarm(prior: FarmState, input: unknown): { state: FarmState; reply: FarmReply } {
+  const cmd = parseFarmCommand(input); // throws INVALID_FARM_COMMAND before any receipt or fingerprint
   if (!/^[A-Za-z0-9_-]{1,96}$/.test(cmd.key) || !own(prior.wallets, cmd.wallet)) return { state: prior, reply: refuse("BAD_REQUEST") };
   const receiptKey = `${cmd.wallet}:${cmd.key}`, fingerprint = fingerprintOf(cmd), receipt = own(prior.receipts, receiptKey);
   if (receipt) return { state: prior, reply: sameRequest(receipt.fingerprint, fingerprint) ? structuredClone(receipt.reply) : refuse("IDEMPOTENCY_CONFLICT") };
@@ -166,7 +169,8 @@ export function commandFarm(prior: FarmState, cmd: FarmCommand): { state: FarmSt
   return { state, reply: structuredClone(reply) };
 }
 /** Replays every supplied game-hour close in order. Gaps are rejected, never held constant or silently skipped. */
-export function advanceFarm(prior: FarmState, frames: readonly FarmFrame[]): FarmState {
+export function advanceFarm(prior: FarmState, input: unknown): FarmState {
+  const frames = parseFarmFrames(input); // throws INVALID_FARM_FRAME before any state change
   if (!frames.length) return prior;
   const s = structuredClone(prior);
   for (const frame of frames) {

@@ -3,7 +3,8 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { commandFarm, advanceFarm } from "./engine";
 import { parseFarm } from "./checkpoint";
-import type { FarmCommand, FarmFrame, FarmState } from "./model";
+import { parseFarmCommand, parseFarmFrames } from "./boundary";
+import type { FarmCommand, FarmFrame, FarmReply, FarmState } from "./model";
 
 export interface FarmStore { load(): Promise<FarmState | null>; save(state: FarmState): Promise<void> }
 /** Single-owner store. One engine owns a path; never mount the same path in two processes. */
@@ -38,16 +39,18 @@ export class FailureFarmEngine {
   private enqueue<T>(run: () => Promise<T>): Promise<T> {
     const result = this.queue.then(run); this.queue = result.then(() => undefined, () => undefined); return result;
   }
-  execute(input: FarmCommand) {
-    const cmd = structuredClone(input);
+  execute(input: unknown): Promise<FarmReply> {
+    let cmd: FarmCommand;
+    try { cmd = parseFarmCommand(input); } catch (err) { return Promise.reject(err); } // validated and detached before queueing
     return this.enqueue(async () => {
       const next = commandFarm(this.state, cmd);
       if (next.state !== this.state) { await this.store.save(next.state); this.state = next.state; }
       return next.reply;
     });
   }
-  advance(input: readonly FarmFrame[]): Promise<void> {
-    const frames = structuredClone(input);
+  advance(input: unknown): Promise<void> {
+    let frames: FarmFrame[];
+    try { frames = parseFarmFrames(input); } catch (err) { return Promise.reject(err); }
     return this.enqueue(async () => {
       const next = advanceFarm(this.state, frames);
       if (next !== this.state) { await this.store.save(next); this.state = next; }
