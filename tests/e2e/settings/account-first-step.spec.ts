@@ -81,12 +81,22 @@ test("UI registration gives a clear goal and continuation; navigation places not
   const broker = page.getByTestId("broker").first();
   await expect(broker).toHaveAttribute("data-state", "live");
   await broker.getByTestId("br-asset-select").selectOption("HALC");
-  await broker.getByTestId("br-qty").fill("1");
-  await expect(broker.getByTestId("br-review")).toBeEnabled();
-  await broker.getByTestId("br-review").click();
+  // Layout-agnostic: with the phone Trade sheet (Card 6) the ticket is in a modal opened by Trade and closed after the
+  // fill; otherwise it is inline in the Broker. The same assertions run on whichever holds the ticket.
+  const tradeButton = broker.getByTestId("br-trade");
+  const sheet = (await tradeButton.count()) > 0;
+  if (sheet) await tradeButton.click();
+  const ticket = sheet ? page.getByTestId("br-sheet") : broker;
+  await ticket.getByTestId("br-qty").fill("1");
+  await expect(ticket.getByTestId("br-review")).toBeEnabled();
+  await ticket.getByTestId("br-review").click();
   await expect(page.getByTestId("br-place").first()).toBeEnabled({ timeout: 15_000 });
   await page.getByTestId("br-place").first().click();
-  await expect(broker.getByTestId("br-ack-title")).toContainText("Bought 1 HALC", { timeout: 20_000 });
+  await expect(ticket.getByTestId("br-ack-title")).toContainText("Bought 1 HALC", { timeout: 20_000 });
+  if (sheet) {
+    await ticket.getByTestId("br-sheet-close").click();
+    await expect(page.getByTestId("br-sheet")).toHaveCount(0);
+  }
   await page.getByTestId("account-chip").first().click();
   await continueToPortfolio(page);
   await expect(page.getByTestId("pf-goal").first()).toHaveAttribute("data-stage", "done");
