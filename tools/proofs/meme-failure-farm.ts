@@ -30,7 +30,13 @@ function buy(s: FarmState, wallet: string, ticker: string, amount: number) {
 // "~0" is the spec's death state: pool liquidity < $1,000 for 7 game days -> DELISTED, tokens "marked at 0" (06:762),
 // public event mkt.meme.dead (06:1139). Horizon: one chapter = 1,344 game days (20:11; 01:145), from birth (all cohort
 // coins are born at hour 0). Price cutoffs are secondary authored diagnostics only; no spec line defines them.
-await save("measurement-contract.json", { version: 3, seedCount: 24, coinsPerSeed: 12, chapterGameDays: GAME_DAYS_PER_CHAPTER,
+await save("measurement-contract.json", { version: 4,
+  preRegistered: "docs/v1/units/meme-failure-farm.md 'Premise attack' (committed before this run)",
+  liquidityRule: { curve: "real curve cash (x - X0)", book: "min(book.cash, cost(qmax)); qmax = largest base-ladder sale priced within X of the mark (depthQuote/ladderImpact/baseDepthInputs/centsOf, used = 0)",
+    bandX: "max(0.05, 3 sigma_d), sigma_d = template vol / sqrt(364), measured from the last price (05:560 settlement/fix band; meme daily reference 05:255)", rejected: "per-tick band max(0.040, 6 sigma_tick) (05:356, :560): one-tick throttle, ~$384 at listing, would force death", cashTotalUnchanged: true },
+  holderRule: { retail: "RETAIL pool 05:832/05:826: pos* = 3.0 tanh(N(0,1) + 0.5 tanh(r_1d/sigma_d)) ADV, rate 3.0*0.15 ADV/day (hourly sum of per-tick caps), ADV = 0.15 * supply (05:356)", spotOnly: "pos* >= 0, buys <= cash, sells <= tokens, fills via fillOnBook only",
+    abandonment: "06:761 launcher stops all activity; allocation stays in its wallet; no panic multiplier (spec gives none)", omitted: ["DEGEN 05:840 (leveraged, needs 07 credit)", "VALUE 05:830 (no meme fundamental value, 06 3.11.2)", "10-day off-book pool decay 05:826"] },
+  sizeLimits: { inputString: 256, checkpointString: 4096, checkpointBytes: 16777216 }, seedCount: 24, coinsPerSeed: 12, chapterGameDays: GAME_DAYS_PER_CHAPTER,
   horizon: "all cohort coins launched at hour 0 and observed for one full chapter (1,344 game days) from birth",
   nearZero: "DEAD: discovery DELISTED under the 06:762 death rule (liquidity < $1,000 = 100,000 cents for 7 consecutive game days), wallet tokens marked at exactly 0",
   secondaryDiagnostics: { finalMarkAtMost1PctOfListing: "authored, not spec", everMarkAtMost1PctOfListing: "authored, not spec", finalMarketCapBelowDeathLiquidity: "authored reuse of the 06:762 $1,000 figure on market cap, not spec" },
