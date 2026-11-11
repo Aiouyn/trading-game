@@ -1,18 +1,12 @@
 import type { Money } from "../../../packages/engine/core/types";
-
-interface FundingPosition {
-  ownedCash: Money; custodyCash: Money; incoming: Money; outgoing: Money; depositsDue: Money;
-}
-
-/** Provisional funded-reserve reading, not an owner-approved override of 07:23. See SYS-BANKING.md. */
+interface ReservePosition { reserves: Money; deposits: Money; incoming: Money; outgoing: Money; depositsDue: Money }
+/** FDL -> FU, 07:388 and 541: 1% reserve requirement plus 0.5% buffer. No CB credit. */
 export const BANK_FUNDING_POLICY = {
-  projectedGap({ ownedCash, custodyCash, incoming, outgoing, depositsDue }: FundingPosition): Money {
-    // Owned cash is reserves less 100% custody. Preserve the existing upward-rounded 0.5% buffer.
-    const buffer = (custodyCash + BigInt(199)) / BigInt(200);
-    return ownedCash + incoming - outgoing - depositsDue - buffer;
+  projectedGap({ reserves, deposits, incoming, outgoing, depositsDue }: ReservePosition): Money {
+    const required = ((deposits + depositsDue) * BigInt(15) + BigInt(999)) / BigInt(1000);
+    return reserves + incoming - outgoing - required;
   },
-  lendableCash({ ownedCash, outgoing, depositsDue }: Pick<FundingPosition, "ownedCash" | "outgoing" | "depositsDue">): Money {
-    const available = ownedCash - outgoing - depositsDue;
-    return available > BigInt(0) ? available : BigInt(0);
+  lendableReserves({ reserves, outgoing }: Pick<ReservePosition, "reserves" | "outgoing">): Money {
+    return reserves > outgoing ? reserves - outgoing : BigInt(0);
   },
 };

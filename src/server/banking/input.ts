@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isProxy } from "node:util/types";
 import type { Money } from "../../../packages/engine/core/types";
-import type { BankCommand, BankingFrame, BankingGenesis, HourlyBankMarket } from "./model";
+import type { BankCommand, BankingFrame, BankingGenesis, HourlyBankMarket, ClientSeed } from "./model";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export function strictJson(input: unknown): Json {
@@ -58,11 +58,12 @@ export function decodeGenesis(raw: unknown): BankingGenesis {
     return { id: text(b.id), cash: cash(b.cash), sightRatePpm: ppm(b.sightRatePpm), savingsRatePpm: ppm(b.savingsRatePpm), tolerancePpm: ppm(b.tolerancePpm), enabled: flag(b.enabled) };
   });
   unique(banks.map((b) => b.id));
-  const clients = list(g.clients).map((row) => {
-    const c = record(row, ["id", "cash", "presence"]), presence = list(c.presence).map(text);
+  const clients = list(g.clients).map((row): ClientSeed => {
+    const c = record(row, ["kind", "id", "cash", "presence"]), presence = list(c.presence).map(text);
     unique(presence);
     if (presence.some((id) => !banks.some((b) => b.id === id))) throw new Error("BANK_PRESENCE");
-    return { id: text(c.id), cash: cash(c.cash), presence };
+    if (c.kind !== "PERSON" && c.kind !== "BUSINESS") throw new Error("BANK_CLIENT_KIND");
+    return { kind: c.kind, id: text(c.id), cash: cash(c.cash), presence };
   });
   unique(clients.map((c) => c.id));
   return { world: text(g.world), ccy: g.ccy, initialPolicyPpm: ppm(g.initialPolicyPpm), initialOnrPpm: ppm(g.initialOnrPpm), banks, clients };
@@ -70,6 +71,20 @@ export function decodeGenesis(raw: unknown): BankingGenesis {
 function command(v: Json): BankCommand {
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("BANK_COMMAND");
   const common = ["id", "actor", "kind"];
+  if (v.kind === "LEND") {
+    const c = record(v, [...common, "depositId", "amount", "ratePpm", "maturityTick"]);
+    const maturityTick = bankTick(c.maturityTick);
+    if (maturityTick % 720 !== 719) throw new Error("BANK_LOAN_MATURITY");
+    return { id: text(c.id), actor: text(c.actor), kind: "LEND", depositId: text(c.depositId), amount: cash(c.amount, true), ratePpm: ppm(c.ratePpm), maturityTick };
+  }
+  if (v.kind === "REPAY") {
+    const c = record(v, [...common, "loanId", "amount"]);
+    return { id: text(c.id), actor: text(c.actor), kind: "REPAY", loanId: text(c.loanId), amount: cash(c.amount, true) };
+  }
+  if (v.kind === "WRITE_OFF") {
+    const c = record(v, [...common, "loanId"]);
+    return { id: text(c.id), actor: text(c.actor), kind: "WRITE_OFF", loanId: text(c.loanId) };
+  }
   if (v.kind === "OPEN") {
     const c = record(v, [...common, "depositId", "bankId", "product"]);
     return { id: text(c.id), actor: text(c.actor), kind: "OPEN", depositId: text(c.depositId), bankId: text(c.bankId), product: product(c.product) };

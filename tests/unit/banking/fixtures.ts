@@ -6,8 +6,9 @@ export function bankGenesis() {
       { id: "bankB", cash: "0", sightRatePpm: 0, savingsRatePpm: 36_400, tolerancePpm: 20_000, enabled: true },
       { id: "bankC", cash: "0", sightRatePpm: 0, savingsRatePpm: 0, tolerancePpm: 20_000, enabled: false },
     ], clients: [
-      { id: "alice", cash: micro(1_000_000_000), presence: ["bankA", "bankB", "bankC"] },
-      { id: "bob", cash: micro(1_000), presence: ["bankA"] },
+      { kind: "PERSON", id: "alice", cash: micro(1_000_000_000), presence: ["bankA", "bankB", "bankC"] },
+      { kind: "PERSON", id: "bob", cash: micro(1_000), presence: ["bankA"] },
+      { kind: "BUSINESS", id: "company", cash: "0", presence: ["bankA", "bankB", "bankC"] },
     ] };
 }
 export function bankMarket(pdB = 0, pdC = 0, fearPpm = 0) {
@@ -20,4 +21,9 @@ export function through(target: number, frames: ReturnType<typeof bankFrame>[] =
   const all = new Map(frames.map((f) => [f.tick, structuredClone(f)]));
   for (let tick = 29; tick <= target; tick += 30) if (!all.has(tick)) all.set(tick, bankFrame(tick, [], marketAt(tick)));
   return [...all.values()].sort((a, b) => a.tick - b.tick);
+}
+
+export function interbankGenesis() { const g = bankGenesis(); g.banks[1].cash = micro(50_000); return g; }
+export function interbankDemand(id = "b", bankId = "bankB", dollars = 5_000_000) {
+  return [openDeposit("open-" + id, id, bankId, "SIGHT", "company"), { kind: "LEND", id: "business-" + id, actor: bankId, depositId: id, amount: micro(dollars), ratePpm: 0, maturityTick: 30 * 720 + 719 }];
 }

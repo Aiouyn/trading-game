@@ -6,7 +6,7 @@ import { BankingEngine, bankingCashTotal, bankingReserves } from "../../../src/s
 import { bankFingerprint, bankWire, canonicalJson } from "../../../src/server/banking/input";
 import type { BankCheckpointStore } from "../../../src/server/banking/model";
 import { FileBankCheckpointStore } from "../../../src/server/banking/store";
-import { bankFrame, bankGenesis, bankMarket, deposit, micro, openDeposit, through } from "./fixtures";
+import { bankFrame, bankGenesis, bankMarket, deposit, micro, openDeposit, through, interbankGenesis, interbankDemand } from "./fixtures";
 
 class MemoryStore implements BankCheckpointStore {
   bytes: string | null = null; revision: string | null = null; fail = false;
@@ -59,49 +59,49 @@ it("preserves unfunded interest as a non-cash payable and never spends customer 
   await e.advance(1439, through(1439, [bankFrame(0, [openDeposit("o", "b", "bankB", "SAVINGS"), deposit("d", "b", 10000)])]));
   expect(e.snapshot().deposits[0].cash).toBe(n(micro(10000)));
   expect(e.snapshot().deposits[0].interestDue).toBe(n(micro(2)));
-  expect(e.snapshot().banks[1].cash).toBe(BigInt(0)); expect(bankingCashTotal(e.snapshot())).toBe(total);
+  expect(e.snapshot().banks[1].cash).toBe(n(micro(10000))); expect(e.snapshot().banks[1].equity).toBe(BigInt(0)); expect(bankingCashTotal(e.snapshot())).toBe(total);
 });
 it("matches only at29/59/hourly, lends existing bank cash, and matures the following day719", async () => {
-  const e = await BankingEngine.open(new MemoryStore(), bankGenesis()), total = bankingCashTotal(e.snapshot());
-  await e.advance(28, [bankFrame(0, [openDeposit("o", "b"), deposit("d", "b", 5_000_000)])]);
+  const e = await BankingEngine.open(new MemoryStore(), interbankGenesis()), total = bankingCashTotal(e.snapshot());
+  await e.advance(28, [bankFrame(0, interbankDemand())]);
   expect(e.snapshot().loans).toHaveLength(0);
   await e.advance(29, [bankFrame(29)]);
   const l = e.snapshot().loans[0];
   expect(l.funded).toBe(n(micro(25000))); expect(l.originatedTick).toBe(29); expect(l.maturityTick).toBe(1439); expect(l.ratePpm).toBe(500);
-  expect(e.snapshot().banks[0].cash).toBe(n(micro(975000))); expect(e.snapshot().banks[1].cash).toBe(n(micro(25000)));
+  expect(e.snapshot().banks[0].cash).toBe(n(micro(975000))); expect(e.snapshot().banks[1].cash).toBe(n(micro(75000)));
   await e.advance(59, [bankFrame(59)]); expect(e.snapshot().hours.map((h) => h.tick)).toEqual([29, 59]);
   expect(bankingCashTotal(e.snapshot())).toBe(total);
 });
 it("applies exact PD/fear haircut, 10%-Tier1 exposure cap, and never refills finite offers", async () => {
-  const e = await BankingEngine.open(new MemoryStore(), bankGenesis());
-  await e.advance(59, through(59, [bankFrame(0, [openDeposit("o", "b"), deposit("d", "b", 100_000_000)])], () => bankMarket(10000)));
+  const e = await BankingEngine.open(new MemoryStore(), interbankGenesis());
+  await e.advance(59, through(59, [bankFrame(0, interbankDemand("b", "bankB", 100_000_000))], () => bankMarket(10000)));
   expect(e.snapshot().loans).toHaveLength(1); expect(e.snapshot().loans[0].funded).toBe(n(micro(50000))); expect(e.snapshot().loans[0].ratePpm).toBe(6500);
   expect(e.snapshot().hours[1].volume).toBe(BigInt(0)); expect(e.snapshot().hours[1].gaps.find((g) => g.bankId === "bankB")!.gap).toBeLessThan(BigInt(0));
-  const frozen = await BankingEngine.open(new MemoryStore(), bankGenesis());
-  await frozen.advance(29, through(29, [bankFrame(0, [openDeposit("o", "b"), deposit("d", "b", 100_000_000)])], () => bankMarket(10000, 0, 1_000_000)));
+  const frozen = await BankingEngine.open(new MemoryStore(), interbankGenesis());
+  await frozen.advance(29, through(29, [bankFrame(0, interbankDemand("b", "bankB", 100_000_000))], () => bankMarket(10000, 0, 1_000_000)));
   expect(frozen.snapshot().loans).toHaveLength(0);
 });
 it("excludes high-risk borrowers and asks above the facility-minus1bp ceiling", async () => {
   for (const m of [bankMarket(20001), { ...bankMarket(10000), policyPpm: 0, mlfrPpm: 100 }]) {
-    const e = await BankingEngine.open(new MemoryStore(), bankGenesis());
-    await e.advance(29, through(29, [bankFrame(0, [openDeposit("o", "b"), deposit("d", "b", 1_000_000)])], () => m));
+    const e = await BankingEngine.open(new MemoryStore(), interbankGenesis());
+    await e.advance(29, through(29, [bankFrame(0, interbankDemand("b", "bankB", 100_000_000))], () => m));
     expect(e.snapshot().loans).toHaveLength(0);
   }
 });
 it("computes daily volume-weighted ONR and carries the previous spread on a dry day", async () => {
-  const g = bankGenesis(); g.banks[2].enabled = true;
+  const g = interbankGenesis(); g.banks[2].enabled = true; g.banks[2].cash = micro(50000);
   const e = await BankingEngine.open(new MemoryStore(), g);
-  await e.advance(719, through(719, [bankFrame(0, [openDeposit("ob", "b"), openDeposit("oc", "c", "bankC"), deposit("db", "b", 100_000_000), deposit("dc", "c", 100_000_000)])], () => bankMarket(10000)));
+  await e.advance(719, through(719, [bankFrame(0, [...interbankDemand("b", "bankB", 100_000_000), ...interbankDemand("c", "bankC", 100_000_000)])], () => bankMarket(10000)));
   expect(e.snapshot().fixings[0].fallback).toBe(false); expect(e.snapshot().fixings[0].ratePpm).toBe(2500);
   const dry = await BankingEngine.open(new MemoryStore(), bankGenesis());
   await dry.advance(719, through(719, [], () => ({ ...bankMarket(), policyPpm: 7000 })));
   expect(dry.snapshot().fixings[0]).toEqual({ tick: 719, ratePpm: 7000, policyPpm: 7000, volume: BigInt(0), fallback: true });
 });
 it("records overdue unfunded bank principal rather than taking depositor cash or minting a rescue", async () => {
-  const e = await BankingEngine.open(new MemoryStore(), bankGenesis()), total = bankingCashTotal(e.snapshot());
-  await e.advance(1439, through(1439, [bankFrame(0, [openDeposit("o", "b"), deposit("d", "b", 5_000_000)])], (tick) => bankMarket(tick === 29 ? 0 : 1_000_000)));
-  const l = e.snapshot().loans[0]; expect(l.status).toBe("OVERDUE"); expect(l.principal).toBe(BigInt(68682)); expect(l.accrued).toBe(BigInt(0));
-  expect(e.snapshot().deposits[0].cash).toBe(n(micro(5_000_000))); expect(e.snapshot().banks[1].cash).toBe(BigInt(0)); expect(bankingCashTotal(e.snapshot())).toBe(total);
+  const e = await BankingEngine.open(new MemoryStore(), interbankGenesis()), total = bankingCashTotal(e.snapshot());
+  await e.advance(1439, through(1439, [bankFrame(0, interbankDemand()), bankFrame(30, [openDeposit("dest", "dest", "bankC", "SIGHT", "company"), { kind: "MOVE", id: "spend", actor: "company", from: "b", to: "dest", amount: micro(75000) }])], (tick) => bankMarket(tick === 29 ? 0 : 1_000_000)));
+  const l = e.snapshot().loans[0]; expect(l.status).toBe("OVERDUE"); expect(l.principal).toBe(BigInt(micro(25000))); expect(l.accrued).toBe(BigInt(68682));
+  expect(e.snapshot().deposits[0].cash).toBe(n(micro(4_925_000))); expect(e.snapshot().banks[1].cash).toBe(BigInt(0)); expect(bankingCashTotal(e.snapshot())).toBe(total);
 });
 it("refuses missing hours before changing any cash, including arbitrarily large unsupported jumps", async () => {
   const e = await BankingEngine.open(new MemoryStore(), bankGenesis()), before = e.snapshot();
@@ -217,8 +217,8 @@ it("preserves nonempty Unicode and delimited authoritative ids without a paralle
 });
 
 it("includes accrued interest in counterparty exposure rather than turning booked income into a fresh credit limit", async () => {
-  const e = await BankingEngine.open(new MemoryStore(), bankGenesis());
-  await e.advance(719, through(719, [bankFrame(0, [openDeposit("o", "b"), deposit("d", "b", 100_000_000)])], () => bankMarket(10000)));
+  const e = await BankingEngine.open(new MemoryStore(), interbankGenesis());
+  await e.advance(719, through(719, [bankFrame(0, interbankDemand("b", "bankB", 100_000_000))], () => bankMarket(10000)));
   expect(e.snapshot().loans).toHaveLength(1); expect(e.snapshot().loans[0].funded).toBe(BigInt(micro(50000))); expect(e.snapshot().loans[0].accrued).toBe(BigInt(892857));
   expect(e.snapshot().hours.at(-1)!.volume).toBe(BigInt(0));
 });
@@ -281,18 +281,16 @@ describe("hostile Proxy input boundaries", () => {
   });
 });
 
-it.each([{ owned: 24999, gap: -1 }, { owned: 25000, gap: 0 }, { owned: 25001, gap: 1 }])("keeps the current funded-reserve threshold at owned=$owned, gap=$gap", async ({ owned, gap }) => {
-  const g = bankGenesis(); g.banks[0].enabled = false; g.banks[1].cash = micro(owned);
-  const e = await BankingEngine.open(new MemoryStore(), g), total = bankingCashTotal(e.snapshot());
-  await e.advance(29, through(29, [bankFrame(0, [openDeposit("open", "b"), deposit("deposit", "b", 5_000_000)])]));
-  expect(e.snapshot().hours[0].gaps.find((r) => r.bankId === "bankB")?.gap).toBe(BigInt(micro(gap)));
-  expect(e.snapshot().loans).toHaveLength(0); expect(bankingCashTotal(e.snapshot())).toBe(total);
+it.each([{ reserves: 74999, gap: -1 }, { reserves: 75000, gap: 0 }, { reserves: 75001, gap: 1 }])("applies the 1% reserve plus 0.5% buffer threshold at reserves=$reserves", ({ reserves, gap }) => {
+  expect(BANK_FUNDING_POLICY.projectedGap({ reserves: BigInt(micro(reserves)), deposits: BigInt(micro(5_000_000)), incoming: BigInt(0), outgoing: BigInt(0), depositsDue: BigInt(0) })).toBe(BigInt(micro(gap)));
+});
+it.each([{ reserves: 14, expected: 0 }, { reserves: 15, expected: 0 }, { reserves: 16, expected: 1 }])("caps actual lendable reserves at $expected when reserves=$reserves", ({ reserves, expected }) => {
+  expect(BANK_FUNDING_POLICY.lendableReserves({ reserves: BigInt(reserves), outgoing: BigInt(15) })).toBe(BigInt(expected));
+});
+it("rounds the 1.5% micro-unit reserve target upward", () => {
+  expect(BANK_FUNDING_POLICY.projectedGap({ reserves: BigInt(0), deposits: BigInt(1), incoming: BigInt(0), outgoing: BigInt(0), depositsDue: BigInt(0) })).toBe(BigInt(-1));
 });
 
-it.each([{ owned: 14, expected: 0 }, { owned: 15, expected: 0 }, { owned: 16, expected: 1 }])("caps pending-policy lendable own cash at $expected when owned=$owned", ({ owned, expected }) => {
-  const position = { ownedCash: BigInt(owned), custodyCash: BigInt(micro(5_000_000)), incoming: BigInt(micro(25_000)), outgoing: BigInt(10), depositsDue: BigInt(5) };
-  expect(BANK_FUNDING_POLICY.lendableCash(position)).toBe(BigInt(expected));
-});
-it("preserves the pending funding policy's upward-rounded sub-micro buffer", () => {
-  expect(BANK_FUNDING_POLICY.projectedGap({ ownedCash: BigInt(0), custodyCash: BigInt(1), incoming: BigInt(0), outgoing: BigInt(0), depositsDue: BigInt(0) })).toBe(BigInt(-1));
+it("projects funded deposit interest as own-account money, not a reserve outflow", () => {
+  expect(BANK_FUNDING_POLICY.projectedGap({ reserves: BigInt(2000), deposits: BigInt(100000), incoming: BigInt(0), outgoing: BigInt(0), depositsDue: BigInt(1000) })).toBe(BigInt(485));
 });

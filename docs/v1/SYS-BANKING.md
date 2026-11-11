@@ -1,59 +1,47 @@
-# Funded banking without new money
+# Banking deposits, reserve settlement and business credit
 
-## Overview
+## Owner decision
 
-`src/server/banking` is an isolated FDL custody and automatic interbank engine. A player can open SIGHT or SAVINGS accounts, move funded cash into them, transfer between their own accounts, and withdraw. Banks earn or pay interest from their existing cash. The app does not mount this engine yet.
+Parent-verified owner answer in Gatekeeper's chat, **2026-11-11 20:06 Europe/Paris**:
 
-The bot's assigned owner decisions say exactly:
+> yes, bank loans create new money like real banks, follow spec 07
 
-> 'just like real life': finite order books, no last-resort market maker, the game never creates money; the market grows over time and recovers after crashes.
+The funded-custody interpretation is removed. Bank loans create deposits and matching loan assets. Principal repayment destroys deposit money and principal (`export/vision-review/complete/07-BANKING-CREDIT-CLEARING.md:23,420,426`). Outside bank credit, "the game never creates money" remains the rule: finite books, no last-resort maker, no other minting. Consumer credit and central-bank facilities remain out of scope.
 
-The funded-reserve rule is this bot's reading of "the game never creates money" applied to banking. It conflicts with `export/vision-review/complete/07-BANKING-CREDIT-CLEARING.md:23`: "A loan creates a deposit (`CREDIT_CREATE`); a repayment destroys one (`CREDIT_DESTROY`)." The rule is pending an explicit owner decision. It is not a verified owner override of the banking specification. Current behavior remains unchanged: a bank cannot lend customer custody cash, and a dry lender or an unfunded maturity receives no synthetic counterparty or rescue. This batch does not implement 07:23 credit creation.
+## One isolated owner
 
-The pre-code [unit contract](../../UNIT.md) lists the exact specification bounds. Consumer credit and the full clearing-house default waterfall are outside this slice. Interbank loans are the funded credit product here.
+`src/server/banking` is not mounted in the app. It receives an explicit genesis, complete hourly observations and sealed commands. It never copies live AuthService cash into another writer. Later mounting needs authenticated lender/client roles, ownership migration and 03 posting adapters.
 
-## Cash and claims have different roles
+`PERSON` and `BUSINESS` identify customer kinds. Existing OPEN, DEPOSIT, WITHDRAW and MOVE commands remain. A lender's explicit LEND instruction books preapproved BUSINESS credit into that lender's deposit account. PERSON credit is refused. REPAY uses that loan's deposit, pays interest first and destroys principal. WRITE_OFF accepts a lender-authoritative final-enforcement instruction only for an overdue business loan with no unapplied balance in its origination deposit. Underwriting, applications, collateral enforcement, consumer products and bank resolution are deferred, not simulated by those booking instructions.
 
-The engine imports core `Money` and `Ccy`, with no duplicate definitions. Money is bigint micro-units. A boundary money field is a canonical unsigned decimal string, not a floating-point amount or cents. Internal snapshots preserve bigint through replay.
+## Reserves and deposits are different accounts
 
-Each client has settlement cash. Each bank has owned cash. A deposit holds segregated custody cash and is the bank's liability for that same cash. The deposit is counted once. Derived bank reserves equal owned cash plus custody cash. There is no second stored reserve balance that can drift.
+Bank `cash` is its reserve asset. Bank equity is separate. Deposits are liabilities, not additional reserves. A customer's cash deposit increases reserves and its deposit claim. Withdrawals and cross-bank transfers move actual reserves and fail when reserves are unavailable. Crediting a loan never credits reserves. There is no intraday overdraft, CB standing facility or rescue.
 
-The conserved amount is the sum of client settlement cash, bank-owned cash, and custody cash. Loans and unpaid interest are claims, not additional cash. Deposit interest moves bank-owned cash into custody. An interbank draw moves owned cash between two banks. Repayment reverses principal and transfers funded interest.
+`BANK_FUNDING_POLICY` in `funding-policy.ts` uses FDL -> FU (`22-CONTENT-CATALOGS.md:63`), 1% reserves (`07:388`, `04:699`) and the additional 0.5% buffer (`07:541`). It rounds the combined micro-unit requirement upward. The $5M bankB sight-deposit scenario has $5M reserves and a **+$4,925,000** projected gap. It originates no $25,000 interbank loan.
 
-`movements` records every cash change. `settlements` records per-bank reserve changes with the opposite external settlement-cash leg. Each tick nets to zero. Same-bank own-account transfers leave reserves unchanged.
+Interbank matching uses finite reserve transfers, not credit-created customer deposits (`03-LEDGER-AND-ACCOUNTING.md:723-725`). Fresh hourly observations at tick29/59/... supply risk, fear and corridor inputs. Counterparty exposure, Tier1 and ask ordering follow `07:543-553`. Daily ONR uses funded interbank volume or the specified fallback.
 
-## Exact time and finite lending
+## Accounting identities
 
-Hourly observations occur at `tick mod30=29`. Every crossed hour requires a fresh, complete explicit policy, Fear, and bank-PD observation. Missing data rejects the whole batch. The engine never substitutes zero or silently reuses stale bank risk.
+At each bank:
 
-Under the pending funded-reserve policy, the reserve target is 100% custody plus the specified0.5% buffer. The projected gap includes known interbank payments and deposit interest through that day's close. There are no invented external scheduled flows. Lending is capped by the positive gap, unencumbered owned cash, and the specification's counterparty limit. Tier1 is owned net assets on this restricted balance sheet, with no AT1, capital deductions, or separate regulatory engine. Interest receivables and debt offset their respective book values. Full ECL supervision is deferred.
+`reserves + business loan assets + interbank lending = deposits + equity + interbank borrowing`
 
-`src/server/banking/funding-policy.ts` defines `BANK_FUNDING_POLICY`, the single policy point for projected reserve gaps and lendable owned cash. The engine delegates both calculations to it. Tests cover both sides of each funding threshold, including zero and the existing upward-rounded buffer. An owner decision can change these calculations in one module. Actual credit creation would also need its credit-ledger design and a replay migration; no alternate credit-creation mode is enabled here.
+Accrued claims and their matching income/payables extend the same identity. Realized equity records paid interest and losses. The consolidated equation is **deposits = reserves + business loans - equity**. Initial capital and default losses make the equity term essential. "Deposit money = loans + reserves" without equity is not the actual balance-sheet identity.
 
-Counterparty tolerance, fear, ask, and exposure follow07:543-553. Integer ppm quantizes annual rates with half-even rounding. Borrowers and tied lenders use SHA-256 order followed by core `cmpStr`, not locale-dependent sorting. Zero tolerance disables lending. Loans mature at the following game day's tick719. This explicit interpretation avoids accidental same-tick maturity for a loan matched at719.
+`bankingCashTotal` is M0, outside settlement cash plus bank reserves, and remains constant. `bankingDepositMoney` is M2, outside cash plus deposits. Lending increases M2 without changing M0. Principal repayment reduces M2 without changing M0. Default write-off reduces the loan asset and bank equity; it does **not** destroy already-circulated deposits (`07:460`).
 
-At `tick mod720=719`, existing loans accrue daily interest and settle due obligations, then deposits accrue and receive funded interest. Every account rounds independently, half-even, with a364-day denominator. Unpaid deposit interest remains `interestDue` and does not compound as cash. An unfunded interbank balance remains `OVERDUE`. No consumer default penalty or bank-resolution implementation is implied.
+Bank interest receipts/payments are own-account transfers between deposits and bank equity. They can change M2, as `03:895,972-975` explicitly requires. Reports separate these from credit creation. They create no base reserves or net assets. Interest spending is capped by existing positive equity; unpaid interest remains a claim. Day close uses tick719, 364-day half-even rounding and includes weekends.
 
-The719 hourly match follows those obligations. Its new loans do not accrue before that tick's completed accrual. ONR then fixes from that day's funded volume, or carries the previous ONR-policy spread when volume is insufficient. Zero volume also uses the fallback. Weekends use the same schedule.
+## Boundary and persistence
 
-## Boundary and storage ownership
+`input.ts` rejects live and revoked Proxies before any reflection or trap execution, at all raw genesis, frame, command, controls and checkpoint boundaries. Sparse arrays, unknown fields, non-JSON values, getters, toJSON, aliases and cycles also reject before save.
 
-`input.ts` rejects live and revoked Proxies before reflection or trap execution. It accepts plain, acyclic, non-aliased JSON trees with dense arrays and enumerable data properties. It rejects unknown fields, undefined, non-finite numbers, negative zero, Date and other class values, raw bigint, functions, symbols, accessors, hidden fields, and named array properties. No raw input reaches JSON.stringify before validation. Canonical field order makes reordered-object retries identical. Array order remains part of input identity.
+Journal v2 stores authoritative genesis, frames, target and full-state digest. Opening replays every persisted feature. Old custody v1 rejects without rewriting the file. There is no automatic migration in this unmounted slice. Atomic temp/fsync/rename, revision CAS, serialized publication, defensive snapshots and canonical idempotent retries remain in force.
 
-`BankingEngine.open` decodes genesis, replays a saved journal, and checks an identity that covers genesis, every frame, and the full reconstructed state. Checkpoints contain no cached partial state. A changed seed cannot reset an existing world. Command ids remain idempotent across restart, including refused commands. A changed body with the same id aborts the whole batch.
+## Proofs
 
-`advance` copies and validates input before it waits for the facade's serial queue. A pure transition produces the next state. Save succeeds before publication. Snapshots are defensive clones. Advance skips ticks with no input or scheduled job, but never skips an hourly or daily boundary. A tick run and a jump write identical final checkpoint bytes.
+`tests/unit/banking/credit.test.ts` exercises credit booking, repayment, default loss, liquidity, authority and atomic retry. The original Proxy regression remains in `banking.test.ts`.
 
-`FileBankCheckpointStore` writes a private temporary file, fsyncs it, and renames it atomically. A short-lived exclusive lock and revision CAS reject concurrent or stale writers. A leftover lock after a process dies fails closed and needs an owner check. There is no automatic stale-lock takeover. Power-loss directory-fsync guarantees and cross-partition settlement are not claimed.
-
-## Existing owners and later integration
-
-AuthService remains the only owner of live web cash in `src/server/auth/service.ts:393-435`. Broker still commits finite-book and player cash together. Macro credit remains a producer port, not a second bank implementation.
-
-This engine receives a new, explicit funded genesis. Copying live AuthService balances into it would duplicate ownership and is not an integration strategy. Mounting it later requires an atomic ownership migration, authenticated actor mapping, macro observations, and03 posting adapters. It also requires coordination before changes to auth, broker, clock, or catalog files. There is no unmerged FX dependency, claims schema, Wire-to-value change, or UI edit.
-
-## Proof artifacts
-
-`tests/unit/banking/banking.test.ts` exercises the public facade, persisted checkpoints, malformed input, atomic failure, canonical retry, hourly and daily boundaries, and complete restart equivalence.
-
-`tools/proofs/banking.ts --help` describes the fresh-store proof command. The runner compares complete tick, jump, and restarted states and final checkpoint bytes. It independently reconstructs every cash bucket and settlement leg, then reconciles funded principal against repayment. Its cases cover paid credit, unpaid maturity, unpaid deposit interest, finite credit exhaustion, fear freeze, and weighted ONR. These are deterministic correctness proofs, not throughput benchmarks or a claim that the unmounted banking UI is playable.
+`tools/proofs/banking.ts --out <new-directory>` compares complete tick/jump/restart state and checkpoint bytes. `banking-audit.ts` independently rebuilds all monetary balances, loan principal, equity and settlement legs from genesis plus postings. Its six scenarios cover repayment, circulated-money write-off, reserve refusal without CB rescue, the corrected reserve gap, fear freeze and weighted ONR. These are correctness proofs, not a claim of consumer credit, full regulatory banking, throughput or a playable mounted bank UI.
