@@ -43,3 +43,34 @@ Phases: [x] ground / [x] compare sketches / [x] select without human blocking / 
 **Open item needing owner words before mount:** specify the numeric ~0 cutoff/reference price, ever-crossed versus final observation, cohort/late-spawn exposure and acceptable approximate-90% band; then implement/validate the actual activated venue/population mechanism with funded agents and the required harness seed classes. A measurement-definition decision does not waive a demonstrated shortfall. No forced outcomes or cash/token creation/destruction is introduced here.
 
 Validation evidence for this delta lives under `/workspace/avalon/evidence/sys-meme-failure-farm/<new HEAD SHA>/`: full-bar command logs/status, adapted Gatekeeper repros (only import/output paths and stale diagnostic text changed, original evidence untouched), restart/jump/conservation JSON and all 24 chapter states. Pre-fix 6-failure evidence is copied there from `review-delta-red/`. Fresh e2e worktree uses its own empty `.data` and ports 3410–3419; no other worker worktree is modified. Remote CI, overall GO and runtime mount remain out of scope.
+
+## Hardening unit — boundary validation + calibration decision (started 2026-11-12T00:08:18+01:00 Europe/Paris)
+Written at the start, before code changes. Tip `c7b31bd5`; commits are appended, no history rewrite, no push. Scope: (1) strict plain-JSON boundary reusing the sys/fx `src/server/market/fx/json.ts` pattern: reject NaN/Infinity, required null, toJSON, getters, Proxy, sparse arrays, class instances and unknown fields before acceptance or save; (2) settle the near-zero calibration definition from the complete spec with citations. Status: [x] boundary [x] calibration decision [ ] checks [ ] proofs [ ] commit. Results and evidence: `/workspace/avalon/evidence/sys-meme-failure-farm/hardening/`.
+
+### (1) Boundary
+- `src/server/launchpad/failureFarm/json.ts`: body copied verbatim from sys/fx be3e296a `src/server/market/fx/json.ts:4`. It reads descriptors only and checks `isProxy` first, so no getter, `toJSON`, or trap runs.
+- `boundary.ts`: exact keys and JSON types for commands, frames, and observations. A required `null` is refused.
+- Every entry point validates first: `commandFarm` and `execute` throw `INVALID_FARM_COMMAND`; `advanceFarm` and `advance` throw `INVALID_FARM_FRAME`; `parseFarm`, genesis, and `save` throw `BAD_FARM_CHECKPOINT`; `createFarm` throws `BAD_GENESIS`. No receipt, fingerprint, clone, or save happens before validation.
+- Economic refusals (non-integer amount, wrong fee, cooldown, cash) are unchanged, persisted receipts.
+- Tests: `tests/unit/launchpad/launchpad-failure-farm-boundary.test.ts`. It has 25 command, 17 frame, and 12 checkpoint cases, plus genesis and Gatekeeper-alias tests. Each case asserts zero getter/`toJSON`/trap calls, unchanged bytes, and an equal real restart. The command cases then show that the valid request with the same key is fresh and replays once. 50 of 56 fail on c7b31bd5 source.
+
+### (2) Calibration decision: definition chosen, band NOT met, not tuned
+**Definition (pre-registered in `measurement-contract.json` v3 before the run).** "~0" means dead under the 06 death rule: liquidity below $1,000 for seven consecutive game days, then `DELISTED`, with tokens "marked at 0" (`complete/06-ASSET-CLASSES.md:762`). The public event is `mkt.meme.dead` (`06:1139`). This is the only numeric zero the complete spec assigns to a meme coin. The 90% sentence sits in the same bullet as the death rule (`06:762`). No other line in complete/01, 06, 20, or 23 defines a price cutoff. Horizon: one chapter, 1,344 game days from birth (`20-VERIFICATION-AND-BALANCE.md:11`; `01-EVALUATION-OF-V3.md:145`).
+
+**Measured on clean deterministic seeds 17–40 (24 × 12 = 288 coins).**
+- Dead: **72/288 = 25.0%** (3/12 on every seed). All 72 are the thin curve launches. **0/216** graduated coins die.
+- Secondary authored diagnostics, not the definition: final mark ≤1% of listing 214/288 (74.3%); ever ≤1% during the chapter 262/288 (91.0%); final market cap below $1,000 196/288 (68.1%). I report the 91% figure because it was measured. Switching to it after seeing it would be definition shopping (20:1144 E1, :1150 E7).
+- All 24 final-state SHA-256 digests equal the c7b31bd5 cohort, so this unit changes nothing economically. Conservation holds every hour, with cash delta 0.
+
+**Why the measured rate is the correct output of the rules, and why it says nothing about the band:**
+1. In the finite book (owner override; `05:364,437,508`), book cash leaves only through real sales. All 216 graduated books end the chapter with $42,888–$43,001 of cash, far above the $1,000 death line, while marks fall up to 99.95%. The 06 death rule measures Tidepool **pool** liquidity (`06:760,762`). In a constant-product pool, the reserve value falls with price. A finite book's cash does not.
+2. The holders in this cohort never sell. The spec names frozen agents as an invalid way to judge a market (`20:1145` E2, `20:664` Rule 3.5.5). Abandoned launchers "stop all activity" (`06:761`), so their allocation is frozen by rule.
+3. Sensitivity bound, not counted (`holder-exit-sensitivity.json`): the retail holder offers its whole position once a game day after public abandonment. After 60 game days, only 74/288 coins are dead (2 extra), because daily finite-book fills drain only about $150–$400 of book cash per game day.
+4. Every engine law involved is fixed by the spec: $1,000 and seven days (`06:762`), probability 0.5 below H 0.15, 20% rally sales above H 0.4 (`06:761`), and the hype constants (`06:747-754`). No engine parameter is honestly free to reach 90%. Authoring holder exits or a mass-exit population to hit the target would be tuning to the test (`20:1144` E1). The band can only be judged with an activated, adaptive, player-level population at G3 (`20:1130`, `20:1146` E3).
+
+**OPEN before mount; needs owner words:**
+- (a) What "pool liquidity" means for the owner's finite book. Options are book cash (current), executable bid depth near the mark, or something else. This choice decides whether price collapse can kill a graduated coin.
+- (b) Whether "~0" is the death state (chosen here) or a price cutoff. If it is a cutoff: the number, final versus ever, and the late-birth denominator.
+- (c) The G3 activated-population run for the band (`20:1130`). Without an owner change to (a), the measured gap stays.
+
+No forced outcome, no minting, no money destroyed.
