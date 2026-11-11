@@ -180,11 +180,14 @@ test("BR-4-08/09 fake clock: Enter places one intent with the exact payload, pen
   expect(sent[0]!.payload.intentId).toMatch(/^i-\d+$/);
   await expect(br(page)).toHaveAttribute("data-phase", "submitting");
   await expect(page.getByTestId("br-pending").first()).toHaveText(`Pending · tick ${tickAtSubmit}`);
-  // The cash line holds until the tick that carries the IntentResult (one 5 s feed tick).
+  // The cash line holds until the tick that carries the IntentResult (one 5 s feed tick). The ack
+  // panel is lazy: cash updates on that tick, but br-ack stays on its skeleton until the clock
+  // runs the Suspense reveal, so do not require the cash hold once the skeleton is up.
   for (let ms = 0; ms < 6_000 && (await br(page).getByTestId("br-ack").count()) === 0; ms += 500) {
-    expect(await cash(page)).toBe(cash0);
+    if ((await br(page).getByTestId("br-ack-loading").count()) === 0) expect(await cash(page)).toBe(cash0);
     await page.clock.runFor(500);
   }
+  await revealOnPausedClock(page, br(page).getByTestId("br-ack"));
   await expect(br(page).getByTestId("br-ack")).toHaveAttribute("data-status", "ACCEPTED");
   // The fill is at the result tick's Last; fee and cash follow from it exactly.
   const fillPx = await cents(br(page).getByTestId("br-last"));

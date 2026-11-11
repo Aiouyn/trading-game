@@ -17,6 +17,11 @@ export function Sheet({ side = "bottom", label, onClose, children, testId = "she
     (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); close.current(); return; }
+      // Enter on the dialog chrome must not bubble to the ticket's place shortcut.
+      if (e.key === "Enter" && (e.target === el || (e.target instanceof Node && el.contains(e.target) && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement)))) {
+        e.stopPropagation();
+        return;
+      }
       if (e.key !== "Tab") return;
       const f = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)];
       if (f.length === 0) { e.preventDefault(); el.focus(); return; }
@@ -27,12 +32,16 @@ export function Sheet({ side = "bottom", label, onClose, children, testId = "she
     document.addEventListener("keydown", onKey, true);
     return () => { document.removeEventListener("keydown", onKey, true); opener?.focus?.(); };
   }, []);
-  // A lazy child may mount after the first paint (skeleton has no control). If focus is still on the
-  // sheet itself, Enter would bubble to the ticket and place; move to the first real control.
+  // A lazy child may mount after the first paint (skeleton has no control). When the first real
+  // control appears, take focus if it was lost with the skeleton or is still on the sheet chrome.
   useEffect(() => {
     const el = ref.current;
-    if (!el || document.activeElement !== el) return;
-    el.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    if (!el) return;
+    const first = el.querySelector<HTMLElement>(FOCUSABLE);
+    if (!first) return;
+    const at = document.activeElement;
+    if (at === first || (at instanceof HTMLElement && el.contains(at) && at !== el && at.matches(FOCUSABLE))) return;
+    first.focus();
   });
   return (
     <div className="qs-layer" data-testid={`${testId}-layer`}>

@@ -181,7 +181,13 @@ export function BrokerFrame({ context }: { context?: string }) {
     if ((k === "b" || k === "s") && phase.kind === "edit") { e.preventDefault(); setSide(k === "b" ? "BUY" : "SELL"); return; }
     if (e.key !== "Enter" || e.target instanceof HTMLButtonElement) return; // a focused button activates itself
     if (phase.kind === "edit") { e.preventDefault(); toReview(); }
-    else if (phase.kind === "review") { e.preventDefault(); place(); }
+    else if (phase.kind === "review") {
+      // Phone review sits in a Sheet over the ticket. Enter on the sheet chrome (or a lazy
+      // skeleton) must not place; Enter on a ticket field still does (qty still focused).
+      if (e.target instanceof HTMLElement && e.target.closest('[data-testid="br-sheet"]')) return;
+      e.preventDefault();
+      place();
+    }
   };
 
   const retry = () => { getFeed().resync("ticker:wl_default"); getFeed().resync("me"); };
