@@ -59,7 +59,7 @@ test("phone: Trade only opens; focus trap, all dismissals, preserved draft, one 
   await shot(page, "phone-02-edit-ticket");
   await sheet.getByTestId("br-review").click();
   await expect(sheet.getByTestId("br-place")).toBeEnabled();
-  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.locator('[role="dialog"][aria-modal="true"]')).toHaveCount(1);
   expect(await sheet.evaluate((s) => s.contains(document.activeElement))).toBe(true);
   await modalFocus(sheet, page); expect(orders).toBe(0);
   await shot(page, "phone-03-review");
