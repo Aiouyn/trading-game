@@ -174,13 +174,14 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-trade-bar {
   position: sticky; bottom: calc(-1 * var(--sp-16)); z-index: var(--z-toast);
   display: flex; justify-content: flex-end; margin: var(--sp-16) calc(-1 * var(--sp-16)) calc(-1 * var(--sp-16));
-  padding: var(--sp-12) max(0px, calc(env(safe-area-inset-right) - var(--sp-16))) max(var(--sp-12), env(safe-area-inset-bottom)) max(0px, calc(env(safe-area-inset-left) - var(--sp-16)));
+  /* Side clearance comes from .phone-appbody; keep 0 horizontal padding so the FAB is not over-inset. Zero-inset this is already 0. */
+  padding: var(--sp-12) 0 max(var(--sp-12), env(safe-area-inset-bottom, 0px), var(--sa-bottom, 0px)) 0;
   background: var(--win); border-top: 1px solid var(--line);
 }
 .br-trade-fab.btn { min-width: var(--hit-touch); min-height: var(--hit-touch); max-width: 100%; white-space: normal; }
 .br-phone-order .qs-body {
   overscroll-behavior: contain;
-  padding: var(--sp-16) max(var(--sp-16), env(safe-area-inset-right)) max(var(--sp-16), env(safe-area-inset-bottom)) max(var(--sp-16), env(safe-area-inset-left));
+  padding: var(--sp-16) max(var(--sp-16), env(safe-area-inset-right, 0px), var(--sa-right, 0px)) var(--sp-16) max(var(--sp-16), env(safe-area-inset-left, 0px), var(--sa-left, 0px));
 }
 .br-sheet-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-8); margin-bottom: var(--sp-16); }
 .br-sheet-head h2 { margin: 0; min-width: 0; font-size: var(--fs-16); overflow-wrap: anywhere; }

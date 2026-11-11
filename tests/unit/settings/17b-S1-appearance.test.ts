@@ -47,6 +47,16 @@ describe("17B S1 appearance", () => {
     expect(el.style.getPropertyValue("--text-scale")).toBe("1.5");
   });
 
+  it("sets apple-mobile-web-app-status-bar-style from the palette colour scheme", () => {
+    const el = document.documentElement;
+    applyAppearance(el, { palette: "broadsheet", prefs: base, rank: rk("R0", ["r0"]), entitlements: NONE, media: no });
+    expect(document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.getAttribute("content")).toBe("default");
+    applyAppearance(el, { palette: "ink-brass", prefs: base, rank: rk("R0", ["r0"]), entitlements: NONE, media: no });
+    expect(document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.getAttribute("content")).toBe("black-translucent");
+    applyAppearance(el, { palette: "phosphor", prefs: base, rank: rk("R0", ["r0"]), entitlements: NONE, media: no });
+    expect(document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.getAttribute("content")).toBe("black-translucent");
+  });
+
   it("S1-05: setPrefs goes to prefsClient; the palette never does", async () => {
     const store = createShellStore(mockChannels(new URLSearchParams()));
     store.getState().setPalette("riviera");

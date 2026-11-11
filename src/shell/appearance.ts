@@ -2,6 +2,7 @@
 import { ownedShells, type AcctEntitlements, type RankChannel, type ShellId } from "./channels";
 import type { ShellState } from "./store";
 import type { PaletteId } from "./types";
+import { COLOR_SCHEME } from "@/styles/tokens";
 
 export interface AppearanceInput {
   palette: PaletteId;
@@ -34,6 +35,25 @@ export function effectiveShell(input: AppearanceInput): ShellId {
   return s === "r5" && reducedTransparency(input.prefs, input.media) ? "r4" : s;
 }
 
+
+/** Light palettes need dark iOS status text (`default`); dark palettes keep white text on a translucent bar. */
+export function statusBarStyleForPalette(palette: PaletteId): "default" | "black-translucent" {
+  return COLOR_SCHEME[palette] === "light" ? "default" : "black-translucent";
+}
+
+function applyStatusBarStyle(html: HTMLElement, palette: PaletteId): void {
+  const doc = html.ownerDocument;
+  if (!doc) return;
+  const name = "apple-mobile-web-app-status-bar-style";
+  let meta = doc.querySelector(`meta[name="${name}"]`);
+  if (!meta) {
+    meta = doc.createElement("meta");
+    meta.setAttribute("name", name);
+    (doc.head ?? html).append(meta);
+  }
+  meta.setAttribute("content", statusBarStyleForPalette(palette));
+}
+
 export function applyAppearance(html: HTMLElement, input: AppearanceInput): void {
   const { prefs, media } = input;
   const motion = prefs.reducedMotion === "on" || (prefs.reducedMotion === "system" && media("(prefers-reduced-motion: reduce)"));
@@ -47,4 +67,5 @@ export function applyAppearance(html: HTMLElement, input: AppearanceInput): void
   const cls = `shell-${effectiveShell(input)}`;
   [...html.classList].filter((c) => c.startsWith("shell-") && c !== cls).forEach((c) => html.classList.remove(c));
   html.classList.add(cls);
+  applyStatusBarStyle(html, input.palette);
 }
