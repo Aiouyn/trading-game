@@ -110,3 +110,18 @@ Moved from the root `UNIT.md` to this file at this point. The calibration missed
 - Checkpoint format v2 adds the coin's `closes` (≤24 hourly marks) and the `RETAIL` wallet kind. v1 is rejected, never migrated, and the file is preserved.
 
 Stop rule: run once, report the number and the remaining reason, and do not tune.
+
+### Result of the single pre-registered run (seeds 17–40, implementation commit `1e216e74`, run finished 2026-11-12 ~00:58 Europe/Paris)
+- **Dead (06:762): 275/288 = 95.5%.** The per-seed range is 9/12 to 12/12 (75%–100%).
+  - Thin curve launches: 72/72 dead.
+  - Graduated coins: 203/216 dead (94.0%).
+  - Graduated deaths happened between game day 53 and day 1,301 (median 428).
+- **Above the ~90% target by about 5.5 points. Not tuned.** The rules, band, weights and seeds are exactly as pre-registered above. The stop rule holds: no second run with changed parameters.
+- **What drives it.** All 203 graduated deaths kept at least $31,878 of resting book cash (median $66k, maximum $2.24M), so none died because cash ran out. They died because near-price depth fell below $1,000 after their marks collapsed (Rule A). The RETAIL pool both buys and sells. Its buys add cash to books, so it does not mechanically cause death.
+- **Survivors.** 13 graduated coins are still live at chapter end. Their marks are 1.4%–308,852% of listing, and their near-price liquidity is $959–$2.09M. One coin (seed 26) has $959 and its thin clock is running.
+- **Money and accounting.** Conservation was checked every hour on every seed; every cash delta is 0 and every coin keeps 1B tokens. The restart, jump and repeat proofs pass. No coin was forced, no money was minted or burned, and there is no last-resort buyer.
+- **Remaining reason, stated without tuning.** The overshoot comes from the cohort design and the omitted pools:
+  - All births are at hour 0 with a full chapter of exposure.
+  - The DEGEN and VALUE pools and the off-book pool decay are omitted (Rule B).
+  - Band X is an analogue: memes have no auction, so 05:560's settlement band is applied to the 540-mark daily reference.
+  - This is a 24-DEV-seed isolated cohort, not a G3 activated population (20:1130). It is not a certification.
