@@ -65,6 +65,8 @@ export interface WireStrings {
   earlier: string;
   /** Distinct label for a player STATEMENT (soc.wire.post), not an official company statement. */
   playerPost: string;
+  /** 15:625 verdict badge on a player statement row and detail. */
+  verdict: { unresolved: string; true: string; false: string; opinion: string };
   composer: {
     summary: string;
     textLabel: string;
@@ -183,6 +185,7 @@ export const EN: WireStrings = {
   eased: "No effect",
   earlier: "Earlier",
   playerPost: "Player",
+  verdict: { unresolved: "Open", true: "True", false: "False", opinion: "Opinion" },
   composer: {
     summary: "Post a statement",
     textLabel: "Statement",
@@ -313,6 +316,7 @@ export const FR: WireStrings = {
   eased: "Sans effet",
   earlier: "Plus tôt",
   playerPost: "Joueur",
+  verdict: { unresolved: "En cours", true: "Vrai", false: "Faux", opinion: "Opinion" },
   composer: {
     summary: "Publier une déclaration",
     textLabel: "Déclaration",

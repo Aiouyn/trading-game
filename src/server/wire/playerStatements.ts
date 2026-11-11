@@ -45,6 +45,9 @@ export class WirePostError extends Error {
   }
 }
 
+export type StatementVerdict = "UNRESOLVED" | "TRUE" | "FALSE" | "OPINION";
+export type StatementClaimDir = "UP" | "DOWN";
+
 export interface PlayerWirePost {
   readonly id: string;
   readonly accountId: string;
@@ -52,6 +55,10 @@ export interface PlayerWirePost {
   readonly text: string;
   readonly assetTags: readonly string[];
   readonly tick: number;
+  readonly verdict?: StatementVerdict;
+  readonly claimDir?: StatementClaimDir;
+  readonly marksAtPost?: Readonly<Record<string, string>>;
+  readonly resolvedTick?: number;
 }
 
 export interface WirePostIntent {
@@ -191,7 +198,42 @@ export function parsePlayerWirePost(row: unknown): PlayerWirePost | null {
     assetTags.push(tag);
   }
   if (typeof o.tick !== "number" || !Number.isInteger(o.tick) || o.tick < 0) return null;
-  return { id: o.id, accountId: o.accountId, handle: o.handle, text, assetTags, tick: o.tick };
+  const verdict = parseOptionalVerdict(o.verdict);
+  if (o.verdict !== undefined && verdict === undefined) return null;
+  const claimDir = parseOptionalClaimDir(o.claimDir);
+  if (o.claimDir !== undefined && claimDir === undefined) return null;
+  const marksAtPost = parseOptionalMarks(o.marksAtPost);
+  if (o.marksAtPost !== undefined && marksAtPost === undefined) return null;
+  const resolvedTick = o.resolvedTick;
+  if (resolvedTick !== undefined && (typeof resolvedTick !== "number" || !Number.isInteger(resolvedTick) || resolvedTick < 0)) return null;
+  return {
+    id: o.id, accountId: o.accountId, handle: o.handle, text, assetTags, tick: o.tick,
+    ...(verdict ? { verdict } : {}),
+    ...(claimDir ? { claimDir } : {}),
+    ...(marksAtPost ? { marksAtPost } : {}),
+    ...(resolvedTick !== undefined ? { resolvedTick } : {}),
+  };
+}
+
+function parseOptionalVerdict(raw: unknown): StatementVerdict | undefined {
+  if (raw === "UNRESOLVED" || raw === "TRUE" || raw === "FALSE" || raw === "OPINION") return raw;
+  return undefined;
+}
+
+function parseOptionalClaimDir(raw: unknown): StatementClaimDir | undefined {
+  if (raw === "UP" || raw === "DOWN") return raw;
+  return undefined;
+}
+
+function parseOptionalMarks(raw: unknown): Record<string, string> | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k !== "string" || !listedAssetId(k) || typeof v !== "string" || !/^-?\d+(\.\d+)?$/.test(v)) return undefined;
+    out[k] = v;
+  }
+  return out;
 }
 
 export function parseWirePostIntents(raw: unknown): WirePostIntent[] {
@@ -257,7 +299,17 @@ export function decidePostText(raw: unknown, assetTagsRaw: unknown): { text: str
   return { text, assetTags };
 }
 
-export function playerPostToWireItem(post: PlayerWirePost): WireItem {
+function verdictSlot(verdict: StatementVerdict | undefined): "unresolved" | "true" | "false" | "opinion" {
+  if (verdict === "TRUE") return "true";
+  if (verdict === "FALSE") return "false";
+  if (verdict === "OPINION") return "opinion";
+  return "unresolved";
+}
+
+export function playerPostToWireItem(
+  post: PlayerWirePost,
+  record?: { hits: number; resolved: number },
+): WireItem {
   const asset = ASSET_BY_ID[post.assetTags[0]!];
   const publicId = publicHandleId(post.accountId);
   const entities: WireItem["entities"] = [
@@ -279,12 +331,14 @@ export function playerPostToWireItem(post: PlayerWirePost): WireItem {
       assets: post.assetTags.join(", "),
       publicId,
       player: "1",
+      verdict: verdictSlot(post.verdict),
     },
     entities,
     tick: post.tick,
     breaking: false,
     causeEventIds: [],
     causeKey: WIRE_POST_CAUSE,
+    ...(record && record.resolved > 0 ? { sourceRecord: { hits: record.hits, resolved: record.resolved } } : {}),
   };
 }
 
@@ -293,13 +347,22 @@ export function isPlayerStatement(item: WireItem): boolean {
 }
 
 export function mergePlayerStatements(items: readonly WireItem[], posts: readonly PlayerWirePost[]): WireItem[] {
+  const records = new Map<string, { hits: number; resolved: number }>();
+  for (const p of posts) {
+    if (p.verdict !== "TRUE" && p.verdict !== "FALSE") continue;
+    const id = publicHandleId(p.accountId);
+    const rec = records.get(id) ?? { hits: 0, resolved: 0 };
+    rec.resolved += 1;
+    if (p.verdict === "TRUE") rec.hits += 1;
+    records.set(id, rec);
+  }
   const have = new Set(items.map((i) => i.id));
-  const extra = posts.filter((p) => !have.has(p.id)).map(playerPostToWireItem);
+  const extra = posts.filter((p) => !have.has(p.id)).map((p) => playerPostToWireItem(p, records.get(publicHandleId(p.accountId))));
   return [...items, ...extra];
 }
 
 export function clonePlayerWirePost(p: PlayerWirePost): PlayerWirePost {
-  return { ...p, assetTags: [...p.assetTags] };
+  return { ...p, assetTags: [...p.assetTags], ...(p.marksAtPost ? { marksAtPost: { ...p.marksAtPost } } : {}) };
 }
 
 export function cloneWirePostIntent(i: WirePostIntent): WirePostIntent {

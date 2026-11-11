@@ -32,6 +32,13 @@ export function PlayerLabel({ item, t }: { item: WireItem; t: WireStrings }) {
   return <Chip tone="neutral" outline className="wire-player" data-testid="wire-player">{t.playerPost}</Chip>;
 }
 
+export function VerdictLabel({ item, t }: { item: WireItem; t: WireStrings }) {
+  if (!isPlayerStatementItem(item)) return null;
+  const key = item.slots?.verdict;
+  const label = key === "true" || key === "false" || key === "opinion" || key === "unresolved" ? t.verdict[key] : t.verdict.unresolved;
+  return <Chip tone="neutral" outline className="wire-verdict" data-testid="wire-verdict" data-verdict={key ?? "unresolved"}>{label}</Chip>;
+}
+
 /** M1-09: a server story's outcome on the row when it moved nothing: Forecast / No effect (a realized effect sits
  *  beside its asset label, see EntityLabel). */
 export function StoryOutcome({ item, t }: { item: WireItem; t: WireStrings }) {
@@ -99,6 +106,7 @@ export function WireItemRow({ item, t, fresh, selected = false, onOpen, buttonRe
         <PricedIn item={item} t={t} />
         <HistoryLabel item={item} t={t} />
         <PlayerLabel item={item} t={t} />
+        <VerdictLabel item={item} t={t} />
         <StoryOutcome item={item} t={t} />
       </div>
     </li>

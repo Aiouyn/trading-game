@@ -21,6 +21,8 @@ import { TICKS_PER_DAY } from "./meme";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
+import { peekAuthService } from "@/server/auth/instance";
+import { marksFromTicker } from "@/server/wire/statementResolve";
 import {
   createDefaultStormWorldStore, type StormWorldStore,
 } from "./stormWorldStore";
@@ -148,6 +150,13 @@ export class LiveMarket {
     this.publishCompanyDenials(evs);
     this.applyRumorResolutions(evs.filter((e) => e.kind !== "denied"));
     this.saveStormWorld();
+    const auth = peekAuthService();
+    if (auth) {
+      void auth.resolveDueWireStatements({
+        tick: this.feed.tick,
+        marks: marksFromTicker(this.snapshot().quotes.rows),
+      }).catch(() => { /* catch-up; GET /api/wire also resolves */ });
+    }
     for (const fn of this.stepListeners) fn();
   }
 

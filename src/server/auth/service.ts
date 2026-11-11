@@ -19,6 +19,7 @@ import {
   type QuarantinedWireRow,
   type WirePostIntent,
 } from "@/server/wire/playerStatements";
+import { classifyStatementClaim, resolvePlayerWirePost, snapshotMarks } from "@/server/wire/statementResolve";
 import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoin, type LpCoinRow, type LpState } from "@/server/launchpad/state";
 import { LP } from "@/launchpad/rules";
 import type { BookAccount } from "@/server/broker/book";
@@ -524,6 +525,28 @@ export class AuthService {
    * soc.wire.post: debit spendable cash, append the public row, record idempotency, one persist.
    * Callers pass the live market tick so the daily cap and publishTick share the clock.
    */
+  async resolveDueWireStatements(input: { tick: number; marks: Record<string, string> }): Promise<number> {
+    return this.withLock(async () => {
+      await this.ready;
+      let changed = 0;
+      const next = this.wirePosts.map((p) => {
+        const r = resolvePlayerWirePost(p, input.tick, input.marks);
+        if (r !== p) changed += 1;
+        return r;
+      });
+      if (changed === 0) return 0;
+      const before = this.wirePosts;
+      this.wirePosts = next;
+      try {
+        await this.persist();
+      } catch (e) {
+        this.wirePosts = before;
+        throw e;
+      }
+      return changed;
+    });
+  }
+
   async postWireStatement(input: {
     accountId: AccountId;
     handle: string;
@@ -531,6 +554,7 @@ export class AuthService {
     text: unknown;
     assetTags: unknown;
     tick: number;
+    marks?: Record<string, string>;
   }): Promise<{ post: PlayerWirePost; cashCents: number; remainingToday: number; replayed: boolean }> {
     return this.withLock(async () => {
       await this.ready;
@@ -592,6 +616,9 @@ export class AuthService {
         throw new WirePostError("DAY_CAP", "At most three statements per game day.", 409);
       }
 
+      const claimDir = classifyStatementClaim(decided.text);
+      const marksAtPost = snapshotMarks(decided.assetTags, input.marks ?? {});
+      const checkable = claimDir !== null && marksAtPost !== undefined;
       const post: PlayerWirePost = {
         id: newWirePostId(),
         accountId,
@@ -599,6 +626,9 @@ export class AuthService {
         text: decided.text,
         assetTags: decided.assetTags,
         tick: input.tick,
+        ...(checkable
+          ? { claimDir, marksAtPost, verdict: "UNRESOLVED" as const }
+          : { verdict: "OPINION" as const, resolvedTick: input.tick }),
       };
       const intent: WirePostIntent = {
         accountId,
