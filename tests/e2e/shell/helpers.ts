@@ -3,6 +3,7 @@ import { expect, type Page } from "@playwright/test";
 export async function boot(page: Page, path = "/") {
   await page.goto(path);
   await expect(page.getByTestId("quay-ready")).toBeVisible();
+  if (/^\/settings(?:\/|\?|$)/.test(path)) await expect(page.getByTestId("settings")).toBeVisible();
 }
 
 export async function box(page: Page, testId: string) {

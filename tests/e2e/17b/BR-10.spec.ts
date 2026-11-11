@@ -78,6 +78,7 @@ async function until(page: Page, done: () => Promise<boolean>) {
 async function toAbout(page: Page, root: Page | Locator = page) {
   await root.getByTestId("br-view-about").click();
   await expect(root.getByTestId("br-about")).toBeVisible();
+  await until(page, async () => (await root.locator('[data-testid="ap-overview"], [data-testid="ap-unknown"]').count()) > 0);
   await page.clock.runFor(100);
 }
 async function toNews(page: Page) {

@@ -88,11 +88,11 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     await expect(chart.locator(".br-chart-draw")).toHaveAttribute("title", "Lines are kept on this device only");
 
     // Press, drag, release while placing: a line, and the plot did not pan under it.
-    let box = await plotBox(page);
     await tool.click();
     await expect(tool).toHaveAttribute("aria-pressed", "true");
     await expect(tool).toHaveText("Cancel line");
     await expect(chart.getByTestId("br-trend-hint")).toHaveText("Click or tap two points on the chart. Esc cancels.");
+    let box = await plotBox(page);
     const before = await hook<{ from: number; to: number }>(page, "visible");
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.6);
     await page.mouse.down();
@@ -311,6 +311,15 @@ test("phone 390 touch: tap-tap a line, drag its end, no pan while placing, pan o
     const v0 = await hook<{ from: number; to: number }>(page, "visible");
     await touchDrag(page, { x: box.x + box.width * 0.3, y: box.y + box.height * 0.8 }, { x: box.x + box.width * 0.7, y: box.y + box.height * 0.8 });
     await expect.poll(async () => (await hook<{ from: number; to: number }>(page, "visible"))!.from).not.toBe(v0.from);
+
+    // Let the preceding pan's kinetic motion finish before measuring a separate drawing gesture.
+    let previous: { from: number; to: number } | null = null;
+    await expect.poll(async () => {
+      const current = await hook<{ from: number; to: number }>(page, "visible");
+      const stable = previous !== null && current.from === previous.from && current.to === previous.to;
+      previous = current;
+      return stable;
+    }, { intervals: [100] }).toBe(true);
 
     // Placing: a touch drag draws (press-drag-release) and does not pan.
     await tool.tap();
