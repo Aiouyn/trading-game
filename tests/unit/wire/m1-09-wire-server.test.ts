@@ -188,7 +188,7 @@ describe("M1-09 routes", () => {
     expect(v).not.toBeNull();
     expect(v.worldId).toBe(PORT_AVALON_WORLD_ID);
     expect(v.tick).toBe(market.snapshot().tick);
-    expect(v.items.map((i) => i.tick)).toEqual([1, 2, 3, 4].map((k) => START_TICK + k * STORY_EVERY));
+    expect(v.items.filter((i) => /^w-\d+$/.test(i.id)).map((i) => i.tick)).toEqual([1, 2, 3, 4].map((k) => START_TICK + k * STORY_EVERY));
     const quotes = market.snapshot();
     for (let i = 0; i < 10; i++) expect(parseWireSnapshot(await (await wireRoute()).json())).toEqual(v);
     expect(market.snapshot()).toEqual(quotes);

@@ -8,7 +8,7 @@
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
-import { STORY_KEEP, storyAt } from "@/market/wireStories";
+import { STORY_KEEP, bootHistory, historyItemId, storyAt } from "@/market/wireStories";
 import { claimCauseKey, claimPhase, publicRecord, sourceBand, type RumorClaim, type RumorStepEvent } from "./rumorClaims";
 import { denialItemId, farmBand, farmSourceName, isFarmSourceId } from "./rumorFarm";
 import type { WireSnapshot } from "@/market/wireSnapshot";
@@ -82,6 +82,7 @@ export class LiveMarket {
       this.feed.storms.bootstrapTo(this.feed.tick);
       if (this.persistStorms) this.saveStormWorld();
     }
+    this.seedBootHistory();
   }
 
   /** Load durable scheduler + Fear/regime + residual (or legacy full stockApplied re-apply). */
@@ -166,8 +167,35 @@ export class LiveMarket {
     this.stories = this.retainStories([...this.stories, wi]);
   }
 
+  /** Fresh-world Wire: one or two catalog headlines from the last game day, already on the feed at START_TICK.
+   *  Display only — no applyShock / openRumor, so M1-05 golden, the live M1-09 schedule, and digest4000 stay put. */
+  private seedBootHistory(): void {
+    if (this.feed.tick !== START_TICK) return;
+    const have = new Set(this.stories.map((it) => it.id));
+    const added: WireItem[] = [];
+    for (const { tick, def } of bootHistory(this.feed.scenario.seed, START_TICK)) {
+      const id = historyItemId(tick);
+      if (have.has(id)) continue;
+      have.add(id);
+      added.push({
+        id,
+        kind: def.kind,
+        headlineKey: def.headlineKey,
+        slots: { ...def.slots },
+        entities: def.assets.map((assetId) => ({ id: assetId, kind: "asset" as const, label: ASSET_BY_ID[assetId]?.ticker ?? assetId })),
+        tick,
+        breaking: def.breaking,
+        causeEventIds: [def.defId],
+        causeKey: def.causeKey,
+        // no phase / effects: this clock did not apply the catalog move (same as coin-news).
+      });
+    }
+    if (added.length) this.stories = this.retainStories([...this.stories, ...added]);
+  }
+
   /** The story of the tick just reached, if any: its effects move these quotes now, once (the tick only grows). */
   private publishStory(): void {
+
     const tick = this.feed.tick;
     const def = storyAt(this.feed.scenario.seed, tick);
     if (!def) return;
