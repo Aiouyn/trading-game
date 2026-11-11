@@ -48,14 +48,24 @@ These flags describe actual executed sales. They never confiscate cash, create a
 
 `parseFarm(unknown)` validates the version, variants, balances, supply, references, and timeline before returning a private copy. `FileFarmStore` writes a temporary file and renames it atomically. Invalid existing JSON is rejected and preserved, even when a genesis state is supplied.
 
+### Input boundary
+
+Every caller value passes one strict plain-JSON predicate before acceptance: `failureFarm/json.ts`, whose body is copied verbatim from sys/fx `src/server/market/fx/json.ts:4`. It reads property descriptors only, so no getter, `toJSON`, or Proxy trap runs. It refuses NaN, ±Infinity, −0, `undefined`, functions, symbols, sparse arrays, Dates, boxed primitives, class instances, live or revoked Proxies, accessors, and non-enumerable or symbol keys. `failureFarm/boundary.ts` then requires the exact command, frame, and observation keys and their JSON types. A `null` where a value is required is refused.
+
+- `commandFarm` and `FailureFarmEngine.execute` throw `INVALID_FARM_COMMAND` before a fingerprint, receipt, clone, or save. The probe key stays unused.
+- `advanceFarm` and `FailureFarmEngine.advance` throw `INVALID_FARM_FRAME` before any state change.
+- `parseFarm`, genesis `open`, and `FileFarmStore.save` throw `BAD_FARM_CHECKPOINT`. `createFarm` throws `BAD_GENESIS`.
+
+Economic validity stays in the engine as persisted refusals: integer amounts, fee, cooldown, and cash. Accepted input therefore equals the saved JSON and the replay fingerprint input. The typed-helper `toJSON` and NaN/null aliases noted by Gatekeeper at c7b31bd5 are now refused.
+
 `FailureFarmEngine` serializes commands and captures their inputs before queueing. A failed save leaves its published state unchanged. Receipts include refusals and survive restart. A key reused with another command returns `IDEMPOTENCY_CONFLICT`.
 
-One engine owns one file path. The adapter does not coordinate multiple processes, authenticate callers, implement quotas, or promise power-loss durability through `fsync`. Receipts remain in the checkpoint for this bounded farm. A production adapter needs ownership, retention limits, input size limits, and a long-lived tick mapping. The current web clock starts a new epoch on restart; this engine does not silently attach its durable hour to that clock.
+One engine owns one file path. The adapter does not coordinate multiple processes, authenticate callers, implement quotas, or promise power-loss durability through `fsync`. Receipts remain in the checkpoint for this bounded farm. A production adapter needs ownership, retention limits, input size limits (string and checkpoint size are not capped here), and a long-lived tick mapping. The current web clock starts a new epoch on restart; this engine does not silently attach its durable hour to that clock.
 
 ## Proofs
 
-The runner is `tools/proofs/meme-failure-farm.ts`. Its report defines near-zero as delisted, or a graduated mark at most 1% of the listing price. It uses eight DEV seeds with twelve coins each for a full 1,344-game-day chapter (`20-VERIFICATION-AND-BALANCE.md:11`). Nine coins per seed graduate through paid trades; three remain genuinely thin on their curves. The price path uses the actual base `MemeProcess`, thirty ticks per hourly observation, and committed hype and fill impacts.
+The runner is `tools/proofs/meme-failure-farm.ts`. It uses 24 DEV seeds (17–40) with twelve coins each, all born at hour 0, for a full 1,344-game-day chapter (`20-VERIFICATION-AND-BALANCE.md:11`). Nine coins per seed graduate through paid trades; three remain genuinely thin on their curves. The price path uses the actual base `MemeProcess`, thirty ticks per hourly observation, and committed hype and fill impacts.
 
-The measurement contract precedes the run in `measurement-contract.json`. Results are descriptive, not a G3 balance certification. The approximate 90% target in `06:762` is never a death quota. The runner reports misses without tuning.
+`measurement-contract.json` (version 3) is written before the run. It defines "~0" as the spec's death state in `06:762`: liquidity below $1,000 for seven game days, then `DELISTED` and marked at 0 (event `mkt.meme.dead`, `06:1139`). Price cutoffs are reported only as secondary, authored diagnostics. Results are descriptive, not a G3 balance certification. The approximate 90% target in `06:762` is never a death quota. The runner reports misses without tuning. The calibration decision and its open item are in `UNIT.md`, under the hardening section.
 
 The unit tests cover executed dump flags and honest negative cases, NPC bounds and abandonment, delisting and retained wallets, finite cash and token supply, strict parsing, failed-save rollback, concurrent replay, a real file restart, and batch jump equivalence. The browser regression checks the unchanged paid launch, two-account curve trade, and reload path on desktop and phone. It does not claim that the isolated lifecycle is visible in the current UI.
