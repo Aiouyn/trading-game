@@ -7,7 +7,7 @@ import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
 import { Sparkline } from "./Sparkline";
-import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings } from "@/shell/strings";
+import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings, guestHome } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
@@ -215,6 +215,7 @@ export function PhoneHome() {
   const screen = usePhoneScreen();
   const store = useShellStore();
   const next = signedIn ? null : nextRankTarget(rank);
+  const guestCopy = guestHome(useShell((s) => s.prefs.locale));
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -273,16 +274,20 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.demoBalance : S.netWorth}</span>
+            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.demoBalance : guestCopy.label}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
               <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
             )}
           </div>
-          {/* Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
+          {/* Card 9: a logged-out stranger reads what Quay is, then the one thing to do, then the example numbers.
+              Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
           {!signedIn ? (
-            <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
+            <>
+              <p className="guest-pitch" data-testid="guest-pitch">{guestCopy.pitch}</p>
+              <Button variant="primary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" onClick={() => openAccountSettings(store)}>{guestCopy.cta}</Button>
+            </>
           ) : null}
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
             {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
