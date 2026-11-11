@@ -174,7 +174,7 @@ describe("scheduler constraints and emergent actual damage labels", () => {
     const b = advancePolicy(genesis(), frames(genesis().hour + 1, 800 * 24, { fsi: null, tension: null, fear: 100 }));
     expect(a).toEqual(b); expect(a.events.length).toBeGreaterThan(0);
     expect(a.events.every((e) => e.kind === "FLASH_CRASH")).toBe(true); assertPolicyConservation(a);
-  });
+  }, 30000); // two 19,200-hour replays: ~3.4 s alone (same at 5a419a3c), over 5 s under full-suite load
 });
 
 describe("persistence, parsing and replay", () => {
