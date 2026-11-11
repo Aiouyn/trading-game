@@ -26,9 +26,11 @@ export function PhoneTradeSheet({ t, assetId, qtyRef, onDismiss, onKeyDown, chil
 
   return (
     <>
-      <Button variant={open ? "secondary" : "primary"} className="br-trade-fab" data-testid="br-trade"
-        aria-haspopup="dialog" aria-expanded={open}
-        onClick={(e) => { e.currentTarget.focus(); justOpened.current = true; setOpen(true); }}>{t.viewTrade}</Button>
+      <div className="br-trade-bar" data-testid="br-trade-bar">
+        <Button variant={open ? "secondary" : "primary"} className="br-trade-fab" data-testid="br-trade"
+          aria-haspopup="dialog" aria-expanded={open}
+          onClick={(e) => { e.currentTarget.focus(); justOpened.current = true; setOpen(true); }}>{t.viewTrade}</Button>
+      </div>
       {open && <div className="br-phone-order">
         <Sheet side="bottom" label={label} onClose={dismiss} testId="br-sheet">
           <div ref={scope} onKeyDown={onKeyDown} onFocusCapture={(e) => {
