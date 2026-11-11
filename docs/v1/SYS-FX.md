@@ -13,7 +13,7 @@ One engine owns one path. `observe` copies input before queueing, serializes ope
 ## Currency and quote conventions
 All five currency wallets use integer minor units. Quote rates use1,000,000 quote/base units; all settlement multiplication/division uses BigInt before safe-integer conversion. Prices are never multiplied into a wallet with floating-point arithmetic.
 
-The currency-priority registry derives all10 pairs. Four books exist: EUNFDL, FDLNKR, FDLPYN and FDLSRL. EUNFDL is FDL per EUN; the others are foreign units per FDL. Cross mids are ratios/products of the same four observed legs. Quote-in-PYN display has2 decimals; others4. Display rounding never drives execution.
+The existing core CCYS/Ccy registry is imported directly, not redefined; it derives all10 priority pairs. Four books exist: EUNFDL, FDLNKR, FDLPYN and FDLSRL. EUNFDL is FDL per EUN; the others are foreign units per FDL. Cross mids are ratios/products of the same four observed legs. Quote-in-PYN display has2 decimals; others4. Display rounding never drives execution.
 
 Frame marks are explicit producer observations or null. There is no live FX producer in the base, so no equity quote is relabeled FX and no genesis FX0 is called live. The producer is responsible for truthful fresh marks, full current control snapshots and sealed commands. A missing mark blocks bank conversions, not otherwise funded limit-book trades. Marks never supply liquidity.
 
