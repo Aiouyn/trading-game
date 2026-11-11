@@ -69,13 +69,16 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   filings: ChannelHook;
   /** `?news=error|loading` (QUAY_HOOKS, card 10): the same for the `news` channel alone, so the Broker asset page's News
    *  tab shows its own error / loading state while ticker and `me` stay live. */
-  news: ChannelHook }
+  news: ChannelHook;
+  /** `?firstTradeCap=D` (QUAY_HOOKS): the advisory preview reports this `firstTradeCapRemaining`, so an e2e can show the
+   *  ticket's cap row; every real path answers null until 18's cap exists. */
+  firstTradeCap: string | null }
 export type ChannelHook = "error" | "loading" | null;
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null, news: null };
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null, news: null, firstTradeCap: null };
 const KEEP_STATUSES: ReadonlySet<string> = new Set<OpenOrder["status"]>(["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"]);
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&filings=error|loading&news=error|loading&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&firstTradeCap=D&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&filings=error|loading&news=error|loading&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -94,6 +97,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const history = q.get("history");
   const filings = q.get("filings");
   const news = q.get("news");
+  const cap = q.get("firstTradeCap");
   const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
@@ -113,6 +117,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     cancelFill: Number.isSafeInteger(cancelFill) && cancelFill > 0 ? cancelFill : null,
     filings: filings === "error" || filings === "loading" ? filings : null,
     news: news === "error" || news === "loading" ? news : null,
+    firstTradeCap: cap && /^\d{1,13}\.\d{2}$/.test(cap) ? cap : null,
   };
 }
 
@@ -763,7 +768,7 @@ export class MockFeed {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
       ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? "MKT_ORDER_TYPE_UNSUPPORTED" : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
       buyingPowerAfter: fmt(this.fdlCashMinor() - this.reservedCash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
-      firstTradeCapRemaining: null, computedAtTick: this.tick,
+      firstTradeCapRemaining: this.scenario.firstTradeCap, computedAtTick: this.tick,
     };
   }
   assetDetail(assetId: string): AssetDetail | null {

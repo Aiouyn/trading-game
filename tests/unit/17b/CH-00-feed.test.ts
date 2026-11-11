@@ -258,7 +258,7 @@ describe("mock scenarios, intents and req ops", () => {
 describe("URL scenario (build-gated)", () => {
   it("parses the documented params and ignores junk", () => {
     expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_BP&seed=9&nw=200000&pledge=HALC:40")))
-      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 }, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null, news: null });
+      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 }, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null, news: null, firstTradeCap: null });
     for (const h of ["error", "loading"] as const) expect(scenarioFromQuery(new URLSearchParams(`filings=${h}`)).filings).toBe(h);
     for (const h of ["error", "loading"] as const) expect(scenarioFromQuery(new URLSearchParams(`news=${h}`)).news).toBe(h);
     for (const junk of ["stale", "x", ""]) expect(scenarioFromQuery(new URLSearchParams(`filings=${junk}`)).filings).toBeNull();
@@ -276,6 +276,11 @@ describe("URL scenario (build-gated)", () => {
     for (const junk of ["-5", "1.5", "x", "60001"]) expect(scenarioFromQuery(new URLSearchParams(`replyMs=${junk}`)).replyMs).toBe(0);
     expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1&nw=1e9&pledge=ZZZ:4"))).toEqual(DEFAULT_SCENARIO);
     expect(scenarioFromQuery(new URLSearchParams("pledge=HALC:0")).pledge).toBeNull();
+    expect(scenarioFromQuery(new URLSearchParams("firstTradeCap=500.00")).firstTradeCap).toBe("500.00");
+    for (const junk of ["500", "-1.00", "1.5", "1e3", "x"]) expect(scenarioFromQuery(new URLSearchParams(`firstTradeCap=${junk}`)).firstTradeCap).toBeNull();
+    const draft = { assetId: "HALC", side: "BUY", type: "market", qty: "3", tif: "day" } as const;
+    expect(new MockFeed().preview(draft).firstTradeCapRemaining).toBeNull();
+    expect(new MockFeed({ firstTradeCap: "500.00" }).preview(draft).firstTradeCapRemaining).toBe("500.00");
   });
   it("QUAY_HOOKS=0 compiles the overrides out: the URL is ignored", async () => {
     vi.resetModules(); vi.stubEnv("QUAY_HOOKS", "0");
