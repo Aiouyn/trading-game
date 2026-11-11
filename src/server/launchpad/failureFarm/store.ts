@@ -1,9 +1,9 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { commandFarm, advanceFarm } from "./engine";
 import { parseFarm } from "./checkpoint";
-import { parseFarmCommand, parseFarmFrames } from "./boundary";
+import { FARM_LIMITS, parseFarmCommand, parseFarmFrames } from "./boundary";
 import type { FarmCommand, FarmFrame, FarmReply, FarmState } from "./model";
 
 export interface FarmStore { load(): Promise<FarmState | null>; save(state: FarmState): Promise<void> }
@@ -12,15 +12,19 @@ export class FileFarmStore implements FarmStore {
   constructor(private readonly path: string) {}
   async load(): Promise<FarmState | null> {
     let text: string;
-    try { text = await readFile(this.path, "utf8"); }
+    try {
+      if ((await stat(this.path)).size > FARM_LIMITS.checkpointBytes) throw new Error("BAD_FARM_CHECKPOINT"); // before reading
+      text = await readFile(this.path, "utf8");
+    }
     catch (err) { if (err instanceof Error && "code" in err && err.code === "ENOENT") return null; throw err; }
     return parseFarm(JSON.parse(text));
   }
   async save(state: FarmState): Promise<void> {
-    const validated = parseFarm(state);
+    const validated = parseFarm(state), json = JSON.stringify(validated);
+    if (Buffer.byteLength(json, "utf8") > FARM_LIMITS.checkpointBytes) throw new Error("BAD_FARM_CHECKPOINT"); // before writing
     await mkdir(dirname(this.path), { recursive: true });
     const temp = `${this.path}.${randomUUID()}.tmp`;
-    try { await writeFile(temp, JSON.stringify(validated), { flag: "wx", mode: 0o600 }); await rename(temp, this.path); }
+    try { await writeFile(temp, json, { flag: "wx", mode: 0o600 }); await rename(temp, this.path); }
     finally { await unlink(temp).catch((err: unknown) => { if (!(err instanceof Error && "code" in err && err.code === "ENOENT")) throw err; }); }
   }
 }

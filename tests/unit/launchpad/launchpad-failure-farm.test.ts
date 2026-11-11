@@ -196,7 +196,7 @@ describe("failure-farm boundaries and real finite settlement", () => {
 describe("failure-farm durable boundary", () => {
   it("strictly parses versions, cash/supply, timelines, references and unexpected fields", () => {
     const s = graduated(); expect(parseFarm(JSON.parse(JSON.stringify(s)))).toEqual(s);
-    for (const bad of [{ ...s, v: 2 }, { ...s, surprise: true }, { ...s, sink: s.sink + 1 }, { ...s, hour: -1 }, { ...s, coins: { GULL: { ...s.coins.GULL, creator: "missing" } } }]) {
+    for (const bad of [{ ...s, v: 1 }, { ...s, v: 3 }, { ...s, surprise: true }, { ...s, sink: s.sink + 1 }, { ...s, hour: -1 }, { ...s, coins: { GULL: { ...s.coins.GULL, creator: "missing" } } }]) {
       expect(() => parseFarm(bad)).toThrow();
     }
     const tampered = structuredClone(s); tampered.wallets.creator!.tokens.GULL!++;

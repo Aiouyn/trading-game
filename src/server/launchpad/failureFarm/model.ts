@@ -1,7 +1,8 @@
 import type { Curve } from "@/launchpad/rules";
 import type { BookAccount } from "@/server/broker/book";
 
-export type WalletKind = "PLAYER" | "NPC";
+/** RETAIL: an NPC retail-pool trader (05 §6.2 RETAIL, meme weight 3.0) that the engine trades hourly on graduated coins. */
+export type WalletKind = "PLAYER" | "NPC" | "RETAIL";
 export interface FarmWallet { kind: WalletKind; cash: number; tokens: Record<string, number>; lastLaunchAtMs: number | null }
 export type FarmVenue = { kind: "CURVE"; curve: Curve } | {
   kind: "BOOK"; book: BookAccount; listedPrice: number; graduatedHour: number; creatorAtGraduation: number; creatorSold: number;
@@ -15,12 +16,14 @@ export interface FarmCoin {
   mark: number; lastHourMark: number; hype: number; thinSince: number | null; rug: Rug | null;
   day: number; dayOpen: number; creatorDaySold: number;
   hourVolume: number; playerNet: [number, number][];
+  /** The previous (at most 24) game-hour closing marks, oldest first: RETAIL reads r_1d from closes[0] once 24 exist. */
+  closes: number[];
 }
 export type FarmReply = { kind: "LAUNCHED"; ticker: string } | { kind: "FILLED"; ticker: string; qty: number; cents: number; fee: number }
   | { kind: "REFUSED"; code: string };
 export interface FarmReceipt { fingerprint: string; reply: FarmReply }
 export interface FarmState {
-  v: 1; seed: string; hour: number; initialCash: number; sink: number;
+  v: 2; seed: string; hour: number; initialCash: number; sink: number;
   wallets: Record<string, FarmWallet>; coins: Record<string, FarmCoin>; receipts: Record<string, FarmReceipt>;
 }
 export type FarmCommand = { kind: "LAUNCH"; wallet: string; key: string; ticker: string; name: string; fee: number; nowMs: number }
