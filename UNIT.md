@@ -1,74 +1,86 @@
-# Unit: fail-closed rumor secret + company denials on the Wire
+# Unit: a readable Wire story at the first served tick
 
-**Branch:** `eng/claims-statements`  
-**Base:** `90e8cae79788ca544fb014dc204e298adc50daf3` (`eng/claims-authors`)  
-**Worktree:** `/workspace/avalon/claims-statements`  
-**When written:** 2026-11-11 19:19:30 Europe/Paris — before product-code edits.  
-**Owner:** continue-nonstop after 90e8cae7 was sent to Gatekeeper. Fold in Gatekeeper's b8257aaf qualification on missing-secret snapshots first, then the next playable 15/16 slice. If findings on 90e8cae7 or further findings on b8257aaf arrive through the parent, fix those first (b8257aaf fixes on `eng/claims-resolve`; 90e8cae7 fixes on `eng/claims-authors`).
+**Branch:** `eng/wire-first-story`  
+**Base (written against):** `cb2c813e8e511fcbd37f73463b2d7b638eb61bae` (`eng/claims-statements`)  
+**Restacked onto:** `d23c141c40d907f4e30324adbc4939c5d23314ac` (`eng/claims-statements`, 2026-11-11 19:45 Europe/Paris) — fail-closed present-but-invalid rumors.  
+**Worktree:** `/workspace/avalon/wire-first-story`  
+**When written:** 2026-11-11 19:34:44 Europe/Paris — before product-code edits.  
+**Owner:** continue-nonstop after cb2c813e was sent to Gatekeeper. Fix the 30-second Wire empty gap so a new player can read a story at t0. If Gatekeeper findings on the claims branches arrive through the parent, fix those first (cb2c813e on `eng/claims-statements`; 90e8cae7 on `eng/claims-authors`; b8257aaf on `eng/claims-resolve`).
 
-This unit is two stacked pieces in one batch: (1) fail closed when a rumors snapshot is present but its secret is missing or empty; (2) the smallest coherent player-visible 15/16 step after the farm: a company responds to a pending rumor on the Wire, and that response moves belief per 05.
+A 90e8cae7 REVIEW.md appeared on disk during setup (bounded PASS, qualified; no blocker). It did not arrive through the parent, so it is not treated as a find-and-fix interrupt. Its missing-secret qualification is already fail-closed on this base (cb2c813e). Its digest4000 note is a constraint for this unit: do not silently drift the 4000-tick quote digest versus cb2c813e.
 
-## 1. Fail-closed rumor secret (b8257aaf qualification)
+## Player outcome
 
-Gatekeeper's bounded PASS (qualified) on b8257aaf, qualifications, item: "Missing-secret snapshots boot with a newly generated random key rather than refusing to load. That key is not predictable. Already-published truths are preserved."
+On a fresh world, a signed-in player who follows the first-trade guide and taps **Open Wire** at the first served tick (START_TICK, 27700) — or in the ~30 s before the first live catalog slot — sees at least one real catalog Wire story immediately: a headline, a named tradable asset, and the cause copy. They do not wait for tick 27706. Desktop and phone.
 
-Today `normalizeRumorSnapshot` and `RumorBook` generate a new `randomBytes(32)` key when a rumors snapshot exists but `secret` is absent or empty, and the book boots anyway. That quietly rotates the HMAC key under stored pending claims (false-kind draws and later farm/desk seals would use a different key than the one that sealed them).
+The guide itself does not change. `GoalGuide` step 1 only calls `show(store, "wire")` and does not set a filter or wait for a story; "done" is still a server fill. This unit makes that step *work* at t0 by giving the Wire something to read.
 
-**Behavior in this unit:**
+## Why it is empty today
 
-- **Brand-new world** (no storm snapshot, or a storm snapshot with no `rumors` object): still generate a 32-byte hex key, persist it, and run as today.
-- **A rumors snapshot exists** (a `rumors` object that normalizes as a book — source, claims list, etc.) **but `secret` is missing or empty**, and no test injection supplies a secret: **do not generate a new key**. Log a loud server error (`console.error` with an unmistakable prefix) and **fail closed by refusing to construct / hydrate the rumor book** (throw a dedicated error). `LiveMarket` does not start that world. Pending claims are not silently re-keyed or resolved under a new secret. Simpler and safer than a half-started book that leaves claims frozen inside a running clock.
-- Tests may still inject `opts.secret` / `rumorSecret` explicitly; that is not a silent rotation.
-- Pre-rumor storm worlds (`snap.rumors` absent) stay an upgrade path: first rumors boot generates a key.
+Gatekeeper's check of `ui/wire-first-step` `1ef58ad0` (evidence `/workspace/avalon/evidence/launchpad/gatekeeper/1ef58ad0/REVIEW.md`) measured this on a fresh `.data`: `/api/wire` has **0 items** at landing; the first story is `w-27706` (NEWS, Orca Biologics) at **30.2 s**. Root cause is the live catalog schedule, not a wrong filter.
 
-## 2. Company response: the playable slice
+`storyAt` in `src/market/wireStories.ts` returns a story only when `d = tick - START_TICK` is **> 0** and a multiple of `STORY_EVERY` (6). The clock starts at START_TICK and serves that tick immediately; `publishStory` runs on `step()`, so the first live slot is START_TICK + 6 = 27706 (six 5-second ticks, ~30 s). The first-trade guide still asks the player to "Read a Wire story" during that gap (M2-01 / `goalStrings.ts`). The UI card added a waiting one-liner; it did not put a story on the server.
 
-### Observable player outcome
+## Spec cites (`export/vision-review/complete` and V1)
 
-While a catalog rumor (desk or farm) is still **PENDING**, the subject company can issue a **public denial on the Wire** as a `STATEMENT` item. The player can open the feed, see the company respond, and see the rumor's pending price pressure shrink. The rumor itself stays pending: truth remains sealed, and later CONFIRMED / FIZZLED / DENIED is unchanged. A denial does not print `X` and does not resolve the claim.
+- **docs/v1/V1-BOARD.md:53–56** — M2-01 is "30s clarity + 2-min first trade." An empty Wire for the whole first 30 seconds fails that bar.
+- **18:199–209 (§3.3.3)** — the first headline is a real engine Wire item from the **last 720 ticks** (1 game day) whose targets are open LIC1 assets; pick by score, else a fallback headline. This unit does not build the full ONB-05 first-news card. It makes the prerequisite true: at t0 the Wire already has a real catalog item from that lookback, so a later onboarding card has something to select.
+- **18-AT-06 (18:620)** — "The first-news headline is a real engine Wire item from the last 720 ticks whose asset is tradable under LIC1 with an open session."
+- **18:174** — first_news step expands the selected headline; the V1 guide's "Open Wire / read a story" is the present stand-in.
+- **04 / vision 04-experience "2:30 — First news, first trade"** — a real engine headline from the world (not scripted fake news), e.g. from the last game hour. This unit uses the existing company/crisis catalog, not a new fixture.
+- **17:908 WIR-01** — empty-filter copy stays as-is. After this unit, fresh All should not be empty, so that state is for later empty category filters (already covered by the UI card when it is merged), not for t0 All.
 
-### Spec cites (export/vision-review/complete)
+## Design (chosen)
 
-- **05:849, 05:854–860, 05:864–867** — a claim includes a company rebuttal; credibility is  
-  `cr_c = clamp(0.15 + 0.45 × srcRecord + 0.25 × evidence + 0.15 × prestigeReach − 0.30 × rebuttal, 0, 1)`  
-  with `rebuttal` **1** if the target published a verifiable rebuttal (12 M4), **0.5** for an unverifiable denial, else **0**. Belief `b_c` is proportional to `cr_c`. This catalog slice still has no evidence refs and no 14 prestige, so those terms stay 0 (already the 90e8cae7 desk formula). This unit adds only the `rebuttal` term.
-- **05:860** — the rebuttal term on `cr_c`: `0.5` for an unverifiable denial, `1` for a verifiable rebuttal, else `0`. This unit uses `0.5`.
-- **12:520** — the M4 verifiable-rebuttal path (counsel/PR, filings, a 13 case). Scope cite only: that player verb, its cost, and `rebuttal = 1` are **out**. It does not define the `0.5` term.
-- **16:565** — at horizon, a false rumor is FIZZLED (70%) or DENIED (30%: "the subject issues a public denial, a news item"). That **resolution-time** DENIED path already exists and is unchanged. This unit's denial is a **mid-pending** Wire statement; it is not a resolution.
-- **15:606, 15:625 (§3.10.1 / §3.10.4)** — the Wire carries `STATEMENT`; player statements are a separate `soc.wire.post` verb (≤ 280 characters, $500 fee, 3 per game day, 5-game-day resolve, Voices). Company denials use the existing `STATEMENT` kind so they are visible in the feed. No `channels.ts` / `schema.ts` edit (`STATEMENT` is already a `WireKind`).
-- **16:573** — "05 applies no price effect for statements (DEFAULT, Mathis may override: prevents talk-up schemes)." 15:625 says 05 may read player statements with asset tags as bounded sentiment. This unit follows **16:573**: the company denial moves belief only through the **05:860 rebuttal term on the existing rumor claim**, not by treating the STATEMENT as its own 05 impulse. Player-authored statements do not move marks in this unit.
-- **22:1164** — `REBUTTAL` claim kind ("offsets an active claim", −0.5 × the rebutted claim, company / 12 M4). Not used here; the 05 rebuttal *flag* on the original claim is the smaller coherent hook.
+**Seed one or two existing catalog stories onto the Wire at clock construct, with ticks at or before the first served tick, and do not apply their shocks to the live quote stream.**
 
-### Smallest coherent piece — what is in, what is out
+Details:
 
-**In**
+1. Keep `storyAt(seed, tick)` as the **live publisher**: still null at START_TICK and until 27706, then the same slot 0, 1, 2… stories at the same ticks as today. Do **not** shift the live grid (that would move every later shock and rewrite M1-05 / M1-09 / digest4000).
+2. Add a pure helper (same catalog, same FNV slot formula, Euclidean modulo so negative slots are well-defined) that can name the catalog story on any grid tick, including `tick <= START_TICK`. Grid: `(tick - START_TICK) % STORY_EVERY === 0`. The two most recent such ticks at or before START_TICK are **27700** and **27694**.
+3. At `LiveMarket` construct, after storm/rumor restore, if the clock is on a fresh first-served-tick world (`feed.tick === START_TICK`) and those history items are not already present, append them to `this.stories`. Reads do not seed twice and do not step the clock. Idempotent by id.
+4. Ids are `w-h-${tick}` so they cannot collide with live `w-${tick}` catalog rows, farm `w-r-*`, or denial `w-d-*`. M1-09's live catalog count (`/^w-\d+$/`) stays the live schedule.
+5. **No `applyShock`, no `openRumor`, no rumor-book writes.** History items are already-happened headlines from the lookback. Omit the `effects` / priced-in from-to (opening marks did not take these moves; inventing a from/to would lie, and applying the bp would change the golden and digest4000). Headline, entities (named asset), `causeKey`, and phase stay. Prefer realized company NEWS when picking among the last-day grid; if fewer than two such exist in the 720-tick lookback, fill with the most recent other catalog defs (still no shocks).
+6. Items stay on the Wire and evict through `retainStories` / `STORY_KEEP` like any other row. They are not a second live publish: `publishStory` still only fires `storyAt` on step.
+7. Deterministic: same seed ⇒ same history defs and ticks. Guest fixtures are unchanged (signed-in feed uses the server Wire).
+8. Mid-run restart at a later tick is out of scope for new seeding (catalog NEWS still start a new epoch, as today). A cold start at START_TICK always seeds.
 
-- Fail-closed missing/empty secret, and fail-closed when a `rumors` key is present but not a valid snapshot; a missing `rumors` key still generates a key.
-- One unverifiable company denial per eligible pending rumor, published as a Wire `STATEMENT` (`{company} denies the rumor` / FR), with a cause string, the company and asset as entities, and a slot linking it to the rumor id. No `isTrue`, no secret, no `hiddenAccuracy`.
-- Scheduling is **seed-only** (never the HMAC secret): a denial tick strictly after `publishTick` and strictly before `resolvesByTick`. Every desk catalog rumor that has room for that tick gets a denial (so TIDE is reliably visible). Farm rumors get a denial on a seeded subset (enough to prove the path; not necessarily all 8/day). At most one denial per claim; idempotent across jump and restart.
-- On the denial tick: set `rebuttal = 0.5` on that claim and recompute pending belief immediately.
-  - Desk: `claim.cr` becomes `claimCredibility(hits, resolved, 0.5)` = `clamp(0.15 + 0.45 × Beta(2,2) − 0.15, 0, 1)`, so `b_c` shrinks in proportion to `cr`.
-  - Farm: the 16:566 impulse has no rebuttal term. Rescale that tick's farm overlay by the same 05 ratio `cr(hits, resolved, 0.5) / cr(hits, resolved, 0)` so the denial shrinks belief without flipping the 16:566 sign. Fresh-author farm impulse stays 0.
-- Integer-carry marks, ±0.5 cap, 15-tick true handoff, false 60-tick HL, HMAC seals, lastTick resume, and boot-hydration (not continuation identity) stay as on 90e8cae7. Do not claim 16:564 "never past real due time."
+Rejected alternatives:
 
-**Out** (cited, not stubbed)
+- Publishing live slot 0 at START_TICK, or allowing `storyAt` at `d === 0`, would apply the first catalog shock six ticks early and shift or duplicate the schedule. That would change M1-05 golden, M1-09 ticks, and digest4000. Not justified when history-without-shock meets the clarity bar.
+- Inventing a new non-catalog "welcome" headline. 18-AT-06 / 04 want a real engine item.
+- Gating or rewording the guide until 27706. That is the UI-backlog option in the 1ef58ad0 review; it does not give the player a story to read.
 
-- 12 M4 verifiable rebuttals, filings, 13 cases, `rebuttal = 1`.
-- Full **15:625** player statements: `soc.wire.post`, $500 sink, 3/day cap, evidence refs, Voices / `reachWeight`, 5-game-day TRUE/FALSE/OPINION resolve, 13/surveillance on FALSE. The Wire already accepts `STATEMENT`; this unit uses it for company denials only. UI polish for a composer belongs to the UI builder when that verb is built.
-- **16:557** paid analyst-note tiers (T1/T2/T3 daily notes, fees, forecasts). Not a free-feed item. NPC analyst claims as a second 05 source are a later slice.
-- F15, Circle whispers, tips, Terminal 1-tick head start, player-owned outlets (15:627), POLICY/RECOVERY, 07/FX, meme-failure farm. No `channels.ts` / `schema.ts` edits.
+## What must not change
+
+- Live `storyAt` schedule and defs after START_TICK (first live story still 27706, same def, same shock at that tick).
+- M1-05 golden / legacy tape for unmoved assets; ERP notes at ticks 3 and 20; quotes at t0 through the first live story tick versus a reference ShockFeed that applies only live `storyAt` effects.
+- digest4000 versus cb2c813e under the same fixture (no new mark moves in the 4000-tick window from this unit).
+- M1-09 price replay: the server remains the seeded walk plus exactly the **live** logged effects. If a Wire-list assertion assumes the feed contains only post-start `w-${tick}` rows, update it and document that the live schedule is unchanged and the new rows are pre-start history with no shock.
+- HMAC seals, 15-tick handoff, fail-closed missing secret, company denials, farm 8/day.
 
 ## Acceptance
 
-1. **New world:** no snapshot, or a storm snapshot with no `rumors` object, constructs a book, generates a 64-hex secret, and persists it. Two fresh worlds get different keys.
-2. **Missing secret, fail closed:** a rumors snapshot with claims (or an otherwise valid empty book object) but missing or empty `secret`, and no injected secret, throws a dedicated error, logs a loud server error, does not invent a key, and does not boot `LiveMarket`. Injecting a test secret still hydrates that snapshot.
-3. **Company denial is visible:** after a desk rumor has been pending through its denial tick, the Wire has a `STATEMENT` item naming the company and denying the rumor, with no `isTrue`. The rumor item stays `phase: "forecast"` / `PENDING`.
-4. **Belief moves:** at that tick, the rumor's `rebuttal` is 0.5 and its pending overlay shrinks by the 05 ratio above (desk: via `cr`; farm: via the same ratio on the 16:566 contribution). lnV is unchanged. A later true resolve still prints `X` on the fact-only mark and runs the 15-tick handoff; a later false resolve still does not print `X` and still releases on the 60-tick HL.
-5. **Determinism:** same seed + same secret + same tick path → same denial ticks, items, and marks. `advanceTo(jump)` equals tick-by-tick across a window that includes a denial and a resolve.
-6. **Restart** is boot hydration: restored tick, `parseWireSnapshot` non-null, denial item and rebuttal flag rematerialized, no second denial, no double `X`. Do not claim continuation hashes after further steps.
-7. **Secret stays off** market JSON, Wire JSON, and the client bundle. The denial item does not carry it.
-8. **Unchanged:** HMAC seals, 15-tick handoff, farm 20 authors / 8-a-day, M1-09 quiet window (no farm before the first close), WIR-9 fixtures, NEWS, demo crises. Proofs on a clean store only.
+1. `new LiveMarket()` at START_TICK: `wire().items` has 1–2 history rows, each a catalog def, tick ≤ START_TICK, id `w-h-${tick}`, a named asset entity, a defined headline and cause, no `effects`, no `isTrue`. Quotes equal a no-history reference (same as today's t0). A second `wire()` / `snapshot()` does not add rows or move marks.
+2. Same seed ⇒ same history. A different seed can differ. `storyAt(seed, START_TICK)` is still null; `storyAt(seed, START_TICK + 6)` is unchanged.
+3. After stepping to 27706, the live `w-27706` row still publishes with its catalog effects applied once; marks match the reference walk; history rows are still present (unless evicted, which they will not be in this window).
+4. jump ≡ step over a short window that includes t0 and the first live story; boot hydration at START_TICK rematerializes the same history ids (canonical items), no second copy, no shock on hydrate. Do not claim continuation-hash identity after further steps.
+5. Guide path, desktop and phone, fresh `.data`: register → first-trade guide → Open Wire → at least one story row is visible without waiting for tick 27706. The empty-All waiting state is not the t0 path.
+6. Repo checks (lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, npm test) and one affected e2e batch on a clean temp tree, fresh `.data`, including M2-01 first-trade plus the Wire specs (M1-09, WIR-9, WIR-A). Delete the temp tree after.
 
-## Checks
+## Not in this unit
 
-lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, npm test, then the affected e2e batch once (desktop+phone: M1-09-wire, WIR-9, WIR-A) in a clean temp worktree with fresh `.data`, free port, never :3199 or :3102; delete the temp tree after. Honest proofs. Normal push. GK-HANDOFF. Do not contact Gatekeeper.
+- Full 18 §3.3 first-session machine, ONB-05 first-news card, Retail grant, 20% cap (already elsewhere).
+- Persisting catalog NEWS across a mid-run restart (still a new epoch).
+- Applying historical shocks into opening marks; shifting the live `STORY_EVERY` grid.
+- UI polish of the guide or empty-filter copy (UI builder). No `channels.ts` / `schema.ts` edits unless a parse rejects a legal history tick (it should not: `tick <= snapshot.tick` already holds).
+- POLICY/RECOVERY, 07/FX, meme-failure farm. No 16:564 due-time claim. No overall GO.
+
+## Checklist
+
+- [x] Ground (1ef58ad0 review, `storyAt`, clock publish, GoalGuide, M1-05 / M1-09 / digest4000 constraint)
+- [x] Sketch (history seed, no shock, vs shifting the live grid)
+- [x] Agree (autonomous: history seed is the smaller change that keeps goldens)
+- [ ] Implement
+- [ ] Prove
+- [ ] Commit, e2e, push, GK-HANDOFF
