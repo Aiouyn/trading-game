@@ -1,7 +1,7 @@
 # M2-05 · Quay as a mobile web app (PWA)
 
 ## What ships
-- `/manifest.webmanifest` (src/app/manifest.ts → src/pwa/manifest.ts): name "Quay · Port Avalon", short name "Quay", start `/`, standalone, dark theme. The icon is the existing quay glyph (`public/quay-icon.svg`, pinned to the glyph source by tests/unit/pwa).
+- `/manifest.webmanifest` (src/app/manifest.ts → src/pwa/manifest.ts): name "Quay · Port Avalon", short name "Quay", start `/`, standalone, dark theme. The icon is the existing quay glyph (`public/quay-icon.svg`, pinned to the glyph source by tests/unit/pwa). The document viewport is `viewport-fit=cover` with a black-translucent iOS status bar (src/app/layout.tsx); the 44 px phone status bar adds `env(safe-area-inset-top)` so installed chrome stays below the notch, and the existing edge-bar bottom inset can take effect.
 - `/sw.js` (src/app/sw.js/route.ts → src/pwa/swSource.ts), one per build, registered after load in production builds only (never in `next dev` or the e2e hooks build).
 - `public/offline.html`: a static offline screen that shows the last own `me` snapshot read-only with its tick (doc 19 Rule 3.17.5, doc 17 §3.19).
 - `src/pwa/meSnapshot.ts`: the one sanitised snapshot record behind it (see below).
