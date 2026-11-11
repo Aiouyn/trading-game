@@ -20,4 +20,9 @@ export const LB = {
   signedOut: "Sign in to see the Port Avalon net worth board.",
   signIn: "Sign in",
   topOnly: (n: number) => `Top ${n} shown`,
+  nextUpChip: "Next up",
+  atTop: "You're at the top of the board.",
+  tied: (others: number) => others === 1
+    ? "Tied with 1 other player at the top of the board."
+    : `Tied with ${others} other players at the top of the board.`,
 } as const;
