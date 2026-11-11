@@ -25,7 +25,18 @@
 /* Phone (< 768) */
 .quay.is-phone { position: fixed; inset: 0; }
 .phone { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
-.statusbar { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 4px; background: var(--chrome-translucent); z-index: var(--z-chrome); overflow: hidden; }
+.statusbar {
+  /* 44 px row plus the top inset: the mark, clock and compact NW sit below the notch when standalone. At 0 inset this is still 44 px. */
+  height: calc(var(--statusbar-h) + env(safe-area-inset-top, 0px));
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: env(safe-area-inset-top, 0px) max(12px, env(safe-area-inset-right, 0px)) 0 max(4px, env(safe-area-inset-left, 0px));
+  background: var(--chrome-translucent);
+  z-index: var(--z-chrome);
+  overflow: hidden;
+}
 .statusbar .quay-feedback-btn { min-width: 44px; min-height: 44px; flex: none; }
 .statusbar .clock { font-size: var(--fs-13); }
 .quay-mark { width: 44px; height: 44px; display: grid; place-items: center; -webkit-touch-callout: none; user-select: none; touch-action: none; }
