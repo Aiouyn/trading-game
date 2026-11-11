@@ -11,7 +11,7 @@ import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, bootHistory, historyItemId, storyAt } from "@/market/wireStories";
 import { claimCauseKey, claimPhase, publicRecord, sourceBand, type RumorClaim, type RumorStepEvent } from "./rumorClaims";
 import { denialItemId, farmBand, farmSourceName, isFarmSourceId } from "./rumorFarm";
-import { analystSourceName, isAnalystSourceId } from "./analystNotes";
+import { analystOutletId, isAnalystSourceId } from "./analystNotes";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, START_TICK, fmt } from "@/shell/contracts/mockFeed";
 import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
@@ -349,7 +349,10 @@ export class LiveMarket {
     const tick = this.feed.tick;
     const byId = new Map(this.feed.rumorClaims().map((c) => [c.id, c]));
     const hold = (it: WireItem): boolean => {
-      const rumorId = it.kind === "RUMOR" ? it.id : it.kind === "STATEMENT" ? it.slots?.rumorId : undefined;
+      const rumorId = it.kind === "RUMOR" ? it.id
+        : it.kind === "STATEMENT" ? it.slots?.rumorId
+        : it.kind === "NEWS" ? (it.slots?.rumorId ?? (byId.has(it.id) ? it.id : undefined))
+        : undefined;
       if (!rumorId) return false;
       const c = byId.get(rumorId);
       if (!c) return false;
@@ -376,8 +379,9 @@ export class LiveMarket {
   private farmEntities(c: RumorClaim): WireItem["entities"] {
     const asset = { id: c.assetId, kind: "asset" as const, label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId };
     if (c.channel === "analyst" || isAnalystSourceId(c.sourceId)) {
-      if (!c.sourceId) return [asset];
-      return [asset, { id: c.sourceId, kind: "actor", label: c.slots.analyst ?? analystSourceName(c.sourceId) }];
+      const house = c.slots.house;
+      if (!house) return [asset];
+      return [asset, { id: analystOutletId(house), kind: "outlet", label: house }];
     }
     if (!(c.channel === "farm" || isFarmSourceId(c.sourceId)) || !c.sourceId) return [asset];
     return [asset, { id: c.sourceId, kind: "actor", label: c.slots.source ?? farmSourceName(c.sourceId) }];
@@ -385,12 +389,17 @@ export class LiveMarket {
 
   private farmWireItem(c: RumorClaim): WireItem {
     const effects = this.rumorEffect(c);
-    const kind = (c.channel === "analyst" || isAnalystSourceId(c.sourceId)) ? "STATEMENT" as const : "RUMOR" as const;
+    const analyst = c.channel === "analyst" || isAnalystSourceId(c.sourceId);
+    const kind = analyst ? "NEWS" as const : "RUMOR" as const;
+    const outletId = analyst && c.slots.house ? analystOutletId(c.slots.house) : undefined;
+    const slots = this.rumorItemSlots(c);
+    if (analyst) delete slots.analyst; // no personal byline on rematerialized pre-outlet claims
     return {
-      id: c.id, kind, headlineKey: c.headlineKey, slots: this.rumorItemSlots(c),
+      id: c.id, kind, headlineKey: analyst ? "wire.news.analyst-note" : c.headlineKey, slots,
       entities: this.farmEntities(c),
       tick: c.publishTick, breaking: false, causeEventIds: [c.defId],
       phase: claimPhase(c), causeKey: claimCauseKey(c),
+      ...(outletId ? { outletId } : {}),
       ...this.rumorRecordFields(c),
       ...(effects.length ? { effects } : {}),
     };

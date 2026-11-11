@@ -163,6 +163,13 @@ describe("fail-closed rumor secret", () => {
       const withAnalyst = normalizeRumorSnapshot({ ...snap, claims: [{ ...valid, channel: "analyst" }] });
       expect(withAnalyst?.claims[0]?.channel).toBe("analyst");
       expect(withAnalyst?.secret).toBe(SECRET);
+      const { channel: _omit, ...legacy } = valid!;
+      const noChannel = normalizeRumorSnapshot({ ...snap, claims: [legacy] });
+      expect(noChannel?.claims[0]?.channel).toBeUndefined();
+      expect(noChannel?.secret).toBe(SECRET);
+      for (const bad of ["nope", "outlet", "NEWS", 1, ""]) {
+        expect(() => normalizeRumorSnapshot({ ...snap, claims: [{ ...valid, channel: bad }] }), JSON.stringify(bad)).toThrow(CorruptRumorSnapshotError);
+      }
     } finally {
       err.mockRestore();
     }
