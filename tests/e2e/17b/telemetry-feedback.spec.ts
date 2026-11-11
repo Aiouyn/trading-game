@@ -32,6 +32,7 @@ async function submitFeedback(page: Page) {
 for (const route of ["/broker", "/wire"] as const) {
   test(`guest feedback journey on ${route}: form loads on click, submit thanks`, async ({ page }) => {
     const seen = await watchFormChunk(page);
+    await page.addInitScript(() => { localStorage.setItem("quay.telemetry.consent", "0"); });
     await page.goto(route);
     if (route === "/wire") {
       await expect(page.getByTestId("wire").first()).toHaveAttribute("data-state", "live", { timeout: 20_000 }).catch(() => {});

@@ -26,6 +26,7 @@ import { Recent } from "./Recent";
 import { ShellCtx, useShell, useShellStore } from "./ShellContext";
 import { useDeepLinkNavigate } from "./PhoneBanners";
 import { Shelf } from "./Shelf";
+import { ConsentHost } from "./ConsentHost";
 import { StatusStrip } from "./StatusStrip";
 import { LiveNwUnlock } from "./useNw";
 import { AuthAccountBoundary } from "./AuthAccountBoundary";
@@ -102,6 +103,7 @@ function Surface({ query }: { query: string }) {
         </>
       )}
       {!phone && <LoadState />}
+      <ConsentHost />
       <SystemOverlays />
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}

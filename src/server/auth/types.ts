@@ -98,6 +98,7 @@ export type AuthErrorCode =
   | "LEDGER_QUARANTINED"
   | "IDEMPOTENCY_CONFLICT"
   | "LAUNCHPAD_UNAVAILABLE"
+  | "TELEMETRY_UNAVAILABLE"
   | "UNSUPPORTED_DEPLOY";
 
 export class AuthError extends Error {

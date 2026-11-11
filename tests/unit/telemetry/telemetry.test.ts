@@ -14,6 +14,8 @@ import {
   flushTelemetry,
   resetOptOutCache,
   resetTelemetryLimits,
+  resetTelemetrySecretCache,
+  setTelemetryBypassConsentForTests,
   setTelemetryLimits,
   TELEMETRY_MAX_BODY_BYTES,
 } from "@/server/telemetry";
@@ -50,7 +52,9 @@ describe("V1 alpha telemetry", () => {
     dir = await mkdtemp(path.join(tmpdir(), "quay-tel-"));
     temps.push(dir);
     process.env.QUAY_TELEMETRY_DIR = dir;
+    process.env.QUAY_TELEMETRY_SECRET = "test-telemetry-secret-key-32b";
     resetOptOutCache();
+    resetTelemetrySecretCache();
     resetTelemetryLimits();
     auth = new AuthService({ store: new MemoryAuthStore() });
     setAuthServiceForTests(auth);
@@ -58,7 +62,9 @@ describe("V1 alpha telemetry", () => {
 
   afterEach(async () => {
     delete process.env.QUAY_TELEMETRY_DIR;
+    delete process.env.QUAY_TELEMETRY_SECRET;
     resetOptOutCache();
+    resetTelemetrySecretCache();
     resetTelemetryLimits();
     setAuthServiceForTests(undefined);
     setBrokerForTests(undefined);
@@ -131,9 +137,10 @@ describe("V1 alpha telemetry", () => {
   });
 
   it("counts events by anon id; hooks fire once as specified; DNT and opt-out skip analytics", async () => {
+    setTelemetryBypassConsentForTests(true);
     const { view } = await auth.register({ handle: "TelUser", password: "password1" });
     const anon = anonIdForAccount(view.account.accountId);
-    expect(anon).toMatch(/^anon_[a-f0-9]{16}$/);
+    expect(anon).toEqual(expect.stringMatching(/^anon_[a-f0-9]{16}$/));
     expect(anon).not.toContain(view.account.accountId);
     expect(anon).not.toContain("TelUser");
 

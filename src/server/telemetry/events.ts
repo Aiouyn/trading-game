@@ -1,6 +1,6 @@
 import { analyticsSkipped } from "./context";
 import { isAnonId } from "./ids";
-import { appendEvent, isOptedOut, telemetryDir } from "./log";
+import { appendEvent, isConsented, isOptedOut, telemetryDir, TelemetryDirFullError } from "./log";
 
 export const ANALYTICS_EVENTS = [
   "signup",
@@ -24,8 +24,9 @@ export function isClientAnalyticsEvent(value: unknown): value is ClientAnalytics
 }
 
 /**
- * Append a named analytics event. Never throws to the caller. Skips when DNT/GPC is in
- * the request context, when the anon id is on the opt-out list, or when there is no log dir.
+ * Append a named analytics event. Skips when DNT/GPC is in the request context, when the
+ * anon id has not consented (21 opt-in), when it is on the opt-out list, or when there is no log dir.
+ * TelemetryDirFullError is rethrown so an HTTP handler can return 503; every other error is swallowed.
  */
 export async function recordEvent(event: AnalyticsEvent, anonId: string): Promise<void> {
   try {
@@ -34,12 +35,15 @@ export async function recordEvent(event: AnalyticsEvent, anonId: string): Promis
     if (!telemetryDir()) return;
     if (analyticsSkipped()) return;
     if (await isOptedOut(anonId)) return;
+    if (!(await isConsented(anonId))) return;
     await appendEvent({ event, anonId });
-  } catch {
+  } catch (err) {
+    if (err instanceof TelemetryDirFullError) throw err;
     // telemetry must not fail the product path
   }
 }
 
-export function recordEventSafe(event: AnalyticsEvent, anonId: string): void {
-  void recordEvent(event, anonId);
+export function recordEventSafe(event: AnalyticsEvent, anonId: string | null): void {
+  if (!anonId) return;
+  void recordEvent(event, anonId).catch(() => {});
 }
