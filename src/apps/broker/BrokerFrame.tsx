@@ -88,6 +88,12 @@ export function BrokerFrame({ context }: { context?: string }) {
   const placing = useRef(false);
   const [view, setView] = useState<BrokerView>("trade");
   const viewBase = useId();
+  const ticketId = `${viewBase}-ticket`;
+  const ticketEl = useRef<HTMLDivElement>(null);
+  const goToTicket = () => {
+    ticketEl.current?.focus({ preventScroll: true });
+    ticketEl.current?.scrollIntoView({ block: "start", behavior: "instant" });
+  };
   const viewIds = { trade: `${viewBase}-trade`, about: `${viewBase}-about` };
   // Back to Trade: focus returns to the header's ticker heading (or the asset select) once Trade is rendered again.
   const headEl = useRef<HTMLElement | null>(null);
@@ -245,7 +251,10 @@ export function BrokerFrame({ context }: { context?: string }) {
       <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices} focusRef={setHead}
         provenance={authoritativeQuoteProvenance(ticker.tick)}
         fear={authoritativeFear()}
-        onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={withChart ? chart : undefined} />
+        onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={withChart ? <>
+          <Button className="br-ticket-entry" data-testid="br-ticket-entry" aria-controls={ticketId} onClick={goToTicket}>{t.openTicket}</Button>
+          {chart}
+        </> : undefined} />
       {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
       {(view === "trade" || !phone) && <ViewSwitch t={t} view={view} onView={onView} ids={viewIds} />}
     </div>
@@ -297,7 +306,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     <div className={cls} data-testid="broker" data-state={frozen ? "stale" : "live"} data-view="trade" data-phase={result ? "acked" : phase.kind === "placed" ? "submitting" : phase.kind} onKeyDown={onKey}>
       <div className="br-grid" id={viewIds.trade}>
         {header(true)}
-        <div className="br-col br-col-ticket">
+        <div className="br-col br-col-ticket" id={ticketId} ref={ticketEl} tabIndex={-1} role="group" aria-label={t.ticket}>
           {ack || (phone ? ticket : review || ticket)}
           {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
           {!phone && <GoalSlot locale={locale} />}{/* M2-02 goal entry where no Portfolio window shows it (desktop 1024–1263) */}

@@ -1,48 +1,30 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# UI unit: Broker ticket entry
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+Written before implementation: 2026-11-11T17:50:20+01:00 Europe/Paris (UTC+1).
+Base: `110583b0aa73ece1dc3b856665f3be0405f1acc3`.
+`git fetch origin` on 2026-11-11 confirmed origin/eng/market-calibration points exactly to that SHA; ignored local 492d60e4 init.
 
-## Why this unit
+## Player outcome
+A new player can discover and reach the Broker order ticket immediately on phone and a narrow desktop window, without hunting below the chart and technical indicators. The shortcut navigates only; review and explicit Place order remain unchanged.
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+## Why this card
+Played the unmodified base with fresh .data on localhost:3301 using isolated headless Chromium desktop 1440x900 and phone 390x844 sessions: UI account creation, goal/guide, Broker, first buy, review, fill, Portfolio and Positions. The goal and first-trade guide already work, and Portfolio reflects the fill. The largest concrete obstruction was phone Broker entry: quantity starts at y=1061.94 and Review order at y=1212.44, below the 844px viewport; the visible screen ends at chart indicators with no path to trade visible. Desktop's wide ticket is already visible (quantity y=243.06, Review y=377.56), so leave that layout alone.
+Evidence: `/workspace/avalon/evidence/ui-first-loop-audit/` (audit.mjs, audit.json, desktop/phone 01–08 screenshots). Automated completion times are harness times, NOT human timed playtest results.
 
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+Existing branches checked: eng/first-trade-goal adds the goal/guide, eng/portfolio-pl ledger P/L, eng/m2-05-pwa offline/install, eng/wm-resize-broker reflow, eng/broker-* indicators. None adds a visible route past the chart to the ticket. This is a small M2-01/M2-04 follow-up, not a replacement for those cards.
 
-### Readiness flags checked on `43127f9e` (not this unit)
+## Spec citations
+- `docs/v1/V1-BOARD.md:53-57`: 30s clarity/2-min first trade, grow-$10k goal, Broker/Portfolio/Wire at ~390px.
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:248-261`: narrow desktop and phone app forms.
+- Same spec `:828`: Broker Simple fewest decisions and explicit phone Trade entry. This unit adds a navigation shortcut to the existing inline ticket, not a second ticket/sheet (the existing review already has its own sheet).
+- Same spec `:659-666`: text scaling, full keyboard play, simple cognitive floor.
+- `export/vision-review/complete/18-ONBOARDING-ACADEMY.md:131-134`: real data, one-sentence prompts, never place on behalf of a player, no advice.
 
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
-
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
-
-## Smallest observable outcome
-
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
-
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
-
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
-
-## Plan
-
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
-
-## Acceptance
-
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+## Acceptance checks
+1. On phone 390x844 and narrow desktop Broker 520px, a labelled >=44px phone/28px pointer ticket-entry button is visible above the chart without scrolling.
+2. Activating it scrolls to the existing ticket and moves keyboard focus there; no preview/order/fill is created by navigation, side/type/quantity draft is preserved.
+3. Keyboard activation works; EN and FR, text scale 2, and reduced motion remain usable; no horizontal overflow.
+4. Wide desktop retains its existing side-by-side layout (no redundant shortcut), and About has no ticket shortcut.
+5. Review/Place safety and real server fill -> Portfolio still work on both desktop and phone. Run affected e2e in a clean isolated worktree, fresh .data, port 3300-3399.
+6. Run npm run lint, npm run typecheck, npm run build, node tools/check-hooks.mjs .next/static .next/server, BUDGET_PORT=3303 node tools/ci/route-budget.mjs /broker (<=215 KB gz), ledger map-no-dup, npm test.
+7. Save real desktop/mobile production screenshots and logs under `/workspace/avalon/evidence/ui-broker-ticket-entry/`; inspect actual diff, commit normally. No PR, merge, deploy, spending or hook bypass.

@@ -6,11 +6,14 @@
 /* Desktop Trade view only (phone and About keep their top-down layout). */
 .br[data-view="trade"]:not(.br-phone) { min-height: 100%; display: flex; flex-direction: column; }
 .br[data-view="trade"]:not(.br-phone) > .br-grid { flex: 1; }
+.br-ticket-entry { align-self: flex-start; }
+.br-col-ticket { scroll-margin-block-start: var(--sp-16); }
 .br-col { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
 /* Two columns once the window leaves the chart >= 344 px beside the 400 px ticket: market (quote, chart, holdings) left,
    ticket right; Open orders under the market column. Row 1 grows with the window; the chart takes the growth. A hairline
    in the column gap and one above Open orders mark the three sections without moving any content. */
 @container (min-width: 760px) {
+  .br:not(.br-phone) .br-ticket-entry { display: none; }
   .br:not(.br-phone) .br-grid { grid-template-columns: minmax(0, 1fr) 400px; }
   /* openOrders.css places the areas: ticket spans both rows, row 1 grows. */
   .br[data-view="trade"]:not(.br-phone) .br-col-head .br-head, .br[data-view="trade"]:not(.br-phone) .br-col-head .br-chart { flex: 1; }

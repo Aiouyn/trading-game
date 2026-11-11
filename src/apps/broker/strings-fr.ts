@@ -7,6 +7,8 @@ export const FR: BrStrings = {
   buy: "↑ Achat",
   sell: "↓ Vente",
   qty: "Quantité",
+  ticket: "Ticket d’ordre",
+  openTicket: "Aller au ticket d’ordre",
   qtyEmpty: "Saisissez une quantité.",
   qtyDigits: "Chiffres uniquement.",
   youHold: (qty) => `Vous détenez ${qty}`,

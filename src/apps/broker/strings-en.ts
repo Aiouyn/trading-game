@@ -26,6 +26,8 @@ export const EN = {
   buy: "↑ Buy",
   sell: "↓ Sell",
   qty: "Quantity",
+  ticket: "Order ticket",
+  openTicket: "Go to order ticket",
   qtyEmpty: "Enter a quantity.",
   qtyDigits: "Use digits only.",
   youHold: (qty: string) => `You hold ${qty}`,
