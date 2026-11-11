@@ -35,11 +35,11 @@ test("behind a closer player: the board names Next up and the exact gap, on phon
     // A starts at $10,000.00; B drops a few dollars after the fee. On a fresh world A is the neighbour.
     // Later tests sharing this server (this file's tie accounts, M2-03's trade) may leave someone closer,
     // so the expected Next up is the closest public row still above B at the on-screen tick.
-    let view: { tick: number; rows: { handle: string; nw: string; self: boolean }[]; self: { handle: string; nw: string; self: boolean } | null } | null = null;
+    let view: { tick: number; rows: { rank: number; handle: string; nw: string; self: boolean }[]; self: { rank: number; handle: string; nw: string; self: boolean } | null } | null = null;
     await expect.poll(async () => {
       const res = await ctx.request.get("/api/leaderboard");
       expect(res.ok(), await res.text()).toBeTruthy();
-      const body = await res.json() as { tick: number; rows: { handle: string; nw: string; self: boolean }[]; self: { handle: string; nw: string; self: boolean } | null };
+      const body = await res.json() as { tick: number; rows: { rank: number; handle: string; nw: string; self: boolean }[]; self: { rank: number; handle: string; nw: string; self: boolean } | null };
       const tick = await lb(page).getAttribute("data-tick");
       if (tick !== String(body.tick)) return null;
       view = body;
