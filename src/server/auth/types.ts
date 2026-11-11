@@ -88,6 +88,23 @@ export interface AuthSessionView {
   readonly expiresAtMs: number;
 }
 
+/**
+ * Why an internal session lookup failed. Not an `AuthErrorCode`: HTTP routes keep calling
+ * `resolveSession` / `peekSession` and must not copy one of these onto a response.
+ */
+export type SessionRejectionCode =
+  | "MISSING_TOKEN"
+  | "MALFORMED_TOKEN"
+  | "UNKNOWN_SESSION"
+  | "EXPIRED_SESSION"
+  | "REVOKED_SESSION"
+  | "UNKNOWN_ACCOUNT";
+
+/** Internal lookup. `refreshed` is true only when this call applied the sliding lastSeen write. */
+export type SessionLookupResult =
+  | { ok: true; view: AuthSessionView; refreshed: boolean }
+  | { ok: false; reason: SessionRejectionCode };
+
 export type AuthErrorCode =
   | "HANDLE_TAKEN"
   | "HANDLE_INVALID"

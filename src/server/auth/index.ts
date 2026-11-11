@@ -18,7 +18,9 @@ export type {
   PlayerPrivateRecord,
   PublicAccount,
   SessionId,
+  SessionLookupResult,
   SessionRecord,
+  SessionRejectionCode,
   WorldId,
 } from "./types";
 export {

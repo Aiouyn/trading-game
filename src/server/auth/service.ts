@@ -36,6 +36,7 @@ import {
   type AuthSessionView,
   type PlayerPrivateRecord,
   type SessionId,
+  type SessionLookupResult,
   type SessionRecord,
 } from "./types";
 
@@ -87,6 +88,19 @@ const listedOf = (lp: LpState): ListedCoin[] => lp.coins.flatMap((c) => (c.grad 
 /** Match T19C session_idle_days / session_max_days defaults (real days). */
 export const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * Minted cookie tokens (`mintSessionToken`): 32 bytes, base64url, no padding → 43 characters.
+ * A string that does not round-trip is malformed, not an unknown session.
+ */
+const SESSION_TOKEN_BYTES = 32;
+const SESSION_TOKEN_CHARS = 43;
+
+function isMintedSessionToken(raw: string): boolean {
+  if (raw.length !== SESSION_TOKEN_CHARS || !/^[A-Za-z0-9_-]+$/.test(raw)) return false;
+  const buf = Buffer.from(raw, "base64url");
+  return buf.length === SESSION_TOKEN_BYTES && buf.toString("base64url") === raw;
+}
 
 /** V1 start cash placeholder — M2-02 displays $10k; isolation tests need a private field. */
 export const START_CASH_CENTS = 1_000_000;
@@ -317,42 +331,8 @@ export class AuthService {
    * Rolling idle expiry: lastSeen advances; absolute max from createdAt still enforced.
    */
   async resolveSession(rawToken: string | null | undefined): Promise<AuthSessionView | null> {
-    return this.withLock(async () => {
-      await this.ready;
-      if (!rawToken) return null;
-      const tokenHash = hashToken(rawToken);
-      const sessionId = this.tokenIndex.get(tokenHash);
-      if (!sessionId) return null;
-      const session = this.sessions.get(sessionId);
-      if (!session || session.revokedAtMs !== null) return null;
-
-      const now = this.now();
-      const absoluteExpiry = session.createdAtMs + SESSION_MAX_MS;
-      const idleExpiry = session.lastSeenAtMs + SESSION_IDLE_MS;
-      if (now > absoluteExpiry || now > idleExpiry || now > session.expiresAtMs) {
-        const revoked: SessionRecord = { ...session, revokedAtMs: now };
-        this.sessions.set(sessionId, revoked);
-        this.tokenIndex.delete(tokenHash);
-        await this.persist();
-        return null;
-      }
-
-      const refreshed: SessionRecord = {
-        ...session,
-        lastSeenAtMs: now,
-        expiresAtMs: Math.min(now + SESSION_IDLE_MS, absoluteExpiry),
-      };
-      this.sessions.set(sessionId, refreshed);
-      await this.persist();
-
-      const account = this.accounts.get(session.accountId);
-      if (!account) return null;
-      return {
-        sessionId: refreshed.sessionId,
-        account: toPublicAccount(account),
-        expiresAtMs: refreshed.expiresAtMs,
-      };
-    });
+    const found = await this.inspectSession(rawToken, { refresh: true });
+    return found.ok ? found.view : null;
   }
 
   /**
@@ -361,16 +341,101 @@ export class AuthService {
    * session simply reads as signed out here; the next resolveSession revokes it.
    */
   async peekSession(rawToken: string | null | undefined): Promise<AuthSessionView | null> {
+    const found = await this.inspectSession(rawToken);
+    return found.ok ? found.view : null;
+  }
+
+  /**
+   * Internal session lookup. `refresh: true` is resolveSession (sliding lastSeen, and an expired row is revoked and
+   * persisted). `refresh` false or omitted is peekSession: no memory writes and no persist.
+   *
+   * Reasons stay on this result. They are not AuthError codes and must not be written to an HTTP body.
+   *
+   * Revoked vs unknown: revoked rows stay in `sessions` with `tokenHash` and `revokedAtMs`, but `tokenIndex` omits
+   * them. A hash that matches one of those rows is REVOKED_SESSION; a hash that matches nothing is UNKNOWN_SESSION.
+   * The row does not record whether revocation was a logout or a previous expiry stamp, so a later lookup of an
+   * expiry-stamped row is REVOKED_SESSION. The call that first sees a still-active row past its deadline returns
+   * EXPIRED_SESSION (and, when refreshing, then stamps revokedAtMs the way resolveSession always has).
+   */
+  async inspectSession(
+    rawToken: string | null | undefined,
+    options?: { readonly refresh?: boolean },
+  ): Promise<SessionLookupResult> {
+    const refresh = options?.refresh === true;
+    if (refresh) {
+      return this.withLock(async () => {
+        await this.ready;
+        return this.evaluateSession(rawToken, true);
+      });
+    }
     await this.ready;
-    if (!rawToken) return null;
-    const sessionId = this.tokenIndex.get(hashToken(rawToken));
-    const session = sessionId ? this.sessions.get(sessionId) : undefined;
-    if (!session || session.revokedAtMs !== null) return null;
+    return this.evaluateSession(rawToken, false);
+  }
+
+  /**
+   * Live rows are in `tokenIndex`. Revoked rows are not, so an index miss still scans `sessions` by `tokenHash`.
+   * A live row wins if both somehow share a hash.
+   */
+  private sessionForTokenHash(tokenHash: string): SessionRecord | undefined {
+    const indexedId = this.tokenIndex.get(tokenHash);
+    if (indexedId) {
+      const indexed = this.sessions.get(indexedId);
+      if (indexed && indexed.revokedAtMs === null && indexed.tokenHash === tokenHash) return indexed;
+    }
+    let revoked: SessionRecord | undefined;
+    for (const session of this.sessions.values()) {
+      if (session.tokenHash !== tokenHash) continue;
+      if (session.revokedAtMs === null) return session;
+      if (!revoked) revoked = session;
+    }
+    return revoked;
+  }
+
+  /** Caller holds the service lock when `refresh` is true. Peek (`refresh` false) stays lock-free, as before. */
+  private async evaluateSession(rawToken: string | null | undefined, refresh: boolean): Promise<SessionLookupResult> {
+    if (rawToken == null || rawToken === "") return { ok: false, reason: "MISSING_TOKEN" };
+    if (!isMintedSessionToken(rawToken)) return { ok: false, reason: "MALFORMED_TOKEN" };
+
+    const tokenHash = hashToken(rawToken);
+    const session = this.sessionForTokenHash(tokenHash);
+    if (!session) return { ok: false, reason: "UNKNOWN_SESSION" };
+    if (session.revokedAtMs !== null) return { ok: false, reason: "REVOKED_SESSION" };
+
     const now = this.now();
-    if (now > session.createdAtMs + SESSION_MAX_MS || now > session.lastSeenAtMs + SESSION_IDLE_MS || now > session.expiresAtMs) return null;
-    const account = this.accounts.get(session.accountId);
-    if (!account) return null;
-    return { sessionId: session.sessionId, account: toPublicAccount(account), expiresAtMs: session.expiresAtMs };
+    const absoluteExpiry = session.createdAtMs + SESSION_MAX_MS;
+    const idleExpiry = session.lastSeenAtMs + SESSION_IDLE_MS;
+    if (now > absoluteExpiry || now > idleExpiry || now > session.expiresAtMs) {
+      if (refresh) {
+        const revoked: SessionRecord = { ...session, revokedAtMs: now };
+        this.sessions.set(session.sessionId, revoked);
+        this.tokenIndex.delete(tokenHash);
+        await this.persist();
+      }
+      return { ok: false, reason: "EXPIRED_SESSION" };
+    }
+
+    let current = session;
+    if (refresh) {
+      current = {
+        ...session,
+        lastSeenAtMs: now,
+        expiresAtMs: Math.min(now + SESSION_IDLE_MS, absoluteExpiry),
+      };
+      this.sessions.set(session.sessionId, current);
+      await this.persist();
+    }
+
+    const account = this.accounts.get(current.accountId);
+    if (!account) return { ok: false, reason: "UNKNOWN_ACCOUNT" };
+    return {
+      ok: true,
+      refreshed: refresh,
+      view: {
+        sessionId: current.sessionId,
+        account: toPublicAccount(account),
+        expiresAtMs: current.expiresAtMs,
+      },
+    };
   }
 
   /**
