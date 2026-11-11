@@ -105,24 +105,32 @@ export function BrokerFrame({ context }: { context?: string }) {
     if (!scroller) { head.focus(); return; }
     // Trade re-renders shorter than it ends up (chart/legend settle), so a single assignment is clamped: keep
     // re-applying the kept offset each frame until it and the height hold for 3 frames, the player scrolls or touches, or
-    // ~1.5 s passes. Focus is decided only then, against the settled layout.
+    // ~1.5 s passes.
     let frame = 0, stable = 0, lastHeight = -1, stopped = false;
     const stop = () => { stopped = true; };
     const opts = { passive: true, once: true } as const;
     for (const ev of ["wheel", "touchstart", "keydown", "pointerdown"] as const) scroller.addEventListener(ev, stop, opts);
+    // Focus now (frames may not run, e.g. a paused test clock) and once more after the layout settles, unless the
+    // player has moved focus meanwhile.
+    let focused: HTMLElement | null = null;
+    const decide = () => {
+      if (!head.isConnected) return;
+      // The select is off-screen at the kept place: focus the Trade region the player is looking at, without scrolling,
+      // so the place stays exact and focus is never on something off-screen.
+      const target = inView(head, scroller) ? head : (scroller.querySelector<HTMLElement>('[data-testid="br-trade-region"]') ?? head);
+      if (target !== document.activeElement) target.focus({ preventScroll: true });
+      focused = target;
+    };
     const settle = () => {
       if (!stopped) scroller.scrollTop = saved!;
       stable = scroller.scrollHeight === lastHeight && scroller.scrollTop >= saved! - 1 ? stable + 1 : 0;
       lastHeight = scroller.scrollHeight;
       if (!stopped && stable < 3 && ++frame < 90) { restoreRaf.current = requestAnimationFrame(settle); return; }
       for (const ev of ["wheel", "touchstart", "keydown", "pointerdown"] as const) scroller.removeEventListener(ev, stop);
-      if (!head.isConnected) return;
-      if (inView(head, scroller)) { head.focus({ preventScroll: true }); return; }
-      // The select is off-screen at the kept place: focus the Trade region the player is looking at, without scrolling,
-      // so the place stays exact and focus is never on something off-screen.
-      const region = scroller.querySelector<HTMLElement>('[data-testid="br-trade-region"]') ?? head;
-      region.focus({ preventScroll: true });
+      if (document.activeElement === focused) decide();
     };
+    scroller.scrollTop = saved!;
+    decide();
     settle();
   });
   useEffect(() => () => cancelAnimationFrame(restoreRaf.current), []);
