@@ -24,7 +24,7 @@ export function Composer({ t }: { t: WireStrings }) {
   const [key, setKey] = useState(newKey);
 
   const n = [...text].length;
-  const canSubmit = !busy && n > 0 && n <= MAX && assets.length >= 1 && remaining > 0;
+  const canSubmit = !busy && n > 0 && n <= MAX && assets.length >= 1;
 
   const fee = useMemo(() => fill(c.fee, { n: String(remaining) }), [c.fee, remaining]);
 

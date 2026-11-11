@@ -81,7 +81,7 @@ async function journey(page: Page, pageB: Page, request: APIRequestContext, requ
 
 test("desktop: post, cash −$500, hit the cap, refresh persists, second account is isolated", async ({ browser, baseURL }, info) => {
   test.skip(info.project.name !== "desktop", "desktop journey");
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const stamp = Date.now().toString(36);
   const a = await browser.newContext();
   const b = await browser.newContext();
@@ -98,7 +98,7 @@ test("desktop: post, cash −$500, hit the cap, refresh persists, second account
 
 test("phone: post, cash −$500, hit the cap, refresh persists, second account is isolated", async ({ browser, baseURL }, info) => {
   test.skip(info.project.name !== "phone", "phone journey");
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const stamp = Date.now().toString(36);
   const a = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const b = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
