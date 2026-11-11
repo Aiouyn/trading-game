@@ -188,7 +188,7 @@ describe("BR-4-08/09 place and fill", () => {
     const fill = me.fills.at(-1)!;
     expect(broker().dataset.phase).toBe("acked");
     const ack = q(h, "br-ack")!;
-    expect(ack.getAttribute("role")).toBe("status");
+    expect(ack.querySelector('[data-testid="br-receipt"]')!.getAttribute("role")).toBe("status");
     expect(text(h, "br-ack-title")).toBe(EN.bought("40", "HALC", decText(fill.price, "en")));
     expect(text(h, "br-ack-fee")).toBe(EN.feeLine(decText(fill.fee, "en")));
     expect(text(h, "br-hold")).toContain(moneyText(me.balances.FDL!));

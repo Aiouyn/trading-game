@@ -1,9 +1,10 @@
 "use client";
 // Review / submitting / acked (UI cards 4 and 5). Review repeats the server's estimate and holds the Broker's only primary
 // ("Place order"). The acked panel reads our IntentResult (and its MyFill) from `me`: nothing is computed here.
+import { MoneyText } from "@/components/shell/MoneyText";
 import { Button } from "@/components/ui/Button";
 import { decText } from "@/apps/portfolio/positions/format";
-import type { IntentResult, MyFill, PreviewRes } from "@/shell/contracts/channels";
+import type { IntentResult, MyFill, Position, PreviewRes } from "@/shell/contracts/channels";
 import { PreviewRows } from "./SimpleTicket";
 import { rejectCopy, type BrStrings } from "./strings";
 
@@ -64,6 +65,8 @@ export interface AckPanelProps {
   ticker: string;
   result: IntentResult;
   fill: MyFill | null;
+  position: Position | null;
+  stale: boolean;
   queued: boolean;
   /** Card 5: ACCEPTED with `order:{id}` that rests (not queued for reopen): "Order placed. It's in Open orders." */
   resting: boolean;
@@ -71,7 +74,7 @@ export interface AckPanelProps {
   onEdit: () => void;
 }
 
-export function AckPanel({ t, locale, ticker, result, fill, queued, resting, onNew, onEdit }: AckPanelProps) {
+export function AckPanel({ t, locale, ticker, result, fill, position, stale, queued, resting, onNew, onEdit }: AckPanelProps) {
   if (result.status === "REJECTED") {
     const code = result.rejectCode ?? "";
     const copy = rejectCopy(t, code, result.rejectParams);
@@ -85,19 +88,31 @@ export function AckPanel({ t, locale, ticker, result, fill, queued, resting, onN
   }
   const filled = result.status === "ACCEPTED" && fill !== null;
   return (
-    <section className="br-ack" role="status" data-testid="br-ack" data-status={result.status}>
-      {filled ? (
-        <>
-          <p className="br-ack-title" data-testid="br-ack-title">
-            {(fill.side === "BUY" ? t.bought : t.sold)(decText(fill.qty, locale), ticker, decText(fill.price, locale))}
+    <section className="br-ack" data-testid="br-ack" data-status={result.status}>
+      <div className="br-receipt" role="status" data-testid="br-receipt">
+        {filled ? (
+          <>
+            <p className="br-ack-title" data-testid="br-ack-title">
+              {(fill.side === "BUY" ? t.bought : t.sold)(decText(fill.qty, locale), ticker, decText(fill.price, locale))}
+            </p>
+            <p className="br-ack-line num" data-testid="br-ack-fee">{t.feeLine(decText(fill.fee, locale))}</p>
+          </>
+        ) : (
+          <>
+            <p className="br-ack-title" data-testid="br-ack-title">{resting ? t.restingAck : t.received}</p>
+            {queued && <p className="br-queued" data-testid="br-queued">{t.haltedQueued}</p>}
+          </>
+        )}
+      </div>
+      {filled && position !== null && (
+        <div className="br-fill-position" data-testid="br-fill-position">
+          <p data-testid="br-fill-holding">{t.positionHolding(decText(position.qty, locale), position.assetId)}</p>
+          <p className="br-fill-pnl" data-testid="br-fill-pnl">
+            <span className="muted">{stale ? t.lastKnownPnl : t.unrealizedPnl}</span>
+            <MoneyText amount={position.upl} ctx="delta" />
           </p>
-          <p className="br-ack-line num" data-testid="br-ack-fee">{t.feeLine(decText(fill.fee, locale))}</p>
-        </>
-      ) : (
-        <>
-          <p className="br-ack-title" data-testid="br-ack-title">{resting ? t.restingAck : t.received}</p>
-          {queued && <p className="br-queued" data-testid="br-queued">{t.haltedQueued}</p>}
-        </>
+          <p className="muted" data-testid="br-fill-help">{t.positionPnlHelp}</p>
+        </div>
       )}
       <div className="br-actions"><Button variant="ghost" data-testid="br-new" onClick={onNew}>{t.newOrder}</Button></div>
     </section>

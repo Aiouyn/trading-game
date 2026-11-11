@@ -254,7 +254,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const ack = result && (
     <AckPanel t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
       queued={(() => { const id = orderIdOf(result); return id !== null && body.orders[id]?.status === "QUEUED_AUCTION"; })()}
-      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject} />
+      resting={restingId !== null} position={body.positions[assetId] ?? null} stale={frozen} onNew={newOrder} onEdit={editAfterReject} />
   );
   const ticket = (
     <SimpleTicket t={t} locale={locale} side={draft.side} qtyText={draft.qtyText} qtyRef={qtyRef}

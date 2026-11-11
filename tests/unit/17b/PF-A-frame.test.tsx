@@ -50,6 +50,27 @@ describe("PF-2-09 desktop frame", () => {
   });
 });
 
+describe("Card7 phone destination focus", () => {
+  it("claims lost BODY focus after the Portfolio body mounts", async () => {
+    expect(document.activeElement).toBe(document.body);
+    await mount(390);
+    expect(document.activeElement).toBe(q("portfolio"));
+  });
+  it("a later lazy remount restores focus to the replacement Portfolio root", async () => {
+    await mount(390);
+    q("portfolio")!.focus();
+    await act(async () => root.unmount());
+    root = createRoot(el);
+    await mount(390);
+    expect(document.activeElement).toBe(q("portfolio"));
+  });
+  it("does not take focus from an intentional surviving control", async () => {
+    const button = document.createElement("button"); document.body.append(button); button.focus();
+    try { await mount(390); expect(document.activeElement).toBe(button); }
+    finally { button.remove(); }
+  });
+});
+
 describe("PF-2-10 phone push", () => {
   it("Overview is the root; Positions pushes with back label 'Back to Portfolio'; back pops; unmount clears", async () => {
     await mount(390);
