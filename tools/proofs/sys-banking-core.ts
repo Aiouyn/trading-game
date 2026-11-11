@@ -185,14 +185,15 @@ async function main() {
         // shorter than the closeout delay, so the failure is always observed before the closeout tick is emitted.
         const TARGET = 5040, CHUNK = 480, driver = await BankingCoreEngine.open(new FileBankingCoreStore(join(out, "cross-module-single-pass.json")), g, true);
         let failedAt: number | null = null, observedAt: number | null = null, prev = -1;
-        const emitted: F.Frame[] = [];
+        const emitted: F.Frame[] = [], failures: { failedAt: number; observedAtTick: number }[] = [];
         while (prev < TARGET) {
             const end = Math.min(prev + CHUNK, TARGET), rows = build(g, end, o, edit(failedAt)).filter(f => f.tick > prev);
             await driver.advance(end, rows);
             emitted.push(...rows);
             const seen = driver.snapshot().banks.find(b => b.id === "a")!.failedAt;
             if (failedAt === null && seen !== null) { failedAt = seen; observedAt = end; assert(failedAt + CLOSEOUT_DELAY > end, "closeout tick must still be in the future when the failure is observed"); }
-            else assert.equal(seen, failedAt, "failedAt is fixed once committed");
+            // The closeout charges bank a's own CCP custody, so a second solvency failure may follow it; record, never hide it.
+            if (seen !== null && seen !== (failures.at(-1)?.failedAt ?? null)) failures.push({ failedAt: seen, observedAtTick: end });
             prev = end;
         }
         assert(failedAt !== null && observedAt !== null, "bank a must fail in the cross-module scenario");
@@ -200,14 +201,16 @@ async function main() {
         assert.deepEqual(closeoutTicks, [failedAt + CLOSEOUT_DELAY]);
         // The causal frames equal the old two-pass placement rule applied to the observed failure tick.
         assert.equal(wire(frames), wire(build(g, TARGET, o, edit(failedAt))), "single-pass frames equal the placement rule");
-        crossModule = { chunk: CHUNK, chunks: Math.ceil((TARGET + 1) / CHUNK), failedAt, observedAtTick: observedAt, closeoutTick: failedAt + CLOSEOUT_DELAY, framesSha256: sha(wire(frames)), planningPass: false };
+        for (const later of failures.slice(1)) assert(later.failedAt > failedAt + CLOSEOUT_DELAY, "a later failure can only follow the closeout");
+        crossModule = { chunk: CHUNK, chunks: Math.ceil((TARGET + 1) / CHUNK), firstFailedAt: failedAt, observedAtTick: observedAt, closeoutTick: failedAt + CLOSEOUT_DELAY, failures, framesSha256: sha(wire(frames)), planningPass: false };
         const fa = failedAt;
         await scenario(out, "cross-module", "loan-run-bailin-ccp-default", g, frames, TARGET, s => {
             const a = s.banks[0], l = s.creditBooks[0].loans[0], e = s.ccpMeta!.defaults.find(x => x.memberId === "d")!;
             assert(s.creditBooks[0].movements.some(m => m.kind === "CREDIT_CREATE")); assert.equal(l.status, "CHARGED_OFF");
             assert.equal(a.resolution!.tool, "BAIL_IN"); assert(a.resolution!.equityRights.some(r => r.creditor === "treasury-a"));
             assert.equal(e.reason ?? "BANK_RESOLUTION", "BANK_RESOLUTION"); assert(e.closeout);
-            return { failedAt: fa, tool: a.resolution!.tool, status: a.status, equityRights: a.resolution!.equityRights, loan: l.status, ccpDefault: { id: e.id, stage: e.stage, remaining: String(e.remaining), layers: e.layers } };
+            assert.equal(a.failedAt, failures.at(-1)!.failedAt); assert.equal(s.ccpMeta!.defaults.filter(x => x.memberId === "d").length, 1, "one CCP default even if the bank fails again");
+            return { failedAt: fa, finalFailedAt: a.failedAt, failures, ccpDefaults: s.ccpMeta!.defaults.length, tool: a.resolution!.tool, status: a.status, equityRights: a.resolution!.equityRights, loan: l.status, ccpDefault: { id: e.id, stage: e.stage, remaining: String(e.remaining), layers: e.layers } };
         }, { exact: ["a", "b"], points: [0, 1, 2, 29, 30, 31, fa, fa + 30, fa + 1, fa + CLOSEOUT_DELAY, fa + CLOSEOUT_DELAY + 1] });
         const single = await readFile(join(out, "cross-module-single-pass.json"), "utf8"), jumpBytes = await readFile(join(out, "cross-module-loan-run-bailin-ccp-default", "jump.json"), "utf8");
         assert.equal(single, jumpBytes, "chunked causal store equals the jump store byte for byte");
