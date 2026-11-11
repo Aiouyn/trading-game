@@ -75,7 +75,7 @@ test("first fill: receipt and server P&L, no extra order, then the same position
     await page.getByTestId("app-back").click(); await page.getByTestId("icon-portfolio").click();
     await expect(page.getByTestId("portfolio")).toBeFocused(); await page.getByTestId("pf-open-positions").click();
   } else {
-    const pf = page.getByTestId("win-portfolio").first(); await expect(pf).toBeVisible(); await pf.getByTestId("pf-tab-positions").click();
+    await boot(page, "/portfolio"); const pf = page.getByTestId("win-portfolio").first(); await expect(pf).toBeVisible(); await pf.getByTestId("pf-tab-positions").click();
   }
   const position = page.locator('[data-testid="pos-row"][data-asset="HALC"]'); await expect(position).toBeVisible();
   await expect(position.getByTestId(phone ? "pos-qtyat" : "pos-qty")).toHaveText(phone ? /^3 @ / : "3");
