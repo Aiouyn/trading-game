@@ -26,8 +26,12 @@ import {
 
 const ROOT = resolve(import.meta.dirname, "../..");
 
+function gitEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
+}
+
 function git(args, cwd) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, env: gitEnv() });
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${(r.stderr || "").trim()}`);
   return r.stdout;

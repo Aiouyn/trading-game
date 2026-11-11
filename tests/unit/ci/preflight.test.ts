@@ -26,8 +26,16 @@ import {
 const ROOT = join(import.meta.dirname, "../../..");
 const CI_YML = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
 
+function gitEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_")) delete env[key];
+  }
+  return env;
+}
+
 function git(cwd: string, args: string[]) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", env: gitEnv() });
   expect(r.status, r.stderr).toBe(0);
   return r.stdout;
 }
@@ -42,6 +50,87 @@ function tempRepo() {
   git(dir, ["commit", "-m", "init"]);
   return dir;
 }
+
+function isolatedGit(cwd: string, args: string[]) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", env: gitEnv() });
+  expect(r.status, r.stderr).toBe(0);
+  return r.stdout;
+}
+
+function makeVictimRepo() {
+  const victim = mkdtempSync(join(tmpdir(), "pf-victim-"));
+  isolatedGit(victim, ["init"]);
+  isolatedGit(victim, ["config", "user.email", "victim@test"]);
+  isolatedGit(victim, ["config", "user.name", "victim"]);
+  writeFileSync(join(victim, "victim.txt"), "keep\n");
+  isolatedGit(victim, ["add", "victim.txt"]);
+  isolatedGit(victim, ["commit", "-m", "victim-start"]);
+  return {
+    victim,
+    head: isolatedGit(victim, ["rev-parse", "HEAD"]).trim(),
+    index: isolatedGit(victim, ["ls-files", "-s"]),
+    gitDir: join(victim, ".git"),
+    indexFile: join(victim, ".git", "index"),
+  };
+}
+
+function withGitEnv<T>(vars: Record<string, string>, fn: () => T): { value?: T; error?: unknown } {
+  const keys = Object.keys(vars);
+  const prev = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    for (const [key, value] of Object.entries(vars)) process.env[key] = value;
+    return { value: fn() };
+  } catch (error) {
+    return { error };
+  } finally {
+    for (const key of keys) {
+      if (prev[key] === undefined) delete process.env[key];
+      else process.env[key] = prev[key];
+    }
+  }
+}
+
+function expectVictimUnchanged(v: ReturnType<typeof makeVictimRepo>) {
+  expect(isolatedGit(v.victim, ["rev-parse", "HEAD"]).trim()).toBe(v.head);
+  expect(isolatedGit(v.victim, ["ls-files", "-s"])).toBe(v.index);
+  expect(isolatedGit(v.victim, ["config", "--get", "user.email"]).trim()).toBe("victim@test");
+  expect(isolatedGit(v.victim, ["log", "--all", "--pretty=%s"])).not.toMatch(/\binit\b/);
+  expect(readFileSync(join(v.victim, "victim.txt"), "utf8")).toBe("keep\n");
+}
+
+function expectScratchIndependent(scratch: string) {
+  expect(isolatedGit(scratch, ["log", "-1", "--pretty=%s"]).trim()).toBe("init");
+  expect(isolatedGit(scratch, ["rev-parse", "HEAD"]).trim()).not.toBe("");
+  expect(readFileSync(join(scratch, "tracked.txt"), "utf8")).toBe("v1\n");
+  expect(isolatedGit(scratch, ["rev-parse", "--absolute-git-dir"]).trim()).toBe(join(scratch, ".git"));
+}
+
+describe("preflight test git helper ignores hook GIT_* env", () => {
+  it("does not change a victim repo's HEAD or index when GIT_DIR, GIT_INDEX_FILE, and GIT_WORK_TREE point at it", () => {
+    const v = makeVictimRepo();
+
+    // Hook-like case: GIT_DIR + GIT_INDEX_FILE only. This is the leak that
+    // wrote `commit -m init` onto real branches — git uses cwd as the work
+    // tree but the victim as the repository.
+    const hookLike = withGitEnv(
+      { GIT_DIR: v.gitDir, GIT_INDEX_FILE: v.indexFile },
+      () => tempRepo(),
+    );
+    expect(hookLike.error, String(hookLike.error)).toBeUndefined();
+    // Victim first: without the fix this is where HEAD/index change is visible.
+    expectVictimUnchanged(v);
+    expectScratchIndependent(hookLike.value!);
+
+    // Same assertion with GIT_WORK_TREE also pointing at the victim.
+    const withWorkTree = withGitEnv(
+      { GIT_DIR: v.gitDir, GIT_INDEX_FILE: v.indexFile, GIT_WORK_TREE: v.victim },
+      () => tempRepo(),
+    );
+    expect(withWorkTree.error, String(withWorkTree.error)).toBeUndefined();
+    expectScratchIndependent(withWorkTree.value!);
+    expectVictimUnchanged(v);
+  });
+});
 
 describe("preflight phases ↔ CI parity (bidirectional)", () => {
   it("CORE_PHASES ids and commands match the known CI checklist (hardcoded)", () => {
