@@ -93,6 +93,8 @@ export const S = {
   goalLine: "Goal: grow $10,000 to $20,000.",
   firstTradeGuide: "First trade guide",
   feedback: "Feedback",
+  /** Accessible name; must not contain "Back" (role name is a substring match). */
+  feedbackAria: "Share a comment",
   feedbackPrompt: "What's on your mind?",
   feedbackSend: "Send",
   feedbackThanks: "Thanks — we got it.",

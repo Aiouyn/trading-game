@@ -10,7 +10,7 @@ export function FeedbackButton() {
   const close = useCallback(() => setOpen(false), []);
   return (
     <div className="quay-feedback">
-      <button type="button" className="chip quay-feedback-btn" data-testid="quay-feedback" onClick={toggle}>
+      <button type="button" className="chip quay-feedback-btn" data-testid="quay-feedback" aria-label={S.feedbackAria} onClick={toggle}>
         {S.feedback}
       </button>
       {open ? (
