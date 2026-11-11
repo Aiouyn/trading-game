@@ -75,6 +75,28 @@ for (const [width, locale, scale] of [[390, "en", 1], [320, "fr", 2]] as const) 
   await shot(page, `${locale}${scale}-${width}-3-back-same-place`);
 });
 
+test("phone: a different asset picked on About opens Trade at the top on Back (no other asset's place)", async ({ page, baseURL }, info) => {
+  test.skip(info.project.name !== "phone", "phone Back to trade");
+  await phoneBroker(page, 390, "en", 1, baseURL);
+  await page.evaluate(() => { const s = document.querySelector<HTMLElement>(".phone-appbody")!; s.scrollTop = s.scrollHeight; });
+  await page.waitForTimeout(300);
+  const saved = await broker(page).getByTestId("br-view-about").evaluate((e) => { const v = document.querySelector<HTMLElement>(".phone-appbody")!.scrollTop; (e as HTMLElement).click(); return v; });
+  expect(saved).toBeGreaterThan(50);
+  await expect(page.getByTestId("br-about-title")).toBeFocused();
+  // Switch the asset from the header while on About.
+  await broker(page).getByTestId("br-asset-select").selectOption("AVB");
+  await expect(broker(page).getByTestId("br-asset-select")).toHaveValue("AVB");
+  await page.getByTestId("app-back").click();
+  await expect(broker(page)).toHaveAttribute("data-view", "trade");
+  await expect(broker(page).getByTestId("br-asset-select")).toHaveValue("AVB");
+  await expect(broker(page).getByTestId("br-asset-select")).toBeFocused();
+  // Hold for the settle window: nothing re-applies HALC's place later.
+  await page.waitForTimeout(1700);
+  expect(await scrollTop(page)).toBe(0);
+  await expect(broker(page).getByTestId("br-asset-select")).toBeInViewport({ ratio: 1 });
+  await shot(page, "en1-390-4-other-asset-top");
+});
+
 test("phone: unscrolled Trade keeps the asset-select focus contract on Back", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone Back to trade");
   await phoneBroker(page, 390, "en", 1);
