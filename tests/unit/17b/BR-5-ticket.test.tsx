@@ -43,8 +43,8 @@ describe("BR-5-01 order type segment", () => {
     expect(q(h, "br-type-market")!.getAttribute("aria-pressed")).toBe("true");
     expect(q(h, "br-price-limit")).toBeNull();
     expect(q(h, "br-price-stop")).toBeNull();
-    expect(text(h, "br-kind")).toBe(EN.orderKind);
-    expect(q(h, "br-ticket")!.getAttribute("aria-label")).toBe(EN.orderKind);
+    expect(text(h, "br-kind")).toBe("Market · Day");
+    expect(q(h, "br-ticket")!.getAttribute("aria-label")).toBe("Market · Day");
   });
   it.each([
     ["limit", ["br-price-limit"], "Limit · Day"],

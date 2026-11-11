@@ -13,8 +13,8 @@ const code = readdirSync(DIR).filter((f) => /\.tsx?$/.test(f)).map((f) => ({ f, 
 const css = readFileSync(join(DIR, "broker.css"), "utf8");
 
 describe("BR-4-01 Broker is built", () => {
-  it("registry built list = broker, portfolio, settings, wire", () => {
-    expect(REGISTRY.filter((a) => a.built).map((a) => a.id).sort()).toEqual(["broker", "portfolio", "settings", "wire"]);
+  it("registry built list = boards, broker, city, launchpad, portfolio, settings, wire (M1-10 adds city; the owner-restored Launchpad)", () => {
+    expect(REGISTRY.filter((a) => a.built).map((a) => a.id).sort()).toEqual(["boards", "broker", "city", "launchpad", "portfolio", "settings", "wire"]);
   });
   it("its module is the lazy @/apps/broker/App chunk", async () => {
     expect(APP_MODULES.broker.kind).toBe("lazy");
@@ -51,7 +51,7 @@ describe("BR-4-03 no client maths on server numbers", () => {
   });
   it.each(code)("$f: never imports mockFeed; data comes only via useChannel and contracts/orders", ({ raw }) => {
     expect(raw).not.toMatch(/mockFeed|mockChannels|fixtures\//);
-    for (const m of raw.matchAll(/from "(@\/shell\/[^"]+)"/g)) expect(["@/shell/contracts/useChannel", "@/shell/contracts/orders", "@/shell/contracts/channels", "@/shell/contracts/assetDetail", "@/shell/wm"]).toContain(m[1]);
+    for (const m of raw.matchAll(/from "(@\/shell\/[^"]+)"/g)) expect(["@/shell/contracts/useChannel", "@/shell/contracts/orders", "@/shell/contracts/channels", "@/shell/contracts/assetDetail", "@/shell/wm", "@/shell/strings"]).toContain(m[1]);
   });
 });
 
@@ -81,7 +81,7 @@ describe("BR-4-16 strings EN/FR", () => {
     expect(Object.keys(FR.r).sort()).toEqual(Object.keys(EN.r).sort());
   });
   it("FR column of the card's copy table", () => {
-    expect([FR.asset, FR.side, FR.buy, FR.sell, FR.qty, FR.qtyEmpty, FR.qtyDigits, FR.orderKind, FR.youHold("40")]).toEqual(
+    expect([FR.asset, FR.side, FR.buy, FR.sell, FR.qty, FR.qtyEmpty, FR.qtyDigits, FR.kindDay("Au marché"), FR.youHold("40")]).toEqual(
       ["Actif", "Sens", "↑ Achat", "↓ Vente", "Quantité", "Saisissez une quantité.", "Chiffres uniquement.", "Au marché · Jour", "Vous détenez 40"]);
     expect([FR.review, FR.edit, FR.place, FR.actionBuy("40", "HALC"), FR.actionSell("40", "HALC"), FR.estimateAt("27700")]).toEqual(
       ["Vérifier l’ordre", "Modifier", "Passer l’ordre", "Acheter 40 HALC", "Vendre 40 HALC", "Estimation · au tick 27700"]);
@@ -89,8 +89,8 @@ describe("BR-4-16 strings EN/FR", () => {
       ["Cours", "Exécution est.", "Frais", "Impact est.", "Total est.", "Pouvoir d’achat après", "Plafond premier ordre restant", "Actualisation de l’estimation…", "Les cours peuvent baisser. C’est le jeu."]);
     expect([FR.pending("5"), FR.bought("40", "HALC", "12,34"), FR.sold("40", "HALC", "12,34"), FR.feeLine("0,49"), FR.received, FR.newOrder, FR.rejected]).toEqual(
       ["En attente · tick 5", "Achat de 40 HALC à 12,34", "Vente de 40 HALC à 12,34", "Frais 0,49", "Ordre reçu.", "Nouvel ordre", "Ordre refusé"]);
-    expect([FR.r.MKT_INSUFFICIENT_BP, FR.r.MKT_HALTED, FR.r.MKT_UNKNOWN_ASSET, FR.r.MKT_BAD_QTY, FR.halted, FR.haltedHelp]).toEqual(
-      ["Liquidités insuffisantes pour cet ordre.", "La cotation de cet actif est suspendue.", "Cet actif ne peut pas être négocié.", "Vérifiez la quantité.", "Suspendu", "Les ordres sont suspendus pendant l’arrêt de la cotation."]);
+    expect([FR.r.MKT_INSUFFICIENT_BP, FR.r.MKT_HALTED, FR.r.MKT_UNKNOWN_ASSET, FR.r.MKT_BAD_QTY, FR.halted]).toEqual(
+      ["Liquidités insuffisantes pour cet ordre.", "La cotation de cet actif est suspendue.", "Cet actif ne peut pas être négocié.", "Vérifiez la quantité.", "Suspendu"]);
   });
   it("U+202F before \"pb\" and \":\"; the unknown-code line uses « » with U+202F inside", () => {
     expect(FR.bp("12")).toBe(`12${NNBSP}pb`);

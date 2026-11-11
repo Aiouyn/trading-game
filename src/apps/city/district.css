@@ -1,0 +1,23 @@
+/* M1-10 static district view (City app). Tokens only; no animation. */
+.dv { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-16); padding: var(--sp-16); min-width: 0; }
+.dv-map { flex: 1 1 300px; min-width: 0; max-width: 100%; }
+.dv-map svg { display: block; width: 100%; height: auto; max-height: 70vh; background: var(--win2); border: 1px solid var(--line); border-radius: var(--r-input); }
+.dv-water { fill: color-mix(in oklab, var(--steel) 22%, transparent); }
+.dv-water-label { fill: var(--fg-faint); font: 400 22px var(--font-ui); }
+.dv-dot { fill: var(--fg-muted); cursor: pointer; }
+.dv-dot.on { fill: var(--fg); }
+.dv-ring { fill: none; stroke: var(--fg); stroke-width: 3; }
+.dv-label { fill: var(--fg-muted); font: 400 22px var(--font-ui); pointer-events: none; }
+.dv-label.on { fill: var(--fg); font-weight: 600; }
+.dv-panel { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-12); }
+.dv-head h2 { margin: 0; font: 400 var(--fs-20) / 1.2 var(--font-display); color: var(--fg); overflow-wrap: anywhere; }
+.dv-head p { margin: 2px 0 0; }
+.dv-status { margin: 0; padding: var(--sp-8) var(--sp-12); border: 1px solid var(--line); border-radius: var(--r-input); color: var(--fg-muted); font-size: var(--fs-12_5); }
+.dv-detail { display: flex; flex-direction: column; gap: 4px; }
+.dv-detail h3 { margin: 0; font-size: var(--fs-16); color: var(--fg); overflow-wrap: anywhere; }
+.dv-detail p { margin: 0; overflow-wrap: anywhere; }
+.dv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.dv-list h3 { width: 100%; margin: 0; }
+.dv-back { align-self: flex-start; }
+.dv.dv-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
+.dv-list .dv-on { border-color: var(--fg); color: var(--fg); }

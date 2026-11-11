@@ -1,0 +1,16 @@
+.quay-consent {
+  position: fixed;
+  z-index: var(--z-chrome);
+  right: var(--sp-8);
+  bottom: var(--sp-8);
+  width: min(320px, 92vw);
+  padding: var(--sp-8);
+  background: var(--win);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  box-shadow: var(--elev-sheet);
+}
+.quay-consent-text { margin: 0 0 var(--sp-8); font-size: var(--fs-13); }
+.quay-consent-actions { display: flex; gap: var(--sp-8); justify-content: flex-end; }
+.is-phone .quay-consent { bottom: calc(var(--sp-8) + var(--hit-touch)); }

@@ -1,17 +1,38 @@
 /* Broker ticket (UI card 4, BRK-A). Colour only for price direction (Today) and the one primary (Place). */
 /* .br is the size container; a container query cannot style its own container, so the columns live on .br-grid. */
+/* The frame fills the window body's height, so the chart (not empty space) takes what a taller window adds. */
 .br { container-type: inline-size; padding: var(--sp-16); min-width: 0; }
 .br-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-16); min-width: 0; }
+/* Desktop Trade view only (phone and About keep their top-down layout). */
+.br[data-view="trade"]:not(.br-phone) { min-height: 100%; display: flex; flex-direction: column; }
+.br[data-view="trade"]:not(.br-phone) > .br-grid { flex: 1; }
 .br-col { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
-/* >= 640 px window: header + holdings left, ticket 400 px right. */
-@container (min-width: 640px) { .br:not(.br-phone) .br-grid { grid-template-columns: minmax(0, 1fr) 400px; } }
+/* Two columns once the window leaves the chart >= 344 px beside the 400 px ticket: market (quote, chart, holdings) left,
+   ticket right; Open orders under the market column. Row 1 grows with the window; the chart takes the growth. A hairline
+   in the column gap and one above Open orders mark the three sections without moving any content. */
+@container (min-width: 760px) {
+  .br:not(.br-phone) .br-grid { grid-template-columns: minmax(0, 1fr) 400px; }
+  /* openOrders.css places the areas: ticket spans both rows, row 1 grows. */
+  .br[data-view="trade"]:not(.br-phone) .br-col-head .br-head, .br[data-view="trade"]:not(.br-phone) .br-col-head .br-chart { flex: 1; }
+  .br[data-view="trade"]:not(.br-phone) .br-col-head .br-chart-box { flex: 1; height: auto; min-height: calc(240px + var(--cc-legend-h)); }
+  .br:not(.br-phone)[data-view="trade"] .br-col-ticket { position: relative; }
+  .br:not(.br-phone)[data-view="trade"] .br-col-ticket::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--sp-16) / -2); border-left: 1px solid var(--line); }
+  .br:not(.br-phone) .br-col-orders { position: relative; }
+  .br:not(.br-phone) .br-col-orders::before { content: ""; position: absolute; left: 0; right: 0; top: calc(var(--sp-16) / -2); border-top: 1px solid var(--line); }
+}
 
 /* Header */
 .br-head { display: flex; flex-direction: column; gap: var(--sp-8); }
 .br-title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); }
 .br-ticker { font-size: var(--fs-22); font-weight: 600; color: var(--fg); margin: 0; }
 .br-pick { display: flex; flex-direction: column; gap: var(--sp-4); }
-.br-select { min-height: var(--hit-pointer); padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-weight: 600; }
+/* Name line is a whole-pixel height so everything under it moves by whole pixels (card 4-9 baselines).
+   "TICKER · Name" options widen the select: cap it at the column so 390 at text scale 2 does not overflow
+   (BR-5-12, BR-7-12); the closed select clips, the open list is native. Kept here (not assetPage.css) so
+   Trade does not wait on the lazy About chunk. */
+.br-name { margin: 0; line-height: calc(20px * var(--text-scale)); }
+.br-pick { min-width: 0; max-width: 100%; }
+.br-select { min-height: var(--hit-pointer); padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-weight: 600; max-width: 100%; text-overflow: ellipsis; }
 .br-halted { color: var(--steel); }
 .br-quote { display: flex; flex-wrap: wrap; gap: var(--sp-16); align-items: flex-end; }
 .br-market-tick { margin: 0; font-family: var(--font-num); }
@@ -69,19 +90,31 @@
 .br-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-8); }
 
 /* Price chart (UI card 7). The box has the chart's height in every state (skeleton, error, empty, plot, table), so
-   nothing below it moves when history lands. 200 px; 240 px in a >= 640 px desktop window. The plot itself is the lazy
+   nothing below it moves when history lands. 200 px; 240 px in a >= 640 px desktop window; from 760 px it takes the
+   window's spare height (at least 240 px). The plot itself is the lazy
    chart chunk (candleChart.css). */
 .br-chart { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
 .br-chart-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-8); }
 .br-chart-title { margin: 0; font-size: var(--fs-12_5); color: var(--fg-muted); font-weight: 500; }
-.br-chart-box { position: relative; height: 200px; min-width: 0; border-radius: var(--r-input); overflow: hidden; }
-@container (min-width: 640px) { .br:not(.br-phone) .br-chart-box { height: 240px; } }
+.br-chart-box {
+  /* M1-07: the plot keeps its 200 / 240 px; the OHLCV legend's two lines sit above it, inside the box (never over bars).
+     More legend lines (overlays) and the RSI pane add to the box, never take from the plot (candleChart.css). */
+  --cc-legend-h: calc(32px * var(--text-scale)); --cc-stage-h: 200px;
+  position: relative; display: flex; flex-direction: column; min-height: calc(var(--cc-stage-h) + var(--cc-legend-h));
+  min-width: 0; border-radius: var(--r-input); overflow: hidden;
+}
+@container (min-width: 640px) { .br:not(.br-phone) .br-chart-box { --cc-stage-h: 240px; } }
+/* (>= 760 px: the box grows with the window from 240 px, above.) */
 .br-chart-box.stale { opacity: 0.6; }
+/* M2-05: offline now (truthfully) holds the chart stale; at 0.6 the muted/faint legend fell below 4.5:1 (axe). The
+   legend reads in --fg while dimmed so it stays legible; the box keeps the approved 0.6 dim (BR-7-11). */
+.br-chart-box.stale .cc-legend, .br-chart-box.stale .cc-legend-time, .br-chart-box.stale .cc-legend-k { color: var(--fg); }
 .br-chart-skel { position: absolute; inset: 0; }
 .br-chart-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-8); margin: 0; padding: var(--sp-12); text-align: center; border: 1px solid var(--line); border-radius: var(--r-input); }
 .br-chart-msg.muted { color: var(--fg-muted); }
 .br-chart-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
 .br-chart-foot .br-updating { margin: 0; }
+.br-chart-source { margin: 0; font-size: var(--fs-11_5); line-height: calc(16px * var(--text-scale)); } /* M1-07: where the bars come from (server quotes or demo) */
 .br-chart-foot.off { visibility: hidden; }
 /* Range tabs: the #38 segment (.br-seg). At BR_STACK_SCALE they wrap to 2 rows of 3, not a column. */
 .br-stacked .br-seg.br-chart-ranges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
@@ -99,6 +132,20 @@
 .br-chart-table td { font-family: var(--font-num); color: var(--fg); }
 .br-chart-toggle.btn { min-height: var(--hit-pointer); }
 .br-phone .br-chart-toggle.btn { min-height: var(--hit-touch); }
+/* Trend line tool and Delete line, next to the table toggle (same hit sizes). */
+.br-chart-draw { display: inline-flex; flex-wrap: wrap; gap: var(--sp-8); }
+.br-chart-tool.btn { min-height: var(--hit-pointer); }
+.br-phone .br-chart-tool.btn { min-height: var(--hit-touch); }
+/* Overlays: each a toggle (pressed = drawn) and its period, kept together when the foot wraps. */
+.br-chart-studies { display: inline-flex; flex-wrap: wrap; gap: var(--sp-8); }
+.br-study { display: inline-flex; gap: var(--sp-4); align-items: center; }
+/* Pressed = drawn: the segment's pressed look plus a sample of its line (SMA solid, EMA dashed), as in the legend. */
+.br-study-on[aria-pressed="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
+.br-study-on[aria-pressed="true"]::before { content: ""; display: inline-block; width: 12px; margin-right: var(--sp-4); vertical-align: middle; border-top: 2px solid var(--info); }
+.br-study-ema[aria-pressed="true"]::before { border-top-style: dashed; border-top-color: var(--warn); }
+.br-study-bb[aria-pressed="true"]::before { border-top-style: dashed; border-top-color: var(--steel); }
+.br-study-vwap[aria-pressed="true"]::before { border-top-style: dotted; border-top-color: var(--fg-muted); }
+.br-study-rsi[aria-pressed="true"]::before { border-top-color: var(--steel); }
 html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { border-bottom-color: var(--fg-muted); }
 
 /* Phone: one column, 16 px padding, 44 px controls. */

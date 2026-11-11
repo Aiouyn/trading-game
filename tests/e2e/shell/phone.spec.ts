@@ -33,7 +33,7 @@ test("S1-13 grid groups hold only apps of that group", async ({ page }) => {
   await boot(page, "/?rank=R6&nw=200000");
   const map = await page.evaluate(() => Array.from(document.querySelectorAll("[data-testid^=group-]")).map((g) => [g.getAttribute("data-testid"), Array.from(g.querySelectorAll("[data-testid^=icon-]")).map((i) => i.getAttribute("data-testid"))]));
   expect(map).toEqual([
-    ["group-trade", ["icon-markets", "icon-risk", "icon-quantlab", "icon-research"]],
+    ["group-trade", ["icon-markets", "icon-launchpad", "icon-risk", "icon-quantlab", "icon-research"]],
     ["group-build", ["icon-businesses", "icon-company", "icon-property", "icon-city", "icon-bank", "icon-funds", "icon-insurance", "icon-institutions"]],
     ["group-shadow", ["icon-ailab", "icon-security", "icon-legal"]],
     ["group-world", ["icon-boards", "icon-contracts", "icon-auctions", "icon-civic", "icon-replay"]],

@@ -1,8 +1,10 @@
 /* Broker order type + Open orders (UI card 5). No colour meaning: segment and chips are --line / --steel / --win2 only. */
 
-/* Grid: >= 640 px window, header + Open orders left, ticket right (spanning). One column otherwise: header, ticket, list. */
-@container (min-width: 640px) {
-  .br:not(.br-phone) .br-grid { grid-template-areas: "head ticket" "orders ticket"; grid-template-rows: auto 1fr; align-items: start; }
+/* Grid: >= 760 px window (broker.css), header + Open orders left, ticket right (spanning). One column otherwise: header,
+   ticket, list. */
+@container (min-width: 760px) {
+  /* Row 1 (market: quote, chart, holdings) takes the window's spare height; Open orders sits under it at its own height. */
+  .br:not(.br-phone) .br-grid { grid-template-areas: "head ticket" "orders ticket"; grid-template-rows: 1fr auto; }
   .br:not(.br-phone) .br-col-head { grid-area: head; }
   .br:not(.br-phone) .br-col-ticket { grid-area: ticket; }
   .br:not(.br-phone) .br-col-orders { grid-area: orders; }

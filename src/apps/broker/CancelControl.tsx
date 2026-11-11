@@ -4,7 +4,7 @@
 // view stays "Place order").
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/Button";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 
 export type CancelPhase =
   | { kind: "idle"; disabled: boolean }

@@ -75,6 +75,24 @@
           "vol": "8000",
           "state": "CONTINUOUS",
           "halted": false
+        },
+        "NMBS": {
+          "assetId": "NMBS",
+          "last": "96.00",
+          "chg": "-0.24",
+          "chgPct": "-0.25",
+          "vol": "16000",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VRDN": {
+          "assetId": "VRDN",
+          "last": "64.00",
+          "chg": "-0.04",
+          "chgPct": "-0.06",
+          "vol": "16000",
+          "state": "CONTINUOUS",
+          "halted": false
         }
       }
     }
@@ -153,6 +171,24 @@
           "chg": "-0.08",
           "chgPct": "-0.08",
           "vol": "8181",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "NMBS": {
+          "assetId": "NMBS",
+          "last": "96.12",
+          "chg": "-0.12",
+          "chgPct": "-0.12",
+          "vol": "16580",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VRDN": {
+          "assetId": "VRDN",
+          "last": "63.98",
+          "chg": "-0.06",
+          "chgPct": "-0.09",
+          "vol": "16302",
           "state": "CONTINUOUS",
           "halted": false
         }
@@ -235,6 +271,24 @@
           "vol": "8604",
           "state": "CONTINUOUS",
           "halted": false
+        },
+        "NMBS": {
+          "assetId": "NMBS",
+          "last": "96.36",
+          "chg": "0.12",
+          "chgPct": "0.12",
+          "vol": "17521",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VRDN": {
+          "assetId": "VRDN",
+          "last": "63.91",
+          "chg": "-0.13",
+          "chgPct": "-0.20",
+          "vol": "17125",
+          "state": "CONTINUOUS",
+          "halted": false
         }
       }
     }
@@ -313,6 +367,24 @@
           "chg": "0.43",
           "chgPct": "0.44",
           "vol": "11911",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "NMBS": {
+          "assetId": "NMBS",
+          "last": "96.84",
+          "chg": "0.60",
+          "chgPct": "0.62",
+          "vol": "24308",
+          "state": "CONTINUOUS",
+          "halted": false
+        },
+        "VRDN": {
+          "assetId": "VRDN",
+          "last": "63.67",
+          "chg": "-0.37",
+          "chgPct": "-0.58",
+          "vol": "23351",
           "state": "CONTINUOUS",
           "halted": false
         }

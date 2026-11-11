@@ -58,6 +58,27 @@ export interface WireStrings {
   filingType: Record<Filing["type"], string>;
   filingMissing: string;
   notInFeed: string;
+  // ---- M1-09 row chips (the detail and demo copy: storyStrings.ts, Wire chunk only) ----
+  forecast: string;
+  eased: string;
+  /** t0 history rows (w-h-*): already happened; this clock did not apply the catalog move. */
+  earlier: string;
+  /** Distinct label for a player STATEMENT (soc.wire.post), not an official company statement. */
+  playerPost: string;
+  /** 15:625 verdict badge on a player statement row and detail. */
+  verdict: { unresolved: string; true: string; false: string; opinion: string };
+  composer: {
+    summary: string;
+    textLabel: string;
+    assetsLabel: string;
+    fee: string;
+    submit: string;
+    posting: string;
+    charCount: string;
+    loadError: string;
+    retry: string;
+    errors: Record<string, string>;
+  };
 }
 
 export const EN: WireStrings = {
@@ -90,7 +111,56 @@ export const EN: WireStrings = {
     "wire.market.blockTrade": "Block trade: {qty} {asset}",
     "wire.news.guidanceRaised": "{company} raises guidance",
     "wire.statement.ceo": "{company} CEO issues a statement",
+    "wire.statement.denies": "{company} denies the rumor",
+    "wire.news.analyst-note": "{house} sees {claim}",
+    "wire.statement.player": "{handle} on {asset}: {text}",
     "wire.rumor.downgrade": "Downgrade rumored for {company}",
+    "wire.rumor.hears": "{source} hears that {claim}",
+    "wire.news.trialMiss": "{company} drug trial misses its endpoint",
+    "wire.news.contractWin": "{company} wins a major contract",
+    "wire.news.demandWarning": "{company} warns on demand",
+    "wire.news.recall": "{company} recalls a product line",
+    "wire.news.coinListed": "{coin} lists in the Broker after graduating",
+    "wire.news.coinUp": "{coin} up {move}% today",
+    "wire.news.coinDown": "{coin} down {move}% today",
+    "wire.news.coinLiq": "{coin}: leveraged traders are being liquidated",
+    "wire.crisis.oil.watch": "Watch: crude supply under threat",
+    "wire.crisis.oil.hit": "Oil shock: crude supply cut",
+    "wire.crisis.oil.eased": "Crude supply fears ease",
+    "wire.crisis.bank.watch": "Watch: banks strain to borrow from each other",
+    "wire.crisis.bank.hit": "Banking panic: depositors pull their cash",
+    "wire.crisis.bank.eased": "Bank funding fears ease",
+    "wire.crisis.tech.watch": "Watch: tech valuations stretched",
+    "wire.crisis.tech.hit": "Tech bubble bursts",
+    "wire.crisis.tech.eased": "Tech valuations cool off",
+    "wire.crisis.credit.watch": "Watch: lenders tighten terms",
+    "wire.crisis.credit.hit": "Credit crunch hits borrowers",
+    "wire.crisis.credit.eased": "Credit conditions steady",
+    "wire.storm.rate-scare.hit": "Rate scare: term premium jumps",
+    "wire.storm.oil-spike-lite.hit": "Oil spike: crude supply tightens",
+    "wire.storm.crypto-flush.hit": "Crypto flush: meme-coin hype collapses",
+    "wire.storm.credit-wobble.hit": "Credit wobble: corporate default risk rises",
+    "wire.storm.fx-squall.hit": "FX squall: capital flows reverse",
+    "wire.storm.sector-rotation.hit": "Sector rotation: risk premiums reshuffle",
+    "wire.storm.earnings-scare.hit": "Earnings scare: consensus cuts broaden",
+    "wire.storm.liquidity-hiccup.hit": "Liquidity hiccup: market depth thins",
+    "wire.major.equity-bubble-burst.hit": "Equity bubble bursts",
+    "wire.major.oil-shock.hit": "Oil shock",
+    "wire.major.flash-crash.hit": "Flash crash",
+    "wire.major.crypto-winter.hit": "Crypto winter",
+    "wire.major.trade-war.hit": "Trade war",
+    "wire.major.stagflation.hit": "Stagflation scare",
+    "wire.ripple.sector-shock.hit": "Sector shock",
+    "wire.ripple.commodity-supply.hit": "Commodity supply wobble",
+    "wire.ripple.commodity-demand.hit": "Commodity demand wobble",
+    "wire.ripple.regulatory-note.hit": "Regulatory note",
+    "wire.ripple.local-boom.hit": "Local boom",
+    "wire.crisis-week.announced.storm-season": "Crisis Week: Storm Season",
+    "wire.crisis-week.announced.the-squeeze": "Crisis Week: The Squeeze",
+    "wire.crisis-week.announced.fault-lines": "Crisis Week: Fault Lines",
+    "wire.crisis-week.announced.cold-front": "Crisis Week: Cold Front",
+    "wire.crisis-week.announced.supply-shock-week": "Crisis Week: Supply Shock",
+    "wire.crisis-week.announced.the-long-night": "Crisis Week: The Long Night",
   },
   openItem: "Open: {headline}",
   backToWire: "Back to Wire",
@@ -113,6 +183,35 @@ export const EN: WireStrings = {
   },
   filingMissing: "Filing details aren't available.",
   notInFeed: "This story is no longer in your feed.",
+  forecast: "Forecast",
+  eased: "No effect",
+  earlier: "Earlier",
+  playerPost: "Player",
+  verdict: { unresolved: "Open", true: "True", false: "False", opinion: "Opinion" },
+  composer: {
+    summary: "Post a statement",
+    textLabel: "Statement",
+    assetsLabel: "Assets",
+    fee: "Costs $500 · {n} left today",
+    submit: "Post",
+    posting: "Posting…",
+    charCount: "{n}/280",
+    loadError: "Couldn't load the composer.",
+    retry: "Retry",
+    errors: {
+      TEXT_EMPTY: "Write a short statement first.",
+      TEXT_TOO_LONG: "Keep it to 280 characters.",
+      TEXT_FILTER: "Remove any email or phone number.",
+      BAD_ASSET: "Pick one to three listed assets.",
+      INSUFFICIENT_CASH: "You need $500 spendable cash to post.",
+      DAY_CAP: "You can post three times per game day.",
+      IDEMPOTENCY_CONFLICT: "That request was already used for a different statement.",
+      UNAUTHORIZED: "Sign in to post a statement.",
+      STORED_UNREADABLE: "That statement could not be read back. It was not charged again.",
+      BODY_TOO_LARGE: "That statement is too large.",
+      BAD_REQUEST: "That statement could not be posted.",
+    },
+  },
 };
 
 export const FR: WireStrings = {
@@ -145,7 +244,56 @@ export const FR: WireStrings = {
     "wire.market.blockTrade": "Transaction de bloc : {qty} {asset}",
     "wire.news.guidanceRaised": "{company} relève ses prévisions",
     "wire.statement.ceo": "Le PDG de {company} publie un communiqué",
+    "wire.statement.denies": "{company} dément la rumeur",
+    "wire.news.analyst-note": "{house} anticipe {claim}",
+    "wire.statement.player": "{handle} sur {asset} : {text}",
     "wire.rumor.downgrade": "Rumeur de dégradation pour {company}",
+    "wire.rumor.hears": "{source} entend que {claim}",
+    "wire.news.trialMiss": "L’essai clinique de {company} manque son objectif",
+    "wire.news.contractWin": "{company} remporte un contrat majeur",
+    "wire.news.demandWarning": "{company} alerte sur la demande",
+    "wire.news.recall": "{company} rappelle une gamme de produits",
+    "wire.news.coinListed": "{coin} entre au Broker après sa graduation",
+    "wire.news.coinUp": "{coin} gagne {move} % aujourd’hui",
+    "wire.news.coinDown": "{coin} perd {move} % aujourd’hui",
+    "wire.news.coinLiq": "{coin} : les traders à effet de levier sont liquidés",
+    "wire.crisis.oil.watch": "À surveiller : l’offre de brut menacée",
+    "wire.crisis.oil.hit": "Choc pétrolier : l’offre de brut coupée",
+    "wire.crisis.oil.eased": "Les craintes sur le brut s’apaisent",
+    "wire.crisis.bank.watch": "À surveiller : les banques peinent à se refinancer",
+    "wire.crisis.bank.hit": "Panique bancaire : les déposants retirent leurs fonds",
+    "wire.crisis.bank.eased": "Les craintes de financement bancaire s’apaisent",
+    "wire.crisis.tech.watch": "À surveiller : valorisations tech tendues",
+    "wire.crisis.tech.hit": "La bulle tech éclate",
+    "wire.crisis.tech.eased": "Les valorisations tech se calment",
+    "wire.crisis.credit.watch": "À surveiller : les prêteurs durcissent leurs conditions",
+    "wire.crisis.credit.hit": "Le resserrement du crédit frappe les emprunteurs",
+    "wire.crisis.credit.eased": "Les conditions de crédit se stabilisent",
+    "wire.storm.rate-scare.hit": "Peur des taux : la prime de terme bondit",
+    "wire.storm.oil-spike-lite.hit": "Pic pétrolier : l’offre de brut se resserre",
+    "wire.storm.crypto-flush.hit": "Flush crypto : l’engouement des meme coins s’effondre",
+    "wire.storm.credit-wobble.hit": "Vacillement du crédit : le risque de défaut monte",
+    "wire.storm.fx-squall.hit": "Rafale de change : les flux de capitaux s’inversent",
+    "wire.storm.sector-rotation.hit": "Rotation sectorielle : les primes de risque bougent",
+    "wire.storm.earnings-scare.hit": "Peur des résultats : les consensus baissent",
+    "wire.storm.liquidity-hiccup.hit": "Accroc de liquidité : la profondeur de marché s’amincit",    "wire.major.equity-bubble-burst.hit": "Éclatement de bulle actions",
+    "wire.major.oil-shock.hit": "Choc pétrolier",
+    "wire.major.flash-crash.hit": "Krach éclair",
+    "wire.major.crypto-winter.hit": "Hiver crypto",
+    "wire.major.trade-war.hit": "Guerre commerciale",
+    "wire.major.stagflation.hit": "Peur de stagflation",
+    "wire.ripple.sector-shock.hit": "Choc sectoriel",
+    "wire.ripple.commodity-supply.hit": "Offre de matières",
+    "wire.ripple.commodity-demand.hit": "Demande de matières",
+    "wire.ripple.regulatory-note.hit": "Note réglementaire",
+    "wire.ripple.local-boom.hit": "Boom local",
+    "wire.crisis-week.announced.storm-season": "Semaine de crise : tempêtes",
+    "wire.crisis-week.announced.the-squeeze": "Semaine de crise : l’étau",
+    "wire.crisis-week.announced.fault-lines": "Semaine de crise : failles",
+    "wire.crisis-week.announced.cold-front": "Semaine de crise : front froid",
+    "wire.crisis-week.announced.supply-shock-week": "Semaine de crise : choc d’offre",
+    "wire.crisis-week.announced.the-long-night": "Semaine de crise : longue nuit",
+
   },
   openItem: `Ouvrir${NNBSP}: {headline}`,
   backToWire: "Retour au fil",
@@ -168,6 +316,35 @@ export const FR: WireStrings = {
   },
   filingMissing: "Les détails de la déclaration ne sont pas disponibles.",
   notInFeed: "Cette dépêche ne figure plus dans votre fil.",
+  forecast: "Prévision",
+  eased: "Sans effet",
+  earlier: "Plus tôt",
+  playerPost: "Joueur",
+  verdict: { unresolved: "En cours", true: "Vrai", false: "Faux", opinion: "Opinion" },
+  composer: {
+    summary: "Publier une déclaration",
+    textLabel: "Déclaration",
+    assetsLabel: "Actifs",
+    fee: "Coût : 500 $ · {n} restantes aujourd’hui",
+    submit: "Publier",
+    posting: "Publication…",
+    charCount: "{n}/280",
+    loadError: "Impossible de charger le composeur.",
+    retry: "Réessayer",
+    errors: {
+      TEXT_EMPTY: "Écrivez d’abord une courte déclaration.",
+      TEXT_TOO_LONG: "280 caractères au plus.",
+      TEXT_FILTER: "Retirez toute adresse e-mail ou tout numéro de téléphone.",
+      BAD_ASSET: "Choisissez un à trois actifs cotés.",
+      INSUFFICIENT_CASH: "Il faut 500 $ d’espèces disponibles pour publier.",
+      DAY_CAP: "Trois déclarations par jour de jeu au plus.",
+      IDEMPOTENCY_CONFLICT: "Cette requête a déjà été utilisée pour une autre déclaration.",
+      UNAUTHORIZED: "Connectez-vous pour publier.",
+      STORED_UNREADABLE: "Impossible de relire cette déclaration. Aucun nouveau débit.",
+      BODY_TOO_LARGE: "Cette déclaration est trop volumineuse.",
+      BAD_REQUEST: "Impossible de publier cette déclaration.",
+    },
+  },
 };
 
 export const useWireStrings = (): WireStrings => (useShell((s) => s.prefs.locale) === "fr" ? FR : EN);
@@ -183,7 +360,7 @@ export function fill(tpl: string, vals: Readonly<Record<string, string>>): strin
 }
 
 /** Slots that carry a quantity: shown with the locale's digit grouping (EN 50,000 · FR 50 000). */
-const QUANTITY_SLOTS: ReadonlySet<string> = new Set(["qty"]);
+const QUANTITY_SLOTS: ReadonlySet<string> = new Set(["qty", "move"]);
 const DECIMAL = /^\d+(\.\d+)?$/;
 const numberFormats = new Map<ShellLocale, Intl.NumberFormat>();
 
@@ -206,6 +383,13 @@ export function headline(item: WireItem, t: WireStrings): string {
   if (text !== null) return text;
   const labels = item.entities.map((e) => e.label).join(", ");
   return labels ? `${t.kind[item.kind]} · ${labels}` : t.kind[item.kind];
+}
+
+/** A server percent ("-5.00", "3.00") as shown: sign always, U+2212 minus, "%" (no parsing or rounding). */
+export function pctLabel(pct: string): string {
+  const neg = pct.startsWith("-");
+  const abs = neg ? pct.slice(1) : pct;
+  return `${neg ? "\u2212" : /[1-9]/.test(abs) ? "+" : ""}${abs}%`;
 }
 
 /** Game time for a tick: the SAME clock source (`clockAt`) and formatter (`clockLabel` + `clockStrings().strip`) as the

@@ -84,6 +84,14 @@ export function clockAt(tick: number): ClockChannel {
   return { tick, gameDay, tickOfDay, phase };
 }
 
+/** A tick written as a decimal string (e.g. a confirmed rumor's resolve tick). Fallback if the slot is absent or not an integer. */
+export function clockTickFromSlot(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === "") return fallback;
+  if (!/^\d+$/.test(raw)) return fallback;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : fallback;
+}
+
 /** Display clock. `day` is 1-based like the engine calendar (ticksToGameDate: dayIndex + 1), so tick 0 is Day 1. */
 export function clockLabel(c: ClockChannel): { day: number; hhmm: string } {
   const m = c.tickOfDay * 2;

@@ -4,13 +4,15 @@
 // All arithmetic here is server-side mock arithmetic on integer minor units (G1 forbids it in the UI, not here).
 import type {
   AssetDetail, BoardBody, BookBody, Candle, CandleHistoryReq, CandleHistoryRes, CandleRes, CandlesBody, ChannelName,
-  DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes,
+  CoinRow, DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes,
   ServerFrame, TapeBody, TapePrint, TickerBody, TickerRow, TradingState, WireItem,
 } from "./channels";
+import { IntentNotSentOffline } from "./network";
+import type { ServerSync } from "./serverSync";
 import { diffOps } from "./delta";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
-import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
+import { centsOf, heldValueMinor } from "@/market/valuation";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
 import { ORDER_HISTORY_POLICY, ORDER_POLICY, type OrderHistoryPolicy, type OrderPolicy } from "./orderPolicy";
@@ -25,6 +27,7 @@ export const FEED_TICK_MS = 5000; // spec: 5,000 ms tick; tests use a fake clock
 /** Signed-in poll of GET /api/market. Faster than the price cadence so a reconnect catches the server tick
  *  before the channel watchdog (2 ticks + slack) marks quotes stale. This interval does not advance prices. */
 export const SERVER_QUOTE_POLL_MS = 1000;
+/** M1-06: retries of one signed-in place / cancel after a network or 5xx failure, all with the same idempotency key. */
 export const SNAP_DELAY_MS = 40; // mock latency before the first snap (state `loading` until then)
 export const START_TICK = 38 * 720 + 340;
 export const TAPE_KEEP = 200; // keepLast 200 [P]
@@ -133,14 +136,25 @@ export function fmt(minor: number, dp: number): string {
   return neg && /[1-9]/.test(out) ? `-${out}` : out;
 }
 
-interface AssetState { last: number; prevClose: number; dayVol: number; prints: TapePrint[]; lastQty: number; dir: -1 | 0 | 1 }
-interface Lot { qty: number; avgCost: number }
+export interface AssetState { last: number; prevClose: number; dayVol: number; prints: TapePrint[]; lastQty: number; dir: -1 | 0 | 1 }
+export interface Lot { qty: number; avgCost: number }
+
+/** One fill's lot rule (shared by the mock and the M1-06 server door): a buy re-averages the cost (rounded to the minor
+ *  unit, fees excluded), a sell keeps it, and a lot that reaches 0 is gone (null). */
+export function nextLot(lot: Lot | null, side: OpenOrder["side"], qty: number, px: number): Lot | null {
+  const cur = lot ?? { qty: 0, avgCost: 0 };
+  const signed = side === "BUY" ? qty : -qty;
+  const nq = cur.qty + signed;
+  if (nq === 0) return null;
+  const avg = side === "BUY" && cur.qty >= 0 ? Math.round((cur.avgCost * cur.qty + px * qty) / nq) : cur.avgCost;
+  return { qty: nq, avgCost: avg };
+}
 
 /** Exchange fee, Quant E-96 (2): max(min fee, rate x notional x tier multiplier), rounded half-even to the cent.
  *  Equities and ETFs: taker 3 bp, auction 1 bp, minimum $0.10; tier multiplier 1.0 below $10M notional (every mock order).
  *  The mock fills market orders as takers and queues halted ones for the reopen auction. Limit and stop orders rest and
  *  fill only under the `?partFill` / `?cancelGone` hooks, so their preview uses the taker rate too [P]. Bonds (0.5 bp) are not in the mock's asset list. */
-const FEE_BP = { taker: 3, auction: 1 } as const;
+export const FEE_BP = { taker: 3, auction: 1 } as const;
 const MIN_FEE_MINOR = 10;
 export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number {
   const n = notionalMinor * rateBp; // fee in 1/10,000 of a cent
@@ -165,20 +179,35 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
   /**
    * Signed-in Port Avalon (M1-05). start() polls GET /api/market instead of advance().
    * The server clock owns the seed-17 path; this feed only adopts that snapshot.
+   * M1-06: `me` is the server ledger (GET /api/broker/me) and the order door is the server's (POST /api/broker/orders).
    */
-  authoritativeQuotes?: boolean }
+  authoritativeQuotes?: boolean;
+  /** M2-05: the signed-in account whose adopted server ledgers feed the offline `me` snapshot (src/pwa/meSnapshot.ts). */
+  snapshotAccount?: string }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
 type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string; held?: true /* ?cancelFill: its fill landed */ }
   | { kind: "partFill"; orderId: string; qty: number } /* ?partFill: the tick after the order rests */;
 
 export class MockFeed {
+  // Members without `private` below that only the feed itself used before are shared with serverSync.ts, the signed-in
+  // network half behind the dynamic import (docs/v1/LAUNCHPAD.md "Signed-in server-sync loading boundary"); no other
+  // caller uses them.
   readonly scenario: Scenario;
   readonly tickMs: number;
   /** True when prices are adopted from the server clock and advance() is a no-op. */
   readonly authoritativeQuotes: boolean;
+  readonly snapshotAccount: string | null;
   /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
-  private quotesAdopted = false;
+  quotesAdopted = false;
+  /** 04 Fear Index from the last adopted /api/market snapshot (null until adopted or guest). */
+  fearIndex: number | null = null;
+  /** 04 risk appetite RA = 1 − F/50 from the same snapshot. */
+  riskAppetite: number | null = null;
+  /** M1-06 signed-in: set once a validated /api/broker/me (or order reply) ledger replaced the constructor `me`. */
+  ledgerAdopted = false;
+  /** Signed-in: cash the server holds for working buy limits (spendable = cash − this). */
+  reservedCash = 0;
   tick: number;
   private rand: () => number;
   private extraAssetRandom = new Map<string, () => number>();
@@ -196,24 +225,32 @@ export class MockFeed {
     }
     return random;
   }
-  private assets = new Map<string, AssetState>();
-  private cash: number;
-  private lots = new Map<string, Lot>();
-  private orders: Record<string, OpenOrder> = {};
-  private fills: MyFill[] = [];
-  private intents: IntentResult[] = [];
-  private news: WireItem[];
+  /** protected: the server clock's ShockFeed (M1-09) moves a price on a story. */
+  /** Per-asset quote state. Public only so a coin listed at graduation can be added from outside first-load code (L4, src/market/listings.ts listAsset); nothing else writes it from outside. */
+  readonly assets = new Map<string, AssetState>();
+  cash: number;
+  lots = new Map<string, Lot>();
+  orders: Record<string, OpenOrder> = {};
+  fills: MyFill[] = [];
+  intents: IntentResult[] = [];
+  coins: CoinRow[] = [];
+  news: WireItem[];
   private pending: Pending[] = [];
   readonly policy: OrderPolicy;
   readonly historyPolicy: OrderHistoryPolicy;
   /** Closed orders for GET /orders/me (card 8), oldest first: FILLED, CANCELLED, REJECTED. ENGINE-TBD (orderHistory.ts). */
   private closed: OrderHistoryRow[] = [];
   private nextId = 1;
-  private subs = new Set<Sub>();
+  subs = new Set<Sub>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private quoteSync: ReturnType<typeof setInterval> | null = null;
-  private quotePulling = false;
+  /** M1-07 signed-in: the server's live bar per `candles:{id}:{res}` channel (GET /api/market/candles). Never computed here. */
+  serverCandles = new Map<string, Candle>();
+  /** Per candles channel: the server's candle revision (`<epoch>.<n>`) read with the live bar. */
+  serverRevs = new Map<string, string>();
   private autoStart: boolean;
+  /** M1-09 signed-in: the server's Wire (GET /api/wire) replaced the (empty) constructor news; its epoch and tick. */
+  wireAdopted = false;
 
   constructor(scenario: Partial<Scenario> = {}, opts: FeedOptions = {}) {
     this.scenario = { ...DEFAULT_SCENARIO, ...scenario };
@@ -223,6 +260,7 @@ export class MockFeed {
     this.policy = opts.policy ?? ORDER_POLICY;
     this.historyPolicy = opts.historyPolicy ?? ORDER_HISTORY_POLICY;
     this.authoritativeQuotes = opts.authoritativeQuotes === true;
+    this.snapshotAccount = this.authoritativeQuotes ? opts.snapshotAccount ?? null : null; // guests never write
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
       const prevClose = Math.round(a.base * (1 + (this.assetRandom(a.assetId)() - 0.5) * 0.02));
@@ -236,9 +274,16 @@ export class MockFeed {
   }
 
   // ---- world ----
-  private tradingState(id: string): TradingState { return this.scenario.halt === id ? "HALTED" : "CONTINUOUS"; }
+  protected tradingState(id: string): TradingState { return this.scenario.halt === id ? "HALTED" : "CONTINUOUS"; }
 
   /** Tick of the last validated server book. Null while the constructor book is still unpublished. */
+  /** An asset this feed can trade. A coin listed at graduation (dp 8) trades only at the server: after a sign-out in the
+   *  same page the guest demo still lists it (the catalog grew), but its local fills cannot price it, so it is refused. */
+  private tradable(id: string): AssetFixture | undefined {
+    const a = ASSET_BY_ID[id];
+    return a && (this.authoritativeQuotes || a.displayDecimals < 3) ? a : undefined;
+  }
+
   adoptedServerTick(): number | null {
     return this.quotesAdopted ? this.tick : null;
   }
@@ -276,7 +321,9 @@ export class MockFeed {
     return { ...n, pricedInBand: n.breaking ? "early" : "mid", pricedInAsOf: this.tick }; // as of the mock clock now, so "as of" reads like the top bar
   }
 
-  private settle(): void {
+  settle(): void {
+    // Signed-in (M1-06): only the server fills. A stray local intent is dropped, never booked.
+    if (this.authoritativeQuotes) { this.pending = []; return; }
     const due = this.pending;
     this.pending = [];
     for (const p of due) {
@@ -300,7 +347,7 @@ export class MockFeed {
         continue;
       }
       const { intentId, draft } = p;
-      const a = ASSET_BY_ID[draft.assetId];
+      const a = this.tradable(draft.assetId);
       // Halt (Quant E-96 (3), Producer E-98 (1)): a halted asset still takes orders; a market day order is accepted with
       // no fill and waits for the reopen auction (QUEUED_AUCTION). Sell beyond the holding (E-96 (4)): rejected whole,
       // MKT_NO_LOCATE (a cash-account ticket has no locate); never a negative lot.
@@ -340,10 +387,8 @@ export class MockFeed {
   private bookFill(a: AssetFixture, orderId: string, side: OpenOrder["side"], qty: number, px: number, liquidity: MyFill["liquidity"]): string {
     const fee = exchangeFeeMinor(px * qty, FEE_BP.taker);
     const signed = side === "BUY" ? qty : -qty;
-    const lot = this.lots.get(a.assetId) ?? { qty: 0, avgCost: 0 };
-    const nq = lot.qty + signed;
-    const avg = nq === 0 ? 0 : side === "BUY" && lot.qty >= 0 ? Math.round((lot.avgCost * lot.qty + px * qty) / nq) : lot.avgCost;
-    if (nq === 0) this.lots.delete(a.assetId); else this.lots.set(a.assetId, { qty: nq, avgCost: avg });
+    const lot = nextLot(this.lots.get(a.assetId) ?? null, side, qty, px);
+    if (lot === null) this.lots.delete(a.assetId); else this.lots.set(a.assetId, lot);
     this.cash -= signed * px + fee;
     const fillId = `x-${this.nextId++}`;
     this.fills = [...this.fills, <MyFill>{ fillId, tick: this.tick, assetId: a.assetId, orderId, side, qty: String(qty), price: fmt(px, a.displayDecimals), fee: fmt(fee, 2), feeCcy: a.ccy, liquidity, counterpartyKind: "NPC" }].slice(-RING_KEEP);
@@ -459,6 +504,12 @@ export class MockFeed {
     return { assetId, prints: this.assets.get(assetId)?.prints ?? [] };
   }
   private candlesBody(assetId: string, res: CandleRes): CandlesBody {
+    if (this.authoritativeQuotes) {
+      // Signed-in: only the server's bar; the channel is not published until one arrived (quoteReady).
+      const live = this.serverCandles.get(`candles:${assetId}:${res}`);
+      const rev = this.serverRevs.get(`candles:${assetId}:${res}`);
+      return { assetId, res, live: live ?? { t: 0, o: "0", h: "0", l: "0", c: "0", v: "0" }, ...(rev ? { rev } : {}) };
+    }
     const a = ASSET_BY_ID[assetId], s = this.assets.get(assetId);
     const span = res === "tick" ? 1 : res === "hour" ? 30 : 720;
     const t = this.tick - (this.tick % span);
@@ -469,9 +520,8 @@ export class MockFeed {
     return { assetId, res, live: { t, o: fmt(o, a.displayDecimals), h: fmt(Math.max(o, s.last, ...px), a.displayDecimals), l: fmt(Math.min(o, s.last, ...px), a.displayDecimals), c: fmt(s.last, a.displayDecimals), v: String(prints.reduce((n, p) => n + Number(p.qty), 0)) } };
   }
   private heldMinor(): number {
-    let held = 0;
-    for (const [id, l] of this.lots) held += this.assets.get(id)!.last * l.qty;
-    return held;
+    // The shared definition (src/market/valuation.ts), so the leaderboard values a ledger exactly as Portfolio does.
+    return heldValueMinor([...this.lots].map(([assetId, l]) => ({ assetId, qty: l.qty })), (id, qty) => centsOf(ASSET_BY_ID[id]!.displayDecimals, this.assets.get(id)!.last * qty))!;
   }
   /** `?nw=` pin: the FDL cash that keeps nw at the pinned value for the current marks. */
   private pinnedNwMinor(): number | null {
@@ -488,15 +538,16 @@ export class MockFeed {
   private meBody(): MeTradingBody {
     const held = this.heldMinor();
     const cash = this.fdlCashMinor();
-    const nw = cash + held;
+    // Server ledger's Launchpad coins at their server value (indicative liquidation), counted once, like the board.
+    const nw = this.coins.reduce((n, c) => n + c.value, cash + held);
     const positions: Record<string, Position> = {};
     for (const [id, l] of this.lots) {
       const a = ASSET_BY_ID[id]!, mark = this.assets.get(id)!.last;
       // Proposed PF-B fields (server side, so the client never computes): pnlPct = upl / cost, weightPct = value / nw,
       // both percent units with 1 dp, integer maths on minor units.
       const pnlPct = l.avgCost ? fmt(((mark - l.avgCost) * 1000) / l.avgCost, 1) : "0.0";
-      const weightPct = nw > 0 ? fmt((mark * l.qty * 1000) / nw, 1) : "0.0";
-      positions[id] = { assetId: id, qty: String(l.qty), avgCost: fmt(l.avgCost, a.displayDecimals), mark: fmt(mark, a.displayDecimals), value: fmt(mark * l.qty, 2), upl: fmt((mark - l.avgCost) * l.qty, 2), pledgedQty: this.scenario.pledge?.assetId === id ? String(Math.min(this.scenario.pledge.qty, l.qty)) : "0", lentQty: "0", pnlPct, weightPct };
+      const weightPct = nw > 0 ? fmt((centsOf(a.displayDecimals, mark * l.qty) * 1000) / nw, 1) : "0.0";
+      positions[id] = { assetId: id, qty: String(l.qty), avgCost: fmt(l.avgCost, a.displayDecimals), mark: fmt(mark, a.displayDecimals), value: fmt(centsOf(a.displayDecimals, mark * l.qty), 2), upl: fmt(centsOf(a.displayDecimals, (mark - l.avgCost) * l.qty), 2), pledgedQty: this.scenario.pledge?.assetId === id ? String(Math.min(this.scenario.pledge.qty, l.qty)) : "0", lentQty: "0", pnlPct, weightPct };
     }
     const empty = this.scenario.empty;
     // Restricted buckets live inside the FDL balance (so inside nw); untilRealMs = real ms remaining (5 s per tick),
@@ -508,7 +559,7 @@ export class MockFeed {
     return {
       balances: empty ? { FDL: fmt(cash, 2) } : { FDL: fmt(cash, 2), MDOL: MDOL_BALANCE },
       nw: fmt(nw, 2), nwi: fmt(Math.round((nw * 10_000) / START_NW_MINOR), 4), restricted,
-      positions, orders: this.orders, fills: this.fills, margin: null, holds: {}, intents: this.intents, alerts: [],
+      positions, orders: this.orders, fills: this.fills, margin: null, holds: {}, intents: this.intents, alerts: [], coins: this.coins,
       ...(empty ? {} : { nwStats: { ...NW_STATS } }),
     };
   }
@@ -521,14 +572,19 @@ export class MockFeed {
     if (MOCK_HOOKS && hook === "error") hookErrored?.add(sub);
     this.subs.add(sub);
     if (this.autoStart) {
-      // Quote polling is for the shared book only. A `me` subscriber must not open /api/market.
-      if (this.authoritativeQuotes) { if (ch.startsWith("ticker:")) this.startQuoteSync(); }
+      // Signed-in: quotes poll /api/market; `me` also needs server marks, and reads its ledger from /api/broker/me.
+      if (this.authoritativeQuotes) {
+        if (ch.startsWith("ticker:") || ch === "me" || ch === "news") this.startQuoteSync();
+        if (ch === "me") this.srv((s) => s.pullLedger(), () => this.failMe(), () => this.has("me"));
+        if (ch === "news") this.srv((s) => s.pullWire(), () => this.wireFailed(), () => this.has("news"));
+      }
       else this.start();
     }
     const mode = hook ?? this.scenario.feed;
     // Quote channels on a signed-in feed stay unpublished until /api/market validates.
     // The constructor book is not a server tick. `me` and other private channels still snap.
-    const holdQuotes = this.authoritativeQuotes && this.isQuoteChannel(ch) && !this.quotesAdopted;
+    const holdQuotes = this.authoritativeQuotes && ((this.isQuoteChannel(ch) && !this.quoteReady(ch)) || (ch === "me" && !this.meReady()) || (ch === "news" && !this.wireAdopted));
+    if (this.authoritativeQuotes && ch.startsWith("candles:") && this.quotesAdopted) this.srv((s) => s.pullServerCandle(ch), undefined, () => this.has(ch));
     if (mode !== "loading" && !holdQuotes) sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
@@ -538,7 +594,7 @@ export class MockFeed {
     return () => {
       if (sub.snapTimer) clearTimeout(sub.snapTimer);
       this.subs.delete(sub);
-      if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:"))) {
+      if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:") || s.ch === "me" || s.ch === "news")) {
         if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
       }
       if (this.subs.size === 0) this.stop();
@@ -546,25 +602,31 @@ export class MockFeed {
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
-    if (this.authoritativeQuotes && ch.startsWith("ticker:")) void this.pullServerQuotes();
+    if (this.authoritativeQuotes && ch.startsWith("candles:")) this.srv((s) => s.pullServerCandle(ch));
+    if (this.authoritativeQuotes && ch.startsWith("ticker:")) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed());
+    if (this.authoritativeQuotes && ch === "news") this.srv((s) => s.pullWire(), () => this.wireFailed());
+    if (this.authoritativeQuotes && ch === "me") {
+      this.srv((s) => s.pullLedger(), () => this.failMe());
+      if (!this.quotesAdopted) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed()); // M1-08: Retry after a failed first quote read reads quotes too
+    }
     for (const s of this.subs) {
       if (s.ch !== ch) continue;
       if (MOCK_HOOKS && hookErrored?.delete(s)) this.sendSnap(s);
       else if (s.sent !== null) this.sendSnap(s);
     }
   }
-  private isQuoteChannel(ch: string): boolean {
+  isQuoteChannel(ch: string): boolean {
     return ch.startsWith("ticker:") || ch.startsWith("book:") || ch.startsWith("tape:") || ch.startsWith("candles:");
   }
 
-  private sendSnap(sub: Sub) {
+  sendSnap(sub: Sub) {
     const body = this.body(sub.ch);
     sub.sent = body;
     this.send(sub, { t: "snap", ch: sub.ch, seq: ++sub.seq, tick: this.tick, body });
   }
-  private send(sub: Sub, f: ServerFrame) { sub.fn(JSON.parse(JSON.stringify(f))); }
+  send(sub: Sub, f: ServerFrame) { sub.fn(JSON.parse(JSON.stringify(f))); }
 
-  private emitTick() {
+  emitTick() {
     for (const sub of this.subs) {
       if (sub.sent === null) continue; // no snap yet (loading / denied / error)
       sub.count += 1;
@@ -574,11 +636,16 @@ export class MockFeed {
         if (phase >= 3) continue;
         if (phase === 0) { this.sendSnap(sub); continue; }
       }
-      const body = this.body(sub.ch);
-      const ops = diffOps(sub.sent, body, RINGS);
-      sub.sent = body;
-      this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
+      this.delta(sub, true);
     }
+  }
+  /** One delta frame: the channel's current body against what this subscriber last got (`empty`: sent even when
+   *  nothing changed, as a tick is). */
+  delta(sub: Sub, empty: boolean): void {
+    const body = this.body(sub.ch), ops = diffOps(sub.sent, body, RINGS);
+    if (!ops.length && !empty) return;
+    sub.sent = body;
+    this.send(sub, { t: "delta", ch: sub.ch, seq: ++sub.seq, tick: this.tick, ops });
   }
 
   start(): void {
@@ -593,88 +660,109 @@ export class MockFeed {
     if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
   }
 
-  /**
-   * Replace marks with one server snapshot. Does not draw the price RNG.
-   * A newer tick settles session-local demo intents once. Those fills stay in this feed; nothing here writes the auth ledger.
-   * The same tick re-emits so the channel watchdog stays live between price steps.
-   */
-  adoptAuthoritativeQuotes(raw: unknown): boolean {
-    const snap = parseMarketSnapshot(raw);
-    if (!snap) return false;
-    const next = new Map<string, { last: number; prevClose: number; dayVol: number }>();
-    for (const a of ASSETS) {
-      const row = snap.quotes.rows[a.assetId];
-      if (!row || row.chg === null) return false;
-      const last = parseMinor(row.last, a.displayDecimals);
-      const chg = parseMinor(row.chg, a.displayDecimals);
-      if (last === null || chg === null || last <= 0) return false;
-      const prevClose = last - chg;
-      if (prevClose <= 0) return false;
-      const dayVol = Number(row.vol);
-      if (!Number.isSafeInteger(dayVol) || dayVol < 0) return false;
-      next.set(a.assetId, { last, prevClose, dayVol });
-    }
-    const prevTick = this.tick;
-    for (const [id, n] of next) {
-      const s = this.assets.get(id)!;
-      s.dir = n.last > s.last ? 1 : n.last < s.last ? -1 : 0;
-      s.last = n.last;
-      s.prevClose = n.prevClose;
-      s.dayVol = n.dayVol;
-    }
-    this.tick = snap.tick;
-    this.quotesAdopted = true;
-    if (snap.tick > prevTick) this.settle();
-    this.emitTick();
-    // First publication is a snap. emitTick only reaches subscribers that already have one.
-    for (const sub of this.subs) {
-      if (this.isQuoteChannel(sub.ch) && sub.sent === null) this.sendSnap(sub);
-    }
-    return true;
+  /** A quote channel may publish: server marks adopted, and for candles a server bar received. */
+  quoteReady(ch: string): boolean {
+    if (!this.authoritativeQuotes) return true;
+    return this.quotesAdopted && (!ch.startsWith("candles:") || this.serverCandles.has(ch));
+  }
+
+  /** Signed-in `me` publishes only with a server ledger and server marks, never the constructor state. */
+  meReady(): boolean {
+    return !this.authoritativeQuotes || (this.ledgerAdopted && this.quotesAdopted);
+  }
+
+  /** True once a server ledger replaced the constructor `me` (signed-in only). */
+  adoptedLedger(): boolean {
+    return this.ledgerAdopted;
+  }
+
+  /** Signed out / ledger quarantined / first ledger or quote read failed: `me` errors (only where nothing was shown yet) rather than
+   *  showing a ledger the server did not send. */
+  failMe(): void { this.fail("me"); }
+  /** A failed first Wire read: `news` errors where nothing was shown yet (Retry, or the next server tick reads again). */
+  wireFailed(): void { if (!this.wireAdopted) this.fail("news"); }
+  private fail(ch: "me" | "news"): void {
+    for (const sub of this.subs) if (sub.ch === ch && sub.sent === null) this.send(sub, { t: "err", ch, code: "INTERNAL" });
+  }
+  private has(ch: string): boolean {
+    return [...this.subs].some((s) => s.ch === ch);
+  }
+
+  /** A failed or unreadable quote read. Before the first server book (M1-08), `me` cannot be valued: it errors (Retry)
+   *  where nothing was shown yet, and the next good read snaps it. After that the last adopted snapshot stays, and a
+   *  long outage lets the channel watchdog mark quotes stale. */
+  quotesFailed(): void {
+    if (!this.quotesAdopted) this.failMe();
   }
 
   private startQuoteSync(): void {
     if (this.quoteSync) return;
-    const pull = () => { void this.pullServerQuotes(); };
-    void pull();
+    // The first read starts now, in parallel with the server half's chunk, so the first live quote waits for neither in
+    // turn. Each later read starts in the half. A step that finds the poll stopped (feed swapped, unsubscribed) is dropped.
+    let first: Promise<Response> | undefined = fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
+    first.catch(() => undefined); // read (or dropped) by the half; never an unhandled rejection
+    const pull = () => {
+      const started = first;
+      first = undefined;
+      this.srv((s) => s.pullServerQuotes(started), () => this.quotesFailed(), () => this.quoteSync !== null);
+    };
+    pull();
     this.quoteSync = setInterval(pull, SERVER_QUOTE_POLL_MS);
   }
 
-  private async pullServerQuotes(): Promise<void> {
-    if (!this.authoritativeQuotes || this.quotePulling) return;
-    this.quotePulling = true;
-    try {
-      const res = await fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
-      if (!res.ok) return;
-      this.adoptAuthoritativeQuotes(await res.json());
-    } catch {
-      // Keep the last adopted snapshot. A long outage lets the channel watchdog mark quotes stale.
-    } finally {
-      this.quotePulling = false;
-    }
+  /** Signed-in only: the server half (serverSync.ts), imported once per feed. A failed import is not kept, so the next
+   *  step (poll, Retry, order) imports again. Never called by a guest feed. */
+  serverSync(): Promise<ServerSync> {
+    return (this.sync ??= import("./serverSync").then((m) => new m.ServerSync(this), (e: unknown) => { this.sync = null; throw e; }));
+  }
+  private sync: Promise<ServerSync> | null = null;
+  /** Run one server step once the half is here, if `still()` (the feed still wants it); `failed` when it cannot load. */
+  private srv(step: (s: ServerSync) => unknown, failed: () => void = () => undefined, still: () => boolean = () => true): void {
+    this.serverSync().then((s) => { if (still()) void step(s); }, failed);
+  }
+
+  /** Signed-in history door: GET /api/market/candles (raw JSON; history.ts parses it). */
+  serverCandleHistory(req: CandleHistoryReq): Promise<unknown> {
+    return this.serverSync().then((s) => s.serverCandleHistory(req));
+  }
+  /** The same door with the reply's candle revision; `since` adds every bar changed after it (serverSync.ts). */
+  serverCandleChanges(req: CandleHistoryReq, since?: number): Promise<{ raw: unknown; rev: string | null } | null> {
+    return this.serverSync().then((s) => s.serverCandleChanges(req, since));
+  }
+  /** One order intent POST through the half; if it cannot load, nothing left the page: not sent. */
+  private post(path: string, body: Record<string, unknown>): Promise<string> {
+    return this.serverSync().then((s) => s.sendIntent(path, body), () => { throw new IntentNotSentOffline(); });
   }
 
   // ---- req ops (19 Rule 3.8.5) and HTTP ----
   /** intent.preview: a fixed fee/impact table against the mock's committed state, never UI state (Q14). */
   preview(draft: OrderDraft): PreviewRes {
-    const a = ASSET_BY_ID[draft.assetId];
+    const a = this.tradable(draft.assetId);
     const s = a && this.assets.get(a.assetId);
     const qty = Number(draft.qty);
     // Halted stays valid: the preview reads only N-1 public data (Quant E-96 (3)). A sell beyond the holding is invalid.
     const wellFormed = !!a && !!s && Number.isSafeInteger(qty) && qty > 0;
-    const valid = wellFormed && !this.oversells(draft);
+    // Signed-in (M1-06): the server door takes market and limit day orders; stop types are not offered there.
     const dp = a?.displayDecimals ?? 2;
+    const unsupported = this.authoritativeQuotes && (draft.type === "stop" || draft.type === "stop_limit");
+    let valid = wellFormed && !unsupported && !this.oversells(draft);
     const px = draft.type === "limit" || draft.type === "stop_limit" ? Math.round(Number(draft.limit ?? 0) * 10 ** dp) : (s?.last ?? 0);
-    const impactBp = valid ? IMPACT_BP(qty, a!.lot) : 0;
-    const impact = Math.round((px * qty * impactBp) / 10_000);
+    // dp 8 is only a coin listed at graduation (L4): it fills against its book at no better than its half spread (45 bp;
+    // the server adds the size impact, src/server/broker/book.ts), so the estimate shows at least that.
+    const impactBp = valid ? (dp > 2 ? 45 : IMPACT_BP(qty, a!.lot)) : 0;
+    const n = centsOf(dp, px * qty, draft.side === "BUY"); // notional in cents (identity at dp 2)
+    const impact = Math.round((n * impactBp) / 10_000);
     const halted = !!a && this.tradingState(a.assetId) === "HALTED";
-    const fee = valid ? exchangeFeeMinor(px * qty, draft.type === "market" && halted ? FEE_BP.auction : FEE_BP.taker) : 0;
-    const gross = valid ? px * qty : 0;
+    // Signed-in: the server's own check (notional + fee within spendable cash), advisory here; the server re-decides.
+    const short = this.authoritativeQuotes && valid && draft.side === "BUY" && n + exchangeFeeMinor(n, FEE_BP.taker) > this.cash - this.reservedCash;
+    if (short) valid = false;
+    const fee = valid ? exchangeFeeMinor(n, draft.type === "market" && halted ? FEE_BP.auction : FEE_BP.taker) : 0;
+    const gross = valid ? n : 0;
     const total = gross + (draft.side === "BUY" ? fee + impact : -(fee + impact));
     return {
       price: fmt(px, dp), estFill: fmt(valid ? px + (draft.side === "BUY" ? 1 : -1) * Math.round((px * impactBp) / 10_000) : px, dp), fee: fmt(fee, 2), valid,
-      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : "MKT_NO_LOCATE" }),
-      buyingPowerAfter: fmt(this.fdlCashMinor() - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
+      ...(valid ? {} : { reasonCode: !a ? "MKT_UNKNOWN_ASSET" : !wellFormed ? "MKT_BAD_QTY" : unsupported ? "MKT_ORDER_TYPE_UNSUPPORTED" : short ? "MKT_INSUFFICIENT_BP" : "MKT_NO_LOCATE" }),
+      buyingPowerAfter: fmt(this.fdlCashMinor() - this.reservedCash - (draft.side === "BUY" ? total : -total), 2), impactBp: String(impactBp), impactMoney: fmt(impact, 2), total: fmt(total, 2),
       firstTradeCapRemaining: null, computedAtTick: this.tick,
     };
   }
@@ -713,7 +801,11 @@ export class MockFeed {
   }
   /** A SELL for more than the account holds (E-96 (4)): a short sale of the excess, which this mock never allows. */
   private oversells(draft: OrderDraft): boolean {
-    return draft.side === "SELL" && Number(draft.qty) > (this.lots.get(draft.assetId)?.qty ?? 0);
+    // Signed-in: units already held back by working sells are not sellable again (the server's rule).
+    const held = this.authoritativeQuotes
+      ? Object.values(this.orders).reduce((n, o) => n + (o.side === "SELL" && o.assetId === draft.assetId ? Number(o.qty) - Number(o.filled) : 0), 0)
+      : 0;
+    return draft.side === "SELL" && Number(draft.qty) > (this.lots.get(draft.assetId)?.qty ?? 0) - held;
   }
   /** Place an order intent: logged to the shell intent log; the IntentResult (+ MyFill) lands on `me` next tick. */
   submit(draft: OrderDraft): string {
@@ -734,7 +826,24 @@ export class MockFeed {
   }
   /** The order door (orders.ts `mockTransport`): `preview`, `submit` and `cancel`, with the submit and cancel replies
    *  held `scenario.replyMs`. */
-  orderDoor(): { preview(draft: OrderDraft): PreviewRes; submit(draft: OrderDraft): string | Promise<string>; cancel(orderId: string): string | Promise<string> } {
+  orderDoor(): { preview(draft: OrderDraft): PreviewRes | Promise<PreviewRes>; submit(draft: OrderDraft): string | Promise<string>; cancel(orderId: string): string | Promise<string> } {
+    if (this.authoritativeQuotes) {
+      // Signed-in (M1-06): the server decides. One idempotency key per Place / "Yes, cancel"; retries reuse it.
+      return {
+        preview: (d) => ASSET_BY_ID[d.assetId]?.displayDecimals === 8 ? this.serverSync().then((s) => s.previewListed(d)) : this.preview(d),
+        submit: (d) => {
+          const draft: Record<string, string> = { assetId: d.assetId, side: d.side, type: d.type, qty: d.qty, tif: d.tif };
+          if (d.limit !== undefined) draft.limit = d.limit;
+          if (d.stop !== undefined) draft.stop = d.stop;
+          submitIntent({ kind: "mkt.order.place", payload: { ...draft } });
+          return this.post("/api/broker/orders", { idempotencyKey: idempotencyKey(), draft });
+        },
+        cancel: (orderId) => {
+          submitIntent({ kind: "mkt.order.cancel", payload: { orderId } });
+          return this.post("/api/broker/orders/cancel", { idempotencyKey: idempotencyKey(), orderId });
+        },
+      };
+    }
     const ms = this.scenario.replyMs;
     const held = (id: string) => (ms > 0 ? new Promise<string>((r) => setTimeout(() => r(id), ms)) : id);
     return {
@@ -743,6 +852,13 @@ export class MockFeed {
       cancel: (id) => held(this.cancel(id)),
     };
   }
+}
+
+/** 128 random bits as hex. getRandomValues also works on a plain-http LAN origin, where randomUUID does not. */
+export function idempotencyKey(): string {
+  const b = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 /** Append-only rings (Q4): diffed to `ins` + `trim`. */

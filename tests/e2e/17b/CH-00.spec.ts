@@ -33,19 +33,23 @@ test("CH-07 desktop: tiles open each 17B app as a window", async ({ page }, info
 
 // QA #71 follow-up: `built` is derived from src/shell/appModules.ts, the same record AppBody renders from. Every app the
 // registry calls built must open its real body (its root carries data-testid=<id>): not ComingLater, no stuck skeleton.
-// Since UI card 4 that list is broker, portfolio, settings, wire.
+// Since UI card 4 that list is broker, portfolio, settings, wire; since M2-03 also boards (the net-worth leaderboard);
+// since M1-10 also city (the static read-only district view).
 const BUILT = REGISTRY.filter((a) => a.built).map((a) => a.id);
 // QA #78 follow-up: the root testid alone does not prove the body rendered, so each built app must also show copy that
 // only its real body draws (EN, the boot locale). A new built app fails here until it names its own.
 const LOCATE = (scope: Locator): Record<string, Locator> => ({
+  boards: scope.getByText("Sign in to see the Port Avalon net worth board.", { exact: true }), // the guest (boot) body, M2-03
   broker: scope.getByRole("button", { name: "Review order" }),
+  launchpad: scope.getByText("Sign in to launch or trade coins. You can browse as a guest.", { exact: true }), // owner-restored Launchpad, guest body
+  city: scope.getByText("Read-only view. Nothing here can be bought or changed.", { exact: true }), // M1-10
   portfolio: scope.getByText("Net worth", { exact: true }).first(),
   settings: scope.getByText("Appearance", { exact: true }).first(),
   wire: scope.getByRole("radiogroup", { name: "Wire filters" }).getByRole("radio", { name: "All" }),
 });
 
 test("CH-08 every built app deep-links to its real body and shows its own copy, never ComingLater or a stuck skeleton", async ({ page }, info) => {
-  expect([...BUILT].sort()).toEqual(["broker", "portfolio", "settings", "wire"]); // also pinned by tests/unit/shell/app-modules.test.tsx
+  expect([...BUILT].sort()).toEqual(["boards", "broker", "city", "launchpad", "portfolio", "settings", "wire"]); // also pinned by tests/unit/shell/app-modules.test.tsx
   for (const id of BUILT) {
     await boot(page, `/${id}`);
     const scope = info.project.name === "desktop" ? page.getByTestId(`win-${id}`) : page.locator(`[data-testid="phone-appview"][data-app="${id}"]`);

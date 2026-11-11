@@ -51,3 +51,7 @@ html[data-hc="1"] .wire-field { border-color: var(--fg-muted); }
 /* Stale news: the detail stays, dimmed (as stale positions) */
 .wire-detail[data-stale] .wire-detail-body { color: var(--fg-disabled); }
 .wire-detail[data-stale] .wire-detail-body :is(.wire-detail-hl, .wire-asset-label, .wire-field dd, .wire-filing-type, .chip) { color: var(--fg-disabled); }
+
+/* M1-09 price effect lines */
+.wire-effects { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--sp-4); }
+.wire-effect-line { font-family: var(--font-num); }

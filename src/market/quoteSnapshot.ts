@@ -1,6 +1,6 @@
 // Shared quote snapshot for the single-process Port Avalon clock (M1-05).
 // The server builds this from one MockFeed. Clients parse it and do not evolve prices themselves.
-import { ASSETS } from "@/market/catalog";
+import { ASSETS, type AssetFixture } from "@/market/catalog";
 import type { TickerBody, TickerRow } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 
@@ -10,6 +10,13 @@ export interface MarketSnapshot {
   readonly tick: number;
   readonly tickMs: number;
   readonly quotes: TickerBody;
+  /** 04 §3.14.1 Fear Index F (0–100), PUBLIC macro.fear. Required on live server snapshots. */
+  readonly fear?: number;
+  /** 04 §3.14.1 risk appetite RA = 1 − F/50. */
+  readonly riskAppetite?: number;
+  /** L4 runtime listings (server snapshot; clients read them from the raw reply, src/market/listings.ts). */
+  readonly listVersion?: number;
+  readonly listed?: readonly AssetFixture[];
 }
 
 /** Integer minor units from a decimal price string. Null when the shape does not match `dp`. */
@@ -62,11 +69,20 @@ export function parseMarketSnapshot(raw: unknown): MarketSnapshot | null {
       halted: false,
     };
   }
+  let fear: number | undefined;
+  let riskAppetite: number | undefined;
+  if (o.fear !== undefined || o.riskAppetite !== undefined) {
+    if (typeof o.fear !== "number" || !Number.isFinite(o.fear) || o.fear < 0 || o.fear > 100) return null;
+    if (typeof o.riskAppetite !== "number" || !Number.isFinite(o.riskAppetite)) return null;
+    fear = o.fear;
+    riskAppetite = o.riskAppetite;
+  }
   return {
     worldId: PORT_AVALON_WORLD_ID,
     marketSeed: PORT_AVALON_MARKET_SEED,
     tick: o.tick as number,
     tickMs: o.tickMs as number,
     quotes: { listId: "wl_default", rows },
+    ...(fear !== undefined ? { fear, riskAppetite } : {}),
   };
 }

@@ -81,8 +81,10 @@ describe("copy", () => {
     expect(Object.values(fr.range)).toEqual(["1\u202fh", "1\u202fj", "1\u202fsem.", "1\u202ftrim.", "1\u202fan", "Tout"]);
     expect(en.chartAria("HALC", "1D", "41.00", "42.18")).toBe("HALC price, 1D: from 41.00 to 42.18");
     expect(fr.chartAria("HALC", "1\u202fj", "41,00", "42,18")).toBe("Cours de HALC, 1\u202fj\u202f: de 41,00 à 42,18");
-    expect(en.crosshairAria("Day 39 · 11:20", "42.18")).toBe("Day 39 · 11:20: close 42.18");
-    expect(fr.crosshairAria("t", "1")).toBe("t\u202f: clôture 1");
+    // M1-07: the crosshair announces the whole candle.
+    expect(en.crosshairAria("Day 39 · 11:20", "42.00", "42.30", "41.90", "42.18", "120")).toBe("Day 39 · 11:20: open 42.00, high 42.30, low 41.90, close 42.18, volume 120");
+    expect(fr.crosshairAria("t", "1", "2", "0,5", "1", "0")).toBe("t\u202f: ouverture 1, haut 2, bas 0,5, clôture 1, volume 0");
+    expect([en.legend, fr.legend]).toEqual([{ o: "O", h: "H", l: "L", c: "C", v: "Vol" }, { o: "O", h: "H", l: "B", c: "C", v: "Vol." }]);
     expect([en.tickLabel("5"), fr.tickLabel("5")]).toEqual(["t 5", "t 5"]);
     expect([en.viewTable, en.viewChart, fr.viewTable, fr.viewChart]).toEqual(["View as table", "View as chart", "Voir le tableau", "Voir le graphique"]);
     expect(Object.values(en.col)).toEqual(["Time", "Open", "High", "Low", "Close", "Volume"]);
@@ -90,5 +92,19 @@ describe("copy", () => {
     expect([en.chartError, fr.chartError]).toEqual(["Couldn't load chart", "Impossible de charger le graphique"]);
     expect([en.noHistory, fr.noHistory]).toEqual(["No price history yet.", "Pas encore d\u2019historique de cours."]);
     expect([en.rangeAria, fr.rangeAria, en.halted, fr.halted]).toEqual(["Chart range", "Période du graphique", "Halted", "Suspendu"]);
+  });
+});
+
+describe("M1-07 volume colours", () => {
+  it("parseSrgb reads the computed color-mix() form for the library; anything else is not its job", async () => {
+    const { parseSrgb } = await import("@/components/market/chartColor");
+    expect(parseSrgb("color(srgb 0.247059 0.819608 0.690196 / 0.22)")).toEqual([63, 209, 176, 0.22]);
+    expect(parseSrgb("color(srgb 1 0 0.5)")).toEqual([255, 0, 128, 1]);
+    expect(parseSrgb("color(display-p3 1 0 0)")).toBeNull();
+    expect(parseSrgb("red")).toBeNull();
+  });
+  it("chartColor.ts is colour channels only: it imports nothing and never sees a bar", () => {
+    const s = src("src/components/market/chartColor.ts");
+    expect(s).not.toMatch(/\bimport\b|\bBar\b|\bCandle\b/);
   });
 });

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
 import { decText } from "@/apps/portfolio/positions/format";
 import type { PreviewRes, Side } from "@/shell/contracts/channels";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 
 /** The estimate rows, verbatim from PreviewRes (BRK spec). `stale` greys them while a fresh preview is due. */
 export function PreviewRows({ t, locale, res, stale = false }: { t: BrStrings; locale: string; res: PreviewRes; stale?: boolean }) {
@@ -20,6 +20,7 @@ export function PreviewRows({ t, locale, res, stale = false }: { t: BrStrings; l
     ["total", t.total, <MoneyText key="v" amount={res.total} ctx="table" />],
     ["bpAfter", t.bpAfter, <MoneyText key="v" amount={res.buyingPowerAfter} ctx="table" />],
   ];
+  if (res.executableQty !== undefined) rows.push(["executable", t.executable, <span key="v">{res.executableQty}</span>]);
   if (res.firstTradeCapRemaining !== null) rows.push(["capLeft", t.capLeft, <MoneyText key="v" amount={res.firstTradeCapRemaining} ctx="table" />]);
   return (
     <section className={`br-est${stale ? " stale" : ""}`} data-testid="br-est" data-stale={stale ? "1" : undefined} aria-label={t.estimateAt(String(res.computedAtTick))}>

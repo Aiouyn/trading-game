@@ -1,0 +1,52 @@
+.quay-feedback { position: relative; }
+.quay-feedback-btn { cursor: pointer; }
+.quay-feedback-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-chrome);
+  width: min(320px, 92vw);
+  padding: 12px;
+  background: var(--win);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--elev-sheet);
+}
+.statusbar .quay-feedback-panel { right: auto; left: 0; }
+/* The phone status bar is 44 px and overflow:hidden; a relative sheet was clipped (y ≈ −13).
+   Pin it just below the bar so the form and thanks are fully visible. */
+.phone .quay-feedback-panel {
+  position: fixed;
+  top: calc(var(--statusbar-h) + 8px);
+  left: 8px;
+  right: 8px;
+  width: auto;
+  z-index: calc(var(--z-chrome) + 1);
+}
+.quay-feedback-label { display: block; margin-bottom: 6px; font-size: var(--fs-13); }
+.quay-feedback-panel textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px;
+}
+.quay-feedback-actions { display: flex; gap: 8px; }
+.quay-feedback-optout {
+  display: block;
+  margin-top: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: var(--fs-12);
+}
+
+.quay-feedback-skel { min-height: 72px; }
