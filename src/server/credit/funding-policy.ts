@@ -9,14 +9,14 @@ export function creditCashTotal(s: CreditState): Money { return s.funds.reduce((
 export function creditReserved(s: CreditState, fundId: string): Money { return s.offers.filter((o) => o.status === "OPEN").flatMap((o) => o.slices).filter((a) => a.fundId === fundId).reduce((n, a) => n + a.amount, Z) + s.loans.flatMap((l) => l.slices).filter((a) => a.fundId === fundId).reduce((n, a) => n + a.reserved, Z); }
 export const free = (s: CreditState, f: CreditFund): Money => f.cash - creditReserved(s, f.id);
 export const capital = (s: CreditState): CreditFund => s.funds.find((f) => f.depositorId === null)!;
-const accountKey = (c: CreditClient, a: CreditCashAccount): string => "account:" + creditFingerprint({ clientId: c.id, accountId: a.id });
+const creditCashBucketKey = (c: CreditClient, a: CreditCashAccount): string => "account:" + creditFingerprint({ clientId: c.id, accountId: a.id });
 export interface CashRef {
     key: string;
     bucket: {
         cash: Money;
     };
 }
-export const accountRef = (c: CreditClient, a: CreditCashAccount): CashRef => ({ key: accountKey(c, a), bucket: a });
+export const accountRef = (c: CreditClient, a: CreditCashAccount): CashRef => ({ key: creditCashBucketKey(c, a), bucket: a });
 export const fundRef = (f: CreditFund): CashRef => ({ key: "fund:" + f.id, bucket: f });
 export function transfer(s: CreditState, from: CashRef, to: CashRef, amount: Money, kind: CreditMovement["kind"]): void {
     if (amount < Z || from.bucket.cash < amount)
