@@ -25,7 +25,7 @@
 //  - M1-07: signed-in bars are the server's recorded quote candles + executed volume (history.ts); a guest sees the mock's
 //    demo bars, labelled as such. History is keyed by the feed epoch, so an account switch never shows the other feed's bars.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { BrStrings } from "@/apps/broker/strings";
+import type { BrStrings } from "@/apps/broker/strings-en";
 import { decText } from "@/apps/portfolio/positions/format";
 import { Button } from "@/components/ui/Button";
 import { parseRev, type CandleRev } from "@/shell/contracts/candleRev";

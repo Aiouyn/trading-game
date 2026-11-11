@@ -42,7 +42,7 @@ class Store implements AuthStore {
 let n = 0;
 const key = () => `lp-pool-key-${++n}`;
 async function signUp(handle: string): Promise<string> {
-  const res = await register(new Request("http://localhost/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle, password: "password1" }) }));
+  const res = await register(new Request("http://localhost/api/auth/register", { method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle, password: "password1" }) }));
   expect(res.status).toBe(201);
   return (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))!.split(";")[0]!;
 }

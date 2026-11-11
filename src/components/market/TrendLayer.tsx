@@ -13,7 +13,7 @@
 import { useEffect, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { flushSync } from "react-dom";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
-import type { BrStrings } from "@/apps/broker/strings";
+import type { BrStrings } from "@/apps/broker/strings-en";
 import { pfNumberLocale } from "@/apps/portfolio/strings";
 import { barTime } from "./ChartTable";
 import { newLineId, type TrendDraw, type TrendPoint, type Trendline } from "./trendlines";

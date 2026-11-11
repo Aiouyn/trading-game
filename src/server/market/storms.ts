@@ -94,6 +94,8 @@ export interface StormWorldSnapshot {
   readonly shockResidual?: ReadonlyArray<{ readonly assetId: string; readonly log: number; readonly k: number }> | null;
   /** Unused per-asset equity-ERP log so per-tick μ survives minor rounding. Absent on older files → start at 0. */
   readonly erpAccrued?: ReadonlyArray<{ readonly assetId: string; readonly log: number }> | null;
+  /** Catalog RUMOR claims, belief residuals, handoff, and confirmed lnV. Absent on older files → empty book. */
+  readonly rumors?: import("./rumorClaims").RumorSnapshot | null;
 }
 
 const pFromRate = (r: number) => 1 - Math.exp(-r);

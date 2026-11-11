@@ -63,3 +63,5 @@ export function SettingsApp() {
     </div>
   );
 }
+
+export default SettingsApp;

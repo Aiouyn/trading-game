@@ -11,6 +11,7 @@ import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings } from "@/shell/
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
+import { FeedbackButton } from "./FeedbackButton";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
@@ -193,6 +194,7 @@ function StatusBar() {
           {auth.account.handle}
         </button>
       ) : null}
+      <FeedbackButton compact />
       <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
         {nw.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(nw.state)}>{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
       </span>

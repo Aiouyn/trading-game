@@ -1,7 +1,7 @@
 // M1-09 server only: the clock's feed, which can move a price on a Wire story. Kept out of MockFeed so the client bundle
 // (every signed-in and guest feed) does not carry code only the server clock runs.
 import { ASSET_BY_ID, type AssetFixture } from "@/market/catalog";
-import { MockFeed, fmt } from "@/shell/contracts/mockFeed";
+import { MockFeed, fmt, type FeedOptions } from "@/shell/contracts/mockFeed";
 import { listAsset } from "@/market/listings";
 import { CRYPTO_FACTOR_STREAM, CRYPTO_DAYS_PER_YEAR, SESSION_DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
@@ -9,6 +9,7 @@ import { moveAsserted, type BeliefMoveSeed } from "@/server/broker/belief";
 import type { DepthInputs } from "@/server/broker/book";
 import { WorldInputs, REGIME_TURNOVER, type WorldView } from "./world";
 import { StormScheduler, type StormHypeShock, type StormPriceShock, type StormWireOut } from "./storms";
+import { RumorBook, type RumorOpenInput, type RumorSnapshot, type RumorStepEvent } from "./rumorClaims";
 
 /** What the trader pools read of a listed coin (src/server/broker/pools.ts): its mark P_{N−1} and template value, its
  *  returns and template vol, the world (04 regime and Fear Index) and its news (attention, sign, mentions). */
@@ -103,6 +104,19 @@ export class ShockFeed extends MockFeed {
   private readonly shockResidual = new Map<string, { log: number; k: number }>();
   /** Unused equity-ERP log (per asset) so per-tick μ is not lost to minor-unit rounding. */
   private readonly erpAccrued = new Map<string, number>();
+  /** Catalog RUMOR book (15/16 first slice). Lazy so the MockFeed seed is already set. */
+  private _rumors: RumorBook | null = null;
+  /** Injected secret (tests) or undefined (book generates / hydrates from the store). */
+  private readonly rumorSecret: string | undefined;
+
+  constructor(scenario: ConstructorParameters<typeof MockFeed>[0] = {}, opts: FeedOptions & { rumorSecret?: string } = {}) {
+    super(scenario, opts);
+    this.rumorSecret = opts.rumorSecret;
+  }
+
+  private rumorBook(): RumorBook {
+    return this._rumors ??= new RumorBook(this.scenario.seed, undefined, { secret: this.rumorSecret });
+  }
 
   /** L4: give a def the catalog just appended its quote state at its listing price and its meme-template path, at hype
    *  `hype` (a fresh listing: H₀; a relist after a restart: the saved H). Idempotent. */
@@ -310,7 +324,7 @@ export class ShockFeed extends MockFeed {
   /** Move one asset's price by a story/storm effect at the current tick, after this tick's walk step. Returns the price
    *  before and after in minor units, or null for an unknown or non-trading asset. When `halfLifeDays` is set
    *  (04 scheduler / M1-09 demo crises), the log-move is registered as a residual that unwinds per 04:1033; omit it
-   *  for company NEWS/RUMOR (fundamental-ish permanent print). */
+   *  for company NEWS and for a CONFIRMED rumor's value print. Pending rumor belief uses applyLogMove, not this. */
   applyShock(assetId: string, bp: number, halfLifeDays?: number): { from: number; to: number } | null {
     const s = this.assets.get(assetId);
     if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
@@ -367,6 +381,68 @@ export class ShockFeed extends MockFeed {
       this.erpAccrued.set(r.assetId, r.log);
     }
   }
+
+  /** Continuous log move (belief / handoff / false release / rematerialize). No residual. */
+  applyLogMove(assetId: string, log: number): { from: number; to: number } | null {
+    const s = this.assets.get(assetId);
+    if (!s || this.tradingState(assetId) !== "CONTINUOUS") return null;
+    if (!Number.isFinite(log) || log === 0) return { from: s.last, to: s.last };
+    const from = s.last;
+    const to = Math.max(1, Math.round(from * Math.exp(log)));
+    if (to === from) return { from, to };
+    s.last = to;
+    s.dir = to > from ? 1 : -1;
+    const p = s.prints.at(-1);
+    if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
+    return { from, to };
+  }
+
+  openRumor(input: RumorOpenInput) { return this.rumorBook().open(input); }
+
+  advanceRumors(tick: number): RumorStepEvent[] {
+    const book = this.rumorBook();
+    return book.advanceTo(
+      tick,
+      (assetId, log) => this.applyLogMove(assetId, log),
+      (assetId, bp) => this.applyShock(assetId, bp),
+    );
+  }
+
+  rumorSnapshot(): RumorSnapshot { return this.rumorBook().snapshot(); }
+
+  hydrateRumors(snap: RumorSnapshot | null | undefined, materialize = true): void {
+    const book = this.rumorBook();
+    book.hydrate(snap ?? undefined, { secret: this.rumorSecret });
+    if (!materialize || !snap) return;
+    for (const row of snap.valueApplied) {
+      if (row.log !== 0) this.applyLogMove(row.assetId, row.log);
+    }
+    const marks = snap.beliefMarks ?? [];
+    if (marks.length) {
+      for (const m of marks) {
+        if (m.printed !== 0) this.applyLogMove(m.assetId, m.printed);
+      }
+    } else {
+      const sums = new Map<string, number>();
+      for (const b of snap.belief) sums.set(b.assetId, (sums.get(b.assetId) ?? 0) + b.log);
+      for (const [assetId, log] of sums) {
+        if (log === 0) continue;
+        const r = this.applyLogMove(assetId, log);
+        const printed = r && r.from > 0 && r.to !== r.from ? Math.log(r.to / r.from) : 0;
+        book.adoptPrinted(assetId, printed, log - printed);
+      }
+    }
+  }
+
+  rumorLnV(assetId: string): number { return this.rumorBook().lnVOf(assetId) ?? 0; }
+  rumorBelief(assetId: string): number { return this.rumorBook().beliefLog(assetId); }
+  rumorClaim(id: string) { return this.rumorBook().claim(id); }
+  rumorSource() { return this.rumorBook().sourceState(); }
+  rumorSourceOf(id: string | undefined) { return this.rumorBook().sourceOf(id); }
+  rumorClaims() { return this.rumorBook().allClaims(); }
+  farmSources() { return this.rumorBook().farmSources(); }
+  openFarmDue(tick: number) { return this.rumorBook().openFarmDue(tick); }
+  openAnalystDue(tick: number) { return this.rumorBook().openAnalystDue(tick); }
 
   takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
   takeCrisisWire() { return this.storms.takeCrisisWire(); }

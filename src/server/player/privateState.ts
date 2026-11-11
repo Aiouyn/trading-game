@@ -22,9 +22,11 @@ const ORDER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const UDEC_RE = /^\d{1,18}(\.\d{1,8})?$/;
 const MAX_POSITIONS = 64;
 const MAX_OPEN_ORDERS = 128;
-/** M1-06 rings (Q4 keepLast 50): fills shown on `me`, decided intents (receipts + idempotency keys). */
+/** M1-06 rings (Q4 keepLast 50): fills and intent receipts shown on `me`. */
 export const MAX_FILLS = 50;
 export const MAX_INTENTS = 50;
+/** Durable idempotency journal: every decided key, not the last-50 receipt ring. Fail closed if full. */
+export const MAX_IDEMPOTENCY = 10_000;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_FINGERPRINT = 512;
 const ORDER_TYPES = new Set(["market", "limit", "stop", "stop_limit"]);
@@ -38,6 +40,7 @@ export type PlayerPrivateInput = {
   /** M1-06. Omitted or empty = none; stored only when non-empty. */
   readonly fills?: readonly MyFill[];
   readonly intents?: readonly PersistedIntent[];
+  readonly idempotency?: readonly PersistedIntent[];
 };
 
 export function isIdempotencyKey(v: unknown): v is string {
@@ -167,6 +170,14 @@ function plainObject(v: unknown, field: string): Record<string, unknown> {
   return v as Record<string, unknown>;
 }
 
+/** Receipts are the last-50 view; any receipt missing from the journal is folded in (old saves have no journal). */
+function mergeIdempotency(journal: PersistedIntent[], receipts: readonly PersistedIntent[]): PersistedIntent[] {
+  const keys = new Set(journal.map((x) => x.key));
+  const extra = receipts.filter((x) => !keys.has(x.key));
+  if (journal.length + extra.length > MAX_IDEMPOTENCY) bad("Too many idempotency keys.");
+  return extra.length === 0 ? journal : [...journal, ...extra];
+}
+
 /** Validate + normalize a private ledger commit (throws AuthError BAD_REQUEST). */
 export function buildPlayerPrivate(accountId: AccountId, input: PlayerPrivateInput): PlayerPrivateRecord {
   if (!Number.isSafeInteger(input.cashCents) || input.cashCents < 0) {
@@ -186,10 +197,13 @@ export function buildPlayerPrivate(accountId: AccountId, input: PlayerPrivateInp
   const fills = ring(input.fills, "fills", MAX_FILLS, buildFill);
   const intents = ring(input.intents, "intents", MAX_INTENTS, buildIntent);
   if (new Set(intents.map((x) => x.key)).size !== intents.length) bad("Duplicate idempotency key in intents.");
+  const idempotency = mergeIdempotency(ring(input.idempotency ?? intents, "idempotency", MAX_IDEMPOTENCY, buildIntent), intents);
+  if (new Set(idempotency.map((x) => x.key)).size !== idempotency.length) bad("Duplicate idempotency key.");
   return {
     v: PLAYER_PRIVATE_SCHEMA_VERSION, accountId, cashCents: input.cashCents, positions: { ...positions }, openOrders: { ...openOrders },
     ...(fills.length ? { fills } : {}),
     ...(intents.length ? { intents } : {}),
+    ...(idempotency.length ? { idempotency } : {}),
   };
 }
 
@@ -203,6 +217,7 @@ export function clonePlayerPrivate(p: PlayerPrivateRecord): PlayerPrivateRecord 
     v: p.v, accountId: p.accountId, cashCents: p.cashCents, positions, openOrders,
     ...(p.fills?.length ? { fills: p.fills.map((f) => ({ ...f })) } : {}),
     ...(p.intents?.length ? { intents: p.intents.map((x) => ({ key: x.key, fingerprint: x.fingerprint, result: structuredClone(x.result) })) } : {}),
+    ...(p.idempotency?.length ? { idempotency: p.idempotency.map((x) => ({ key: x.key, fingerprint: x.fingerprint, result: structuredClone(x.result) })) } : {}),
   };
 }
 
@@ -232,6 +247,7 @@ export function parsePlayerPrivateRow(raw: unknown): ParsedPlayerRow {
           openOrders: o.openOrders as Record<string, PersistedOpenOrder>,
           fills: o.fills as MyFill[] | undefined,
           intents: o.intents as PersistedIntent[] | undefined,
+          idempotency: o.idempotency as PersistedIntent[] | undefined,
         }),
       };
     }

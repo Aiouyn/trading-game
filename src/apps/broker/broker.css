@@ -26,7 +26,13 @@
 .br-title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); }
 .br-ticker { font-size: var(--fs-22); font-weight: 600; color: var(--fg); margin: 0; }
 .br-pick { display: flex; flex-direction: column; gap: var(--sp-4); }
-.br-select { min-height: var(--hit-pointer); padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-weight: 600; }
+/* Name line is a whole-pixel height so everything under it moves by whole pixels (card 4-9 baselines).
+   "TICKER · Name" options widen the select: cap it at the column so 390 at text scale 2 does not overflow
+   (BR-5-12, BR-7-12); the closed select clips, the open list is native. Kept here (not assetPage.css) so
+   Trade does not wait on the lazy About chunk. */
+.br-name { margin: 0; line-height: calc(20px * var(--text-scale)); }
+.br-pick { min-width: 0; max-width: 100%; }
+.br-select { min-height: var(--hit-pointer); padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-weight: 600; max-width: 100%; text-overflow: ellipsis; }
 .br-halted { color: var(--steel); }
 .br-quote { display: flex; flex-wrap: wrap; gap: var(--sp-16); align-items: flex-end; }
 .br-market-tick { margin: 0; font-family: var(--font-num); }

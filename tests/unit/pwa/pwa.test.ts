@@ -113,7 +113,7 @@ describe("service worker", () => {
     await w.fire("install");
     for (const r of [
       new Request(ORIGIN + "/api/broker/intents", { method: "POST", body: "{}" }),
-      new Request(ORIGIN + "/api/auth/logout", { method: "POST" }),
+      new Request(ORIGIN + "/api/auth/logout", { method: "POST", headers: { origin: ORIGIN } }),
       new Request("https://elsewhere.test/quay-icon.svg"),
       new Request(ORIGIN + "/api/broker/me"),
       new Request(ORIGIN + "/api/market"),

@@ -1,6 +1,6 @@
 "use client";
 // Quay OS shell root: picks phone / compact / desktop, applies html attributes, wires keys and channels.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { applyDeepLink, useBackStack } from "@/shell/back";
@@ -36,6 +36,7 @@ import { Sheet } from "./Sheet";
 import { FEED_HOOKS, mockFeedSource, useFeed } from "@/shell/feed";
 import { closeSheet, openSheet, useSheetRequest } from "@/shell/sheetHost";
 import { S } from "@/shell/strings";
+import { ShellErrorBoundary } from "./ShellErrorBoundary";
 
 const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 
@@ -101,6 +102,7 @@ function Surface({ query }: { query: string }) {
         </>
       )}
       {!phone && <LoadState />}
+      <ConsentBoot />
       <SystemOverlays />
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}
@@ -113,6 +115,44 @@ function Surface({ query }: { query: string }) {
     </div>
     </AuthAccountBoundary>
   );
+}
+
+
+/** Loads the first-launch analytics prompt only after a user gesture, so /broker first-load stays in budget. */
+function ConsentBoot() {
+  const [Host, setHost] = useState<ComponentType | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const start = () => {
+      try {
+        const q = new URLSearchParams(window.location.search);
+        const force = q.get("telemetry_consent") === "1";
+        // Official e2e (playwright.config webServer) builds with NEXT_PUBLIC_QUAY_E2E=1 and
+        // QUAY_OFFICIAL_E2E_BUILD=1 so the prompt cannot intercept taps or land in baselines.
+        // next.config inlines "1" only when both are set, and fails the build if the flag is
+        // set without the marker. A normal production build inlines "0"; `next start` cannot
+        // turn consent off. check-hooks forbids the flag name in a no-flag .next tree.
+        if (!force && process.env.NEXT_PUBLIC_QUAY_E2E === "1") return;
+        const store = window.localStorage;
+        if (store.getItem("quay.telemetry.consent") || store.getItem("quay.telemetry.optout")) return;
+        const nav = navigator as Navigator & { globalPrivacyControl?: boolean; doNotTrack?: string | null };
+        if (nav.doNotTrack === "1" || nav.doNotTrack === "yes" || nav.globalPrivacyControl === true) return;
+      } catch {
+        return;
+      }
+      void import("./ConsentHost").then((m) => {
+        if (!cancelled) setHost(() => m.ConsentHost);
+      });
+    };
+    window.addEventListener("pointerdown", start, { once: true });
+    window.addEventListener("keydown", start, { once: true });
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pointerdown", start);
+      window.removeEventListener("keydown", start);
+    };
+  }, []);
+  return Host ? <Host /> : null;
 }
 
 /** Guest mock clock: one local step per tick (5 s). The TickRing follows the channel; it never runs its own timer.
@@ -203,9 +243,11 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
 
   return (
     <ShellCtx.Provider value={store}>
-      <ShellClock store={store} query={query} />
-      <LiveNwUnlock />
-      <Surface query={query} />
+      <ShellErrorBoundary>
+        <ShellClock store={store} query={query} />
+        <LiveNwUnlock />
+        <Surface query={query} />
+      </ShellErrorBoundary>
     </ShellCtx.Provider>
   );
 }

@@ -58,7 +58,7 @@ describe("M1-09 story schedule", () => {
     const seen = new Set<string>();
     for (const t of slots(16 * 12)) {
       const s = storyAt(SEED, t)!;
-      if (s.phase !== "forecast") continue;
+      if (s.kind !== "WORLD_EVENT" || s.phase !== "forecast") continue;
       expect(s.effects).toEqual([]);
       expect(s.kind).toBe("WORLD_EVENT");
       const out = storyAt(SEED, t + 2 * STORY_EVERY)!;
@@ -104,8 +104,8 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
       ref.advance();
       const tick = market.snapshot().tick;
       const w = market.wire();
-      const item = w.items.at(-1);
       const def = storyAt(SEED, tick);
+      const item = w.items.find((i) => i.id === `w-${tick}`) ?? w.items.at(-1);
       if (def) {
         published++;
         expect(item!.id).toBe(`w-${tick}`);
@@ -121,11 +121,28 @@ describe("M1-09 server clock: stories move the authoritative quotes once", () =>
           const got = item!.effects!.find((x) => x.assetId === e.assetId)!;
           const dp = ASSET_BY_ID[e.assetId]!.displayDecimals;
           expect(got).toEqual({ assetId: e.assetId, from: fmt(r.from, dp), to: fmt(r.to, dp), pct: fmt(Math.round(((r.to - r.from) * 10_000) / r.from), 2) });
-          expect(minor(market.snapshot().quotes, e.assetId)).toBe(r.to);
         }
-      } else if (item) expect(item.tick).toBeLessThan(tick);
+        if (def.kind === "RUMOR") {
+          const a = (def.asserted ?? def.effects)[0];
+          expect(item!.phase).toBe("forecast");
+          expect(item!.effects).toBeUndefined();
+          expect(item!.sourceRecord).toBeDefined();
+          if (a) {
+            ref.openRumor({
+              id: `w-${tick}`, defId: def.defId, assetId: a.assetId, headlineKey: def.headlineKey,
+              slots: { ...def.slots }, causeKey: def.causeKey, publishTick: tick, bp: a.bp,
+            });
+          }
+        }
+      } else {
+        for (const it of w.items.filter((i) => i.tick === tick)) {
+          expect(it.kind).toBe("STATEMENT");
+          expect(it.headlineKey).toBe("wire.statement.denies");
+        }
+      }
+      ref.advanceRumors(tick);
       expect(market.snapshot().quotes).toEqual(ref.body("ticker:wl_default"));
-      expect(w.items.length).toBe(published); // one item per story tick, never two
+      expect(w.items.filter((i) => /^w-\d+$/.test(i.id)).length).toBe(published); // one catalog story per story tick; company denials may also appear
     }
     expect(published).toBe(32);
     expect(market.wire().items.filter((i) => i.effects?.length).length).toBeGreaterThan(16);
@@ -171,7 +188,7 @@ describe("M1-09 routes", () => {
     expect(v).not.toBeNull();
     expect(v.worldId).toBe(PORT_AVALON_WORLD_ID);
     expect(v.tick).toBe(market.snapshot().tick);
-    expect(v.items.map((i) => i.tick)).toEqual([1, 2, 3, 4].map((k) => START_TICK + k * STORY_EVERY));
+    expect(v.items.filter((i) => /^w-\d+$/.test(i.id)).map((i) => i.tick)).toEqual([1, 2, 3, 4].map((k) => START_TICK + k * STORY_EVERY));
     const quotes = market.snapshot();
     for (let i = 0; i < 10; i++) expect(parseWireSnapshot(await (await wireRoute()).json())).toEqual(v);
     expect(market.snapshot()).toEqual(quotes);
@@ -186,23 +203,32 @@ describe("M1-09 routes", () => {
   it("Broker and candles see the moved price: a market buy at the story tick fills at it; the tick bar closes at it", async () => {
     await marketRoute(); // attaches the sweep and the candle recorder to this clock (as the first read does)
     const first = START_TICK + STORY_EVERY;
-    stepTo(market, first);
-    const item = market.wire().items.at(-1)!;
-    const e = item.effects![0]!;
-    expect(item.tick).toBe(first);
-    expect((await marketRoute().then((r) => r.json()) as { quotes: TickerBody }).quotes.rows[e.assetId]!.last).toBe(e.to);
-    const reg = await register(new Request("http://localhost/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle: "WireBuyer", password: "password1" }) }));
+    let item = null as ReturnType<LiveMarket["wire"]>["items"][number] | null;
+    let e: NonNullable<NonNullable<typeof item>["effects"]>[number] | undefined;
+    let at = first;
+    for (let k = 0; k < 16; k++) {
+      at = START_TICK + (k + 1) * STORY_EVERY;
+      stepTo(market, at);
+      item = market.wire().items.at(-1)!;
+      e = item.effects?.[0];
+      if (e) break;
+    }
+    expect(item).not.toBeNull();
+    expect(e).toBeDefined();
+    expect(item!.tick).toBe(at);
+    expect((await marketRoute().then((r) => r.json()) as { quotes: TickerBody }).quotes.rows[e!.assetId]!.last).toBe(e!.to);
+    const reg = await register(new Request("http://localhost/api/auth/register", { method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle: "WireBuyer", password: "password1" }) }));
     const cookie = (reg.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))!.split(";")[0]!;
     const res = await placeRoute(new Request("http://localhost/api/broker/orders", {
       method: "POST", headers: { "content-type": "application/json", cookie, origin: "http://localhost" },
-      body: JSON.stringify({ idempotencyKey: "m1-09-buy-0001", draft: { assetId: e.assetId, side: "BUY", type: "market", qty: "3", tif: "day" } }),
+      body: JSON.stringify({ idempotencyKey: "m1-09-buy-0001", draft: { assetId: e!.assetId, side: "BUY", type: "market", qty: "3", tif: "day" } }),
     }));
     expect(res.status).toBe(200);
     const body = await res.json() as { ledger: { fills: { price: string; tick: number }[] } };
-    expect(body.ledger.fills.at(-1)).toMatchObject({ price: e.to, tick: first });
-    const c = await candlesRoute(new Request(`http://localhost/api/market/candles?assetId=${e.assetId}&res=tick&from=${first}&to=${first}`));
+    expect(body.ledger.fills.at(-1)).toMatchObject({ price: e!.to, tick: at });
+    const c = await candlesRoute(new Request(`http://localhost/api/market/candles?assetId=${e!.assetId}&res=tick&from=${at}&to=${at}`));
     const bars = (await c.json() as { bars: { t: number; c: string }[] }).bars;
-    expect(bars.at(-1)).toMatchObject({ t: first, c: e.to });
+    expect(bars.at(-1)).toMatchObject({ t: at, c: e!.to });
   });
 
   it("signed-in feed: news waits for the server Wire; first read failure errors; then only server stories; older reply dropped; new epoch replaces", async () => {

@@ -27,7 +27,7 @@ export {
   readSessionTokenFromCookieHeader,
   sessionCookieHeader,
 } from "./cookies";
-export { getAuthService, setAuthServiceForTests } from "./instance";
+export { getAuthService, peekAuthService, setAuthServiceForTests } from "./instance";
 export { assertLocalSingleProcessAuth } from "./deploy";
 export { AttemptThrottle } from "./throttle";
 export {
@@ -36,6 +36,7 @@ export {
   authErrorResponse,
   jsonResponse,
   readJsonObject,
+  readJsonObjectCapped,
   requireString,
   sessionBody,
   tokenFromRequest,

@@ -15,6 +15,7 @@ import { fill, type WireFilter, type WireStrings } from "./strings";
 import { storyStrings } from "./storyStrings";
 import { WireItemRow } from "./WireItemRow";
 import { WireSkeletonList } from "./Skeleton";
+import { RetryableComposer } from "./RetryableComposer";
 
 /** Newest first by tick; equal ticks keep array order. */
 export function orderNewest(items: readonly WireItem[]): WireItem[] {
@@ -61,7 +62,7 @@ interface Open { id: string; last: WireItem }
 
 /** `select`: a story id to open (UI card 10). Each new value opens that item once the feed has it; an id that is not
  * in the ring shows the feed with nothing selected. */
-export function Feed({ view, t, host = NO_HOST, select, demo = false }: { view: ChannelView<NewsBody>; t: WireStrings; host?: WireHost; select?: string; /** guest fixtures (M1-09) */ demo?: boolean }) {
+export function Feed({ view, t, host = NO_HOST, select, demo = false, canPost = false }: { view: ChannelView<NewsBody>; t: WireStrings; host?: WireHost; select?: string; /** guest fixtures (M1-09) */ demo?: boolean; /** signed-in composer; default off so existing Feed tests stay unchanged */ canPost?: boolean }) {
   const [filter, setFilter] = useState<WireFilter>("all");
   const [scrolled, setScrolled] = useState(false);
   const [track, setTrack] = useState<Track>({ body: null, seen: NONE, fresh: NONE });
@@ -172,6 +173,7 @@ export function Feed({ view, t, host = NO_HOST, select, demo = false }: { view: 
           </ul>
         )}
       </div>
+      {canPost && <RetryableComposer t={t} />}
       </div>
       {item ? (
         <div className="wire-pane" data-testid="wire-pane">

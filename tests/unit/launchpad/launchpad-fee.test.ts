@@ -38,7 +38,7 @@ let n = 0;
 const key = () => `lp-fee-key-${++n}`;
 async function signUp(handle: string): Promise<string> {
   const res = await register(new Request("http://localhost/api/auth/register", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle, password: "password1" }),
+    method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle, password: "password1" }),
   }));
   expect(res.status).toBe(201);
   return (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))!.split(";")[0]!;
@@ -47,7 +47,7 @@ const post = (route: (r: Request) => Promise<Response>, url: string, cookie: str
   route(new Request(`http://localhost${url}`, { method: "POST", headers: { "content-type": "application/json", origin: "http://localhost", cookie }, body: JSON.stringify(body) }));
 const launchBody = (k: string, ticker = "FROG", fee: number = LP.LAUNCH_FEE) => ({ idempotencyKey: k, fee, tagline: "tg5", name: `${ticker} Club`, ticker });
 const launch = async (c: string, k = key(), ticker = "FROG", fee: number = LP.LAUNCH_FEE) => (await post(launchRoute, "/api/launchpad/launch", c, launchBody(k, ticker, fee))).json();
-const get = async (route: (r: Request) => Promise<Response>, url: string, c: string) => (await route(new Request(`http://localhost${url}`, { headers: { cookie: c } }))).json();
+const get = async (route: (r: Request) => Promise<Response>, url: string, c: string) => (await route(new Request(`http://localhost${url}`, { headers: { cookie: c, origin: "http://localhost" } }))).json();
 const me = (c: string) => get(brokerMe, "/api/broker/me", c);
 const lpView = (c: string) => get(lpGet, "/api/launchpad", c);
 const usd = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

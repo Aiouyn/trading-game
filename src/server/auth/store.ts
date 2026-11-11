@@ -2,11 +2,26 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { clonePlayerPrivate, parsePlayerPrivateRow } from "@/server/player";
 import type { AccountRecord, PlayerPrivateRecord, SessionRecord } from "./types";
+import {
+  clonePlayerWirePost,
+  cloneWirePostIntent,
+  loadPlayerWirePosts,
+  loadWirePostIntents,
+  type PlayerWirePost,
+  type QuarantinedWireRow,
+  type WirePostIntent,
+} from "@/server/wire/playerStatements";
 
 export interface AuthStoreSnapshot {
   readonly accounts: AccountRecord[];
   readonly sessions: SessionRecord[];
   readonly players: PlayerPrivateRecord[];
+  /** Public player Wire statements (`soc.wire.post`). Missing key = none. A bad row is quarantined, never silently dropped. */
+  readonly wirePosts: PlayerWirePost[];
+  /** Private idempotency records for Wire posts, never served on GET /api/wire. */
+  readonly wirePostIntents: WirePostIntent[];
+  readonly quarantinedWirePosts: QuarantinedWireRow[];
+  readonly quarantinedWirePostIntents: QuarantinedWireRow[];
   /**
    * players[] rows that could not be loaded (corrupt, unknown version, lossy legacy, duplicate).
    * Kept verbatim and re-written on every save — never silently dropped. Their accounts read as
@@ -26,7 +41,7 @@ export interface QuarantinedPlayerRow {
   readonly row: unknown;
 }
 
-const emptySnapshot = (): AuthStoreSnapshot => ({ accounts: [], sessions: [], players: [], quarantinedPlayers: [] });
+const emptySnapshot = (): AuthStoreSnapshot => ({ accounts: [], sessions: [], players: [], quarantinedPlayers: [], wirePosts: [], wirePostIntents: [], quarantinedWirePosts: [], quarantinedWirePostIntents: [] });
 
 function cloneSnapshot(s: AuthStoreSnapshot): AuthStoreSnapshot {
   return {
@@ -34,6 +49,10 @@ function cloneSnapshot(s: AuthStoreSnapshot): AuthStoreSnapshot {
     sessions: s.sessions.map((x) => ({ ...x })),
     players: s.players.map(clonePlayerPrivate),
     quarantinedPlayers: s.quarantinedPlayers.map((q) => structuredClone(q)),
+    wirePosts: s.wirePosts.map(clonePlayerWirePost),
+    wirePostIntents: s.wirePostIntents.map(cloneWirePostIntent),
+    quarantinedWirePosts: s.quarantinedWirePosts.map((q) => structuredClone(q)),
+    quarantinedWirePostIntents: s.quarantinedWirePostIntents.map((q) => structuredClone(q)),
     ...(s.launchpad === undefined ? {} : { launchpad: structuredClone(s.launchpad) }),
   };
 }
@@ -87,6 +106,10 @@ export class FileAuthStore implements AuthStore {
         sessions: snapshot.sessions,
         players: snapshot.players,
         quarantinedPlayers: snapshot.quarantinedPlayers,
+        wirePosts: snapshot.wirePosts,
+        wirePostIntents: snapshot.wirePostIntents,
+        quarantinedWirePosts: snapshot.quarantinedWirePosts,
+        quarantinedWirePostIntents: snapshot.quarantinedWirePostIntents,
         launchpad: snapshot.launchpad,
       },
       null,
@@ -135,5 +158,20 @@ function normalizeSnapshot(parsed: unknown): AuthStoreSnapshot {
       rawById.set(id, row);
     }
   }
-  return { accounts, sessions, players: [...byAccount.values()], quarantinedPlayers, ...(obj.launchpad === undefined ? {} : { launchpad: obj.launchpad }) };
+  const loadedPosts = loadPlayerWirePosts(obj.wirePosts);
+  const loadedIntents = loadWirePostIntents(obj.wirePostIntents);
+  const quarantinedWirePosts: QuarantinedWireRow[] = [...loadedPosts.quarantined];
+  if (Array.isArray(obj.quarantinedWirePosts)) {
+    for (const q of obj.quarantinedWirePosts as QuarantinedWireRow[]) quarantinedWirePosts.push(q);
+  }
+  const quarantinedWirePostIntents: QuarantinedWireRow[] = [...loadedIntents.quarantined];
+  if (Array.isArray(obj.quarantinedWirePostIntents)) {
+    for (const q of obj.quarantinedWirePostIntents as QuarantinedWireRow[]) quarantinedWirePostIntents.push(q);
+  }
+  return {
+    accounts, sessions, players: [...byAccount.values()], quarantinedPlayers,
+    wirePosts: loadedPosts.posts, wirePostIntents: loadedIntents.intents,
+    quarantinedWirePosts, quarantinedWirePostIntents,
+    ...(obj.launchpad === undefined ? {} : { launchpad: obj.launchpad }),
+  };
 }

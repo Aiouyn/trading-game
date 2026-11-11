@@ -1,6 +1,9 @@
 # UNIT — meme failure farm
 Written **2026-11-11T17:50:27.979123+01:00 Europe/Paris**, before implementation or tests. Base `110583b0aa73ece1dc3b856665f3be0405f1acc3`; branch `sys/meme-failure-farm`; worktree `/workspace/avalon/sys-meme-failure-farm`.
 
+
+**Stack merge:** this branch also includes `27d3a67d` (`eng/wire-read-only`) via a normal merge, so the already-built farm sits on the current landing stack. The farm remains an unmounted engine/farm seam (no silent mount into the shared web runtime). Product farm files were additive; the only merge conflict was this UNIT.md, resolved in favor of the farm unit.
+
 ## Player outcome / scope
 A new isolated engine API models paid immediate launches and the complete token journey using the base's real curve, graduation and finite-book functions. A player can lose through actual creator dumping or vanishing liquidity: NPC launchers sell owned allocations into rallies, may abandon only at low hype, and a thin book for seven game days delists discovery and marks retained wallets at zero. A rug flag describes an executed creator dump, never random confiscation. Tokens/cash are not deleted to fake death; no cash, credit or refill is created. This is a standalone engine/farm integration seam, not silently mounted into the shared web runtime. Existing launchpad account/state formats and UI are unchanged.
 

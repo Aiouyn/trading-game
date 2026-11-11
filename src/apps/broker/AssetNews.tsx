@@ -7,7 +7,7 @@ import { headline, pctLabel, timeLabel, useWireStrings } from "@/apps/wire/strin
 import { useShellStore } from "@/components/shell/ShellContext";
 import type { WireItem } from "@/shell/contracts/channels";
 import { getFeed, useChannel } from "@/shell/contracts/useChannel";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 
 /** Stories naming `assetId`, tick desc then id asc. */
 export function assetStories(items: readonly WireItem[], assetId: string): WireItem[] {

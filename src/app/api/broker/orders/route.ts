@@ -1,6 +1,7 @@
 import { authErrorResponse, jsonResponse } from "@/server/auth";
 import { getBroker } from "@/server/broker";
 import { assertOnlyKeys, readBrokerMutation, requireBrokerSession, requireDraft, requireIdempotencyKey } from "@/server/broker/http";
+import { runTelemetryContext } from "@/server/telemetry";
 
 export const dynamic = "force-dynamic";
 
@@ -9,14 +10,16 @@ export const dynamic = "force-dynamic";
  * carries only the draft and an idempotency key. The same key again returns the first decision without executing.
  */
 export async function POST(request: Request): Promise<Response> {
-  try {
-    const body = await readBrokerMutation(request);
-    assertOnlyKeys(body, ["idempotencyKey", "draft"]);
-    const key = requireIdempotencyKey(body);
-    const draft = requireDraft(body);
-    const session = await requireBrokerSession(request);
-    return jsonResponse(await getBroker().place(session, key, draft));
-  } catch (err) {
-    return authErrorResponse(err);
-  }
+  return runTelemetryContext(request, async () => {
+    try {
+      const body = await readBrokerMutation(request);
+      assertOnlyKeys(body, ["idempotencyKey", "draft"]);
+      const key = requireIdempotencyKey(body);
+      const draft = requireDraft(body);
+      const session = await requireBrokerSession(request);
+      return jsonResponse(await getBroker().place(session, key, draft));
+    } catch (err) {
+      return authErrorResponse(err);
+    }
+  });
 }

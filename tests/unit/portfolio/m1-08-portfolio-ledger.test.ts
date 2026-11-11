@@ -22,7 +22,7 @@ const minor = (s: string) => Math.round(Number(s) * 100);
 
 async function signUp(handle: string): Promise<string> {
   const res = await register(new Request("http://localhost/api/auth/register", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle, password: "password1" }),
+    method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ handle, password: "password1" }),
   }));
   expect(res.status).toBe(201);
   const hit = (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`));
@@ -260,7 +260,7 @@ describe("M1-08 Portfolio = server ledger at server marks", () => {
     const gate = new Promise<void>((r) => { release = r; });
     const realFetch = globalThis.fetch as (i: string) => Promise<Response>;
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-      if (input === "/api/broker/me" && cookie === a) { const res = await brokerMe(new Request("http://localhost/api/broker/me", { headers: { cookie: a } })); await gate; return res; }
+      if (input === "/api/broker/me" && cookie === a) { const res = await brokerMe(new Request("http://localhost/api/broker/me", { headers: { cookie: a, origin: "http://localhost" } })); await gate; return res; }
       return realFetch(input);
     }));
     openMe(); // A's feed: its ledger read is held in flight

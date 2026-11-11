@@ -2,7 +2,7 @@
 // the `filings` channel is subscribed only while a FILING item's detail is open (FilingSection mounts it). Card 10: the
 // window `context` is a story id to select (Broker's News tab opens Wire on it).
 "use client";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
 import { useChannel } from "@/shell/contracts/useChannel";
@@ -11,6 +11,7 @@ import { Feed, type WireHost } from "./Feed";
 import { FilingSummary } from "./FilingSummary";
 import { useWireStrings, type WireStrings } from "./strings";
 import "./wire.css";
+import { recordFirstWireOpen } from "@/shell/telemetryConsent";
 
 function FilingSection({ filingId, t }: { filingId: string; t: WireStrings }) {
   const view = useChannel("filings");
@@ -18,6 +19,7 @@ function FilingSection({ filingId, t }: { filingId: string; t: WireStrings }) {
 }
 
 export default function WireApp({ context }: { context?: string }) {
+  useEffect(() => { recordFirstWireOpen(); }, []);
   const view = useChannel("news");
   const t = useWireStrings();
   // M1-09: signed in, `news` is the server's Wire (stories that moved server quotes); otherwise the feed's fixtures.
@@ -33,5 +35,5 @@ export default function WireApp({ context }: { context?: string }) {
     filing: (filingId) => <FilingSection filingId={filingId} t={t} />,
     pushPhone,
   }), [phone, store, t, pushPhone]);
-  return <Feed view={view} t={t} host={host} select={context} demo={demo} />;
+  return <Feed view={view} t={t} host={host} select={context} demo={demo} canPost={!demo} />;
 }

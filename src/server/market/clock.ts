@@ -3,14 +3,17 @@
 // Not multi-instance (same limit as the auth file store).
 // M1-09: each step also publishes that tick's Wire story (src/market/wireStories.ts) and applies its price effect to
 // these quotes once, before the step listeners (resting-order sweep, candles) see the tick. Reads never publish or
-// apply. A restart starts a new epoch for the walk; storm scheduler bookkeeping + permanent stock applyShock sets are
-// restored from the storm-world store so stock storm effects survive stop/start (docs/v1/LAUNCHPAD.md).
+// apply. A restart starts a new epoch for the walk (virgin marks + rematerialized residual / ERP / rumor X / printed belief).
+// The feed and storm scheduler resume from persisted lastTick so Wire items and claim clocks stay aligned with the response tick.
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
-import { STORY_KEEP, storyAt } from "@/market/wireStories";
+import { STORY_KEEP, bootHistory, historyItemId, storyAt } from "@/market/wireStories";
+import { claimCauseKey, claimPhase, publicRecord, sourceBand, type RumorClaim, type RumorStepEvent } from "./rumorClaims";
+import { denialItemId, farmBand, farmSourceName, isFarmSourceId } from "./rumorFarm";
+import { analystOutletId, isAnalystSourceId } from "./analystNotes";
 import type { WireSnapshot } from "@/market/wireSnapshot";
-import { FEED_TICK_MS, fmt } from "@/shell/contracts/mockFeed";
+import { FEED_TICK_MS, START_TICK, fmt } from "@/shell/contracts/mockFeed";
 import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
 import type { StormKind, StormWireOut } from "./storms";
 import type { CrisisWireOut, MajorKindV1 } from "./crises";
@@ -18,6 +21,8 @@ import { TICKS_PER_DAY } from "./meme";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
+import { peekAuthService } from "@/server/auth/instance";
+import { marksFromTicker } from "@/server/wire/statementResolve";
 import {
   createDefaultStormWorldStore, type StormWorldStore,
 } from "./stormWorldStore";
@@ -35,7 +40,17 @@ export type LiveMarketOptions = {
   stormWorld?: StormWorldStore;
   /** When false, skip loading/saving the storm-world store (pure unit clocks). Default true. */
   persistStorms?: boolean;
+  /** Inject a rumor truth secret (tests). Production generates one and persists it in the storm-world store. */
+  rumorSecret?: string;
 };
+
+
+/** Resume the quote clock at the persisted storm/rumor lastTick when it is a real post-START tick. */
+function resumeFeedTick(snap: { lastTick?: number | null; rumors?: { lastTick: number | null } | null } | null): number {
+  const t = snap?.rumors?.lastTick ?? snap?.lastTick ?? null;
+  if (typeof t === "number" && Number.isSafeInteger(t) && t >= START_TICK) return t;
+  return START_TICK;
+}
 
 export class LiveMarket {
   readonly tickMs: number;
@@ -52,15 +67,19 @@ export class LiveMarket {
   private readonly persistStorms: boolean;
   /** Storm ids whose stock shocks were already applied onto this epoch's marks (restart idempotency). */
   private readonly stockAppliedThisEpoch = new Set<string>();
+  /** In-flight engine persist of due player-statement verdicts. GET waits; it does not start this. */
+  private statementsSettled: Promise<void> = Promise.resolve();
 
   constructor(opts: LiveMarketOptions = {}) {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
-    this.feed = new ShockFeed(
-      { seed: opts.seed ?? PORT_AVALON_MARKET_SEED, empty: true },
-      { autoStart: false, tickMs: this.tickMs },
-    );
     this.stormWorld = opts.stormWorld ?? createDefaultStormWorldStore();
     this.persistStorms = opts.persistStorms !== false;
+    const snap = this.persistStorms ? this.stormWorld.load() : null;
+    const resume = resumeFeedTick(snap);
+    this.feed = new ShockFeed(
+      { seed: opts.seed ?? PORT_AVALON_MARKET_SEED, empty: true },
+      { autoStart: false, tickMs: this.tickMs, startTick: resume, rumorSecret: opts.rumorSecret ?? snap?.rumors?.secret },
+    );
     if (this.persistStorms) this.restoreStormWorld();
     // Bookkeeping-only catch-up from tick 0 so day closes 24–37 (and ripples/majors) do not reprice virgin marks
     // or flood the Wire at boot (GK latent historical-trigger note). Live-forward observe emits normally.
@@ -68,6 +87,7 @@ export class LiveMarket {
       this.feed.storms.bootstrapTo(this.feed.tick);
       if (this.persistStorms) this.saveStormWorld();
     }
+    this.seedBootHistory();
   }
 
   /** Load durable scheduler + Fear/regime + residual (or legacy full stockApplied re-apply). */
@@ -91,6 +111,9 @@ export class LiveMarket {
     }
     // ERP leftover is independent of residual; older snapshots without erpAccrued start at 0.
     this.feed.hydrateErp(snap.erpAccrued);
+    // Older snapshots without rumors start empty. Rematerialize confirmed X + belief onto virgin marks.
+    this.feed.hydrateRumors(snap.rumors, true);
+    this.stories = this.rebuildRumorStories();
   }
 
   private saveStormWorld(): void {
@@ -100,12 +123,15 @@ export class LiveMarket {
       world: this.feed.world.snapshot(),
       shockResidual: this.feed.residualSnapshot(),
       erpAccrued: this.feed.erpSnapshot(),
+      rumors: this.feed.rumorSnapshot(),
     });
   }
 
   /** Idempotent. A second start does not add another interval. */
   start(): void {
     if (this.timer) return;
+    // Catch up at the resumed tick so a due verdict does not wait for lastTick+1 after a restart.
+    void this.catchUpWireStatements();
     this.timer = setInterval(() => { this.step(); }, this.tickMs);
   }
 
@@ -119,11 +145,38 @@ export class LiveMarket {
   step(): void {
     this.feed.advance();
     this.publishStory();
+    this.publishFarm();
+    this.publishAnalystNotes();
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const s of this.feed.takeStormWire()) this.publishStorm(s);
     for (const s of this.feed.takeCrisisWire()) this.publishCrisis(s);
+    const evs = this.feed.advanceRumors(this.feed.tick);
+    this.publishCompanyDenials(evs);
+    this.applyRumorResolutions(evs.filter((e) => e.kind !== "denied"));
     this.saveStormWorld();
+    void this.catchUpWireStatements();
     for (const fn of this.stepListeners) fn();
+  }
+
+  /**
+   * Authoritative path for due player-statement verdicts (start catch-up and each cadence step).
+   * Idempotent: frozen verdicts do not persist. A missing auth service is a no-op until the next call.
+   */
+  catchUpWireStatements(): Promise<void> {
+    const auth = peekAuthService();
+    const tick = this.feed.tick;
+    const marks = marksFromTicker(this.snapshot().quotes.rows);
+    const run = this.statementsSettled.then(async () => {
+      if (!auth) return;
+      await auth.resolveDueWireStatements({ tick, marks });
+    });
+    this.statementsSettled = run.then(() => undefined, () => { /* persist failure must not stop the clock */ });
+    return this.statementsSettled;
+  }
+
+  /** Reads wait for any in-flight engine persist. Does not itself resolve or write. */
+  whenWireStatementsSettled(): Promise<void> {
+    return this.statementsSettled;
   }
 
   /** A listed coin's 16 news item (src/server/market/coinNews.ts) on the Wire, naming the coin; it cites its committed
@@ -141,14 +194,68 @@ export class LiveMarket {
         slots: { coin: a.ticker, move: fmt(Math.round(Math.abs(item.to! / item.from! - 1) * 1000), 1) },
         causeEventIds: [`mkt-move:${assetId}:${Math.floor((item.tick - 1) / TICKS_PER_DAY)}:${Math.round(item.level! * 100)}`], causeKey: "wire.cause.coin-move",
       };
-    this.stories = [...this.stories, wi].slice(-STORY_KEEP);
+    this.stories = this.retainStories([...this.stories, wi]);
+  }
+
+  /** Fresh-world Wire: one or two catalog headlines from the last game day, already on the feed at START_TICK.
+   *  Display only — no applyShock / openRumor, so M1-05 golden, the live M1-09 schedule, and digest4000 stay put. */
+  private seedBootHistory(): void {
+    if (this.feed.tick !== START_TICK) return;
+    const have = new Set(this.stories.map((it) => it.id));
+    const added: WireItem[] = [];
+    for (const { tick, def } of bootHistory(this.feed.scenario.seed, START_TICK)) {
+      const id = historyItemId(tick);
+      if (have.has(id)) continue;
+      have.add(id);
+      added.push({
+        id,
+        kind: def.kind,
+        headlineKey: def.headlineKey,
+        slots: { ...def.slots, earlier: "1" },
+        entities: def.assets.map((assetId) => ({ id: assetId, kind: "asset" as const, label: ASSET_BY_ID[assetId]?.ticker ?? assetId })),
+        tick,
+        breaking: def.breaking,
+        causeEventIds: [def.defId],
+        // History-only cause: never the live catalog cause (those describe a move this clock did not apply).
+        causeKey: "wire.cause.history",
+        // no phase / effects: this clock did not apply the catalog move (same as coin-news).
+      });
+    }
+    if (added.length) this.stories = this.retainStories([...this.stories, ...added]);
   }
 
   /** The story of the tick just reached, if any: its effects move these quotes now, once (the tick only grows). */
   private publishStory(): void {
+
     const tick = this.feed.tick;
     const def = storyAt(this.feed.scenario.seed, tick);
     if (!def) return;
+    if (def.kind === "RUMOR") {
+      const asserted = (def.asserted ?? def.effects)[0];
+      if (asserted) {
+        this.feed.openRumor({
+          id: `w-${tick}`,
+          defId: def.defId,
+          assetId: asserted.assetId,
+          headlineKey: def.headlineKey,
+          slots: { ...def.slots },
+          causeKey: def.causeKey,
+          publishTick: tick,
+          bp: asserted.bp,
+        });
+      }
+      const claim = this.feed.rumorClaim(`w-${tick}`);
+      const item: WireItem = {
+        id: `w-${tick}`, kind: def.kind, headlineKey: def.headlineKey, slots: claim ? this.rumorItemSlots(claim, def.slots) : { ...def.slots },
+        entities: def.assets.map((id) => ({ id, kind: "asset", label: ASSET_BY_ID[id]?.ticker ?? id })),
+        tick, breaking: def.breaking, causeEventIds: [def.defId],
+        phase: claim ? claimPhase(claim) : def.phase,
+        causeKey: claim ? claimCauseKey(claim) : def.causeKey,
+        ...this.rumorRecordFields(claim),
+      };
+      this.stories = this.retainStories([...this.stories, item]);
+      return;
+    }
     const effects: PriceEffect[] = [];
     for (const e of def.effects) {
       const hl = def.crisis ? DEMO_CRISIS_HALF_LIFE_DAYS : undefined;
@@ -169,7 +276,7 @@ export class LiveMarket {
       tick, breaking: def.breaking, causeEventIds: [def.defId], phase: def.phase, causeKey: def.causeKey,
       ...(effects.length ? { effects } : {}),
     };
-    this.stories = [...this.stories, item].slice(-STORY_KEEP);
+    this.stories = this.retainStories([...this.stories, item]);
   }
 
   /** 04 §3.16 storm trigger on the Wire (precursor is not announced). CRYPTO_FLUSH names listed coins;
@@ -218,7 +325,7 @@ export class LiveMarket {
       tick, breaking: s.breaking, causeEventIds: [s.id], phase: s.phase, causeKey: s.causeKey,
       ...(effects.length ? { effects } : {}),
     };
-    this.stories = [...this.stories, item].slice(-STORY_KEEP);
+    this.stories = this.retainStories([...this.stories, item]);
   }
 
   /** 04 §3.16 major / ripple / Crisis Week announce on the Wire. Prices bound per WireOut (no shared drain). */
@@ -260,7 +367,170 @@ export class LiveMarket {
       tick, breaking: s.breaking, causeEventIds: [s.id], phase: s.phase, causeKey: s.causeKey,
       ...(effects.length ? { effects } : {}),
     };
-    this.stories = [...this.stories, item].slice(-STORY_KEEP);
+    this.stories = this.retainStories([...this.stories, item]);
+  }
+
+
+
+  /** Keep pending and just-resolved rumors even when the ordinary STORY_KEEP window would drop them. */
+  private retainStories(items: WireItem[]): WireItem[] {
+    const tick = this.feed.tick;
+    const byId = new Map(this.feed.rumorClaims().map((c) => [c.id, c]));
+    const hold = (it: WireItem): boolean => {
+      const rumorId = it.kind === "RUMOR" ? it.id
+        : it.kind === "STATEMENT" ? it.slots?.rumorId
+        : it.kind === "NEWS" ? (it.slots?.rumorId ?? (byId.has(it.id) ? it.id : undefined))
+        : undefined;
+      if (!rumorId) return false;
+      const c = byId.get(rumorId);
+      if (!c) return false;
+      if (c.resolution === "PENDING") return true;
+      return tick - c.resolvesByTick <= 60;
+    };
+    const held: WireItem[] = [];
+    const rest: WireItem[] = [];
+    for (const it of items) (hold(it) ? held : rest).push(it);
+    const room = Math.max(0, STORY_KEEP - held.length);
+    return [...rest.slice(-room), ...held].sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
+  }
+
+  private rumorRecordFields(claim?: RumorClaim | null): { sourceRecord: { hits: number; resolved: number }; sourceBand: import("@/shell/contracts/channels").SourceBand } {
+    const id = claim?.sourceId;
+    const s = id ? this.feed.rumorSourceOf(id) : this.feed.rumorSource();
+    const rec = publicRecord(s);
+    const band = (claim && (claim.channel === "farm" || isFarmSourceId(claim.sourceId)))
+      ? farmBand(rec.hits, rec.resolved)
+      : sourceBand(rec.hits, rec.resolved);
+    return { sourceRecord: rec, sourceBand: band };
+  }
+
+  private farmEntities(c: RumorClaim): WireItem["entities"] {
+    const asset = { id: c.assetId, kind: "asset" as const, label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId };
+    if (c.channel === "analyst" || isAnalystSourceId(c.sourceId)) {
+      const house = c.slots.house;
+      if (!house) return [asset];
+      return [asset, { id: analystOutletId(house), kind: "outlet", label: house }];
+    }
+    if (!(c.channel === "farm" || isFarmSourceId(c.sourceId)) || !c.sourceId) return [asset];
+    return [asset, { id: c.sourceId, kind: "actor", label: c.slots.source ?? farmSourceName(c.sourceId) }];
+  }
+
+  private farmWireItem(c: RumorClaim): WireItem {
+    const effects = this.rumorEffect(c);
+    const analyst = c.channel === "analyst" || isAnalystSourceId(c.sourceId);
+    const kind = analyst ? "NEWS" as const : "RUMOR" as const;
+    const outletId = analyst && c.slots.house ? analystOutletId(c.slots.house) : undefined;
+    const slots = this.rumorItemSlots(c);
+    if (analyst) delete slots.analyst; // no personal byline on rematerialized pre-outlet claims
+    return {
+      id: c.id, kind, headlineKey: analyst ? "wire.news.analyst-note" : c.headlineKey, slots,
+      entities: this.farmEntities(c),
+      tick: c.publishTick, breaking: false, causeEventIds: [c.defId],
+      phase: claimPhase(c), causeKey: claimCauseKey(c),
+      ...(outletId ? { outletId } : {}),
+      ...this.rumorRecordFields(c),
+      ...(effects.length ? { effects } : {}),
+    };
+  }
+
+  /** Farm rumors due at this tick (16:562: generated at the previous day close). */
+  private publishFarm(): void {
+    const opened = this.feed.openFarmDue(this.feed.tick);
+    if (!opened.length) return;
+    this.stories = this.retainStories([...this.stories, ...opened.map((c) => this.farmWireItem(c))]);
+  }
+
+  /** Free T1 daily analyst note (16:557). */
+  private publishAnalystNotes(): void {
+    const opened = this.feed.openAnalystDue(this.feed.tick);
+    if (!opened.length) return;
+    this.stories = this.retainStories([...this.stories, ...opened.map((c) => this.farmWireItem(c))]);
+  }
+
+  private rumorEffect(c: RumorClaim): PriceEffect[] {
+    if (!c.effect) return [];
+    const a = ASSET_BY_ID[c.effect.assetId];
+    if (!a || !(c.effect.from > 0)) return [];
+    return [{
+      assetId: c.effect.assetId,
+      from: fmt(c.effect.from, a.displayDecimals),
+      to: fmt(c.effect.to, a.displayDecimals),
+      pct: fmt(Math.round(((c.effect.to - c.effect.from) * 10_000) / c.effect.from), 2),
+    }];
+  }
+
+  private rumorItemSlots(claim: RumorClaim, base?: Record<string, string>): Record<string, string> {
+    const slots = { ...(base ?? {}), ...claim.slots };
+    if (claim.resolution === "CONFIRMED") slots.appliedTick = String(claim.resolvesByTick);
+    return slots;
+  }
+
+  private stampRumorItem(item: WireItem, claim: RumorClaim): WireItem {
+    const rest = { ...item };
+    delete rest.effects;
+    const effects = this.rumorEffect(claim);
+    return {
+      ...rest,
+      slots: this.rumorItemSlots(claim, item.slots),
+      phase: claimPhase(claim),
+      causeKey: claimCauseKey(claim),
+      ...this.rumorRecordFields(claim),
+      ...(effects.length ? { effects } : {}),
+    };
+  }
+
+  private companyDenialItem(c: RumorClaim): WireItem {
+    const company = c.slots.company ?? ASSET_BY_ID[c.assetId]?.name ?? c.assetId;
+    const tick = c.deniedAtTick ?? c.publishTick;
+    return {
+      id: denialItemId(c.id),
+      kind: "STATEMENT",
+      headlineKey: "wire.statement.denies",
+      slots: { company, rumorId: c.id },
+      entities: [{ id: c.assetId, kind: "asset", label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId }],
+      tick,
+      breaking: false,
+      causeEventIds: [c.id],
+      causeKey: "wire.cause.company-denial",
+    };
+  }
+
+  private publishCompanyDenials(evs: RumorStepEvent[]): void {
+    const denials = evs.filter((e) => e.kind === "denied");
+    if (!denials.length) return;
+    const have = new Set(this.stories.map((it) => it.id));
+    const added: WireItem[] = [];
+    for (const ev of denials) {
+      const item = this.companyDenialItem(ev.claim);
+      if (!have.has(item.id)) { have.add(item.id); added.push(item); }
+    }
+    if (added.length) this.stories = this.retainStories([...this.stories, ...added]);
+  }
+
+  private applyRumorResolutions(resolved: RumorStepEvent[]): void {
+    // Stamp only when a claim resolves: phase/cause/effects/appliedTick change then,
+    // and that author's other pending items need the updated public record. Mid-pending
+    // restamping every tick does not change the Wire row and is too expensive for 8/day farm.
+    if (!resolved.length) return;
+    const byId = new Map(this.feed.rumorClaims().map((c) => [c.id, c]));
+    const touched = new Set(resolved.map((e) => e.claim.id));
+    const sources = new Set(resolved.map((e) => e.claim.sourceId).filter((id): id is string => !!id));
+    this.stories = this.stories.map((item) => {
+      const c = byId.get(item.id);
+      if (!c) return item;
+      if (touched.has(item.id) || (c.sourceId && sources.has(c.sourceId))) return this.stampRumorItem(item, c);
+      return item;
+    });
+  }
+
+  /** Rebuild Wire rows for persisted rumors after a restart (other stories are a new epoch, as today). */
+  private rebuildRumorStories(): WireItem[] {
+    const items = this.feed.rumorClaims().map((c) => this.farmWireItem(c));
+    for (const c of this.feed.rumorClaims()) {
+      if (c.deniedAtTick != null) items.push(this.companyDenialItem(c));
+    }
+    items.sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
+    return this.retainStories(items);
   }
 
   /** The stories published so far (newest last), at the current tick. A copy: reading changes nothing. */
@@ -303,7 +573,7 @@ export class LiveMarket {
       causeEventIds: [`lp-degen-liq:${ev.assetId}:${ev.tick}`],
       causeKey: "wire.cause.coin-liq",
     };
-    this.stories = [...this.stories, wi].slice(-STORY_KEEP);
+    this.stories = this.retainStories([...this.stories, wi]);
   }
   /** The hype a listed coin's next path step reads, or null. */
   hypeOf(assetId: string): number | null { return this.isListed(assetId) ? this.feed.hypeOf(assetId) : null; }
@@ -339,7 +609,7 @@ export class LiveMarket {
   }
 
   /** Durable storm snapshot (tests / restart proof). */
-  stormSnapshot() { return { ...this.feed.storms.snapshot(), shockResidual: this.feed.residualSnapshot(), erpAccrued: this.feed.erpSnapshot() }; }
+  stormSnapshot() { return { ...this.feed.storms.snapshot(), shockResidual: this.feed.residualSnapshot(), erpAccrued: this.feed.erpSnapshot(), rumors: this.feed.rumorSnapshot() }; }
 
   /** The trader pools' inputs for a listed coin (ShockFeed.poolInputs), or null. Reads only. */
   poolInputs(assetId: string): PoolInputs | null {

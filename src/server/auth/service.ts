@@ -3,6 +3,25 @@ import type { AuthStore } from "./store";
 import { AttemptThrottle } from "./throttle";
 import { buildPlayerPrivate, clonePlayerPrivate, type PlayerPrivateInput } from "@/server/player";
 import type { QuarantinedPlayerRow } from "./store";
+import {
+  WIRE_POST_FEE_CENTS,
+  WIRE_POST_DAY_CAP,
+  WirePostError,
+  clonePlayerWirePost,
+  cloneWirePostIntent,
+  decidePostText,
+  fingerprintPost,
+  newWirePostId,
+  paidPostsOnDay,
+  remainingPostsToday,
+  spendableCashCents,
+  type PlayerWirePost,
+  type QuarantinedWireRow,
+  type WirePostIntent,
+} from "@/server/wire/playerStatements";
+import { classifyStatementClaim, resolvePlayerWirePost, snapshotMarks } from "@/server/wire/statementResolve";
+import { anonIdForAccount } from "@/server/telemetry/ids";
+import { recordEventSafe } from "@/server/telemetry/events";
 import { cloneLaunchpad, coinRows, coinValueCents, emptyLaunchpad, parseLaunchpad, type LpCoin, type LpCoinRow, type LpState } from "@/server/launchpad/state";
 import { LP } from "@/launchpad/rules";
 import type { BookAccount } from "@/server/broker/book";
@@ -96,6 +115,10 @@ export class AuthService {
   private quarantinedPlayers: QuarantinedPlayerRow[] = [];
   /** The Launchpad section: parsed, or kept raw (never rewritten or reset) when it could not be parsed. */
   private launchpad: { ok: true; state: LpState } | { ok: false; raw: unknown } = { ok: true, state: emptyLaunchpad() };
+  private wirePosts: PlayerWirePost[] = [];
+  private wirePostIntents: WirePostIntent[] = [];
+  private quarantinedWirePosts: QuarantinedWireRow[] = [];
+  private quarantinedWirePostIntents: QuarantinedWireRow[] = [];
   private ready: Promise<void>;
   /** Serializes mutating ops so async scrypt cannot race handle uniqueness / file writes. */
   private queue: Promise<void> = Promise.resolve();
@@ -128,6 +151,10 @@ export class AuthService {
     this.tokenIndex = new Map(snap.sessions.filter((s) => s.revokedAtMs === null).map((s) => [s.tokenHash, s.sessionId]));
     this.players = new Map(snap.players.map((p) => [p.accountId, p]));
     this.quarantinedPlayers = snap.quarantinedPlayers;
+    this.wirePosts = snap.wirePosts.map(clonePlayerWirePost);
+    this.wirePostIntents = snap.wirePostIntents.map(cloneWirePostIntent);
+    this.quarantinedWirePosts = snap.quarantinedWirePosts.map((q) => structuredClone(q));
+    this.quarantinedWirePostIntents = snap.quarantinedWirePostIntents.map((q) => structuredClone(q));
     const lp = parseLaunchpad(snap.launchpad);
     this.launchpad = lp.ok && this.supplyHolds(lp.state) ? lp : { ok: false, raw: snap.launchpad };
   }
@@ -165,6 +192,10 @@ export class AuthService {
       sessions: [...this.sessions.values()],
       players: [...this.players.values()],
       quarantinedPlayers: this.quarantinedPlayers,
+      wirePosts: this.wirePosts.map(clonePlayerWirePost),
+      wirePostIntents: this.wirePostIntents.map(cloneWirePostIntent),
+      quarantinedWirePosts: this.quarantinedWirePosts.map((q) => structuredClone(q)),
+      quarantinedWirePostIntents: this.quarantinedWirePostIntents.map((q) => structuredClone(q)),
       launchpad: this.launchpad.ok ? this.launchpad.state : this.launchpad.raw,
     });
   }
@@ -220,6 +251,9 @@ export class AuthService {
 
       const session = await this.createSession(accountId);
       await this.persist();
+      const anon = anonIdForAccount(accountId);
+      recordEventSafe("signup", anon);
+      recordEventSafe("session_start", anon);
       return session;
     });
   }
@@ -257,6 +291,7 @@ export class AuthService {
       this.loginThrottle.clear(handleKey);
       const session = await this.createSession(account.accountId);
       await this.persist();
+      recordEventSafe("session_start", anonIdForAccount(account.accountId));
       return session;
     });
   }
@@ -477,6 +512,161 @@ export class AuthService {
   }
 
   /** Lock held by the caller. */
+  /** Public player statements for GET /api/wire. No cash, keys, or other ledger fields. */
+  async listPublicWirePosts(): Promise<PlayerWirePost[]> {
+    return this.withLock(async () => {
+      await this.ready;
+      return this.wirePosts.map(clonePlayerWirePost);
+    });
+  }
+
+  async remainingWirePostsToday(accountId: string, tick: number): Promise<number> {
+    return this.withLock(async () => {
+      await this.ready;
+      return remainingPostsToday(this.wirePosts, accountId, tick, this.quarantinedWirePosts, this.wirePostIntents);
+    });
+  }
+
+  /**
+   * soc.wire.post: debit spendable cash, append the public row, record idempotency, one persist.
+   * Callers pass the live market tick so the daily cap and publishTick share the clock.
+   */
+  async resolveDueWireStatements(input: { tick: number; marks: Record<string, string> }): Promise<number> {
+    return this.withLock(async () => {
+      await this.ready;
+      let changed = 0;
+      const next = this.wirePosts.map((p) => {
+        const r = resolvePlayerWirePost(p, input.tick, input.marks);
+        if (r !== p) changed += 1;
+        return r;
+      });
+      if (changed === 0) return 0;
+      const before = this.wirePosts;
+      this.wirePosts = next;
+      try {
+        await this.persist();
+      } catch (e) {
+        this.wirePosts = before;
+        throw e;
+      }
+      return changed;
+    });
+  }
+
+  async postWireStatement(input: {
+    accountId: AccountId;
+    handle: string;
+    idempotencyKey: string;
+    text: unknown;
+    assetTags: unknown;
+    tick: number;
+    marks?: Record<string, string>;
+  }): Promise<{ post: PlayerWirePost; cashCents: number; remainingToday: number; replayed: boolean }> {
+    return this.withLock(async () => {
+      await this.ready;
+      const accountId = input.accountId;
+      const current = this.requireLedger(accountId);
+      const prior = this.wirePostIntents.find((i) => i.accountId === accountId && i.key === input.idempotencyKey);
+
+      // Decide text first so a replay can compare the same fingerprint the first call stored.
+      let decided: { text: string; assetTags: string[] };
+      try {
+        decided = decidePostText(input.text, input.assetTags);
+      } catch (err) {
+        if (!(err instanceof WirePostError)) throw err;
+        const fp = `__reject__:${err.code}:${typeof input.text === "string" ? input.text : ""}:${JSON.stringify(input.assetTags)}`;
+        if (prior) {
+          if (prior.result === "ACCEPTED") {
+            throw new WirePostError("IDEMPOTENCY_CONFLICT", "idempotencyKey was already used with a different body.", 409);
+          }
+          if (prior.fingerprint === fp) {
+            throw new WirePostError(prior.rejectCode ?? err.code, err.message, prior.status ?? err.status);
+          }
+          throw new WirePostError("IDEMPOTENCY_CONFLICT", "idempotencyKey was already used with a different body.", 409);
+        }
+        // Rejected attempts are not persisted (disk-growth / DoS). Retry is a fresh decision.
+        throw err;
+      }
+
+      const fp = fingerprintPost(decided.text, decided.assetTags);
+      if (prior) {
+        if (prior.fingerprint !== fp) {
+          throw new WirePostError("IDEMPOTENCY_CONFLICT", "idempotencyKey was already used with a different body.", 409);
+        }
+        if (prior.result === "REJECTED") {
+          throw new WirePostError(prior.rejectCode ?? "BAD_REQUEST", "Statement was rejected.", prior.status ?? 400);
+        }
+        const post = this.wirePosts.find((p) => p.id === prior.postId);
+        if (!post) {
+          throw new WirePostError("STORED_UNREADABLE", "A previous statement with this key could not be read.", 409);
+        }
+        return {
+          post: clonePlayerWirePost(post),
+          cashCents: current.cashCents,
+          remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick, this.quarantinedWirePosts, this.wirePostIntents),
+          replayed: true,
+        };
+      }
+
+      const quarantinedPrior = this.quarantinedWirePostIntents.find(
+        (q) => q.accountId === accountId && q.key === input.idempotencyKey,
+      );
+      if (quarantinedPrior) {
+        throw new WirePostError("STORED_UNREADABLE", "A previous statement with this key could not be read.", 409);
+      }
+
+      if (spendableCashCents(current) < WIRE_POST_FEE_CENTS) {
+        throw new WirePostError("INSUFFICIENT_CASH", "Not enough spendable cash to post (needs $500).", 409);
+      }
+      if (paidPostsOnDay(this.wirePosts, accountId, input.tick, this.quarantinedWirePosts, this.wirePostIntents) >= WIRE_POST_DAY_CAP) {
+        throw new WirePostError("DAY_CAP", "At most three statements per game day.", 409);
+      }
+
+      const claimDir = classifyStatementClaim(decided.text);
+      const marksAtPost = snapshotMarks(decided.assetTags, input.marks ?? {});
+      const checkable = claimDir !== null && marksAtPost !== undefined;
+      const post: PlayerWirePost = {
+        id: newWirePostId(),
+        accountId,
+        handle: input.handle,
+        text: decided.text,
+        assetTags: decided.assetTags,
+        tick: input.tick,
+        ...(checkable
+          ? { claimDir, marksAtPost, verdict: "UNRESOLVED" as const }
+          : { verdict: "OPINION" as const, resolvedTick: input.tick }),
+      };
+      const intent: WirePostIntent = {
+        accountId,
+        key: input.idempotencyKey,
+        fingerprint: fp,
+        result: "ACCEPTED",
+        postId: post.id,
+      };
+      const nextPlayer = buildPlayerPrivate(accountId, { ...clonePlayerPrivate(current), cashCents: current.cashCents - WIRE_POST_FEE_CENTS });
+      const postsBefore = this.wirePosts;
+      const intentsBefore = this.wirePostIntents;
+      this.players.set(accountId, nextPlayer);
+      this.wirePosts = [...this.wirePosts, post];
+      this.wirePostIntents = [...this.wirePostIntents, intent];
+      try {
+        await this.persist();
+      } catch (e) {
+        this.players.set(accountId, current);
+        this.wirePosts = postsBefore;
+        this.wirePostIntents = intentsBefore;
+        throw e;
+      }
+      recordEventSafe("statement_post", anonIdForAccount(accountId));
+      return {
+        post: clonePlayerWirePost(post),
+        cashCents: nextPlayer.cashCents,
+        remainingToday: remainingPostsToday(this.wirePosts, accountId, input.tick, this.quarantinedWirePosts, this.wirePostIntents),
+        replayed: false,
+      };
+    });
+  }
+
   private async commitOwn(accountId: AccountId, mutate: (current: PlayerPrivateRecord) => PlayerPrivateInput): Promise<PlayerPrivateRecord> {
     const current = this.requireLedger(accountId);
     const next = buildPlayerPrivate(accountId, mutate(clonePlayerPrivate(current)));

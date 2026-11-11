@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import pkg from "./package.json";
+import { resolveQuayE2eFlag } from "./tools/quay-e2e-flag";
 
 // Pin the project root: a stray package-lock.json in the home folder otherwise makes Next guess the wrong root.
 const root = path.resolve(__dirname);
@@ -34,6 +35,9 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_BUILD_SHA: buildSha(),
     QUAY_DS: process.env.QUAY_DS === "1" ? "1" : "0",
     NEXT_PUBLIC_CITY_E2E: process.env.NEXT_PUBLIC_CITY_E2E === "1" ? "1" : "0",
+    // Official e2e only. resolveQuayE2eFlag throws if NEXT_PUBLIC_QUAY_E2E=1 without
+    // QUAY_OFFICIAL_E2E_BUILD=1, so a prod deploy cannot ship with the consent prompt off.
+    NEXT_PUBLIC_QUAY_E2E: resolveQuayE2eFlag(process.env),
     // Mock URL overrides (?alerts=, ?world=): on in `next dev`, and in a production build only with QUAY_HOOKS=1 (e2e).
     QUAY_HOOKS: process.env.NODE_ENV !== "production" || process.env.QUAY_HOOKS === "1" ? "1" : "0",
     NEXT_PUBLIC_QUAY_MOCK_PHASE: process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1" ? "1" : "0",

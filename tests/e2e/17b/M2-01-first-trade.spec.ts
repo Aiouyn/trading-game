@@ -61,6 +61,15 @@ test("desktop: goal + guide → Open Broker → waiting order is not done → a 
     await expect(page.getByTestId("pf-goal-bar")).toHaveAttribute("aria-valuenow", "0");
     await shot(page, "g01-desktop-fresh");
 
+    // Open Wire at t0 (or in the first 30 s): a real catalog story is already on the feed (history rows stay after the first live slot).
+    const w0 = (await (await a.request.get("/api/wire")).json()) as { tick: number; items: { id: string }[] };
+    expect(w0.items.some((i) => i.id.startsWith("w-h-")), JSON.stringify(w0)).toBe(true);
+    await page.getByTestId("pf-guide-open-wire").click();
+    await expect(page.getByTestId("wire").first()).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+    const histId = w0.items.find((i) => i.id.startsWith("w-h-"))!.id;
+    await expect(page.locator(`[data-testid="wire-row"][data-id="${histId}"]`)).toBeVisible();
+    await expect(page.getByTestId("wire-empty")).toHaveCount(0);
+
     // Keyboard: the guide's Open Broker is a real button reached by focus, and Enter opens Broker (nothing is placed).
     await page.getByTestId("pf-guide-open-broker").focus();
     await page.keyboard.press("Enter");
@@ -179,6 +188,14 @@ test("phone 390 home names the goal and opens the guide; a 520 Portfolio window 
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await shot(page, "g03-phone-390-guide");
+
+    const wPhone = (await (await ctx.request.get("/api/wire")).json()) as { items: { id: string }[] };
+    expect(wPhone.items.some((i) => i.id.startsWith("w-h-")), JSON.stringify(wPhone)).toBe(true);
+    await page.getByTestId("pf-guide-open-wire").click();
+    await expect(page.getByTestId("wire").first()).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+    const phoneHist = wPhone.items.find((i) => i.id.startsWith("w-h-"))!.id;
+    await expect(page.locator(`[data-testid="wire-row"][data-id="${phoneHist}"]`)).toBeVisible();
+    await expect(page.getByTestId("wire-empty")).toHaveCount(0);
 
     expect((await desk.request.post("/api/auth/login", { headers: { origin: baseURL! }, data: { handle: P, password: "local-guide-test" } })).status()).toBe(200);
     const d = await desk.newPage();

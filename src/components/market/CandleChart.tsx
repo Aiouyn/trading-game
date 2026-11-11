@@ -23,7 +23,7 @@ import {
   CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, TickMarkType, createChart,
   type CandlestickData, type HistogramData, type IChartApi, type IPriceLine, type ISeriesApi, type LineData, type MouseEventParams, type Time, type UTCTimestamp,
 } from "lightweight-charts";
-import type { BrStrings } from "@/apps/broker/strings";
+import type { BrStrings } from "@/apps/broker/strings-en";
 import { decText } from "@/apps/portfolio/positions/format";
 import { pfNumberLocale } from "@/apps/portfolio/strings";
 import type { Bar } from "@/shell/contracts/history";

@@ -92,6 +92,16 @@ export const S = {
   /** M2-02 phone home (signed in): the goal, and the way to the first-trade guide (Portfolio). */
   goalLine: "Goal: grow $10,000 to $20,000.",
   firstTradeGuide: "First trade guide",
+  feedback: "Feedback",
+  /** Accessible name; must not contain "Back" (role name is a substring match). */
+  feedbackAria: "Share a comment",
+  feedbackPrompt: "What's on your mind?",
+  feedbackSend: "Send",
+  feedbackThanks: "Thanks — we got it.",
+  feedbackOptOut: "Don't record usage analytics",
+  feedbackOptOutOn: "Usage analytics are off",
+  shellError: "Something went wrong.",
+  shellErrorRetry: "Reload",
 } as const;
 
 

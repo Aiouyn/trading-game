@@ -25,7 +25,7 @@ describe("M1-01 auth HTTP routes", () => {
     const reg = await register(
       new Request("http://localhost/api/auth/register", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ handle: "Helix", password: "password1" }),
       }),
     );
@@ -34,7 +34,7 @@ describe("M1-01 auth HTTP routes", () => {
     expect(cookie).toContain(`${SESSION_COOKIE_NAME}=`);
 
     const meOk = await me(
-      new Request("http://localhost/api/auth/me", { headers: { cookie: cookie! } }),
+      new Request("http://localhost/api/auth/me", { headers: { cookie: cookie!, origin: "http://localhost" } }),
     );
     expect(meOk.status).toBe(200);
     const meBody = (await meOk.json()) as { account: { handle: string }; player: { cashCents: number } };
@@ -44,27 +44,27 @@ describe("M1-01 auth HTTP routes", () => {
     const regB = await register(
       new Request("http://localhost/api/auth/register", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ handle: "Ion", password: "password1" }),
       }),
     );
     const cookieB = cookieFrom(regB)!;
-    const meB = await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB } }));
+    const meB = await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB, origin: "http://localhost" } }));
     const bodyB = (await meB.json()) as { account: { accountId: string; handle: string } };
     expect(bodyB.account.handle).toBe("Ion");
-    expect(bodyB.account.accountId).not.toBe((await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookie! } }))).json() as { account: { accountId: string } }).account.accountId);
+    expect(bodyB.account.accountId).not.toBe((await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookie!, origin: "http://localhost" } }))).json() as { account: { accountId: string } }).account.accountId);
 
     const out = await logout(
-      new Request("http://localhost/api/auth/logout", { method: "POST", headers: { cookie: cookie! } }),
+      new Request("http://localhost/api/auth/logout", { method: "POST", headers: { cookie: cookie!, origin: "http://localhost" } }),
     );
     expect(out.status).toBe(200);
-    const meGone = await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookie! } }));
+    const meGone = await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookie!, origin: "http://localhost" } }));
     expect(meGone.status).toBe(401);
 
     const loginRes = await login(
       new Request("http://localhost/api/auth/login", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://localhost" },
         body: JSON.stringify({ handle: "Helix", password: "password1" }),
       }),
     );
@@ -72,6 +72,17 @@ describe("M1-01 auth HTTP routes", () => {
     expect(cookieFrom(loginRes)).toContain(SESSION_COOKIE_NAME);
   });
 });
+
+  it("rejects a mutation with no Origin and no Referer", async () => {
+    const res = await register(
+      new Request("http://localhost/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: "NoOrigin", password: "password1" }),
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
 
   it("rejects cross-origin auth mutations", async () => {
     const res = await register(

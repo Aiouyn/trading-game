@@ -7,7 +7,8 @@
 // account, so an account switch starts a fresh board with that account's reads only.
 // L4: a coin whose curve sold its last token has graduated: it moves to the Graduated tab, which shows its graduation and
 // its Broker price and opens it in the Broker, where it trades from then on (it is no longer traded here).
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { retryableLazy } from "@/components/shell/retryableLazy";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
@@ -21,7 +22,10 @@ import { LPS } from "./strings";
 import "./launchpad.css";
 
 // The price/volume chart is its own chunk, loaded when a coin panel opens.
-const History = lazy(() => import("./HistoryChart"));
+const RetryableHistory = retryableLazy(() => import("./HistoryChart"));
+const histFallback = (label: string) => (
+  <div className="lpad-skel lpad-hist-skel" aria-busy="true" aria-label={label} data-testid="lp-hist-loading" />
+);
 
 export const LAUNCHPAD_POLL_MS = 5_000;
 
@@ -217,9 +221,9 @@ function CoinPanel({ coin, self, onDone, onGraduated }: { coin: Coin; self: Self
       {self && review && q?.ok && <TradeReview coin={coin} side={side} self={self} q={q} asked={review.amount} min={review.min} busy={busy} onBack={() => setReview(null)} onConfirm={() => void send()} />}
       {msg && <p className="lpad-msg" role="status" data-kind={msg.kind} data-testid="lp-result">{msg.text}</p>}
       {/* Below the ticket and its review, so the chart never covers Review or Confirm. Re-read when the curve or tape moves. */}
-      <Suspense fallback={<div className="lpad-skel lpad-hist-skel" aria-busy="true" aria-label={LPS.hLoading} data-testid="lp-hist-loading" />}>
-        <History ticker={coin.ticker} version={`${coin.x}/${coin.sold}/${coin.tape.length}/${coin.tape[0]?.atMs ?? 0}`} />
-      </Suspense>
+      <RetryableHistory ticker={coin.ticker} version={`${coin.x}/${coin.sold}/${coin.tape.length}/${coin.tape[0]?.atMs ?? 0}`}
+        fallback={histFallback(LPS.hLoading)} errorMessage={LPS.couldntLoad} retryLabel={LPS.retry}
+        errorTestId="lp-hist-error" retryTestId="lp-hist-retry" />
       <h3>{LPS.tape}</h3>
       {coin.tape.length === 0 ? <p className="lpad-sub">{LPS.noTape}</p> : (
         <ul className="lpad-tape" data-testid="lp-tape">
@@ -321,9 +325,9 @@ function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string 
         </div>
       )}
       <div className="lpad-actions"><Button variant="primary" data-testid="lp-open-broker" onClick={() => store.getState().open("broker", coin.ticker)}>{LPS.openBroker}</Button></div>
-      <Suspense fallback={<div className="lpad-skel lpad-hist-skel" aria-busy="true" aria-label={LPS.hLoading} data-testid="lp-hist-loading" />}>
-        <History ticker={coin.ticker} version={`grad/${grad.atMs}`} />
-      </Suspense>
+      <RetryableHistory ticker={coin.ticker} version={`grad/${grad.atMs}`}
+        fallback={histFallback(LPS.hLoading)} errorMessage={LPS.couldntLoad} retryLabel={LPS.retry}
+        errorTestId="lp-hist-error" retryTestId="lp-hist-retry" />
     </section>
   );
 }

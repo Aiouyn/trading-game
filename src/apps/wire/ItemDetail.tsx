@@ -9,8 +9,14 @@ import type { WireItem } from "@/shell/contracts/channels";
 import { causeText } from "./causes";
 import { storyStrings } from "./storyStrings";
 import { fill, headline, pctLabel, timeLabel, type WireStrings } from "./strings";
-import { KindChip, PricedIn, showsRecord } from "./WireItemRow";
+import { clockTickFromSlot } from "@/shell/mockChannels";
+import { HistoryLabel, KindChip, PlayerLabel, PricedIn, VerdictLabel, showsRecord } from "./WireItemRow";
 import "./itemDetail.css";
+
+/** Confirmed rumors apply X at resolvesByTick; other realized items still use item.tick. */
+function appliedTick(item: WireItem): number {
+  return clockTickFromSlot(item.slots?.appliedTick, item.tick);
+}
 
 export interface ItemDetailProps {
   item: WireItem;
@@ -73,6 +79,9 @@ export function ItemDetail({ item, t, gone, stale, updating, onBack, onClose, op
         {gone && <p className="wire-detail-note" data-testid="wire-not-in-feed">{t.notInFeed}</p>}
         <div className="wire-detail-head">
           <KindChip kind={item.kind} t={t} />
+          <HistoryLabel item={item} t={t} />
+          <PlayerLabel item={item} t={t} />
+          <VerdictLabel item={item} t={t} />
           {item.breaking && <Chip tone="steel" outline className="wire-detail-breaking" data-testid="wire-detail-breaking">{t.breaking}</Chip>}
           <time className="wire-detail-time" data-testid="wire-detail-time">{timeLabel(item.tick, t)}</time>
         </div>
@@ -93,7 +102,7 @@ export function ItemDetail({ item, t, gone, stale, updating, onBack, onClose, op
                     </li>
                   ))}
                 </ul>
-                <p className="wire-detail-line muted" data-testid="wire-effect-applied">{fill(st.realizedNote, { time: timeLabel(item.tick, t) })}</p>
+                <p className="wire-detail-line muted" data-testid="wire-effect-applied">{fill(st.realizedNote, { time: timeLabel(appliedTick(item), t) })}</p>
                 <p className="wire-detail-line muted" data-testid="wire-effect-later">{st.laterNote}</p>
               </>
             ) : (

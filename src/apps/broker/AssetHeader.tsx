@@ -11,7 +11,7 @@ import { ARROW, DIR_CLASS, decText, direction, signedText } from "@/apps/portfol
 import { assetName } from "@/shell/contracts/assetDetail";
 import type { TickerRow } from "@/shell/contracts/channels";
 import type { ReactNode } from "react";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 
 export interface AssetHeaderProps {
   /** UI card 7: the price chart, under the quote and above the holdings line. */

@@ -212,6 +212,13 @@ describe("M1-01 CSRF host pinning", () => {
     ).toThrow();
   });
 
+  it("rejects a request with no Origin and no Referer", () => {
+    process.env.QUAY_PUBLIC_HOST = "localhost:3000";
+    expect(() =>
+      assertSameOriginMutation(new Request("http://localhost:3000/api/auth/login", { method: "POST" })),
+    ).toThrow(/Cross-origin/);
+  });
+
   it("refuses Vercel / multi-process deploy flags", () => {
     process.env.VERCEL = "1";
     expect(() => assertLocalSingleProcessAuth()).toThrow(/Vercel/);

@@ -69,8 +69,10 @@ export interface PlayerPrivateRecord {
   readonly openOrders: Readonly<Record<string, PersistedOpenOrder>>;
   /** M1-06 server fills, oldest first, last 50. Absent until the first fill. */
   readonly fills?: readonly MyFill[];
-  /** M1-06 decided intents (idempotency + receipts), oldest first, last 50. Absent until the first intent. */
+  /** M1-06 intent receipts on `me`, oldest first, last 50. Absent until the first intent. */
   readonly intents?: readonly PersistedIntent[];
+  /** M1-06 durable idempotency journal (every decided key). Not the `me` ring. Absent until the first intent. */
+  readonly idempotency?: readonly PersistedIntent[];
 }
 
 export interface PublicAccount {
@@ -98,6 +100,7 @@ export type AuthErrorCode =
   | "LEDGER_QUARANTINED"
   | "IDEMPOTENCY_CONFLICT"
   | "LAUNCHPAD_UNAVAILABLE"
+  | "TELEMETRY_UNAVAILABLE"
   | "UNSUPPORTED_DEPLOY";
 
 export class AuthError extends Error {

@@ -137,6 +137,85 @@ export function liveGxPath(seed: number, days: number): GxPathRow {
   return { seed, days, start, end, min, cagrPct, maxDdPct };
 }
 
+/** Equities used for calm vol_ratio / autocorr medians. */
+export const CALM_EQUITY_IDS = ["GX", "AVB", "NMBS"] as const;
+
+/** Official unit params (same as launchpad-calibration.test.ts). */
+export const CALIBRATION_UNIT_PARAMS = {
+  days: 260,
+  seed: 17,
+  cagrSeeds: 12,
+  liveDays: 60,
+  calmSeeds: 8,
+} as const;
+
+export function calmFeedCloses(assetId: string, seed: number, days: number): number[] {
+  const feed = new ShockFeed({ seed, empty: true }, { autoStart: false });
+  const closes: number[] = [];
+  for (let d = 0; d < days; d++) {
+    for (let t = 0; t < TICKS_PER_DAY; t++) feed.advance();
+    const row = (feed.body("ticker:wl_default") as { rows: Record<string, { last: string }> }).rows[assetId];
+    if (row) closes.push(Number(row.last));
+  }
+  return closes;
+}
+
+export function frogEventCloses(seed: number, days: number): number[] {
+  const market = new LiveMarket({ tickMs: 1e9, persistStorms: false, seed });
+  market.list(listedDef("FROG", "FROG Club", 21_596));
+  const closes: number[] = [];
+  for (let d = 0; d < days; d++) {
+    for (let t = 0; t < TICKS_PER_DAY; t++) market.step();
+    const fr = market.snapshot().quotes.rows.FROG;
+    if (fr) closes.push(Number(fr.last));
+  }
+  return closes;
+}
+
+export interface CalmPathRow {
+  assetId: string;
+  seed: number;
+  closes: number[];
+}
+
+export interface CalibrationFixture {
+  params: {
+    days: number;
+    seed: number;
+    cagrSeeds: number;
+    liveDays: number;
+    calmSeeds: number;
+  };
+  gxPaths: GxPathRow[];
+  calm: CalmPathRow[];
+  frogCloses: number[];
+}
+
+/** Live-walk the official unit params (or overrides) into a deterministic fixture. Slow; used by the regen tool. */
+export function collectCalibrationFixture(
+  opts: { days?: number; seed?: number; cagrSeeds?: number; liveDays?: number; calmSeeds?: number } = {},
+): CalibrationFixture {
+  const days = opts.days ?? CALIBRATION_UNIT_PARAMS.days;
+  const seed = opts.seed ?? CALIBRATION_UNIT_PARAMS.seed;
+  const liveDays = opts.liveDays ?? CALIBRATION_UNIT_PARAMS.liveDays;
+  const nCagrSeeds = opts.cagrSeeds ?? CALIBRATION_UNIT_PARAMS.cagrSeeds;
+  const nCalm = opts.calmSeeds ?? CALIBRATION_UNIT_PARAMS.calmSeeds;
+  const calmDays = Math.min(days, liveDays);
+  const gxPaths = Array.from({ length: nCagrSeeds }, (_, i) => liveGxPath(seed + i, liveDays));
+  const calm: CalmPathRow[] = [];
+  for (const assetId of CALM_EQUITY_IDS) {
+    for (let i = 0; i < nCalm; i++) {
+      calm.push({ assetId, seed: seed + i, closes: calmFeedCloses(assetId, seed + i, calmDays) });
+    }
+  }
+  return {
+    params: { days, seed, cagrSeeds: nCagrSeeds, liveDays, calmSeeds: nCalm },
+    gxPaths,
+    calm,
+    frogCloses: frogEventCloses(seed, Math.min(days, liveDays)),
+  };
+}
+
 export interface CalibrationReport {
   rows: BandRow[];
   days: number;
@@ -158,6 +237,8 @@ export function runCalibration(opts: {
   liveDays?: number;
   /** Seeds for live calm autocorr/vol_ratio median (default 8; proof uses more). */
   calmSeeds?: number;
+  /** When set, use these precomputed walks instead of stepping LiveMarket / ShockFeed. */
+  fixture?: CalibrationFixture;
 } = {}): CalibrationReport {
   const days = opts.days ?? 260;
   const seed = opts.seed ?? 17;
@@ -172,20 +253,18 @@ export function runCalibration(opts: {
   const autocorr: number[] = [];
   const kurt: number[] = [];
   const clusters: number[] = [];
-  const calmSeeds = Array.from({ length: opts.calmSeeds ?? 8 }, (_, i) => seed + i);
+  const nCalm = opts.calmSeeds ?? opts.fixture?.params.calmSeeds ?? 8;
+  const calmDays = Math.min(days, 60);
+  const calmSeeds = Array.from({ length: nCalm }, (_, i) => seed + i);
+  const fixtureCalm = opts.fixture?.calm;
   for (const a of equities) {
     const seedAc: number[] = [];
     const seedRatio: number[] = [];
     const seedKurt: number[] = [];
     const seedVc: number[] = [];
     for (const s0 of calmSeeds) {
-      const feed = new ShockFeed({ seed: s0, empty: true }, { autoStart: false });
-      const closes: number[] = [];
-      for (let d = 0; d < Math.min(days, 60); d++) {
-        for (let t = 0; t < TICKS_PER_DAY; t++) feed.advance();
-        const row = (feed.body("ticker:wl_default") as { rows: Record<string, { last: string }> }).rows[a.assetId];
-        if (row) closes.push(Number(row.last));
-      }
+      const cached = fixtureCalm?.find((p) => p.assetId === a.assetId && p.seed === s0);
+      const closes = cached ? cached.closes : calmFeedCloses(a.assetId, s0, calmDays);
       const st = returnStats(dailyLogReturns(closes), SESSION_DAYS_PER_YEAR);
       if (!st) continue;
       const tgt = targetAnnVol(a.volBp, SESSION_DAYS_PER_YEAR);
@@ -234,7 +313,8 @@ export function runCalibration(opts: {
 
   // --- live engine multi-seed index CAGR (events on) ---
   const cagrSeedList = Array.from({ length: nCagrSeeds }, (_, i) => seed + i);
-  const gxPaths = cagrSeedList.map((s) => liveGxPath(s, liveDays));
+  const gxPaths = opts.fixture?.gxPaths
+    ?? cagrSeedList.map((s) => liveGxPath(s, liveDays));
   const medCagr = median(gxPaths.map((p) => p.cagrPct));
   const medDd = median(gxPaths.map((p) => p.maxDdPct));
   const cagrInBand = medCagr >= 0 && medCagr <= 12;
@@ -252,14 +332,7 @@ export function runCalibration(opts: {
 
   // Single-seed meme smoke (events on) for vol_ratio REPORT vs calm band
   {
-    const market = new LiveMarket({ tickMs: 1e9, persistStorms: false, seed });
-    market.list(listedDef("FROG", "FROG Club", 21_596));
-    const frogCloses: number[] = [];
-    for (let d = 0; d < Math.min(days, liveDays); d++) {
-      for (let t = 0; t < TICKS_PER_DAY; t++) market.step();
-      const fr = market.snapshot().quotes.rows.FROG;
-      if (fr) frogCloses.push(Number(fr.last));
-    }
+    const frogCloses = opts.fixture?.frogCloses ?? frogEventCloses(seed, Math.min(days, liveDays));
     const frogStats = returnStats(dailyLogReturns(frogCloses), CRYPTO_DAYS_PER_YEAR);
     if (frogStats && frogCloses[0]) {
       const end = frogCloses.at(-1)!;

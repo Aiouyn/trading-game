@@ -24,8 +24,10 @@ export interface StoryDef {
   /** Strings key of the cause / consequence explanation. */
   readonly causeKey: string;
   readonly phase: StoryPhase;
-  /** Applied by the server at the story's tick, once. Empty for a forecast or an all-clear. */
+  /** Applied by the server at the story's tick, once. Empty for a forecast, an all-clear, or a pending RUMOR. */
   readonly effects: readonly StoryEffect[];
+  /** Catalog bp for a pending RUMOR (X if the claim later confirms). Absent on NEWS/crises. */
+  readonly asserted?: readonly StoryEffect[];
   readonly breaking: boolean;
   readonly crisis?: CrisisKind;
 }
@@ -68,16 +70,23 @@ export function crisisHits(seed: number, cycle: number, quartet: number): boolea
   return hash(`${seed}:crisis:${cycle}:${quartet}`) % 4 !== 0;
 }
 
-/** The story published at `tick`, or null. Only ticks after the clock's first tick, every STORY_EVERY. */
-export function storyAt(seed: number, tick: number): StoryDef | null {
+function floorMod(n: number, m: number): number {
+  return ((n % m) + m) % m;
+}
+
+/** Catalog story on the STORY_EVERY grid, including ticks at or before START_TICK. Null off-grid. */
+export function catalogStoryAt(seed: number, tick: number): StoryDef | null {
   const d = tick - START_TICK;
-  if (!Number.isSafeInteger(d) || d <= 0 || d % STORY_EVERY !== 0) return null;
+  if (!Number.isSafeInteger(d) || d % STORY_EVERY !== 0) return null;
   const slot = d / STORY_EVERY - 1;
-  const cycle = Math.floor(slot / CYCLE), pos = slot % CYCLE, quartet = Math.floor(pos / 4), step = pos % 4;
-  const crisis = CRISES[(hash(`${seed}:order`) + quartet + cycle) % CRISES.length]!;
+  const cycle = Math.floor(slot / CYCLE), pos = floorMod(slot, CYCLE), quartet = Math.floor(pos / 4), step = pos % 4;
+  const crisis = CRISES[floorMod(hash(`${seed}:order`) + quartet + cycle, CRISES.length)]!;
   if (step === 0 || step === 2) {
-    const c = COMPANY_STORIES[(hash(`${seed}:co`) + quartet * 2 + step / 2 + cycle * 3) % COMPANY_STORIES.length]!;
-    return { ...c, phase: "realized", breaking: false };
+    const c = COMPANY_STORIES[floorMod(hash(`${seed}:co`) + quartet * 2 + step / 2 + cycle * 3, COMPANY_STORIES.length)]!;
+    // RUMOR publishes as a forecast: belief may later move the mark; lnV waits on confirmation (05:324).
+    return c.kind === "RUMOR"
+      ? { ...c, phase: "forecast", breaking: false, effects: [], asserted: c.effects }
+      : { ...c, phase: "realized", breaking: false };
   }
   const base = { kind: "WORLD_EVENT" as const, slots: {}, assets: crisis.assets, crisis: crisis.kind };
   if (step === 1) return { ...base, defId: `${crisis.slug}-watch`, headlineKey: `wire.crisis.${crisis.slug}.watch`, causeKey: `wire.cause.${crisis.slug}-watch`, phase: "forecast", effects: [], breaking: false };
@@ -86,4 +95,36 @@ export function storyAt(seed: number, tick: number): StoryDef | null {
   return crisisHits(seed, cycle, quartet)
     ? { ...base, defId: `${crisis.slug}-hit`, headlineKey: `wire.crisis.${crisis.slug}.hit`, causeKey: `wire.cause.${crisis.slug}-hit`, phase: "realized", effects: crisis.hit, breaking: true }
     : { ...base, defId: `${crisis.slug}-eased`, headlineKey: `wire.crisis.${crisis.slug}.eased`, causeKey: `wire.cause.${crisis.slug}-eased`, phase: "eased", effects: [], breaking: false };
+}
+
+/** The live story published at `tick`, or null. Only ticks after the clock's first tick, every STORY_EVERY. */
+export function storyAt(seed: number, tick: number): StoryDef | null {
+  if (tick - START_TICK <= 0) return null;
+  return catalogStoryAt(seed, tick);
+}
+
+export const HISTORY_ITEM_PREFIX = "w-h-";
+export function historyItemId(tick: number): string {
+  return `${HISTORY_ITEM_PREFIX}${tick}`;
+}
+
+const HISTORY_LOOKBACK = 720;
+const HISTORY_BOOT_COUNT = 2;
+
+function prefersHistory(def: StoryDef): boolean {
+  return def.kind === "NEWS" && def.phase === "realized";
+}
+
+/** Up to two catalog stories from the last 720 ticks at or before `atTick`. Prefers realized company NEWS. */
+export function bootHistory(seed: number, atTick: number = START_TICK): readonly { tick: number; def: StoryDef }[] {
+  const aligned = atTick - ((atTick - START_TICK) % STORY_EVERY + STORY_EVERY) % STORY_EVERY;
+  const preferred: { tick: number; def: StoryDef }[] = [];
+  const rest: { tick: number; def: StoryDef }[] = [];
+  for (let t = aligned; t >= atTick - HISTORY_LOOKBACK; t -= STORY_EVERY) {
+    const def = catalogStoryAt(seed, t);
+    if (!def) continue;
+    (prefersHistory(def) ? preferred : rest).push({ tick: t, def });
+    if (preferred.length >= HISTORY_BOOT_COUNT) break;
+  }
+  return [...preferred, ...rest].slice(0, HISTORY_BOOT_COUNT).sort((a, b) => a.tick - b.tick);
 }
