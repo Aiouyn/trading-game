@@ -78,3 +78,6 @@ Geometry assertion (e2e, signed-in, 390/320 EN and FR textScale 2, top/middle/en
 
 ### Checks
 UNIT addendum commit first; then exact-HEAD lint, typecheck, build, check-hooks, route-budget /broker, map-no-dup, npm test (GIT_* unset), clean fresh-.data e2e of the affected phone/desktop cohorts with intended phone golden updates only if the bar changes framing (explained), phone+desktop screenshots, rebuilt 6-card merged-stack /broker bytes (<=215 KB). Card 7 (ui/broker-fill-feedback) is then rebased locally onto the new head.
+
+#### Correction before implementation (cap-row harness)
+The first WIP run (evidence `fab-clearance/wip-e2e`) showed that the HALC preview never calls `/api/broker/preview`: only 8-dp listed assets use the server preview; listed-exchange previews are the client feed's advisory calculation (the server re-decides on Place). A route overlay would therefore test nothing. Instead add one QUAY_HOOKS e2e scenario key, `?firstTradeCap=D` (decimal money, validated like `nw`), following the existing hook pattern: compiled out without QUAY_HOOKS, default null, used only as the advisory preview's `firstTradeCapRemaining`. Without the hook the real null still hides the row; with it the row renders inside the reviewed sheet (EN and FR 320 200%). No order is sent by review; not a cap implementation.
