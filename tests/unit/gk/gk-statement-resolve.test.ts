@@ -53,6 +53,14 @@ describe("statement claim lexicon", () => {
     expect(classifyStatementClaim("HALC ne va pas monter")).toBeNull();
     expect(classifyStatementClaim("jamais de hausse")).toBeNull();
     expect(classifyStatementClaim("pas de baisse")).toBeNull();
+    expect(classifyStatementClaim("nothing will rise")).toBeNull();
+    expect(classifyStatementClaim("none will fall")).toBeNull();
+    expect(classifyStatementClaim("nobody is bullish")).toBeNull();
+    expect(classifyStatementClaim("neither name will rise")).toBeNull();
+    expect(classifyStatementClaim("HALC will rise nor fall")).toBeNull();
+    expect(classifyStatementClaim("rien ne montera")).toBeNull();
+    expect(classifyStatementClaim("aucun gain")).toBeNull();
+    expect(classifyStatementClaim("personne n'est haussier")).toBeNull();
   });
 
   it("a posted negated claim is OPINION immediately even when marks exist", async () => {

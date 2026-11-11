@@ -27,10 +27,10 @@ const DEC = /^-?\d+(\.\d+)?$/;
 
 /**
  * Closed V1 lexicon after NFKC + lower. Both sides, neither, or a negation marker → not checkable.
- * Negation is fail-closed to OPINION (no direction flip): not / no / never / will not / won't / n't,
- * and FR ne / pas / jamais.
+ * Negation is fail-closed to OPINION (no direction flip): not / no / never / will not / won't / n't /
+ * nothing / none / nobody / neither / nor, and FR ne / pas / jamais / rien / aucun / personne.
  */
-const NEGATION_RE = /\b(?:not|no|never|wont|jamais|ne|pas)\b|\bwill\s+not\b|\bwon['’]t\b|n['’]t\b/i;
+const NEGATION_RE = /\b(?:not|no|never|wont|jamais|ne|pas|nothing|none|nobody|neither|nor|rien|aucun|personne)\b|\bwill\s+not\b|\bwon['’]t\b|n['’]t\b/i;
 
 export function classifyStatementClaim(text: string): StatementClaimDir | null {
   const folded = text.normalize("NFKC").toLowerCase();

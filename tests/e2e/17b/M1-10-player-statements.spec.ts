@@ -61,7 +61,7 @@ async function journey(page: Page, pageB: Page, request: APIRequestContext, requ
   await expect.poll(async () => (await me(request)).cashCents, { timeout: 15_000 }).toBe(cash0 - 150_000);
 
   await postStatement(page, `fourth should fail ${stamp}`);
-  await expect(page.getByTestId("wire-composer-error")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("wire-composer-post-error")).toBeVisible({ timeout: 10_000 });
   expect((await wire(request)).items.filter((i) => i.id.startsWith("w-p-") && i.slots?.handle === handleA).length).toBe(3);
   expect((await me(request)).cashCents).toBe(cash0 - 150_000);
 

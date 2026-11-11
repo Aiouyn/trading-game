@@ -116,7 +116,7 @@ export function Composer({ t }: { t: WireStrings }) {
           </div>
         </fieldset>
         <p className="wire-composer-meta" data-testid="wire-composer-fee">{fee}</p>
-        {error && <p className="wire-composer-error" data-testid="wire-composer-error" role="alert">{error}</p>}
+        {error && <p className="wire-composer-error" data-testid="wire-composer-post-error" role="alert">{error}</p>}
         <Button variant="primary" size="sm" type="submit" disabled={!canSubmit} data-testid="wire-composer-submit">
           {busy ? c.posting : c.submit}
         </Button>
