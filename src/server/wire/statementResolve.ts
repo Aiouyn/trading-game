@@ -25,9 +25,17 @@ const UP = new Set<string>(UP_CLAIM_WORDS);
 const DOWN = new Set<string>(DOWN_CLAIM_WORDS);
 const DEC = /^-?\d+(\.\d+)?$/;
 
-/** Closed V1 lexicon after NFKC + lower. Both sides, or neither → not checkable. No general negation. */
+/**
+ * Closed V1 lexicon after NFKC + lower. Both sides, neither, or a negation marker → not checkable.
+ * Negation is fail-closed to OPINION (no direction flip): not / no / never / will not / won't / n't,
+ * and FR ne / pas / jamais.
+ */
+const NEGATION_RE = /\b(?:not|no|never|wont|jamais|ne|pas)\b|\bwill\s+not\b|\bwon['’]t\b|n['’]t\b/i;
+
 export function classifyStatementClaim(text: string): StatementClaimDir | null {
-  const tokens = text.normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const folded = text.normalize("NFKC").toLowerCase();
+  if (NEGATION_RE.test(folded)) return null;
+  const tokens = folded.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   let up = false;
   let down = false;
   for (const tok of tokens) {
