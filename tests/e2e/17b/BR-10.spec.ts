@@ -426,3 +426,19 @@ test("BR-10 shots mask only the band along the corner arcs of the window, select
   await expect(stories(page).first()).toBeVisible();
   await onlyBandMasked(page, 12);
 });
+
+test("BR-10 shots: a label hidden by anything other than the phone Trade bar still fails the ink check", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "one overlay is enough to prove the guard");
+  await openBroker(page);
+  await toAbout(page);
+  const tab = frame(page).locator('.ap-tabs [role="tab"]').first();
+  await expect(tab).toBeVisible();
+  // An opaque cover over an About tab label (a stand-in for a toast, sheet or misplaced element).
+  await tab.evaluate((e) => {
+    const b = e.getBoundingClientRect(), cover = document.createElement("div");
+    Object.assign(cover.style, { position: "fixed", left: `${b.left - 2}px`, top: `${b.top - 2}px`, width: `${b.width + 4}px`, height: `${b.height + 4}px`, background: "#123", zIndex: "9999" });
+    cover.dataset.testid = "ink-guard-cover";
+    document.body.append(cover);
+  });
+  await expect(expectOnlyBandMasked(page, frame(page), undefined, frame(page).locator('.ap-tabs [role="tab"]'))).rejects.toThrow(/text ink/);
+});
