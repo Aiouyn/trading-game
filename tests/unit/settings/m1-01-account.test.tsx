@@ -117,6 +117,7 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
     expect(el.textContent).not.toMatch(/\$412/);
     expect(el.querySelector("[data-testid=account-open-portfolio]")?.textContent).toBe("Open Portfolio");
+    expect(document.activeElement).toBe(el.querySelector("[data-testid=account-open-portfolio]"));
     expect(el.querySelector("[data-testid=account-next-step]")?.textContent).toContain("first-trade guide");
     expect(el.querySelector("[data-testid=account-save-details]")?.hasAttribute("open")).toBe(false);
   });
