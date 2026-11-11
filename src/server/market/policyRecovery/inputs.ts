@@ -1,3 +1,4 @@
+import { isProxy } from "node:util/types";
 import type { Regime } from "../world";
 
 export type Reading<T> = { kind: "LIVE"; value: T; observedHour: number; source: string } | { kind: "MISSING"; source: string; reason: string };
@@ -24,7 +25,7 @@ export const object = (v: unknown): v is Record<string, unknown> => !!v && typeo
 export function isPlainJson(v: unknown, ancestors = new Set<object>()): boolean {
   if (v === null || typeof v === "string" || typeof v === "boolean") return true;
   if (typeof v === "number") return Number.isFinite(v) && !Object.is(v, -0);
-  if (typeof v !== "object" || ancestors.has(v)) return false;
+  if (typeof v !== "object" || isProxy(v) || ancestors.has(v)) return false;
   const array = Array.isArray(v);
   if (Object.getPrototypeOf(v) !== (array ? Array.prototype : Object.prototype)) return false;
   const keys = Reflect.ownKeys(v);

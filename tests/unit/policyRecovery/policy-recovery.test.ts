@@ -272,6 +272,13 @@ describe("JSON observation boundary survives restart", () => {
     { name: "unknown emergency field", make: () => {
       const f = missingInputs(TEST_EPOCH, 0); f.emergencies = observed([{ id: "record", hour: 0, blocs: [BLOCS[0]!], extra: null }], 0, "boundary fixture"); return f;
     } },
+    { name: "root Proxy", make: () => new Proxy(missingInputs(TEST_EPOCH, 0), {}) },
+    { name: "nested Proxy", make: () => {
+      const f = missingInputs(TEST_EPOCH, 0); f.gx = new Proxy(observed(10000, 0, "proxy fixture"), {}); return f;
+    } },
+    { name: "revoked Proxy", make: () => {
+      const p = Proxy.revocable(missingInputs(TEST_EPOCH, 0), {}); p.revoke(); return p.proxy;
+    } },
     { name: "symbol property", make: () => Object.assign(missingInputs(TEST_EPOCH, 0), { [Symbol("hidden")]: 1 }) },
     { name: "nonenumerable property", make: () => Object.defineProperty(missingInputs(TEST_EPOCH, 0), "hidden", { value: 1 }) },
     { name: "accessor property", make: () => Object.defineProperty(missingInputs(TEST_EPOCH, 0), "gx", { get: () => observed(10000, 0, "getter"), enumerable: true }) },
@@ -279,6 +286,13 @@ describe("JSON observation boundary survives restart", () => {
       const f = missingInputs(TEST_EPOCH, 0); f.fear = observed(-0, 0, "boundary fixture"); return f;
     } },
   ] satisfies { name: string; make: () => CatalogInputs }[];
+  it("rejects a Proxy as INVALID_CATALOG_INPUTS without invoking any traps", () => {
+    let reads = 0;
+    const fail = () => { reads++; throw new Error("Proxy trap invoked"); };
+    const proxy = new Proxy(missingInputs(TEST_EPOCH, 0), { get: fail, getPrototypeOf: fail, ownKeys: fail });
+    expect(() => parseInputs(proxy)).toThrow("INVALID_CATALOG_INPUTS");
+    expect(reads).toBe(0);
+  });
   it.each(invalid)("rejects $name before saving, both before and after restart", async ({ make }) => {
     const dir = await mkdtemp(path.join(tmpdir(), "sys-policy-boundary-")), store = new FilePolicyStore(path.join(dir, "policy.json"));
     const initial = createPolicyState({ epoch: TEST_EPOCH, seed: 17, wallets: [] });
