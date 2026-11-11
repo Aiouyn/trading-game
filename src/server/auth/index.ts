@@ -1,5 +1,5 @@
 export type { StandingInput } from "./service";
-export { AuthService, SESSION_IDLE_MS, SESSION_MAX_MS, START_CASH_CENTS, MAX_PASSWORD_LEN } from "./service";
+export { AuthService, SESSION_IDLE_MS, SESSION_MAX_MS, SESSION_LAST_SEEN_THROTTLE_MS, START_CASH_CENTS, MAX_PASSWORD_LEN } from "./service";
 export { MemoryAuthStore, FileAuthStore } from "./store";
 export type { AuthStore, AuthStoreSnapshot } from "./store";
 export {

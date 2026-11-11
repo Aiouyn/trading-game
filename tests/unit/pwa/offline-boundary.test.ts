@@ -95,4 +95,10 @@ describe("the signed-in order door", () => {
     expect(await r).toMatchObject({ ok: false, error: { kind: "badReply" } });
     expect(posts).toHaveLength(ORDER_SEND_ATTEMPTS);
   });
+
+  it("IDEMPOTENCY_JOURNAL_FULL is not retried and is reported as journalFull", async () => {
+    door(async () => new Response(JSON.stringify({ error: { code: "IDEMPOTENCY_JOURNAL_FULL", message: "Idempotency journal is full." } }), { status: 503, headers: { "content-type": "application/json" } }));
+    expect(await placeOrder(draft)).toEqual({ ok: false, error: { kind: "journalFull" } });
+    expect(posts).toHaveLength(1);
+  });
 });

@@ -87,6 +87,8 @@ const listedOf = (lp: LpState): ListedCoin[] => lp.coins.flatMap((c) => (c.grad 
 /** Match T19C session_idle_days / session_max_days defaults (real days). */
 export const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+/** Persist lastSeen at most this often per session so a typical GET /api/broker/me writes nothing. */
+export const SESSION_LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
 
 /** V1 start cash placeholder — M2-02 displays $10k; isolation tests need a private field. */
 export const START_CASH_CENTS = 1_000_000;
@@ -342,8 +344,11 @@ export class AuthService {
         lastSeenAtMs: now,
         expiresAtMs: Math.min(now + SESSION_IDLE_MS, absoluteExpiry),
       };
-      this.sessions.set(sessionId, refreshed);
-      await this.persist();
+      // Persist the sliding lastSeen at most once every SESSION_LAST_SEEN_THROTTLE_MS so a typical GET writes nothing.
+      if (now - session.lastSeenAtMs >= SESSION_LAST_SEEN_THROTTLE_MS) {
+        this.sessions.set(sessionId, refreshed);
+        await this.persist();
+      }
 
       const account = this.accounts.get(session.accountId);
       if (!account) return null;

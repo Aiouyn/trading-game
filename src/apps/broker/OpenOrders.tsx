@@ -64,6 +64,8 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   const body = me.body;
   const orders = body ? Object.values(body.orders).sort(byRecent) : [];
   const openCount = orders.filter(isOpenOrder).length;
+  const expiredCount = orders.filter((o) => o.status === "EXPIRED").length;
+  const countText = expiredCount > 0 ? t.openExpiredCount(openCount, expiredCount) : String(openCount);
   const intents = body?.intents ?? [];
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [sent, setSent] = useState<Readonly<Record<string, Sent>>>({});
@@ -163,7 +165,7 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
       onKeyDownCapture={clearLine} onClickCapture={clearLine}>
       <h3 ref={titleRef} id={titleId} className="br-oo-title" data-testid="br-oo-title" tabIndex={-1}>
         {t.openOrders}
-        {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{String(openCount)}</span>}
+        {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{countText}</span>}
       </h3>
       {me.state === "loading" && (
         <div className="br-oo-skel" data-testid="br-oo-loading" aria-label={t.loadingOrders}>

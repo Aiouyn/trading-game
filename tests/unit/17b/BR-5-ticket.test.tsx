@@ -2,7 +2,11 @@
 // UI card 5 (17B BRK-A/C): order type segment and price boxes, previews per type, the resting ack and Open orders,
 // on the real feed hook and mock order transport with a fake clock.
 // BR-5-01 segment + fields, BR-5-03 preview drafts, BR-5-06 rows, BR-5-07 rows are not controls, BR-5-12 FR.
+import { createElement } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ReviewBlock } from "@/apps/broker/TicketReview";
 import { decText } from "@/apps/portfolio/positions/format";
 import { BR_STRINGS } from "@/apps/broker/strings";
 import type { MeTradingBody, OpenOrder, PreviewRes } from "@/shell/contracts/channels";
@@ -251,6 +255,14 @@ describe("BR-5-06 Open orders rows", () => {
     expect(text(h, "br-oo-count")).toBe("0");
     expect(rows()).toHaveLength(0);
   });
+  it("expired rows stay visible and the title counts them separately", async () => {
+    await mount(h, { context: "HALC", scenario: { empty: true }, feed: new InjectFeed({
+      "o-ex": oo({ orderId: "o-ex", placedTick: 100, status: "EXPIRED" }),
+    }, { empty: true }) });
+    expect(text(h, "br-oo-count")).toBe(EN.openExpiredCount(0, 1));
+    expect(q(h, "br-oo-row-o-ex")!.getAttribute("data-status")).toBe("EXPIRED");
+    expect(q(h, "br-oo-row-o-ex")!.querySelector('[data-testid="br-oo-cancel"]')).toBeNull();
+  });
 });
 
 describe("BR-5-07 rows are not controls (card 6: the row's only control is its Cancel, BR-6-01)", () => {
@@ -330,5 +342,27 @@ describe("BR-5-12 FR", () => {
     expect(text(h, "br-ack-title")).toBe(FR.restingAck);
     expect(rows()[0]!.querySelector('[data-testid="br-oo-terms"]')!.textContent).toBe("Limite 42,10");
     expect(rows()[0]!.querySelector('[data-testid="br-oo-status"]')!.textContent).toBe("Actif");
+  });
+});
+
+describe("journal-full Place copy", () => {
+  let el: HTMLElement;
+  let root: Root;
+  afterEach(async () => { await act(async () => { root.unmount(); }); el.remove(); });
+  it("shows the dedicated paused-orders copy, not Couldn't load", async () => {
+    el = document.createElement("div");
+    document.body.append(el);
+    root = createRoot(el);
+    const noop = () => {};
+    await act(async () => {
+      root.render(createElement(ReviewBlock, {
+        t: EN, locale: "en", action: "Buy 1 HALC", preview: null, stale: false, halted: false,
+        canPlace: false, pendingTick: null, failed: "journalFull", offline: false, onEdit: noop, onPlace: noop,
+      }));
+    });
+    const msg = el.querySelector('[data-testid="br-place-failed"]')!;
+    expect(msg.getAttribute("data-why")).toBe("journalFull");
+    expect(msg.textContent).toBe(EN.journalFull);
+    expect(msg.textContent).not.toBe(EN.couldntLoad);
   });
 });

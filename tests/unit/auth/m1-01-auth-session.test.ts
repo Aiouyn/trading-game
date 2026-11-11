@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +16,7 @@ import {
   readSessionTokenFromCookieHeader,
   sessionCookieHeader,
   SESSION_IDLE_MS,
+  SESSION_LAST_SEEN_THROTTLE_MS,
   allowedAuthHosts,
   assertSameOriginMutation,
   assertLocalSingleProcessAuth,
@@ -129,6 +132,25 @@ describe("M1-01 auth foundation", () => {
     expect(resumed?.account.handle).toBe("Grace");
     const privateState = await second.getPlayerPrivate(resumed!, resumed!.account.accountId);
     expect(privateState.cashCents).toBe(777);
+  });
+
+  it("resolveSession persists lastSeen at most once every 5 minutes, so a typical GET writes nothing", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "m1-01-lastseen-"));
+    temps.push(dir);
+    const file = path.join(dir, "store.json");
+    let now = 1_700_000_000_000;
+    const auth = new AuthService({ store: new FileAuthStore(file), now: () => now });
+    const { rawToken } = await auth.register({ handle: "Helen", password: "password1" });
+    const sha = () => createHash("sha256").update(readFileSync(file)).digest("hex");
+    const afterRegister = sha();
+    expect(await auth.resolveSession(rawToken)).not.toBeNull();
+    expect(sha()).toBe(afterRegister);
+    now += SESSION_LAST_SEEN_THROTTLE_MS - 1;
+    expect(await auth.resolveSession(rawToken)).not.toBeNull();
+    expect(sha()).toBe(afterRegister);
+    now += 1;
+    expect(await auth.resolveSession(rawToken)).not.toBeNull();
+    expect(sha()).not.toBe(afterRegister);
   });
 
   it("cookie helpers: HttpOnly SameSite=Lax; Secure on https; clear expires", () => {

@@ -22,8 +22,9 @@ export interface ReviewBlockProps {
   canPlace: boolean;
   /** `me` tick at submit while our intent is in flight; null otherwise. */
   pendingTick: number | null;
-  /** Why the last Place failed: "error" (existing generic), "offline" (not sent, M2-05), "unknown" (sent, no answer). */
-  failed: false | "error" | "offline" | "unknown";
+  /** Why the last Place failed: "error" (existing generic), "offline" (not sent, M2-05), "unknown" (sent, no answer),
+   *  "journalFull" (503 IDEMPOTENCY_JOURNAL_FULL, not retried). */
+  failed: false | "error" | "offline" | "unknown" | "journalFull";
   /** M2-05: the browser reports offline; Place is off and the estimate is the last received. */
   offline: boolean;
   onEdit: () => void;
@@ -42,7 +43,7 @@ export function ReviewBlock({ t, action, stale, halted, canPlace, pendingTick, f
         : stale && <p className="br-refreshing muted" data-testid="br-refreshing">{t.refreshing}</p>}
       {halted && <p className="br-queued" data-testid="br-queued">{t.haltedQueued}</p>}
       {submitting && <p className="br-pending muted" data-testid="br-pending">{t.pending(String(pendingTick))}</p>}
-      {failed && <p className="br-msg warn" role="alert" data-testid="br-place-failed" data-why={failed}>{failed === "offline" ? t.placeOffline : failed === "unknown" ? t.placeUnknown : t.couldntLoad}</p>}
+      {failed && <p className="br-msg warn" role="alert" data-testid="br-place-failed" data-why={failed}>{failed === "offline" ? t.placeOffline : failed === "unknown" ? t.placeUnknown : failed === "journalFull" ? t.journalFull : t.couldntLoad}</p>}
       <div className="br-actions">
         <Button variant="ghost" data-testid="br-edit" disabled={submitting} onClick={onEdit}>{t.edit}</Button>
         <Button variant="primary" data-testid="br-place" aria-label={t.placeAria(action)} aria-busy={submitting || undefined}

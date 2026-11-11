@@ -25,3 +25,8 @@ export class IntentNotSentOffline extends Error {
 export class IntentOutcomeUnknown extends Error {
   constructor() { super("outcome unknown: network lost in flight"); this.name = "IntentOutcomeUnknown"; }
 }
+
+/** 503 IDEMPOTENCY_JOURNAL_FULL: the door refused a new key and did not execute. Do not retry. */
+export class IntentJournalFull extends Error {
+  constructor() { super("idempotency journal is full"); this.name = "IntentJournalFull"; }
+}

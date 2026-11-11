@@ -7,7 +7,7 @@
 import type { Candle, CandleHistoryReq, CandleRes } from "./channels";
 import type { Lot, MockFeed } from "./mockFeed";
 import { CANDLE_REV_RE } from "./candleRev";
-import { IntentNotSentOffline, IntentOutcomeUnknown, knownOffline } from "./network";
+import { IntentJournalFull, IntentNotSentOffline, IntentOutcomeUnknown, knownOffline } from "./network";
 import { saveMeSnapshot } from "@/pwa/meSnapshot";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS } from "@/market/catalog";
 import { adoptListed } from "@/market/listings";
@@ -276,7 +276,11 @@ export class ServerSync {
         if (attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
         throw new IntentOutcomeUnknown();
       }
-      if (res.status >= 500 && attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
+      if (res.status >= 500) {
+        const code = await brokerErrorCode(res.clone());
+        if (code === "IDEMPOTENCY_JOURNAL_FULL") throw new IntentJournalFull();
+        if (attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
+      }
       if (!res.ok) return "";
       let reply;
       try { reply = parseBrokerIntentReply(await res.json()); } catch { reply = null; }
@@ -313,4 +317,13 @@ function isCandle(v: unknown): v is Candle {
   const c = v as Record<string, unknown>;
   return Number.isSafeInteger(c.t) && (c.t as number) >= 0
     && [c.o, c.h, c.l, c.c, c.v].every((x) => typeof x === "string" && DEC_RE.test(x));
+}
+
+async function brokerErrorCode(res: Response): Promise<string | null> {
+  try {
+    const body = await res.json() as { error?: { code?: unknown } };
+    return typeof body?.error?.code === "string" ? body.error.code : null;
+  } catch {
+    return null;
+  }
 }
