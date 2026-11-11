@@ -53,7 +53,7 @@ export interface RumorClaim {
   /** Desk claims omit this (the catalog `wire-desk`). Farm claims name an `rs-NN` author. */
   sourceId?: string;
   factKind?: string;
-  channel?: "desk" | "farm";
+  channel?: "desk" | "farm" | "analyst";
   /** 05:860 rebuttal term: 0 none, 0.5 unverifiable denial, 1 verifiable rebuttal. 12:520 is the M4 path (out of this slice). */
   rebuttal?: 0 | 0.5 | 1;
   /** Tick the company denial was published; absent until then. */
@@ -110,7 +110,7 @@ export interface RumorOpenInput {
   bp: number;
   sourceId?: string;
   factKind?: string;
-  channel?: "desk" | "farm";
+  channel?: "desk" | "farm" | "analyst";
   /** Farm: 22 §4.11 asserted log. Desk: derived from bp. */
   a?: number;
 }
@@ -459,7 +459,7 @@ export class RumorBook {
     if (existing) return existing;
     const src = this.liveSource(input.sourceId);
     const acc = src.hiddenAccuracy;
-    const channel: "desk" | "farm" = input.channel ?? (isFarmSourceId(input.sourceId) ? "farm" : "desk");
+    const channel: "desk" | "farm" | "analyst" = input.channel ?? (isFarmSourceId(input.sourceId) ? "farm" : "desk");
     const isTrue = channel === "farm" && input.sourceId
       ? drawFarmIsTrue(this.seed, input.id, input.sourceId, acc, this.secret)
       : drawIsTrue(this.seed, input.id, acc, this.secret);
@@ -741,16 +741,16 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
   const claims: RumorClaim[] = [];
   if (!Array.isArray(o.claims)) refuseCorruptRumorSnapshot();
   for (const row of o.claims) {
-    if (!row || typeof row !== "object") continue;
+    if (!row || typeof row !== "object") refuseCorruptRumorSnapshot();
     const c = row as Record<string, unknown>;
-    if (typeof c.id !== "string" || typeof c.defId !== "string" || typeof c.assetId !== "string") continue;
-    if (typeof c.headlineKey !== "string" || typeof c.causeKey !== "string") continue;
+    if (typeof c.id !== "string" || typeof c.defId !== "string" || typeof c.assetId !== "string") refuseCorruptRumorSnapshot();
+    if (typeof c.headlineKey !== "string" || typeof c.causeKey !== "string") refuseCorruptRumorSnapshot();
     const publishTick = int(c.publishTick), resolvesByTickN = int(c.resolvesByTick);
     const bp = num(c.bp), a = num(c.a), cr = num(c.cr), reach = num(c.reach);
-    if (publishTick == null || resolvesByTickN == null || bp == null || a == null || cr == null || reach == null) continue;
-    if (typeof c.isTrue !== "boolean") continue;
+    if (publishTick == null || resolvesByTickN == null || bp == null || a == null || cr == null || reach == null) refuseCorruptRumorSnapshot();
+    if (typeof c.isTrue !== "boolean") refuseCorruptRumorSnapshot();
     const resolution = c.resolution;
-    if (resolution !== "PENDING" && resolution !== "CONFIRMED" && resolution !== "FIZZLED" && resolution !== "DENIED") continue;
+    if (resolution !== "PENDING" && resolution !== "CONFIRMED" && resolution !== "FIZZLED" && resolution !== "DENIED") refuseCorruptRumorSnapshot();
     const slots: Record<string, string> = {};
     if (c.slots && typeof c.slots === "object") {
       for (const [k, v] of Object.entries(c.slots as Record<string, unknown>)) {
@@ -767,7 +767,7 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
     }
     const sourceId = typeof c.sourceId === "string" ? c.sourceId : undefined;
     const factKind = typeof c.factKind === "string" ? c.factKind : undefined;
-    const channel = c.channel === "farm" || c.channel === "desk" ? c.channel : undefined;
+    const channel = c.channel === "farm" || c.channel === "desk" || c.channel === "analyst" ? c.channel : undefined;
     const rebuttal = c.rebuttal === 0.5 || c.rebuttal === 1 || c.rebuttal === 0 ? c.rebuttal : undefined;
     const deniedAtTick = c.deniedAtTick === undefined ? undefined : int(c.deniedAtTick) ?? undefined;
     claims.push({

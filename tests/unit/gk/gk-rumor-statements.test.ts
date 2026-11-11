@@ -129,6 +129,71 @@ describe("fail-closed rumor secret", () => {
     }
   });
 
+  it("an invalid claim row in an otherwise valid claims array fails closed and leaves a file store untouched; empty or all-valid claims still boot", () => {
+    const good = book();
+    openTide(good, "tide-row", 100);
+    const snap = good.snapshot();
+    const valid = snap.claims[0];
+    expect(valid).toBeTruthy();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const badRows: unknown[] = [
+        null,
+        "nope",
+        1,
+        {},
+        { ...valid, id: 1 },
+        { ...valid, resolution: "NOPE" },
+        { ...valid, isTrue: "yes" },
+        { ...valid, publishTick: "x" },
+        { ...valid, headlineKey: 0 },
+      ];
+      for (const row of badRows) {
+        expect(() => normalizeRumorSnapshot({ ...snap, claims: [row] }), JSON.stringify(row)).toThrow(CorruptRumorSnapshotError);
+        expect(() => normalizeRumorSnapshot({ ...snap, claims: [valid, row] }), `mixed ${JSON.stringify(row)}`).toThrow(CorruptRumorSnapshotError);
+      }
+      expect(String(err.mock.calls[0]![0])).toMatch(/\[rumorClaims\].*not a valid rumor snapshot/);
+      const empty = normalizeRumorSnapshot({ ...snap, claims: [] });
+      expect(empty?.secret).toBe(SECRET);
+      expect(empty?.claims).toEqual([]);
+      const allValid = normalizeRumorSnapshot(snap);
+      expect(allValid?.claims).toHaveLength(1);
+      expect(allValid?.claims[0]?.id).toBe("tide-row");
+      expect(allValid?.secret).toBe(SECRET);
+      const withAnalyst = normalizeRumorSnapshot({ ...snap, claims: [{ ...valid, channel: "analyst" }] });
+      expect(withAnalyst?.claims[0]?.channel).toBe("analyst");
+      expect(withAnalyst?.secret).toBe(SECRET);
+    } finally {
+      err.mockRestore();
+    }
+
+    const dir = mkdtempSync(join(tmpdir(), "rumor-claim-row-"));
+    const file = join(dir, "storm-world.json");
+    const sha = () => createHash("sha256").update(readFileSync(file)).digest("hex");
+    const err2 = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const ok = new LiveMarket({ persistStorms: true, stormWorld: new FileStormWorldStore(file), rumorSecret: SECRET });
+      ok.step();
+      const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      const rumors = { ...(raw.rumors as Record<string, unknown>), claims: [null] };
+      writeFileSync(file, JSON.stringify({ ...raw, rumors }));
+      const hash = sha();
+      const mtime = statSync(file).mtimeMs;
+      const body = readFileSync(file);
+      expect(() => new LiveMarket({ persistStorms: true, stormWorld: new FileStormWorldStore(file) })).toThrow(CorruptRumorSnapshotError);
+      expect(sha()).toBe(hash);
+      expect(statSync(file).mtimeMs).toBe(mtime);
+      expect(readFileSync(file).equals(body)).toBe(true);
+      // all-valid claims still boot with the same secret
+      writeFileSync(file, JSON.stringify(raw));
+      const booted = new LiveMarket({ persistStorms: true, stormWorld: new FileStormWorldStore(file) });
+      expect(booted.stormSnapshot().rumors!.secret).toBe((raw.rumors as { secret: string }).secret);
+    } finally {
+      err2.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("LiveMarket refuses to boot a store whose rumors snapshot has no secret; an empty store still generates a key", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const poisoned = new MemoryStormWorldStore();
