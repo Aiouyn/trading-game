@@ -31,3 +31,7 @@ Existing branches checked: eng/m1-01-auth-session owns auth/session correctness.
 6. Run npm run lint, npm run typecheck, npm run build, node tools/check-hooks.mjs .next/static .next/server, route-budget /broker <=215 KB gz, ledger map-no-dup, and npm test.
 7. Run affected e2e in a clean isolated checkout with fresh .data on a port in 3300-3399. Save real screenshots under `/workspace/avalon/evidence/ui-account-first-step/`.
 8. Commit normally. No PR, merge, force-push, hook bypass, deploy, or spending. Report delivery status honestly.
+
+## Addendum: layout-agnostic phone trade step (Gatekeeper, Card 2 + Card 6 merge)
+Card 6 (ui/broker-trade-sheet) removes the inline phone ticket: on phone, Quantity/Review/Place live in a modal bottom sheet opened by the Trade button, and the sheet must be closed before the shell chrome (account chip) is reachable. The first-fill step in tests/e2e/settings/account-first-step.spec.ts filled the inline field, so the 2+6 merge failed on phone (evidence ui-broker-fill-feedback/stack-clean-e2e-attempt1-b13b054f and stack-*-474a01c4).
+Change only the spec's trade step: if the Broker shows the Trade button, open it, use the sheet for Quantity/Review/Place/receipt, then close the sheet; otherwise use the inline ticket exactly as before. Every existing assertion (Review enabled, Place enabled, "Bought 1 HALC" receipt, goal stage done, logout, second account) stays, scoped to wherever the ticket is. No product code. Must pass on this branch's own base and on scratch 2+6 and full 7-card merges.
