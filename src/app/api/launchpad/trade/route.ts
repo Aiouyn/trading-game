@@ -2,12 +2,14 @@ import { authErrorResponse, jsonResponse } from "@/server/auth";
 import { assertOnlyKeys, readBrokerMutation, requireBrokerSession, requireIdempotencyKey } from "@/server/broker/http";
 import { getLaunchpad } from "@/server/launchpad";
 import { tradeInput } from "@/server/launchpad/http";
+import { assertMutationAllowed } from "@/server/mutationLimit";
 
 export const dynamic = "force-dynamic";
 
 /** One reviewed Launchpad trade for the caller's own account (same-origin JSON, signed in, one idempotency key). */
 export async function POST(request: Request): Promise<Response> {
   try {
+    await assertMutationAllowed(request);
     const body = await readBrokerMutation(request);
     assertOnlyKeys(body, ["idempotencyKey", "ticker", "side", "amount", "min"]);
     const key = requireIdempotencyKey(body);

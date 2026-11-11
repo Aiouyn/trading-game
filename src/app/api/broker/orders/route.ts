@@ -1,6 +1,7 @@
 import { authErrorResponse, jsonResponse } from "@/server/auth";
 import { getBroker } from "@/server/broker";
 import { assertOnlyKeys, readBrokerMutation, requireBrokerSession, requireDraft, requireIdempotencyKey } from "@/server/broker/http";
+import { assertMutationAllowed } from "@/server/mutationLimit";
 import { runTelemetryContext } from "@/server/telemetry";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request): Promise<Response> {
   return runTelemetryContext(request, async () => {
     try {
+      await assertMutationAllowed(request);
       const body = await readBrokerMutation(request);
       assertOnlyKeys(body, ["idempotencyKey", "draft"]);
       const key = requireIdempotencyKey(body);
