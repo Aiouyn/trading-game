@@ -37,10 +37,12 @@ export class ActorBinding {
     store: BindingStore,
     options?: { enabled?: unknown; now?: () => number },
   ): Promise<ActorBinding> {
-    const enabled = options?.enabled ?? ACTOR_BINDING_DEFAULT_ENABLED;
+    // Own properties only: a polluted Object.prototype must not enable binding or inject a clock.
+    const own = (key: "enabled" | "now"): boolean => options !== undefined && options !== null && Object.hasOwn(options, key);
+    const enabled = own("enabled") ? options?.enabled : ACTOR_BINDING_DEFAULT_ENABLED;
     if (enabled !== true) throw new BindingError("ACTOR_BINDING_DISABLED");
     const loaded = await store.load();
-    const binding = new ActorBinding(auth, store, options?.now ?? (() => Date.now()));
+    const binding = new ActorBinding(auth, store, (own("now") && typeof options?.now === "function" ? options.now : () => Date.now()));
     if (loaded !== null) {
       for (const row of parseCheckpoint(loaded).bindings) binding.bindings.set(row.accountId, row);
     } else {
@@ -76,7 +78,7 @@ export class ActorBinding {
     if (kind === "MISSING") throw new BindingError("MISSING_SESSION");
     if (kind === "MALFORMED") throw new BindingError("MALFORMED_SESSION");
     const token = rawToken as string;
-    const view = options?.refresh === false ? await this.auth.peekSession(token) : await this.auth.resolveSession(token);
+    const view = options?.refresh === true ? await this.auth.resolveSession(token) : await this.auth.peekSession(token);
     if (!view) throw new BindingError("SESSION_REJECTED");
     return this.remember(view);
   }

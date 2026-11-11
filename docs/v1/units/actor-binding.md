@@ -81,3 +81,10 @@ inspectSession(
 ```
 
 `refresh: true` is the `resolveSession` behaviour (idle refresh, persist, revoke expired). `refresh: false` or omitted is the `peekSession` behaviour (no write). Existing routes can keep using the current methods.
+
+## Gatekeeper quals batch-fix (2026-11-12 00:35 Europe/Paris, after PASS 0918bb62)
+1. `open()` reads `enabled` and `now` only as own properties (`Object.hasOwn`), so a polluted `Object.prototype` cannot enable binding or inject a clock; tested with the store-untouched spy.
+2. `bindToken`/`bindRequest`/`authorizeCommand` now default to read-only `peekSession`; `resolveSession` (which persists `lastSeen`) is used only with `{ refresh: true }`. Will switch to `inspectSession` once Builder's typed lookup lands.
+3. Rejection reasons still collapse to `SESSION_REJECTED` until `inspectSession` lands (Builder lane, under review).
+4. Known window, same as existing routes: a logout that lands after the session lookup returns does not abort an in-flight `authorizeCommand`. Engines that adopt the guard must re-check or accept that window; not closed here.
+5. `chr_` ids are a public, keyless derivation of `acc_` ids. They are identifiers, not secrets: isolation rests entirely on the session check, never on the id being unguessable.

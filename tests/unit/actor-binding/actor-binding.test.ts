@@ -241,6 +241,41 @@ describe("actor-binding mapping and sessions", () => {
   });
 });
 
+describe("actor-binding gatekeeper quals", () => {
+  it("ignores a polluted Object.prototype.enabled and never touches the store", async () => {
+    const auth = authService(new Clock(), new MemoryAuthStore());
+    const spy = new SpyStore();
+    const proto = Object.prototype as Record<string, unknown>;
+    proto.enabled = true;
+    proto.now = () => 0;
+    try {
+      await expectReject(() => ActorBinding.open(auth, spy, {}), "ACTOR_BINDING_DISABLED");
+      await expectReject(() => ActorBinding.open(auth, spy, Object.create({ enabled: true })), "ACTOR_BINDING_DISABLED");
+    } finally {
+      delete proto.enabled;
+      delete proto.now;
+    }
+    expect(spy.loads + spy.saves).toBe(0);
+  });
+
+  it("binds read-only by default: resolveSession is only used with refresh: true", async () => {
+    const clock = new Clock();
+    const auth = authService(clock, new MemoryAuthStore());
+    const calls: string[] = [];
+    const lookup = {
+      resolveSession: async (t: string | null | undefined) => { calls.push("resolve"); return auth.resolveSession(t); },
+      peekSession: async (t: string | null | undefined) => { calls.push("peek"); return auth.peekSession(t); },
+    };
+    const binding = await ActorBinding.open(lookup, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(auth, "BindQ");
+    await binding.bindToken(a.rawToken);
+    await binding.bindToken(a.rawToken, { refresh: false });
+    expect(calls).toEqual(["peek", "peek"]);
+    await binding.bindToken(a.rawToken, { refresh: true });
+    expect(calls).toEqual(["peek", "peek", "resolve"]);
+  });
+});
+
 describe("actor-binding file store", () => {
   it("treats a missing file as empty and rejects a corrupt file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "actor-binding-file-"));
