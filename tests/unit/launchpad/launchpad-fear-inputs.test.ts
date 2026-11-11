@@ -6,7 +6,6 @@ import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { MemoryStormWorldStore } from "@/server/market/stormWorldStore";
 import { TICKS_PER_HOUR } from "@/server/market/meme";
 import { crisisTermFromStorm, fearRawGx, riskAppetite, stepFear, WorldInputs } from "@/server/market/world";
-import { START_TICK } from "@/shell/contracts/mockFeed";
 
 afterEach(() => { setLiveMarketForTests(undefined); });
 
@@ -69,6 +68,6 @@ describe("macro.fear on market snapshot + durable Fear restart", () => {
     expect(after.fear).toBeCloseTo(F, 10);
     expect(after.riskAppetite).toBeCloseTo(riskAppetite(F), 12);
     expect(m2.stormSnapshot().active).not.toBeNull();
-    expect(after.tick).toBe(START_TICK);
+    expect(after.tick).toBe(before.tick);
   });
 });

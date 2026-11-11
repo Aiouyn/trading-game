@@ -1,7 +1,7 @@
 // M1-09 server only: the clock's feed, which can move a price on a Wire story. Kept out of MockFeed so the client bundle
 // (every signed-in and guest feed) does not carry code only the server clock runs.
 import { ASSET_BY_ID, type AssetFixture } from "@/market/catalog";
-import { MockFeed, fmt } from "@/shell/contracts/mockFeed";
+import { MockFeed, fmt, type FeedOptions } from "@/shell/contracts/mockFeed";
 import { listAsset } from "@/market/listings";
 import { CRYPTO_FACTOR_STREAM, CRYPTO_DAYS_PER_YEAR, SESSION_DAYS_PER_YEAR, Draws, HYPE, MEME_TEMPLATE, MemeProcess, TICKS_PER_DAY, TICKS_PER_HOUR } from "./meme";
 import { CoinNews, type CoinNewsItem, type NewsInputs } from "./coinNews";
@@ -106,9 +106,16 @@ export class ShockFeed extends MockFeed {
   private readonly erpAccrued = new Map<string, number>();
   /** Catalog RUMOR book (15/16 first slice). Lazy so the MockFeed seed is already set. */
   private _rumors: RumorBook | null = null;
+  /** Injected secret (tests) or undefined (book generates / hydrates from the store). */
+  private readonly rumorSecret: string | undefined;
+
+  constructor(scenario: ConstructorParameters<typeof MockFeed>[0] = {}, opts: FeedOptions & { rumorSecret?: string } = {}) {
+    super(scenario, opts);
+    this.rumorSecret = opts.rumorSecret;
+  }
 
   private rumorBook(): RumorBook {
-    return this._rumors ??= new RumorBook(this.scenario.seed);
+    return this._rumors ??= new RumorBook(this.scenario.seed, undefined, { secret: this.rumorSecret });
   }
 
   /** L4: give a def the catalog just appended its quote state at its listing price and its meme-template path, at hype
@@ -404,13 +411,25 @@ export class ShockFeed extends MockFeed {
 
   hydrateRumors(snap: RumorSnapshot | null | undefined, materialize = true): void {
     const book = this.rumorBook();
-    book.hydrate(snap ?? undefined);
+    book.hydrate(snap ?? undefined, { secret: this.rumorSecret });
     if (!materialize || !snap) return;
     for (const row of snap.valueApplied) {
       if (row.log !== 0) this.applyLogMove(row.assetId, row.log);
     }
-    for (const b of snap.belief) {
-      if (b.log !== 0) this.applyLogMove(b.assetId, b.log);
+    const marks = snap.beliefMarks ?? [];
+    if (marks.length) {
+      for (const m of marks) {
+        if (m.printed !== 0) this.applyLogMove(m.assetId, m.printed);
+      }
+    } else {
+      const sums = new Map<string, number>();
+      for (const b of snap.belief) sums.set(b.assetId, (sums.get(b.assetId) ?? 0) + b.log);
+      for (const [assetId, log] of sums) {
+        if (log === 0) continue;
+        const r = this.applyLogMove(assetId, log);
+        const printed = r && r.from > 0 && r.to !== r.from ? Math.log(r.to / r.from) : 0;
+        book.adoptPrinted(assetId, printed, log - printed);
+      }
     }
   }
 

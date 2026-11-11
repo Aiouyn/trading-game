@@ -1,7 +1,7 @@
 // First playable slice of 15/16 claims: catalog RUMOR Wire stories resolve; TRUE moves lnV, FALSE reverts belief.
 // Specs: 05:324, 05:847–871, 05:1010–1011; 16:188–193, 16:562–565, 16:772.
-// Horizon is V1-compressed onto the existing 12-tick Wire quartet (STORY_EVERY×2), U(1,5) units (16:564).
-import { STORY_EVERY } from "@/market/wireStories";
+// Horizon is U(1,5) game days (16:564) = TICKS_PER_DAY..5×TICKS_PER_DAY. Truth draws use a server-only secret.
+import { randomBytes } from "node:crypto";
 import { TICKS_PER_DAY } from "@/server/market/meme";
 import type { SourceBand } from "@/shell/contracts/channels";
 
@@ -11,12 +11,12 @@ export const RUMOR = {
   spreadTicks: 30,
   /** PARAM.mkt_belief_hl_days (5) in ticks, while unresolved. */
   hlTicks: 5 * TICKS_PER_DAY,
-  /** PARAM.mkt_belief_handoff_ticks. */
+  /** PARAM.mkt_belief_handoff_ticks (05:870). Confirmation nets X minus retained belief in one print. */
   handoffTicks: 15,
   /** False-claim release half-life in ticks (05:871). */
   falseHlTicks: 60,
-  /** One Wire crisis quartet (watch→outcome); V1 compression of one game day. */
-  horizonUnit: STORY_EVERY * 2,
+  /** One game day in ticks (16:564). */
+  horizonUnit: TICKS_PER_DAY,
   horizonMin: 1,
   horizonMax: 5,
   accMin: 0.40,
@@ -54,7 +54,9 @@ export interface RumorSource {
   resolved: number;
 }
 
+/** One claim's contribution to the asset overlay (05:864–865). */
 export interface BeliefPos {
+  claimId: string;
   assetId: string;
   log: number;
   mode: "pending" | "handoff" | "falseRelease";
@@ -62,13 +64,23 @@ export interface BeliefPos {
   ticksLeft?: number;
 }
 
+/** Integer-mark tracking for the belief overlay on one asset (printed log + unprinted remainder). */
+export interface BeliefMark {
+  assetId: string;
+  printed: number;
+  leftover: number;
+}
+
 export interface RumorSnapshot {
   source: RumorSource;
   claims: RumorClaim[];
   belief: BeliefPos[];
+  beliefMarks: BeliefMark[];
   lnV: { assetId: string; log: number }[];
   valueApplied: { assetId: string; log: number }[];
   lastTick: number | null;
+  /** Server-only. Never put this on a public API or in the client bundle. */
+  secret: string;
 }
 
 export interface RumorOpenInput {
@@ -86,6 +98,11 @@ export interface RumorStepEvent {
   claim: RumorClaim;
 }
 
+export type RumorBookOptions = {
+  /** Injected in tests. Production generates and persists a random secret. */
+  secret?: string;
+};
+
 /** Stable 32-bit FNV-1a (same family as wireStories; drawing it never touches the quote RNG). */
 export function rumorHash(key: string): number {
   let h = 2166136261;
@@ -95,22 +112,31 @@ export function rumorHash(key: string): number {
 
 const unit = (key: string) => rumorHash(key) / 0x1_0000_0000;
 
-export function hiddenAccuracyFor(seed: number): number {
-  return RUMOR.accMin + (RUMOR.accMax - RUMOR.accMin) * unit(`rumor:${seed}:acc`);
+/** 32-byte hex. Server-only; never shipped to a client. */
+export function newRumorSecret(): string {
+  return randomBytes(32).toString("hex");
 }
 
-export function resolvesByTick(seed: number, id: string, publishTick: number): number {
+function drawKey(secret: string, seed: number, kind: string, id?: string): string {
+  return id === undefined ? `rumor:${secret}:${seed}:${kind}` : `rumor:${secret}:${seed}:${kind}:${id}`;
+}
+
+export function hiddenAccuracyFor(seed: number, secret: string): number {
+  return RUMOR.accMin + (RUMOR.accMax - RUMOR.accMin) * unit(drawKey(secret, seed, "acc"));
+}
+
+export function resolvesByTick(seed: number, id: string, publishTick: number, secret: string): number {
   const span = RUMOR.horizonMax - RUMOR.horizonMin + 1;
-  const n = RUMOR.horizonMin + (rumorHash(`rumor:${seed}:hz:${id}`) % span);
+  const n = RUMOR.horizonMin + (rumorHash(drawKey(secret, seed, "hz", id)) % span);
   return publishTick + RUMOR.horizonUnit * n;
 }
 
-export function drawIsTrue(seed: number, id: string, acc: number): boolean {
-  return unit(`rumor:${seed}:true:${id}`) < acc;
+export function drawIsTrue(seed: number, id: string, acc: number, secret: string): boolean {
+  return unit(drawKey(secret, seed, "true", id)) < acc;
 }
 
-export function drawFalseKind(seed: number, id: string): "FIZZLED" | "DENIED" {
-  return unit(`rumor:${seed}:false:${id}`) < RUMOR.fizzleGivenFalse ? "FIZZLED" : "DENIED";
+export function drawFalseKind(seed: number, id: string, secret: string): "FIZZLED" | "DENIED" {
+  return unit(drawKey(secret, seed, "false", id)) < RUMOR.fizzleGivenFalse ? "FIZZLED" : "DENIED";
 }
 
 /** Beta(2,2) public track record (05:857): (hits+2)/(resolved+4). */
@@ -173,64 +199,109 @@ const cloneClaim = (c: RumorClaim): RumorClaim => ({
   effect: c.effect ? { ...c.effect } : undefined,
 });
 
-export function emptyRumorSnapshot(seed: number): RumorSnapshot {
+function clampLog(v: number): number {
+  return Math.min(RUMOR.cap, Math.max(-RUMOR.cap, v));
+}
+
+export function emptyRumorSnapshot(seed: number, secret: string): RumorSnapshot {
   return {
-    source: { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(seed), hits: 0, resolved: 0 },
+    source: { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(seed, secret), hits: 0, resolved: 0 },
     claims: [],
     belief: [],
+    beliefMarks: [],
     lnV: [],
     valueApplied: [],
     lastTick: null,
+    secret,
   };
 }
 
 export class RumorBook {
   private source: RumorSource;
   private claims: RumorClaim[] = [];
+  /** Per-claim overlay. Keyed by claimId. */
   private belief = new Map<string, BeliefPos>();
+  /** Per-asset integer-mark accounting. */
+  private marks = new Map<string, BeliefMark>();
   private lnV = new Map<string, number>();
   private valueApplied = new Map<string, number>();
   private lastTick: number | null = null;
-  constructor(private readonly seed: number, snap?: RumorSnapshot) {
-    this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(seed), hits: 0, resolved: 0 };
-    if (snap) this.hydrate(snap);
+  private secret: string;
+  constructor(private readonly seed: number, snap?: RumorSnapshot, opts: RumorBookOptions = {}) {
+    this.secret = (opts.secret && opts.secret.length > 0) ? opts.secret : (snap?.secret && snap.secret.length > 0 ? snap.secret : newRumorSecret());
+    this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(seed, this.secret), hits: 0, resolved: 0 };
+    if (snap) this.hydrate(snap, opts);
   }
+
+  /** Server-only. Tests inject this; production persists it. */
+  rumorSecret(): string { return this.secret; }
 
   snapshot(): RumorSnapshot {
     return {
       source: { ...this.source },
       claims: this.claims.map(cloneClaim),
       belief: [...this.belief.values()].map((b) => ({ ...b })),
+      beliefMarks: [...this.marks.values()].map((m) => ({ ...m })),
       lnV: [...this.lnV.entries()].map(([assetId, log]) => ({ assetId, log })),
       valueApplied: [...this.valueApplied.entries()].map(([assetId, log]) => ({ assetId, log })),
       lastTick: this.lastTick,
+      secret: this.secret,
     };
   }
 
-  hydrate(snap: RumorSnapshot | null | undefined): void {
+  hydrate(snap: RumorSnapshot | null | undefined, opts: RumorBookOptions = {}): void {
     if (!snap) {
-      this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(this.seed), hits: 0, resolved: 0 };
+      if (opts.secret && opts.secret.length > 0) this.secret = opts.secret;
+      else if (!this.secret) this.secret = newRumorSecret();
+      this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(this.seed, this.secret), hits: 0, resolved: 0 };
       this.claims = [];
       this.belief.clear();
+      this.marks.clear();
       this.lnV.clear();
       this.valueApplied.clear();
       this.lastTick = null;
       return;
     }
+    this.secret = (opts.secret && opts.secret.length > 0) ? opts.secret : (snap.secret && snap.secret.length > 0 ? snap.secret : this.secret);
     this.source = { ...snap.source };
     this.claims = snap.claims.map(cloneClaim);
-    this.belief = new Map(snap.belief.map((b) => [b.assetId, { ...b }]));
+    this.belief = new Map();
+    for (const b of snap.belief) {
+      const claimId = b.claimId || this.legacyClaimId(b.assetId);
+      if (!claimId) continue;
+      this.belief.set(claimId, { ...b, claimId });
+    }
+    this.marks = new Map((snap.beliefMarks ?? []).map((m) => [m.assetId, { ...m }]));
     this.lnV = new Map(snap.lnV.map((r) => [r.assetId, r.log]));
     this.valueApplied = new Map(snap.valueApplied.map((r) => [r.assetId, r.log]));
     this.lastTick = snap.lastTick;
   }
 
+  /** Older per-asset belief rows: attach to the unique claim on that asset when possible. */
+  private legacyClaimId(assetId: string): string | null {
+    const hits = this.claims.filter((c) => c.assetId === assetId);
+    return hits.length === 1 ? hits[0]!.id : null;
+  }
+
   lnVOf(assetId: string): number | undefined { return this.lnV.get(assetId); }
-  beliefLog(assetId: string): number { return this.belief.get(assetId)?.log ?? 0; }
+  /** Capped sum of every claim's current contribution on this asset (05:864–865). */
+  beliefLog(assetId: string): number {
+    let s = 0;
+    for (const b of this.belief.values()) if (b.assetId === assetId) s += b.log;
+    return clampLog(s);
+  }
   valueLog(assetId: string): number { return this.valueApplied.get(assetId) ?? 0; }
+  printedBelief(assetId: string): number { return this.marks.get(assetId)?.printed ?? 0; }
   sourceState(): RumorSource { return { ...this.source }; }
   claim(id: string): RumorClaim | undefined { return this.claims.find((c) => c.id === id); }
   allClaims(): readonly RumorClaim[] { return this.claims; }
+
+  /** After rematerializing a legacy snapshot that had no beliefMarks, record what actually printed. */
+  adoptPrinted(assetId: string, printed: number, leftover: number): void {
+    if (!Number.isFinite(printed) || !Number.isFinite(leftover)) return;
+    if (printed === 0 && leftover === 0) this.marks.delete(assetId);
+    else this.marks.set(assetId, { assetId, printed, leftover });
+  }
 
   /** Add a permanent confirmed-or-NEWS log to lnV (caller already moved marks for NEWS). */
   addConfirmedValue(assetId: string, log: number): void {
@@ -247,7 +318,7 @@ export class RumorBook {
     const existing = this.claims.find((c) => c.id === input.id);
     if (existing) return existing;
     const acc = this.source.hiddenAccuracy;
-    const isTrue = drawIsTrue(this.seed, input.id, acc);
+    const isTrue = drawIsTrue(this.seed, input.id, acc, this.secret);
     const claim: RumorClaim = {
       id: input.id,
       defId: input.defId,
@@ -256,7 +327,7 @@ export class RumorBook {
       slots: { ...input.slots },
       causeKey: input.causeKey,
       publishTick: input.publishTick,
-      resolvesByTick: resolvesByTick(this.seed, input.id, input.publishTick),
+      resolvesByTick: resolvesByTick(this.seed, input.id, input.publishTick, this.secret),
       bp: input.bp,
       a: assertedLog(input.bp),
       cr: claimCredibility(this.source.hits, this.source.resolved),
@@ -270,8 +341,9 @@ export class RumorBook {
 
   /**
    * Advance from lastTick (or stay) through `tick` inclusive. Applies pending belief, then resolutions
-   * due at each t, then handoff / false release. `applyLog` moves the mark by a log delta;
+   * due at each t, then false release. `applyLog` moves the mark by a log delta;
    * `applyConfirmed` prints the integer bp shock (shockedMinor) so lnV matches the mark.
+   * A tick earlier than lastTick is rejected: no step, lastTick unchanged.
    */
   advanceTo(
     tick: number,
@@ -280,6 +352,7 @@ export class RumorBook {
   ): RumorStepEvent[] {
     const out: RumorStepEvent[] = [];
     if (!Number.isSafeInteger(tick)) return out;
+    if (this.lastTick != null && tick < this.lastTick) return out;
     let start: number;
     if (this.lastTick == null) {
       if (this.claims.length === 0) { this.lastTick = tick; return out; }
@@ -288,29 +361,51 @@ export class RumorBook {
       start = this.lastTick + 1;
     }
     for (let t = start; t <= tick; t++) {
-      this.stepPendingBelief(t, applyLog);
+      this.stepPendingBelief(t);
+      this.syncMarks(applyLog);
       for (const ev of this.resolveDue(t, applyLog, applyConfirmed)) out.push(ev);
-      this.stepRelease(applyLog);
+      this.stepRelease();
+      this.syncMarks(applyLog);
     }
     this.lastTick = tick;
     return out;
   }
 
-  private stepPendingBelief(
-    tick: number,
-    applyLog: (assetId: string, log: number) => { from: number; to: number } | null,
-  ): void {
-    const target = pendingBelief(this.claims, tick);
-    const ids = new Set([...target.keys(), ...[...this.belief.values()].filter((b) => b.mode === "pending").map((b) => b.assetId)]);
+  private stepPendingBelief(tick: number): void {
+    for (const c of this.claims) {
+      if (c.resolution !== "PENDING") continue;
+      const want = claimContribution(c, tick);
+      if (want === 0) this.belief.delete(c.id);
+      else this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: want, mode: "pending" });
+    }
+  }
+
+  private wantByAsset(): Map<string, number> {
+    const raw = new Map<string, number>();
+    for (const b of this.belief.values()) raw.set(b.assetId, (raw.get(b.assetId) ?? 0) + b.log);
+    for (const [id, v] of raw) raw.set(id, clampLog(v));
+    return raw;
+  }
+
+  /** Move the integer mark toward the current capped overlay, carrying unprinted remainder. */
+  private syncMarks(applyLog: (assetId: string, log: number) => { from: number; to: number } | null): void {
+    const want = this.wantByAsset();
+    const ids = new Set([...want.keys(), ...this.marks.keys()]);
     for (const id of ids) {
-      const pos = this.belief.get(id);
-      if (pos && pos.mode !== "pending") continue;
-      const want = target.get(id) ?? 0;
-      const have = pos?.log ?? 0;
-      const d = want - have;
-      if (d !== 0) applyLog(id, d);
-      if (want === 0) this.belief.delete(id);
-      else this.belief.set(id, { assetId: id, log: want, mode: "pending" });
+      const target = want.get(id) ?? 0;
+      const mark = this.marks.get(id) ?? { assetId: id, printed: 0, leftover: 0 };
+      const acc = target - mark.printed;
+      if (acc === 0) {
+        if (target === 0 && mark.printed === 0 && mark.leftover === 0) this.marks.delete(id);
+        else this.marks.set(id, { ...mark, leftover: 0 });
+        continue;
+      }
+      const printed = applyLog(id, acc);
+      const got = printed && printed.from > 0 && printed.to !== printed.from ? Math.log(printed.to / printed.from) : 0;
+      const nextPrinted = mark.printed + got;
+      const leftover = acc - got;
+      if (target === 0 && nextPrinted === 0 && Math.abs(leftover) < 1e-15) this.marks.delete(id);
+      else this.marks.set(id, { assetId: id, printed: nextPrinted, leftover });
     }
   }
 
@@ -324,6 +419,9 @@ export class RumorBook {
       if (c.resolution !== "PENDING" || tick !== c.resolvesByTick) continue;
       if (c.isTrue) {
         c.resolution = "CONFIRMED";
+        // Drop this claim's retained belief first, then print X, so the mark never holds both (05:870 / 1011).
+        this.belief.delete(c.id);
+        this.syncMarks(applyLog);
         const printed = applyConfirmed
           ? applyConfirmed(c.assetId, c.bp)
           : applyLog(c.assetId, Math.log(1 + c.bp / 10_000));
@@ -334,19 +432,15 @@ export class RumorBook {
         } else {
           this.addConfirmedValue(c.assetId, assertedLog(c.bp));
         }
-        const have = this.belief.get(c.assetId)?.log ?? 0;
-        if (have !== 0) {
-          this.belief.set(c.assetId, { assetId: c.assetId, log: have, mode: "handoff", startLog: have, ticksLeft: RUMOR.handoffTicks });
-        } else this.belief.delete(c.assetId);
         this.source.hits += 1;
         this.source.resolved += 1;
         evs.push({ claim: cloneClaim(c) });
       } else {
-        c.resolution = drawFalseKind(this.seed, c.id);
-        const have = this.belief.get(c.assetId)?.log ?? 0;
+        c.resolution = drawFalseKind(this.seed, c.id, this.secret);
+        const have = this.belief.get(c.id)?.log ?? 0;
         if (have !== 0) {
-          this.belief.set(c.assetId, { assetId: c.assetId, log: have, mode: "falseRelease", startLog: have });
-        } else this.belief.delete(c.assetId);
+          this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: have, mode: "falseRelease", startLog: have });
+        } else this.belief.delete(c.id);
         this.source.resolved += 1;
         evs.push({ claim: cloneClaim(c) });
       }
@@ -354,26 +448,23 @@ export class RumorBook {
     return evs;
   }
 
-  private stepRelease(applyLog: (assetId: string, log: number) => { from: number; to: number } | null): void {
+  private stepRelease(): void {
     for (const [id, pos] of [...this.belief.entries()]) {
       if (pos.mode === "pending") continue;
       if (pos.mode === "handoff") {
+        // Legacy snapshots only: finish a leftover 15-tick handoff. New confirms net immediately.
         const left = (pos.ticksLeft ?? 1) - 1;
         const start = pos.startLog ?? pos.log;
         const want = left <= 0 ? 0 : start * (left / RUMOR.handoffTicks);
-        const d = want - pos.log;
-        if (d !== 0) applyLog(id, d);
         if (left <= 0 || want === 0) this.belief.delete(id);
-        else this.belief.set(id, { assetId: id, log: want, mode: "handoff", startLog: start, ticksLeft: left });
+        else this.belief.set(id, { claimId: id, assetId: pos.assetId, log: want, mode: "handoff", startLog: start, ticksLeft: left });
         continue;
       }
-      // falseRelease: half-life 60 ticks toward 0 ((1-k)^60 = 1/2)
       const k = ticksHalfLifeK(RUMOR.falseHlTicks);
       const dec = k * pos.log;
       const next = pos.log - dec;
-      if (dec !== 0) applyLog(id, -dec);
       if (Math.abs(next) < 1e-12) this.belief.delete(id);
-      else this.belief.set(id, { assetId: id, log: next, mode: "falseRelease", startLog: pos.startLog });
+      else this.belief.set(id, { claimId: id, assetId: pos.assetId, log: next, mode: "falseRelease", startLog: pos.startLog });
     }
   }
 }
@@ -396,9 +487,11 @@ export function cloneRumorSnapshot(s: RumorSnapshot): RumorSnapshot {
     source: { ...s.source },
     claims: s.claims.map(cloneClaim),
     belief: s.belief.map((b) => ({ ...b })),
+    beliefMarks: (s.beliefMarks ?? []).map((m) => ({ ...m })),
     lnV: s.lnV.map((r) => ({ ...r })),
     valueApplied: s.valueApplied.map((r) => ({ ...r })),
     lastTick: s.lastTick,
+    secret: s.secret,
   };
 }
 
@@ -463,7 +556,22 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
       if (mode !== "pending" && mode !== "handoff" && mode !== "falseRelease") continue;
       const startLog = b.startLog === undefined ? undefined : num(b.startLog) ?? undefined;
       const ticksLeft = b.ticksLeft === undefined ? undefined : int(b.ticksLeft) ?? undefined;
-      belief.push({ assetId: b.assetId, log, mode, startLog, ticksLeft });
+      const claimId = typeof b.claimId === "string" && b.claimId.length > 0
+        ? b.claimId
+        : (claims.filter((c) => c.assetId === b.assetId).length === 1 ? claims.find((c) => c.assetId === b.assetId)!.id : "");
+      if (!claimId) continue;
+      belief.push({ claimId, assetId: b.assetId, log, mode, startLog, ticksLeft });
+    }
+  }
+  const beliefMarks: BeliefMark[] = [];
+  if (Array.isArray(o.beliefMarks)) {
+    for (const row of o.beliefMarks) {
+      if (!row || typeof row !== "object") continue;
+      const m = row as Record<string, unknown>;
+      if (typeof m.assetId !== "string") continue;
+      const printed = num(m.printed), leftover = num(m.leftover);
+      if (printed == null || leftover == null) continue;
+      beliefMarks.push({ assetId: m.assetId, printed, leftover });
     }
   }
   const rows = (rawRows: unknown): { assetId: string; log: number }[] => {
@@ -480,8 +588,9 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
   };
   const lastTick = o.lastTick === null ? null : int(o.lastTick);
   if (o.lastTick !== null && o.lastTick !== undefined && lastTick == null) return undefined;
+  const secret = typeof o.secret === "string" && o.secret.length > 0 ? o.secret : newRumorSecret();
   return {
     source: { sourceId: srcRaw.sourceId, hiddenAccuracy: acc, hits, resolved },
-    claims, belief, lnV: rows(o.lnV), valueApplied: rows(o.valueApplied), lastTick: lastTick ?? null,
+    claims, belief, beliefMarks, lnV: rows(o.lnV), valueApplied: rows(o.valueApplied), lastTick: lastTick ?? null, secret,
   };
 }

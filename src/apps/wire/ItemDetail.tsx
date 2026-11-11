@@ -9,8 +9,14 @@ import type { WireItem } from "@/shell/contracts/channels";
 import { causeText } from "./causes";
 import { storyStrings } from "./storyStrings";
 import { fill, headline, pctLabel, timeLabel, type WireStrings } from "./strings";
+import { clockTickFromSlot } from "@/shell/mockChannels";
 import { KindChip, PricedIn, showsRecord } from "./WireItemRow";
 import "./itemDetail.css";
+
+/** Confirmed rumors apply X at resolvesByTick; other realized items still use item.tick. */
+function appliedTick(item: WireItem): number {
+  return clockTickFromSlot(item.slots?.appliedTick, item.tick);
+}
 
 export interface ItemDetailProps {
   item: WireItem;
@@ -93,7 +99,7 @@ export function ItemDetail({ item, t, gone, stale, updating, onBack, onClose, op
                     </li>
                   ))}
                 </ul>
-                <p className="wire-detail-line muted" data-testid="wire-effect-applied">{fill(st.realizedNote, { time: timeLabel(item.tick, t) })}</p>
+                <p className="wire-detail-line muted" data-testid="wire-effect-applied">{fill(st.realizedNote, { time: timeLabel(appliedTick(item), t) })}</p>
                 <p className="wire-detail-line muted" data-testid="wire-effect-later">{st.laterNote}</p>
               </>
             ) : (
