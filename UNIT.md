@@ -28,3 +28,7 @@ Existing branches checked: eng/first-trade-goal adds the goal/guide, eng/portfol
 5. Review/Place safety and real server fill -> Portfolio still work on both desktop and phone. Run affected e2e in a clean isolated worktree, fresh .data, port 3300-3399.
 6. Run npm run lint, npm run typecheck, npm run build, node tools/check-hooks.mjs .next/static .next/server, BUDGET_PORT=3303 node tools/ci/route-budget.mjs /broker (<=215 KB gz), ledger map-no-dup, npm test.
 7. Save real desktop/mobile production screenshots and logs under `/workspace/avalon/evidence/ui-broker-ticket-entry/`; inspect actual diff, commit normally. No PR, merge, deploy, spending or hook bypass.
+
+## Result
+
+Verified 2026-11-11T17:59:22+01:00 Europe/Paris (UTC+1). All listed checks pass. See `UI-EVIDENCE.md` for commands, counts, screenshots, and the corrected initial browser test fixtures. Implementation is committed locally. Push authorization remains pending with the coordinator. No Gatekeeper handoff occurred.
