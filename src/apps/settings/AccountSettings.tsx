@@ -124,7 +124,7 @@ export function AccountSettings() {
             <p className="account-error" role="alert" data-testid="account-error">{error}</p>
           ) : null}
           <div className="account-actions">
-            <Button variant="primary" data-testid="account-open-portfolio" disabled={busy} onClick={openPortfolio}>{t.accountOpenPortfolio}</Button>
+            <Button variant="primary" data-testid="account-open-portfolio" autoFocus disabled={busy} onClick={openPortfolio}>{t.accountOpenPortfolio}</Button>
             <Button variant="secondary" data-testid="account-logout" disabled={busy} onClick={() => void onLogout()}>
               {t.accountLogout}
             </Button>

@@ -8,16 +8,24 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: `${shots}/${name}.png` });
 }
 const account = (page: Page) => page.getByTestId("settings-account");
+async function expectContinuationFocus(page: Page) {
+  const btn = page.getByTestId("account-open-portfolio");
+  await expect(btn).toBeEnabled();
+  await expect(btn).toBeFocused();
+  expect(await btn.evaluate((el) => el === document.activeElement)).toBe(true);
+}
 async function register(page: Page, handle: string) {
   await page.getByTestId("account-handle-input").fill(handle);
   await page.getByTestId("account-password-input").fill("local-account-first-step-test");
   await page.getByTestId("account-submit").click();
   await expect(page.getByTestId("account-open-portfolio")).toBeVisible();
+  await expectContinuationFocus(page);
 }
-async function continueToPortfolio(page: Page) {
+async function continueToPortfolio(page: Page, alreadyFocused = false) {
   const btn = page.getByTestId("account-open-portfolio");
   await btn.scrollIntoViewIfNeeded();
-  await btn.focus();
+  if (alreadyFocused) await expectContinuationFocus(page);
+  else await btn.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("portfolio").first()).toBeFocused({ timeout: 15_000 });
   await expect(page.getByTestId("pf-goal").first()).toBeVisible({ timeout: 20_000 });
@@ -43,7 +51,8 @@ test("UI registration gives a clear goal and continuation; navigation places not
   await page.getByTestId("account-mode").getByRole("radio", { name: "Sign in", exact: true }).click();
   await expect(page.getByTestId("account-intro")).toHaveText("Sign in to continue with your saved account.");
   await page.getByTestId("account-mode").getByRole("radio", { name: "Create account", exact: true }).click();
-  await register(page, `FirstStep${prefix}${Date.now().toString(36)}`);
+  const firstHandle = `FirstStep${prefix}${Date.now().toString(36)}`;
+  await register(page, firstHandle);
   await expect(page.getByTestId("account-save-details")).not.toHaveAttribute("open");
   const next = page.getByTestId("account-open-portfolio");
   await expect(next).toBeInViewport({ ratio: 1 });
@@ -51,7 +60,7 @@ test("UI registration gives a clear goal and continuation; navigation places not
   await shot(page, `${prefix}-02-created`);
   const sent: string[] = [];
   page.on("request", (r) => { if (r.method() === "POST" && /\/api\/broker\/(orders|preview)/.test(r.url())) sent.push(r.url()); });
-  await continueToPortfolio(page);
+  await continueToPortfolio(page, true);
   await expect(page.getByTestId("pf-goal-now")).toHaveText("Saved net worth now $10,000.00 of $20,000.00");
   await expect(page.getByTestId("pf-guide-steps")).toBeVisible();
   expect(sent).toEqual([]);
@@ -88,10 +97,23 @@ test("UI registration gives a clear goal and continuation; navigation places not
   await expect(page.getByTestId("account-handle-input")).toBeVisible();
   await expect(page.getByTestId("account-open-portfolio")).toHaveCount(0);
   await register(page, `SecondStep${prefix}${Date.now().toString(36)}`);
-  await continueToPortfolio(page);
+  await continueToPortfolio(page, true);
   await expect(page.getByTestId("pf-goal").first()).toHaveAttribute("data-stage", "start");
   await expect(page.getByTestId("pf-goal-now")).toHaveText("Saved net worth now $10,000.00 of $20,000.00");
   expect((await (await page.context().request.get("/api/broker/me")).json()).fills).toEqual([]);
+
+  await page.getByTestId("account-chip").first().click();
+  await page.getByTestId("account-logout").click();
+  await expect(page.getByTestId("account-handle-input")).toBeVisible();
+  await page.getByTestId("account-mode").getByRole("radio", { name: "Sign in", exact: true }).click();
+  await page.getByTestId("account-handle-input").fill(firstHandle);
+  await page.getByTestId("account-password-input").fill("local-account-first-step-test");
+  await page.getByTestId("account-submit").click();
+  await expectContinuationFocus(page);
+  await shot(page, `${prefix}-07-signin-focused`);
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("portfolio").first()).toBeFocused({ timeout: 15_000 });
+  await expect(page.getByTestId("pf-goal").first()).toHaveAttribute("data-stage", "done");
 });
 
 test("French, 200% text, reduced motion, and optional save details stay usable", async ({ page }, info) => {

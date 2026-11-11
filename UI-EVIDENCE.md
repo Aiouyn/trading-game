@@ -1,4 +1,16 @@
-# Account first step — local verification
+# Account continuation autofocus — Gatekeeper correction
+
+The original proof below established Portfolio focus after activation, not automatic focus of Open Portfolio after registration. The old helper manually focused the button before Enter. A handoff claim of automatic arrival focus was unsupported; Gatekeeper observed BODY.
+
+This follow-up uses the native button `autoFocus` behavior when the signed-in Account view mounts, after registration or sign-in. Shared Button behavior, authentication, the existing Portfolio navigation, and engine data are unchanged. The button remains the actual keyboard target; no wrapper is substituted.
+
+`UNIT-FOCUS.md` was committed alone before follow-up code. The focused regression adds `document.activeElement` equality and reproduces BODY focus before the fix (`focus-followup/regression-before.log`). The real desktop/phone e2e now checks that same equality immediately after UI registration and UI sign-in, before any manual focus call. It presses Enter from that automatic focus. Existing manual focusing remains only for testing other navigation/reopen paths.
+
+Exact follow-up check outcomes and tested SHA are recorded under `/workspace/avalon/evidence/ui-account-first-step/focus-followup/`: `final-checks/checks.json`, `e2e.log`, `FINAL-MANIFEST.json`, and screenshots. These supersede the historical result table below for the follow-up. The apt/--with-deps setup alone is explicitly omitted because cached Chromium/system libraries are already supported and apt refresh is unavailable. No source check or hook is edited or bypassed. Remote CI/Gatekeeper remain independent.
+
+---
+
+# Original Account first-step verification (historical)
 
 Recorded 2026-11-11T18:13:29+01:00 Europe/Paris (UTC+1).
 Branch: `ui/account-first-step`. Base: `110583b0aa73ece1dc3b856665f3be0405f1acc3`.
