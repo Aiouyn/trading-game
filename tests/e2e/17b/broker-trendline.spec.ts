@@ -214,6 +214,7 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     const closeBroker = async () => {
       await page.getByTestId("win-broker").first().getByTestId("win-close").click();
       await expect(page.getByTestId("win-broker")).toHaveCount(0);
+      await page.evaluate(() => (window as unknown as { __quayFlush?: () => Promise<void> }).__quayFlush?.());
     };
     await closeBroker();
     await page.goto("/broker?asset=MRDN");
