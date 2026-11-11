@@ -18,16 +18,12 @@ function wireErrorResponse(err: unknown): Response {
  * durable player posts from the auth store. GET is public and writes nothing. A clock restart is a new `epoch`
  * for catalog stories; player posts rematerialize from the auth store.
  */
-export async function GET(request?: Request): Promise<Response> {
+export async function GET(): Promise<Response> {
   assertLocalSingleProcessAuth();
   getBroker();
   const snap = getLiveMarket().wire();
-  const auth = getAuthService();
-  const posts = await auth.listPublicWirePosts();
-  const body: Record<string, unknown> = { ...snap, items: mergePlayerStatements(snap.items, posts) };
-  const view = await auth.resolveSession(tokenFromRequest(request ?? new Request("http://localhost/api/wire")));
-  if (view) body.remainingToday = await auth.remainingWirePostsToday(view.account.accountId, snap.tick);
-  return jsonResponse(body);
+  const posts = await getAuthService().listPublicWirePosts();
+  return jsonResponse({ ...snap, items: mergePlayerStatements(snap.items, posts) });
 }
 
 /**

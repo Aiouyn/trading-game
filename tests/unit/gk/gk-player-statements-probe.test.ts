@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AuthService, FileAuthStore, MemoryAuthStore, SESSION_COOKIE_NAME, START_CASH_CENTS, setAuthServiceForTests } from "@/server/auth";
 import { LiveMarket } from "@/server/market/clock";
 import { POST as register } from "@/app/api/auth/register/route";
+import { GET as meGet } from "@/app/api/auth/me/route";
 import { GET as wireGet, POST as wirePost } from "@/app/api/wire/route";
 import {
   WIRE_POST_FEE_CENTS,
@@ -511,7 +512,7 @@ describe("gatekeeper probes: money / idempotency / quarantine / PII / CSRF", () 
     }
   });
 
-  it("signed-in GET /api/wire reports server remainingToday after a refresh", async () => {
+  it("signed-in GET /api/auth/me reports server remainingToday after a refresh", async () => {
     const store = new MemoryAuthStore();
     const auth = new AuthService({ store });
     setAuthServiceForTests(auth);
@@ -530,11 +531,13 @@ describe("gatekeeper probes: money / idempotency / quarantine / PII / CSRF", () 
         }));
         expect(res.status).toBe(201);
       }
-      const fresh = await wireGet(new Request("http://localhost/api/wire", { headers: { cookie, accept: "application/json" } }));
+      const fresh = await meGet(new Request("http://localhost/api/auth/me", { headers: { cookie, accept: "application/json" } }));
       expect(fresh.status).toBe(200);
-      const body = (await fresh.json()) as { remainingToday?: number; items: { slots?: Record<string, string> }[] };
+      const body = (await fresh.json()) as { remainingToday?: number };
       expect(body.remainingToday).toBe(1);
-      const mine = body.items.filter((i) => i.slots?.player === "1");
+      const wire = await wireGet();
+      const items = ((await wire.json()) as { items: { slots?: Record<string, string> }[] }).items;
+      const mine = items.filter((i) => i.slots?.player === "1");
       expect(mine.length).toBe(2);
       expect(JSON.stringify(mine)).not.toMatch(/acc_/);
     } finally {

@@ -27,7 +27,7 @@ export function Composer({ t }: { t: WireStrings }) {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/wire", { credentials: "include", headers: { accept: "application/json" } });
+        const res = await fetch("/api/auth/me", { credentials: "include", headers: { accept: "application/json" } });
         const body = (await res.json().catch(() => ({}))) as { remainingToday?: number };
         if (!cancelled && typeof body.remainingToday === "number") setRemaining(body.remainingToday);
       } catch {
