@@ -4,7 +4,7 @@
 // Card 9 (WIR-9): a row opens its detail. A Wire box >= 720 px shows it beside the feed; narrower it replaces the feed
 // (the list stays mounted, hidden, so its scroll position and held-back items survive); on phone it is a pushed screen.
 "use client";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/Button";
 import type { NewsBody, WireItem } from "@/shell/contracts/channels";
 import { getFeed, type ChannelView } from "@/shell/contracts/useChannel";
@@ -15,8 +15,7 @@ import { fill, type WireFilter, type WireStrings } from "./strings";
 import { storyStrings } from "./storyStrings";
 import { WireItemRow } from "./WireItemRow";
 import { WireSkeletonList } from "./Skeleton";
-
-const Composer = lazy(() => import("./Composer").then((m) => ({ default: m.Composer })));
+import { RetryableComposer } from "./RetryableComposer";
 
 /** Newest first by tick; equal ticks keep array order. */
 export function orderNewest(items: readonly WireItem[]): WireItem[] {
@@ -174,7 +173,7 @@ export function Feed({ view, t, host = NO_HOST, select, demo = false, canPost = 
           </ul>
         )}
       </div>
-      {canPost && <Suspense fallback={null}><Composer t={t} /></Suspense>}
+      {canPost && <RetryableComposer t={t} />}
       </div>
       {item ? (
         <div className="wire-pane" data-testid="wire-pane">

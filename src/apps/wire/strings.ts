@@ -75,6 +75,8 @@ export interface WireStrings {
     submit: string;
     posting: string;
     charCount: string;
+    loadError: string;
+    retry: string;
     errors: Record<string, string>;
   };
 }
@@ -194,6 +196,8 @@ export const EN: WireStrings = {
     submit: "Post",
     posting: "Posting…",
     charCount: "{n}/280",
+    loadError: "Couldn't load the composer.",
+    retry: "Retry",
     errors: {
       TEXT_EMPTY: "Write a short statement first.",
       TEXT_TOO_LONG: "Keep it to 280 characters.",
@@ -325,6 +329,8 @@ export const FR: WireStrings = {
     submit: "Publier",
     posting: "Publication…",
     charCount: "{n}/280",
+    loadError: "Impossible de charger le composeur.",
+    retry: "Réessayer",
     errors: {
       TEXT_EMPTY: "Écrivez d’abord une courte déclaration.",
       TEXT_TOO_LONG: "280 caractères au plus.",
