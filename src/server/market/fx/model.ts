@@ -1,5 +1,6 @@
-export const CURRENCIES = ["EUN", "FDL", "NKR", "PYN", "SRL"] as const;
-export type Ccy = typeof CURRENCIES[number];
+import { CCYS, type Ccy } from "../../../../packages/engine/core/types";
+export type { Ccy };
+export const CURRENCIES = CCYS;
 export type Minor = number & { readonly __brand: "FxMinor" };
 export type Rate = number & { readonly __brand: "FxQuotePerBaseMicros" };
 export type WalletId = string & { readonly __brand: "FxWalletId" };
