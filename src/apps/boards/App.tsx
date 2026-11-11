@@ -10,6 +10,7 @@ import { Chip } from "@/components/ui/Chip";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { parseLeaderboard, type LeaderboardRow, type LeaderboardView } from "@/market/leaderboard";
+import { nextUpFromView } from "./nextUp";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { clockAt, clockLabel } from "@/shell/mockChannels";
 import { viewportOf } from "@/shell/wm";
@@ -92,6 +93,7 @@ function Board({ phone }: { phone: boolean }) {
 function BoardView({ view, refreshFailed, phone, onRetry }: { view: LeaderboardView; refreshFailed: boolean; phone: boolean; onRetry: () => void }) {
   const { day, hhmm } = clockLabel(clockAt(view.tick));
   const selfInTop = view.rows.some((r) => r.self);
+  const next = nextUpFromView(view);
   const findMe = () => {
     const el = document.querySelector<HTMLElement>('[data-testid="leaderboard"] [data-self="true"]');
     el?.scrollIntoView({ block: "nearest" });
@@ -108,6 +110,15 @@ function BoardView({ view, refreshFailed, phone, onRetry }: { view: LeaderboardV
             <Button size="sm" data-testid="lb-find-me" onClick={findMe}>{LB.findMe}</Button>
           </p>
         ) : <p className="muted" data-testid="lb-self-unvalued">{LB.selfUnvalued}</p>}
+        {next.kind === "ahead" && (
+          <p className="lb-next-line" data-testid="lb-next-up">
+            {`Next up · ${next.handle} · `}
+            <MoneyText amount={next.ahead} ctx="table" />
+            {" ahead"}
+          </p>
+        )}
+        {next.kind === "lead" && <p className="lb-next-line muted" data-testid="lb-lead">{LB.atTop}</p>}
+        {next.kind === "tied" && <p className="lb-next-line muted" data-testid="lb-tied">{LB.tied(next.others)}</p>}
         {refreshFailed && (
           <p className="lb-stale" role="status" data-testid="lb-refresh-failed">
             <span>{LB.couldntUpdate}</span>
@@ -119,11 +130,11 @@ function BoardView({ view, refreshFailed, phone, onRetry }: { view: LeaderboardV
         <table className="lb-table" data-testid="lb-table">
           <thead><tr><th scope="col" className="lb-col-rank">{LB.colRank}</th><th scope="col">{LB.colPlayer}</th><th scope="col" className="lb-col-nw">{LB.colNw}</th></tr></thead>
           <tbody>
-            {view.rows.map((r) => <Row key={r.handle} r={r} />)}
+            {view.rows.map((r) => <Row key={r.handle} r={r} next={next.kind === "ahead" && r.handle === next.handle} />)}
             {!selfInTop && view.self && (
               <>
                 <tr className="lb-gap" aria-hidden="true"><td colSpan={3}>{"⋯"}</td></tr>
-                <Row r={view.self} />
+                <Row r={view.self} next={false} />
               </>
             )}
           </tbody>
@@ -134,12 +145,12 @@ function BoardView({ view, refreshFailed, phone, onRetry }: { view: LeaderboardV
   );
 }
 
-function Row({ r }: { r: LeaderboardRow }) {
+function Row({ r, next }: { r: LeaderboardRow; next: boolean }) {
   return (
-    <tr className={`lb-row${r.self ? " lb-self" : ""}`} data-testid="lb-row" data-rank={r.rank} data-handle={r.handle} data-self={r.self ? "true" : undefined}
+    <tr className={`lb-row${r.self ? " lb-self" : ""}${next ? " lb-next" : ""}`} data-testid="lb-row" data-rank={r.rank} data-handle={r.handle} data-self={r.self ? "true" : undefined} data-next-up={next ? "true" : undefined}
       aria-current={r.self ? "true" : undefined} tabIndex={r.self ? 0 : -1}>
       <td className="lb-col-rank num" data-testid="lb-rank">{String(r.rank)}</td>
-      <td className="lb-player"><span className="lb-handle" data-testid="lb-handle">{r.handle}</span>{r.self && <Chip className="lb-you-chip" data-testid="lb-you">{LB.you}</Chip>}</td>
+      <td className="lb-player"><span className="lb-handle" data-testid="lb-handle">{r.handle}</span>{r.self && <Chip className="lb-you-chip" data-testid="lb-you">{LB.you}</Chip>}{next && <Chip className="lb-next-chip" data-testid="lb-next-chip">{LB.nextUpChip}</Chip>}</td>
       <td className="lb-col-nw num" data-testid="lb-nw"><MoneyText amount={r.nw} ctx="table" /></td>
     </tr>
   );
