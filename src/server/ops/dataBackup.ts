@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { BACKUP_LOCK_NAME, LiveLockError, liveServerPid, SERVER_LOCK_NAME, uniqueSnapshotSuffix, withBackupLock } from "@/server/ops/serverLock";
 
 export const BACKUP_KEEP_DEFAULT = 7;
 export const MANIFEST_NAME = "manifest.json";
@@ -44,7 +45,7 @@ export interface BackupPlan {
   readonly files: readonly BackupFileEntry[];
 }
 
-const ID_RE = /^\d{8}T\d{9}Z(?:-\d+)?$/;
+const ID_RE = /^\d{8}T\d{9}Z(?:-[a-z0-9]+)*$/;
 
 export function resolveBackupDir(env: NodeJS.ProcessEnv, cwd: string): string {
   const raw = env.QUAY_BACKUP_DIR?.trim();
@@ -163,6 +164,7 @@ async function listFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
   for (const ent of entries) {
+    if (ent.name === SERVER_LOCK_NAME || ent.name === BACKUP_LOCK_NAME) continue;
     if (ent.name.endsWith(".tmp") || ent.name.startsWith(".partial")) continue;
     const full = path.join(dir, ent.name);
     if (ent.isSymbolicLink()) throw new BackupError(`Refusing to back up a symlink: ${full}`);
@@ -179,13 +181,13 @@ async function fingerprint(file: string): Promise<{ sha256: string; bytes: numbe
 }
 
 async function uniqueId(backupDir: string, now: Date): Promise<string> {
-  const base = stamp(now);
+  const base = `${stamp(now)}-${uniqueSnapshotSuffix()}`;
   for (let n = 0; n < 100; n++) {
     const id = n === 0 ? base : `${base}-${n}`;
     if (!ID_RE.test(id)) throw new BackupError(`Internal backup id ${id} is not safe.`);
     if (!(await exists(path.join(backupDir, id)))) return id;
   }
-  throw new BackupError("Could not allocate a backup id. Retry in a new millisecond.");
+  throw new BackupError("Could not allocate a backup id.");
 }
 
 async function clearPartials(backupDir: string): Promise<void> {
@@ -305,13 +307,22 @@ export async function backupDataStore(opts: {
   readonly keep?: number;
   readonly now?: Date;
   readonly dryRun?: boolean;
+  /** How long to wait for another backup to finish. Default 30s. */
+  readonly lockWaitMs?: number;
 }): Promise<BackupPlan> {
   const keep = opts.keep ?? BACKUP_KEEP_DEFAULT;
   if (!Number.isInteger(keep) || keep < 1) throw new BackupError(`Backup keep count must be a positive integer (got ${String(opts.keep)}).`);
-  const plan = await planBackup(opts);
-  if (opts.dryRun) return plan;
+  if (opts.dryRun) return planBackup(opts);
   await mkdir(opts.backupDir, { recursive: true, mode: 0o700 });
   await chmod(opts.backupDir, 0o700);
+  return withStoreLock(opts.backupDir, opts.lockWaitMs ?? 30_000, async () => publishBackup(opts, keep));
+}
+
+async function publishBackup(opts: {
+  readonly roots: readonly StoreRoot[];
+  readonly backupDir: string;
+  readonly now?: Date;
+}, keep: number): Promise<BackupPlan> {
   await clearPartials(opts.backupDir);
   const id = await uniqueId(opts.backupDir, opts.now ?? new Date());
   const stage = path.join(opts.backupDir, `.partial-${id}`);
@@ -382,10 +393,14 @@ export async function restoreDataStore(opts: {
   readonly roots: readonly StoreRoot[];
   readonly backupDir: string;
   readonly id?: string;
+  readonly lockWaitMs?: number;
 }): Promise<{ id: string; files: number }> {
+  return withStoreLock(opts.backupDir, opts.lockWaitMs ?? 30_000, async () => {
   const plan = await planRestore(opts);
   const dir = path.join(opts.backupDir, plan.id);
   const manifest = await readManifest(dir);
+  const dests = manifest.roots.map((name) => opts.roots.find((r) => r.name === name)!.dir);
+  await assertDirsIdle(dests);
   const staged: { stage: string; dest: string }[] = [];
   try {
     for (const name of manifest.roots) {
@@ -403,6 +418,7 @@ export async function restoreDataStore(opts: {
       await lockDown(stage);
       staged.push({ stage, dest: root.dir });
     }
+    await assertDirsIdle(dests);
     const prevs: string[] = [];
     for (const item of staged) {
       const prev = await swapDir(item.stage, item.dest);
@@ -414,6 +430,25 @@ export async function restoreDataStore(opts: {
     throw err;
   }
   return { id: plan.id, files: plan.files.length };
+  });
+}
+
+async function assertDirsIdle(dirs: readonly string[]): Promise<void> {
+  for (const dir of dirs) {
+    const pid = await liveServerPid(dir);
+    if (pid !== null) {
+      throw new BackupError(`Refusing to restore ${dir}: server pid ${pid} is still running. Stop it, then run restore again.`);
+    }
+  }
+}
+
+async function withStoreLock<T>(backupDir: string, waitMs: number, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await withBackupLock(backupDir, waitMs, fn);
+  } catch (err) {
+    if (err instanceof LiveLockError) throw new BackupError(err.message);
+    throw err;
+  }
 }
 
 /** Returns the path of the previous directory when one was moved aside. */

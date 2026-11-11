@@ -1,5 +1,5 @@
 // M3-05: backup, wipe, restore — ledgers, world tick, and player isolation come back unchanged.
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,6 +20,11 @@ import {
   resolveStoreRoots,
   restoreDataStore,
 } from "@/server/ops/dataBackup";
+import {
+  BACKUP_LOCK_NAME,
+  holdServerLock,
+  SERVER_LOCK_NAME,
+} from "@/server/ops/serverLock";
 
 const run = promisify(execFile);
 const tsx = path.join(process.cwd(), "node_modules/.bin/tsx");
@@ -105,6 +110,8 @@ describe("M3-05 data store backup and restore", () => {
     const authDir = path.join(root, "auth-volume");
     const backupDir = path.join(root, "backups");
     const env: NodeJS.ProcessEnv = { ...process.env, QUAY_DATA_DIR: dataDir, QUAY_AUTH_DATA_DIR: authDir };
+    delete env.QUAY_STORM_DATA_DIR;
+    delete env.QUAY_TELEMETRY_DIR;
     const roots = resolveStoreRoots(env, root);
     expect(roots.map((r) => r.name)).toEqual(["data", "auth"]);
     const storeFile = path.join(authDir, "store.json");
@@ -203,4 +210,80 @@ describe("M3-05 data store backup and restore", () => {
     expect((await next.getPlayerPrivate(b2!, b2!.account.accountId)).openOrders).toEqual({ ord_b1: B_ORDER });
     await expect(next.getPlayerPrivate(a2!, b2!.account.accountId)).rejects.toMatchObject({ code: "FORBIDDEN" });
   }, 30_000);
+
+  it("refuses restore while a server holds the directory and ignores a stale lock", async () => {
+    const root = await temp();
+    const dataDir = path.join(root, "data");
+    const backupDir = path.join(root, "backups");
+    const file = path.join(dataDir, "auth", "store.json");
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, "{\"v\":1}\n");
+    const roots = [{ name: "data", dir: dataDir }];
+    await backupDataStore({ roots, backupDir, keep: 3 });
+    await writeFile(file, "{\"v\":2}\n");
+    await writeFile(path.join(dataDir, SERVER_LOCK_NAME), `${JSON.stringify({ v: 1, pid: 2147483646, starttime: "1", cwd: "" })}\n`);
+    await restoreDataStore({ roots, backupDir });
+    expect(await readFile(file, "utf8")).toBe("{\"v\":1}\n");
+
+    await writeFile(file, "{\"v\":3}\n");
+    const holder = path.join(root, "hold.mts");
+    await writeFile(holder, [
+      'import { holdServerLock } from "@/server/ops/serverLock";',
+      "const dir = process.env.QUAY_HOLD_DIR;",
+      "if (!dir) throw new Error(\"missing QUAY_HOLD_DIR\");",
+      "await holdServerLock(dir);",
+      "process.stdout.write(\"holding\\n\");",
+      "await new Promise(() => {});",
+    ].join("\n"));
+    const child = spawn(tsx, ["--tsconfig", tsconfig, holder], {
+      cwd: process.cwd(),
+      detached: true,
+      env: { ...process.env, QUAY_HOLD_DIR: dataDir },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const started = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("lock holder did not start")), 20_000);
+      child.stdout?.on("data", (buf: Buffer) => {
+        if (buf.toString().includes("holding")) { clearTimeout(timer); resolve(); }
+      });
+      child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`holder exited ${code}`)); });
+    });
+    const stopHolder = () => {
+      if (child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } }
+      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    };
+    try {
+      await started;
+      await expect(restoreDataStore({ roots, backupDir })).rejects.toThrow(/still running/);
+      expect(await readFile(file, "utf8")).toBe("{\"v\":3}\n");
+    } finally {
+      stopHolder();
+      await new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) resolve(null);
+        else child.once("exit", () => resolve(null));
+      });
+    }
+    await restoreDataStore({ roots, backupDir });
+    expect(await readFile(file, "utf8")).toBe("{\"v\":1}\n");
+  }, 30_000);
+
+  it("lets two backups publish distinct snapshots, including over a stale backup lock", async () => {
+    const root = await temp();
+    const dataDir = path.join(root, "data");
+    const backupDir = path.join(root, "backups");
+    await mkdir(path.join(dataDir, "auth"), { recursive: true });
+    await writeFile(path.join(dataDir, "auth", "store.json"), "one\n");
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(path.join(backupDir, BACKUP_LOCK_NAME), `${JSON.stringify({ v: 1, pid: 2147483646, starttime: "9", cwd: "" })}\n`);
+    const roots = [{ name: "data", dir: dataDir }];
+    const [a, b] = await Promise.all([
+      backupDataStore({ roots, backupDir, keep: 5 }),
+      backupDataStore({ roots, backupDir, keep: 5 }),
+    ]);
+    expect(a.id).not.toBe(b.id);
+    const ids = await listBackupIds(backupDir);
+    expect(ids).toEqual(expect.arrayContaining([a.id, b.id]));
+    expect(await readFile(path.join(a.dir, "data", "auth", "store.json"), "utf8")).toBe("one\n");
+    expect(await readFile(path.join(b.dir, "data", "auth", "store.json"), "utf8")).toBe("one\n");
+  });
 });

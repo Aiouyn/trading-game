@@ -23,7 +23,7 @@ npx tsx scripts/ops/backup-data.ts --dry-run
 npx tsx scripts/ops/backup-data.ts
 ```
 
-A second run writes another snapshot. It does not modify the live store. On a host volume:
+A second run writes another snapshot. Overlapping backups take `.quay-backup.lock` and publish under different ids (`timestamp-pid-random`), so one run cannot delete the other's staging directory. A backup does not modify the live store. On a host volume:
 
 ```sh
 export QUAY_DATA_DIR=/var/avalon/data
@@ -45,7 +45,7 @@ files: 3
 
 ## Restore
 
-Stop the server. Preview, then replace:
+Stop the server first. A running server keeps cash and orders in memory and writes them back over a restored disk. On startup it claims `.quay-server.lock` in each store root (pid and `/proc` start time). Restore refuses while that process is still alive and names the pid. A lock whose process has exited, or whose start time no longer matches, is stale and does not block restore. `--dry-run` still does not write; a live server is reported when you pass `--yes`.
 
 ```sh
 npx tsx scripts/ops/restore-data.ts --dry-run
