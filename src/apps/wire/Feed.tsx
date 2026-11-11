@@ -13,6 +13,7 @@ import { FilterChips, filterItems } from "./FilterChips";
 import { ItemDetail } from "./ItemDetail";
 import { fill, type WireFilter, type WireStrings } from "./strings";
 import { storyStrings } from "./storyStrings";
+import { feedHelp } from "./feedHelp";
 import { WireItemRow } from "./WireItemRow";
 import { WireSkeletonList } from "./Skeleton";
 
@@ -141,6 +142,14 @@ export function Feed({ view, t, host = NO_HOST, select, demo = false }: { view: 
     savedTop.current = 0;
     setScrolled(false);
   };
+  const resetFilter = () => {
+    setFilter("all");
+    toTop();
+    const chip = root.current?.querySelector<HTMLButtonElement>('[data-filter="all"]');
+    chip?.focus({ preventScroll: true });
+    chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+  const help = feedHelp(t.locale);
   const onOpen = (id: string) => {
     const it = visible.find((i) => i.id === id);
     if (it) setOpen({ id, last: it });
@@ -164,7 +173,15 @@ export function Feed({ view, t, host = NO_HOST, select, demo = false }: { view: 
         {view.state === "loading" ? (
           <WireSkeletonList label={t.loading} />
         ) : rows.length === 0 ? (
-          <p className="wire-state" data-testid="wire-empty">{t.empty}</p>
+          <div className="wire-empty-panel">
+            <p className="wire-state" data-testid="wire-empty">{t.empty}</p>
+            {(filter !== "all" || !demo) && (
+              <div className="wire-empty-help" data-testid="wire-empty-help">
+                <p>{filter !== "all" ? help.filtered : help.waiting}</p>
+                {filter !== "all" && <Button size="sm" className="wire-empty-reset" data-testid="wire-show-all" onClick={resetFilter}>{help.reset}</Button>}
+              </div>
+            )}
+          </div>
         ) : (
           <ul className="wire-list" data-testid="wire-list" tabIndex={0} aria-label={t.listLabel} ref={list}
             onScroll={(e) => { if (!replaced) savedTop.current = e.currentTarget.scrollTop; setScrolled(e.currentTarget.scrollTop > 0); }}>
