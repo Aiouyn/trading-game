@@ -378,7 +378,7 @@ test("BR-4-14 phone: review in a bottom Sheet with focus trapped, Esc returns to
     expect(await br(page).getByTestId(id).evaluate((e) => e.scrollWidth <= e.clientWidth), id).toBe(true);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await br(page).getByTestId("br-review").click();
+  await review(page);
   const sheet = page.getByTestId("br-sheet");
   await expect(sheet).toBeVisible();
   // Measure after the sheet-up entrance (--dur-base) settles.
