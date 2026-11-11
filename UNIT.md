@@ -35,3 +35,10 @@ Existing branches checked: eng/m1-01-auth-session owns auth/session correctness.
 ## Addendum: layout-agnostic phone trade step (Gatekeeper, Card 2 + Card 6 merge)
 Card 6 (ui/broker-trade-sheet) removes the inline phone ticket: on phone, Quantity/Review/Place live in a modal bottom sheet opened by the Trade button, and the sheet must be closed before the shell chrome (account chip) is reachable. The first-fill step in tests/e2e/settings/account-first-step.spec.ts filled the inline field, so the 2+6 merge failed on phone (evidence ui-broker-fill-feedback/stack-clean-e2e-attempt1-b13b054f and stack-*-474a01c4).
 Change only the spec's trade step: if the Broker shows the Trade button, open it, use the sheet for Quantity/Review/Place/receipt, then close the sheet; otherwise use the inline ticket exactly as before. Every existing assertion (Review enabled, Place enabled, "Bought 1 HALC" receipt, goal stage done, logout, second account) stays, scoped to wherever the ticket is. No product code. Must pass on this branch's own base and on scratch 2+6 and full 7-card merges.
+
+## Addendum 2 (Gatekeeper, after b11da41c qualified): deterministic ticket path
+b11da41c chose the path from `br-trade` presence at one instant, which can race the Broker render and would silently take the inline path if the sheet ever failed to mount. Now:
+- Wait for the Broker ready signal (`data-state="live"`, asset selected) before anything ticket-related.
+- Decide the path from the project and the build under test, not the DOM: phone AND the build ships the phone Trade sheet (`src/apps/broker/PhoneTradeSheet.tsx`, Card 6) => the sheet path, and the Trade button MUST be visible; otherwise (desktop, or a build without Card 6 such as this branch's own base) => the inline path, and the Trade button must be absent.
+- Assert the path that ran: sheet path => Trade visible, no inline Quantity in the Broker body, sheet dialog open then closed; inline path => no Trade button, Quantity inline. The path is recorded as a test annotation (`ticket-path`).
+Passes on this branch's own base (phone inline), the 2+6 merge and the 8-card stack (phone sheet); no assertion removed.
