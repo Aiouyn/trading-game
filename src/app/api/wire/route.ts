@@ -17,19 +17,18 @@ function wireErrorResponse(err: unknown): Response {
 
 /**
  * Port Avalon Wire stories (M1-09 + player statements): the stories the shared clock has published, merged with
- * durable player posts from the auth store. GET is public. It may persist newly due statement verdicts
- * (no cash or quote change). A clock restart is a new `epoch` for catalog stories; player posts rematerialize
- * from the auth store.
+ * durable player posts from the auth store. GET is public and a pure read: it never persists verdicts.
+ * Due statements are resolved on the clock (`start` catch-up and each `step`). GET may wait for an
+ * in-flight engine persist, then reads. A clock restart is a new `epoch` for catalog stories; player
+ * posts rematerialize from the auth store.
  */
 export async function GET(): Promise<Response> {
   assertLocalSingleProcessAuth();
   getBroker();
   const market = getLiveMarket();
   const snap = market.wire();
-  const auth = getAuthService();
-  const marks = marksFromTicker(market.snapshot().quotes.rows);
-  await auth.resolveDueWireStatements({ tick: snap.tick, marks });
-  const posts = await auth.listPublicWirePosts();
+  await market.whenWireStatementsSettled();
+  const posts = await getAuthService().listPublicWirePosts();
   return jsonResponse({ ...snap, items: mergePlayerStatements(snap.items, posts) });
 }
 

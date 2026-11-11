@@ -67,6 +67,8 @@ export class LiveMarket {
   private readonly persistStorms: boolean;
   /** Storm ids whose stock shocks were already applied onto this epoch's marks (restart idempotency). */
   private readonly stockAppliedThisEpoch = new Set<string>();
+  /** In-flight engine persist of due player-statement verdicts. GET waits; it does not start this. */
+  private statementsSettled: Promise<void> = Promise.resolve();
 
   constructor(opts: LiveMarketOptions = {}) {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
@@ -128,6 +130,8 @@ export class LiveMarket {
   /** Idempotent. A second start does not add another interval. */
   start(): void {
     if (this.timer) return;
+    // Catch up at the resumed tick so a due verdict does not wait for lastTick+1 after a restart.
+    void this.catchUpWireStatements();
     this.timer = setInterval(() => { this.step(); }, this.tickMs);
   }
 
@@ -150,14 +154,29 @@ export class LiveMarket {
     this.publishCompanyDenials(evs);
     this.applyRumorResolutions(evs.filter((e) => e.kind !== "denied"));
     this.saveStormWorld();
-    const auth = peekAuthService();
-    if (auth) {
-      void auth.resolveDueWireStatements({
-        tick: this.feed.tick,
-        marks: marksFromTicker(this.snapshot().quotes.rows),
-      }).catch(() => { /* catch-up; GET /api/wire also resolves */ });
-    }
+    void this.catchUpWireStatements();
     for (const fn of this.stepListeners) fn();
+  }
+
+  /**
+   * Authoritative path for due player-statement verdicts (start catch-up and each cadence step).
+   * Idempotent: frozen verdicts do not persist. A missing auth service is a no-op until the next call.
+   */
+  catchUpWireStatements(): Promise<void> {
+    const auth = peekAuthService();
+    const tick = this.feed.tick;
+    const marks = marksFromTicker(this.snapshot().quotes.rows);
+    const run = this.statementsSettled.then(async () => {
+      if (!auth) return;
+      await auth.resolveDueWireStatements({ tick, marks });
+    });
+    this.statementsSettled = run.then(() => undefined, () => { /* persist failure must not stop the clock */ });
+    return this.statementsSettled;
+  }
+
+  /** Reads wait for any in-flight engine persist. Does not itself resolve or write. */
+  whenWireStatementsSettled(): Promise<void> {
+    return this.statementsSettled;
   }
 
   /** A listed coin's 16 news item (src/server/market/coinNews.ts) on the Wire, naming the coin; it cites its committed
