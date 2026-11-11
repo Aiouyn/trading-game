@@ -1,92 +1,74 @@
-# Unit: player Wire statements (`soc.wire.post`)
+# Unit: statement resolution and broker first-load headroom
 
-**Branch:** `eng/player-statements`  
-**Base:** `19dd11861f102e5f812850c185f34dbc13a55cdf` (`eng/analyst-notes`)  
-**Worktree:** `/workspace/avalon/player-statements`  
-**When written:** 2026-11-11 20:11:26 Europe/Paris — before product-code edits.  
-**Owner:** continue-nonstop after 35803f3f and 19dd1186 were sent to Gatekeeper. First player-facing claim verb: a signed-in player posts a short statement about an asset on the Wire. If Gatekeeper findings on 19dd1186, 35803f3f, or earlier claims heads arrive through the parent, fix those first (on their own branches).
+**Branch:** `eng/statement-resolve`  
+**Base:** `a363065908fb136dbeabe473a3abf3746a8b9a68` (`eng/player-statements`, fast-forward from 9202e885; no unique pre-rebase commits, so no UNIT-DELTA)  
+**Worktree:** `/workspace/avalon/statement-resolve`  
+**When written:** 2026-11-11 21:28:36 Europe/Paris — before product-code edits.  
+**Owner:** resume after the three player-statement / outlet / history deltas were sent to Gatekeeper. If Gatekeeper findings on 6cf908be, 50293cba, or a3630659 are forwarded through the parent, those come first. This unit does two things that were deferred from `soc.wire.post`: first-load budget headroom, and 5-game-day statement resolution recovered from 15:625 / 16:573.
+
+The post **charge path is unchanged**: same `withLock`, same `$500` `cashCents` decrement, same 3/game-day cap, same `(accountId, key)` idempotency, same one persist, no `applyShock`. Resolution never charges, refunds, or moves marks.
 
 ## Player outcome
 
-A signed-in player can post a short public statement about a listed asset from the Wire panel, on desktop and phone. The post costs **$500** game cash, taken atomically (insufficient cash is rejected, no row). A player may post at most **three times per game day**. The statement appears on the Wire as a **STATEMENT** that names the player's handle. It has **no direct price effect**. Guests cannot post. A second account can see the public statement and cannot see the first account's cash or other private ledger.
+**(1) Budget.** `/broker` first-load is **214.7 / 215 KB** gz. The signed-in composer is split out of the Wire chunk so a guest first-load does not download it. The measured first-load must drop, and stay ≤ 215 KB. Evidence records before/after bytes.
+
+**(2) Resolution.** A player statement about a tagged listed company is checked against engine marks after **5 game days** (`PARAM.statement_resolve_game_days = 5`, 15:625 §3.10.4). A factual up/down claim becomes **TRUE** or **FALSE**; a statement with no checkable claim is **OPINION** and never becomes TRUE/FALSE (15: “OPINION (no checkable claim) never resolves”). The row (and the detail) show a verdict badge. Each public handle has a public track record of `hits / resolved` (TRUE counts as a hit; OPINION is excluded), never the `acc_…` account id. Quotes and cash do not move when a statement resolves (16:573: statements are never `impactHint`ed; 05 applies no price effect). 05 surveillance and 13 manipulation on FALSE are **out**.
 
 ## Spec cites
 
-- **15:625 / 15:766** — `soc.wire.post` `{ text, assetTags, evidenceRefs }`: ≤ 3 per game day; fee; text filter → STATEMENT.
-- **15:625 §3.10.4** — ≤ 280 characters; fee `PARAM.wire_post_fee_real = $500` (23:954); sink `WIRE_POST_FEE` (15:747); max 3 per game day per character.
-- **16:573 §3.6.10** — statements are never `impactHint`ed; **05 applies no price effect for statements** (DEFAULT; prevents talk-up schemes). This slice follows that default.
-- **15:307–308** — STATEMENT is already a WireKind. Do not add a kind.
-- **15:828 / 16:573** — player statements are the player-facing path (NPC analysts already use STATEMENT as a note). Company denials and T1 notes stay as they are.
+- **15:625 §3.10.4** — factual claims about a tagged listed company are checked by 16 after `PARAM.statement_resolve_game_days = 5`; TRUE raises credibility (track record here); FALSE would go to 05/13 (not this unit); OPINION never resolves.
+- **15:815** — `soc.statement.resolved` `{ statementId, verdict }` is PUBLIC. This unit persists the verdict on the public Wire item; a separate event bus is not required.
+- **16:573 §3.6.10** — no `impactHint`, no price effect for statements. A false listed-company fact would trigger 13 (out).
+- **23:951** — `statement_resolve_game_days = 5`.
+- **17 / 19 Rule 3.17.3** — `/broker` first-load JS budget 215 KB gz (lazy plot chunk excluded, cap 60 KB).
 
-## Design
+## (1) Budget contract
 
-### Intent and API
+- Today `Feed` statically imports `Composer`, so the composer rides in the lazy Wire chunk and is counted on `/broker` first-load (Wire is opened with the shell; the plot chunk is the only exclusion).
+- Load `Composer` with `React.lazy` / a dynamic import, only when `canPost` is set. Guests and `?feed=` fixtures must not request that chunk.
+- Measure with `node tools/ci/route-budget.mjs /broker` on a free `BUDGET_PORT` (never :3199 or :3102). Record baseline (this base, before the product commit) and the exact head. The head must be strictly below the baseline and ≤ 215 KB.
 
-`POST /api/wire` is the first playable `soc.wire.post`. GET `/api/wire` stays a public read (no account, no write). POST requires a signed-in session (guests 401). Body: `{ idempotencyKey, text, assetTags }` only (no `evidenceRefs` this slice). At least one and at most three asset tags; each must be a listed catalog `assetId`.
+## (2) Resolution contract
 
-Idempotency: same key + same fingerprint returns the first decision and does not charge or append a second row (existing broker key rules: 8–64 `[A-Za-z0-9_-]`, conflict 409 when the key was used for a different body).
+**Window.** Due at `post.tick + 5 * TICKS_PER_DAY` (720 × 5 = 3600 ticks). Not before.
 
-### Fee, cap, cash
+**Checkable claim (V1 lexicon).** After NFKC and case-fold, a closed word-boundary lexicon decides direction:
 
-Fee is **50_000 cents** ($500). Debit **spendable** cash (`cashCents - reservedCashCents`) so working BUY reserves are not stolen. If spendable < 50_000, reject, write nothing. Starting cash remains $10,000 (`START_CASH_CENTS`), so a fresh account can post. The reason code is `WIRE_POST_FEE` (SINK) on any receipt the ledger already has a place for; do not invent a second money path.
+- UP: `up`, `rise`, `rises`, `rising`, `rose`, `gain`, `gains`, `rally`, `rallies`, `bull`, `bullish`, `higher`, `upside`, `moon`, `moons`, `pump`, `climb`, `climbs`, `hausse`, `haussier`, `monte`, `monter`, `progressera`
+- DOWN: `down`, `fall`, `falls`, `falling`, `fell`, `drop`, `drops`, `dropped`, `decline`, `sink`, `sell`, `bear`, `bearish`, `lower`, `downside`, `dump`, `baisse`, `baissier`, `chute`, `chuter`
 
-Cap: 3 posts per **game day** per account, using `dayOfTick` of the live market tick. A fourth post that day is rejected; cash unchanged. A new game day resets the count. Count published posts by this account for that day (idempotent retries of an accepted post do not consume an extra slot).
+If both sides hit, or neither hits, the claim is not checkable → **OPINION**, assigned at post (no 5-day wait). V1 does not interpret general negation.
 
-Atomicity: the cash debit, the public Wire row, the cap count, and the idempotency record are committed in **one** `AuthService` lock and **one** store save (extend the auth snapshot with a public `wirePosts` array). A failed save rolls back all of it. Do not debit in the auth store and append the row somewhere else.
+**Engine fact.** At post, snapshot each tagged asset's ticker `last` (decimal string). At due tick, compare the live `last` to that snapshot:
 
-### Text: length and sanitizing
+- UP is TRUE iff every tagged asset's last is strictly above the snapshot; else FALSE (flat or down).
+- DOWN is TRUE iff every tagged asset's last is strictly below the snapshot; else FALSE.
+- A new post always stores the snapshot. A legacy row without a snapshot cannot be fact-checked and is OPINION (not a guessed FALSE).
+- Once TRUE/FALSE/OPINION is stored, it is frozen (later marks do not flip it).
 
-- Trim, NFC, strip C0/C1 control characters (keep newline as space).
-- Length ≤ **280** Unicode code points after sanitize; empty text is rejected.
-- Personal-data patterns (emails, phone numbers) are **rejected** (21's chat rule, applied as the wire text filter).
-- Profanity and slurs from the existing Launchpad abuse floor (`ABUSE_TERMS` in `moderate.ts`) are **masked** in the stored and displayed text (21), not stored raw.
-- Server is the authority; the client may preview the limit but cannot bypass it.
+**Who runs it.** `AuthService` resolves due rows under the same `withLock` as a post, with no cash or ledger write. `GET /api/wire` catch-up-resolves, and `LiveMarket.step` does the same so a verdict does not wait on a fetch. Persist only when a verdict (or a missing snapshot/claimDir) changes.
 
-### Wire row (public)
+**Public shape.** `playerPostToWireItem` sets `slots.verdict` (`unresolved` / `true` / `false` / `opinion`) and never `authorId` or `acc_…`. Badge: `data-testid=wire-verdict`, EN “Open” / “True” / “False” / “Opinion”, FR “En cours” / “Vrai” / “Faux” / “Opinion”, on the row and in the detail (same chip pattern as Player / Earlier). When the public handle has at least one TRUE/FALSE, every of that handle's player items carries `sourceRecord: { hits, resolved }` (hits = TRUE count; resolved = TRUE+FALSE; OPINION excluded). Keyed only by `publicHandleId`.
 
-Id `w-p-${id}` (no collision with `w-${tick}`, `w-h-*`, `w-r-*`, `w-d-*`, `w-a-*`). Kind **STATEMENT**. Headline key `wire.statement.player` (EN/FR), slots include `handle`, `text` (sanitized), `asset` / company, `authorId`. Entities: the tagged asset(s) and an actor for the handle. `causeKey` `wire.cause.player-statement`. **No `effects`, no `isTrue`, no `sourceRecord` / `sourceBand`** (no resolution yet). `publishTick` is the live market tick. `retainStories` / `STORY_KEEP` apply like other rows; pending-rumor holds are unchanged (these ids are not rumor ids).
-
-GET `/api/wire` **merges** durable player posts into the clock's stories (sorted by tick then id). Player posts are **not** clock catalog stories and do not go through `publishStory` / `applyShock` / `openRumor` / the rumor book. Mid-run LiveMarket restart still shows them, because they live in the auth store, not in the clock epoch. A second process is out of scope (same single-process auth limit as today).
-
-### No price effect (16:573)
-
-Do not call `applyShock`, `applyLogMove`, `openRumor`, or write a rumor claim. Marks, M1-05 golden, M1-09 live catalog schedule, and digest4000 versus 19dd1186 stay unchanged. Do not claim digest identity if an unrelated file is touched; this unit must not move marks.
-
-### Persistence, isolation, restart
-
-- Public: the STATEMENT row (handle, text, assets, tick). Any signed-in or guest GET of the server Wire may see it once it is on the merged feed (guest fixtures remain the mock feed, as today).
-- Private: cash, reserved cash, positions, orders, fills, idempotency records, remaining daily cap. `GET /api/broker/me` is the caller's ledger only. A second account's `me` does not include the first account's cash or keys. The Wire item must not carry cash or other ledger fields.
-- Restart: FileAuthStore rematerializes `wirePosts` and cash; GET `/api/wire` still lists the posts; the cap still counts them. Idempotent retry after restart still returns the first decision.
-
-### Composer (minimal)
-
-Signed-in only, in the existing Wire panel (`Feed` / `App.tsx`), both desktop and phone. Follow existing Wire CSS, chips, 28/44 hit targets, focus ring, EN+FR strings. A compact control (a "Post a statement" disclosure or equivalent) so the **default** signed-in chrome stays close to today: M1-09 "the story and its effect fit" on a 390 / 520 window, and WIR-A `?empty=1` / guest fixtures, must not grow a permanent composer stack that breaks those tests. Opening the disclosure lets the player pick 1–3 listed assets, type ≤ 280, see the $500 fee and remaining posts today, and submit. The UI builder polishes later. No new filter chip (Statements already exists). No `channels.ts` / `schema.ts` edits unless a parse rejects a legal STATEMENT (it should not).
+**No money.** Resolving does not change `cashCents`, reserved cash, quotes, the digest, or call `applyShock`.
 
 ## Acceptance
 
-1. Signed-in POST with valid text, one listed asset, spendable cash ≥ $500, under the daily cap: 200, STATEMENT `w-p-*` on GET `/api/wire` with the handle and sanitized text, cash down by exactly 50_000 cents, `WIRE_POST_FEE`. Quotes unchanged vs a no-post reference at the same tick.
-2. Insufficient spendable cash: rejected, no row, cash unchanged. A 4th post in the same game day: rejected, no 4th row, cash unchanged. Empty, too long, PII, or bad/missing asset tags: rejected, no charge. Guest POST: 401, no write.
-3. Same `idempotencyKey` + same body: first decision replayed, no second charge or row. Same key + different body: 409.
-4. After a process restart on the same FileAuthStore, the row and the cash debit are still there; a replay of the same key does not charge again.
-5. Account B sees A's public STATEMENT and does not see A's cash or private ledger.
-6. Composer works on desktop and phone for a signed-in player; guests do not get it. Repo checks (lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, npm test) on the exact head. Affected e2e once on a clean temp tree, fresh `.data`, including M2-01, M1-09, WIR-9, WIR-A, **and a new desktop+phone spec** that posts, sees the statement, checks cash dropped by 500, hits the cap, refreshes and sees it persist, and confirms a second account cannot see the first's private state. Delete the temp tree. Preview :3199 stays 200; never bind :3199 or :3102. Pre-push stray-init check (`pf@test` `init`, `tracked.txt`); normal push, no force, no PR.
-
-## Follow-ups (out unless a tiny hook is required for coherence)
-
-- 5-game-day TRUE/FALSE/OPINION resolution (`PARAM.statement_resolve_game_days`).
-- 05 belief / surveillance / 13 manipulation on false factual claims (16:573 already forbids a direct price effect in this slice).
-- Voices, `reachWeight`, followers-only distribution, evidence refs (up to 5).
-- 15:828-adjacent NPC outlet mastheads; player `soc.wire.mute`.
-- Full 21 moderator queue (`HELD_FOR_REVIEW`).
+1. Guest `/broker` first-load gz is strictly below this base's 214.7 KB and ≤ 215 KB; the composer is a separate chunk not requested on that guest first-load. Proof: before/after budget logs.
+2. Opinion text (no lexicon hit, or both sides) is OPINION on the public item immediately; cash and quotes unchanged.
+3. An UP (or DOWN) claim stays `unresolved` at `dueTick - 1` even if marks already moved; at `dueTick`, UP + every tag last strictly up → TRUE; flat or down → FALSE. Frozen after that.
+4. FileAuthStore restart keeps the verdict, the snapshot, and cash; a second resolve does not rewrite a frozen verdict or charge.
+5. Public GET JSON of player items has no `acc_…` / `authorId`. Track record is by `publicId` only; account B sees A's record and never A's cash. Two handles do not share a record.
+6. Repo checks (lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, npm test) on the exact head. If `launchpad-calibration` times out under the 160-worker official run, rerun that file isolated and disclose it. Affected e2e once on a clean temp tree, fresh `.data`: M2-01, M1-09, WIR-9, WIR-A, M1-10 (desktop + phone). Delete the temp tree. Preview :3199 stays 200; never bind :3199 or :3102. Pre-push stray-init check; normal push, no force, no PR. Evidence-only GK-HANDOFF.
 
 ## Not in this unit
 
-Paid analyst tiers, company-denial changes, POLICY/RECOVERY, 07/FX, meme-failure farm. No 16:564 due-time claim. No overall GO.
+05 belief / surveillance / 13 on FALSE. Voices, `reachWeight`, followers, evidence refs. 16:557 paid-analyst hire. 18:204 lookback scoring. POLICY/RECOVERY, 07/FX, meme-failure farm. No overall GO.
 
 ## Checklist
 
 - [ ] UNIT.md written and committed before product-code edits.
-- [ ] Post API, atomic fee, cap, sanitize, merge onto GET `/api/wire`, tests, proof (no product `.data`).
-- [ ] Minimal signed-in composer, EN+FR, desktop and phone.
-- [ ] Checks on the exact head; affected e2e in a temp tree including the new spec; delete the temp tree.
+- [ ] Baseline `/broker` budget recorded; composer lazy-loaded; after budget recorded and lower.
+- [ ] Classifier, 5-day resolve, badge, public-handle track record, no money; tests (including an extension of the player-statements probe or a sibling).
+- [ ] Checks on the exact head; affected e2e in a temp tree; delete the temp tree.
 - [ ] Pre-push stray-init check; normal push; GK-HANDOFF under evidence only.
