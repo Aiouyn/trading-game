@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { BankingCoreEngine, financialCells } from "../../src/server/banking-core/engine";
+import { BankingCoreEngine } from "../../src/server/banking-core/engine";
+import { independent, auditSummary as summary, type AuditGenesis } from "./banking-core-audit";
 import { coreWire } from "../../src/server/banking-core/boundary";
 import type { CoreState } from "../../src/server/banking-core/model";
 import { FileBankingCoreStore } from "../../src/server/banking-core/store";
@@ -11,7 +12,7 @@ import * as F from "../../tests/unit/banking-core/fixture";
 
 type Fx = F.CoreFixture;
 type Opts = { banking?: boolean; credit?: string[]; liquidity?: boolean; ccp?: { ids: string[]; services: string[] } | null; creditFacts?: (bankId: string, day: number) => unknown };
-const Z = BigInt(0), M = BigInt(1000000), sum = (v: Iterable<bigint>) => [...v].reduce((a, b) => a + b, Z);
+const Z = BigInt(0), sum = (v: Iterable<bigint>) => [...v].reduce((a, b) => a + b, Z);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex"), wire = (v: unknown) => { try { return JSON.stringify(coreWire(v)); } catch (e) { const seen = new Map<object, string>(), walk = (x: unknown, p: string) => { if (x === undefined) console.error("UNDEFINED", p); if (typeof x !== "object" || x === null) return; if (seen.has(x)) { console.error("SHARED", p, seen.get(x)); return; } seen.set(x, p); for (const [k, y] of Object.entries(x)) walk(y, p + "." + k); }; walk(v, "$"); throw e; } };
 const micro = (n: number) => BigInt(F.usd(n));
 
@@ -28,58 +29,12 @@ function build(g: Fx, target: number, o: Opts, edit: (f: F.Frame) => void = () =
 }
 const creditAt = (f: F.Frame, bankId: string, commands: unknown[], facts: unknown) => { const row = f.credit.find(c => c.bankId === bankId); if (row) (row.frame as { commands: unknown[] }).commands.push(...commands); else f.credit.push({ bankId, frame: F.creditFrame(f.tick, commands, facts) }); };
 
-/** Independent cell reconstruction: genesis cells plus every audited phase change must equal the final engine cells; base money never moves; each bank's sheet balances after every audited tick. */
-function independent(g: Fx, s: CoreState, exact: string[] = []) {
-    const cells = new Map<string, string>(Object.entries(financialCells(s)).map(([k]) => [k, "~"]));
-    const seed = new Map<string, string>();
-    for (const b of g.ledger.banks) seed.set("reserve:" + JSON.stringify(b.id), BigInt(b.reserves).toString());
-    for (const a of g.ledger.accounts) seed.set("account:" + JSON.stringify([a.id, a.bankId]), BigInt(a.cash).toString());
-    for (const a of g.ledger.assets) { seed.set("mark:" + JSON.stringify(a.id), String(a.markPpm)); for (const h of a.holdings) seed.set("holding:" + JSON.stringify([a.id, h.bankId, h.accountId]), BigInt(h.quantity).toString()); }
-    for (const n of g.ledger.notes) seed.set("note:" + JSON.stringify([n.id, n.bankId, n.creditor, n.instrument]), BigInt(n.amount).toString());
-    for (const d of g.ledger.dgf) seed.set("dgf:" + JSON.stringify(d.bloc), BigInt(d.cash).toString());
-    for (const k of ["mmf:null", "authority:null", "sinks:null"]) seed.set(k, "0");
-    cells.clear();
-    for (const [k, v] of seed) cells.set(k, v);
-    const first = new Map<string, boolean>();
-    const restricted = (bankId: string) => sum(s.cashOwnership.filter(r => r.bankId === bankId).map(r => BigInt(cells.get("account:" + JSON.stringify([r.accountId, null])) ?? "0") * BigInt(r.weightPpm) / M));
-    const base = () => sum([...cells].filter(([k]) => k.startsWith("reserve:") || k.startsWith("dgf:") || k === "mmf:null" || k === "authority:null" || (k.startsWith("account:") && JSON.parse(k.slice(8))[1] === null)).map(([, v]) => BigInt(v)));
-    const opening = base();
-    const sheet = (bankId: string) => {
-        const deposits = sum([...cells].filter(([k]) => k.startsWith("account:") && JSON.parse(k.slice(8))[1] === bankId).map(([, v]) => BigInt(v)));
-        let loans = Z;
-        for (const [k, v] of cells) if (k.startsWith("holding:")) { const [id, b] = JSON.parse(k.slice(8)); if (b === bankId) { const n = BigInt(v) * BigInt(cells.get("mark:" + JSON.stringify(id))!), q = n / M, r = n % M; loans += q + (r * BigInt(2) > M || (r * BigInt(2) === M && q % BigInt(2) !== Z) ? BigInt(1) : Z); } }
-        const notes = sum([...cells].filter(([k]) => k.startsWith("note:") && JSON.parse(k.slice(5))[1] === bankId).map(([, v]) => BigInt(v)));
-        const interbankAssets = sum([...cells].filter(([k]) => k.startsWith("note:") && JSON.parse(k.slice(5))[2] === bankId && JSON.parse(k.slice(5))[3] === "INTERBANK").map(([, v]) => BigInt(v)));
-        return { deposits, netLoans: loans, reserves: BigInt(cells.get("reserve:" + JSON.stringify(bankId))!) + restricted(bankId), notes, interbankAssets };
-    };
-    for (const b of g.ledger.banks) { const x = sheet(b.id); cells.set("equity:" + JSON.stringify(b.id), String(x.reserves + x.netLoans + x.interbankAssets - x.deposits - x.notes)); }
-    const identity: { tick: number; bankId: string; deposits: string; equity: string; netLoans: string; reserves: string; residual: string }[] = [];
-    const ticks = [...new Set(s.audit.map(a => a.tick))], walk = exact.length ? Array.from({ length: s.tick + 1 }, (_, t) => t) : ticks;
-    for (const tick of walk) {
-        for (const a of s.audit.filter(a => a.tick === tick)) for (const c of a.changes) { assert.equal(cells.get(c.path) ?? "~", c.before, "AUDIT_CHAIN " + c.path); if (c.after === "~") cells.delete(c.path); else cells.set(c.path, c.after); first.set(c.path, true); }
-        assert.equal(base() + BigInt(cells.get("sinks:null")!), opening, "BASE_MONEY_CREATED tick " + tick);
-        for (const bankId of exact) {
-            const x = sheet(bankId), equity = BigInt(cells.get("equity:" + JSON.stringify(bankId))!);
-            assert.equal(x.notes, Z, "exact identity scenario has no notes"); assert.equal(x.interbankAssets, Z);
-            const residual = x.deposits + equity - x.netLoans - x.reserves;
-            assert.equal(residual, Z, "deposits + equity = net loans + reserves at tick " + tick);
-            identity.push({ tick, bankId, deposits: String(x.deposits), equity: String(equity), netLoans: String(x.netLoans), reserves: String(x.reserves), residual: "0" });
-        }
-    }
-    const final = financialCells(s);
-    for (const [k, v] of Object.entries(final)) if (!k.startsWith("equity:")) assert.equal(cells.get(k) ?? "~", v, "RECONSTRUCT " + k);
-    for (const [k] of cells) if (!k.startsWith("equity:")) assert(k in final, "STALE_CELL " + k);
-    const createdByLoans = sum(s.creditBooks.flatMap(b => b.movements.filter(m => m.kind === "CREDIT_CREATE").map(m => m.amount)));
-    const destroyed = sum(s.creditBooks.flatMap(b => b.movements.filter(m => m.kind === "REPAY_PRINCIPAL").map(m => m.amount)));
-    const outstanding = sum(s.assets.filter(a => a.id.startsWith("@originated/")).flatMap(a => a.holdings.map(h => h.quantity)));
-    assert.equal(createdByLoans - destroyed, outstanding, "every originated principal is a CREDIT_CREATE");
-    return { auditedPhases: s.audit.length, auditedTicks: ticks.length, baseMoney: String(opening), baseResidual: "0", cellResidual: "0", createdByLoans: String(createdByLoans), destroyedPrincipal: String(destroyed), outstandingOriginated: String(outstanding), originationResidual: "0", identityRows: identity.length, identityTicks: exact.length ? s.tick + 1 : 0, identity };
-}
 
 type CF = { facts: { risks: { im: string; positions: unknown[] }[]; defaults: unknown[]; closeouts: unknown[]; vm: unknown[] }; commands: unknown[] };
 const cf = (f: F.Frame) => f.ccp as CF;
 const reports: unknown[] = [];
-const summary = (a: ReturnType<typeof independent>) => { const r: Partial<ReturnType<typeof independent>> = { ...a }; delete r.identity; return r; };
+const CLOSEOUT_DELAY = 481;
+let crossModule: Record<string, unknown> = {};
 async function scenario(out: string, source: string, name: string, g: Fx, frames: F.Frame[], target: number, inspect: (s: CoreState, e: BankingCoreEngine) => Record<string, unknown>, opt: { literal?: boolean; exact?: string[]; points?: number[] } = {}) {
     const dir = join(out, source + "-" + name);
     await mkdir(dir);
@@ -103,7 +58,7 @@ async function scenario(out: string, source: string, name: string, g: Fx, frames
     assert.equal(bytes[0], bytes[1]); assert.equal(bytes[0], bytes[2]);
     const reopened = await BankingCoreEngine.open(new FileBankingCoreStore(path("jump")), F.reorder(g), true);
     assert.equal(wire(reopened.snapshot()), wire(s));
-    const audit = independent(g, s, opt.exact), checks = inspect(s, jump);
+    const audit = independent(g as unknown as AuditGenesis, s, opt.exact), checks = inspect(s, jump);
     const report = { source, name, target, mode: opt.literal ? "literal every tick" : "stepped at every command/day boundary; every intervening tick reconstructed", steps: points.length, reopens, physicalStores: 3, stateEqual: true, checkpointBytesEqual: true, checkpointSha256: sha(bytes[0]), stateSha256: sha(wire(s)), checks, audit: summary(audit), sheets: jump.sheets() };
     await writeFile(join(dir, "RESULT.json"), wire(report) + "\n");
     if (audit.identity.length) await writeFile(join(dir, "identity-every-tick.json"), wire(audit.identity) + "\n");
@@ -219,26 +174,48 @@ async function main() {
         const g: Fx = { ledger, liquidityEnabled: true, banking: null, credit: [{ bank: F.creditPolicy("a", 10000000), clients: [{ id: "company", kind: "COMPANY", homeAccountId: "corp-a", accountIds: ["corp-a"] }], supplierAccountId: "supplier-b" }], ccp: c.ccp };
         const facts = () => F.creditFacts([F.companyProfile("company", 20000000)]);
         const o: Opts = { credit: ["a"], liquidity: true, ccp: { ids: c.ids, services: c.services }, creditFacts: () => facts() };
-        const plan = (failedAt: number | null) => build(g, 5040, o, f => {
+        const edit = (failedAt: number | null) => (f: F.Frame) => {
             if (f.tick === 0) creditAt(f, "a", [F.apply("company", 1000000, "corp-a", F.term("LINEAR", 1))], facts());
             if (f.tick === 1) creditAt(f, "a", [F.accept("company")], facts());
             if (f.tick === 2) creditAt(f, "a", [{ id: "spend", actor: "company", kind: "EXPENSE", supplierId: "supplier", amount: F.usd(1000000) }], facts());
             if (f.tick === 30) (f.liquidity as { commands: unknown[] }).commands = [F.ownMove("run", "alice-a", "alice-b", 300000)];
-            if (failedAt !== null && f.tick === failedAt + 481) cf(f).facts.closeouts = [F.closeout(c.ids, 150, "d", failedAt + 1)];
-        });
-        const probe = await BankingCoreEngine.open(new FileBankingCoreStore(join(out, "cross-module-plan.json")), g, true);
-        const failedAt = (await probe.advance(5040, plan(null))).banks[0].failedAt;
-        assert(failedAt !== null, "bank a must fail in the cross-module scenario");
-        await scenario(out, "cross-module", "loan-run-bailin-ccp-default", g, plan(failedAt), 5040, s => {
+            if (failedAt !== null && f.tick === failedAt + CLOSEOUT_DELAY) cf(f).facts.closeouts = [F.closeout(c.ids, 150, "d", failedAt + 1)];
+        };
+        // One causal pass, no planning pass: the closeout producer only sees committed engine state. It advances in chunks
+        // shorter than the closeout delay, so the failure is always observed before the closeout tick is emitted.
+        const TARGET = 5040, CHUNK = 480, driver = await BankingCoreEngine.open(new FileBankingCoreStore(join(out, "cross-module-single-pass.json")), g, true);
+        let failedAt: number | null = null, observedAt: number | null = null, prev = -1;
+        const emitted: F.Frame[] = [];
+        while (prev < TARGET) {
+            const end = Math.min(prev + CHUNK, TARGET), rows = build(g, end, o, edit(failedAt)).filter(f => f.tick > prev);
+            await driver.advance(end, rows);
+            emitted.push(...rows);
+            const seen = driver.snapshot().banks.find(b => b.id === "a")!.failedAt;
+            if (failedAt === null && seen !== null) { failedAt = seen; observedAt = end; assert(failedAt + CLOSEOUT_DELAY > end, "closeout tick must still be in the future when the failure is observed"); }
+            else assert.equal(seen, failedAt, "failedAt is fixed once committed");
+            prev = end;
+        }
+        assert(failedAt !== null && observedAt !== null, "bank a must fail in the cross-module scenario");
+        const frames = emitted, closeoutTicks = frames.filter(f => (f.ccp as CF).facts.closeouts.length).map(f => f.tick);
+        assert.deepEqual(closeoutTicks, [failedAt + CLOSEOUT_DELAY]);
+        // The causal frames equal the old two-pass placement rule applied to the observed failure tick.
+        assert.equal(wire(frames), wire(build(g, TARGET, o, edit(failedAt))), "single-pass frames equal the placement rule");
+        crossModule = { chunk: CHUNK, chunks: Math.ceil((TARGET + 1) / CHUNK), failedAt, observedAtTick: observedAt, closeoutTick: failedAt + CLOSEOUT_DELAY, framesSha256: sha(wire(frames)), planningPass: false };
+        const fa = failedAt;
+        await scenario(out, "cross-module", "loan-run-bailin-ccp-default", g, frames, TARGET, s => {
             const a = s.banks[0], l = s.creditBooks[0].loans[0], e = s.ccpMeta!.defaults.find(x => x.memberId === "d")!;
             assert(s.creditBooks[0].movements.some(m => m.kind === "CREDIT_CREATE")); assert.equal(l.status, "CHARGED_OFF");
             assert.equal(a.resolution!.tool, "BAIL_IN"); assert(a.resolution!.equityRights.some(r => r.creditor === "treasury-a"));
             assert.equal(e.reason ?? "BANK_RESOLUTION", "BANK_RESOLUTION"); assert(e.closeout);
-            return { failedAt, tool: a.resolution!.tool, status: a.status, equityRights: a.resolution!.equityRights, loan: l.status, ccpDefault: { id: e.id, stage: e.stage, remaining: String(e.remaining), layers: e.layers } };
-        }, { exact: ["a", "b"], points: [0, 1, 2, 29, 30, 31, failedAt, failedAt + 30, failedAt + 1, failedAt + 481, failedAt + 482] });
+            return { failedAt: fa, tool: a.resolution!.tool, status: a.status, equityRights: a.resolution!.equityRights, loan: l.status, ccpDefault: { id: e.id, stage: e.stage, remaining: String(e.remaining), layers: e.layers } };
+        }, { exact: ["a", "b"], points: [0, 1, 2, 29, 30, 31, fa, fa + 30, fa + 1, fa + CLOSEOUT_DELAY, fa + CLOSEOUT_DELAY + 1] });
+        const single = await readFile(join(out, "cross-module-single-pass.json"), "utf8"), jumpBytes = await readFile(join(out, "cross-module-loan-run-bailin-ccp-default", "jump.json"), "utf8");
+        assert.equal(single, jumpBytes, "chunked causal store equals the jump store byte for byte");
+        crossModule.singlePassStoreEqualsJump = true; crossModule.checkpointSha256 = sha(single);
+        await writeFile(join(out, "CROSS-MODULE-SINGLE-PASS.json"), wire(crossModule) + "\n");
     }
     const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim() !== "";
-    await writeFile(join(out, "RESULT.json"), wire({ head, dirty, started, finished: new Date().toISOString(), zone: "report converts to Europe/Paris", pass: true, scenarios: reports.length, results: reports }) + "\n");
+    await writeFile(join(out, "RESULT.json"), wire({ head, dirty, started, finished: new Date().toISOString(), zone: "report converts to Europe/Paris", pass: true, scenarios: reports.length, crossModule, results: reports }) + "\n");
     console.log("ALL PASS", reports.length);
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });
