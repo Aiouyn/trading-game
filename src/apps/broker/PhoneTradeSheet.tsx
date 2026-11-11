@@ -13,11 +13,12 @@ export function PhoneTradeSheet({ t, assetId, qtyRef, onDismiss, onKeyDown, chil
   const scope = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const justOpened = useRef(false);
+  const lastFocus = useRef<HTMLElement | null>(null);
   const dismiss = () => { onDismiss(); setOpen(false); };
 
   useEffect(() => {
     if (!open || !scope.current) return;
-    if (!justOpened.current && scope.current.contains(document.activeElement)) return;
+    if (!justOpened.current && (scope.current.contains(document.activeElement) || lastFocus.current?.isConnected)) return;
     justOpened.current = false;
     const action = content.current?.querySelector<HTMLElement>('button:not([disabled]):not([aria-disabled="true"])');
     (qtyRef.current ?? action ?? scope.current.querySelector<HTMLElement>("button"))?.focus();
@@ -30,7 +31,9 @@ export function PhoneTradeSheet({ t, assetId, qtyRef, onDismiss, onKeyDown, chil
         onClick={(e) => { e.currentTarget.focus(); justOpened.current = true; setOpen(true); }}>{t.viewTrade}</Button>
       {open && <div className="br-phone-order">
         <Sheet side="bottom" label={label} onClose={dismiss} testId="br-sheet">
-          <div ref={scope} onKeyDown={onKeyDown}>
+          <div ref={scope} onKeyDown={onKeyDown} onFocusCapture={(e) => {
+            if (e.target instanceof HTMLElement) lastFocus.current = e.target;
+          }}>
             <header className="br-sheet-head">
               <h2>{label}</h2>
               <Button variant="ghost" data-testid="br-sheet-close" onClick={dismiss}>{t.closeTicket}</Button>
