@@ -79,13 +79,15 @@ export function BrokerFrame({ context }: { context?: string }) {
   const setHead = useCallback((el: HTMLElement | null) => { headEl.current = el; }, []);
   const focusHead = useRef(false);
   // Phone: Back to trade returns to the place the player left (the app scroller's offset), not the top of Trade.
-  const tradeScroll = useRef<number | null>(null);
+  // Keyed by asset: a different asset picked meanwhile (header select on About, a deep link) opens at the top.
+  const tradeScroll = useRef<{ asset: string; top: number } | null>(null);
   const restoreRaf = useRef(0); // the kept-offset settle loop outlives the per-tick re-renders; cancelled on unmount only
   useEffect(() => {
     if (!focusHead.current || view !== "trade" || !headEl.current) return;
     focusHead.current = false;
-    const head = headEl.current, saved = tradeScroll.current;
+    const head = headEl.current, kept = tradeScroll.current;
     tradeScroll.current = null;
+    const saved = kept && kept.asset === assetId ? kept.top : null;
     const scroller = phone && saved !== null ? phoneScroller(head) : null;
     if (!scroller) { head.focus(); return; }
     // Trade re-renders shorter than it ends up (chart/legend settle), so a single assignment is clamped: keep
@@ -121,9 +123,10 @@ export function BrokerFrame({ context }: { context?: string }) {
   useEffect(() => () => cancelAnimationFrame(restoreRaf.current), []);
   const toTrade = useCallback(() => { focusHead.current = true; setView("trade"); }, []);
   const toAbout = useCallback(() => {
-    tradeScroll.current = phone && headEl.current ? (phoneScroller(headEl.current)?.scrollTop ?? null) : null;
+    const top = phone && headEl.current ? phoneScroller(headEl.current)?.scrollTop : undefined;
+    tradeScroll.current = top === undefined ? null : { asset: assetId, top };
     setView("about");
-  }, [phone]);
+  }, [phone, assetId]);
   const onView = (v: BrokerView) => (v === "trade" ? toTrade() : toAbout());
 
   const qty = parseQtyInput(draft.qtyText);
