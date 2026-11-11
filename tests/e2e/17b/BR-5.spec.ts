@@ -8,7 +8,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
 import { boot, intents, setTextScale } from "../shell/helpers";
-import { openBrokerPaused } from "./openPaused";
+import { openBrokerPaused, revealOnPausedClock } from "./openPaused";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -82,7 +82,7 @@ async function ticket(page: Page, type: Type, prices: Prices, qty = "40") {
 }
 async function review(page: Page) {
   await br(page).getByTestId("br-review").click();
-  await expect(place(page)).toBeVisible();
+  await revealOnPausedClock(page, place(page));
 }
 /** Place, then run the clock to the result tick (the ack). */
 async function placeAndAck(page: Page) {
@@ -309,6 +309,7 @@ for (const scale of ["1", "2"] as const) {
     await br(page).getByTestId("br-review").click();
     const sheet = page.getByTestId("br-sheet");
     await expect(sheet).toBeVisible();
+    await revealOnPausedClock(page, place(page));
     await page.clock.runFor(400); // the sheet-up entrance (--dur-base) on the paused clock
     await expect.poll(async () => { const b = (await sheet.boundingBox())!; return Math.round(b.y + b.height); }).toBe(844);
     expect(await overflow(sheet)).toEqual([]);

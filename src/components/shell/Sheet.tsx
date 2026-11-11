@@ -27,6 +27,13 @@ export function Sheet({ side = "bottom", label, onClose, children, testId = "she
     document.addEventListener("keydown", onKey, true);
     return () => { document.removeEventListener("keydown", onKey, true); opener?.focus?.(); };
   }, []);
+  // A lazy child may mount after the first paint (skeleton has no control). If focus is still on the
+  // sheet itself, Enter would bubble to the ticket and place; move to the first real control.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || document.activeElement !== el) return;
+    el.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+  });
   return (
     <div className="qs-layer" data-testid={`${testId}-layer`}>
       <div className="qs-scrim" data-testid={`${testId}-scrim`} onClick={() => close.current()} />

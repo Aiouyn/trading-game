@@ -6,7 +6,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
-import { openBrokerPaused } from "./openPaused";
+import { openBrokerPaused, revealOnPausedClock } from "./openPaused";
 import { pinHtml } from "./pin";
 import { expectOnlyBandMasked, winShot } from "./winShot";
 
@@ -77,7 +77,7 @@ async function until(page: Page, done: () => Promise<boolean>) {
 }
 async function toAbout(page: Page, root: Page | Locator = page) {
   await root.getByTestId("br-view-about").click();
-  await expect(root.getByTestId("br-about")).toBeVisible();
+  await revealOnPausedClock(page, root.getByTestId("br-about"));
   await page.clock.runFor(100);
 }
 async function toNews(page: Page) {
@@ -290,6 +290,7 @@ test("BR-10-08 a News row opens that story in Wire (card 9 detail at 1440); no t
   await press(page.getByTestId("br-view-trade"));
   await page.getByTestId("br-asset-select").selectOption("ORCA");
   await press(page.getByTestId("br-view-about"));
+  await revealOnPausedClock(page, about(page));
   await expect(about(page)).toBeVisible();
   await press(tab(page, "news"));
   await until(page, async () => (await page.getByTestId("ap-news").count()) > 0);
