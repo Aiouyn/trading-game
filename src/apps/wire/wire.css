@@ -198,3 +198,9 @@
 
 .wire-composer-chips .wire-chip[aria-pressed="true"] { color: var(--fg); }
 .wire-composer-chips .wire-chip[aria-pressed="true"] > .wire-chip-face { background: var(--win2); }
+
+.wire-empty-panel { flex: 1; min-height: 0; overflow-y: auto; }
+.wire-empty-help { display: flex; flex-direction: column; gap: var(--sp-12); padding: 0 var(--sp-16) var(--sp-24); font-size: var(--fs-12_5); color: var(--fg-muted); }
+.wire-empty-help p { margin: 0; }
+.wire-empty-reset.btn { align-self: flex-start; max-width: 100%; white-space: normal; }
+@media (pointer: coarse) { .wire-empty-reset.btn { min-height: var(--hit-touch); } }
