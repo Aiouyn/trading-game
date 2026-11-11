@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isProxy } from "node:util/types";
 import type { Money } from "../../../packages/engine/core/types";
 import type { BankCommand, BankingFrame, BankingGenesis, HourlyBankMarket } from "./model";
 
@@ -8,7 +9,7 @@ export function strictJson(input: unknown): Json {
   const walk = (value: unknown): Json => {
     if (value === null || typeof value === "string" || typeof value === "boolean") return value;
     if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return value;
-    if (typeof value !== "object" || value === null || seen.has(value)) throw new Error("BANK_JSON_TREE");
+    if (typeof value !== "object" || value === null || isProxy(value) || seen.has(value)) throw new Error("BANK_JSON_TREE");
     seen.add(value);
     if (Array.isArray(value)) {
       if (Object.getPrototypeOf(value) !== Array.prototype || Reflect.ownKeys(value).length !== value.length + 1) throw new Error("BANK_DENSE_ARRAY");

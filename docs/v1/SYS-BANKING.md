@@ -4,7 +4,11 @@
 
 `src/server/banking` is an isolated FDL custody and automatic interbank engine. A player can open SIGHT or SAVINGS accounts, move funded cash into them, transfer between their own accounts, and withdraw. Banks earn or pay interest from their existing cash. The app does not mount this engine yet.
 
-The owner prohibits money creation. That overrides the fractional-credit and central-bank facilities in `07-BANKING-CREDIT-CLEARING.md:419-426,1146-1149`. A bank cannot lend its customers' custody cash. A dry lender or an unfunded maturity never receives a synthetic counterparty or rescue.
+The bot's assigned owner decisions say exactly:
+
+> 'just like real life': finite order books, no last-resort market maker, the game never creates money; the market grows over time and recovers after crashes.
+
+The funded-reserve rule is this bot's reading of "the game never creates money" applied to banking. It conflicts with `export/vision-review/complete/07-BANKING-CREDIT-CLEARING.md:23`: "A loan creates a deposit (`CREDIT_CREATE`); a repayment destroys one (`CREDIT_DESTROY`)." The rule is pending an explicit owner decision. It is not a verified owner override of the banking specification. Current behavior remains unchanged: a bank cannot lend customer custody cash, and a dry lender or an unfunded maturity receives no synthetic counterparty or rescue. This batch does not implement 07:23 credit creation.
 
 The pre-code [unit contract](../../UNIT.md) lists the exact specification bounds. Consumer credit and the full clearing-house default waterfall are outside this slice. Interbank loans are the funded credit product here.
 
@@ -22,7 +26,9 @@ The conserved amount is the sum of client settlement cash, bank-owned cash, and 
 
 Hourly observations occur at `tick mod30=29`. Every crossed hour requires a fresh, complete explicit policy, Fear, and bank-PD observation. Missing data rejects the whole batch. The engine never substitutes zero or silently reuses stale bank risk.
 
-The reserve target is 100% custody plus the specified0.5% buffer. The projected gap includes known interbank payments and deposit interest through that day's close. There are no invented external scheduled flows. Lending is capped by the positive gap, unencumbered owned cash, and the specification's counterparty limit. Tier1 is owned net assets on this restricted balance sheet, with no AT1, capital deductions, or separate regulatory engine. Interest receivables and debt offset their respective book values. Full ECL supervision is deferred.
+Under the pending funded-reserve policy, the reserve target is 100% custody plus the specified0.5% buffer. The projected gap includes known interbank payments and deposit interest through that day's close. There are no invented external scheduled flows. Lending is capped by the positive gap, unencumbered owned cash, and the specification's counterparty limit. Tier1 is owned net assets on this restricted balance sheet, with no AT1, capital deductions, or separate regulatory engine. Interest receivables and debt offset their respective book values. Full ECL supervision is deferred.
+
+`src/server/banking/funding-policy.ts` defines `BANK_FUNDING_POLICY`, the single policy point for projected reserve gaps and lendable owned cash. The engine delegates both calculations to it. Tests cover both sides of each funding threshold, including zero and the existing upward-rounded buffer. An owner decision can change these calculations in one module. Actual credit creation would also need its credit-ledger design and a replay migration; no alternate credit-creation mode is enabled here.
 
 Counterparty tolerance, fear, ask, and exposure follow07:543-553. Integer ppm quantizes annual rates with half-even rounding. Borrowers and tied lenders use SHA-256 order followed by core `cmpStr`, not locale-dependent sorting. Zero tolerance disables lending. Loans mature at the following game day's tick719. This explicit interpretation avoids accidental same-tick maturity for a loan matched at719.
 
@@ -32,7 +38,7 @@ The719 hourly match follows those obligations. Its new loans do not accrue befor
 
 ## Boundary and storage ownership
 
-`input.ts` accepts plain, acyclic, non-aliased JSON trees with dense arrays and enumerable data properties. It rejects unknown fields, undefined, non-finite numbers, negative zero, Date and other class values, raw bigint, functions, symbols, accessors, hidden fields, and named array properties. No raw input reaches JSON.stringify before validation. Canonical field order makes reordered-object retries identical. Array order remains part of input identity.
+`input.ts` rejects live and revoked Proxies before reflection or trap execution. It accepts plain, acyclic, non-aliased JSON trees with dense arrays and enumerable data properties. It rejects unknown fields, undefined, non-finite numbers, negative zero, Date and other class values, raw bigint, functions, symbols, accessors, hidden fields, and named array properties. No raw input reaches JSON.stringify before validation. Canonical field order makes reordered-object retries identical. Array order remains part of input identity.
 
 `BankingEngine.open` decodes genesis, replays a saved journal, and checks an identity that covers genesis, every frame, and the full reconstructed state. Checkpoints contain no cached partial state. A changed seed cannot reset an existing world. Command ids remain idempotent across restart, including refused commands. A changed body with the same id aborts the whole batch.
 

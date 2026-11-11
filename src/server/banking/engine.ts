@@ -1,3 +1,4 @@
+import { BANK_FUNDING_POLICY } from "./funding-policy";
 import { cmpStr } from "../../../packages/engine/core/order";
 import type { Money } from "../../../packages/engine/core/types";
 import { bankFingerprint, bankTick, bankWire, decodeFrames, decodeGenesis, record, strictJson } from "./input";
@@ -88,8 +89,7 @@ function obligations(s: BankingState, b: BankSeed): { incoming: Money; outgoing:
   return { incoming, outgoing, depositsDue };
 }
 function gap(s: BankingState, b: BankSeed): Money {
-  const due = obligations(s, b), buffer = (depositTotal(s, b.id) + BigInt(199)) / BigInt(200);
-  return b.cash + due.incoming - due.outgoing - due.depositsDue - buffer;
+  return BANK_FUNDING_POLICY.projectedGap({ ownedCash: b.cash, custodyCash: depositTotal(s, b.id), ...obligations(s, b) });
 }
 function tier1(s: BankingState, b: BankSeed): Money {
   let equity = b.cash - s.deposits.filter((d) => d.bankId === b.id).reduce((n, d) => n + d.interestDue, BigInt(0));
@@ -113,7 +113,7 @@ function hourly(s: BankingState, m: HourlyBankMarket): void {
     for (const { lender, tolerance, ratePpm } of offers) {
       const exposure = s.loans.filter((l) => l.lenderId === lender.id && l.borrowerId === borrower.id).reduce((n, l) => n + l.principal + l.accrued, BigInt(0));
       const limit = tier1(s, lender) * (tolerance - pd * BigInt(2) * PPM) / (BigInt(10) * tolerance) - exposure;
-      const due = obligations(s, lender), unencumbered = max0(lender.cash - due.outgoing - due.depositsDue);
+      const unencumbered = BANK_FUNDING_POLICY.lendableCash({ ownedCash: lender.cash, ...obligations(s, lender) });
       const amount = min(max0(-gap(s, borrower)), max0(gap(s, lender)), max0(limit), unencumbered);
       if (amount === BigInt(0)) continue;
       move(s, bankRef(lender), bankRef(borrower), amount, "INTERBANK_DRAW"); volume += amount;

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { BANK_FUNDING_POLICY } from "../../../src/server/banking/funding-policy";
 import { BankingEngine, bankingCashTotal, bankingReserves } from "../../../src/server/banking/engine";
 import { bankFingerprint, bankWire, canonicalJson } from "../../../src/server/banking/input";
 import type { BankCheckpointStore } from "../../../src/server/banking/model";
@@ -220,4 +221,78 @@ it("includes accrued interest in counterparty exposure rather than turning booke
   await e.advance(719, through(719, [bankFrame(0, [openDeposit("o", "b"), deposit("d", "b", 100_000_000)])], () => bankMarket(10000)));
   expect(e.snapshot().loans).toHaveLength(1); expect(e.snapshot().loans[0].funded).toBe(BigInt(micro(50000))); expect(e.snapshot().loans[0].accrued).toBe(BigInt(892857));
   expect(e.snapshot().hours.at(-1)!.volume).toBe(BigInt(0));
+});
+
+
+describe("hostile Proxy input boundaries", () => {
+  const surfaces = ["root genesis", "nested genesis", "root frames", "root frame", "nested command", "controls", "nested risk", "checkpoint load", "checkpoint save", "nested checkpoint save"];
+  const cases = surfaces.flatMap((surface) => [false, true].map((revoked) => ({ surface, revoked })));
+  it.each(cases)("rejects $surface Proxy (revoked=$revoked) before reflection/save and across restart", async ({ surface, revoked }) => {
+    const path = await filePath(), g = bankGenesis(), file = new FileBankCheckpointStore(path);
+    let saves = 0, traps = 0;
+    const store: BankCheckpointStore = { load: () => file.load(), save: (payload, revision) => { saves++; return file.save(payload, revision); } };
+    const handler: ProxyHandler<object> = {
+      getPrototypeOf(target) { traps++; return Reflect.getPrototypeOf(target); },
+      ownKeys(target) { traps++; return Reflect.ownKeys(target); },
+      getOwnPropertyDescriptor(target, key) { traps++; return Reflect.getOwnPropertyDescriptor(target, key); },
+      get(target, key, receiver) { traps++; return Reflect.get(target, key, receiver); },
+    };
+    const hostile = <T extends object>(value: T): T => {
+      const proxy = Proxy.revocable<T>(value, handler); if (revoked) proxy.revoke(); return proxy.proxy;
+    };
+    let engine = await BankingEngine.open(store, g);
+    await engine.advance(0, [bankFrame(0, [openDeposit("initial", "a", "bankA"), deposit("fund", "a", 10)])]);
+    for (let restart = 0; restart < 2; restart++) {
+      if (restart) engine = await BankingEngine.open(store, g);
+      const bytes = await readFile(path, "utf8"), before = engine.snapshot(), priorSaves = saves;
+      const loaded = await file.load(), payload = loaded.payload;
+      if (!payload || typeof payload !== "object") throw new Error("invalid checkpoint fixture");
+      const attempt = async () => {
+        if (surface === "root genesis") return BankingEngine.open(store, hostile(g));
+        if (surface === "nested genesis") return BankingEngine.open(store, { ...g, banks: g.banks.map((b, i) => i === 0 ? hostile(b) : b) });
+        if (surface === "root frames") return engine.advance(1, hostile([bankFrame(1)]));
+        if (surface === "root frame") return engine.advance(1, [hostile(bankFrame(1))]);
+        if (surface === "nested command") return engine.advance(1, [bankFrame(1, [hostile(openDeposit("bad", "b", "bankA"))])]);
+        if (surface === "controls") return engine.advance(29, [bankFrame(29, [], hostile(bankMarket()))]);
+        if (surface === "nested risk") {
+          const market = bankMarket(); market.risks[0] = hostile(market.risks[0]); return engine.advance(29, [bankFrame(29, [], market)]);
+        }
+        if (surface === "checkpoint load") return BankingEngine.open({ load: async () => ({ ...loaded, payload: hostile(payload) }), save: store.save }, g);
+        if (surface === "checkpoint save") return file.save(hostile(payload), loaded.revision);
+        const frames: unknown = Reflect.get(payload, "frames");
+        if (!Array.isArray(frames)) throw new Error("invalid frames fixture");
+        Reflect.set(payload, "frames", hostile(frames)); return file.save(payload, loaded.revision);
+      };
+      await expect(attempt()).rejects.toThrow("BANK_JSON_TREE");
+      expect(traps).toBe(0); expect(saves).toBe(priorSaves);
+      expect(engine.snapshot()).toEqual(before); expect(await readFile(path, "utf8")).toBe(bytes);
+      expect((await BankingEngine.open(file, g)).snapshot()).toEqual(before);
+    }
+    await engine.advance(1, [bankFrame(1, [deposit("valid-after-proxy", "a", 1)])]);
+    expect((await BankingEngine.open(file, g)).snapshot()).toEqual(engine.snapshot());
+    expect(traps).toBe(0);
+  });
+  it("rejects a Proxy target tick without invoking traps", async () => {
+    let traps = 0;
+    const target = new Proxy({}, { get() { traps++; throw new Error("trap invoked"); } });
+    const engine = await BankingEngine.open(new MemoryStore(), bankGenesis()), before = engine.snapshot();
+    await expect(engine.advance(target, [])).rejects.toThrow("BANK_TICK");
+    expect(traps).toBe(0); expect(engine.snapshot()).toEqual(before);
+  });
+});
+
+it.each([{ owned: 24999, gap: -1 }, { owned: 25000, gap: 0 }, { owned: 25001, gap: 1 }])("keeps the current funded-reserve threshold at owned=$owned, gap=$gap", async ({ owned, gap }) => {
+  const g = bankGenesis(); g.banks[0].enabled = false; g.banks[1].cash = micro(owned);
+  const e = await BankingEngine.open(new MemoryStore(), g), total = bankingCashTotal(e.snapshot());
+  await e.advance(29, through(29, [bankFrame(0, [openDeposit("open", "b"), deposit("deposit", "b", 5_000_000)])]));
+  expect(e.snapshot().hours[0].gaps.find((r) => r.bankId === "bankB")?.gap).toBe(BigInt(micro(gap)));
+  expect(e.snapshot().loans).toHaveLength(0); expect(bankingCashTotal(e.snapshot())).toBe(total);
+});
+
+it.each([{ owned: 14, expected: 0 }, { owned: 15, expected: 0 }, { owned: 16, expected: 1 }])("caps pending-policy lendable own cash at $expected when owned=$owned", ({ owned, expected }) => {
+  const position = { ownedCash: BigInt(owned), custodyCash: BigInt(micro(5_000_000)), incoming: BigInt(micro(25_000)), outgoing: BigInt(10), depositsDue: BigInt(5) };
+  expect(BANK_FUNDING_POLICY.lendableCash(position)).toBe(BigInt(expected));
+});
+it("preserves the pending funding policy's upward-rounded sub-micro buffer", () => {
+  expect(BANK_FUNDING_POLICY.projectedGap({ ownedCash: BigInt(0), custodyCash: BigInt(1), incoming: BigInt(0), outgoing: BigInt(0), depositsDue: BigInt(0) })).toBe(BigInt(-1));
 });
