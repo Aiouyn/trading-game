@@ -21,3 +21,10 @@ Stacked on bfe320dd (ui/broker-entry-split, Card 5, pushed and qualified), not 1
 - E2E phone, fresh .data: EN 390 and FR 320 at 200% text: label, pitch, CTA visible in the first viewport without scrolling, CTA >=44px, no horizontal overflow, axe clean; CTA opens Account on Create account; after registering the Home shows the signed-in starter card (no pitch). Desktop guest first screen unchanged.
 - Intended golden updates: phone guest Home baselines that show the widget (listed in an addendum with the reason), nothing else.
 - Exact-HEAD: lint, typecheck, build, check-hooks, route-budget /broker (own + 9-card merged stack <= 215 KB), map-no-dup, npm test (GIT_* unset), clean fresh-.data e2e (shell phone/home cohort + account-first-step), phone + desktop screenshots, scratch deleted, no push.
+
+## Addendum: implementation findings
+- Base moved from 110583b0 to bfe320dd before any push (see Base): first attempt measured S1-20 /broker 220289 B > 220160 B; on bfe320dd S1-20 reads 205.5 KB.
+- A long guest label (FR "Compte d’exemple" at 200%, 320 px) pushed the rank chip past the card's right edge; `.widget-top` now wraps (gap 4/8 px), and the e2e asserts nothing in the card leaves the card. No change at scale 1.
+- Golden updates: none. Every compared baseline (`toHaveScreenshot`/winShot) in tests/e2e/shell, settings, PF-A, M1-08, broker-entry-split, lazy-module-retry passes with CI=1 `--update-snapshots=none`: the studio home baselines use signed-in or `guest=0` fixtures. The write-only review PNGs under `tests/e2e/{shell,settings}/__screenshots__` are rewritten by every run and were already stale at the base (e.g. T4 home shows Day 38 and no Launchpad); left as they are.
+- Pre-existing, not this card: T2-06 "phone tile glyphs are never brass" expects 32 DS tiles and gets 33 on the base too (probe `ui-card9/base-T2-06`).
+- Desktop guest first screen unchanged by design (its windows already label the example data and the strip keeps "Sign in").
