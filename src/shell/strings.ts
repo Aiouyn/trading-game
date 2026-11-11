@@ -98,6 +98,22 @@ export const S = {
 /** Phone app-bar titles for in-app screens (level 2); the app root shows APP_NAMES (Studio T4 ruling 1). */
 export const SCREEN_NAMES: Record<string, string> = { journal: "Journal" };
 
+/** Card 9: phone Home for a logged-out visitor. The widget shows the canned Owner fixture, so it is labelled an example;
+ *  the pitch says what the game is and the CTA names both doors (Account opens on Create account). */
+export const GUEST_HOME: Record<ShellLocale, { label: string; pitch: string; cta: string }> = {
+  en: {
+    label: "Example account",
+    pitch: "Quay is a trading game. Start with $10,000 in game money and try to grow it to $20,000. No real money.",
+    cta: "Create account or sign in",
+  },
+  fr: {
+    label: "Compte d’exemple",
+    pitch: "Quay est un jeu de trading. Commencez avec 10\u202f000\u00a0$ d’argent fictif et essayez d’atteindre 20\u202f000\u00a0$. Pas d’argent réel.",
+    cta: "Créer un compte ou se connecter",
+  },
+};
+export const guestHome = (locale: string) => GUEST_HOME[locale === "fr" ? "fr" : "en"];
+
 /** French copy for the T4 app-bar keys. TODO: wire when a locale switch exists (no FR runtime yet). */
 export const S_FR = { back: "Retour", backTo: "Retour à", home: "Accueil" } as const;
 export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
