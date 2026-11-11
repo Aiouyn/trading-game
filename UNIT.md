@@ -1,48 +1,43 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# Card 12: Next up on the signed-in net worth board
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+Written 12 Nov 2026, 00:32 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
 
-## Why this unit
+## Value and scope
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+Audit of the signed-in Leaderboard for a brand-new player's first 10 minutes, on phone 390 and desktop 1280: can they find their own rank and see what they need to do to climb, within 30 seconds?
 
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+They can already find the rank. A live signed-in board at 390 and 1280 shows "Your rank: R of N" in the header, a You chip on the marked row, and Find my row (44 px on the phone). The row is in view on a short board. That is enough for the first half of the question.
 
-### Readiness flags checked on `43127f9e` (not this unit)
+They cannot see, in those 30 seconds, what climbing means on this board. In the behind case (a new account after one fill, rank 3 of 3 at $9,992.15, two players at $10,000.00 above), the header stops at the rank and the footer only defines net worth. Nothing names the next player or the gap. The player has to scan the table and subtract. In the tied-for-first case, two accounts share $10,000.00 and the board does not say they are tied or that a higher net worth would break it. 17 §7.23 BRD-02 (export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:1098) asks for the player's row pinned with an accent hairline and the rival highlighted "Next up". 18 §3.3 step 9 (18-ONBOARDING-ACADEMY.md:178) uses the copy "Next up · $1,240 ahead", and 18 §3.3.5 (line 217) picks the closest player above. V1-BOARD.md:53–55 and :82 keep the 30-second path and M2-03 as the shared-world net-worth board only; leagues, public profiles, and the grow-$10k goal stay out.
 
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
+This is the single biggest friction on the signed-in board. The board is not "genuinely fine" for the climb half of the question, so we do not move to a different first-10-minutes area.
 
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
+Do not add league groups, a profile tap, goal/guide copy, or advice ("should", "consider buying"). Do not change the guest landing, the Portfolio empty state, the Wire-to-Broker hand-off, Builder Wire-story work, the engine, or the Broker ticket's order-type or time-in-force controls (Stop, Stop limit, GTC) or their tests. Compute Next up only from the public rows already on the board (rank, handle, net worth). Do not add engine fields.
 
-## Smallest observable outcome
+## Exact base, branch, and identity
 
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
+- Branch `ui/boards-next-up`, worktree `/workspace/avalon/ui-boards-next-up`.
+- Base `abf14e57f719689e1a94a65223c6f24ab71a6ae0`. The change is the Boards app only, not shell chrome, so this is the required base (not `ui/pwa-safe-area` @814816a9).
+- Verify Forge (trading-game bot) `<forge@trading-game.local>` as author and committer. Remove every `GIT_*` variable from manual npm-test and Git subprocesses. Before every commit inspect `log -3` and all new commits, and check for stray init or tracked.txt fixture changes. Never skip hooks.
+- Local checkout only. No cloud, push, PR, deploy, or external handoff. Scratch integration merges are evidence only.
 
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
+## Grounding and sketch
 
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
+`LeaderboardView` already carries `rows` and `self`. The closest player above is the row in `rows` with the smallest net worth that is still strictly greater than `self.nw` (equivalently, the last better-ranked row in the best-first list). The gap is that net worth minus `self.nw`, in cents, formatted with the existing money text. If several players share that net worth, name the one immediately above the viewer in list order (the neighbour they would catch first). If `self` is unvalued, or that neighbour is not in the sent top rows, show no invented Next up.
 
-## Plan
+Two local shapes were compared:
 
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
+1. Chosen: a header line and a "Next up" mark on that neighbour's row, copy in the 18 §3.3.5 shape ("Next up · {handle} · {gap} ahead"). When the viewer uniquely leads the board, say they are at the top. When they share the best net worth, say they are tied, with the shared amount. Keep Find my row, the You chip, and the existing how-ranked footer. A light accent hairline on the self row, as BRD-02 pairs with Next up, so the two rows stay distinct.
+2. Rejected: a goal or "go trade" prompt (Builder's lane, and copy-banned advice). Rejected: opening a public profile (not in V1 M2-03). Rejected: a new API field (the figures are already on the board).
 
-## Acceptance
+## Acceptance and proof plan
 
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+- While signed in and the board is live, if a closer-above row exists in the sent list, the header names that handle and the exact net-worth gap, and that row is visually marked "Next up". The gap is subtracted from the two public board amounts; it is not a made-up P/L or forecast.
+- If the viewer uniquely has the highest net worth: a short "at the top" line, no Next up row. If they share that highest net worth: a short tied line, no Next up row. If `self` is missing or the neighbour is not in the top rows: no invented neighbour or gap.
+- Rank, You, Find my row, valuation line, and the how-ranked footer stay. No advice, no goal/guide, no profile navigation, no engine or contract changes.
+- At 390 the new line and the Next up mark wrap without horizontal overflow; Find my row stays a 44 px coarse target. Desktop 1280 keeps the window readable at the existing 420 px minimum used by M2-03.
+- Fail-first unit tests of a pure helper for behind / unique lead / tie-for-first / self unvalued / neighbour not in the top rows. A fail-first e2e (live or routed fixture) of the behind case on phone 390 and desktop, plus the unique-lead and tie cases. Do not weaken existing M2-03 tests or broadly regenerate golden images.
+- Evidence shots: phone 390 and desktop 1280, signed-in behind and tied-or-lead, before and after, under `/workspace/avalon/evidence/ui-boards-next-up/`.
+- Freeze final HEAD before final proof. Run lint, typecheck, ordinary production build, check-hooks, ledger map-no-dup, and npm test with all `GIT_*` unset. Unchanged `/broker` route-budget ≤ 220,160 bytes; report the number.
+- Clean e2e once in a scratch worktree with fresh `.data`, affected cohort: the new board tests plus `tests/e2e/17b/M2-03-leaderboard.spec.ts`. Existing Chromium only; no apt or `--with-deps`. Ports 3300–3399 only, never 3199. Delete the scratch worktree afterwards. Prefer hardlink or symlink for `node_modules` if inodes are tight, and record that.
+- Report SHA, exact base, UNIT-first, checks, bytes, screenshots, and qualifications (local Node 24 vs CI 22). Do not push.
