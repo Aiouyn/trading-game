@@ -11,7 +11,7 @@ import { Feed, type WireHost } from "./Feed";
 import { FilingSummary } from "./FilingSummary";
 import { useWireStrings, type WireStrings } from "./strings";
 import "./wire.css";
-import { recordFirstWireOpen } from "@/shell/telemetryClient";
+import { recordFirstWireOpen } from "@/shell/telemetryConsent";
 
 function FilingSection({ filingId, t }: { filingId: string; t: WireStrings }) {
   const view = useChannel("filings");

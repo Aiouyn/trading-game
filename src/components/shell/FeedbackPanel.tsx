@@ -2,7 +2,8 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { S } from "@/shell/strings";
-import { hasAnalyticsConsent, sendFeedback, setTelemetryConsent } from "@/shell/telemetryClient";
+import { CS } from "./consentStrings";
+import { hasAnalyticsConsent, sendFeedback, setTelemetryConsent } from "@/shell/telemetryConsent";
 import "./feedback.css";
 
 const MAX = 1000;
@@ -52,7 +53,7 @@ export function FeedbackPanel({ onClose }: { onClose: () => void }) {
         </form>
       )}
       <button type="button" className="quay-feedback-optout" data-testid="quay-feedback-optout" onClick={onConsentToggle}>
-        {consented ? S.feedbackOptOut : S.feedbackOptIn}
+        {consented ? CS.turnOff : CS.share}
       </button>
     </div>
   );
