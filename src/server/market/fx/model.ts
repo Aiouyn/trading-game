@@ -1,3 +1,4 @@
+import { isPlainJson } from "./json";
 import { CCYS, type Ccy } from "../../../../packages/engine/core/types";
 export type { Ccy };
 export const CURRENCIES = CCYS;
@@ -64,7 +65,7 @@ function isGenesis(v: unknown): v is Genesis {
     && v.wallets.some((w) => w.id === v.feeWallet && w.access.kind === "SYSTEM") && Array.isArray(v.banks) && v.banks.every(isBank)
     && new Set(v.banks.map((b) => b.id)).size === v.banks.length && linkedBanks(v.wallets, v.banks);
 }
-export function parseGenesis(v: unknown): Genesis { if (!isGenesis(v)) throw new Error("INVALID_FX_GENESIS"); return structuredClone(v); }
+export function parseGenesis(v: unknown): Genesis { if (!isPlainJson(v) || !isGenesis(v)) throw new Error("INVALID_FX_GENESIS"); return structuredClone(v); }
 function isCommand(v: unknown): v is Command {
   if (!object(v) || !id(v.id) || !isWalletId(v.account)) return false;
   const keys = ["id", "account", "kind"];
@@ -77,7 +78,7 @@ function isCommand(v: unknown): v is Command {
     default: return false;
   }
 }
-export function parseCommand(v: unknown): Command { if (!isCommand(v)) throw new Error("INVALID_FX_COMMAND"); return structuredClone(v); }
+export function parseCommand(v: unknown): Command { if (!isPlainJson(v) || !isCommand(v)) throw new Error("INVALID_FX_COMMAND"); return structuredClone(v); }
 const isMarks = (v: unknown): v is Marks => object(v) && exact(v, legIds()) && legIds().every((k) => isRate(v[k]));
 const isAsk = (v: unknown): v is AssetAsk => object(v) && exact(v, ["asset", "seller", "ccy", "unitPrice"]) && id(v.asset) && isWalletId(v.seller) && isCcy(v.ccy) && isMinor(v.unitPrice) && v.unitPrice > 0;
 function isFrame(v: unknown): v is Frame {
@@ -86,7 +87,7 @@ function isFrame(v: unknown): v is Frame {
     && Array.isArray(v.assets) && v.assets.every(isAsk) && new Set(v.assets.map((a) => a.asset)).size === v.assets.length
     && Array.isArray(v.commands) && v.commands.every(isCommand) && new Set(v.commands.map((c) => c.id)).size === v.commands.length;
 }
-export function parseFrame(v: unknown): Frame { if (!isFrame(v)) throw new Error("INVALID_FX_FRAME"); return structuredClone(v); }
+export function parseFrame(v: unknown): Frame { if (!isPlainJson(v) || !isFrame(v)) throw new Error("INVALID_FX_FRAME"); return structuredClone(v); }
 export function canonical(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
   if (object(v)) return `{${Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonical(v[k])).join(",")}}`;
