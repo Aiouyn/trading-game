@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { nextUpFromView } from "../../../src/apps/boards/nextUp";
 
 async function register(request: APIRequestContext, baseURL: string, handle: string) {
   const res = await request.post("/api/auth/register", { headers: { origin: baseURL }, data: { handle, password: "local-board-test" } });
@@ -6,6 +7,13 @@ async function register(request: APIRequestContext, baseURL: string, handle: str
 }
 
 const lb = (page: Page) => page.getByTestId("leaderboard").first();
+
+function tableMoney(amount: string): string {
+  const sign = amount.startsWith("-") ? "-" : "";
+  const raw = sign ? amount.slice(1) : amount;
+  const [w, f] = raw.split(".");
+  return `${sign}$${w.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${f}`;
+}
 
 test("behind a closer player: the board names Next up and the exact gap, on phone and desktop", async ({ browser, baseURL }, info) => {
   test.setTimeout(120_000);
@@ -24,13 +32,30 @@ test("behind a closer player: the board names Next up and the exact gap, on phon
     const page = await ctx.newPage();
     await page.goto("/boards");
     await expect(lb(page)).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+    // A starts at $10,000.00; B drops a few dollars after the fee. On a fresh world A is the neighbour.
+    // Later tests sharing this server (this file's tie accounts, M2-03's trade) may leave someone closer,
+    // so the expected Next up is the closest public row still above B at the on-screen tick.
+    let view: { tick: number; rows: { handle: string; nw: string; self: boolean }[]; self: { handle: string; nw: string; self: boolean } | null } | null = null;
+    await expect.poll(async () => {
+      const res = await ctx.request.get("/api/leaderboard");
+      expect(res.ok(), await res.text()).toBeTruthy();
+      const body = await res.json() as { tick: number; rows: { handle: string; nw: string; self: boolean }[]; self: { handle: string; nw: string; self: boolean } | null };
+      const tick = await lb(page).getAttribute("data-tick");
+      if (tick !== String(body.tick)) return null;
+      view = body;
+      return body.tick;
+    }).not.toBeNull();
+    const expectNext = nextUpFromView(view!);
+    expect(expectNext.kind, "B just paid a fee, so someone at or above $10,000.00 should sit ahead").toBe("ahead");
+    if (expectNext.kind !== "ahead") throw new Error("unreachable");
     const next = lb(page).getByTestId("lb-next-up");
     await expect(next).toBeVisible();
     await expect(next).toContainText("Next up");
-    await expect(next).toContainText(A);
+    await expect(next).toContainText(expectNext.handle);
+    await expect(next).toContainText(tableMoney(expectNext.ahead));
     await expect(next).toContainText("ahead");
     const nextRow = lb(page).locator('[data-testid="lb-row"][data-next-up="true"]');
-    await expect(nextRow).toHaveAttribute("data-handle", A);
+    await expect(nextRow).toHaveAttribute("data-handle", expectNext.handle);
     await expect(nextRow.getByTestId("lb-next-chip")).toHaveText("Next up");
     await expect(lb(page).locator('[data-testid="lb-row"][data-self="true"]')).toHaveAttribute("data-handle", B);
     if (phone) {
@@ -60,7 +85,6 @@ test("unique lead and a tie at the top are stated, and do not invent a Next up",
     // Only assert lead when this account uniquely holds the best net worth.
     const leadLine = pageL.getByTestId("lb-lead");
     const nextLine = pageL.getByTestId("lb-next-up");
-    const tiedLine = pageL.getByTestId("lb-tied");
     if (await leadLine.count()) {
       await expect(leadLine).toHaveText("You're at the top of the board.");
       await expect(nextLine).toHaveCount(0);
