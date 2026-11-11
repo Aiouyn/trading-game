@@ -1,7 +1,7 @@
 // First playable slice of 15/16 claims: catalog RUMOR Wire stories resolve; TRUE moves lnV, FALSE reverts belief.
 // Specs: 05:324, 05:847–871, 05:1010–1011; 16:188–193, 16:562–565, 16:772.
 // Horizon is U(1,5) game days (16:564) = TICKS_PER_DAY..5×TICKS_PER_DAY. Truth draws use a server-only secret.
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { TICKS_PER_DAY } from "@/server/market/meme";
 import type { SourceBand } from "@/shell/contracts/channels";
 
@@ -11,7 +11,7 @@ export const RUMOR = {
   spreadTicks: 30,
   /** PARAM.mkt_belief_hl_days (5) in ticks, while unresolved. */
   hlTicks: 5 * TICKS_PER_DAY,
-  /** PARAM.mkt_belief_handoff_ticks (05:870). Confirmation nets X minus retained belief in one print. */
+  /** PARAM.mkt_belief_handoff_ticks (05:870). True confirms print X on the fact-only mark, then release b_c linearly over 15 ticks. */
   handoffTicks: 15,
   /** False-claim release half-life in ticks (05:871). */
   falseHlTicks: 60,
@@ -103,40 +103,46 @@ export type RumorBookOptions = {
   secret?: string;
 };
 
-/** Stable 32-bit FNV-1a (same family as wireStories; drawing it never touches the quote RNG). */
-export function rumorHash(key: string): number {
-  let h = 2166136261;
-  for (const c of key) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-  return h >>> 0;
-}
-
-const unit = (key: string) => rumorHash(key) / 0x1_0000_0000;
-
 /** 32-byte hex. Server-only; never shipped to a client. */
 export function newRumorSecret(): string {
   return randomBytes(32).toString("hex");
 }
 
-function drawKey(secret: string, seed: number, kind: string, id?: string): string {
-  return id === undefined ? `rumor:${secret}:${seed}:${kind}` : `rumor:${secret}:${seed}:${kind}:${id}`;
+/**
+ * Sealed draws: HMAC-SHA256(secret, seed|kind|id). The secret is the HMAC key, never an FNV input.
+ * Uniforms come from digest bytes (53-bit unit, or the first 32 bits for a small integer span).
+ */
+function rumorMac(secret: string, seed: number, kind: string, id?: string): Buffer {
+  const msg = id === undefined ? `${seed}|${kind}` : `${seed}|${kind}|${id}`;
+  return createHmac("sha256", secret).update(msg).digest();
+}
+
+function unitFromDigest(digest: Buffer): number {
+  const hi = digest.readUInt32BE(0);
+  const lo = digest.readUInt32BE(4);
+  return (hi * 0x200000 + (lo >>> 11)) / 0x20_0000_0000_0000;
+}
+
+function uint32FromDigest(digest: Buffer): number {
+  return digest.readUInt32BE(0) >>> 0;
 }
 
 export function hiddenAccuracyFor(seed: number, secret: string): number {
-  return RUMOR.accMin + (RUMOR.accMax - RUMOR.accMin) * unit(drawKey(secret, seed, "acc"));
+  return RUMOR.accMin + (RUMOR.accMax - RUMOR.accMin) * unitFromDigest(rumorMac(secret, seed, "acc"));
 }
 
 export function resolvesByTick(seed: number, id: string, publishTick: number, secret: string): number {
   const span = RUMOR.horizonMax - RUMOR.horizonMin + 1;
-  const n = RUMOR.horizonMin + (rumorHash(drawKey(secret, seed, "hz", id)) % span);
+  const n = RUMOR.horizonMin + (uint32FromDigest(rumorMac(secret, seed, "hz", id)) % span);
   return publishTick + RUMOR.horizonUnit * n;
 }
 
 export function drawIsTrue(seed: number, id: string, acc: number, secret: string): boolean {
-  return unit(drawKey(secret, seed, "true", id)) < acc;
+  return unitFromDigest(rumorMac(secret, seed, "true", id)) < acc;
 }
 
 export function drawFalseKind(seed: number, id: string, secret: string): "FIZZLED" | "DENIED" {
-  return unit(drawKey(secret, seed, "false", id)) < RUMOR.fizzleGivenFalse ? "FIZZLED" : "DENIED";
+  return unitFromDigest(rumorMac(secret, seed, "false", id)) < RUMOR.fizzleGivenFalse ? "FIZZLED" : "DENIED";
 }
 
 /** Beta(2,2) public track record (05:857): (hits+2)/(resolved+4). */
@@ -419,7 +425,8 @@ export class RumorBook {
       if (c.resolution !== "PENDING" || tick !== c.resolvesByTick) continue;
       if (c.isTrue) {
         c.resolution = "CONFIRMED";
-        // Drop this claim's retained belief first, then print X, so the mark never holds both (05:870 / 1011).
+        // Unwind this claim's b_c so X prints on the fact-only mark, then release b_c over 15 ticks (05:870 / 1011).
+        const have = this.belief.get(c.id)?.log ?? 0;
         this.belief.delete(c.id);
         this.syncMarks(applyLog);
         const printed = applyConfirmed
@@ -431,6 +438,9 @@ export class RumorBook {
           c.effect = { assetId: c.assetId, from: printed.from, to: printed.to };
         } else {
           this.addConfirmedValue(c.assetId, assertedLog(c.bp));
+        }
+        if (have !== 0) {
+          this.belief.set(c.id, { claimId: c.id, assetId: c.assetId, log: have, mode: "handoff", startLog: have, ticksLeft: RUMOR.handoffTicks });
         }
         this.source.hits += 1;
         this.source.resolved += 1;
@@ -452,7 +462,6 @@ export class RumorBook {
     for (const [id, pos] of [...this.belief.entries()]) {
       if (pos.mode === "pending") continue;
       if (pos.mode === "handoff") {
-        // Legacy snapshots only: finish a leftover 15-tick handoff. New confirms net immediately.
         const left = (pos.ticksLeft ?? 1) - 1;
         const start = pos.startLog ?? pos.log;
         const want = left <= 0 ? 0 : start * (left / RUMOR.handoffTicks);

@@ -1,6 +1,6 @@
-// First playable slice of 15/16: catalog RUMOR resolves; True → lnV += X with no-overshoot net (X − belief);
-// False → lnV unchanged, 60-tick HL release with integer-mark remainder carry; isTrue sealed by a server secret;
-// restart resumes lastTick; jump ≡ step.
+// First playable slice of 15/16: catalog RUMOR resolves; True → lnV += X on the fact-only mark, then 15-tick b_c handoff;
+// False → lnV unchanged, 60-tick HL release with integer-mark remainder carry; isTrue sealed by HMAC-SHA256(secret, …);
+// restart boot-hydrates lastTick; jump ≡ step.
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ASSET_BY_ID } from "@/market/catalog";
@@ -169,28 +169,64 @@ describe("belief, lnV, handoff, false release", () => {
     expect(last.get("TIDE")).toBeCloseTo(listing("TIDE") * Math.exp(bel), 10);
   });
 
-  it("True: lnV moves by the printed X, confirmation nets X minus retained belief, no overshoot", () => {
+  it("True: X prints on the fact-only mark; retained belief releases linearly over 15 ticks with no integer overshoot", () => {
     const { book: bookT, id } = findClaim(true);
-    const { last: lastT, applyLog: aL, applyConfirmed: aC } = marks();
+    const last = new Map<string, number>();
+    const applyLog = (assetId: string, log: number) => {
+      const from = last.get(assetId) ?? listing(assetId);
+      const to = Math.max(1, Math.round(from * Math.exp(log)));
+      last.set(assetId, to);
+      return { from, to };
+    };
+    const applyConfirmed = (assetId: string, bp: number) => {
+      const from = last.get(assetId) ?? listing(assetId);
+      const to = shockedMinor(from, bp);
+      last.set(assetId, to);
+      return { from, to };
+    };
+    const claim0 = bookT.claim(id)!;
+    expect(claim0.isTrue).toBe(true);
+    const resolve = claim0.resolvesByTick;
+    bookT.advanceTo(resolve - 1, applyLog, applyConfirmed);
+    expect(bookT.beliefLog("TIDE")).not.toBe(0);
+    const pre = last.get("TIDE")!;
+    bookT.advanceTo(resolve, applyLog, applyConfirmed);
     const claim = bookT.claim(id)!;
-    expect(claim.isTrue).toBe(true);
-    const resolve = claim.resolvesByTick;
-    bookT.advanceTo(resolve - 1, aL, aC);
-    const retained = bookT.beliefLog("TIDE");
-    expect(retained).not.toBe(0);
-    bookT.advanceTo(resolve, aL, aC);
-    expect(claimPhase(bookT.claim(id)!)).toBe("realized");
-    expect(bookT.claim(id)!.resolution).toBe("CONFIRMED");
-    const x = Math.log(bookT.claim(id)!.effect!.to / bookT.claim(id)!.effect!.from);
+    expect(claimPhase(claim)).toBe("realized");
+    expect(claim.resolution).toBe("CONFIRMED");
+    const from = claim.effect!.from, toX = claim.effect!.to;
+    expect(toX).toBe(shockedMinor(from, claim.bp));
+    expect(from).not.toBe(pre); // X was not printed on the belief-inflated mark
+    const x = Math.log(toX / from);
     expect(bookT.lnVOf("TIDE")).toBeCloseTo(x, 12);
     expect(bookT.sourceState()).toEqual({ sourceId: RUMOR.sourceId, hiddenAccuracy: accOf(1), hits: 1, resolved: 1 });
+    const hand = bookT.snapshot().belief.find((b) => b.claimId === id);
+    expect(hand?.mode).toBe("handoff");
+    const start = hand!.startLog!;
+    expect(start).not.toBe(0);
+    expect(hand!.ticksLeft).toBe(RUMOR.handoffTicks - 1);
+    expect(bookT.beliefLog("TIDE")).toBeCloseTo(start * ((RUMOR.handoffTicks - 1) / RUMOR.handoffTicks), 10);
+    const overshot = shockedMinor(pre, claim.bp); // X applied to the still-inflated pre mark
+    const lo = Math.min(toX, Math.max(1, Math.round(toX * Math.exp(start))));
+    const hi = Math.max(toX, Math.max(1, Math.round(toX * Math.exp(start))));
+    const mark0 = last.get("TIDE")!;
+    expect(mark0).toBeGreaterThanOrEqual(lo);
+    expect(mark0).toBeLessThanOrEqual(hi);
+    if (claim.bp < 0) expect(mark0).toBeGreaterThan(overshot);
+    else expect(mark0).toBeLessThan(overshot);
+    for (let k = 1; k <= RUMOR.handoffTicks; k++) {
+      bookT.advanceTo(resolve + k, applyLog, applyConfirmed);
+      const left = RUMOR.handoffTicks - 1 - k;
+      const want = left <= 0 ? 0 : start * (left / RUMOR.handoffTicks);
+      expect(bookT.beliefLog("TIDE")).toBeCloseTo(want, 10);
+      const mark = last.get("TIDE")!;
+      expect(mark).toBeGreaterThanOrEqual(lo);
+      expect(mark).toBeLessThanOrEqual(hi);
+      if (claim.bp < 0) expect(mark).toBeGreaterThan(overshot);
+      else if (claim.bp > 0) expect(mark).toBeLessThan(overshot);
+    }
     expect(Math.abs(bookT.beliefLog("TIDE"))).toBeLessThan(1e-12);
-    const end = lastT.get("TIDE")!;
-    const expected = listing("TIDE") * Math.exp(x);
-    expect(end).toBeCloseTo(expected, 6);
-    bookT.advanceTo(resolve + RUMOR.handoffTicks, aL, aC);
-    expect(Math.abs(bookT.beliefLog("TIDE"))).toBeLessThan(1e-12);
-    expect(lastT.get("TIDE")).toBeCloseTo(expected, 6);
+    expect(last.get("TIDE")).toBe(toX);
   });
 
   it("False: lnV stays 0, 60-tick half-life release, cause is FIZZLED or DENIED", () => {
@@ -265,10 +301,13 @@ describe("belief, lnV, handoff, false release", () => {
 
     const t = run(true);
     const atMinor = Math.round(t.at * 100);
-    expect(atMinor).toBe(t.c.effect!.to);
-    // Belief was removed before X, so the confirmation print starts at the pre-rumor integer mark.
+    // X prints on the pre-rumor (fact-only) mark; the confirm-tick last still holds decaying b_c.
     expect(t.c.effect!.from).toBe(Math.round(t.initial * 100));
-    expect(Math.round(t.end * 100)).toBe(atMinor);
+    expect(t.c.effect!.to).toBe(shockedMinor(t.c.effect!.from, t.c.bp));
+    expect(atMinor).not.toBe(t.c.effect!.to);
+    expect(atMinor).toBeGreaterThan(shockedMinor(Math.round(t.pending * 100), t.c.bp));
+    expect(atMinor).toBeLessThanOrEqual(Math.round(t.pending * 100));
+    expect(Math.round(t.end * 100)).toBe(t.c.effect!.to);
   });
 });
 
@@ -383,7 +422,7 @@ describe("jump ≡ step and restart", () => {
     expect(b.stormSnapshot().rumors!.lnV.find((r) => r.assetId === "TIDE")!.log).toBeCloseTo(x, 12);
   });
 
-  it("continuous run and stop/restart share rumor snapshot hashes at both cuts; parseWireSnapshot is non-null", () => {
+  it("boot hydration restores the rumor snapshot hash and tick at both cuts; parseWireSnapshot is non-null", () => {
     const store = new MemoryStormWorldStore();
     const continuous = new LiveMarket({ persistStorms: false, rumorSecret: SECRET, seed: SEED });
     const restartable = new LiveMarket({ persistStorms: true, stormWorld: store, rumorSecret: SECRET, seed: SEED });
