@@ -1,5 +1,6 @@
 import { LP, listPriceMinor, tickerOk } from "@/launchpad/rules";
 import { FAILURE_LAW, assertConservation } from "./engine";
+import { isPlainJson } from "./json";
 import type { FarmCoin, FarmReceipt, FarmReply, FarmState, FarmVenue, FarmWallet } from "./model";
 
 const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -54,7 +55,8 @@ function shape(v: unknown): v is FarmState {
 }
 /** Unknown JSON is narrowed once here. Corrupt or unknown-version saves are never repaired/reset. */
 export function parseFarm(raw: unknown): FarmState {
-  if (!shape(raw)) throw new Error("BAD_FARM_CHECKPOINT");
+  // Descriptor-only plain-JSON check first: no getter, toJSON or Proxy trap runs, and no sparse/NaN/class value survives.
+  if (!isPlainJson(raw) || !shape(raw)) throw new Error("BAD_FARM_CHECKPOINT");
   for (const [ticker, c] of Object.entries(raw.coins)) {
     const owner = raw.wallets[c.creator];
     if (ticker !== c.ticker || !Object.hasOwn(raw.wallets, c.creator) || !owner || c.createdHour > raw.hour || c.day !== Math.floor(raw.hour / 24)
