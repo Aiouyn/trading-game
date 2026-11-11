@@ -33,13 +33,16 @@ async function ticketEntry(page: Page, phone: boolean) {
   return entry;
 }
 
-test("ticket entry: visible before the chart, keyboard navigation only, draft preserved, explicit review and real fill", async ({ page, request, baseURL }, info) => {
+test("ticket entry: visible before the chart, keyboard navigation only, draft preserved, explicit review and real fill", async ({ page, baseURL }, info) => {
   test.setTimeout(90_000);
   const phone = info.project.name === "phone";
+  const request = page.context().request;
   const res = await request.post("/api/auth/register", { headers: { origin: baseURL! }, data: { handle: `Ticket${info.project.name}${Date.now().toString(36)}`, password: "local-ticket-entry-test" } });
   expect(res.status()).toBe(201);
   await page.goto("/broker?asset=HALC");
   await expect(b(page)).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+  await expect(page.getByTestId("account-chip").first()).toBeVisible();
+  await expect(b(page).getByTestId("market-tick")).toBeVisible();
   if (!phone) {
     await expect(b(page).getByTestId("br-ticket-entry")).toBeHidden();
     await shot(page, "desktop-wide-unchanged");
@@ -108,7 +111,7 @@ test("phone at 200% text keeps the ticket entry reachable without horizontal ove
   await page.goto("/settings");
   await expect(page.getByTestId("settings")).toBeVisible();
   await setTextScale(page, "2");
-  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByTestId("app-back").click();
   await page.getByTestId("icon-broker").click();
   await expect(b(page)).toHaveAttribute("data-state", "live");
   const entry = await ticketEntry(page, true);
