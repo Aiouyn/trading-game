@@ -1,0 +1,56 @@
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
+import { commandFarm, advanceFarm } from "./engine";
+import { parseFarm } from "./checkpoint";
+import type { FarmCommand, FarmFrame, FarmState } from "./model";
+
+export interface FarmStore { load(): Promise<FarmState | null>; save(state: FarmState): Promise<void> }
+/** Single-owner store. One engine owns a path; never mount the same path in two processes. */
+export class FileFarmStore implements FarmStore {
+  constructor(private readonly path: string) {}
+  async load(): Promise<FarmState | null> {
+    let text: string;
+    try { text = await readFile(this.path, "utf8"); }
+    catch (err) { if (err instanceof Error && "code" in err && err.code === "ENOENT") return null; throw err; }
+    return parseFarm(JSON.parse(text));
+  }
+  async save(state: FarmState): Promise<void> {
+    const validated = parseFarm(state);
+    await mkdir(dirname(this.path), { recursive: true });
+    const temp = `${this.path}.${randomUUID()}.tmp`;
+    try { await writeFile(temp, JSON.stringify(validated), { flag: "wx", mode: 0o600 }); await rename(temp, this.path); }
+    finally { await unlink(temp).catch((err: unknown) => { if (!(err instanceof Error && "code" in err && err.code === "ENOENT")) throw err; }); }
+  }
+}
+/** Serializes in-process commands; publish only after the whole checkpoint save succeeds. */
+export class FailureFarmEngine {
+  private queue: Promise<void> = Promise.resolve();
+  private constructor(private state: FarmState, private readonly store: FarmStore) {}
+  static async open(store: FarmStore, genesis?: FarmState): Promise<FailureFarmEngine> {
+    const loaded = await store.load();
+    if (loaded) return new FailureFarmEngine(parseFarm(loaded), store);
+    if (!genesis) throw new Error("MISSING_FARM_CHECKPOINT");
+    const state = parseFarm(genesis); await store.save(state);
+    return new FailureFarmEngine(state, store);
+  }
+  snapshot(): FarmState { return structuredClone(this.state); }
+  private enqueue<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(run); this.queue = result.then(() => undefined, () => undefined); return result;
+  }
+  execute(input: FarmCommand) {
+    const cmd = structuredClone(input);
+    return this.enqueue(async () => {
+      const next = commandFarm(this.state, cmd);
+      if (next.state !== this.state) { await this.store.save(next.state); this.state = next.state; }
+      return next.reply;
+    });
+  }
+  advance(input: readonly FarmFrame[]): Promise<void> {
+    const frames = structuredClone(input);
+    return this.enqueue(async () => {
+      const next = advanceFarm(this.state, frames);
+      if (next !== this.state) { await this.store.save(next); this.state = next; }
+    });
+  }
+}
