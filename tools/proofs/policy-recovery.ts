@@ -8,6 +8,7 @@ import { equityErpTickLog } from "@/server/market/shockFeed";
 import { advancePolicy, assertPolicyConservation, canonical, createPolicyState, residualLog } from "@/server/market/policyRecovery/engine";
 import { catalogDecisions } from "@/server/market/policyRecovery/catalog";
 import { FilePolicyStore, PolicyRecoveryEngine } from "@/server/market/policyRecovery/store";
+import { observed } from "@/server/market/policyRecovery/inputs";
 import { frame, frames, genesis, scenario, TEST_EPOCH } from "../../tests/fixtures/policyRecovery";
 import { policyLiveFixture } from "../../tests/fixtures/policyLive";
 const digest = (v: unknown) => createHash("sha256").update(canonical(v)).digest("hex");
@@ -20,7 +21,7 @@ async function main() {
     sourceFixtures: "Explicit future-live FSI/tension for phase scenarios; actual current LiveMarket/AuthService for source proof, never confuse them",
     comparisons: ["full state restart/jump equality", "cash delta must be0", "10 calm trading days or180 GD timeout", "ERP-only 260GD component and independent crash residual"],
     growthLimit: "matched deterministic ERP-only component, not full SDE/cost-adjusted return or forecast; no execution guarantee",
-    flashDefinition: "base half-life recovers70% of LOG gap/day; measure price recovery separately, do not call it70% price recovery" });
+    flashDefinition: "04:1024 70% of the PRICE drawdown recovered within one game day; module half-life solved per shock; shared shockFeed law (70% of log gap, 68.886% price) unchanged" });
   const clean = await mkdtemp(path.join(evidence, "clean-stores-"));
   const initial = scenario(), event = initial.events[0]!;
   const tape = frames(initial.hour + 1, event.recoveryHour + 40 * 24);
@@ -48,6 +49,16 @@ async function main() {
   assert.deepEqual(gxEngine.snapshot(), advancePolicy(gxInitial, gxTape)); assert.equal(gxEngine.snapshot().events.length, 1); assert.equal(gxEngine.snapshot().residuals.length, 0);
   await output("emergent-restart-proof.json", { actualObservedDrawdown: .2, hourlyPeakBeforeRestart: 12500, drawdownMarkAfterRestart: 10000, first24ConstraintNotApplied: true, savedLatch: gxEngine.snapshot().gxCrash,
     savedGxPeaks: gxInitial.gxHistory, restartFullStateEqual: true, noDuplicateEvent: true, noExtraTriggerShock: true, finalStateSha256: digest(gxEngine.snapshot()), cashDelta: 0, ok: true });
+  const highTape = [frame(24, { gx: 10000 }), ...frames(25, 100, { gx: 10000 })]; highTape[0]!.gxHigh = observed(12500, 24, "fixture:intra-hour-high");
+  const highStart = advancePolicy(createPolicyState({ epoch: TEST_EPOCH, seed: 17, wallets: [] }), frames(0, 23));
+  const highJump = advancePolicy(highStart, highTape);
+  let highEngine = await PolicyRecoveryEngine.open(new FilePolicyStore(path.join(clean, "gx-high.json")), highStart);
+  await highEngine.observe(highTape.slice(0, 1)); assert.deepEqual(highEngine.snapshot().gxHistory, [{ hour: 24, mark: 12500, basis: "HIGH" }]);
+  highEngine = await PolicyRecoveryEngine.open(new FilePolicyStore(path.join(clean, "gx-high.json")));
+  await highEngine.observe(highTape.slice(1)); assert.deepEqual(highEngine.snapshot(), highJump); assert.equal(highJump.events.length, 1);
+  const lastOnly = advancePolicy(highStart, frames(24, 100, { gx: 10000 })); assert.equal(lastOnly.events.length, 0);
+  await output("gx-intra-hour-high-proof.json", { suppliedHighCreatesEmergentCrash: true, lastOnlyTapeCreatesNone: true, liveHighStatus: "MISSING (LiveMarket exposes GX.last only)",
+    restartEqualsJump: true, savedPeakBasis: "HIGH", finalSha256: digest(highJump), cashDelta: 0, ok: true });
   const naturalInitial = genesis(), naturalTape = frames(naturalInitial.hour + 1, 800 * 24, { fsi: null, tension: null, fear: 100 });
   const naturalBatch = advancePolicy(naturalInitial, naturalTape); let naturalStepping = naturalInitial;
   for (const f of naturalTape) naturalStepping = advancePolicy(naturalStepping, [f]);
@@ -67,9 +78,17 @@ async function main() {
   const ended = advancePolicy(hit, frames(hit.hour + 1, horizon));
   const baseGrowthLog = equityErpTickLog() * 30 * (horizon - hit.hour), baseline = preCrash * Math.exp(baseGrowthLog);
   const recovered = baseline * Math.exp(residualLog(ended, "GX"));
-  assert.ok(Math.abs(dayGap / gap - .3) < 1e-12); assert.ok(recovered > preCrash); assert.equal(ended.events[0]!.phase.kind, "ENDED");
+  assert.ok(Math.abs((afterDay - crash) / (preCrash - crash) - .7) < 1e-12); assert.ok(recovered > preCrash); assert.equal(ended.events[0]!.phase.kind, "ENDED");
   assertPolicyConservation(ended);
   await new FilePolicyStore(path.join(clean, "flash-ended.json")).save(ended);
+  const flashTape = frames(flash.hour + 1, horizon), flashSplit = fe.triggerHour + 12 - flash.hour;
+  let flashEngine = await PolicyRecoveryEngine.open(new FilePolicyStore(path.join(clean, "flash-restart.json")), flash);
+  await flashEngine.observe(flashTape.slice(0, flashSplit));
+  flashEngine = await PolicyRecoveryEngine.open(new FilePolicyStore(path.join(clean, "flash-restart.json")));
+  await flashEngine.observe(flashTape.slice(flashSplit)); assert.deepEqual(flashEngine.snapshot(), ended);
+  let flashStep = flash; for (const f of flashTape) { flashStep = advancePolicy(flashStep, [f]); assertPolicyConservation(flashStep); }
+  assert.deepEqual(flashStep, ended);
+  await output("flash-restart-jump-proof.json", { restartMidRecoveryEqualsJump: true, hourlyEqualsJump: true, splitHour: fe.triggerHour + 12, finalSha256: digest(ended), cashDelta: 0, ok: true });
   await output("growth-recovery-proof.json", { basis: "260GD ERP-only component, base equityErpTickLog; not full price calibration", preCrash, crash, afterOneGameDayNoErp: afterDay,
     logGapRecoveredFraction: 1 - dayGap / gap, priceDrawdownRecoveredFraction: (afterDay - crash) / (preCrash - crash),
     horizonGameDays: 260, baseline, afterCrashAndUnwind: recovered, erpComponentReturn: recovered / preCrash - 1,
@@ -82,12 +101,12 @@ async function main() {
   await output("finite-book-proof.json", { before: book, executed: { qty: sale.qty, notional: sale.notional, fee: sale.fee }, after: sale.book, sellerBefore, sellerAfter,
     exhaustedBookHasNoCounterparty: true, cashDelta: 0, noPolicyRefill: true, ok: true });
   const live = await policyLiveFixture();
-  assert.equal(live.before.fsi.kind, "MISSING"); assert.equal(live.afterGraduation.cryptoHype.kind, "LIVE"); assert.equal(live.cashDelta, 0);
+  assert.equal(live.before.fsi.kind, "MISSING"); for (const x of [live.before, live.afterGraduation, live.afterHype, live.afterBook]) { assert.equal(x.gxHigh.kind, "MISSING"); assert.equal(x.banks.kind, "MISSING"); } assert.equal(live.afterGraduation.cryptoHype.kind, "LIVE"); assert.equal(live.cashDelta, 0);
   const beforeDecision = catalogDecisions(live.afterGraduation).find((d) => d.kind === "CRYPTO_WINTER"), afterDecision = catalogDecisions(live.afterHype).find((d) => d.kind === "CRYPTO_WINTER");
   assert.equal(beforeDecision?.status, "READY"); assert.equal(afterDecision?.status, "INELIGIBLE");
   await output("live-catalog-proof.json", { ...live, beforeDecision, afterDecision, decisions: catalogDecisions(live.afterBook), ok: true });
-  await output("summary.json", { restartJump: true, cleanFiles: 5, conserveEveryHourlyStep: true, noCashCreation: true, finiteBook: true, liveCaptureReadOnly: true,
-    liveUnsupportedFsiStillMissing: true, noAppMounting: true, approximateFlashPriceTarget: "68.89% price drawdown recovered/day vs70% LOG-gap; disclosed, not retuned", ok: true });
+  await output("summary.json", { restartJump: true, cleanFiles: 7, conserveEveryHourlyStep: true, noCashCreation: true, finiteBook: true, liveCaptureReadOnly: true,
+    liveUnsupportedFsiStillMissing: true, noAppMounting: true, flashPriceRecoveredPerGameDay: .7, sharedShockFeedFlashPriceRecovery: "68.886% (unchanged shared law; module does not drive live marks)", gxHighLive: "MISSING", ok: true });
   console.log(`policy proofs: ${evidence}; restart/jump/conservation pass; no live mounting; actual adapter and missing-source evidence saved`);
 }
 main().finally(() => resetListingsForTests()).catch((e: unknown) => { console.error(e); process.exitCode = 1; });

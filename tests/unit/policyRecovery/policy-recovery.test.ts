@@ -140,7 +140,8 @@ describe("policy, conservation and crisis phases", () => {
     let s = scenario({ kind: "FLASH_CRASH" }); const e = s.events[0]!;
     s = advancePolicy(s, frames(s.hour + 1, e.triggerHour));
     const gap0 = residualLog(s, "GX"), gap1 = residualLog(s, "GX", s.hour + 24);
-    expect(gap1 / gap0).toBeCloseTo(.3, 14);
+    // 04:1024: 70% of the PRICE drawdown recovered within one game day (not 70% of the log gap).
+    expect((Math.exp(gap1) - Math.exp(gap0)) / (1 - Math.exp(gap0))).toBeCloseTo(.7, 12);
     s = advancePolicy(s, frames(s.hour + 1, e.recoveryHour + 40 * 24));
     expect(s.events[0]!.phase.kind).toBe("ENDED"); expect(residualLog(s, "GX", s.hour + 24)).toBeGreaterThanOrEqual(residualLog(s, "GX"));
     expect(s.wallets).toEqual(genesis().wallets);
@@ -235,6 +236,11 @@ it("reads actual live clock and locked committed Launchpad updates, no writes or
   expect(r.afterHype.cryptoHype).toMatchObject({ kind: "LIVE", value: .1 });
   expect(catalogDecisions(r.afterHype).find((d) => d.kind === "CRYPTO_WINTER")?.status).toBe("INELIGIBLE");
   expect(r.afterBook.launchpad).not.toEqual(r.afterHype.launchpad);
+  for (const x of [r.before, r.afterGraduation, r.afterHype, r.afterBook]) {
+    expect(x.gx.kind).toBe("LIVE");
+    expect(x.gxHigh).toEqual({ kind: "MISSING", source: "gxHigh", reason: "LiveMarket snapshot exposes GX.last only; no intra-hour high is recorded" });
+    expect(x.banks.kind).toBe("MISSING");
+  }
   expect(r.readOnlyCapture).toBe(true); expect(r.cashDelta).toBe(0);
   expect(canonical(r)).not.toMatch(/acc_|password|holdings|receipts|creatorId|sessionId/);
 });

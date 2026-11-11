@@ -65,3 +65,19 @@ Items and planned handling:
 - Bank-health facts. The sys/banking-core ledger read model is on an unmerged, default-off, unmounted branch. Its regions (`FU`) have no agreed mapping to the catalog's currency blocs. Importing it would put an unmounted module into a live path. `banks` therefore stays MISSING, and the doc names the adapter seam. FSI and macro sources stay MISSING.
 
 Checks: lint, typecheck, build, check-hooks, npm test, ledger map-no-dup, and route-budget with BUDGET_PORT=3440. Then one affected e2e in a fresh detached worktree with fresh .data on 3441, removed afterwards. Then clean-store proofs including restart/jump equivalence and conservation. Evidence goes in `/workspace/avalon/evidence/sys-policy-recovery/hardening/`. Identity forge@ only. Commit and stop without pushing.
+
+### Hardening results
+
+- (a) The tip already rejected every catalog-input Proxy as `INVALID_CATALOG_INPUTS`, with zero traps, on `parseInputs`, `advancePolicy`, `proposeMajor` and `observe`. The probe log is `hardening/proxy-probe-tip.log`. It found one remaining path: a Proxy policy **state** passed to `advancePolicy` raised `DataCloneError`, and the same in `proposeMajor` invoked a trap. Both now validate the state with `parsePolicyState` before cloning or reading it, and reject with `INVALID_POLICY_CHECKPOINT` and zero traps.
+- (b) The premise is confirmed: 68.886% is the price-drawdown equivalent of 70% recovery of the log gap. The module now solves the FLASH_CRASH residual half-life per shock, and severities 0.6, 1 and 1.4 recover exactly 70% of the price drawdown after 24 game hours. `shockFeed.ts` is unchanged. Its live-market flash law still gives 68.886%, which is open for Builder coordination if live marks must meet 04:1024 too.
+- (c) `time.ts` makes the tick-to-UTC, UTC-band, hour-to-tick and trading-hour maps explicit, and they are tested. Snapping scheduled triggers stays open until a durable `WorldClockAnchor` owner exists.
+- (d) `gxHigh` is a typed reading. On live it is MISSING, with the reason. Peak candidates record a basis of `HIGH` or `LAST`. The checkpoint moves to V3, and V2 is rejected.
+
+Still OPEN before mount:
+- Live FLASH law in shared `shockFeed.ts`, as described in (b).
+- Durable clock anchor and trigger snapping, as described in (c).
+- A real GX intra-hour high source.
+- Bank-health adapter from a mounted banking-core read model, including the region-to-bloc mapping.
+- Real FSI, macro and emergency sources.
+- One atomic treasury owner.
+- Mounting.

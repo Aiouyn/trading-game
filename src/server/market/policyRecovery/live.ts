@@ -2,13 +2,13 @@ import { ASSET_BY_ID } from "@/market/catalog";
 import { parseMinor } from "@/market/quoteSnapshot";
 import type { AuthService } from "@/server/auth/service";
 import type { LiveMarket } from "../clock";
-import { TICKS_PER_HOUR } from "../meme";
 import { missing, missingInputs, observed, parseInputs, type CatalogInputs } from "./inputs";
+import { hourOfTick } from "./time";
 
 /** Read-only snapshot inside the existing Launchpad lock; no accounts, holdings, claims or cash writes. */
 export function captureLiveCatalog(market: LiveMarket, auth: AuthService): Promise<CatalogInputs> {
   return auth.readLaunchpad(null, (lp) => {
-    const snapshot = market.snapshot(), world = market.worldView(), hour = Math.floor(snapshot.tick / TICKS_PER_HOUR);
+    const snapshot = market.snapshot(), world = market.worldView(), hour = hourOfTick(snapshot.tick);
     const out = missingInputs(market.epoch, hour);
     out.fear = observed(world.fear, hour, "LiveMarket.worldView.fear");
     const crises = market.stormSnapshot().crises, week = crises?.crisisWeek;
@@ -18,6 +18,11 @@ export function captureLiveCatalog(market: LiveMarket, auth: AuthService): Promi
     const gx = snapshot.quotes.rows.GX, dp = ASSET_BY_ID.GX?.displayDecimals;
     const mark = gx && dp !== undefined ? parseMinor(gx.last, dp) : null;
     out.gx = mark !== null && mark > 0 ? observed(mark, hour, "LiveMarket.snapshot.GX") : missing("GX", "quote unavailable");
+    // LiveMarket keeps only GX.last per quote; no intra-hour high exists to read. Report it missing, never last-as-high.
+    out.gxHigh = missing("gxHigh", "LiveMarket snapshot exposes GX.last only; no intra-hour high is recorded");
+    // Bank health: sys/banking-core's ledger read model is unmerged, default-off and unmounted, and its regions have no
+    // agreed mapping to catalog blocs. Seam, not a live read (docs/v1/units/policy-recovery.md).
+    out.banks = missing("banks", "no mounted bank-health read model; banking-core ledger adapter is a before-mount seam");
     const graduated = lp.coins.filter((c) => c.grad && c.book);
     const hype = graduated.map((c) => market.hypeOf(c.ticker)).filter((h): h is number => h !== null);
     out.cryptoHype = graduated.length > 0 && hype.length === graduated.length

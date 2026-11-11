@@ -13,7 +13,7 @@ export interface Housing { bloc: Bloc; gap: number; z: number }
 export interface LaunchpadAggregate { graduated: number; cashCents: number; poolSamples: number; liquidating: number }
 export interface Emergency { id: string; hour: number; blocs: Bloc[] }
 export interface CatalogValues {
-  fear: number; regime: Regime; gx: number; crisisWeek: boolean; fsi: number; tension: number; cryptoHype: number; minStablecoinBacking: number;
+  fear: number; regime: Regime; gx: number; gxHigh: number; crisisWeek: boolean; fsi: number; tension: number; cryptoHype: number; minStablecoinBacking: number;
   semisValuationZ: number; aiRace: number; worldHeadlineInflation: number; poolUnderwritingQuality: number; repoLeverageIndex: number;
   defaultRateRising: boolean; valuation: Valuation[]; credit: Credit[]; banks: Bank[]; fx: Fx[]; sovereign: Sovereign[]; housing: Housing[];
   launchpad: LaunchpadAggregate; emergencies: Emergency[];
@@ -51,7 +51,7 @@ const rows = <T>(guard: (v: unknown) => v is T) => (v: unknown): v is T[] => Arr
   && new Set(v.map((r) => object(r) ? r.bloc : undefined)).size === BLOCS.length;
 const validators: { [K in CatalogKey]: (v: unknown) => v is CatalogValues[K] } = {
   crisisWeek: (v: unknown): v is boolean => typeof v === "boolean",
-  fear: range(0, 100), regime, gx: (v: unknown): v is number => integer(v) && v > 0, fsi: range(0, 1), tension: range(0, 100),
+  fear: range(0, 100), regime, gx: (v: unknown): v is number => integer(v) && v > 0, gxHigh: (v: unknown): v is number => integer(v) && v > 0, fsi: range(0, 1), tension: range(0, 100),
   cryptoHype: range(0, 1), minStablecoinBacking: range(0, 100), semisValuationZ: finite, aiRace: range(0, 100),
   worldHeadlineInflation: range(-1, 100), poolUnderwritingQuality: range(0, 1), repoLeverageIndex: range(0, 1e6),
   defaultRateRising: (v: unknown): v is boolean => typeof v === "boolean",
@@ -76,6 +76,9 @@ function isInputs(v: unknown): v is CatalogInputs {
   if (!object(v) || !text(v.epoch) || !integer(v.hour) || Object.keys(v).length !== Object.keys(validators).length + 2) return false;
   const hour = v.hour;
   if (!Object.entries(validators).every(([k, guard]) => readingOk(v[k], guard, hour))) return false;
+  const gx = v.gx, high = v.gxHigh;
+  // An observed intra-hour high cannot sit below the same hour's last print.
+  if (object(gx) && object(high) && gx.kind === "LIVE" && high.kind === "LIVE" && gx.observedHour === high.observedHour && Number(high.value) < Number(gx.value)) return false;
   const emergencies = v.emergencies;
   if (!object(emergencies)) return false;
   if (emergencies.kind === "MISSING") return true;

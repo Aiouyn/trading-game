@@ -25,7 +25,8 @@ The adapter reads these actual owners:
 | Field | Source |
 |---|---|
 | Fear and internal regime | `LiveMarket.worldView()` |
-| GX mark | `LiveMarket.snapshot().quotes.rows.GX` |
+| GX mark | `LiveMarket.snapshot().quotes.rows.GX` (last print only) |
+| GX intra-hour high | MISSING: LiveMarket records no intra-hour high |
 | Crisis Week active | `LiveMarket.stormSnapshot().crises.crisisWeek` |
 | Crypto hype | Mean of current `LiveMarket.hypeOf` values for every committed graduated coin |
 | Graduated count, cash backing, pool count, liquidation count | Locked Launchpad book and pool state |
@@ -41,6 +42,8 @@ stablecoin backing, AI, underwriting, repo leverage, and CB emergency records ar
 DEGEN liquidation counts are not bank defaults or FSI.
 GX returns are not valuation z.
 At every supplied game hour, the engine checks the current GX mark against observed hourly peaks within the last 21 trading days (04:1036), not just closes.
+An hour's peak is its intra-hour high (`gxHigh`) when a fresh one is supplied, with basis `HIGH`. Otherwise it is the observed last print, with basis `LAST`, which is a lower bound on the true high. The live adapter reports `gxHigh` as MISSING and never copies the last print into it. A high below the same hour's last print is rejected.
+Bank health (`banks`) stays MISSING on live. The sys/banking-core ledger read model is unmerged, default-off and unmounted, and its regions have no agreed mapping to these blocs. The adapter is a before-mount seam.
 A persisted monotone deque retains candidate peaks with their actual observation hour; weekdays advance the 24-hour trading clock and weekends pause it.
 A peak exactly 21 trading days old remains eligible; it expires at the next trading hour. Observed peaks on weekends are not silently discarded.
 The saved crash latch prevents a duplicate label after restart.
@@ -74,7 +77,8 @@ This follows `04:1036`.
 
 Time is consecutive game hours, with 24 hours per day and 30 ticks per hour.
 Scheduled precursors last 8 to 16 days. TRIGGER lasts exactly 24 hours. Contagion lasts 5 to 30 days.
-The current engine has no durable tick-to-UTC map and does not implement UTC-band snapping.
+`policyRecovery/time.ts` holds the explicit tick-to-UTC map from 02:1024: `genesisUtcMs + 5000·tick + reanchors applied from their atTick`. It also defines the three UTC bands of 04:1007 (00–08, 08–16, 16–24), the tick-granular first-tick-in-band search and band rotation, and the engine's hour↔tick and Mon–Fri trading-hour maps. All of these are unit-tested.
+Scheduled triggers are not snapped yet, because base has no durable `WorldClockAnchor` owner. Wiring the anchor is a before-mount step.
 It preserves the base's trigger price proxies, not the full macro precursor or downstream target machinery.
 
 ## Responses and recovery
@@ -130,8 +134,8 @@ The existing base's NPC funding and DEGEN credit are not imported or certified b
 `PolicyRecoveryEngine` copies inputs before queueing, serializes observations, and saves before publishing.
 Equal repeated observations are idempotent. Conflicting repeats, hourly gaps, and epoch changes fail without mutation.
 `FilePolicyStore` validates version, exact variants/fields, plain JSON, cash, identities, times, program receipts, residuals and hourly peak ordering/window.
-The checkpoint is now **V2** because the GX history contains hourly candidates rather than V1 closing prints.
-V1 checkpoints are explicitly rejected, not silently upgraded: missing historical intraday peaks cannot be reconstructed honestly. This isolated engine is not mounted.
+The checkpoint is now **V3**. Each GX peak records its basis (`HIGH` or `LAST`), and the FLASH_CRASH residual half-life is solved per shock.
+V1 and V2 checkpoints are rejected, not silently upgraded: an unobserved peak basis cannot be invented. This isolated engine is not mounted, so no store needs migration.
 It writes a temporary file then renames it. A corrupt existing file is rejected and retained, never reset from genesis.
 
 One engine owns one path. There is no multiprocess coordination, fsync guarantee, production authorization, quota system, or history-retention policy.
@@ -147,8 +151,8 @@ It proves capture is read-only and changes with paid graduation, clock hype, and
 
 The growth comparison isolates the existing ERP-only component for 260 game days.
 It is not a full stochastic price run, a cost-adjusted return, or a balance certification.
-The inherited FLASH_CRASH half-life recovers 70% of the log gap in a game day.
-The runner reports the corresponding price-drawdown recovery separately, about 68.89%, rather than claiming it met a 70% price target.
+04:1024 targets 70% of the **price** drawdown recovered within a game day. The shared `shockFeed.ts` law gives 70% of the log gap, which for −10% is 68.886% of the price drawdown.
+This module solves its own FLASH_CRASH half-life per shock, so the projection recovers exactly 70% of the price drawdown after 24 game hours. Shared `shockFeed.ts` is unchanged. Live-market flash shocks therefore still recover 68.886% until Builder changes that shared law.
 No parameter changes force that target.
 
 The clean-worktree browser run covers the unchanged live quotes, orders, candles, and Wire paths.

@@ -2,6 +2,7 @@ import { Draws } from "../meme";
 import { majorStockShocks } from "../crises";
 import { shockHalfLifeDays } from "../shockFeed";
 import { catalogDecisions, chooseMajor, executableKind, isKind, majorHazard, type CrisisKind } from "./catalog";
+import { tradingHour } from "./time";
 import { BLOCS, fresh, hasFields, integer, isPlainJson, live, object, parseInputs, text, type Bloc, type CatalogInputs } from "./inputs";
 
 export type ProgramKind = "ENERGY_SUBSIDY" | "FISCAL_SUPPORT";
@@ -19,15 +20,24 @@ export interface PolicyEvent {
 }
 export interface Residual { eventId: string; assetId: string; initialLog: number; startHour: number; halfLifeDays: number }
 export interface PolicyState {
-  v: 2; epoch: string; seed: number; startHour: number; hour: number; genesisCents: number; wallets: Wallet[]; programs: Program[];
-  events: PolicyEvent[]; residuals: Residual[]; gxHistory: { hour: number; mark: number }[]; gxCrash: "CLEAR" | "LATCHED"; suppressUntilHour: number | null; lastInputs: CatalogInputs | null;
+  v: 3; epoch: string; seed: number; startHour: number; hour: number; genesisCents: number; wallets: Wallet[]; programs: Program[];
+  events: PolicyEvent[]; residuals: Residual[]; gxHistory: GxPeak[]; gxCrash: "CLEAR" | "LATCHED"; suppressUntilHour: number | null; lastInputs: CatalogInputs | null;
+}
+/** A retained GX peak candidate. `LAST` means only the hour's last print was observed, a lower bound on that hour's high. */
+export interface GxPeak { hour: number; mark: number; basis: "HIGH" | "LAST" }
+/** 04:1024 FLASH_CRASH calibration: 70% of the price drawdown recovered within one game day. */
+export const FLASH_PRICE_RECOVERY_PER_DAY = .7;
+/**
+ * Residual half-life in game days. FLASH_CRASH is solved per shock so the price drawdown (not the log gap) recovers 70% in
+ * 24 game hours: exp(L0·2^(-1/h)) = 1 − 0.3·(1 − exp(L0)). Other kinds keep the shared shockFeed law.
+ */
+export function residualHalfLifeDays(kind: CrisisKind, initialLog: number): number {
+  if (kind !== "FLASH_CRASH" || !(initialLog < 0)) return shockHalfLifeDays(kind);
+  const dayLog = Math.log(1 - (1 - FLASH_PRICE_RECOVERY_PER_DAY) * (1 - Math.exp(initialLog)));
+  return -1 / Math.log2(dayLog / initialLog);
 }
 export interface Proposal { kind: CrisisKind; origin: PolicyEvent["origin"]; severity: number; precursorDays: number; contagionDays: number }
 const H = 24, CHAPTER = 1344 * H, GX_WINDOW_HOURS = 21 * H;
-const tradingHour = (hour: number) => {
-  const day = Math.floor(hour / H), weekday = day % 7;
-  return (Math.floor(day / 7) * 5 + Math.min(weekday, 5)) * H + (weekday < 5 ? hour % H : 0);
-};
 // 21 trading days span at most 31 calendar days, including boundary weekends.
 const GX_HISTORY_LIMIT = 31 * H + 1;
 const sumCash = (wallets: readonly Wallet[]): bigint => wallets.reduce((n, w) => n + BigInt(w.cents), BigInt(0));
@@ -39,7 +49,7 @@ export function createPolicyState(config: { epoch: string; seed: number; startHo
   if (!text(config.epoch) || !integer(config.seed) || !integer(startHour) || !wallets.every(walletOk) || !programs.every(programOk)) throw new Error("INVALID_GENESIS");
   const total = sumCash(wallets);
   if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("GENESIS_OVERFLOW");
-  const s: PolicyState = { v: 2, epoch: config.epoch, seed: config.seed, startHour, hour: startHour - 1, genesisCents: Number(total), wallets, programs,
+  const s: PolicyState = { v: 3, epoch: config.epoch, seed: config.seed, startHour, hour: startHour - 1, genesisCents: Number(total), wallets, programs,
     events: [], residuals: [], gxHistory: [], gxCrash: "CLEAR", suppressUntilHour: null, lastInputs: null };
   return parsePolicyState(s);
 }
@@ -85,10 +95,10 @@ function proposalOk(p: Proposal): boolean {
 /** Harness / trusted producer door; scheduled proposals still obey eligibility and constraints, but bypass the onset draw. */
 export function proposeMajor(state: PolicyState, p: Proposal, raw: CatalogInputs): PolicyState {
   if (!proposalOk(p)) throw new Error("INVALID_PROPOSAL");
-  const inputs = parseInputs(raw);
-  if (inputs.epoch !== state.epoch || inputs.hour !== state.hour) throw new Error("PROPOSAL_INPUT_TIME");
-  if (state.lastInputs && canonical(inputs) !== canonical(state.lastInputs)) throw new Error("PROPOSAL_OBSERVATION_CONFLICT");
-  const s = structuredClone(state); addEvent(s, p, inputs); return parsePolicyState(s);
+  const inputs = parseInputs(raw), current = parsePolicyState(state);
+  if (inputs.epoch !== current.epoch || inputs.hour !== current.hour) throw new Error("PROPOSAL_INPUT_TIME");
+  if (current.lastInputs && canonical(inputs) !== canonical(current.lastInputs)) throw new Error("PROPOSAL_OBSERVATION_CONFLICT");
+  addEvent(current, p, inputs); return parsePolicyState(current);
 }
 function firePrograms(s: PolicyState, e: PolicyEvent): void {
   const wanted = e.kind === "OIL_SHOCK" ? "ENERGY_SUBSIDY" : e.kind === "TRADE_WAR" ? "FISCAL_SUPPORT" : null;
@@ -132,7 +142,8 @@ function step(s: PolicyState, inputs: CatalogInputs): void {
     if (e.phase.kind === "PRECURSOR" && s.hour >= e.triggerHour) {
       e.phase = { kind: "TRIGGER", sinceHour: e.triggerHour };
       if (e.origin === "SCHEDULED" && executableKind(e.kind)) for (const shock of majorStockShocks(e.kind, e.severity)) {
-        s.residuals.push({ eventId: e.id, assetId: shock.assetId, initialLog: Math.log(1 + shock.bp / 10000), startHour: e.triggerHour, halfLifeDays: shockHalfLifeDays(e.kind) });
+        const initialLog = Math.log(1 + shock.bp / 10000);
+        s.residuals.push({ eventId: e.id, assetId: shock.assetId, initialLog, startHour: e.triggerHour, halfLifeDays: residualHalfLifeDays(e.kind, initialLog) });
       }
       firePrograms(s, e);
     }
@@ -144,10 +155,12 @@ function step(s: PolicyState, inputs: CatalogInputs): void {
   }
   s.gxHistory = s.gxHistory.filter((r) => tradingHour(s.hour) - tradingHour(r.hour) <= GX_WINDOW_HOURS);
   if (fresh(inputs, "gx")) {
-    const gx = live(inputs, "gx");
+    const gx = live(inputs, "gx"), high = fresh(inputs, "gxHigh") ? live(inputs, "gxHigh") : null;
+    // The hour's peak is its observed intra-hour high when supplied; otherwise only the last print is known (basis LAST).
+    const candidate: GxPeak = high === null ? { hour: s.hour, mark: gx, basis: "LAST" } : { hour: s.hour, mark: high, basis: "HIGH" };
     // Monotone deque retains every still-relevant hourly peak and its actual expiry hour.
-    while (s.gxHistory.length && s.gxHistory.at(-1)!.mark <= gx) s.gxHistory.pop();
-    s.gxHistory.push({ hour: s.hour, mark: gx });
+    while (s.gxHistory.length && s.gxHistory.at(-1)!.mark <= candidate.mark) s.gxHistory.pop();
+    s.gxHistory.push(candidate);
     const peak = s.gxHistory[0]!.mark, crash = 1 - gx / peak >= .2 - 1e-12;
     if (crash && s.gxCrash === "CLEAR") addEvent(s, { kind: "EQUITY_BUBBLE_BURST", origin: "EMERGENT", severity: 1, precursorDays: 0, contagionDays: 17.5 }, inputs);
     s.gxCrash = crash ? "LATCHED" : "CLEAR";
@@ -173,7 +186,7 @@ export function canonical(v: unknown): string {
 }
 export function advancePolicy(state: PolicyState, frames: readonly CatalogInputs[]): PolicyState {
   if (!isPlainJson(frames)) throw new Error("INVALID_CATALOG_INPUTS");
-  const s = structuredClone(state);
+  const s = parsePolicyState(state);
   for (const raw of frames) {
     const inputs = parseInputs(raw);
     if (inputs.epoch !== s.epoch) throw new Error("EPOCH_MISMATCH");
@@ -227,7 +240,7 @@ function eventOk(e: unknown, hour: number): e is PolicyEvent {
   }
 }
 function isState(v: unknown): v is PolicyState {
-  if (!object(v) || !hasFields(v, ["v", "epoch", "seed", "startHour", "hour", "genesisCents", "wallets", "programs", "events", "residuals", "gxHistory", "gxCrash", "suppressUntilHour", "lastInputs"]) || v.v !== 2 || !text(v.epoch) || v.epoch.length > 64 || !integer(v.seed) || !integer(v.startHour) || typeof v.hour !== "number" || !Number.isSafeInteger(v.hour)
+  if (!object(v) || !hasFields(v, ["v", "epoch", "seed", "startHour", "hour", "genesisCents", "wallets", "programs", "events", "residuals", "gxHistory", "gxCrash", "suppressUntilHour", "lastInputs"]) || v.v !== 3 || !text(v.epoch) || v.epoch.length > 64 || !integer(v.seed) || !integer(v.startHour) || typeof v.hour !== "number" || !Number.isSafeInteger(v.hour)
     || v.hour < v.startHour - 1 || !integer(v.genesisCents) || !Array.isArray(v.wallets) || !v.wallets.every(walletOk) || new Set(v.wallets.map((w) => w.id)).size !== v.wallets.length
     || !Array.isArray(v.programs) || !v.programs.every(programOk)) return false;
   const hour = v.hour, startHour = v.startHour, wallets = v.wallets, programs = v.programs, epoch = v.epoch;
@@ -235,7 +248,7 @@ function isState(v: unknown): v is PolicyState {
     || v.events.filter((e) => e.phase.kind !== "ENDED").length > 1 || new Set(v.events.map((e) => e.id)).size !== v.events.length
     || !(v.suppressUntilHour === null || integer(v.suppressUntilHour)) || !Array.isArray(v.residuals)
     || (v.gxCrash !== "CLEAR" && v.gxCrash !== "LATCHED") || !Array.isArray(v.gxHistory) || v.gxHistory.length > GX_HISTORY_LIMIT
-    || !v.gxHistory.every((r) => object(r) && hasFields(r, ["hour", "mark"]) && integer(r.hour) && r.hour >= startHour && r.hour <= hour && tradingHour(hour) - tradingHour(r.hour) <= GX_WINDOW_HOURS && integer(r.mark) && r.mark > 0)
+    || !v.gxHistory.every((r) => object(r) && hasFields(r, ["hour", "mark", "basis"]) && (r.basis === "HIGH" || r.basis === "LAST") && integer(r.hour) && r.hour >= startHour && r.hour <= hour && tradingHour(hour) - tradingHour(r.hour) <= GX_WINDOW_HOURS && integer(r.mark) && r.mark > 0)
     || !v.gxHistory.every((r, i, a) => i === 0 || r.hour > a[i - 1].hour && r.mark < a[i - 1].mark)) return false;
   const events = v.events;
   if (!events.every((e, i) => e.id === `policy:${epoch}:${e.startHour}:${e.kind}` && (i === 0 || e.startHour > events[i - 1].startHour))) return false;
@@ -253,7 +266,7 @@ function isState(v: unknown): v is PolicyState {
     const got = v.residuals.filter((r) => r.eventId === e.id);
     const shocks = e.origin === "SCHEDULED" && hour >= e.triggerHour && executableKind(e.kind) ? majorStockShocks(e.kind, e.severity) : [];
     if (got.length !== shocks.length || new Set(got.map((r) => r.assetId)).size !== got.length) return false;
-    if (!shocks.every((r) => got.some((g) => g.assetId === r.assetId && g.initialLog === Math.log(1 + r.bp / 10000) && g.halfLifeDays === shockHalfLifeDays(e.kind)))) return false;
+    if (!shocks.every((r) => got.some((g) => g.assetId === r.assetId && g.initialLog === Math.log(1 + r.bp / 10000) && g.halfLifeDays === residualHalfLifeDays(e.kind, g.initialLog)))) return false;
   }
   if (v.lastInputs === null) return hour === v.startHour - 1 && events.length === 0 && v.residuals.length === 0;
   try { const last = parseInputs(v.lastInputs); return last.hour === hour && last.epoch === v.epoch; } catch { return false; }
