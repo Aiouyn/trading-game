@@ -2,13 +2,12 @@ import { expect, test, type Page } from "@playwright/test";
 import { readdirSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-function moduleChunk(name: "settings" | "news") {
+function moduleChunks(name: "settings" | "news") {
   const marker = name === "settings" ? '"settings-account"' : '"ap-news"';
   const dir = join(process.cwd(), ".next/static/chunks");
   const chunks = readdirSync(dir).filter((f) => f.endsWith(".js") && readFileSync(join(dir, f), "utf8").includes(marker));
-  const [chunk, ...extra] = chunks;
-  if (chunk === undefined || extra.length) throw new Error(`${name} must have one real lazy production chunk: ${chunks.join(", ")}`);
-  return chunk;
+  if (!chunks.length) throw new Error(`${name} must have a real lazy production chunk`);
+  return chunks;
 }
 async function shot(page: Page, name: string) {
   if (!process.env.RETRY_SHOTS_DIR) return;
@@ -18,7 +17,7 @@ async function shot(page: Page, name: string) {
 for (const name of ["settings", "news"] satisfies ("settings" | "news")[]) for (const locale of ["en", "fr"]) {
   test(`lazy ${name} ${locale}: abort stays scoped; explicit Retry reimports and recovers focus`, async ({ page }, info) => {
     let blocked = true, attempts = 0;
-    await page.route(`**/_next/static/chunks/${moduleChunk(name)}`, async (route) => {
+    for (const chunk of moduleChunks(name)) await page.route(`**/_next/static/chunks/${chunk}`, async (route) => {
       attempts++;
       if (blocked) await route.abort("failed"); else await route.continue();
     });
