@@ -5,11 +5,11 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useShellStore } from "@/components/shell/ShellContext";
 import type { Position, TickerRow } from "@/shell/contracts/channels";
+import { AssetOverview } from "./AssetOverview";
 import type { BrStrings } from "./strings-en";
 import "./assetPage.css";
 
 const AssetNews = lazy(() => import("./AssetNews").then((m) => ({ default: m.AssetNews })));
-const AssetOverview = lazy(() => import("./AssetOverview").then((m) => ({ default: m.AssetOverview })));
 
 type AboutTab = "overview" | "news";
 
@@ -78,11 +78,11 @@ export function AssetPage({ t, locale, id, assetId, row, position, phone, onTrad
       <h2 ref={heading} id={`${base}-h`} className="ap-title label" tabIndex={-1} data-testid="br-about-title">{t.viewAbout}</h2>
       <Tabs label={t.tabsAria} tabs={tabs} value={tab} onSelect={setTab} testId="br-about-tabs" idOf={tabId} />
       <div className="ap-panel" role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)} data-testid="br-about-panel" data-tab={tab}>
-        <Suspense fallback={<div className="ap-skel" role="status" aria-busy="true" aria-label={tab === "news" ? t.newsLoading : t.viewAbout} />}>
-          {tab === "overview"
-            ? <AssetOverview t={t} locale={locale} assetId={assetId} row={row} position={position} />
-            : <AssetNews t={t} assetId={assetId} />}
-        </Suspense>
+        {tab === "overview"
+          ? <AssetOverview t={t} locale={locale} assetId={assetId} row={row} position={position} />
+          : <Suspense fallback={<div className="ap-skel" data-testid="ap-news-loading" aria-busy="true" aria-label={t.newsLoading} />}>
+              <AssetNews t={t} assetId={assetId} />
+            </Suspense>}
       </div>
     </section>
   );

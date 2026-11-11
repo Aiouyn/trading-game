@@ -26,10 +26,10 @@ test("Broker does not fetch Settings; the cold Account entry still opens a usabl
   expect(await loaded()).toContain('"settings-account"');
 });
 
-test("Broker defers optional About bodies without losing entry focus or the trade draft", async ({ page }, info) => {
+test("Broker keeps Overview synchronous and defers News without losing entry focus or the trade draft", async ({ page }, info) => {
   const loaded = scripts(page);
   await openBroker(page);
-  expect(await loaded()).not.toContain('"ap-overview"');
+  expect(await loaded()).toContain('"ap-overview"');
   expect(await loaded()).not.toContain('"ap-news"');
   const qty = page.getByTestId("br-qty").first();
   await qty.fill("7");
