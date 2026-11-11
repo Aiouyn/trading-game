@@ -24,13 +24,15 @@ A serverless host would first need a hosted session store. That store is owned b
 | Log sink | `QUAY_LOG_SINK`, `LOGTAIL_SOURCE_TOKEN`, `AXIOM_TOKEN`, `DATADOG_API_KEY` | Boot throws. | Marked enabled. No drain is opened. |
 | Tick host | `QUAY_TICK_HOST` | Boot throws. | Marked enabled. The in-process clock is the only ticker this build starts. |
 
-Flags must be unset or exactly `1`. `true`, `yes`, and empty-looking padding are a boot failure. Error text names the variable and never prints the value.
+Flags must be unset or exactly `1`. The value is not trimmed: `true`, `yes`, ` 1`, and `1 ` refuse to boot. Error text names the variable and never prints the value.
 
 Boot calls `assertBootEnv` from `src/instrumentation.ts` before the server takes requests. `GET /api/health` reports `spendOptIn`, `paidProviders`, `killSwitch`, `readOnly`, and `tickAutostart`. It does not start the clock.
 
 ## Kill switch
 
-`QUAY_KILL_SWITCH=1` pauses the in-process quote interval (`LiveMarket.start` and autostart) and makes `src/proxy.ts` answer mutating `/api/*` requests with **503** `READ_ONLY`. GET, HEAD, and OPTIONS still work, including `/api/health`.
+`QUAY_KILL_SWITCH=1` pauses the in-process quote interval (`LiveMarket.start` and autostart) and makes `src/proxy.ts` answer mutating `/api/*` requests with **503** and `{ error: { code: "READ_ONLY", message: "The game is paused." } }`. Register, login, and Place order show that sentence. GET, HEAD, and OPTIONS still work, including `/api/health`.
+
+The flag is exact. `QUAY_KILL_SWITCH= 1` does not pause the game; it refuses to boot.
 
 ## Cost drivers
 
@@ -78,6 +80,13 @@ Clean env: exits 0 after a write probe of the local auth and market directories 
 A paid database URL without opt-in makes `ready` exit 1. With opt-in it prints that it did **not** connect.
 
 `npm run preflight` stays the CI app-check mirror. It is not this hosting check.
+
+## Known gaps
+
+These reads still write while the kill switch is on. They are not this unit.
+
+- `GET /api/auth/me` updates `lastSeenAtMs`. That belongs to the auth lane.
+- `GET /api/wire` resolves due statements. That belongs to `eng/wire-read-only`.
 
 ## Hand check
 

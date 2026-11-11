@@ -68,10 +68,11 @@ function present(env: SpendEnv, key: string): string | null {
   return value.length > 0 ? value : null;
 }
 
+/** Unset or exactly "1". Not trimmed: " 1" and "1 " refuse to boot. */
 function assertFlag(env: SpendEnv, name: string): boolean {
-  const value = present(env, name);
-  if (value === null) return false;
-  if (value !== "1") {
+  const raw = env[name];
+  if (raw === undefined || raw === "") return false;
+  if (raw !== "1") {
     throw new SpendGuardError(`Spend guard: ${name} must be unset or exactly "1". Refusing to start.`);
   }
   return true;
@@ -168,6 +169,6 @@ export function readOnlyBlock(env: SpendEnv, method: string): { status: 503; mes
   if (SAFE_METHODS.has(method.toUpperCase())) return null;
   return {
     status: 503,
-    message: "Spend guard kill switch is on. Ticks are paused and mutations are refused.",
+    message: "The game is paused.",
   };
 }

@@ -6,7 +6,10 @@ import { readOnlyBlock } from "@/server/spend/guard";
 export function proxy(request: NextRequest) {
   const block = readOnlyBlock(process.env, request.method);
   if (!block) return NextResponse.next();
-  return NextResponse.json({ error: "READ_ONLY", message: block.message }, { status: block.status });
+  return NextResponse.json(
+    { error: { code: "READ_ONLY", message: block.message } },
+    { status: block.status },
+  );
 }
 
 export const config = {

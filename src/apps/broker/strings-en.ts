@@ -59,6 +59,7 @@ export const EN = {
   offlineNoPlace: "You're offline. Prices shown are the last received. Place is off until you're back online.",
   placeOffline: "You're offline. Nothing was sent.",
   placeUnknown: "No answer from the server. This order may have gone through. Check Open orders and Positions before placing it again.",
+  gamePaused: "The game is paused.",
   note: "Prices can fall. That's the game.",
   pending: (n: string) => `Pending · tick ${n}`,
   bought: (qty: string, ticker: string, price: string) => `Bought ${qty} ${ticker} at ${price}`,

@@ -1,7 +1,7 @@
 // Documented CALIBRATION bands (20 §3.7 / 05 / 06) — assert reachable; report structural misses.
 // Heavy live walks (12×60 GD GX, 8-seed calm ShockFeed, FROG events-on) are precomputed in
 // fixtures/calibration-unit.json by the same runners (liveGxPath, calmFeedCloses, frogEventCloses).
-// Regen: npx tsx --tsconfig tsconfig.json tools/ci/regen-calibration-fixture.ts
+// Regen: npx tsx --tsconfig tsconfig.json tools/ops/regen-calibration-fixture.ts
 // Full 60-seed CAGR table remains a proof / GK-DELTA run, as before.
 import { readFileSync } from "node:fs";
 import path from "node:path";

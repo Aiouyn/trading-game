@@ -36,6 +36,7 @@ export const FR: BrStrings = {
   offlineNoPlace: "Vous êtes hors ligne. Les cours affichés sont les derniers reçus. Placer est désactivé jusqu’au retour de la connexion.",
   placeOffline: "Vous êtes hors ligne. Rien n’a été envoyé.",
   placeUnknown: "Aucune réponse du serveur. Cet ordre a peut-être été passé. Vérifiez les ordres ouverts et les positions avant de le repasser.",
+  gamePaused: "Le jeu est en pause.",
   note: "Les cours peuvent baisser. C’est le jeu.",
   pending: (n) => `En attente · tick ${n}`,
   bought: (qty, ticker, price) => `Achat de ${qty} ${ticker} à ${price}`,
