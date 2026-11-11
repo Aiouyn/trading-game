@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readdirSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { openPhoneTicket, closePhoneTicket } from "./ticketSheet";
 
 function moduleChunks(name: "settings" | "news") {
   const marker = name === "settings" ? '"settings-account"' : '"ap-news"';
@@ -26,7 +27,9 @@ for (const name of ["settings", "news"] satisfies ("settings" | "news")[]) for (
     else {
       await page.goto(`/broker?asset=HALC&locale=${locale}`);
       await expect(b).toHaveAttribute("data-state", "live");
+      await openPhoneTicket(b);
       await b.getByTestId("br-qty").fill("7");
+      await closePhoneTicket(page);
       await b.getByTestId("br-view-about").click();
       await b.getByTestId("br-about-tabs-news").click();
     }
@@ -40,7 +43,9 @@ for (const name of ["settings", "news"] satisfies ("settings" | "news")[]) for (
     if (name === "news") {
       if (info.project.name === "phone") await page.getByTestId("app-back").click();
       else await b.getByTestId("br-view-trade").click();
+      await openPhoneTicket(b);
       await expect(b.getByTestId("br-qty")).toHaveValue("7");
+      await closePhoneTicket(page);
       await b.getByTestId("br-view-about").click();
       await b.getByTestId("br-about-tabs-news").click();
       await expect(failure).toBeVisible();

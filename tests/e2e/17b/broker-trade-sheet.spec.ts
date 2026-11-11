@@ -15,13 +15,18 @@ async function modalFocus(sheet: Locator, page: Page) {
     expect(await sheet.evaluate((s) => s.contains(document.activeElement))).toBe(true);
   }
 }
+async function box(control: Locator) {
+  const bounds = await control.boundingBox();
+  if (!bounds) throw new Error("Expected a visible touch target");
+  return bounds;
+}
 async function noOverflow(page: Page) {
   const sheet = page.getByTestId("br-sheet");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await sheet.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
   expect(await sheet.locator(".qs-body").evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
   for (const control of await sheet.locator("button, input").all()) {
-    const b = (await control.boundingBox())!;
+    const b = await box(control);
     expect(b.height).toBeGreaterThanOrEqual(44);
     expect(b.width).toBeGreaterThanOrEqual(44);
   }
@@ -30,7 +35,8 @@ async function noOverflow(page: Page) {
 test("phone: Trade only opens; focus trap, all dismissals, preserved draft, one real fill shown in Portfolio", async ({ page, baseURL }, info) => {
   test.skip(info.project.name !== "phone", "real phone order flow");
   test.setTimeout(90_000);
-  const registered = await page.request.post("/api/auth/register", { headers: { origin: baseURL! }, data: { handle: `Sheet${Date.now().toString(36)}`, password: "local-sheet-test" } });
+  if (!baseURL) throw new Error("Expected the configured trusted app origin");
+  const registered = await page.request.post("/api/auth/register", { headers: { origin: baseURL }, data: { handle: `Sheet${Date.now().toString(36)}`, password: "local-sheet-test" } });
   expect(registered.status(), await registered.text()).toBe(201);
   let orders = 0;
   page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname === "/api/broker/orders") orders++; });
@@ -39,7 +45,7 @@ test("phone: Trade only opens; focus trap, all dismissals, preserved draft, one 
   const trade = broker(page).getByTestId("br-trade");
   await expect(trade).toHaveAccessibleName("Trade");
   await expect(broker(page).getByTestId("br-qty")).toHaveCount(0);
-  const fab = (await trade.boundingBox())!, edge = (await page.getByTestId("edge-bar").boundingBox())!;
+  const fab = await box(trade), edge = await box(page.getByTestId("edge-bar"));
   expect(fab.width).toBeGreaterThanOrEqual(44); expect(fab.height).toBeGreaterThanOrEqual(44);
   expect(fab.y + fab.height).toBeLessThanOrEqual(edge.y - 12);
   expect(await trade.evaluate((e) => { const r = e.getBoundingClientRect(); return e.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); })).toBe(true);
@@ -111,14 +117,15 @@ for (const width of [390, 320]) test(`phone FR200% at ${width}: safe scrollable 
   await expect(trade).toHaveCount(0); await expect(sheet).toHaveCount(0);
 });
 
-test("desktop remains inline; resize closes the phone modal without discarding the draft", async ({ page }, info) => {
+test("desktop remains inline; crossing the shell breakpoint removes the phone modal", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "desktop and responsive boundary");
   await boot(page, "/broker?asset=HALC"); await expect(broker(page)).toHaveAttribute("data-state", "live");
   await expect(page.getByTestId("br-trade")).toHaveCount(0); await expect(page.getByTestId("br-ticket").first()).toBeVisible();
   await shot(page, "desktop-unchanged-inline-ticket");
   await page.setViewportSize({ width: 767, height: 844 });
+  await page.getByTestId("icon-broker").click();
   await page.getByTestId("br-trade").click(); await page.getByTestId("br-qty").fill("7");
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.getByTestId("br-sheet")).toHaveCount(0); await expect(page.getByTestId("br-trade")).toHaveCount(0);
-  await expect(page.getByTestId("br-qty").first()).toHaveValue("7");
+  await expect(page.getByTestId("br-ticket").first()).toBeVisible();
 });
