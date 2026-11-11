@@ -13,7 +13,7 @@ import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
 import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/contracts/channels";
 import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
-import { getFeed, useChannel } from "@/shell/contracts/useChannel";
+import { authoritativeQuoteProvenance, getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
 import { PriceChart } from "@/components/market/PriceChart";
 import { AssetHeader } from "./AssetHeader";
@@ -218,6 +218,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const header = (withChart: boolean) => (
     <div className="br-col br-col-head">
       <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices} focusRef={setHead}
+        provenance={authoritativeQuoteProvenance(ticker.tick)}
         onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={withChart ? chart : undefined} />
       {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
       {(view === "trade" || !phone) && <ViewSwitch t={t} view={view} onView={onView} ids={viewIds} />}

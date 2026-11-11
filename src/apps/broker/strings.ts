@@ -35,6 +35,8 @@ const EN = {
   /** [provisional] header labels: Positions' column copy (PF-B); the card does not say whether Last/Today carry labels. */
   last: "Last",
   today: "Today",
+  /** Signed-in provenance: the server clock tick, not a per-browser counter. */
+  serverTick: (n: number) => `Server tick ${n}`,
   none: "—",
   review: "Review order",
   edit: "Edit",
@@ -168,6 +170,7 @@ const FR: BrStrings = {
   cash: "Liquidités · FDL",
   last: "Cours",
   today: "Jour",
+  serverTick: (n: number) => `Tick serveur ${n}`,
   none: "—",
   review: "Vérifier l’ordre",
   edit: "Modifier",

@@ -14,6 +14,7 @@
 .br-select { min-height: var(--hit-pointer); padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-weight: 600; }
 .br-halted { color: var(--steel); }
 .br-quote { display: flex; flex-wrap: wrap; gap: var(--sp-16); align-items: flex-end; }
+.br-market-tick { margin: 0; font-family: var(--font-num); }
 .br-q { display: flex; flex-direction: column; gap: var(--sp-4); }
 .br-last { font-family: var(--font-num); font-size: var(--fs-30); color: var(--fg); white-space: nowrap; }
 .br-phone .br-last { font-size: var(--fs-22); }

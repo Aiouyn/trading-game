@@ -1,7 +1,8 @@
 /**
  * Account ↔ demo-trading boundary (M1-01 + M1-02 shared world).
  * Signed-in players get a neutral starter demo feed/channels — never the canned Owner/$412k fixture.
- * Market seed is the server-owned Port Avalon seed (not per-account). Signed-out: educational guest mock.
+ * Market seed is the server-owned Port Avalon seed (not per-account).
+ * Signed-in quotes follow GET /api/market (one server clock). Signed-out: educational guest mock.
  */
 import { cashCentsToMoney } from "@/shell/cashFormat";
 import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
@@ -57,7 +58,8 @@ export function applySignedInDemo(
   void accountId; // identity remount key only — market seed is world-owned (M1-02).
   const cashCents = privateSnap?.cashCents ?? 1_000_000;
   const nw = cashCentsToMoney(cashCents);
-  setFeed(new MockFeed({ empty: true, nw, seed: marketSeed }));
+  // Quotes come from the server clock. This feed does not advance prices; demo orders still settle locally and are not saved.
+  setFeed(new MockFeed({ empty: true, nw, seed: marketSeed }, { authoritativeQuotes: true }));
   const channels = starterChannels();
   channels.me.nw = nw;
   // Saved cash seeds NW. Saved lots/orders are server-durable (M1-03) but not rendered into the demo

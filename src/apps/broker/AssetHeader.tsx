@@ -27,6 +27,8 @@ export interface AssetHeaderProps {
   cash: string | undefined;
   /** UI card 10: Back to trade focuses the ticker heading (or the select in a no-context window). */
   focusRef?: (el: HTMLElement | null) => void;
+  /** Signed-in server tick. Omitted for the guest mock so its layout stays put. */
+  provenance?: { worldId: string; tick: number } | null;
 }
 
 /** "+0.28%" / "−0.28%": formatPercent gives the locale's digits and minus; the "+" is a sign, as in signedText. */
@@ -64,7 +66,7 @@ export function Quote({ row, locale, t, ids = "br" }: { row: TickerRow | undefin
   );
 }
 
-export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty, cash, chart, focusRef }: AssetHeaderProps) {
+export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty, cash, chart, focusRef, provenance = null }: AssetHeaderProps) {
   const name = choices ? null : assetName(assetId);
   return (
     <header className="br-head" data-testid="br-head">
@@ -83,6 +85,11 @@ export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty,
       </div>
       {name !== null && <p className="br-name muted" data-testid="br-name">{name}</p>}
       <Quote row={row} locale={locale} t={t} />
+      {provenance ? (
+        <p className="br-market-tick muted num" data-testid="market-tick" data-tick={provenance.tick} data-world-id={provenance.worldId}>
+          {provenance.worldId}{" · "}{t.serverTick(provenance.tick)}
+        </p>
+      ) : null}
       {chart}
       <p className="br-hold muted" data-testid="br-hold">
         {holdQty !== null && <><span data-testid="br-you-hold">{t.youHold(decText(holdQty, locale))}</span><span aria-hidden="true">{" · "}</span></>}
