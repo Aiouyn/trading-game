@@ -1,3 +1,4 @@
+import { isPlainJson } from "./json";
 import { CURRENCIES, LEGS, SCALE, bounded, canonical, cash, divUp, legIds, minor, pairQuotes, parseCommand, parseFrame, parseGenesis, units, type AutoFx, type Ccy, type Command, type Converted, type Decision, type Frame, type Minor, type Offer, type RejectCode, type State, type Transfer, type Wallet, type WalletId } from "./model";
 class Rejection extends Error { constructor(readonly code: RejectCode) { super(code); } }
 function reject(code: RejectCode): never { throw new Rejection(code); }
@@ -180,6 +181,7 @@ function commands(state: State, f: Frame, cmds: Command[]): State {
   assertFxConservation(s); return s;
 }
 export function advanceFx(state: State, frames: readonly Frame[]): State {
+  if (!isPlainJson(frames)) throw new Error("INVALID_FX_FRAME");
   let s = structuredClone(state);
   for (const raw of frames) {
     const f = parseFrame(raw);
