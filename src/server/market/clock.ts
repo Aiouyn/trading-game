@@ -11,6 +11,7 @@ import type { MarketSnapshot } from "@/market/quoteSnapshot";
 import { STORY_KEEP, bootHistory, historyItemId, storyAt } from "@/market/wireStories";
 import { claimCauseKey, claimPhase, publicRecord, sourceBand, type RumorClaim, type RumorStepEvent } from "./rumorClaims";
 import { denialItemId, farmBand, farmSourceName, isFarmSourceId } from "./rumorFarm";
+import { analystSourceName, isAnalystSourceId } from "./analystNotes";
 import type { WireSnapshot } from "@/market/wireSnapshot";
 import { FEED_TICK_MS, START_TICK, fmt } from "@/shell/contracts/mockFeed";
 import { DEMO_CRISIS_HALF_LIFE_DAYS, MARKET_FACTOR_ASSET, ShockFeed, kindFromAppliedId, shockHalfLifeDays, type CoinNewsOut, type PoolInputs } from "./shockFeed";
@@ -139,6 +140,7 @@ export class LiveMarket {
     this.feed.advance();
     this.publishStory();
     this.publishFarm();
+    this.publishAnalystNotes();
     for (const n of this.feed.takeNews()) this.publishCoinNews(n);
     for (const s of this.feed.takeStormWire()) this.publishStorm(s);
     for (const s of this.feed.takeCrisisWire()) this.publishCrisis(s);
@@ -372,14 +374,19 @@ export class LiveMarket {
 
   private farmEntities(c: RumorClaim): WireItem["entities"] {
     const asset = { id: c.assetId, kind: "asset" as const, label: ASSET_BY_ID[c.assetId]?.ticker ?? c.assetId };
+    if (c.channel === "analyst" || isAnalystSourceId(c.sourceId)) {
+      if (!c.sourceId) return [asset];
+      return [asset, { id: c.sourceId, kind: "actor", label: c.slots.analyst ?? analystSourceName(c.sourceId) }];
+    }
     if (!(c.channel === "farm" || isFarmSourceId(c.sourceId)) || !c.sourceId) return [asset];
     return [asset, { id: c.sourceId, kind: "actor", label: c.slots.source ?? farmSourceName(c.sourceId) }];
   }
 
   private farmWireItem(c: RumorClaim): WireItem {
     const effects = this.rumorEffect(c);
+    const kind = (c.channel === "analyst" || isAnalystSourceId(c.sourceId)) ? "STATEMENT" as const : "RUMOR" as const;
     return {
-      id: c.id, kind: "RUMOR", headlineKey: c.headlineKey, slots: this.rumorItemSlots(c),
+      id: c.id, kind, headlineKey: c.headlineKey, slots: this.rumorItemSlots(c),
       entities: this.farmEntities(c),
       tick: c.publishTick, breaking: false, causeEventIds: [c.defId],
       phase: claimPhase(c), causeKey: claimCauseKey(c),
@@ -391,6 +398,13 @@ export class LiveMarket {
   /** Farm rumors due at this tick (16:562: generated at the previous day close). */
   private publishFarm(): void {
     const opened = this.feed.openFarmDue(this.feed.tick);
+    if (!opened.length) return;
+    this.stories = this.retainStories([...this.stories, ...opened.map((c) => this.farmWireItem(c))]);
+  }
+
+  /** Free T1 daily analyst note (16:557). */
+  private publishAnalystNotes(): void {
+    const opened = this.feed.openAnalystDue(this.feed.tick);
     if (!opened.length) return;
     this.stories = this.retainStories([...this.stories, ...opened.map((c) => this.farmWireItem(c))]);
   }

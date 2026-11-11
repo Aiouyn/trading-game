@@ -442,6 +442,7 @@ export class ShockFeed extends MockFeed {
   rumorClaims() { return this.rumorBook().allClaims(); }
   farmSources() { return this.rumorBook().farmSources(); }
   openFarmDue(tick: number) { return this.rumorBook().openFarmDue(tick); }
+  openAnalystDue(tick: number) { return this.rumorBook().openAnalystDue(tick); }
 
   takeStormWire(): StormWireOut[] { return this.storms.takeWire(); }
   takeCrisisWire() { return this.storms.takeCrisisWire(); }

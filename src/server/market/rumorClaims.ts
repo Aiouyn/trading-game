@@ -9,6 +9,9 @@ import {
   FARM, companyDenialTick, dayCloseTick, dayOfTick, farmAccuracy, farmHeadlineSlots, farmImpulse, farmSourceId, farmSourceName,
   isFarmSourceId, planFarmDay, type FarmDraft,
 } from "@/server/market/rumorFarm";
+import {
+  ANALYST_ROSTER, analystAccuracy, analystSourceName, isAnalystSourceId, planAnalystNote, type AnalystDraft,
+} from "@/server/market/analystNotes";
 
 export const RUMOR = {
   sourceId: "wire-desk",
@@ -202,6 +205,11 @@ export function drawFarmIsTrue(seed: number, id: string, sourceId: string, acc: 
   return unitFromDigest(rumorMac(secret, seed, "farm-true", `${sourceId}|${id}`)) < acc;
 }
 
+/** Analyst truth: HMAC-SHA256(secret, seed|analyst-true|sourceId|id). */
+export function drawAnalystIsTrue(seed: number, id: string, sourceId: string, acc: number, secret: string): boolean {
+  return unitFromDigest(rumorMac(secret, seed, "analyst-true", `${sourceId}|${id}`)) < acc;
+}
+
 export function drawFalseKind(seed: number, id: string, secret: string): "FIZZLED" | "DENIED" {
   return unitFromDigest(rumorMac(secret, seed, "false", id)) < RUMOR.fizzleGivenFalse ? "FIZZLED" : "DENIED";
 }
@@ -319,6 +327,7 @@ export function emptyRumorSnapshot(seed: number, secret: string): RumorSnapshot 
 export class RumorBook {
   private source: RumorSource;
   private farm = new Map<string, RumorSource>();
+  private analysts = new Map<string, RumorSource>();
   private claims: RumorClaim[] = [];
   /** Per-claim overlay. Keyed by claimId. */
   private belief = new Map<string, BeliefPos>();
@@ -338,6 +347,7 @@ export class RumorBook {
     }
     this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(seed, this.secret), hits: 0, resolved: 0 };
     this.ensureFarm();
+    this.ensureAnalysts();
     if (snap) this.hydrate(snap, opts);
   }
 
@@ -355,13 +365,26 @@ export class RumorBook {
     }
   }
 
+  private ensureAnalysts(): void {
+    for (const row of ANALYST_ROSTER) {
+      if (this.analysts.has(row.sourceId)) continue;
+      this.analysts.set(row.sourceId, {
+        sourceId: row.sourceId,
+        nameKey: row.name,
+        hiddenAccuracy: analystAccuracy(this.seed, row.sourceId, this.secret),
+        hits: 0,
+        resolved: 0,
+      });
+    }
+  }
+
   /** Server-only. Tests inject this; production persists it. */
   rumorSecret(): string { return this.secret; }
 
   snapshot(): RumorSnapshot {
     return {
       source: { ...this.source },
-      sources: [...this.farm.values()].map((s) => ({ ...s })),
+      sources: [...this.farm.values(), ...this.analysts.values()].map((s) => ({ ...s })),
       claims: this.claims.map(cloneClaim),
       belief: [...this.belief.values()].map((b) => ({ ...b })),
       beliefMarks: [...this.marks.values()].map((m) => ({ ...m })),
@@ -378,7 +401,9 @@ export class RumorBook {
       else if (!this.secret) this.secret = newRumorSecret();
       this.source = { sourceId: RUMOR.sourceId, hiddenAccuracy: hiddenAccuracyFor(this.seed, this.secret), hits: 0, resolved: 0 };
       this.farm.clear();
+      this.analysts.clear();
       this.ensureFarm();
+      this.ensureAnalysts();
       this.claims = [];
       this.belief.clear();
       this.marks.clear();
@@ -392,11 +417,16 @@ export class RumorBook {
     this.secret = secret;
     this.source = { ...snap.source };
     this.farm.clear();
+    this.analysts.clear();
     for (const s of snap.sources ?? []) {
-      if (!isFarmSourceId(s.sourceId)) continue;
-      this.farm.set(s.sourceId, { ...s, nameKey: s.nameKey ?? farmSourceName(s.sourceId) });
+      if (isFarmSourceId(s.sourceId)) {
+        this.farm.set(s.sourceId, { ...s, nameKey: s.nameKey ?? farmSourceName(s.sourceId) });
+      } else if (isAnalystSourceId(s.sourceId)) {
+        this.analysts.set(s.sourceId, { ...s, nameKey: s.nameKey ?? analystSourceName(s.sourceId) });
+      }
     }
     this.ensureFarm();
+    this.ensureAnalysts();
     this.claims = snap.claims.map(cloneClaim);
     this.belief = new Map();
     for (const b of snap.belief) {
@@ -429,10 +459,12 @@ export class RumorBook {
   sourceOf(id: string | undefined): RumorSource {
     if (!id || id === RUMOR.sourceId) return { ...this.source };
     this.ensureFarm();
-    const s = this.farm.get(id);
+    this.ensureAnalysts();
+    const s = this.farm.get(id) ?? this.analysts.get(id);
     return s ? { ...s } : { ...this.source };
   }
   farmSources(): RumorSource[] { this.ensureFarm(); return [...this.farm.values()].map((s) => ({ ...s })); }
+  analystSources(): RumorSource[] { this.ensureAnalysts(); return [...this.analysts.values()].map((s) => ({ ...s })); }
   claim(id: string): RumorClaim | undefined { return this.claims.find((c) => c.id === id); }
   allClaims(): readonly RumorClaim[] { return this.claims; }
 
@@ -459,10 +491,13 @@ export class RumorBook {
     if (existing) return existing;
     const src = this.liveSource(input.sourceId);
     const acc = src.hiddenAccuracy;
-    const channel: "desk" | "farm" | "analyst" = input.channel ?? (isFarmSourceId(input.sourceId) ? "farm" : "desk");
+    const channel: "desk" | "farm" | "analyst" = input.channel
+      ?? (isFarmSourceId(input.sourceId) ? "farm" : isAnalystSourceId(input.sourceId) ? "analyst" : "desk");
     const isTrue = channel === "farm" && input.sourceId
       ? drawFarmIsTrue(this.seed, input.id, input.sourceId, acc, this.secret)
-      : drawIsTrue(this.seed, input.id, acc, this.secret);
+      : channel === "analyst" && input.sourceId
+        ? drawAnalystIsTrue(this.seed, input.id, input.sourceId, acc, this.secret)
+        : drawIsTrue(this.seed, input.id, acc, this.secret);
     const a = input.a !== undefined ? input.a : assertedLog(input.bp);
     const cr = channel === "farm"
       ? (src.hits + 5) / (src.resolved + 10)
@@ -514,6 +549,7 @@ export class RumorBook {
     }
     for (let t = start; t <= tick; t++) {
       this.openFarmDue(t);
+      this.openAnalystDue(t);
       const denials = this.applyCompanyDenials(t);
       for (const ev of denials) out.push(ev);
       this.stepPendingBelief(t);
@@ -531,6 +567,7 @@ export class RumorBook {
     const evs: RumorStepEvent[] = [];
     for (const c of this.claims) {
       if (c.resolution !== "PENDING") continue;
+      if (c.channel === "analyst" || isAnalystSourceId(c.sourceId)) continue;
       if ((c.rebuttal ?? 0) !== 0 || c.deniedAtTick != null) continue;
       const at = companyDenialTick(this.seed, c.id, c.publishTick, c.resolvesByTick, c.channel);
       if (at == null || tick !== at) continue;
@@ -651,7 +688,12 @@ export class RumorBook {
   }
 
   private liveSource(id: string | undefined): RumorSource {
-    if (!id || id === RUMOR.sourceId || !isFarmSourceId(id)) return this.source;
+    if (!id || id === RUMOR.sourceId) return this.source;
+    if (isAnalystSourceId(id)) {
+      this.ensureAnalysts();
+      return this.analysts.get(id) ?? this.source;
+    }
+    if (!isFarmSourceId(id)) return this.source;
     this.ensureFarm();
     return this.farm.get(id) ?? this.source;
   }
@@ -689,6 +731,30 @@ export class RumorBook {
       factKind: d.factKind,
       channel: "farm",
       a: d.assertedMove,
+    });
+  }
+
+  /** Open the T1 daily note due at `tick` (idempotent). */
+  openAnalystDue(tick: number): RumorClaim[] {
+    const d = planAnalystNote(this.seed, tick);
+    if (!d) return [];
+    return [this.openFromAnalystDraft(d)];
+  }
+
+  openFromAnalystDraft(d: AnalystDraft): RumorClaim {
+    return this.open({
+      id: d.id,
+      defId: d.id,
+      assetId: d.assetId,
+      headlineKey: d.headlineKey,
+      slots: d.slots,
+      causeKey: d.causeKey,
+      publishTick: d.publishTick,
+      bp: d.bp,
+      sourceId: d.sourceId,
+      factKind: d.factKind,
+      channel: "analyst",
+      a: d.a,
     });
   }
 }
