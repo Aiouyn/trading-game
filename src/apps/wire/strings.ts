@@ -61,6 +61,8 @@ export interface WireStrings {
   // ---- M1-09 row chips (the detail and demo copy: storyStrings.ts, Wire chunk only) ----
   forecast: string;
   eased: string;
+  /** t0 history rows (w-h-*): already happened; this clock did not apply the catalog move. */
+  earlier: string;
 }
 
 export const EN: WireStrings = {
@@ -166,6 +168,7 @@ export const EN: WireStrings = {
   notInFeed: "This story is no longer in your feed.",
   forecast: "Forecast",
   eased: "No effect",
+  earlier: "Earlier",
 };
 
 export const FR: WireStrings = {
@@ -271,6 +274,7 @@ export const FR: WireStrings = {
   notInFeed: "Cette dépêche ne figure plus dans votre fil.",
   forecast: "Prévision",
   eased: "Sans effet",
+  earlier: "Plus tôt",
 };
 
 export const useWireStrings = (): WireStrings => (useShell((s) => s.prefs.locale) === "fr" ? FR : EN);

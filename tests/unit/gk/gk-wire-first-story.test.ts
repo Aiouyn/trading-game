@@ -60,13 +60,17 @@ describe("LiveMarket seeds history at t0 without moving marks", () => {
       expect(item.tick).toBe(tick);
       expect(item.kind).toBe(def.kind);
       expect(item.headlineKey).toBe(def.headlineKey);
-      expect(item.causeKey).toBe(def.causeKey);
+      expect(item.causeKey).toBe("wire.cause.history");
+      expect(item.causeKey).not.toBe(def.causeKey);
+      expect(item.slots?.earlier).toBe("1");
       expect(item.causeEventIds).toEqual([def.defId]);
       expect(item.entities.map((e) => e.id)).toEqual(def.assets);
       expect(ASSET_BY_ID[item.entities[0]!.id]).toBeDefined();
       expect(item.effects).toBeUndefined();
       expect(item.phase).toBeUndefined();
       expect(item).not.toHaveProperty("isTrue");
+      expect(CAUSES["wire.cause.history"]).toBeTruthy();
+      expect(CAUSES["wire.cause.history"]).not.toMatch(/stock rises|lift the stock|lifts the stock/i);
     }
     expect(parseWireSnapshot(w)).toEqual(w);
     expect(market.snapshot().quotes).toEqual(ref.body("ticker:wl_default"));

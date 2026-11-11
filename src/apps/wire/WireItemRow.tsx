@@ -16,6 +16,14 @@ export { KindChip };
 /** Source record shows for RUMOR, and for STATEMENT when it carries one. */
 export const showsRecord = (i: WireItem) => (i.kind === "RUMOR" || i.kind === "STATEMENT") && i.sourceRecord !== undefined;
 
+/** t0 history rows (`w-h-*`): already on the feed, not a move this clock applied. */
+export const isHistoryItem = (i: WireItem): boolean => i.id.startsWith("w-h-");
+
+export function HistoryLabel({ item, t }: { item: WireItem; t: WireStrings }) {
+  if (!isHistoryItem(item)) return null;
+  return <Chip tone="neutral" outline className="wire-earlier" data-testid="wire-earlier">{t.earlier}</Chip>;
+}
+
 /** M1-09: a server story's outcome on the row when it moved nothing: Forecast / No effect (a realized effect sits
  *  beside its asset label, see EntityLabel). */
 export function StoryOutcome({ item, t }: { item: WireItem; t: WireStrings }) {
@@ -81,6 +89,7 @@ export function WireItemRow({ item, t, fresh, selected = false, onOpen, buttonRe
         )}
         {band && <Chip className="wire-band" data-testid="wire-band" data-band={band}>{t.band[band]}</Chip>}
         <PricedIn item={item} t={t} />
+        <HistoryLabel item={item} t={t} />
         <StoryOutcome item={item} t={t} />
       </div>
     </li>
