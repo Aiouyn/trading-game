@@ -1,10 +1,10 @@
-// Free-tier T1 NPC analyst notes (16:557): one daily public STATEMENT claim, existing 05 belief path.
+// Free-tier T1 NPC analyst notes (16:557): one daily public NEWS item under a research-house outlet (15:828 / 15:827), existing 05 belief path.
 import { describe, expect, it } from "vitest";
 import { ASSET_BY_ID } from "@/market/catalog";
 import { parseWireSnapshot } from "@/market/wireSnapshot";
 import { LiveMarket } from "@/server/market/clock";
 import {
-  ANALYST, ANALYST_ROSTER, analystAccuracy, analystClaimId, isAnalystPublishTick, isAnalystSourceId, planAnalystNote,
+  ANALYST, ANALYST_ROSTER, analystAccuracy, analystClaimId, analystOutletId, isAnalystPublishTick, isAnalystSourceId, planAnalystNote,
 } from "@/server/market/analystNotes";
 import { RumorBook, claimContribution } from "@/server/market/rumorClaims";
 import { MemoryStormWorldStore } from "@/server/market/stormWorldStore";
@@ -43,9 +43,11 @@ function marks() {
 
 describe("T1 analyst note schedule and copy", () => {
   it("copy exists in EN, FR, and causes", () => {
-    expect(EN.headlines["wire.statement.analyst-note"]).toContain("{analyst}");
-    expect(EN.headlines["wire.statement.analyst-note"]).toContain("{house}");
-    expect(FR.headlines["wire.statement.analyst-note"]).toBeTruthy();
+    expect(EN.headlines["wire.news.analyst-note"]).toContain("{house}");
+    expect(EN.headlines["wire.news.analyst-note"]).toContain("{claim}");
+    expect(EN.headlines["wire.news.analyst-note"]).not.toContain("{analyst}");
+    expect(FR.headlines["wire.news.analyst-note"]).toBeTruthy();
+    expect(FR.headlines["wire.news.analyst-note"]).not.toContain("{analyst}");
     expect(CAUSES["wire.cause.analyst-note"]).toBeTruthy();
     expect(CAUSES["wire.cause.analyst-note-confirmed"]).toBeTruthy();
     expect(CAUSES["wire.cause.analyst-note-fizzled"]).toBeTruthy();
@@ -67,8 +69,9 @@ describe("T1 analyst note schedule and copy", () => {
     expect(ANALYST_ROSTER.some((r) => r.assetId === d!.assetId && r.sourceId === d!.sourceId)).toBe(true);
     expect(isAnalystSourceId(d!.sourceId)).toBe(true);
     expect(d!.slots.rumorId).toBe(d!.id);
-    expect(d!.slots.analyst).toBeTruthy();
     expect(d!.slots.house).toBeTruthy();
+    expect(d!.outletId).toBe(analystOutletId(d!.house));
+    expect(d!.slots.analyst).toBeUndefined();
     expect(planAnalystNote(SEED, FIRST)).toEqual(d);
     const otherSeeds = [SEED + 1, SEED + 7, SEED + 99];
     expect(otherSeeds.some((s) => {
@@ -142,7 +145,7 @@ describe("T1 analyst notes as a 05 claim", () => {
     expect(mid.beliefLog(d.assetId)).not.toBe(0);
   });
 
-  it("LiveMarket shows a STATEMENT on the Wire at 27760 with a named analyst, no effects, and no denial; t0–27720 stay empty of notes", () => {
+  it("LiveMarket shows NEWS on the Wire at 27760 under the research-house outlet, no personal byline, no effects, and no denial; t0–27720 stay empty of notes", () => {
     const m = clock();
     expect(m.snapshot().tick).toBe(START_TICK);
     expect(m.wire().items.some((i) => i.id.startsWith("w-a-"))).toBe(false);
@@ -160,17 +163,22 @@ describe("T1 analyst notes as a 05 claim", () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.id).toBe(analystClaimId(FIRST));
-    expect(row.kind).toBe("STATEMENT");
-    expect(row.headlineKey).toBe("wire.statement.analyst-note");
+    expect(row.kind).toBe("NEWS");
+    expect(row.headlineKey).toBe("wire.news.analyst-note");
     expect(row.tick).toBe(FIRST);
     expect(row.phase).toBe("forecast");
     expect(row.causeKey).toBe("wire.cause.analyst-note");
     expect(row.effects).toBeUndefined();
-    expect(row.slots?.analyst).toBe(draft.analyst);
+    expect(row.slots?.analyst).toBeUndefined();
     expect(row.slots?.house).toBe(draft.house);
+    expect(row.outletId).toBe(draft.outletId);
+    expect(row.outletId).toBe(analystOutletId(draft.house));
+    expect(row).not.toHaveProperty("authorId");
     expect(row.slots?.rumorId).toBe(row.id);
     expect(row.entities.some((e) => e.id === draft.assetId && e.kind === "asset")).toBe(true);
-    expect(row.entities.some((e) => e.id === draft.sourceId && e.kind === "actor" && e.label === draft.analyst)).toBe(true);
+    expect(row.entities.some((e) => e.id === draft.outletId && e.kind === "outlet" && e.label === draft.house)).toBe(true);
+    expect(row.entities.some((e) => e.kind === "actor")).toBe(false);
+    expect(row.entities.some((e) => e.label === draft.analyst)).toBe(false);
     expect(row.sourceRecord).toEqual({ hits: 0, resolved: 0 });
     expect(row.sourceBand).toBeTruthy();
     expect(m.wire().items.some((i) => i.id.startsWith("w-d-") && i.slots?.rumorId === row.id)).toBe(false);
@@ -202,7 +210,7 @@ describe("T1 analyst notes as a 05 claim", () => {
     expect(b.wire().items.filter((i) => i.id === id)).toHaveLength(1);
     expect(parseWireSnapshot(b.wire())).not.toBeNull();
     const again = b.wire().items.find((i) => i.id === id)!;
-    expect(again.kind).toBe("STATEMENT");
+    expect(again.kind).toBe("NEWS");
     expect(again.headlineKey).toBe(saved.headlineKey);
     expect(again.slots).toEqual(saved.slots);
     expect(again.entities).toEqual(saved.entities);

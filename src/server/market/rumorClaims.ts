@@ -833,6 +833,10 @@ export function normalizeRumorSnapshot(raw: unknown): RumorSnapshot | undefined 
     }
     const sourceId = typeof c.sourceId === "string" ? c.sourceId : undefined;
     const factKind = typeof c.factKind === "string" ? c.factKind : undefined;
+    // A present unknown channel must not fall through to desk. Absent channel stays a valid legacy row.
+    if (c.channel !== undefined && c.channel !== "farm" && c.channel !== "desk" && c.channel !== "analyst") {
+      refuseCorruptRumorSnapshot();
+    }
     const channel = c.channel === "farm" || c.channel === "desk" || c.channel === "analyst" ? c.channel : undefined;
     const rebuttal = c.rebuttal === 0.5 || c.rebuttal === 1 || c.rebuttal === 0 ? c.rebuttal : undefined;
     const deniedAtTick = c.deniedAtTick === undefined ? undefined : int(c.deniedAtTick) ?? undefined;

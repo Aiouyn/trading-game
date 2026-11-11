@@ -55,6 +55,12 @@ export function analystBySourceId(id: string): (typeof ANALYST_ROSTER)[number] |
   return ANALYST_ROSTER.find((r) => r.sourceId === id);
 }
 
+/** Stable masthead id for a research house treated as an NPC outlet (15:828 / 15:827). */
+export function analystOutletId(house: string): string {
+  const slug = house.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return `out_rs_${slug}`;
+}
+
 export function isAnalystPublishTick(tick: number): boolean {
   return Number.isSafeInteger(tick) && tick % TICKS_PER_DAY === ANALYST.slot && tick >= ANALYST.firstTick;
 }
@@ -88,6 +94,7 @@ export interface AnalystDraft {
   sourceId: string;
   analyst: string;
   house: string;
+  outletId: string;
   sector: string;
   assetId: string;
   company: string;
@@ -113,6 +120,7 @@ export function planAnalystNote(seed: number, publishTick: number): AnalystDraft
     sourceId: roster.sourceId,
     analyst: roster.name,
     house: roster.house,
+    outletId: analystOutletId(roster.house),
     sector: roster.sector,
     assetId: roster.assetId,
     company,
@@ -120,10 +128,9 @@ export function planAnalystNote(seed: number, publishTick: number): AnalystDraft
     a: kind.assertedMove,
     bp: Math.round(kind.assertedMove * 10_000),
     publishTick,
-    headlineKey: "wire.statement.analyst-note",
+    headlineKey: "wire.news.analyst-note",
     causeKey: "wire.cause.analyst-note",
     slots: {
-      analyst: roster.name,
       house: roster.house,
       company,
       sector: roster.sector,

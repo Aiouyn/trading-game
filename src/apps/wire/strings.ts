@@ -61,6 +61,8 @@ export interface WireStrings {
   // ---- M1-09 row chips (the detail and demo copy: storyStrings.ts, Wire chunk only) ----
   forecast: string;
   eased: string;
+  /** t0 history rows (w-h-*): already happened; this clock did not apply the catalog move. */
+  earlier: string;
   composer: {
     summary: string;
     textLabel: string;
@@ -104,7 +106,7 @@ export const EN: WireStrings = {
     "wire.news.guidanceRaised": "{company} raises guidance",
     "wire.statement.ceo": "{company} CEO issues a statement",
     "wire.statement.denies": "{company} denies the rumor",
-    "wire.statement.analyst-note": "{analyst} at {house} sees {claim}",
+    "wire.news.analyst-note": "{house} sees {claim}",
     "wire.statement.player": "{handle} on {asset}: {text}",
     "wire.rumor.downgrade": "Downgrade rumored for {company}",
     "wire.rumor.hears": "{source} hears that {claim}",
@@ -177,6 +179,7 @@ export const EN: WireStrings = {
   notInFeed: "This story is no longer in your feed.",
   forecast: "Forecast",
   eased: "No effect",
+  earlier: "Earlier",
   composer: {
     summary: "Post a statement",
     textLabel: "Statement",
@@ -230,7 +233,7 @@ export const FR: WireStrings = {
     "wire.news.guidanceRaised": "{company} relève ses prévisions",
     "wire.statement.ceo": "Le PDG de {company} publie un communiqué",
     "wire.statement.denies": "{company} dément la rumeur",
-    "wire.statement.analyst-note": "{analyst} ({house}) anticipe {claim}",
+    "wire.news.analyst-note": "{house} anticipe {claim}",
     "wire.statement.player": "{handle} sur {asset} : {text}",
     "wire.rumor.downgrade": "Rumeur de dégradation pour {company}",
     "wire.rumor.hears": "{source} entend que {claim}",
@@ -303,6 +306,7 @@ export const FR: WireStrings = {
   notInFeed: "Cette dépêche ne figure plus dans votre fil.",
   forecast: "Prévision",
   eased: "Sans effet",
+  earlier: "Plus tôt",
   composer: {
     summary: "Publier une déclaration",
     textLabel: "Déclaration",
