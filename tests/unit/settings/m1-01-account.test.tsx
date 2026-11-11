@@ -57,6 +57,10 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     expect(d).toMatch(/not saved/i);
     expect(d).toMatch(/demo/i);
     expect(d.toLowerCase()).not.toContain("mock broker");
+    expect(el.querySelector("[data-testid=account-intro]")?.textContent).toBe("Start with $10,000 in game money and a goal of $20,000.");
+    expect(el.querySelector("[data-testid=account-save-notice]")?.textContent).toBe("Demo trades are not saved.");
+    expect(el.querySelector("[data-testid=account-save-details]")?.hasAttribute("open")).toBe(false);
+    expect(el.querySelector("[data-testid=account-open-portfolio]")).toBeNull();
   });
 
   it("in-app short password message (noValidate)", async () => {
@@ -112,6 +116,9 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     expect(starter).toMatch(/\$10k|10,?000|10000/);
     expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
     expect(el.textContent).not.toMatch(/\$412/);
+    expect(el.querySelector("[data-testid=account-open-portfolio]")?.textContent).toBe("Open Portfolio");
+    expect(el.querySelector("[data-testid=account-next-step]")?.textContent).toContain("first-trade guide");
+    expect(el.querySelector("[data-testid=account-save-details]")?.hasAttribute("open")).toBe(false);
   });
 
   it("signed-in boot; logout returns to form with disclaimer", async () => {

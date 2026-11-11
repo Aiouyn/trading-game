@@ -40,7 +40,7 @@ export function PortfolioFrame() {
 
   if (phone) {
     return (
-      <div className="pf pf-phone-root" data-testid="portfolio" data-tab={tab}>
+      <div className="pf pf-phone-root" data-testid="portfolio" data-tab={tab} tabIndex={-1}>
         {/* Guest example label on Overview only — Orders/Positions shots stay baseline-stable (PF-8). */}
         {guest && tab === "overview" && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
         {tab === "positions" ? <Positions phone /> : tab === "orders" ? <Orders phone /> : (
@@ -72,7 +72,7 @@ export function PortfolioFrame() {
     tabRefs.current[next]?.focus();
   };
   return (
-    <div className="pf" data-testid="portfolio" data-tab={tab}>
+    <div className="pf" data-testid="portfolio" data-tab={tab} tabIndex={-1}>
       {guest && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
       <div className={`pf-seg${stacked ? " stacked" : ""}`} role="tablist" aria-label={t.views} data-testid="pf-tabs" onKeyDown={onKey}>
         {TABS.map((id) => (

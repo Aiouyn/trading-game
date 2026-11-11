@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
-import { useShell } from "@/components/shell/ShellContext";
+import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { cashCentsToMoney } from "@/shell/cashFormat";
 import { authErrorCopy, type AuthClientError } from "@/shell/authClient";
@@ -19,6 +19,7 @@ function isClientError(err: unknown): err is AuthClientError {
 
 export function AccountSettings() {
   const t = useSettingsStrings();
+  const store = useShellStore();
   const locale = useShell((s) => (s.prefs.locale === "fr" ? "fr" : "en"));
   const auth = useAuthSession();
   const [mode, setMode] = useState<Mode>("register");
@@ -61,6 +62,21 @@ export function AccountSettings() {
     }
   };
 
+  const openPortfolio = () => {
+    const s = store.getState();
+    const existing = s.local.windows.find((w) => w.app === "portfolio");
+    if (existing?.collapsed) s.toggleCollapse(existing);
+    s.open("portfolio");
+    if (existing) s.setWorkspace(existing.workspace);
+    let attempts = 0;
+    const focusPortfolio = () => {
+      const target = document.querySelector<HTMLElement>('[data-testid="portfolio"]');
+      if (target) target.focus();
+      else if (++attempts < 40) window.setTimeout(focusPortfolio, 100);
+    };
+    window.setTimeout(focusPortfolio, 0);
+  };
+
   const onLogout = async () => {
     setError(null);
     setBusy(true);
@@ -83,6 +99,14 @@ export function AccountSettings() {
     );
   }
 
+  const saveDetails = (
+    <details className="account-save-details" data-testid="account-save-details">
+      <summary data-testid="account-save-summary">{t.accountSaveDetails}</summary>
+      <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
+      {auth.status === "signed_in" && <p className="muted set-hint" data-testid="account-world">{t.accountWorld(auth.account.worldId)}</p>}
+    </details>
+  );
+
   if (auth.status === "signed_in") {
     return (
       <div className="account" data-testid="settings-account">
@@ -90,20 +114,22 @@ export function AccountSettings() {
         <section className="account-panel" aria-labelledby="account-signed-in">
           <Label id="account-signed-in">{t.accountSignedIn}</Label>
           <p className="account-handle" data-testid="account-handle">{auth.account.handle}</p>
-          <p className="muted set-hint" data-testid="account-world">{t.accountWorld(auth.account.worldId)}</p>
           <p className="account-starter" data-testid="account-starter">
             <span className="set-row-label">{t.accountStarterLabel}</span>
             <span data-testid="account-starter-amount"><MoneyText amount={cashCentsToMoney(auth.player.cashCents)} ctx="chip" /></span>
           </p>
-          <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
+          <p className="muted set-hint" data-testid="account-save-notice">{t.accountSaved}</p>
+          <p className="set-hint" data-testid="account-next-step">{t.accountNextStep}</p>
           {error ? (
             <p className="account-error" role="alert" data-testid="account-error">{error}</p>
           ) : null}
           <div className="account-actions">
+            <Button variant="primary" data-testid="account-open-portfolio" disabled={busy} onClick={openPortfolio}>{t.accountOpenPortfolio}</Button>
             <Button variant="secondary" data-testid="account-logout" disabled={busy} onClick={() => void onLogout()}>
               {t.accountLogout}
             </Button>
           </div>
+          {saveDetails}
         </section>
       </div>
     );
@@ -114,7 +140,8 @@ export function AccountSettings() {
       <h2 className="section-title">{t.section["SET-01"]}</h2>
       <section className="account-panel" aria-labelledby="account-form-label">
         <Label id="account-form-label">{mode === "register" ? t.accountCreate : t.accountSignIn}</Label>
-        <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
+        <p className="set-hint" data-testid="account-intro">{mode === "register" ? t.accountStart : t.accountReturn}</p>
+        <p className="muted set-hint" data-testid="account-save-notice">{t.accountDemo}</p>
         <Segment<Mode>
           label={t.accountMode}
           value={mode}
@@ -170,6 +197,7 @@ export function AccountSettings() {
             </Button>
           </div>
         </form>
+        {saveDetails}
       </section>
     </div>
   );
