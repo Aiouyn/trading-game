@@ -1,32 +1,27 @@
-# Card 8 — phone: Back to trade keeps your place (ui/broker-about-return)
+# Card 15: a /broker deep link must reuse the existing Broker window
 
-## Re-audit (fresh accounts, 7-card stack 11afab00, phone 390x844 + desktop 1440x900; evidence `ui-card8/audit/`)
-- Phone Trade -> About -> Back to trade: scrolled to the bottom of Trade (scrollTop 219 = max: open orders, Trade bar), opened About, pressed Back. Trade came back at scrollTop 0 with focus on the asset select at the top: the player lands on the chart again and must re-find the order list / Trade bar they were looking at. Happens on every About visit, the most frequent phone navigation in the first minutes (learn what HALC is, then buy).
-- Leaderboard (phone and desktop): already says "Your rank: 1 of N", "Find my row", marks "You", and explains "Net worth = cash + holdings at the server price". Clear enough; no change.
-- PWA: manifest is standalone with name/short_name/theme and one SVG "any" icon. Install polish lives in the M2-05 PWA lane; not this card.
-- Nothing new looked worse than the scroll loss.
-Pick: candidate (b).
+Written 12 Nov 2026, 01:20 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
 
-## Base
-Stack on ec95012f (Card 7 head, on Card 6 6f58c342), not 110583b0: the phone Trade view that must be restored only exists in this shape on the Card 6 stack (no inline phone ticket, sticky Trade bar that changes the scroll extent, the About framing golden Card 6 updated). Built on 110583b0 the scroll positions, goldens and the back path would differ and need re-doing at merge.
+## Value and scope
 
-## Behaviour
-Phone/narrow only; desktop Trade|About (BR-10-02: back focuses the ticker) unchanged.
-- On leaving Trade for About, remember the phone app scroller's scrollTop.
-- On Back to trade, restore it once the Trade view is rendered (clamped to the current scroll range).
-- Focus keeps the existing contract when it can be seen: the asset select is focused (preventScroll) if it is visible in the restored viewport (true whenever the player had not scrolled, so BR-10-11 is unchanged). Otherwise focus goes, without scrolling, to the control that opened About (the About tab of the Trade|About switch), scrolled only to "nearest" if needed, so focus is never left off-screen and the place is kept. No focus stealing on asset change or ticks; nothing places an order.
-- A new asset selection or a fresh mount starts at the top as today (no stale offset reused across assets).
+Playtest e30f6822, shot `d40_A_deeplink_windows.png` and log: after the Trade layout already had one Broker window, three `goto('/broker')` deep links (with a `/portfolio` in between) left **4** Broker windows (`win-broker` × 4). The ticket, chart and first-trade path were buried in a stack.
 
-## Acceptance and evidence
-- Unit (happy-dom, red before): remembered offset restored after About -> Back; select focused when visible, About tab otherwise; desktop path unchanged.
-- E2E phone (fresh .data, EN 390 and FR 320 at 200%): scroll to Open orders, About, Back -> scrollTop equals the saved one (±1 px), Open orders heading still in view, focused element visible inside the viewport and above the Trade bar, 44px targets, no overflow, axe; unscrolled case keeps asset-select focus; desktop BR-10-02 unchanged.
-- Exact-HEAD: lint, typecheck, build, check-hooks, route-budget /broker (own and 8-card merged stack <= 215 KB), map-no-dup, npm test (GIT_* unset), clean fresh-.data e2e of the Broker phone/desktop cohort, phone+desktop screenshots, scratch deleted, no push.
+`openApp` reuses a window only when the same Broker context is already open, or when the instance cap (Broker `maxInstances: 4`) is reached. A bare `/broker` deep link has no `?asset=` context, so each visit opens a new window up to the cap. QuayShell already documents the intended rule: after restore, a deep link should "open it, or focus and front the open instance (Audit A-8, 17A T4-04)" and "the deep-link effect below focuses the existing instance (17B S1-02, Audit A-8)". `store.open` already receives `{ deepLink: true }` but does not pass a reuse flag to `openApp`.
 
-## Addendum before implementation commit (findings while building)
-- Trade re-renders shorter than it settles (the chart grows from ~467 to ~927px in the first frames, FR 200% 320), so one `scrollTop =` assignment is clamped. Re-apply the kept offset each frame until it and the scroll height hold for 3 frames, the player scrolls/touches/types, or ~1.5 s; the loop survives per-tick re-renders and is cancelled on unmount. Focus is decided only after that, against the settled layout.
-- Focusing the About tab when the select is off-screen moved the place by up to 253px (at FR 200% the stacked switch can be above the kept viewport) and `scrollIntoView` ignores the sticky Trade bar. Instead, on phone only, the Trade grid becomes a named region ("Trade" / "Trader", tabIndex -1, no focus ring since it is not a control) and receives focus without scrolling: the place stays exact (±2px) and focus is on what the player is looking at. Select focus is kept whenever the select is visible (unscrolled = existing BR-10-11 contract). Desktop gets no region attributes.
-- Proof is e2e (layout/scroll do not exist in happy-dom, so no unit red/green): red-before on unchanged source (`red-before2`, `red-final`: offset lost, 75 or 0 instead of 218/1248), green 5x repeats (`green-wip8`, 20/20).
+The cap of 4 stays for a deliberate second Broker (launcher / same-app open with a different ticker). Only the deep-link path reuses. `?asset=` on a deep link focuses the existing window (the one with that context, else the main instance) and applies the asset, without opening another.
 
-## Addendum 2: first clean cohort on 1a0d445f (evidence `archive-1a0d445f-clean-e2e`, 159 pass / 49 skip / 2 fail; stack the same 2)
-- BR-10-11 phone (scale 1 and 2) runs on a paused test clock, where requestAnimationFrame never fires, so focus (decided only after the settle loop) never moved. Real defect for any frame-starved page too: decide focus immediately after the first restore, then once more after the layout settles only if the player has not moved focus.
-- BR-10-11 scale 2 encodes the old phone contract "Back always focuses the asset select". At scale 2 the About tab is below the first screen, so the player (and Playwright's click) had scrolled; keeping that place means the select is off-screen and focus correctly goes to the named Trade region. Update ONLY that phone line: scale 1 keeps select focus, scale 2 expects the Trade region; desktop BR-10-02 unchanged. Card 8 e2e polls for the settled place instead of reading it in the first frame.
+Base `abf14e57f719689e1a94a65223c6f24ab71a6ae0`. Branch `ui/broker-deeplink-reuse`, worktree `/workspace/avalon/ui-broker-deeplink-reuse`. The earlier "card 15 desktop Broker audit" was dropped before any branch or worktree was created. Forge (trading-game bot) `<forge@trading-game.local>`. Unset `GIT_*` for npm-test and Git subprocesses. No push, PR, merge, or product changes outside window open/deep-link. Stay off the ticket's order-type/TIF, card 10 safe-area files, Boards, the engine, Settings-after-signup (card 16) and the analytics consent prompt (card 17).
+
+## Sketch
+
+1. `wm.openApp(..., opts?: { reuse?: boolean })`: when `reuse` is set and any window of that app exists, focus it (prefer the same context, else the main instance, never a Portfolio "Journal") instead of creating one. If the deep link names a context, apply it to that window, keeping place and size (same as today's single-instance path).
+2. `store.open` passes `{ reuse: true }` when `opts?.deepLink` is set.
+3. Launcher / shelf opens without `deepLink` still stack up to the cap. Existing S1-11 tests stay valid.
+
+## Acceptance and proof plan
+
+- Fail-first unit: on the current `openApp`, a reuse (or equivalent) open of a second bare `/broker` after one window already exists adds a window; after the fix, count stays 1 and that window is focused. A `/broker?asset=HALC` deep-link reuse applies HALC to the existing window. A non-reuse open of a second ticker still opens a second window. At the cap, behaviour is unchanged.
+- Fail-first e2e (desktop 1440, Trade layout): after `/` then three client-side or `goto('/broker')` visits (and one `/portfolio` in between, as the playtest), `win-broker` count is 1 and the Broker window is frontmost. On the current tree this is 4.
+- lint, typecheck, build, check-hooks, route-budget (`/broker` ≤ 220,160 B, report B; test+wm only, expect unchanged vs base), ledger map-no-dup, npm test, all with `GIT_*` unset.
+- Clean e2e in a scratch worktree with fresh `.data`, ports 3300–3399 never 3199, hardlinked `node_modules`: the new deep-link spec plus the existing desktop shell/window cohort that covers open/focus (`tests/e2e/shell/desktop.spec.ts` and any wm-resize tests if they open Broker). Delete the scratch afterwards.
+- Evidence under `/workspace/avalon/evidence/ui-broker-deeplink-reuse/`. Do not push.
