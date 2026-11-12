@@ -8,6 +8,7 @@
 // Real timers against the production build. Repo CI evidence only, not the desktop played gate.
 import { mkdirSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { chipMatchesAmount } from "../../helpers/m108-chip-money";
 
 const SHOTS = process.env.PF_SHOTS_DIR ?? "";
 async function shot(page: Page, name: string) {
@@ -41,7 +42,9 @@ async function valuation(request: APIRequestContext) {
     held += q * mk;
     rows[p.assetId] = { qty: p.qty, avg: p.avgCost, value: usd(q * mk), pnl: (mk - cents(p.avgCost)) * q };
   }
-  return { l, cash: usd(l.cashCents), nw: usd(l.cashCents + held), rows };
+  const nwCents = l.cashCents + held;
+  const nwAmount = `${nwCents < 0 ? "-" : ""}${Math.floor(Math.abs(nwCents) / 100)}.${String(Math.abs(nwCents) % 100).padStart(2, "0")}`;
+  return { l, cash: usd(l.cashCents), nw: usd(nwCents), nwAmount, rows };
 }
 
 const br = (page: Page) => page.locator('[data-testid="broker"]:has([data-testid="br-ticker"]):has([data-testid="market-tick"])').first();
@@ -286,10 +289,16 @@ test("phone 390 and the 520 window: signed-in Portfolio after a buy fits and mat
     await openPortfolio(page, true);
     await overviewMatches(page, ctx.request);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-    // Phone status bar NW: the same valuation (no visible label there: the title says saved).
+    // Phone status bar NW: the same valuation (no visible label there: the outer title says saved).
+    // Visible .money text is compactMoneyText (abbreviates from $10,000); the full value is the
+    // .money title when abbreviated, otherwise the visible text. A wrong amount still fails.
     await expect.poll(async () => {
-      const [t, v] = await Promise.all([page.locator(".sb-nw").evaluate((el) => ({ s: el.getAttribute("data-nw-state"), title: el.getAttribute("title"), m: el.querySelector(".money")?.textContent ?? null })), valuation(ctx.request)]);
-      return t.s === "live" && t.title === "Saved net worth" && t.m === v.nw ? "ok" : JSON.stringify({ t, nw: v.nw });
+      const [t, v] = await Promise.all([page.locator(".sb-nw").evaluate((el) => {
+        const money = el.querySelector(".money");
+        return { s: el.getAttribute("data-nw-state"), title: el.getAttribute("title"), m: money?.textContent ?? null, moneyTitle: money?.getAttribute("title") ?? null };
+      }), valuation(ctx.request)]);
+      const chipOk = chipMatchesAmount({ text: t.m, title: t.moneyTitle }, v.nwAmount);
+      return t.s === "live" && t.title === "Saved net worth" && chipOk ? "ok" : JSON.stringify({ t, nw: v.nw, nwAmount: v.nwAmount });
     }, { timeout: 20_000 }).toBe("ok");
     await shot(page, "pf-06-phone-390-overview");
     await positionsTab(page, true);

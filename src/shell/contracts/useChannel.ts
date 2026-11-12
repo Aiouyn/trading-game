@@ -24,8 +24,9 @@ export interface FeedTransport {
   readonly tickMs: number;
   subscribe(ch: ChannelName, fn: (raw: unknown) => void): () => void;
   resync(ch: ChannelName): void;
-  /** Browser came back online. Optional: a feed that must not replay a cached book (signed-in quotes). */
-  reconnect?(ch: ChannelName): void;
+  /** Browser came back online. Optional: a feed that must not replay a cached book (signed-in quotes).
+   *  `ev` is the online event; one dispatch is one object for every listener. */
+  reconnect?(ch: ChannelName, ev?: object): void;
 }
 
 /** Stale after 2 missed ticks (17 §3.5 PriceCell, 19 Rule 3.8.8); a quarter tick of slack for timer jitter. */
@@ -50,9 +51,9 @@ export function openChannel<C extends ChannelName>(feed: FeedTransport, ch: C, n
   // read is requested. `reconnect` (signed-in quotes) does not replay the cached book: that snap is the pre-outage
   // tick, and replaying it would mark the Broker live there. The read's own frame is what turns the view live.
   const live = () => (knownOffline() ? "stale" : "live") as "live" | "stale";
-  const offNet = onNetworkChange(() => {
+  const offNet = onNetworkChange((ev) => {
     if (knownOffline()) { if (view.state === "live") set({ ...view, state: "stale" }); }
-    else if (feed.reconnect) feed.reconnect(ch);
+    else if (feed.reconnect) feed.reconnect(ch, ev);
     else feed.resync(ch);
   });
 

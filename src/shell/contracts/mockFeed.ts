@@ -621,13 +621,23 @@ export class MockFeed {
     this.pullChannel(ch);
     this.replay(ch);
   }
+  /** The online event already counted as this feed's quote reconnect. A new dispatch is a new object. */
+  private quoteReconnectEvent: object | null = null;
   /**
    * Browser came back online. A guest feed replays: its clock kept moving, so the cached snap is current.
    * Signed-in quotes must not. The cached book is the pre-outage tick, and replaying it marks the Broker live
    * there while the fresh read is still out (M1-05: the other account is already 1–2 ticks ahead).
+   * One online event is one quote read for this feed. Each openChannel store listens on its own, and a browser
+   * may flush microtasks between those listeners, so the key is the event object, not one microtask.
+   * BrokerFrame and the shell clock share one store via useChannel acquireEntry, so the shipped /broker page
+   * already makes a single call. This guard is for a second store on the same feed.
    */
-  reconnect(ch: ChannelName): void {
+  reconnect(ch: ChannelName, ev?: object): void {
     if (!this.authoritativeQuotes) { this.resync(ch); return; }
+    if (ch.startsWith("ticker:")) {
+      if (ev && this.quoteReconnectEvent === ev) return;
+      if (ev) this.quoteReconnectEvent = ev;
+    }
     this.pullChannel(ch, true);
   }
   private pullChannel(ch: ChannelName, followUp = false): void {

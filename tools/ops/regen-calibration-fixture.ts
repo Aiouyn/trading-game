@@ -1,5 +1,7 @@
 // Rebuild tests/unit/launchpad/fixtures/calibration-unit.json from the live runners.
-// Usage (repo root): npx tsx --tsconfig tsconfig.json tools/ci/regen-calibration-fixture.ts
+// Usage (repo root): npx tsx --tsconfig tsconfig.json tools/ops/regen-calibration-fixture.ts
+// Lives outside tools/ci: engine-core typechecks tools/ci with the engine tsconfig, which has no `@/` paths.
+// This script imports the app and is typechecked by the root tsconfig.
 // Slow (~2 min): steps the same ShockFeed / LiveMarket walks the official unit previously ran inline.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
