@@ -18,7 +18,6 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts", "tests/unit/**/*.test.ts", "tests/unit/**/*.test.tsx", "tests/contract/**/*.test.ts"],
     exclude: ["node_modules", ".next", "tests/e2e/**"],
     environment: "node",
-    passWithNoTests: true,
     // Mock URL overrides are build-gated (src/shell/hooks.ts); unit tests exercise them.
     env: { QUAY_HOOKS: "1" },
   },
