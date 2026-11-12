@@ -137,3 +137,27 @@ Still not covered: pid reuse can make a dead owner look alive, which fails close
 - **Effect on the bail-in.** Its size now reflects the ring-fence: it reaches CET1 = 10% of the remaining RWA, net of the ring-fenced custody.
 - **Second resolutions in general.** These remain legitimate for losses that arise after resolution and were not knowable at the valuation tick. 07:626 evaluates triggers at every day close, and nothing makes a resolution one-time. A bank's own CCP default cannot be such a loss, because its cost is capped at the ring-fenced IM + DF.
 - **Restatement.** This is a root fix in `liquidityMetrics`, and it is derived from state, so it adds no new persisted field. It changes the cross-module outcome to one failure at 3599 and one bail-in, which is larger by the ring-fenced $200 of claims. Exactly which hashes change is recorded in the results below.
+
+## Owner-pending: post-closeout second failure (2026-11-12 01:36:41 Europe/Paris; supersedes the "Decision" section above)
+
+Gatekeeper's ruling on 7078c75f was PASS, qualified. The re-failure at 4319 is not a money defect: M0 stays constant and the identity residual is 0. Spec 07 does not settle which behaviour is wanted, so this is an **owner question**. The ring-fence commit 66f2a89d is reverted in the next commit, and the engine behaves exactly as at 7078c75f. The "Decision" text above was my reading of 07; it is **not adopted**.
+
+**Pinned current behaviour (re-failure allowed).** Bank a fails at 3599 (SOLVENCY) and is bailed in to CET1 = 10% of RWA.
+- RWA is $200, which is only member d's IM $100 and DF $100. That gives CET1 $20.
+- At 3600 the member default `LD/d/3600` is declared (07:626, 07:872).
+- At 4080 the close-out takes $100 of IM and $50 of DF from the same custody (07:882-883). CET1 falls to -$130.
+- At day close 4319 the bank fails again (SOLVENCY), and a second bail-in converts more treasury-a deposits.
+- There is exactly one CCP default event. M0 stays constant and every residual is 0.
+- `tests/unit/banking-core/ccp-second-failure.test.ts` pins this behaviour.
+
+**The two options for the owner:**
+1. **Allow re-failure (current behaviour).** Resolution sizes the bail-in to CET1 = 10% of the RWA on the failure tick (07:633). Losses that crystallize later, including the bank's own CCP close-out, are new losses. They can trigger a new resolution at a later day close (07:626 evaluates triggers at every day close, and nothing makes a resolution one-time).
+   - Cost: a second public failure, and a second bail-in of the same creditors within one game day.
+2. **Provision the declared close-out at bail-in.** From the failure tick, the defaulting house member's IM and DF are first-loss resources of a default that the failure makes certain (07:626, 07:872, 07:878, 07:882-883). Nothing in §3.17.8 claims anything from the defaulter beyond them.
+   - Treatment: value them as a Stage 3 claim with recovery 0 (07:629, 07:458). Deduct them from CET1. Their RWA, net of the provision, is 0 (07 §3.2.1 "Defaulted exposures (net of provisions)"). The provision is released when the close-out loss is applied.
+   - The bail-in is then sized net of the provision. A prototype (66f2a89d, reverted) produced one failure at 3599 and one bail-in of $800,004.12 instead of $799,824.12. CET1 was $50 against RWA $50 after the close-out.
+   - In that prototype, only the cross-module scenario's hashes changed: checkpoint `bad5dce1… → 1590bfad…` and state `eab283f6… → a69e0477…`. The frames were identical. Evidence is in `evidence/sys-banking-core/double-failure/superseded-ringfence-66f2a89d/`.
+   - A first variant released the provision only when the default reached CLOSED (d+720). It still re-failed at 4319 from about $0.34 of day-close costs, because the bank had zero buffer, so the release point matters.
+   - The prototype also declared the member default in every service the member clears, not only the first (07:626 "memberships"). That change is reverted too, and stays part of option 2.
+
+**Additive fix kept regardless of the owner's answer.** A second resolution used to replace `bank.resolution`, which erased the first bail-in's equity-rights record. The bank now keeps earlier resolutions in `priorResolutions`. That key is absent until a second resolution happens, so no other scenario's bytes change. This is a record only: no money moves.
