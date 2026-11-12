@@ -31,7 +31,7 @@ enforced by: .github/workflows/ci.yml (lint, typecheck, no-flag build, check-hoo
 12. **isolation and refresh on every player-state change.** proof: a second account can't see it (ui + api), and it survives a refresh and a server restart.
 enforced by: tests/e2e/17b/M1-04-catalog.spec.ts; tests/e2e/17b/M1-05-live-ticks.spec.ts.
 13. **process hygiene on the shared box.** kill servers by pid file only, never pkill/killall by name (a reviewer cleanup killed :3199).
-enforced by: none yet.
+enforced by: npm run ci:lesson13 (tools/ci/lesson13-pid-kills.mjs, .github/workflows/ci.yml); tests/unit/ci/lesson13-pid-kills.test.ts.
 
 14. **normalise paths before a shroud or allowlist check.** mistake: case, percent-encoded slashes, and literal `.rsc` served the 200 shell instead of 404 (`/Bank`, `/api/Bank`, `/api/bank%2Fdraw`, `/bank%2Fdesk`, `/bank.rsc` on 6a9efd45). catch it: try those variants before handover. proof: they 404, not the shell, and they do not write.
 enforced by: none yet.
