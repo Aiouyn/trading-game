@@ -39,3 +39,41 @@ describe("banking-core actor guard: contexts are read as an own property (q5)", 
     await expectReject(() => assertLiveCoreCommands(w.frames, inheritedLive), "MISSING_SESSION");
   });
 });
+
+describe("banking-core actor guard: forged context values are FORGED_CONTEXT (q3)", () => {
+  it("Object.create, Proxy and null-prototype context values are FORGED_CONTEXT, not CLAIM_MALFORMED", async () => {
+    const w = await world();
+    const forgeries: Array<[string, unknown]> = [
+      ["Object.create", Object.create(w.ctx)],
+      ["Proxy", new Proxy(w.ctx, {})],
+      ["null-prototype", Object.assign(Object.create(null) as object, w.ctx)],
+      ["spread", { ...w.ctx }],
+    ];
+    const codes = forgeries.map(([name, value]) => {
+      try { authorizeCoreCommands(w.frames, { actorGuard: true, contexts: { [w.open.id]: value } }); return [name, "ACCEPTED"]; }
+      catch (err) { return [name, err instanceof BindingError ? err.code : String(err)]; }
+    });
+    expect(codes).toEqual(forgeries.map(([name]) => [name, "FORGED_CONTEXT"]));
+    for (const [, value] of forgeries) {
+      await expectReject(() => assertLiveCoreCommands(w.frames, { actorGuard: true, binding: w.binding, contexts: { [w.open.id]: value } }), "FORGED_CONTEXT");
+    }
+  });
+
+  it("a malformed contexts map stays CLAIM_MALFORMED and its getters never run", async () => {
+    const w = await world();
+    let ran = 0;
+    const getter = Object.defineProperty({}, w.open.id, { enumerable: true, get: () => { ran++; return w.ctx; } });
+    const maps: unknown[] = [
+      new Proxy({ [w.open.id]: w.ctx }, {}),
+      Object.assign(Object.create(null) as object, { [w.open.id]: w.ctx }),
+      [w.ctx],
+      "contexts",
+      getter,
+      { "": w.ctx },
+    ];
+    for (const contexts of maps) {
+      await expectReject(() => authorizeCoreCommands(w.frames, { actorGuard: true, contexts }), "CLAIM_MALFORMED");
+    }
+    expect(ran).toBe(0);
+  });
+});

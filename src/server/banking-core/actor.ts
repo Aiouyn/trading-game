@@ -1,9 +1,8 @@
+import { isProxy } from "node:util/types";
 import {
   ActorBinding,
   BindingError,
   isIssuedActorContext,
-  isPlainJson,
-  isPlainObject,
   requireBoundActor,
   type ActorContext,
 } from "@/server/actor-binding";
@@ -69,13 +68,23 @@ export async function assertLiveCoreCommands(frames: readonly CoreFrame[], optio
   }
 }
 
+/**
+ * The map itself must be a literal object whose keys are command ids and whose own properties are
+ * data properties. A Proxy, null-prototype, array or getter map is CLAIM_MALFORMED, and getters
+ * never run. Each *value* is classified only by parseActorContext, so Object.create, Proxy,
+ * null-prototype or copied contexts are FORGED_CONTEXT (Gatekeeper q3).
+ */
 export function parseActorContexts(raw: unknown): Map<string, ActorContext> {
   if (raw === undefined) return new Map();
-  if (!isPlainObject(raw) || !isPlainJson(raw)) throw new BindingError("CLAIM_MALFORMED");
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw) || isProxy(raw)
+    || Object.getPrototypeOf(raw) !== Object.prototype) throw new BindingError("CLAIM_MALFORMED");
   const out = new Map<string, ActorContext>();
-  for (const [key, value] of Object.entries(raw)) {
-    if (!isCommandId(key)) throw new BindingError("CLAIM_MALFORMED");
-    out.set(key, parseActorContext(value));
+  for (const key of Reflect.ownKeys(raw)) {
+    const d = Object.getOwnPropertyDescriptor(raw, key);
+    if (typeof key !== "string" || !isCommandId(key) || !d || d.enumerable !== true || !("value" in d)) {
+      throw new BindingError("CLAIM_MALFORMED");
+    }
+    out.set(key, parseActorContext(d.value));
   }
   return out;
 }
