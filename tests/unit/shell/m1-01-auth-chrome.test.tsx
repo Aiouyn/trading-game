@@ -75,7 +75,7 @@ describe("M1-01 shell auth chrome", () => {
     expect(el.querySelector("[data-testid=rank-chip]")?.textContent).toMatch(/R2/);
   });
 
-  it("signed-in: shows own handle; hides Owner/$412k; shows $10k saved balance", async () => {
+  it("signed-in: shows own handle; hides Owner/$412k; shows $10k net worth", async () => {
     // M1-06: the signed-in feed also reads /api/market and /api/broker/me, so route by URL.
     fetchMock.mockImplementation(portAvalonServer({
       cashCents: 1_000_000,
@@ -100,7 +100,8 @@ describe("M1-01 shell auth chrome", () => {
     expect(el.querySelector("[data-testid=rank-chip]")).toBeNull();
     expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
     expect(el.textContent).not.toMatch(/412/);
-    expect(el.querySelector("[data-testid=strip-demo-tag]")?.textContent).toMatch(/Saved net worth/i);
+    expect(el.querySelector("[data-testid=strip-demo-tag]")).toBeNull();
+    expect(el.textContent).not.toMatch(/Demo balance/i);
     // MoneyText formats DEMO_STARTER_NW
     expect(DEMO_STARTER_NW).toBe("10000.00");
     expect(el.querySelector("[data-testid=strip-nw]")?.textContent).toMatch(/\$10k|10,?000|10000/);

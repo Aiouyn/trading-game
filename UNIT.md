@@ -1,31 +1,86 @@
-# Card 23: do not show guest rank or Sign in while the session is unknown
+# Unit: durable Broker order idempotency (not just the last 50)
 
-Written 12 Nov 2026, 02:28 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
+**Branch:** `eng/broker-idempotency`  
+**Base:** `43127f9e` (`eng/broker-headroom`)  
+**Worktree:** `/workspace/avalon/broker-idempotency`  
+**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
+**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
 
-## Value and scope
+## Why this unit
 
-The card 18 audit found that while `authSession` is still `{ status: "loading" }` (the `/api/auth/me` cookie check has not resolved), the desktop strip already paints boot rank chrome: `Quay 2 · Owner` in `data-testid=release`, the `R2 · Owner` chip (`rank-chip`), and a Sign in button (`sign-in-entry`). The phone Home widget does the same with the rank chip and the Sign in CTA. `isSignedIn` is only true for `signed_in`, so loading is treated as a guest. A signed-in player therefore sees a fake rank and a Sign in prompt for a frame (or longer, if `/api/auth/me` is slow).
+On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
 
-REVIEW-LESSONS (`origin/main` @ `5d320e04`) lesson 19: tests must watch the unknown-session and first-paint path, not only the settled state — hold `/api/auth/me` and assert the first paint. Lesson 7: skeletons never show fake numbers. An unknown session must render a muted skeleton, not guest chrome. Findings become tests.
+The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
 
-Front-end only: presentation of StatusStrip / PhoneHome (and any matching phone status chrome) while `auth.status === "loading"`. Do not change `authSession`, `/api/auth/me`, login, or guest/signed-in end states once the session has resolved. Independent of card 18 (clock-first-load); this card does not touch the clock and does not need that change.
+### Readiness flags checked on `43127f9e` (not this unit)
 
-## Exact base, branch, and identity
+| Flag | Status on this base | Why not this unit |
+|---|---|---|
+| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
+| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
+| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
+| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
 
-- Branch `ui/auth-loading-chrome`, worktree `/workspace/avalon/ui-auth-loading-chrome`.
-- Base `3146e1029721fc3fb3b0ff0374589d182650d433` — current tip of `origin/eng/broker-idempotency` (fetched this turn). This is the first candidate and it already has the chrome (`StatusStrip` / `PhoneHome` / `authSession` status `"loading"` default). `origin/main` @ `5d320e04` also has the same pattern but is a divergent lineage; the UI stack is higher. Recorded so a restack is obvious if PR105 moves.
-- Verify Forge (trading-game bot) `<forge@trading-game.local>` as author and committer. Unset every `GIT_*` variable for npm-test and Git. No push.
+Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
 
-## Grounding and sketch
+## Smallest observable outcome
 
-`authSession` starts as `{ status: "loading" }`. `useAuthSession`'s server snapshot is also loading. `isSignedIn` is false until `signed_in`. StatusStrip then chooses the guest release line (`Quay ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`) and the guest rank-chip + Sign in. PhoneHome's widget does the same. The boot store rank is R2 / Owner (`mockChannels`).
+After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
 
-1. Chosen: while `auth.status === "loading"`, replace that guest chrome with a muted, static skeleton (no animation, no invented rank or Sign in). Desktop: the `release` label and the right-side rank/Sign in cluster. Phone: the widget rank chip and Sign in CTA. After `signed_out`, today's guest chrome is unchanged. After `signed_in`, the handle / saved-balance chrome is unchanged.
-2. Rejected: leaving the guest chrome up and hoping `/api/auth/me` is fast. Rejected: hiding the whole strip. Rejected: pulling card 18's clock first-paint change — the clock is a different hold (`/api/market`).
+1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
+2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
+3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
+4. A process restart over the same store still honours (1) and (2).
+5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
 
-## Acceptance and proof plan
+Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
 
-- Fail-first e2e: hold `/api/auth/me` on desktop and phone; first paint (after `quay-ready`, settled with two rAF — no fixed sleep, and do not await infinite chart animations) shows no rank name, no R-chip, and no Sign in. Then the same tests pass on the fix.
-- Guest end state after a 401: Sign in and the R2 chip are still there, as today's `m1-01-auth-chrome` and `phone.spec` already check.
-- Signed-in end state after a real session: handle shown, no Sign in, no boot rank chip, no `R2 · Owner`.
-- Play-through: a natural signed-in load (register, then a fresh page with the cookie, no held `/api/auth/me`) is polled with rAF until auth resolves; guest chrome must never appear. Official checks with `GIT_*` unset. One clean e2e in a scratch worktree with fresh `.data` (new spec). Evidence under `/workspace/avalon/evidence/ui-auth-loading-chrome/`. No push.
+## Plan
+
+Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
+
+## Acceptance
+
+1. UNIT.md is written first (this file), before product-code edits.
+2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
+3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
+4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
+5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+
+---
+
+<!-- Merged from main (latest unit on main). Both unit notes are kept. -->
+
+# Card 29 — Signed-in Home hero says Net worth, not “Demo balance”
+
+**When:** 12 Nov 2026, 06:55 Europe/Paris (CET)
+**Branch:** `ui/signed-in-hero-copy`
+**Base:** `origin/main` `1fd4a6d9cc27a61dfd28ddc6288bf1ecd6ea6f3e` (PR114 after PR111/113)
+**Identity:** Forge (trading-game bot) <forge@trading-game.local>
+**Tier:** low (copy). Not opening a PR. No push this pass.
+
+## Player outcome
+
+A signed-in player looking at Home sees the same “Net worth” hero the spec describes, not “Demo balance” and not “Starter account: $10,000 (demo placeholder, not a live balance).” Their cash and positions are already described in Account as saved on the server. The main screen should not contradict that, and it should not look like a throwaway demo.
+
+## Grounding
+
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:257` — Home widget: “NET WORTH label + rank chip, serif 44 px NW, today’s change, sparkline, rank progress bar.” The label is Net worth. There is no “Demo balance” line and no $10k “not a live balance” disclaimer on this widget.
+- Same file :240 — desktop status strip: net worth (mono) with today’s %. Not a “Demo balance” tag.
+- Settings › Account already says “Account, cash, and position quantities are saved on the server.” (`src/apps/settings/strings.ts` `accountDisclaimer`; tests in `m1-01-account.test.tsx`). The hero copy is stale relative to that.
+- `docs/v1/M1-01-AUTH.md:15` still says mock trading is not a server save and “Account may show starter cash placeholder only.” That note is about Account, and Account has already moved on. It is not a license to label the Home hero a fake balance.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash “Demo balance” or the $10k disclaimer, and must not invent a signed-in number. Guest chrome (Net worth) is the honest unknown-session path.
+
+## Scope (tiny copy)
+
+- Phone Home widget: the label is `S.netWorth` for signed-in and guest. Remove `phone-demo-disclaimer` (`S.starterPlaceholder`) from the signed-in hero.
+- Desktop status strip: drop the signed-in “Demo balance” tag (`strip-demo-tag`). Show today’s % next to NW, as the spec and the guest strip already do.
+- Do not retouch the signed-in today slot or the $20k rank bar — that is card 25 (`ui/signed-in-home-today`).
+- Do not rewrite Account or M1-01-AUTH.md in this card.
+
+## Acceptance / proof
+
+- Fail-first unit: a signed-in Phone Home / StatusStrip still says “Demo balance” and the starter disclaimer before the fix; after the fix the hero label is “Net worth”, `phone-demo-disclaimer` is absent, and `strip-demo-tag` is absent. The $10,000 starter amount may still appear as the NW figure; it is not captioned as a demo placeholder.
+- Auth / first paint: hold `/api/auth/me` — first paint has no “Demo balance”, no “not a live balance” / starter placeholder, and no account handle. After the session resolves signed-in, still no those phrases on the hero or strip.
+- Official-flag e2e on fresh `.data` (register a handle) plus production play at 1280 and 390 with screenshots.
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.
