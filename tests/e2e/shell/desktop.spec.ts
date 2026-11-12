@@ -30,26 +30,16 @@ test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, divider
   expect(await tiles.first().getAttribute("data-testid")).toBe("tile-broker");
   const t = await tiles.first().boundingBox();
   expect([t?.width, t?.height]).toEqual([40, 40]);
-  await expect(page.getByTestId("group-divider")).toHaveCount(4);
+  await expect(page.getByTestId("group-divider")).toHaveCount(1);
   await expect(page.getByRole("toolbar")).toHaveCount(1);
 });
 
-test("S1-07 every unlocked built:false app opens a ComingLater window; deep link shows the same", async ({ page }) => {
+test("S1-07 shelf offers only built apps; deep link still shows ComingLater", async ({ page }) => {
   await boot(page, "/?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
-  const ids = await page.locator("[data-testid^=tile-][data-state=unlocked]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.slice(5)));
-  expect(ids).toHaveLength(32);
-  // Wire is built (UI card 1, WIR-A): it renders its feed, covered by tests/e2e/17b/WIR-A.spec.ts.
-  for (const id of ids.filter((i) => i !== "settings" && i !== "city" && i !== "wire")) {
-    await page.getByTestId(`tile-${id}`).click();
-    const win = page.getByTestId(`win-${id}`).first();
-    if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
-    if (id === "broker") { await expect(win.getByTestId("broker")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 4 (BR-4)
-    await expect(win.getByTestId("coming-later")).toContainText("Coming later");
-    await expect(win.getByRole("heading")).toHaveText(await win.locator(".tb-name").innerText());
-    await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);
-    await win.getByTestId("win-close").click();
-  }
-  // Deep link: was /wire until Wire was built (UI card 1); Research is still ComingLater and not in the default layout.
+  const ids = await page.locator("[data-testid^=tile-]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.slice(5)));
+  expect(ids).toEqual(["broker", "portfolio", "wire", "settings"]);
+  await expect(page.getByTestId("tile-markets")).toHaveCount(0);
+  // Deep link: unbuilt apps are still reachable this way; Research is still ComingLater.
   await boot(page, "/research?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
   await expect(page.getByTestId("win-research").getByTestId("coming-later")).toHaveText(/Research Desk\s*Coming later/);
 });
@@ -60,7 +50,8 @@ test("S1-09 workspace slots by rank; apps open on workspace 1", async ({ page })
     await expect(page.getByTestId("ws-switcher").getByRole("button")).toHaveCount(n);
   }
   await page.getByTestId("ws-3").click();
-  await page.getByTestId("tile-markets").click();
+  // Markets is not on the shelf; a client-side deep link still opens it on workspace 1.
+  await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/markets?rank=R6"));
   await expect(page.getByTestId("ws-1")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("win-markets")).toBeVisible();
 });
@@ -124,7 +115,7 @@ test("Glyph colours: muted, white when active, disabled when locked; never brass
     const ws = document.querySelector("[data-testid=ws-1]")!;
     const active = document.querySelector(".win.active")!;
     return {
-      tile: color("[data-testid=tile-markets]:not(.on)"), locked: color("[data-testid=tile-quantlab]"), on: color(".tile.on"),
+      tile: color("[data-testid=tile-portfolio]:not(.on)"), lockedCount: document.querySelectorAll(".shelf .tile.locked").length, on: color(".tile.on"),
       wsColor: getComputedStyle(ws).color, wsBorder: getComputedStyle(ws).borderTopColor,
       winBorder: getComputedStyle(active).borderTopColor, winGlyph: color(".win.active .tb-glyph"),
       before: getComputedStyle(active.querySelector(".titlebar")!, "::before").backgroundColor,
@@ -132,7 +123,7 @@ test("Glyph colours: muted, white when active, disabled when locked; never brass
     };
   });
   expect(c.tile).toBe(c.muted);
-  expect(c.locked).toBe(c.disabled);
+  expect(c.lockedCount).toBe(0);
   expect(c.on).toBe(c.fg);
   expect(c.winGlyph).toBe(c.fg);
   expect(c.winBorder).toBe(c.disabled);
@@ -182,7 +173,11 @@ test("S1-12 windows cannot be resized below their minimum", async ({ page }) => 
 
 test("S1-15 Shadow sub-palette in AI Lab and Security; Broker stays brass", async ({ page }) => {
   await boot(page, "/?nw=200000");
-  for (const id of ["ailab", "security", "broker", "legal"]) await page.getByTestId(`tile-${id}`).click();
+  await page.getByTestId("tile-broker").click();
+  for (const path of ["/ailab", "/security", "/legal"]) {
+    await page.evaluate((h) => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(h), `${path}?nw=200000`);
+    await expect(page.getByTestId(`win-${path.slice(1)}`)).toBeVisible();
+  }
   const read = (id: string) => page.getByTestId(`win-${id}`).first().evaluate((el) => {
     const b = document.createElement("button");
     b.className = "btn-primary";
@@ -362,7 +357,7 @@ test(`S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
   await page.unrouteAll({ behavior: "wait" }); // the City part below isn't watched
   // Deterministic: arm the wait for the first new script before the click that triggers the dynamic import.
   const cityChunk = page.waitForResponse((r) => r.request().resourceType() === "script" && !brokerChunks.includes(r.url()));
-  await page.getByTestId("tile-city").click();
+  await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/city"));
   const first = await cityChunk;
   scripts.set(first.url(), 0);
   await expect(page.getByTestId("city-mount")).toBeAttached();

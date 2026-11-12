@@ -82,30 +82,12 @@ test("T2-02 window controls are 44×44 under hasTouch", async ({ browser }) => {
   await ctx.close();
 });
 
-test("T2-03 locked shelf tile: 40 tall, Label-style --fg-muted tag, --fg-disabled glyph, tag ≥4.5:1 on --chrome", async ({ page }, info) => {
+test("T2-03 shelf offers no locked unbuilt teasers", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await boot(page, "/?rank=R1&nw=30000");
-  const tile = page.locator(".shelf .tile.locked").first();
-  expect((await tile.boundingBox())!.height).toBe(40);
-  for (const p of PALETTES) {
-    await setPalette(page, p);
-    const [muted, disabled, chrome] = [await token(page, "fg-muted"), await token(page, "fg-disabled"), await token(page, "chrome")];
-    const t = await tile.evaluate((el) => {
-      const tag = getComputedStyle(el.querySelector(".lock-tag")!);
-      return { size: parseFloat(tag.fontSize), upper: tag.textTransform, ls: parseFloat(tag.letterSpacing) / parseFloat(tag.fontSize), color: tag.color, glyph: getComputedStyle(el).color };
-    });
-    expect(t.size).toBeCloseTo(10.5, 1);
-    expect(t.upper).toBe("uppercase");
-    expect(t.ls).toBeCloseTo(0.14, 2);
-    expect(t.color).toBe(muted);
-    expect(t.glyph).toBe(disabled);
-    const ratio = await page.evaluate(([a, b]) => {
-      const lum = (c: string) => { const v = c.match(/\d+/g)!.slice(0, 3).map((x) => Number(x) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
-      const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
-      return (x + 0.05) / (y + 0.05);
-    }, [t.color, chrome]);
-    expect([p, ratio >= 4.5]).toEqual([p, true]);
-  }
+  await expect(page.locator(".shelf .tile.locked")).toHaveCount(0);
+  await expect(page.getByTestId("tile-broker")).toBeVisible();
+  await expect(page.getByTestId("tile-quantlab")).toHaveCount(0);
   await setPalette(page, "ink-brass");
   await shot(page, "home-r1-locked");
 });
