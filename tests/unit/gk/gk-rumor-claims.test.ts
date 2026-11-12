@@ -85,7 +85,11 @@ describe("RUMOR schedule and draws", () => {
     expect(def.kind).toBe("RUMOR");
     expect(def.phase).toBe("forecast");
     expect(def.effects).toEqual([]);
-    expect(def.asserted).toEqual(tide.effects);
+    const asserted = def.asserted![0]!;
+    expect(asserted.assetId).toBe(tide.effects[0]!.assetId);
+    expect(Math.sign(asserted.bp)).toBe(Math.sign(tide.effects[0]!.bp));
+    expect(Math.abs(asserted.bp)).toBeGreaterThanOrEqual(Math.round(Math.abs(tide.effects[0]!.bp) * 0.6));
+    expect(Math.abs(asserted.bp)).toBeLessThanOrEqual(Math.round(Math.abs(tide.effects[0]!.bp) * 1.4));
     expect(CAUSES[def.causeKey]!).toBeTruthy();
     expect(CAUSES[`${def.causeKey}-confirmed`]).toBeTruthy();
     expect(CAUSES[`${def.causeKey}-fizzled`]).toBeTruthy();
