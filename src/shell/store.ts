@@ -47,7 +47,8 @@ export interface ShellState {
   /** Height of the docked analytics consent strip (0 when hidden). Shrinks the desktop work area like banners. */
   consentH: number;
   setConsentH(h: number): void;
-  open(app: AppId, context?: string, opts?: { deepLink?: boolean }): void;
+  /** deepLink: may open a locked app. reuse: a URL deep link focuses (and retargets) the existing instance instead of opening another (card 15). */
+  open(app: AppId, context?: string, opts?: { deepLink?: boolean; reuse?: boolean }): void;
   close(w: WindowRect): void;
   focus(w: WindowRect): void;
   snap(w: WindowRect, slot: SnapSlot): void;
@@ -124,7 +125,7 @@ export const createShellStore = (channels: Channels) =>
         if (v === "hidden" || (v === "locked" && !opts?.deepLink)) return;
         touchRecent(app);
         if (wm.viewportOf(get().vw) === "phone") { set({ phoneApp: { app, context }, recentOpen: false }); return; }
-        const r = wm.openApp(get().local.windows, app, area(), context, opts?.deepLink ? { reuse: true } : undefined);
+        const r = wm.openApp(get().local.windows, app, area(), context, opts?.reuse ? { reuse: true } : undefined);
         setWindows(r.windows, { activeWorkspace: 1 });
       },
       // TODO(17A T4): ask before closing a window with unsent ticket input (trigger: ticket input exists).

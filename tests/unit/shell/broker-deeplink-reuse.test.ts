@@ -7,8 +7,8 @@ it("store.open with deepLink reuses the existing Broker window (playtest d40)", 
   store.getState().setViewport(1440, 900);
   store.getState().open("broker");
   expect(store.getState().local.windows.filter((w) => w.app === "broker")).toHaveLength(1);
-  store.getState().open("broker", undefined, { deepLink: true });
-  store.getState().open("broker", "HALC", { deepLink: true });
+  store.getState().open("broker", undefined, { deepLink: true, reuse: true });
+  store.getState().open("broker", "HALC", { deepLink: true, reuse: true });
   const brokers = store.getState().local.windows.filter((w) => w.app === "broker");
   expect(brokers).toHaveLength(1);
   expect(brokers[0].context).toBe("HALC");
@@ -31,7 +31,7 @@ it("a deep-link reuse restores a minimized Broker window", () => {
   const { w, h, x, y } = first;
   store.getState().toggleCollapse(first);
   expect(store.getState().local.windows.find((win) => win.app === "broker")?.collapsed).toBe(true);
-  store.getState().open("broker", undefined, { deepLink: true });
+  store.getState().open("broker", undefined, { deepLink: true, reuse: true });
   const brokers = store.getState().local.windows.filter((win) => win.app === "broker");
   expect(brokers).toHaveLength(1);
   expect(brokers[0].collapsed).toBe(false);
@@ -44,7 +44,7 @@ it("a deep-link reuse with an asset restores the minimized window and applies th
   store.getState().setViewport(1440, 900);
   store.getState().open("broker");
   store.getState().toggleCollapse(store.getState().local.windows.find((w) => w.app === "broker")!);
-  store.getState().open("broker", "HALC", { deepLink: true });
+  store.getState().open("broker", "HALC", { deepLink: true, reuse: true });
   const brokers = store.getState().local.windows.filter((w) => w.app === "broker");
   expect(brokers).toHaveLength(1);
   expect(brokers[0].collapsed).toBe(false);
@@ -70,4 +70,13 @@ it("a same-context or at-cap open without deepLink leaves a minimized Broker col
   const brokers = store.getState().local.windows.filter((w) => w.app === "broker");
   expect(brokers).toHaveLength(4);
   expect(brokers.find((w) => w.context === "HALC")?.collapsed).toBe(true);
+});
+
+it("an in-app deepLink open without reuse (Positions Close) still opens its own Broker, so card 34's cap rule holds", () => {
+  const store = createShellStore(mockChannels(new URLSearchParams("")));
+  store.getState().setViewport(1440, 900);
+  store.getState().open("broker", "NRON");
+  store.getState().open("broker", "HALC", { deepLink: true });
+  const brokers = store.getState().local.windows.filter((w) => w.app === "broker");
+  expect(brokers.map((w) => w.context)).toEqual(["NRON", "HALC"]);
 });
