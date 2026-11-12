@@ -111,13 +111,37 @@ export function isShrouded(id: AppId, flags: readonly string[]): boolean {
   return flag !== undefined && !flags.includes(flag);
 }
 
+/**
+ * Path compared to the shroud list. Case, percent-encoded slashes (`%2F`, including a second
+ * encoding) and a trailing `.rsc` flight suffix do not reach the shell.
+ */
+export function normalizeShroudPath(pathname: string): string {
+  let path = pathname.trim();
+  const q = path.indexOf("?");
+  if (q >= 0) path = path.slice(0, q);
+  const hash = path.indexOf("#");
+  if (hash >= 0) path = path.slice(0, hash);
+  for (let i = 0; i < 4; i++) {
+    let decoded: string;
+    try { decoded = decodeURIComponent(path); } catch { break; }
+    if (decoded === path) break;
+    path = decoded;
+  }
+  path = path.toLowerCase();
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  if (path.endsWith(".rsc")) path = path.slice(0, -4);
+  if (path === "" || !path.startsWith("/")) path = `/${path}`;
+  return path === "" ? "/" : path;
+}
+
 /** True when `/{segments}` must 404. In-scope apps (and unknown paths) are false.
  *  `/api/bank` is not an API handler: the catch-all would otherwise render the `api` app. */
 export function routeShrouded(segments: readonly string[], flags: readonly string[]): boolean {
-  const head = segments[0];
+  const path = normalizeShroudPath(`/${segments.join("/")}`);
+  const head = path.split("/").filter(Boolean)[0];
   if (!head) return false;
   if (head === "api") {
-    const flag = shroudedApiFlag(`/${segments.join("/")}`);
+    const flag = shroudedApiFlag(path);
     return flag !== null && !flags.includes(flag);
   }
   const entry = SHROUD.find((e) => (e.paths as readonly string[]).includes(head));
@@ -136,7 +160,7 @@ export function flagsFromSearch(sp: { get(name: string): string | null }): reado
 
 /** The shroud flag for an API pathname, or null when this unit does not own the path. */
 export function shroudedApiFlag(pathname: string): string | null {
-  const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  const path = normalizeShroudPath(pathname);
   return SHROUDED_API.find((g) => path === g.path || path.startsWith(`${g.path}/`))?.flag ?? null;
 }
 

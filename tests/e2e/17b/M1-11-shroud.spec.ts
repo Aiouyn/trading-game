@@ -46,6 +46,14 @@ test.describe("default flags", () => {
     await expect(page.getByTestId("quay-ready")).toHaveCount(0);
   });
 
+  test("case, encoded slashes and .rsc do not return the shell", async ({ page }) => {
+    for (const path of ["/Bank", "/api/Bank", "/api/bank%2Fdraw", "/bank%2Fdesk", "/bank.rsc"]) {
+      const res = await page.goto(path);
+      expect(res?.status(), path).toBe(404);
+      await expect(page.getByTestId("quay-ready"), path).toHaveCount(0);
+    }
+  });
+
   test("in-scope pages still open", async ({ page }) => {
     for (const path of IN_SCOPE) {
       const res = await page.goto(path);

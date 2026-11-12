@@ -99,6 +99,19 @@ describe("M1-11 flag map", () => {
     vi.unstubAllEnvs();
   });
 
+  it("case, percent-encoded slashes and .rsc still 404", () => {
+    expect(routeShrouded(["Bank"], [])).toBe(true);
+    expect(routeShrouded(["bank%2Fdesk"], [])).toBe(true);
+    expect(routeShrouded(["bank.rsc"], [])).toBe(true);
+    expect(routeShrouded(["BANK.RSC"], [])).toBe(true);
+    expect(refuseShroudedApi("/api/Bank", [])?.status).toBe(404);
+    expect(refuseShroudedApi("/api/bank%2Fdraw", [])?.status).toBe(404);
+    expect(refuseShroudedApi("/api/broker/orders", [])).toBeNull();
+    expect(refuseShroudedApi("/broker.rsc", [])).toBeNull();
+    expect(routeShrouded(["broker.rsc"], [])).toBe(false);
+    expect(routeShrouded(["Bank"], ["v1.banks"])).toBe(false);
+  });
+
   it("shrouded API prefixes 404 and do not describe a mutation; in-scope paths are left alone", () => {
     const denied = refuseShroudedApi("/api/bank", []);
     expect(denied?.status).toBe(404);
