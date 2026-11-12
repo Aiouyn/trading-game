@@ -96,7 +96,7 @@ describe("card 27 Close pre-fills Broker and does not submit", () => {
     await click(close!);
     await settle();
 
-    const opened = store.getState().windows.filter((w) => w.app === "broker");
+    const opened = store.getState().local.windows.filter((w) => w.app === "broker");
     expect(opened.some((w) => w.context === "HALC")).toBe(true);
 
     const ticket = q("broker")!;

@@ -22,6 +22,7 @@ import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
 import { SimpleTicket } from "./SimpleTicket";
 import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
+import { subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
 import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
 import "./broker.css";
 
@@ -65,7 +66,13 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const choices = useMemo(() => (ticker.body ? Object.keys(ticker.body.rows).sort() : []), [ticker.body]);
   const fixedAsset = context ? parseAssetId(context) : null;
-  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" });
+  const [draft, setDraft] = useState<Draft>(() => {
+    const pre = takeTicketPrefill();
+    if (pre && fixedAsset && pre.assetId === fixedAsset) {
+      return { assetId: fixedAsset, side: pre.side, type: "market", limitText: "", stopText: "", qtyText: pre.qtyText };
+    }
+    return { assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" };
+  });
   const assetId = fixedAsset ?? (draft.assetId || choices[0] || "");
   const [touched, setTouched] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "edit" });
@@ -73,6 +80,15 @@ export function BrokerFrame({ context }: { context?: string }) {
   const qtyRef = useRef<HTMLInputElement>(null);
   const placing = useRef(false);
   const [view, setView] = useState<BrokerView>("trade");
+  // Apply a later Close while this ticket is already mounted on the same asset. Never reviews or places.
+  useEffect(() => subscribeTicketPrefill((p) => {
+    const a = context ? parseAssetId(context) : null;
+    if (!a || p.assetId !== a) return;
+    setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
+    setPhase({ kind: "edit" });
+    setTouched(false);
+    setView("trade");
+  }), [context]);
   const viewBase = useId();
   const viewIds = { trade: `${viewBase}-trade`, about: `${viewBase}-about` };
   // Back to Trade: focus returns to the header's ticker heading (or the asset select) once Trade is rendered again.
