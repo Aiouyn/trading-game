@@ -1,4 +1,4 @@
-import { appendFile, copyFile, mkdir, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, stat, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { scrubTelemetryText } from "./scrub";
 
@@ -11,6 +11,8 @@ export const TELEMETRY_FILE_MAX_BYTES = 64 * 1024;
 export const TELEMETRY_FILE_ROTATIONS = 3;
 /** Hard ceiling for the whole telemetry directory. */
 export const TELEMETRY_DIR_MAX_BYTES = 1024 * 1024;
+/** In-progress rotation copy. Never a published log name. */
+const TEMP_SUFFIX = ".tmp";
 
 export class TelemetryDirFullError extends Error {
   readonly code = "TELEMETRY_DIR_FULL";
@@ -33,6 +35,164 @@ export function telemetryDir(): string | null {
 }
 
 let chain: Promise<void> = Promise.resolve();
+let recoverGate: Promise<void> = Promise.resolve();
+const recoveredDirs = new Set<string>();
+
+function errno(err: unknown): string | undefined {
+  return err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+}
+
+async function fsyncDirectory(dir: string): Promise<void> {
+  const fh = await open(/* turbopackIgnore: true */ dir, "r");
+  try {
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+}
+
+/** Bytes of a jsonl file that are whole, parseable lines. A torn tail is excluded. */
+function completeJsonlPrefix(buf: Buffer): Buffer {
+  let end = buf.length;
+  if (end > 0 && buf[end - 1] !== 0x0a) {
+    const nl = buf.lastIndexOf(0x0a);
+    end = nl === -1 ? 0 : nl + 1;
+  }
+  while (end > 0) {
+    if (jsonlBytesOk(buf.subarray(0, end))) return buf.subarray(0, end);
+    const nl = buf.lastIndexOf(0x0a, end - 2);
+    end = nl === -1 ? 0 : nl + 1;
+  }
+  return buf.subarray(0, 0);
+}
+
+function jsonlBytesOk(buf: Buffer): boolean {
+  if (buf.length === 0) return true;
+  if (buf[buf.length - 1] !== 0x0a) return false;
+  for (const line of buf.toString("utf8").split("\n")) {
+    if (!line) continue;
+    try {
+      JSON.parse(line);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isPublishedLogName(name: string): boolean {
+  return /^[a-z]+\.jsonl(\.\d+)?$/.test(name);
+}
+
+async function repairJsonlFile(file: string): Promise<void> {
+  let fh: FileHandle;
+  try {
+    fh = await open(/* turbopackIgnore: true */ file, "r+");
+  } catch (err) {
+    if (errno(err) === "ENOENT") return;
+    throw err;
+  }
+  try {
+    const buf = await fh.readFile();
+    const keep = completeJsonlPrefix(buf);
+    if (keep.length !== buf.length) {
+      await fh.truncate(keep.length);
+      await fh.sync();
+    }
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
+ * Startup recovery. A crash mid-rename leaves `dest.tmp` beside the previous dest, or
+ * (if dest never existed) only the temp. A temp must not replace a dest that is already
+ * there: the source of the copy is still in the directory until the rename is durable
+ * and the source is unlinked. A torn append is truncated to the last complete line.
+ */
+async function recoverDir(dir: string): Promise<void> {
+  let names: string[];
+  try {
+    names = await readdir(/* turbopackIgnore: true */ dir);
+  } catch (err) {
+    if (errno(err) === "ENOENT") return;
+    throw err;
+  }
+  for (const name of names) {
+    if (!isPublishedLogName(name)) continue;
+    await repairJsonlFile(path.join(/* turbopackIgnore: true */ dir, name));
+  }
+  for (const name of names) {
+    if (!name.endsWith(TEMP_SUFFIX)) continue;
+    const destName = name.slice(0, -TEMP_SUFFIX.length);
+    if (!isPublishedLogName(destName)) continue;
+    const tmp = path.join(/* turbopackIgnore: true */ dir, name);
+    const dest = path.join(/* turbopackIgnore: true */ dir, destName);
+    let destExists = false;
+    try {
+      destExists = (await stat(/* turbopackIgnore: true */ dest)).isFile();
+    } catch (err) {
+      if (errno(err) !== "ENOENT") throw err;
+    }
+    if (destExists) {
+      await unlink(/* turbopackIgnore: true */ tmp);
+      await fsyncDirectory(dir);
+      continue;
+    }
+    await repairJsonlFile(tmp);
+    if ((await fileSize(tmp)) === 0) {
+      try {
+        await unlink(/* turbopackIgnore: true */ tmp);
+      } catch (err) {
+        if (errno(err) !== "ENOENT") throw err;
+      }
+      await fsyncDirectory(dir);
+      continue;
+    }
+    await rename(/* turbopackIgnore: true */ tmp, dest);
+    await fsyncDirectory(dir);
+  }
+}
+
+/** Recover `dir` once per process, and make the directory entry itself durable. */
+function ensureRecovered(dir: string): Promise<void> {
+  const run = recoverGate.then(async () => {
+    if (recoveredDirs.has(dir)) return;
+    await mkdir(/* turbopackIgnore: true */ dir, { recursive: true });
+    await recoverDir(dir);
+    await fsyncDirectory(dir);
+    await fsyncDirectory(path.dirname(dir));
+    recoveredDirs.add(dir);
+  });
+  recoverGate = run.then(() => {}, () => {});
+  return run;
+}
+
+/** Test and startup entry: repair torn tails and leftover rotation temps. */
+export async function recoverTelemetryDir(dir: string): Promise<void> {
+  await mkdir(/* turbopackIgnore: true */ dir, { recursive: true });
+  await recoverDir(dir);
+}
+
+async function appendDurable(file: string, line: string): Promise<void> {
+  const fh = await open(/* turbopackIgnore: true */ file, "a", 0o644);
+  try {
+    await fh.writeFile(line, "utf8");
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+}
+
+async function writeDurableTemp(tmp: string, data: Buffer): Promise<void> {
+  const fh = await open(/* turbopackIgnore: true */ tmp, "w", 0o644);
+  try {
+    await fh.writeFile(data);
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+}
 
 function rotationName(file: string, n: number): string {
   return `${file}.${n}`;
@@ -69,15 +229,36 @@ async function dirTotal(dir: string): Promise<number> {
   return files.reduce((n, f) => n + f.size, 0);
 }
 
-/** Copy source to dest.tmp, atomically rename onto dest, then drop source. A crash mid-copy leaves dest untouched. */
+/**
+ * Copy source onto dest via a temp file. The temp is fsynced before rename, and the
+ * directory is fsynced after rename, before source is dropped. A crash before the
+ * rename leaves dest untouched; startup recovery discards the leftover temp.
+ */
 async function promoteRotation(dir: string, fromName: string, toName: string): Promise<void> {
   const from = path.join(/* turbopackIgnore: true */ dir, fromName);
   const to = path.join(/* turbopackIgnore: true */ dir, toName);
-  const tmp = `${to}.tmp`;
-  try { await unlink(tmp); } catch { /* no leftover */ }
-  try { await copyFile(from, tmp); } catch { return; /* no source */ }
-  await rename(tmp, to);
-  try { await unlink(from); } catch { /* already gone */ }
+  const tmp = `${to}${TEMP_SUFFIX}`;
+  let data: Buffer;
+  try {
+    data = await readFile(/* turbopackIgnore: true */ from);
+  } catch (err) {
+    if (errno(err) === "ENOENT") return;
+    throw err;
+  }
+  try {
+    await unlink(/* turbopackIgnore: true */ tmp);
+  } catch (err) {
+    if (errno(err) !== "ENOENT") throw err;
+  }
+  await writeDurableTemp(tmp, data);
+  await rename(/* turbopackIgnore: true */ tmp, to);
+  await fsyncDirectory(dir);
+  try {
+    await unlink(/* turbopackIgnore: true */ from);
+  } catch (err) {
+    if (errno(err) !== "ENOENT") throw err;
+  }
+  await fsyncDirectory(dir);
 }
 
 async function rotateStream(dir: string, file: string): Promise<void> {
@@ -122,6 +303,7 @@ async function appendLine(file: string, row: unknown): Promise<void> {
       throw new TelemetryDirFullError();
     }
     await mkdir(/* turbopackIgnore: true */ dir, { recursive: true });
+    await ensureRecovered(dir);
     const live = path.join(/* turbopackIgnore: true */ dir, file);
     const liveBytes = await fileSize(live);
     if (liveBytes + lineBytes > TELEMETRY_FILE_MAX_BYTES) {
@@ -132,7 +314,16 @@ async function appendLine(file: string, row: unknown): Promise<void> {
     if (total + lineBytes > TELEMETRY_DIR_MAX_BYTES) {
       throw new TelemetryDirFullError();
     }
-    await appendFile(live, line, "utf8");
+    let created = false;
+    try {
+      await stat(/* turbopackIgnore: true */ live);
+    } catch (err) {
+      if (errno(err) !== "ENOENT") throw err;
+      created = true;
+    }
+    // The promise resolves only after the line is durable. Callers treat that as the ack.
+    await appendDurable(live, line);
+    if (created) await fsyncDirectory(dir);
   });
   chain = next.catch(() => {});
   await next;
@@ -221,6 +412,7 @@ async function ensureDecisions(): Promise<void> {
   decisionsLoaded = true;
   const dir = telemetryDir();
   if (!dir) return;
+  await ensureRecovered(dir);
   // optout first, consent second so a later consent.jsonl row with ts can override, and vice versa via ts.
   await loadDecisionFile(dir, "optout.jsonl", false);
   await loadDecisionFile(dir, "consent.jsonl", true);

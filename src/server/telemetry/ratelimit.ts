@@ -1,5 +1,13 @@
+import { randomBytes } from "node:crypto";
 import { tokenFromRequest } from "@/server/auth/http";
+import { getAuthService } from "@/server/auth/instance";
 import { hashSessionToken, isAnonId } from "./ids";
+
+/** HttpOnly guest session. Distinguishes browsers that have no auth cookie and no trusted IP. */
+export const TELEMETRY_GUEST_COOKIE = "quay_tel";
+const GUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+/** Per-client buckets, plus the global key. Kept under the AttemptThrottle cap. */
+const MAX_RATE_KEYS = 4096;
 
 export type Limit = { n: number; windowMs: number };
 
@@ -46,21 +54,133 @@ export function resetTelemetryLimits(): void {
   globalLimits = { ...GLOBAL_DEFAULTS };
 }
 
-export function trustedClientIp(request: Request): string | null {
-  if (process.env.QUAY_TRUST_PROXY !== "1") return null;
-  const fwd = request.headers.get("x-forwarded-for");
-  const first = fwd?.split(",")[0]?.trim();
-  return first || null;
+export function readTelemetryGuestId(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx < 0) continue;
+    if (part.slice(0, idx).trim() !== TELEMETRY_GUEST_COOKIE) continue;
+    let value = part.slice(idx + 1).trim();
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      // keep the raw token
+    }
+    return GUEST_ID_RE.test(value) ? value : null;
+  }
+  return null;
 }
 
-export function clientKey(request: Request, anonId?: string): string {
+export function mintTelemetryGuestId(): string {
+  return randomBytes(16).toString("hex");
+}
+
+export function telemetryGuestCookieHeader(id: string, secure: boolean): string {
+  const parts = [
+    `${TELEMETRY_GUEST_COOKIE}=${id}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=31536000",
+  ];
+  if (secure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+/** 1 = the rightmost X-Forwarded-For hop, the address our proxy appended. */
+const TRUSTED_PROXY_HOPS_DEFAULT = 1;
+
+/** Positive integer env, or `fallback` when the variable is missing or not usable. */
+function readPositiveInt(name: string, fallback: number, max: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return fallback;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n < 1 || n > max) return fallback;
+  return n;
+}
+
+/**
+ * Client address from X-Forwarded-For, counting `hops` in from the right.
+ * hops 1 is the rightmost value (appended by the proxy closest to us).
+ * A chain shorter than `hops` uses that rightmost value, not a left-hand spoof.
+ * Same rule as mutationLimit's forwardedClientFromRight, so the two can share one helper.
+ */
+export function forwardedClientFromRight(header: string | null, hops = TRUSTED_PROXY_HOPS_DEFAULT): string | null {
+  if (!header) return null;
+  const parts = header.split(",").map((part) => part.trim()).filter((part) => part.length > 0 && part.length <= 64);
+  if (parts.length === 0) return null;
+  const n = Number.isInteger(hops) && hops >= 1 ? hops : TRUSTED_PROXY_HOPS_DEFAULT;
+  const index = parts.length - n;
+  return parts[index >= 0 ? index : parts.length - 1] ?? null;
+}
+
+/** Trusted client IP. QUAY_TRUSTED_PROXY_HOPS counts in from the right (default 1). */
+export function trustedClientIp(request: Request): string | null {
+  if (process.env.QUAY_TRUST_PROXY !== "1") return null;
+  const hops = readPositiveInt("QUAY_TRUSTED_PROXY_HOPS", TRUSTED_PROXY_HOPS_DEFAULT, 16);
+  return forwardedClientFromRight(request.headers.get("x-forwarded-for"), hops);
+}
+
+/**
+ * TCP peer, when this runtime still has the Node socket on the request.
+ * Next 16 builds the route Request without copying `socket.remoteAddress`
+ * (`ip` is left unset). `X-Forwarded-For` is not a substitute: the client can set it.
+ */
+export function connectionAddress(request: Request): string | null {
+  const withSock = request as Request & {
+    socket?: { remoteAddress?: unknown };
+    connection?: { remoteAddress?: unknown };
+  };
+  const raw = withSock.socket?.remoteAddress ?? withSock.connection?.remoteAddress;
+  if (typeof raw !== "string") return null;
+  const addr = raw.trim();
+  if (!addr || addr.length > 64) return null;
+  return addr;
+}
+
+export async function clientKey(request: Request, anonId?: string): Promise<string> {
   const parts: string[] = [];
   const token = tokenFromRequest(request);
-  if (token) parts.push(`s:${hashSessionToken(token)}`);
+  if (token && (await getAuthService().peekSession(token))) parts.push(`s:${hashSessionToken(token)}`);
   if (anonId && isAnonId(anonId)) parts.push(`a:${anonId}`);
   const ip = trustedClientIp(request);
   if (ip) parts.push(`ip:${ip}`);
-  return parts.length > 0 ? parts.join("|") : "anon-missing";
+  if (parts.length > 0) return parts.join("|");
+  const guest = readTelemetryGuestId(request.headers.get("cookie"));
+  if (guest) return `g:${hashSessionToken(guest)}`;
+  return "anon-missing";
+}
+
+function enforceRateKeyBound(now: number, protect: string): void {
+  let horizon = 0;
+  for (const limit of Object.values(limits)) horizon = Math.max(horizon, limit.windowMs);
+  for (const limit of Object.values(globalLimits)) horizon = Math.max(horizon, limit.windowMs);
+  const cutoff = now - horizon;
+  for (const [key, times] of hits) {
+    let write = 0;
+    for (let i = 0; i < times.length; i++) {
+      if (times[i]! > cutoff) times[write++] = times[i]!;
+    }
+    if (write === 0) hits.delete(key);
+    else if (write !== times.length) times.length = write;
+  }
+  while (hits.size > MAX_RATE_KEYS) {
+    let drop: string | undefined;
+    for (const key of hits.keys()) {
+      if (key === protect || key.endsWith(":global")) continue;
+      drop = key;
+      break;
+    }
+    if (drop === undefined) break;
+    hits.delete(drop);
+  }
+}
+
+function popHit(bucket: string): void {
+  const prev = hits.get(bucket) ?? [];
+  prev.pop();
+  if (prev.length === 0) hits.delete(bucket);
+  else hits.set(bucket, prev);
 }
 
 function overLimit(bucket: string, limit: Limit, now: number): number | null {
@@ -75,24 +195,33 @@ function overLimit(bucket: string, limit: Limit, now: number): number | null {
   return null;
 }
 
-/** Returns retry-after ms when over the per-client or global cap, else null. */
-export function checkTelemetryRate(
+/** Returns retry-after ms when over the connection, per-client, or global cap, else null. */
+export async function checkTelemetryRate(
   kind: string,
   request: Request,
   anonId?: string,
   now = Date.now(),
-): number | null {
+): Promise<number | null> {
   const per = limits[kind] ?? DEFAULTS.error;
   const glob = globalLimits[kind] ?? GLOBAL_DEFAULTS.error;
-  const key = `${kind}:${clientKey(request, anonId)}`;
+  const key = `${kind}:${await clientKey(request, anonId)}`;
+  const conn = trustedClientIp(request) ? null : connectionAddress(request);
+  const connKey = conn ? `${kind}:conn:${conn}` : null;
+  enforceRateKeyBound(now, connKey ?? key);
+  if (connKey) {
+    const connRetry = overLimit(connKey, per, now);
+    if (connRetry !== null) return connRetry;
+  }
   const perRetry = overLimit(key, per, now);
-  if (perRetry !== null) return perRetry;
+  if (perRetry !== null) {
+    if (connKey) popHit(connKey);
+    return perRetry;
+  }
   const globalRetry = overLimit(`${kind}:global`, glob, now);
   if (globalRetry !== null) {
-    // Do not keep the per-client slot we just reserved if the global cap refuses the write.
-    const prev = hits.get(key) ?? [];
-    prev.pop();
-    hits.set(key, prev);
+    // Do not keep the slots we just reserved if the global cap refuses the write.
+    popHit(key);
+    if (connKey) popHit(connKey);
     return globalRetry;
   }
   return null;
