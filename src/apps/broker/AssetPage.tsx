@@ -4,11 +4,13 @@
 // Both switches are one tab list (Studio #38 look: the .br-seg segment): arrows move focus, Enter / Space select.
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useShellStore } from "@/components/shell/ShellContext";
+import { asDefault, retryableLazy, scopedModuleProps } from "@/components/shell/retryableLazy";
 import type { Position, TickerRow } from "@/shell/contracts/channels";
-import { AssetNews } from "./AssetNews";
 import { AssetOverview } from "./AssetOverview";
 import type { BrStrings } from "./strings-en";
 import "./assetPage.css";
+
+const AssetNews = retryableLazy(async () => asDefault((await import("./AssetNews")).AssetNews), { focus: true });
 
 type AboutTab = "overview" | "news";
 
@@ -79,7 +81,8 @@ export function AssetPage({ t, locale, id, assetId, row, position, phone, onTrad
       <div className="ap-panel" role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)} data-testid="br-about-panel" data-tab={tab}>
         {tab === "overview"
           ? <AssetOverview t={t} locale={locale} assetId={assetId} row={row} position={position} />
-          : <AssetNews t={t} assetId={assetId} />}
+          : <AssetNews t={t} assetId={assetId} {...scopedModuleProps("news", locale)}
+              fallback={<div className="ap-skel" data-testid="ap-news-loading" aria-busy="true" aria-label={t.newsLoading} />} />}
       </div>
     </section>
   );

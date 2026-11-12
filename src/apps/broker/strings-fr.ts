@@ -81,6 +81,8 @@ export const FR: BrStrings = {
   termsStopLimit: (s, l) => `Stop ${s} · Limite ${l}`,
   actionTerms: (action, terms) => `${action} · ${terms}`,
   restingAck: "Ordre passé. Il figure dans les ordres en cours.",
+  toastRegion: "Suivi des ordres",
+  toastDismiss: "Fermer",
   openOrders: "Ordres en cours",
   noOpenOrders: "Aucun ordre en cours.",
   filledOf: (filled, qty) => `${filled} / ${qty} exécutés`,

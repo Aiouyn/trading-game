@@ -1,3 +1,4 @@
+import { forwardedHost, loopbackAliases, normalizeHost, trustedHosts } from "./hosts";
 import { AuthError } from "./types";
 import { SESSION_IDLE_MS } from "./service";
 import {
@@ -102,24 +103,42 @@ export function requireString(obj: Record<string, unknown>, key: string): string
 }
 
 /**
- * Allowed request hosts for Origin/Referer checks.
- * Never incorporates attacker-controlled X-Forwarded-Host unless
- * QUAY_TRUST_PROXY=1 and the host is on QUAY_TRUSTED_HOSTS (comma list).
- * Prefer pinning with QUAY_PUBLIC_HOST (e.g. localhost:3000).
+ * Hosts whose Origin or Referer may call a mutation.
+ * Local (no QUAY_PUBLIC_HOST, not VERCEL): both loopback names of the request
+ * URL's port, so Next's localhost stamp and a browser on 127.0.0.1 agree.
+ * QUAY_TRUSTED_HOSTS is always included. QUAY_TRUST_PROXY does not gate that list.
+ * X-Forwarded-Host is read only when QUAY_TRUST_PROXY is exactly "1", and only
+ * a host that is already configured is believed. The header never adds a host.
+ * VERCEL or QUAY_PUBLIC_HOST: configured hosts only. The URL host is not trusted.
  */
 export function allowedAuthHosts(request: Request): ReadonlySet<string> {
   const hosts = new Set<string>();
   const pinned = process.env.QUAY_PUBLIC_HOST?.trim();
-  if (pinned) hosts.add(pinned);
-  else hosts.add(new URL(request.url).host);
+  if (pinned) hosts.add(normalizeHost(pinned));
+  for (const host of trustedHosts(process.env.QUAY_TRUSTED_HOSTS)) hosts.add(host);
 
-  if (process.env.QUAY_TRUST_PROXY === "1") {
-    for (const h of (process.env.QUAY_TRUSTED_HOSTS ?? "").split(",")) {
-      const t = h.trim();
-      if (t) hosts.add(t);
-    }
+  const strict = Boolean(process.env.VERCEL) || Boolean(pinned);
+  if (!strict) {
+    for (const host of loopbackAliases(new URL(request.url).host)) hosts.add(host);
   }
+
+  const believed = believedForwardedHost(request);
+  if (believed) hosts.add(believed);
   return hosts;
+}
+
+/**
+ * X-Forwarded-Host when QUAY_TRUST_PROXY is exactly "1" and the value is already
+ * configured (QUAY_PUBLIC_HOST or QUAY_TRUSTED_HOSTS). Otherwise null.
+ */
+export function believedForwardedHost(request: Request): string | null {
+  if (process.env.QUAY_TRUST_PROXY !== "1") return null;
+  const forwarded = forwardedHost(request.headers.get("x-forwarded-host"));
+  if (!forwarded) return null;
+  const pinned = process.env.QUAY_PUBLIC_HOST?.trim();
+  const configured = new Set<string>(trustedHosts(process.env.QUAY_TRUSTED_HOSTS));
+  if (pinned) configured.add(normalizeHost(pinned));
+  return configured.has(forwarded) ? forwarded : null;
 }
 
 function parseBrowserOrigin(raw: string, kind: "Origin" | "Referer"): URL {
@@ -141,7 +160,8 @@ function parseBrowserOrigin(raw: string, kind: "Origin" | "Referer"): URL {
 
 /**
  * CSRF guard for auth mutations. Origin (preferred) or Referer must match an allowed host.
- * Does not trust X-Forwarded-* unless QUAY_TRUST_PROXY + allowlist. Missing both is 403 (fail closed).
+ * X-Forwarded-Host is ignored unless QUAY_TRUST_PROXY is exactly "1" and that host is configured.
+ * Missing Origin and Referer is 403 (fail closed).
  */
 export function assertSameOriginMutation(request: Request): void {
   // Fail closed on known multi-instance deploy shapes before any cookie work.

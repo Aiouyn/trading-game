@@ -13,6 +13,7 @@ import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
 import { FeedbackButton } from "./FeedbackButton";
+import { FillAckHost } from "./FillAckHost";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
@@ -279,6 +280,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
+      <FillAckHost variant="phone" />
       <PhoneBannerStack />
       {phoneApp ? (
         <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>

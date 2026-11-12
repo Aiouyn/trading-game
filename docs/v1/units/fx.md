@@ -1,3 +1,5 @@
+<!-- Historical sys/fx unit contract, moved from repository-root UNIT.md after merging sys/actor-binding. The original text below is unchanged. -->
+
 # UNIT — isolated 07/FX engine
 Written **2026-11-11T18:41:03.251281+01:00 Europe/Paris**, before implementation or tests. Branch `sys/fx`; base `110583b0aa73ece1dc3b856665f3be0405f1acc3` fetched and verified.
 

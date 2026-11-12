@@ -4,6 +4,7 @@
  * Remounts children on account key so useChannel stores do not keep a prior feed.
  */
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { setPlacedAcksAccount } from "@/apps/broker/placedAcks";
 import { applyGuestDemo, applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
 import { clearTicketSubmitting, resetTicketPrefill } from "@/apps/broker/ticketPrefill";
@@ -14,6 +15,9 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
   const auth = useAuthChrome();
   const applied = useRef<string | null>(null);
   const authBoundaryKey = isSignedIn(auth) ? auth.account.accountId : "guest";
+
+  // Card 41: an account switch or sign-out drops every pending order toast, so B never sees A's outcome.
+  useLayoutEffect(() => { setPlacedAcksAccount(authBoundaryKey); }, [authBoundaryKey]);
 
   // Layout (before useChannel's passive retain): install the account feed before subscribers
   // rebind. useChannel also tolerates setFeed mid-flight; this keeps the first paint coherent.
