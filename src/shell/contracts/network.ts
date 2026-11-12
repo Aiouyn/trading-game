@@ -7,8 +7,9 @@ export function knownOffline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine === false;
 }
 
-/** Calls fn on every browser online/offline change; returns the unsubscribe. No-op outside a browser. */
-export function onNetworkChange(fn: () => void): () => void {
+/** Calls fn on every browser online/offline change; returns the unsubscribe. No-op outside a browser.
+ *  The event is the same object for every listener of that dispatch, so a feed can dedupe on it. */
+export function onNetworkChange(fn: (ev: Event) => void): () => void {
   if (typeof window === "undefined") return () => {};
   window.addEventListener("online", fn);
   window.addEventListener("offline", fn);
@@ -24,4 +25,9 @@ export class IntentNotSentOffline extends Error {
  *  existing idempotency key and the `me` sync settle it. Never reported as cancelled, never re-sent automatically. */
 export class IntentOutcomeUnknown extends Error {
   constructor() { super("outcome unknown: network lost in flight"); this.name = "IntentOutcomeUnknown"; }
+}
+
+/** Kill switch: the server refused the mutation. Nothing was committed. */
+export class GamePaused extends Error {
+  constructor(message = "The game is paused.") { super(message); this.name = "GamePaused"; }
 }

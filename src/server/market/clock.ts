@@ -22,6 +22,7 @@ import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 import { peekAuthService } from "@/server/auth/instance";
+import { clockAutostartAllowed, killSwitchOn } from "@/server/spend/guard";
 import { marksFromTicker } from "@/server/wire/statementResolve";
 import {
   createDefaultStormWorldStore, type StormWorldStore,
@@ -125,9 +126,10 @@ export class LiveMarket {
     });
   }
 
-  /** Idempotent. A second start does not add another interval. */
+  /** Idempotent. A second start does not add another interval. The spend kill switch leaves it stopped. */
   start(): void {
     if (this.timer) return;
+    if (killSwitchOn(process.env)) return;
     this.timer = setInterval(() => { this.step(); }, this.tickMs);
   }
 
@@ -633,7 +635,7 @@ export class LiveMarket {
 }
 
 export function shouldAutostartClock(): boolean {
-  return process.env.NODE_ENV !== "test";
+  return clockAutostartAllowed(process.env);
 }
 
 /** Process singleton. The first production read starts the one interval. */

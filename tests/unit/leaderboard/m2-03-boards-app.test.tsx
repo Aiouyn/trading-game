@@ -156,4 +156,17 @@ describe("M2-03 Boards app", () => {
     expect(rows()).toEqual(["1 PlayerA", "2 PlayerB *"]);
     expect(q("lb-your-rank")?.textContent).toMatch(/Your rank: 2 of 2/);
   });
+
+  it("a tie at the top names the shared net worth as table money", async () => {
+    me = meBody("acc_m", "Mina");
+    auto = () => Response.json(view(10, [[1, "Ann", "10000.00", false], [1, "Mina", "10000.00", true]]));
+    await mount();
+    const line = q("lb-tied");
+    expect(line).not.toBeNull();
+    expect(line!.textContent).toMatch(/Tied with 1 other player at the top of the board/);
+    expect(line!.textContent).toContain("$10,000.00");
+    expect(line!.querySelector(".money-table")).not.toBeNull();
+    expect(q("lb-next-up")).toBeNull();
+  });
+
 });

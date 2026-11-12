@@ -38,8 +38,11 @@ A guest feed is different: its local clock keeps moving while offline, so replay
 
 Seq-gap `resync` still replays a snap. That path is what realigns the channel sequence, and it is not the offline/online path.
 
+`useChannel` shares one store per feed and channel (`acquireEntry`). BrokerFrame and the shell clock both call `useChannel("ticker:wl_default")`, so the shipped `/broker` page has one ticker listener and already does one `/api/market` read per online event. It did not ship a 3.0s double reconnect. A second `openChannel` store on the same feed registers its own listener. That second call must not start another quote read, including when a microtask runs between the two listeners: the key is the online event object, not one microtask. A later online event is a new object and reconnects again.
+
 ## Proof
 
 - `tests/unit/shell/outage-backoff.test.ts`, describe "reconnect does not publish the pre-outage book". The first two tests failed on the unmodified feed (`expected 'live' to be 'stale'` right after online, with the replacement read not issued). A third failed by adopting the in-flight tick that sat between the last adopted book and the server (`expected 27701 to be 27700`). They pass after the fix: that in-flight body is not published, a failed in-flight read retries at once, and the channel goes live on the post-outage tick.
 - The same file, describe "a slow quote read after online still becomes live". With each read lasting `SERVER_QUOTE_POLL_MS + 500`, both tests stayed `stale` past one read plus one poll (same tick, and a restart three ticks lower). They pass after the fix: live inside that bound.
+- The same describe, two `openChannel` stores on `ticker:wl_default` (not the shared `acquireEntry` store the page uses). Calling both listeners in one turn started 2 market reads (`expected 2 to be 1`). After the event-keyed dedupe, exactly one read, and both stores are live when it settles. A second case flushes microtasks between the listeners and passes the same `online` event; that also stays one read.
 - The repeat counts above.
