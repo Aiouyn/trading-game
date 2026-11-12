@@ -9,12 +9,15 @@ import { MINUS, fullDigits, parseAmount } from "@/components/ui/money";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { formatPercent } from "@/components/ui/percent";
 import { useShell } from "@/components/shell/ShellContext";
+import { useAuthChrome } from "@/shell/authChrome";
 import type { MeTradingBody, Money, NwStats, RestrictedBucket } from "@/shell/contracts/channels";
 import { isRestrictedReason } from "@/shell/strings";
 import { getFeed, useChannel, type ChannelView } from "@/shell/contracts/useChannel";
 import type { RankChannel } from "@/shell/channels";
 import { RANK_NAMES } from "@/shell/registry";
 import { STACK_SCALE, pfNumberLocale, pfStrings, type ReleaseUnit } from "./strings";
+import { GoalGuide } from "./GoalGuide";
+import { goalStrings } from "./goalStrings";
 
 type T = ReturnType<typeof pfStrings>;
 
@@ -115,10 +118,12 @@ export interface OverviewViewProps {
   /** Text scale >= 1.5 (STACK_SCALE): each row stacks, label line on top, value line below (Studio fix c). */
   stacked?: boolean;
   onRetry: () => void;
+  /** Omit or "loading" (hold /api/auth/me): show neither the signed-in guide nor the guest invitation. */
+  authStatus?: "loading" | "signed_in" | "signed_out";
 }
 
 /** Pure view of one `me` channel state (unit-testable without a feed). */
-export function OverviewView({ view, rank, locale, phone, stacked = false, onRetry }: OverviewViewProps) {
+export function OverviewView({ view, rank, locale, phone, stacked = false, onRetry, authStatus }: OverviewViewProps) {
   const t = pfStrings(locale);
   const cls = `pf-ov${phone ? " pf-phone" : ""}${stacked ? " pf-stacked" : ""}`;
   if (view.state === "loading") {
@@ -146,6 +151,10 @@ export function OverviewView({ view, rank, locale, phone, stacked = false, onRet
   return (
     <div className={cls} data-testid="pf-overview" data-state={view.state} data-stats={me.nwStats ? "1" : "0"}>
       <Hero me={me} t={t} stale={view.state === "stale"} />
+      {authStatus === "signed_in" && <GoalGuide me={me} phone={phone} />}
+      {authStatus === "signed_out" && (
+        <p className={`pf-goal-guest${phone ? " pf-phone" : ""} muted`} data-testid="pf-goal-guest">{goalStrings(locale).guest}</p>
+      )}
       <RankBlock rank={rank} t={t} />
       <section className="pf-block pf-summary" data-testid="pf-summary" aria-label={t.balances}>
         <table className="pf-rows"><tbody>
@@ -166,7 +175,8 @@ export function Overview({ phone }: { phone: boolean }) {
   const rank = useShell((s) => s.channels.rank);
   const locale = useShell((s) => s.prefs.locale);
   const stacked = useShell((s) => s.prefs.textScale >= STACK_SCALE);
+  const auth = useAuthChrome();
   // Retry asks the feed for a fresh snap. Against the mock's error / denied modes it is a no-op by design (the mode is
   // fixed for the page); against the server it re-requests the channel.
-  return <OverviewView view={view} rank={rank} locale={locale} phone={phone} stacked={stacked} onRetry={() => getFeed().resync("me")} />;
+  return <OverviewView view={view} rank={rank} locale={locale} phone={phone} stacked={stacked} onRetry={() => getFeed().resync("me")} authStatus={auth.status} />;
 }
