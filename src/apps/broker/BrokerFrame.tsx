@@ -82,9 +82,15 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const choices = useMemo(() => (ticker.body ? Object.keys(ticker.body.rows).sort() : []), [ticker.body]);
   const fixedAsset = context ? parseAssetId(context) : null;
-  const [draft, setDraft] = useState<Draft>(() => {
+  // Card 6 x card 27: a Positions Close prefill opens the phone Trade sheet, so the pre-filled Sell is what the player sees.
+  const [mountPrefill] = useState(() => {
     const pre = takeTicketPrefill();
-    if (pre && fixedAsset && pre.assetId === fixedAsset) {
+    return pre && fixedAsset && pre.assetId === fixedAsset ? pre : null;
+  });
+  const [prefillSeq, setPrefillSeq] = useState(mountPrefill ? 1 : 0);
+  const [draft, setDraft] = useState<Draft>(() => {
+    const pre = mountPrefill;
+    if (pre && fixedAsset) {
       return { assetId: fixedAsset, side: pre.side, type: "market", limitText: "", stopText: "", qtyText: pre.qtyText };
     }
     return { assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" };
@@ -113,6 +119,7 @@ export function BrokerFrame({ context }: { context?: string }) {
       setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
       setTouched(false);
       setView("trade");
+      setPrefillSeq((n) => n + 1);
     });
     return true;
   }), [context]);
@@ -398,7 +405,7 @@ export function BrokerFrame({ context }: { context?: string }) {
         {orders}
       </div>
       <p className="br-disclaimer muted" data-testid="br-disclaimer">{t.disclaimer}</p>
-      {phone && <PhoneTradeSheet t={t} assetId={assetId} qtyRef={qtyRef} onDismiss={toEdit} onKeyDown={onKey}>
+      {phone && <PhoneTradeSheet t={t} assetId={assetId} qtyRef={qtyRef} openSeq={prefillSeq} onDismiss={toEdit} onKeyDown={onKey}>
         {ack || review || ticket}
       </PhoneTradeSheet>}
     </div>

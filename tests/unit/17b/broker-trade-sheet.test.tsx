@@ -2,6 +2,7 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { intentLog } from "@/shell/intentLog";
+import { offerTicketPrefill, resetTicketPrefill } from "@/apps/broker/ticketPrefill";
 import { click, mount, q, setup, teardown, key, tick, typeQty, type Harness } from "./br-harness";
 
 let h: Harness;
@@ -111,6 +112,39 @@ describe("phone Trade entry", () => {
     expect(q(h, "br-sheet")).toBeNull();
     expect(q(h, "br-qty")?.getAttribute("value")).toBe("9");
     await act(async () => { h.store.setState({ vw: 390 }); });
+    expect(q(h, "br-sheet")).toBeNull();
+    expect(q(h, "br-trade")?.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("card 6 x card 27: Positions Close on the phone", () => {
+  afterEach(() => resetTicketPrefill());
+
+  it("a Close that lands before the Broker mounts opens the sheet on the pre-filled Sell, without placing", async () => {
+    offerTicketPrefill({ assetId: "HALC", side: "SELL", qtyText: "1200" });
+    const before = intentLog().length;
+    await mount(h, { context: "HALC", vw: 390 });
+    expect(q(h, "br-sheet")).not.toBeNull();
+    expect(q(h, "br-trade")?.getAttribute("aria-expanded")).toBe("true");
+    expect(q(h, "br-side-sell")?.getAttribute("aria-pressed")).toBe("true");
+    expect(q(h, "br-qty")?.getAttribute("value")).toBe("1200");
+    expect(document.activeElement).toBe(q(h, "br-qty"));
+    expect(intentLog().length).toBe(before);
+  });
+
+  it("a Close while the Broker is already open on that asset opens the closed sheet", async () => {
+    await mount(h, { context: "HALC", vw: 390 });
+    expect(q(h, "br-sheet")).toBeNull();
+    const before = intentLog().length;
+    await act(async () => offerTicketPrefill({ assetId: "HALC", side: "SELL", qtyText: "5" }));
+    expect(q(h, "br-sheet")).not.toBeNull();
+    expect(q(h, "br-side-sell")?.getAttribute("aria-pressed")).toBe("true");
+    expect(q(h, "br-qty")?.getAttribute("value")).toBe("5");
+    expect(intentLog().length).toBe(before);
+  });
+
+  it("a plain phone mount still starts with the sheet closed", async () => {
+    await mount(h, { context: "HALC", vw: 390 });
     expect(q(h, "br-sheet")).toBeNull();
     expect(q(h, "br-trade")?.getAttribute("aria-expanded")).toBe("false");
   });
