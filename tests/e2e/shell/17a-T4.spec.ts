@@ -122,8 +122,8 @@ test("T4-06 phone: built group labels, bottom row fixed 3 not in grid, edge mark
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
   const labels = await page.locator(".grid-group > .label").allTextContents();
-  expect(labels.map((l) => l.toUpperCase())).toEqual(["ME"]);
-  expect(labels.length).toBe(1);
+  expect(labels.map((l) => l.toUpperCase())).toEqual(["TRADE", "BUILD", "WORLD", "ME"]); // #105 builds Launchpad, City, Boards
+  expect(labels.length).toBe(4);
   for (const a of ["broker", "portfolio", "wire"]) {
     await expect(page.getByTestId("bottom-row").getByTestId(`icon-${a}`)).toHaveCount(1);
     await expect(page.getByTestId("app-grid").getByTestId(`icon-${a}`)).toHaveCount(0);
