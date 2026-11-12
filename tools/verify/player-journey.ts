@@ -100,7 +100,16 @@ async function openBroker(page: Page, viewport: ViewportName): Promise<Locator> 
   return broker;
 }
 
+/** Card 6: on the phone the ticket lives in a bottom sheet behind Trade (`br-trade`). Open it the way a player does. */
+async function openTicket(broker: Locator): Promise<void> {
+  const trade = broker.getByTestId("br-trade");
+  if (!(await trade.count()) || (await trade.getAttribute("aria-expanded")) !== "false") return;
+  await trade.click();
+  await playerExpect(broker.getByTestId("br-sheet")).toBeVisible();
+}
+
 async function placeOrder(broker: Locator, kind: "market" | "limit", qty: string, limit?: string): Promise<void> {
+  await openTicket(broker);
   await broker.getByTestId("br-side-buy").click();
   await broker.getByTestId(kind === "limit" ? "br-type-limit" : "br-type-market").click();
   if (limit) {
