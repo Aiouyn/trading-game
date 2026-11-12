@@ -33,13 +33,9 @@ export function StatusStrip() {
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const nwChip = (
-    <span className="strip-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}>
+    <span className="strip-nw" data-testid="strip-nw">
       <MoneyText amount={nw} ctx="chip" />
-      {signedIn ? (
-        <span className="muted strip-demo-tag" data-testid="strip-demo-tag"><span aria-hidden="true">{" · "}</span>{S.demoBalance}</span>
-      ) : (
-        <> <PctText value={me.todayPct} /></>
-      )}
+      <> <PctText value={me.todayPct} /></>
     </span>
   );
 

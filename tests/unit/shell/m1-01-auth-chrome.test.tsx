@@ -59,7 +59,7 @@ describe("M1-01 shell auth chrome", () => {
     expect(el.querySelector("[data-testid=rank-chip]")?.textContent).toMatch(/R2/);
   });
 
-  it("signed-in: shows own handle; hides Owner/$412k; shows $10k demo balance", async () => {
+  it("signed-in: shows own handle; hides Owner/$412k; shows $10k net worth", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -81,7 +81,8 @@ describe("M1-01 shell auth chrome", () => {
     expect(el.querySelector("[data-testid=rank-chip]")).toBeNull();
     expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
     expect(el.textContent).not.toMatch(/412/);
-    expect(el.querySelector("[data-testid=strip-demo-tag]")?.textContent).toMatch(/Demo balance/i);
+    expect(el.querySelector("[data-testid=strip-demo-tag]")).toBeNull();
+    expect(el.textContent).not.toMatch(/Demo balance/i);
     // MoneyText formats DEMO_STARTER_NW
     expect(DEMO_STARTER_NW).toBe("10000.00");
     expect(el.querySelector("[data-testid=strip-nw]")?.textContent).toMatch(/\$10k|10,?000|10000/);

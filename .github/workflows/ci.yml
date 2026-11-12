@@ -16,6 +16,8 @@ jobs:
       - run: npm run check:paths -- origin/${{ github.base_ref }}
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'v3/quay-shell')
       - run: npm run lint
+      # Lesson 13: kill servers by pid file only; reject name-kills (tools/ci/lesson13-pid-kills.mjs).
+      - run: npm run ci:lesson13
       - run: npm run typecheck
       - run: npm run build
       # AC-HOOKS-PROD: the build above has no e2e flags; neither its client nor its server output may contain a test/mock hook or /__ds code.
