@@ -14,6 +14,8 @@ import { MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { setFeed, useChannel, getFeed } from "@/shell/contracts/useChannel";
 import { createShellStore } from "@/shell/store";
 import { mockChannels } from "@/shell/mockChannels";
+import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -35,11 +37,14 @@ describe("useChannel feed swap while mounted", () => {
     document.body.appendChild(el);
     root = createRoot(el);
     setFeed(new MockFeed({ nw: "412860.15" }, { tickMs: 1000 }));
+    // M1-06: a signed-in feed's `me` waits for the saved server ledger and server marks.
+    vi.stubGlobal("fetch", vi.fn(portAvalonServer({ cashCents: 1_000_000 })));
   });
   afterEach(async () => {
     await act(async () => root.unmount());
     el.remove();
     setFeed(null);
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -85,8 +90,9 @@ describe("useChannel feed swap while mounted", () => {
     await act(async () => {
       applySignedInDemo(store, "acc_crash_repro");
     });
+    await serverHalfLoaded();
     await act(async () => {
-      vi.advanceTimersByTime(SNAP_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS);
     });
 
     expect(el.querySelector("[data-testid=probe-a]")?.getAttribute("data-state")).toBe("live");
@@ -134,8 +140,9 @@ describe("useChannel feed swap while mounted", () => {
     await act(async () => {
       vi.advanceTimersByTime(5);
     });
+    await serverHalfLoaded();
     await act(async () => {
-      vi.advanceTimersByTime(SNAP_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS);
     });
     expect(el.querySelector("[data-testid=probe]")?.getAttribute("data-state")).toBe("live");
     expect(el.querySelector("[data-testid=probe]")?.textContent).toBe(DEMO_STARTER_NW);

@@ -3,6 +3,7 @@
 // BR-7-01 lazy chunk + bundle, -02 requests per tab, -05 options = Studio literals in 4 palettes + hc, -06 20 live
 // ticks with zero layout shift, -07 tag = ticker.last and no brass, -08 halted band, reduced motion, -09 table + axe,
 // -11 states and Retry, -12 layout at 1440 / 520 / 390 x 1.0 / 2.0, cb / hc baselines, FR.
+// M1-07: the plot is candles (gain / loss tokens) + volume; the guest chart's source line says "Demo history".
 // Shots: SHOTS=1 or BR_SHOTS_DIR (as BR-6). The cb / hc chart baselines are committed under __screenshots__/BR-7.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
@@ -24,6 +25,8 @@ async function shot(page: Page, state: string, lang = "en") {
   await page.screenshot({ path: `${SHOTS}/${state}${lang === "en" ? "" : `-${lang}`}-${vp.width}x${vp.height}.png` });
 }
 const TICK_MS = 5_000;
+/** M1-07: the box holds the OHLCV legend's two reserved lines (32 px at text scale 1) above the 200 / 240 px plot. */
+const LEGEND_H = 32;
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const br = (page: Page) => page.locator('[data-testid="broker"]:has([data-testid="br-ticker"]), [data-testid="broker"]:has([data-testid="br-asset-select"] option:checked[value="HALC"])').first();
 const chart = (page: Page) => br(page).getByTestId("br-chart");
@@ -59,8 +62,8 @@ async function axe(page: Page) {
 }
 type Req = { assetId: string; res: string; from: number; to: number };
 const reqs = (page: Page) => page.evaluate(() => (window as Window & { __quayHistory?: { reqs: Req[] } }).__quayHistory?.reqs ?? []);
-type Pt = { time: number; value: number };
-const lwc = <T,>(page: Page, k: "chart" | "series" | "line" | "data" | "visible") =>
+type Pt = { time: number; open: number; high: number; low: number; close: number };
+const lwc = <T,>(page: Page, k: "chart" | "series" | "line" | "data" | "visible" | "volume") =>
   page.evaluate((key) => ((window as unknown as { __quayChart?: Record<string, () => unknown> }).__quayChart?.[key]?.() ?? null) as never, k) as Promise<T>;
 
 async function run(page: Page, done: () => Promise<boolean>, ms = 8_000) {
@@ -167,18 +170,24 @@ test("BR-7-02 each tab asks the Q3 request (res, from, to, bar count) and plots;
   for (let i = 1; i < all.length; i++) expect(all[i]!.from).toBe(all[i - 1]!.to + 720);
 });
 
-test("BR-7-05 options = the Studio literals in all 4 palettes; hc: hc line colour, 2 px, grid off; no brass in the chart", async ({ page }, info) => {
+test("BR-7-05 options = the Studio literals in all 4 palettes (candles gain / loss); hc: outlined candles, grid off; no brass in the chart", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await openChart(page);
   for (const p of PALETTES) {
     await pinPalette(page, p);
-    const want = { bg: lit("win", p), text: lit("fg-faint", p), grid: lit("grid", p), cross: lit("line", p), series: lit("fg", p), lastLine: lit("fg-muted", p) };
+    const want = { bg: lit("win", p), text: lit("fg-faint", p), grid: lit("grid", p), cross: lit("line", p), up: lit("gain", p), down: lit("loss", p), lastLine: lit("fg-muted", p) };
     await expect.poll(async () => {
       const c = await lwc<{ layout: { background: { color: string }; textColor: string }; grid: { vertLines: { color: string } }; crosshair: { vertLine: { color: string } } }>(page, "chart");
-      const s = await lwc<{ color: string }>(page, "series");
+      const s = await lwc<{ upColor: string; downColor: string; wickUpColor: string; wickDownColor: string }>(page, "series");
       const l = await lwc<{ color: string }>(page, "line");
-      return { bg: c.layout.background.color, text: c.layout.textColor, grid: c.grid.vertLines.color, cross: c.crosshair.vertLine.color, series: s.color, lastLine: l.color };
+      expect([s.wickUpColor, s.wickDownColor]).toEqual([s.upColor, s.downColor]);
+      return { bg: c.layout.background.color, text: c.layout.textColor, grid: c.grid.vertLines.color, cross: c.crosshair.vertLine.color, up: s.upColor, down: s.downColor, lastLine: l.color };
     }, { message: p }).toEqual(want);
+    // Volume: one bar per candle, each the rising or falling token mixed to 22 %.
+    const vol = await lwc<{ time: number; value: number; color: string }[]>(page, "volume");
+    expect(vol.length).toBe((await lwc<Pt[]>(page, "data")).length);
+    expect(new Set(vol.map((v) => v.color)).size).toBeLessThanOrEqual(2);
+    for (const v of vol) expect(v.color, p).toMatch(/^color\(srgb [\d.]+ [\d.]+ [\d.]+ \/ 0\.22\)$/);
     const tag = chart(page).getByTestId("br-chart-tag");
     expect(await tag.evaluate((e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color])).toEqual([lit("win2", p), lit("fg", p)]);
     expect(await colours(chart(page)), p).not.toContain(lit("acc", p));
@@ -186,12 +195,12 @@ test("BR-7-05 options = the Studio literals in all 4 palettes; hc: hc line colou
   }
   await pinPalette(page, "ink-brass");
   await pinHtml(page, "hc", true);
-  await expect.poll(async () => (await lwc<{ lineWidth: number }>(page, "series")).lineWidth).toBe(2);
+  await expect.poll(async () => (await lwc<{ borderVisible: boolean }>(page, "series")).borderVisible).toBe(true);
   const c = await lwc<{ grid: { vertLines: { visible: boolean }; horzLines: { visible: boolean } }; crosshair: { vertLine: { color: string } } }>(page, "chart");
   expect([c.grid.vertLines.visible, c.grid.horzLines.visible, c.crosshair.vertLine.color]).toEqual([false, false, SPEC_COLOUR.hcLine]);
   expect(await chart(page).getByTestId("br-chart-canvas").evaluate((e) => [getComputedStyle(e).borderTopWidth, getComputedStyle(e).borderTopColor])).toEqual(["1px", SPEC_COLOUR.fgMuted]);
   await pinHtml(page, "hc", false);
-  await expect.poll(async () => (await lwc<{ lineWidth: number }>(page, "series")).lineWidth).toBe(1);
+  await expect.poll(async () => (await lwc<{ borderVisible: boolean }>(page, "series")).borderVisible).toBe(false);
 });
 
 test("BR-7-06 / -07 20 live ticks: last bar updated in place or appended, tag = ticker.last, CLS 0, no new request, Place the only brass", async ({ page }, info) => {
@@ -264,7 +273,7 @@ test("BR-7-09 table: same bar count and last close, newest first; Tab reaches pl
   await page.keyboard.press("Tab");
   await expect(canvas).toBeFocused();
   await page.keyboard.press("ArrowLeft");
-  await expect(chart(page).getByTestId("br-chart-live")).toHaveText(/^Day \d+ · \d\d:\d\d: close [\d,]+\.\d+$/);
+  await expect(chart(page).getByTestId("br-chart-live")).toHaveText(/^Day \d+ · \d\d:\d\d: open [\d,]+\.\d+, high [\d,]+\.\d+, low [\d,]+\.\d+, close [\d,]+\.\d+, volume [\d,]+$/);
   await page.keyboard.press("Tab");
   await expect(chart(page).getByTestId("br-chart-toggle")).toBeFocused();
   await expect(chart(page).getByTestId("br-chart-toggle")).toHaveText("View as table");
@@ -276,7 +285,7 @@ test("BR-7-09 table: same bar count and last close, newest first; Tab reaches pl
   await expect(table.locator("tbody tr")).toHaveCount(data.length);
   const lastClose = label.split(" to ")[1]!;
   expect(await table.locator("tbody tr").first().locator("td").nth(3).textContent()).toBe(lastClose);
-  expect(lastClose).toBe(new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(data.at(-1)!.value));
+  expect(lastClose).toBe(new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(data.at(-1)!.close));
   await expect(table.locator("thead th")).toHaveText(["Time", "Open", "High", "Low", "Close", "Volume"]);
   await expect(chart(page).getByTestId("br-chart-toggle")).toBeFocused();
   await page.keyboard.press("Shift+Tab"); // the table sits in the box, before the toggle
@@ -298,7 +307,7 @@ test("BR-7-11 ?feed=loading: the skeleton at chart height, busy", async ({ page 
   const sk = page.getByTestId("br-chart-loading").first();
   await expect(sk).toBeVisible();
   await expect(sk).toHaveAttribute("aria-busy", "true");
-  expect((await page.getByTestId("br-chart-box").first().boundingBox())!.height).toBe(240);
+  expect((await page.getByTestId("br-chart-box").first().boundingBox())!.height).toBe(240 + LEGEND_H);
   await shot(page, "loading");
 });
 for (const mode of ["denied", "error"] as const) {
@@ -336,7 +345,7 @@ test("BR-7-11 ?empty=1: 'No price history yet.' muted, the box keeps its height"
   const msg = chart(page).getByTestId("br-chart-empty");
   await expect(msg).toHaveText("No price history yet.");
   expect(await msg.evaluate((e) => getComputedStyle(e).color)).toBe(await color(page, "var(--fg-muted)"));
-  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240);
+  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240 + LEGEND_H);
 });
 test("BR-7-11 ?feed=stale: the last plot stays, dimmed, with one 'Updating…'", async ({ page }, info) => {
   desktopOnly(info.project.name);
@@ -358,7 +367,8 @@ test("BR-7-12 1440x900: chart in br-col-head above holdings, 240 px, tabs >= 28 
   await expect(head.getByTestId("br-chart")).toHaveCount(1);
   const [c, hold] = await Promise.all([chart(page).boundingBox(), head.getByTestId("br-hold").boundingBox()]);
   expect(c!.y + c!.height).toBeLessThanOrEqual(hold!.y);
-  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240);
+  expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(240 + LEGEND_H);
+  expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(240);
   expect(await hits(chart(page), 28)).toEqual([]);
   const ys = new Set(await chart(page).getByTestId("br-chart-ranges").locator("button").evaluateAll((bs) => bs.map((b) => b.getBoundingClientRect().y)));
   expect(ys.size).toBe(1);
@@ -368,7 +378,7 @@ test("BR-7-12 1440x900: chart in br-col-head above holdings, 240 px, tabs >= 28 
   await expect(chart(page)).toHaveScreenshot(["BR-7", "cb-1440x900.png"]);
   await pinHtml(page, "cb", false);
   await pinHtml(page, "hc", true);
-  await expect.poll(async () => (await lwc<{ lineWidth: number }>(page, "series")).lineWidth).toBe(2);
+  await expect.poll(async () => (await lwc<{ borderVisible: boolean }>(page, "series")).borderVisible).toBe(true);
   await page.clock.runFor(100);
   await expect(chart(page)).toHaveScreenshot(["BR-7", "hc-1440x900.png"]);
   await shot(page, "hc");
@@ -381,11 +391,14 @@ test("BR-7-12 520 window: chart above the ticket, 200 px, no overflow", async ({
   const win = await resizeWindow(page);
   expect((await win.boundingBox())!.width).toBe(520);
   await page.clock.runFor(200);
-  await expect.poll(async () => (await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200);
+  await expect.poll(async () => (await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200 + LEGEND_H);
+  expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(200);
   const [c, ticket] = await Promise.all([chart(page).boundingBox(), br(page).locator(".br-col-ticket").boundingBox()]);
   expect(c!.y + c!.height).toBeLessThanOrEqual(ticket!.y);
   expect(await hits(chart(page), 28)).toEqual([]);
   expect(await overflow(br(page))).toEqual([]);
+  const [lg, pl] = await Promise.all([chart(page).getByTestId("br-chart-legend").boundingBox(), chart(page).getByTestId("br-chart-canvas").boundingBox()]);
+  expect(lg!.y + lg!.height).toBeLessThanOrEqual(pl!.y + 0.5); // M1-07: legend above the plot, not over the candles
   await shot(page, "1d-window-520");
 });
 
@@ -395,14 +408,19 @@ for (const scale of ["1", "2"] as const) {
     await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
     await boot(page, "/settings");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
     await page.getByTestId("icon-broker").click();
     await page.getByTestId("broker").first().getByTestId("br-asset-select").selectOption("HALC");
     await expect(br(page)).toHaveAttribute("data-state", "live");
     const now = await page.evaluate(() => Date.now());
     await page.clock.pauseAt(new Date(now + 1_000));
     await plotted(page);
-    expect((await chart(page).getByTestId("br-chart-box").boundingBox())!.height).toBe(200);
+    // The legend's reserved lines scale with the text; at 2.0 it may wrap to a third line, which the box adds (the plot
+    // keeps its 200 px).
+    const lgH = (await chart(page).getByTestId("br-chart-legend").boundingBox())!.height;
+    expect(lgH).toBeGreaterThanOrEqual(LEGEND_H * Number(scale));
+    expect(Math.abs((await chart(page).getByTestId("br-chart-box").boundingBox())!.height - (200 + lgH))).toBeLessThanOrEqual(0.5);
+    expect((await chart(page).getByTestId("br-chart-canvas").boundingBox())!.height).toBe(200);
     expect(await hits(chart(page), 44)).toEqual([]);
     const ys = [...new Set(await chart(page).getByTestId("br-chart-ranges").locator("button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().y))))];
     expect(ys.length).toBe(scale === "2" ? 2 : 1);
@@ -411,6 +429,10 @@ for (const scale of ["1", "2"] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     };
     await fits();
+    // M1-07: the OHLCV legend is above the plot, never over the candles, and not clipped at this text scale.
+    const [lg, pl] = await Promise.all([chart(page).getByTestId("br-chart-legend").boundingBox(), chart(page).getByTestId("br-chart-canvas").boundingBox()]);
+    expect(lg!.y + lg!.height).toBeLessThanOrEqual(pl!.y + 0.5);
+    expect(await chart(page).getByTestId("br-chart-legend").evaluate((e) => e.scrollHeight <= e.clientHeight + 1)).toBe(true);
     const [c, ticket] = await Promise.all([chart(page).boundingBox(), br(page).locator(".br-col-ticket").boundingBox()]);
     expect(c!.y + c!.height).toBeLessThanOrEqual(ticket!.y);
     await chart(page).scrollIntoViewIfNeeded();

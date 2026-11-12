@@ -142,7 +142,10 @@ describe("live bar merge", () => {
     expect(mergeLive(bars, bar(13)).map((b) => b.t)).toEqual([10, 11, 12, 13]);
     expect(mergeLive(bars, bar(20)).map((b) => b.t)).toEqual([10, 11, 12, 20]);
   });
-  it("an older t is dropped (the same array back)", () => {
-    expect(mergeLive(bars, bar(11, "1.00"))).toBe(bars);
+  it("an older t not in the bars is dropped (the same array back); an older known t is replaced in place (M1-07 late volume)", () => {
+    expect(mergeLive(bars, bar(9, "1.00"))).toBe(bars);
+    const m = mergeLive(bars, bar(11, "1.00"));
+    expect(m.map((b) => [b.t, b.c])).toEqual([[10, "42.10"], [11, "1.00"], [12, "42.10"]]);
+    expect(m[0]).toBe(bars[0]); expect(m[2]).toBe(bars[2]);
   });
 });

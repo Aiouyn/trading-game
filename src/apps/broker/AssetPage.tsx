@@ -7,10 +7,9 @@ import { useShellStore } from "@/components/shell/ShellContext";
 import type { Position, TickerRow } from "@/shell/contracts/channels";
 import { AssetNews } from "./AssetNews";
 import { AssetOverview } from "./AssetOverview";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 import "./assetPage.css";
 
-export type BrokerView = "trade" | "about";
 type AboutTab = "overview" | "news";
 
 interface Tab<K extends string> { key: K; label: string; panelId: string }
@@ -41,16 +40,6 @@ function Tabs<K extends string>({ label, tabs, value, onSelect, testId, idOf }: 
       ))}
     </div>
   );
-}
-
-/** Trade | About, under the header. `ids` are the two views' element ids (aria-controls). */
-export function ViewSwitch({ t, view, onView, ids }: { t: BrStrings; view: BrokerView; onView: (v: BrokerView) => void; ids: Record<BrokerView, string> }) {
-  const base = useId();
-  const tabs: readonly Tab<BrokerView>[] = [
-    { key: "trade", label: t.viewTrade, panelId: ids.trade },
-    { key: "about", label: t.viewAbout, panelId: ids.about },
-  ];
-  return <Tabs label={t.viewAria} tabs={tabs} value={view} onSelect={onView} testId="br-view" idOf={(k) => `${base}-${k}`} />;
 }
 
 export interface AboutProps {
@@ -95,3 +84,4 @@ export function AssetPage({ t, locale, id, assetId, row, position, phone, onTrad
     </section>
   );
 }
+export default AssetPage;

@@ -55,6 +55,16 @@ export function About({ locale = "en" }: { locale?: string }) {
           </tbody>
         </table>
       </section>
+      <section className="about-sec" data-testid="about-notices">
+        <Label>{t.notices}</Label>
+        {LICENCES.filter((r) => r.notice).map((r) => (
+          <div key={r.component} className="about-notice" data-testid="about-notice">
+            {/* The upstream NOTICE text, verbatim and untranslated. */}
+            <p className="about-muted about-notice-text" lang="en" translate="no" data-testid="about-notice-text">{r.notice}</p>
+            {r.licenceHref && <ExternalLink href={r.licenceHref} newTab={t.newTab}>{t.licenceText(r.licence)}</ExternalLink>}
+          </div>
+        ))}
+      </section>
       <section className="about-sec">
         <Label>{t.credits}</Label>
         <ul className="about-list">{CREDITS.map((c) => <li key={c.name} className="about-row">{`${c.name} · ${t.roles[c.roleKey]}`}</li>)}</ul>

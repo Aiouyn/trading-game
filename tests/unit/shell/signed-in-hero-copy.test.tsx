@@ -13,6 +13,8 @@ import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { setFeed } from "@/shell/contracts/useChannel";
 import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { S } from "@/shell/strings";
+import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,17 +50,18 @@ describe("card 29 signed-in hero copy", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 20); await Promise.resolve(); });
   }
 
+  /** This branch's signed-in feed also reads /api/market and /api/broker/me (M1-06): answer each by URL. */
   function signInFetch(handle = "qa_hero") {
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
+    fetchMock.mockImplementation(portAvalonServer({
+      cashCents: 1_000_000,
+      other: (url) => url.endsWith("/api/auth/me")
+        ? Response.json({
           account: { accountId: "acc_hero", handle, createdAtMs: 1, worldId: "world_port_avalon" },
           session: { sessionId: "ses_hero", expiresAtMs: 9 },
           player: { accountId: "acc_hero", cashCents: 1_000_000, positions: {}, openOrders: {} },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    );
+        })
+        : new Response(null, { status: 404 }),
+    }));
   }
 
   it("signed-in phone Home labels the hero Net worth and has no starter disclaimer", async () => {
@@ -68,6 +71,7 @@ describe("card 29 signed-in hero copy", () => {
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(PhoneHome)));
     });
+    await serverHalfLoaded(); // the signed-in server half is a lazy chunk (serverSync.ts)
     await paint();
 
     expect(el.querySelector("[data-testid=account-chip-home]")?.textContent).toBe("qa_hero");
@@ -93,6 +97,7 @@ describe("card 29 signed-in hero copy", () => {
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(StatusStrip)));
     });
+    await serverHalfLoaded(); // the signed-in server half is a lazy chunk (serverSync.ts)
     await paint();
 
     expect(el.querySelector("[data-testid=account-chip]")?.textContent).toBe("qa_strip");

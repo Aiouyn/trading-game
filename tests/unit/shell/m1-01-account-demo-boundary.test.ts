@@ -13,6 +13,8 @@ import { MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { createShellStore } from "@/shell/store";
 import { mockChannels } from "@/shell/mockChannels";
 import { vi } from "vitest";
+import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 describe("premise: chrome labeling is NOT enough", () => {
   it("observation: guest channels still carry Owner/START_NW (canned educational mock)", () => {
@@ -33,10 +35,14 @@ describe("premise: chrome labeling is NOT enough", () => {
 describe("account demo boundary", () => {
   afterEach(() => {
     setFeed(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("signed-in demo feed: $10k, empty positions, no nwStats; guest feed restores Owner fixture", async () => {
     vi.useFakeTimers();
+    // M1-06: signed-in `me` is the saved server ledger at server marks.
+    vi.stubGlobal("fetch", vi.fn(portAvalonServer({ cashCents: 1_000_000 })));
     const store = createShellStore(mockChannels(new URLSearchParams()));
     expect(store.getState().channels.me.nw).toBe(START_NW);
 
@@ -48,6 +54,7 @@ describe("account demo boundary", () => {
     const feed = getFeed() as MockFeed;
     const bodies: unknown[] = [];
     const off = feed.subscribe("me", (raw) => bodies.push(raw));
+    await serverHalfLoaded(feed);
     await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 5);
     const snap = bodies.find((b) => (b as { t?: string }).t === "snap") as { body: { nw: string; positions: Record<string, unknown>; nwStats?: unknown; balances: Record<string, string> } };
     expect(snap.body.nw).toBe(DEMO_STARTER_NW);

@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { Label } from "@/components/ui/Label";
 import { decText } from "@/apps/portfolio/positions/format";
 import { parsePriceInput, type DayOrderType } from "@/shell/contracts/orders";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 import "./openOrders.css";
 
 export const ORDER_TYPES: readonly DayOrderType[] = ["market", "limit", "stop", "stop_limit"];

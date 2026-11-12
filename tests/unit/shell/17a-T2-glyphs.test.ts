@@ -15,7 +15,7 @@ const named = (mod: Record<string, unknown>) =>
 const PLACEHOLDER = uiFile.app;
 
 describe("glyph files: named exports, no placeholder fallback", () => {
-  it("covers all 32 apps", () => expect(APP_IDS).toHaveLength(32));
+  it("covers all 33 apps (32 of 17 §2.2 plus the restored Launchpad)", () => expect(APP_IDS).toHaveLength(33));
 
   it("APP_GLYPHS holds exactly the named exports of apps.ts, one per AppId", () => {
     const exports = Object.fromEntries(named(appsFile));

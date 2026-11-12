@@ -168,7 +168,8 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
   border: 1px solid var(--line);
   border-radius: var(--r-window);
   box-shadow: var(--elev-window);
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: 6px; /* the edge resize bands sit just outside the frame (content cannot spill: .win-body scrolls) */
 }
 .titlebar { height: 32px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 11px; border-bottom: 1px solid var(--line); position: relative; user-select: none; }
 /* Focus is not a brass role (17 §3.1.1): the focused window gets a --fg-disabled border instead. */
@@ -179,15 +180,29 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .tb-name { font-size: var(--fs-12_5); font-weight: 600; }
 .win:not(.active) .tb-name { color: var(--fg-muted); font-weight: 500; }
 .tb-context { font-size: var(--fs-11_5); color: var(--fg-faint); }
-.tb-controls { margin-left: auto; display: flex; gap: 2px; color: var(--fg-muted); }
+.tb-controls { margin-left: auto; display: flex; gap: 2px; color: var(--fg-muted); position: relative; z-index: 3; } /* above the top resize band */
 .tb-controls button { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 5px; }
 .tb-controls button:hover { background: var(--win2); }
 @media (pointer: coarse) { .tb-controls button { width: 44px; height: 44px; } }
 /* Focus ring on the visible glyph, not the 44 px hit box (window controls and Notifications). */
 .tb-controls button:focus-visible, .strip .icon-btn:focus-visible { outline: none; box-shadow: none; }
 .tb-controls button:focus-visible svg, .strip .icon-btn:focus-visible svg { border-radius: 4px; box-shadow: var(--focus-ring); }
-.win-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
-.resize-handle { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.win-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; border-radius: 0 0 calc(var(--r-window) - 1px) calc(var(--r-window) - 1px); } /* keeps the frame's rounded clip now that .win clips 6 px wider */
+/* Resize handles (desktop windows): 6 px side and bottom bands just outside the frame (over the border, never over
+   content), a top band in the title bar's top edge (under the title-bar controls), 14 px corners, each with its cursor. The top and bottom-left corners sit mostly outside, so they barely touch the title-bar
+   controls; the bottom-right corner shows a grip while the pointer is over the window; edges tint on hover so the target is discoverable. */
+.resize-handle { position: absolute; z-index: 2; touch-action: none; }
+.rh-n { top: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+.rh-s { bottom: -6px; left: 8px; right: 14px; height: 6px; cursor: ns-resize; }
+.rh-e { right: -6px; top: 8px; bottom: 14px; width: 6px; cursor: ew-resize; }
+.rh-w { left: -6px; top: 8px; bottom: 8px; width: 6px; cursor: ew-resize; }
+.rh-ne, .rh-nw, .rh-se, .rh-sw { width: 14px; height: 14px; }
+.rh-ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.rh-nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.rh-sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.rh-se { bottom: 0; right: 0; cursor: nwse-resize; }
+.win:hover .rh-se { background: linear-gradient(135deg, transparent 55%, var(--fg-disabled) 55% 62%, transparent 62% 72%, var(--fg-disabled) 72% 79%, transparent 79%); }
+.rh-n:hover, .rh-s:hover, .rh-e:hover, .rh-w:hover { background: var(--line); }
 
 .coming-later, .lock-body { padding: var(--sp-8); }
 .coming-later p, .lock-body p { margin: 0; }
@@ -213,3 +228,5 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 /* M1-01 auth chrome */
 .strip-demo-tag { font-size: var(--fs-13); }
 .strip-account, .sb-account { cursor: pointer; border: 0; font: inherit; }
+
+.lazy-chunk-error { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-8); min-height: 96px; }

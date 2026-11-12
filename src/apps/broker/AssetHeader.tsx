@@ -11,7 +11,7 @@ import { ARROW, DIR_CLASS, decText, direction, signedText } from "@/apps/portfol
 import { assetName } from "@/shell/contracts/assetDetail";
 import type { TickerRow } from "@/shell/contracts/channels";
 import type { ReactNode } from "react";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 
 export interface AssetHeaderProps {
   /** UI card 7: the price chart, under the quote and above the holdings line. */
@@ -29,6 +29,8 @@ export interface AssetHeaderProps {
   focusRef?: (el: HTMLElement | null) => void;
   /** Signed-in server tick. Omitted for the guest mock so its layout stays put. */
   provenance?: { worldId: string; tick: number } | null;
+  /** 04 Fear Index from GET /api/market (macro.fear PUBLIC). Null/omit when unknown (guest). */
+  fear?: { F: number; RA: number } | null;
 }
 
 /** "+0.28%" / "−0.28%": formatPercent gives the locale's digits and minus; the "+" is a sign, as in signedText. */
@@ -66,8 +68,9 @@ export function Quote({ row, locale, t, ids = "br" }: { row: TickerRow | undefin
   );
 }
 
-export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty, cash, chart, focusRef, provenance = null }: AssetHeaderProps) {
+export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty, cash, chart, focusRef, provenance = null, fear = null }: AssetHeaderProps) {
   const name = choices ? null : assetName(assetId);
+  const fearLabel = fear ? t.fearAria(fear.F.toFixed(0), fear.RA.toFixed(2)) : null;
   return (
     <header className="br-head" data-testid="br-head">
       <div className="br-title">
@@ -85,6 +88,12 @@ export function AssetHeader({ t, locale, assetId, row, choices, onPick, holdQty,
       </div>
       {name !== null && <p className="br-name muted" data-testid="br-name">{name}</p>}
       <Quote row={row} locale={locale} t={t} />
+      {fear && fearLabel ? (
+        <p className="br-fear muted num" data-testid="br-fear" aria-label={fearLabel}>
+          <Label>{t.fearIndex}</Label>{" "}
+          <span data-testid="br-fear-value">{fear.F.toFixed(0)}</span>
+        </p>
+      ) : null}
       {provenance ? (
         <p className="br-market-tick muted num" data-testid="market-tick" data-tick={provenance.tick} data-world-id={provenance.worldId}>
           {provenance.worldId}{" · "}{t.serverTick(provenance.tick)}

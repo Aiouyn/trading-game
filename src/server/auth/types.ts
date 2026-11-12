@@ -3,7 +3,7 @@
  * Compatible with a later Better Auth migration (T19C-02); no stub identity.
  */
 
-import type { OpenOrder, Position } from "@/shell/contracts/channels";
+import type { IntentResult, MyFill, OpenOrder, Position } from "@/shell/contracts/channels";
 import { PORT_AVALON_WORLD_ID, type WorldId } from "@/shell/worldIdentity";
 
 export type AccountId = string & { readonly __brand: "AccountId" };
@@ -45,6 +45,16 @@ export type PersistedPosition = Pick<Position, "assetId" | "qty" | "avgCost">;
  */
 export type PersistedOpenOrder = OpenOrder;
 
+/**
+ * One Broker intent the server already decided (M1-06). `key` is the client's idempotency key and `fingerprint` the
+ * canonical request it was first sent with: the same key again returns `result` without executing twice.
+ */
+export interface PersistedIntent {
+  readonly key: string;
+  readonly fingerprint: string;
+  readonly result: IntentResult;
+}
+
 /** On-disk private ledger schema. v1 (M1-01/early M1-03) = {cashCents, positions: qty map, openOrderIds}. */
 export const PLAYER_PRIVATE_SCHEMA_VERSION = 2 as const;
 
@@ -57,6 +67,12 @@ export interface PlayerPrivateRecord {
   readonly positions: Readonly<Record<string, PersistedPosition>>;
   /** Keyed by orderId. */
   readonly openOrders: Readonly<Record<string, PersistedOpenOrder>>;
+  /** M1-06 server fills, oldest first, last 50. Absent until the first fill. */
+  readonly fills?: readonly MyFill[];
+  /** M1-06 intent receipts on `me`, oldest first, last 50. Absent until the first intent. */
+  readonly intents?: readonly PersistedIntent[];
+  /** M1-06 durable idempotency journal (every decided key). Not the `me` ring. Absent until the first intent. */
+  readonly idempotency?: readonly PersistedIntent[];
 }
 
 export interface PublicAccount {
@@ -82,6 +98,9 @@ export type AuthErrorCode =
   | "BAD_REQUEST"
   | "RATE_LIMITED"
   | "LEDGER_QUARANTINED"
+  | "IDEMPOTENCY_CONFLICT"
+  | "LAUNCHPAD_UNAVAILABLE"
+  | "TELEMETRY_UNAVAILABLE"
   | "UNSUPPORTED_DEPLOY";
 
 export class AuthError extends Error {
