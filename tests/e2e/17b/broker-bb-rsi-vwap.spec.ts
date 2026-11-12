@@ -428,7 +428,7 @@ test("phone 390: all five on by tap, 44 px, fit, legend above the plot, touch pa
   }
 });
 
-test("the 520 window: all five on, controls fit (≥ 28 px), legend above the plot", async ({ page }, info) => {
+test("the 520 window: all five on, controls fit at ≥ 28 px, legend above the plot", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "desktop window only");
   test.setTimeout(120_000);
   await page.goto("/broker?asset=HALC");
