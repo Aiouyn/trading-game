@@ -1,0 +1,183 @@
+import { tokenFromRequest, type AuthSessionView } from "@/server/auth";
+import {
+  actorIdFor,
+  BindingError,
+  claimedActorOf,
+  classifyToken,
+  isAccountId,
+  isActorId,
+  makeCheckpoint,
+  parseCheckpoint,
+  type ActorContext,
+  type ActorField,
+  type BindingCheckpoint,
+  type ActorId,
+  type BindingRecord,
+} from "./model";
+import type { BindingStore } from "./store";
+
+export const ACTOR_BINDING_DEFAULT_ENABLED = false;
+
+// Only ActorBinding issues contexts (Gatekeeper q4). The issued set and the minting function are
+// module-private; no export, and no runtime-reachable ActorBinding member, can mark a caller-built
+// object as issued.
+const issuedContexts = new WeakSet<object>();
+
+function issueActorContext(context: ActorContext): ActorContext {
+  const issued: ActorContext = Object.freeze({
+    actorId: context.actorId,
+    accountId: context.accountId,
+    sessionId: context.sessionId,
+    boundAtMs: context.boundAtMs,
+  });
+  issuedContexts.add(issued);
+  return issued;
+}
+
+export function isIssuedActorContext(value: unknown): value is ActorContext {
+  return typeof value === "object" && value !== null && issuedContexts.has(value);
+}
+
+export function requireBoundActor(context: ActorContext, claimed: unknown): ActorId {
+  if (!isIssuedActorContext(context)) throw new BindingError("FORGED_CONTEXT");
+  if (claimed === undefined || claimed === null || claimed === "") {
+    throw new BindingError("CLAIM_MISSING");
+  }
+  if (typeof claimed !== "string" || !isActorId(claimed)) {
+    throw new BindingError("CLAIM_MALFORMED");
+  }
+  if (claimed !== context.actorId) {
+    throw new BindingError("ACTOR_MISMATCH");
+  }
+  return context.actorId;
+}
+
+export function authorizeClaimed(context: ActorContext, command: unknown, field: ActorField = "actor"): ActorId {
+  return requireBoundActor(context, claimedActorOf(command, field));
+}
+
+/** The exported session lookup surface; callers inject AuthService and do not touch auth internals. */
+export type SessionLookup = {
+  resolveSession(rawToken: string | null | undefined): Promise<AuthSessionView | null>;
+  peekSession(rawToken: string | null | undefined): Promise<AuthSessionView | null>;
+};
+
+// TypeScript `private constructor` is compile-time only; Reflect.construct can still call it
+// and would skip open()'s enabled/load gate. Only open() holds this token.
+const OPEN_TOKEN = Symbol("actor-binding-open");
+
+export class ActorBinding {
+  private queue: Promise<void> = Promise.resolve();
+  private bindings = new Map<string, BindingRecord>();
+  private readonly tokens = new WeakMap<ActorContext, string>();
+
+  // ES-private: a reassigned session lookup would let a caller choose the session view.
+  readonly #auth: SessionLookup;
+
+  private constructor(
+    auth: SessionLookup,
+    private readonly store: BindingStore,
+    private readonly now: () => number,
+    token?: symbol,
+  ) {
+    if (token !== OPEN_TOKEN) throw new BindingError("ACTOR_BINDING_DISABLED");
+    this.#auth = auth;
+  }
+
+  static async open(
+    auth: SessionLookup,
+    store: BindingStore,
+    options?: { enabled?: unknown; now?: () => number },
+  ): Promise<ActorBinding> {
+    // Own properties only: a polluted Object.prototype must not enable binding or inject a clock.
+    const own = (key: "enabled" | "now"): boolean => options !== undefined && options !== null && Object.hasOwn(options, key);
+    const enabled = own("enabled") ? options?.enabled : ACTOR_BINDING_DEFAULT_ENABLED;
+    if (enabled !== true) throw new BindingError("ACTOR_BINDING_DISABLED");
+    const loaded = await store.load();
+    const binding = new ActorBinding(auth, store, (own("now") && typeof options?.now === "function" ? options.now : () => Date.now()), OPEN_TOKEN);
+    if (loaded !== null) {
+      for (const row of parseCheckpoint(loaded).bindings) binding.bindings.set(row.accountId, row);
+    } else {
+      await store.save(makeCheckpoint([]));
+    }
+    return binding;
+  }
+
+  snapshot(): BindingCheckpoint {
+    return makeCheckpoint([...this.bindings.values()]);
+  }
+
+  async bindToken(rawToken: unknown, options?: { refresh?: boolean }): Promise<ActorContext> {
+    return this.enqueue(() => this.bindTokenLocked(rawToken, options));
+  }
+
+  async bindRequest(request: Request, options?: { refresh?: boolean }): Promise<ActorContext> {
+    return this.bindToken(tokenFromRequest(request), options);
+  }
+
+  async authorizeCommand(
+    rawToken: unknown,
+    command: unknown,
+    field: ActorField = "actor",
+    options?: { refresh?: boolean },
+  ): Promise<{ context: ActorContext; actorId: ActorContext["actorId"] }> {
+    const context = await this.bindToken(rawToken, options);
+    return { context, actorId: authorizeClaimed(context, command, field) };
+  }
+
+  private async bindTokenLocked(rawToken: unknown, options?: { refresh?: boolean }): Promise<ActorContext> {
+    const kind = classifyToken(rawToken);
+    if (kind === "MISSING") throw new BindingError("MISSING_SESSION");
+    if (kind === "MALFORMED") throw new BindingError("MALFORMED_SESSION");
+    const token = rawToken as string;
+    const view = options?.refresh === true ? await this.#auth.resolveSession(token) : await this.#auth.peekSession(token);
+    if (!view) throw new BindingError("SESSION_REJECTED");
+    return this.#remember(view, token);
+  }
+
+  /**
+   * Re-peek the session that issued this context. Call immediately before a
+   * guarded engine write. Logout, expiry, a missing token, or a session/account
+   * mismatch fail closed as SESSION_REJECTED. A context not issued by ActorBinding
+   * is FORGED_CONTEXT.
+   */
+  async assertLiveSession(context: ActorContext): Promise<void> {
+    if (!isIssuedActorContext(context)) throw new BindingError("FORGED_CONTEXT");
+    const token = this.tokens.get(context);
+    if (token === undefined) throw new BindingError("SESSION_REJECTED");
+    const view = await this.#auth.peekSession(token);
+    if (!view || view.sessionId !== context.sessionId || view.account.accountId !== context.accountId) {
+      throw new BindingError("SESSION_REJECTED");
+    }
+  }
+
+  async #remember(view: AuthSessionView, token: string): Promise<ActorContext> {
+    const accountId = view.account.accountId;
+    if (!isAccountId(accountId)) throw new BindingError("INVALID_ACCOUNT_ID");
+    const actorId = actorIdFor(accountId);
+    const existing = this.bindings.get(accountId);
+    if (existing) {
+      if (existing.actorId !== actorId) throw new BindingError("ACTOR_REMAP");
+      return this.#issue({ actorId, accountId, sessionId: view.sessionId, boundAtMs: existing.boundAtMs }, token);
+    }
+    const record: BindingRecord = { accountId, actorId, boundAtMs: this.now() };
+    this.bindings.set(accountId, record);
+    await this.store.save(this.snapshot());
+    return this.#issue({ ...record, sessionId: view.sessionId }, token);
+  }
+
+  #issue(context: ActorContext, token: string): ActorContext {
+    const issued = issueActorContext(context);
+    this.tokens.set(issued, token);
+    return issued;
+  }
+
+  private enqueue<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(run, run);
+    this.queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+}
