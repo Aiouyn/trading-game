@@ -103,6 +103,9 @@ async function closeBrokers(page: Page) {
   const w = page.getByTestId("win-broker");
   for (let i = 0; i < 6 && (await w.count()) > 0; i++) await w.first().getByTestId("win-close").press("Enter");
   await expect(w).toHaveCount(0);
+  // Each close is a layout change the shell queues to IndexedDB; a page load before it commits drops it, and the next
+  // load restores the closed Broker (CI 43145796322: the old HALC window came back first, with no asset picker).
+  await flush(page);
 }
 async function range(page: Page, c: Locator, r: string) {
   await c.getByTestId("br-chart-ranges").locator(`[data-range="${r}"]`).click();
