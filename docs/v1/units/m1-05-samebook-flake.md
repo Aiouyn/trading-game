@@ -33,11 +33,13 @@ A guest feed is different: its local clock keeps moving while offline, so replay
 ## Fix
 
 - Online uses `reconnect`, not `resync`, for a signed-in feed. The cached ticker snap is not replayed. The channel stays `stale` (Broker not `live`) until the fresh read's frame arrives, which is what `uiQuotes` already waits for.
-- `pullServerQuotes` keeps a one-deep follow-up, the same shape as the ledger pull. A body from the read that was already in flight is not adopted once that follow-up is waiting, so the pre-outage book cannot become the live book. The follow-up runs as soon as the in-flight attempt settles, not after the backoff.
+- Only `reconnect` asks for a follow-up when a quote read is already in flight. That in-flight body is not adopted, whatever its tick is. A body held across the outage can be newer than the last adopted book and still behind the server (adopted 27700, held 27701, server 27703). The follow-up read is the one that goes live, as soon as the in-flight attempt settles.
+- The routine 1s poll does not ask for that follow-up. If it arrives during a read it is dropped, and the in-flight body is still adopted. Otherwise a read slower than 1s is skipped every time: quotes stay stale for many reads (7.5s at the same tick, 22.5s after a restart three ticks lower, against about a tenth of a second when reads are fast). Review and Place stay blocked the whole time.
 
 Seq-gap `resync` still replays a snap. That path is what realigns the channel sequence, and it is not the offline/online path.
 
 ## Proof
 
-- `tests/unit/shell/outage-backoff.test.ts`, describe "reconnect does not publish the pre-outage book". Both tests failed on the unmodified feed (`expected 'live' to be 'stale'` right after online, with the replacement read not issued). They pass after the fix: a stale in-flight body is not published, a failed in-flight read retries at once, and the channel goes live on the post-outage tick.
+- `tests/unit/shell/outage-backoff.test.ts`, describe "reconnect does not publish the pre-outage book". The first two tests failed on the unmodified feed (`expected 'live' to be 'stale'` right after online, with the replacement read not issued). A third failed by adopting the in-flight tick that sat between the last adopted book and the server (`expected 27701 to be 27700`). They pass after the fix: that in-flight body is not published, a failed in-flight read retries at once, and the channel goes live on the post-outage tick.
+- The same file, describe "a slow quote read after online still becomes live". With each read lasting `SERVER_QUOTE_POLL_MS + 500`, both tests stayed `stale` past one read plus one poll (same tick, and a restart three ticks lower). They pass after the fix: live inside that bound.
 - The repeat counts above.

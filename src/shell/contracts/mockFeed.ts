@@ -628,11 +628,13 @@ export class MockFeed {
    */
   reconnect(ch: ChannelName): void {
     if (!this.authoritativeQuotes) { this.resync(ch); return; }
-    this.pullChannel(ch);
+    this.pullChannel(ch, true);
   }
-  private pullChannel(ch: ChannelName): void {
+  private pullChannel(ch: ChannelName, followUp = false): void {
     if (this.authoritativeQuotes && ch.startsWith("candles:")) this.srv((s) => s.pullServerCandle(ch));
-    if (this.authoritativeQuotes && ch.startsWith("ticker:")) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed());
+    if (this.authoritativeQuotes && ch.startsWith("ticker:")) {
+      this.srv((s) => s.pullServerQuotes(undefined, followUp ? { followUp: true } : undefined), () => this.quotesFailed());
+    }
     if (this.authoritativeQuotes && ch === "news") this.srv((s) => s.pullWire(), () => this.wireFailed());
     if (this.authoritativeQuotes && ch === "me") {
       this.srv((s) => s.pullLedger(), () => this.failMe());
@@ -746,6 +748,8 @@ export class MockFeed {
       first = undefined;
       const next = () => { if (this.quotePolling && !this.quoteSync) this.quoteSync = setTimeout(pull, this.nextQuoteDelayMs()); };
       this.serverSync()
+        // A routine poll is not a reconnect. If a read is already in flight this call is dropped; it must not
+        // ask for a follow-up, or a read slower than SERVER_QUOTE_POLL_MS is skipped and quotes stay stale.
         .then((s) => (this.quotePolling ? s.pullServerQuotes(started) : undefined), () => this.quotesFailed())
         .then(next, next);
     };

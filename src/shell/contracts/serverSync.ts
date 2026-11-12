@@ -291,13 +291,19 @@ export class ServerSync {
     return "";
   }
 
-  /** One /api/market read (`started`: the feed's first read, begun before this module arrived).
-   *  A second call while this one is in flight (the browser came back online mid-read) is not dropped: when this
-   *  attempt settles, one more read runs. A body from the attempt that was already in flight is the pre-outage
-   *  book, so it is not adopted once that newer read is waiting. */
-  async pullServerQuotes(started?: Promise<Response>): Promise<void> {
+  /**
+   * One /api/market read (`started`: the feed's first read, begun before this module arrived).
+   * `followUp` is only for reconnect: a read is already in flight, so run one more when it settles, and do not
+   * adopt that in-flight body at all. Its tick can already be ahead of the last adopted book and still behind
+   * the server (held across the outage, released after the clock has stepped). A routine poll that arrives
+   * during a read does not pass `followUp` and is dropped, so a slow read is still adopted.
+   */
+  async pullServerQuotes(started?: Promise<Response>, opts?: { followUp?: boolean }): Promise<void> {
     if (!this.f.authoritativeQuotes) return;
-    if (this.quotePulling) { this.quotePullAgain = true; return; }
+    if (this.quotePulling) {
+      if (opts?.followUp) this.quotePullAgain = true;
+      return;
+    }
     this.quotePulling = true;
     try {
       let pending = started;
@@ -309,8 +315,7 @@ export class ServerSync {
           const raw = res.ok ? await res.json() : null;
           const newerRead = this.quotePullAgain;
           if (!res.ok || raw == null) { this.f.quotesFailed(); continue; }
-          const tick = typeof raw.tick === "number" ? raw.tick : null;
-          if (newerRead && tick !== null && this.f.quotesAdopted && tick <= this.f.tick) continue;
+          if (newerRead) continue;
           // L4: coins listed at graduation join the catalog before the read's quotes are adopted. A ledger read before
           // that could not be valued and is read again.
           if (raw.listed && !adoptListed(raw, this.f, ASSETS, ASSET_BY_ID, WATCHLISTS)) { this.f.quotesFailed(); continue; }
