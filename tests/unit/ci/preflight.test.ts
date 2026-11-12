@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -299,6 +299,61 @@ describe("runner CLI contracts", () => {
     expect(result.snapshot.dirty).toBe(true);
     expect(result.phasesOk).toBe(true);
     expect(result.certified).toBe(false);
+  });
+
+  it("browser preflight removes repo .data immediately before e2e, and not earlier", () => {
+    const dir = tempRepo();
+    // Same rule as the real checkout: .data is gitignored, so removing it must not look like a content change.
+    writeFileSync(join(dir, ".gitignore"), ".data/\n");
+    const dataFile = join(dir, ".data", "market", "storm-world.json");
+    mkdirSync(join(dir, ".data", "market"), { recursive: true });
+    writeFileSync(dataFile, "{}\n");
+    const out = join(dir, "evidence-fresh-data");
+    mkdirSync(out, { recursive: true });
+    const presentAt: Record<string, boolean> = {};
+    const code = main(["--browser", "--out", out], {
+      cwd: dir,
+      gitCapture: () => gitCapture(dir),
+      runPhase: (phase: { id: string }) => {
+        presentAt[phase.id] = existsSync(dataFile);
+        return {
+          status: 0,
+          signal: null,
+          error: null,
+          stdoutLog: join(out, `${phase.id}.out`),
+          stderrLog: join(out, `${phase.id}.err`),
+        };
+      },
+    });
+    expect(code).toBe(0);
+    expect(presentAt["test"]).toBe(true);
+    expect(presentAt["route-budget"]).toBe(true);
+    expect(presentAt["e2e"]).toBe(false);
+    expect(existsSync(join(dir, ".data"))).toBe(false);
+  });
+
+  it("core-only preflight and a browser dry-run leave an existing .data directory in place", () => {
+    const dir = tempRepo();
+    writeFileSync(join(dir, ".gitignore"), ".data/\n");
+    const dataFile = join(dir, ".data", "auth", "store.json");
+    mkdirSync(join(dir, ".data", "auth"), { recursive: true });
+    writeFileSync(dataFile, "{}\n");
+    const coreOut = join(dir, "evidence-keep-data");
+    mkdirSync(coreOut, { recursive: true });
+    const core = main(["--out", coreOut], {
+      cwd: dir,
+      gitCapture: () => gitCapture(dir),
+      runPhase: () => ({ status: 0, signal: null, error: null, stdoutLog: null, stderrLog: null }),
+    });
+    expect(core).toBe(0);
+    expect(existsSync(dataFile)).toBe(true);
+    const dryOut = join(dir, "evidence-dry-data");
+    const dry = main(["--dry-run", "--browser", "--out", dryOut], {
+      cwd: dir,
+      gitCapture: () => gitCapture(dir),
+    });
+    expect(dry).toBe(0);
+    expect(existsSync(dataFile)).toBe(true);
   });
 
   it("refuses symlinked node_modules without deleting it", () => {

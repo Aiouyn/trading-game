@@ -28,6 +28,7 @@ Allowlisted skips are printed as `SKIP` with the reason. They are not printed as
 - Macro nightly `skipIf` behind `TYCOON_CALIB`, `TYCOON_CRISIS_CALIB`, or `TYCOON_PERF_REF`.
 - `npm run check:paths`, already conditional on `v3/quay-shell*` heads.
 - `it.todo` in the ledger package. Vitest reports those as todo, not as this allowlist.
+- The same characters inside a string, a comment, a regex literal, or a template (outside `${}`), a local `fit()` helper, a `skipIf` function that is not `it` / `test` / `describe`, and any file that is not a test. The match has to be a real test call.
 
 ## Proof
 
