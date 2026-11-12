@@ -1,6 +1,8 @@
 // Replayable proof for sys/wire-variety: no-repeat deck, varied magnitudes, determinism.
+import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   CRISES, STORY_EVERY, STORY_SEVERITY_MAX, STORY_SEVERITY_MIN, catalogStoryAt, storyAt, storySeverity,
 } from "@/market/wireStories";
@@ -10,6 +12,22 @@ import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
 const SEED = PORT_AVALON_MARKET_SEED;
 const outDir = process.env.SYS_WIRE_VARIETY_EVIDENCE_DIR ?? ".";
 mkdirSync(outDir, { recursive: true });
+
+// Fresh-process cold catalogStoryAt at cycle 10k (Gatekeeper q1 budget <3s).
+// Invoked by the parent proof via WIRE_VARIETY_COLD_JUMP=1 so the memo is empty
+// and the clock is not competing with the ~194-worker vitest pool (sys-PLAN 18:12).
+if (process.env.WIRE_VARIETY_COLD_JUMP === "1") {
+  const CYCLE_SLOTS = 16;
+  const tick = START_TICK + (10_000 * CYCLE_SLOTS + 1) * STORY_EVERY;
+  const t0 = performance.now();
+  const story = catalogStoryAt(SEED, tick);
+  const ms = performance.now() - t0;
+  const report = { coldJumpMs: ms, tick, defId: story?.defId ?? null, ok: story != null && ms < 3_000 };
+  writeFileSync(join(outDir, "cold-jump.json"), JSON.stringify(report, null, 2) + "\n");
+  process.stdout.write(JSON.stringify(report) + "\n");
+  process.exit(report.ok ? 0 : 1);
+}
+
 
 const slots = (n: number) => Array.from({ length: n }, (_, i) => START_TICK + (i + 1) * STORY_EVERY);
 const PLAYTEST = [27694, 27754, 27814] as const;
@@ -124,6 +142,35 @@ const keyGaps = [SEED, 7, 18, 21, 27, 31, 42, 100].map((seed) => {
 const keyGapFloorHeld = keyGaps.every((g) => g.min === null || g.min >= COMPANY_FLOOR);
 const seed17KeySplit = storyAt(SEED, 27802)!.headlineKey !== storyAt(SEED, 27814)!.headlineKey;
 
+// 0 throws over 300 seeds x 2000 cycles (same stress as Gatekeeper's a8c597ab run).
+const THROW_SEEDS = 300;
+const THROW_CYCLES = 2000;
+const throwLastTick = START_TICK + THROW_CYCLES * CYCLE_SLOTS * STORY_EVERY;
+const throwSeeds: number[] = [];
+for (let seed = 1; seed <= THROW_SEEDS; seed++) {
+  try {
+    catalogStoryAt(seed, throwLastTick);
+  } catch {
+    throwSeeds.push(seed);
+  }
+}
+const throwCount = throwSeeds.length;
+
+// Cold jump in a fresh process (empty memo, own wall clock).
+const self = fileURLToPath(import.meta.url);
+const child = spawnSync(process.execPath, [...process.execArgv, self], {
+  env: { ...process.env, WIRE_VARIETY_COLD_JUMP: "1" },
+  encoding: "utf8",
+});
+let coldJump: { coldJumpMs: number; tick: number; defId: string | null; ok: boolean } | null = null;
+try {
+  const line = (child.stdout ?? "").trim().split("\n").filter(Boolean).at(-1) ?? "";
+  coldJump = JSON.parse(line) as { coldJumpMs: number; tick: number; defId: string | null; ok: boolean };
+} catch {
+  coldJump = null;
+}
+const coldJumpOk = child.status === 0 && coldJump !== null && coldJump.ok;
+
 const summary = {
   seed: SEED,
   playtest,
@@ -148,6 +195,10 @@ const summary = {
   keyGaps,
   keyGapFloorHeld,
   seed17KeySplit,
+  throwCount,
+  throwSeeds,
+  coldJump,
+  coldJumpOk,
 };
 const ok = summary.playtestNoIdenticalTriple
   && summary.gapRepeats60or72InTenMin.length === 0
@@ -164,8 +215,19 @@ const ok = summary.playtestNoIdenticalTriple
   && summary.jumpEqualsWalk
   && summary.minGapFloorsHeld
   && summary.keyGapFloorHeld
-  && summary.seed17KeySplit;
+  && summary.seed17KeySplit
+  && summary.throwCount === 0
+  && summary.coldJumpOk;
 
 writeFileSync(join(outDir, "summary.json"), JSON.stringify({ ok, ...summary }, null, 2) + "\n");
-console.log(JSON.stringify({ ok, playtest, gapRepeats: gapRepeats.length, varyingDefs: varying.length, minGaps }, null, 2));
+console.log(JSON.stringify({
+  ok,
+  playtest,
+  gapRepeats: gapRepeats.length,
+  varyingDefs: varying.length,
+  minGaps,
+  keyGaps,
+  throwCount,
+  coldJump,
+}, null, 2));
 if (!ok) process.exit(1);
