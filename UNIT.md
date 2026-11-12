@@ -1,48 +1,42 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# Card 18: top-bar clock must not invent a time before the first server tick
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+Written 12 Nov 2026, 01:36 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
 
-## Why this unit
+## Value and scope
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+Playtest e30f6822 (d11), on eng/broker-day-expiry, held the first `/api/market` for 8 s then answered 503. From 300 ms through 7 s the signed-in top bar already printed `Day 39 · 11:20` / `data-tick=27700` and `Market open · Port Avalon`, while prices were skeletons and net worth correctly said "— · Net worth loading…". At 9 s, after the 503, net worth became "— · Net worth unavailable" and the pane said "Couldn't load", but the clock was still the invented `Day 39 · 11:20`.
 
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+This reproduces on `abf14e57`. `defaultChannels()` boots `clockAt(DEFAULT_TICK)` (`38 * 720 + 340` = 27700 = Day 39 · 11:20, phase `continuous`). `ServerClock` only writes the channel when `useChannel("ticker:wl_default").tick` is non-null (`QuayShell.tsx`, "Signed-in clock: the shell day follows the server quote tick"). Until `/api/market` is adopted, `ticker.tick` is null (`authoritativeQuoteProvenance`: "Guest clocks, and a signed-in feed that has not adopted `/api/market` yet, return null. The label is the adopted server tick only, never the constructor book."). `StatusStrip` and `PhoneHome` still format `channels.clock` as a live time. Guest mock time is a different path (`GuestClock` advances the demo feed) and stays as it is.
 
-### Readiness flags checked on `43127f9e` (not this unit)
+17 §3.2.1 (`export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:240`) puts a real game clock in the status strip once there is one. The Skeleton rule in the same file (`:480`) is "never shows fake numbers". Universal screen states (`:781`) are loading (Skeleton) and error ("Couldn't load"). Net worth already follows that rule for a signed-in account (`useNwReading`, M1-08): the boot value is not shown as a valuation. The clock must do the same.
 
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
+Do not invent a neighbour time, do not keep printing `DEFAULT_TICK`, and do not say "Market open" or "After hours" from that boot tick. Do not change the guest demo clock, the engine, `/api/market`, Broker ticket order-type/TIF logic, the Portfolio Orders list, Boards, guest Home, the rank label, Settings/sign-up, consent, deep links, `nav.css` safe-area rules, `notices.css` `.qs-bottom`, or `layout.tsx` meta.
 
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
+## Exact base, branch, and identity
 
-## Smallest observable outcome
+- Branch `ui/clock-first-load`, worktree `/workspace/avalon/ui-clock-first-load`.
+- Base `abf14e57f719689e1a94a65223c6f24ab71a6ae0`. The change is shell chrome (status strip / phone status bar), not the in-flight `ui/pwa-safe-area` files, so this is the required base.
+- Verify Forge (trading-game bot) `<forge@trading-game.local>` as author and committer. Remove every `GIT_*` variable from manual npm-test and Git subprocesses. Never skip hooks.
+- Local checkout only. No cloud, push, PR, deploy, or external handoff.
 
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
+## Grounding and sketch
 
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
+Two local shapes were compared:
 
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
+1. Chosen: a signed-in clock reading, parallel to `useNwReading`. While the session is unknown, or `ticker:wl_default` has no adopted tick (`state: "loading"` or `"error"`/`"denied"` with `tick: null`), the strip and the phone status bar print a muted em dash (`S.nwUnknown`) and a short loading or unavailable label in the same family as "Net worth loading…" / "Net worth unavailable". No `data-tick` of 27700. `MarketPhase` is not rendered from the boot phase. Once `ticker.tick` is a number, format that tick (the same `clockAt` / `clockLabel` path used today) and show the real phase. Guest (session known, not signed in) keeps the demo clock from `channels.clock`. After a later outage, the last adopted tick may stay; that is card 19, not this one.
+2. Rejected: blanking the whole mid-strip, or driving the label from a new server field. The client already has the signal (`ticker.tick === null` until adopt). Rejected: leaving "Market open" up while hiding only the time — that phase is also computed from the invented tick.
 
-## Plan
+## Acceptance and proof plan
 
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
+- Signed-in, first `/api/market` held: `[data-testid=clock]` is not `Day 39 · 11:20` and has no `data-tick="27700"`. The visible mid-strip matches the loading treatment (muted dash plus a loading label). Phase is not "Market open · Port Avalon". Prices and net worth keep their existing loading treatment.
+- Signed-in, first fetch ends in error before any adopt: still no invented time; an unavailable label, not the boot clock.
+- Signed-in, after a good adopt: the clock is the adopted server tick, formatted as today, and then follows later ticks.
+- Guest: the demo clock at `DEFAULT_TICK` (and its local steps) is unchanged. Existing e66 clock-string tests that render the strip as a guest must stay green.
+- Phone 390 status bar uses the same rule as the desktop strip. No horizontal overflow. Do not edit `nav.css` safe-area rules.
+- Fail-first unit of the signed-in held-first-fetch case (and the error-before-adopt case) on StatusStrip, plus a fail-first e2e that holds `/api/market` on a signed-in `/broker` and asserts the clock is not the boot time. Do not weaken existing clock or M1-08 tests.
+- Evidence under `/workspace/avalon/evidence/ui-clock-first-load/`: before/after desktop 1280 and phone 390 with the first fetch held. Official checks with `GIT_*` unset (lint, typecheck, build, check-hooks, map-no-dup, npm test, `/broker` route-budget ≤ 220,160 B). One clean e2e in a scratch worktree with fresh `.data`. No push.
 
-## Acceptance
+## Qualifications
 
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+- Reproduced the d11 shape in source on `abf14e57` (same `DEFAULT_TICK` boot + `ServerClock` guard). Live before-shots are part of this card's evidence, not of this UNIT commit.
+- Card 19 (outage presentation) is a separate branch. This card does not change reconnecting / After hours / Review order copy.
