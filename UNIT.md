@@ -49,3 +49,34 @@ Stop here, leave this UNIT plus a 3-line plan, and ask Gatekeeper (high tier). T
 - Auth / first paint: while `me` is `loading`, no `pos-close`. Holding `/api/auth/me` in e2e must not flash a Close on the skeleton.
 - Official-flag e2e on fresh `.data`: a brand-new account has no positions, so Close is absent (empty state). The prefill path is proven on the official-flag mock/guest holdings (HALC 1200) and by production play of that path at 1280 and 390, with screenshots. A fresh signed-in book has nothing to close until a fill exists; this card does not place that first fill.
 - Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.
+
+---
+
+# Card 27 fix — Close after a fill, and Close with another ticket open
+
+**When:** 12 Nov 2026, 07:53 Europe/Paris (CET)
+**Branch:** `ui/positions-close-prefill` (same base `1fd4a6d9`; no merge-forward)
+**Tier:** high (order ticket path). Gatekeeper first-pass NO-GO on `a97c98b3`.
+
+## Player outcome
+
+After a fill, Close on that same open ticket still lets the player Review and Place the sell — Place is not dead. If a Broker window is already open on a different asset, Close still pre-fills the new ticket for the closed position; the other window's draft is left alone. Close is hidden on stale rows (live only). Close still never submits by itself.
+
+## Fixes
+
+1. **B1 — Place was dead after Close following a fill.** Cause: the prefill subscriber set `phase=edit` but left `placing.current` latched from the previous `place()`, so the next `place()` returned early. Fix: route the prefill through the same reset path New order uses (`toFreshEdit`), which clears the latch before returning to edit. Idempotency (one `placeOrder` per Place, including double-click+Enter) stays on that path.
+2. **B2 — Close lost the prefill when another asset's ticket was open.** Cause: `offerTicketPrefill` cleared `pending` whenever any listener existed, even if that listener ignored a different `assetId`. The new window's `takeTicketPrefill()` then returned null. Fix: pending is only consumed by a listener that actually applies it (same `assetId`); otherwise it stays for the mount.
+3. **Plan claim (1):** hide Close on stale rows (`PositionRow` already received `stale` and used it only for Last styling).
+
+## Backlog (not this pass)
+
+- A typed same-asset draft is replaced by Close without asking.
+- Close prefills the full qty, including pledged/lent shares (the server still decides what is sellable on preview).
+
+## Acceptance / proof
+
+- Fail-first unit: place an order on the mounted HALC ticket, Close, Review, Place: `submit`/`placeOrder` is called exactly once for the second order, and once per double-click+Enter. Red on `a97c98b3`, green on the fix head.
+- Fail-first unit: mount Broker on NRON with qty 4, Close HALC, mount Broker HALC: Sell + qty on HALC, NRON draft untouched. Red on `a97c98b3`, green on the fix head.
+- Fail-first unit: a stale Positions view has no Close. Red on `a97c98b3`, green on the fix head.
+- E2E (official flags, fresh `.data`): desktop buy, Close, Place gives exactly 1 new ack; Close with another asset's ticket open pre-fills the new ticket and leaves the other draft.
+- Production no-flag play at 1280 (both repros) and the full close journey at 390, with screenshots.
