@@ -210,7 +210,7 @@ async function main() {
             assert.equal(a.resolution!.tool, "BAIL_IN"); assert(a.resolution!.equityRights.some(r => r.creditor === "treasury-a"));
             assert.equal(e.reason ?? "BANK_RESOLUTION", "BANK_RESOLUTION"); assert(e.closeout);
             assert.equal(a.failedAt, failures.at(-1)!.failedAt); assert.equal(s.ccpMeta!.defaults.filter(x => x.memberId === "d").length, 1, "one CCP default even if the bank fails again");
-            return { failedAt: fa, finalFailedAt: a.failedAt, failures, ccpDefaults: s.ccpMeta!.defaults.length, tool: a.resolution!.tool, status: a.status, equityRights: a.resolution!.equityRights, loan: l.status, ccpDefault: { id: e.id, stage: e.stage, remaining: String(e.remaining), layers: e.layers } };
+            return { failedAt: fa, finalFailedAt: a.failedAt, failures: structuredClone(failures), ccpDefaults: s.ccpMeta!.defaults.length, tool: a.resolution!.tool, status: a.status, equityRights: a.resolution!.equityRights, loan: l.status, ccpDefault: { id: e.id, stage: e.stage, remaining: String(e.remaining), layers: e.layers } };
         }, { exact: ["a", "b"], points: [0, 1, 2, 29, 30, 31, fa, fa + 30, fa + 1, fa + CLOSEOUT_DELAY, fa + CLOSEOUT_DELAY + 1] });
         const single = await readFile(join(out, "cross-module-single-pass.json"), "utf8"), jumpBytes = await readFile(join(out, "cross-module-loan-run-bailin-ccp-default", "jump.json"), "utf8");
         assert.equal(single, jumpBytes, "chunked causal store equals the jump store byte for byte");
