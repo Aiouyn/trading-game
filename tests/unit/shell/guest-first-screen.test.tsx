@@ -93,6 +93,6 @@ describe("Card 9 phone guest first screen", () => {
     expect(q("account-chip-home")?.textContent).toBe("qa_player");
     expect(q("guest-pitch")).toBeNull();
     expect(q("sign-in-entry")).toBeNull();
-    expect(q("widget-nw-label")?.textContent).toBe("Net worth") // main card 29: signed-in Home says Net worth;
+    expect(q("widget-nw-label")?.textContent).toBe("Net worth"); // main card 29: signed-in Home says Net worth
   });
 });
