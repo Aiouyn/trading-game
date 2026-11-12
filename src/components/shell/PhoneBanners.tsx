@@ -4,7 +4,7 @@
 // which opens the alerts sheet. Every banner pushes content down.
 import { dispatchFeed, parseDeepLink, useFeedState } from "@/shell/feed";
 import { openSheet, closeSheet } from "@/shell/sheetHost";
-import { S } from "@/shell/strings";
+import { S, connectionLost } from "@/shell/strings";
 import { ALERT_ICON, Banner, pickAlert, WorldEventBanner, worldEventText, type Alert, type WorldEvent } from "./Banner";
 import { LoadState } from "./LoadState";
 import { Glyph } from "./Glyph";
@@ -23,17 +23,17 @@ export function phoneStack(alerts: readonly Alert[], loadOpen: boolean, world: W
 
 export type SheetRow =
   | { kind: "alert"; alert: Alert }
-  | { kind: "load"; offline: boolean }
+  | { kind: "load"; offline: boolean; lost?: boolean }
   | { kind: "world"; event: WorldEvent };
 
 /**
  * Alerts-sheet rows in the stack's priority (Studio 08:31): P0 alerts, then offline / error, then the world event,
  * then everything else by time (arrival order).
  */
-export function sheetRows(alerts: readonly Alert[], load: { offline: boolean } | null, world: WorldEvent | null): SheetRow[] {
+export function sheetRows(alerts: readonly Alert[], load: { offline: boolean; lost?: boolean } | null, world: WorldEvent | null): SheetRow[] {
   const p0 = alerts.filter((a) => a.priority === "P0").map((alert) => ({ kind: "alert" as const, alert }));
   const rest = alerts.filter((a) => a.priority !== "P0").map((alert) => ({ kind: "alert" as const, alert }));
-  return [...p0, ...(load ? [{ kind: "load" as const, offline: load.offline }] : []), ...(world ? [{ kind: "world" as const, event: world }] : []), ...rest];
+  return [...p0, ...(load ? [{ kind: "load" as const, offline: load.offline, ...(load.lost ? { lost: true } : {}) }] : []), ...(world ? [{ kind: "world" as const, event: world }] : []), ...rest];
 }
 
 
@@ -45,9 +45,11 @@ export function rowGlyph(r: SheetRow): "alert" | "bell" | "world" | "error" {
 export function AlertsSheetBody({ onNavigate }: { onNavigate: (href: string) => void }) {
   const feed = useFeedState();
   const sys = useShell((s) => s.channels.system);
-  const loadOpen = sys.load !== "ok" || sys.offline;
+  const locale = useShell((s) => s.prefs.locale);
+  const lost = sys.connection === "reconnecting" && !sys.offline && sys.load === "ok"; // card 19
+  const loadOpen = sys.load !== "ok" || sys.offline || lost;
   const loading = sys.load === "loading";
-  const rows = sheetRows(feed.alerts, loadOpen ? { offline: sys.offline } : null, feed.world);
+  const rows = sheetRows(feed.alerts, loadOpen ? { offline: sys.offline, lost } : null, feed.world);
   return (
     <>
       <h2 className="label">{S.alerts}</h2>
@@ -61,10 +63,10 @@ export function AlertsSheetBody({ onNavigate }: { onNavigate: (href: string) => 
               <a className="alert-action" href={r.alert.action.href} onClick={(e) => { e.preventDefault(); closeSheet(); onNavigate(r.alert.action.href); }}>{r.alert.action.label}</a>
             </>}
             {r.kind === "load" && <>
-              <span className="row-text" data-testid="sheet-load-message">{r.offline ? S.offline : S.couldntLoad}</span>
-              <button className="load-retry alert-action" data-testid="sheet-retry" data-alt={loading ? S.retry : S.retrying} aria-disabled={loading} onClick={() => { if (!loading) retryLoad(); }}>
+              <span className="row-text" data-testid="sheet-load-message">{r.offline ? S.offline : r.lost ? connectionLost(locale) : S.couldntLoad}</span>
+              {!r.lost && <button className="load-retry alert-action" data-testid="sheet-retry" data-alt={loading ? S.retry : S.retrying} aria-disabled={loading} onClick={() => { if (!loading) retryLoad(); }}>
                 <span className="load-retry-label">{loading ? S.retrying : S.retry}</span>
-              </button>
+              </button>}
             </>}
             {r.kind === "world" && <span className="row-text">{worldEventText(r.event).replace(/^● /, "")}</span>}
           </li>
@@ -83,7 +85,7 @@ export function PhoneBannerStack() {
   const feed = useFeedState();
   const sys = useShell((s) => s.channels.system);
   const navigate = useDeepLinkNavigate();
-  const loadOpen = sys.load !== "ok" || sys.offline;
+  const loadOpen = sys.load !== "ok" || sys.offline || (sys.connection === "reconnecting" && sys.load === "ok"); // card 19
   const { shown, extra } = phoneStack(feed.alerts, loadOpen, feed.world);
   const last = shown.at(-1);
   const onMore = () => openSheet({ side: "bottom", label: S.alerts, testId: "alerts-sheet",

@@ -1,92 +1,86 @@
-# Card 6 — Phone Trade ticket sheet
+# Unit: durable Broker order idempotency (not just the last 50)
 
-Written 2026-11-11T20:17:40+01:00 Europe/Paris, before any implementation. This file is the only change in the first commit.
+**Branch:** `eng/broker-idempotency`  
+**Base:** `43127f9e` (`eng/broker-headroom`)  
+**Worktree:** `/workspace/avalon/broker-idempotency`  
+**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
+**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
 
-## Outcome and lane
-A new player can open the existing order ticket from a persistent, 44px-or-larger floating Trade button, without scrolling past the phone chart. Opening never submits. Quantity → Review → explicit Place still uses BrokerFrame's existing preview, intent, pending and acknowledgment path. Phone/narrow is the existing shell breakpoint, viewport width <768px; compact and wide desktop keep the inline ticket and their existing behavior. Front-end only: no engine/server/market/economy/shared-package, route-budget limit or script changes.
+## Why this unit
 
-## Exact stacked base and identity
-- Branch `ui/broker-trade-sheet`; isolated worktree `/workspace/avalon/ui-broker-trade-sheet`.
-- Base `bfe320dd57e9b6e58ddc671ef9f8717b09a27cae`, the local verified Settings/News recovery head on `ui/broker-entry-split`, on top of original `009f50bfd5bde60d0e05f9d28d3bc38d60d0c81d`. This is a stacked, UNMERGED UI branch, itself based on `110583b0aa73ece1dc3b856665f3be0405f1acc3`; not main and not the preflight fix.
-- New author identity verified as Forge (trading-game bot), forge@trading-game.local. The exact inherited card-5 base contains legitimate earlier pf@test-authored commits; do not mistake those for new fixture `init` commits or rewrite the required base. Before every commit inspect log -3 and all commits after this base; reject any new init/pf@test commit. All manual npm-test and git subprocesses have every GIT_* environment variable removed. No hook bypass.
-- No push, PR, owner/Gatekeeper handoff, merge into an owner branch, deployment or spending. Scratch-only integration merges are requested evidence, not integration authorization.
+On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
 
-## Sources
-`export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md`:
-- :828 BRK-01: phone chart full width; bottom-sheet ticket opened by a floating accent Trade button; honest risk note; authoritative preview.
-- :474 BottomSheet: content, half/full, grab handle; drag-down dismissal is broader component-spec scope, see boundary below.
-- :389–396: sheet elevation/radius/z-order, phone <768, minimum width320, touch targets >=44x44.
-- :256–262: phone status/app bars and Recent; keep the existing shell navigation usable when the ticket is closed.
-- :1274, :1281: preview values authoritative; keyboard reachability and accessibility.
-`docs/v1/V1-BOARD.md`: :41–43 existing atomic/idempotent order path and Portfolio P/L; :53–56 first-trade clarity and ~390px mobile shell; :82–84 V1 lane and exclusions.
+The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
 
-## Grounding: ownership and flow
-BrokerFrame owns the draft and edit/review/placed phase; SimpleTicket only edits and requests review. ReviewBlock alone exposes explicit Place; AckPanel reads the returned intent/fill. Phone currently renders the whole ticket below the chart and creates a SECOND sheet only for review. The existing shell Sheet already supplies modal semantics, Tab wrap, Escape, scrim close and opener return. The phone shell uses a36px edge-bar token plus bottom safe-area; Broker's phone class deliberately disables size containment so fixed sheets stay viewport-relative. Draft and phase must stay in BrokerFrame so dismiss/reopen never duplicates order state.
+### Readiness flags checked on `43127f9e` (not this unit)
 
-## Usage and chosen shape
-BrokerFrame renders its unchanged desktop ticket branch OR a small phone-only presentation wrapper around the SAME `ack || review || ticket` React node. The wrapper owns only open/closed UI state, calls the existing `toEdit` on dismissal, and renders one shared Sheet for editing, review, pending and acknowledgment (never nested modals). Its only external inputs are localized labels/asset context, the existing quantity focus ref, existing keyboard and dismiss callbacks, and children; it has no order/preview/intent API.
+| Flag | Status on this base | Why not this unit |
+|---|---|---|
+| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
+| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
+| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
+| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
 
-Compare two structurally different local sketches (Task/arena tools are not exposed; no independent-runner claim):
-1. Chosen: Broker-local wrapper + existing Sheet, one mounted ticket and parent-owned draft/phase. Focus Quantity on open; when replacing edit/review/ack content would remove focus, land on an enabled action inside that content (or the persistent Close button while pending). Keep user-chosen close/action focus during quote refreshes. Explicitly focus Trade before mounting Sheet so touch and keyboard both restore correctly. Dismiss during pending does not cancel/re-submit; reopening displays current phase/result. Unmounting phone wrapper on a desktop resize naturally resets only its open UI state.
-2. Rejected: native dialog/new modal implementation or global sheet-host snapshots. Native dialog duplicates established shell modal policy; global snapshots split rendering/state ownership and require external synchronization for each preview/phase update. Both expose more coordination than the local wrapper.
+Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
 
-Accepted tradeoff: reuse the established shared Sheet rather than extend its global API or add a modal package. No swipe-to-dismiss work: spec :474 describes that general component capability, but this card's requested closes are Escape, backdrop and a visible 44px Close button; drag dismissal is not silently claimed. Existing Sheet has a grab handle. Check screen-reader semantics and keyboard containment on each content transition, including pending.
+## Smallest observable outcome
 
-## Relationship to Card 1
-Card1 (`ui/broker-ticket-entry` @0814d8e3) is NOT in this base. The new floating Trade button supersedes its Go to order ticket shortcut ON PHONE; hide `.br-phone .br-ticket-entry` as an explicit stacked-integration compatibility rule so phone never offers a shortcut targeting a now-unmounted inline form. Card1's compact-desktop shortcut and wide-desktop hidden state remain untouched. Measure/test an approved 1–5 scratch merge and document any source conflict resolution exactly; preserve Card1's desktop id/ref/shortcut and its existing tests except phone expectations deliberately superseded by the sheet. No cherry-pick of unrelated UI cards into this feature branch.
+After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
 
-## Acceptance and evidence plan
-- One SimpleTicket/order flow, no new request or calculation. Trade activation/repeated opening/closing produces zero order POSTs; only explicit Review then Place sends one request.
-- Focus Quantity initially; Tab/Shift+Tab stay within Sheet; transitions retain modal focus; Escape/backdrop/Close dismiss and focus Trade; draft survives reopen; About has no stale Trade overlay; resize leaves desktop inline ticket.
-- FAB and controls >=44px; reserve space after the last market/order row; FAB clears the existing36px edge nav + safe inset + gap; use safe-area-aware horizontal/panel padding and scrollable sheet body. Closed navigation remains reachable; modal intentionally owns interaction while open.
-- EN/FR at390px and FR at320px, textScale2: no viewport or sheet horizontal overflow, wrapped labels and readable full preview values; review/Close reachable by scrolling.
-- Run exact repo checks: `npm run lint`, `npm run typecheck`, `npm run build`, `node tools/check-hooks.mjs .next/static .next/server`, `node tools/ci/route-budget.mjs /broker`, ledger `npx vitest run test/map-no-dup.test.ts`, `npm test` (GIT_* scrubbed). Do not invoke apt/--with-deps; existing Chromium is installed, plain browser install only if needed. No budget/script edit.
-- Measure actual /broker counted gzip assets before/after on the exact recovered Card5 base AND approved merged cards1–5 stack, <=215KiB on each. Freeze preview build/PID during probes, retain hashes and exact input SHAs; this is bundle size, not a runtime speed claim.
-- One clean fresh-.data e2e worktree, fresh install if inode budget permits, ports3300–3399 only, no3199/3102. Targeted affected Broker and first-trade/Portfolio flows; full signed-in phone open→quantity→review→place→real fill displayed in Portfolio. Include desktop unchanged screenshot comparison and phone screenshots (including FR200%). Do not regenerate existing baselines unless an intentional phone expectation changes and is explained.
-- Keep raw failed attempts as evidence; delete only Card6 scratch checkouts and previews after capture, not primary worktree/evidence. Final clean committed tree, Forge author confirmed, exact SHA and normal push command reported without pushing. Remote CI/Gatekeeper are not certified locally.
+1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
+2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
+3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
+4. A process restart over the same store still honours (1) and (2).
+5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
 
-## Ordered recovery/rebuild context
-Card6 was cleanly checkpointed atfc712431 before the scoped Card5 Settings/News recovery. Card5 UNIT-addendum-onlyd0f868bd preceded its fix, all core checks and fresh clean e2e (93 pass/57 project skips, all8 abort/re-import paths). Card6 is locally rebased, unpushed, onto the exact recovered head above; re-verify all Card6 paths on this source, not only its earlier checkpoint. Original own/stack measurements remain archived as checkpoint evidence, not final-base proof.
+Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
 
-Merge order: preserve Card5's all-built-apps-lazy app-modules.test.tsx contract; removed EagerAppId/LazyAppId assertions from older cards must not return. The recorded five-card stack5f03d95b already had the correct test byte-identical to Card5; its recovery merge needed no new source/test resolution. Re-run merged-stack typecheck/npm test as well as build/budget. Merge Card6 last, preserve Card1 compact-desktop entry id/ref, and deliberately replace only its phone shortcut expectations with the Trade sheet.
+## Plan
 
-## Final phone-only expectation and harness follow-up
-The rebuilt first full clean cohort found two proof gaps, not an extra order path: the existing phone app screen itself has role=dialog, so the nested-modal regression assertion must count aria-modal=true dialogs (exactly one), not all dialogs. Preserve the full open→review→place→real fill assertion; do not skip it.
+Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
 
-Removing the inline phone ticket and reserving space for the FAB intentionally changes the phone Trade scroll extent. At200% text the browser retains a different natural scroll position when entering About: its focused About heading/Overview now starts near the top instead of retaining more of the quote header. The About DOM/styles, focus, content, News and desktop remain unchanged and all a11y/overflow/navigation assertions pass. Accept this phone-only framing consequence, explicitly update ONLY BR-10/phone-overview-2-390x844.png from the captured real failed comparison, retain original/actual/diff and re-run the exact unchanged pixel assertions. No desktop, News, other phone or global baseline regeneration. This is not claimed as a universal About-scroll reset or a product-code fix.
+## Acceptance
 
-Desktop deterministic comparison: studies/table/About/News pixel-identical; initial Broker has8 antialiased pixels at the Review button's bottom-right rounded corner (bbox550,428–554,430), no text/layout difference. Raw full images and enlarged corners retained; do not call this five pixel-identical views.
+1. UNIT.md is written first (this file), before product-code edits.
+2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
+3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
+4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
+5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
 
-### Complete first-cohort findings and root fix
-The completed cohort was139 pass/34 skips/5 fail, all retained. Besides the modal-role check and the explicit phone About baseline above, the halted-colour test still targeted the removed phone .br-col-ticket; point it at the actual sheet on phone, keeping desktop scope and all colour assertions. Qty-blur layout must compare Review relative to its ticket while the modal scrolls it into view; keep ticket-height and relative-layout equality, plus the original absolute-y check on desktop.
+---
 
-A real focus bug was exposed by Close after New order at200% text: native blur temporarily puts focus on BODY while Quantity is still connected, and the original refresh effect incorrectly focuses Quantity again, interrupting the click/scroll to Close. Red-before unit proof is native-blur-red.log. Track the last focused element in the sheet and recover focus only when it was actually removed (or on initial open), not during a connected element's native blur. This preserves transition recovery while leaving Close/mouse/keyboard focus alone. Re-run the complete fresh-.data cohort and the real fill/Portfolio path; do not substitute a synthetic click or skip the scale2 case.
+<!-- Merged from main (latest unit on main). Both unit notes are kept. -->
 
-### Geometry-proof follow-up (no product-code change)
-The full source-fixed rerun passed143, skipped34, with one remaining legacy hit-area failure: br-side-sell measured43.999969482421875px while the existing sheet-up translate animation was in flight. The actual CSS44px floor is unchanged. Have the test entry helper finish ONLY the established sheet-up CSSAnimation before geometric legacy assertions, including under the paused test clock. Keep every44px numeric threshold exact; no tolerance, force-click, assertion removal or production-animation change. Source/unit-test trees are unchanged from6bd4184b; preserve its passing desktop cohort/core results and re-run the entire affected phone cohort from fresh .data on this helper-only revision, plus repeated strict BR-4 hit-area proof. The final deterministic five desktop screen/text/focus comparisons are all pixel-identical (the earlier8 corner pixels were a retained earlier attempt).
+# Card 29 — Signed-in Home hero says Net worth, not “Demo balance”
 
-## Addendum (post-Gatekeeper, card 6 qualified at 1f263883): Trade button clearance and sheet cap row
-Scope stays phone/narrow Broker only; wide desktop, order logic, requests and strings are unchanged.
+**When:** 12 Nov 2026, 06:55 Europe/Paris (CET)
+**Branch:** `ui/signed-in-hero-copy`
+**Base:** `origin/main` `1fd4a6d9cc27a61dfd28ddc6288bf1ecd6ea6f3e` (PR114 after PR111/113)
+**Identity:** Forge (trading-game bot) <forge@trading-game.local>
+**Tier:** low (copy). Not opening a PR. No push this pass.
 
-### 1. Nothing hidden behind the floating Trade button
-Reproduced on the exact 1f263883 production build (evidence `fab-clearance/BEFORE*.json`): the fixed pill floats over scrolling content, so at the rest position text leaves sit visibly beside/behind it: signed-in 390 EN `br-chart-source` (the quote-provenance footnote), 320 EN `br-study-bb`, 320 FR200% `cc-legend-time`. The end-of-scroll padding was also a fixed 44px guess that cannot follow the button's real height at 200% text.
-Fix: render the existing Trade button inside an opaque, full-width, in-flow `position: sticky; bottom` action bar that is the Broker's last child (same button, ids, focus return, aria). Content ends at a clear bar edge instead of peeking around a pill, and the bar's own layout box reserves exactly its rendered height at the end of scroll at any text scale, so the separate fixed padding guess is removed. The bar sits inside the app scroller, so it can never cover the edge nav; safe-area insets stay on its padding.
-Geometry assertion (e2e, signed-in, 390/320 EN and FR textScale 2, top/middle/end scroll): every visible Broker text leaf intersecting the bar's rectangle is occluded by the bar itself (elementFromPoint inside the bar, opaque computed background), at end of scroll every text leaf (including the provenance footnote) ends at or above the bar top, the bar bottom is at or above the edge nav top, the button keeps >=44px and no horizontal overflow.
+## Player outcome
 
-### 2. First-trade cap row inside the sheet
-`firstTradeCapRemaining` is null from every current server/mock path (18's cap does not exist yet; not Builder's eng/first-trade-goal goal work, which does not touch it), so the row renders only for a non-null value. Add e2e coverage that keeps the real signed-in `/api/broker/preview` request and only overlays `firstTradeCapRemaining` on its real JSON body via Playwright route: the row appears in the reviewed sheet with the EN/FR label and formatted value, fits at 320 FR200% without overflow, and with the unmodified real response the row is absent. Opening review sends no order; this is UI coverage of the contract field, not a claim that the cap is implemented.
+A signed-in player looking at Home sees the same “Net worth” hero the spec describes, not “Demo balance” and not “Starter account: $10,000 (demo placeholder, not a live balance).” Their cash and positions are already described in Account as saved on the server. The main screen should not contradict that, and it should not look like a throwaway demo.
 
-### Checks
-UNIT addendum commit first; then exact-HEAD lint, typecheck, build, check-hooks, route-budget /broker, map-no-dup, npm test (GIT_* unset), clean fresh-.data e2e of the affected phone/desktop cohorts with intended phone golden updates only if the bar changes framing (explained), phone+desktop screenshots, rebuilt 6-card merged-stack /broker bytes (<=215 KB). Card 7 (ui/broker-fill-feedback) is then rebased locally onto the new head.
+## Grounding
 
-#### Correction before implementation (cap-row harness)
-The first WIP run (evidence `fab-clearance/wip-e2e`) showed that the HALC preview never calls `/api/broker/preview`: only 8-dp listed assets use the server preview; listed-exchange previews are the client feed's advisory calculation (the server re-decides on Place). A route overlay would therefore test nothing. Instead add one QUAY_HOOKS e2e scenario key, `?firstTradeCap=D` (decimal money, validated like `nw`), following the existing hook pattern: compiled out without QUAY_HOOKS, default null, used only as the advisory preview's `firstTradeCapRemaining`. Without the hook the real null still hides the row; with it the row renders inside the reviewed sheet (EN and FR 320 200%). No order is sent by review; not a cap implementation.
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:257` — Home widget: “NET WORTH label + rank chip, serif 44 px NW, today’s change, sparkline, rank progress bar.” The label is Net worth. There is no “Demo balance” line and no $10k “not a live balance” disclaimer on this widget.
+- Same file :240 — desktop status strip: net worth (mono) with today’s %. Not a “Demo balance” tag.
+- Settings › Account already says “Account, cash, and position quantities are saved on the server.” (`src/apps/settings/strings.ts` `accountDisclaimer`; tests in `m1-01-account.test.tsx`). The hero copy is stale relative to that.
+- `docs/v1/M1-01-AUTH.md:15` still says mock trading is not a server save and “Account may show starter cash placeholder only.” That note is about Account, and Account has already moved on. It is not a license to label the Home hero a fake balance.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash “Demo balance” or the $10k disclaimer, and must not invent a signed-in number. Guest chrome (Net worth) is the honest unknown-session path.
 
-#### First full clean cohort on 3a203952 (evidence `followup-clean-e2e`, 145 pass / 40 skip / 5 fail, retained)
-- BR-4-14 and BR-5-12 (scale 1 and 2) caught a real defect: the bar's -32px side margins made the Broker root 16px wider than its box (`broker 374>358`). Fix: span exactly the Broker box (-16px = its own padding), safe-area insets beyond the app body's 16px padding still honoured. Bar geometry e2e now asserts bar left/right equal the Broker root and no root or scroller horizontal overflow, instead of viewport edges.
-- BR-10 label-ink check measured the Trade/About segment's "Trade" tab while it sat under the opaque bar at the top of the scroller, so changing its text colour changed no pixel. This is the intended occlusion, not lost ink. winShot skips only labels whose centre is covered by another element (elementFromPoint), keeping every other label, all ring/mask assertions and the >0 ink minimum.
-- BR-10-11 phone-overview-2 (scale 2) differs because the reserved bar changes the Trade scroll extent, so About opens with a different retained scroll offset; About DOM, styles and focus are unchanged (same reasoning as the earlier accepted Card 6 update). Update ONLY that golden from a captured real failed actual on the fixed source, keep original/actual/diff, then re-run the full clean cohort. No other baseline regenerated.
+## Scope (tiny copy)
 
-#### Targeted rerun on d68637e8 (evidence `fab-clearance/wip-e2e3`, 37 pass / 4 fail, retained)
-- The new bar geometry assertion (no Broker root/scroller horizontal overflow) exposed a pre-existing FR 200% defect at 320 and 390, independent of the bar (present since BR-4): `.br-hold > span { white-space: nowrap }` keeps "Espèces · FDL 324 714,15 $US" on one line, so the cash amount runs to x=402 and the app scroller scrolls sideways, hiding it off-screen. Fix only the cash span: let it wrap between its label and the (still unbreakable) MoneyText; identical layout whenever it fits (EN goldens unaffected).
-- BR-5-12 phone scale 1 `open-orders-cb-390x844` (element shot of the open-orders list): the legacy list keeps a 36px empty bottom padding; at the rest scroll the sticky bar's 1px top border now lies inside that empty padding (326 px, no row/text/control change). Intentional; update ONLY that golden and BR-10-11 phone-overview-2 from captured real failed actuals on the fixed source, keep original/actual/diff.
+- Phone Home widget: the label is `S.netWorth` for signed-in and guest. Remove `phone-demo-disclaimer` (`S.starterPlaceholder`) from the signed-in hero.
+- Desktop status strip: drop the signed-in “Demo balance” tag (`strip-demo-tag`). Show today’s % next to NW, as the spec and the guest strip already do.
+- Do not retouch the signed-in today slot or the $20k rank bar — that is card 25 (`ui/signed-in-home-today`).
+- Do not rewrite Account or M1-01-AUTH.md in this card.
+
+## Acceptance / proof
+
+- Fail-first unit: a signed-in Phone Home / StatusStrip still says “Demo balance” and the starter disclaimer before the fix; after the fix the hero label is “Net worth”, `phone-demo-disclaimer` is absent, and `strip-demo-tag` is absent. The $10,000 starter amount may still appear as the NW figure; it is not captioned as a demo placeholder.
+- Auth / first paint: hold `/api/auth/me` — first paint has no “Demo balance”, no “not a live balance” / starter placeholder, and no account handle. After the session resolves signed-in, still no those phrases on the hero or strip.
+- Official-flag e2e on fresh `.data` (register a handle) plus production play at 1280 and 390 with screenshots.
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.
