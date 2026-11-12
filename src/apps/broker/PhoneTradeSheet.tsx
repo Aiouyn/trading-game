@@ -4,17 +4,26 @@ import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
 import type { BrStrings } from "./strings";
 
-export function PhoneTradeSheet({ t, assetId, qtyRef, onDismiss, onKeyDown, children }: {
+export function PhoneTradeSheet({ t, assetId, qtyRef, openSeq = 0, onDismiss, onKeyDown, children }: {
   t: BrStrings; assetId: string; qtyRef: RefObject<HTMLInputElement | null>;
+  /** Bumped by a Positions Close prefill (card 27): open the sheet on the pre-filled ticket. */
+  openSeq?: number;
   onDismiss: () => void; onKeyDown: KeyboardEventHandler<HTMLDivElement>; children: ReactNode;
 }) {
   const label = `${t.tradeTicket} · ${assetId}`;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(openSeq > 0);
   const scope = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const justOpened = useRef(false);
+  const justOpened = useRef(openSeq > 0);
   const lastFocus = useRef<HTMLElement | null>(null);
   const dismiss = () => { onDismiss(); setOpen(false); };
+  const seenSeq = useRef(openSeq);
+  useEffect(() => {
+    if (openSeq === seenSeq.current) return;
+    seenSeq.current = openSeq;
+    justOpened.current = true;
+    setOpen(true);
+  }, [openSeq]);
 
   useEffect(() => {
     if (!open || !scope.current) return;
