@@ -108,3 +108,32 @@ Evidence goes to `evidence/sys-banking-core/hardening/`. Ports are 3440-3449.
 4. **Node 22.** No nvm or system Node 22 exists. A `node-linux-x64@22` binary is used from a private `/tmp` scratch directory, with a fresh `npm ci` in a detached worktree. Results are in `evidence/sys-banking-core/hardening/node22-e2e/`.
 
 Still not covered: pid reuse can make a dead owner look alive, which fails closed and needs manual removal. Multi-host or shared filesystems are not handled. A lock file left by the pre-hardening store (empty contents) is never auto-broken. A torn temp file was observed only at size 0 or full size, because a 137 KB write is one syscall; the short-write case is covered by a crafted unit test. Replication, compaction and scale are untested. Remote CI is not run.
+
+## Decision: the post-closeout second failure (2026-11-12 01:21:49 Europe/Paris, written before the fix)
+
+**Facts at 7078c75f** (cross-module fixture, `evidence/sys-banking-core/double-failure/probe/probe-7078c75f.log`):
+- Bank a's only risk-weighted assets are member d's CCP custody: IM $100 and DF $100, counted as restricted reserves. So RWA is $200.
+- At 3599 the bail-in converted $799,824.12 of treasury-a deposits, sized to CET1 = $20, exactly 10% of $200.
+- At 3600 member d's default is declared because its bank failed. At 4080 the closeout takes $100 IM and $50 DF of that same custody, as the first two waterfall layers. Bank a's CET1 goes to -$130.
+- At day close 4319 the bank fails again, and is bailed in a second time.
+
+**Spec reading:**
+- 07:626 (§3.10.1): when a bank fails, "the bank's CCP memberships trigger member default (§3.17.6)". 07:872 (§3.17.6) lists "the member bank enters resolution" as a default cause. So the failure itself makes the member default certain at the failure tick.
+- 07:878 (§3.17.7 step 4): "Losses = close-out cost … − defaulter's resources". 07:882-883 (§3.17.8 steps 1-2): the first two layers are the defaulter's IM and then its DF contribution.
+  - Everything beyond those layers is mutualized: SITG, survivors' DF, assessments of survivors, VMGH, tear-up.
+  - 07:891 adds that there is no taxpayer absorption.
+  - Nothing in §3.17.8 gives TCH a claim on the defaulter beyond its IM and DF. The defaulter's maximum loss from its own default is therefore exactly its posted IM + DF, and that amount is known at the failure tick.
+- 07:629 (§3.10.2): valuation happens on the same tick, with "assetsFair = … performing book values minus Stage 3 provisions". 07:458 defines a Stage 3 provision as "EAD − expected recovery".
+  - After default, the IM and DF are first-loss collateral for that default. Their recovery is only the surplus after close-out, and that surplus is unknown until the close-out facts arrive.
+  - Recovery is therefore valued at 0 at resolution. That is the only deterministic, rule-based value available.
+  - 07:385 likewise excludes encumbered (pledged) assets from usable liquidity.
+- 07:633 (§3.10.3): bail-in converts written-down claims "into new equity until CET1 = 10%". A bail-in sized while counting assets that its own trigger has already committed to the waterfall leaves CET1 below 10% by construction. Here it led to a certain re-failure from a loss that was knowable and bounded at the resolution tick.
+
+**Decision.** Option (b): ring-fence the defaulting member's margin. This is not option (a), and the second resolution was not legitimate.
+- **Option (a) is rejected.** The bail-in should not be sized to a contingent CCP liability. The exposure is not a third-party claim (03:1464 admits contingent claims only "when crystallized"), and there is no claim on the defaulter beyond its IM and DF.
+- **What is ring-fenced.** A bank's own CCP house member has its IM and DF custody accounts ring-fenced in two cases: from the tick the bank fails (default certain, §3.10.1), or from a declared member default for any §3.17.6 cause. The ring-fence lasts until that default event is CLOSED (§3.17.7 step 5).
+- **How it is treated.** While ring-fenced, that custody is a capital deduction: Stage 3 with recovery 0. It is removed from CET1, and also from RWA, so it is not counted twice. Cash, deposits, balance-sheet equity and M0 do not move. When the close-out later consumes the IM and DF, it consumes ring-fenced value, so CET1 does not move.
+- **Release at close.** When the default is CLOSED, any surplus the waterfall did not use stops being ring-fenced and counts as capital again.
+- **Effect on the bail-in.** Its size now reflects the ring-fence: it reaches CET1 = 10% of the remaining RWA, net of the ring-fenced custody.
+- **Second resolutions in general.** These remain legitimate for losses that arise after resolution and were not knowable at the valuation tick. 07:626 evaluates triggers at every day close, and nothing makes a resolution one-time. A bank's own CCP default cannot be such a loss, because its cost is capped at the ring-fenced IM + DF.
+- **Restatement.** This is a root fix in `liquidityMetrics`, and it is derived from state, so it adds no new persisted field. It changes the cross-module outcome to one failure at 3599 and one bail-in, which is larger by the ring-fenced $200 of claims. Exactly which hashes change is recorded in the results below.
