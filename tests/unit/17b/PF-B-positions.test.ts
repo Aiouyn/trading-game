@@ -177,7 +177,9 @@ describe("PF-3-09 cards (phone, text scale ≥ 1.5)", () => {
     const lines = halc.split('class="pos-line').slice(1).map((l) => text(l.replace(/^[^>]*>/, "").replace(/<div\s*$/, "")));
     expect(lines[0]).toBe("HALC P&L ▲ +$2,736.00 (+5.7%)");
     expect(lines[1]).toBe("Value · Weight $50,616.00 · 12.3%");
-    expect(lines[2].startsWith("Qty @ avg cost 1,200 @ 39.90 Today ▼ −0.35%")).toBe(true);
+    // Card 27 (main) puts Close after the badges, so the extracted line text runs on into "Close": match the start.
+    // Card 13 (main): live last sits with qty @ avg; card 3 labels the cluster.
+    expect(lines[2].startsWith(`Qty @ avg cost 1,200 @ 39.90 ${EN.colLast} ${decText(TICK.HALC.last, "en")} Today ▼ −0.35%`)).toBe(true);
     expect(h).toContain('class="pos pos-cards pos-phone"');
     expect(html({ cards: true, big: true })).toContain('class="pos pos-cards pos-big"');
   });
@@ -264,5 +266,21 @@ describe("first-fill number reading", () => {
   });
   it.each([["2736.00", "2,736.00 dollars"], ["-318.00", "minus 318.00 dollars"], ["0.00", "0.00 dollars"]])("speaks signed unrealized P&L %s independently of Today", (upl, spoken) => {
     expect(rowLabel({ ...ME.positions.HALC, upl }, TICK.HALC, EN, "en")).toContain(`, unrealized P&L ${spoken}, before fees`);
+  });
+});
+
+describe("card 13: phone card shows the live last", () => {
+  it("exposes pos-last equal to the ticker last, and falls back to mark when the ticker row is missing", () => {
+    const card = rows(html({ cards: true, phone: true }))[1];
+    expect(cell(card, "pos-last")).toContain(decText(TICK.HALC.last, "en"));
+    const noTick = rows(html({ cards: true, phone: true, tickers: null }))[1];
+    expect(cell(noTick, "pos-last")).toContain(decText(ME.positions.HALC.mark, "en"));
+    const fr = rows(html({ cards: true, phone: true, locale: "fr" }))[1];
+    expect(cell(fr, "pos-last")).toContain(FR.colLast);
+    expect(cell(fr, "pos-last")).toContain(decText(TICK.HALC.last, "fr"));
+  });
+  it("marks last stale when me is stale, same as the table", () => {
+    const card = rows(html({ cards: true, phone: true, view: live(ME, "stale") }))[1];
+    expect(card).toMatch(/data-testid="pos-last"[^>]*class="[^"]*pos-stale/);
   });
 });

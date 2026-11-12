@@ -131,7 +131,10 @@ export function PositionRow({ pos, ticker, t, locale, stale, layout, onClosePosi
         <div className="pos-line pos-line3">
           <span className="pos-card-field">
             <span className="pos-card-label" data-testid="pos-card-label">{t.qtyAvg}</span>
-            <span className="num pos-qtyat" data-testid="pos-qtyat">{t.qtyAt(decText(pos.qty, locale), decText(pos.avgCost, locale))}</span>
+            <span className="pos-cost">
+              <span className="num pos-qtyat" data-testid="pos-qtyat">{t.qtyAt(decText(pos.qty, locale), decText(pos.avgCost, locale))}</span>
+              <span data-testid="pos-last" className={lastCls}>{`${t.colLast} ${decText(last, locale)}`}</span>
+            </span>
           </span>
           <span className="pos-card-field pos-card-end">
             <span className="pos-card-label" data-testid="pos-card-label">{t.colToday}</span>

@@ -8,11 +8,12 @@ import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
 import { Sparkline } from "./Sparkline";
-import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings } from "@/shell/strings";
+import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings, guestHome } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
 import { FeedbackButton } from "./FeedbackButton";
+import { FillAckHost } from "./FillAckHost";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
@@ -243,6 +244,7 @@ export function PhoneHome() {
   // Signed-in and guest both get the next-rank bar (M2-02 / 17 §3.2.3).
   // Loading is not signed_in, so a Hustler bar is not invented before the session is known.
   const next = nextRankTarget(rank);
+  const guestCopy = guestHome(useShell((s) => s.prefs.locale));
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -278,6 +280,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
+      <FillAckHost variant="phone" />
       <PhoneBannerStack />
       {phoneApp ? (
         <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
@@ -300,9 +303,14 @@ export function PhoneHome() {
               <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
             )}
           </div>
-          {/* Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
+          {/* Card 9: a logged-out stranger reads what Quay is before the Sign in action and the example numbers
+              (label, Sign in and the example caption are card 36's on main).
+              Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
           {!signedIn ? (
-            <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
+            <>
+              <p className="guest-pitch" data-testid="guest-pitch">{guestCopy.pitch}</p>
+              <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
+            </>
           ) : null}
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
             {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}

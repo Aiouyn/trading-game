@@ -230,3 +230,7 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .strip-account, .sb-account { cursor: pointer; border: 0; font: inherit; }
 
 .lazy-chunk-error { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-8); min-height: 96px; }
+/* Card 5: a whole Settings body or Broker News panel failing to load; scoped, wraps at 200%, touch-size Retry. */
+.lazy-chunk-error.lazy-module-error { align-items: flex-start; padding: var(--sp-16); min-width: 0; overflow-wrap: anywhere; }
+.lazy-module-error p { margin: 0; }
+.lazy-module-error .btn { min-width: var(--hit-touch); min-height: var(--hit-touch); }
