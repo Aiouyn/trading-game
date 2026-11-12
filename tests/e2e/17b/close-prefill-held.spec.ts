@@ -25,6 +25,11 @@ test("desktop: Close HALC at the 4-Broker cap tells the player and leaves nothin
   await expect(page.getByTestId("pos-close-cap")).toBeVisible();
   await expect(ticketOf(page, "HALC")).toHaveCount(0);
 
+  // Deep-link at the cap focuses an existing Broker and does not open HALC (17a-T4).
+  // Free one slot, then open HALC: it must not be a leftover Sell.
+  const gx = page.getByTestId("win-broker").filter({ has: page.getByTestId("br-ticker").filter({ hasText: "GX" }) });
+  await gx.getByTestId("win-close").click();
+  await expect(page.getByTestId("win-broker")).toHaveCount(3);
   await boot(page, "/broker?asset=HALC");
   const halc = ticketOf(page, "HALC");
   await expect(halc).toBeVisible();
