@@ -34,3 +34,12 @@ Existing branches checked: eng/first-trade-goal adds the goal/guide, eng/portfol
 ## Result
 
 Verified 2026-11-11T17:59:22+01:00 Europe/Paris (UTC+1). All listed checks pass. Commands, counts and screenshots are in the PR body and under /workspace/avalon/evidence; they are not shipped in the repo.
+
+## Addendum, 12 Nov 2026 20:10 Europe/Paris (CET): desktop narrow window only (PR #152, CI run 43272672697)
+
+On phone, the "Go to order ticket" button sat above the chart and pushed the Broker's Trade | About switch below the first viewport. BR-10's phone mask test then found no ink for the "Trade" label: `BR-10.spec.ts:418`, 'button. "Trade": text ink … Received: 0'. Reproduced locally on 1b7f01bd (main 14770d15 merged): 1 failed, 10 passed, 9 skipped. The screenshot shows the button above the chart and no Trade | About switch. Plain main passes.
+
+Review decision: this card ships for the narrow desktop window only and makes no phone change. BrokerFrame renders the button only when not on phone, and wide desktop still hides it with CSS.
+- Acceptance check 1 now covers the 520 px desktop window only. The phone half of the original audit finding (ticket below the fold on phone) is left to the phone Trade sheet work (card 6) and is not addressed here.
+- The card's e2e tests the desktop cases as before. On phone it now asserts that there is no ticket entry and no horizontal overflow at text scale 1 and 2.
+- No goldens were changed.

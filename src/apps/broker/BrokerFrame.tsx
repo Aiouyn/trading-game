@@ -335,7 +335,8 @@ export function BrokerFrame({ context }: { context?: string }) {
         provenance={authoritativeQuoteProvenance(ticker.tick)}
         fear={authoritativeFear()}
         onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={withChart ? <>
-          <Button className="br-ticket-entry" data-testid="br-ticket-entry" aria-controls={ticketId} onClick={goToTicket}>{t.openTicket}</Button>
+          {/* Card 1: desktop narrow window only; the phone Trade view has its own ticket flow (BR-10 phone layout). */}
+          {!phone && <Button className="br-ticket-entry" data-testid="br-ticket-entry" aria-controls={ticketId} onClick={goToTicket}>{t.openTicket}</Button>}
           {chart}
         </> : undefined} />
       {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}

@@ -35,7 +35,8 @@ async function ticketEntry(page: Page, phone: boolean) {
 
 test("ticket entry: visible before the chart, keyboard navigation only, draft preserved, explicit review and real fill", async ({ page, baseURL }, info) => {
   test.setTimeout(90_000);
-  const phone = info.project.name === "phone";
+  test.skip(info.project.name === "phone", "desktop narrow window only (PR #152 review: no phone change)");
+  const phone = false;
   const request = page.context().request;
   const res = await request.post("/api/auth/register", { headers: { origin: baseURL! }, data: { handle: `Ticket${info.project.name}${Date.now().toString(36)}`, password: "local-ticket-entry-test" } });
   expect(res.status()).toBe(201);
@@ -92,6 +93,7 @@ test("ticket entry: visible before the chart, keyboard navigation only, draft pr
 });
 
 test("French ticket entry is visible and About has no stale ticket target", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "desktop narrow window only (PR #152 review: no phone change)");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/broker?asset=HALC&locale=fr");
   await expect(b(page)).toHaveAttribute("data-state", "live");
@@ -105,20 +107,18 @@ test("French ticket entry is visible and About has no stale ticket target", asyn
   await expect(b(page).getByTestId("br-ticket-entry")).toHaveCount(0);
 });
 
-test("phone at 200% text keeps the ticket entry reachable without horizontal overflow", async ({ page }, info) => {
-  test.skip(info.project.name !== "phone", "phone scale case");
-  await page.emulateMedia({ reducedMotion: "reduce" });
+test("phone keeps main's Broker layout: no ticket entry, at text scale 1 and 2", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "phone case");
+  await page.goto("/broker?asset=HALC");
+  await expect(b(page)).toHaveAttribute("data-state", "live");
+  await expect(b(page).getByTestId("market-tick")).toBeVisible();
+  await expect(b(page).getByTestId("br-ticket-entry")).toHaveCount(0);
   await page.goto("/settings");
   await expect(page.getByTestId("settings")).toBeVisible();
   await setTextScale(page, "2");
   await page.getByTestId("app-back").click();
   await page.getByTestId("icon-broker").click();
   await expect(b(page)).toHaveAttribute("data-state", "live");
-  const entry = await ticketEntry(page, true);
-  await shot(page, "phone-scale2-entry");
-  await entry.click();
-  await expect(b(page).getByRole("group", { name: "Order ticket", exact: true })).toBeFocused();
-  await expect(b(page).getByTestId("br-side-buy")).toBeInViewport({ ratio: 1 });
+  await expect(b(page).getByTestId("br-ticket-entry")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await shot(page, "phone-scale2-ticket");
 });
