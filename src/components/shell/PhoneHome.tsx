@@ -236,7 +236,9 @@ export function PhoneHome() {
   const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
-  const next = signedIn ? null : nextRankTarget(rank);
+  // Signed-in and guest both get the next-rank bar (M2-02 / 17 §3.2.3).
+  // Loading is not signed_in, so a Hustler bar is not invented before the session is known.
+  const next = nextRankTarget(rank);
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -310,12 +312,11 @@ export function PhoneHome() {
             {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
           </div>
           <div className="widget-row">
-            {signedIn ? (
-              <span className="today muted" data-testid="today">{S.demoTradingNote}</span>
-            ) : reading.nw === null ? null : (
+            {reading.nw === null ? null : (
               <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
             )}
-            {!signedIn && reading.nw !== null && <Sparkline />}
+            {/* Honest no-data stub until an NW series exists; never invented points. */}
+            {reading.nw !== null && <Sparkline />}
           </div>
           {signedIn ? (
             <>

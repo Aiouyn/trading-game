@@ -49,66 +49,37 @@ Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable 
 
 ---
 
-<!-- Merged from main (PR111, card 19). Both unit notes are kept. -->
+<!-- Merged from main (latest unit on main). Both unit notes are kept. -->
 
-# Card 19: say "Connection lost · retrying" early, stop showing "After hours", explain a disabled Review (ui/outage-reconnecting)
+# Card 25: signed-in phone Home shows today's change and progress to $20,000
 
-Written 2026-11-12 02:05 CET. Assigned by Avalon Builder (playtest #4, outage). The first draft of this unit was ecd9bd24
-on the old stack (abf14e57). Under Builder's base rule it is rewritten here on the lowest branch that already has the
-code it touches. The archived stack attempt is on local branch ui/outage-reconnecting-on-abf14e57 (ecd9bd24, 3e200da4,
-a6f65c64), not pushed.
+Written 12 Nov 2026, 06:31 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
 
-## Base: origin/main 24f67e0a
-main already has everything this card touches: the signed-in /api/market poll in MockFeed (`authoritativeQuotes`,
-`SERVER_QUOTE_POLL_MS` 1 s), `applySignedInDemo` (where the feed is created), `channels.system.connection`, MarketPhase's
-"Reconnecting…" label (StatusStrip and PhoneHome pass it through), LoadState, PhoneBanners, the Broker ticket
-(BrokerFrame, SimpleTicket) and the EN/FR shell and broker string tables. Neither PR105 (eng/broker-idempotency) nor the
-old stack is needed.
+## Value and scope
 
-## Problem on main
-After a mid-session server kill, a signed-in player sees nothing for about 11 s. `pullServerQuotes` ignores a failed
-read ("keep the last snapshot"), and `system.connection` is only ever written by the `?conn=` test hook. Quotes go stale
-only when the channel watchdog fires. Until then the header keeps saying "After hours" or "Market open", and Review
-order, once disabled as stale, gives no reason. The poll fires every 1 s for the whole outage, with no backoff.
+A signed-in player on phone Home sees their saved net worth, but the today slot is replaced by “Your trades, cash and positions are saved on the server.” (`S.demoTradingNote`), and `next = signedIn ? null` hides the rank progress bar. The guest Home already shows today's change, a sparkline, and “Next: {rank} · {nw} / {target}”. V1 M2-02 is “grow $10k” with a visible NW target; 17 §3.2.3 says the phone Home widget is NET WORTH, today's change, sparkline, and the rank progress bar (“Next: Mogul · $412.9k / $5M”). For a new signed-in account that target is Hustler at $20,000 (RANK_THRESHOLDS[0], starter rank R0).
 
-## Behaviour (client feed and UI only; src only, no engine, no server)
-1. Signal. When a signed-in /api/market read fails after quotes were adopted (network error, non-2xx, or a body that
-   cannot be adopted), the feed reports "reconnecting". `applySignedInDemo` copies that into
-   `channels.system.connection`, ignoring a feed that has since been swapped out. The next successful adopt sets it back
-   to "live". A failure before the first adopt does not set the flag.
-2. Backoff. The healthy cadence stays `SERVER_QUOTE_POLL_MS` (1 s). The brief says 5 s, but 5 s is the price tick
-   `FEED_TICK_MS`; this is flagged as a caveat. After the n-th failure in a row, the next read waits
-   min(15 s, 1 s·2^(n-1)) with ±20 % jitter, clamped to 15 s. A success resets the count, so the next outage starts again
-   at about 1 s. `retryDelayMs(failures, random)` is pure and takes an injectable random. The poll becomes a
-   self-scheduling timeout with at most one read in flight, and it stops on stop() or unsubscribe.
-3. Presentation.
-   - Notice: the existing LoadState slot (desktop pill under the strip, phone banner, alerts-sheet row) reads
-     "Connection lost · retrying…" (FR "Connexion perdue · nouvel essai…"). It is `role="alert"` and has no Retry button.
-     Priority: offline, then load error (which keeps its Retry), then connection lost.
-   - Header: MarketPhase already shows "Reconnecting… · Port Avalon" from the flag. StatusStrip and PhoneHome are not
-     edited.
-   - Broker: Review order and Place order are disabled while reconnecting. A visible reason sits next to Review
-     (`br-review-reason`, linked with aria-describedby), in EN and FR. A stale-only reason covers the case where the
-     watchdog has marked prices stale. Order-type and time-in-force controls are not touched, nor are the Portfolio
-     Orders list, nav.css safe-area, notices.css .qs-bottom or layout.tsx meta.
+Player outcome: after signing in, phone Home shows today's change (and percent) from the live `me` channel, and the next-rank bar toward $20,000, using the same presentation as the guest widget. The saved-account note can stay as muted context under the hero; it must not occupy the today slot.
 
-## Gatekeeper proof additions
-(a) A ticket already in Review before the outage cannot be placed while reconnecting. After recovery, Review re-prices
-    from fresh data (a preview at the new tick) and one Place makes exactly one order.
-(b) The notice clears by itself after the restart, with no refresh.
-(c) The backoff resets after a success: the first retry of the next blip comes after about 1 s, not 15 s.
-(d) The guest view does not change: the guest feed never sets the flag, nothing shows the notice, and the shell visuals
-    match base and head.
+Front-end only. Do not change `/api/auth/me`, rank thresholds, or `me.todayChg` / `me.todayPct` sources. Do not invent a sparkline series: the existing Sparkline stub is a flat dashed no-data line (`17-UX` :441); it may be shown honestly, never with made-up points.
 
-## Acceptance and evidence
-- Fail-first units, each logged red on base and green on head: the backoff schedule and jitter bounds; the feed's flag
-  transitions and gaps, including the reset; the notice copy in EN and FR; the Review/Place gating and reason, including
-  (a); the guest feed and guest shell, for (d).
-- Real kill: a production `next start` on a 33xx port, at desktop 1280 and phone 390 and 320. Kill the server with
-  SIGKILL. The notice must appear within about 2 s, the header must not show a market phase, and Review must show its
-  reason. Log the /api/market timestamps both on the network and in the page, along with renderer stalls. Restart the
-  server on the same port: the app must recover without a reload (b), and a second blip must retry after about 1 s (c).
-  A guest tab stays unchanged throughout (d). Take screenshots at every stage. Stop the server by pid only.
-- Preflight on the head, with GIT_* unset: lint, typecheck, a build with no flags, npm test, /broker bytes (215 KB gz),
-  plus check-hooks and ledger-no-dup where main has them. Run a clean e2e on fresh .data, with the visual suite on both
-  base and head. Delete the scratch worktree. No push.
+## Exact base, branch, and identity
+
+- Branch `ui/signed-in-home-today`, worktree `/workspace/avalon/ui-signed-in-home-today`.
+- Base `origin/main` `98939480a24654f729a260de4c3ad0b9f5693f9a` (fetched this turn). The brief named `d2875ef3`; main has since taken PR111 (card 19) and PR113. Phone Home's signed-in widget already lives on this tip. PR105 (`f62bc63b`) adds a later first-trade guide on the same file and is not needed for this behaviour.
+- Verify Forge (trading-game bot) `<forge@trading-game.local>` as author and committer. Unset every `GIT_*` variable for npm-test and Git. No push.
+
+## Grounding and sketch
+
+`isSignedIn` is true only for `auth.status === "signed_in"`. The today row and `next` are branched on that flag, so a signed-in player loses the live change and the $20k bar. `applySignedInDemo` already seeds starter rank R0 and `todayChg` / `todayPct` (then the server `me` channel updates them).
+
+1. Chosen: when `signed_in`, render today's change the same way as the guest row (`MoneyText` + `PctText` from `me.todayChg` / `me.todayPct`), and compute `next` with `nextRankTarget(rank)` for signed-in too. Keep the starter / saved-account copy out of the today slot.
+2. Rejected: inventing sparkline points. Rejected: pulling card 23's unknown-session skeleton into this card — different behaviour, already queued. This card only adds signed-in rows inside the `signed_in` branch, so they do not appear while `auth.status === "loading"`.
+3. Auth-loading check (REVIEW-LESSONS 19): hold `/api/auth/me` and assert first paint has no account handle, no signed-in today-from-starter, and no “Next: Hustler” bar. Guest today/rank may still flash until card 23; that is out of scope here and must not regress further.
+
+## Acceptance and proof plan
+
+- Fail-first unit: a signed-in PhoneHome (starter channels, known `todayChg` / `todayPct`, rank R0) shows those exact today figures in `data-testid=today`, and `rank-next` names Hustler with the live NW and $20,000. The today slot is not only `demoTradingNote`. The same test fails on this base.
+- Guest end state unchanged: canned today change and “Next: Owner / Mogul” still match existing `phone.spec` cases.
+- Loading: hold `/api/auth/me`; first paint has no `account-chip-home` and no Hustler rank-next from a signed-in session.
+- Play-through: production build, desktop 1280 and phone 390, signed-in Home screenshots. Official checks with `GIT_*` unset. Affected e2e in a clean scratch worktree with fresh `.data`. Evidence under `/workspace/avalon/evidence/signed-in-home-today/`. No push.
