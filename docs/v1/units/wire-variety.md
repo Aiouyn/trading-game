@@ -56,3 +56,15 @@ The first pass shuffles once per seed, so the same eight company headlines (and 
 4. Existing checks still hold: every cycle still uses each company story and each crisis kind once; watch/outcome pairing is unchanged; severity stays in `[0.6, 1.4]`; the grid and hash-only selection are unchanged.
 5. The official calibration fixture is regenerated if the events-on walk changes. The calm walk must stay byte-identical (quote RNG untouched). Events-on `index_cagr` and FROG closes are reported honestly (PASS or honest MISS; no hiding drift). Lint, typecheck, build, check-hooks, route-budget, map-no-dup, `npm test`, and the affected Wire e2e in a fresh worktree all pass.
 
+
+### Delta results
+
+Recorded 2026-11-12T06:46:13+01:00 Europe/Paris, after the fix, fixture regen, checks, e2e and proofs. Product SHA `530c3b0ffc4b4c66c173e8cdf5ac67f5d5858e15`.
+
+- Each cycle's company and crisis order is derived from `hash(seed, cycleIndex)` (keys `co:${cycle}` / `order:${cycle}`, with a deterministic repair under `:rN` or a hash-seeded backtracking search). Jumping straight to cycles 0, 1, 7, 40, 85, 144, 166, 200, 366 and 400 equals a walk from 0. The rotate-reverse fallback missed legal decks on seeds 21 (cycle 144) and 27 (cycle 85); the backtracking search covers those. A module memo caches the chain; it does not change results.
+- Over 10,000 ticks, the defId sequence is not periodic at any period ≤ 72 ticks. Consecutive cycles differ, with no company or crisis boundary repeat, and no company defId recurrence at 60 or 72 ticks. The official-seed playtest ticks 27694 / 27754 / 27814 publish `tide-downgrade` −153 bp, `mrdn-recall` −261 bp, and `orca-trial` −299 bp — still not three copies of `avb-earnings`.
+- Existing ACs still hold: every cycle uses each company story and each crisis kind once; watch/outcome pairing, severity band, grid, and hash-only selection are unchanged. A LiveMarket rumor restart test now waits for the catalog TIDE confirmation (a farm rumor can confirm first under the new deck). The official calibration unit timeout is 60 s.
+- The official calibration fixture was regenerated. The calm walk is byte-identical to the pre-delta fixture (quote RNG untouched). Events-on 12-seed 60-GD GX median CAGR is 24.92% (was 27.94%); seed 17 is 16.78% (was 27.89%). Status is an honest MISS vs the 0–12% band (disclosed, not a stop). FROG events-on still ends `near_zero` (last 1e-07); 29 of 60 closes moved (end/start 0.00116 vs 0.00134).
+- Checks (Node v24.22.1, CI pin is 22): lint 0 (at fixture SHA `a73bfa08`), ledger-no-dup 13/13, typecheck 0, no-flag build 0, check-hooks 0 (487 files, 0 hits), `npm test` 166 passed / 1 skipped files, 2476 passed / 2 skipped tests, route-budget 196.5 KB gz / 215 KB on port 3520. Proof `tools/proofs/wire-variety.ts` exits 0 (evidence `/workspace/avalon/evidence/sys-wire-variety/cycle-shuffle/`).
+- Affected e2e `tests/e2e/17b/M1-09-wire.spec.ts` in a fresh detached worktree at `530c3b0f` with fresh `.data` on port 3524: 2 passed / 2 skipped / 0 failed (desktop journey and phone 390/520 fit; crossed project cases skipped by the spec). That worktree was removed.
+
