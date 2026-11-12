@@ -80,45 +80,9 @@ export function classifyToken(raw: unknown): TokenClass {
   return "PRESENT";
 }
 
-const issuedContexts = new WeakSet<object>();
-
-/** Mark a context as issued by ActorBinding. Not exported from the package index. */
-export function issueActorContext(context: ActorContext): ActorContext {
-  const issued: ActorContext = Object.freeze({
-    actorId: context.actorId,
-    accountId: context.accountId,
-    sessionId: context.sessionId,
-    boundAtMs: context.boundAtMs,
-  });
-  issuedContexts.add(issued);
-  return issued;
-}
-
-export function isIssuedActorContext(value: unknown): value is ActorContext {
-  return typeof value === "object" && value !== null && issuedContexts.has(value);
-}
-
-export function requireBoundActor(context: ActorContext, claimed: unknown): ActorId {
-  if (!isIssuedActorContext(context)) throw new BindingError("FORGED_CONTEXT");
-  if (claimed === undefined || claimed === null || claimed === "") {
-    throw new BindingError("CLAIM_MISSING");
-  }
-  if (typeof claimed !== "string" || !isActorId(claimed)) {
-    throw new BindingError("CLAIM_MALFORMED");
-  }
-  if (claimed !== context.actorId) {
-    throw new BindingError("ACTOR_MISMATCH");
-  }
-  return context.actorId;
-}
-
 export function claimedActorOf(command: unknown, field: ActorField = "actor"): unknown {
   if (!isPlainObject(command)) throw new BindingError("CLAIM_MALFORMED");
   return command[field];
-}
-
-export function authorizeClaimed(context: ActorContext, command: unknown, field: ActorField = "actor"): ActorId {
-  return requireBoundActor(context, claimedActorOf(command, field));
 }
 
 export function checkpointDigest(bindings: readonly BindingRecord[]): string {

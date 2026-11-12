@@ -1,22 +1,60 @@
 import { tokenFromRequest, type AuthSessionView } from "@/server/auth";
 import {
   actorIdFor,
-  authorizeClaimed,
   BindingError,
+  claimedActorOf,
   classifyToken,
   isAccountId,
-  isIssuedActorContext,
-  issueActorContext,
+  isActorId,
   makeCheckpoint,
   parseCheckpoint,
   type ActorContext,
   type ActorField,
   type BindingCheckpoint,
+  type ActorId,
   type BindingRecord,
 } from "./model";
 import type { BindingStore } from "./store";
 
 export const ACTOR_BINDING_DEFAULT_ENABLED = false;
+
+// Only ActorBinding issues contexts (Gatekeeper q4). The issued set and the minting function are
+// module-private; no export, and no runtime-reachable ActorBinding member, can mark a caller-built
+// object as issued.
+const issuedContexts = new WeakSet<object>();
+
+function issueActorContext(context: ActorContext): ActorContext {
+  const issued: ActorContext = Object.freeze({
+    actorId: context.actorId,
+    accountId: context.accountId,
+    sessionId: context.sessionId,
+    boundAtMs: context.boundAtMs,
+  });
+  issuedContexts.add(issued);
+  return issued;
+}
+
+export function isIssuedActorContext(value: unknown): value is ActorContext {
+  return typeof value === "object" && value !== null && issuedContexts.has(value);
+}
+
+export function requireBoundActor(context: ActorContext, claimed: unknown): ActorId {
+  if (!isIssuedActorContext(context)) throw new BindingError("FORGED_CONTEXT");
+  if (claimed === undefined || claimed === null || claimed === "") {
+    throw new BindingError("CLAIM_MISSING");
+  }
+  if (typeof claimed !== "string" || !isActorId(claimed)) {
+    throw new BindingError("CLAIM_MALFORMED");
+  }
+  if (claimed !== context.actorId) {
+    throw new BindingError("ACTOR_MISMATCH");
+  }
+  return context.actorId;
+}
+
+export function authorizeClaimed(context: ActorContext, command: unknown, field: ActorField = "actor"): ActorId {
+  return requireBoundActor(context, claimedActorOf(command, field));
+}
 
 /** The exported session lookup surface; callers inject AuthService and do not touch auth internals. */
 export type SessionLookup = {
@@ -29,11 +67,16 @@ export class ActorBinding {
   private bindings = new Map<string, BindingRecord>();
   private readonly tokens = new WeakMap<ActorContext, string>();
 
+  // ES-private: a reassigned session lookup would let a caller choose the session view.
+  readonly #auth: SessionLookup;
+
   private constructor(
-    private readonly auth: SessionLookup,
+    auth: SessionLookup,
     private readonly store: BindingStore,
     private readonly now: () => number,
-  ) {}
+  ) {
+    this.#auth = auth;
+  }
 
   static async open(
     auth: SessionLookup,
@@ -81,9 +124,9 @@ export class ActorBinding {
     if (kind === "MISSING") throw new BindingError("MISSING_SESSION");
     if (kind === "MALFORMED") throw new BindingError("MALFORMED_SESSION");
     const token = rawToken as string;
-    const view = options?.refresh === true ? await this.auth.resolveSession(token) : await this.auth.peekSession(token);
+    const view = options?.refresh === true ? await this.#auth.resolveSession(token) : await this.#auth.peekSession(token);
     if (!view) throw new BindingError("SESSION_REJECTED");
-    return this.remember(view, token);
+    return this.#remember(view, token);
   }
 
   /**
@@ -96,28 +139,28 @@ export class ActorBinding {
     if (!isIssuedActorContext(context)) throw new BindingError("FORGED_CONTEXT");
     const token = this.tokens.get(context);
     if (token === undefined) throw new BindingError("SESSION_REJECTED");
-    const view = await this.auth.peekSession(token);
+    const view = await this.#auth.peekSession(token);
     if (!view || view.sessionId !== context.sessionId || view.account.accountId !== context.accountId) {
       throw new BindingError("SESSION_REJECTED");
     }
   }
 
-  private async remember(view: AuthSessionView, token: string): Promise<ActorContext> {
+  async #remember(view: AuthSessionView, token: string): Promise<ActorContext> {
     const accountId = view.account.accountId;
     if (!isAccountId(accountId)) throw new BindingError("INVALID_ACCOUNT_ID");
     const actorId = actorIdFor(accountId);
     const existing = this.bindings.get(accountId);
     if (existing) {
       if (existing.actorId !== actorId) throw new BindingError("ACTOR_REMAP");
-      return this.issue({ actorId, accountId, sessionId: view.sessionId, boundAtMs: existing.boundAtMs }, token);
+      return this.#issue({ actorId, accountId, sessionId: view.sessionId, boundAtMs: existing.boundAtMs }, token);
     }
     const record: BindingRecord = { accountId, actorId, boundAtMs: this.now() };
     this.bindings.set(accountId, record);
     await this.store.save(this.snapshot());
-    return this.issue({ ...record, sessionId: view.sessionId }, token);
+    return this.#issue({ ...record, sessionId: view.sessionId }, token);
   }
 
-  private issue(context: ActorContext, token: string): ActorContext {
+  #issue(context: ActorContext, token: string): ActorContext {
     const issued = issueActorContext(context);
     this.tokens.set(issued, token);
     return issued;

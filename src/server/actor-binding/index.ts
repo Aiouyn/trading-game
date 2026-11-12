@@ -3,16 +3,13 @@ export {
   ACTOR_ID_DOMAIN,
   BindingError,
   actorIdFor,
-  authorizeClaimed,
   claimedActorOf,
   classifyToken,
   checkpointDigest,
   isAccountId,
   isActorId,
-  isIssuedActorContext,
   makeCheckpoint,
   parseCheckpoint,
-  requireBoundActor,
   sortBindings,
 } from "./model";
 export type {
@@ -26,5 +23,5 @@ export type {
 } from "./model";
 export { FileBindingStore, MemoryBindingStore } from "./store";
 export type { BindingStore } from "./store";
-export { ACTOR_BINDING_DEFAULT_ENABLED, ActorBinding } from "./engine";
+export { ACTOR_BINDING_DEFAULT_ENABLED, ActorBinding, authorizeClaimed, isIssuedActorContext, requireBoundActor } from "./engine";
 export type { SessionLookup } from "./engine";
