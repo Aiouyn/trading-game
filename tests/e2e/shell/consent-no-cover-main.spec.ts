@@ -2,10 +2,11 @@
 // Home dock icons must remain clickable (a real click that takes effect, not
 // just visible). Official e2e builds skip the prompt unless ?telemetry_consent=1;
 // a no-flag production build shows it after the first interaction either way.
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-async function register(request: APIRequestContext, baseURL: string, handle: string) {
-  const res = await request.post("/api/auth/register", {
+async function register(page: Page, baseURL: string, handle: string) {
+  // Use the page's request so the session cookie is the one the browser sends.
+  const res = await page.request.post("/api/auth/register", {
     headers: { origin: baseURL },
     data: { handle, password: "local-consent-test" },
   });
@@ -20,10 +21,10 @@ async function showConsent(page: Page) {
   await expect(page.getByTestId("quay-consent")).toBeVisible({ timeout: 10_000 });
 }
 
-test("phone: Home icons and Wire Post stay clickable while consent is unanswered", async ({ page, request, baseURL }, info) => {
+test("phone: Home icons and Wire Post stay clickable while consent is unanswered", async ({ page, baseURL }, info) => {
   test.skip(info.project.name !== "phone", "phone viewport");
   const handle = `Cn${Date.now().toString(36)}`.slice(0, 20);
-  await register(request, baseURL!, handle);
+  await register(page, baseURL!, handle);
 
   await page.goto("/?telemetry_consent=1");
   await showConsent(page);
@@ -35,6 +36,8 @@ test("phone: Home icons and Wire Post stay clickable while consent is unanswered
   await expect(page.getByTestId("quay-consent")).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("quay.telemetry.consent"))).toBeNull();
 
+  await expect(page.getByTestId("wire").first()).toHaveAttribute("data-state", "live", { timeout: 20_000 });
+  await expect(page.getByTestId("wire-demo")).toHaveCount(0);
   const composer = page.getByTestId("wire-composer");
   await expect(composer).toBeVisible({ timeout: 20_000 });
   const toggle = page.getByTestId("wire-composer-toggle");
