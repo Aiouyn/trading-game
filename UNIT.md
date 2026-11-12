@@ -1,32 +1,33 @@
-# Card 32 — After creating an account, a next step is visible
+# Card 29 — Signed-in Home hero says Net worth, not “Demo balance”
 
-**When:** 12 Nov 2026, 08:14 Europe/Paris (CET)
-**Branch:** `ui/signup-next-step`
-**Base:** `origin/main` `1ba997da8b7ad0b4a921cce42c5d6a0923778487` (PR120, card 29)
+**When:** 12 Nov 2026, 06:55 Europe/Paris (CET)
+**Branch:** `ui/signed-in-hero-copy`
+**Base:** `origin/main` `1fd4a6d9cc27a61dfd28ddc6288bf1ecd6ea6f3e` (PR114 after PR111/113)
 **Identity:** Forge (trading-game bot) <forge@trading-game.local>
-**Tier:** low (Account copy + one navigation button). Not opening a PR. No push this pass.
+**Tier:** low (copy). Not opening a PR. No push this pass.
 
 ## Player outcome
 
-A stranger looking at Settings › Account sees that they start with $10,000 of game money and a $20,000 (Hustler) goal, then can create an account. After they register or sign in, they are not left with only Sign out: they see the same goal and an Open Portfolio button. The save/demo explanation stays available, without a technical paragraph or a builder milestone id in the first 30 seconds.
+A signed-in player looking at Home sees the same “Net worth” hero the spec describes, not “Demo balance” and not “Starter account: $10,000 (demo placeholder, not a live balance).” Their cash and positions are already described in Account as saved on the server. The main screen should not contradict that, and it should not look like a throwaway demo.
 
 ## Grounding
 
-- V1-BOARD M2-02: start cash $10k + a visible NW target ($20k Hustler, `RANK_THRESHOLDS[0]` / DESIGN “Reach $20k”).
-- 18-ONBOARDING §3.5: after value is shown, guests are invited to keep progress. On this tip the Account screen is that invitation, and it currently ends on Sign out.
-- This tip’s Account disclaimer is still honest that Broker trades and fills are a demo and are not saved (M1-06 is not wired; `accountDemoBoundary.ts`). Do not claim otherwise. Drop the “M1-06” jargon from the visible first-session copy.
-- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash a signed-in next step, handle, or Open Portfolio.
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:257` — Home widget: “NET WORTH label + rank chip, serif 44 px NW, today’s change, sparkline, rank progress bar.” The label is Net worth. There is no “Demo balance” line and no $10k “not a live balance” disclaimer on this widget.
+- Same file :240 — desktop status strip: net worth (mono) with today’s %. Not a “Demo balance” tag.
+- Settings › Account already says “Account, cash, and position quantities are saved on the server.” (`src/apps/settings/strings.ts` `accountDisclaimer`; tests in `m1-01-account.test.tsx`). The hero copy is stale relative to that.
+- `docs/v1/M1-01-AUTH.md:15` still says mock trading is not a server save and “Account may show starter cash placeholder only.” That note is about Account, and Account has already moved on. It is not a license to label the Home hero a fake balance.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash “Demo balance” or the $10k disclaimer, and must not invent a signed-in number. Guest chrome (Net worth) is the honest unknown-session path.
 
-## Scope
+## Scope (tiny copy)
 
-- Settings › Account only (`AccountSettings.tsx`, its strings and CSS).
-- Before sign-in: the $10k start / $20k goal line. The long save/demo paragraph lives under a “Save and demo details” disclosure.
-- After sign-in: the goal line, “Open Portfolio”, and the same disclosure. Sign out remains.
-- Open Portfolio uses the existing shell `open("portfolio")`. It does not close Settings by itself, pre-fill a ticket, or submit an order.
-- Do not edit `PhoneHome.tsx`, `nav.css`, `Recent.tsx`, `Shelf.tsx`, or `launcher.ts`.
+- Phone Home widget: the label is `S.netWorth` for signed-in and guest. Remove `phone-demo-disclaimer` (`S.starterPlaceholder`) from the signed-in hero.
+- Desktop status strip: drop the signed-in “Demo balance” tag (`strip-demo-tag`). Show today’s % next to NW, as the spec and the guest strip already do.
+- Do not retouch the signed-in today slot or the $20k rank bar — that is card 25 (`ui/signed-in-home-today`).
+- Do not rewrite Account or M1-01-AUTH.md in this card.
 
 ## Acceptance / proof
 
-- Fail-first unit: a signed-in Account still has no Open Portfolio and no $10k/$20k goal line; after the fix both are present, and while `/api/auth/me` is held there is no Open Portfolio and no account handle.
-- Official-flag e2e on fresh `.data`, production play at 1280 and 390 with screenshots under `/workspace/avalon/evidence/signup-next-step/` (play scripts live there, not in the worktree).
-- Full checks on the exact final head. No push.
+- Fail-first unit: a signed-in Phone Home / StatusStrip still says “Demo balance” and the starter disclaimer before the fix; after the fix the hero label is “Net worth”, `phone-demo-disclaimer` is absent, and `strip-demo-tag` is absent. The $10,000 starter amount may still appear as the NW figure; it is not captioned as a demo placeholder.
+- Auth / first paint: hold `/api/auth/me` — first paint has no “Demo balance”, no “not a live balance” / starter placeholder, and no account handle. After the session resolves signed-in, still no those phrases on the hero or strip.
+- Official-flag e2e on fresh `.data` (register a handle) plus production play at 1280 and 390 with screenshots.
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.
