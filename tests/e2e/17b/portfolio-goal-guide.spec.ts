@@ -13,8 +13,9 @@ test.describe("Portfolio goal and first-trade guide", () => {
     await boot(page, "/");
     await page.getByTestId("quay-ready").waitFor({ state: "visible" });
     const handle = `Goal${Date.now()}`;
-    const res = await page.request.post("/api/auth/register", {
-      headers: { origin: page.url() },
+    const origin = new URL(page.url()).origin;
+    const res = await page.request.post(origin + "/api/auth/register", {
+      headers: { origin },
       data: { handle, password: "local-goal-guide" },
     });
     expect(res.status(), await res.text()).toBe(201);
