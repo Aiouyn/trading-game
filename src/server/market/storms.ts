@@ -96,6 +96,14 @@ export interface StormWorldSnapshot {
   readonly erpAccrued?: ReadonlyArray<{ readonly assetId: string; readonly log: number }> | null;
   /** Catalog RUMOR claims, belief residuals, handoff, and confirmed lnV. Absent on older files → empty book. */
   readonly rumors?: import("./rumorClaims").RumorSnapshot | null;
+  /** b3: the clock's retained Wire rows, saved in the same atomic write as the claims. Absent on older files → rumor rows only. */
+  readonly wire?: WireHistorySnapshot | null;
+}
+
+/** Versioned Wire history inside the storm-world file (docs/v1/units/wire-restart-history.md). */
+export interface WireHistorySnapshot {
+  readonly v: number;
+  readonly items: readonly import("@/shell/contracts/channels").WireItem[];
 }
 
 const pFromRate = (r: number) => 1 - Math.exp(-r);

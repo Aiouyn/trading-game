@@ -5,7 +5,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   emptyStormWorld, STORM_KINDS, type StormEvent, type StormKind, type StormPriceShock, type StormWorldSnapshot,
+  type WireHistorySnapshot,
 } from "./storms";
+import { newsBody } from "@/shell/contracts/schema";
 import {
   emptyCrisisBookkeeping, MAJOR_KINDS_V1, RIPPLE_KINDS,
   type CrisisBookkeeping, type MajorEvent, type MajorKindV1, type MajorPhase, type RippleEvent, type RippleKind,
@@ -34,7 +36,7 @@ export class FileStormWorldStore implements StormWorldStore {
   load(): StormWorldSnapshot {
     try {
       const raw = readFileSync(this.filePath, "utf8");
-      return normalizeStormWorld(JSON.parse(raw) as unknown);
+      return normalizeStormWorld(JSON.parse(raw) as unknown, this.filePath);
     } catch (err) {
       const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
       if (code === "ENOENT") return emptyStormWorld();
@@ -71,7 +73,56 @@ export function cloneStormWorld(s: StormWorldSnapshot): StormWorldSnapshot {
     shockResidual: s.shockResidual ? s.shockResidual.map((r) => ({ ...r })) : s.shockResidual === null ? null : undefined,
     erpAccrued: s.erpAccrued ? s.erpAccrued.map((r) => ({ ...r })) : s.erpAccrued === null ? null : undefined,
     rumors: s.rumors ? cloneRumorSnapshot(s.rumors) : s.rumors === null ? null : undefined,
+    // Wire rows are immutable values (the clock replaces rows, never edits one; boot structuredClones them), so a shallow
+    // copy is enough here. This save runs every step with up to STORY_KEEP + held rumors rows.
+    wire: s.wire ? { v: s.wire.v, items: s.wire.items.slice() } : s.wire === null ? null : undefined,
   };
+}
+
+/** The `wire` field version this build writes and reads. A newer file is refused, never downgraded. */
+export const WIRE_SNAPSHOT_VERSION = 1;
+export type WireSnapshotErrorCode = "WIRE_SNAPSHOT_CORRUPT" | "WIRE_SNAPSHOT_NEWER";
+
+/** Boot refusal for the storm-world `wire` field. Names the file and the field; never echoes file content. */
+export class WireSnapshotError extends Error {
+  readonly code: WireSnapshotErrorCode;
+  constructor(code: WireSnapshotErrorCode, source: string, detail: string) {
+    super(`Refusing to start the market clock: ${source} field "wire" ${detail}. The file was left unchanged. Operator steps: docs/v1/units/wire-restart-history.md (Operator: a refused Wire snapshot).`);
+    this.name = "WireSnapshotError";
+    this.code = code;
+  }
+}
+
+function refuseWire(code: WireSnapshotErrorCode, source: string, detail: string): never {
+  const err = new WireSnapshotError(code, source, detail);
+  console.error(`[stormWorld] ${err.message}`);
+  throw err;
+}
+
+/** Absent (`undefined`) is the pre-wire upgrade path. Anything present must be a valid v1 history. */
+function normalizeWire(raw: unknown, source: string): WireHistorySnapshot | undefined {
+  if (raw === undefined) return undefined;
+  const corrupt = (detail: string): never => refuseWire("WIRE_SNAPSHOT_CORRUPT", source, detail);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) corrupt("is not a Wire history object");
+  const o = raw as Record<string, unknown>;
+  const v = o.v;
+  if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 1) corrupt("has no valid version (v)");
+  if ((v as number) > WIRE_SNAPSHOT_VERSION) {
+    refuseWire("WIRE_SNAPSHOT_NEWER", source, `is version v${v as number}; this build reads v${WIRE_SNAPSHOT_VERSION} and will not downgrade it`);
+  }
+  if (!Array.isArray(o.items)) corrupt("has no item list (items)");
+  let items: WireHistorySnapshot["items"] = [];
+  try {
+    items = newsBody({ items: o.items }).items;
+  } catch {
+    corrupt("has an item that is not a valid Wire item");
+  }
+  const ids = new Set<string>();
+  for (const it of items) {
+    if (ids.has(it.id)) corrupt("has duplicate item ids");
+    ids.add(it.id);
+  }
+  return { v: v as number, items };
 }
 
 function cloneCrises(c: CrisisBookkeeping): CrisisBookkeeping {
@@ -119,7 +170,7 @@ function normalizeActive(raw: unknown): StormEvent | null {
   };
 }
 
-export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
+export function normalizeStormWorld(parsed: unknown, source = "storm-world snapshot"): StormWorldSnapshot {
   if (!parsed || typeof parsed !== "object") return emptyStormWorld();
   const o = parsed as Record<string, unknown>;
   const stockApplied: { stormId: string; shocks: StormPriceShock[] }[] = [];
@@ -152,6 +203,7 @@ export function normalizeStormWorld(parsed: unknown): StormWorldSnapshot {
     rumors: Object.prototype.hasOwnProperty.call(o, "rumors")
       ? (normalizeRumorSnapshot(o.rumors) ?? refuseCorruptRumorSnapshot())
       : undefined,
+    wire: Object.prototype.hasOwnProperty.call(o, "wire") ? normalizeWire(o.wire, source) : undefined,
   };
 }
 

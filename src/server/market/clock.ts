@@ -5,6 +5,7 @@
 // these quotes once, before the step listeners (resting-order sweep, candles) see the tick. Reads never publish or
 // apply. A restart starts a new epoch for the walk (virgin marks + rematerialized residual / ERP / rumor X / printed belief).
 // The feed and storm scheduler resume from persisted lastTick so Wire items and claim clocks stay aligned with the response tick.
+// b3: the retained Wire rows are saved with the storm world every step and restored at boot (the epoch is still per process).
 import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "@/market/catalog";
 import { appendAsset, listVersion } from "@/market/listings";
 import type { MarketSnapshot } from "@/market/quoteSnapshot";
@@ -25,7 +26,7 @@ import { peekAuthService } from "@/server/auth/instance";
 import { clockAutostartAllowed, killSwitchOn } from "@/server/spend/guard";
 import { marksFromTicker } from "@/server/wire/statementResolve";
 import {
-  createDefaultStormWorldStore, type StormWorldStore,
+  createDefaultStormWorldStore, WIRE_SNAPSHOT_VERSION, type StormWorldStore,
 } from "./stormWorldStore";
 
 const globalForMarket = globalThis as typeof globalThis & {
@@ -112,7 +113,16 @@ export class LiveMarket {
     this.feed.hydrateErp(snap.erpAccrued);
     // Older snapshots without rumors start empty. Rematerialize confirmed X + belief onto virgin marks.
     this.feed.hydrateRumors(snap.rumors, true);
-    this.stories = this.rebuildRumorStories();
+    this.stories = this.restoreStories(snap.wire?.items ?? []);
+  }
+
+  /** b3: the saved Wire rows (exactly what players saw) plus any rumor row the claims imply that the save lacks
+   *  (files written before the `wire` field), merged by id; the saved row wins. Then the STORY_KEEP window. */
+  private restoreStories(saved: readonly WireItem[]): WireItem[] {
+    const have = new Set(saved.map((it) => it.id));
+    const merged = [...saved.map((it) => structuredClone(it)), ...this.rebuildRumorStories().filter((it) => !have.has(it.id))];
+    merged.sort((a, b) => a.tick - b.tick || a.id.localeCompare(b.id));
+    return this.retainStories(merged);
   }
 
   private saveStormWorld(): void {
@@ -123,6 +133,7 @@ export class LiveMarket {
       shockResidual: this.feed.residualSnapshot(),
       erpAccrued: this.feed.erpSnapshot(),
       rumors: this.feed.rumorSnapshot(),
+      wire: { v: WIRE_SNAPSHOT_VERSION, items: this.stories },
     });
   }
 
@@ -506,7 +517,7 @@ export class LiveMarket {
     });
   }
 
-  /** Rebuild Wire rows for persisted rumors after a restart (other stories are a new epoch, as today). */
+  /** Wire rows implied by the persisted rumor claims (and their denials). Restart merges these under the saved rows. */
   private rebuildRumorStories(): WireItem[] {
     const items = this.feed.rumorClaims().map((c) => this.farmWireItem(c));
     for (const c of this.feed.rumorClaims()) {
