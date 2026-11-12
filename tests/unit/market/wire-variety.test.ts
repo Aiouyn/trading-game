@@ -284,3 +284,49 @@ describe("shuffle reachability", () => {
     }
   }, 60_000);
 });
+
+// Gatekeeper q2 on a8c597ab: Halcyon and Avalon Bank shared wire.news.earningsBeat 12 ticks
+// apart (seed 17, 27802 / 27814). A company floor of 84 does not cover two companies with the
+// same headline key. Also: 300 seeds × 2000 cycles must not throw, and a cold catalogStoryAt
+// at cycle 10k stays under 3s (the new key constraint adds backtracking).
+describe("cross-company headline keys", () => {
+  it("seed 17 ticks 27802 and 27814 do not share a headline key", () => {
+    const a = storyAt(SEED, 27802)!;
+    const b = storyAt(SEED, 27814)!;
+    expect(a, "27802").toBeTruthy();
+    expect(b, "27814").toBeTruthy();
+    expect(a.headlineKey, `${a.defId} @27802 and ${b.defId} @27814`).not.toBe(b.headlineKey);
+  });
+
+  it(`over 10k ticks on several seeds, the same headline key does not recur within ${COMPANY_FLOOR} ticks across companies`, () => {
+    for (const seed of GAP_SEEDS) {
+      const last = new Map<string, { tick: number; defId: string }>();
+      let min = Infinity;
+      for (const t of slots(Math.floor(10_000 / STORY_EVERY))) {
+        const s = storyAt(seed, t)!;
+        if (s.crisis) continue;
+        const prev = last.get(s.headlineKey);
+        if (prev !== undefined && prev.defId !== s.defId) min = Math.min(min, t - prev.tick);
+        last.set(s.headlineKey, { tick: t, defId: s.defId });
+      }
+      expect(min, `seed ${seed} min cross-company key gap`).toBeGreaterThanOrEqual(COMPANY_FLOOR);
+    }
+  });
+
+  it("300 seeds times 2000 cycles never throw", () => {
+    const lastTick = START_TICK + 2000 * CYCLE_SLOTS * STORY_EVERY;
+    for (let seed = 1; seed <= 300; seed++) {
+      expect(() => catalogStoryAt(seed, lastTick), `seed ${seed} cycle 2000`).not.toThrow();
+    }
+  }, 180_000);
+
+  it("a cold catalogStoryAt at cycle 10k stays under 3s", async () => {
+    vi.resetModules();
+    const t0 = performance.now();
+    const m = await import("@/market/wireStories");
+    const tick = START_TICK + (10_000 * CYCLE_SLOTS + 1) * STORY_EVERY;
+    expect(m.catalogStoryAt(SEED, tick)?.defId).toBeTruthy();
+    expect(performance.now() - t0).toBeLessThan(3_000);
+    vi.resetModules();
+  }, 15_000);
+});

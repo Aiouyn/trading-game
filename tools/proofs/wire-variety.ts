@@ -108,6 +108,22 @@ const minGaps = [SEED, 7, 18, 21, 27, 31, 42, 100].map((seed) => {
 });
 const minGapFloorsHeld = minGaps.every((g) => g.company >= COMPANY_FLOOR && g.crisis >= CRISIS_FLOOR);
 
+// Gatekeeper q2: same headline key across companies must also keep the 84-tick floor.
+const keyGaps = [SEED, 7, 18, 21, 27, 31, 42, 100].map((seed) => {
+  const last = new Map<string, { tick: number; defId: string }>();
+  let min = Infinity;
+  for (const t of slots(Math.floor(10_000 / STORY_EVERY))) {
+    const s = storyAt(seed, t)!;
+    if (s.crisis) continue;
+    const prev = last.get(s.headlineKey);
+    if (prev !== undefined && prev.defId !== s.defId) min = Math.min(min, t - prev.tick);
+    last.set(s.headlineKey, { tick: t, defId: s.defId });
+  }
+  return { seed, min };
+});
+const keyGapFloorHeld = keyGaps.every((g) => g.min >= COMPANY_FLOOR);
+const seed17KeySplit = storyAt(SEED, 27802)!.headlineKey !== storyAt(SEED, 27814)!.headlineKey;
+
 const summary = {
   seed: SEED,
   playtest,
@@ -129,6 +145,9 @@ const summary = {
   jumpEqualsWalk,
   minGaps,
   minGapFloorsHeld,
+  keyGaps,
+  keyGapFloorHeld,
+  seed17KeySplit,
 };
 const ok = summary.playtestNoIdenticalTriple
   && summary.gapRepeats60or72InTenMin.length === 0
@@ -143,7 +162,9 @@ const ok = summary.playtestNoIdenticalTriple
   && summary.identicalConsecutiveCycles.length === 0
   && summary.boundaryRepeats.length === 0
   && summary.jumpEqualsWalk
-  && summary.minGapFloorsHeld;
+  && summary.minGapFloorsHeld
+  && summary.keyGapFloorHeld
+  && summary.seed17KeySplit;
 
 writeFileSync(join(outDir, "summary.json"), JSON.stringify({ ok, ...summary }, null, 2) + "\n");
 console.log(JSON.stringify({ ok, playtest, gapRepeats: gapRepeats.length, varyingDefs: varying.length, minGaps }, null, 2));
