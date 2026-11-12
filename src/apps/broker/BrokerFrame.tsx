@@ -237,6 +237,7 @@ export function BrokerFrame({ context }: { context?: string }) {
             <AssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade} />
           </div>
         </div>
+        <p className="br-disclaimer muted" data-testid="br-disclaimer">{t.disclaimer}</p>
       </div>
     );
   }
@@ -274,6 +275,7 @@ export function BrokerFrame({ context }: { context?: string }) {
         </div>
         {orders}
       </div>
+        <p className="br-disclaimer muted" data-testid="br-disclaimer">{t.disclaimer}</p>
     </div>
   );
 }
