@@ -34,3 +34,23 @@ export function subscribeTicketPrefill(fn: (p: TicketPrefill) => boolean): () =>
 export function resetTicketPrefill(): void {
   pending = null;
 }
+
+let submittingAsset: string | null = null;
+const busyListeners = new Set<() => void>();
+
+/** The asset whose ticket is mid-Place (data-phase=submitting). Close on that row stays off. */
+export function setTicketSubmitting(assetId: string | null): void {
+  if (submittingAsset === assetId) return;
+  submittingAsset = assetId;
+  for (const l of busyListeners) l();
+}
+
+export function isTicketSubmitting(assetId: string): boolean {
+  return submittingAsset === assetId;
+}
+
+export function subscribeTicketSubmitting(fn: () => void): () => void {
+  busyListeners.add(fn);
+  return () => { busyListeners.delete(fn); };
+}
+

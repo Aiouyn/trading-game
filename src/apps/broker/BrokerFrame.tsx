@@ -22,7 +22,7 @@ import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
 import { SimpleTicket } from "./SimpleTicket";
 import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
-import { subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
+import { setTicketSubmitting, subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
 import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
 import "./broker.css";
 
@@ -87,11 +87,14 @@ export function BrokerFrame({ context }: { context?: string }) {
     setPhase({ kind: "edit" });
     apply?.();
   };
+  const submittingRef = useRef(false);
   // Apply a later Close while this ticket is already mounted on the same asset. Never reviews or places.
   // Returns true only when this ticket consumed the prefill (same assetId); otherwise pending stays for the mount.
+  // Mid-Place: consume and drop so nothing is held; the in-flight ack still lands.
   useEffect(() => subscribeTicketPrefill((p) => {
     const a = context ? parseAssetId(context) : null;
     if (!a || p.assetId !== a) return false;
+    if (submittingRef.current) return true;
     toFreshEdit(() => {
       setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
       setTouched(false);
@@ -156,6 +159,12 @@ export function BrokerFrame({ context }: { context?: string }) {
   // Our IntentResult, once `me` carries it.
   const placed = phase.kind === "placed" ? phase : null;
   const result = placed?.intentId && me.body ? me.body.intents.find((i) => i.intentId === placed.intentId) ?? null : null;
+  const submitting = phase.kind === "placed" && !placed?.failed && !(placed?.intentId && result);
+  submittingRef.current = submitting;
+  useEffect(() => {
+    setTicketSubmitting(submitting && assetId ? assetId : null);
+    return () => setTicketSubmitting(null);
+  }, [submitting, assetId]);
 
   const row = ticker.body?.rows[assetId];
   const halted = row?.halted === true;
