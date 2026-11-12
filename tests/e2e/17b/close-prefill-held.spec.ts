@@ -37,3 +37,45 @@ test("desktop: Close HALC at the 4-Broker cap tells the player and leaves nothin
   await expect(halc.getByTestId("br-side-sell")).not.toHaveAttribute("aria-pressed", "true");
   await expect(halc.getByTestId("br-qty")).toHaveValue("");
 });
+
+test("desktop: after a fresh sign-in, Positions open, a new HALC fill's Close is enabled and prefills Sell 7", async ({ page, baseURL }, info) => {
+  desktopOnly(info.project.name);
+  const handle = `C34b1${Date.now().toString(36)}`;
+  const res = await page.request.post("/api/auth/register", {
+    headers: { origin: baseURL! },
+    data: { handle, password: "card34-b1-local" },
+  });
+  expect(res.status(), await res.text()).toBe(201);
+
+  await boot(page, "/broker?asset=HALC");
+  const tkt = ticketOf(page, "HALC");
+  await expect(tkt).toHaveAttribute("data-state", "live");
+
+  await page.getByTestId("tile-portfolio").click();
+  await page.getByTestId("win-portfolio").first().getByTestId("pf-tab-positions").click();
+  await expect(page.getByTestId("pf-positions").first()).toHaveAttribute("data-state", "live");
+  await expect(page.locator('[data-testid="pos-row"][data-asset="HALC"]')).toHaveCount(0);
+
+  await tkt.getByTestId("br-qty").fill("7");
+  await expect(tkt.getByTestId("br-est")).toBeVisible({ timeout: 10_000 });
+  await expect.poll(async () => {
+    const r = tkt.getByTestId("br-review");
+    return (await r.getAttribute("aria-disabled")) !== "true" && !(await r.isDisabled());
+  }, { timeout: 10_000 }).toBe(true);
+  await tkt.getByTestId("br-review").click();
+  const place = page.getByTestId("br-review-block").getByTestId("br-place");
+  await expect(place).toBeVisible();
+  await expect.poll(async () => (await place.getAttribute("aria-disabled")) !== "true" && !(await place.isDisabled()), { timeout: 10_000 }).toBe(true);
+  await place.click();
+  await expect(tkt.getByTestId("br-ack-title")).toBeVisible({ timeout: 15_000 });
+
+  const halc = page.locator('[data-testid="pos-row"][data-asset="HALC"]');
+  await expect(halc).toBeVisible({ timeout: 10_000 });
+  const close = halc.getByTestId("pos-close");
+  await expect.poll(async () => (await close.getAttribute("aria-disabled")) !== "true" && !(await close.isDisabled()), { timeout: 5_000 }).toBe(true);
+  await close.click();
+
+  await expect(tkt).toHaveAttribute("data-phase", "edit");
+  await expect(tkt.getByTestId("br-side-sell")).toHaveAttribute("aria-pressed", "true");
+  await expect(tkt.getByTestId("br-qty")).toHaveValue("7");
+});

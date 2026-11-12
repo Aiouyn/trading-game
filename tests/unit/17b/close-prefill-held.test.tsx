@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import BrokerApp from "@/apps/broker/App";
 import PortfolioApp from "@/apps/portfolio/App";
 import { PREVIEW_DEBOUNCE_MS } from "@/apps/broker/BrokerFrame";
-import { offerTicketPrefill, resetTicketPrefill, takeTicketPrefill } from "@/apps/broker/ticketPrefill";
+import { offerTicketPrefill, resetTicketPrefill, setTicketSubmitting, takeTicketPrefill } from "@/apps/broker/ticketPrefill";
 import { AuthAccountBoundary } from "@/components/shell/AuthAccountBoundary";
 import { ShellCtx } from "@/components/shell/ShellContext";
 import * as authChrome from "@/shell/authChrome";
@@ -42,6 +42,7 @@ describe("card 34 Close prefill holding", () => {
     el.remove();
     setFeed(null);
     resetTicketPrefill();
+    setTicketSubmitting(null);
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -59,6 +60,14 @@ describe("card 34 Close prefill holding", () => {
     await preview();
   }
   const brokerCtx = () => store.getState().local.windows.filter((w) => w.app === "broker").map((w) => w.context);
+  const closeBtn = (a: string) => el.querySelector(`[data-asset="${a}"] [data-testid="pos-close"]`) as HTMLButtonElement | null;
+  const isDis = (b: HTMLButtonElement) => b.disabled || b.getAttribute("aria-disabled") === "true";
+  async function typeQtyIn(value: string, scope: ParentNode = el) {
+    const input = scope.querySelector('[data-testid="br-qty"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => { setter.call(input, value); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await preview();
+  }
 
   it("Close HALC at the 4-Broker cap does not open a ticket and leaves nothing held", async () => {
     setFeed(new MockFeed({}, { tickMs: 1000 }));
@@ -155,5 +164,99 @@ describe("card 34 Close prefill holding", () => {
     expect(submit).toHaveBeenCalledTimes(1);
     expect(q("br-ack-title")).not.toBeNull();
     expect(q("broker")!.getAttribute("data-phase")).toBe("acked");
+  });
+
+  // B1: a row that mounts from the fill itself must read the current submitting flag, not a stale useState seed.
+  for (const replyMs of [0, 3000]) it(`Positions open, buy an asset not held: after the ack its Close is enabled (replyMs ${replyMs})`, async () => {
+    const feed = new MockFeed({ replyMs }, { tickMs: 1000 });
+    setFeed(feed);
+    store.setState({ vw: 1440 });
+    await act(async () => {
+      root.render(createElement(ShellCtx.Provider, { value: store }, createElement("div", null,
+        createElement(PortfolioApp),
+        createElement(BrokerApp, { context: "ORCA" }),
+      )));
+    });
+    await settle();
+    await click(q("pf-tab-positions")!);
+    await settle();
+    expect(closeBtn("ORCA")).toBeNull();
+
+    await typeQtyIn("4");
+    await click(q("br-review")!);
+    await click(q("br-place")!);
+    await act(async () => { vi.advanceTimersByTime(replyMs + 500); });
+    await act(async () => { feed.advance(); });
+    await settle();
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    await settle();
+
+    expect(q("br-ack-title")).not.toBeNull();
+    const b = closeBtn("ORCA");
+    expect(b).not.toBeNull();
+    expect(isDis(b!)).toBe(false);
+  });
+
+  it("a second Broker mounting mid-Place keeps the first asset busy and still submits once", async () => {
+    const feed = new MockFeed({ replyMs: 3000 }, { tickMs: 1000 });
+    setFeed(feed);
+    store.setState({ vw: 1440 });
+    const submit = vi.spyOn(feed, "submit");
+    await act(async () => {
+      root.render(createElement(ShellCtx.Provider, { value: store }, createElement("div", null,
+        createElement(PortfolioApp),
+        createElement("div", { "data-host": "HALC" }, createElement(BrokerApp, { context: "HALC" })),
+      )));
+    });
+    await settle();
+    await click(q("pf-tab-positions")!);
+    await settle();
+    const halcHost = el.querySelector('[data-host="HALC"]') as HTMLElement;
+    await typeQtyIn("7", halcHost);
+    await click(halcHost.querySelector('[data-testid="br-review"]') as HTMLElement);
+    await click((el.querySelector('[data-testid="br-review-block"] [data-testid="br-place"]') as HTMLElement));
+    expect(halcHost.querySelector('[data-testid="broker"]')!.getAttribute("data-phase")).toBe("submitting");
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(isDis(closeBtn("HALC")!)).toBe(true);
+
+    await act(async () => {
+      root.render(createElement(ShellCtx.Provider, { value: store }, createElement("div", null,
+        createElement(PortfolioApp),
+        createElement("div", { "data-host": "HALC" }, createElement(BrokerApp, { context: "HALC" })),
+        createElement("div", { "data-host": "NRON" }, createElement(BrokerApp, { context: "NRON" })),
+      )));
+    });
+    await settle();
+    expect(isDis(closeBtn("HALC")!)).toBe(true);
+    expect(el.querySelector('[data-host="HALC"] [data-testid="broker"]')!.getAttribute("data-phase")).toBe("submitting");
+    expect(submit).toHaveBeenCalledTimes(1);
+
+    await act(async () => { vi.advanceTimersByTime(3500); });
+    await act(async () => { feed.advance(); });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(el.querySelector('[data-host="HALC"] [data-testid="br-ack-title"]')).not.toBeNull();
+  });
+
+  it("the cap notice clears when a Broker slot frees", async () => {
+    setFeed(new MockFeed({}, { tickMs: 1000 }));
+    store.setState({ vw: 1440, vh: 900 });
+    for (const c of ["NRON", "VOLT", "AVB", "GX"]) store.getState().open("broker", c);
+    const Host = () => createElement(ShellCtx.Provider, { value: store }, createElement("div", null,
+      createElement(PortfolioApp),
+      ...store.getState().local.windows.filter((w) => w.app === "broker").map((w) =>
+        createElement("div", { key: w.context, "data-host": w.context }, createElement(BrokerApp, { context: w.context }))),
+    ));
+    await act(async () => { root.render(createElement(Host)); });
+    await settle();
+    await click(q("pf-tab-positions")!);
+    await settle();
+    await click(closeBtn("HALC")!);
+    await settle();
+    expect(q("pos-close-cap")).not.toBeNull();
+
+    const gx = store.getState().local.windows.find((w) => w.app === "broker" && w.context === "GX")!;
+    await act(async () => { store.getState().close(gx); });
+    expect(brokerCtx()).toHaveLength(3);
+    expect(q("pos-close-cap")).toBeNull();
   });
 });
