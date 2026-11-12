@@ -29,8 +29,13 @@ import { ViewSwitch, type BrokerView } from "./ViewSwitch";
 import "./broker.css";
 
 const RetryableAssetPage = retryableLazy(() => import("./AssetPage"));
-const RetryableReview = retryableLazy(async () => asDefault((await import("./TicketReview")).ReviewBlock));
-const RetryableAck = retryableLazy(async () => asDefault((await import("./TicketReview")).AckPanel));
+// Preload the review/ack chunk as soon as Broker is in the graph, and mount it without
+// Suspense: React 19 defers a fast Suspense reveal on a timer, which never fires on a
+// paused test clock, so Place and the review title never appeared (BR-6 Q1, PF-8).
+const loadTicketReview = () => import("./TicketReview");
+void loadTicketReview();
+const RetryableReview = retryableLazy(async () => asDefault((await loadTicketReview()).ReviewBlock), { suspense: false });
+const RetryableAck = retryableLazy(async () => asDefault((await loadTicketReview()).AckPanel), { suspense: false });
 
 const panelFallback = (testId: string) => (
   <div className="br-skel br-skel-ticket" data-testid={testId} aria-busy="true" role="status" />
