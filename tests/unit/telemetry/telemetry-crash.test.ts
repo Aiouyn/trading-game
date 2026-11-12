@@ -1,10 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { appendError, flushTelemetry, recoverTelemetryDir, resetOptOutCache } from "@/server/telemetry/log";
+import {
+  appendError,
+  appendEvent,
+  flushTelemetry,
+  isOptedOut,
+  recoverTelemetryDir,
+  resetOptOutCache,
+  setTelemetryAppendFaultForTests,
+} from "@/server/telemetry/log";
+import { scrubTelemetryText } from "@/server/telemetry/scrub";
 
 const SEQ = /seq\d{6}/;
 
@@ -20,6 +30,7 @@ async function parseLogDir(dir: string): Promise<Set<string>> {
   expect(names.filter((n) => n.endsWith(".tmp")), "leftover temp after recovery").toEqual([]);
   const ids = new Set<string>();
   for (const name of names) {
+    if (name.endsWith(".corrupt")) continue;
     const raw = await readFile(path.join(dir, name), "utf8");
     if (raw.length > 0) expect(raw.endsWith("\n"), name).toBe(true);
     for (const line of raw.split("\n")) {
@@ -56,6 +67,7 @@ describe("telemetry log crash safety", () => {
   });
 
   afterEach(async () => {
+    setTelemetryAppendFaultForTests(null);
     delete process.env.QUAY_TELEMETRY_DIR;
     resetOptOutCache();
     await flushTelemetry();
@@ -197,4 +209,91 @@ describe("telemetry log crash safety", () => {
     expect(killed).toBe(kills.length);
     expect(sawRotationWindow, "at least one kill must land after a rotation-sized prefix").toBe(true);
   }, 180_000);
+
+  it("keeps good1, good2, and good3 around a bad line and quarantines it", async () => {
+    const dir = await freshDir();
+    const file = path.join(dir, "events.jsonl");
+    const good1 = '{"id":"good1"}\n';
+    const bad = '{"id":\n';
+    const good2 = '{"id":"good2"}\n';
+    const good3 = '{"id":"good3"}\n';
+    await writeFile(file, good1 + bad + good2 + good3);
+    process.env.QUAY_TELEMETRY_DIR = dir;
+    await appendEvent({ event: "signup", anonId: "anon_0123456789abcdef" });
+    const live = await readFile(file, "utf8");
+    for (const id of ["good1", "good2", "good3"]) {
+      expect(live, id).toContain(`"id":"${id}"`);
+    }
+    expect(live).toContain('"event":"signup"');
+    expect(live.split("\n").filter(Boolean).some((line) => line === '{"id":')).toBe(false);
+    const corrupt = await readFile(`${file}.corrupt`, "utf8");
+    expect(corrupt).toBe('{"id":\n');
+    const warnings = (await readFile(path.join(dir, "errors.jsonl"), "utf8")).split("\n").filter(Boolean);
+    expect(warnings).toHaveLength(1);
+    expect(JSON.parse(warnings[0])).toMatchObject({ level: "warn" });
+  });
+
+  it("keeps Z opted out when a bad line sits before the opt-out", async () => {
+    const dir = await freshDir();
+    const z = "anon_bbbbbbbbbbbbbbbb";
+    const bad = '{"anonId":\n';
+    const row = `${JSON.stringify({ ts: "2026-11-12T00:00:00.000Z", anonId: z })}\n`;
+    await writeFile(path.join(dir, "optout.jsonl"), bad + row);
+    process.env.QUAY_TELEMETRY_DIR = dir;
+    resetOptOutCache();
+    await appendError({ requestId: "seq000010", route: "/broker", message: "seq000010" });
+    expect(await isOptedOut(z)).toBe(true);
+    const live = await readFile(path.join(dir, "optout.jsonl"), "utf8");
+    expect(live).toContain(z);
+    expect(live).not.toContain('{"anonId":');
+  });
+
+  it("an ENOSPC or EIO mid-write leaves no partial line and does not block a later repair", async () => {
+    for (const code of ["ENOSPC", "EIO"] as const) {
+      const dir = await freshDir();
+      process.env.QUAY_TELEMETRY_DIR = dir;
+      resetOptOutCache();
+      await appendError({ requestId: "seq000001", route: "/broker", message: "seq000001" });
+      const before = await readFile(path.join(dir, "errors.jsonl"), "utf8");
+      setTelemetryAppendFaultForTests({ code, afterBytes: 11 });
+      await expect(
+        appendError({ requestId: "seq000002", route: "/broker", message: "seq000002" }),
+      ).rejects.toMatchObject({ code });
+      const afterFault = await readFile(path.join(dir, "errors.jsonl"), "utf8");
+      expect(afterFault, code).toBe(before);
+      expect(afterFault).not.toContain("seq000002");
+      const good3 = '{"message":"seq000003","requestId":"seq000003","route":"/broker","level":"error","ts":"2020-01-01T00:00:00.000Z"}\n';
+      await writeFile(path.join(dir, "errors.jsonl"), `${before}NOTJSON\n${good3}`);
+      await appendError({ requestId: "seq000004", route: "/broker", message: "seq000004" });
+      const raw = await readFile(path.join(dir, "errors.jsonl"), "utf8");
+      expect(raw, code).toContain("seq000001");
+      expect(raw, code).toContain("seq000003");
+      expect(raw, code).toContain("seq000004");
+      expect(raw, code).not.toContain("NOTJSON");
+      const corrupt = await readFile(path.join(dir, "errors.jsonl.corrupt"), "utf8");
+      expect(corrupt, code).toContain("NOTJSON");
+    }
+  });
+
+  it("truncates only a trailing partial line after the last LF", async () => {
+    const dir = await freshDir();
+    const file = path.join(dir, "events.jsonl");
+    await writeFile(file, '{"id":"good1"}\n{"id":"good2"}\n{"id":"torn', "utf8");
+    await recoverTelemetryDir(dir);
+    expect(await readFile(file, "utf8")).toBe('{"id":"good1"}\n{"id":"good2"}\n');
+    const names = await readdir(dir);
+    expect(names.filter((name) => name.includes("corrupt"))).toEqual([]);
+    expect(names.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("scrubTelemetryText leaves randomUUID unchanged at cap 128", () => {
+    for (let i = 0; i < 64; i++) {
+      const id = randomUUID();
+      expect(scrubTelemetryText(id, 128)).toBe(id);
+    }
+    expect(scrubTelemetryText("alice@example.com", 128)).toBe("[redacted]");
+    expect(scrubTelemetryText("call +33 6 12 34 56 78 now", 128)).not.toContain("+33");
+    expect(scrubTelemetryText("call +33 6 12 34 56 78 now", 128)).toContain("[redacted]");
+    expect(scrubTelemetryText("id acc_0123456789abcdef0123456789abcdef done", 128)).not.toContain("acc_");
+  });
 });

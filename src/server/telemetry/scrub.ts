@@ -13,6 +13,8 @@ const IPV4 = /(?<![\w/])(?:\d{1,3}\.){3}\d{1,3}\b/g;
 // Tokens with at least two colons and only hex — clocks like "11:20" have one colon and stay.
 const IPV6 = /(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi;
 const PHONE = /(?:\+?\d[\d\s().-]{7,}\d)/g;
+/** 8-4-4-4-12 hex. Request ids are UUIDs; a digit run inside one is not a phone. */
+const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 // Home prefixes in stacks: /home/<user>, /Users/<name>, C:\Users\<Name> (or forward slashes).
 const HOME_POSIX = /(?:\/home|\/Users)\/[^/\s:]+/g;
 const HOME_WIN = /[A-Za-z]:[\\/]Users[\\/][^\\/\s:]+/g;
@@ -36,6 +38,23 @@ function looksLikeDecimalOrVersion(s: string): boolean {
   return /^\d+\.\d+$/.test(s) || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(s);
 }
 
+/** Redact phones. A match that sits entirely inside a UUID is left alone. */
+function redactPhones(input: string): string {
+  UUID_RE.lastIndex = 0;
+  const spans: Array<[number, number]> = [];
+  for (const match of input.matchAll(UUID_RE)) {
+    const at = match.index ?? 0;
+    spans.push([at, at + match[0].length]);
+  }
+  PHONE.lastIndex = 0;
+  return input.replace(PHONE, (phone: string, offset: number) => {
+    if (looksLikeDecimalOrVersion(phone)) return phone;
+    const end = offset + phone.length;
+    if (spans.some(([start, stop]) => offset >= start && end <= stop)) return phone;
+    return "[redacted]";
+  });
+}
+
 function stripUrlQueryAndFragment(input: string): string {
   return input.replace(URLISH, (all, base: string, query?: string, hash?: string) => {
     if (query || hash) return base;
@@ -56,7 +75,7 @@ export function scrubTelemetryText(input: string, cap = TELEMETRY_MESSAGE_CAP): 
   t = t.replace(EMAIL, "[redacted]");
   // acc_ before phone: a long hex id contains digit runs the phone regex would otherwise eat.
   t = t.replace(ACC_ID, "[redacted]");
-  t = t.replace(PHONE, (m) => (looksLikeDecimalOrVersion(m) ? m : "[redacted]"));
+  t = redactPhones(t);
   t = t.replace(IPV6, "[redacted]");
   t = t.replace(IPV4, "[redacted]");
   if (t.length > cap) t = t.slice(0, cap);

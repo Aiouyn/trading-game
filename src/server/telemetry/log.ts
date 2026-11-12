@@ -1,4 +1,4 @@
-import { mkdir, open, readdir, readFile, rename, stat, unlink, type FileHandle } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { scrubTelemetryText } from "./scrub";
 
@@ -38,6 +38,14 @@ let chain: Promise<void> = Promise.resolve();
 let recoverGate: Promise<void> = Promise.resolve();
 const recoveredDirs = new Set<string>();
 
+type AppendIoFault = { code: "ENOSPC" | "EIO"; afterBytes: number };
+let appendIoFault: AppendIoFault | null = null;
+
+/** Test seam: the next append writes `afterBytes` then throws `code`, leaving those bytes in place. */
+export function setTelemetryAppendFaultForTests(fault: AppendIoFault | null): void {
+  appendIoFault = fault;
+}
+
 function errno(err: unknown): string | undefined {
   return err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
 }
@@ -51,64 +59,129 @@ async function fsyncDirectory(dir: string): Promise<void> {
   }
 }
 
-/** Bytes of a jsonl file that are whole, parseable lines. A torn tail is excluded. */
-function completeJsonlPrefix(buf: Buffer): Buffer {
+/**
+ * Split a jsonl buffer into good complete lines, bad complete lines, and whether a torn
+ * tail (bytes after the last LF) was present. A bad line does not discard the good lines
+ * that follow it. Only the torn tail is dropped.
+ */
+function splitJsonl(buf: Buffer): { good: Buffer; bad: Buffer; torn: boolean } {
   let end = buf.length;
+  let torn = false;
   if (end > 0 && buf[end - 1] !== 0x0a) {
+    torn = true;
     const nl = buf.lastIndexOf(0x0a);
     end = nl === -1 ? 0 : nl + 1;
   }
-  while (end > 0) {
-    if (jsonlBytesOk(buf.subarray(0, end))) return buf.subarray(0, end);
-    const nl = buf.lastIndexOf(0x0a, end - 2);
-    end = nl === -1 ? 0 : nl + 1;
-  }
-  return buf.subarray(0, 0);
-}
-
-function jsonlBytesOk(buf: Buffer): boolean {
-  if (buf.length === 0) return true;
-  if (buf[buf.length - 1] !== 0x0a) return false;
-  for (const line of buf.toString("utf8").split("\n")) {
-    if (!line) continue;
+  const goodChunks: Buffer[] = [];
+  const badChunks: Buffer[] = [];
+  let start = 0;
+  for (let i = 0; i < end; i++) {
+    if (buf[i] !== 0x0a) continue;
+    const line = buf.subarray(start, i);
+    start = i + 1;
+    if (line.length === 0) continue;
+    const text = line.toString("utf8");
+    let ok = false;
     try {
-      JSON.parse(line);
+      JSON.parse(text);
+      ok = true;
     } catch {
-      return false;
+      ok = false;
     }
+    const withNl = Buffer.concat([line, Buffer.from("\n")]);
+    if (ok) goodChunks.push(withNl);
+    else badChunks.push(withNl);
   }
-  return true;
+  return {
+    good: goodChunks.length ? Buffer.concat(goodChunks) : Buffer.alloc(0),
+    bad: badChunks.length ? Buffer.concat(badChunks) : Buffer.alloc(0),
+    torn,
+  };
 }
 
 function isPublishedLogName(name: string): boolean {
   return /^[a-z]+\.jsonl(\.\d+)?$/.test(name);
 }
 
-async function repairJsonlFile(file: string): Promise<void> {
-  let fh: FileHandle;
+async function truncateToPrefix(file: string, length: number): Promise<void> {
+  const fh = await open(/* turbopackIgnore: true */ file, "r+");
   try {
-    fh = await open(/* turbopackIgnore: true */ file, "r+");
-  } catch (err) {
-    if (errno(err) === "ENOENT") return;
-    throw err;
-  }
-  try {
-    const buf = await fh.readFile();
-    const keep = completeJsonlPrefix(buf);
-    if (keep.length !== buf.length) {
-      await fh.truncate(keep.length);
-      await fh.sync();
-    }
+    await fh.truncate(length);
+    await fh.sync();
   } finally {
     await fh.close();
   }
+}
+
+function mergeUniqueLines(prev: Buffer, extra: Buffer): Buffer {
+  const have = new Set(prev.toString("utf8").split("\n").filter((line) => line.length > 0));
+  const added: Buffer[] = [];
+  for (const line of extra.toString("utf8").split("\n")) {
+    if (!line || have.has(line)) continue;
+    have.add(line);
+    added.push(Buffer.from(`${line}\n`, "utf8"));
+  }
+  if (added.length === 0) return prev;
+  const tail = Buffer.concat(added);
+  if (prev.length === 0) return tail;
+  if (prev[prev.length - 1] === 0x0a) return Buffer.concat([prev, tail]);
+  return Buffer.concat([prev, Buffer.from("\n"), tail]);
+}
+
+/** Quarantine bad complete lines: temp file, fsync, rename onto `name.corrupt`. */
+async function writeCorrupt(dir: string, name: string, bad: Buffer): Promise<void> {
+  const dest = path.join(/* turbopackIgnore: true */ dir, `${name}.corrupt`);
+  let prev = Buffer.alloc(0);
+  try {
+    prev = await readFile(/* turbopackIgnore: true */ dest);
+  } catch (err) {
+    if (errno(err) !== "ENOENT") throw err;
+  }
+  const merged = mergeUniqueLines(prev, bad);
+  if (prev.length > 0 && merged.equals(prev)) return;
+  const tmp = `${dest}.tmp`;
+  await writeDurableTemp(tmp, merged);
+  await rename(/* turbopackIgnore: true */ tmp, dest);
+  await fsyncDirectory(dir);
+}
+
+/**
+ * Keep every parseable line. Move bad complete lines to `publishedName.corrupt`.
+ * Truncate only a torn tail (bytes after the last LF). Returns how many bad lines moved.
+ * `file` may be a leftover rotation temp that will be renamed onto `publishedName`.
+ */
+async function repairJsonlFile(dir: string, publishedName: string, file: string): Promise<number> {
+  let buf: Buffer;
+  try {
+    buf = await readFile(/* turbopackIgnore: true */ file);
+  } catch (err) {
+    if (errno(err) === "ENOENT") return 0;
+    throw err;
+  }
+  const { good, bad, torn } = splitJsonl(buf);
+  if (bad.length === 0 && !torn) return 0;
+  if (bad.length === 0) {
+    await truncateToPrefix(file, good.length);
+    return 0;
+  }
+  await writeCorrupt(dir, publishedName, bad);
+  const tmp = `${file}.keep.tmp`;
+  await writeDurableTemp(tmp, good);
+  await rename(/* turbopackIgnore: true */ tmp, file);
+  await fsyncDirectory(dir);
+  let n = 0;
+  for (const line of bad.toString("utf8").split("\n")) {
+    if (line) n += 1;
+  }
+  return n;
 }
 
 /**
  * Startup recovery. A crash mid-rename leaves `dest.tmp` beside the previous dest, or
  * (if dest never existed) only the temp. A temp must not replace a dest that is already
  * there: the source of the copy is still in the directory until the rename is durable
- * and the source is unlinked. A torn append is truncated to the last complete line.
+ * and the source is unlinked. A torn append is truncated to the last LF. A bad complete
+ * line is quarantined and does not drop the good lines after it.
  */
 async function recoverDir(dir: string): Promise<void> {
   let names: string[];
@@ -119,8 +192,22 @@ async function recoverDir(dir: string): Promise<void> {
     throw err;
   }
   for (const name of names) {
+    if (!name.endsWith(".keep.tmp")) continue;
+    try {
+      await unlink(path.join(/* turbopackIgnore: true */ dir, name));
+    } catch (err) {
+      if (errno(err) !== "ENOENT") throw err;
+    }
+  }
+  const repaired: string[] = [];
+  let badLines = 0;
+  for (const name of names) {
     if (!isPublishedLogName(name)) continue;
-    await repairJsonlFile(path.join(/* turbopackIgnore: true */ dir, name));
+    const n = await repairJsonlFile(dir, name, path.join(/* turbopackIgnore: true */ dir, name));
+    if (n > 0) {
+      repaired.push(name);
+      badLines += n;
+    }
   }
   for (const name of names) {
     if (!name.endsWith(TEMP_SUFFIX)) continue;
@@ -139,7 +226,11 @@ async function recoverDir(dir: string): Promise<void> {
       await fsyncDirectory(dir);
       continue;
     }
-    await repairJsonlFile(tmp);
+    const repairedTmp = await repairJsonlFile(dir, destName, tmp);
+    if (repairedTmp > 0) {
+      repaired.push(destName);
+      badLines += repairedTmp;
+    }
     if ((await fileSize(tmp)) === 0) {
       try {
         await unlink(/* turbopackIgnore: true */ tmp);
@@ -151,6 +242,21 @@ async function recoverDir(dir: string): Promise<void> {
     }
     await rename(/* turbopackIgnore: true */ tmp, dest);
     await fsyncDirectory(dir);
+  }
+  if (badLines > 0) {
+    const message = `telemetry recovery kept good lines and moved ${badLines} bad line(s) from ${repaired.join(", ")}`;
+    const row = {
+      ts: new Date().toISOString(),
+      requestId: "repair",
+      route: "telemetry",
+      message: scrubTelemetryText(message),
+      level: "warn" as const,
+    };
+    const warning = `${JSON.stringify(row)}\n`;
+    if ((await dirTotal(dir)) + Buffer.byteLength(warning) <= TELEMETRY_DIR_MAX_BYTES) {
+      await appendDurable(path.join(/* turbopackIgnore: true */ dir, "errors.jsonl"), warning);
+      await fsyncDirectory(dir);
+    }
   }
 }
 
@@ -176,9 +282,33 @@ export async function recoverTelemetryDir(dir: string): Promise<void> {
 
 async function appendDurable(file: string, line: string): Promise<void> {
   const fh = await open(/* turbopackIgnore: true */ file, "a", 0o644);
+  let marked = false;
+  let before = 0;
   try {
+    before = (await fh.stat()).size;
+    marked = true;
+    const fault = appendIoFault;
+    if (fault) {
+      appendIoFault = null;
+      const bytes = Buffer.from(line, "utf8");
+      const n = Math.max(0, Math.min(fault.afterBytes, bytes.length));
+      if (n > 0) await fh.write(bytes.subarray(0, n));
+      const err = new Error(fault.code) as NodeJS.ErrnoException;
+      err.code = fault.code;
+      throw err;
+    }
     await fh.writeFile(line, "utf8");
     await fh.sync();
+  } catch (err) {
+    if (marked) {
+      try {
+        await fh.truncate(before);
+        await fh.sync();
+      } catch {
+        // The torn tail stays. The caller drops the recovery latch so the next append repairs it.
+      }
+    }
+    throw err;
   } finally {
     await fh.close();
   }
@@ -322,8 +452,14 @@ async function appendLine(file: string, row: unknown): Promise<void> {
       created = true;
     }
     // The promise resolves only after the line is durable. Callers treat that as the ack.
-    await appendDurable(live, line);
-    if (created) await fsyncDirectory(dir);
+    try {
+      await appendDurable(live, line);
+      if (created) await fsyncDirectory(dir);
+    } catch (err) {
+      // A failed append must not stick the once-per-process latch. The next post repairs again.
+      recoveredDirs.delete(dir);
+      throw err;
+    }
   });
   chain = next.catch(() => {});
   await next;
