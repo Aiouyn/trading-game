@@ -12,8 +12,10 @@ vi.mock("@/components/shell/ShellContext", async (importOriginal) => {
   const state = { ...createShellStore(defaultChannels()).getState(), vis: new Proxy({}, { get: () => "unlocked" }) };
   return { ...actual, useShell: <T,>(sel: (s: typeof state) => T): T => sel(state) };
 });
-vi.mock("@/apps/city/CityWindow", () => ({ CityWindow: () => null }));
-vi.mock("@/apps/settings/SettingsApp", () => ({ SettingsApp: () => createElement("div", { "data-testid": "settings" }) }));
+vi.mock("@/apps/settings/SettingsApp", () => {
+  const SettingsApp = () => createElement("div", { "data-testid": "settings" });
+  return { SettingsApp, default: SettingsApp };
+});
 
 import { AppBody } from "@/components/shell/AppBody";
 import { APP_MODULES, type BuiltAppId, type EagerAppId, type LazyAppId } from "@/shell/appModules";
@@ -23,22 +25,22 @@ const STATE = { focused: true, collapsed: false, background: false };
 const html = (app: AppId) => renderToStaticMarkup(createElement(AppBody, { app, state: STATE }));
 
 describe("built apps: one source of truth (APP_MODULES)", () => {
-  it("registry built === has an APP_MODULES entry, for all 32 apps", () => {
+  it("registry built === has an APP_MODULES entry, for all 33 apps", () => {
     for (const a of REGISTRY) expect([a.id, a.built]).toEqual([a.id, Object.hasOwn(APP_MODULES, a.id)]);
-    expect(Object.keys(APP_MODULES).sort()).toEqual(["broker", "portfolio", "settings", "wire"]);
+    expect(Object.keys(APP_MODULES).sort()).toEqual(["boards", "broker", "city", "launchpad", "portfolio", "settings", "wire"]);
   });
 
   it("type level: Broker is built by its lazy module (UI card 4, BRK-A); an id without a module fails typecheck", () => {
-    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire">();
-    expectTypeOf<LazyAppId>().toEqualTypeOf<"broker" | "portfolio" | "wire">();
-    expectTypeOf<EagerAppId>().toEqualTypeOf<"settings">();
+    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire" | "boards" | "city" | "launchpad">();
+    expectTypeOf<LazyAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "wire" | "boards" | "city" | "launchpad">();
+    expectTypeOf<EagerAppId>().toEqualTypeOf<never>();
   });
 
   it.each(REGISTRY.filter((a) => a.built).map((a) => a.id))("%s (built) renders a body or its loading skeleton, never ComingLater", (id) => {
     expect(html(id)).not.toContain('data-testid="coming-later"');
   });
 
-  it.each(REGISTRY.filter((a) => !a.built && a.id !== "city").map((a) => a.id))("%s (built:false) renders ComingLater synchronously", (id) => {
+  it.each(REGISTRY.filter((a) => !a.built).map((a) => a.id))("%s (built:false) renders ComingLater synchronously", (id) => {
     const out = html(id);
     expect(out).toContain('data-testid="coming-later"');
     expect(out).not.toContain("aria-busy");

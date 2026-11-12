@@ -9,6 +9,7 @@ export const APP_NAMES: Record<AppId, string> = {
   institutions: "Institutions", ailab: "AI Lab", security: "Security", legal: "Legal & Court", estate: "Estate",
   boards: "Boards", profile: "Profile", alliance: "Alliance", contracts: "Contracts", auctions: "Auctions",
   civic: "Civic", academy: "Academy", help: "Help", atelier: "Atelier", settings: "Settings", replay: "Replay", api: "API",
+  launchpad: "Launchpad",
 };
 
 export const S = {
@@ -18,10 +19,8 @@ export const S = {
   ctrlDot: "Ctrl .",
   comingLater: "Coming later",
   loadingCity: "Loading city…",
-  marketOpen: "Market open · Port Avalon",
   focus: "Focus",
   layout: "Layout",
-  layouts: "Layouts",
   workspace: "Workspace",
   workspaces: "Workspaces",
   shelf: "Shelf",
@@ -45,14 +44,11 @@ export const S = {
   held: "Held",
   heldBody: "Your account is held. Read-only screens stay open.",
   reconnecting: "Reconnecting…",
+  offlinePhase: "Offline · not live", // M2-05: replaces the market phase while the browser reports offline
   home: "Home",
   locked: "Locked",
-  more: "More",
   next: "Next",
   protected: "Protected",
-  settingsPalette: "Palette",
-  settingsMotion: "Reduce motion",
-  settingsTransparency: "Reduce transparency",
   keySheet: "Keys",
   keySheetFooter: "Nothing executes without Enter.",
   couldntLoad: "Couldn't load",
@@ -85,10 +81,27 @@ export const S = {
   moneyDollars: "dollars",
   signIn: "Sign in",
   account: "Account",
-  demoBalance: "Demo balance",
-  demoTradingNote: "Trading is a demo for now; trades and balances reset.",
-  starterPlaceholder: "Starter account: $10,000 (demo placeholder, not a live balance).",
-  accountSavedDemo: "Your account is saved. Trading is a demo for now; trades and balances reset.",
+  /** Signed-in NW label (M1-06): server ledger at server quotes, saved. Key name kept from M1-01. */
+  demoBalance: "Saved net worth",
+  /** Signed-in NW chip before the first valuation, or after a failed read (M1-08): no number is shown. */
+  nwLoading: "Net worth loading…",
+  nwUnavailable: "Net worth unavailable",
+  nwUnknown: "—",
+  demoTradingNote: "Your trades, cash and positions are saved on the server.",
+  starterPlaceholder: "Starter account: $10,000 in game money.",
+  /** M2-02 phone home (signed in): the goal, and the way to the first-trade guide (Portfolio). */
+  goalLine: "Goal: grow $10,000 to $20,000.",
+  firstTradeGuide: "First trade guide",
+  feedback: "Feedback",
+  /** Accessible name; must not contain "Back" (role name is a substring match). */
+  feedbackAria: "Share a comment",
+  feedbackPrompt: "What's on your mind?",
+  feedbackSend: "Send",
+  feedbackThanks: "Thanks — we got it.",
+  feedbackOptOut: "Don't record usage analytics",
+  feedbackOptOutOn: "Usage analytics are off",
+  shellError: "Something went wrong.",
+  shellErrorRetry: "Reload",
 } as const;
 
 

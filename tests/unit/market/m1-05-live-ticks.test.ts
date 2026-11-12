@@ -5,6 +5,8 @@ import * as marketRoute from "@/app/api/market/route";
 import { POST as register } from "@/app/api/auth/register/route";
 import { GET as me } from "@/app/api/auth/me/route";
 import { ASSETS } from "@/market/catalog";
+import { storyAt } from "@/market/wireStories";
+import { DEMO_CRISIS_HALF_LIFE_DAYS } from "@/server/market/shockFeed";
 import { parseMarketSnapshot } from "@/market/quoteSnapshot";
 import { settingsStrings } from "@/apps/settings/strings";
 import {
@@ -16,6 +18,7 @@ import {
 import { getLiveMarket, LiveMarket, setLiveMarketForTests, shouldAutostartClock } from "@/server/market/clock";
 import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { FEED_TICK_MS, MockFeed, SERVER_QUOTE_POLL_MS, SNAP_DELAY_MS, START_TICK } from "@/shell/contracts/mockFeed";
+import { ShockFeed } from "@/server/market/shockFeed";
 import { authoritativeQuoteProvenance, getFeed, openChannel, setFeed, staleAfterMs } from "@/shell/contracts/useChannel";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
 import { createShellStore } from "@/shell/store";
@@ -42,9 +45,13 @@ describe("M1-05 authoritative live ticks", () => {
     vi.useRealTimers();
   });
 
+  // M1-09: the server is the seeded walk PLUS the Wire stories' effects, applied at their ticks. The reference feed gets
+  // exactly the scheduled effects (storyAt) and must then equal the server at every tick; the legacy tape still holds
+  // for every asset no story has moved yet.
   it("seed 17 matches the eight-asset tape at ticks 0, 1, 3 and 20, including NMBS and VRDN beside it", () => {
     const market = new LiveMarket();
-    const feed = new MockFeed({ seed: PORT_AVALON_MARKET_SEED }, { autoStart: false });
+    const feed = new ShockFeed({ seed: PORT_AVALON_MARKET_SEED }, { autoStart: false });
+    const moved = new Set<string>();
     for (let step = 0; step <= 20; step++) {
       const snap = market.snapshot();
       expect(snap.tick).toBe(START_TICK + step);
@@ -55,10 +62,33 @@ describe("M1-05 authoritative live ticks", () => {
       expect(snap.quotes).toEqual(feed.body("ticker:wl_default"));
       expect(parseMarketSnapshot(snap)).toEqual(snap);
       const golden = legacyTape.find((sample) => sample.tick === step);
-      if (golden) expect(snap.quotes).toMatchObject(golden.body);
+      // legacy-seed17.json is the MockFeed (no ERP) tape, shared with m1-04. Intended ERP diffs vs that tape
+      // (calibration size 0.10; direction from owner card answer to t125s460, 2026-11-10 11:02 Europe/Paris):
+      //   tick 3  GX last 4201.46→4201.47, chg 27.13→27.14
+      //   tick 20 GX last 4190.94→4190.98, chg 16.61→16.65
+      // tick 0 and 1 unchanged (accrual has not yet printed a minor). Unmoved non-GX fields still match the tape.
+      const erpAdjust: Record<number, Record<string, { last: string; chg: string }>> = {
+        3: { GX: { last: "4201.47", chg: "27.14" } },
+        20: { GX: { last: "4190.98", chg: "16.65" } },
+      };
+      if (golden) {
+        const rows = Object.fromEntries(Object.entries(golden.body.rows).filter(([id]) => !moved.has(id)));
+        for (const [id, patch] of Object.entries(erpAdjust[step] ?? {})) {
+          if (rows[id]) rows[id] = { ...rows[id], ...patch };
+        }
+        expect(snap.quotes.rows).toMatchObject(rows);
+      }
+      if (golden && moved.size === 0 && !erpAdjust[step]) expect(snap.quotes).toMatchObject(golden.body);
       market.step();
       feed.advance();
+      for (const e of storyAt(PORT_AVALON_MARKET_SEED, feed.tick)?.effects ?? []) {
+        const st = storyAt(PORT_AVALON_MARKET_SEED, feed.tick)!;
+        expect(feed.applyShock(e.assetId, e.bp, st.crisis ? DEMO_CRISIS_HALF_LIFE_DAYS : undefined)).not.toBeNull();
+        moved.add(e.assetId);
+      }
     }
+    expect(moved.size).toBeGreaterThan(0); // stories did move prices inside the window
+    expect(moved.size).toBeLessThan(ASSETS.length); // and the tape is still checked for the rest
   });
 
   it("same seed stays identical and a different seed diverges; reads do not step", () => {
@@ -103,11 +133,11 @@ describe("M1-05 authoritative live ticks", () => {
     market.start();
     setLiveMarketForTests(market);
     const regA = await register(new Request("http://localhost/api/auth/register", {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" },
       body: JSON.stringify({ handle: "TickA", password: "password1" }),
     }));
     const regB = await register(new Request("http://localhost/api/auth/register", {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" },
       body: JSON.stringify({ handle: "TickB", password: "password1" }),
     }));
     expect(regA.status).toBe(201);
@@ -121,7 +151,7 @@ describe("M1-05 authoritative live ticks", () => {
     expect(bodies[0]).toEqual(bodies[1]);
     expect(bodies[1]).toEqual(bodies[2]);
     expect(market.snapshot().tick).toBe(t0);
-    expect(Object.keys(bodies[0] as object).sort()).toEqual(["marketSeed", "quotes", "tick", "tickMs", "worldId"]);
+    expect(Object.keys(bodies[0] as object).sort()).toEqual(["fear", "marketSeed", "quotes", "riskAppetite", "tick", "tickMs", "worldId"]);
     await vi.advanceTimersByTimeAsync(5000);
     const againA = await (await marketGet()).json();
     const againB = await (await marketGet()).json();
@@ -129,10 +159,10 @@ describe("M1-05 authoritative live ticks", () => {
     expect(againA.tick).toBe(t0 + 1);
     expect(againA.quotes).not.toEqual((bodies[0] as { quotes: unknown }).quotes);
 
-    const meA = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieA } }))).json() as {
+    const meA = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieA, origin: "http://localhost" } }))).json() as {
       account: { accountId: string }; player: { cashCents: number; accountId: string };
     };
-    const meB = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB } }))).json() as {
+    const meB = await (await me(new Request("http://localhost/api/auth/me", { headers: { cookie: cookieB, origin: "http://localhost" } }))).json() as {
       account: { accountId: string }; player: { cashCents: number; accountId: string };
     };
     expect(meA.account.accountId).not.toBe(meB.account.accountId);
@@ -165,16 +195,21 @@ describe("M1-05 authoritative live ticks", () => {
     }
   });
 
-  it("two clients adopt one snapshot; private demo state stays apart; local advance does nothing", () => {
+  it("two clients adopt one snapshot; private ledgers stay apart; local advance and local intents do nothing", async () => {
     const market = new LiveMarket();
     market.step();
     const snap = market.snapshot();
-    const a = new MockFeed({ empty: true, nw: "10000.00", seed: 17 }, { authoritativeQuotes: true, autoStart: false });
-    const b = new MockFeed({ empty: true, nw: "25000.00", seed: 99 }, { authoritativeQuotes: true, autoStart: false });
-    expect(a.adoptAuthoritativeQuotes({ worldId: "other" })).toBe(false);
+    const a = new MockFeed({ empty: true, seed: 17 }, { authoritativeQuotes: true, autoStart: false });
+    const b = new MockFeed({ empty: true, seed: 99 }, { authoritativeQuotes: true, autoStart: false });
+    // The signed-in network half (serverSync.ts) loads lazily; these steps run in it.
+    const [sa, sb] = [await a.serverSync(), await b.serverSync()];
+    expect(sa.adoptAuthoritativeQuotes({ worldId: "other" })).toBe(false);
     expect(a.tick).toBe(START_TICK);
-    expect(a.adoptAuthoritativeQuotes(snap)).toBe(true);
-    expect(b.adoptAuthoritativeQuotes(snap)).toBe(true);
+    expect(sa.adoptAuthoritativeQuotes(snap)).toBe(true);
+    expect(sb.adoptAuthoritativeQuotes(snap)).toBe(true);
+    const ledger = (cashCents: number) => ({ tick: snap.tick, cashCents, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [], coins: [] });
+    expect(sa.adoptLedger(ledger(1_000_000))).toBe(true);
+    expect(sb.adoptLedger(ledger(2_500_000))).toBe(true);
     expect(a.body("ticker:wl_default")).toEqual(snap.quotes);
     expect(b.body("ticker:wl_default")).toEqual(snap.quotes);
     expect(a.tick).toBe(snap.tick);
@@ -182,19 +217,18 @@ describe("M1-05 authoritative live ticks", () => {
     b.advance();
     expect(a.tick).toBe(snap.tick);
     expect(a.body("ticker:wl_default")).toEqual(b.body("ticker:wl_default"));
-    const meA = a.body("me") as { nw: string; positions: Record<string, { qty?: string }> };
-    const meB = b.body("me") as { nw: string; positions: Record<string, { qty?: string }> };
-    expect(meA.nw).toBe("10000.00");
-    expect(meB.nw).toBe("25000.00");
+    expect((a.body("me") as { nw: string }).nw).toBe("10000.00");
+    expect((b.body("me") as { nw: string }).nw).toBe("25000.00");
 
+    // M1-06: a signed-in feed never books a local intent; only a server ledger moves `me`.
     a.submit({ assetId: "HALC", side: "BUY", type: "market", qty: "2", tif: "day" });
     market.step();
     const next = market.snapshot();
-    expect(a.adoptAuthoritativeQuotes(next)).toBe(true);
-    expect(b.adoptAuthoritativeQuotes(next)).toBe(true);
+    expect(sa.adoptAuthoritativeQuotes(next)).toBe(true);
+    expect(sb.adoptAuthoritativeQuotes(next)).toBe(true);
     expect(a.body("ticker:wl_default")).toEqual(b.body("ticker:wl_default"));
-    expect((a.body("me") as { positions: Record<string, { qty: string }> }).positions.HALC?.qty).toBe("2");
-    expect((b.body("me") as { positions: Record<string, unknown> }).positions.HALC).toBeUndefined();
+    expect((a.body("me") as { positions: Record<string, unknown> }).positions.HALC).toBeUndefined();
+    expect((a.body("me") as { nw: string }).nw).toBe("10000.00");
     expect((b.body("me") as { nw: string }).nw).toBe("25000.00");
   });
 
@@ -329,12 +363,14 @@ describe("M1-05 authoritative live ticks", () => {
     store.close();
   });
 
-  it("keeps the demo-trade disclosure and does not claim that refresh resets quotes", () => {
+  it("discloses what is saved and executed, keeps guests as demo, and does not claim that refresh resets quotes", () => {
     const en = settingsStrings("en").accountDisclaimer;
-    expect(en).toMatch(/Broker trades and fills are still a demo/);
-    expect(en).toMatch(/are not saved/);
+    expect(en).toMatch(/saved on the server/);
+    expect(en).toMatch(/priced and filled by the server/);
+    expect(en).toMatch(/Signed out, the Broker is a demo and its trades are not saved/);
     expect(en).toMatch(/refresh does not reset them/);
     expect(en).not.toMatch(/ticks also reset/i);
+    expect(en).not.toMatch(/still a demo/i);
     const fr = settingsStrings("fr").accountDisclaimer;
     expect(fr).toMatch(/démo/);
     expect(fr).toMatch(/ne sont pas enregistrés/);

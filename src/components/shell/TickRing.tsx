@@ -9,7 +9,8 @@ export type TickRingState = "running" | "reconnecting" | "halted";
 
 export function TickRing({ tick, size = 22, verbose = false }: { tick: number; size?: number; /** a11y verbose mode (pref stub) */ verbose?: boolean }) {
   const sys = useShell((s) => s.channels.system);
-  const state: TickRingState = sys.halted ? "halted" : sys.connection === "reconnecting" ? "reconnecting" : "running";
+  // M2-05: offline shows the reconnecting ring (no sweep): ticks shown are not live.
+  const state: TickRingState = sys.offline ? "reconnecting" : sys.halted ? "halted" : sys.connection === "reconnecting" ? "reconnecting" : "running";
   const m = size / 2;
   const r = m - 2;
   return (

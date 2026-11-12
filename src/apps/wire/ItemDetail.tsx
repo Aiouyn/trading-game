@@ -6,9 +6,17 @@ import { useId, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import type { WireItem } from "@/shell/contracts/channels";
-import { fill, headline, timeLabel, type WireStrings } from "./strings";
-import { KindChip, PricedIn, showsRecord } from "./WireItemRow";
+import { causeText } from "./causes";
+import { storyStrings } from "./storyStrings";
+import { fill, headline, pctLabel, timeLabel, type WireStrings } from "./strings";
+import { clockTickFromSlot } from "@/shell/mockChannels";
+import { HistoryLabel, KindChip, PlayerLabel, PricedIn, VerdictLabel, showsRecord } from "./WireItemRow";
 import "./itemDetail.css";
+
+/** Confirmed rumors apply X at resolvesByTick; other realized items still use item.tick. */
+function appliedTick(item: WireItem): number {
+  return clockTickFromSlot(item.slots?.appliedTick, item.tick);
+}
 
 export interface ItemDetailProps {
   item: WireItem;
@@ -47,6 +55,7 @@ function Section({ label, testId, children }: { label: string; testId: string; c
 }
 
 export function ItemDetail({ item, t, gone, stale, updating, onBack, onClose, openAsset, filing, headingRef }: ItemDetailProps) {
+  const st = storyStrings(t);
   const hId = useId();
   const record = showsRecord(item) ? item.sourceRecord! : null;
   const band = record && item.sourceBand ? item.sourceBand : null;
@@ -70,10 +79,39 @@ export function ItemDetail({ item, t, gone, stale, updating, onBack, onClose, op
         {gone && <p className="wire-detail-note" data-testid="wire-not-in-feed">{t.notInFeed}</p>}
         <div className="wire-detail-head">
           <KindChip kind={item.kind} t={t} />
+          <HistoryLabel item={item} t={t} />
+          <PlayerLabel item={item} t={t} />
+          <VerdictLabel item={item} t={t} />
           {item.breaking && <Chip tone="steel" outline className="wire-detail-breaking" data-testid="wire-detail-breaking">{t.breaking}</Chip>}
           <time className="wire-detail-time" data-testid="wire-detail-time">{timeLabel(item.tick, t)}</time>
         </div>
         <h2 id={hId} ref={headingRef} tabIndex={-1} className="wire-detail-hl" data-testid="wire-detail-headline">{headline(item, t)}</h2>
+        {causeText(item) !== null && (
+          <Section label={st.causeTitle} testId="wire-detail-cause">
+            <p className="wire-detail-line">{causeText(item)}</p>
+          </Section>
+        )}
+        {item.phase !== undefined && (
+          <Section label={st.effectTitle} testId="wire-detail-effect">
+            {item.phase === "realized" && item.effects?.length ? (
+              <>
+                <ul className="wire-effects">
+                  {item.effects.map((e) => (
+                    <li key={e.assetId} className="wire-detail-line wire-effect-line" data-testid="wire-effect-line" data-asset={e.assetId} data-from={e.from} data-to={e.to} data-pct={e.pct}>
+                      {fill(st.effectLine, { ticker: item.entities.find((x) => x.id === e.assetId)?.label ?? e.assetId, from: e.from, to: e.to, pct: pctLabel(e.pct) })}
+                    </li>
+                  ))}
+                </ul>
+                <p className="wire-detail-line muted" data-testid="wire-effect-applied">{fill(st.realizedNote, { time: timeLabel(appliedTick(item), t) })}</p>
+                <p className="wire-detail-line muted" data-testid="wire-effect-later">{st.laterNote}</p>
+              </>
+            ) : (
+              <p className="wire-detail-line" data-testid={item.phase === "forecast" ? "wire-effect-forecast" : "wire-effect-none"}>
+                {item.phase === "forecast" ? st.forecastNote : st.easedNote}
+              </p>
+            )}
+          </Section>
+        )}
         {item.entities.length > 0 && (
           <Section label={t.assets} testId="wire-detail-assets">
             <ul className="wire-assets">

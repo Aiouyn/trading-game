@@ -27,7 +27,7 @@ export interface TapeBody { assetId: string; prints: TapePrint[] }   // ring buf
 // candles:{assetId}:{res}: live bar every tick; history over HTTP (17 §2.6; 19 Rule 3.8.2; 19 §3.10.1 /api/v1/history/candles)
 export type CandleRes = 'tick' | 'hour' | 'day';
 export interface Candle { t: Tick; o: Price; h: Price; l: Price; c: Price; v: Qty }
-export interface CandlesBody { assetId: string; res: CandleRes; live: Candle }
+export interface CandlesBody { assetId: string; res: CandleRes; live: Candle; rev?: string } // rev: M1-07 signed-in, the server candle revision `<epoch>.<n>` read with `live`
 export interface CandleHistoryReq { assetId: string; res: CandleRes; from: Tick; to: Tick }  // ≤ 5,000 bars per call
 export interface CandleHistoryRes { bars: Candle[] }
 
@@ -41,7 +41,10 @@ export interface IntentResult { intentId: string; tick: Tick; status: 'ACCEPTED'
 export interface RestrictedBucket { reason: string /* engine code; known: RestrictedReason. Others render raw ("Restricted (CODE)") */; amount: Money; untilRealMs: number | null }
 /** The engine's restricted-cash codes that have a client label (#70 round 2, renamed from AD / START). */
 export type RestrictedReason = "AD_GRANT" | "FRESH_START";
-export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
+export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown; coins?: CoinRow[] } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
+/** A Launchpad coin the signed-in player holds, as the server valued it (cents). `value` is the indicative
+ *  liquidation value (sell all alone, now, after fee and price impact), already inside `nw`; not a quote. */
+export interface CoinRow { ticker: string; qty: number; value: number; cost: number }
 export type MarginSummary = Record<string, Money>; // 07 summary, opaque until 07
 /** `drawdownReal`: a bare decimal in PERCENT units, no "%" ("-4.2" = -4.2 %); the UI adds the sign glyph and the
  *  locale's percent sign (src/components/ui/percent.ts). */
@@ -52,14 +55,18 @@ export interface OrderHistoryRow { orderId: string; assetId: string; side: Side;
 
 // req ops over the socket (19 Rule 3.8.5): intent.preview ≤ 5 per tick, asset.detail
 export interface PreviewReq { kind: 'mkt.order.place'; payload: OrderDraft }
-export interface PreviewRes { price: Price; estFill: Price; fee: Money; valid: boolean; reasonCode?: string; buyingPowerAfter: Money; marginAfter?: Money /* 05 PreviewResult fields, names re-checked on SWAP */; impactBp: string /* integer bp */; impactMoney: Money; total: Money; firstTradeCapRemaining: Money | null; computedAtTick: Tick } // Q14 answered (E-56 §9): advisory, the real order re-validates
+export interface PreviewRes { executableQty?: Qty; price: Price; estFill: Price; fee: Money; valid: boolean; reasonCode?: string; buyingPowerAfter: Money; marginAfter?: Money /* 05 PreviewResult fields, names re-checked on SWAP */; impactBp: string /* integer bp */; impactMoney: Money; total: Money; firstTradeCapRemaining: Money | null; computedAtTick: Tick } // Q14 answered (E-56 §9): advisory, the real order re-validates
 export interface OrderDraft { assetId: string; side: Side; type: 'market'|'limit'|'stop'|'stop_limit'; qty: Qty; limit?: Price; stop?: Price; tif: 'day'|'gtc'|'ioc'|'fok' } // 17 §2.2, BRK-02
 export interface AssetDetail { assetId: string; ticker: string; name: string; class: string; sector: string; bloc: string; ccy: string; displayDecimals: number; qtyDecimals: number; licenseTier: string; tradingState: TradingState; stateUntilTick?: Tick } // 05 §2.2 public fields
 
 // news: on change, server-filtered incl. follows (19 Rule 3.8.2; Q12); all Wire kinds ride `news` (Q7 answered, E-56 §4); filings: full body on `filings`. Shape: 15 §2.9 WireItem projection (Q5 corrected, E-56 §3)
 export type WireKind = 'NEWS'|'RUMOR'|'FILING'|'VERDICT'|'MARKET'|'PURCHASE'|'ALLIANCE'|'STATEMENT'|'OUTLET'|'CHAPTER'|'RECORD'|'RANK'|'PHILANTHROPY'|'WORLD_EVENT'|'DAILY_CLOSE'; // 15 §2.9 (Q7)
 export type SourceBand = 'low'|'mixed'|'solid'; // server-sent; cutoffs and owner OPEN (OQ-W1)
-export interface WireItem { id: string; kind: WireKind; headlineKey: string; slots?: Record<string,string>; entities: { id: string; kind: string; label: string }[]; tick: Tick; breaking: boolean; causeEventIds: string[]; sourceRecord?: { hits: number; resolved: number }; sourceBand?: SourceBand; pricedInBand?: 'early'|'mid'|'late'|'done'; pricedInAsOf?: Tick; filingId?: string; outletId?: string; body?: Record<string,string> } // Q5 corrected: no 0–1 credibility reaches the client; sourceRecord+sourceBand on RUMOR and on STATEMENT whose speaker has a record, else both absent; pricedInBand only for Terminal (Q6); body absent until publishTick (Q13 pending)
+/** M1-09: what a server story did to prices. `forecast` / `eased` carry no effect; `realized` lists the effect the server
+ *  applied at the story's tick, once: the quote before and after it (decimal strings) and the change in percent (2 dp). */
+export type StoryPhase = 'forecast'|'realized'|'eased';
+export interface PriceEffect { assetId: string; from: string; to: string; pct: string }
+export interface WireItem { id: string; kind: WireKind; headlineKey: string; slots?: Record<string,string>; entities: { id: string; kind: string; label: string }[]; tick: Tick; breaking: boolean; causeEventIds: string[]; sourceRecord?: { hits: number; resolved: number }; sourceBand?: SourceBand; pricedInBand?: 'early'|'mid'|'late'|'done'; pricedInAsOf?: Tick; filingId?: string; outletId?: string; body?: Record<string,string>; phase?: StoryPhase; causeKey?: string; effects?: PriceEffect[] } // Q5 corrected: no 0–1 credibility reaches the client; sourceRecord+sourceBand on RUMOR and on STATEMENT whose speaker has a record, else both absent; pricedInBand only for Terminal (Q6); body absent until publishTick (Q13 pending)
 export interface NewsBody { items: WireItem[] }            // ring buffer (`trim`)
 export interface Filing { id: string; type: 'ownership_5pct'|'quarterly_holdings'|'insider'|'company_statement'|'fund_disclosure'|'regulatory'; filer: { id: string; label: string }; subject: { id: string; label: string }; tick: Tick; fields: Record<string, string> }
 export interface FilingsBody { items: Filing[] }

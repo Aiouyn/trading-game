@@ -51,6 +51,22 @@ describe("17B S2 About", () => {
     for (const r of LICENCES) if (r.pkg) expect(r.licence).toBe(lic(r.pkg));
   });
 
+  it("S2-02: lightweight-charts NOTICE shown verbatim (upstream v5.2.1 NOTICE sha256) with a link to the Apache-2.0 text", async () => {
+    const { createHash } = await import("node:crypto");
+    const { LIGHTWEIGHT_CHARTS_NOTICE } = await import("@/apps/settings/about-data");
+    // https://raw.githubusercontent.com/tradingview/lightweight-charts/v5.2.1/NOTICE, whole file (ends with one newline).
+    expect(createHash("sha256").update(`${LIGHTWEIGHT_CHARTS_NOTICE}\n`, "utf8").digest("hex")).toBe("f76c6afab94884448f0426e30d6e9d555ca7247894cd3484e477d2f87513036e");
+    expect(JSON.parse(readFileSync(resolve(process.cwd(), "node_modules/lightweight-charts/package.json"), "utf8")).version).toBe("5.2.1");
+    for (const locale of ["en", "fr"]) {
+      const el = mount(locale);
+      const notice = el.querySelector("[data-testid=about-notice]")!;
+      expect(notice.querySelector("[data-testid=about-notice-text]")!.textContent).toBe(LIGHTWEIGHT_CHARTS_NOTICE);
+      expect(notice.querySelector("a")!.getAttribute("href")).toBe("https://www.apache.org/licenses/LICENSE-2.0");
+      expect([...el.querySelectorAll("a")].some((a) => a.getAttribute("href") === "https://www.tradingview.com")).toBe(true);
+      document.body.innerHTML = "";
+    }
+  });
+
   it("S2-03 / S2-05: TradingView attribution; external links open safely with an accessible hint", () => {
     const el = mount();
     const tv = [...el.querySelectorAll("a")].find((a) => a.textContent?.includes("Charts by TradingView"))!;

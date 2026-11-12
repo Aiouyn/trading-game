@@ -32,6 +32,6 @@ export function hashToken(rawToken: string): string {
   return createHash("sha256").update(rawToken, "utf8").digest("hex");
 }
 
-export function newId(kind: "acc" | "ses"): string {
+export function newId(kind: "acc" | "ses" | "o" | "x" | "i"): string {
   return `${kind}_${randomBytes(16).toString("hex")}`;
 }

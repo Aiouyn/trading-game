@@ -14,6 +14,8 @@
 //    day bars, All = every day bar, fetched oldest first in calls of at most 5,000 bars. `to` is the live candle's t;
 //    from = to - (bars - 1) * span, clamped at tick 0 (there are no ticks before genesis; back-history is ENGINE-TBD).
 //    A short reply is plotted as it is, with no padding.
+//  - M1-07: a signed-in feed answers from GET /api/market/candles (server quote OHLC since the process started
+//    sampling, v = executed Broker fills); a guest feed keeps the mock's generated demo bars below.
 //  - SWAP (transport): replace `mockHistory()` with the 19 `req` / HTTP door. It must answer
 //    `candleHistory(req)` with the raw JSON (`unknown`, sync or a Promise); a network failure should reject or
 //    return something that does not parse, which reads as `badReply`. Nothing else in the chart changes.
@@ -100,6 +102,24 @@ export interface HistoryTransport { candleHistory(req: CandleHistoryReq): unknow
 const isHistoryTransport = (v: unknown): v is HistoryTransport =>
   typeof v === "object" && v !== null && typeof (v as Record<string, unknown>).candleHistory === "function";
 
+/** A signed-in feed: quotes and candle history come from the server clock (MockFeed `authoritativeQuotes`). */
+export function isServerFeed(v: unknown): v is {
+  readonly authoritativeQuotes: true;
+  serverCandleHistory(req: CandleHistoryReq): Promise<unknown>;
+  serverCandleChanges(req: CandleHistoryReq, since?: number): Promise<{ raw: unknown; rev: string | null } | null>;
+} {
+  return typeof v === "object" && v !== null && (v as Record<string, unknown>).authoritativeQuotes === true
+    && typeof (v as Record<string, unknown>).serverCandleHistory === "function"
+    && typeof (v as Record<string, unknown>).serverCandleChanges === "function";
+}
+
+/** Changed bars (oldest first) onto the plotted bars, each by mergeLive. */
+export function foldBars(bars: readonly Bar[], changed: readonly Bar[]): readonly Bar[] {
+  let out = bars;
+  for (const b of changed) out = mergeLive(out, b);
+  return out;
+}
+
 /** QUAY_HOOKS only: the feed scenario's `?history=bad` (every reply malformed), `flaky` (the first one), `hold` (never answers). */
 function historyHook(feed: object): HistoryHook {
   const sc = (feed as { scenario?: { history?: HistoryHook } }).scenario;
@@ -115,6 +135,8 @@ function hookLog(): HistoryLog | null {
 /** The mock transport: the page feed's `candleHistory` (`getFeed()`, a MockFeed in this build); null if it has none. */
 export function mockHistory(): HistoryTransport | null {
   const feed: unknown = getFeed();
+  // M1-07 signed-in: the server's recorded history only (GET /api/market/candles), never the mock's generated bars.
+  if (isServerFeed(feed)) return { candleHistory: (req) => feed.serverCandleHistory(req) };
   if (!isHistoryTransport(feed)) return null;
   if (!MOCK_HOOKS) return feed;
   const hook = historyHook(feed);
@@ -153,10 +175,16 @@ export async function loadRange(assetId: AssetId, range: ChartRange, liveT: Game
   return { ok: true, value: out };
 }
 
-/** The live candle onto the plotted bars: same t replaces the last bar, a newer t appends, an older one is dropped. */
+/** A server bar onto the plotted bars: same t replaces that bar in place, a newer t appends, an older t inside the bars
+ *  goes in at its place (a tick the live read skipped), one older than the first bar is dropped (outside the range). */
 export function mergeLive(bars: readonly Bar[], live: Bar): readonly Bar[] {
   const last = bars[bars.length - 1];
   if (!last || live.t > last.t) return [...bars, live];
   if (live.t === last.t) return [...bars.slice(0, -1), live];
+  for (let i = bars.length - 2; i >= 0; i--) {
+    const b = bars[i]!;
+    if (b.t === live.t) return [...bars.slice(0, i), live, ...bars.slice(i + 1)];
+    if (b.t < live.t) return [...bars.slice(0, i + 1), live, ...bars.slice(i + 1)];
+  }
   return bars;
 }

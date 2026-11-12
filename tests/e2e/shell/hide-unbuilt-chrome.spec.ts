@@ -11,12 +11,15 @@ function twoFrames(page: Page) {
 test.describe("phone grid omits unbuilt apps", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
-  test("Home grid has Settings, not Markets or Boards", async ({ page }) => {
+  // #105 merge: Boards (M2-03) is built on this branch, so it is offered; the rule is asserted with apps still unbuilt.
+  test("Home grid has Settings and built Boards, not Markets or other unbuilt apps", async ({ page }) => {
     await boot(page, "/");
     await expect(page.getByTestId("app-grid").getByTestId("icon-settings")).toBeVisible();
-    await expect(page.getByTestId("app-grid").getByTestId("icon-markets")).toHaveCount(0);
-    await expect(page.getByTestId("app-grid").getByTestId("icon-boards")).toHaveCount(0);
-    await expect(page.getByTestId("group-trade")).toHaveCount(0);
+    await expect(page.getByTestId("app-grid").getByTestId("icon-boards")).toBeVisible();
+    for (const unbuilt of ["markets", "research", "risk", "contracts", "help"]) {
+      await expect(page.getByTestId("app-grid").getByTestId(`icon-${unbuilt}`)).toHaveCount(0);
+    }
+    await expect(page.getByTestId("group-shadow")).toHaveCount(0);
   });
 
   test("holding /api/auth/me: Markets does not flash in the grid", async ({ page }) => {

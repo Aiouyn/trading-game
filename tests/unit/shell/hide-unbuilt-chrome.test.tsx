@@ -60,7 +60,9 @@ describe("card 31 phone grid and desktop shelf omit unbuilt tiles", () => {
     vi.unstubAllGlobals();
   });
 
-  it("phone Home grid has Settings, not Markets or Boards", async () => {
+  // #105 merge: Boards (M2-03), City (M1-10 district view) and Launchpad have bodies on this branch, so they are built and
+  // offered; card 31's rule (only built apps are offered) is asserted with apps that are still unbuilt here.
+  it("phone Home grid has Settings and the built apps, not Markets or other unbuilt apps", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     const store = createShellStore(mockChannels(new URLSearchParams({ rank: "R6", nw: "200000" })));
     await act(async () => {
@@ -70,10 +72,13 @@ describe("card 31 phone grid and desktop shelf omit unbuilt tiles", () => {
     const grid = el.querySelector("[data-testid=app-grid]")!;
     expect(grid.querySelector("[data-testid=icon-settings]")).not.toBeNull();
     expect(grid.querySelector("[data-testid=icon-markets]")).toBeNull();
-    expect(grid.querySelector("[data-testid=icon-boards]")).toBeNull();
-    expect(grid.querySelector("[data-testid=icon-city]")).toBeNull();
-    expect(grid.querySelector("[data-testid=group-trade]")).toBeNull();
-    expect(grid.querySelector("[data-testid=group-build]")).toBeNull();
+    for (const built of ["boards", "city", "launchpad"]) expect(grid.querySelector(`[data-testid=icon-${built}]`)).not.toBeNull();
+    for (const unbuilt of ["research", "risk", "businesses", "bank", "contracts", "profile", "help"]) {
+      expect(grid.querySelector(`[data-testid=icon-${unbuilt}]`), unbuilt).toBeNull();
+    }
+    expect(grid.querySelector("[data-testid=group-shadow]")).toBeNull();
+    const offered = Array.from(grid.querySelectorAll("[data-testid^=icon-]")).map((e) => e.getAttribute("data-testid"));
+    expect(offered.sort()).toEqual(["icon-boards", "icon-city", "icon-launchpad", "icon-settings"]);
   });
 
   it("desktop shelf has Broker, not Markets", async () => {

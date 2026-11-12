@@ -1,0 +1,18 @@
+/* M2-01/02 goal + first-trade guide (lazy GoalGuide chunk). Tokens only; no brass (Portfolio's one acc use is the rank chip). */
+.pf-goal { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-12); border: 1px solid var(--line); border-radius: var(--r-input); min-width: 0; margin-bottom: var(--sp-16); }
+.pf-goal.pf-phone { margin: var(--sp-16) var(--sp-16) 0; }
+.pf-goal-title { margin: 0; color: var(--fg-muted); }
+.pf-goal-line { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+.pf-goal-bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.pf-goal-bar span { display: block; height: 100%; background: var(--steel); }
+.pf-goal-now { margin: 0; font-size: var(--fs-12_5); overflow-wrap: anywhere; }
+.pf-guide { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-8); border-top: 1px solid var(--line); padding-top: var(--sp-8); min-width: 0; }
+.pf-guide-title { margin: 0; font: 500 var(--fs-13) / 1.3 var(--font-ui); color: var(--fg); }
+.pf-guide-steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.pf-guide-steps li { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); overflow-wrap: anywhere; }
+.pf-guide-done, .pf-guide p { margin: 0; overflow-wrap: anywhere; }
+
+/* Broker's goal entry (desktop without a Portfolio window). */
+.br-goal { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-8); margin-top: var(--sp-16); padding-top: var(--sp-12); border-top: 1px solid var(--line); min-width: 0; }
+.br-goal-line { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+.br-goal-line .label { color: var(--fg-muted); margin-right: var(--sp-4); }

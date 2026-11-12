@@ -9,20 +9,23 @@ import {
   sessionBody,
   withSessionCookie,
 } from "@/server/auth";
+import { runTelemetryContext } from "@/server/telemetry";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
-  try {
-    assertLocalSingleProcessAuth();
-    assertSameOriginMutation(request);
-    const body = await readJsonObject(request);
-    const handle = requireString(body, "handle");
-    const password = requireString(body, "password");
-    const { view, rawToken } = await getAuthService().register({ handle, password });
-    const res = jsonResponse(sessionBody(view), 201);
-    return withSessionCookie(res, rawToken, request.url);
-  } catch (err) {
-    return authErrorResponse(err);
-  }
+  return runTelemetryContext(request, async () => {
+    try {
+      assertLocalSingleProcessAuth();
+      assertSameOriginMutation(request);
+      const body = await readJsonObject(request);
+      const handle = requireString(body, "handle");
+      const password = requireString(body, "password");
+      const { view, rawToken } = await getAuthService().register({ handle, password });
+      const res = jsonResponse(sessionBody(view), 201);
+      return withSessionCookie(res, rawToken, request.url);
+    } catch (err) {
+      return authErrorResponse(err);
+    }
+  });
 }

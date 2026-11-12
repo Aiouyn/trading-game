@@ -14,6 +14,11 @@ function createDefaultService(): AuthService {
   return new AuthService({ store: new FileAuthStore(path.join(root, "store.json")) });
 }
 
+/** Existing singleton, or undefined — does not create a FileAuthStore. */
+export function peekAuthService(): AuthService | undefined {
+  return globalForAuth.__quayAuthService;
+}
+
 /** Process-singleton AuthService for route handlers (survives HMR via globalThis). */
 export function getAuthService(): AuthService {
   if (!globalForAuth.__quayAuthService) {

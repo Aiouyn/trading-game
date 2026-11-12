@@ -8,11 +8,12 @@ import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
-import { useNw } from "./useNw";
+import { nwStateLabel, useNwReading } from "./useNw";
 import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
 import { HOME_EXAMPLE } from "./homeExample";
 import { TickRing } from "./TickRing";
+import { FeedbackButton } from "./FeedbackButton";
 
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
@@ -22,7 +23,7 @@ export function StatusStrip() {
   const rank = useShell((s) => s.channels.rank.rank);
   const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
-  const nw = useNw();
+  const nw = useNwReading();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const focusMode = useShell((s) => s.local.focusMode);
@@ -33,10 +34,19 @@ export function StatusStrip() {
     : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
+  const offline = useShell((s) => s.channels.system.offline);
   const nwChip = (
-    <span className="strip-nw" data-testid="strip-nw">
-      <MoneyText amount={nw} ctx="chip" />
-      <> <PctText value={me.todayPct} /></>
+    <span className="strip-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
+      {nw.nw === null ? <span className="num muted" aria-hidden="true">{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
+      {nw.nw === null ? (
+        // NW not known yet (session loading / ledger unavailable): say which, never a number. Card 29: no Demo balance tag.
+        <span className="muted strip-demo-tag" data-testid="strip-nw-state"><span aria-hidden="true">{" · "}</span>{nwStateLabel(nw.state)}</span>
+      ) : signedIn ? (
+        // Signed-in: the server-saved NW is labelled as such (M1-08) and today's % shows too (card 29); never "Demo balance".
+        <><span className="muted strip-demo-tag" data-testid="strip-nw-label"><span aria-hidden="true">{" · "}</span>{S.demoBalance}</span> <PctText value={me.todayPct} /></>
+      ) : (
+        <> <PctText value={me.todayPct} /></>
+      )}
     </span>
   );
 
@@ -64,7 +74,7 @@ export function StatusStrip() {
       </button>
       <div className="strip-mid">
         <span className="num clock" data-testid="clock" data-tick={clock.tick}>{clockText}</span>
-        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} />
+        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} />
         <TickRing tick={clock.tick} />
       </div>
       <div className="strip-right">
@@ -98,6 +108,7 @@ export function StatusStrip() {
         {auth.status === "signed_out" ? (
           <span className="muted" data-testid="strip-demo-tag">{HOME_EXAMPLE.en.tag}</span>
         ) : null}
+        <FeedbackButton />
         <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>
       </div>
     </header>
