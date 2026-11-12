@@ -8,7 +8,7 @@ import { getAssetDetail } from "@/shell/contracts/assetDetail";
 import type { Position, TickerRow } from "@/shell/contracts/channels";
 import type { ReactNode } from "react";
 import { Quote } from "./AssetHeader";
-import type { BrStrings } from "./strings";
+import type { BrStrings } from "./strings-en";
 
 function Row({ k, label, children }: { k: string; label: string; children: ReactNode }) {
   return <div className="ap-row" data-testid="ap-row" data-key={k}><dt>{label}</dt><dd>{children}</dd></div>;

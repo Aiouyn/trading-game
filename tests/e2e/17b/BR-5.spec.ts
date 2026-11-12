@@ -8,7 +8,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
 import { boot, intents, setTextScale } from "../shell/helpers";
-import { openBrokerPaused } from "./openPaused";
+import { openBrokerPaused, revealOnPausedClock } from "./openPaused";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -82,7 +82,7 @@ async function ticket(page: Page, type: Type, prices: Prices, qty = "40") {
 }
 async function review(page: Page) {
   await br(page).getByTestId("br-review").click();
-  await expect(place(page)).toBeVisible();
+  await revealOnPausedClock(page, place(page));
 }
 /** Place, then run the clock to the result tick (the ack). */
 async function placeAndAck(page: Page) {
@@ -176,12 +176,17 @@ test("BR-5-05 fake clock: Place on a limit sends one intent with limit; the resu
       row: r && { id: r.dataset.testid, terms: r.querySelector('[data-testid="br-oo-terms"]')!.textContent, status: r.querySelector('[data-testid="br-oo-status"]')!.textContent, fresh: r.dataset.fresh ?? null, bg: getComputedStyle(r).backgroundColor },
     };
   });
+  // The ack panel is lazy: the result tick can show the Working row while br-ack is still on
+  // its skeleton, until the clock runs the Suspense reveal. Hold the "no row yet" check only
+  // before that tick; then step until the ack title is visible and read them together.
   let s = await snap();
   for (let ms = 0; ms < 6_000 && s.ack === null; ms += 500) {
-    expect(s.row).toBeNull();
+    if ((await br(page).getByTestId("br-ack-loading").count()) === 0) expect(s.row).toBeNull();
     await page.clock.runFor(500);
     s = await snap();
   }
+  await revealOnPausedClock(page, br(page).getByTestId("br-ack-title"));
+  s = await snap();
   expect(s.ack).toBe("Order placed. It's in Open orders.");
   expect(s.row).toEqual({ id: expect.stringMatching(/^br-oo-row-o-\d+$/), terms: "Limit 42.10", status: "Working", fresh: "1", bg: await color(page, "var(--win2)") });
   await expect(list(page).getByTestId("br-oo-count")).toHaveText("1");
@@ -309,6 +314,7 @@ for (const scale of ["1", "2"] as const) {
     await br(page).getByTestId("br-review").click();
     const sheet = page.getByTestId("br-sheet");
     await expect(sheet).toBeVisible();
+    await revealOnPausedClock(page, place(page));
     await page.clock.runFor(400); // the sheet-up entrance (--dur-base) on the paused clock
     await expect.poll(async () => { const b = (await sheet.boundingBox())!; return Math.round(b.y + b.height); }).toBe(844);
     expect(await overflow(sheet)).toEqual([]);

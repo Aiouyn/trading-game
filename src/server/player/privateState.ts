@@ -8,11 +8,14 @@ import {
   AuthError,
   PLAYER_PRIVATE_SCHEMA_VERSION,
   type AccountId,
+  type PersistedIntent,
   type PersistedOpenOrder,
   type PersistedPosition,
   type PlayerPrivateRecord,
 } from "@/server/auth/types";
-import { dec, obj, openOrder as openOrderSchema, str, ParseError } from "@/shell/contracts/schema";
+import type { MyFill, OrderHistoryRow } from "@/shell/contracts/channels";
+import { dec, intentResult as intentResultSchema, myFill as myFillSchema, obj, openOrder as openOrderSchema, str, ParseError } from "@/shell/contracts/schema";
+import { orderHistoryRow as orderHistoryRowSchema } from "@/shell/contracts/orderHistory";
 
 const ASSET_ID_RE = /^[A-Z][A-Z0-9]{0,11}$/;
 const ORDER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -20,6 +23,15 @@ const ORDER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const UDEC_RE = /^\d{1,18}(\.\d{1,8})?$/;
 const MAX_POSITIONS = 64;
 const MAX_OPEN_ORDERS = 128;
+/** M1-06 rings (Q4 keepLast 50): fills and intent receipts shown on `me`. */
+export const MAX_FILLS = 50;
+export const MAX_INTENTS = 50;
+/** Durable idempotency journal: every decided key, not the last-50 receipt ring. Fail closed if full. */
+export const MAX_IDEMPOTENCY = 10_000;
+/** Closed-order history ring on `me` (Q4 keepLast 50). */
+export const MAX_ORDER_HISTORY = 50;
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const MAX_FINGERPRINT = 512;
 const ORDER_TYPES = new Set(["market", "limit", "stop", "stop_limit"]);
 const ORDER_TIFS = new Set(["day", "gtc", "ioc", "fok"]);
 
@@ -28,7 +40,16 @@ export type PlayerPrivateInput = {
   readonly cashCents: number;
   readonly positions: Readonly<Record<string, PersistedPosition>>;
   readonly openOrders: Readonly<Record<string, PersistedOpenOrder>>;
+  /** M1-06. Omitted or empty = none; stored only when non-empty. */
+  readonly fills?: readonly MyFill[];
+  readonly intents?: readonly PersistedIntent[];
+  readonly idempotency?: readonly PersistedIntent[];
+  readonly orderHistory?: readonly OrderHistoryRow[];
 };
+
+export function isIdempotencyKey(v: unknown): v is string {
+  return typeof v === "string" && IDEMPOTENCY_KEY_RE.test(v);
+}
 
 const persistedPositionSchema = obj({ assetId: str, qty: dec, avgCost: dec });
 
@@ -116,9 +137,61 @@ function buildOpenOrder(key: string, raw: unknown): PersistedOpenOrder {
   return out;
 }
 
+function buildFill(i: number, raw: unknown): MyFill {
+  const f = parseWith(myFillSchema, raw, `fills/${i}`);
+  const at = `fills/${i}`;
+  if (!ORDER_ID_RE.test(f.fillId)) bad(`${at}: invalid fillId.`);
+  if (!ORDER_ID_RE.test(f.orderId)) bad(`${at}: invalid orderId.`);
+  if (!ASSET_ID_RE.test(f.assetId)) bad(`${at}: invalid assetId.`);
+  udec(f.qty, `${at}/qty`, { positive: true });
+  udec(f.price, `${at}/price`, { positive: true });
+  udec(f.fee, `${at}/fee`);
+  if (f.tick < 0) bad(`${at}: tick must be >= 0.`);
+  return { ...f };
+}
+
+function buildIntent(i: number, raw: unknown): PersistedIntent {
+  const at = `intents/${i}`;
+  const o = plainObject(raw, at);
+  if (Object.keys(o).some((k) => k !== "key" && k !== "fingerprint" && k !== "result")) bad(`${at}: unknown key.`);
+  if (!isIdempotencyKey(o.key)) bad(`${at}: invalid idempotency key.`);
+  if (typeof o.fingerprint !== "string" || o.fingerprint.length === 0 || o.fingerprint.length > MAX_FINGERPRINT) bad(`${at}: invalid fingerprint.`);
+  const result = parseWith(intentResultSchema, o.result, `${at}/result`);
+  if (!ORDER_ID_RE.test(result.intentId)) bad(`${at}: invalid intentId.`);
+  return { key: o.key as string, fingerprint: o.fingerprint as string, result };
+}
+
+function buildHistory(i: number, raw: unknown): OrderHistoryRow {
+  const h = parseWith(orderHistoryRowSchema, raw, `orderHistory/${i}`);
+  const at = `orderHistory/${i}`;
+  if (!ORDER_ID_RE.test(h.orderId)) bad(`${at}: invalid orderId.`);
+  if (!ASSET_ID_RE.test(h.assetId)) bad(`${at}: invalid assetId.`);
+  udec(h.qty, `${at}/qty`, { positive: true });
+  udec(h.filled, `${at}/filled`);
+  udec(h.avgPrice, `${at}/avgPrice`);
+  if (h.tick < 0) bad(`${at}: tick must be >= 0.`);
+  return { ...h };
+}
+
+function ring<T>(raw: unknown, field: string, max: number, build: (i: number, v: unknown) => T): T[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) bad(`${field} must be an array.`);
+  const list = raw as unknown[];
+  if (list.length > max) bad(`Too many ${field}.`);
+  return list.map((v, i) => build(i, v));
+}
+
 function plainObject(v: unknown, field: string): Record<string, unknown> {
   if (!v || typeof v !== "object" || Array.isArray(v)) bad(`${field} must be an object.`);
   return v as Record<string, unknown>;
+}
+
+/** Receipts are the last-50 view; any receipt missing from the journal is folded in (old saves have no journal). */
+function mergeIdempotency(journal: PersistedIntent[], receipts: readonly PersistedIntent[]): PersistedIntent[] {
+  const keys = new Set(journal.map((x) => x.key));
+  const extra = receipts.filter((x) => !keys.has(x.key));
+  if (journal.length + extra.length > MAX_IDEMPOTENCY) bad("Too many idempotency keys.");
+  return extra.length === 0 ? journal : [...journal, ...extra];
 }
 
 /** Validate + normalize a private ledger commit (throws AuthError BAD_REQUEST). */
@@ -137,7 +210,19 @@ export function buildPlayerPrivate(accountId: AccountId, input: PlayerPrivateInp
   for (const k of posKeys) positions[k] = buildPosition(k, rawPositions[k]);
   const openOrders: Record<string, PersistedOpenOrder> = Object.create(null);
   for (const k of orderKeys) openOrders[k] = buildOpenOrder(k, rawOrders[k]);
-  return { v: PLAYER_PRIVATE_SCHEMA_VERSION, accountId, cashCents: input.cashCents, positions: { ...positions }, openOrders: { ...openOrders } };
+  const fills = ring(input.fills, "fills", MAX_FILLS, buildFill);
+  const intents = ring(input.intents, "intents", MAX_INTENTS, buildIntent);
+  if (new Set(intents.map((x) => x.key)).size !== intents.length) bad("Duplicate idempotency key in intents.");
+  const idempotency = mergeIdempotency(ring(input.idempotency ?? intents, "idempotency", MAX_IDEMPOTENCY, buildIntent), intents);
+  if (new Set(idempotency.map((x) => x.key)).size !== idempotency.length) bad("Duplicate idempotency key.");
+  const orderHistory = ring(input.orderHistory, "orderHistory", MAX_ORDER_HISTORY, buildHistory);
+  return {
+    v: PLAYER_PRIVATE_SCHEMA_VERSION, accountId, cashCents: input.cashCents, positions: { ...positions }, openOrders: { ...openOrders },
+    ...(fills.length ? { fills } : {}),
+    ...(intents.length ? { intents } : {}),
+    ...(idempotency.length ? { idempotency } : {}),
+    ...(orderHistory.length ? { orderHistory } : {}),
+  };
 }
 
 /** Deep copy so callers never alias the service's in-memory record. */
@@ -146,7 +231,13 @@ export function clonePlayerPrivate(p: PlayerPrivateRecord): PlayerPrivateRecord 
   for (const [k, v] of Object.entries(p.positions)) positions[k] = { ...v };
   const openOrders: Record<string, PersistedOpenOrder> = {};
   for (const [k, v] of Object.entries(p.openOrders)) openOrders[k] = { ...v };
-  return { v: p.v, accountId: p.accountId, cashCents: p.cashCents, positions, openOrders };
+  return {
+    v: p.v, accountId: p.accountId, cashCents: p.cashCents, positions, openOrders,
+    ...(p.fills?.length ? { fills: p.fills.map((f) => ({ ...f })) } : {}),
+    ...(p.intents?.length ? { intents: p.intents.map((x) => ({ key: x.key, fingerprint: x.fingerprint, result: structuredClone(x.result) })) } : {}),
+    ...(p.idempotency?.length ? { idempotency: p.idempotency.map((x) => ({ key: x.key, fingerprint: x.fingerprint, result: structuredClone(x.result) })) } : {}),
+    ...(p.orderHistory?.length ? { orderHistory: p.orderHistory.map((h) => ({ ...h })) } : {}),
+  };
 }
 
 export type ParsedPlayerRow =
@@ -173,6 +264,10 @@ export function parsePlayerPrivateRow(raw: unknown): ParsedPlayerRow {
           cashCents: o.cashCents as number,
           positions: o.positions as Record<string, PersistedPosition>,
           openOrders: o.openOrders as Record<string, PersistedOpenOrder>,
+          fills: o.fills as MyFill[] | undefined,
+          intents: o.intents as PersistedIntent[] | undefined,
+          idempotency: o.idempotency as PersistedIntent[] | undefined,
+          orderHistory: o.orderHistory as PlayerPrivateRecord["orderHistory"],
         }),
       };
     }

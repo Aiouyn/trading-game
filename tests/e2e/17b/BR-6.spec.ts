@@ -11,7 +11,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { pinHtml } from "./pin";
 import { boot, setTextScale } from "../shell/helpers";
-import { openBrokerPaused } from "./openPaused";
+import { openBrokerPaused, revealOnPausedClock } from "./openPaused";
 import { SPEC_COLOUR } from "./specColours";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
@@ -76,6 +76,7 @@ async function limitOrder(page: Page, limit: string, qty = "40", settleMs = 6_00
   await page.clock.runFor(400);
   await expect(br(page).getByTestId("br-est")).toBeVisible();
   await br(page).getByTestId("br-review").click();
+  await revealOnPausedClock(page, place(page));
   await place(page).evaluate((el: HTMLElement) => el.click()); // phone: Place may sit below the fold
   await runUntil(page, async () => (await br(page).getByTestId("br-ack").count()) > 0, settleMs);
   await br(page).getByTestId("br-new").click();

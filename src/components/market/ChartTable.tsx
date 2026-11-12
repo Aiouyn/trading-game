@@ -1,7 +1,7 @@
 "use client";
 // The price chart as a table (UI card 7, "View as table"): the same bars the chart plots, newest first, every value the
 // server's string with only locale grouping (decText). Lives outside the lazy chart chunk so it never waits on it.
-import type { BrStrings } from "@/apps/broker/strings";
+import type { BrStrings } from "@/apps/broker/strings-en";
 import { decText } from "@/apps/portfolio/positions/format";
 import type { Bar } from "@/shell/contracts/history";
 import { clockAt, clockLabel } from "@/shell/mockChannels";

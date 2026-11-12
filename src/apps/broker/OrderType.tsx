@@ -1,12 +1,12 @@
 "use client";
-// Order type (UI card 5, BRK-A ProTicket slice): Market · Limit · Stop · Stop limit, TIF fixed Day. A #38 segment under
+// Order type (UI card 5, BRK-A ProTicket slice): Market · Limit · Stop · Stop limit, and Day / GTC. A #38 segment under
 // Side and the type's price boxes (stop first). The boxes check format only (`parsePriceInput`); tick size, bands and
 // which side of the market a stop sits on are the server's `valid` / `reasonCode` (card 5 Gap 2).
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { Label } from "@/components/ui/Label";
 import { decText } from "@/apps/portfolio/positions/format";
-import { parsePriceInput, type DayOrderType } from "@/shell/contracts/orders";
-import type { BrStrings } from "./strings";
+import { parsePriceInput, type DayOrderType, type OrderTif } from "@/shell/contracts/orders";
+import type { BrStrings } from "./strings-en";
 import "./openOrders.css";
 
 export const ORDER_TYPES: readonly DayOrderType[] = ["market", "limit", "stop", "stop_limit"];
@@ -46,11 +46,13 @@ export interface OrderTypeProps {
   readOnly: boolean;
   /** Text scale >= BR_STACK_SCALE: the segment stacks whatever the width. */
   stacked: boolean;
+  tif: OrderTif;
   onType: (type: DayOrderType) => void;
+  onTif: (tif: OrderTif) => void;
   onPrice: (field: "limit" | "stop", text: string) => void;
 }
 
-export function OrderType({ t, type, limitText, stopText, readOnly, stacked, onType, onPrice }: OrderTypeProps) {
+export function OrderType({ t, type, limitText, stopText, readOnly, stacked, tif, onType, onTif, onPrice }: OrderTypeProps) {
   const segRef = useRef<HTMLDivElement>(null);
   const segStack = useSegOverflow(segRef);
   const [touched, setTouched] = useState({ limit: false, stop: false });
@@ -65,6 +67,13 @@ export function OrderType({ t, type, limitText, stopText, readOnly, stacked, onT
               {typeLabel(t, k)}
             </button>
           ))}
+        </div>
+      </div>
+      <div className="br-field">
+        <Label id="br-tif-label">{t.timeInForce}</Label>
+        <div className="br-seg" role="group" aria-labelledby="br-tif-label" data-testid="br-tif">
+          <button type="button" aria-pressed={tif === "day"} data-testid="br-tif-day" disabled={readOnly} onClick={() => onTif("day")}>{t.tifDay}</button>
+          <button type="button" aria-pressed={tif === "gtc"} data-testid="br-tif-gtc" disabled={readOnly} onClick={() => onTif("gtc")}>{t.tifGtc}</button>
         </div>
       </div>
       {priceFields(type).map((f) => {

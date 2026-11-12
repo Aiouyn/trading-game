@@ -27,6 +27,7 @@
 import type { OrderDraft, PreviewRes, Side } from "./channels";
 import { orderDraft, ParseError, previewRes, str } from "./schema";
 import { getFeed } from "./useChannel";
+import { IntentNotSentOffline, IntentOutcomeUnknown } from "./network";
 
 declare const brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [brand]: B };
@@ -73,12 +74,14 @@ export function parsePriceInput(text: string): PriceInput {
   return PRICE.test(text) ? { kind: "price", price: text.replace(",", ".") as PriceText } : { kind: "badFormat" };
 }
 
-/** Fields every day draft shares. Assignable to `OrderDraft`. */
+export type OrderTif = "day" | "gtc";
+
+/** Fields every ticket draft shares. Assignable to `OrderDraft`. Day is the default; GTC is the other time in force. */
 interface DayDraftBase extends OrderDraft {
   readonly assetId: AssetId;
   readonly side: Side;
   readonly qty: WholeQty;
-  readonly tif: "day";
+  readonly tif: OrderTif;
 }
 export interface MarketDayDraft extends DayDraftBase { readonly type: "market"; readonly limit?: never; readonly stop?: never }
 export interface LimitDayDraft extends DayDraftBase { readonly type: "limit"; readonly limit: PriceText; readonly stop?: never }
@@ -95,17 +98,17 @@ export type OrderTerms =
   | { readonly type: "stop"; readonly stop: PriceText }
   | { readonly type: "stop_limit"; readonly stop: PriceText; readonly limit: PriceText };
 
-export function marketDayDraft(assetId: AssetId, side: Side, qty: WholeQty): MarketDayDraft {
-  return { assetId, side, type: "market", qty, tif: "day" };
+export function marketDayDraft(assetId: AssetId, side: Side, qty: WholeQty, tif: OrderTif = "day"): MarketDayDraft {
+  return { assetId, side, type: "market", qty, tif };
 }
 
-/** A day draft with exactly the terms' price fields (no `stop` on a limit, both on a stop limit). */
-export function dayDraft(assetId: AssetId, side: Side, qty: WholeQty, terms: OrderTerms): DayDraft {
+/** A draft with exactly the terms' price fields (no `stop` on a limit, both on a stop limit). `tif` defaults to day. */
+export function dayDraft(assetId: AssetId, side: Side, qty: WholeQty, terms: OrderTerms, tif: OrderTif = "day"): DayDraft {
   switch (terms.type) {
-    case "market": return marketDayDraft(assetId, side, qty);
-    case "limit": return { assetId, side, type: "limit", qty, limit: terms.limit, tif: "day" };
-    case "stop": return { assetId, side, type: "stop", qty, stop: terms.stop, tif: "day" };
-    case "stop_limit": return { assetId, side, type: "stop_limit", qty, stop: terms.stop, limit: terms.limit, tif: "day" };
+    case "market": return marketDayDraft(assetId, side, qty, tif);
+    case "limit": return { assetId, side, type: "limit", qty, limit: terms.limit, tif };
+    case "stop": return { assetId, side, type: "stop", qty, stop: terms.stop, tif };
+    case "stop_limit": return { assetId, side, type: "stop_limit", qty, stop: terms.stop, limit: terms.limit, tif };
   }
 }
 
@@ -135,7 +138,8 @@ export function mockTransport(): OrderTransport | null {
   return isOrderTransport(door) ? door : null;
 }
 
-export type OrderError = { kind: "noTransport" } | { kind: "badReply"; detail: string };
+/** offline: not sent, nothing reached the server (M2-05). unknown: sent, no answer; may have committed (M2-05). */
+export type OrderError = { kind: "noTransport" } | { kind: "badReply"; detail: string } | { kind: "offline" } | { kind: "unknown" };
 export type OrderResult<T> = { ok: true; value: T } | { ok: false; error: OrderError };
 
 const fail = (error: OrderError): { ok: false; error: OrderError } => ({ ok: false, error });
@@ -153,6 +157,8 @@ async function call<T>(draft: DayDraft, transport: OrderTransport | null, send: 
     return { ok: true, value: parse(raw) };
   } catch (e) {
     if (e instanceof ParseError) return fail({ kind: "badReply", detail: e.message });
+    if (e instanceof IntentNotSentOffline) return fail({ kind: "offline" });
+    if (e instanceof IntentOutcomeUnknown) return fail({ kind: "unknown" });
     throw e;
   }
 }
@@ -174,6 +180,8 @@ export async function cancelOrder(orderId: OrderId, transport: OrderTransport | 
     return { ok: true, value: parseIntentId(await transport.cancel(str(orderId, "orderId") as OrderId)) };
   } catch (e) {
     if (e instanceof ParseError) return fail({ kind: "badReply", detail: e.message });
+    if (e instanceof IntentNotSentOffline) return fail({ kind: "offline" });
+    if (e instanceof IntentOutcomeUnknown) return fail({ kind: "unknown" });
     throw e;
   }
 }

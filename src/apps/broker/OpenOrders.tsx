@@ -12,7 +12,7 @@ import { cancelOrder, parseOrderId, type IntentId } from "@/shell/contracts/orde
 import { getFeed, type ChannelView } from "@/shell/contracts/useChannel";
 import { CancelControl, CancelNote, type CancelPhase } from "./CancelControl";
 import { termsText } from "./OrderType";
-import { cancelRejectCopy, type BrStrings } from "./strings";
+import { cancelRejectCopy, type BrStrings } from "./strings-en";
 import "./openOrders.css";
 
 /** placedTick desc, then orderId (code-unit order). Ticks are numbers; nothing here is money. */
@@ -24,6 +24,11 @@ export function byRecent(a: OpenOrder, b: OpenOrder): number {
 export function statusText(t: BrStrings, status: string): string {
   if (status === "QUEUED_AUCTION") return t.haltedQueued;
   return status in t.s ? t.s[status as keyof BrStrings["s"]] : status;
+}
+
+/** Still cancelable / counted as open. EXPIRED and CANCELLED stay visible, without a Cancel control. */
+export function isOpenOrder(o: OpenOrder): boolean {
+  return o.status !== "EXPIRED" && o.status !== "CANCELLED";
 }
 
 export interface OpenOrdersProps {
@@ -58,6 +63,7 @@ type FocusReq = { kind: "cancel" | "keep" | "row"; id: string } | { kind: "after
 export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
   const body = me.body;
   const orders = body ? Object.values(body.orders).sort(byRecent) : [];
+  const openCount = orders.filter(isOpenOrder).length;
   const intents = body?.intents ?? [];
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [sent, setSent] = useState<Readonly<Record<string, Sent>>>({});
@@ -157,7 +163,7 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
       onKeyDownCapture={clearLine} onClickCapture={clearLine}>
       <h3 ref={titleRef} id={titleId} className="br-oo-title" data-testid="br-oo-title" tabIndex={-1}>
         {t.openOrders}
-        {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{String(orders.length)}</span>}
+        {body && <span className="br-oo-count num muted" data-testid="br-oo-count">{String(openCount)}</span>}
       </h3>
       {me.state === "loading" && (
         <div className="br-oo-skel" data-testid="br-oo-loading" aria-label={t.loadingOrders}>
@@ -174,6 +180,20 @@ export function OpenOrders({ t, locale, me, freshId }: OpenOrdersProps) {
       {me.state === "stale" && <p className="br-oo-updating muted" data-testid="br-oo-updating">{t.updating}</p>}
       <p className="br-oo-line" role="status" data-testid="br-oo-line">{line}</p>
       {body && orders.length === 0 && <p className="br-oo-empty muted" data-testid="br-oo-empty">{t.noOpenOrders}</p>}
+      {body && body.history && body.history.length > 0 && (
+        <div data-testid="br-hist">
+          <h3 className="br-oo-title" data-testid="br-hist-title">{t.orderHistory}</h3>
+          <ul className="br-oo-list">
+            {[...body.history].reverse().map((h) => (
+              <li key={`${h.orderId}:${h.status}:${h.tick}`} className="br-oo-row" data-testid={`br-hist-${h.orderId}-${h.status}`} data-status={h.status}>
+                <span className="br-oo-side">{h.side === "BUY" ? t.buy : t.sell}</span>
+                <span className="br-oo-ticker">{h.assetId}</span>
+                <Chip className="br-oo-chip" data-testid="br-hist-status">{statusText(t, h.status)}</Chip>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {rows.length > 0 && (
         <ul className="br-oo-list" data-testid="br-oo-list">
           {rows.map(({ o, ghost }) => {
@@ -208,12 +228,13 @@ interface RowProps {
 function Row({ t, locale, o, fresh, phase, note, onCancel, onKeep, onYes }: RowProps) {
   const w = rowWords(t, locale, o);
   const status = statusText(t, o.status);
+  const closed = !isOpenOrder(o);
   return (
     <li className={`br-oo-row${fresh ? " fresh" : ""}`} data-testid={`br-oo-row-${o.orderId}`} data-fresh={fresh ? "1" : undefined} data-status={o.status}
-      data-cancel={phase.kind} aria-busy={phase.kind === "cancelling" || undefined}
+      data-cancel={closed ? undefined : phase.kind} aria-busy={!closed && (phase.kind === "cancelling") || undefined}
       tabIndex={0} aria-label={t.rowAria(w.side, w.amount, o.assetId, w.terms, status)}>
       <Cells t={t} o={o} w={w} status={status} />
-      <CancelControl t={t} phase={phase} label={t.cancelAria(w.sideName, w.amount, o.assetId, w.terms)} onCancel={onCancel} onKeep={onKeep} onYes={onYes} />
+      {!closed && <CancelControl t={t} phase={phase} label={t.cancelAria(w.sideName, w.amount, o.assetId, w.terms)} onCancel={onCancel} onKeep={onKeep} onYes={onYes} />}
       {note !== null && <CancelNote text={note} />}
     </li>
   );
@@ -227,7 +248,7 @@ function Cells({ t, o, w, status }: { t: BrStrings; o: OpenOrder; w: ReturnType<
       <span className="br-oo-terms num" data-testid="br-oo-terms">{w.terms}</span>
       <span className="br-oo-qty num" data-testid="br-oo-qty">{w.amount}</span>
       <Chip className="br-oo-chip" data-testid="br-oo-status">{status}</Chip>
-      <span className="br-oo-meta muted" data-testid="br-oo-meta">{t.rowMeta(String(o.placedTick))}</span>
+      <span className="br-oo-meta muted" data-testid="br-oo-meta">{t.rowMeta(String(o.placedTick), o.tif)}</span>
     </>
   );
 }

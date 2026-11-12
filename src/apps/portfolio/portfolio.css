@@ -65,3 +65,5 @@
 @media (pointer: coarse) { .pf-seg button { min-height: 44px; } }
 
 .pf-guest-example{margin:0 0 8px;font-size:12px;}
+.pf-goal-guest{margin:0 0 8px;font-size:12px;}
+.pf-goal-guest.pf-phone{margin:var(--sp-16) var(--sp-16) 0;}

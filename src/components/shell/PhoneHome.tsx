@@ -11,9 +11,10 @@ import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings } from "@/shell/
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
+import { FeedbackButton } from "./FeedbackButton";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
-import { useNw } from "./useNw";
+import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 
@@ -155,7 +156,8 @@ function StatusBar() {
   const clock = useShell((s) => s.channels.clock);
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const nw = useNw();
+  const offline = useShell((s) => s.channels.system.offline);
+  const nw = useNwReading();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const timer = useRef<number | null>(null);
@@ -185,14 +187,17 @@ function StatusBar() {
         <Glyph name="quay" size={20} />
       </button>
       <span className="num clock">{clockText}</span>
-      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
+      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />
       <HaltChip halted={halted} />
       {signedIn ? (
         <button type="button" className="chip chip-acc sb-account" data-testid="account-chip" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>
           {auth.account.handle}
         </button>
       ) : null}
-      <span className="sb-nw" data-testid="strip-nw" title={signedIn ? S.demoBalance : undefined}><MoneyText amount={nw} ctx="chip" /></span>
+      <FeedbackButton compact />
+      <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
+        {nw.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(nw.state)}>{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
+      </span>
     </header>
   );
 }
@@ -200,7 +205,8 @@ function StatusBar() {
 export function PhoneHome() {
   const vis = useShell((s) => s.vis);
   const me = useShell((s) => s.channels.me);
-  const nw = useNw();
+  const reading = useNwReading();
+  const nw = reading.nw ?? "0.00"; // only read with a value: the rank bar and guest today row wait for one
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const rank = useShell((s) => s.channels.rank);
@@ -267,7 +273,7 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label">{signedIn ? S.demoBalance : S.netWorth}</span>
+            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.demoBalance : S.netWorth}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
@@ -278,19 +284,25 @@ export function PhoneHome() {
           {!signedIn ? (
             <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
           ) : null}
-          <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>
+          <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
+            {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
+          </div>
           <div className="widget-row">
             {signedIn ? (
               <span className="today muted" data-testid="today">{S.demoTradingNote}</span>
-            ) : (
+            ) : reading.nw === null ? null : (
               <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
             )}
-            {!signedIn && <Sparkline />}
+            {!signedIn && reading.nw !== null && <Sparkline />}
           </div>
           {signedIn ? (
-            <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
+            <>
+              <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
+              <p data-testid="phone-goal">{S.goalLine}</p>
+              <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="phone-first-trade-guide" onClick={() => store.getState().open("portfolio")}>{S.firstTradeGuide}</Button>
+            </>
           ) : null}
-          {next && (
+          {next && reading.nw !== null && (
             <>
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
                 <span style={{ width: `${progress * 100}%` }} />

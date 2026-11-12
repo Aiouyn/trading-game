@@ -14,11 +14,11 @@
 import type { OrderHistoryRow, Tick } from "./channels";
 import { ORDER_HISTORY_POLICY, type OrderHistoryPolicy } from "./orderPolicy";
 import type { OrderError, OrderResult } from "./orders";
-import { arr, dec, int, lit, nullable, obj, ParseError, str, type Schema } from "./schema";
+import { arr, int, lit, nullable, obj, orderHistoryRow, ParseError, str, type Schema } from "./schema";
 import { getFeed } from "./useChannel";
 
 export type HistoryStatus = OrderHistoryRow["status"];
-export const HISTORY_STATUSES = ["FILLED", "CANCELLED", "REJECTED", "EXPIRED"] as const satisfies readonly HistoryStatus[];
+export const HISTORY_STATUSES = ["FILLED", "CANCELLED", "REJECTED", "EXPIRED", "TRIGGERED"] as const satisfies readonly HistoryStatus[];
 
 /** The params of GET /api/v1/orders/me. `cursor` is the previous page's `nextCursor`, opaque to the client. */
 export interface OrderHistoryReq { readonly status?: HistoryStatus; readonly from?: Tick; readonly to?: Tick; readonly cursor?: string }
@@ -31,10 +31,7 @@ const tick: Schema<Tick> = (v, p = "") => {
   return n;
 };
 export const orderHistoryReq: Schema<OrderHistoryReq> = obj({}, { status, from: tick, to: tick, cursor: str });
-export const orderHistoryRow: Schema<OrderHistoryRow> = obj(
-  { orderId: str, assetId: str, side: lit("BUY", "SELL"), type: str, qty: dec, filled: dec, avgPrice: dec, status, tick },
-  { rejectCode: str },
-);
+export { orderHistoryRow };
 export const orderHistoryRes: Schema<OrderHistoryRes> = obj({ rows: arr(orderHistoryRow), nextCursor: nullable(str) });
 
 /** A reply: the schema, then the page rules (header). Throws ParseError. */

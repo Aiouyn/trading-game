@@ -7,6 +7,9 @@ import { APP_IDS, type AppId } from "./registry";
 import type { ShellStore } from "./store";
 import { nextSnap } from "./wm";
 
+/** Ctrl Shift arrow resize step, px. */
+export const KEY_RESIZE_STEP = 32;
+
 const G_TARGETS: Record<string, AppId> = { p: "portfolio", w: "wire", m: "messages", l: "legal", s: "security" };
 
 export function isTextInput(t: EventTarget | null): boolean {
@@ -38,6 +41,14 @@ export function useShellKeys(store: ShellStore): void {
         e.preventDefault();
         const n = s.local.activeWorkspace + (e.key === "ArrowLeft" ? -1 : 1);
         if (n >= 1 && n <= 3) s.setWorkspace(n as 1 | 2 | 3);
+        return;
+      }
+      if (ctrl && e.shiftKey && arrows[e.key]) {
+        e.preventDefault();
+        if (!top) return;
+        const step = KEY_RESIZE_STEP;
+        const d = { left: [-step, 0], right: [step, 0], up: [0, -step], down: [0, step] }[arrows[e.key]];
+        s.resizeBy(top, d[0], d[1]);
         return;
       }
       if (ctrl && arrows[e.key]) {
@@ -73,7 +84,7 @@ export function useShellKeys(store: ShellStore): void {
 }
 
 export const KEY_SHEET: readonly [string, string][] = [
-  ["Ctrl K", "Launcher"], ["Alt 1–9", "Open or focus shelf app"], ["Ctrl ← → ↑ ↓", "Snap active window"],
+  ["Ctrl K", "Launcher"], ["Alt 1–9", "Open or focus shelf app"], ["Ctrl ← → ↑ ↓", "Snap active window"], ["Ctrl Shift ← → ↑ ↓", "Resize active window"],
   ["Ctrl Alt ← →", "Workspace"], ["Ctrl W / Alt W", "Close window"], ["Ctrl M", "Collapse"], ["Ctrl .", "Focus mode"],
   ["Alt N", "New Broker window"], ["G then P W M L S", "Portfolio, Wire, Messages, Legal, Security"], ["?", "Key sheet"], ["Esc", "Close launcher"],
 ];

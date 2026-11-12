@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { PWA_BG } from "@/pwa/manifest";
 
 const serif = Instrument_Serif({ weight: "400", subsets: ["latin"], variable: "--font-instrument-serif" });
 const sans = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
   description: "A simulated finance and trading game. Fictional markets, no real money.",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: PWA_BG };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

@@ -43,6 +43,8 @@ const EN = {
   topRank: "Top rank",
   emptyCash: "Your money is all cash. Broker or Businesses are good first stops.",
   guestExample: "Example portfolio · not your account",
+  /** M2-02: the guest is told the start and the goal, no figures of theirs (the example portfolio is not theirs). */
+  guestGoal: "Sign in to start with $10,000 in game money and a goal of $20,000.",
   // UI card 8 (Orders tab: open orders + recent fills). Side and Open orders copy come from Broker's brStrings.
   orders: "Orders",
   recentFills: "Recent fills",
@@ -84,6 +86,7 @@ const FR: Strings = {
   topRank: "Rang maximal",
   emptyCash: "Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.",
   guestExample: "Portefeuille d’exemple · pas le vôtre",
+  guestGoal: "Connectez-vous pour commencer avec 10\u202F000\u00A0$ de monnaie du jeu et un objectif de 20\u202F000\u00A0$.",
   orders: "Ordres",
   recentFills: "Exécutions récentes",
   fillsHelp: "Vos dernières transactions. Les plus anciennes figureront dans l’historique des ordres.",

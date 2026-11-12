@@ -12,18 +12,30 @@ import { useShell } from "@/components/shell/ShellContext";
 import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
 import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/contracts/channels";
-import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
-import { authoritativeQuoteProvenance, getFeed, useChannel } from "@/shell/contracts/useChannel";
+import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms, type OrderTif } from "@/shell/contracts/orders";
+import { authoritativeFear, authoritativeQuoteProvenance, getFeed, knownOffline, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
+import { decText } from "@/apps/portfolio/positions/format";
+import { GoalSlot } from "@/apps/portfolio/GoalSlot";
 import { PriceChart } from "@/components/market/PriceChart";
+import { asDefault, retryableLazy } from "@/components/shell/retryableLazy";
 import { AssetHeader } from "./AssetHeader";
-import { AssetPage, ViewSwitch, type BrokerView } from "./AssetPage";
 import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
-import { SimpleTicket } from "./SimpleTicket";
-import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
-import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
+import { PreviewRows, SimpleTicket } from "./SimpleTicket";
+import { fillOf, orderIdOf } from "./ticketResult";
+import { BR_STACK_SCALE, reasonCopy } from "./strings-en";
+import { useBrStrings } from "./useBrStrings";
+import { ViewSwitch, type BrokerView } from "./ViewSwitch";
 import "./broker.css";
+
+const RetryableAssetPage = retryableLazy(() => import("./AssetPage"));
+const RetryableReview = retryableLazy(async () => asDefault((await import("./TicketReview")).ReviewBlock));
+const RetryableAck = retryableLazy(async () => asDefault((await import("./TicketReview")).AckPanel));
+
+const panelFallback = (testId: string) => (
+  <div className="br-skel br-skel-ticket" data-testid={testId} aria-busy="true" role="status" />
+);
 
 /** 19 Rule 3.8.5: never more than 5 preview requests per tick. */
 export const MAX_PREVIEWS_PER_TICK = 5;
@@ -33,10 +45,10 @@ export const PREVIEW_DEBOUNCE_MS = 300;
 type Phase =
   | { kind: "edit" }
   | { kind: "review" }
-  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: boolean };
+  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: false | "error" | "offline" | "unknown" };
 
-interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string }
-const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}`;
+interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string; tif: OrderTif }
+const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}|${d.tif}`;
 /** The type's prices, once each box the type shows has a well-formed price; null otherwise. */
 function termsOf(type: DayOrderType, limitText: string, stopText: string): OrderTerms | null {
   const limit = parsePriceInput(limitText);
@@ -57,13 +69,13 @@ export function BrokerFrame({ context }: { context?: string }) {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const locale = useShell((s) => s.prefs.locale);
   const stacked = useShell((s) => s.prefs.textScale >= BR_STACK_SCALE);
-  const t = brStrings(locale);
+  const t = useBrStrings(locale);
   const ticker = useChannel("ticker:wl_default");
   const me = useChannel("me");
 
   const choices = useMemo(() => (ticker.body ? Object.keys(ticker.body.rows).sort() : []), [ticker.body]);
   const fixedAsset = context ? parseAssetId(context) : null;
-  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" });
+  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "", tif: "day" });
   const assetId = fixedAsset ?? (draft.assetId || choices[0] || "");
   const [touched, setTouched] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "edit" });
@@ -86,12 +98,14 @@ export function BrokerFrame({ context }: { context?: string }) {
     const a = parseAssetId(assetId);
     const q = parseQtyInput(draft.qtyText);
     const terms = termsOf(draft.type, draft.limitText, draft.stopText);
-    return a && q.kind === "whole" && terms ? dayDraft(a, draft.side, q.qty, terms) : null;
-  }, [assetId, draft.side, draft.qtyText, draft.type, draft.limitText, draft.stopText]);
+    return a && q.kind === "whole" && terms ? dayDraft(a, draft.side, q.qty, terms, draft.tif) : null;
+  }, [assetId, draft.side, draft.qtyText, draft.type, draft.limitText, draft.stopText, draft.tif]);
   const key = order ? draftKey(order) : null;
   const preview = est && est.key === key ? est.res : null;
   const tickerTick = ticker.tick;
   const frozen = ticker.state === "stale" || me.state === "stale";
+  // M2-05: the channel layer holds every view stale while the browser reports offline; say so on the ticket.
+  const offline = frozen && knownOffline();
 
   // Preview scheduling: one request 300 ms after the last edit, then one per new ticker tick while shown; a per-tick
   // budget caps both (19 Rule 3.8.5) and a sequence number drops replies to an older draft. A request the budget
@@ -134,6 +148,9 @@ export function BrokerFrame({ context }: { context?: string }) {
   const bare = order ? (order.side === "BUY" ? t.actionBuy : t.actionSell)(order.qty, assetId) : "";
   // Review title: action + terms for priced types ("Buy 40 HALC · Limit 42.10"); market keeps card 4's bare action.
   const action = order && order.type !== "market" ? t.actionTerms(bare, termsText(t, locale, order)) : bare;
+  const trigger = order && (order.type === "stop" || order.type === "stop_limit")
+    ? (order.side === "SELL" ? t.sellStop : t.buyStop)(decText(order.stop, locale))
+    : null;
   const reviewStale = preview !== null && tickerTick !== null && preview.computedAtTick < tickerTick;
   const canReview = phase.kind === "edit" && preview !== null && preview.valid && !frozen;
   const canPlace = phase.kind === "review" && preview !== null && preview.valid && !reviewStale && !frozen;
@@ -152,7 +169,8 @@ export function BrokerFrame({ context }: { context?: string }) {
     const atTick = me.tick ?? 0;
     setPhase({ kind: "placed", atTick, intentId: null, failed: false });
     void placeOrder(order).then((r) => {
-      setPhase(r.ok ? { kind: "placed", atTick, intentId: r.value, failed: false } : { kind: "placed", atTick, intentId: null, failed: true });
+      setPhase(r.ok ? { kind: "placed", atTick, intentId: r.value, failed: false }
+        : { kind: "placed", atTick, intentId: null, failed: r.error.kind === "offline" || r.error.kind === "unknown" ? r.error.kind : "error" });
     });
   };
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.
@@ -167,7 +185,13 @@ export function BrokerFrame({ context }: { context?: string }) {
     if ((k === "b" || k === "s") && phase.kind === "edit") { e.preventDefault(); setSide(k === "b" ? "BUY" : "SELL"); return; }
     if (e.key !== "Enter" || e.target instanceof HTMLButtonElement) return; // a focused button activates itself
     if (phase.kind === "edit") { e.preventDefault(); toReview(); }
-    else if (phase.kind === "review") { e.preventDefault(); place(); }
+    else if (phase.kind === "review") {
+      // Phone review sits in a Sheet over the ticket. Enter on the sheet chrome (or a lazy
+      // skeleton) must not place; Enter on a ticket field still does (qty still focused).
+      if (e.target instanceof HTMLElement && e.target.closest('[data-testid="br-sheet"]')) return;
+      e.preventDefault();
+      place();
+    }
   };
 
   const retry = () => { getFeed().resync("ticker:wl_default"); getFeed().resync("me"); };
@@ -219,6 +243,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     <div className="br-col br-col-head">
       <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices} focusRef={setHead}
         provenance={authoritativeQuoteProvenance(ticker.tick)}
+        fear={authoritativeFear()}
         onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={withChart ? chart : undefined} />
       {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
       {(view === "trade" || !phone) && <ViewSwitch t={t} view={view} onView={onView} ids={viewIds} />}
@@ -230,7 +255,9 @@ export function BrokerFrame({ context }: { context?: string }) {
         <div className="br-grid">
           {header(false)}
           <div className="br-col br-col-ticket">
-            <AssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade} />
+            <RetryableAssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade}
+              fallback={panelFallback("br-about-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+              errorTestId="br-about-error" retryTestId="br-about-retry" />
           </div>
         </div>
       </div>
@@ -243,18 +270,24 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const reviewing = phase.kind === "review" || (placed !== null && result === null);
   const review = reviewing && (
-    <ReviewBlock t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace}
-      pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} onEdit={toEdit} onPlace={place} />
+    <RetryableReview t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace}
+      pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} offline={offline} onEdit={toEdit} onPlace={place}
+      trigger={trigger}
+      previewRows={preview ? <PreviewRows t={t} locale={locale} res={preview} stale={reviewStale && phase.kind === "review"} /> : null}
+      fallback={panelFallback("br-review-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+      errorTestId="br-review-error" retryTestId="br-review-retry" />
   );
   const ack = result && (
-    <AckPanel t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
+    <RetryableAck t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
       queued={(() => { const id = orderIdOf(result); return id !== null && body.orders[id]?.status === "QUEUED_AUCTION"; })()}
-      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject} />
+      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject}
+      fallback={panelFallback("br-ack-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+      errorTestId="br-ack-error" retryTestId="br-ack-retry" />
   );
   const ticket = (
     <SimpleTicket t={t} locale={locale} side={draft.side} qtyText={draft.qtyText} qtyRef={qtyRef}
-      orderType={<OrderType t={t} type={draft.type} limitText={draft.limitText} stopText={draft.stopText} readOnly={phase.kind !== "edit"} stacked={stacked} onType={setType} onPrice={setPrice} />}
-      kind={t.kindDay(typeLabel(t, draft.type))}
+      orderType={<OrderType t={t} type={draft.type} limitText={draft.limitText} stopText={draft.stopText} readOnly={phase.kind !== "edit"} stacked={stacked} tif={draft.tif} onType={setType} onTif={(tif) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, tif })); }} onPrice={setPrice} />}
+      kind={(draft.tif === "gtc" ? t.kindGtc : t.kindDay)(typeLabel(t, draft.type))}
       onSide={setSide} onQty={(q) => { setTouched(true); setDraft((d) => ({ ...d, qtyText: q })); }} onQtyBlur={() => setTouched(true)}
       message={qtyMessage} preview={preview} pending={phase.kind === "edit" && order !== null && preview === null}
       reviewDisabled={!canReview} onReview={toReview} readOnly={phase.kind !== "edit"} />
@@ -267,6 +300,7 @@ export function BrokerFrame({ context }: { context?: string }) {
         <div className="br-col br-col-ticket">
           {ack || (phone ? ticket : review || ticket)}
           {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
+          {!phone && <GoalSlot locale={locale} />}{/* M2-02 goal entry where no Portfolio window shows it (desktop 1024–1263) */}
         </div>
         {orders}
       </div>

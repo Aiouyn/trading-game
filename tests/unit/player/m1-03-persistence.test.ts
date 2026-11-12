@@ -297,7 +297,9 @@ describe("M1-03 private ledger persistence", () => {
     applySignedInDemo(store, "acc_x", 17, { cashCents: 880_055 });
     expect(store.getState().channels.me.nw).toBe(cashCentsToMoney(880_055));
     expect(store.getState().liveNw).toBe("8800.55");
-    expect((getFeed() as MockFeed).scenario.nw).toBe("8800.55");
+    // M1-06: no NW pin on the signed-in feed; `me` is the saved ledger at server marks once it is read.
+    expect((getFeed() as MockFeed).scenario.nw).toBeNull();
+    expect((getFeed() as MockFeed).authoritativeQuotes).toBe(true);
     expect(START_CASH_CENTS).toBe(1_000_000);
   });
 });

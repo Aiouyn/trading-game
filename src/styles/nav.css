@@ -25,7 +25,8 @@
 /* Phone (< 768) */
 .quay.is-phone { position: fixed; inset: 0; }
 .phone { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
-.statusbar { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 4px; background: var(--chrome-translucent); z-index: var(--z-chrome); }
+.statusbar { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 4px; background: var(--chrome-translucent); z-index: var(--z-chrome); overflow: hidden; }
+.statusbar .quay-feedback-btn { min-width: 44px; min-height: 44px; flex: none; }
 .statusbar .clock { font-size: var(--fs-13); }
 .quay-mark { width: 44px; height: 44px; display: grid; place-items: center; -webkit-touch-callout: none; user-select: none; touch-action: none; }
 .sb-nw { margin-left: auto; font-size: var(--fs-12_5); }

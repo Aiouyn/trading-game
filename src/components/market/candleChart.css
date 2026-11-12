@@ -1,6 +1,11 @@
 /* Price chart plot (UI card 7), the lazy chunk's styles. Colours are tokens; the canvas reads its own through
    chartTheme.ts. The tag and the halted band are positioned by transform only (no layout shift). */
-.cc { position: absolute; inset: 0; background: var(--win); }
+.cc { position: relative; flex: 1 0 auto; display: flex; flex-direction: column; background: var(--win); }
+/* The plot and everything drawn over it; the OHLCV legend sits above it, never over the bars. The box (broker.css)
+   grows with the legend's lines; the plot keeps --cc-stage-h. With RSI on, its pane (RSI_PANE_H 80 px in
+   CandleChart.tsx), the pane separator and the 28 px time axis (110 px together) are added under the price pane. */
+.cc-stage { position: relative; flex: 1 0 auto; min-height: var(--cc-stage-h, 200px); }
+.cc-rsi .cc-stage { min-height: calc(var(--cc-stage-h, 200px) + 110px); }
 .cc-plot { position: absolute; inset: 0; border-radius: var(--r-input); }
 .cc-plot:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
 html[data-hc="1"] .cc-plot { border: 1px solid var(--fg-muted); }
@@ -14,4 +19,39 @@ html[data-hc="1"] .cc-plot { border: 1px solid var(--fg-muted); }
   position: absolute; top: 0; left: 0; z-index: 1; width: 24px; pointer-events: none;
   background: color-mix(in srgb, var(--steel) 24%, transparent); will-change: transform;
 }
+.cc-legend {
+  /* In flow above the plot. Two lines reserved (the box adds them, broker.css), so a longer value or a wrap to two
+     lines never resizes the plot; a third line (overlays, large text) adds to the box, not taken from the plot. */
+  flex: none; margin: 0; padding: 0 var(--sp-8); min-height: var(--cc-legend-h, calc(32px * var(--text-scale))); pointer-events: none;
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0 var(--sp-8); color: var(--fg-muted); font-size: var(--fs-11_5);
+  line-height: calc(16px * var(--text-scale)); /* whole pixels, so nothing below lands on a half pixel */
+}
+.cc-legend-time, .cc-legend-k { color: var(--fg-faint); }
+/* Overlays in the legend: a new line, each value after a short sample of its line (SMA solid, EMA dashed). */
+.cc-legend-br { flex-basis: 100%; height: 0; }
+.cc-study::before { content: ""; display: inline-block; width: 12px; vertical-align: middle; margin-right: var(--sp-4); border-top: 2px solid; }
+.cc-study-sma::before { border-top-color: var(--info); }
+.cc-study-ema::before { border-top-style: dashed; border-top-color: var(--warn); }
+.cc-study-bb::before { border-top-style: dashed; border-top-color: var(--steel); }
+.cc-study-vwap::before { border-top-style: dotted; border-top-color: var(--fg-muted); }
+.cc-study-rsi::before { border-top-color: var(--steel); }
 .cc-halted { position: absolute; top: var(--sp-8); left: var(--sp-8); z-index: 2; color: var(--steel); font-size: var(--fs-12_5); font-weight: 500; pointer-events: none; }
+/* Trend lines (TrendLayer): an SVG the size of the plot pane, over the canvas and under nothing that takes the pointer.
+   It lets the pointer through to the chart (pan, zoom) except on a line and a selected line's ends; while placing it
+   takes every press, so the plot does not pan under the pen. */
+/* touch-action on the svg box: Chromium does not take it from the shapes, and a touch that starts on a line or an end
+   must not become a page scroll or a chart pan (a touch anywhere else passes through to the chart's own). */
+.cc-draw { position: absolute; top: 0; left: 0; z-index: 3; overflow: hidden; pointer-events: none; touch-action: none; }
+.cc-draw:focus { outline: none; }
+.cc-draw.placing { pointer-events: auto; cursor: crosshair; }
+.cc-trend:focus { outline: none; }
+.cc-trend-line { fill: none; stroke: var(--fg); stroke-width: 1.5px; stroke-linecap: round; pointer-events: none; }
+.cc-trend[aria-pressed="true"] .cc-trend-line, .cc-trend:focus-visible .cc-trend-line { stroke-width: 2.5px; }
+.cc-trend-draft { stroke-dasharray: 4 3; }
+.cc-trend-hit { fill: none; stroke: transparent; stroke-width: 16px; pointer-events: stroke; cursor: pointer; }
+.cc-draw.placing .cc-trend-hit { pointer-events: none; }
+.cc-trend-grab { fill: transparent; pointer-events: all; cursor: move; }
+.cc-trend-handle { fill: var(--win); stroke: var(--fg); stroke-width: 1.5px; pointer-events: all; cursor: move; }
+.cc-trend-handle:focus { outline: none; }
+.cc-trend-handle:focus-visible { stroke-width: 3px; }
+html[data-hc="1"] .cc-trend-line { stroke-width: 2px; }

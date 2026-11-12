@@ -4,8 +4,8 @@
 // by tests/unit/17b/CH-00-schema.test.ts, so the two can't drift.
 import type {
   AuctionResult, BoardBody, BoardRow, BookBody, Candle, CandleHistoryReq, CandleHistoryRes, CandleRes, CandlesBody, ChannelErr,
-  ChannelName, Delta, DeltaOp, DepthLevel, Filing, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, NwBreakdown,
-  NwStats, OpenOrder, OrderDraft, Position, PreviewRes, AssetDetail, RestrictedBucket, ServerFrame, Side, Snap, TapeBody,
+  ChannelName,   CoinRow, Delta, DeltaOp, DepthLevel, Filing, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, NwBreakdown,
+  NwStats, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes, AssetDetail, RestrictedBucket, ServerFrame, Side, Snap, TapeBody,
   TapePrint, TickerBody, TickerRow, TradingState, WireItem, WireKind,
 } from "./channels";
 
@@ -76,16 +76,26 @@ const tapePrint: Schema<TapePrint> = obj({ assetId: str, tick: int, price: dec, 
 export const tapeBody: Schema<TapeBody> = obj({ assetId: str, prints: arr(tapePrint) });
 
 export const candle: Schema<Candle> = obj({ t: int, o: dec, h: dec, l: dec, c: dec, v: dec });
-export const candlesBody: Schema<CandlesBody> = obj({ assetId: str, res: candleRes, live: candle });
+export const candlesBody: Schema<CandlesBody> = obj({ assetId: str, res: candleRes, live: candle }, { rev: str });
 export const candleHistoryReq: Schema<CandleHistoryReq> = obj({ assetId: str, res: candleRes, from: int, to: int });
 export const candleHistoryRes: Schema<CandleHistoryRes> = obj({ bars: arr(candle) });
 
 const position: Schema<Position> = obj({ assetId: str, qty: dec, avgCost: dec, mark: dec, value: dec, upl: dec, pledgedQty: dec, lentQty: dec }, { pnlPct: dec, weightPct: dec }); // optional: proposed (PF-B), Engine to confirm
+export const coinRow: Schema<CoinRow> = obj({ ticker: str, qty: int, value: int, cost: int });
 export const openOrder: Schema<OpenOrder> = obj(
-  { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, tif: str, status: lit("PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"), placedTick: int, avgPrice: dec },
+  { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, tif: str, status: lit("PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION", "TRIGGERED", "EXPIRED", "CANCELLED"), placedTick: int, avgPrice: dec },
   { limit: dec, stop: dec },
 );
-const myFill: Schema<MyFill> = obj({
+const nonNegTick: Schema<number> = (v, p = "") => {
+  const n = int(v, p);
+  if (n < 0) return fail(p, "expected a tick (safe integer >= 0)");
+  return n;
+};
+export const orderHistoryRow: Schema<OrderHistoryRow> = obj(
+  { orderId: str, assetId: str, side, type: str, qty: dec, filled: dec, avgPrice: dec, status: lit("FILLED", "CANCELLED", "REJECTED", "EXPIRED", "TRIGGERED"), tick: nonNegTick },
+  { rejectCode: str },
+);
+export const myFill: Schema<MyFill> = obj({
   fillId: str, tick: int, assetId: str, orderId: str, side, qty: dec, price: dec, fee: dec, feeCcy: str,
   liquidity: lit("MAKER", "TAKER", "AUCTION"), counterpartyKind: lit("PLAYER", "NPC"),
 });
@@ -105,7 +115,7 @@ export const meBody: Schema<MeTradingBody> = obj(
     balances: rec(dec), nw: dec, nwi: dec, restricted: arr(restricted), positions: rec(position), orders: rec(openOrder),
     fills: arr(myFill), margin: nullable(rec(dec)), holds: rec(unknownV), intents: arr(intentResult), alerts: arr(unknownV),
   },
-  { nwStats, nwBreakdown },
+  { nwStats, nwBreakdown, coins: arr(coinRow), history: arr(orderHistoryRow) },
 );
 
 const wireKind: Schema<WireKind> = lit("NEWS", "RUMOR", "FILING", "VERDICT", "MARKET", "PURCHASE", "ALLIANCE", "STATEMENT", "OUTLET", "CHAPTER", "RECORD", "RANK", "PHILANTHROPY", "WORLD_EVENT", "DAILY_CLOSE");
@@ -114,6 +124,7 @@ const wireItem: Schema<WireItem> = obj(
   {
     slots: rec(str), sourceRecord: obj({ hits: int, resolved: int }), sourceBand: lit("low", "mixed", "solid"),
     pricedInBand: lit("early", "mid", "late", "done"), pricedInAsOf: int, filingId: str, outletId: str, body: rec(str),
+    phase: lit("forecast", "realized", "eased"), causeKey: str, effects: arr(obj({ assetId: str, from: dec, to: dec, pct: dec })),
   },
 );
 export const newsBody: Schema<NewsBody> = obj({ items: arr(wireItem) });
@@ -132,7 +143,7 @@ export const orderDraft: Schema<OrderDraft> = obj(
 );
 export const previewRes: Schema<PreviewRes> = obj(
   { price: dec, estFill: dec, fee: dec, valid: bool, buyingPowerAfter: dec, impactBp: dec, impactMoney: dec, total: dec, firstTradeCapRemaining: nullable(dec), computedAtTick: int },
-  { reasonCode: str, marginAfter: dec },
+  { reasonCode: str, marginAfter: dec, executableQty: dec },
 );
 export const assetDetail: Schema<AssetDetail> = obj(
   { assetId: str, ticker: str, name: str, class: str, sector: str, bloc: str, ccy: str, displayDecimals: int, qtyDecimals: int, licenseTier: str, tradingState },
