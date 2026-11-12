@@ -28,19 +28,33 @@ import { runReady } from "../../../tools/ops/ready";
 
 const SECRET = "super-secret-value";
 
-function bootRegister(extra: Record<string, string>): { status: number | null; stderr: string } {
-  const env: Record<string, string | undefined> = { ...process.env };
-  delete env.QUAY_SPEND_OPT_IN;
-  delete env.QUAY_KILL_SWITCH;
-  delete env.DATABASE_URL;
-  delete env.VERCEL;
-  Object.assign(env, extra);
-  const result = spawnSync(
-    path.join(process.cwd(), "node_modules", ".bin", "tsx"),
-    ["tools/ops/boot-register.ts"],
-    { cwd: process.cwd(), env: env as NodeJS.ProcessEnv, encoding: "utf8", timeout: 30_000 },
-  );
-  return { status: result.status, stderr: result.stderr ?? "" };
+/** Store roots `register()` locks. All four must sit in the temp dir, or an inherited path creates the checkout `.data`. */
+function pointStoreEnv(env: Record<string, string | undefined>, dir: string): void {
+  env.QUAY_DATA_DIR = dir;
+  env.QUAY_AUTH_DATA_DIR = dir;
+  env.QUAY_STORM_DATA_DIR = dir;
+  env.QUAY_TELEMETRY_DIR = dir;
+}
+
+async function bootRegister(extra: Record<string, string>): Promise<{ status: number | null; stderr: string }> {
+  const dir = await mkdtemp(path.join(tmpdir(), "quay-boot-register-"));
+  try {
+    const env: Record<string, string | undefined> = { ...process.env };
+    delete env.QUAY_SPEND_OPT_IN;
+    delete env.QUAY_KILL_SWITCH;
+    delete env.DATABASE_URL;
+    delete env.VERCEL;
+    pointStoreEnv(env, dir);
+    Object.assign(env, extra);
+    const result = spawnSync(
+      path.join(process.cwd(), "node_modules", ".bin", "tsx"),
+      ["tools/ops/boot-register.ts"],
+      { cwd: process.cwd(), env: env as NodeJS.ProcessEnv, encoding: "utf8", timeout: 30_000 },
+    );
+    return { status: result.status, stderr: result.stderr ?? "" };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 const SAMPLES: { id: PaidProviderId; key: string; value: string }[] = [
@@ -107,25 +121,32 @@ describe("M3-06 spend guard", () => {
     expect(() => resolveSpendGuard({ QUAY_SPEND_OPT_IN: "1", DATABASE_URL: "not-a-url" })).toThrow(/DATABASE_URL/);
     expect(resolveSpendGuard({ QUAY_SPEND_OPT_IN: "1", DATABASE_URL: "https://db.example" }).enabled).toContain("database");
     // register() claims the store lock until this process exits. A disposable
-    // root keeps that claim off the default .data the next test's boot-register child locks.
-    const prevData = process.env.QUAY_DATA_DIR;
+    // root keeps that claim off the checkout .data a dev server may already be using.
+    const prev = {
+      QUAY_DATA_DIR: process.env.QUAY_DATA_DIR,
+      QUAY_AUTH_DATA_DIR: process.env.QUAY_AUTH_DATA_DIR,
+      QUAY_STORM_DATA_DIR: process.env.QUAY_STORM_DATA_DIR,
+      QUAY_TELEMETRY_DIR: process.env.QUAY_TELEMETRY_DIR,
+    };
     const dir = await mkdtemp(path.join(tmpdir(), "quay-register-"));
-    process.env.QUAY_DATA_DIR = dir;
+    pointStoreEnv(process.env, dir);
     try {
       await expect(register()).resolves.toBeUndefined();
     } finally {
-      if (prevData === undefined) delete process.env.QUAY_DATA_DIR;
-      else process.env.QUAY_DATA_DIR = prevData;
+      for (const key of Object.keys(prev) as (keyof typeof prev)[]) {
+        if (prev[key] === undefined) delete process.env[key];
+        else process.env[key] = prev[key];
+      }
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it("register exits non-zero when a paid URL is set without an exact opt-in", () => {
-    const refuse = bootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: " 1" });
+  it("register exits non-zero when a paid URL is set without an exact opt-in", async () => {
+    const refuse = await bootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: " 1" });
     expect(refuse.status).toBe(1);
     expect(refuse.stderr).toMatch(/QUAY_SPEND_OPT_IN/);
     expect(refuse.stderr).not.toContain("example.supabase.co");
-    const allow = bootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: "1" });
+    const allow = await bootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: "1" });
     expect(allow.status).toBe(0);
   });
 
