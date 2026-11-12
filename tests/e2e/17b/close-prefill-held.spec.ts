@@ -74,7 +74,7 @@ test("desktop: after a fresh sign-in, Positions open, a new HALC fill's Close is
 
   const halc = page.locator('[data-testid="pos-row"][data-asset="HALC"]');
   await expect(halc).toBeVisible({ timeout: 10_000 });
-  await page.getByTestId("win-portfolio").first().locator(".tb-name").click();
+  await page.getByTestId("tile-portfolio").click();
   const close = halc.getByTestId("pos-close");
   await expect.poll(async () => (await close.getAttribute("aria-disabled")) !== "true" && !(await close.isDisabled()), { timeout: 5_000 }).toBe(true);
   await close.click();
