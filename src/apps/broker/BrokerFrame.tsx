@@ -24,6 +24,7 @@ import { OrderType, termsText, typeLabel } from "./OrderType";
 import { PreviewRows, SimpleTicket } from "./SimpleTicket";
 import { fillOf, orderIdOf } from "./ticketResult";
 import { setTicketSubmitting, subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
+import { dropPlaced, notePlaced, releaseTickets, settlePlaced } from "./placedAcks";
 import { BR_STACK_SCALE, reasonCopy } from "./strings-en";
 import { useBrStrings } from "./useBrStrings";
 import { ViewSwitch, type BrokerView } from "./ViewSwitch";
@@ -96,6 +97,9 @@ export function BrokerFrame({ context }: { context?: string }) {
   const [est, setEst] = useState<{ key: string; res: PreviewRes; epoch: number } | null>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const placing = useRef(false);
+  /** Card 41: this ticket's placedAcks entries not yet shown here, and the one for the current Place. */
+  const placedIds = useRef<Set<number>>(new Set());
+  const placedNow = useRef<number | null>(null);
   const focusQty = useRef(false);
   const [view, setView] = useState<BrokerView>("trade");
   /** Shared reset used by New order, Edit-after-reject, and a Positions Close prefill. Clears the in-flight place latch. */
@@ -232,11 +236,28 @@ export function BrokerFrame({ context }: { context?: string }) {
     placing.current = true; // one placeOrder per Place, whatever clicks or Enters follow (17-AT-07)
     const atTick = me.tick ?? 0;
     setPhase({ kind: "placed", atTick, intentId: null, failed: false });
+    // Card 41: note the Place outside this component, so its outcome still shows if this ticket unmounts first.
+    const pid = notePlaced(order.assetId);
+    placedIds.current.add(pid);
+    placedNow.current = pid;
     void placeOrder(order).then((r) => {
+      settlePlaced(pid, r.ok ? { ok: true, intentId: r.value }
+        : { ok: false, failed: r.error.kind === "offline" || r.error.kind === "unknown" ? r.error.kind : "error" });
       setPhase(r.ok ? { kind: "placed", atTick, intentId: r.value, failed: false }
         : { kind: "placed", atTick, intentId: null, failed: r.error.kind === "offline" || r.error.kind === "unknown" || r.error.kind === "paused" ? r.error.kind : "error" });
     });
   };
+  // Card 41: this ticket showed the outcome itself (ack panel or the failed line): nothing left for the shell toast.
+  const shownHere = result !== null || (placed !== null && placed.failed !== false);
+  useEffect(() => {
+    const pid = placedNow.current;
+    if (!shownHere || pid === null) return;
+    placedNow.current = null;
+    placedIds.current.delete(pid);
+    dropPlaced(pid);
+  }, [shownHere]);
+  // Unmounting before that (phone: another app opened; desktop: window closed) hands the outcome to the shell.
+  useEffect(() => { const ids = placedIds.current; return () => releaseTickets(ids); }, []);
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.
   useEffect(() => { if (focusQty.current && qtyRef.current) { focusQty.current = false; qtyRef.current.focus(); } });
   const newOrder = () => { toFreshEdit(() => { focusQty.current = true; setTouched(false); setDraft((d) => ({ ...d, qtyText: "" })); }); };
