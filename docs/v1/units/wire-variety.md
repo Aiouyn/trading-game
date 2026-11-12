@@ -36,3 +36,23 @@ Recorded 2026-11-12T01:38:37+01:00 Europe/Paris, after the fix, checks, e2e and 
 - The existing farm-confirm unit was given a 15 s timeout. Isolated it already finished in ~4.1 s on this branch and ~3.0 s on the base; under the full 167-worker `npm test` it could tip the default 5 s.
 - Checks (ports 3460–3469): lint 0, map-no-dup 13/13, typecheck 0, build 0, check-hooks 0 (487 files, 0 hits), `npm test` 166 passed / 1 skipped files, 2471 passed / 2 skipped tests, route-budget 196.5 KB gz / 215 KB on port 3460. Proof `tools/proofs/wire-variety.ts` exits 0 (evidence `/workspace/avalon/evidence/sys-wire-variety/proofs/`).
 - Affected e2e `tests/e2e/17b/M1-09-wire.spec.ts` in a fresh detached worktree at `85f16563` with fresh `.data` on port 3464: 2 passed / 2 skipped / 0 failed (desktop journey and phone 390/520 fit; crossed project cases skipped by the spec). That worktree was removed.
+
+## Delta: per-cycle reshuffle (written 2026-11-12T06:31:06+01:00 Europe/Paris, before any new product or test code)
+
+The first pass shuffles once per seed, so the same eight company headlines (and the same crisis order) loop every 96 ticks / 8 real minutes. That is still a visible loop. This delta reshuffles each 16-slot cycle, still default-off in the sense that it only touches `src/market/wireStories.ts`, tests, this UNIT, the official calibration fixture if the events-on walk moves, and the proof runner. Auth, broker, Wire statement code, and `clock.ts` stay untouched. No new system is mounted.
+
+### Design
+
+- Each cycle's company order and crisis order is derived from `hash(seed, cycleIndex)` (the existing FNV-1a `hash`, keys `co:${cycle}` and `order:${cycle}`), **not** from a shared RNG stream that advances as cycles are drawn. `catalogStoryAt(seed, tick)` stays a pure function of its arguments. Jumping straight to cycle *k* must yield the same deck as walking every slot from cycle 0. A test fails if the shuffle depends on stream state.
+- Consecutive cycles are not identical. The last company `defId` of cycle *n* is not the first company `defId` of cycle *n+1`; the last crisis kind of cycle *n* is not the first of cycle *n+1*.
+- Company `defId` still must not recur at a 60-tick or 72-tick interval (the first-pass playtest periods). A repair against the previous cycle's already-derived deck may rehash under a deterministic attempt key (`co:${cycle}:rN`) until those constraints hold. That repair looks only at `hash(seed, ·)` and at previous cycles recomputed the same way; it does not consume stream state. Crisis watch/outcome pairing and `crisisHits(seed, cycle, quartet)` stay as they are.
+- Magnitudes, the M1-09 grid, residual unwind, and "drawing it never touches the quote RNG" are unchanged.
+
+### Acceptance checks
+
+1. Over a 10,000-tick window after `START_TICK`, the published `defId` sequence is not periodic with any period *p* where `1 ≤ p ≤ 72` ticks (checked on the story grid). Consecutive 16-slot cycles do not have identical company `defId` lists or identical crisis-kind lists.
+2. For several cycle indices *k* (including 0, 1, 7, and a cycle well past the first 10 minutes), the company and crisis decks obtained by calling `catalogStoryAt` only on ticks in cycle *k* equal the decks obtained by walking every story slot from cycle 0 through *k*. Same seed and tick stay stable under repeated isolated calls.
+3. No company `defId` repeats at a 60-tick or 72-tick interval in the 10-minute window after `START_TICK`, and the official-seed playtest ticks 27694 / 27754 / 27814 are still not three copies of `avb-earnings`. Across a long window, consecutive cycles also respect the 60- and 72-tick gaps and the boundary rule above.
+4. Existing checks still hold: every cycle still uses each company story and each crisis kind once; watch/outcome pairing is unchanged; severity stays in `[0.6, 1.4]`; the grid and hash-only selection are unchanged.
+5. The official calibration fixture is regenerated if the events-on walk changes. The calm walk must stay byte-identical (quote RNG untouched). Events-on `index_cagr` and FROG closes are reported honestly (PASS or honest MISS; no hiding drift). Lint, typecheck, build, check-hooks, route-budget, map-no-dup, `npm test`, and the affected Wire e2e in a fresh worktree all pass.
+
