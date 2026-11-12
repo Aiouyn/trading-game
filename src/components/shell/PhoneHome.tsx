@@ -174,18 +174,25 @@ function StatusBar() {
       data-testid="statusbar"
       // Pull down from the status bar opens the full-screen launcher (SH-04).
       onPointerDown={(e) => {
-        if ((e.target as HTMLElement).closest("button")) return;
+        // The Quay mark has its own long-press / back handlers. Other status-bar
+        // controls (Feedback, account) are clicks: a downward pull still opens the
+        // launcher, otherwise a 44 px Feedback in the middle of the bar swallows SH-04.
+        if ((e.target as HTMLElement).closest("[data-testid='quay-mark']")) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         pullY.current = e.clientY;
       }}
       onPointerUp={(e) => {
-        if (pullY.current !== null && e.clientY - pullY.current > 40) store.getState().setLauncher(true);
+        if (pullY.current !== null && e.clientY - pullY.current > 40) {
+          e.preventDefault();
+          store.getState().setLauncher(true);
+        }
         pullY.current = null;
       }}
     >
       <button className="quay-mark fg" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
         <Glyph name="quay" size={20} />
       </button>
+      <FeedbackButton compact />
       <span className="num clock">{clockText}</span>
       <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />
       <HaltChip halted={halted} />
@@ -194,7 +201,6 @@ function StatusBar() {
           {auth.account.handle}
         </button>
       ) : null}
-      <FeedbackButton compact />
       <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
         {nw.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(nw.state)}>{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
       </span>
