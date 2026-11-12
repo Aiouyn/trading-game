@@ -4,7 +4,7 @@
 // `me.fills` / `me.positions` / `me.orders`. The guide never places, pre-fills or confirms an order: its buttons only
 // open Wire or Broker, and "done" comes from the server ledger alone (a fill or a position), never from a click.
 // Hiding the guide is saved on this device per account (localStorage), not on the server.
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/Button";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { useShellStore } from "@/components/shell/ShellContext";
