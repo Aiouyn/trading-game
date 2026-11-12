@@ -3,15 +3,24 @@
 // Phone: full-width 32 px banner in the flow directly under the status bar; it pushes content down
 // and never overlaps it. Height eases over --dur-fast (0 under reduced motion).
 import { retryLoad } from "@/shell/loader";
-import { S } from "@/shell/strings";
+import { S, connectionLost } from "@/shell/strings";
 import { MoreButton } from "./Banner";
 import { useShell } from "./ShellContext";
 
 export function LoadState({ variant = "pill", extra = 0, onMore }: { variant?: "pill" | "banner"; extra?: number; onMore?: () => void }) {
   const sys = useShell((s) => s.channels.system);
-  const open = sys.load !== "ok" || sys.offline;
+  const locale = useShell((s) => s.prefs.locale);
+  // Card 19: the server went away after prices were live; the feed retries by itself, so no Retry button.
+  // Priority: offline, then a failed load (it has its own Retry), then connection lost.
+  const lost = sys.connection === "reconnecting" && !sys.offline && sys.load === "ok";
+  const open = sys.load !== "ok" || sys.offline || lost;
   const loading = sys.load === "loading";
-  const body = open && (
+  const body = open && (lost ? (
+    <div className="load-state-body" data-testid="connection-lost">
+      <span role="alert" data-testid="load-message">{connectionLost(locale)}</span>
+      {extra > 0 && <MoreButton n={extra} onMore={onMore} />}
+    </div>
+  ) : (
     <div className="load-state-body" data-testid={sys.offline ? "offline-state" : "load-error"}>
       {/* Only the message is in the live region; Retry's label changes are never re-announced. */}
       <span role="alert" data-testid="load-message">{sys.offline ? S.offline : S.couldntLoad}</span>
@@ -24,7 +33,7 @@ export function LoadState({ variant = "pill", extra = 0, onMore }: { variant?: "
       </button>
       {extra > 0 && <MoreButton n={extra} onMore={onMore} />}
     </div>
-  );
+  ));
   if (variant === "banner") {
     return <div className="phone-banner" data-testid="phone-banner" data-open={open}>{body}</div>;
   }

@@ -17,6 +17,8 @@ export interface ReviewBlockProps {
   halted: boolean;
   /** Place is live: fresh valid estimate, feed not stale, nothing sent yet. */
   canPlace: boolean;
+  /** Card 19: why Place is disabled during an outage (connection lost); shown under the actions. */
+  blockedReason?: string | null;
   /** `me` tick at submit while our intent is in flight; null otherwise. */
   pendingTick: number | null;
   failed: boolean;
@@ -24,7 +26,7 @@ export interface ReviewBlockProps {
   onPlace: () => void;
 }
 
-export function ReviewBlock({ t, locale, action, preview, stale, halted, canPlace, pendingTick, failed, onEdit, onPlace }: ReviewBlockProps) {
+export function ReviewBlock({ t, locale, action, preview, stale, halted, canPlace, blockedReason = null, pendingTick, failed, onEdit, onPlace }: ReviewBlockProps) {
   const submitting = pendingTick !== null;
   return (
     <section className="br-review-block" data-testid="br-review-block" aria-labelledby="br-review-title">
@@ -37,8 +39,9 @@ export function ReviewBlock({ t, locale, action, preview, stale, halted, canPlac
       <div className="br-actions">
         <Button variant="ghost" data-testid="br-edit" disabled={submitting} onClick={onEdit}>{t.edit}</Button>
         <Button variant="primary" data-testid="br-place" aria-label={t.placeAria(action)} aria-busy={submitting || undefined}
-          disabled={!canPlace} onClick={onPlace}>{t.place}</Button>
+          disabled={!canPlace} aria-describedby={!canPlace && blockedReason ? "br-place-reason" : undefined} onClick={onPlace}>{t.place}</Button>
       </div>
+      {!canPlace && blockedReason && <p id="br-place-reason" className="br-review-reason muted" role="status" data-testid="br-place-reason">{blockedReason}</p>}
     </section>
   );
 }

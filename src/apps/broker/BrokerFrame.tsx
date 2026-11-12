@@ -56,6 +56,8 @@ const isSelect = (el: EventTarget): boolean => el instanceof HTMLSelectElement;
 export function BrokerFrame({ context }: { context?: string }) {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const locale = useShell((s) => s.prefs.locale);
+  // Card 19: the server stopped answering after prices were live (feed backoff running): no new review or place until it is back.
+  const lost = useShell((s) => s.channels.system.connection === "reconnecting");
   const stacked = useShell((s) => s.prefs.textScale >= BR_STACK_SCALE);
   const t = brStrings(locale);
   const ticker = useChannel("ticker:wl_default");
@@ -135,8 +137,10 @@ export function BrokerFrame({ context }: { context?: string }) {
   // Review title: action + terms for priced types ("Buy 40 HALC · Limit 42.10"); market keeps card 4's bare action.
   const action = order && order.type !== "market" ? t.actionTerms(bare, termsText(t, locale, order)) : bare;
   const reviewStale = preview !== null && tickerTick !== null && preview.computedAtTick < tickerTick;
-  const canReview = phase.kind === "edit" && preview !== null && preview.valid && !frozen;
-  const canPlace = phase.kind === "review" && preview !== null && preview.valid && !reviewStale && !frozen;
+  const canReview = phase.kind === "edit" && preview !== null && preview.valid && !frozen && !lost;
+  const canPlace = phase.kind === "review" && preview !== null && preview.valid && !reviewStale && !frozen && !lost;
+  // Card 19: say why, next to the button, when it is the connection and not the draft.
+  const reviewReason = lost ? t.reviewWaitConnection : frozen ? t.reviewWaitPrices : null;
 
   const setSide = (side: Side) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, side })); };
   const setType = (type: DayOrderType) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, type })); };
@@ -243,7 +247,7 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const reviewing = phase.kind === "review" || (placed !== null && result === null);
   const review = reviewing && (
-    <ReviewBlock t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace}
+    <ReviewBlock t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace} blockedReason={lost ? t.reviewWaitConnection : null}
       pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} onEdit={toEdit} onPlace={place} />
   );
   const ack = result && (
@@ -257,7 +261,7 @@ export function BrokerFrame({ context }: { context?: string }) {
       kind={t.kindDay(typeLabel(t, draft.type))}
       onSide={setSide} onQty={(q) => { setTouched(true); setDraft((d) => ({ ...d, qtyText: q })); }} onQtyBlur={() => setTouched(true)}
       message={qtyMessage} preview={preview} pending={phase.kind === "edit" && order !== null && preview === null}
-      reviewDisabled={!canReview} onReview={toReview} readOnly={phase.kind !== "edit"} />
+      reviewDisabled={!canReview} reviewReason={reviewReason} onReview={toReview} readOnly={phase.kind !== "edit"} />
   );
 
   return (
