@@ -20,7 +20,7 @@ No product change. The phone status-bar net-worth chip already formats with `Mon
 ## Plan
 
 - Keep product code unchanged: the chip already exposes the full value.
-- Change the phone assertion so it checks the visible text against `compactMoneyText` (the same formatter the chip uses) and the full amount against the `.money` `title` when present, otherwise `textContent`. A wrong number still fails: `$10,500.00` and `$10,000.58` both render `$10k`, but their titles differ.
+- Change the phone assertion so it checks the visible text against `compactMoneyText` (the same formatter the chip uses) and the full amount against the `.money` `title` when present, otherwise `textContent`. A wrong number still fails: `$10,099.99` and `$10,000.58` both render `$10k`, but their titles differ.
 - Extract that comparison as a helper and unit-test it for amounts under and at/over $10,000, including the case where the abbreviation matches a different amount. The live market is not pinned to a seed, so the e2e cannot land net worth at $10,000 or more deterministically.
 
 ## Acceptance / proof
