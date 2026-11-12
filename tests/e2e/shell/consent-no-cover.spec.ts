@@ -15,19 +15,9 @@ function overlaps(a: Box, b: Box): boolean {
 }
 
 async function settle(page: Page) {
-  // Wait out finite transitions only. Charts and phase dots use infinite
-  // animations; awaiting those would hang the test (lesson: no fixed sleep,
-  // but also do not wait on animations that never finish).
+  // Two frames so fitRect / consentH layout is committed. Do not await
+  // document.getAnimations(): candles and phase dots loop forever.
   await page.evaluate(async () => {
-    const els = (document.getAnimations ? document.getAnimations() : []).filter((a) => {
-      try {
-        const t = a.effect && "getTiming" in a.effect ? a.effect.getTiming() : null;
-        return !t || t.iterations !== Infinity;
-      } catch {
-        return false;
-      }
-    });
-    await Promise.all(els.map((a) => a.finished.catch(() => {})));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   });
 }
