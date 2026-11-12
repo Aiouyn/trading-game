@@ -162,6 +162,14 @@ function StatusBar() {
   const signedIn = isSignedIn(auth);
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
+  const pullCleanup = useRef<(() => void) | null>(null);
+  const clearPull = () => {
+    pullCleanup.current?.();
+    pullCleanup.current = null;
+    pullY.current = null;
+  };
+
+  useEffect(() => () => clearPull(), []);
   const { day, hhmm } = clockLabel(clock);
   const clockText = clockStrings(useShell((s) => s.prefs.locale)).phone(day, hhmm);
   const down = () => { timer.current = window.setTimeout(() => { timer.current = null; store.getState().setRecent(true); }, LONG_PRESS_MS); };
@@ -172,21 +180,29 @@ function StatusBar() {
     <header
       className="statusbar"
       data-testid="statusbar"
-      // Pull down from the status bar opens the full-screen launcher (SH-04).
+      // Pull down from the status bar opens the full-screen launcher (SH-04), including
+      // from over Feedback / the halt chip / the account chip. Listen on window so the
+      // pull is still seen after the pointer leaves the 44 px bar, and do not capture,
+      // so a click still reaches those controls.
       onPointerDown={(e) => {
-        // The Quay mark has its own long-press / back handlers. Other status-bar
-        // controls (Feedback, account) are clicks: a downward pull still opens the
-        // launcher, otherwise a 44 px Feedback in the middle of the bar swallows SH-04.
         if ((e.target as HTMLElement).closest("[data-testid='quay-mark']")) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        pullY.current = e.clientY;
-      }}
-      onPointerUp={(e) => {
-        if (pullY.current !== null && e.clientY - pullY.current > 40) {
-          e.preventDefault();
-          store.getState().setLauncher(true);
-        }
-        pullY.current = null;
+        clearPull();
+        const startY = e.clientY;
+        pullY.current = startY;
+        const onUp = (ev: PointerEvent) => {
+          const opened = pullY.current !== null && ev.clientY - startY > 40;
+          clearPull();
+          if (opened) {
+            ev.preventDefault();
+            store.getState().setLauncher(true);
+          }
+        };
+        window.addEventListener("pointerup", onUp, true);
+        window.addEventListener("pointercancel", clearPull, true);
+        pullCleanup.current = () => {
+          window.removeEventListener("pointerup", onUp, true);
+          window.removeEventListener("pointercancel", clearPull, true);
+        };
       }}
     >
       <button className="quay-mark fg" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
