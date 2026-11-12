@@ -82,6 +82,7 @@ const EN = {
   /** Card 19: why Review / Place is disabled during an outage, next to the button. */
   reviewWaitConnection: "Connection lost. You can review once prices are live again.",
   reviewWaitPrices: "Prices are updating. You can review once they are live.",
+  placeWaitConnection: "Connection lost. You can place this order once prices are live again.",
   couldntLoad: "Couldn't load",
   retry: "Retry",
   // ---- UI card 5: order types, prices, Open orders ----
@@ -215,6 +216,7 @@ const FR: BrStrings = {
   updating: "Mise à jour…",
   reviewWaitConnection: "Connexion perdue. Vous pourrez vérifier l’ordre dès que les prix seront de nouveau en direct.",
   reviewWaitPrices: "Les prix se mettent à jour. Vous pourrez vérifier l’ordre dès qu’ils seront en direct.",
+  placeWaitConnection: "Connexion perdue. Vous pourrez passer cet ordre dès que les prix seront de nouveau en direct.",
   couldntLoad: "Chargement impossible",
   retry: "Réessayer",
   orderType: "Type d’ordre",

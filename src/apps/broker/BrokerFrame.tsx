@@ -247,7 +247,7 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const reviewing = phase.kind === "review" || (placed !== null && result === null);
   const review = reviewing && (
-    <ReviewBlock t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace} blockedReason={lost ? t.reviewWaitConnection : null}
+    <ReviewBlock t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace} blockedReason={lost ? t.placeWaitConnection : null}
       pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} onEdit={toEdit} onPlace={place} />
   );
   const ack = result && (
