@@ -195,6 +195,8 @@ export interface LiquidityBank extends LiquidityBankSeed {
         base: Money;
     }[];
     resolution: LiquidityResolution | null;
+    /** Earlier resolutions of this bank, oldest first; absent until a bank is resolved a second time (record only, no money). */
+    priorResolutions?: LiquidityResolution[];
 }
 export interface LiquidityState {
     world: string;

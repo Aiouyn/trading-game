@@ -86,3 +86,96 @@ The unit stays default-off (`BANKING_CORE_DEFAULT_ENABLED=false`) and unmounted 
 2. One-time live ownership migration. Move every live wallet, deposit and CCP balance into ledger accounts exactly once. Close the old stores, verify that the opening M0 matches, and allow no dual writes.
 3. Owner V1 permission. V1-BOARD.md:84 currently excludes banks, credit and businesses.
 4. Producer adapters for the readonly facts (credit profiles, liquidity facts and bids, CCP risk, closeouts and VM). Only fixtures provide them today.
+
+## Hardening batch: Gatekeeper "not tested" gaps (planned 2026-11-12 00:22:54 Europe/Paris)
+
+This plan was written before any code change, on tip 4679a974. Gatekeeper's bounded PASS at e715ab71 is in `evidence/launchpad/gatekeeper/e715ab71/REVIEW.md:46-48,75-76`. It lists four gaps:
+1. **Independent rebuild of long stores.** The five long credit stores (linear, annuity and bullet at 262079; covenant at 86399; retail-review at 25199) were only byte-compared. Add a rebuild tool that runs each store in a separate, fresh Node process. It replays the stored genesis and frames into a new empty store, and requires identical checkpoint bytes and identical full canonical state. It reopens the original store through a read-only store whose `save` throws. It also rebuilds every ledger cell from genesis plus the audit log. All 23 three-store scenarios get this rebuild, not only the five long ones.
+2. **Cross-module fixture driven in one pass.** The cross-module fixture currently runs a planning pass first to find `failedAt`, then places the CCP closeout at `failedAt + 481`. Replace that with one causal pass. The fixture producer advances the engine in chunks of at most 480 ticks, reads `failedAt` from committed state, and only then emits the closeout. Prove that the frames it emits equal the old two-pass plan, and that the result reproduces e715ab71's checkpoint bytes.
+3. **Crash and lock safety.** The store's write path is lock, then temp file, then fsync, then rename. A killed writer currently leaves its `.lock` behind, and every later save fails with EEXIST. Add owner metadata to the lock, published atomically with `link`. A lock whose owner pid on this host is dead is recovered; a live owner gets `BANKING_CORE_STORE_LOCKED`. Orphan temp files are removed while the lock is held, and the parent directory is fsynced after rename. Prove that a writer killed partway (SIGKILL in a child process) leaves the last committed checkpoint readable, and that reopening is idempotent and changes no bytes.
+4. **Node 22 with a fresh install.** Node 22 is not installed on the box. A `node-linux-x64@22` binary from npm is used in a private `/tmp` scratch directory. Run a fresh `npm ci` and the checks under it, in a fresh detached worktree.
+
+Evidence goes to `evidence/sys-banking-core/hardening/`. Ports are 3440-3449.
+
+### Hardening results (2026-11-12 01:12:14 Europe/Paris; proofs at ea3e10bb)
+
+1. **Fresh-process rebuild.** `npx tsx tools/proofs/sys-banking-core-rebuild.ts --proofs <proof dir> --out <new dir>` rebuilds 25 stores, each in its own child process: the 23 three-store scenarios, the loss witness, and the single-pass driver store. That includes the five long credit stores at 262079 ×3, 86399 and 25199. Each rebuild reopens the store read-only with a digest check, then replays genesis and frames into a new empty store. The checkpoint bytes and full canonical state must match, and must equal the hashes recorded by the run that produced the store. The tool also rebuilds every ledger cell from genesis plus the audit log. For the credit stores this includes the per-tick sheet identity, for example 262080 rows on each 262079 store. The same tool also rebuilt the e715ab71 stores Gatekeeper reviewed, and all 25 passed. All 23 three-store scenarios at this SHA match e715ab71's checkpoint and state hashes.
+2. **Cross-module fixture in one pass.** There is no planning pass or planning store. A causal producer advances the engine in 11 chunks of 480 ticks. It observes the first failure (3599) at tick 3839 and places the closeout at 4080. The emitted frames equal the old placement rule. The driver's store is byte-identical to the jump store and to e715ab71's cross-module checkpoint (`bad5dce1…`).
+   **New finding:** the closeout charges bank a's own CCP custody, and that causes a second solvency failure and bail-in at day close 4319. e715ab71's report gave `failedAt: 3599`, which came from the planning pass; its final state actually has `failedAt: 4319`. The proof now records both failures. It asserts that the second failure follows the closeout, and that there is still exactly one CCP default (`LD/d/3600`, CLOSED). The behaviour is unchanged; the reporting was incomplete.
+3. **Crash and lock safety.** `FileBankingCoreStore` now publishes its lock owner (pid, host, nonce) atomically with `link`. It recovers a lock left by a dead pid on this host. A live, foreign or unreadable owner fails closed with `BANKING_CORE_STORE_LOCKED`. Under the lock it removes dead writers' temp files, and it fsyncs the parent directory after rename.
+   - `tests/unit/banking-core/store-crash.test.ts` (5 tests; 4 of them fail on the old store) covers dead-lock recovery with a short temp file, refusal to break a live, foreign or unreadable lock, a live contender's staged file, idempotent reopen with no write, and stale-facade CAS.
+   - `tools/proofs/sys-banking-core-crash.ts` SIGKILLs a child writer in 60 trials: on lock creation, on temp creation, and at a time spread across the child's run. In every trial the store held exactly the old or the new checkpoint. Reopening was read-only and idempotent, and the next write reached the reference bytes with no residue.
+4. **Node 22.** No nvm or system Node 22 exists. A `node-linux-x64@22` binary is used from a private `/tmp` scratch directory, with a fresh `npm ci` in a detached worktree. Results are in `evidence/sys-banking-core/hardening/node22-e2e/`.
+
+Still not covered: pid reuse can make a dead owner look alive, which fails closed and needs manual removal. Multi-host or shared filesystems are not handled. A lock file left by the pre-hardening store (empty contents) is never auto-broken. A torn temp file was observed only at size 0 or full size, because a 137 KB write is one syscall; the short-write case is covered by a crafted unit test. Replication, compaction and scale are untested. Remote CI is not run.
+
+## Decision: the post-closeout second failure (2026-11-12 01:21:49 Europe/Paris, written before the fix)
+
+**Facts at 7078c75f** (cross-module fixture, `evidence/sys-banking-core/double-failure/probe/probe-7078c75f.log`):
+- Bank a's only risk-weighted assets are member d's CCP custody: IM $100 and DF $100, counted as restricted reserves. So RWA is $200.
+- At 3599 the bail-in converted $799,824.12 of treasury-a deposits, sized to CET1 = $20, exactly 10% of $200.
+- At 3600 member d's default is declared because its bank failed. At 4080 the closeout takes $100 IM and $50 DF of that same custody, as the first two waterfall layers. Bank a's CET1 goes to -$130.
+- At day close 4319 the bank fails again, and is bailed in a second time.
+
+**Spec reading:**
+- 07:626 (§3.10.1): when a bank fails, "the bank's CCP memberships trigger member default (§3.17.6)". 07:872 (§3.17.6) lists "the member bank enters resolution" as a default cause. So the failure itself makes the member default certain at the failure tick.
+- 07:878 (§3.17.7 step 4): "Losses = close-out cost … − defaulter's resources". 07:882-883 (§3.17.8 steps 1-2): the first two layers are the defaulter's IM and then its DF contribution.
+  - Everything beyond those layers is mutualized: SITG, survivors' DF, assessments of survivors, VMGH, tear-up.
+  - 07:891 adds that there is no taxpayer absorption.
+  - Nothing in §3.17.8 gives TCH a claim on the defaulter beyond its IM and DF. The defaulter's maximum loss from its own default is therefore exactly its posted IM + DF, and that amount is known at the failure tick.
+- 07:629 (§3.10.2): valuation happens on the same tick, with "assetsFair = … performing book values minus Stage 3 provisions". 07:458 defines a Stage 3 provision as "EAD − expected recovery".
+  - After default, the IM and DF are first-loss collateral for that default. Their recovery is only the surplus after close-out, and that surplus is unknown until the close-out facts arrive.
+  - Recovery is therefore valued at 0 at resolution. That is the only deterministic, rule-based value available.
+  - 07:385 likewise excludes encumbered (pledged) assets from usable liquidity.
+- 07:633 (§3.10.3): bail-in converts written-down claims "into new equity until CET1 = 10%". A bail-in sized while counting assets that its own trigger has already committed to the waterfall leaves CET1 below 10% by construction. Here it led to a certain re-failure from a loss that was knowable and bounded at the resolution tick.
+
+**Decision.** Option (b): ring-fence the defaulting member's margin. This is not option (a), and the second resolution was not legitimate.
+- **Option (a) is rejected.** The bail-in should not be sized to a contingent CCP liability. The exposure is not a third-party claim (03:1464 admits contingent claims only "when crystallized"), and there is no claim on the defaulter beyond its IM and DF.
+- **What is ring-fenced.** A bank's own CCP house member has its IM and DF custody accounts ring-fenced in two cases: from the tick the bank fails (default certain, §3.10.1), or from a declared member default for any §3.17.6 cause. The ring-fence lasts until that default event is CLOSED (§3.17.7 step 5).
+- **How it is treated.** While ring-fenced, that custody is a capital deduction: Stage 3 with recovery 0. It is removed from CET1, and also from RWA, so it is not counted twice. Cash, deposits, balance-sheet equity and M0 do not move. When the close-out later consumes the IM and DF, it consumes ring-fenced value, so CET1 does not move.
+- **Release at close.** When the default is CLOSED, any surplus the waterfall did not use stops being ring-fenced and counts as capital again.
+- **Effect on the bail-in.** Its size now reflects the ring-fence: it reaches CET1 = 10% of the remaining RWA, net of the ring-fenced custody.
+- **Second resolutions in general.** These remain legitimate for losses that arise after resolution and were not knowable at the valuation tick. 07:626 evaluates triggers at every day close, and nothing makes a resolution one-time. A bank's own CCP default cannot be such a loss, because its cost is capped at the ring-fenced IM + DF.
+- **Restatement.** This is a root fix in `liquidityMetrics`, and it is derived from state, so it adds no new persisted field. It changes the cross-module outcome to one failure at 3599 and one bail-in, which is larger by the ring-fenced $200 of claims. Exactly which hashes change is recorded in the results below.
+
+## Owner-pending: post-closeout second failure (2026-11-12 01:36:41 Europe/Paris; supersedes the "Decision" section above)
+
+Gatekeeper's ruling on 7078c75f was PASS, qualified. The re-failure at 4319 is not a money defect: M0 stays constant and the identity residual is 0. Spec 07 does not settle which behaviour is wanted, so this is an **owner question**. The ring-fence commit 66f2a89d is reverted in the next commit, and the engine behaves exactly as at 7078c75f. The "Decision" text above was my reading of 07; it is **not adopted**.
+
+**Pinned current behaviour (re-failure allowed).** Bank a fails at 3599 (SOLVENCY) and is bailed in to CET1 = 10% of RWA.
+- RWA is $200, which is only member d's IM $100 and DF $100. That gives CET1 $20.
+- At 3600 the member default `LD/d/3600` is declared (07:626, 07:872).
+- At 4080 the close-out takes $100 of IM and $50 of DF from the same custody (07:882-883). CET1 falls to -$130.
+- At day close 4319 the bank fails again (SOLVENCY), and a second bail-in converts more treasury-a deposits.
+- There is exactly one CCP default event. M0 stays constant and every residual is 0.
+- `tests/unit/banking-core/ccp-second-failure.test.ts` pins this behaviour.
+
+**The two options for the owner:**
+1. **Allow re-failure (current behaviour).** Resolution sizes the bail-in to CET1 = 10% of the RWA on the failure tick (07:633). Losses that crystallize later, including the bank's own CCP close-out, are new losses. They can trigger a new resolution at a later day close (07:626 evaluates triggers at every day close, and nothing makes a resolution one-time).
+   - Cost: a second public failure, and a second bail-in of the same creditors within one game day.
+2. **Provision the declared close-out at bail-in.** From the failure tick, the defaulting house member's IM and DF are first-loss resources of a default that the failure makes certain (07:626, 07:872, 07:878, 07:882-883). Nothing in §3.17.8 claims anything from the defaulter beyond them.
+   - Treatment: value them as a Stage 3 claim with recovery 0 (07:629, 07:458). Deduct them from CET1. Their RWA, net of the provision, is 0 (07 §3.2.1 "Defaulted exposures (net of provisions)"). The provision is released when the close-out loss is applied.
+   - The bail-in is then sized net of the provision. A prototype (66f2a89d, reverted) produced one failure at 3599 and one bail-in of $800,004.12 instead of $799,824.12. CET1 was $50 against RWA $50 after the close-out.
+   - In that prototype, only the cross-module scenario's hashes changed: checkpoint `bad5dce1… → 1590bfad…` and state `eab283f6… → a69e0477…`. The frames were identical. Evidence is in `evidence/sys-banking-core/double-failure/superseded-ringfence-66f2a89d/`.
+   - A first variant released the provision only when the default reached CLOSED (d+720). It still re-failed at 4319 from about $0.34 of day-close costs, because the bank had zero buffer, so the release point matters.
+   - The prototype also declared the member default in every service the member clears, not only the first (07:626 "memberships"). That change is reverted too, and stays part of option 2.
+
+**Additive fix kept regardless of the owner's answer.** A second resolution used to replace `bank.resolution`, which erased the first bail-in's equity-rights record. The bank now keeps earlier resolutions in `priorResolutions`. That key is absent until a second resolution happens, so no other scenario's bytes change. This is a record only: no money moves.
+
+### Owner-pending results (2026-11-12 01:45:33 Europe/Paris; proofs at 6b98a0d7)
+
+- **Commits.** ff650d55 reverts 66f2a89d. The engine and accounting are byte-identical to 7078c75f. 6b98a0d7 adds `priorResolutions` and the pin test `tests/unit/banking-core/ccp-second-failure.test.ts`. Red/green: with the 7078c75f liquidity engine the pin fails on the missing `priorResolutions`, and with the fix it passes.
+- **Pinned behaviour.**
+  - Bail-in at 3599 to CET1 $20 on RWA $200, with equity rights [treasury-a $799,824.120881].
+  - Close-out at 4080: defaulter IM $100, then DF $50, which leaves CET1 at −$130.
+  - Second failure and BAIL_IN at 4319, with final rights [treasury-a $137,747.253].
+  - One CCP default, LD/d/3600, CLOSED.
+  - `priorResolutions` = [{opened 3599, BAIL_IN, [treasury-a $799,824.120881]}].
+  - M0 is constant.
+- **Proofs** (`evidence/sys-banking-core/double-failure/proofs`, ALL PASS 24) and **rebuild** (`double-failure/rebuild`, 25 stores rebuilt in fresh processes, all pass):
+  - Residuals are 0, and identity rows are 10082 on the cross-module store.
+  - Restart, jump, stepped and single-pass all agree.
+- **Hash changes.** Only the cross-module store changed: checkpoint `bad5dce1… → 8345b6cc…` and state `eab283f6… → 8034e4a0…`.
+  - The stepped, jump, restart and single-pass stores all match the new hashes.
+  - Genesis and frames are identical (framesSha256 `50c41eb7…` unchanged). Only the digest field differs, because the canonical state now carries `priorResolutions` for bank a.
+  - The other 22 three-store scenarios and the loss witness keep their ea3e10bb checkpoint and state hashes.
