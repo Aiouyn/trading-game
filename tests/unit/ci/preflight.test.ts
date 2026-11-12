@@ -47,6 +47,7 @@ describe("preflight phases ↔ CI parity (bidirectional)", () => {
   it("CORE_PHASES ids and commands match the known CI checklist (hardcoded)", () => {
     expect(CORE_PHASES.map((p) => p.id)).toEqual([
       "lint",
+      "lesson13",
       "ledger-no-dup",
       "typecheck",
       "build",
