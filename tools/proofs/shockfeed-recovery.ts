@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ASSETS } from "@/market/catalog";
+import { ASSET_BY_ID, ASSETS } from "@/market/catalog";
 import { MAJOR_KINDS_V1, RIPPLE_KINDS, majorStockShocks, rippleStockShocks } from "@/server/market/crises";
 import { TICKS_PER_DAY } from "@/server/market/meme";
 import {
@@ -16,6 +16,9 @@ import {
 import { STORM_KINDS, stormStockShocks } from "@/server/market/storms";
 import type { AccountId } from "@/server/auth/types";
 import { buildPlayerPrivate } from "@/server/player/privateState";
+import { decidePlace, notionalCents, sweepLedger, type IdSource, type ServerQuote } from "@/server/broker/execution";
+import { feeOf } from "@/server/broker/book";
+import { fmt } from "@/shell/contracts/mockFeed";
 
 const HORIZONS = [0, 60, TICKS_PER_DAY, 2 * TICKS_PER_DAY, 10 * TICKS_PER_DAY] as const;
 const EXTRA_KINDS = ["BANKING_PANIC", "CREDIT_CRUNCH", "UNKNOWN_KIND"] as const;
@@ -119,27 +122,73 @@ function compareToBaseline(after: ReturnType<typeof capture>, baselinePath: stri
   };
 }
 
+function reconstructDelta(feed: ShockFeed, assetId: string, from: number, residualLog: number, ticks: number): number {
+  const leftover = feed.erpSnapshot().find((r) => r.assetId === assetId)?.log ?? 0;
+  const implied = from * Math.exp(residualLog) * Math.exp(equityErpTickLog() * ticks);
+  return feed.assets.get(assetId)!.last * Math.exp(leftover) - implied;
+}
+
 function proveFlashRecovery() {
-  const sizes: { severity: number; residualImplied: number; markNetOfErpDelta: number }[] = [];
-  for (const severity of [0.6, 1, 1.4]) {
+  const sizes: { label: string; bp: number; residualImplied: number; reconstructDelta: number }[] = [];
+  const cases: [string, number][] = [["sev=0.6", -600], ["sev=1", -1000], ["sev=1.4", -1400], ["small-1bp", -1], ["small-10bp", -10], ["small-50bp", -50], ["huge-sev3", -3000], ["huge-sev5", -5000], ["huge-sev8", -8000]];
+  for (const [label, bp] of cases) {
     const feed = new ShockFeed({ seed: 17, empty: true }, { autoStart: false });
-    const [shock] = majorStockShocks("FLASH_CRASH", severity);
-    const hit = feed.applyShock(shock!.assetId, shock!.bp, shockHalfLifeDays("FLASH_CRASH"));
+    const hit = feed.applyShock("GX", bp, shockHalfLifeDays("FLASH_CRASH"));
     assert.ok(hit);
     const l0 = Math.log(hit.to / hit.from);
     feed.catchUpDecay(TICKS_PER_DAY);
-    const residual = feed.residualSnapshot().find((r) => r.assetId === shock!.assetId)!;
+    const residual = feed.residualSnapshot().find((r) => r.assetId === "GX")!;
     const recovered = priceRecovery(l0, residual.log);
-    assert.ok(Math.abs(recovered - FLASH_PRICE_RECOVERY_PER_DAY) < 1e-9, `severity ${severity} recovered ${recovered}`);
-    const leftover = feed.erpSnapshot().find((r) => r.assetId === shock!.assetId)?.log ?? 0;
-    const printedErp = equityErpTickLog() * TICKS_PER_DAY - leftover;
-    const markNetOfErp = feed.assets.get(shock!.assetId)!.last / Math.exp(printedErp);
-    const implied = hit.from * Math.exp(residual.log);
-    const delta = Math.abs(markNetOfErp - implied);
-    assert.ok(delta <= 5, `printed-mark delta ${delta}`);
-    sizes.push({ severity, residualImplied: recovered, markNetOfErpDelta: delta });
+    assert.ok(Math.abs(recovered - FLASH_PRICE_RECOVERY_PER_DAY) < 1e-9, `${label} recovered ${recovered}`);
+    const delta = reconstructDelta(feed, "GX", hit.from, residual.log, TICKS_PER_DAY);
+    assert.ok(Math.abs(delta) <= 1, `${label} reconstruct ${delta}`);
+    sizes.push({ label, bp, residualImplied: recovered, reconstructDelta: delta });
   }
   return sizes;
+}
+
+function proveLeftoverPlateau() {
+  const feed = new ShockFeed({ seed: 17, empty: true }, { autoStart: false });
+  const first = feed.applyShock("GX", -1000, shockHalfLifeDays("FLASH_CRASH"))!;
+  feed.catchUpDecay(10 * TICKS_PER_DAY);
+  const leftover = feed.erpSnapshot().find((r) => r.assetId === "GX")?.log ?? 0;
+  const d10 = Math.abs(feed.assets.get("GX")!.last * Math.exp(leftover) - first.from * Math.exp(equityErpTickLog() * 10 * TICKS_PER_DAY));
+  assert.ok(d10 <= 2, `10-GD leftover plateau ${d10}`);
+  const serial: number[] = [];
+  const s = new ShockFeed({ seed: 17, empty: true }, { autoStart: false });
+  let ticks = 0;
+  for (let i = 0; i < 5; i++) {
+    s.applyShock("GX", -1000, shockHalfLifeDays("FLASH_CRASH"));
+    s.catchUpDecay(10 * TICKS_PER_DAY);
+    ticks += 10 * TICKS_PER_DAY;
+    const acc = s.erpSnapshot().find((r) => r.assetId === "GX")?.log ?? 0;
+    const delta = s.assets.get("GX")!.last * Math.exp(acc) - first.from * Math.exp(equityErpTickLog() * ticks);
+    assert.ok(Math.abs(delta) <= 2, `serial ${i} ${delta}`);
+    serial.push(delta);
+  }
+  return { after10gdReconstruct: d10, serialReconstruct: serial };
+}
+
+function proveOverlap() {
+  const feed = new ShockFeed({ seed: 17, empty: true }, { autoStart: false });
+  const first = feed.applyShock("GX", -1000, shockHalfLifeDays("FLASH_CRASH"))!;
+  const l1 = Math.log(first.to / first.from);
+  feed.catchUpDecay(360);
+  const k1 = feed.residualSnapshot().find((r) => r.assetId === "GX")!.k;
+  const second = feed.applyShock("GX", -500, shockHalfLifeDays("FLASH_CRASH"))!;
+  const l2 = Math.log(second.to / second.from);
+  assert.equal(feed.residualSnapshot().filter((r) => r.assetId === "GX").length, 2);
+  feed.catchUpDecay(TICKS_PER_DAY - 360);
+  const atFirst = feed.residualSnapshot().filter((r) => r.assetId === "GX");
+  const firstRow = atFirst.find((r) => Math.abs(r.k - k1) < 1e-18)!;
+  const rec1 = priceRecovery(l1, firstRow.log);
+  assert.ok(Math.abs(rec1 - FLASH_PRICE_RECOVERY_PER_DAY) < 1e-9, `first component ${rec1}`);
+  feed.catchUpDecay(360);
+  const atSecond = feed.residualSnapshot().filter((r) => r.assetId === "GX");
+  const secondRow = atSecond.find((r) => Math.abs(r.k - k1) >= 1e-18)!;
+  const rec2 = priceRecovery(l2, secondRow.log);
+  assert.ok(Math.abs(rec2 - FLASH_PRICE_RECOVERY_PER_DAY) < 1e-9, `second component ${rec2}`);
+  return { midTick: 360, firstOwnDay: rec1, secondOwnDay: rec2, rowsAtSecondDay: atSecond.length };
 }
 
 function proveRestartJump() {
@@ -187,16 +236,51 @@ function proveRestartJump() {
 }
 
 function proveConservation() {
-  const cash = 1_000_000;
-  const before = buildPlayerPrivate("acct_flash" as AccountId, { cashCents: cash, positions: {}, openOrders: {} });
   const feed = new ShockFeed({ seed: 17, empty: true }, { autoStart: false });
-  feed.applyShock("GX", -1000, shockHalfLifeDays("FLASH_CRASH"));
-  feed.catchUpDecay(TICKS_PER_DAY);
-  const after = buildPlayerPrivate("acct_flash" as AccountId, { cashCents: cash, positions: {}, openOrders: {} });
-  assert.deepEqual(after, before);
-  assert.equal(after.cashCents, cash);
-  assert.equal(before.cashCents, after.cashCents);
-  return { cashCentsBefore: before.cashCents, cashCentsAfter: after.cashCents, cashDelta: 0, marksMoved: true, moneyCreated: false };
+  const avb = ASSET_BY_ID.AVB!, pre = feed.assets.get("AVB")!.last;
+  const src: IdSource = (() => { let n = 0; return { next: (kind: "o" | "x" | "i") => `${kind}_${++n}` }; })();
+  const quote = (): ServerQuote => ({ tick: feed.tick, last: (id) => { const s = feed.assets.get(id); return s && s.last > 0 ? s.last : null; }, tradable: (id) => feed.assets.has(id) });
+  const rec0 = buildPlayerPrivate("acct_flash" as AccountId, {
+    cashCents: 5_000_000,
+    positions: { AVB: { assetId: "AVB", qty: "200", avgCost: fmt(pre, avb.displayDecimals) } },
+    openOrders: {},
+  });
+  const buyLimit = Math.round(pre * 0.93);
+  const placedBuy = decidePlace(rec0, "key-buy-01", { assetId: "AVB", side: "BUY", type: "limit", qty: "200", limit: fmt(buyLimit, avb.displayDecimals), tif: "day" }, quote(), src);
+  assert.equal(placedBuy.result.status, "ACCEPTED");
+  let rec = buildPlayerPrivate("acct_flash" as AccountId, placedBuy.next);
+  const genesis = rec.cashCents;
+  let npc = 0, fees = 0, fills = 0;
+  const account = (next: typeof rec) => {
+    for (const f of (next.fills ?? []).slice((rec.fills ?? []).length)) {
+      const px = Math.round(Number(f.price) * 10 ** avb.displayDecimals);
+      const notional = notionalCents(avb, f.side, Number(f.qty), px);
+      const fee = feeOf(notional);
+      fees += fee;
+      npc += f.side === "BUY" ? notional : -notional;
+      fills += 1;
+    }
+    rec = next;
+    assert.equal(rec.cashCents + npc + fees, genesis);
+  };
+  const crash = feed.applyShock("AVB", -1000, shockHalfLifeDays("FLASH_CRASH"))!;
+  const afterCrash = sweepLedger(rec, quote(), src);
+  assert.ok(afterCrash, "buy should fill at the crash");
+  account(buildPlayerPrivate("acct_flash" as AccountId, afterCrash!));
+  const sellLimit = crash.to + Math.round(0.7 * (crash.from - crash.to) * 0.8);
+  const placedSell = decidePlace(rec, "key-sell-01", { assetId: "AVB", side: "SELL", type: "limit", qty: "200", limit: fmt(sellLimit, avb.displayDecimals), tif: "day" }, quote(), src);
+  assert.equal(placedSell.result.status, "ACCEPTED");
+  rec = buildPlayerPrivate("acct_flash" as AccountId, placedSell.next);
+  assert.equal(rec.cashCents + npc + fees, genesis);
+  let sold = false;
+  for (let i = 0; i < TICKS_PER_DAY; i++) {
+    feed.advanceDecay();
+    const swept = sweepLedger(rec, quote(), src);
+    if (swept) { account(buildPlayerPrivate("acct_flash" as AccountId, swept)); sold = true; break; }
+  }
+  assert.ok(sold, "sell should fill during recovery");
+  assert.equal(rec.cashCents + npc + fees, genesis);
+  return { genesisCents: genesis, cashCentsAfter: rec.cashCents, npcCents: npc, feeCents: fees, total: rec.cashCents + npc + fees, cashDelta: rec.cashCents + npc + fees - genesis, fills, moneyCreated: false, vacuous: false };
 }
 
 async function main() {
@@ -211,6 +295,8 @@ async function main() {
   const baselinePath = process.env.SYS_SHOCKFEED_BASELINE ?? path.join(evidence, "..", "baseline", "out", "snapshot.json");
   const drift = compareToBaseline(snap, baselinePath);
   const flash = proveFlashRecovery();
+  const leftover = proveLeftoverPlateau();
+  const overlap = proveOverlap();
   const restart = proveRestartJump();
   const conservation = proveConservation();
   const summary = {
@@ -223,11 +309,13 @@ async function main() {
     nonFlashIsolatedSha256: digest(snap.isolated.filter((r) => r.kind !== "FLASH_CRASH")),
     drift,
     flash,
+    leftover,
+    overlap,
     restart,
     conservation,
   };
   out("summary.json", summary);
-  console.log(JSON.stringify({ ok: true, evidence, snapshotSha256: summary.snapshotSha256, drift, flash, conservation }, null, 2));
+  console.log(JSON.stringify({ ok: true, evidence, snapshotSha256: summary.snapshotSha256, drift, flash, leftover, overlap, conservation }, null, 2));
 }
 
 main().catch((err) => {
