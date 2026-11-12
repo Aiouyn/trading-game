@@ -43,7 +43,7 @@
 .pos-approx { font-variant-caps: all-small-caps; }
 
 /* Cards: phone, and any text scale >= 1.5 (Studio PF-B round 2). The same 3 lines on every row whatever the string
-   length: 1 ticker | P&L, 2 value · weight, 3 qty @ avg | Today. Clusters never wrap inside (an amount never splits
+   length: 1 ticker | P&L, 2 value · weight, 3 qty @ avg | last + Today. Clusters never wrap inside (an amount never splits
    from its code) and keep >= 12 px between them. 56 px minimum, no horizontal scroll. */
 .pos-list { list-style: none; margin: 0; padding: 0; }
 .pos-card { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 56px; padding: var(--sp-8) 0; border-bottom: 1px solid var(--line); min-width: 0; }
@@ -60,3 +60,7 @@
 .pos-cards .pos-skel { height: 56px; }
 .pos-empty p { margin: 0; }
 .pos-empty-title { color: var(--fg); }
+
+/* Live last sits with Today on line 3 (card 13). At text scale >= 1.5 the word+price stacks above Today so 390 still fits. */
+.pos-mark { display: inline-flex; align-items: baseline; column-gap: var(--sp-8); flex: none; white-space: nowrap; min-width: 0; }
+.pos-big .pos-mark { flex-direction: column; align-items: flex-end; gap: 0; }
