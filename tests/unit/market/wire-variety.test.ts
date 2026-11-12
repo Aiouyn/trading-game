@@ -120,3 +120,78 @@ describe("determinism, grid, and restart", () => {
     );
   });
 });
+
+const CYCLE_SLOTS = 16;
+const cycleTicks = (cycle: number) =>
+  Array.from({ length: CYCLE_SLOTS }, (_, i) => START_TICK + (cycle * CYCLE_SLOTS + i + 1) * STORY_EVERY);
+const companyIds = (cycle: number, seed = SEED) =>
+  cycleTicks(cycle).map((t) => storyAt(seed, t)!).filter((s) => !s.crisis).map((s) => s.defId);
+const crisisKinds = (cycle: number, seed = SEED) =>
+  cycleTicks(cycle).map((t) => storyAt(seed, t)!).filter((s) => s.phase === "forecast" && s.crisis).map((s) => s.crisis);
+
+describe("per-cycle reshuffle", () => {
+  it("consecutive cycles are not identical, and the deck does not seam-repeat at the boundary", () => {
+    const windowCycles = 32;
+    for (let c = 0; c < windowCycles; c++) {
+      const next = c + 1;
+      expect(companyIds(next), `company deck cycle ${c} == ${next}`).not.toEqual(companyIds(c));
+      expect(crisisKinds(next), `crisis deck cycle ${c} == ${next}`).not.toEqual(crisisKinds(c));
+      const co = companyIds(c), co2 = companyIds(next);
+      expect(co2[0], `company boundary ${c}->${next}`).not.toBe(co[co.length - 1]);
+      const cr = crisisKinds(c), cr2 = crisisKinds(next);
+      expect(cr2[0], `crisis boundary ${c}->${next}`).not.toBe(cr[cr.length - 1]);
+    }
+  });
+
+  it("a 10k-tick window has no defId-sequence period <= 72 ticks and no identical consecutive cycles", () => {
+    const tickSpan = 10_000;
+    const nSlots = Math.floor(tickSpan / STORY_EVERY);
+    const ids = slots(nSlots).map((t) => storyAt(SEED, t)!.defId);
+    const maxPeriodSlots = 72 / STORY_EVERY;
+    for (let p = 1; p <= maxPeriodSlots; p++) {
+      let periodic = true;
+      for (let i = 0; i + p < ids.length; i++) {
+        if (ids[i] !== ids[i + p]) { periodic = false; break; }
+      }
+      expect(periodic, `defId sequence periodic at ${p * STORY_EVERY} ticks`).toBe(false);
+    }
+    const nCycles = Math.floor(nSlots / CYCLE_SLOTS);
+    for (let c = 0; c < nCycles - 1; c++) {
+      expect(companyIds(c + 1), `identical company cycle ${c}`).not.toEqual(companyIds(c));
+      expect(crisisKinds(c + 1), `identical crisis cycle ${c}`).not.toEqual(crisisKinds(c));
+    }
+  });
+
+  it("jumping straight to cycle k yields the same deck as walking from cycle 0 (no stream state)", () => {
+    // Walk first, recording decks, then make isolated calls as if starting at k
+    // (catalogStoryAt must not depend on prior calls or a shared stream).
+    const ks = [0, 1, 7, 40];
+    const walkedCo: string[][] = [];
+    const walkedCr: (string | undefined)[][] = [];
+    const last = Math.max(...ks);
+    for (let c = 0; c <= last; c++) {
+      walkedCo.push(companyIds(c));
+      walkedCr.push(crisisKinds(c));
+    }
+    for (const k of ks) {
+      expect(companyIds(k), `jump company cycle ${k}`).toEqual(walkedCo[k]);
+      expect(crisisKinds(k), `jump crisis cycle ${k}`).toEqual(walkedCr[k]);
+      const tick = cycleTicks(k)[0]!;
+      expect(catalogStoryAt(SEED, tick)).toEqual(catalogStoryAt(SEED, tick));
+    }
+  });
+
+  it("company defId does not recur at 60 or 72 ticks across a long window of cycles", () => {
+    const nSlots = 16 * 40;
+    const window = slots(nSlots);
+    for (const t of window) {
+      const s = storyAt(SEED, t);
+      if (!s || s.crisis) continue;
+      for (const dt of [60, 72]) {
+        const later = storyAt(SEED, t + dt);
+        if (!later || later.crisis) continue;
+        expect(later.defId, `company ${s.defId} recurred at ${t} and ${t + dt}`).not.toBe(s.defId);
+      }
+    }
+  });
+});
