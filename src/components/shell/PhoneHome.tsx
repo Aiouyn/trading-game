@@ -18,6 +18,7 @@ import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { HOME_EXAMPLE } from "./homeExample";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
 /** Messages is not a V1 dock app and must not migrate into the Home grid (deep link /messages still works). */
@@ -274,11 +275,11 @@ export function PhoneHome() {
     </div>
   );
 
-  if (phoneApp) {
-    return (
-      <div className="phone" data-testid="phone" {...gestures}>
-        <StatusBar />
-        <PhoneBannerStack />
+  return (
+    <div className="phone" data-testid="phone" {...gestures}>
+      <StatusBar />
+      <PhoneBannerStack />
+      {phoneApp ? (
         <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
             <button className="icon-btn" aria-label={phoneSub?.backLabel ?? bar!.back} data-testid="app-back" onClick={() => (phoneSub ? phoneSub.onBack() : goBack())}><Glyph name="chevLeft" size={20} /></button>
@@ -288,15 +289,7 @@ export function PhoneHome() {
             <AppBody app={phoneApp.app} context={phoneApp.context} state={{ focused: true, collapsed: false, background: false }} />
           </div>
         </section>
-        {edgeBar}
-      </div>
-    );
-  }
-
-  return (
-    <div className="phone" data-testid="phone" {...gestures}>
-      <StatusBar />
-      <PhoneBannerStack />
+      ) : (
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
@@ -314,6 +307,11 @@ export function PhoneHome() {
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
             {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
           </div>
+          {auth.status === "loading" ? (
+            <div className="home-example-skel" data-testid="home-example-skel" aria-hidden="true" />
+          ) : !signedIn ? (
+            <p className="muted home-example-caption" data-testid="home-example-caption">{HOME_EXAMPLE.en.caption}</p>
+          ) : null}
           <div className="widget-row">
             {reading.nw === null ? null : (
               <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
@@ -349,9 +347,13 @@ export function PhoneHome() {
           })}
         </div>
       </main>
+      )}
+      <div data-testid="consent-dock" />
+      {!phoneApp ? (
       <nav className="bottom-row" data-testid="bottom-row" data-dock={dock ? "1" : undefined} data-cols={BOTTOM.length} aria-label={S.shelf}>
         {BOTTOM.map((a) => <AppIcon key={a} app={a} dock={dock} />)}
       </nav>
+      ) : null}
       {edgeBar}
     </div>
   );

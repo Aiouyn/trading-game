@@ -1,6 +1,8 @@
 "use client";
 // One position (UI card 3, 17B PF-B). Table row (desktop) or 3-line card (phone, or text scale >= 1.5; Studio PF-B round 2).
 // Strings are the contract's, regrouped only (PF-3-02); MoneyText formats Value and P&L. No brass on the row.
+import { useSyncExternalStore } from "react";
+import { isTicketSubmitting, subscribeTicketSubmitting } from "@/apps/broker/ticketPrefill";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Glyph } from "@/components/shell/Glyph";
@@ -86,8 +88,15 @@ function Badges({ pos, ticker, t, locale }: { pos: PositionData; ticker: TickerR
 
 
 function CloseBtn({ pos, t, locale, onClosePosition }: { pos: PositionData; t: PosStrings; locale: string; onClosePosition?: (assetId: string, qty: string) => void }) {
+  const assetId = pos.assetId;
+  const busy = useSyncExternalStore(
+    subscribeTicketSubmitting,
+    () => isTicketSubmitting(assetId),
+    () => isTicketSubmitting(assetId),
+  );
   return (
     <Button size="sm" variant="ghost" className="pos-close" data-testid="pos-close"
+      disabled={busy}
       aria-label={t.closeAria(pos.assetId, decText(pos.qty, locale))}
       onClick={(e) => { e.stopPropagation(); onClosePosition?.(pos.assetId, pos.qty); }}>
       {t.close}

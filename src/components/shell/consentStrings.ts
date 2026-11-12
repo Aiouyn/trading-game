@@ -3,6 +3,7 @@ export const CS = {
   prompt: "Share anonymous usage analytics to help improve Quay?",
   accept: "Accept",
   decline: "Decline",
+  dismiss: "Dismiss",
   aria: "Usage analytics",
   turnOff: "Turn off usage analytics",
   share: "Share usage analytics",

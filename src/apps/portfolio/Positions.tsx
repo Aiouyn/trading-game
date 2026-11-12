@@ -2,9 +2,10 @@
 // Positions (UI card 3, 17B PF-B): the player's holdings from `me`, with Last / Today from `ticker:wl_default`.
 // Desktop: a 7-column table (Avg cost + Last hidden under 640 px of window, kept in the row label). Phone, and any
 // text scale >= 1.5: 3-line cards (Studio PF-B round 2). Rows are A→Z by assetId. No tick flash, no brass.
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
-import { offerTicketPrefill } from "@/apps/broker/ticketPrefill";
+import { isTicketSubmitting, offerTicketPrefill, resetTicketPrefill } from "@/apps/broker/ticketPrefill";
 import type { MeTradingBody, TickerBody, TickerRow } from "@/shell/contracts/channels";
 import { getFeed, useChannel, type ChannelView } from "@/shell/contracts/useChannel";
 import { PositionRow, type PositionData } from "./PositionRow";
@@ -27,6 +28,7 @@ export interface PositionsViewProps {
   big?: boolean;
   onRetry: () => void;
   onClosePosition?: (assetId: string, qty: string) => void;
+  capNotice?: boolean;
 }
 
 /** A→Z by assetId; plain code-unit order so the order does not depend on the locale. */
@@ -34,7 +36,7 @@ export function sortedPositions(me: MeTradingBody): PositionData[] {
   return Object.values(me.positions).sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
 }
 
-export function PositionsView({ view, tickers, locale, cards, phone, big = false, onRetry, onClosePosition }: PositionsViewProps) {
+export function PositionsView({ view, tickers, locale, cards, phone, big = false, onRetry, onClosePosition, capNotice = false }: PositionsViewProps) {
   const t = posStrings(locale);
   const cls = `pos${cards ? " pos-cards" : ""}${phone ? " pos-phone" : ""}${big ? " pos-big" : ""}`;
   const layout = cards ? "cards" : "table";
@@ -61,6 +63,7 @@ export function PositionsView({ view, tickers, locale, cards, phone, big = false
   return (
     <section className={cls} data-testid="pf-positions" data-state={view.state} aria-label={t.table}>
       {stale && <p className="pf-updating muted" role="status" data-testid="pos-updating">{t.updating}</p>}
+      {capNotice && <p className="muted" role="status" data-testid="pos-close-cap">{t.closeCap}</p>}
       {rows.length === 0 ? (
         <div className="pos-empty" data-testid="pos-empty">
           <p className="pos-empty-title">{t.emptyTitle}</p>
@@ -95,9 +98,18 @@ export function Positions({ phone }: { phone: boolean }) {
   const locale = useShell((s) => s.prefs.locale);
   const big = useShell((s) => s.prefs.textScale >= POS_STACK_SCALE);
   const store = useShellStore();
+  const brokerCount = useShell((s) => s.local.windows.filter((w) => w.app === "broker").length);
+  const [capHeld, setCapHeld] = useState(false);
+  if (capHeld && brokerCount < 4) setCapHeld(false);
+  const capNotice = capHeld && brokerCount >= 4;
   const onClosePosition = (assetId: string, qty: string) => {
+    if (isTicketSubmitting(assetId)) return;
     offerTicketPrefill({ assetId, side: "SELL", qtyText: qty });
     store.getState().open("broker", assetId, { deepLink: true });
+    if (phone) { setCapHeld(false); return; }
+    const opened = store.getState().local.windows.some((w) => w.app === "broker" && w.context === assetId);
+    if (!opened) { resetTicketPrefill(); setCapHeld(true); }
+    else setCapHeld(false);
   };
-  return <PositionsView view={view} tickers={ticker.body?.rows ?? null} locale={locale} cards={phone || big} phone={phone} big={big} onRetry={() => getFeed().resync("me")} onClosePosition={onClosePosition} />;
+  return <PositionsView view={view} tickers={ticker.body?.rows ?? null} locale={locale} cards={phone || big} phone={phone} big={big} onRetry={() => getFeed().resync("me")} onClosePosition={onClosePosition} capNotice={capNotice} />;
 }

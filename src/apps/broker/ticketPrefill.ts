@@ -33,4 +33,37 @@ export function subscribeTicketPrefill(fn: (p: TicketPrefill) => boolean): () =>
 
 export function resetTicketPrefill(): void {
   pending = null;
+  setTicketSubmitting(null);
 }
+
+const submitting = new Set<string>();
+const busyListeners = new Set<() => void>();
+
+function notifyBusy(): void {
+  for (const l of busyListeners) l();
+}
+
+/** Mark (or clear) one asset as mid-Place. `null` clears every asset (tests / reset). */
+export function setTicketSubmitting(assetId: string | null, busy = true): void {
+  if (assetId === null) {
+    if (submitting.size === 0) return;
+    submitting.clear();
+    notifyBusy();
+    return;
+  }
+  const had = submitting.has(assetId);
+  if (busy && !had) submitting.add(assetId);
+  else if (!busy && had) submitting.delete(assetId);
+  else return;
+  notifyBusy();
+}
+
+export function isTicketSubmitting(assetId: string): boolean {
+  return submitting.has(assetId);
+}
+
+export function subscribeTicketSubmitting(fn: () => void): () => void {
+  busyListeners.add(fn);
+  return () => { busyListeners.delete(fn); };
+}
+

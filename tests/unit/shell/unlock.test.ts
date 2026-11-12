@@ -3,6 +3,7 @@ import type { MeChannel, RankChannel } from "@/shell/channels";
 import { RANK_THRESHOLDS } from "@/shell/mockChannels";
 import { APP_IDS, RANKS, type AppId, type Rank } from "@/shell/registry";
 import { evaluate, moneyAtLeast, nextRankTarget, type Visibility } from "@/shell/unlock";
+import { shroudFlag } from "@/shell/v1Shroud";
 
 // S1-06 (17-AT-31): scripted characters across rank × license × flags × NW × game day.
 const me = (o: Partial<MeChannel>): MeChannel => ({
@@ -14,6 +15,9 @@ const rk = (rank: Rank): RankChannel => ({ rank, thresholds: [...RANK_THRESHOLDS
 /** Independent oracle written from the 17 §3.2.4 table (not from registry.ts). */
 function expected(id: AppId, rank: Rank, lic: number, flags: string[], nw100k: boolean, guest: boolean): Visibility {
   const lockedIf = (cond: boolean, teaser: boolean): Visibility => (cond ? "unlocked" : teaser ? "locked" : "hidden");
+  // M1-11 sits on top of the 17 table: no shroud flag → hidden, whatever the table says.
+  const shroud = shroudFlag(id);
+  if (shroud && !flags.includes(shroud)) return "hidden";
   switch (id) {
     case "risk": return lockedIf(lic >= 2, ri(rank) >= 1);
     case "quantlab": return lockedIf(ri(rank) >= 2, ri(rank) >= 1);
@@ -45,23 +49,31 @@ describe("visibility matrix (S1-06)", () => {
 
 describe("stickiness (17 §3.2.4)", () => {
   it("NW unlock never re-locks when NW falls; rank unlocks stay", () => {
-    const a = evaluate({ rank: rk("R2"), me: me({ nw: "150000" }) }, new Set());
+    const flags = ["v1.ailab", "v1.terminal"];
+    const a = evaluate({ rank: rk("R2"), me: me({ nw: "150000", flags }) }, new Set());
     expect(a.vis.ailab).toBe("unlocked");
-    const b = evaluate({ rank: rk("R2"), me: me({ nw: "20" }) }, a.sticky);
+    const b = evaluate({ rank: rk("R2"), me: me({ nw: "20", flags }) }, a.sticky);
     expect(b.vis.ailab).toBe("unlocked");
     expect(b.vis.quantlab).toBe("unlocked");
   });
   it("a revoked license re-locks Risk", () => {
-    const a = evaluate({ rank: rk("R2"), me: me({ license: "LIC2" }) }, new Set());
+    const flags = ["v1.terminal"];
+    const a = evaluate({ rank: rk("R2"), me: me({ license: "LIC2", flags }) }, new Set());
     expect(a.vis.risk).toBe("unlocked");
-    const b = evaluate({ rank: rk("R2"), me: me({ license: "LIC1" }) }, a.sticky);
+    const b = evaluate({ rank: rk("R2"), me: me({ license: "LIC1", flags }) }, a.sticky);
     expect(b.vis.risk).toBe("locked");
   });
-  it("a lost charter re-locks Institutions only when no flag remains", () => {
-    const a = evaluate({ rank: rk("R3"), me: me({ charters: ["bank"] }) }, new Set());
+  it("a lost charter re-locks Institutions only when no charter flag remains", () => {
+    const flags = ["v1.banks"];
+    const a = evaluate({ rank: rk("R3"), me: me({ charters: ["bank"], flags }) }, new Set());
     expect(a.vis.institutions).toBe("unlocked");
-    const b = evaluate({ rank: rk("R3"), me: me({}) }, a.sticky);
+    const b = evaluate({ rank: rk("R3"), me: me({ flags }) }, a.sticky);
     expect(b.vis.institutions).toBe("locked");
+  });
+  it("without the shroud flag, NW, a license and a charter do not reveal the system", () => {
+    expect(evaluate({ rank: rk("R2"), me: me({ nw: "150000" }) }, new Set()).vis.ailab).toBe("hidden");
+    expect(evaluate({ rank: rk("R2"), me: me({ license: "LIC2" }) }, new Set()).vis.risk).toBe("hidden");
+    expect(evaluate({ rank: rk("R3"), me: me({ charters: ["bank"] }) }, new Set()).vis.institutions).toBe("hidden");
   });
 });
 
@@ -73,11 +85,14 @@ describe("moneyAtLeast", () => {
 describe("AI Lab teaser (PR #2 answer 5)", () => {
   it("hidden before onboarding 7:30, locked from 7:30 or when onboarding is done; no rank rule", () => {
     const at = (onboardingMin: number, onboardingDone: boolean, rank: Rank) =>
-      evaluate({ rank: rk(rank), me: me({ onboardingMin, onboardingDone }) }, new Set()).vis.ailab;
+      evaluate({ rank: rk(rank), me: me({ onboardingMin, onboardingDone, flags: ["v1.ailab"] }) }, new Set()).vis.ailab;
     expect(at(7, false, "R0")).toBe("hidden");
     expect(at(7, false, "R4")).toBe("hidden");
     expect(at(7.5, false, "R0")).toBe("locked");
     expect(at(2, true, "R0")).toBe("locked");
+  });
+  it("without v1.ailab the teaser stays hidden", () => {
+    expect(evaluate({ rank: rk("R0"), me: me({ onboardingMin: 60, onboardingDone: true }) }, new Set()).vis.ailab).toBe("hidden");
   });
 });
 
