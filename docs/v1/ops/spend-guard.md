@@ -26,7 +26,7 @@ A serverless host would first need a hosted session store. That store is owned b
 
 Flags must be unset or exactly `1`. The value is not trimmed: `true`, `yes`, ` 1`, and `1 ` refuse to boot. Error text names the variable and never prints the value.
 
-Boot calls `assertBootEnv` from `src/instrumentation.ts` before the server takes requests. `GET /api/health` reports `spendOptIn`, `paidProviders`, `killSwitch`, `readOnly`, and `tickAutostart`. It does not start the clock.
+Boot calls `assertBootEnv` from `src/instrumentation.ts` before the server takes requests. `next start` prints `Ready` (and the network address) before the guard calls `exit(1)`, so `Ready` in the logs does not mean it is serving. A refused boot exits 1 after that line. Confirm the process is still up and `GET /api/health` returns before treating the log line as success. `GET /api/health` reports `spendOptIn`, `paidProviders`, `killSwitch`, `readOnly`, and `tickAutostart`. It does not start the clock.
 
 ## Kill switch
 
