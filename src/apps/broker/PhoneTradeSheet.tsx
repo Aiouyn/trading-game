@@ -18,10 +18,28 @@ export function PhoneTradeSheet({ t, assetId, qtyRef, onDismiss, onKeyDown, chil
 
   useEffect(() => {
     if (!open || !scope.current) return;
-    if (!justOpened.current && (scope.current.contains(document.activeElement) || lastFocus.current?.isConnected)) return;
-    justOpened.current = false;
-    const action = content.current?.querySelector<HTMLElement>('button:not([disabled]):not([aria-disabled="true"])');
-    (qtyRef.current ?? action ?? scope.current.querySelector<HTMLElement>("button"))?.focus();
+    const restore = () => {
+      if (!scope.current) return;
+      const opening = justOpened.current;
+      const at = document.activeElement;
+      const inContent = !!(content.current && at instanceof Node && content.current.contains(at));
+      const lastInContent = !!(lastFocus.current?.isConnected && content.current?.contains(lastFocus.current));
+      const onChrome = !!(at instanceof HTMLElement && scope.current.contains(at) && content.current && !content.current.contains(at));
+      // After the first content restore, keep native moves (including Close and a blurred Quantity).
+      if (!opening && (inContent || lastInContent || onChrome)) return;
+      const qty = qtyRef.current?.isConnected ? qtyRef.current : null;
+      const action = content.current?.querySelector<HTMLElement>('button:not([disabled]):not([aria-disabled="true"])');
+      // A lazy Review/Ack body may not have a control yet; don't fall back to Close, and
+      // keep justOpened so the first real action can still take focus.
+      if (!qty && !action) return;
+      justOpened.current = false;
+      (qty ?? action)?.focus();
+    };
+    restore();
+    // PR105 loads Review/Ack through retryableLazy; the content buttons appear after this effect.
+    const mo = new MutationObserver(restore);
+    if (content.current) mo.observe(content.current, { childList: true, subtree: true });
+    return () => mo.disconnect();
   }, [open, children, qtyRef]);
 
   return (
@@ -32,7 +50,7 @@ export function PhoneTradeSheet({ t, assetId, qtyRef, onDismiss, onKeyDown, chil
           onClick={(e) => { e.currentTarget.focus(); justOpened.current = true; setOpen(true); }}>{t.viewTrade}</Button>
       </div>
       {open && <div className="br-phone-order">
-        <Sheet side="bottom" label={label} onClose={dismiss} testId="br-sheet">
+        <Sheet side="bottom" label={label} onClose={dismiss} testId="br-sheet" restoreToFirst={false}>
           <div ref={scope} onKeyDown={onKeyDown} onFocusCapture={(e) => {
             if (e.target instanceof HTMLElement) lastFocus.current = e.target;
           }}>

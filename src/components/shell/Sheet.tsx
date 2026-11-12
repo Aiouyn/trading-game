@@ -5,8 +5,10 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
 
-export function Sheet({ side = "bottom", label, onClose, children, testId = "sheet" }: {
+export function Sheet({ side = "bottom", label, onClose, children, testId = "sheet", restoreToFirst = true }: {
   side?: "bottom" | "right"; label: string; onClose: () => void; children: ReactNode; testId?: string;
+  /** When a lazy child has no control yet, refocus the first control once it appears (or if focus is on the chrome). Phone Trade sheet opts out so native blur and in-sheet moves stay put. */
+  restoreToFirst?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
@@ -35,6 +37,7 @@ export function Sheet({ side = "bottom", label, onClose, children, testId = "she
   // A lazy child may mount after the first paint (skeleton has no control). When the first real
   // control appears, take focus if it was lost with the skeleton or is still on the sheet chrome.
   useEffect(() => {
+    if (!restoreToFirst) return;
     const el = ref.current;
     if (!el) return;
     const first = el.querySelector<HTMLElement>(FOCUSABLE);
