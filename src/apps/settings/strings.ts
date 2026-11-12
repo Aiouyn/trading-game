@@ -48,6 +48,8 @@ const EN = {
   licences: "Licences",
   colComponent: "Component", colLicence: "Licence", colLink: "Link",
   chartsBy: "Charts by TradingView",
+  notices: "Licence notices",
+  licenceText: (licence: string) => `${licence} licence text`,
   credits: "Credits",
   roles: { design: "design", shellApps: "shell and apps", city: "Port Avalon", markets: "markets", quay: "Quay" },
   integrity: "Public integrity report",
@@ -66,7 +68,7 @@ const EN = {
   accountStart: "Start with $10,000 of game money and a $20,000 (Hustler) goal.",
   accountOpenPortfolio: "Open Portfolio",
   accountSaveDetails: "Save and demo details",
-  accountDisclaimer: "Account, cash, and position quantities are saved on the server. Broker trades and fills are still a demo and are not saved when you reload. Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
+  accountDisclaimer: "Signed in, your cash, positions with their cost, and working limit orders are saved on the server; Broker market and limit orders are priced and filled by the server at its shared quotes. Signed out, the Broker is a demo and its trades are not saved. Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
 };
 
 type Strings = typeof EN;
@@ -111,6 +113,8 @@ const FR: Strings = {
   licences: "Licences",
   colComponent: "Composant", colLicence: "Licence", colLink: "Lien",
   chartsBy: "Charts by TradingView", // attribution line stays verbatim (licence requirement)
+  notices: "Avis de licence",
+  licenceText: (licence: string) => `Texte de la licence ${licence}`,
   credits: "Crédits",
   roles: { design: "conception", shellApps: "interface et applis", city: "Port Avalon", markets: "marchés", quay: "Quay" },
   integrity: "Rapport d’intégrité public",
@@ -128,7 +132,7 @@ const FR: Strings = {
   accountStart: "Commencez avec 10 000 $ d’argent fictif et un objectif de 20 000 $ (Hustler).",
   accountOpenPortfolio: "Ouvrir Portefeuille",
   accountSaveDetails: "Détails sur la sauvegarde et la démo",
-  accountDisclaimer: "Le compte, les liquidités et les quantités de positions sont enregistrés sur le serveur. Les échanges et exécutions Broker sont encore une démo et ne sont pas enregistrés quand vous rechargez la page. Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
+  accountDisclaimer: "Connecté, vos liquidités, vos positions avec leur coût et vos ordres à cours limité en cours sont enregistrés sur le serveur ; les ordres Broker au marché et à cours limité sont exécutés par le serveur à ses cours partagés. Déconnecté, le Broker est une démo et ses échanges ne sont pas enregistrés. Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };

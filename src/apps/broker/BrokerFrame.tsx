@@ -13,18 +13,34 @@ import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
 import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/contracts/channels";
 import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
-import { authoritativeQuoteProvenance, getFeed, useChannel } from "@/shell/contracts/useChannel";
+import { authoritativeFear, authoritativeQuoteProvenance, getFeed, knownOffline, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
+import { GoalSlot } from "@/apps/portfolio/GoalSlot";
 import { PriceChart } from "@/components/market/PriceChart";
+import { asDefault, retryableLazy } from "@/components/shell/retryableLazy";
 import { AssetHeader } from "./AssetHeader";
-import { AssetPage, ViewSwitch, type BrokerView } from "./AssetPage";
 import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
-import { SimpleTicket } from "./SimpleTicket";
-import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
+import { PreviewRows, SimpleTicket } from "./SimpleTicket";
+import { fillOf, orderIdOf } from "./ticketResult";
 import { subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
-import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
+import { BR_STACK_SCALE, reasonCopy } from "./strings-en";
+import { useBrStrings } from "./useBrStrings";
+import { ViewSwitch, type BrokerView } from "./ViewSwitch";
 import "./broker.css";
+
+const RetryableAssetPage = retryableLazy(() => import("./AssetPage"));
+// Preload the review/ack chunk as soon as Broker is in the graph, and mount it without
+// Suspense: React 19 defers a fast Suspense reveal on a timer, which never fires on a
+// paused test clock, so Place and the review title never appeared (BR-6 Q1, PF-8).
+const loadTicketReview = () => import("./TicketReview");
+void loadTicketReview();
+const RetryableReview = retryableLazy(async () => asDefault((await loadTicketReview()).ReviewBlock), { suspense: false });
+const RetryableAck = retryableLazy(async () => asDefault((await loadTicketReview()).AckPanel), { suspense: false });
+
+const panelFallback = (testId: string) => (
+  <div className="br-skel br-skel-ticket" data-testid={testId} aria-busy="true" role="status" />
+);
 
 /** 19 Rule 3.8.5: never more than 5 preview requests per tick. */
 export const MAX_PREVIEWS_PER_TICK = 5;
@@ -34,7 +50,7 @@ export const PREVIEW_DEBOUNCE_MS = 300;
 type Phase =
   | { kind: "edit" }
   | { kind: "review" }
-  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: boolean };
+  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: false | "error" | "offline" | "unknown" };
 
 interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string }
 const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}`;
@@ -60,7 +76,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   // Card 19: the server stopped answering after prices were live (feed backoff running): no new review or place until it is back.
   const lost = useShell((s) => s.channels.system.connection === "reconnecting");
   const stacked = useShell((s) => s.prefs.textScale >= BR_STACK_SCALE);
-  const t = brStrings(locale);
+  const t = useBrStrings(locale);
   const ticker = useChannel("ticker:wl_default");
   const me = useChannel("me");
 
@@ -121,6 +137,8 @@ export function BrokerFrame({ context }: { context?: string }) {
   const preview = est && est.key === key ? est.res : null;
   const tickerTick = ticker.tick;
   const frozen = ticker.state === "stale" || me.state === "stale";
+  // M2-05: the channel layer holds every view stale while the browser reports offline; say so on the ticket.
+  const offline = frozen && knownOffline();
 
   // Preview scheduling: one request 300 ms after the last edit, then one per new ticker tick while shown; a per-tick
   // budget caps both (19 Rule 3.8.5) and a sequence number drops replies to an older draft. A request the budget
@@ -202,7 +220,8 @@ export function BrokerFrame({ context }: { context?: string }) {
     const atTick = me.tick ?? 0;
     setPhase({ kind: "placed", atTick, intentId: null, failed: false });
     void placeOrder(order).then((r) => {
-      setPhase(r.ok ? { kind: "placed", atTick, intentId: r.value, failed: false } : { kind: "placed", atTick, intentId: null, failed: true });
+      setPhase(r.ok ? { kind: "placed", atTick, intentId: r.value, failed: false }
+        : { kind: "placed", atTick, intentId: null, failed: r.error.kind === "offline" || r.error.kind === "unknown" ? r.error.kind : "error" });
     });
   };
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.
@@ -216,7 +235,13 @@ export function BrokerFrame({ context }: { context?: string }) {
     if ((k === "b" || k === "s") && phase.kind === "edit") { e.preventDefault(); setSide(k === "b" ? "BUY" : "SELL"); return; }
     if (e.key !== "Enter" || e.target instanceof HTMLButtonElement) return; // a focused button activates itself
     if (phase.kind === "edit") { e.preventDefault(); toReview(); }
-    else if (phase.kind === "review") { e.preventDefault(); place(); }
+    else if (phase.kind === "review") {
+      // Phone review sits in a Sheet over the ticket. Enter on the sheet chrome (or a lazy
+      // skeleton) must not place; Enter on a ticket field still does (qty still focused).
+      if (e.target instanceof HTMLElement && e.target.closest('[data-testid="br-sheet"]')) return;
+      e.preventDefault();
+      place();
+    }
   };
 
   const retry = () => { getFeed().resync("ticker:wl_default"); getFeed().resync("me"); };
@@ -268,6 +293,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     <div className="br-col br-col-head">
       <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices} focusRef={setHead}
         provenance={authoritativeQuoteProvenance(ticker.tick)}
+        fear={authoritativeFear()}
         onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={withChart ? chart : undefined} />
       {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
       {(view === "trade" || !phone) && <ViewSwitch t={t} view={view} onView={onView} ids={viewIds} />}
@@ -279,7 +305,9 @@ export function BrokerFrame({ context }: { context?: string }) {
         <div className="br-grid">
           {header(false)}
           <div className="br-col br-col-ticket">
-            <AssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade} />
+            <RetryableAssetPage t={t} locale={locale} id={viewIds.about} assetId={assetId} row={row} position={body.positions[assetId]} phone={phone} onTrade={toTrade}
+              fallback={panelFallback("br-about-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+              errorTestId="br-about-error" retryTestId="br-about-retry" />
           </div>
         </div>
         <p className="br-disclaimer muted" data-testid="br-disclaimer">{t.disclaimer}</p>
@@ -293,13 +321,18 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const reviewing = phase.kind === "review" || (placed !== null && result === null);
   const review = reviewing && (
-    <ReviewBlock t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace} blockedReason={lost ? t.placeWaitConnection : null}
-      pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} onEdit={toEdit} onPlace={place} />
+    <RetryableReview t={t} locale={locale} action={action} preview={preview} stale={reviewStale && phase.kind === "review"} halted={halted} canPlace={canPlace} blockedReason={lost ? t.placeWaitConnection : null}
+      pendingTick={placed && !placed.failed ? placed.atTick : null} failed={placed?.failed ?? false} offline={offline} onEdit={toEdit} onPlace={place}
+      previewRows={preview ? <PreviewRows t={t} locale={locale} res={preview} stale={reviewStale && phase.kind === "review"} /> : null}
+      fallback={panelFallback("br-review-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+      errorTestId="br-review-error" retryTestId="br-review-retry" />
   );
   const ack = result && (
-    <AckPanel t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
+    <RetryableAck t={t} locale={locale} ticker={assetId} result={result} fill={fillOf(result, body.fills)}
       queued={(() => { const id = orderIdOf(result); return id !== null && body.orders[id]?.status === "QUEUED_AUCTION"; })()}
-      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject} />
+      resting={restingId !== null} onNew={newOrder} onEdit={editAfterReject}
+      fallback={panelFallback("br-ack-loading")} errorMessage={t.couldntLoad} retryLabel={t.retry}
+      errorTestId="br-ack-error" retryTestId="br-ack-retry" />
   );
   const ticket = (
     <SimpleTicket t={t} locale={locale} side={draft.side} qtyText={draft.qtyText} qtyRef={qtyRef}
@@ -317,6 +350,7 @@ export function BrokerFrame({ context }: { context?: string }) {
         <div className="br-col br-col-ticket">
           {ack || (phone ? ticket : review || ticket)}
           {phone && review && <Sheet side="bottom" label={action} onClose={toEdit} testId="br-sheet">{review}</Sheet>}
+          {!phone && <GoalSlot locale={locale} />}{/* M2-02 goal entry where no Portfolio window shows it (desktop 1024–1263) */}
         </div>
         {orders}
       </div>

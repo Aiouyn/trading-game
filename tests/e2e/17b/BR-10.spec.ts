@@ -6,7 +6,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
-import { openBrokerPaused } from "./openPaused";
+import { openBrokerPaused, revealOnPausedClock } from "./openPaused";
 import { pinHtml } from "./pin";
 import { expectOnlyBandMasked, winShot } from "./winShot";
 
@@ -77,7 +77,7 @@ async function until(page: Page, done: () => Promise<boolean>) {
 }
 async function toAbout(page: Page, root: Page | Locator = page) {
   await root.getByTestId("br-view-about").click();
-  await expect(root.getByTestId("br-about")).toBeVisible();
+  await revealOnPausedClock(page, root.getByTestId("br-about"));
   await page.clock.runFor(100);
 }
 async function toNews(page: Page) {
@@ -290,6 +290,7 @@ test("BR-10-08 a News row opens that story in Wire (card 9 detail at 1440); no t
   await press(page.getByTestId("br-view-trade"));
   await page.getByTestId("br-asset-select").selectOption("ORCA");
   await press(page.getByTestId("br-view-about"));
+  await revealOnPausedClock(page, about(page));
   await expect(about(page)).toBeVisible();
   await press(tab(page, "news"));
   await until(page, async () => (await page.getByTestId("ap-news").count()) > 0);
@@ -354,8 +355,11 @@ for (const scale of ["1", "2"] as const) {
     phoneOnly(info.project.name);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await bootPaused(page, "/settings");
+    // Settings is a lazy chunk under Suspense; on a slow host it lands after bootPaused pauses the clock, and React 19's
+    // reveal timer then never fires (CI run 43161314039). Step the clock until the panel is up, as every other lazy panel here.
+    await revealOnPausedClock(page, page.getByTestId("settings"), "Settings visible on the paused clock");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
     await page.getByTestId("icon-broker").click();
     await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
     await page.getByTestId("br-asset-select").selectOption("HALC");

@@ -1,6 +1,7 @@
 import { mkdirSync, copyFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { APP_IDS } from "@/shell/registry";
 import { boot } from "./helpers";
 
 // 17A T2: window chrome, strip, shelf, tiles, glyphs (T2-01..T2-04, T2-06, T2-07, C3–C9).
@@ -129,7 +130,7 @@ test("T2-06 phone tile glyphs are never brass (all apps)", async ({ page }, info
   expect(ds!.ok()).toBe(true);
   const acc = await token(page, "acc");
   const sheet = await page.locator(".ds-glyph .tile-phone").evaluateAll((els) => els.map((e) => getComputedStyle(e).color));
-  expect(sheet).toHaveLength(32);
+  expect(sheet).toHaveLength(APP_IDS.length);
   expect(sheet.filter((c) => c === acc)).toEqual([]);
 });
 

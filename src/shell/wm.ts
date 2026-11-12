@@ -7,7 +7,10 @@ export const SHELF_H = 52;
 export const GUTTER = 8; // [P] desktop gutter, same as compact (17 §3.2.2)
 
 export type Viewport = "phone" | "compact" | "desktop";
-export const viewportOf = (w: number): Viewport => (w < 768 ? "phone" : w < 1200 ? "compact" : "desktop");
+/** Free (movable, resizable) windows from this width. Owner ruling 2026-11-07: a 1024 px desktop is a real desktop, so
+ *  the compact single-window mode (velvet-desktop-os §Compact, decided at 768–1199) now covers 768–1023 only. */
+export const DESKTOP_MIN_VW = 1024;
+export const viewportOf = (w: number): Viewport => (w < 768 ? "phone" : w < DESKTOP_MIN_VW ? "compact" : "desktop");
 
 /** The launcher's touch hit area sticks out this far below the strip; no window top may sit in that band. */
 export const STRIP_HIT_BAND = 5;
@@ -16,6 +19,12 @@ export const minWindowTop = (focusMode = false) => (focusMode ? 24 : STRIP_H) + 
 
 /** AC-WM-SHELF-CLAMP §1: at least this much of the title bar stays inside the viewport horizontally. */
 export const TITLE_KEEP = 96;
+/** Default height of a newly opened desktop window. */
+export const DEFAULT_WINDOW_H = 560;
+/** Broker is taller so the plot and the Trend line control stay in view together. The 560 px
+ *  default left the tool under the fold once the overlay controls were added, and a click then
+ *  scrolled the plot (tests/e2e/17b/broker-trendline.spec.ts). */
+export const BROKER_WINDOW_H = 640;
 
 /**
  * Move a window; its top is clamped below the strip's hit band so the title bar never sits under it. With the work
@@ -96,7 +105,7 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
     return { windows: [...windows.filter((x) => !sameWin(x, existing)), moved], focused: moved, opened: false };
   }
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
-  const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, 560), a.w);
+  const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, app === "broker" ? BROKER_WINDOW_H : DEFAULT_WINDOW_H), a.w);
   const n = windows.length % 6;
   const rect: WindowRect = {
     app, instance, workspace: 1, collapsed: false, snap: null, context,
@@ -129,6 +138,40 @@ export function updateWin(windows: WindowRect[], w: WindowRect, patch: Partial<W
 export function resizeWin(windows: WindowRect[], w: WindowRect, width: number, height: number, a: Area): WindowRect[] {
   const s = clampSize(w.app, width, Math.min(height, a.y + a.h - w.y), a.w);
   return updateWin(windows, w, { w: s.w, h: s.h, snap: null });
+}
+
+/** A window edge or corner a resize drags (compass points; "se" is the bottom-right corner). */
+export type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+export const EDGES: readonly Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+
+/**
+ * Drag edge `edge` of a window that started at `r0` (its displayed rect) by (dx, dy). The opposite edges stay put
+ * (the p10 windowMath.resizeRect rule). Limits: the app minimum (capped to the work area), the work area's top
+ * (clampTop, so the title bar stays reachable), left, right and bottom (clampBottom); a window already hanging off the
+ * left keeps its x and ≥ TITLE_KEEP px of title bar stay on screen. The result is floating (snap null).
+ */
+export function resizeEdgeRect(app: AppId, r0: Area, edge: Edge, dx: number, dy: number, a: Area): Area {
+  const m = minSize(app, a.w);
+  const minW = Math.min(m.w, a.w);
+  const minH = Math.min(m.h, a.h);
+  const right0 = r0.x + r0.w;
+  const bottom0 = r0.y + r0.h;
+  let { x, y, w, h } = r0;
+  if (edge.includes("e")) w = Math.min(Math.max(r0.w + dx, minW, TITLE_KEEP - r0.x), Math.max(r0.w, a.x + a.w - r0.x));
+  if (edge.includes("w")) {
+    x = Math.max(Math.min(r0.x + dx, right0 - minW), Math.min(a.x, r0.x));
+    w = right0 - x;
+  }
+  if (edge.includes("s")) h = Math.min(Math.max(r0.h + dy, minH), Math.max(minH, a.y + a.h - r0.y));
+  if (edge.includes("n")) {
+    y = Math.max(Math.min(r0.y + dy, bottom0 - minH), a.y);
+    h = bottom0 - y;
+  }
+  return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+}
+
+export function resizeEdgeWin(windows: WindowRect[], w: WindowRect, r0: Area, edge: Edge, dx: number, dy: number, a: Area): WindowRect[] {
+  return updateWin(windows, w, { ...resizeEdgeRect(w.app, r0, edge, dx, dy, a), snap: null });
 }
 
 export function snapWin(windows: WindowRect[], w: WindowRect, slot: SnapSlot, a: Area): WindowRect[] {

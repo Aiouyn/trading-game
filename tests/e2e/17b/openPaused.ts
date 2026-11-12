@@ -16,3 +16,13 @@ export async function openBrokerPaused(page: Page, path: string, broker: Locator
     return state;
   }, { message: "broker live on the paused clock", timeout: 10_000, intervals: [50] }).toBe("live");
 }
+
+/** Step the paused clock until `el` is visible. React 19 defers a fast Suspense reveal on a timer, so a just-opened
+ *  lazy panel (About, review) stays on its skeleton until the clock runs. If no fake clock is installed, only polls. */
+export async function revealOnPausedClock(page: Page, el: Locator, message = "lazy panel visible on the paused clock"): Promise<void> {
+  await expect.poll(async () => {
+    if (await el.isVisible().catch(() => false)) return true;
+    try { await page.clock.runFor(100); } catch { /* no fake clock */ }
+    return el.isVisible().catch(() => false);
+  }, { message, timeout: 10_000, intervals: [50] }).toBe(true);
+}

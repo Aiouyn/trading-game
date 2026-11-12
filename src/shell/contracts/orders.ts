@@ -27,6 +27,7 @@
 import type { OrderDraft, PreviewRes, Side } from "./channels";
 import { orderDraft, ParseError, previewRes, str } from "./schema";
 import { getFeed } from "./useChannel";
+import { IntentNotSentOffline, IntentOutcomeUnknown } from "./network";
 
 declare const brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [brand]: B };
@@ -135,7 +136,8 @@ export function mockTransport(): OrderTransport | null {
   return isOrderTransport(door) ? door : null;
 }
 
-export type OrderError = { kind: "noTransport" } | { kind: "badReply"; detail: string };
+/** offline: not sent, nothing reached the server (M2-05). unknown: sent, no answer; may have committed (M2-05). */
+export type OrderError = { kind: "noTransport" } | { kind: "badReply"; detail: string } | { kind: "offline" } | { kind: "unknown" };
 export type OrderResult<T> = { ok: true; value: T } | { ok: false; error: OrderError };
 
 const fail = (error: OrderError): { ok: false; error: OrderError } => ({ ok: false, error });
@@ -153,6 +155,8 @@ async function call<T>(draft: DayDraft, transport: OrderTransport | null, send: 
     return { ok: true, value: parse(raw) };
   } catch (e) {
     if (e instanceof ParseError) return fail({ kind: "badReply", detail: e.message });
+    if (e instanceof IntentNotSentOffline) return fail({ kind: "offline" });
+    if (e instanceof IntentOutcomeUnknown) return fail({ kind: "unknown" });
     throw e;
   }
 }
@@ -174,6 +178,8 @@ export async function cancelOrder(orderId: OrderId, transport: OrderTransport | 
     return { ok: true, value: parseIntentId(await transport.cancel(str(orderId, "orderId") as OrderId)) };
   } catch (e) {
     if (e instanceof ParseError) return fail({ kind: "badReply", detail: e.message });
+    if (e instanceof IntentNotSentOffline) return fail({ kind: "offline" });
+    if (e instanceof IntentOutcomeUnknown) return fail({ kind: "unknown" });
     throw e;
   }
 }

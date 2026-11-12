@@ -4,6 +4,8 @@
 .about-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); min-height: 44px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .about-muted { color: var(--fg-muted); font-size: var(--fs-14); margin: 0; }
 .about-list { list-style: none; margin: 0; padding: 0; }
+.about-notice { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); }
+.about-notice-text { white-space: pre-line; overflow-wrap: anywhere; }
 .about a { color: var(--fg); text-decoration: underline; display: inline-flex; align-items: center; gap: 4px; min-height: 28px; }
 @media (pointer: coarse) { .about a { min-height: 44px; } }
 .about-licences { width: 100%; border-collapse: collapse; }

@@ -1,11 +1,14 @@
 "use client";
 // Review / submitting / acked (UI cards 4 and 5). Review repeats the server's estimate and holds the Broker's only primary
 // ("Place order"). The acked panel reads our IntentResult (and its MyFill) from `me`: nothing is computed here.
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { decText } from "@/apps/portfolio/positions/format";
 import type { IntentResult, MyFill, PreviewRes } from "@/shell/contracts/channels";
-import { PreviewRows } from "./SimpleTicket";
-import { rejectCopy, type BrStrings } from "./strings";
+import { rejectCopy, type BrStrings } from "./strings-en";
+import { fillOf, orderIdOf } from "./ticketResult";
+
+export { fillOf, orderIdOf };
 
 export interface ReviewBlockProps {
   t: BrStrings;
@@ -21,21 +24,27 @@ export interface ReviewBlockProps {
   blockedReason?: string | null;
   /** `me` tick at submit while our intent is in flight; null otherwise. */
   pendingTick: number | null;
-  failed: boolean;
+  /** Why the last Place failed: "error" (existing generic), "offline" (not sent, M2-05), "unknown" (sent, no answer). */
+  failed: false | "error" | "offline" | "unknown";
+  /** M2-05: the browser reports offline; Place is off and the estimate is the last received. */
+  offline: boolean;
   onEdit: () => void;
   onPlace: () => void;
+  /** Preview rows rendered by the first-load ticket, so this lazy chunk does not import SimpleTicket. */
+  previewRows?: ReactNode;
 }
 
-export function ReviewBlock({ t, locale, action, preview, stale, halted, canPlace, blockedReason = null, pendingTick, failed, onEdit, onPlace }: ReviewBlockProps) {
+export function ReviewBlock({ t, action, stale, halted, canPlace, blockedReason = null, pendingTick, failed, offline, onEdit, onPlace, previewRows }: ReviewBlockProps) {
   const submitting = pendingTick !== null;
   return (
     <section className="br-review-block" data-testid="br-review-block" aria-labelledby="br-review-title">
       <h3 id="br-review-title" className="br-action" data-testid="br-action">{action}</h3>
-      {preview && <PreviewRows t={t} locale={locale} res={preview} stale={stale} />}
-      {stale && <p className="br-refreshing muted" data-testid="br-refreshing">{t.refreshing}</p>}
+      {previewRows}
+      {offline ? <p className="br-msg warn" data-testid="br-offline">{t.offlineNoPlace}</p>
+        : stale && <p className="br-refreshing muted" data-testid="br-refreshing">{t.refreshing}</p>}
       {halted && <p className="br-queued" data-testid="br-queued">{t.haltedQueued}</p>}
       {submitting && <p className="br-pending muted" data-testid="br-pending">{t.pending(String(pendingTick))}</p>}
-      {failed && <p className="br-msg warn" role="alert" data-testid="br-place-failed">{t.couldntLoad}</p>}
+      {failed && <p className="br-msg warn" role="alert" data-testid="br-place-failed" data-why={failed}>{failed === "offline" ? t.placeOffline : failed === "unknown" ? t.placeUnknown : t.couldntLoad}</p>}
       <div className="br-actions">
         <Button variant="ghost" data-testid="br-edit" disabled={submitting} onClick={onEdit}>{t.edit}</Button>
         <Button variant="primary" data-testid="br-place" aria-label={t.placeAria(action)} aria-busy={submitting || undefined}
@@ -44,17 +53,6 @@ export function ReviewBlock({ t, locale, action, preview, stale, halted, canPlac
       {!canPlace && blockedReason && <p id="br-place-reason" className="br-review-reason muted" role="status" data-testid="br-place-reason">{blockedReason}</p>}
     </section>
   );
-}
-
-/** The fill an ACCEPTED market intent names in `effects` ("fill:{id}"), if `me` carries it. */
-export function fillOf(result: IntentResult, fills: readonly MyFill[]): MyFill | null {
-  const ids = (result.effects ?? []).filter((e) => e.startsWith("fill:")).map((e) => e.slice(5));
-  return fills.find((f) => ids.includes(f.fillId)) ?? null;
-}
-/** The open order an intent created ("order:{id}"), for the queued-for-reopen label and the resting ack. */
-export function orderIdOf(result: IntentResult): string | null {
-  const e = (result.effects ?? []).find((x) => x.startsWith("order:"));
-  return e ? e.slice(6) : null;
 }
 
 export interface AckPanelProps {

@@ -32,18 +32,44 @@ export async function teardown(h: Harness): Promise<void> {
 
 export interface MountOpts { vw?: number; context?: string; scenario?: Partial<Scenario>; locale?: "en" | "fr"; textScale?: number; feed?: MockFeed }
 export async function mount(h: Harness, o: MountOpts = {}): Promise<MockFeed> {
+  // Vite's import() may schedule the first load on a timer; fake timers would leave About/review/FR on a skeleton.
+  vi.useRealTimers();
+  await Promise.all([
+    import("@/apps/broker/AssetPage"),
+    import("@/apps/broker/TicketReview"),
+    import("@/apps/broker/strings-fr"),
+  ]);
+  vi.useFakeTimers();
   const feed = o.feed ?? new MockFeed(o.scenario ?? {}, { tickMs: MANUAL_TICK_MS });
   setFeed(feed);
   const prefs = h.store.getState().prefs;
   h.store.setState({ vw: o.vw ?? 1440, prefs: { ...prefs, locale: o.locale ?? "en", textScale: o.textScale ?? 1 } });
   await act(async () => { h.root.render(createElement(ShellCtx.Provider, { value: h.store }, createElement(BrokerApp, { context: o.context }))); });
   await act(async () => { vi.advanceTimersByTime(SNAP_DELAY_MS); });
+  await flushLazy();
   return feed;
+}
+
+/** Drain microtasks so a just-mounted lazy() panel (About, review, ack, FR strings) commits. */
+export async function flushLazy(): Promise<void> {
+  for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); });
+}
+
+export async function waitForTestId(h: Harness, id: string, tries = 50): Promise<HTMLElement> {
+  for (let i = 0; i < tries; i++) {
+    const el = q(h, id);
+    if (el) return el;
+    await act(async () => { await Promise.resolve(); vi.advanceTimersByTime(1); });
+  }
+  throw new Error(`timed out waiting for [data-testid="${id}"]`);
 }
 
 export const q = (h: Harness, id: string) => h.el.ownerDocument.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 export const text = (h: Harness, id: string) => q(h, id)?.textContent ?? null;
-export const click = (n: HTMLElement) => act(async () => { n.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+export const click = async (n: HTMLElement) => {
+  await act(async () => { n.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await flushLazy();
+};
 export const wait = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
 export const tick = (feed: MockFeed) => act(async () => { feed.advance(); });
 export const key = (n: HTMLElement, k: string) => act(async () => { n.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); });

@@ -50,6 +50,7 @@ describe("signed-in feed connection flag and retry cadence", () => {
     const feed = new MockFeed({ empty: true, nw: "10000.00", seed: 1 }, { authoritativeQuotes: true, random: () => 0.5 });
     feed.onConnection = (c) => flags.push(c);
     const off = feed.subscribe("ticker:wl_default", () => {});
+    await feed.serverSync(); // the signed-in server half is a lazy chunk (serverSync.ts): let it land first
     await flush();
     await vi.advanceTimersByTimeAsync(50);
     expect(feed.hasAdoptedQuotes).toBe(true);
@@ -139,8 +140,10 @@ describe("signed-in feed connection flag and retry cadence", () => {
     applySignedInDemo(store, "acc_outage", 1, { cashCents: 1_000_000 });
     const feed = getFeed() as MockFeed;
     const off = feed.subscribe("ticker:wl_default", () => {});
+    await feed.serverSync();
     await flush();
     await vi.advanceTimersByTimeAsync(50);
+    expect(feed.hasAdoptedQuotes).toBe(true);
     expect(store.getState().channels.system.connection).toBe("live");
     down = true;
     await vi.advanceTimersByTimeAsync(SERVER_QUOTE_POLL_MS + 50);

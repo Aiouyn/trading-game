@@ -49,6 +49,10 @@ export interface ShellState {
   focus(w: WindowRect): void;
   snap(w: WindowRect, slot: SnapSlot): void;
   resize(w: WindowRect, width: number, height: number): void;
+  /** Drag edge `edge` of a desktop window from its displayed rect `from` by (dx, dy) (wm.resizeEdgeRect). */
+  resizeEdge(w: WindowRect, edge: wm.Edge, from: wm.Area, dx: number, dy: number): void;
+  /** Keyboard resize (Ctrl Shift arrows): grow or shrink the window's right / bottom edge by (dw, dh). Desktop only. */
+  resizeBy(w: WindowRect, dw: number, dh: number): void;
   move(w: WindowRect, x: number, y: number): void;
   toggleCollapse(w: WindowRect): void;
   layout(id: LayoutId): void;
@@ -123,6 +127,18 @@ export const createShellStore = (channels: Channels) =>
       focus(w) { setWindows(wm.bringToFront(get().local.windows, w)); },
       snap(w, slot) { setWindows(wm.snapWin(get().local.windows, w, slot, area())); },
       resize(w, width, height) { const s = get(); setWindows(wm.resizeWin(s.local.windows, w, width, height, wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH))); },
+      resizeEdge(w, edge, from, dx, dy) {
+        const s = get();
+        if (wm.viewportOf(s.vw) !== "desktop") return;
+        setWindows(wm.resizeEdgeWin(s.local.windows, w, from, edge, dx, dy, wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH)));
+      },
+      resizeBy(w, dw, dh) {
+        const s = get();
+        if (wm.viewportOf(s.vw) !== "desktop" || w.collapsed) return;
+        const a = wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH);
+        const from = wm.fitRect(w, a, wm.workArea(s.vw, s.vh, s.local.focusMode), s.vw);
+        setWindows(wm.resizeEdgeWin(s.local.windows, w, from, "se", dw, dh, a));
+      },
       move(w, x, y) {
         // AC-WM-SHELF-CLAMP: drag stops at the banner-aware work area on desktop.
         const s = get(), desk = wm.viewportOf(s.vw) === "desktop";
