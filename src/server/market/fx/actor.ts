@@ -1,8 +1,7 @@
 import {
+  ActorBinding,
   BindingError,
-  actorIdFor,
-  isAccountId,
-  isActorId,
+  isIssuedActorContext,
   isPlainJson,
   isPlainObject,
   requireBoundActor,
@@ -16,37 +15,17 @@ export const FX_ACTOR_DEFAULT_ENABLED = false;
 export type FxActorOptions = {
   readonly actorGuard?: unknown;
   readonly contexts?: unknown;
+  readonly binding?: unknown;
 };
 
 export function actorGuardEnabled(options?: { actorGuard?: unknown }): boolean {
-  return options?.actorGuard === true;
-}
-
-function isSessionId(value: unknown): value is string {
-  return typeof value === "string" && /^ses_[0-9a-f]{32}$/.test(value);
+  return options != null && typeof options === "object" && !Array.isArray(options)
+    && Object.hasOwn(options, "actorGuard") && options.actorGuard === true;
 }
 
 export function parseActorContext(raw: unknown): ActorContext {
-  if (!isPlainObject(raw)) throw new BindingError("CLAIM_MALFORMED");
-  const keys = Object.keys(raw);
-  if (
-    keys.length !== 4
-    || !isActorId(raw.actorId)
-    || !isAccountId(raw.accountId)
-    || !isSessionId(raw.sessionId)
-    || typeof raw.boundAtMs !== "number"
-    || !Number.isSafeInteger(raw.boundAtMs)
-    || raw.boundAtMs < 0
-  ) {
-    throw new BindingError("CLAIM_MALFORMED");
-  }
-  if (actorIdFor(raw.accountId) !== raw.actorId) throw new BindingError("ACTOR_MISMATCH");
-  return {
-    actorId: raw.actorId,
-    accountId: raw.accountId,
-    sessionId: raw.sessionId as ActorContext["sessionId"],
-    boundAtMs: raw.boundAtMs,
-  };
+  if (!isIssuedActorContext(raw)) throw new BindingError("FORGED_CONTEXT");
+  return raw;
 }
 
 export function parseActorContexts(raw: unknown): Map<string, ActorContext> {
@@ -60,6 +39,14 @@ export function parseActorContexts(raw: unknown): Map<string, ActorContext> {
   return out;
 }
 
+export function bindingForGuard(options?: { binding?: unknown }): ActorBinding {
+  if (options != null && typeof options === "object" && !Array.isArray(options)
+    && Object.hasOwn(options, "binding") && options.binding instanceof ActorBinding) {
+    return options.binding;
+  }
+  throw new BindingError("SESSION_REJECTED");
+}
+
 export function authorizeFxCommands(commands: readonly Command[], options?: FxActorOptions): void {
   if (!actorGuardEnabled(options)) return;
   const contexts = parseActorContexts(options?.contexts);
@@ -67,5 +54,16 @@ export function authorizeFxCommands(commands: readonly Command[], options?: FxAc
     const context = contexts.get(command.id);
     if (context === undefined) throw new BindingError("MISSING_SESSION");
     requireBoundActor(context, command.account);
+  }
+}
+
+export async function assertLiveFxCommands(commands: readonly Command[], options?: FxActorOptions): Promise<void> {
+  if (!actorGuardEnabled(options)) return;
+  const binding = bindingForGuard(options);
+  const contexts = parseActorContexts(options?.contexts);
+  for (const command of commands) {
+    const context = contexts.get(command.id);
+    if (context === undefined) throw new BindingError("MISSING_SESSION");
+    await binding.assertLiveSession(context);
   }
 }

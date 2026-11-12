@@ -92,26 +92,29 @@ async function main() {
 
   const start = advanceFx(createFx(g), [frame(0, [])]);
   const before = canonical(start);
-  assert.throws(() => advanceFx(start, [tape[0]!], { actorGuard: true }), (err: unknown) => err instanceof Error && err.message === "MISSING_SESSION" || (err as { code?: string }).code === "MISSING_SESSION");
+  assert.throws(() => advanceFx(start, [tape[0]!], { actorGuard: true, binding }), (err: unknown) => err instanceof Error && err.message === "MISSING_SESSION" || (err as { code?: string }).code === "MISSING_SESSION");
   assert.equal(canonical(start), before);
   assert.throws(() => advanceFx(start, [frame(1, [bankCmd("x", ctxA.actorId)])], { actorGuard: true, contexts: { x: ctxB } }), (err: unknown) => (err as { code?: string }).code === "ACTOR_MISMATCH");
   assert.equal(canonical(start), before);
   assert.equal(start.receipts.length, 0);
   assert.equal(start.transfers.length, 0);
+  assert.throws(() => advanceFx(start, [frame(1, [bankCmd("forge", ctxA.actorId)])], { actorGuard: true, contexts: { forge: { ...ctxA } } }), (err: unknown) => (err as { code?: string }).code === "FORGED_CONTEXT");
+  assert.throws(() => advanceFx(start, [frame(1, [bankCmd("clone", ctxA.actorId)])], { actorGuard: true, contexts: { clone: structuredClone(ctxA) } }), (err: unknown) => (err as { code?: string }).code === "FORGED_CONTEXT");
+  assert.equal(canonical(start), before);
 
   const rows: unknown[] = [];
   for (const cut of [0, 1, tape.length - 1]) {
     const file = path.join(clean, `restart-${cut}.json`);
-    let engine = await FxEngine.open(new FileFxStore(file), g, { actorGuard: true });
+    let engine = await FxEngine.open(new FileFxStore(file), g, { actorGuard: true, binding });
     await engine.observe(tape.slice(0, cut + 1), contexts);
     const mid = engine.snapshot();
     const midBytes = await readFile(file);
-    engine = await FxEngine.open(new FileFxStore(file), g, { actorGuard: true });
+    engine = await FxEngine.open(new FileFxStore(file), g, { actorGuard: true, binding });
     assert.equal(canonical(engine.snapshot()), canonical(mid));
     assert.deepEqual(await readFile(file), midBytes);
     await engine.observe(tape.slice(cut + 1), contexts);
     assert.equal(canonical(engine.snapshot()), canonical(guarded));
-    engine = await FxEngine.open(new FileFxStore(file), g, { actorGuard: true });
+    engine = await FxEngine.open(new FileFxStore(file), g, { actorGuard: true, binding });
     assert.equal(canonical(engine.snapshot()), canonical(guarded));
     assertFxConservation(engine.snapshot());
     rows.push({ cut, stateSha256: stateHash(mid), finalSha256: stateHash(engine.snapshot()), restartEqual: true });
@@ -119,9 +122,26 @@ async function main() {
 
   const off = await FxEngine.open(new FileFxStore(path.join(clean, "off.json")), g);
   await off.observe(tape);
-  const on = await FxEngine.open(new FileFxStore(path.join(clean, "on.json")), g, { actorGuard: true });
+  const on = await FxEngine.open(new FileFxStore(path.join(clean, "on.json")), g, { actorGuard: true, binding });
   await on.observe(tape, contexts);
   assert.deepEqual(await readFile(path.join(clean, "on.json")), await readFile(path.join(clean, "off.json")));
+
+  const rejectPath = path.join(clean, "reject.json");
+  const rejectEngine = await FxEngine.open(new FileFxStore(rejectPath), g, { actorGuard: true, binding });
+  await rejectEngine.observe([frame(0, [])], {});
+  const rejectBefore = canonical(rejectEngine.snapshot());
+  const rejectBytes = await readFile(rejectPath);
+  const pay = bankCmd("pay-reject", ctxA.actorId);
+  const payFrame = [frame(1, [pay])];
+  const forgedErr = await rejectEngine.observe(payFrame, { [pay.id]: { ...ctxA } }).then(() => null, (err: unknown) => err);
+  assert.equal((forgedErr as { code?: string }).code, "FORGED_CONTEXT");
+  const clonedErr = await rejectEngine.observe(payFrame, { [pay.id]: structuredClone(ctxA) }).then(() => null, (err: unknown) => err);
+  assert.equal((clonedErr as { code?: string }).code, "FORGED_CONTEXT");
+  await auth.logout(a.rawToken);
+  const logoutErr = await rejectEngine.observe(payFrame, { [pay.id]: ctxA }).then(() => null, (err: unknown) => err);
+  assert.equal((logoutErr as { code?: string }).code, "SESSION_REJECTED");
+  assert.equal(canonical(rejectEngine.snapshot()), rejectBefore);
+  assert.deepEqual(await readFile(rejectPath), rejectBytes);
 
   await output("identity-proof.json", {
     unguardedSha256: stateHash(unguarded),
@@ -147,6 +167,9 @@ async function main() {
   await output("fail-closed-proof.json", {
     missingSessionNoMutation: true,
     crossAccountNoMutation: true,
+    forgedContextNoMutation: true,
+    clonedContextNoMutation: true,
+    loggedOutSessionNoMutation: true,
     receiptsUnchanged: true,
     ok: true,
   });
