@@ -7,6 +7,7 @@ import { ADV_TOKENS, MEME_POOL_WEIGHTS, POOL_LAW } from "@/server/broker/pools";
 import { hypeF, hypeStep } from "@/server/broker/pools";
 import { CRYPTO_DAYS_PER_YEAR, Draws, HYPE, TICKS_PER_HOUR, memeParams } from "@/server/market/meme";
 import { moderateName, normalizeName } from "@/server/launchpad/moderate";
+import { authorizeFarmCommand, type MemeActorOptions } from "./actor";
 import { parseFarmCommand, parseFarmFrames } from "./boundary";
 import { isPlainJson } from "./json";
 import type { FarmCoin, FarmCommand, FarmReply, FarmState, FarmWallet, WalletKind } from "./model";
@@ -191,8 +192,9 @@ function sameRequest(saved: string, fingerprint: string): boolean {
   catch { return false; }
 }
 /** Pure command boundary. Receipts are scoped to a wallet, persisted, and include refusals. */
-export function commandFarm(prior: FarmState, input: unknown): { state: FarmState; reply: FarmReply } {
+export function commandFarm(prior: FarmState, input: unknown, options?: MemeActorOptions): { state: FarmState; reply: FarmReply } {
   const cmd = parseFarmCommand(input); // throws INVALID_FARM_COMMAND before any receipt or fingerprint
+  authorizeFarmCommand(cmd, options);
   if (!/^[A-Za-z0-9_-]{1,96}$/.test(cmd.key) || !own(prior.wallets, cmd.wallet)) return { state: prior, reply: refuse("BAD_REQUEST") };
   const receiptKey = `${cmd.wallet}:${cmd.key}`, fingerprint = fingerprintOf(cmd), receipt = own(prior.receipts, receiptKey);
   if (receipt) return { state: prior, reply: sameRequest(receipt.fingerprint, fingerprint) ? structuredClone(receipt.reply) : refuse("IDEMPOTENCY_CONFLICT") };
