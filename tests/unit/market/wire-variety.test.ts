@@ -181,6 +181,17 @@ describe("per-cycle reshuffle", () => {
     }
   });
 
+  it("catalogStoryAt can jump to a far cycle on several seeds without throwing", () => {
+    // live 60-GD calibration walks well past the 10k-tick / 10-minute windows.
+    for (const seed of [SEED, SEED + 1, 21, 27, 30, 31]) {
+      for (const cycle of [0, 1, 85, 144, 166, 200, 366, 400]) {
+        const t = START_TICK + (cycle * CYCLE_SLOTS + 1) * STORY_EVERY;
+        expect(() => catalogStoryAt(seed, t), `seed ${seed} cycle ${cycle}`).not.toThrow();
+        expect(catalogStoryAt(seed, t)?.defId).toBeTruthy();
+      }
+    }
+  });
+
   it("company defId does not recur at 60 or 72 ticks across a long window of cycles", () => {
     const nSlots = 16 * 40;
     const window = slots(nSlots);
