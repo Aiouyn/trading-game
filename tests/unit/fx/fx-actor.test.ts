@@ -72,6 +72,10 @@ function walk(root: string, files: string[] = []): string[] {
   return files;
 }
 
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 async function session() {
   const clock = new Clock();
   const auth = authService(clock, new MemoryAuthStore());
@@ -108,7 +112,7 @@ describe("fx actor guard default-off", () => {
     for (const root of roots) {
       for (const file of walk(root)) {
         const text = readFileSync(file, "utf8");
-        if (/server\/market\/fx|@\/server\/market\/fx|server\/actor-binding|@\/server\/actor-binding/.test(text)) hits.push(file);
+        if (/server\/market\/fx|@\/server\/market\/fx|server\/actor-binding|@\/server\/actor-binding/.test(withoutComments(text))) hits.push(file);
       }
     }
     expect(hits).toEqual([]);
