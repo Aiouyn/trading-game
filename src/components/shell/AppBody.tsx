@@ -1,14 +1,13 @@
 "use client";
 import { type ReactElement } from "react";
 import { WireLoading, wireBootLabel } from "@/apps/wire/Skeleton";
-import { retryableLazy } from "@/components/shell/retryableLazy";
+import { retryableLazy, scopedModuleProps } from "@/components/shell/retryableLazy";
 import { APP_MODULES, isBuiltApp, isLazyApp, type AppBodyProps, type BuiltAppId, type LazyAppId } from "@/shell/appModules";
 import type { AppId } from "@/shell/registry";
 import { S } from "@/shell/strings";
 import { AppSkeleton } from "./AppSkeleton";
 import { ComingLater } from "./ComingLater";
 import { LockTile } from "./LockTile";
-import { retryableModule } from "./RetryableModule";
 import { useShell } from "./ShellContext";
 
 /** focused window; collapsed; background = other workspace or covered in compact; hidden = not displayed at all. */
@@ -19,7 +18,8 @@ export interface BodyState { focused: boolean; collapsed: boolean; background: b
 // wrapped in a retry boundary so a failed import remounts a new lazy() generation instead of crashing the window.
 const LAZY_BODIES = {} as Record<LazyAppId, ReturnType<typeof retryableLazy<AppBodyProps>>>;
 for (const id of Object.keys(APP_MODULES) as BuiltAppId[]) {
-  if (isLazyApp(id)) LAZY_BODIES[id] = retryableLazy(APP_MODULES[id].load);
+  // Card 5: Settings also hands focus to Retry and back to the recovered form (its whole body is one chunk).
+  if (isLazyApp(id)) LAZY_BODIES[id] = retryableLazy(APP_MODULES[id].load, id === "settings" ? { focus: true } : undefined);
 }
 
 function WireBootFallback() {
@@ -32,7 +32,6 @@ function skeletonOf(app: LazyAppId): ReactElement {
   if (app === "wire") return <WireBootFallback />;
   return <AppSkeleton app={app} />;
 }
-const SettingsModule = retryableModule<AppBodyProps>(APP_MODULES.settings.load);
 
 /** `context` is the window's (or phone app's) context: Broker reads it as the assetId (UI card 4). */
 export function AppBody({ app, context }: { app: AppId; state: BodyState; context?: string }) {
@@ -44,19 +43,12 @@ export function AppBody({ app, context }: { app: AppId; state: BodyState; contex
     const _exhaustive: never = app;
     return _exhaustive;
   }
-  if (app === "settings") return <SettingsModule name="settings" locale={locale}
-    componentProps={{ context }} fallback={skeletonOf(app)} />;
   const Body = LAZY_BODIES[app];
   // Studio Q3: while a built app's chunk loads, the window shows a skeleton, never "Coming later" (that is only for
   // built:false apps). The generic AppSkeleton is the default; Wire keeps its own, which is its first paint.
-  return (
-    <Body
-      context={context}
-      fallback={skeletonOf(app)}
-      errorMessage={app === "city" ? S.cityCouldntLoad : S.couldntLoad}
-      retryLabel={S.retry}
-      errorTestId={`${app}-chunk-error`}
-      retryTestId={`${app}-chunk-retry`}
-    />
-  );
+  // Card 5: Settings says which module failed, in the player's locale (en/fr).
+  const copy = app === "settings"
+    ? scopedModuleProps("settings", locale)
+    : { errorMessage: app === "city" ? S.cityCouldntLoad : S.couldntLoad, retryLabel: S.retry, errorTestId: `${app}-chunk-error` };
+  return <Body context={context} fallback={skeletonOf(app)} retryTestId={`${app}-chunk-retry`} {...copy} />;
 }
