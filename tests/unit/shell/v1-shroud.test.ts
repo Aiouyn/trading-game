@@ -8,7 +8,7 @@ import { defaultChannels } from "@/shell/mockChannels";
 import { evaluate } from "@/shell/unlock";
 import {
   ALLOWED_PAGES, IN_SCOPE_API_ROUTES, IN_SCOPE_OTHER_ROUTES, SHROUD, SHROUDED_API,
-  refuseShroudedApi, routeShrouded, shroudFlag, shroudedAppIds,
+  normalizeShroudPath, refuseShroudedApi, routeShrouded, shroudFlag, shroudedAppIds,
 } from "@/shell/v1Shroud";
 
 const ROOT = process.cwd();
@@ -97,6 +97,32 @@ describe("M1-11 flag map", () => {
     const on = await import("@/shell/v1Shroud");
     expect(on.flagsFromSearch(new URLSearchParams("flags=v1.banks,v1.ailab"))).toEqual(["v1.banks", "v1.ailab"]);
     vi.unstubAllEnvs();
+  });
+
+  it("normalises separators, extensions, prefixes and stops the decode loop closed", () => {
+    // null path = fail closed (leftover % escape or a NUL). denied = routeShrouded with no flags.
+    const rows: { raw: string; path: string | null; denied: boolean }[] = [
+      { raw: "/bank%5Cdesk", path: "/bank/desk", denied: true },
+      { raw: "/api/bank%5Cdraw", path: "/api/bank/draw", denied: true },
+      { raw: "/bank\\desk", path: "/bank/desk", denied: true },
+      { raw: "/bank.json", path: "/bank", denied: true },
+      { raw: "/bank%00", path: null, denied: true },
+      { raw: "/en/bank", path: "/en/bank", denied: true },
+      // Five encodings of "/": four decode rounds still leave "%2F".
+      { raw: "/bank%252525252Fdesk", path: null, denied: true },
+      { raw: "/broker", path: "/broker", denied: false },
+      { raw: "/api/world", path: "/api/world", denied: false },
+      { raw: "/api/broker/orders", path: "/api/broker/orders", denied: false },
+      { raw: "/settings/SET-08", path: "/settings/set-08", denied: false },
+    ];
+    for (const row of rows) {
+      expect(normalizeShroudPath(row.raw), row.raw).toBe(row.path);
+      const segments = row.raw.split("/").filter(Boolean);
+      expect(routeShrouded(segments, []), `${row.raw} denied`).toBe(row.denied);
+    }
+    expect(routeShrouded(["en", "bank"], ["v1.banks"])).toBe(false);
+    expect(refuseShroudedApi("/api/bank%5Cdraw", [])?.status).toBe(404);
+    expect(refuseShroudedApi("/api/world", [])).toBeNull();
   });
 
   it("case, percent-encoded slashes and .rsc still 404", () => {
