@@ -31,6 +31,7 @@ import { StatusStrip } from "./StatusStrip";
 import { LiveNwUnlock } from "./useNw";
 import { AuthAccountBoundary } from "./AuthAccountBoundary";
 import { Desktop } from "./Desktop";
+import { FillAckHost } from "./FillAckHost";
 import { SystemOverlays } from "./SystemOverlays";
 import { Banner, WorldEventBanner } from "./Banner";
 import { Sheet } from "./Sheet";
@@ -100,6 +101,7 @@ function Surface({ query }: { query: string }) {
           <WorldEventBanner event={feed.world} />
           <Desktop />
           {!focusMode && <Shelf />}
+          <FillAckHost variant="desktop" />
         </>
       )}
       {!phone && <LoadState />}
