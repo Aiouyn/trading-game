@@ -28,7 +28,7 @@ test.describe("Portfolio goal and first-trade guide", () => {
     await expect(page.getByTestId("pf-open-broker")).toBeVisible();
     await expect(page.getByTestId("pf-goal")).not.toContainText(/saved to (your|this) account/i);
     await page.getByTestId("pf-open-broker").click();
-    await expect(page.getByTestId("broker").or(page.getByTestId("br-ticket"))).toBeVisible();
+    await expect(page.getByTestId("broker")).toBeVisible();
   });
 
   test("holding /api/auth/me: the signed-in guide does not flash in", async ({ page }) => {
