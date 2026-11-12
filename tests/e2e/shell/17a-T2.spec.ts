@@ -138,7 +138,10 @@ test("T2-06 phone tile glyphs are never brass (all apps)", async ({ page }, info
     await setPalette(page, p);
     const acc = await token(page, "acc");
     const colours = await page.locator(".phone-app .icon").evaluateAll((els) => els.map((e) => getComputedStyle(e).color));
-    expect(colours.length).toBeGreaterThanOrEqual(30);
+    // Card 30: Messages left the dock and must not move into the Home grid, so R6 Home
+    // shows 29 tiles (32 apps minus hidden api/alliance, minus Messages) instead of 30.
+    // The never-brass check below is unchanged.
+    expect(colours.length).toBeGreaterThanOrEqual(29);
     expect(colours.filter((c) => c === acc)).toEqual([]);
   }
   const ds = await page.goto("/__ds");
