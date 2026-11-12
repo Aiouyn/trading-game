@@ -40,3 +40,7 @@ Player owners under the guard are the bound actor ids (`chr_` plus 32 hex): bank
 2. Route intake that calls `ActorBinding.bindToken` and then `BankingCoreEngine.advance` with the guard on. No live route is added here.
 3. The optional auth `inspectSession` improvement recorded in `docs/v1/units/actor-binding.md`. Not a mount blocker.
 4. Owner permission to mount banking-core, still recorded in `docs/v1/units/banking-core.md`.
+
+## Gatekeeper quals (2026-11-12 00:59 Europe/Paris)
+
+Recorded after the contract above, once the issued-context quals landed in actor-binding. The guarded path only accepts `ActorContext` objects issued by `ActorBinding` (`requireBoundActor` fails closed as `FORGED_CONTEXT` on a field-wise copy or a `structuredClone`). Immediately before `save`, the engine re-peeks each new player command's session through `ActorBinding.assertLiveSession`. Logout, expiry or a session mismatch is `SESSION_REJECTED`, with no receipt, movement or audit written. `BankingCoreEngine.open(..., { actorGuard: true, binding })` requires the binding when the guard is on. Replay of a saved checkpoint stays unguarded.
