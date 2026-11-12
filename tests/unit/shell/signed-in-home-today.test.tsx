@@ -60,8 +60,10 @@ describe("card 25 signed-in phone Home today and $20k progress", () => {
     );
     const store = createShellStore(mockChannels(new URLSearchParams()));
     applySignedInDemo(store, "acc_today");
+    const ch = store.getState().channels;
     store.getState().setChannels({
-      me: { ...store.getState().channels.me, todayChg: "12.50", todayPct: "0.12" },
+      ...ch,
+      me: { ...ch.me, todayChg: "12.50", todayPct: "0.12" },
     });
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(PhoneHome)));
