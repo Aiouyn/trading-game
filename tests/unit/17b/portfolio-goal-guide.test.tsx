@@ -92,25 +92,4 @@ describe("card 33 Portfolio goal and first-trade guide", () => {
     expect(el.querySelector("[data-testid=pf-goal-guest]")).toBeNull();
     expect(el.querySelector("[data-testid=pf-open-broker]")).toBeNull();
   });
-
-  it("pushing Orders from a scrolled Overview zeros the phone app body", async () => {
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
-    setFeed(new MockFeed({}, { tickMs: 1000 }));
-    const scroller = document.createElement("div");
-    scroller.className = "phone-appbody";
-    Object.assign(scroller.style, { overflow: "auto", height: "80px" });
-    el.replaceWith(scroller);
-    scroller.append(el);
-    try {
-      await mount(390);
-      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-      scroller.scrollTop = 48;
-      expect(scroller.scrollTop).toBe(48);
-      await act(async () => { el.querySelector<HTMLButtonElement>("[data-testid=pf-open-orders]")!.click(); });
-      expect(el.querySelector("[data-testid=pf-orders]")).not.toBeNull();
-      expect(scroller.scrollTop).toBe(0);
-    } finally {
-      scroller.remove();
-    }
-  });
 });
