@@ -27,4 +27,12 @@ In a ten-minute play, the Wire no longer repeats the same headline with the same
 
 ## Results
 
-Recorded after the fix, checks, e2e and proofs, in a later docs commit.
+Recorded 2026-11-12T01:38:37+01:00 Europe/Paris, after the fix, checks, e2e and proofs, in this docs commit. Product SHA `85f165631940a1e678683629945fc1e9fc8a8b55`.
+
+- The playtest ticks 27694 / 27754 / 27814 are no longer three copies of "Avalon Bank beats earnings" at AVB +2%. Official seed 17 now publishes `nmbs-contract` +267 bp, `kiln-demand` −314 bp, and `mrdn-recall` −166 bp at those ticks. No company `defId` repeats at a 60-tick or 72-tick interval in the 10-minute window after `START_TICK`. Each 16-slot cycle uses every company story and every crisis kind once.
+- Published sizes vary: 12 definitions show more than one `bp` across 8 cycles, each in the catalog × [0.6, 1.4] band, same seed and tick stable. Forecasts still carry no effect; `crisisHits` is unchanged.
+- The M1-09 grid, watch/outcome pairing, and residual apply path are unchanged. `clock.ts`, auth, broker and Wire statement code were not edited. Two clocks with one seed match tick-by-tick on stories and quotes. (Mid-run mark resume on this base is the `eng/market-restart-marks` card, not this unit.)
+- The official-seed 60-GD GX path in the calibration fixture was regenerated (`tools/ci/regen-calibration-fixture.ts`). The calm walk is byte-identical to the pre-fix fixture (quote RNG untouched). Seed 17 events-on CAGR is 27.89% (was 20.79%); the calibration test still allows PASS or honest MISS for `index_cagr`.
+- The existing farm-confirm unit was given a 15 s timeout. Isolated it already finished in ~4.1 s on this branch and ~3.0 s on the base; under the full 167-worker `npm test` it could tip the default 5 s.
+- Checks (ports 3460–3469): lint 0, map-no-dup 13/13, typecheck 0, build 0, check-hooks 0 (487 files, 0 hits), `npm test` 166 passed / 1 skipped files, 2471 passed / 2 skipped tests, route-budget 196.5 KB gz / 215 KB on port 3460. Proof `tools/proofs/wire-variety.ts` exits 0 (evidence `/workspace/avalon/evidence/sys-wire-variety/proofs/`).
+- Affected e2e `tests/e2e/17b/M1-09-wire.spec.ts` in a fresh detached worktree at `85f16563` with fresh `.data` on port 3464: 2 passed / 2 skipped / 0 failed (desktop journey and phone 390/520 fit; crossed project cases skipped by the spec). That worktree was removed.
