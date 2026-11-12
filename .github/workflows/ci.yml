@@ -18,6 +18,8 @@ jobs:
       - run: npm run lint
       # Lesson 13: kill servers by pid file only; reject name-kills (tools/ci/lesson13-pid-kills.mjs).
       - run: npm run ci:lesson13
+      # Lesson 22: next start must pass -H/--hostname or the bind guard exits 1.
+      - run: npm run ci:next-start-host
       - run: npm run typecheck
       - run: npm run build
       # AC-HOOKS-PROD: the build above has no e2e flags; neither its client nor its server output may contain a test/mock hook or /__ds code.
