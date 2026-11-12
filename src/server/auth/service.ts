@@ -116,6 +116,8 @@ export class AuthService {
   /** The Launchpad section: parsed, or kept raw (never rewritten or reset) when it could not be parsed. */
   private launchpad: { ok: true; state: LpState } | { ok: false; raw: unknown } = { ok: true, state: emptyLaunchpad() };
   private wirePosts: PlayerWirePost[] = [];
+  /** Last successfully loaded or persisted posts; safe to read if a persist still holds the lock. */
+  private publishedWirePosts: PlayerWirePost[] = [];
   private wirePostIntents: WirePostIntent[] = [];
   private quarantinedWirePosts: QuarantinedWireRow[] = [];
   private quarantinedWirePostIntents: QuarantinedWireRow[] = [];
@@ -152,6 +154,7 @@ export class AuthService {
     this.players = new Map(snap.players.map((p) => [p.accountId, p]));
     this.quarantinedPlayers = snap.quarantinedPlayers;
     this.wirePosts = snap.wirePosts.map(clonePlayerWirePost);
+    this.publishedWirePosts = this.wirePosts.map(clonePlayerWirePost);
     this.wirePostIntents = snap.wirePostIntents.map(cloneWirePostIntent);
     this.quarantinedWirePosts = snap.quarantinedWirePosts.map((q) => structuredClone(q));
     this.quarantinedWirePostIntents = snap.quarantinedWirePostIntents.map((q) => structuredClone(q));
@@ -198,6 +201,7 @@ export class AuthService {
       quarantinedWirePostIntents: this.quarantinedWirePostIntents.map((q) => structuredClone(q)),
       launchpad: this.launchpad.ok ? this.launchpad.state : this.launchpad.raw,
     });
+    this.publishedWirePosts = this.wirePosts.map(clonePlayerWirePost);
   }
 
   private assertPassword(password: string): void {
@@ -518,6 +522,15 @@ export class AuthService {
       await this.ready;
       return this.wirePosts.map(clonePlayerWirePost);
     });
+  }
+
+  /**
+   * Last successfully loaded or persisted public posts, without taking the mutation lock.
+   * Used when GET's wait for an in-flight persist times out, so the read cannot hang on save().
+   */
+  async listPublishedWirePosts(): Promise<PlayerWirePost[]> {
+    await this.ready;
+    return this.publishedWirePosts.map(clonePlayerWirePost);
   }
 
   async remainingWirePostsToday(accountId: string, tick: number): Promise<number> {

@@ -27,8 +27,11 @@ export async function GET(): Promise<Response> {
   getBroker();
   const market = getLiveMarket();
   const snap = market.wire();
-  await market.whenWireStatementsSettled();
-  const posts = await getAuthService().listPublicWirePosts();
+  const settled = await market.whenWireStatementsSettled();
+  const auth = getAuthService();
+  // If a persist is still in flight past the wait bound, do not take the mutation lock
+  // (it would hang on the same save). Return the last committed posts, without writing.
+  const posts = settled ? await auth.listPublicWirePosts() : await auth.listPublishedWirePosts();
   return jsonResponse({ ...snap, items: mergePlayerStatements(snap.items, posts) });
 }
 

@@ -21,7 +21,7 @@ import { TICKS_PER_DAY } from "./meme";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
-import { peekAuthService } from "@/server/auth/instance";
+import { getAuthService } from "@/server/auth/instance";
 import { marksFromTicker } from "@/server/wire/statementResolve";
 import {
   createDefaultStormWorldStore, type StormWorldStore,
@@ -30,6 +30,11 @@ import {
 const globalForMarket = globalThis as typeof globalThis & {
   __portAvalonLiveMarket?: LiveMarket;
 };
+
+/** GET / other reads wait this long for an in-flight clock persist, then return the current state without writing. */
+export const WIRE_STATEMENTS_SETTLED_WAIT_MS = 2_000;
+
+let autostartClockForTests: boolean | undefined;
 
 export type LiveMarketOptions = {
   /** Override only in tests. Production uses FEED_TICK_MS. */
@@ -131,6 +136,8 @@ export class LiveMarket {
   start(): void {
     if (this.timer) return;
     // Catch up at the resumed tick so a due verdict does not wait for lastTick+1 after a restart.
+    // getAuthService() (inside catch-up) creates the singleton if needed: peekAuthService() does not,
+    // and a later start() is a no-op, so a first GET /api/wire after restart would otherwise miss.
     void this.catchUpWireStatements();
     this.timer = setInterval(() => { this.step(); }, this.tickMs);
   }
@@ -160,23 +167,31 @@ export class LiveMarket {
 
   /**
    * Authoritative path for due player-statement verdicts (start catch-up and each cadence step).
-   * Idempotent: frozen verdicts do not persist. A missing auth service is a no-op until the next call.
+   * Idempotent: frozen verdicts do not persist. Creates the auth singleton if it does not already exist.
    */
   catchUpWireStatements(): Promise<void> {
-    const auth = peekAuthService();
+    const auth = getAuthService();
     const tick = this.feed.tick;
     const marks = marksFromTicker(this.snapshot().quotes.rows);
     const run = this.statementsSettled.then(async () => {
-      if (!auth) return;
       await auth.resolveDueWireStatements({ tick, marks });
     });
     this.statementsSettled = run.then(() => undefined, () => { /* persist failure must not stop the clock */ });
     return this.statementsSettled;
   }
 
-  /** Reads wait for any in-flight engine persist. Does not itself resolve or write. */
-  whenWireStatementsSettled(): Promise<void> {
-    return this.statementsSettled;
+  /**
+   * Reads wait for any in-flight engine persist, up to WIRE_STATEMENTS_SETTLED_WAIT_MS.
+   * Resolves true if the persist settled, false if the wait timed out. Does not itself resolve or write.
+   */
+  whenWireStatementsSettled(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), WIRE_STATEMENTS_SETTLED_WAIT_MS);
+      void this.statementsSettled.then(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
   }
 
   /** A listed coin's 16 news item (src/server/market/coinNews.ts) on the Wire, naming the coin; it cites its committed
@@ -652,12 +667,20 @@ export class LiveMarket {
 }
 
 export function shouldAutostartClock(): boolean {
+  if (autostartClockForTests !== undefined) return autostartClockForTests;
   return process.env.NODE_ENV !== "test";
+}
+
+/** Test-only: force or suppress the production autostart in getLiveMarket(). Pass undefined to restore. */
+export function setAutostartClockForTests(value: boolean | undefined): void {
+  autostartClockForTests = value;
 }
 
 /** Process singleton. The first production read starts the one interval. */
 export function getLiveMarket(): LiveMarket {
   if (!globalForMarket.__portAvalonLiveMarket) {
+    // Auth must exist before start() catch-up (GET /api/wire is often the first call of the process).
+    if (shouldAutostartClock()) getAuthService();
     const market = new LiveMarket();
     globalForMarket.__portAvalonLiveMarket = market;
     if (shouldAutostartClock()) market.start();

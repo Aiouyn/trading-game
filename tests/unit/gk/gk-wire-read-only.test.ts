@@ -8,12 +8,13 @@ import {
   FileAuthStore,
   MemoryAuthStore,
   START_CASH_CENTS,
+  peekAuthService,
   setAuthServiceForTests,
   type AuthStore,
   type AuthStoreSnapshot,
 } from "@/server/auth";
 import { setBrokerForTests } from "@/server/broker";
-import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
+import { LiveMarket, WIRE_STATEMENTS_SETTLED_WAIT_MS, setAutostartClockForTests, setLiveMarketForTests } from "@/server/market/clock";
 import { parseWireSnapshot } from "@/market/wireSnapshot";
 import { WIRE_POST_FEE_CENTS, publicHandleId } from "@/server/wire/playerStatements";
 import { STATEMENT_RESOLVE_TICKS } from "@/server/wire/statementResolve";
@@ -52,9 +53,11 @@ describe("GET /api/wire is a pure read; the clock resolves due statements", () =
 
   afterEach(async () => {
     for (const m of markets.splice(0)) m.stop();
+    setAutostartClockForTests(undefined);
     setBrokerForTests(undefined);
     setLiveMarketForTests(undefined);
     setAuthServiceForTests(undefined);
+    delete process.env.QUAY_AUTH_DATA_DIR;
     await Promise.all(temps.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
@@ -240,5 +243,103 @@ describe("GET /api/wire is a pure read; the clock resolves due statements", () =
     await wireGet();
     expect(await readFile(file, "utf8")).toBe(diskBeforeRestartGet);
     expect((await stat(file)).mtimeMs).toBe(mtimeAfterRestart);
+  });
+
+  it("GET /api/wire as the first call after a restart resolves a due verdict at the resumed tick", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "wire-ro-first-get-"));
+    temps.push(dir);
+    const file = path.join(dir, "store.json");
+    const first = new AuthService({ store: new FileAuthStore(file) });
+    const market = new LiveMarket({ persistStorms: false, tickMs: 1e9 });
+    markets.push(market);
+    setAuthServiceForTests(first);
+    setLiveMarketForTests(market);
+    setBrokerForTests(undefined);
+
+    const a = await first.register({ handle: "FirstGet", password: PASS });
+    const now = market.snapshot().tick;
+    await first.postWireStatement({
+      accountId: a.view.account.accountId,
+      handle: a.view.account.handle,
+      idempotencyKey: "first-get-due-01",
+      text: "HALC will rise",
+      assetTags: ["HALC"],
+      tick: now - STATEMENT_RESOLVE_TICKS,
+      marks: { HALC: "0.01" },
+    });
+    expect((await first.listPublicWirePosts())[0]!.verdict).toBe("UNRESOLVED");
+    const cash = (await first.getPlayerPrivate(a.view, a.view.account.accountId)).cashCents;
+    market.stop();
+
+    // Fresh process: no singletons. GET /api/wire is the first call. lastTick equals due
+    // (this clock resumes at the same START_TICK the statement is due).
+    setBrokerForTests(undefined);
+    setLiveMarketForTests(undefined);
+    setAuthServiceForTests(undefined);
+    process.env.QUAY_AUTH_DATA_DIR = dir;
+    setAutostartClockForTests(true);
+    expect(peekAuthService()).toBeUndefined();
+
+    const firstGet = await wireGet();
+    expect(firstGet.snap.tick).toBe(now);
+    const posted = playerItems(firstGet.snap);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.slots?.verdict).toBe("true");
+    expect(posted[0]!.sourceRecord).toEqual({ hits: 1, resolved: 1 });
+    expect(JSON.stringify(firstGet.raw)).not.toMatch(/acc_/);
+    const onDisk = JSON.parse(await readFile(file, "utf8")) as { wirePosts: { verdict: string; resolvedTick: number }[] };
+    expect(onDisk.wirePosts[0]!.verdict).toBe("TRUE");
+    expect(onDisk.wirePosts[0]!.resolvedTick).toBe(now);
+    expect((await peekAuthService()!.getPlayerPrivate(a.view, a.view.account.accountId)).cashCents).toBe(cash);
+    expect(cash).toBe(START_CASH_CENTS - WIRE_POST_FEE_CENTS);
+
+    const afterResolve = await stat(file);
+    const disk = await readFile(file, "utf8");
+    const again = await wireGet();
+    expect(playerItems(again.snap)[0]!.slots?.verdict).toBe("true");
+    expect(await readFile(file, "utf8")).toBe(disk);
+    expect((await stat(file)).mtimeMs).toBe(afterResolve.mtimeMs);
+    expect((await stat(file)).size).toBe(afterResolve.size);
+  });
+
+  it("GET returns the current unread state when a persist stalls past the wait bound, without writing", async () => {
+    class HangingStore implements AuthStore {
+      constructor(private readonly inner: AuthStore) {}
+      load(): Promise<AuthStoreSnapshot> { return this.inner.load(); }
+      save(_s: AuthStoreSnapshot): Promise<void> { return new Promise(() => { /* never settles */ }); }
+    }
+    const inner = new MemoryAuthStore();
+    const seed = new AuthService({ store: inner });
+    const market = new LiveMarket({ persistStorms: false, tickMs: 1e9 });
+    markets.push(market);
+    setAuthServiceForTests(seed);
+    setLiveMarketForTests(market);
+    setBrokerForTests(undefined);
+    const a = await seed.register({ handle: "HangGet", password: PASS });
+    const now = market.snapshot().tick;
+    await seed.postWireStatement({
+      accountId: a.view.account.accountId,
+      handle: a.view.account.handle,
+      idempotencyKey: "hang-get-due-01",
+      text: "HALC will rise",
+      assetTags: ["HALC"],
+      tick: now - STATEMENT_RESOLVE_TICKS,
+      marks: { HALC: "0.01" },
+    });
+    expect((await seed.listPublicWirePosts())[0]!.verdict).toBe("UNRESOLVED");
+    const hanging = new AuthService({ store: new HangingStore(inner) });
+    setAuthServiceForTests(hanging);
+    void market.catchUpWireStatements();
+    const t0 = Date.now();
+    const firstGet = await wireGet();
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeGreaterThanOrEqual(WIRE_STATEMENTS_SETTLED_WAIT_MS - 100);
+    expect(elapsed).toBeLessThan(WIRE_STATEMENTS_SETTLED_WAIT_MS + 1000);
+    expect(firstGet.snap.tick).toBe(now);
+    const posted = playerItems(firstGet.snap);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.slots?.verdict).toBe("unresolved");
+    expect(posted[0]!.sourceRecord).toBeUndefined();
+    expect((await hanging.listPublishedWirePosts())[0]!.verdict).toBe("UNRESOLVED");
   });
 });

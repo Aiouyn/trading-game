@@ -7,11 +7,16 @@ const globalForAuth = globalThis as typeof globalThis & {
 };
 
 function createDefaultService(): AuthService {
+  // A set QUAY_AUTH_DATA_DIR always uses the file store, including in unit tests that
+  // replay a restart where getAuthService() is the first thing to open the saved posts.
+  const root = process.env.QUAY_AUTH_DATA_DIR;
+  if (root) {
+    return new AuthService({ store: new FileAuthStore(path.join(root, "store.json")) });
+  }
   if (process.env.QUAY_AUTH_STORE === "memory" || process.env.NODE_ENV === "test") {
     return new AuthService({ store: new MemoryAuthStore() });
   }
-  const root = process.env.QUAY_AUTH_DATA_DIR ?? path.join(process.cwd(), ".data", "auth");
-  return new AuthService({ store: new FileAuthStore(path.join(root, "store.json")) });
+  return new AuthService({ store: new FileAuthStore(path.join(process.cwd(), ".data", "auth", "store.json")) });
 }
 
 /** Existing singleton, or undefined — does not create a FileAuthStore. */
