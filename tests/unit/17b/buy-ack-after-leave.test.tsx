@@ -5,7 +5,7 @@
 // 17 §3.5 (17-UX:445) "filled (toast)"; §3.10.1 (17-UX:568) fill -> toast; §3.10.2 (17-UX:581) phone: one at a time.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_DEBOUNCE_MS } from "@/apps/broker/BrokerFrame";
 import { resetTicketPrefill } from "@/apps/broker/ticketPrefill";
 import { PhoneHome } from "@/components/shell/PhoneHome";
@@ -21,10 +21,16 @@ import type { MeTradingBody } from "@/shell/contracts/channels";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const REPLY_MS = 4000;
+// Card 41 modules, imported by name so this file still loads (and goes red) on a base without them.
+const PLACED_ACKS = "@/apps/broker/placedAcks";
+const FILL_ACK_TOASTS = "@/apps/broker/FillAckToasts";
 const BOUGHT_5 = /Bought 5 HALC at \d/g;
 
 describe("card 41 a buy's ack survives leaving the ticket mid-Place (phone)", () => {
   let el: HTMLDivElement, root: Root, store: ShellStore, feed: MockFeed;
+  // The toast chunk is a dynamic import that resolves on the real clock; warm it so fake time cannot outrun it (a
+  // browser fetches it when the Place is noted, seconds before any reply). Absent before the fix: ignored.
+  beforeAll(async () => { await import(/* @vite-ignore */ FILL_ACK_TOASTS).catch(() => {}); });
   beforeEach(() => {
     vi.useFakeTimers();
     el = document.createElement("div");
@@ -41,6 +47,8 @@ describe("card 41 a buy's ack survives leaving the ticket mid-Place (phone)", ()
   });
   afterEach(async () => {
     await act(async () => root.unmount());
+    // A toast still showing when a test ends must not leak into the next test (module store; a reload clears it).
+    await (import(/* @vite-ignore */ PLACED_ACKS) as Promise<{ resetPlacedAcks(): void }>).then((m) => m.resetPlacedAcks(), () => {});
     el.remove();
     setFeed(null);
     resetTicketPrefill();

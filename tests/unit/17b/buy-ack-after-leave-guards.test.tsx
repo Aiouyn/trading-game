@@ -6,7 +6,7 @@
 // fills are assertive.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_DEBOUNCE_MS } from "@/apps/broker/BrokerFrame";
 import { resetTicketPrefill } from "@/apps/broker/ticketPrefill";
 import { PhoneHome } from "@/components/shell/PhoneHome";
@@ -22,6 +22,9 @@ import { createShellStore, type ShellStore } from "@/shell/store";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const REPLY_MS = 4000;
+// Card 41 modules, imported by name so this file still loads (and goes red) on a base without them.
+const PLACED_ACKS = "@/apps/broker/placedAcks";
+const FILL_ACK_TOASTS = "@/apps/broker/FillAckToasts";
 const TOAST_MS = 4000; // PARAM.ui_toast_ms
 const NO_ANSWER = "No answer from the server. This order may have gone through.";
 
@@ -31,6 +34,9 @@ describe("card 41 guards: what an unmounted ticket's intent shows, and only once
     feed = new MockFeed({ replyMs: REPLY_MS, ...scenario }, { tickMs: 1000 });
     setFeed(feed);
   }
+  // The toast chunk is a dynamic import that resolves on the real clock; warm it so fake time cannot outrun it (a
+  // browser fetches it when the Place is noted, seconds before any reply). Absent before the fix: ignored.
+  beforeAll(async () => { await import(/* @vite-ignore */ FILL_ACK_TOASTS).catch(() => {}); });
   beforeEach(() => {
     vi.useFakeTimers();
     el = document.createElement("div");
@@ -45,6 +51,8 @@ describe("card 41 guards: what an unmounted ticket's intent shows, and only once
   });
   afterEach(async () => {
     await act(async () => root.unmount());
+    // A toast still showing when a test ends must not leak into the next test (module store; a reload clears it).
+    await (import(/* @vite-ignore */ PLACED_ACKS) as Promise<{ resetPlacedAcks(): void }>).then((m) => m.resetPlacedAcks(), () => {});
     el.remove();
     setFeed(null);
     resetTicketPrefill();
@@ -64,7 +72,8 @@ describe("card 41 guards: what an unmounted ticket's intent shows, and only once
     for (let t = 0; t < ms && !pred(); t += 50) await wait(50);
     return pred();
   }
-  /** Samples `count(re)` every 100 ms for `ms`: the max seen at once, and how many times it rose from 0 (appearances). */
+  /** Samples `count(re)` every 100 ms for `ms`: the max seen at once, and how many times it appeared (an already-visible
+   *  toast at the start counts as its one appearance, so "no second appearance" is rises === 1). */
   async function watch(re: RegExp | string, ms: number) {
     let max = 0, rises = 0, prev = count(re);
     if (prev > 0) rises = 1;
@@ -124,7 +133,7 @@ describe("card 41 guards: what an unmounted ticket's intent shows, and only once
     expect(count(/Bought 5 HALC/)).toBe(0);
     const after = await watch("Order rejected", TOAST_MS + 6000);
     expect(after.max).toBe(1);
-    expect(after.rises).toBe(0);
+    expect(after.rises).toBe(1); // the one already showing; never a second appearance
     expect(count(/Bought 5 HALC/)).toBe(0);
   });
 
@@ -163,7 +172,7 @@ describe("card 41 guards: what an unmounted ticket's intent shows, and only once
     expect(node.closest('[role="status"]')).not.toBeNull();
     const after = await watch(/Bought 5 HALC at \d/, TOAST_MS + 8000); // ~12 more mock ticks
     expect(after.max).toBe(1);
-    expect(after.rises).toBe(0); // never a second appearance
+    expect(after.rises).toBe(1); // the one already showing; never a second appearance
     expect(count(/Bought 5 HALC at \d/)).toBe(0); // gone after its 4000 ms
   });
 
