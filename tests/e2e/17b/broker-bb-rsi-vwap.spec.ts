@@ -103,6 +103,8 @@ async function closeBrokers(page: Page) {
   const w = page.getByTestId("win-broker");
   for (let i = 0; i < 6 && (await w.count()) > 0; i++) await w.first().getByTestId("win-close").press("Enter");
   await expect(w).toHaveCount(0);
+  // Each close is a layout change the shell queues to IndexedDB; a page load before it commits drops it, and the next
+  // load restores the closed Broker (CI 43145796322: the old HALC window came back first, with no asset picker).
   await flush(page);
 }
 async function range(page: Page, c: Locator, r: string) {
@@ -426,7 +428,7 @@ test("phone 390: all five on by tap, 44 px, fit, legend above the plot, touch pa
   }
 });
 
-test("the 520 window: all five on, controls fit (≥ 28 px), legend above the plot", async ({ page }, info) => {
+test("the 520 window: all five on, controls fit at ≥ 28 px, legend above the plot", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "desktop window only");
   test.setTimeout(120_000);
   await page.goto("/broker?asset=HALC");
