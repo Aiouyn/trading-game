@@ -161,3 +161,21 @@ Gatekeeper's ruling on 7078c75f was PASS, qualified. The re-failure at 4319 is n
    - The prototype also declared the member default in every service the member clears, not only the first (07:626 "memberships"). That change is reverted too, and stays part of option 2.
 
 **Additive fix kept regardless of the owner's answer.** A second resolution used to replace `bank.resolution`, which erased the first bail-in's equity-rights record. The bank now keeps earlier resolutions in `priorResolutions`. That key is absent until a second resolution happens, so no other scenario's bytes change. This is a record only: no money moves.
+
+### Owner-pending results (2026-11-12 01:45:33 Europe/Paris; proofs at 6b98a0d7)
+
+- **Commits.** ff650d55 reverts 66f2a89d. The engine and accounting are byte-identical to 7078c75f. 6b98a0d7 adds `priorResolutions` and the pin test `tests/unit/banking-core/ccp-second-failure.test.ts`. Red/green: with the 7078c75f liquidity engine the pin fails on the missing `priorResolutions`, and with the fix it passes.
+- **Pinned behaviour.**
+  - Bail-in at 3599 to CET1 $20 on RWA $200, with equity rights [treasury-a $799,824.120881].
+  - Close-out at 4080: defaulter IM $100, then DF $50, which leaves CET1 at −$130.
+  - Second failure and BAIL_IN at 4319, with final rights [treasury-a $137,747.253].
+  - One CCP default, LD/d/3600, CLOSED.
+  - `priorResolutions` = [{opened 3599, BAIL_IN, [treasury-a $799,824.120881]}].
+  - M0 is constant.
+- **Proofs** (`evidence/sys-banking-core/double-failure/proofs`, ALL PASS 24) and **rebuild** (`double-failure/rebuild`, 25 stores rebuilt in fresh processes, all pass):
+  - Residuals are 0, and identity rows are 10082 on the cross-module store.
+  - Restart, jump, stepped and single-pass all agree.
+- **Hash changes.** Only the cross-module store changed: checkpoint `bad5dce1… → 8345b6cc…` and state `eab283f6… → 8034e4a0…`.
+  - The stepped, jump, restart and single-pass stores all match the new hashes.
+  - Genesis and frames are identical (framesSha256 `50c41eb7…` unchanged). Only the digest field differs, because the canonical state now carries `priorResolutions` for bank a.
+  - The other 22 three-store scenarios and the loss witness keep their ea3e10bb checkpoint and state hashes.
