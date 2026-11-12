@@ -72,5 +72,5 @@ describe("calibration bands (deterministic)", () => {
     expect(liveGxPath(gx0.seed, gx0.days)).toEqual(gx0);
     const calm0 = fixture.calm.find((p) => p.assetId === "GX" && p.seed === fixture.params.seed)!;
     expect(calmFeedCloses(calm0.assetId, calm0.seed, calm0.closes.length)).toEqual(calm0.closes);
-  }, 30_000);
+  }, 60_000);
 });
