@@ -57,6 +57,7 @@
 .phone-app:focus-visible .icon { box-shadow: var(--focus-ring); }
 .phone-app .lock-tag { top: 4px; left: 0; right: 0; text-align: center; }
 .bottom-row { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px 16px 14px; background: var(--chrome); border-top: 1px solid var(--line); }
+.bottom-row[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .phone-appview { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--win); }
 /* content-box: the 1 px hairline sits below the 44 px row so the 44×44 Back target never pokes out of it. */
 .appbar { box-sizing: content-box; height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 0; border-bottom: 1px solid var(--line); }
