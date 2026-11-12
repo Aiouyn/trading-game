@@ -22,6 +22,7 @@ import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
 import { SimpleTicket } from "./SimpleTicket";
 import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
+import { subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
 import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
 import "./broker.css";
 
@@ -65,14 +66,39 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const choices = useMemo(() => (ticker.body ? Object.keys(ticker.body.rows).sort() : []), [ticker.body]);
   const fixedAsset = context ? parseAssetId(context) : null;
-  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" });
+  const [draft, setDraft] = useState<Draft>(() => {
+    const pre = takeTicketPrefill();
+    if (pre && fixedAsset && pre.assetId === fixedAsset) {
+      return { assetId: fixedAsset, side: pre.side, type: "market", limitText: "", stopText: "", qtyText: pre.qtyText };
+    }
+    return { assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" };
+  });
   const assetId = fixedAsset ?? (draft.assetId || choices[0] || "");
   const [touched, setTouched] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "edit" });
   const [est, setEst] = useState<{ key: string; res: PreviewRes } | null>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const placing = useRef(false);
+  const focusQty = useRef(false);
   const [view, setView] = useState<BrokerView>("trade");
+  /** Shared reset used by New order, Edit-after-reject, and a Positions Close prefill. Clears the in-flight place latch. */
+  const toFreshEdit = (apply?: () => void) => {
+    placing.current = false;
+    setPhase({ kind: "edit" });
+    apply?.();
+  };
+  // Apply a later Close while this ticket is already mounted on the same asset. Never reviews or places.
+  // Returns true only when this ticket consumed the prefill (same assetId); otherwise pending stays for the mount.
+  useEffect(() => subscribeTicketPrefill((p) => {
+    const a = context ? parseAssetId(context) : null;
+    if (!a || p.assetId !== a) return false;
+    toFreshEdit(() => {
+      setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
+      setTouched(false);
+      setView("trade");
+    });
+    return true;
+  }), [context]);
   const viewBase = useId();
   const viewIds = { trade: `${viewBase}-trade`, about: `${viewBase}-about` };
   // Back to Trade: focus returns to the header's ticker heading (or the asset select) once Trade is rendered again.
@@ -160,10 +186,9 @@ export function BrokerFrame({ context }: { context?: string }) {
     });
   };
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.
-  const focusQty = useRef(false);
   useEffect(() => { if (focusQty.current && qtyRef.current) { focusQty.current = false; qtyRef.current.focus(); } });
-  const newOrder = () => { placing.current = false; focusQty.current = true; setTouched(false); setDraft((d) => ({ ...d, qtyText: "" })); setPhase({ kind: "edit" }); };
-  const editAfterReject = () => { placing.current = false; focusQty.current = true; setPhase({ kind: "edit" }); };
+  const newOrder = () => { toFreshEdit(() => { focusQty.current = true; setTouched(false); setDraft((d) => ({ ...d, qtyText: "" })); }); };
+  const editAfterReject = () => { toFreshEdit(() => { focusQty.current = true; }); };
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || isSelect(e.target) || inOpenOrders(e.target)) return;
