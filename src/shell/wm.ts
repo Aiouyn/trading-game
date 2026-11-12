@@ -95,8 +95,12 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
   const mine = windows.filter((w) => w.app === app);
   const same = context ? mine.find((w) => w.context === context) : undefined;
   const cap = APPS[app].maxInstances;
-  // At the cap, or when a deep link asks to reuse, focus the main instance (the Review layout's "Journal" Portfolio is never the target).
-  const existing = same ?? ((opts?.reuse && mine.length) || mine.length >= cap ? (mine.find((w) => w.context !== "Journal") ?? mine[0]) : undefined);
+  // At the cap, focus the main instance (the Review layout's "Journal" Portfolio is never the target).
+  // A reuse deep link (card 15) with an asset focuses the main instance and applies the asset; without an asset it reuses
+  // only a window that has no asset yet (it shows the picker), so a bare /broker still lands on a picker (BR-4-02).
+  const main = mine.find((w) => w.context !== "Journal") ?? mine[0];
+  const reused = !opts?.reuse ? undefined : context !== undefined ? main : mine.find((w) => w.context === undefined);
+  const existing = same ?? reused ?? (mine.length >= cap ? main : undefined);
   if (existing) {
     // UI card 10: a single-instance app opened on another context (Wire on a story id) focuses with that context, so
     // the app sees it; the window keeps its place and size. A reuse deep link does the same for multi-instance apps

@@ -43,3 +43,13 @@ Fail-first unit: open Broker, collapse it, `store.open("broker", …, { deepLink
 On origin/main 51611e5e, Positions Close calls `open("broker", asset, { deepLink: true })` so a locked Broker still opens, and card 34 needs that call to leave an existing Broker alone at the 4-window cap (shows "pos-close-cap" instead). Reusing on every `deepLink` retargeted the main Broker to the closed asset and failed 2 tests in tests/unit/17b/close-prefill-held.test.tsx. Reuse is now its own `reuse` option, passed only by the URL route opener in QuayShell. `/broker?asset=` links still reuse the Broker window. The in-app Close keeps card 34's cap rule, and a new unit test covers it.
 
 Addendum 2, 18:58 Europe/Paris (CET): main's e2e tests/e2e/17b/close-prefill-held.spec.ts built its 4-Broker cap by booting `/broker?asset=` four times. That URL path is exactly what this card changes (reuse, playtest d40), so the fixture got 1 window instead of 4. The fixture now opens one Broker by link and three from the shelf tile (a plain open, no reuse), then frees a slot by closing the last Broker. The card 34 assertions are unchanged: cap notice, no HALC ticket, nothing held, no leftover Sell.
+
+## Addendum 3, 12 Nov 2026 19:58 Europe/Paris (CET): BR-4-02 on PR #160 (CI run 43279120536)
+
+BR-4-02 (desktop) boots `/broker?asset=HALC`, then the bare `/broker`, and expects a window with the asset picker. Card 15 reused the main Broker for every URL deep link, so the bare link only focused the HALC window and no picker appeared. Reproduced locally on 9c27bc5f (main 4424d3fd merged): 1 failed, 34 passed.
+
+The BR-4 spec is right: with no asset, the player gets the picker. The reuse is narrowed in `wm.openApp`:
+- A reuse link with an asset still focuses the window with that asset, otherwise the main instance, and applies the asset (playtest d40).
+- A bare reuse link only reuses a Broker that has no asset yet (it already shows the picker). If no such window exists, it opens one picker window, as main does.
+
+The d40 case still holds: the Trade layout Broker has no asset, so repeated bare `/broker` visits stay at one window. A new fail-first unit in wm.test.ts covers this (fails on 9c27bc5f, passes after). The BR-4 spec is unchanged.

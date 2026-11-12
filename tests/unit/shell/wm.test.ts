@@ -44,6 +44,18 @@ describe("instances (S1-11)", () => {
     expect(r.focused.x).toBe(w[0].x);
     expect(r.focused.w).toBe(w[0].w);
   });
+  it("a bare reuse open next to an asset-fixed Broker opens one picker window, then reuses it (BR-4-02)", () => {
+    const halc = openApp([], "broker", A, "HALC").windows;
+    const r = openApp(halc, "broker", A, undefined, { reuse: true });
+    expect(r.opened).toBe(true);
+    expect(r.windows).toHaveLength(2);
+    expect(r.focused.context).toBeUndefined();
+    expect(r.windows.find((w) => w.context === "HALC")).toEqual(halc[0]);
+    const again = openApp(r.windows, "broker", A, undefined, { reuse: true });
+    expect(again.opened).toBe(false);
+    expect(again.windows).toHaveLength(2);
+    expect(again.focused.instance).toBe(r.focused.instance);
+  });
   it("without reuse, a second ticker still opens a second Broker", () => {
     const r = openApp(openApp([], "broker", A, "HALC").windows, "broker", A, "NRON");
     expect(r.opened).toBe(true);
