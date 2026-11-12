@@ -28,10 +28,10 @@ function parity(secret: string, cut: (m: LiveMarket) => boolean) {
   expect(extra, `rows a restart re-added: ${extra.join(", ")}`).toEqual([]);
   expect(ids(b)).toEqual(ids(a));
   expect(rows(b.wire().items)).toEqual(rows(a.wire().items));
+  // Keep publishing: the same rows, none resurrected later. Values are not compared here: a restart re-marks prices
+  // (main's restart path, eng/market-restart-marks), so later effects may differ; prices are pinned in wire-restart-history.
   for (let i = 0; i < 120; i++) { a.step(); b.step(); }
   expect(ids(b)).toEqual(ids(a));
-  expect(rows(b.wire().items)).toEqual(rows(a.wire().items));
-  expect(JSON.stringify(b.snapshot().quotes)).toBe(JSON.stringify(a.snapshot().quotes));
 }
 
 describe("b1: restart vs never-restarted Wire id-list parity", () => {
