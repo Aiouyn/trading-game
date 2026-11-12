@@ -50,6 +50,20 @@ describe("M1-01 shell auth chrome", () => {
     expect(res.bodyUsed).toBe(true);
   });
 
+  it("while fetchMe is outstanding, does not paint boot rank or Sign in", async () => {
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    const store = createShellStore(mockChannels(new URLSearchParams()));
+    await act(async () => {
+      root.render(createElement(ShellCtx.Provider, { value: store }, createElement(StatusStrip)));
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(el.querySelector("[data-testid=sign-in-entry]")).toBeNull();
+    expect(el.querySelector("[data-testid=rank-chip]")).toBeNull();
+    expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
+    expect(el.textContent).not.toMatch(/Sign in/i);
+    expect(el.querySelector("[data-testid=auth-skel-chrome], [data-testid=auth-skel-release]")).not.toBeNull();
+  });
+
   it("logged-out: discoverable Sign in; may still show demo rank", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     const store = createShellStore(mockChannels(new URLSearchParams()));

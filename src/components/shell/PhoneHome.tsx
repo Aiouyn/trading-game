@@ -18,7 +18,7 @@ import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
-import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { isAuthPending, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { HOME_EXAMPLE } from "./homeExample";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
@@ -236,14 +236,16 @@ export function PhoneHome() {
   const nw = reading.nw ?? "0.00"; // only read with a value: the rank bar and guest today row wait for one
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
+  const pending = isAuthPending(auth);
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
   const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
   // Signed-in and guest both get the next-rank bar (M2-02 / 17 §3.2.3).
-  // Loading is not signed_in, so a Hustler bar is not invented before the session is known.
-  const next = nextRankTarget(rank);
+  // Card 23: while the session is still unknown (pending) there is no rank bar at all, so neither a guest nor a
+  // signed-in bar is invented before /api/auth/me answers.
+  const next = pending ? null : nextRankTarget(rank);
   const guestCopy = guestHome(useShell((s) => s.prefs.locale));
   const scale = useTextScale();
   const cols = gridColsFor(scale);
@@ -297,16 +299,21 @@ export function PhoneHome() {
         <section className="widget" data-testid="widget">
           <div className="widget-top">
             <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : S.netWorth}</span>
-            {signedIn ? (
+            {pending ? (
+              <span className="auth-skel-chrome" data-testid="auth-skel-chrome" aria-hidden="true" />
+            ) : signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
               <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
             )}
           </div>
           {/* Card 9: a logged-out stranger reads what Quay is before the Sign in action and the example numbers
-              (label, Sign in and the example caption are card 36's on main).
+              (label, Sign in and the example caption are card 36's on main). Card 23: while the session is unknown,
+              a neutral skeleton holds the CTA's place and no guest pitch is shown.
               Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
-          {!signedIn ? (
+          {pending ? (
+            <span className="auth-skel-chrome auth-skel-chrome-cta" data-testid="auth-skel-cta" aria-hidden="true" />
+          ) : !signedIn ? (
             <>
               <p className="guest-pitch" data-testid="guest-pitch">{guestCopy.pitch}</p>
               <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
