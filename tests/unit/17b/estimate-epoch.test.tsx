@@ -18,7 +18,7 @@ class HoldFeed extends MockFeed {
   submits: OrderDraft[] = [];
   previews: PreviewRes[] = [];
   hold = false;
-  pending = 0;
+  heldCount = 0;
   private queued: Array<{ draft: OrderDraft; resolve: (r: PreviewRes) => void }> = [];
   constructor() { super({}, { tickMs: MANUAL_TICK_MS }); }
   override submit(d: OrderDraft): string { this.submits.push({ ...d }); return super.submit(d); }
@@ -33,14 +33,14 @@ class HoldFeed extends MockFeed {
       ...door,
       preview: (d: OrderDraft) => {
         if (!this.hold) return this.preview(d);
-        this.pending += 1;
+        this.heldCount += 1;
         return new Promise<PreviewRes>((resolve) => { this.queued.push({ draft: d, resolve }); });
       },
     };
   }
   async release() {
     const queued = this.queued.splice(0);
-    this.pending = 0;
+    this.heldCount = 0;
     for (const p of queued) p.resolve(this.preview(p.draft));
     await act(async () => { await Promise.resolve(); });
   }
@@ -88,7 +88,7 @@ describe("card 39: Place waits for the new-epoch estimate", () => {
     // epoch clause should keep Place disabled while the re-ask is in flight.
     expect(f.tick).toBe(t0);
     expect(h.store.getState().channels.system.connection).toBe("live");
-    expect(f.pending, "a re-asked preview is in flight").toBeGreaterThan(0);
+    expect(f.heldCount, "a re-asked preview is in flight").toBeGreaterThan(0);
     expect(f.previews.length, "re-asked preview has not landed yet").toBe(asked);
     expect(isDisabled(place())).toBe(true);
     expect(q(h, "br-refreshing")?.textContent).toBeTruthy();
