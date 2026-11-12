@@ -621,13 +621,22 @@ export class MockFeed {
     this.pullChannel(ch);
     this.replay(ch);
   }
+  /** Set for the turn of one online event so a second ticker subscriber does not start another quote read. */
+  private quoteReconnectThisTurn = false;
   /**
    * Browser came back online. A guest feed replays: its clock kept moving, so the cached snap is current.
    * Signed-in quotes must not. The cached book is the pre-outage tick, and replaying it marks the Broker live
    * there while the fresh read is still out (M1-05: the other account is already 1–2 ticks ahead).
+   * One online event is one quote read for the feed, however many ticker subscribers hear it. Broker and the
+   * shell clock both subscribe `ticker:wl_default`; the second call would mark the first fresh read superseded.
    */
   reconnect(ch: ChannelName): void {
     if (!this.authoritativeQuotes) { this.resync(ch); return; }
+    if (ch.startsWith("ticker:")) {
+      if (this.quoteReconnectThisTurn) return;
+      this.quoteReconnectThisTurn = true;
+      queueMicrotask(() => { this.quoteReconnectThisTurn = false; });
+    }
     this.pullChannel(ch, true);
   }
   private pullChannel(ch: ChannelName, followUp = false): void {
