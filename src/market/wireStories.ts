@@ -44,7 +44,7 @@ export const COMPANY_STORIES: readonly Company[] = [
   co("nmbs-contract", "NEWS", "wire.news.contractWin", "Nimbus Compute", "NMBS", 350),
   co("kiln-demand", "NEWS", "wire.news.demandWarning", "Kiln Materials", "KILN", -300),
   co("mrdn-recall", "NEWS", "wire.news.recall", "Meridian Foods", "MRDN", -250),
-  co("avb-earnings", "NEWS", "wire.news.earningsBeat", "Avalon Bank", "AVB", 200),
+  { ...co("avb-earnings", "NEWS", "wire.news.earningsExpectations", "Avalon Bank", "AVB", 200), slots: { company: "Avalon Bank", beatMiss: "beat" } },
 ];
 
 interface Crisis { kind: CrisisKind; slug: string; assets: readonly string[]; hit: readonly StoryEffect[] }
@@ -132,10 +132,30 @@ function gapsAtLeast(order: readonly number[], prev: readonly number[], slotTick
 }
 
 /** Reject an identical deck, first==previous last, and any company repeat closer than COMPANY_MIN_GAP_TICKS. */
+/** Same headline key across different companies must also keep COMPANY_MIN_GAP_TICKS,
+ *  including a prefix of `order` so backtracking can prune. Intra-cycle and one-cycle-back. */
+function keyGapsAtLeast(order: readonly number[], prev: readonly number[], minGap: number): boolean {
+  const last = new Map<string, { cycle: 0 | 1; pos: number }>();
+  for (let p = 0; p < prev.length; p++) last.set(COMPANY_STORIES[prev[p]!].headlineKey, { cycle: 0, pos: p });
+  for (let q = 0; q < order.length; q++) {
+    const key = COMPANY_STORIES[order[q]!].headlineKey;
+    const seen = last.get(key);
+    if (seen) {
+      const ticks = seen.cycle === 0
+        ? CYCLE_TICKS + COMPANY_SLOT_TICKS * (q - seen.pos)
+        : COMPANY_SLOT_TICKS * (q - seen.pos);
+      if (ticks < minGap) return false;
+    }
+    last.set(key, { cycle: 1, pos: q });
+  }
+  return true;
+}
+
 function companyAcceptable(order: readonly number[], prev: readonly number[]): boolean {
   if (sameOrder(order, prev)) return false;
   if (order[0] === prev[prev.length - 1]) return false;
-  return gapsAtLeast(order, prev, COMPANY_SLOT_TICKS, COMPANY_MIN_GAP_TICKS);
+  return gapsAtLeast(order, prev, COMPANY_SLOT_TICKS, COMPANY_MIN_GAP_TICKS)
+    && keyGapsAtLeast(order, prev, COMPANY_MIN_GAP_TICKS);
 }
 
 /** Reject an identical order, first==previous last, and any crisis repeat closer than CRISIS_MIN_GAP_TICKS. */
