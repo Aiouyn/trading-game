@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { boot, setTextScale } from "./helpers";
+import { boot, setTextScale, withShroudFlags } from "./helpers";
 
 // S1-22: screenshots of home, launcher, a locked tile and a ComingLater window. Run with SHOTS=1.
 const OUT = process.env.SHOTS_DIR ?? "tests/e2e/shell/__screenshots__";
@@ -27,7 +27,7 @@ async function four(page: Page, prefix: string, phone: boolean) {
   await page.screenshot({ path: `${OUT}/${prefix}-coming-later.png` });
   // Shadow sub-palette windows (AI Lab, Security) and the protection chip (mocked active state).
   await boot(page, "/ailab?nw=200000&prot=1");
-  if (!phone) await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/security?nw=200000&prot=1"));
+  if (!phone) await page.evaluate((h) => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(h), withShroudFlags("/security?nw=200000&prot=1"));
   await page.screenshot({ path: `${OUT}/${prefix}-shadow-ailab-security${phone ? "-ailab" : ""}.png` });
   if (phone) {
     await boot(page, "/security?prot=1");

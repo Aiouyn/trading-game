@@ -10,6 +10,7 @@ import { clockAt, mockChannels, mockLocale, phaseOverride, TICK_MS } from "@/she
 import { useChannel } from "@/shell/contracts/useChannel";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
+import { isShrouded } from "@/shell/v1Shroud";
 import { loadLocal, queueSave } from "@/shell/persist";
 import { initLoader } from "@/shell/loader";
 import { registerServiceWorker } from "@/pwa/register";
@@ -231,7 +232,12 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
       initLoader(store, new URLSearchParams(query));
       registerServiceWorker(); // M2-05: offline fallback + installability (production only)
       return loadLocal(ACCOUNT).then((saved) => {
-        if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
+        if (saved) {
+          const flags = store.getState().channels.me.flags;
+          // A window saved while a flag was on must not come back after the flag is off.
+          const windows = saved.windows?.filter((w) => !isShrouded(w.app, flags));
+          store.setState((st) => ({ local: { ...st.local, ...saved, ...(windows ? { windows } : {}) } }));
+        }
         // A new account starts in the Trade layout (17 §3.2.5), desktop only.
         if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
         store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });

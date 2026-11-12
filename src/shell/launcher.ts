@@ -17,14 +17,15 @@ const HELP = [{ label: "How the tick works", app: "help" as const }];
 
 export function search(query: string, vis: Record<AppId, Visibility>, recent: readonly AppId[]): LauncherItem[] {
   const q = query.trim().toLowerCase();
-  if (!q) return recent.filter(isBuiltApp).slice(0, 6).map((app) => ({ id: `recent:${app}`, group: "Recent", label: APP_NAMES[app], app }));
+  const shown = (id: AppId) => isBuiltApp(id) && vis[id] !== "hidden";
+  if (!q) return recent.filter(shown).slice(0, 6).map((app) => ({ id: `recent:${app}`, group: "Recent", label: APP_NAMES[app], app }));
   const hit = (s: string) => s.toLowerCase().includes(q);
   const apps: LauncherItem[] = APP_IDS.filter((id) => isBuiltApp(id) && vis[id] === "unlocked" && hit(APP_NAMES[id]))
     .map((id) => ({ id: `app:${id}`, group: "Apps", label: APP_NAMES[id], app: id }));
   const tickers: LauncherItem[] = TICKERS.filter((x) => hit(x.t) || hit(x.n))
     .map((x) => ({ id: `tk:${x.t}`, group: "Tickers", label: `${x.t} · ${x.n}`, app: "broker", context: x.t }));
   const cmds: LauncherItem[] = COMMANDS.filter((c) => hit(c.label)).map((c) => ({ id: `cmd:${c.label}`, group: "Commands", ...c }));
-  const rec: LauncherItem[] = recent.filter((a) => isBuiltApp(a) && hit(APP_NAMES[a])).slice(0, 6)
+  const rec: LauncherItem[] = recent.filter((a) => shown(a) && hit(APP_NAMES[a])).slice(0, 6)
     .map((app) => ({ id: `recent:${app}`, group: "Recent", label: APP_NAMES[app], app }));
   const help: LauncherItem[] = HELP.filter((h) => isBuiltApp(h.app) && hit(h.label)).map((h) => ({ id: `help:${h.label}`, group: "Help", ...h }));
   return [...apps, ...tickers, ...cmds, ...rec, ...help];
