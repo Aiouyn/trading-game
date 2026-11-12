@@ -11,6 +11,8 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^@\/city$/, replacement: cityEntry },
+      // Unit tests use the production stub so DistrictView does not pull in three.js.
+      { find: /^@city-e2e-seam$/, replacement: fileURLToPath(new URL("./src/apps/city/e2eRendererSeam.off.ts", import.meta.url)) },
       { find: /^@\//, replacement: fileURLToPath(new URL("./src/", import.meta.url)) },
     ],
   },
@@ -18,7 +20,6 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts", "tests/unit/**/*.test.ts", "tests/unit/**/*.test.tsx", "tests/contract/**/*.test.ts"],
     exclude: ["node_modules", ".next", "tests/e2e/**"],
     environment: "node",
-    passWithNoTests: true,
     // Mock URL overrides are build-gated (src/shell/hooks.ts); unit tests exercise them.
     env: { QUAY_HOOKS: "1" },
   },

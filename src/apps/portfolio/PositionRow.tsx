@@ -1,6 +1,9 @@
 "use client";
 // One position (UI card 3, 17B PF-B). Table row (desktop) or 3-line card (phone, or text scale >= 1.5; Studio PF-B round 2).
 // Strings are the contract's, regrouped only (PF-3-02); MoneyText formats Value and P&L. No brass on the row.
+import { useSyncExternalStore } from "react";
+import { isTicketSubmitting, subscribeTicketSubmitting } from "@/apps/broker/ticketPrefill";
+import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Glyph } from "@/components/shell/Glyph";
 import { MoneyText, speakMoney } from "@/components/shell/MoneyText";
@@ -13,7 +16,7 @@ import type { MarginState, PosStrings } from "./positions/strings";
 export interface PositionExtras { marginState?: MarginState | null; liqPrice?: string | null }
 export type PositionData = Position & PositionExtras;
 
-export interface RowProps { pos: PositionData; ticker: TickerRow | undefined; t: PosStrings; locale: string; stale: boolean; layout: "table" | "cards" }
+export interface RowProps { pos: PositionData; ticker: TickerRow | undefined; t: PosStrings; locale: string; stale: boolean; layout: "table" | "cards"; onClosePosition?: (assetId: string, qty: string) => void }
 
 export function rowLabel(pos: PositionData, ticker: TickerRow | undefined, t: PosStrings, locale: string): string {
   const pct = ticker?.chgPct ?? null;
@@ -83,7 +86,25 @@ function Badges({ pos, ticker, t, locale }: { pos: PositionData; ticker: TickerR
   );
 }
 
-export function PositionRow({ pos, ticker, t, locale, stale, layout }: RowProps) {
+
+function CloseBtn({ pos, t, locale, onClosePosition }: { pos: PositionData; t: PosStrings; locale: string; onClosePosition?: (assetId: string, qty: string) => void }) {
+  const assetId = pos.assetId;
+  const busy = useSyncExternalStore(
+    subscribeTicketSubmitting,
+    () => isTicketSubmitting(assetId),
+    () => isTicketSubmitting(assetId),
+  );
+  return (
+    <Button size="sm" variant="ghost" className="pos-close" data-testid="pos-close"
+      disabled={busy}
+      aria-label={t.closeAria(pos.assetId, decText(pos.qty, locale))}
+      onClick={(e) => { e.stopPropagation(); onClosePosition?.(pos.assetId, pos.qty); }}>
+      {t.close}
+    </Button>
+  );
+}
+
+export function PositionRow({ pos, ticker, t, locale, stale, layout, onClosePosition }: RowProps) {
   const last = ticker?.last ?? pos.mark;
   const label = rowLabel(pos, ticker, t, locale);
   const lastCls = `num pos-last${stale ? " pos-stale" : ""}`;
@@ -105,12 +126,13 @@ export function PositionRow({ pos, ticker, t, locale, stale, layout }: RowProps)
           <Today pct={ticker?.chgPct ?? null} t={t} locale={locale} />
         </div>
         <Badges pos={pos} ticker={ticker} t={t} locale={locale} />
+        {!stale && <CloseBtn pos={pos} t={t} locale={locale} onClosePosition={onClosePosition} />}
       </li>
     );
   }
   return (
     <tr className="pos-tr" tabIndex={0} aria-label={label} data-testid="pos-row" data-asset={pos.assetId}>
-      <th scope="row" className="pos-asset"><span className="pos-ticker">{pos.assetId}</span><Badges pos={pos} ticker={ticker} t={t} locale={locale} /></th>
+      <th scope="row" className="pos-asset"><span className="pos-ticker">{pos.assetId}</span><Badges pos={pos} ticker={ticker} t={t} locale={locale} />{!stale && <CloseBtn pos={pos} t={t} locale={locale} onClosePosition={onClosePosition} />}</th>
       <td className="num" data-testid="pos-qty">{decText(pos.qty, locale)}</td>
       <td className="num pos-col-avg" data-testid="pos-avg">{decText(pos.avgCost, locale)}</td>
       <td className={`${lastCls} pos-col-last`} data-testid="pos-last">{decText(last, locale)}</td>

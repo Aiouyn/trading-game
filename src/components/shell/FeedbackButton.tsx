@@ -2,6 +2,7 @@
 import { useCallback, useState } from "react";
 import { asDefault, retryableLazy } from "@/components/shell/retryableLazy";
 import { S } from "@/shell/strings";
+import "./feedback.css";
 
 const RetryableFeedbackPanel = retryableLazy(async () => asDefault((await import("./FeedbackPanel")).FeedbackPanel));
 
@@ -19,7 +20,16 @@ export function FeedbackButton({ compact = false }: { compact?: boolean }) {
   const close = useCallback(() => setOpen(false), []);
   return (
     <div className="quay-feedback">
-      <button type="button" className="chip quay-feedback-btn" data-testid="quay-feedback" aria-label={S.feedbackAria} onClick={toggle}>
+      <button
+        type="button"
+        className="chip quay-feedback-btn"
+        data-testid="quay-feedback"
+        // Compact (icon only): "Share a comment" — the name must not contain "Back", which is a
+        // substring of "Feedback" and would steal getByRole({ name: "Back" }). With visible text,
+        // the accessible name has to include that text (axe label-content-name-mismatch).
+        aria-label={compact ? S.feedbackAria : S.feedback}
+        onClick={toggle}
+      >
         {compact ? <CommentMark /> : S.feedback}
       </button>
       {open ? (

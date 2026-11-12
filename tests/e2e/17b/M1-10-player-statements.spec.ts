@@ -43,7 +43,8 @@ async function journey(page: Page, pageB: Page, request: APIRequestContext, requ
   await expect(page.getByTestId("wire-composer")).toBeVisible();
   await expect(page.getByTestId("wire-demo")).toHaveCount(0);
   await postStatement(page, `HALC is steady ${stamp}`);
-  const row = page.locator('[data-testid="wire-row"][data-id^="w-p-"]');
+  // This account's rows only: the Wire is shared, and another worker's player can post first (--repeat-each on 2 workers).
+  const row = page.locator('[data-testid="wire-row"][data-id^="w-p-"]').filter({ hasText: handleA });
   await expect(row.first()).toBeVisible({ timeout: 20_000 });
   await expect(row.first()).toContainText(handleA);
   await expect(row.first()).toContainText(`HALC is steady ${stamp}`);
@@ -67,7 +68,7 @@ async function journey(page: Page, pageB: Page, request: APIRequestContext, requ
 
   await page.reload();
   await openWire(page);
-  await expect(page.locator('[data-testid="wire-row"][data-id^="w-p-"]').first()).toBeVisible({ timeout: 20_000 });
+  await expect(row.first()).toBeVisible({ timeout: 20_000 });
   expect((await wire(request)).items.filter((i) => i.id.startsWith("w-p-") && i.slots?.handle === handleA).length).toBe(3);
 
   await openWire(pageB);

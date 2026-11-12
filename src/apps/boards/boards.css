@@ -16,11 +16,14 @@
 .lb-row { height: 36px; border-bottom: 1px solid var(--line); }
 .lb-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .lb .num { font-family: var(--font-num); font-feature-settings: "tnum"; white-space: nowrap; }
-.lb-player { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.lb-handle { color: var(--fg); }
-.lb-self { background: var(--win2); }
+.lb-player { display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; }
+.lb-handle { color: var(--fg); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.lb-self { background: var(--win2); box-shadow: inset 2px 0 0 var(--acc); }
 .lb-self .lb-handle { font-weight: 600; }
-.lb .chip.lb-you-chip { margin-left: var(--sp-8); border-color: var(--steel); color: var(--fg-muted); }
+.lb-next { background: color-mix(in srgb, var(--acc) 8%, var(--win)); }
+.lb-next-line { margin: 0; font-size: var(--fs-12_5); min-width: 0; overflow-wrap: anywhere; }
+.lb .chip.lb-you-chip, .lb .chip.lb-next-chip { flex: none; margin-left: var(--sp-8); border-color: var(--steel); color: var(--fg-muted); }
 .lb-gap td { color: var(--fg-muted); text-align: center; height: 24px; }
 .lb-skel { display: flex; flex-direction: column; gap: var(--sp-8); }
 .lb-skel-row { height: 36px; border-radius: var(--r-input); background: var(--win2); }
