@@ -4,19 +4,24 @@
 .br { container-type: inline-size; padding: var(--sp-16); min-width: 0; }
 .br-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-16); min-width: 0; }
 /* Desktop Trade view only (phone and About keep their top-down layout). */
-/* Fill the window body so a long stop ticket can scroll in the ticket column of
-   the default 840×560 window, instead of clipping the review line off the top. */
-.win-body:has(.br[data-view="trade"]:not(.br-phone)) { display: flex; flex-direction: column; }
-.win-body:has(.br[data-view="trade"]:not(.br-phone)) > * { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.br[data-view="trade"]:not(.br-phone) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.br[data-view="trade"]:not(.br-phone) { min-height: 100%; display: flex; flex-direction: column; }
+.br[data-view="trade"]:not(.br-phone) > .br-grid { flex: 1; }
 .br-col { display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; }
+/* A priced or Review ticket in the default 840×560 window: fill the body so
+   the ticket column can scroll the review line into view. A short market
+   ticket keeps the rules above — filling win-body or setting overflow:auto
+   on that column creates a new formatting context beside the chart and
+   makes SMA/EMA glyph edges paint unstably (max channel delta 2). */
+.win-body:has(.br[data-view="trade"]:not(.br-phone) .br-col-ticket:has(.br-review-block, .br-price-field)) { display: flex; flex-direction: column; }
+.win-body:has(.br[data-view="trade"]:not(.br-phone) .br-col-ticket:has(.br-review-block, .br-price-field)) > * { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.win-body:has(.br[data-view="trade"]:not(.br-phone) .br-col-ticket:has(.br-review-block, .br-price-field)) .br[data-view="trade"]:not(.br-phone) { flex: 1 1 auto; min-height: 0; }
 /* Two columns once the window leaves the chart >= 344 px beside the 400 px ticket: market (quote, chart, holdings) left,
    ticket right; Open orders under the market column. Row 1 grows with the window; the chart takes the growth. A hairline
    in the column gap and one above Open orders mark the three sections without moving any content. */
 @container (min-width: 760px) {
   /* Two-column only: do not shrink the stacked 520 px ticket to zero height. */
-  .br[data-view="trade"]:not(.br-phone) > .br-grid { flex: 1; min-height: 0; }
-  .br[data-view="trade"]:not(.br-phone) .br-col-ticket { min-height: 0; overflow: auto; }
+  .win-body:has(.br[data-view="trade"]:not(.br-phone) .br-col-ticket:has(.br-review-block, .br-price-field)) .br[data-view="trade"]:not(.br-phone) > .br-grid { flex: 1; min-height: 0; }
+  .br[data-view="trade"]:not(.br-phone) .br-col-ticket:has(.br-review-block, .br-price-field) { min-height: 0; overflow: auto; }
   .br:not(.br-phone) .br-grid { grid-template-columns: minmax(0, 1fr) 400px; }
   /* openOrders.css places the areas: ticket spans both rows, row 1 grows. */
   .br[data-view="trade"]:not(.br-phone) .br-col-head .br-head, .br[data-view="trade"]:not(.br-phone) .br-col-head .br-chart { flex: 1; }
