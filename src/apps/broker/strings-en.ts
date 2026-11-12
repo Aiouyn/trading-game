@@ -60,6 +60,7 @@ export const EN = {
   placeOffline: "You're offline. Nothing was sent.",
   placeUnknown: "No answer from the server. This order may have gone through. Check Open orders and Positions before placing it again.",
   note: "Prices can fall. That's the game.",
+  disclaimer: "Simulated market. Not financial advice.",
   pending: (n: string) => `Pending · tick ${n}`,
   bought: (qty: string, ticker: string, price: string) => `Bought ${qty} ${ticker} at ${price}`,
   sold: (qty: string, ticker: string, price: string) => `Sold ${qty} ${ticker} at ${price}`,
@@ -89,6 +90,10 @@ export const EN = {
   /** [provisional] aria-label of the loading skeleton (aria-busy). */
   loading: "Loading order ticket",
   updating: "Updating…",
+  /** Card 19: why Review / Place is disabled during an outage, next to the button. */
+  reviewWaitConnection: "Connection lost. You can review once prices are live again.",
+  reviewWaitPrices: "Prices are updating. You can review once they are live.",
+  placeWaitConnection: "Connection lost. You can place this order once prices are live again.",
   couldntLoad: "Couldn't load",
   retry: "Retry",
   // ---- UI card 5: order types, prices, Open orders ----
