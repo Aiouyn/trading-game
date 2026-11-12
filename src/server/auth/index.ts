@@ -1,3 +1,4 @@
+export type { StandingInput } from "./service";
 export { AuthService, SESSION_IDLE_MS, SESSION_MAX_MS, START_CASH_CENTS, MAX_PASSWORD_LEN } from "./service";
 export { MemoryAuthStore, FileAuthStore } from "./store";
 export type { AuthStore, AuthStoreSnapshot } from "./store";
@@ -26,7 +27,7 @@ export {
   readSessionTokenFromCookieHeader,
   sessionCookieHeader,
 } from "./cookies";
-export { getAuthService, setAuthServiceForTests } from "./instance";
+export { getAuthService, peekAuthService, setAuthServiceForTests } from "./instance";
 export { assertLocalSingleProcessAuth } from "./deploy";
 export { AttemptThrottle } from "./throttle";
 export {
@@ -35,6 +36,7 @@ export {
   authErrorResponse,
   jsonResponse,
   readJsonObject,
+  readJsonObjectCapped,
   requireString,
   sessionBody,
   tokenFromRequest,

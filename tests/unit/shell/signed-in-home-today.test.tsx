@@ -9,8 +9,9 @@ import { mockChannels } from "@/shell/mockChannels";
 import { authSession } from "@/shell/authSession";
 import { createShellStore } from "@/shell/store";
 import { applySignedInDemo } from "@/shell/accountDemoBoundary";
-import { setFeed } from "@/shell/contracts/useChannel";
-import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
+import { getFeed, setFeed } from "@/shell/contracts/useChannel";
+import { MockFeed, SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
+import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import { S } from "@/shell/strings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,6 +38,7 @@ describe("card 25 signed-in phone Home today and $20k progress", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    setLiveMarketForTests(undefined);
     el.remove();
     setFeed(null);
     vi.useRealTimers();
@@ -48,16 +50,24 @@ describe("card 25 signed-in phone Home today and $20k progress", () => {
   }
 
   it("signed-in: today slot is the live change, and the rank bar names Hustler at $20,000", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
+    // This branch's signed-in `me` is the saved server ledger at server marks (M1-06): Home shows today and the rank bar
+    // once NW is known, so the session, market and ledger reads are each answered by URL.
+    const market = new LiveMarket();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/api/auth/me")) {
+        return Response.json({
           account: { accountId: "acc_today", handle: "qa_today", createdAtMs: 1, worldId: "world_port_avalon" },
           session: { sessionId: "ses_today", expiresAtMs: 9 },
           player: { accountId: "acc_today", cashCents: 1_000_000, positions: {}, openOrders: {} },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    );
+        });
+      }
+      if (url.endsWith("/api/market")) return Response.json(market.snapshot());
+      if (url.endsWith("/api/broker/me")) {
+        return Response.json({ tick: market.snapshot().tick, cashCents: 1_000_000, reservedCashCents: 0, positions: {}, orders: {}, fills: [], intents: [], coins: [] });
+      }
+      return new Response("not stubbed", { status: 404 });
+    });
     const store = createShellStore(mockChannels(new URLSearchParams()));
     applySignedInDemo(store, "acc_today");
     const ch = store.getState().channels;
@@ -68,6 +78,8 @@ describe("card 25 signed-in phone Home today and $20k progress", () => {
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(PhoneHome)));
     });
+    await (getFeed() as MockFeed).serverSync(); // the signed-in server half is a lazy chunk (serverSync.ts)
+    await paint();
     await paint();
 
     expect(el.querySelector("[data-testid=account-chip-home]")?.textContent).toBe("qa_today");

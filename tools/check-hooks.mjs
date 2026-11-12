@@ -23,7 +23,7 @@ export const QUERY_KEYS = [
 /** Literal strings that only gated hook code contains. */
 export const HOOK_STRINGS = [
   "forced city load failure", "__quayFeed",
-  "NEXT_PUBLIC_QUAY_MOCK_", "QUAY_HOOKS",
+  "NEXT_PUBLIC_QUAY_MOCK_", "NEXT_PUBLIC_QUAY_E2E", "QUAY_HOOKS",
   "Place order (mock)", "Toggle halt (mock)",
   "__quayHistory", "__quayChart",
 ];

@@ -71,9 +71,9 @@ test("Boot runs once per page load: an R0 client-side route change shows no boot
   await page.goto("/settings?rank=R0");
   await expect(page.getByTestId("boot")).toBeVisible(); // R0 boot (900 ms)
   await expect(page.getByTestId("quay-ready")).toBeVisible();
-  await page.getByTestId("tile-help").click();
+  await page.getByTestId("tile-portfolio").click();
   const before = await page.locator(".win").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")).sort().join(","));
-  expect(before).toBe("win-help,win-settings");
+  expect(before).toBe("win-portfolio,win-settings");
   await page.evaluate(() => {
     const w = window as unknown as { __bootSeen: boolean };
     w.__bootSeen = false;
@@ -246,6 +246,9 @@ test("S1-14: About in-app (S2-01..07)", async ({ page, context }, info) => {
   expect(version).toBe(`${pkgVersion} (build ${sha})`);
   await expect(about.getByTestId("about-licence-row")).toHaveCount(5);
   await expect(about.getByRole("link", { name: /Charts by TradingView/ })).toHaveAttribute("href", "https://www.tradingview.com");
+  // lightweight-charts NOTICE (Apache-2.0 §4(d)) in the served page, verbatim, with the licence text link.
+  await expect(about.getByTestId("about-notice-text")).toHaveText("TradingView Lightweight Charts\u2122\nCopyright (\u0441) 2025 TradingView, Inc. https://www.tradingview.com/", { useInnerText: false });
+  await expect(about.getByTestId("about-notice").getByRole("link")).toHaveAttribute("href", "https://www.apache.org/licenses/LICENSE-2.0");
   for (const a of await about.locator("a[target]").all()) {
     await expect(a).toHaveAttribute("target", "_blank");
     expect(await a.getAttribute("rel")).toContain("noopener");

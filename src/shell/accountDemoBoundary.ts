@@ -2,7 +2,8 @@
  * Account ↔ demo-trading boundary (M1-01 + M1-02 shared world).
  * Signed-in players get a neutral starter demo feed/channels — never the canned Owner/$412k fixture.
  * Market seed is the server-owned Port Avalon seed (not per-account).
- * Signed-in quotes follow GET /api/market (one server clock). Signed-out: educational guest mock.
+ * Signed-in quotes follow GET /api/market (one server clock); signed-in Broker orders, cash, lots and working orders
+ * are the saved server ledger (M1-06, /api/broker/*). Signed-out: educational guest mock (local, not saved).
  */
 import { cashCentsToMoney } from "@/shell/cashFormat";
 import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
@@ -55,11 +56,13 @@ export function applySignedInDemo(
   marketSeed: number = PORT_AVALON_MARKET_SEED,
   privateSnap?: SignedInPrivateSnap,
 ): void {
-  void accountId; // identity remount key only — market seed is world-owned (M1-02).
+  // accountId: identity remount key, and the account whose server ledgers feed the offline `me` snapshot (M2-05).
+  // The market seed is world-owned (M1-02).
   const cashCents = privateSnap?.cashCents ?? 1_000_000;
   const nw = cashCentsToMoney(cashCents);
-  // Quotes come from the server clock. This feed does not advance prices; demo orders still settle locally and are not saved.
-  const feed = new MockFeed({ empty: true, nw, seed: marketSeed }, { authoritativeQuotes: true });
+  // Quotes come from the server clock and `me` from the saved server ledger (M1-06): orders go to the server door,
+  // which prices, fills and saves them. No NW pin: cash and lots are the server's, marked at server quotes.
+  const feed = new MockFeed({ empty: true, seed: marketSeed }, { authoritativeQuotes: true, snapshotAccount: accountId });
   // Card 19: a lost /api/market shows as "Reconnecting…" in the header, the notice and the ticket. A feed that was
   // swapped out (sign-out, another account) no longer writes.
   feed.onConnection = (connection) => {
@@ -70,8 +73,7 @@ export function applySignedInDemo(
   setFeed(feed);
   const channels = starterChannels();
   channels.me.nw = nw;
-  // Saved cash seeds NW. Saved lots/orders are server-durable (M1-03) but not rendered into the demo
-  // MockFeed: the Broker stays a disclosed demo until the M1-06 order door reads/writes the ledger.
+  // Saved cash seeds the boot NW only until `me` (server ledger at server marks) is live.
   store.getState().setChannels({
     ...channels,
     me: { ...channels.me, nw },

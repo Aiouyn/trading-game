@@ -1,4 +1,4 @@
-/* Wire container, list and loading skeleton. Loaded with the shell (AppBody imports WireLoading), so the Suspense
+/* Wire container, list and loading skeleton. Loaded with the shell (AppBody imports the stringless WireLoading), so the Suspense
    fallback is styled before the lazy Wire chunk (and wire.css) arrives. */
 .win-body:has(> .wire),
 .phone-appbody:has(> .wire) { display: flex; flex-direction: column; padding: 0; overflow: hidden; }

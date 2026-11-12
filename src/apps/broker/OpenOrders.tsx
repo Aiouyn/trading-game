@@ -12,7 +12,7 @@ import { cancelOrder, parseOrderId, type IntentId } from "@/shell/contracts/orde
 import { getFeed, type ChannelView } from "@/shell/contracts/useChannel";
 import { CancelControl, CancelNote, type CancelPhase } from "./CancelControl";
 import { termsText } from "./OrderType";
-import { cancelRejectCopy, type BrStrings } from "./strings";
+import { cancelRejectCopy, type BrStrings } from "./strings-en";
 import "./openOrders.css";
 
 /** placedTick desc, then orderId (code-unit order). Ticks are numbers; nothing here is money. */

@@ -110,7 +110,7 @@ describe("card 24: Review estimate after a reconnect", () => {
   async function reconnectTo(f: SpyFeed, snap: unknown) {
     await setConnection("reconnecting");
     await act(async () => {
-      expect(f.adoptAuthoritativeQuotes(snap)).toBe(true);
+      expect((await f.serverSync()).adoptAuthoritativeQuotes(snap)).toBe(true); // #105: adopt lives in the lazy server half
       const c = h.store.getState().channels;
       h.store.getState().setChannels({ ...c, system: { ...c.system, connection: "live" } });
     });
@@ -170,7 +170,7 @@ describe("card 24: Review estimate after a reconnect", () => {
     const first = f.previews.at(-1)!;
     const asked = f.previews.length;
     for (let i = 0; i < 5; i++) {
-      await act(async () => { expect(f.adoptAuthoritativeQuotes(snapAt(f.tick))).toBe(true); });
+      await act(async () => { expect((await f.serverSync()).adoptAuthoritativeQuotes(snapAt(f.tick))).toBe(true); });
       await wait(1000);
       expect(f.previews.length, `poll ${i + 1} asked for no new preview`).toBe(asked);
       expect(est()).toBe(shown);

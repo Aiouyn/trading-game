@@ -35,7 +35,8 @@ export const academy = ["M2.75 9.5 12 5l9.25 4.5L12 14z", "M6.5 11.5V16c1.5 1.3 
 export const help = ["M12 3.75a8.25 8.25 0 1 0 0 16.5 8.25 8.25 0 0 0 0-16.5z", "M9.75 9.5a2.25 2.25 0 1 1 3.4 1.95c-.7.4-1.15.9-1.15 1.7v.35", "M12 16.5h.01"] as const;
 export const atelier = ["M12 3.5v2", "M5.5 5.5h13v9h-13z", "M8 20.5l2.5-6M16 20.5l-2.5-6"] as const;
 export const replay = ["M4.5 12a7.5 7.5 0 1 0 2.2-5.3", "M4.5 4.5V8H8", "M10.5 9.5v5l4-2.5z"] as const;
+export const launchpad = ["M12 4v12M8.5 7.5 12 4l3.5 3.5M4 20.5h16"] as const;
 export const api = ["M8.5 7 4 12l4.5 5", "M15.5 7 20 12l-4.5 5", "M13.25 6.5l-2.5 11"] as const;
 
-export const APP_GLYPHS: Record<AppId, readonly string[]> = { broker, portfolio, wire, businesses, ailab, research, bank, legal, security, messages, settings, company, markets, risk, quantlab, property, city, funds, insurance, institutions, estate, boards, profile, alliance, contracts, auctions, civic, academy, help, atelier, replay, api };
+export const APP_GLYPHS: Record<AppId, readonly string[]> = { broker, portfolio, wire, businesses, ailab, research, bank, legal, security, messages, settings, company, markets, risk, quantlab, property, city, funds, insurance, institutions, estate, boards, profile, alliance, contracts, auctions, civic, academy, help, atelier, replay, api, launchpad };
 

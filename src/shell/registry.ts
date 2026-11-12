@@ -2,15 +2,15 @@
 import { isBuiltApp } from "./appModules";
 
 export const APP_IDS = [
-  "broker", "portfolio", "wire", "messages", "markets", "risk", "quantlab", "research",
+  "broker", "portfolio", "wire", "messages", "markets", "launchpad", "risk", "quantlab", "research",
   "businesses", "company", "property", "city", "bank", "funds", "insurance", "institutions",
   "ailab", "security", "legal", "estate", "boards", "profile", "alliance", "contracts",
   "auctions", "civic", "academy", "help", "atelier", "settings", "replay", "api",
 ] as const;
 
-/** V3 17 §2.2 AppId union, verbatim. */
+/** V3 17 §2.2 AppId union, plus "launchpad" (owner-restored meme-coin Launchpad; 17 §2.2 had listed it as legacy). */
 export type AppId =
-  | "broker" | "portfolio" | "wire" | "messages" | "markets" | "risk" | "quantlab" | "research"
+  | "broker" | "portfolio" | "wire" | "messages" | "markets" | "launchpad" | "risk" | "quantlab" | "research"
   | "businesses" | "company" | "property" | "city" | "bank" | "funds" | "institutions" | "insurance"
   | "ailab" | "security" | "legal" | "estate" | "boards" | "profile" | "alliance" | "contracts"
   | "auctions" | "civic" | "academy" | "help" | "atelier" | "settings" | "replay" | "api";
@@ -69,6 +69,7 @@ const ROWS: Row[] = [
   { id: "wire", group: "trade", minW: 360, minH: 280 },
   { id: "messages", group: "trade" },
   { id: "markets", group: "trade" },
+  { id: "launchpad", group: "trade" },
   { id: "risk", group: "trade", unlock: { kind: "license", min: "LIC2" }, teaser: { kind: "fromRank", rank: "R1" }, lockLabel: "LIC2", lockHint: "Opens with license LIC2" },
   { id: "quantlab", group: "trade", unlock: { kind: "rank", min: "R2" }, teaser: { kind: "fromRank", rank: "R1" }, lockLabel: "R2", lockHint: "Opens at rank R2 · Owner" },
   { id: "research", group: "trade", unlock: { kind: "rank", min: "R3" }, teaser: { kind: "fromRank", rank: "R2" }, lockLabel: "R3", lockHint: "Opens at rank R3 · Mogul" },

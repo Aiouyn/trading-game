@@ -316,7 +316,7 @@ describe("BR-4-11 halted (E-98 (1))", () => {
     expect(q(h, "br-ack")!.dataset.status).toBe("ACCEPTED");
     expect(text(h, "br-ack-title")).toBe(EN.received);
     expect(text(h, "br-queued")).toBe(EN.haltedQueued);
-    expect(h.el.textContent).not.toContain(EN.haltedHelp);
+    expect(h.el.textContent).not.toContain("Orders are paused"); // E-98 (1): no halted help line (the unused copy was removed)
   });
 });
 
@@ -368,7 +368,7 @@ describe("BR-4-16 FR render", () => {
     const feed = await mount(h, { context: "HALC", locale: "fr" });
     expect(text(h, "br-today")).toMatch(/\u202F%/);
     expect(text(h, "br-review")).toBe(FR.review);
-    expect(text(h, "br-kind")).toBe(FR.orderKind);
+    expect(text(h, "br-kind")).toBe("Au marché · Jour");
     await typeQty(h, "40");
     expect(q(h, "br-row-impact")!.textContent).toMatch(/\u202Fpb/);
     await click(q(h, "br-review")!);

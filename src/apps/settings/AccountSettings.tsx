@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
-import { useShell } from "@/components/shell/ShellContext";
+import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { cashCentsToMoney } from "@/shell/cashFormat";
 import { authErrorCopy, type AuthClientError } from "@/shell/authClient";
@@ -21,6 +21,7 @@ export function AccountSettings() {
   const t = useSettingsStrings();
   const locale = useShell((s) => (s.prefs.locale === "fr" ? "fr" : "en"));
   const auth = useAuthSession();
+  const store = useShellStore();
   const [mode, setMode] = useState<Mode>("register");
   const [handle, setHandle] = useState("");
   const [password, setPassword] = useState("");
@@ -95,11 +96,18 @@ export function AccountSettings() {
             <span className="set-row-label">{t.accountStarterLabel}</span>
             <span data-testid="account-starter-amount"><MoneyText amount={cashCentsToMoney(auth.player.cashCents)} ctx="chip" /></span>
           </p>
-          <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
+          <p className="account-start" data-testid="account-start">{t.accountStart}</p>
+          <details className="account-details" data-testid="account-save-details">
+            <summary>{t.accountSaveDetails}</summary>
+            <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
+          </details>
           {error ? (
             <p className="account-error" role="alert" data-testid="account-error">{error}</p>
           ) : null}
           <div className="account-actions">
+            <Button variant="primary" type="button" data-testid="account-open-portfolio" onClick={() => store.getState().open("portfolio")}>
+              {t.accountOpenPortfolio}
+            </Button>
             <Button variant="secondary" data-testid="account-logout" disabled={busy} onClick={() => void onLogout()}>
               {t.accountLogout}
             </Button>
@@ -114,7 +122,11 @@ export function AccountSettings() {
       <h2 className="section-title">{t.section["SET-01"]}</h2>
       <section className="account-panel" aria-labelledby="account-form-label">
         <Label id="account-form-label">{mode === "register" ? t.accountCreate : t.accountSignIn}</Label>
-        <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
+        <p className="account-start" data-testid="account-start">{t.accountStart}</p>
+        <details className="account-details" data-testid="account-save-details">
+          <summary>{t.accountSaveDetails}</summary>
+          <p className="muted set-hint" data-testid="account-disclaimer">{t.accountDisclaimer}</p>
+        </details>
         <Segment<Mode>
           label={t.accountMode}
           value={mode}
