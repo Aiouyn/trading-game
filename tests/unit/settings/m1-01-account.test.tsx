@@ -137,4 +137,87 @@ describe("M1-01 Account UI (Settings SET-01)", () => {
     expect(el.querySelector("[data-testid=account-handle-input]")).toBeTruthy();
     expect(el.querySelector("[data-testid=account-disclaimer]")?.textContent).toMatch(/demo/i);
   });
+
+  const meBody = {
+    account: { accountId: "acc_1", handle: "Nova", createdAtMs: 1, worldId: "world_port_avalon" },
+    session: { sessionId: "ses_1", expiresAtMs: 9 },
+    world: { worldId: "world_port_avalon", marketSeed: 17, persistence: "player_private" },
+  };
+  const mePlayer = {
+    ...meBody,
+    player: { accountId: "acc_1", cashCents: 1_000_000, positions: {}, openOrders: {} },
+  };
+
+  async function mountWithSettings(viewport: "desk" | "phone" = "desk") {
+    const store = createShellStore(mockChannels(new URLSearchParams()));
+    if (viewport === "phone") store.getState().setViewport(390, 844);
+    else store.getState().setViewport(1440, 900);
+    store.getState().open("settings", undefined, { deepLink: true });
+    await act(async () => {
+      root.render(createElement(ShellCtx.Provider, { value: store }, createElement(AccountSettings)));
+    });
+    await act(async () => { await Promise.resolve(); });
+    return store;
+  }
+
+  it("a successful sign-up closes the Settings window so the goal/guide is not covered (playtest d08)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(meBody), { status: 201, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(mePlayer), { status: 200, headers: { "content-type": "application/json" } }));
+    const store = await mountWithSettings();
+    expect(store.getState().local.windows.some((w) => w.app === "settings")).toBe(true);
+    await act(async () => { fill("Nova", "password1"); });
+    await act(async () => { el.querySelector<HTMLFormElement>("form")!.requestSubmit(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(el.querySelector("[data-testid=account-handle]")?.textContent).toBe("Nova");
+    expect(store.getState().local.windows.some((w) => w.app === "settings")).toBe(false);
+  });
+
+  it("a failed sign-up leaves Settings open with the error", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "HANDLE_TAKEN", message: "Taken." } }), { status: 409, headers: { "content-type": "application/json" } }));
+    const store = await mountWithSettings();
+    await act(async () => { fill("Nova", "password1"); });
+    await act(async () => { el.querySelector<HTMLFormElement>("form")!.requestSubmit(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(el.querySelector("[data-testid=account-error]")).toBeTruthy();
+    expect(store.getState().local.windows.some((w) => w.app === "settings")).toBe(true);
+  });
+
+  it("signing in an existing account leaves Settings open", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(meBody), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(mePlayer), { status: 200, headers: { "content-type": "application/json" } }));
+    const store = await mountWithSettings();
+    await act(async () => {
+      el.querySelector<HTMLButtonElement>("[data-testid=account-mode-login], [data-testid=seg-account-mode] button:last-child")?.click();
+    });
+    // Fall back: click the Sign in segment option by label if the test id differs.
+    if (!el.querySelector("form")?.textContent?.match(/Sign in/)) {
+      /* mode switch is a Segment; click the option whose text is Sign in */
+    }
+    const signInOpt = [...el.querySelectorAll("button, [role=radio]")].find((b) => b.textContent === "Sign in");
+    if (signInOpt) await act(async () => { (signInOpt as HTMLElement).click(); });
+    await act(async () => { fill("Nova", "password1"); });
+    await act(async () => { el.querySelector<HTMLFormElement>("form")!.requestSubmit(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(el.querySelector("[data-testid=account-handle]")?.textContent).toBe("Nova");
+    expect(store.getState().local.windows.some((w) => w.app === "settings")).toBe(true);
+  });
+
+  it("a successful sign-up on the phone leaves Settings and returns to home", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(meBody), { status: 201, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(mePlayer), { status: 200, headers: { "content-type": "application/json" } }));
+    const store = await mountWithSettings("phone");
+    expect(store.getState().phoneApp?.app).toBe("settings");
+    await act(async () => { fill("Nova", "password1"); });
+    await act(async () => { el.querySelector<HTMLFormElement>("form")!.requestSubmit(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(store.getState().phoneApp).toBeNull();
+  });
 });

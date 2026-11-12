@@ -3,13 +3,14 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
-import { useShell } from "@/components/shell/ShellContext";
+import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { cashCentsToMoney } from "@/shell/cashFormat";
 import { authErrorCopy, type AuthClientError } from "@/shell/authClient";
 import { authSession, useAuthSession } from "@/shell/authSession";
 import { Segment } from "./controls";
 import { useSettingsStrings } from "./useSettingsStrings";
+import { closeSettingsAfterSignUp } from "@/shell/authChrome";
 
 type Mode = "register" | "login";
 
@@ -19,6 +20,7 @@ function isClientError(err: unknown): err is AuthClientError {
 
 export function AccountSettings() {
   const t = useSettingsStrings();
+  const store = useShellStore();
   const locale = useShell((s) => (s.prefs.locale === "fr" ? "fr" : "en"));
   const auth = useAuthSession();
   const [mode, setMode] = useState<Mode>("register");
@@ -51,8 +53,10 @@ export function AccountSettings() {
     }
     setBusy(true);
     try {
-      if (mode === "register") await authSession.register(handle.trim(), password);
-      else await authSession.login(handle.trim(), password);
+      if (mode === "register") {
+        await authSession.register(handle.trim(), password);
+        closeSettingsAfterSignUp(store);
+      } else await authSession.login(handle.trim(), password);
       setPassword("");
     } catch (err) {
       fail(err);
