@@ -48,6 +48,7 @@ describe("preflight phases ↔ CI parity (bidirectional)", () => {
     expect(CORE_PHASES.map((p) => p.id)).toEqual([
       "lint",
       "lesson13",
+      "spawn-temp-store",
       "ledger-no-dup",
       "typecheck",
       "build",

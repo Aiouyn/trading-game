@@ -18,6 +18,8 @@ jobs:
       - run: npm run lint
       # Lesson 13: kill servers by pid file only; reject name-kills (tools/ci/lesson13-pid-kills.mjs).
       - run: npm run ci:lesson13
+      # Test spawns of boot-register / next start must use a temp store (tools/ci/spawn-temp-store.mjs).
+      - run: npm run ci:spawn-temp-store
       - run: npm run typecheck
       - run: npm run build
       # AC-HOOKS-PROD: the build above has no e2e flags; neither its client nor its server output may contain a test/mock hook or /__ds code.

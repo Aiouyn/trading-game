@@ -9,6 +9,7 @@
 export const CORE_PHASES = [
   { id: "lint", argv: ["npm", "run", "lint"] },
   { id: "lesson13", argv: ["npm", "run", "ci:lesson13"] },
+  { id: "spawn-temp-store", argv: ["npm", "run", "ci:spawn-temp-store"] },
   { id: "ledger-no-dup", argv: ["npx", "vitest", "run", "test/map-no-dup.test.ts"], cwd: "packages/engine/ledger" },
   { id: "typecheck", argv: ["npm", "run", "typecheck"] },
   { id: "build", argv: ["npm", "run", "build"] },
