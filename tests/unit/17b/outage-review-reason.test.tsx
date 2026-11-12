@@ -63,7 +63,7 @@ describe("(a) a ticket in Review across an outage", () => {
 
     await setConnection("reconnecting");
     expect(isDisabled(place())).toBe(true);
-    expect(q(h, "br-place-reason")!.textContent).toBe(BR_STRINGS.en.reviewWaitConnection);
+    expect(q(h, "br-place-reason")!.textContent).toBe(BR_STRINGS.en.placeWaitConnection);
     expect(place().getAttribute("aria-describedby")).toBe(q(h, "br-place-reason")!.id);
     await click(place());
     expect(f.submits).toHaveLength(0);
