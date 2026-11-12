@@ -19,7 +19,8 @@ export function Desktop() {
   const vh = useShell((s) => s.vh);
   const vp = viewportOf(vw);
   const bannerH = useShell((s) => s.bannerH);
-  const area = workArea(vw, vh, focusMode, bannerH);
+  const consentH = useShell((s) => s.consentH);
+  const area = workArea(vw, vh, focusMode, bannerH, consentH);
   const full = workArea(vw, vh, focusMode);
   const onWs = windows.filter((w) => w.workspace === ws);
 
