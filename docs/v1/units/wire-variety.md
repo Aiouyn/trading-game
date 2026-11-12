@@ -76,3 +76,24 @@ Branch `sys/wire-variety-main` is `origin/main` `f8f51ad9` plus this unit's own 
 - Conflicts: `calibration-unit.json` kept main's copy during the pick, and the old fixture commit `a73bfa08` was not picked. `launchpad-calibration.test.ts` kept main's copy, because main already has the 60 s timeout and the float-tolerant compare. So the picked `530c3b0f` now only changes `gk-rumor-claims.test.ts`. Intermediate commits carry main's fixture; the calibration unit is green only from the regeneration commit on.
 - The fixture was regenerated on the cut branch as its own commit. The calm walk and params are byte-identical to main's fixture. Events-on 12-seed 60-GD GX median CAGR: **24.16%** on main (no wire-variety), **24.92%** after. Seed 17: 20.79% → 16.78%. Both are an honest MISS vs the 0–12% band (disclosed, not a stop; calibration is Builder's lane). The earlier "was 27.94%" was measured against the first-pass per-seed shuffle, not against main. FROG events-on still ends at 1e-07; 29 of 60 closes moved. The regenerated file is byte-identical to the one on `sys/wire-variety`.
 - Check results for this head are in `/workspace/avalon/evidence/sys-wire-variety-main/`.
+
+## Gatekeeper NO-GO fix on 82576f02 (2026-11-12 12:15 Europe/Paris)
+
+Review: `evidence/launchpad/gatekeeper/82576f02/REVIEW.md` (B1 blocker, Q1 qual, two notes). Tests came first (`5584435c`, red on 82576f02), then the fix (`ad4264d5`), then the fixture (`ac4a931b`). This replaces the "60/72-tick lag ban" in the design above with a floor.
+
+- **B1, floors.** Cross-cycle gap = 96 + 12·(q − p) ticks for a company at slot p then q, 96 + 24·(q − p) for a crisis. The old rule banned only 60/72, so 48/36/24 were legal (company min 24, crisis min 48 on all 8 probed seeds). New rule: every same-company repeat ≥ **84 ticks** (7 real minutes), every same-crisis repeat ≥ **72 ticks** (main's rotation). Why these numbers, measured with identity as the previous deck (`gk-fix/design/rules.mjs`):
+
+  | company rule | legal next decks | share of repeats at the floor (8 seeds × 2083 cycles) |
+  |---|---|---|
+  | old (ban 60/72 only) | 7,189 | min gap 24 |
+  | ≥ 48, ban 60/72 (Gatekeeper's example) | 1,633 | 48 |
+  | ≥ 72 | 1,457 | ~27% at 72 |
+  | **≥ 84 (chosen)** | **127** | ~62% at 84 |
+  | ≥ 96 | 0 (only the identical deck) | infeasible |
+
+  84 is the only floor ≥ 60 that keeps this unit's own acceptance check 3 and player outcome (no repeat at 60 or 72 ticks, i.e. not every 5–6 minutes), and the highest feasible one. The cost is rhythm: most companies come back at exactly 84 ticks, and about half of adjacent company pairs carry over to the next cycle (a uniform pick among the 127 decks would still put 44% at 84). Crises: ≥ 96 is infeasible (identity only), so 72 is the max; 7 legal next orders. The first==previous-last rule is now implied by both floors and is kept as a cheap guard.
+- **Repair always finds a deck.** The backtracking search now prunes on prefixes (`acceptable` also judges a prefix). Proven by a unit that walks 24 seeds over 60 game days (450 cycles each) and by the far-jump unit (6 seeds up to cycle 400); none throws and both floors hold.
+- **Q1.** Fisher-Yates draws `j = floor(fmix32(fnv) / 2^32 · (i + 1))`. 10k keys reach 24/24 crisis orders; 100k keys reach 91.5–91.6% of the 40,320 company decks on seeds 17/18/21/42 (uniform expectation 91.6%); before: 12/24 and ~3.9%. `hash` itself is unchanged, so severities and `crisisHits` are untouched (the pre-existing `crisisHits % 4` stays out of scope, as Gatekeeper noted).
+- The `catalogStoryAt` comments now describe the chain and the cross-cycle floors. The jump==walk unit now uses fresh module instances (`vi.resetModules`), so the jump runs on an empty memo.
+- Fixture regenerated on `ad4264d5`. Calm walk and params byte-identical. Events-on 12-seed 60-GD GX median CAGR: main 24.164759% → 82576f02 24.922542% → this fix **24.790757%**; seed 17: 20.790392% → 16.782608% → **22.991323%**. Still an honest MISS vs 0–12%; calibration is Builder's unit and was not tuned here. FROG last close 1e-07; 22/60 closes moved vs 82576f02.
+- Evidence: `/workspace/avalon/evidence/sys-wire-variety-main/gk-fix/`.
