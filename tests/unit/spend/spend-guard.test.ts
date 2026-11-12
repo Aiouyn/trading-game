@@ -106,7 +106,18 @@ describe("M3-06 spend guard", () => {
     expect(() => resolveSpendGuard({ QUAY_KILL_SWITCH: " 1" })).toThrow(/QUAY_KILL_SWITCH must be unset or exactly "1"/);
     expect(() => resolveSpendGuard({ QUAY_SPEND_OPT_IN: "1", DATABASE_URL: "not-a-url" })).toThrow(/DATABASE_URL/);
     expect(resolveSpendGuard({ QUAY_SPEND_OPT_IN: "1", DATABASE_URL: "https://db.example" }).enabled).toContain("database");
-    await expect(register()).resolves.toBeUndefined();
+    // register() claims the store lock until this process exits. A disposable
+    // root keeps that claim off the default .data the next test's boot-register child locks.
+    const prevData = process.env.QUAY_DATA_DIR;
+    const dir = await mkdtemp(path.join(tmpdir(), "quay-register-"));
+    process.env.QUAY_DATA_DIR = dir;
+    try {
+      await expect(register()).resolves.toBeUndefined();
+    } finally {
+      if (prevData === undefined) delete process.env.QUAY_DATA_DIR;
+      else process.env.QUAY_DATA_DIR = prevData;
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("register exits non-zero when a paid URL is set without an exact opt-in", () => {
