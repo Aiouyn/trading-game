@@ -16,6 +16,14 @@ async function register(request: APIRequestContext, baseURL: string, handle: str
   expect(res.status(), await res.text()).toBe(201);
 }
 
+async function dismissConsentIfShown(page: Page) {
+  const dialog = page.getByTestId("quay-consent");
+  if (await dialog.isVisible().catch(() => false)) {
+    await page.getByTestId("quay-consent-decline").click();
+    await expect(dialog).toHaveCount(0);
+  }
+}
+
 async function openComposer(page: Page) {
   await page.goto("/wire");
   await expect(page.getByTestId("wire").first()).toHaveAttribute("data-state", "live", { timeout: 20_000 });
@@ -24,6 +32,7 @@ async function openComposer(page: Page) {
   const isOpen = await composer.evaluate((el) => (el as HTMLDetailsElement).open);
   if (!isOpen) await page.getByTestId("wire-composer-toggle").click();
   await expect(page.getByTestId("wire-composer-form")).toBeVisible();
+  await dismissConsentIfShown(page);
   const chip = page.getByTestId("wire-composer-asset-HALC");
   if ((await chip.getAttribute("aria-pressed")) !== "true") await chip.click();
 }
@@ -58,6 +67,7 @@ test("append during Posting leaves the remainder and charges once, even if Post 
   const box = page.getByTestId("wire-composer-text");
   const submit = page.getByTestId("wire-composer-submit");
   await box.fill(sent);
+  await dismissConsentIfShown(page);
   await submit.click();
   await expect(submit).toHaveText("Posting…");
 
