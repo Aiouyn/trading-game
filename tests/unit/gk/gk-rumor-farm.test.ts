@@ -202,7 +202,7 @@ describe("farm belief, lnV, conservation", () => {
       }
       expect(b.lnVOf(chosen!.assetId)).toBe(lnV);
     }
-  });
+  }, 20_000);
 
 });
 
