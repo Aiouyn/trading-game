@@ -40,6 +40,10 @@ describe("minimum sizes (S1-12)", () => {
     const w = openApp([], "broker", A).windows;
     expect(resizeWin(w, w[0], 10, 10, A)[0]).toMatchObject({ w: 520, h: 420 });
   });
+  it("Broker opens 840×640 so the plot and Trend line tool fit in the default window", () => {
+    expect(openApp([], "broker", A).focused).toMatchObject({ w: 840, h: 640 });
+    expect(openApp([], "wire", A).focused.h).toBe(560);
+  });
   it("every app clamps to its §2 minimum", () => {
     expect(clampSize("wire", 1, 1, 1424)).toEqual({ w: 360, h: 280 });
     expect(clampSize("portfolio", 1, 1, 1424)).toEqual({ w: 520, h: 220 });

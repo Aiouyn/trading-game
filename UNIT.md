@@ -1,57 +1,86 @@
-# Card 5 — Broker entry import boundaries
+# Unit: durable Broker order idempotency (not just the last 50)
 
-Written: 2026-11-11T19:20:13+01:00 (Europe/Paris, CET), before implementation.
-Base: `110583b0aa73ece1dc3b856665f3be0405f1acc3`.
-Branch: `ui/broker-entry-split`.
+**Branch:** `eng/broker-idempotency`  
+**Base:** `43127f9e` (`eng/broker-headroom`)  
+**Worktree:** `/workspace/avalon/broker-idempotency`  
+**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
+**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+
+## Why this unit
+
+On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+
+The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+
+### Readiness flags checked on `43127f9e` (not this unit)
+
+| Flag | Status on this base | Why not this unit |
+|---|---|---|
+| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
+| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
+| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
+| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
+
+Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
+
+## Smallest observable outcome
+
+After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
+
+1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
+2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
+3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
+4. A process restart over the same store still honours (1) and (2).
+5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
+
+Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
+
+## Plan
+
+Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
+
+## Acceptance
+
+1. UNIT.md is written first (this file), before product-code edits.
+2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
+3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
+4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
+5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+
+---
+
+<!-- Merged from main (latest unit on main). Both unit notes are kept. -->
+
+# Card 29 — Signed-in Home hero says Net worth, not “Demo balance”
+
+**When:** 12 Nov 2026, 06:55 Europe/Paris (CET)
+**Branch:** `ui/signed-in-hero-copy`
+**Base:** `origin/main` `1fd4a6d9cc27a61dfd28ddc6288bf1ecd6ea6f3e` (PR114 after PR111/113)
+**Identity:** Forge (trading-game bot) <forge@trading-game.local>
+**Tier:** low (copy). Not opening a PR. No push this pass.
 
 ## Player outcome
-Keep the existing Broker screens, trading, indicators, table, drawings, About/News, settings, locale and focus behavior. Reclaim at least 10 KiB (10240 bytes) of counted first-load gzip on the exact base AND on approved cards 1–4, so later phone trading UX has real room. No new product feature in this card.
 
-## Sources
-- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:678–687`: Broker first-load budget and stable charts/inputs (historical spec says 200 KB; repository's existing authoritative gate is 215 KB, unchanged).
-- Same file `:824`: retain Settings About, licences/credits/integrity link.
-- Same file `:828–830`: retain Broker first-trade, chart indicators and drawings; saving budget enables the later phone ticket, not implemented here.
-- `docs/v1/V1-BOARD.md:42,53–56`: history/live within budget, first trade and ~390px mobile.
+A signed-in player looking at Home sees the same “Net worth” hero the spec describes, not “Demo balance” and not “Starter account: $10,000 (demo placeholder, not a live balance).” Their cash and positions are already described in Account as saved on the server. The main screen should not contradict that, and it should not look like a throwaway demo.
 
-## Investigation and bounded design
-Actual ordinary-production baseline, two fresh-page probes: 218932 counted gzip bytes, plot 60678 bytes. Evidence: `/workspace/avalon/evidence/ui-broker-entry-split/base-probe-*.json` and analyzer graph/attribution. Module compressed-size estimates are NOT measured route savings. The plot is already lazy and nearly at its 60 KiB exclusion cap; moving more code into that exclusion is not the solution.
+## Grounding
 
-The shell eagerly imports the entire inactive Settings app. Broker's eager Trade/About switch shares a module with About/News, and the shell Wire skeleton imports the full Wire dictionary just for its loading label. These are UI-only import boundaries, not missing engine data. Start with Settings using the existing per-app lazy/Suspense contract. If insufficient, separate the eager switch from the lazy About body and isolate the unchanged EN/FR Wire-loading label. Stop once the target is met; do not rewrite indicator, trendline, market or channel logic. Cold optional app loads may use the shell's existing generic loading skeleton, not a new design. Keep stable UI and navigation/focus outcomes identical after load.
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:257` — Home widget: “NET WORTH label + rank chip, serif 44 px NW, today’s change, sparkline, rank progress bar.” The label is Net worth. There is no “Demo balance” line and no $10k “not a live balance” disclaimer on this widget.
+- Same file :240 — desktop status strip: net worth (mono) with today’s %. Not a “Demo balance” tag.
+- Settings › Account already says “Account, cash, and position quantities are saved on the server.” (`src/apps/settings/strings.ts` `accountDisclaimer`; tests in `m1-01-account.test.tsx`). The hero copy is stale relative to that.
+- `docs/v1/M1-01-AUTH.md:15` still says mock trading is not a server save and “Account may show starter cash placeholder only.” That note is about Account, and Account has already moved on. It is not a license to label the Home hero a fake balance.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash “Demo balance” or the $10k disclaimer, and must not invent a signed-in number. Guest chrome (Net worth) is the honest unknown-session path.
 
-Approved integration inputs (not moving branch tips):
-1. `0814d8e3b721d59726c2df8b51bd9f0c559fa967`
-2. `d1ce500958296e06fd18b1eaf942bfe252a0b41a`
-3. `f6610d6a3d8f1c21bed264a2584eb9566a690173`
-4. `1ef58ad0982d3798a10945287d73738073a674ca`
+## Scope (tiny copy)
 
-## Acceptance and proof
-- UNIT-only commit first. New isolated worktree only; no packages/engine, market, economy, budget/helper, or hook edits. No push/PR/deploy.
-- Normal lint, typecheck, build, check-hooks, locked ledger map-no-dup, npm test, unchanged route-budget gate. Exact two-probe asset gzip/SHA256 comparisons for own base and approved merged stack; >=10240 counted bytes saved on EACH and <=215 KiB. Explain hash/chunk regrouping honestly; no runtime speedup claim.
-- Before/after desktop1440x900 and phone390x844 screenshots, unchanged production UI at deterministic state; retain original files and compare meaningful pixels/DOM. Exercise any affected optional views and account navigation.
-- One fresh clean detached e2e worktree, fresh npm ci and .data; plain Chromium install, no apt/--with-deps (unprivileged apt unavailable, user explicitly omits only that step). Run Broker chart/table/candles/MA/BB/RSI/VWAP/trendline/storage and any affected About/settings/account e2e. Retain failed attempts honestly, delete temp checkout after evidence.
-- Local disposable scratch integration only, pin exact approved SHAs, resolve docs-only conflicts preserving all unit/evidence documents, assert no source conflicts. Preserve measurements then delete scratch.
-- Finish with committed clean worktree, exact HEAD/check/e2e/screenshot report; remote CI/Gatekeeper remain independent. Ports3300–3399 only; never3199/3102/3302. Queued phone focusPortfolio issue is out of scope.
+- Phone Home widget: the label is `S.netWorth` for signed-in and guest. Remove `phone-demo-disclaimer` (`S.starterPlaceholder`) from the signed-in hero.
+- Desktop status strip: drop the signed-in “Demo balance” tag (`strip-demo-tag`). Show today’s % next to NW, as the spec and the guest strip already do.
+- Do not retouch the signed-in today slot or the $20k rank bar — that is card 25 (`ui/signed-in-home-today`).
+- Do not rewrite Account or M1-01-AUTH.md in this card.
 
+## Acceptance / proof
 
-## Gatekeeper recovery addendum — 2026-11-11T20:34:30+01:00 Europe/Paris
-Written before recovery implementation; this addendum is its own UNIT-only commit on top of009f50bf. Owner steering: code PASS qualified, but a failed Settings or News lazy import currently escapes to generic Next error UI; browser Back from a first-history visit can leave the product. Do not address that by changing global navigation or eagerly importing the modules again.
-
-### Ground and intended outcome
-AppBody wraps module-level cached React.lazy instances only in Suspense; AssetPage does the same for News. Suspense handles waiting, not rejected imports. A reset around the same rejected lazy instance cannot recover because React caches its rejection. A legitimate offline/abort failure must be contained at the two optional module boundaries, leaving shell navigation and the rest of Broker usable. Retry must invoke a fresh lazy/import attempt, not reload the whole page or suggest history Back. Preserve existing skeletons, normal loaded visuals, parent draft state and EN/FR.
-
-### Small shape and alternatives
-Choose a small shared scoped lazy boundary, used ONLY for Settings and News. It owns a discriminated ready-with-lazy-component / failed state, the fresh lazy identity created at construction/retry, product-styled inline failure + Retry, and recovery focus. Caller supplies its existing import loader, typed component props, localized scope label, locale, and unchanged loading skeleton. No ordinary-success wrapper that changes Settings/News layout. A recovery-only visually hidden focus marker can focus the first loaded input/button/link or itself if there are no controls; do not steal focus if the player moved elsewhere while waiting. Initially failed first-history entry with BODY focus should land on Retry; News tab focus may stay on the still-live tab. No new order/server/engine logic, dependencies, budget limits, or preflight-test patch.
-
-Rejected alternative: clear only an error-boundary flag around existing module-level lazy (permanent cached rejection); also reject browser reload/global Back handling or making Settings/News eager (hides the actual boundary failure and forfeits split savings). Task/arena tools are unavailable here; these are local design alternatives, not independent review claims.
-
-### Proof and integration order
-- First reproduce with a real production chunk-request abort on exact existing app source; preserve the red failure. New e2e aborts Settings and News chunks, verifies inline EN/FR recovery, real second network/import attempt after Retry, sensible focus, usable Broker/shell and preserved draft. Include first-history navigation and phone/desktop.
-- Full lint, typecheck, build, check-hooks, unchanged route-budget, ledger map-no-dup and npm test (all GIT_* removed), clean fresh-.data e2e, real screenshots. Keep /broker delta tiny and record bytes; original >=10KiB savings target remains a regression guard where practical. No apt/--with-deps, no hook bypass, push, PR, deployment or spending.
-- All new commits must be Forge (trading-game bot), forge@trading-game.local. Inspect log -3 before each commit and reject newly introduced fixture init/pf@test commits; preserve legitimate inherited009f50bf metadata.
-- Merge order matters: apply Card5 registry/AppBody/type-test changes as one unit when combining approved cards1–4. Gatekeeper found old EagerAppId/LazyAppId expectations in app-modules.test.tsx needed reconciling in the 5-card stack; preserve Card5's all-built-apps-are-lazy test contract, not the pre-split Settings-eager assertion. Record exact integration test resolution and run merged-stack typecheck as well as budget, not build alone.
-- Card6 is cleanly checkpointed at fc712431 (no push), with two documented e2e harness assumptions still to correct; finish this recovery batch first, then locally rebase Card6 onto the new exact recovery head, update its stacked-base UNIT, and re-verify. Report both final SHAs. Delete only recovery-batch temporary checkouts after capture; preserve both primary worktrees and evidence.
-
-### Recovery implementation refinement and measured guard
-The small factory retains a module-level successful lazy generation, so normal Settings remounts and News tab returns keep the previous synchronous-after-load behavior. Each scoped boundary owns its failure/focus state and generation reference; Retry renews only that failed generation, reusing an already-retried generation for another failed scope. Order/draft state stays outside. There is no success-path DOM wrapper. EN/FR, actual second chunk request and conditional focus are tested, not inferred from clearing a flag.
-
-Recovery first-load increment is565 bytes on the exact009f50bf source (207793→208358),571 on the recorded approved1–5 stack (207937→208508). Full Card5 saving from110583b0 remains10574 bytes on its own and11211 on approved1–4, above10240; plot remains60678 bytes. The all-lazy app-modules.test.tsx on recorded stack5f03d95b is already byte-identical to Card5; the recovery merge needed no further test resolution. Do not revive the removed EagerAppId/LazyAppId assertions when merging from another order. Merged-stack typecheck, npm test and unchanged budget passed; exact inputs, hashes and results are in the recovery evidence directory.
+- Fail-first unit: a signed-in Phone Home / StatusStrip still says “Demo balance” and the starter disclaimer before the fix; after the fix the hero label is “Net worth”, `phone-demo-disclaimer` is absent, and `strip-demo-tag` is absent. The $10,000 starter amount may still appear as the NW figure; it is not captioned as a demo placeholder.
+- Auth / first paint: hold `/api/auth/me` — first paint has no “Demo balance”, no “not a live balance” / starter placeholder, and no account handle. After the session resolves signed-in, still no those phrases on the hero or strip.
+- Official-flag e2e on fresh `.data` (register a handle) plus production play at 1280 and 390 with screenshots.
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.

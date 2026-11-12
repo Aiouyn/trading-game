@@ -112,7 +112,7 @@ async function deleteLine(page: Page, asset: string, id: string) {
 const sorted = (l: Line[]) => [...l].sort((x, y) => x.id.localeCompare(y.id));
 
 test.describe("trend lines vs the browser's store", () => {
-  test.skip(({ isMobile }) => isMobile, "desktop project; storage is not layout");
+  test.beforeEach(({ isMobile }) => { test.skip(isMobile, "desktop project; storage is not layout"); });
   test.setTimeout(180_000);
 
   test("B1: a failed read offers Retry (no tool, nothing written); after Retry a new line keeps every kept line", async ({ browser, baseURL }) => {
