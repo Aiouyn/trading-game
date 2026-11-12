@@ -24,6 +24,8 @@ export interface FeedTransport {
   readonly tickMs: number;
   subscribe(ch: ChannelName, fn: (raw: unknown) => void): () => void;
   resync(ch: ChannelName): void;
+  /** Browser came back online. Optional: a feed that must not replay a cached book (signed-in quotes). */
+  reconnect?(ch: ChannelName): void;
 }
 
 /** Stale after 2 missed ticks (17 §3.5 PriceCell, 19 Rule 3.8.8); a quarter tick of slack for timer jitter. */
@@ -45,10 +47,12 @@ export function openChannel<C extends ChannelName>(feed: FeedTransport, ch: C, n
   const resync = () => { if (view.state === "live") set({ ...view, state: "stale" }); feed.resync(ch); };
   // M2-05: while the browser reports offline nothing shown is live, whatever frames still arrive (the mock clock
   // keeps emitting): the view stays `stale` (Broker freezes Review / Place, panes say Updating…). Back online, a fresh
-  // snap is requested and the next frame makes it live again.
+  // read is requested. `reconnect` (signed-in quotes) does not replay the cached book: that snap is the pre-outage
+  // tick, and replaying it would mark the Broker live there. The read's own frame is what turns the view live.
   const live = () => (knownOffline() ? "stale" : "live") as "live" | "stale";
   const offNet = onNetworkChange(() => {
     if (knownOffline()) { if (view.state === "live") set({ ...view, state: "stale" }); }
+    else if (feed.reconnect) feed.reconnect(ch);
     else feed.resync(ch);
   });
 
