@@ -314,3 +314,15 @@ describe("cross-company headline keys", () => {
     }
   });
 });
+
+// Gatekeeper 20c3bb69 b1: the cross-company headline-key rule only has a legal
+// shuffle when every company story has its own headline key. A shared key makes
+// catalogStoryAt throw inside the server clock, so name any duplicate here.
+describe("company headline keys", () => {
+  it("are unique across company stories", () => {
+    const byKey = new Map<string, string[]>();
+    for (const c of COMPANY_STORIES) byKey.set(c.headlineKey, [...(byKey.get(c.headlineKey) ?? []), c.defId]);
+    const dupes = [...byKey].filter(([, ids]) => ids.length > 1).map(([k, ids]) => `${k}: ${ids.join(", ")}`);
+    expect(dupes, `duplicate company headline keys: ${dupes.join("; ")}`).toEqual([]);
+  });
+});
