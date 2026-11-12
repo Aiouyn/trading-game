@@ -6,15 +6,17 @@ import type { Side } from "@/shell/contracts/channels";
 export type TicketPrefill = { assetId: string; side: Side; qtyText: string };
 
 let pending: TicketPrefill | null = null;
-const listeners = new Set<(p: TicketPrefill) => void>();
+const listeners = new Set<(p: TicketPrefill) => boolean>();
 
-/** Remember a Close (or similar) pre-fill. If a ticket is already subscribed, it consumes it now. */
+/** Remember a Close (or similar) pre-fill. Pending is only consumed by a listener that
+ *  actually applies it (same assetId). Otherwise it stays for the next mount's take. */
 export function offerTicketPrefill(p: TicketPrefill): void {
   pending = p;
-  if (listeners.size > 0) {
-    for (const l of listeners) l(p);
-    pending = null;
+  let applied = false;
+  for (const l of listeners) {
+    if (l(p)) applied = true;
   }
+  if (applied) pending = null;
 }
 
 /** One-shot read for a ticket that is just mounting. */
@@ -24,7 +26,7 @@ export function takeTicketPrefill(): TicketPrefill | null {
   return p;
 }
 
-export function subscribeTicketPrefill(fn: (p: TicketPrefill) => void): () => void {
+export function subscribeTicketPrefill(fn: (p: TicketPrefill) => boolean): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }

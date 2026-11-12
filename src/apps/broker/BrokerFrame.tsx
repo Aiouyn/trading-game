@@ -79,15 +79,25 @@ export function BrokerFrame({ context }: { context?: string }) {
   const [est, setEst] = useState<{ key: string; res: PreviewRes } | null>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const placing = useRef(false);
+  const focusQty = useRef(false);
   const [view, setView] = useState<BrokerView>("trade");
+  /** Shared reset used by New order, Edit-after-reject, and a Positions Close prefill. Clears the in-flight place latch. */
+  const toFreshEdit = (apply?: () => void) => {
+    placing.current = false;
+    setPhase({ kind: "edit" });
+    apply?.();
+  };
   // Apply a later Close while this ticket is already mounted on the same asset. Never reviews or places.
+  // Returns true only when this ticket consumed the prefill (same assetId); otherwise pending stays for the mount.
   useEffect(() => subscribeTicketPrefill((p) => {
     const a = context ? parseAssetId(context) : null;
-    if (!a || p.assetId !== a) return;
-    setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
-    setPhase({ kind: "edit" });
-    setTouched(false);
-    setView("trade");
+    if (!a || p.assetId !== a) return false;
+    toFreshEdit(() => {
+      setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
+      setTouched(false);
+      setView("trade");
+    });
+    return true;
   }), [context]);
   const viewBase = useId();
   const viewIds = { trade: `${viewBase}-trade`, about: `${viewBase}-about` };
@@ -176,10 +186,9 @@ export function BrokerFrame({ context }: { context?: string }) {
     });
   };
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.
-  const focusQty = useRef(false);
   useEffect(() => { if (focusQty.current && qtyRef.current) { focusQty.current = false; qtyRef.current.focus(); } });
-  const newOrder = () => { placing.current = false; focusQty.current = true; setTouched(false); setDraft((d) => ({ ...d, qtyText: "" })); setPhase({ kind: "edit" }); };
-  const editAfterReject = () => { placing.current = false; focusQty.current = true; setPhase({ kind: "edit" }); };
+  const newOrder = () => { toFreshEdit(() => { focusQty.current = true; setTouched(false); setDraft((d) => ({ ...d, qtyText: "" })); }); };
+  const editAfterReject = () => { toFreshEdit(() => { focusQty.current = true; }); };
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || isSelect(e.target) || inOpenOrders(e.target)) return;

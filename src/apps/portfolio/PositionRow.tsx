@@ -117,13 +117,13 @@ export function PositionRow({ pos, ticker, t, locale, stale, layout, onClosePosi
           <Today pct={ticker?.chgPct ?? null} t={t} locale={locale} />
         </div>
         <Badges pos={pos} ticker={ticker} t={t} locale={locale} />
-        <CloseBtn pos={pos} t={t} locale={locale} onClosePosition={onClosePosition} />
+        {!stale && <CloseBtn pos={pos} t={t} locale={locale} onClosePosition={onClosePosition} />}
       </li>
     );
   }
   return (
     <tr className="pos-tr" tabIndex={0} aria-label={label} data-testid="pos-row" data-asset={pos.assetId}>
-      <th scope="row" className="pos-asset"><span className="pos-ticker">{pos.assetId}</span><Badges pos={pos} ticker={ticker} t={t} locale={locale} /><CloseBtn pos={pos} t={t} locale={locale} onClosePosition={onClosePosition} /></th>
+      <th scope="row" className="pos-asset"><span className="pos-ticker">{pos.assetId}</span><Badges pos={pos} ticker={ticker} t={t} locale={locale} />{!stale && <CloseBtn pos={pos} t={t} locale={locale} onClosePosition={onClosePosition} />}</th>
       <td className="num" data-testid="pos-qty">{decText(pos.qty, locale)}</td>
       <td className="num pos-col-avg" data-testid="pos-avg">{decText(pos.avgCost, locale)}</td>
       <td className={`${lastCls} pos-col-last`} data-testid="pos-last">{decText(last, locale)}</td>
