@@ -9,6 +9,7 @@ export {
   checkpointDigest,
   isAccountId,
   isActorId,
+  isIssuedActorContext,
   makeCheckpoint,
   parseCheckpoint,
   requireBoundActor,

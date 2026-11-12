@@ -17,6 +17,7 @@ import {
   MemoryBindingStore,
   actorIdFor,
   authorizeClaimed,
+  isIssuedActorContext,
   makeCheckpoint,
   parseCheckpoint,
   requireBoundActor,
@@ -292,5 +293,64 @@ describe("actor-binding file store", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("actor-binding issued contexts", () => {
+  it("rejects a forged context, a structural clone, and a context reused after logout or expiry, and still accepts a real context", async () => {
+    const clock = new Clock();
+    const auth = authService(clock);
+    const binding = await ActorBinding.open(auth, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(auth, "BindA");
+    const ctx = await binding.bindToken(a.rawToken);
+    expect(isIssuedActorContext(ctx)).toBe(true);
+    await expect(binding.assertLiveSession(ctx)).resolves.toBeUndefined();
+    expect(requireBoundActor(ctx, ctx.actorId)).toBe(ctx.actorId);
+
+    const forged = { actorId: ctx.actorId, accountId: ctx.accountId, sessionId: ctx.sessionId, boundAtMs: ctx.boundAtMs };
+    expect(isIssuedActorContext(forged)).toBe(false);
+    try { requireBoundActor(forged as typeof ctx, ctx.actorId); throw new Error("expected FORGED_CONTEXT"); }
+    catch (err) { expectCode(err, "FORGED_CONTEXT"); }
+    await expectReject(() => binding.assertLiveSession(forged as typeof ctx), "FORGED_CONTEXT");
+
+    const cloned = structuredClone(ctx);
+    expect(isIssuedActorContext(cloned)).toBe(false);
+    try { requireBoundActor(cloned, ctx.actorId); throw new Error("expected FORGED_CONTEXT"); }
+    catch (err) { expectCode(err, "FORGED_CONTEXT"); }
+    await expectReject(() => binding.assertLiveSession(cloned), "FORGED_CONTEXT");
+
+    const live = await binding.bindToken(a.rawToken);
+    await auth.logout(a.rawToken);
+    await expectReject(() => binding.assertLiveSession(live), "SESSION_REJECTED");
+
+    const b = await register(auth, "BindB");
+    const ctxB = await binding.bindToken(b.rawToken);
+    clock.advance(SESSION_IDLE_MS + 1);
+    await expectReject(() => binding.assertLiveSession(ctxB), "SESSION_REJECTED");
+  });
+
+  it("rejects a live peek whose session or account no longer matches the issued context", async () => {
+    const clock = new Clock();
+    const inner = authService(clock);
+    let mode: "ok" | "session" | "account" = "ok";
+    const lookup = {
+      resolveSession: (token: string | null | undefined) => inner.resolveSession(token),
+      peekSession: async (token: string | null | undefined) => {
+        const view = await inner.peekSession(token);
+        if (!view || mode === "ok") return view;
+        if (mode === "session") return { ...view, sessionId: `ses_${"f".repeat(32)}` as typeof view.sessionId };
+        return { ...view, account: { ...view.account, accountId: `acc_${"e".repeat(32)}` as typeof view.account.accountId } };
+      },
+    };
+    const binding = await ActorBinding.open(lookup, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(inner, "BindA");
+    const ctx = await binding.bindToken(a.rawToken);
+    await binding.assertLiveSession(ctx);
+    mode = "session";
+    await expectReject(() => binding.assertLiveSession(ctx), "SESSION_REJECTED");
+    mode = "account";
+    await expectReject(() => binding.assertLiveSession(ctx), "SESSION_REJECTED");
+    mode = "ok";
+    await binding.assertLiveSession(ctx);
   });
 });
