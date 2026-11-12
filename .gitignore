@@ -71,3 +71,5 @@ out/
 .data/
 # local preflight evidence (untracked)
 .preflight/
+# verification skill scratch (pid, log, disposable auth). Proof stays in proof/.
+.verify/
