@@ -259,4 +259,51 @@ describe("M3-05 mutation rate limits", () => {
     await assertMutationAllowed(req("203.0.113.3"));
     expect(mutationBucketCountForTests()).toBe(1);
   });
+
+  it("keeps an at-limit key limited through a flood and refuses new keys when the map is full of them", async () => {
+    configure({ session: 100, ip: 1, trust: true, maxKeys: 3 });
+    const req = (ip: string) => new Request("http://localhost/api/broker/orders", {
+      headers: { cookie: `${SESSION_COOKIE_NAME}=junk-${ip}`, origin: "http://localhost", "x-forwarded-for": ip },
+    });
+    await assertMutationAllowed(req("203.0.113.10"));
+    await expect(assertMutationAllowed(req("203.0.113.10"))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    await assertMutationAllowed(req("198.51.100.1"));
+    await assertMutationAllowed(req("198.51.100.2"));
+    expect(mutationBucketCountForTests()).toBe(3);
+    for (let i = 3; i <= 30; i++) {
+      await expect(assertMutationAllowed(req(`198.51.100.${i}`))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    }
+    await expect(assertMutationAllowed(req("203.0.113.10"))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    expect(mutationBucketCountForTests()).toBe(3);
+  });
+
+  it("drops the lowest under-limit count to admit a new key and leaves the capped key in place", async () => {
+    configure({ session: 100, ip: 2, trust: true, maxKeys: 2 });
+    const req = (ip: string) => new Request("http://localhost/api/broker/orders", {
+      headers: { cookie: `${SESSION_COOKIE_NAME}=junk-${ip}`, origin: "http://localhost", "x-forwarded-for": ip },
+    });
+    await assertMutationAllowed(req("203.0.113.10"));
+    await assertMutationAllowed(req("203.0.113.10"));
+    await expect(assertMutationAllowed(req("203.0.113.10"))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    await assertMutationAllowed(req("198.51.100.1"));
+    await assertMutationAllowed(req("198.51.100.2"));
+    await expect(assertMutationAllowed(req("203.0.113.10"))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    expect(mutationBucketCountForTests()).toBe(2);
+  });
+
+  it("keeps a capped player limited when other accounts fill the map", async () => {
+    configure({ session: 1, ip: 100, trust: false, maxKeys: 2 });
+    const a = await signUp("CapPlayerA");
+    const b = await signUp("CapPlayerB");
+    const c = await signUp("CapPlayerC");
+    const req = (cookie: string) => new Request("http://localhost/api/broker/orders", {
+      headers: { cookie, origin: "http://localhost" },
+    });
+    await assertMutationAllowed(req(a));
+    await expect(assertMutationAllowed(req(a))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    await assertMutationAllowed(req(b));
+    await expect(assertMutationAllowed(req(c))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    await expect(assertMutationAllowed(req(a))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    expect(mutationBucketCountForTests()).toBe(2);
+  });
 });

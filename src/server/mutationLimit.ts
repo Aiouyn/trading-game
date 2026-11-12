@@ -24,6 +24,8 @@ const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
 interface Slot {
   count: number;
   resetAtMs: number;
+  /** Limit captured when this window opened. Eviction will not drop a live slot at or over it. */
+  limit: number;
 }
 
 interface Charge {
@@ -101,13 +103,33 @@ function evictExpired(map: Map<string, Slot>, now: number): void {
   }
 }
 
-function evictUntil(map: Map<string, Slot>, max: number): void {
-  if (map.size <= max) return;
-  const ranked = [...map.entries()].sort((a, b) => a[1].resetAtMs - b[1].resetAtMs);
-  for (const [key] of ranked) {
-    if (map.size <= max) break;
+function atLimit(slot: Slot, now: number): boolean {
+  return now < slot.resetAtMs && slot.count >= slot.limit;
+}
+
+/**
+ * Drop the lowest-count live windows that are still under their limit until `map.size <= max`.
+ * Keys in `keep` stay. A live at-limit window is never dropped. Returns false when at-limit
+ * keys (or kept keys) still fill the map.
+ */
+function evictUnderLimit(map: Map<string, Slot>, max: number, now: number, keep: ReadonlySet<string>): boolean {
+  if (map.size <= max) return true;
+  const victims = [...map.entries()]
+    .filter(([key, slot]) => !keep.has(key) && !atLimit(slot, now))
+    .sort((a, b) => a[1].count - b[1].count || a[1].resetAtMs - b[1].resetAtMs);
+  for (const [key] of victims) {
+    if (map.size <= max) return true;
     map.delete(key);
   }
+  return map.size <= max;
+}
+
+function soonestAtLimitRetry(map: Map<string, Slot>, now: number): number {
+  let best = windowMs;
+  for (const slot of map.values()) {
+    if (atLimit(slot, now)) best = Math.min(best, slot.resetAtMs - now);
+  }
+  return Math.max(0, best);
 }
 
 function retryOf(slot: Slot | undefined, limit: number, now: number): number | null {
@@ -116,15 +138,13 @@ function retryOf(slot: Slot | undefined, limit: number, now: number): number | n
   return null;
 }
 
-function commit(map: Map<string, Slot>, key: string, now: number): void {
-  evictExpired(map, now);
-  let slot = map.get(key);
-  if (!slot || now >= slot.resetAtMs) {
-    if (!map.has(key) && map.size >= maxKeys) evictUntil(map, maxKeys - 1);
-    slot = { count: 0, resetAtMs: now + windowMs };
-    map.set(key, slot);
+function commit(map: Map<string, Slot>, key: string, limit: number, now: number): void {
+  const slot = map.get(key);
+  if (slot && now < slot.resetAtMs) {
+    slot.count += 1;
+    return;
   }
-  slot.count += 1;
+  map.set(key, { count: 1, resetAtMs: now + windowMs, limit });
 }
 
 /**
@@ -152,7 +172,12 @@ export async function assertMutationAllowed(request: Request): Promise<void> {
     const retry = retryOf(map.get(charge.key), charge.limit, now);
     if (retry !== null) throw limited(retry);
   }
-  for (const charge of charges) commit(map, charge.key, now);
+  const fresh = charges.filter((charge) => !map.has(charge.key)).length;
+  if (fresh > 0 && map.size + fresh > maxKeys) {
+    const keep = new Set(charges.map((charge) => charge.key));
+    if (!evictUnderLimit(map, maxKeys - fresh, now, keep)) throw limited(soonestAtLimitRetry(map, now));
+  }
+  for (const charge of charges) commit(map, charge.key, charge.limit, now);
 }
 
 function limited(retryAfterMs: number): AuthError {
