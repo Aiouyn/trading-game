@@ -23,6 +23,8 @@ const quoteRead = () => fetch("/api/market", { cache: "no-store", headers: { acc
 /** One signed-in feed's server steps and the state only they use. */
 export class ServerSync {
   private quotePulling = false;
+  /** A read was requested while one was already in flight (reconnect). Run it when this one settles. */
+  private quotePullAgain = false;
   private candlePulls = new Set<string>();
   /** Bumped by every adopted order reply, so a ledger read that started before it cannot roll it back. */
   private ledgerEpoch = 0;
@@ -289,19 +291,39 @@ export class ServerSync {
     return "";
   }
 
-  /** One /api/market read (`started`: the feed's first read, begun before this module arrived). */
-  async pullServerQuotes(started?: Promise<Response>): Promise<void> {
-    if (!this.f.authoritativeQuotes || this.quotePulling) return;
+  /**
+   * One /api/market read (`started`: the feed's first read, begun before this module arrived).
+   * `followUp` is only for reconnect: a read is already in flight, so run one more when it settles, and do not
+   * adopt that in-flight body at all. Its tick can already be ahead of the last adopted book and still behind
+   * the server (held across the outage, released after the clock has stepped). A routine poll that arrives
+   * during a read does not pass `followUp` and is dropped, so a slow read is still adopted.
+   */
+  async pullServerQuotes(started?: Promise<Response>, opts?: { followUp?: boolean }): Promise<void> {
+    if (!this.f.authoritativeQuotes) return;
+    if (this.quotePulling) {
+      if (opts?.followUp) this.quotePullAgain = true;
+      return;
+    }
     this.quotePulling = true;
     try {
-      const res = await (started ?? quoteRead());
-      const raw = res.ok ? await res.json() : null;
-      // L4: coins listed at graduation join the catalog before the read's quotes are adopted. A ledger read before
-      // that could not be valued and is read again.
-      if (raw?.listed && !adoptListed(raw, this.f, ASSETS, ASSET_BY_ID, WATCHLISTS)) return this.f.quotesFailed();
-      if (!raw || !this.adoptAuthoritativeQuotes(raw)) this.f.quotesFailed();
-    } catch {
-      this.f.quotesFailed();
+      let pending = started;
+      do {
+        this.quotePullAgain = false;
+        try {
+          const res = await (pending ?? quoteRead());
+          pending = undefined;
+          const raw = res.ok ? await res.json() : null;
+          const newerRead = this.quotePullAgain;
+          if (!res.ok || raw == null) { this.f.quotesFailed(); continue; }
+          if (newerRead) continue;
+          // L4: coins listed at graduation join the catalog before the read's quotes are adopted. A ledger read before
+          // that could not be valued and is read again.
+          if (raw.listed && !adoptListed(raw, this.f, ASSETS, ASSET_BY_ID, WATCHLISTS)) { this.f.quotesFailed(); continue; }
+          if (!this.adoptAuthoritativeQuotes(raw)) this.f.quotesFailed();
+        } catch {
+          this.f.quotesFailed();
+        }
+      } while (this.quotePullAgain);
     } finally {
       this.quotePulling = false;
     }

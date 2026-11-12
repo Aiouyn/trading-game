@@ -18,6 +18,7 @@ import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { HOME_EXAMPLE } from "./homeExample";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
 /** Messages is not a V1 dock app and must not migrate into the Home grid (deep link /messages still works). */
@@ -306,6 +307,11 @@ export function PhoneHome() {
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
             {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
           </div>
+          {auth.status === "loading" ? (
+            <div className="home-example-skel" data-testid="home-example-skel" aria-hidden="true" />
+          ) : !signedIn ? (
+            <p className="muted home-example-caption" data-testid="home-example-caption">{HOME_EXAMPLE.en.caption}</p>
+          ) : null}
           <div className="widget-row">
             {reading.nw === null ? null : (
               <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>

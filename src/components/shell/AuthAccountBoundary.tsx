@@ -6,6 +6,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { applyGuestDemo, applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
+import { resetTicketPrefill } from "@/apps/broker/ticketPrefill";
 import { useShellStore } from "./ShellContext";
 
 export function AuthAccountBoundary({ query, children }: { query: string; children: ReactNode }) {
@@ -19,6 +20,7 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
   useLayoutEffect(() => {
     if (auth.status === "loading") return;
     if (applied.current === authBoundaryKey) return;
+    if (applied.current !== null) resetTicketPrefill();
     applied.current = authBoundaryKey;
     if (isSignedIn(auth)) {
       applySignedInDemo(store, auth.account.accountId, auth.world.marketSeed, {
