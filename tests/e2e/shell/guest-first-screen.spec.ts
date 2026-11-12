@@ -39,6 +39,10 @@ test.describe("phone", () => {
       await expect(cta).toHaveAccessibleName(c.cta);
       // The example numbers stay (they show what the game looks like), after the pitch and the action.
       await expect(page.getByTestId("hero-nw")).toBeVisible();
+      // Card 20: the example book's rank is not presented as the visitor's.
+      await expect(page.getByTestId("rank-next")).toHaveCount(0);
+      await expect(page.getByTestId("rank-bar")).toHaveCount(0);
+      await expect(page.getByTestId("widget")).not.toContainText(/R2\s*·\s*Owner/);
       const g = await page.evaluate(() => {
         const r = (id: string) => document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();
         const dock = r("bottom-row");
@@ -93,5 +97,7 @@ test("desktop guest first screen is unchanged: strip Sign in, example windows, n
   await boot(page, "/");
   await expect(page.getByTestId("sign-in-entry")).toHaveText("Sign in");
   await expect(page.getByTestId("guest-pitch")).toHaveCount(0);
+  await expect(page.getByTestId("release")).toHaveText("Quay");
+  await expect(page.getByTestId("rank-chip")).toHaveCount(0);
   await shot(page, "desktop-en-1440-guest-first-screen");
 });
