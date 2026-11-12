@@ -21,7 +21,7 @@ import { TICKS_PER_DAY } from "./meme";
 import type { WorldView } from "./world";
 import type { PriceEffect, TickerBody, WireItem } from "@/shell/contracts/channels";
 import { PORT_AVALON_MARKET_SEED, PORT_AVALON_WORLD_ID } from "@/shell/worldIdentity";
-import { getAuthService } from "@/server/auth/instance";
+import { getAuthService, peekAuthService } from "@/server/auth/instance";
 import { marksFromTicker } from "@/server/wire/statementResolve";
 import {
   createDefaultStormWorldStore, type StormWorldStore,
@@ -170,10 +170,14 @@ export class LiveMarket {
    * Idempotent: frozen verdicts do not persist. Creates the auth singleton if it does not already exist.
    */
   catchUpWireStatements(): Promise<void> {
-    const auth = getAuthService();
+    // Production getLiveMarket() creates auth before start(). peek would miss a first GET
+    // after restart; getAuthService() covers that path. Unit clocks that never autostart
+    // and never wired auth keep the old no-op (so step-heavy tests do not pay for a store).
+    const auth = peekAuthService() ?? (shouldAutostartClock() ? getAuthService() : undefined);
     const tick = this.feed.tick;
     const marks = marksFromTicker(this.snapshot().quotes.rows);
     const run = this.statementsSettled.then(async () => {
+      if (!auth) return;
       await auth.resolveDueWireStatements({ tick, marks });
     });
     this.statementsSettled = run.then(() => undefined, () => { /* persist failure must not stop the clock */ });
