@@ -3,7 +3,7 @@ import { AuthError } from "@/server/auth/types";
 import { assertSameOriginMutation, authErrorResponse, jsonResponse } from "@/server/auth/http";
 import { isAnonId, requestIdFrom } from "./ids";
 import { TELEMETRY_MAX_BODY_BYTES, TelemetryDirFullError } from "./log";
-import { checkTelemetryRate } from "./ratelimit";
+import { checkTelemetryRate, mintTelemetryGuestId, readTelemetryGuestId, telemetryGuestCookieHeader } from "./ratelimit";
 import { runTelemetryContext } from "./context";
 
 export function withRequestId(response: Response, requestId: string): Response {
@@ -76,6 +76,19 @@ export function telemetryGuard(request: Request): string {
   return requestIdFrom(request);
 }
 
+function withGuestCookie(response: Response, request: Request): Response {
+  if (readTelemetryGuestId(request.headers.get("cookie"))) return response;
+  let secure = false;
+  try {
+    secure = new URL(request.url).protocol === "https:";
+  } catch {
+    secure = false;
+  }
+  const headers = new Headers(response.headers);
+  headers.append("set-cookie", telemetryGuestCookieHeader(mintTelemetryGuestId(), secure));
+  return new Response(response.body, { status: response.status, headers });
+}
+
 export async function handleTelemetry(
   request: Request,
   kind: "error" | "event" | "feedback" | "optout" | "consent",
@@ -93,12 +106,15 @@ export async function handleTelemetry(
       if (retry !== null) {
         throw new AuthError("RATE_LIMITED", "Too many telemetry requests. Try again later.", 429, retry);
       }
-      return withRequestId(await fn(body, requestId), requestId);
+      return withGuestCookie(withRequestId(await fn(body, requestId), requestId), request);
     } catch (err) {
       if (err instanceof TelemetryDirFullError) {
-        return withRequestId(authErrorResponse(new AuthError("TELEMETRY_UNAVAILABLE", "Telemetry log is full.", 503)), requestId);
+        return withGuestCookie(
+          withRequestId(authErrorResponse(new AuthError("TELEMETRY_UNAVAILABLE", "Telemetry log is full.", 503)), requestId),
+          request,
+        );
       }
-      return withRequestId(authErrorResponse(err), requestId);
+      return withGuestCookie(withRequestId(authErrorResponse(err), requestId), request);
     }
   });
 }
