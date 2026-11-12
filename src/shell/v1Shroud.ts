@@ -111,41 +111,52 @@ export function isShrouded(id: AppId, flags: readonly string[]): boolean {
   return flag !== undefined && !flags.includes(flag);
 }
 
+const DECODE_ROUNDS = 4;
+
 /**
- * Path compared to the shroud list. Case, percent-encoded slashes (`%2F`, including a second
- * encoding) and a trailing `.rsc` flight suffix do not reach the shell.
+ * Path compared to the shroud list, or null when the path cannot be trusted.
+ * Case, `%2F`, `%5C` / backslash, a trailing `.rsc` or `.json`, and a locale prefix
+ * (`/en/bank`) do not reach the shell. At most four decode rounds; a `%` escape or a
+ * NUL that is still there afterwards fails closed.
  */
-export function normalizeShroudPath(pathname: string): string {
+export function normalizeShroudPath(pathname: string): string | null {
   let path = pathname.trim();
   const q = path.indexOf("?");
   if (q >= 0) path = path.slice(0, q);
   const hash = path.indexOf("#");
   if (hash >= 0) path = path.slice(0, hash);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < DECODE_ROUNDS; i++) {
     let decoded: string;
     try { decoded = decodeURIComponent(path); } catch { break; }
     if (decoded === path) break;
     path = decoded;
   }
-  path = path.toLowerCase();
+  // A leftover escape (or a `%` the decoder refused) is not a path we will guess.
+  if (path.includes("%") || path.includes("\0")) return null;
+  path = path.toLowerCase().replace(/\\/g, "/");
   if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
-  if (path.endsWith(".rsc")) path = path.slice(0, -4);
+  while (path.endsWith(".rsc") || path.endsWith(".json")) path = path.slice(0, path.endsWith(".rsc") ? -4 : -5);
   if (path === "" || !path.startsWith("/")) path = `/${path}`;
   return path === "" ? "/" : path;
 }
 
 /** True when `/{segments}` must 404. In-scope apps (and unknown paths) are false.
- *  `/api/bank` is not an API handler: the catch-all would otherwise render the `api` app. */
+ *  `/api/bank` is not an API handler: the catch-all would otherwise render the `api` app.
+ *  Any segment may name a shrouded app (`/en/bank`), not only the first. */
 export function routeShrouded(segments: readonly string[], flags: readonly string[]): boolean {
   const path = normalizeShroudPath(`/${segments.join("/")}`);
-  const head = path.split("/").filter(Boolean)[0];
-  if (!head) return false;
-  if (head === "api") {
+  if (path === null) return true;
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length === 0) return false;
+  if (parts[0] === "api") {
     const flag = shroudedApiFlag(path);
-    return flag !== null && !flags.includes(flag);
+    if (flag !== null && !flags.includes(flag)) return true;
   }
-  const entry = SHROUD.find((e) => (e.paths as readonly string[]).includes(head));
-  return entry !== undefined && !flags.includes(entry.flag);
+  for (const seg of parts) {
+    const entry = SHROUD.find((e) => (e.paths as readonly string[]).includes(seg));
+    if (entry && !flags.includes(entry.flag)) return true;
+  }
+  return false;
 }
 
 /**
@@ -158,14 +169,18 @@ export function flagsFromSearch(sp: { get(name: string): string | null }): reado
   return (sp.get("flags") ?? "").split(",").filter(Boolean);
 }
 
-/** The shroud flag for an API pathname, or null when this unit does not own the path. */
+/** The shroud flag for an API pathname, or null when this unit does not own the path.
+ *  A path normalizeShroudPath rejects is not given a flag here; refuseShroudedApi 404s it. */
 export function shroudedApiFlag(pathname: string): string | null {
   const path = normalizeShroudPath(pathname);
+  if (path === null) return null;
   return SHROUDED_API.find((g) => path === g.path || path.startsWith(`${g.path}/`))?.flag ?? null;
 }
 
-/** 404 before any write when `pathname` is a shrouded API prefix and the flag is off. Null = not this unit's concern. */
+/** 404 before any write when `pathname` is a shrouded API prefix and the flag is off, or when the
+ *  path still has a `%` escape or a NUL after the decode budget. Null = not this unit's concern. */
 export function refuseShroudedApi(pathname: string, flags: readonly string[]): Response | null {
+  if (normalizeShroudPath(pathname) === null) return new Response(null, { status: 404 });
   const flag = shroudedApiFlag(pathname);
   if (!flag || flags.includes(flag)) return null;
   return new Response(null, { status: 404 });

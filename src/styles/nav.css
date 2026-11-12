@@ -78,6 +78,8 @@
 }
 
 .widget-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.home-example-caption { margin: 4px 0 0; font-size: var(--fs-11_5); }
+.home-example-skel { margin: 6px 0 2px; width: min(220px, 70%); height: 10px; border-radius: 2px; background: var(--win2); }
 .today { font-size: var(--fs-13); }
 .sparkline { flex: none; }
 .sparkline line, .sparkline path { fill: none; stroke: var(--fg-faint); stroke-width: 1.5; }

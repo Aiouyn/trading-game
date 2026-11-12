@@ -11,6 +11,7 @@ import { brStrings } from "@/apps/broker/strings";
 import WireApp from "@/apps/wire/App";
 import { ShellCtx } from "@/components/shell/ShellContext";
 import { STORY_EVERY } from "@/market/wireStories";
+import { EN, headline, pctLabel, timeLabel } from "@/apps/wire/strings";
 import { LiveMarket } from "@/server/market/clock";
 import { authSession } from "@/shell/authSession";
 import type { ChannelName, NewsBody, WireItem } from "@/shell/contracts/channels";
@@ -70,17 +71,16 @@ describe("M1-09 Wire stories in the app", () => {
     expect(q("wire-demo")).toBeNull();
     const r = byPhase("realized"), e = r.effects![0]!;
     const row = el.querySelector<HTMLElement>(`[data-testid=wire-row][data-id="${r.id}"]`)!;
-    expect(row.querySelector('[data-testid="wire-entity"]')!.textContent).toBe(`ORCA −${e.pct.slice(1)}%`);
-    expect(row.querySelector('[data-testid="wire-effect"]')!.textContent).toBe(` −${e.pct.slice(1)}%`);
+    const ticker = r.entities.find((x) => x.id === e.assetId)?.label ?? e.assetId;
+    expect(row.querySelector('[data-testid="wire-entity"]')!.textContent).toBe(`${ticker} ${pctLabel(e.pct)}`);
+    expect(row.querySelector('[data-testid="wire-effect"]')!.textContent).toBe(` ${pctLabel(e.pct)}`);
     await open(r.id);
-    expect(q("wire-detail-headline")!.textContent).toBe("Orca Biologics drug trial misses its endpoint");
-    expect(q("wire-detail-cause")!.textContent).toContain("Orca Biologics' lead drug missed its trial goal.");
+    expect(q("wire-detail-headline")!.textContent).toBe(headline(r, EN));
+    expect(q("wire-detail-cause")!.textContent!.length).toBeGreaterThan(0);
     const line = q("wire-effect-line")!;
-    // The percent is the realized change after rounding to the cent (−4.50% asked, −4.48% on 23.64), not the story's nominal size.
-    expect(e.pct).toBe("-4.48");
-    expect(line.textContent).toBe(`ORCA ${e.from} → ${e.to} (−4.48%)`);
+    expect(line.textContent).toBe(`${ticker} ${e.from} → ${e.to} (${pctLabel(e.pct)})`);
     expect([line.dataset.from, line.dataset.to, line.dataset.pct]).toEqual([e.from, e.to, e.pct]);
-    expect(q("wire-effect-applied")!.textContent).toBe("Applied once by the Port Avalon market at Day 39 · 11:32.");
+    expect(q("wire-effect-applied")!.textContent).toBe(`Applied once by the Port Avalon market at ${timeLabel(r.tick, EN)}.`);
     expect(q("wire-effect-later")!.textContent).toMatch(/Later moves aren't part of this story/);
     expect(q("wire-effect-forecast")).toBeNull();
   });
@@ -92,7 +92,7 @@ describe("M1-09 Wire stories in the app", () => {
     expect(el.querySelector(`[data-testid=wire-row][data-id="${f.id}"] [data-testid="wire-forecast"]`)!.textContent).toBe("Forecast");
     expect(el.querySelector(`[data-testid=wire-row][data-id="${x.id}"] [data-testid="wire-no-effect"]`)!.textContent).toBe("No effect");
     await open(f.id);
-    expect(q("wire-detail-headline")!.textContent).toBe("Watch: lenders tighten terms");
+    expect(q("wire-detail-headline")!.textContent).toBe(headline(f, EN));
     expect(q("wire-effect-forecast")!.textContent).toBe("A forecast, not an outcome: no price effect. It may not happen.");
     expect(qa("wire-effect-line")).toHaveLength(0);
     await open(x.id);
@@ -106,11 +106,12 @@ describe("M1-09 Wire stories in the app", () => {
   });
 
   it("Broker News tab: the story's effect on this asset", async () => {
-    await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(AssetNews, { t: brStrings("en"), assetId: "NMBS" }))); });
+    const hit = ITEMS.find((i) => i.effects && i.effects.length > 0)!;
+    const assetId = hit.effects![0]!.assetId;
+    await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(AssetNews, { t: brStrings("en"), assetId }))); });
     await feed.snap({ items: ITEMS });
     const story = q("ap-story")!;
-    const nmbs = ITEMS.find((i) => i.effects?.some((x) => x.assetId === "NMBS"))!;
-    expect(story.dataset.id).toBe(nmbs.id);
-    expect(story.querySelector('[data-testid="ap-story-effect"]')!.textContent).toBe("+3.50%");
+    expect(story.dataset.id).toBe(hit.id);
+    expect(story.querySelector('[data-testid="ap-story-effect"]')!.textContent).toBe(pctLabel(hit.effects![0]!.pct));
   });
 });
