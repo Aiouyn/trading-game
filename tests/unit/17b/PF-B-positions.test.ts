@@ -177,7 +177,8 @@ describe("PF-3-09 cards (phone, text scale ≥ 1.5)", () => {
     const lines = halc.split('class="pos-line').slice(1).map((l) => text(l.replace(/^[^>]*>/, "").replace(/<div\s*$/, "")));
     expect(lines[0]).toBe("HALC ▲ +$2,736.00 (+5.7%)");
     expect(lines[1]).toBe("$50,616.00 · 12.3%");
-    expect(lines[2].startsWith("1,200 @ 39.90 ▼ −0.35%")).toBe(true);
+    // Card 27 (main) puts Close after the badges, so the extracted line text runs on into "Close": match the start.
+    expect(lines[2].startsWith(`1,200 @ 39.90 ${EN.colLast} ${decText(TICK.HALC.last, "en")} ▼ −0.35%`)).toBe(true);
     expect(h).toContain('class="pos pos-cards pos-phone"');
     expect(html({ cards: true, big: true })).toContain('class="pos pos-cards pos-big"');
   });
@@ -242,5 +243,22 @@ describe("Studio FR rulings (art GO at efad6b1a)", () => {
     expect(fr.colLast).toBe("Cours");
     expect(fr.avgLast("39,90", "42,18")).toBe(", coût moyen 39,90, dernier cours 42,18");
     expect(fr.emptyBody).toBe("Tout votre argent est en liquidités.");
+  });
+});
+
+
+describe("card 13: phone card shows the live last", () => {
+  it("exposes pos-last equal to the ticker last, and falls back to mark when the ticker row is missing", () => {
+    const card = rows(html({ cards: true, phone: true }))[1];
+    expect(cell(card, "pos-last")).toContain(decText(TICK.HALC.last, "en"));
+    const noTick = rows(html({ cards: true, phone: true, tickers: null }))[1];
+    expect(cell(noTick, "pos-last")).toContain(decText(ME.positions.HALC.mark, "en"));
+    const fr = rows(html({ cards: true, phone: true, locale: "fr" }))[1];
+    expect(cell(fr, "pos-last")).toContain(FR.colLast);
+    expect(cell(fr, "pos-last")).toContain(decText(TICK.HALC.last, "fr"));
+  });
+  it("marks last stale when me is stale, same as the table", () => {
+    const card = rows(html({ cards: true, phone: true, view: live(ME, "stale") }))[1];
+    expect(card).toMatch(/data-testid="pos-last"[^>]*class="[^"]*pos-stale/);
   });
 });

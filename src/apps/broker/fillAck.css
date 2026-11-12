@@ -1,0 +1,12 @@
+/* Card 41: fill-ack toasts (17 §3.10.2). Desktop: fixed column, 332 px, z-toast; placed by FillAckToasts (never over a
+   Broker ticket). Phone: in flow under the status bar, one at a time, so it pushes content and covers nothing. */
+.fill-ack-region { display: flex; flex-direction: column; gap: var(--sp-8); pointer-events: none; }
+.fill-ack-region:empty { display: none; }
+.fill-ack-desktop { position: fixed; z-index: var(--z-toast); width: 332px; }
+.fill-ack-phone { flex: none; padding: var(--sp-8) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); }
+.fill-ack { pointer-events: auto; display: flex; align-items: flex-start; gap: var(--sp-8); padding: 10px 6px 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--win2); color: var(--fg); box-shadow: var(--elev-window); }
+.fill-ack-text { flex: 1; min-width: 0; }
+.fill-ack-title { margin: 0; font-weight: 600; }
+.fill-ack-line { margin: 2px 0 0; color: var(--fg-muted); font-size: var(--fs-12, 12px); }
+.fill-ack-dismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: var(--hit-touch, 44px); min-height: var(--hit-touch, 44px); margin: -10px -2px -10px 0; border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; }
+.fill-ack-dismiss:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 6px; }

@@ -232,4 +232,52 @@ describe("M3-06 spend guard", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("404s a shrouded path before the kill switch and limits 503 to mutating /api", async () => {
+    // Order in src/proxy.ts: refuseShroudedApi / routeShrouded, then readOnlyBlock, and only for /api.
+    // A shrouded POST must stay 404 while QUAY_KILL_SWITCH=1. A live mutation is 503. Reads and non-api pass.
+    const rows: { method: "GET" | "HEAD" | "POST"; path: string; result: "shroud" | "read_only" | "pass" }[] = [
+      { method: "POST", path: "/api/bank", result: "shroud" },
+      { method: "POST", path: "/api/bank%5Cdraw", result: "shroud" },
+      { method: "POST", path: "/api/bank%00", result: "shroud" },
+      { method: "POST", path: "/api/broker/orders%5C", result: "read_only" },
+      { method: "POST", path: "/api/broker/orders.json", result: "read_only" },
+      { method: "POST", path: "/api/broker/orders", result: "read_only" },
+      { method: "GET", path: "/api/health", result: "pass" },
+      { method: "HEAD", path: "/api/health", result: "pass" },
+      { method: "GET", path: "/api/broker/orders", result: "pass" },
+      { method: "HEAD", path: "/api/broker/orders", result: "pass" },
+      { method: "POST", path: "/broker", result: "pass" },
+    ];
+    const env = process.env as Record<string, string | undefined>;
+    const prev = env.QUAY_KILL_SWITCH;
+    env.QUAY_KILL_SWITCH = "1";
+    try {
+      for (const row of rows) {
+        const res = proxy(new NextRequest(`http://localhost${row.path}`, { method: row.method }));
+        const label = `${row.method} ${row.path}`;
+        switch (row.result) {
+          case "shroud":
+            expect(res.status, label).toBe(404);
+            expect(await res.text(), label).toBe("");
+            break;
+          case "read_only":
+            expect(res.status, label).toBe(503);
+            expect(await res.json(), label).toEqual({ error: { code: "READ_ONLY", message: "The game is paused." } });
+            break;
+          case "pass":
+            expect(res.status, label).toBe(200);
+            expect(res.headers.get("x-middleware-next"), label).toBe("1");
+            break;
+          default: {
+            const unexpected: never = row.result;
+            throw new Error(`unhandled proxy row ${String(unexpected)}`);
+          }
+        }
+      }
+    } finally {
+      if (prev === undefined) delete env.QUAY_KILL_SWITCH;
+      else env.QUAY_KILL_SWITCH = prev;
+    }
+  });
 });
