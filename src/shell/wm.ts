@@ -41,9 +41,9 @@ export function moveWin(windows: WindowRect[], w: WindowRect, x: number, y: numb
 export interface Area { x: number; y: number; w: number; h: number }
 
 /** Work area between strip (+ open banners, T6) and shelf, inset by the gutter. */
-export function workArea(vw: number, vh: number, focusMode = false, bannerH = 0): Area {
+export function workArea(vw: number, vh: number, focusMode = false, bannerH = 0, consentH = 0): Area {
   const top = (focusMode ? 24 : STRIP_H) + bannerH;
-  const bottom = focusMode ? 0 : SHELF_H;
+  const bottom = (focusMode ? 0 : SHELF_H) + consentH;
   return { x: GUTTER, y: top + GUTTER, w: vw - 2 * GUTTER, h: vh - top - bottom - 2 * GUTTER };
 }
 
