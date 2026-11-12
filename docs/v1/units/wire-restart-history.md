@@ -43,7 +43,7 @@ If the server refuses to start with `WIRE_SNAPSHOT_CORRUPT` or `WIRE_SNAPSHOT_NE
 
 ## Results
 
-Filled 2026-11-12 ~19:55 Europe/Paris. Product commit `6d76ae75` (on merge `a5ec02b2`, origin/main `c469b03f`). Evidence: `/workspace/avalon/evidence/sys-wire-restart-history/fix/`.
+Filled 2026-11-12 19:52 Europe/Paris (commit `fbf554b0`). Product commit `6d76ae75` (on merge `a5ec02b2`, origin/main `c469b03f`). origin/main then moved to `14770d15`, which was merged forward with --no-ff (`9d204a03`, no conflicts, nothing under `src/server/market/` outside `fx/`). After that merge, preflight, the e2e in a fresh detached worktree and port-avalon verify were run again on `9d204a03`, and all passed. Evidence: `/workspace/avalon/evidence/sys-wire-restart-history/fix/`.
 
 - Checks 1-8: the new unit tests fail on main (16 failed, 5 passed of 21) and all pass on head (21/21). The 5 that pass on main are guards (old snapshot boots, etc.). The signed-in e2e fails on main `c469b03f` (5 rows lost via the api) and passes on head.
 - Seed-17 prod SIGKILL replay on :3440, kill by own pgid at 19:50:19. Before the kill: 26 rows at tick 27838 (epoch `8jvuk3po`). After the restart: the same 26 rows, byte-equal including effects (epoch `j5mahhz1`). 35 s later: 29 rows, a superset. `/wire` signed-in, desktop and phone, first load and reload: every row is still listed, and the w-27706 detail shows the same price move.
