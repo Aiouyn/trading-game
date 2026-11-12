@@ -68,3 +68,11 @@ Recorded 2026-11-12T06:46:13+01:00 Europe/Paris, after the fix, fixture regen, c
 - Checks (Node v24.22.1, CI pin is 22): lint 0 (at fixture SHA `a73bfa08`), ledger-no-dup 13/13, typecheck 0, no-flag build 0, check-hooks 0 (487 files, 0 hits), `npm test` 166 passed / 1 skipped files, 2476 passed / 2 skipped tests, route-budget 196.5 KB gz / 215 KB on port 3520. Proof `tools/proofs/wire-variety.ts` exits 0 (evidence `/workspace/avalon/evidence/sys-wire-variety/cycle-shuffle/`).
 - Affected e2e `tests/e2e/17b/M1-09-wire.spec.ts` in a fresh detached worktree at `530c3b0f` with fresh `.data` on port 3524: 2 passed / 2 skipped / 0 failed (desktop journey and phone 390/520 fit; crossed project cases skipped by the spec). That worktree was removed.
 
+
+## Cut onto main (2026-11-12 11:16 Europe/Paris)
+
+Branch `sys/wire-variety-main` is `origin/main` `f8f51ad9` plus this unit's own commits, cherry-picked with `-x` from `sys/wire-variety` `1606f024`. Root `UNIT.md` is unchanged from main; these notes live here.
+
+- Conflicts: `calibration-unit.json` kept main's copy during the pick, and the old fixture commit `a73bfa08` was not picked. `launchpad-calibration.test.ts` kept main's copy, because main already has the 60 s timeout and the float-tolerant compare. So the picked `530c3b0f` now only changes `gk-rumor-claims.test.ts`. Intermediate commits carry main's fixture; the calibration unit is green only from the regeneration commit on.
+- The fixture was regenerated on the cut branch as its own commit. The calm walk and params are byte-identical to main's fixture. Events-on 12-seed 60-GD GX median CAGR: **24.16%** on main (no wire-variety), **24.92%** after. Seed 17: 20.79% → 16.78%. Both are an honest MISS vs the 0–12% band (disclosed, not a stop; calibration is Builder's lane). The earlier "was 27.94%" was measured against the first-pass per-seed shuffle, not against main. FROG events-on still ends at 1e-07; 29 of 60 closes moved. The regenerated file is byte-identical to the one on `sys/wire-variety`.
+- Check results for this head are in `/workspace/avalon/evidence/sys-wire-variety-main/`.
