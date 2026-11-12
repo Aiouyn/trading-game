@@ -20,8 +20,6 @@ function twoFrames(page: Page) {
 test("Close on HALC pre-fills a sell of 1200 and does not place", async ({ page }, info) => {
   await openPositions(page, isPhone(info.project.name));
   const before = await intents(page);
-  const row = page.getByTestId("pos-row").filter({ has: page.locator('[data-asset="HALC"]') });
-  // data-asset is on the row itself
   const halc = page.locator('[data-testid="pos-row"][data-asset="HALC"]');
   await expect(halc.getByTestId("pos-close")).toBeVisible();
   await halc.getByTestId("pos-close").click();
