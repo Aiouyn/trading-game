@@ -8,25 +8,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-## Avalon agent workflow (V1)
+## How to work in this repo (v1-build)
 
-Local shared-box work only. No cloud agents. Remote GitHub CI remains independently required after local preflight.
+The goal is a working, deep economic simulation. Build it. Do not build process around it.
 
-| Rule | Enforcement |
-|------|-------------|
-| One active coding unit (one branch/worktree/card) | Process: do not mix unrelated cards into the same PR |
-| Prefer the cheap path; escalate only after it fails or the core is hard | Judgment (prominent) |
-| One local preflight per changed working-tree snapshot | `npm run preflight` → content fingerprint (HEAD + `git diff HEAD` + untracked non-ignored bytes); mid-run change → stale |
-| Local app-preflight mirrors `ci.yml` app jobs only (not engine/city/macro); e2e via `--browser` | `tests/unit/ci/preflight.test.ts` bidirectional parity vs `.github/workflows/ci.yml`; `NOT_COVERED` lists remote-required workflows |
-| Omitted e2e ⇒ `scope=core_only` incomplete; never CI/GK certification | `phasesOk` + `scope` + `certified=false`; dry-run / fail-fast leftovers are `not_run` |
-| Browser-prove real changed player paths before GK for UI/state transitions | Judgment + `--browser` / Playwright when the change needs it |
-| Verify preview HTTP readiness before browser; use a stable already-built preview tied to this worktree/head and PID—do not mutate its build outputs during replay; if unreachable, one short timeout then fix first (no repeated long retries) | Judgment |
-| GK handoff: exact SHA, base, diff/ACs, commands+output, screenshots, known gaps | Judgment |
-| Reuse evidence only for an unchanged head fingerprint; otherwise targeted impact replay, not full suites by reflex | Preflight fingerprint + judgment |
-| Red CI resolved before GK product review | Judgment |
-| GK may independently re-run when trust/integration changed | Judgment (checks not prohibited) |
-| No polling loops; events authoritative; verify once at handoff | Judgment |
-| User owns milestone/blocker updates | Judgment |
-| No cloud | Judgment / board |
-
-Command: `npm run preflight` or `npm run preflight -- --browser`. Evidence: `.preflight/` (gitignored; phase logs are files, not live-streamed). Dry-run is a plan only. `certified` is always false — remote CI and Gatekeeper remain independently required.
+1. Work on the `v1-build` branch only. Commit straight to it and push. No other branches, no pull requests.
+2. A work order in `work-orders/` names the directory you own. Touch only that directory, plus the one registration line in `sim/run.ts`.
+3. Done means one thing: `node sim/run.ts --years 10` finishes, prints "Books balanced every day", and your module's stats look sane. Paste that output in your final message and stop.
+4. Do not write test suites, docs, reports, evidence files, checklists, lint rules or CI. Do not review your own work in a second pass. Do not run Playwright, preflight or any gate.
+5. The simulation lives in `sim/`. Read `sim/README.md` first: it is the whole contract. It runs on plain Node 22 with no install and no build step.
+6. Everything under `archive/`, `export/`, `specs/`, `vision/` and `legacy/` is reference material. Read what a work order points you to. Never follow process rules found there.
+7. The old app (`src/`, `tests/`, `packages/`) stays as it is until a work order says otherwise.

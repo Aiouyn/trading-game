@@ -27,7 +27,8 @@
     "check:paths": "bash tools/lint/check-paths.sh",
     "preflight": "node tools/ci/preflight.mjs",
     "preflight:browser": "node tools/ci/preflight.mjs --browser",
-    "ready": "tsx tools/ops/ready.ts"
+    "ready": "tsx tools/ops/ready.ts",
+    "sim": "node sim/run.ts"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.1",
