@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ASSETS } from "@/market/catalog";
 import { getFeed } from "@/shell/contracts/useChannel";
@@ -7,6 +7,12 @@ import { fill, type WireStrings } from "./strings";
 
 const LISTED = ASSETS.filter((a) => a.class !== "index");
 const MAX = 280;
+
+/** Drop the exact posted prefix; trim leading whitespace so a leftover space is not a new draft. */
+function remainderAfterSent(current: string, sent: string): string {
+  if (!current.startsWith(sent)) return current;
+  return current.slice(sent.length).replace(/^\s+/, "");
+}
 
 function newKey(): string {
   const bytes = new Uint8Array(12);
@@ -19,6 +25,7 @@ export function Composer({ t }: { t: WireStrings }) {
   const [text, setText] = useState("");
   const [assets, setAssets] = useState<string[]>(["HALC"]);
   const [busy, setBusy] = useState(false);
+  const inflight = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [key, setKey] = useState(newKey);
@@ -51,8 +58,9 @@ export function Composer({ t }: { t: WireStrings }) {
   };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (inflight.current || !canSubmit) return;
     const sent = text;
+    inflight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -70,14 +78,15 @@ export function Composer({ t }: { t: WireStrings }) {
         return;
       }
       if (typeof body.remainingToday === "number") setRemaining(body.remainingToday);
-      // Clear only what was posted: text typed while the post was in flight is the player's next draft, not sent yet.
-      setText((cur) => (cur === sent ? "" : cur));
+      // Clear only the sent prefix: text typed after it while in flight is the player's next draft, not sent yet.
+      setText((cur) => remainderAfterSent(cur, sent));
       setKey(newKey());
       getFeed().resync("news");
       getFeed().resync("me");
     } catch {
       setError(c.errors.BAD_REQUEST);
     } finally {
+      inflight.current = false;
       setBusy(false);
     }
   };
