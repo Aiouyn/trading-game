@@ -618,13 +618,30 @@ export class MockFeed {
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
+    this.pullChannel(ch);
+    this.replay(ch);
+  }
+  /**
+   * Browser came back online. A guest feed replays: its clock kept moving, so the cached snap is current.
+   * Signed-in quotes must not. The cached book is the pre-outage tick, and replaying it marks the Broker live
+   * there while the fresh read is still out (M1-05: the other account is already 1–2 ticks ahead).
+   */
+  reconnect(ch: ChannelName): void {
+    if (!this.authoritativeQuotes) { this.resync(ch); return; }
+    this.pullChannel(ch, true);
+  }
+  private pullChannel(ch: ChannelName, followUp = false): void {
     if (this.authoritativeQuotes && ch.startsWith("candles:")) this.srv((s) => s.pullServerCandle(ch));
-    if (this.authoritativeQuotes && ch.startsWith("ticker:")) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed());
+    if (this.authoritativeQuotes && ch.startsWith("ticker:")) {
+      this.srv((s) => s.pullServerQuotes(undefined, followUp ? { followUp: true } : undefined), () => this.quotesFailed());
+    }
     if (this.authoritativeQuotes && ch === "news") this.srv((s) => s.pullWire(), () => this.wireFailed());
     if (this.authoritativeQuotes && ch === "me") {
       this.srv((s) => s.pullLedger(), () => this.failMe());
       if (!this.quotesAdopted) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed()); // M1-08: Retry after a failed first quote read reads quotes too
     }
+  }
+  private replay(ch: ChannelName): void {
     for (const s of this.subs) {
       if (s.ch !== ch) continue;
       if (MOCK_HOOKS && hookErrored?.delete(s)) this.sendSnap(s);
@@ -731,6 +748,8 @@ export class MockFeed {
       first = undefined;
       const next = () => { if (this.quotePolling && !this.quoteSync) this.quoteSync = setTimeout(pull, this.nextQuoteDelayMs()); };
       this.serverSync()
+        // A routine poll is not a reconnect. If a read is already in flight this call is dropped; it must not
+        // ask for a follow-up, or a read slower than SERVER_QUOTE_POLL_MS is skipped and quotes stay stale.
         .then((s) => (this.quotePolling ? s.pullServerQuotes(started) : undefined), () => this.quotesFailed())
         .then(next, next);
     };
