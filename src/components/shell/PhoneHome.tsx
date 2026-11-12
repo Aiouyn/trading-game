@@ -1,13 +1,12 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { goBack, usePhoneScreen } from "@/shell/back";
-import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
 import { Sparkline } from "./Sparkline";
-import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings } from "@/shell/strings";
+import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
@@ -15,6 +14,7 @@ import { FeedbackButton } from "./FeedbackButton";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
+import { ClockText, useClockReading } from "./useClock";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 
@@ -153,7 +153,7 @@ function AppIcon({ app, dock = false }: { app: AppId; dock?: boolean }) {
 
 function StatusBar() {
   const store = useShellStore();
-  const clock = useShell((s) => s.channels.clock);
+  const clock = useClockReading();
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const offline = useShell((s) => s.channels.system.offline);
@@ -162,8 +162,6 @@ function StatusBar() {
   const signedIn = isSignedIn(auth);
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
-  const { day, hhmm } = clockLabel(clock);
-  const clockText = clockStrings(useShell((s) => s.prefs.locale)).phone(day, hhmm);
   const down = () => { timer.current = window.setTimeout(() => { timer.current = null; store.getState().setRecent(true); }, LONG_PRESS_MS); };
   const up = () => {
     if (timer.current !== null) { window.clearTimeout(timer.current); timer.current = null; store.getState().phoneBack(); }
@@ -186,8 +184,10 @@ function StatusBar() {
       <button className="quay-mark fg" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
         <Glyph name="quay" size={20} />
       </button>
-      <span className="num clock">{clockText}</span>
-      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />
+      <ClockText variant="phone" />
+      {clock.state === "live" && (
+        <MarketPhase phase={clock.clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />
+      )}
       <HaltChip halted={halted} />
       {signedIn ? (
         <button type="button" className="chip chip-acc sb-account" data-testid="account-chip" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>
