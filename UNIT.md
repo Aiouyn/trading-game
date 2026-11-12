@@ -25,3 +25,13 @@ Base `abf14e57f719689e1a94a65223c6f24ab71a6ae0`. Branch `ui/broker-deeplink-reus
 - lint, typecheck, build, check-hooks, route-budget (`/broker` ≤ 220,160 B, report B; test+wm only, expect unchanged vs base), ledger map-no-dup, npm test, all with `GIT_*` unset.
 - Clean e2e in a scratch worktree with fresh `.data`, ports 3300–3399 never 3199, hardlinked `node_modules`: the new deep-link spec plus the existing desktop shell/window cohort that covers open/focus (`tests/e2e/shell/desktop.spec.ts` and any wm-resize tests if they open Broker). Delete the scratch afterwards.
 - Evidence under `/workspace/avalon/evidence/ui-broker-deeplink-reuse/`. Do not push.
+
+## Addendum — restore a minimized Broker on a deep-link reuse (Gatekeeper card 15 qual)
+
+Written 12 Nov 2026, 01:47 Europe/Paris (CET), before any further implementation. This addendum is the only change in its commit. Timestamp taken from `date` on the box (Europe/Paris).
+
+Gatekeeper passed `fef63191` with one qualification: a `/broker` deep link brings a minimized Broker window to the front but leaves it as a 32 px title bar (`WindowFrame.tsx` sets `height: win.collapsed ? 32 : rect.h`). Evidence: `/workspace/avalon/evidence/launchpad/gatekeeper/fef63191/shots/4-head-minimized-deeplink.png`. `openApp` (`wm.ts` ~99–102 / 117–120) and `store.open` (`store.ts` ~122) already reuse and `bringToFront` when `opts.reuse` is set, but they do not clear `collapsed`.
+
+On a deep-link reuse (`opts.reuse`), restore the existing window: set `collapsed: false`, keep place and size, still apply a named `?asset=` context as today. Do not change shelf or launcher opens (no `deepLink` / no `reuse`): a minimized window stays minimized if those paths focus it (same-context or at the cap). Do not change the instance cap, phone, or ticket logic.
+
+Fail-first unit: open Broker, collapse it, `store.open("broker", …, { deepLink: true })` — one window, frontmost, `collapsed: false`. A non-deep-link open that only focuses (same context, or at the cap) leaves `collapsed: true`. Fail-first e2e: Trade layout, collapse the Broker window, `goto('/broker')`, the window is frontmost and not a 32 px title bar. Evidence under `/workspace/avalon/evidence/ui-broker-deeplink-reuse/batch1/`. Official checks with `GIT_*` unset, one clean e2e with fresh `.data`. No push.
