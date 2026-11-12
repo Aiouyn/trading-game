@@ -1,6 +1,7 @@
 // Visibility algorithm, exactly 17 §3.2.4. Unlocks are sticky except license/charter rules (live state).
 import { APPS, REGISTRY, RANKS, type AppDef, type AppId, type Rank, type UnlockRule } from "./registry";
 import type { MeChannel, RankChannel } from "./channels";
+import { isShrouded } from "./v1Shroud";
 
 export type Visibility = "hidden" | "locked" | "unlocked";
 
@@ -80,7 +81,8 @@ export function evaluate(s: UnlockInput, sticky: ReadonlySet<AppId>): { vis: Rec
     const live = isLive(app.unlock);
     if (now && !live) next.add(app.id);
     const unlocked = live ? now : now || next.has(app.id);
-    vis[app.id] = unlocked ? "unlocked" : teaserMet(app, s) ? "locked" : "hidden";
+    // M1-11: the 17 rule still sticks, but a shrouded app stays hidden until its flag is set.
+    vis[app.id] = isShrouded(app.id, s.me.flags) ? "hidden" : unlocked ? "unlocked" : teaserMet(app, s) ? "locked" : "hidden";
   }
   return { vis, sticky: next };
 }
