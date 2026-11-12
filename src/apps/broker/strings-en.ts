@@ -60,6 +60,7 @@ export const EN = {
   placeOffline: "You're offline. Nothing was sent.",
   placeUnknown: "No answer from the server. This order may have gone through. Check Open orders and Positions before placing it again.",
   note: "Prices can fall. That's the game.",
+  disclaimer: "Simulated market. Not financial advice.",
   pending: (n: string) => `Pending · tick ${n}`,
   bought: (qty: string, ticker: string, price: string) => `Bought ${qty} ${ticker} at ${price}`,
   sold: (qty: string, ticker: string, price: string) => `Sold ${qty} ${ticker} at ${price}`,

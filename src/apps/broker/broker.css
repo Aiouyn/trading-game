@@ -165,3 +165,5 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-stacked .br-row dd { text-align: left; }
 
 /* High contrast: data-hc raises --line, so the segment, input, select, review and ack borders above stay visible. */
+
+.br-disclaimer { margin: var(--sp-8) 0 0; font-size: var(--fs-12_5, 0.8125rem); text-align: center; }

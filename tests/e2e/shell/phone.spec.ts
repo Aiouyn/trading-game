@@ -4,14 +4,14 @@ import { boot, box, setReducedTransparency, setTextScale } from "./helpers";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "phone", "phone project only"));
 
-test("S1-13 phone home: status bar 44, 4-col 60×60 grid, 5 groups, bottom row, no h-scroll at 1.0 and 2.0", async ({ page }) => {
+test("S1-13 phone home: status bar 44, 4-col 60×60 grid, built groups only, bottom row, no h-scroll at 1.0 and 2.0", async ({ page }) => {
   await boot(page, "/?rank=R6&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0&lic=LIC2");
   expect((await box(page, "statusbar")).height).toBe(44);
   const labels = await page.locator(".grid-group > .label").allInnerTexts();
-  expect(labels.map((l) => l.toLowerCase())).toEqual(["trade", "build", "shadow", "world", "me"]);
+  expect(labels.map((l) => l.toLowerCase())).toEqual(["trade", "build", "world", "me"]); // #105 builds Launchpad, City, Boards
   const icon = await page.getByTestId("app-grid").locator(".icon").first().boundingBox();
   expect([icon?.width, icon?.height]).toEqual([60, 60]);
-  const cols = await page.getByTestId("group-build").locator(".grid4").evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
+  const cols = await page.getByTestId("group-me").locator(".grid4").evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
   expect(cols).toBe(4);
   const bottom = await page.getByTestId("bottom-row").locator("[data-testid^=icon-]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
   expect(bottom).toEqual(["icon-broker", "icon-portfolio", "icon-wire"]);
@@ -23,7 +23,7 @@ test("S1-13 phone home: status bar 44, 4-col 60×60 grid, 5 groups, bottom row, 
   await setTextScale(page, "2");
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--text-scale").trim())).toBe("2");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
+  await page.getByRole("button", { name: "Back" }).click();
   const label = await page.getByTestId("app-grid").locator(".icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
   expect(label).toBe(23);
   expect(await noHScroll()).toBe(true);
@@ -33,28 +33,26 @@ test("S1-13 grid groups hold only apps of that group", async ({ page }) => {
   await boot(page, "/?rank=R6&nw=200000");
   const map = await page.evaluate(() => Array.from(document.querySelectorAll("[data-testid^=group-]")).map((g) => [g.getAttribute("data-testid"), Array.from(g.querySelectorAll("[data-testid^=icon-]")).map((i) => i.getAttribute("data-testid"))]));
   expect(map).toEqual([
-    ["group-trade", ["icon-markets", "icon-launchpad", "icon-risk", "icon-quantlab", "icon-research"]],
-    ["group-build", ["icon-businesses", "icon-company", "icon-property", "icon-city", "icon-bank", "icon-funds", "icon-insurance", "icon-institutions"]],
-    ["group-shadow", ["icon-ailab", "icon-security", "icon-legal"]],
-    ["group-world", ["icon-boards", "icon-contracts", "icon-auctions", "icon-civic", "icon-replay"]],
-    ["group-me", ["icon-estate", "icon-profile", "icon-academy", "icon-help", "icon-atelier", "icon-settings"]],
+    ["group-trade", ["icon-launchpad"]], // built on #105
+    ["group-build", ["icon-city"]], // built on #105 (M1-10)
+    ["group-world", ["icon-boards"]], // built on #105 (M2-03)
+    ["group-me", ["icon-settings"]],
   ]);
 });
 
 test("S1-07 phone: ComingLater full screen and deep link", async ({ page }) => {
-  await boot(page);
-  await page.getByTestId("icon-markets").click();
+  // Unbuilt apps are not offered on Home; Coming later is still reachable by deep link.
+  await boot(page, "/markets");
   await expect(page.getByTestId("coming-later")).toHaveText(/Markets\s*Coming later/);
-  // Deep link: was /wire until Wire was built (UI card 1, WIR-A); Messages is still ComingLater.
   await boot(page, "/messages");
   await expect(page.getByTestId("coming-later")).toHaveText(/Messages\s*Coming later/);
 });
 
 test("S1-14 long-press 400 ms on the Quay mark opens Recent with ≤ 6 entries", async ({ page }) => {
   await boot(page);
-  for (const id of ["markets", "wire", "broker", "portfolio", "bank", "funds", "insurance"]) {
+  for (const id of ["wire", "broker", "portfolio", "settings"]) {
     await page.getByTestId(`icon-${id}`).click();
-    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
+    await page.getByRole("button", { name: "Back" }).click();
   }
   const mark = await box(page, "quay-mark");
   await page.mouse.move(mark.x + 10, mark.y + 10);
@@ -103,28 +101,19 @@ test("Phone widget: sparkline, rank bar, today's change, cents at 65% muted, ran
   expect(cents.color).toBe(cents.muted);
 });
 
-test("Phone glyphs: muted, locked disabled with tag inside the tile; never brass (B1, m6)", async ({ page }) => {
+test("Phone glyphs: built icons muted, never brass; unbuilt locked tiles are not offered (B1, m6)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
   const r = await page.evaluate(() => {
     const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
     const icon = (id: string) => document.querySelector(`[data-testid=icon-${id}] .icon`)!;
-    const tag = icon("quantlab").querySelector(".lock-tag")!.getBoundingClientRect();
-    const box = icon("quantlab").getBoundingClientRect();
     return {
-      unlocked: ["markets", "security", "legal", "broker"].map((id) => getComputedStyle(icon(id)).color),
-      locked: getComputedStyle(icon("quantlab")).color,
-      tags: Array.from(document.querySelectorAll(".phone-app.locked .icon")).map((i) => {
-        const t = i.querySelector(".lock-tag")!; const a = t.getBoundingClientRect(); const b = i.getBoundingClientRect();
-        return { inside: a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom, size: getComputedStyle(t).fontSize };
-      }),
-      inside: tag.left >= box.left && tag.right <= box.right && tag.top >= box.top && tag.bottom <= box.bottom,
-      muted: probe("--fg-muted"), disabled: probe("--fg-disabled"), acc: probe("--acc"),
+      unlocked: ["broker", "portfolio", "wire", "settings"].map((id) => getComputedStyle(icon(id)).color),
+      lockedCount: document.querySelectorAll(".phone-app.locked").length,
+      muted: probe("--fg-muted"), acc: probe("--acc"),
     };
   });
   for (const c of r.unlocked) { expect(c).toBe(r.muted); expect(c).not.toBe(r.acc); }
-  expect(r.locked).toBe(r.disabled);
-  expect(r.inside).toBe(true);
-  for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px" });
+  expect(r.lockedCount).toBe(0);
 });
 
 test("phone home Sign in CTA: touch opens Account (hit target + navigation)", async ({ page }) => {
@@ -143,7 +132,7 @@ test("phone home Sign in CTA: touch opens Account (hit target + navigation)", as
 
 test("Phone launcher: visible close and a Recent group; edge bar swipe up = Home, left-edge swipe = back (M4, m5)", async ({ page }) => {
   await boot(page);
-  await page.getByTestId("icon-markets").click();
+  await page.getByTestId("icon-broker").click();
   const edge = await box(page, "edge-bar");
   expect(edge.height).toBeGreaterThanOrEqual(30);
   await page.mouse.move(edge.x + edge.width / 2, edge.y + 20);
@@ -338,7 +327,7 @@ for (const width of [390, 320]) {
       await page.context().setOffline(false);
       await expect(page.getByTestId("offline-state")).toHaveCount(0);
       // ...and on the home screen.
-      await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
+      await page.getByRole("button", { name: "Back" }).click();
       const top = (sel: string) => page.locator(sel).first().evaluate((e) => e.getBoundingClientRect().top);
       const before = await top("[data-testid=widget]");
       await page.context().setOffline(true);
@@ -397,7 +386,7 @@ for (const width of [390, 320]) {
         if (state === "offline") await page.context().setOffline(true);
         await expect(page.getByTestId(state === "error" ? "load-error" : "offline-state")).toBeVisible();
         await tapAndMeasure(`${state} in-app`, ".appbar");
-        await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
+        await page.getByRole("button", { name: "Back" }).click();
         await tapAndMeasure(`${state} home`, "[data-testid=widget]");
         if (state === "offline") await page.context().setOffline(false);
       }

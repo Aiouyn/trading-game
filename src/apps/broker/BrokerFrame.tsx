@@ -310,6 +310,7 @@ export function BrokerFrame({ context }: { context?: string }) {
               errorTestId="br-about-error" retryTestId="br-about-retry" />
           </div>
         </div>
+        <p className="br-disclaimer muted" data-testid="br-disclaimer">{t.disclaimer}</p>
       </div>
     );
   }
@@ -353,6 +354,7 @@ export function BrokerFrame({ context }: { context?: string }) {
         </div>
         {orders}
       </div>
+        <p className="br-disclaimer muted" data-testid="br-disclaimer">{t.disclaimer}</p>
     </div>
   );
 }
