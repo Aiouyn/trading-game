@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPoi
 import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
+import { isBuiltApp } from "@/shell/appModules";
 import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
@@ -299,7 +300,7 @@ export function PhoneHome() {
         </section>
         <div className="app-grid" data-testid="app-grid">
           {GROUPS.map((g) => {
-            const apps = APP_IDS.filter((a) => APPS[a].group === g && vis[a] !== "hidden" && !GRID_OMIT.has(a));
+            const apps = APP_IDS.filter((a) => APPS[a].group === g && isBuiltApp(a) && vis[a] !== "hidden" && !GRID_OMIT.has(a));
             if (apps.length === 0) return null;
             return (
               <section key={g} className="grid-group" data-testid={`group-${g}`}>

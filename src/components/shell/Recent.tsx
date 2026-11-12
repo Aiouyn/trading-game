@@ -1,4 +1,5 @@
 "use client";
+import { isBuiltApp } from "@/shell/appModules";
 import { APP_NAMES, S } from "@/shell/strings";
 import { Sheet } from "./Sheet";
 import { useShell, useShellStore } from "./ShellContext";
@@ -10,9 +11,9 @@ export function Recent() {
   return (
     <Sheet side="bottom" label={S.recent} onClose={() => store.getState().setRecent(false)} testId="recent">
       <h2 className="label" id="recent-title">{S.recent}</h2>
-      {recent.length === 0 && <p className="muted">{S.noRecent}</p>}
+      {recent.filter(isBuiltApp).length === 0 && <p className="muted">{S.noRecent}</p>}
       <ul className="recent-list">
-        {recent.slice(0, 6).map((a) => (
+        {recent.filter(isBuiltApp).slice(0, 6).map((a) => (
           <li key={a}><button data-testid="recent-item" onClick={() => store.getState().open(a)}>{APP_NAMES[a]}</button></li>
         ))}
       </ul>

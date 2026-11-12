@@ -30,26 +30,16 @@ test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, divider
   expect(await tiles.first().getAttribute("data-testid")).toBe("tile-broker");
   const t = await tiles.first().boundingBox();
   expect([t?.width, t?.height]).toEqual([40, 40]);
-  await expect(page.getByTestId("group-divider")).toHaveCount(4);
+  await expect(page.getByTestId("group-divider")).toHaveCount(1);
   await expect(page.getByRole("toolbar")).toHaveCount(1);
 });
 
-test("S1-07 every unlocked built:false app opens a ComingLater window; deep link shows the same", async ({ page }) => {
+test("S1-07 shelf offers only built apps; deep link still shows ComingLater", async ({ page }) => {
   await boot(page, "/?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
-  const ids = await page.locator("[data-testid^=tile-][data-state=unlocked]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.slice(5)));
-  expect(ids).toHaveLength(32);
-  // Wire is built (UI card 1, WIR-A): it renders its feed, covered by tests/e2e/17b/WIR-A.spec.ts.
-  for (const id of ids.filter((i) => i !== "settings" && i !== "city" && i !== "wire")) {
-    await page.getByTestId(`tile-${id}`).click();
-    const win = page.getByTestId(`win-${id}`).first();
-    if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
-    if (id === "broker") { await expect(win.getByTestId("broker")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 4 (BR-4)
-    await expect(win.getByTestId("coming-later")).toContainText("Coming later");
-    await expect(win.getByRole("heading")).toHaveText(await win.locator(".tb-name").innerText());
-    await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);
-    await win.getByTestId("win-close").click();
-  }
-  // Deep link: was /wire until Wire was built (UI card 1); Research is still ComingLater and not in the default layout.
+  const ids = await page.locator("[data-testid^=tile-]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.slice(5)));
+  expect(ids).toEqual(["broker", "portfolio", "wire", "settings"]);
+  await expect(page.getByTestId("tile-markets")).toHaveCount(0);
+  // Deep link: unbuilt apps are still reachable this way; Research is still ComingLater.
   await boot(page, "/research?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
   await expect(page.getByTestId("win-research").getByTestId("coming-later")).toHaveText(/Research Desk\s*Coming later/);
 });
@@ -60,7 +50,8 @@ test("S1-09 workspace slots by rank; apps open on workspace 1", async ({ page })
     await expect(page.getByTestId("ws-switcher").getByRole("button")).toHaveCount(n);
   }
   await page.getByTestId("ws-3").click();
-  await page.getByTestId("tile-markets").click();
+  // Markets is not on the shelf; a client-side deep link still opens it on workspace 1.
+  await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/markets?rank=R6"));
   await expect(page.getByTestId("ws-1")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("win-markets")).toBeVisible();
 });
@@ -116,15 +107,16 @@ test("Shelf: tiles never sit under the tools at 1280, 1440, 1920; Broker first; 
   await expect(page.getByTestId("win-broker").last()).toHaveClass(/active/);
 });
 
-test("Glyph colours: muted, white when active, disabled when locked; never brass (B1, m1–m3)", async ({ page }) => {
+test("Glyph colours: muted, white when active; unbuilt locked tiles are not offered; never brass (B1, m1–m3)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
+  await page.getByTestId("tile-broker").click();
   const c = await page.evaluate(() => {
     const color = (sel: string) => getComputedStyle(document.querySelector(sel)!).color;
     const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
     const ws = document.querySelector("[data-testid=ws-1]")!;
     const active = document.querySelector(".win.active")!;
     return {
-      tile: color("[data-testid=tile-markets]:not(.on)"), locked: color("[data-testid=tile-quantlab]"), on: color(".tile.on"),
+      tile: color("[data-testid=tile-settings]:not(.on)"), lockedCount: document.querySelectorAll(".shelf .tile.locked").length, on: color(".tile.on"),
       wsColor: getComputedStyle(ws).color, wsBorder: getComputedStyle(ws).borderTopColor,
       winBorder: getComputedStyle(active).borderTopColor, winGlyph: color(".win.active .tb-glyph"),
       before: getComputedStyle(active.querySelector(".titlebar")!, "::before").backgroundColor,
@@ -132,7 +124,7 @@ test("Glyph colours: muted, white when active, disabled when locked; never brass
     };
   });
   expect(c.tile).toBe(c.muted);
-  expect(c.locked).toBe(c.disabled);
+  expect(c.lockedCount).toBe(0);
   expect(c.on).toBe(c.fg);
   expect(c.winGlyph).toBe(c.fg);
   expect(c.winBorder).toBe(c.disabled);
@@ -182,7 +174,11 @@ test("S1-12 windows cannot be resized below their minimum", async ({ page }) => 
 
 test("S1-15 Shadow sub-palette in AI Lab and Security; Broker stays brass", async ({ page }) => {
   await boot(page, "/?nw=200000");
-  for (const id of ["ailab", "security", "broker", "legal"]) await page.getByTestId(`tile-${id}`).click();
+  await page.getByTestId("tile-broker").click();
+  for (const path of ["/ailab", "/security", "/legal"]) {
+    await page.evaluate((h) => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(h), `${path}?nw=200000`);
+    await expect(page.getByTestId(`win-${path.slice(1)}`)).toBeVisible();
+  }
   const read = (id: string) => page.getByTestId(`win-${id}`).first().evaluate((el) => {
     const b = document.createElement("button");
     b.className = "btn-primary";
@@ -362,7 +358,7 @@ test(`S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
   await page.unrouteAll({ behavior: "wait" }); // the City part below isn't watched
   // Deterministic: arm the wait for the first new script before the click that triggers the dynamic import.
   const cityChunk = page.waitForResponse((r) => r.request().resourceType() === "script" && !brokerChunks.includes(r.url()));
-  await page.getByTestId("tile-city").click();
+  await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/city"));
   const first = await cityChunk;
   scripts.set(first.url(), 0);
   await expect(page.getByTestId("city-mount")).toBeAttached();
@@ -423,38 +419,37 @@ test("§5 error / offline: inline \"Couldn't load · Retry\"; Retry reloads; off
   expect(await intents(page)).toBe(0);
 });
 
-test("Lock tags: Label style 10.5 px, inside every locked shelf tile; Quay mark --fg; tick sweep --fg-muted", async ({ page }) => {
+test("Quay mark --fg and tick sweep --fg-muted; shelf offers no locked tiles", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
   const r = await page.evaluate(() => {
     const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
-    const tags = Array.from(document.querySelectorAll(".tile.locked")).map((t) => {
-      const tag = t.querySelector(".lock-tag")!; const a = tag.getBoundingClientRect(); const b = t.getBoundingClientRect(); const cs = getComputedStyle(tag);
-      return { inside: a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom, size: cs.fontSize, upper: cs.textTransform, color: cs.color, h: b.height };
-    });
-    return { tags, mark: getComputedStyle(document.querySelector("[data-testid=strip] .fg")!).color, acc: probe("--acc"), sweep: getComputedStyle(document.querySelector(".tickring-sweep")!).stroke, fg: probe("--fg"), muted: probe("--fg-muted"), disabled: probe("--fg-disabled") };
+    return {
+      locked: document.querySelectorAll(".tile.locked").length,
+      mark: getComputedStyle(document.querySelector("[data-testid=strip] .fg")!).color,
+      sweep: getComputedStyle(document.querySelector(".tickring-sweep")!).stroke,
+      fg: probe("--fg"), muted: probe("--fg-muted"),
+    };
   });
-  expect(r.tags.length).toBeGreaterThan(0);
-  for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px", upper: "uppercase", color: r.muted, h: 40 });
-  for (const t of r.tags) expect(t.color).not.toBe(r.acc);
+  expect(r.locked).toBe(0);
   expect(r.mark).toBe(r.fg);
   expect(r.sweep).toBe(r.muted);
 });
 
-test("Shelf spacing stays even when locked tiles widen (Studio round 6)", async ({ page }) => {
+test("Shelf spacing stays even between built tiles (Studio round 6)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
   const gaps = await page.getByTestId("shelf-tiles").evaluate((row) => {
     const kids = Array.from(row.querySelectorAll(".tile"));
-    const out: { gap: number; wide: boolean }[] = [];
+    const out: number[] = [];
     for (let i = 1; i < kids.length; i++) {
       const [a, b] = [kids[i - 1], kids[i]];
       if (b.parentElement!.querySelector(".shelf-divider")) continue; // across a group divider the divider sets the spacing
       const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
-      out.push({ gap: Math.round((rb.left - ra.right) * 10) / 10, wide: ra.width > 40 || rb.width > 40 });
+      out.push(Math.round((rb.left - ra.right) * 10) / 10);
     }
     return out;
   });
-  expect(gaps.some((g) => g.wide)).toBe(true);
-  expect(new Set(gaps.map((g) => g.gap))).toEqual(new Set([4]));
+  expect(gaps.length).toBeGreaterThan(0);
+  expect(new Set(gaps)).toEqual(new Set([4]));
 });
 
 test("Retry a11y (QA r11): keeps focus, aria-disabled toggles, a second activation while pending does nothing, the alert text never changes, label left x fixed", async ({ page }) => {
