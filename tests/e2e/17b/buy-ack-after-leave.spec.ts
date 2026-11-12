@@ -35,9 +35,20 @@ async function reviewPlace(page: Page) {
   await place.click();
 }
 
-async function toPositions(page: Page) {
-  // Phone: back to Home, then Portfolio from the dock, then its Positions screen.
-  await page.getByTestId("app-back").click();
+/** Leave the phone ticket while its Place is in flight. The review sheet's scrim covers app-back and the edge bar until
+ *  the reply lands (a click on app-back only lands after it, when the ticket has already shown the outcome), so a player
+ *  leaves mid-Place with the system Back (Android back, iOS swipe back): popstate takes the shell to Home. */
+async function leaveMidPlace(page: Page) {
+  await expect(ticket(page)).toHaveAttribute("data-phase", "submitting");
+  await page.goBack();
+  await expect(ticket(page)).toHaveCount(0);
+  await expect(page.getByTestId("fill-ack"), "left before the reply: no outcome yet").toHaveCount(0);
+}
+
+async function toPositions(page: Page, midPlace = false) {
+  // Phone: back to Home (system Back mid-Place, else app-back), then Portfolio from the dock, then its Positions screen.
+  if (midPlace) await leaveMidPlace(page);
+  else await page.getByTestId("app-back").click();
   await page.getByTestId("icon-portfolio").click();
   await page.getByTestId("pf-open-positions").click();
   await expect(page.getByTestId("pf-positions").first()).toHaveAttribute("data-state", "live", { timeout: 20_000 });
@@ -76,9 +87,7 @@ test("phone: leave the ticket mid-Place, the buy's ack still shows once; Close +
     await ticket(page).getByTestId("br-side-buy").click();
     await ticket(page).getByTestId("br-qty").fill("5");
     await reviewPlace(page);
-    await expect(ticket(page)).toHaveAttribute("data-phase", "submitting");
-    await toPositions(page);
-    await expect(ticket(page)).toHaveCount(0); // the ticket unmounted mid-Place
+    await toPositions(page, true); // the ticket unmounts mid-Place
 
     // [red on base] the buy's ack reaches the player anyway, exactly once, after the reply lands.
     await expect.soft(page.getByText(/Bought 5 HALC at \d/), "buy ack shown once after leaving the ticket").toHaveCount(1, { timeout: REPLY_DELAY_MS + 10_000 });

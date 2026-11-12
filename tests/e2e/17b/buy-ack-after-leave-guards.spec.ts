@@ -43,6 +43,16 @@ async function desktopPlace(page: Page, win: Locator) {
   await expect(win.getByTestId("broker")).toHaveAttribute("data-phase", "submitting");
 }
 
+/** Leave the phone ticket while its Place is in flight. The review sheet's scrim covers app-back and the edge bar until
+ *  the reply lands (a click on app-back only lands after it, when the ticket has already shown the outcome), so a player
+ *  leaves mid-Place with the system Back (Android back, iOS swipe back): popstate takes the shell to Home. */
+async function leaveMidPlace(page: Page) {
+  await expect(phoneTicket(page)).toHaveAttribute("data-phase", "submitting");
+  await page.goBack();
+  await expect(phoneTicket(page)).toHaveCount(0);
+  await expect(page.getByTestId("fill-ack"), "left before the reply: no outcome yet").toHaveCount(0);
+}
+
 /** Desktop guest: MRDN Broker (buy 4) plus a HALC Broker opened by Positions Close (sell 1200), replies held 6 s. */
 async function twoBrokers(page: Page) {
   await boot(page, "/broker?asset=MRDN&replyMs=6000");
@@ -110,8 +120,7 @@ test("phone guest: a rejected intent left mid-Place shows the reject copy, never
   const place = page.getByTestId("br-sheet").getByTestId("br-place");
   await enabled(place);
   await place.click();
-  await page.getByTestId("app-back").click(); // Home: the ticket unmounts mid-Place
-  await expect(phoneTicket(page)).toHaveCount(0);
+  await leaveMidPlace(page); // Home: the ticket unmounts mid-Place
   await expect(toasts(page)).toHaveCount(1, { timeout: 15_000 });
   await expect(toasts(page).first()).toContainText("Order rejected");
   await expect(toasts(page).first()).toContainText("Not enough cash for this order.");
@@ -156,7 +165,7 @@ test("phone signed-in: the toast never covers the Home dock or the Wire Post but
     await holdReplies(page, 6_000);
     // 1) leave to Home: the dock icons stay hit-testable while the toast shows
     await phonePlace(page, "2");
-    await page.getByTestId("app-back").click();
+    await leaveMidPlace(page);
     await expect(toasts(page)).toHaveCount(1, { timeout: 20_000 });
     const t1 = (await toasts(page).first().boundingBox())!;
     for (const id of ["icon-broker", "icon-portfolio", "icon-wire"]) {
@@ -167,7 +176,7 @@ test("phone signed-in: the toast never covers the Home dock or the Wire Post but
     await page.screenshot({ path: info.outputPath("phone-toast-home-dock.png") });
     // 2) leave to Wire with the composer open: Post stays hit-testable while the toast shows
     await phonePlace(page, "3");
-    await page.getByTestId("app-back").click();
+    await leaveMidPlace(page);
     await page.getByTestId("icon-wire").click();
     await page.getByTestId("wire-composer-toggle").click();
     const post = page.getByTestId("wire-composer-submit");
@@ -191,7 +200,7 @@ test("phone signed-in: sign-out mid-Place never shows A's toast to the next sess
     const page = await ctx.newPage();
     await holdReplies(page, 6_000);
     await phonePlace(page, "5");
-    await page.getByTestId("app-back").click();
+    await leaveMidPlace(page);
     await page.getByTestId("account-chip-home").click();
     await page.getByTestId("account-logout").click();
     await expect(page.getByTestId("account-logout")).toHaveCount(0, { timeout: 15_000 });
