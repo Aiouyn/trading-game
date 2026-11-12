@@ -27,6 +27,29 @@ describe("instances (S1-11)", () => {
     const p = openApp(openApp([], "wire", A).windows, "wire", A);
     expect(p.windows).toHaveLength(1);
   });
+  it("a reuse open focuses the existing Broker; count unchanged (playtest d40)", () => {
+    const first = openApp([], "broker", A);
+    const r = openApp(first.windows, "broker", A, undefined, { reuse: true });
+    expect(r.opened).toBe(false);
+    expect(r.windows).toHaveLength(1);
+    expect(r.windows.at(-1)).toEqual(r.focused);
+    expect(r.focused.instance).toBe(first.focused.instance);
+  });
+  it("a reuse open with a ticker applies that context without a second window", () => {
+    const w = openApp([], "broker", A).windows;
+    const r = openApp(w, "broker", A, "HALC", { reuse: true });
+    expect(r.opened).toBe(false);
+    expect(r.windows).toHaveLength(1);
+    expect(r.focused.context).toBe("HALC");
+    expect(r.focused.x).toBe(w[0].x);
+    expect(r.focused.w).toBe(w[0].w);
+  });
+  it("without reuse, a second ticker still opens a second Broker", () => {
+    const r = openApp(openApp([], "broker", A, "HALC").windows, "broker", A, "NRON");
+    expect(r.opened).toBe(true);
+    expect(r.windows).toHaveLength(2);
+    expect(r.focused.context).toBe("NRON");
+  });
   it("new windows always open on workspace 1 (S1-09)", () => {
     expect(openApp([], "markets", A).focused.workspace).toBe(1);
   });
