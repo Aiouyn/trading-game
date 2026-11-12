@@ -31,3 +31,25 @@ Recorded 2026-11-12T00:43:40+01:00 Europe/Paris, after the fix, checks, e2e and 
 - The printed GX mark, net of the equity ERP actually printed that day, stayed within 3.18 minor units of the residual-implied price (stated test tolerance: 5 minor units). Per-tick residual+ERP rounding on GX over 720 ticks is a few minors; the 1-minor target in the pre-code acceptance list was slightly optimistic.
 - Trigger prints are unchanged. A before/after snapshot of every other shock and crisis output (kind-table half-lives, isolated non-FLASH runs, and a mixed 10-GD non-FLASH decay) is byte-identical. Only the FLASH residual `k` and its recovery path change.
 - Restart mid-FLASH-recovery and `catchUpDecay` jump equal tick-by-tick `advanceDecay`. Cash delta is 0; the feed does not create money.
+
+## Qualifier results
+
+Recorded 2026-11-12T01:10:50+01:00 Europe/Paris, after the qualifier product commit `3865ebbc`, in a separate docs commit.
+
+### (1) Mark vs residual-implied gap
+
+The ~201-minor plateau after one fully decayed flash, and the ~2 FDL stack across serial flashes, was a real bias in residual unwind, not mean-reverting ERP or ordinary rounding. ERP keeps unprinted log in `erpAccrued` until it can move a minor. Residual unwind was still doing `next = log − dec` when `round(last · exp(−dec))` was a no-op, so the last sub-minor recovery was discarded. The fix is only on the FLASH path: unprinted FLASH unwind is credited into `erpAccrued` so it still prints. Non-FLASH unwind is unchanged, and a before/after snapshot of every other shock and crisis output stays byte-identical.
+
+After the fix, `last · exp(erp leftover)` matches `from · exp(remaining residual) · exp(μ t)` to ~1e-9 at one game day for official, small (−1 / −10 / −50 bp) and huge (sev 3 / 5 / 8) sizes. After 10 game days the reconstruct error is 0.18 minors, and five serial official flashes stay at ~0.18 minors rather than stacking ~2 FDL each. No per-size printed-mark tolerance is required.
+
+### (2) Overlapping flashes — composition rule
+
+Cite `export/vision-review/complete/04-MACRO-CENTRAL-BANKS-SOVEREIGNS.md:1033`: "Shocks decay on their own schedules regardless of phase labels." Combined with `:1024`, each FLASH_CRASH residual is kept on its own solved half-life so 70% of *that* shock's price drawdown recovers in one game day after *that* shock. Overlapping flashes are not merged and do not use max-k. Combined recovery of the net drop from the original pre-first price is not required to be 70%. Isolated flashes stay at exactly 70% (within 1e-9). Measured: a second flash at mid-recovery tick 360 recovers 0.7000000000000007 of the first component 1 GD after the first, and 0.7000000000000026 of the second component 1 GD after the second.
+
+### (3) Conservation
+
+A player with a resting AVB buy (fills at the crash against NPC liquidity) and a resting AVB sell placed after the crash (fills during the 1-GD recovery) keeps `player cash + NPC notional + exchange fees` equal to genesis (cashDelta 0, two fills). Broker code is only read and called, not edited.
+
+### (5) crises.ts comment
+
+One-line coordinated touch, approved as comment-only: the stale "recovery path not modelled; one-shot" note now points at the shockFeed 04:1024 recovery law.
