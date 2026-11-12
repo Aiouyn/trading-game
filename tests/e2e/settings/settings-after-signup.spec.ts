@@ -42,3 +42,25 @@ test("after sign-up, Settings closes so the goal/guide is visible", async ({ pag
   expect(await overlaps(page)).toBe(false);
   expect(await topWin(page)).not.toBe("win-settings");
 });
+
+test("phone: after sign-up, Settings closes and home shows the goal", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "phone only");
+  test.setTimeout(90_000);
+  await boot(page, "/");
+  await page.waitForFunction(() => document.querySelector("[data-testid=sign-in-entry]"));
+  await page.evaluate(() => (document.querySelector("[data-testid=sign-in-entry]") as HTMLElement).click());
+  await expect(page.getByTestId("phone-appview")).toHaveAttribute("data-app", "settings", { timeout: 20_000 });
+  await expect(page.getByTestId("settings-account")).toBeVisible();
+  const handle = `SgP${Date.now().toString(36)}`;
+  await page.locator("input[name=handle]").fill(handle);
+  await page.locator("input[name=password]").fill("local-tick-test");
+  await page.getByRole("button", { name: "Create account" }).last().click();
+  const err = page.getByTestId("account-error");
+  const home = page.getByTestId("phone-goal").waitFor({ state: "visible", timeout: 20_000 }).then(() => "home" as const);
+  const failed = err.waitFor({ state: "visible", timeout: 20_000 }).then(() => "error" as const);
+  const result = await Promise.race([home, failed]);
+  if (result === "error") throw new Error("register failed: " + await err.innerText());
+  await expect(page.getByTestId("phone-appview")).toHaveCount(0);
+  await expect(page.getByTestId("phone-goal")).toHaveText("Goal: grow $10,000 to $20,000.");
+  await expect(page.getByTestId("phone-first-trade-guide")).toBeVisible();
+});
