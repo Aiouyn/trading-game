@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import BrokerApp from "@/apps/broker/App";
 import PortfolioApp from "@/apps/portfolio/App";
 import { PREVIEW_DEBOUNCE_MS } from "@/apps/broker/BrokerFrame";
-import { offerTicketPrefill, resetTicketPrefill, setTicketSubmitting, takeTicketPrefill } from "@/apps/broker/ticketPrefill";
+import { offerTicketPrefill, clearTicketSubmitting, resetTicketPrefill, takeTicketPrefill } from "@/apps/broker/ticketPrefill";
 import { AuthAccountBoundary } from "@/components/shell/AuthAccountBoundary";
 import { ShellCtx } from "@/components/shell/ShellContext";
 import * as authChrome from "@/shell/authChrome";
@@ -42,7 +42,7 @@ describe("card 34 Close prefill holding", () => {
     el.remove();
     setFeed(null);
     resetTicketPrefill();
-    setTicketSubmitting(null);
+    clearTicketSubmitting();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();

@@ -50,7 +50,7 @@ export const PREVIEW_DEBOUNCE_MS = 300;
 type Phase =
   | { kind: "edit" }
   | { kind: "review" }
-  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: false | "error" | "offline" | "unknown" };
+  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: false | "error" | "offline" | "unknown" | "paused" };
 
 interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string }
 const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}`;
@@ -197,12 +197,15 @@ export function BrokerFrame({ context }: { context?: string }) {
   // Our IntentResult, once `me` carries it.
   const placed = phase.kind === "placed" ? phase : null;
   const result = placed?.intentId && me.body ? me.body.intents.find((i) => i.intentId === placed.intentId) ?? null : null;
+  const ticketInstance = useRef<object>({});
   const submitting = phase.kind === "placed" && !placed?.failed && !(placed?.intentId && result);
   useLayoutEffect(() => {
     submittingRef.current = submitting;
-    if (!assetId) return;
-    setTicketSubmitting(assetId, submitting);
-    return () => setTicketSubmitting(assetId, false);
+    if (!assetId || !submitting) return;
+    // Card 40: only this ticket's own entry; another ticket on the same asset keeps its own.
+    const self = ticketInstance.current;
+    setTicketSubmitting(assetId, self, true);
+    return () => setTicketSubmitting(assetId, self, false);
   }, [submitting, assetId]);
 
   const row = ticker.body?.rows[assetId];
@@ -231,7 +234,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     setPhase({ kind: "placed", atTick, intentId: null, failed: false });
     void placeOrder(order).then((r) => {
       setPhase(r.ok ? { kind: "placed", atTick, intentId: r.value, failed: false }
-        : { kind: "placed", atTick, intentId: null, failed: r.error.kind === "offline" || r.error.kind === "unknown" ? r.error.kind : "error" });
+        : { kind: "placed", atTick, intentId: null, failed: r.error.kind === "offline" || r.error.kind === "unknown" || r.error.kind === "paused" ? r.error.kind : "error" });
     });
   };
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.
