@@ -44,3 +44,28 @@ Player owners under the guard are the bound actor ids (`chr_` plus 32 hex): bank
 ## Gatekeeper quals (2026-11-12 00:59 Europe/Paris)
 
 Recorded after the contract above, once the issued-context quals landed in actor-binding. The guarded path only accepts `ActorContext` objects issued by `ActorBinding` (`requireBoundActor` fails closed as `FORGED_CONTEXT` on a field-wise copy or a `structuredClone`). Immediately before `save`, the engine re-peeks each new player command's session through `ActorBinding.assertLiveSession`. Logout, expiry or a session mismatch is `SESSION_REJECTED`, with no receipt, movement or audit written. `BankingCoreEngine.open(..., { actorGuard: true, binding })` requires the binding when the guard is on. Replay of a saved checkpoint stays unguarded.
+
+## Gatekeeper quals on a7851303 (written 2026-11-12 02:08 Europe/Paris, after the fixes)
+
+This section was written after the code commits below, as instructed for this batch. It is not a pre-registered contract. Every fix has a test that failed before the fix and passes after; the logs are in `evidence/sys-banking-core-actor/forward-8b38f538/red-green/`.
+
+- **Forward merge.** 7229db33 (01:49) merges sys/banking-core 8b38f538 with `--no-ff`, with no conflicts.
+- **q4: contexts are issued, not constructible** (10dc586f, 01:52).
+  - Problem: `model.ts` exported `issueActorContext`, so any importer could mint a context that passed `requireBoundActor`. A cast could also reach `ActorBinding`'s TS-private `remember` and `issue`, or swap its `auth`.
+  - Fix: the issued-context WeakSet and the mint function move into `engine.ts`, and are module-private there. Only `isIssuedActorContext`, `requireBoundActor` and `authorizeClaimed` are exported; the index's export list is unchanged. `#auth`, `#remember` and `#issue` are ES-private.
+  - Test: `tests/unit/actor-binding/actor-context-issuer.test.ts` sweeps every export of every actor-binding module and every runtime-reachable `ActorBinding` member and field.
+  - **This must be ported to sys/actor-binding** (57f8fb80 has the same export), and then on to sys/fx-actor and sys/meme-actor.
+- **q5: own-property contexts** (07dcf806, 01:52).
+  - Fix: `authorizeCoreCommands` and `assertLiveCoreCommands` read `options.contexts` only through `Object.hasOwn`.
+  - Result: inherited contexts give `MISSING_SESSION`.
+- **q3: forged values are FORGED_CONTEXT** (aa59456b, 01:54).
+  - Fix: `parseActorContexts` checks only the map's shape: a literal object of data properties keyed by command ids. A Proxy, null-prototype, array or getter map is still `CLAIM_MALFORMED`, and getters never run.
+  - Result: Object.create, Proxy, null-prototype and spread context values are `FORGED_CONTEXT`.
+- **Lesson from Gatekeeper on 8b38f538: a persisted-shape change** (06387c3e, 02:07).
+  - Problem: a checkpoint written before `priorResolutions` existed failed with the generic `CORE_CHECKPOINT_DIGEST`.
+  - Fix: if the digest matches the state with `priorResolutions` removed, `BankingCoreEngine.open` now throws `CORE_CHECKPOINT_SHAPE_OUTDATED`, with no migration and no write. Banking is default-off and there are no production stores. Any other mismatch is still `CORE_CHECKPOINT_DIGEST`.
+  - Fixture: the 7078c75f cross-module store, which resolves bank a at 3599 and again at 4319. Its sha256 is `bad5dce1…`, and brotli compresses it from 2.95 MB to 13 KB. It is opened in `tests/unit/banking-core/checkpoint-shape.test.ts`.
+  - This should also go to sys/banking-core.
+- **Proofs (at aa59456b):**
+  - `tools/proofs/banking-core-actor.ts` passes: guarded legitimate commands are byte-identical to unguarded ones, restart equals jump at cuts 0/1/59/719, residuals are 0, and the fail-closed matrix holds. Its state hash changes from run to run because each run registers fresh auth accounts, and actor ids derive from them. The comparison is within one run.
+  - The unguarded `tools/proofs/sys-banking-core.ts` passes all 24. Every checkpoint and state hash equals the merged parent's (8b38f538 proofs), including cross-module `8345b6cc…`, with frames `50c41eb7…`.
