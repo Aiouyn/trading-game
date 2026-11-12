@@ -23,7 +23,8 @@ describe("catalog grid vs live storyAt", () => {
     expect(catalogStoryAt(SEED, START_TICK)).not.toBeNull();
     expect(catalogStoryAt(SEED, START_TICK + 1)).toBeNull();
     expect(storyAt(SEED, firstLive)).toEqual(catalogStoryAt(SEED, firstLive));
-    expect(storyAt(SEED, firstLive)!.defId).toBe("orca-trial");
+    expect(storyAt(SEED, firstLive)!.crisis).toBeUndefined(); // first live slot is a company story
+    expect(storyAt(SEED, firstLive)!.defId).toBeTruthy();
   });
 
   it("bootHistory returns 1–2 lookback catalog stories at or before START_TICK, preferring realized NEWS", () => {
@@ -107,8 +108,14 @@ describe("LiveMarket seeds history at t0 without moving marks", () => {
     const live = market.wire().items.find((i) => i.id === `w-${firstLive}`)!;
     expect(live).toBeDefined();
     expect(live.tick).toBe(firstLive);
-    expect(live.causeEventIds).toEqual([storyAt(SEED, firstLive)!.defId]);
-    expect(live.effects?.length).toBeGreaterThan(0);
+    const firstDef = storyAt(SEED, firstLive)!;
+    expect(live.causeEventIds).toEqual([firstDef.defId]);
+    if (firstDef.kind === "RUMOR") {
+      expect(live.effects).toBeUndefined();
+      expect(firstDef.asserted?.length).toBeGreaterThan(0);
+    } else {
+      expect(live.effects?.length).toBeGreaterThan(0);
+    }
     expect(market.snapshot().quotes).toEqual(ref.body("ticker:wl_default"));
     expect(histIds.every((id) => market.wire().items.some((i) => i.id === id))).toBe(true);
   });

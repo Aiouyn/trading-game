@@ -11,6 +11,7 @@ import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
 import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
+import { HOME_EXAMPLE } from "./homeExample";
 import { TickRing } from "./TickRing";
 import { FeedbackButton } from "./FeedbackButton";
 
@@ -109,6 +110,9 @@ export function StatusStrip() {
           </>
         )}
         {nwChip}
+        {auth.status === "signed_out" ? (
+          <span className="muted" data-testid="strip-demo-tag">{HOME_EXAMPLE.en.tag}</span>
+        ) : null}
         <FeedbackButton />
         <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>
       </div>
