@@ -6,6 +6,7 @@ import {
   BindingError,
   MemoryBindingStore,
   actorIdFor,
+  isAccountId,
   isIssuedActorContext,
   makeCheckpoint,
   requireBoundActor,
@@ -16,7 +17,9 @@ import { authService, Clock } from "./fixture";
 // Gatekeeper q4 (a7851303): only ActorBinding may issue a context. No exported function of any
 // actor-binding module, and no runtime-reachable ActorBinding member, may turn caller-chosen
 // fields into a context that passes requireBoundActor.
-const accountId = `acc_${"ab".repeat(16)}`;
+const accountIdRaw = `acc_${"ab".repeat(16)}`;
+if (!isAccountId(accountIdRaw)) throw new Error("test fixture accountId");
+const accountId = accountIdRaw;
 const actorId = actorIdFor(accountId);
 const shape = { actorId, accountId, sessionId: "ses_forged", boundAtMs: 0 } as unknown as ActorContext;
 const view = { sessionId: "ses_forged", account: { accountId } };
