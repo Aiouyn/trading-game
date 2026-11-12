@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { LAYOUT_RECTS_1440 } from "../../unit/shell/layoutRects";
 import { SPEC_TABLE } from "../../unit/shell/paletteTable";
-import { boot, box, intents, setReducedTransparency } from "./helpers";
+import { boot, box, intents, setReducedTransparency, withShroudFlags } from "./helpers";
 import { FIRST_LOAD_BUDGET_KB, PLOT_EXCLUDE_CAP_KB, firstLoadBytes, watchScripts } from "../17b/plotChunk";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "desktop project only"));
@@ -177,7 +177,7 @@ test("S1-15 Shadow sub-palette in AI Lab and Security; Broker stays brass", asyn
   await boot(page, "/?nw=200000");
   await page.getByTestId("tile-broker").click();
   for (const path of ["/ailab", "/security", "/legal"]) {
-    await page.evaluate((h) => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(h), `${path}?nw=200000`);
+    await page.evaluate((h) => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(h), withShroudFlags(`${path}?nw=200000`));
     await expect(page.getByTestId(`win-${path.slice(1)}`)).toBeVisible();
   }
   const read = (id: string) => page.getByTestId(`win-${id}`).first().evaluate((el) => {
