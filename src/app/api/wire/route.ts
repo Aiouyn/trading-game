@@ -4,6 +4,7 @@ import { isIdempotencyKey } from "@/server/player/privateState";
 import { getLiveMarket } from "@/server/market/clock";
 import { WIRE_POST_MAX_BODY_BYTES, WirePostError, mergePlayerStatements, playerPostToWireItem } from "@/server/wire/playerStatements";
 import { marksFromTicker } from "@/server/wire/statementResolve";
+import { assertMutationAllowed } from "@/server/mutationLimit";
 import { runTelemetryContext } from "@/server/telemetry";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     assertLocalSingleProcessAuth();
     assertSameOriginMutation(request);
+    await assertMutationAllowed(request);
     const type = request.headers.get("content-type") ?? "";
     if (!/^application\/json\b/i.test(type)) throw new AuthError("BAD_REQUEST", "Expected application/json.", 415);
     const view = await getAuthService().resolveSession(tokenFromRequest(request));
