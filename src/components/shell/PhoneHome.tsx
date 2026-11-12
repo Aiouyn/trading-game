@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPoi
 import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
+import { isBuiltApp } from "@/shell/appModules";
 import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
@@ -17,8 +18,11 @@ import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { HOME_EXAMPLE } from "./homeExample";
 
-const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
+const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
+/** Messages is not a V1 dock app and must not migrate into the Home grid (deep link /messages still works). */
+const GRID_OMIT = new Set<AppId>([...BOTTOM, "messages"]);
 const LONG_PRESS_MS = 400;
 /** Left-edge back swipe must start within this many px of the edge [P]. */
 const EDGE_START = 20;
@@ -162,6 +166,14 @@ function StatusBar() {
   const signedIn = isSignedIn(auth);
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
+  const pullCleanup = useRef<(() => void) | null>(null);
+  const clearPull = () => {
+    pullCleanup.current?.();
+    pullCleanup.current = null;
+    pullY.current = null;
+  };
+
+  useEffect(() => () => clearPull(), []);
   const { day, hhmm } = clockLabel(clock);
   const clockText = clockStrings(useShell((s) => s.prefs.locale)).phone(day, hhmm);
   const down = () => { timer.current = window.setTimeout(() => { timer.current = null; store.getState().setRecent(true); }, LONG_PRESS_MS); };
@@ -172,20 +184,35 @@ function StatusBar() {
     <header
       className="statusbar"
       data-testid="statusbar"
-      // Pull down from the status bar opens the full-screen launcher (SH-04).
+      // Pull down from the status bar opens the full-screen launcher (SH-04), including
+      // from over Feedback / the halt chip / the account chip. Listen on window so the
+      // pull is still seen after the pointer leaves the 44 px bar, and do not capture,
+      // so a click still reaches those controls.
       onPointerDown={(e) => {
-        if ((e.target as HTMLElement).closest("button")) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        pullY.current = e.clientY;
-      }}
-      onPointerUp={(e) => {
-        if (pullY.current !== null && e.clientY - pullY.current > 40) store.getState().setLauncher(true);
-        pullY.current = null;
+        if ((e.target as HTMLElement).closest("[data-testid='quay-mark']")) return;
+        clearPull();
+        const startY = e.clientY;
+        pullY.current = startY;
+        const onUp = (ev: PointerEvent) => {
+          const opened = pullY.current !== null && ev.clientY - startY > 40;
+          clearPull();
+          if (opened) {
+            ev.preventDefault();
+            store.getState().setLauncher(true);
+          }
+        };
+        window.addEventListener("pointerup", onUp, true);
+        window.addEventListener("pointercancel", clearPull, true);
+        pullCleanup.current = () => {
+          window.removeEventListener("pointerup", onUp, true);
+          window.removeEventListener("pointercancel", clearPull, true);
+        };
       }}
     >
       <button className="quay-mark fg" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
         <Glyph name="quay" size={20} />
       </button>
+      <FeedbackButton compact />
       <span className="num clock">{clockText}</span>
       <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />
       <HaltChip halted={halted} />
@@ -194,7 +221,6 @@ function StatusBar() {
           {auth.account.handle}
         </button>
       ) : null}
-      <FeedbackButton compact />
       <span className="sb-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
         {nw.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(nw.state)}>{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
       </span>
@@ -214,7 +240,9 @@ export function PhoneHome() {
   const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
-  const next = signedIn ? null : nextRankTarget(rank);
+  // Signed-in and guest both get the next-rank bar (M2-02 / 17 §3.2.3).
+  // Loading is not signed_in, so a Hustler bar is not invented before the session is known.
+  const next = nextRankTarget(rank);
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -247,11 +275,11 @@ export function PhoneHome() {
     </div>
   );
 
-  if (phoneApp) {
-    return (
-      <div className="phone" data-testid="phone" {...gestures}>
-        <StatusBar />
-        <PhoneBannerStack />
+  return (
+    <div className="phone" data-testid="phone" {...gestures}>
+      <StatusBar />
+      <PhoneBannerStack />
+      {phoneApp ? (
         <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
             <button className="icon-btn" aria-label={phoneSub?.backLabel ?? bar!.back} data-testid="app-back" onClick={() => (phoneSub ? phoneSub.onBack() : goBack())}><Glyph name="chevLeft" size={20} /></button>
@@ -261,19 +289,11 @@ export function PhoneHome() {
             <AppBody app={phoneApp.app} context={phoneApp.context} state={{ focused: true, collapsed: false, background: false }} />
           </div>
         </section>
-        {edgeBar}
-      </div>
-    );
-  }
-
-  return (
-    <div className="phone" data-testid="phone" {...gestures}>
-      <StatusBar />
-      <PhoneBannerStack />
+      ) : (
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.demoBalance : S.netWorth}</span>
+            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : S.netWorth}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
@@ -287,17 +307,20 @@ export function PhoneHome() {
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
             {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
           </div>
+          {auth.status === "loading" ? (
+            <div className="home-example-skel" data-testid="home-example-skel" aria-hidden="true" />
+          ) : !signedIn ? (
+            <p className="muted home-example-caption" data-testid="home-example-caption">{HOME_EXAMPLE.en.caption}</p>
+          ) : null}
           <div className="widget-row">
-            {signedIn ? (
-              <span className="today muted" data-testid="today">{S.demoTradingNote}</span>
-            ) : reading.nw === null ? null : (
+            {reading.nw === null ? null : (
               <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
             )}
-            {!signedIn && reading.nw !== null && <Sparkline />}
+            {/* Honest no-data stub until an NW series exists; never invented points. */}
+            {reading.nw !== null && <Sparkline />}
           </div>
           {signedIn ? (
             <>
-              <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
               <p data-testid="phone-goal">{S.goalLine}</p>
               <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="phone-first-trade-guide" onClick={() => store.getState().open("portfolio")}>{S.firstTradeGuide}</Button>
             </>
@@ -313,7 +336,7 @@ export function PhoneHome() {
         </section>
         <div className="app-grid" data-testid="app-grid">
           {GROUPS.map((g) => {
-            const apps = APP_IDS.filter((a) => APPS[a].group === g && vis[a] !== "hidden" && !BOTTOM.includes(a));
+            const apps = APP_IDS.filter((a) => APPS[a].group === g && isBuiltApp(a) && vis[a] !== "hidden" && !GRID_OMIT.has(a));
             if (apps.length === 0) return null;
             return (
               <section key={g} className="grid-group" data-testid={`group-${g}`}>
@@ -324,9 +347,13 @@ export function PhoneHome() {
           })}
         </div>
       </main>
-      <nav className="bottom-row" data-testid="bottom-row" data-dock={dock ? "1" : undefined} aria-label={S.shelf}>
+      )}
+      <div data-testid="consent-dock" />
+      {!phoneApp ? (
+      <nav className="bottom-row" data-testid="bottom-row" data-dock={dock ? "1" : undefined} data-cols={BOTTOM.length} aria-label={S.shelf}>
         {BOTTOM.map((a) => <AppIcon key={a} app={a} dock={dock} />)}
       </nav>
+      ) : null}
       {edgeBar}
     </div>
   );

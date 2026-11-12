@@ -25,6 +25,26 @@ function loadFixture(): CalibrationFixture {
   return JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as CalibrationFixture;
 }
 
+// Fixture numbers are JSON-decoded; Node 22 can differ from a stored float by an ulp (~2e-14 on cagrPct).
+// Ten decimal places is tighter than any displayed figure and still accepts that rounding.
+const FIXTURE_DIGITS = 10;
+function expectCloseNum(actual: number, expected: number, label: string) {
+  expect(actual, label).toBeCloseTo(expected, FIXTURE_DIGITS);
+}
+function expectClosePath(live: CalibrationFixture["gxPaths"][number], fixture: CalibrationFixture["gxPaths"][number]) {
+  expect(live.seed).toBe(fixture.seed);
+  expect(live.days).toBe(fixture.days);
+  expectCloseNum(live.start, fixture.start, "start");
+  expectCloseNum(live.end, fixture.end, "end");
+  expectCloseNum(live.min, fixture.min, "min");
+  expectCloseNum(live.cagrPct, fixture.cagrPct, "cagrPct");
+  expectCloseNum(live.maxDdPct, fixture.maxDdPct, "maxDdPct");
+}
+function expectCloseCloses(live: number[], fixture: number[]) {
+  expect(live).toHaveLength(fixture.length);
+  for (let i = 0; i < fixture.length; i++) expectCloseNum(live[i]!, fixture[i]!, `closes[${i}]`);
+}
+
 describe("day-count reconcile (05 §3.3.1 / 20)", () => {
   it("session Dy=260, crypto Dy=364, meme SDE DT keeps inherited 252", () => {
     expect(SESSION_DAYS_PER_YEAR).toBe(260);
@@ -67,10 +87,13 @@ describe("calibration bands (deterministic)", () => {
     expect(report.digestNote).toMatch(/digest/i);
     expect(report.seeds.length).toBe(12);
 
-    // Integrity: one live CAGR seed and one calm walk must still match the fixture exactly.
+    // Integrity: one live CAGR seed and one calm walk must still match the fixture (floats to 10 digits).
     const gx0 = fixture.gxPaths[0]!;
-    expect(liveGxPath(gx0.seed, gx0.days)).toEqual(gx0);
+    expectClosePath(liveGxPath(gx0.seed, gx0.days), gx0);
     const calm0 = fixture.calm.find((p) => p.assetId === "GX" && p.seed === fixture.params.seed)!;
-    expect(calmFeedCloses(calm0.assetId, calm0.seed, calm0.closes.length)).toEqual(calm0.closes);
-  }, 30_000);
+    expectCloseCloses(calmFeedCloses(calm0.assetId, calm0.seed, calm0.closes.length), calm0.closes);
+    // Live 60-day GX path + calm walk are heavy: ~16s alone, and can exceed 30s when the
+    // official suite runs many isolated workers (CI failed this file on the float compare
+    // after finishing; a 30s cap timed out the same test in a loaded local full run).
+  }, 60_000);
 });

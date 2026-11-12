@@ -20,22 +20,48 @@ export function asDefault<P extends object>(Cmp: ComponentType<P>): { default: C
   return { default: Cmp };
 }
 
-/** Factory so a failed import can be remounted, and tests can inject a throwing loader. */
-export function retryableLazy<P extends object>(load: () => Promise<{ default: ComponentType<P> }>) {
-  const make = () => lazy(load);
-  let current = make();
-  return class RetryableLazy extends Component<P & RetryableLazyProps, State> {
-    state: State = { failed: false };
-    private Body = current;
+type LazyState<P extends object> = { failed: boolean; body: ComponentType<P> | null };
 
-    static getDerivedStateFromError(): State {
+/** Factory so a failed import can be remounted, and tests can inject a throwing loader.
+ *  `suspense: false` loads the chunk without React.lazy / Suspense, so a paused test clock
+ *  cannot strand the panel behind React 19's ~300 ms Suspense reveal timer. The import itself
+ *  still resolves on the real clock. */
+export function retryableLazy<P extends object>(
+  load: () => Promise<{ default: ComponentType<P> }>,
+  opts?: { suspense?: boolean },
+) {
+  const useSuspense = opts?.suspense !== false;
+  const make = () => lazy(load);
+  let current = useSuspense ? make() : null;
+  return class RetryableLazy extends Component<P & RetryableLazyProps, LazyState<P>> {
+    state: LazyState<P> = { failed: false, body: null };
+    private Body = current;
+    private pending: Promise<void> | null = null;
+
+    static getDerivedStateFromError(): Partial<LazyState<object>> {
       return { failed: true };
     }
 
+    componentDidMount() { this.ensure(); }
+    componentDidUpdate() { this.ensure(); }
+
+    private ensure = () => {
+      if (useSuspense || this.state.failed || this.state.body || this.pending) return;
+      this.pending = load().then(
+        (m) => { this.pending = null; this.setState({ body: m.default, failed: false }); },
+        () => { this.pending = null; this.setState({ failed: true }); },
+      );
+    };
+
     private retry = () => {
-      if (this.Body === current) current = make();
-      this.Body = current;
-      this.setState({ failed: false });
+      if (useSuspense) {
+        if (this.Body === current) current = make();
+        this.Body = current;
+        this.setState({ failed: false });
+        return;
+      }
+      this.pending = null;
+      this.setState({ failed: false, body: null }, () => this.ensure());
     };
 
     render() {
@@ -55,7 +81,11 @@ export function retryableLazy<P extends object>(load: () => Promise<{ default: C
           </div>
         );
       }
-      return <Suspense fallback={fallback}>{createElement(this.Body, rest as unknown as P)}</Suspense>;
+      if (!useSuspense) {
+        if (!this.state.body) return fallback;
+        return createElement(this.state.body, rest as unknown as P);
+      }
+      return <Suspense fallback={fallback}>{createElement(this.Body!, rest as unknown as P)}</Suspense>;
     }
   };
 }

@@ -1,0 +1,356 @@
+import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  FileAuthStore,
+  MemoryAuthStore,
+  SESSION_IDLE_MS,
+  SESSION_MAX_MS,
+} from "@/server/auth";
+import {
+  ACTOR_BINDING_DEFAULT_ENABLED,
+  ActorBinding,
+  BindingError,
+  FileBindingStore,
+  MemoryBindingStore,
+  actorIdFor,
+  authorizeClaimed,
+  isIssuedActorContext,
+  makeCheckpoint,
+  parseCheckpoint,
+  requireBoundActor,
+  type BindingStore,
+} from "@/server/actor-binding";
+import { authService, cookieRequest, register, Clock } from "./fixture";
+
+class SpyStore implements BindingStore {
+  loads = 0;
+  saves = 0;
+  async load(): Promise<unknown | null> {
+    this.loads += 1;
+    throw new Error("STORE_TOUCHED");
+  }
+  async save(): Promise<void> {
+    this.saves += 1;
+    throw new Error("STORE_TOUCHED");
+  }
+}
+
+function expectCode(err: unknown, code: string): void {
+  expect(err).toBeInstanceOf(BindingError);
+  expect((err as BindingError).code).toBe(code);
+}
+
+async function expectReject(run: () => Promise<unknown>, code: string): Promise<void> {
+  try {
+    await run();
+    throw new Error(`expected ${code}`);
+  } catch (err) {
+    expectCode(err, code);
+  }
+}
+
+function walk(root: string, files: string[] = []): string[] {
+  for (const name of readdirSync(root)) {
+    if (name === "node_modules" || name === ".next" || name === "actor-binding") continue;
+    const path = join(root, name);
+    const st = statSync(path);
+    if (st.isDirectory()) walk(path, files);
+    else if (/\.(ts|tsx|js|mjs|cjs)$/.test(name)) files.push(path);
+  }
+  return files;
+}
+
+describe("actor-binding default-off boundary", () => {
+  it("is default-off and touches no store unless explicitly enabled", async () => {
+    expect(ACTOR_BINDING_DEFAULT_ENABLED).toBe(false);
+    const clock = new Clock();
+    const auth = authService(clock);
+    for (const enabled of [undefined, false, "true", 1, null, 0, "yes"]) {
+      const store = new SpyStore();
+      await expectReject(() => ActorBinding.open(auth, store, enabled === undefined ? undefined : { enabled }), "ACTOR_BINDING_DISABLED");
+      await expectReject(() => ActorBinding.open(auth, store), "ACTOR_BINDING_DISABLED");
+      expect(store.loads + store.saves).toBe(0);
+    }
+  });
+
+  it("is not imported by live app or server routes", () => {
+    const roots = [join(process.cwd(), "src/app"), join(process.cwd(), "src/server"), join(process.cwd(), "src/shell")];
+    const hits: string[] = [];
+    for (const root of roots) {
+      for (const file of walk(root)) {
+        const text = readFileSync(file, "utf8");
+        if (/server\/actor-binding|@\/server\/actor-binding/.test(text)) hits.push(file);
+      }
+    }
+    expect(hits).toEqual([]);
+  });
+});
+
+describe("actor-binding mapping and sessions", () => {
+  it("maps one account to one actor, including a second session and a file restart", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "actor-binding-"));
+    try {
+      const clock = new Clock();
+      const authFile = join(dir, "auth.json");
+      const bindFile = join(dir, "bind.json");
+      const auth = new (await import("@/server/auth")).AuthService({ store: new FileAuthStore(authFile), now: clock.now });
+      const a = await register(auth, "BindA");
+      const b = await register(auth, "BindB");
+      const first = await ActorBinding.open(auth, new FileBindingStore(bindFile), { enabled: true, now: clock.now });
+      const ctxA = await first.bindToken(a.rawToken);
+      const ctxB = await first.bindToken(b.rawToken);
+      expect(ctxA.accountId).toBe(a.view.account.accountId);
+      expect(ctxA.actorId).toBe(actorIdFor(a.view.account.accountId));
+      expect(ctxB.actorId).toBe(actorIdFor(b.view.account.accountId));
+      expect(ctxA.actorId).not.toBe(ctxB.actorId);
+      const again = await first.bindToken(a.rawToken);
+      expect(again.actorId).toBe(ctxA.actorId);
+      expect(again.boundAtMs).toBe(ctxA.boundAtMs);
+      const loginAgain = await auth.login({ handle: "BindA", password: "local-bind-test" });
+      const secondSession = await first.bindToken(loginAgain.rawToken);
+      expect(secondSession.actorId).toBe(ctxA.actorId);
+      expect(secondSession.sessionId).toBe(loginAgain.view.sessionId);
+      expect(secondSession.sessionId).not.toBe(ctxA.sessionId);
+      const bytes = await readFile(bindFile);
+      const restartedAuth = new (await import("@/server/auth")).AuthService({ store: new FileAuthStore(authFile), now: clock.now });
+      const restarted = await ActorBinding.open(restartedAuth, new FileBindingStore(bindFile), { enabled: true, now: clock.now });
+      const rebound = await restarted.bindToken(a.rawToken);
+      expect(rebound.actorId).toBe(ctxA.actorId);
+      expect(rebound.boundAtMs).toBe(ctxA.boundAtMs);
+      expect(rebound.accountId).toBe(ctxA.accountId);
+      expect(await readFile(bindFile)).toEqual(bytes);
+      expect(restarted.snapshot()).toEqual(first.snapshot());
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed for missing, malformed, unknown, expired and revoked sessions", async () => {
+    const clock = new Clock();
+    const auth = authService(clock);
+    const store = new MemoryBindingStore();
+    const binding = await ActorBinding.open(auth, store, { enabled: true, now: clock.now });
+    const a = await register(auth, "BindA");
+    await expectReject(() => binding.bindToken(null), "MISSING_SESSION");
+    await expectReject(() => binding.bindToken(undefined), "MISSING_SESSION");
+    await expectReject(() => binding.bindToken(""), "MISSING_SESSION");
+    await expectReject(() => binding.bindRequest(cookieRequest(null)), "MISSING_SESSION");
+    await expectReject(() => binding.bindToken("  token  "), "MALFORMED_SESSION");
+    await expectReject(() => binding.bindToken("has\nnewline"), "MALFORMED_SESSION");
+    await expectReject(() => binding.bindToken("x".repeat(300)), "MALFORMED_SESSION");
+    await expectReject(() => binding.bindToken(1), "MALFORMED_SESSION");
+    await expectReject(() => binding.bindToken({ token: a.rawToken }), "MALFORMED_SESSION");
+    await expectReject(() => binding.bindToken(new Date(clock.nowMs)), "MALFORMED_SESSION");
+    const unknown = "A".repeat(43);
+    await expectReject(() => binding.bindToken(unknown), "SESSION_REJECTED");
+    const expired = await register(auth, "BindExp");
+    clock.advance(SESSION_IDLE_MS + 1);
+    await expectReject(() => binding.bindToken(expired.rawToken), "SESSION_REJECTED");
+    clock.advance(-(SESSION_IDLE_MS + 1));
+    const maxed = await register(auth, "BindMax");
+    clock.advance(SESSION_MAX_MS + 1);
+    await expectReject(() => binding.bindToken(maxed.rawToken), "SESSION_REJECTED");
+    clock.advance(-(SESSION_MAX_MS + 1));
+    const living = await register(auth, "BindLive");
+    await auth.logout(living.rawToken);
+    await expectReject(() => binding.bindToken(living.rawToken), "SESSION_REJECTED");
+    expect(binding.snapshot().bindings).toEqual([]);
+  });
+
+  it("rejects spoofed actor ids, missing claims and cross-account commands", async () => {
+    const clock = new Clock();
+    const auth = authService(clock);
+    const binding = await ActorBinding.open(auth, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(auth, "BindA");
+    const b = await register(auth, "BindB");
+    const ctxA = await binding.bindRequest(cookieRequest(a.rawToken));
+    const ctxB = await binding.bindToken(b.rawToken);
+    await expectReject(() => binding.authorizeCommand(null, { actor: ctxA.actorId }), "MISSING_SESSION");
+    await expectReject(() => binding.authorizeCommand(a.rawToken, {}), "CLAIM_MISSING");
+    await expectReject(() => binding.authorizeCommand(a.rawToken, { actor: "" }), "CLAIM_MISSING");
+    await expectReject(() => binding.authorizeCommand(a.rawToken, { actor: 1 }), "CLAIM_MALFORMED");
+    await expectReject(() => binding.authorizeCommand(a.rawToken, { actor: a.view.account.accountId }), "CLAIM_MALFORMED");
+    await expectReject(() => binding.authorizeCommand(a.rawToken, "actor"), "CLAIM_MALFORMED");
+    const spoof = `chr_${"0".repeat(32)}`;
+    await expectReject(() => binding.authorizeCommand(a.rawToken, { actor: spoof }), "ACTOR_MISMATCH");
+    await expectReject(() => binding.authorizeCommand(a.rawToken, { actor: ctxB.actorId }), "ACTOR_MISMATCH");
+    await expectReject(() => binding.authorizeCommand(b.rawToken, { actor: ctxA.actorId }), "ACTOR_MISMATCH");
+    const ok = await binding.authorizeCommand(a.rawToken, { actor: ctxA.actorId });
+    expect(ok.actorId).toBe(ctxA.actorId);
+    const asWallet = await binding.authorizeCommand(a.rawToken, { wallet: ctxA.actorId }, "wallet");
+    expect(asWallet.actorId).toBe(ctxA.actorId);
+    const asAccount = await binding.authorizeCommand(a.rawToken, { account: ctxA.actorId }, "account");
+    expect(asAccount.actorId).toBe(ctxA.actorId);
+    expect(() => requireBoundActor(ctxA, ctxB.actorId)).toThrow(BindingError);
+    expect(() => authorizeClaimed(ctxA, { actor: ctxB.actorId })).toThrow(BindingError);
+  });
+
+  it("rejects Proxy, getters, toJSON, Date, sparse arrays, unknown fields and non-JSON checkpoints", async () => {
+    let traps = 0;
+    const handler = { get() { traps += 1; return undefined; } };
+    const clock = new Clock();
+    const auth = authService(clock);
+    const valid = makeCheckpoint([]);
+    expect(() => parseCheckpoint(new Proxy(valid, handler))).toThrow(BindingError);
+    const revocable = Proxy.revocable({ ...valid }, handler);
+    revocable.revoke();
+    expect(() => parseCheckpoint(revocable.proxy)).toThrow(BindingError);
+    // Nested proxy inside a plain load payload: await inspects `.then` on a root proxy, so the
+    // boundary is tested on the value parseCheckpoint walks, not on the awaited root.
+    await expect(ActorBinding.open(auth, { load: async () => ({ ...valid, bindings: new Proxy(valid.bindings, handler) }), save: async () => undefined }, { enabled: true })).rejects.toThrow(BindingError);
+    const cases: unknown[] = [
+      { ...valid, extra: 1 },
+      { v: 1, bindings: [], sha256: valid.sha256, toJSON: () => valid },
+      { v: 1, bindings: [undefined], sha256: valid.sha256 },
+      { v: 2, bindings: [], sha256: valid.sha256 },
+      { v: 1, bindings: valid.bindings, sha256: "ff".repeat(32) },
+      { v: 1, bindings: new Date(0), sha256: valid.sha256 },
+    ];
+    const sparse: unknown[] = [];
+    sparse[1] = { accountId: "acc_" + "0".repeat(32), actorId: "chr_" + "0".repeat(32), boundAtMs: 0 };
+    cases.push({ v: 1, bindings: sparse, sha256: valid.sha256 });
+    const getter = { v: 1, bindings: [], sha256: valid.sha256 };
+    Object.defineProperty(getter, "bindings", { enumerable: true, get() { traps += 1; return []; } });
+    cases.push(getter);
+    for (const bad of cases) {
+      await expect(ActorBinding.open(auth, { load: async () => bad, save: async () => undefined }, { enabled: true })).rejects.toThrow(BindingError);
+    }
+    const remapped = makeCheckpoint([{ accountId: "acc_" + "a".repeat(32) as never, actorId: "chr_" + "b".repeat(32) as never, boundAtMs: 1 }]);
+    await expect(ActorBinding.open(auth, { load: async () => remapped, save: async () => undefined }, { enabled: true })).rejects.toThrow(BindingError);
+    expect(traps).toBe(0);
+    const binding = await ActorBinding.open(auth, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(auth, "BindA");
+    const ctx = await binding.bindToken(a.rawToken);
+    await expectReject(() => binding.authorizeCommand(a.rawToken, new Proxy({ actor: ctx.actorId }, handler)), "CLAIM_MALFORMED");
+    expect(traps).toBe(0);
+    parseCheckpoint(binding.snapshot());
+    expect(parseCheckpoint(JSON.parse(JSON.stringify(binding.snapshot())))).toEqual(binding.snapshot());
+  });
+
+  it("peek binds without requiring a write when the account is already recorded", async () => {
+    const clock = new Clock();
+    const auth = authService(clock, new MemoryAuthStore());
+    const store = new MemoryBindingStore();
+    const binding = await ActorBinding.open(auth, store, { enabled: true, now: clock.now });
+    const a = await register(auth, "BindA");
+    const first = await binding.bindToken(a.rawToken);
+    const peeked = await binding.bindToken(a.rawToken, { refresh: false });
+    expect(peeked.actorId).toBe(first.actorId);
+  });
+});
+
+describe("actor-binding gatekeeper quals", () => {
+  it("ignores a polluted Object.prototype.enabled and never touches the store", async () => {
+    const auth = authService(new Clock(), new MemoryAuthStore());
+    const spy = new SpyStore();
+    const proto = Object.prototype as Record<string, unknown>;
+    proto.enabled = true;
+    proto.now = () => 0;
+    try {
+      await expectReject(() => ActorBinding.open(auth, spy, {}), "ACTOR_BINDING_DISABLED");
+      await expectReject(() => ActorBinding.open(auth, spy, Object.create({ enabled: true })), "ACTOR_BINDING_DISABLED");
+    } finally {
+      delete proto.enabled;
+      delete proto.now;
+    }
+    expect(spy.loads + spy.saves).toBe(0);
+  });
+
+  it("binds read-only by default: resolveSession is only used with refresh: true", async () => {
+    const clock = new Clock();
+    const auth = authService(clock, new MemoryAuthStore());
+    const calls: string[] = [];
+    const lookup = {
+      resolveSession: async (t: string | null | undefined) => { calls.push("resolve"); return auth.resolveSession(t); },
+      peekSession: async (t: string | null | undefined) => { calls.push("peek"); return auth.peekSession(t); },
+    };
+    const binding = await ActorBinding.open(lookup, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(auth, "BindQ");
+    await binding.bindToken(a.rawToken);
+    await binding.bindToken(a.rawToken, { refresh: false });
+    expect(calls).toEqual(["peek", "peek"]);
+    await binding.bindToken(a.rawToken, { refresh: true });
+    expect(calls).toEqual(["peek", "peek", "resolve"]);
+  });
+});
+
+describe("actor-binding file store", () => {
+  it("treats a missing file as empty and rejects a corrupt file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "actor-binding-file-"));
+    try {
+      const clock = new Clock();
+      const auth = authService(clock);
+      const path = join(dir, "missing", "bind.json");
+      const opened = await ActorBinding.open(auth, new FileBindingStore(path), { enabled: true, now: clock.now });
+      expect(opened.snapshot().bindings).toEqual([]);
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(opened.snapshot());
+      const bad = join(dir, "bad.json");
+      await writeFile(bad, "{not json");
+      await expect(ActorBinding.open(auth, new FileBindingStore(bad), { enabled: true })).rejects.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("actor-binding issued contexts", () => {
+  it("rejects a forged context, a structural clone, and a context reused after logout or expiry, and still accepts a real context", async () => {
+    const clock = new Clock();
+    const auth = authService(clock);
+    const binding = await ActorBinding.open(auth, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(auth, "BindA");
+    const ctx = await binding.bindToken(a.rawToken);
+    expect(isIssuedActorContext(ctx)).toBe(true);
+    await expect(binding.assertLiveSession(ctx)).resolves.toBeUndefined();
+    expect(requireBoundActor(ctx, ctx.actorId)).toBe(ctx.actorId);
+
+    const forged = { actorId: ctx.actorId, accountId: ctx.accountId, sessionId: ctx.sessionId, boundAtMs: ctx.boundAtMs };
+    expect(isIssuedActorContext(forged)).toBe(false);
+    try { requireBoundActor(forged as typeof ctx, ctx.actorId); throw new Error("expected FORGED_CONTEXT"); }
+    catch (err) { expectCode(err, "FORGED_CONTEXT"); }
+    await expectReject(() => binding.assertLiveSession(forged as typeof ctx), "FORGED_CONTEXT");
+
+    const cloned = structuredClone(ctx);
+    expect(isIssuedActorContext(cloned)).toBe(false);
+    try { requireBoundActor(cloned, ctx.actorId); throw new Error("expected FORGED_CONTEXT"); }
+    catch (err) { expectCode(err, "FORGED_CONTEXT"); }
+    await expectReject(() => binding.assertLiveSession(cloned), "FORGED_CONTEXT");
+
+    const live = await binding.bindToken(a.rawToken);
+    await auth.logout(a.rawToken);
+    await expectReject(() => binding.assertLiveSession(live), "SESSION_REJECTED");
+
+    const b = await register(auth, "BindB");
+    const ctxB = await binding.bindToken(b.rawToken);
+    clock.advance(SESSION_IDLE_MS + 1);
+    await expectReject(() => binding.assertLiveSession(ctxB), "SESSION_REJECTED");
+  });
+
+  it("rejects a live peek whose session or account no longer matches the issued context", async () => {
+    const clock = new Clock();
+    const inner = authService(clock);
+    let mode: "ok" | "session" | "account" = "ok";
+    const lookup = {
+      resolveSession: (token: string | null | undefined) => inner.resolveSession(token),
+      peekSession: async (token: string | null | undefined) => {
+        const view = await inner.peekSession(token);
+        if (!view || mode === "ok") return view;
+        if (mode === "session") return { ...view, sessionId: `ses_${"f".repeat(32)}` as typeof view.sessionId };
+        return { ...view, account: { ...view.account, accountId: `acc_${"e".repeat(32)}` as typeof view.account.accountId } };
+      },
+    };
+    const binding = await ActorBinding.open(lookup, new MemoryBindingStore(), { enabled: true, now: clock.now });
+    const a = await register(inner, "BindA");
+    const ctx = await binding.bindToken(a.rawToken);
+    await binding.assertLiveSession(ctx);
+    mode = "session";
+    await expectReject(() => binding.assertLiveSession(ctx), "SESSION_REJECTED");
+    mode = "account";
+    await expectReject(() => binding.assertLiveSession(ctx), "SESSION_REJECTED");
+    mode = "ok";
+    await binding.assertLiveSession(ctx);
+  });
+});

@@ -23,9 +23,14 @@ function buildSha(): string {
 const dsOn = process.env.NODE_ENV !== "production" || process.env.QUAY_DS === "1";
 const dsNotices = dsOn ? "./src/app/%5F_ds/notices/NoticesSheet.tsx" : "./src/app/%5F_ds/notices/NoticesSheet.off.tsx";
 const dsPrimitives = dsOn ? "./src/app/%5F_ds/DesignSystemSheet.tsx" : "./src/app/%5F_ds/DesignSystemSheet.off.tsx";
+// M1-10 mounts a static DistrictView, so the 3D renderer is no longer on the default City graph.
+// Keep the renderer (and its hook strings) in the CITY_E2E=1 Next build only, via the same
+// resolve-alias pattern as the /__ds sheets, so the prod-hook control cannot pass vacuously.
+const cityE2eOn = process.env.NEXT_PUBLIC_CITY_E2E === "1";
+const cityE2eSeam = cityE2eOn ? "./src/apps/city/e2eRendererSeam.ts" : "./src/apps/city/e2eRendererSeam.off.ts";
 
 const nextConfig: NextConfig = {
-  turbopack: { root, resolveAlias: { "@/city": cityEntry, "@ds/notices-sheet": dsNotices, "@ds/primitives-sheet": dsPrimitives } },
+  turbopack: { root, resolveAlias: { "@/city": cityEntry, "@ds/notices-sheet": dsNotices, "@ds/primitives-sheet": dsPrimitives, "@city-e2e-seam": cityE2eSeam } },
   outputFileTracingRoot: root,
   // Test-only gates and hook flags are ALWAYS defined (as "1" or "0") so the bundler inlines a literal and folds
   // the gate: an unset var would stay a runtime `process.env` read and the hook / dev-only /__ds code would ship.

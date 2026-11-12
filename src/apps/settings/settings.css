@@ -98,3 +98,8 @@ html[data-motion="reduce"] .set-switch-knob { transition: none; }
 .account-starter { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-8); flex-wrap: wrap; }
 .strip-demo-tag { font-size: var(--fs-13); }
 .strip-account, .sb-account { cursor: pointer; border: 0; font: inherit; }
+
+.account-start { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+.account-details { margin: 0; }
+.account-details summary { cursor: pointer; color: var(--fg-muted); font-size: var(--fs-13); }
+.account-details .set-hint { margin-top: var(--sp-8); }

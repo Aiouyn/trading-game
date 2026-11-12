@@ -51,6 +51,8 @@ export interface SimpleTicketProps {
   /** A whole draft with no preview for these exact inputs yet (debounce, or the per-tick cap): Review stays disabled. */
   pending: boolean;
   reviewDisabled: boolean;
+  /** Card 19: why Review is disabled when it is not the draft's fault (connection lost, prices updating); shown next to it. */
+  reviewReason?: string | null;
   onReview: () => void;
   readOnly: boolean;
   qtyRef: RefObject<HTMLInputElement | null>;
@@ -60,8 +62,9 @@ export interface SimpleTicketProps {
   kind: string;
 }
 
-export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlur, message, preview, pending, reviewDisabled, onReview, readOnly, qtyRef, orderType, kind }: SimpleTicketProps) {
+export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlur, message, preview, pending, reviewDisabled, reviewReason = null, onReview, readOnly, qtyRef, orderType, kind }: SimpleTicketProps) {
   const msgId = "br-qty-msg";
+  const reasonId = "br-review-reason";
   return (
     <section className="br-ticket" data-testid="br-ticket" aria-label={kind}>
       <div className="br-field">
@@ -90,7 +93,9 @@ export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlu
       {preview && <PreviewRows t={t} locale={locale} res={preview} />}
       {pending && <p className="br-refreshing muted" role="status" data-testid="br-est-pending">{t.refreshing}</p>}
       <p className="br-note muted" data-testid="br-note">{t.note}</p>
-      <Button variant="secondary" className="br-review" data-testid="br-review" disabled={reviewDisabled} onClick={onReview}>{t.review}</Button>
+      <Button variant="secondary" className="br-review" data-testid="br-review" disabled={reviewDisabled} onClick={onReview}
+        aria-describedby={reviewDisabled && reviewReason ? reasonId : undefined}>{t.review}</Button>
+      {reviewDisabled && reviewReason && <p id={reasonId} className="br-review-reason muted" role="status" data-testid="br-review-reason">{reviewReason}</p>}
     </section>
   );
 }
