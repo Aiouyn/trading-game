@@ -356,7 +356,7 @@ for (const scale of ["1", "2"] as const) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await bootPaused(page, "/settings");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: /^Back/i }).click();
     await page.getByTestId("icon-broker").click();
     await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
     await page.getByTestId("br-asset-select").selectOption("HALC");

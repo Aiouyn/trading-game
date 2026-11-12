@@ -37,7 +37,7 @@ async function bootPhoneWire(page: Page, scale: "1" | "2", query = "") {
   await bootPaused(page, `/settings${query}`);
   await page.clock.resume();
   await setTextScale(page, scale);
-  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: /^Back/i }).click();
   await page.getByTestId("icon-wire").click();
   await expect(wire(page)).toHaveAttribute("data-state", "live");
   await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 200));

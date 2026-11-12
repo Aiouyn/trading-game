@@ -311,7 +311,7 @@ for (const scale of ["1", "2"] as const) {
     await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
     await boot(page, "/settings");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: /^Back/i }).click();
     await page.getByTestId("icon-portfolio").click();
     const nav = page.getByTestId("pf-open-orders");
     await expect(nav).toBeVisible();

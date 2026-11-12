@@ -32,7 +32,7 @@ async function openPortfolio(page: Page, query = "") {
 // Text scale lives in the shell store for this document: open Portfolio in-app after changing it, not via a reload.
 async function openPortfolioInApp(page: Page, project: string) {
   if (project === "phone") {
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: /^Back/i }).click();
     await page.getByTestId("icon-portfolio").click();
   } else {
     await page.getByTestId("tile-portfolio").click();
@@ -278,7 +278,7 @@ test("PF-2-10 phone: Overview root, Positions push with 'Back to Portfolio', hit
   for (const scale of ["1", "2"]) {
     await boot(page, "/settings");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: /^Back/i }).click();
     await page.getByTestId("icon-portfolio").click();
     await expect(pf(page)).toHaveAttribute("data-state", "live");
     await expect(page.getByTestId("app-title")).toHaveText("Portfolio");
