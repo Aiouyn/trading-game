@@ -14,7 +14,7 @@ test("S1-13 phone home: status bar 44, 4-col 60×60 grid, 5 groups, bottom row, 
   const cols = await page.getByTestId("group-build").locator(".grid4").evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
   expect(cols).toBe(4);
   const bottom = await page.getByTestId("bottom-row").locator("[data-testid^=icon-]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-  expect(bottom).toEqual(["icon-broker", "icon-portfolio", "icon-wire", "icon-messages"]);
+  expect(bottom).toEqual(["icon-broker", "icon-portfolio", "icon-wire"]);
   for (const id of ["broker", "portfolio", "wire", "messages"]) await expect(page.getByTestId("app-grid").getByTestId(`icon-${id}`)).toHaveCount(0);
   const noHScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && Array.from(document.querySelectorAll("*")).every((e) => e.getBoundingClientRect().right <= window.innerWidth + 0.5));
   expect(await noHScroll()).toBe(true);
@@ -52,7 +52,7 @@ test("S1-07 phone: ComingLater full screen and deep link", async ({ page }) => {
 
 test("S1-14 long-press 400 ms on the Quay mark opens Recent with ≤ 6 entries", async ({ page }) => {
   await boot(page);
-  for (const id of ["markets", "wire", "broker", "portfolio", "messages", "bank", "funds", "insurance"]) {
+  for (const id of ["markets", "wire", "broker", "portfolio", "bank", "funds", "insurance"]) {
     await page.getByTestId(`icon-${id}`).click();
     await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
   }
