@@ -44,6 +44,13 @@ describe("minimum sizes (S1-12)", () => {
     expect(openApp([], "broker", A).focused).toMatchObject({ w: 840, h: 640 });
     expect(openApp([], "wire", A).focused.h).toBe(560);
   });
+  it("Launchpad opens wide (three board cards per row, ticket beside the candles), clamped to the work area", () => {
+    const f = openApp([], "launchpad", A).focused;
+    expect(f.w).toBe(Math.min(A.w, 1180));
+    expect(f.h).toBe(Math.min(A.h, 760));
+    const small = { ...A, w: 900, h: 600 };
+    expect(openApp([], "launchpad", small).focused).toMatchObject({ w: 900, h: 600 });
+  });
   it("every app clamps to its §2 minimum", () => {
     expect(clampSize("wire", 1, 1, 1424)).toEqual({ w: 360, h: 280 });
     expect(clampSize("portfolio", 1, 1, 1424)).toEqual({ w: 520, h: 220 });
