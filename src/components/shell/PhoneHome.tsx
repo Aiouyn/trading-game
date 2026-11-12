@@ -17,6 +17,7 @@ import { useShell, useShellStore } from "./ShellContext";
 import { useNw } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { HOME_EXAMPLE } from "./homeExample";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
 /** Messages is not a V1 dock app and must not migrate into the Home grid (deep link /messages still works). */
@@ -284,6 +285,11 @@ export function PhoneHome() {
             <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
           ) : null}
           <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>
+          {auth.status === "loading" ? (
+            <div className="home-example-skel" data-testid="home-example-skel" aria-hidden="true" />
+          ) : !signedIn ? (
+            <p className="muted home-example-caption" data-testid="home-example-caption">{HOME_EXAMPLE.en.caption}</p>
+          ) : null}
           <div className="widget-row">
             <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
             {/* Honest no-data stub until an NW series exists; never invented points. */}
