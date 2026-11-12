@@ -66,6 +66,7 @@ export class ServerSync {
     }
     this.f.tick = snap.tick;
     this.f.quotesAdopted = true;
+    this.f.quotesOk(); // card 19: connection live again, backoff reset
     if (snap.fear !== undefined && snap.riskAppetite !== undefined) {
       this.f.fearIndex = snap.fear;
       this.f.riskAppetite = snap.riskAppetite;

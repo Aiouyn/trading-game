@@ -63,6 +63,8 @@
 .br-msg.muted, .br-note, .br-kind { color: var(--fg-muted); }
 .br-queued { color: var(--fg-muted); }
 .br-review { align-self: flex-start; }
+/* Card 19: why Review / Place is disabled during an outage, right under it (wraps; never truncated). */
+.br-review-reason { margin: 0; color: var(--fg-muted); overflow-wrap: break-word; }
 
 /* Estimate rows */
 .br-est { display: flex; flex-direction: column; gap: var(--sp-8); }
@@ -163,3 +165,5 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-stacked .br-row dd { text-align: left; }
 
 /* High contrast: data-hc raises --line, so the segment, input, select, review and ack borders above stay visible. */
+
+.br-disclaimer { margin: var(--sp-8) 0 0; font-size: var(--fs-12_5, 0.8125rem); text-align: center; }
