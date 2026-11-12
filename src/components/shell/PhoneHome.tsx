@@ -17,7 +17,9 @@ import { useNw } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 
-const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
+const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
+/** Messages is not a V1 dock app and must not migrate into the Home grid (deep link /messages still works). */
+const GRID_OMIT = new Set<AppId>([...BOTTOM, "messages"]);
 const LONG_PRESS_MS = 400;
 /** Left-edge back swipe must start within this many px of the edge [P]. */
 const EDGE_START = 20;
@@ -300,7 +302,7 @@ export function PhoneHome() {
         </section>
         <div className="app-grid" data-testid="app-grid">
           {GROUPS.map((g) => {
-            const apps = APP_IDS.filter((a) => APPS[a].group === g && vis[a] !== "hidden" && !BOTTOM.includes(a));
+            const apps = APP_IDS.filter((a) => APPS[a].group === g && vis[a] !== "hidden" && !GRID_OMIT.has(a));
             if (apps.length === 0) return null;
             return (
               <section key={g} className="grid-group" data-testid={`group-${g}`}>
@@ -311,7 +313,7 @@ export function PhoneHome() {
           })}
         </div>
       </main>
-      <nav className="bottom-row" data-testid="bottom-row" data-dock={dock ? "1" : undefined} aria-label={S.shelf}>
+      <nav className="bottom-row" data-testid="bottom-row" data-dock={dock ? "1" : undefined} data-cols={BOTTOM.length} aria-label={S.shelf}>
         {BOTTOM.map((a) => <AppIcon key={a} app={a} dock={dock} />)}
       </nav>
       {edgeBar}
