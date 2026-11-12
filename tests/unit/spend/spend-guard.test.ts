@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -25,23 +24,9 @@ import { GamePaused } from "@/shell/contracts/network";
 import { marketDayDraft, placeOrder, type AssetId, type OrderTransport, type WholeQty } from "@/shell/contracts/orders";
 import { FEED_TICK_MS } from "@/shell/contracts/mockFeed";
 import { runReady } from "../../../tools/ops/ready";
+import { spawnBootRegister, withTempStore } from "../../helpers/spawnBootRegister";
 
 const SECRET = "super-secret-value";
-
-function bootRegister(extra: Record<string, string>): { status: number | null; stderr: string } {
-  const env: Record<string, string | undefined> = { ...process.env };
-  delete env.QUAY_SPEND_OPT_IN;
-  delete env.QUAY_KILL_SWITCH;
-  delete env.DATABASE_URL;
-  delete env.VERCEL;
-  Object.assign(env, extra);
-  const result = spawnSync(
-    path.join(process.cwd(), "node_modules", ".bin", "tsx"),
-    ["tools/ops/boot-register.ts"],
-    { cwd: process.cwd(), env: env as NodeJS.ProcessEnv, encoding: "utf8", timeout: 30_000 },
-  );
-  return { status: result.status, stderr: result.stderr ?? "" };
-}
 
 const SAMPLES: { id: PaidProviderId; key: string; value: string }[] = [
   { id: "hosting", key: "VERCEL", value: "1" },
@@ -106,15 +91,15 @@ describe("M3-06 spend guard", () => {
     expect(() => resolveSpendGuard({ QUAY_KILL_SWITCH: " 1" })).toThrow(/QUAY_KILL_SWITCH must be unset or exactly "1"/);
     expect(() => resolveSpendGuard({ QUAY_SPEND_OPT_IN: "1", DATABASE_URL: "not-a-url" })).toThrow(/DATABASE_URL/);
     expect(resolveSpendGuard({ QUAY_SPEND_OPT_IN: "1", DATABASE_URL: "https://db.example" }).enabled).toContain("database");
-    await expect(register()).resolves.toBeUndefined();
+    await withTempStore(() => expect(register()).resolves.toBeUndefined());
   });
 
   it("register exits non-zero when a paid URL is set without an exact opt-in", () => {
-    const refuse = bootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: " 1" });
+    const refuse = spawnBootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: " 1" });
     expect(refuse.status).toBe(1);
     expect(refuse.stderr).toMatch(/QUAY_SPEND_OPT_IN/);
     expect(refuse.stderr).not.toContain("example.supabase.co");
-    const allow = bootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: "1" });
+    const allow = spawnBootRegister({ DATABASE_URL: "https://example.supabase.co", QUAY_SPEND_OPT_IN: "1" });
     expect(allow.status).toBe(0);
   });
 

@@ -49,6 +49,7 @@ describe("preflight phases ↔ CI parity (bidirectional)", () => {
       "lint",
       "lesson13",
       "next-start-host",
+      "spawn-temp-store",
       "ledger-no-dup",
       "typecheck",
       "build",

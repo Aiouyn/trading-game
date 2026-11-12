@@ -20,6 +20,8 @@ jobs:
       - run: npm run ci:lesson13
       # Lesson 31: next start must pass -H/--hostname or the bind guard exits 1.
       - run: npm run ci:next-start-host
+      # Test spawns of boot-register / next start must use a temp store (tools/ci/spawn-temp-store.mjs).
+      - run: npm run ci:spawn-temp-store
       - run: npm run typecheck
       - run: npm run build
       # AC-HOOKS-PROD: the build above has no e2e flags; neither its client nor its server output may contain a test/mock hook or /__ds code.

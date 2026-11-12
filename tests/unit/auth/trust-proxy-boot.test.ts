@@ -7,6 +7,7 @@ import {
   assertTrustProxyForExposedHost,
   decodeProcAddress,
 } from "@/server/auth/bind";
+import { spawnBootRegister } from "../../helpers/spawnBootRegister";
 
 function boot(script: string, args: string[], extra: Record<string, string>): { status: number | null; stderr: string } {
   const env: Record<string, string | undefined> = { ...process.env };
@@ -58,17 +59,17 @@ describe("trust-proxy boot", () => {
 
   it("boot-register exits 1 for a public host and 0 for loopback or an exact flag", () => {
     const secret = "super-secret-host.example";
-    const refused = boot("tools/ops/boot-register.ts", [], { QUAY_PUBLIC_HOST: secret });
+    const refused = spawnBootRegister({ QUAY_PUBLIC_HOST: secret });
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain('QUAY_TRUST_PROXY is not exactly "1"');
     expect(refused.stderr).not.toContain(secret);
     expect(refused.stderr.trim().split("\n")).toHaveLength(1);
 
-    expect(boot("tools/ops/boot-register.ts", [], { QUAY_PUBLIC_HOST: secret, QUAY_TRUST_PROXY: "1" }).status).toBe(0);
-    expect(boot("tools/ops/boot-register.ts", [], { QUAY_PUBLIC_HOST: secret, QUAY_TRUST_PROXY: "true" }).status).toBe(1);
-    expect(boot("tools/ops/boot-register.ts", [], { QUAY_PUBLIC_HOST: "127.0.0.1:3000" }).status).toBe(0);
-    expect(boot("tools/ops/boot-register.ts", [], { QUAY_PUBLIC_HOST: "localhost" }).status).toBe(0);
-    expect(boot("tools/ops/boot-register.ts", [], { QUAY_PUBLIC_HOST: "[::1]:3000" }).status).toBe(0);
+    expect(spawnBootRegister({ QUAY_PUBLIC_HOST: secret, QUAY_TRUST_PROXY: "1" }).status).toBe(0);
+    expect(spawnBootRegister({ QUAY_PUBLIC_HOST: secret, QUAY_TRUST_PROXY: "true" }).status).toBe(1);
+    expect(spawnBootRegister({ QUAY_PUBLIC_HOST: "127.0.0.1:3000" }).status).toBe(0);
+    expect(spawnBootRegister({ QUAY_PUBLIC_HOST: "localhost" }).status).toBe(0);
+    expect(spawnBootRegister({ QUAY_PUBLIC_HOST: "[::1]:3000" }).status).toBe(0);
   });
 
   it("a real listen socket refuses 0.0.0.0 and ::, and allows loopback", () => {
