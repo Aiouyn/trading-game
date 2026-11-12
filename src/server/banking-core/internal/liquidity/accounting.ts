@@ -41,6 +41,14 @@ export const encumbered = (s: LiquidityState, a: LiquidityAsset, bankId: string)
 export const loanAsset = (a: LiquidityAsset): boolean => a.kind === "LOAN" || a.kind === "MORTGAGE";
 export const assetPosition = (a: LiquidityAsset, bankId: string): Money => a.holdings.filter(h => h.bankId === bankId).reduce((n, h) => n + h.quantity, ZERO);
 export function restrictedReserves(s:LiquidityState,bankId:string):Money{const core=s as CoreState;let sum=ZERO;for(const row of core.cashOwnership??[]){if(row.bankId!==bankId)continue;const a=s.accounts.find(a=>a.id===row.accountId)!;sum+=balance(a)*BigInt(row.weightPpm)/MICRO;}return sum;}
+/**
+ * 07 §3.10.1/§3.17.6/§3.17.8 steps 1-2: a bank's own CCP house member's IM and DF are first-loss resources of a member
+ * default that the bank's failure makes certain (or that is declared for any §3.17.6 cause). From the failure tick until
+ * the close-out loss of that default is applied (§3.17.7 step 4; recovery is then exactly the unconsumed custody), they are
+ * a Stage 3 claim with recovery 0 (07 §3.10.2, :458): a CET1 deduction and, net of that provision, 0 RWA (07 §3.2.1
+ * "Defaulted exposures (net of provisions)"). No cash or balance-sheet entry moves.
+ */
+export function ccpRingFence(s:LiquidityState,bankId:string):Money{const core=s as CoreState,cfg=core.config?.ccp;if(!cfg)return ZERO;const failed=(id:string|null)=>id!==null&&s.banks.find(b=>b.id===id)?.failedAt!=null;let sum=ZERO;for(const m of cfg.members){if(m.wallet.kind!=="BANK"||m.wallet.id!==bankId)continue;for(const a of m.accounts){const events=(core.ccpMeta?.defaults??[]).filter(e=>e.memberId===m.id&&e.service===a.service),last=events.at(-1);const active=last?last.closeout===null&&last.stage!=="CLOSED"&&last.stage!=="SHORTFALL":failed(m.bankId);if(!active)continue;for(const id of [a.marginAccountId,a.dfAccountId])sum+=balance(s.accounts.find(x=>x.id===id)!);}}return sum;}
 export function liquiditySheet(s: LiquidityState, b: LiquidityBank) {
     const core=s as CoreState, interbankAssets=s.notes.filter(n=>n.creditor===b.id&&n.instrument==="INTERBANK").reduce((n,x)=>n+x.amount,ZERO), accruedAssets=(core.bankingMeta?.interbank??[]).filter(l=>l.lenderId===b.id).reduce((n,l)=>n+l.accrued,ZERO), accruedDebt=(core.bankingMeta?.interbank??[]).filter(l=>l.borrowerId===b.id).reduce((n,l)=>n+l.accrued,ZERO), depositInterest=(core.bankingMeta?.products??[]).filter(p=>s.accounts.find(a=>a.id===p.id)?.bankId===b.id).reduce((n,p)=>n+p.interestDue,ZERO), restricted=restrictedReserves(s,b.id), noncash = s.assets.reduce((n, a) => n + marked(a, assetPosition(a, b.id)), ZERO)+interbankAssets+accruedAssets, assets = b.reserves + restricted + noncash, deposits = bankDeposits(s, b.id), other = s.notes.filter(n => n.bankId === b.id).reduce((v, n) => v + n.amount, ZERO)+accruedDebt+depositInterest;
     return { assets, noncash, deposits, other, reserves:b.reserves+restricted, availableReserves:b.reserves,restrictedReserves:restricted, equity: assets - deposits - other };
@@ -88,8 +96,8 @@ export function liquidityMetrics(s: LiquidityState, b: LiquidityBank) {
     const f = s.facts?.banks.find(f => f.bankId === b.id);
     if (!f)
         throw new Error("LIQUIDITY_NO_OBSERVATION");
-    const sheet = liquiditySheet(s, b), cet1 = sheet.equity - f.intangibles - f.dta - f.unbookedLoss;
-    let rwa = f.rwaAddon+sheet.restrictedReserves, l1 = b.reserves, l2a = ZERO, l2b = ZERO, rsf = sheet.restrictedReserves;
+    const sheet = liquiditySheet(s, b), ringFenced = ccpRingFence(s, b.id), cet1 = sheet.equity - f.intangibles - f.dta - f.unbookedLoss - ringFenced;
+    let rwa = f.rwaAddon+sheet.restrictedReserves-ringFenced, l1 = b.reserves, l2a = ZERO, l2b = ZERO, rsf = sheet.restrictedReserves;
     for (const a of s.assets) {
         const v = marked(a, assetPosition(a, b.id));
         rwa += fraction(v, a.rwPpm);
@@ -121,9 +129,9 @@ export function liquidityMetrics(s: LiquidityState, b: LiquidityBank) {
         }
     }
     const inflow = minMoney(fraction(out, 750000), fraction(f.loanInflows, 500000) + f.interbankInflows), netOut = out - inflow;
-    const leverageDenominator = sheet.assets + fraction(f.commitments + f.financialCommitments, 100000) + f.derivativeExposure;
+    const leverageDenominator = sheet.assets - ringFenced + fraction(f.commitments + f.financialCommitments, 100000) + f.derivativeExposure;
     const tier1 = cet1 + s.notes.filter(n => n.bankId === b.id && n.rank === "AT1").reduce((n, x) => n + x.amount, ZERO);
-    return { ...sheet, cet1, tier1, rwa, requirementPpm: 70000 + f.ccybPpm + b.sibSurchargePpm, hqla, netOut, asf, rsf, leverageDenominator, leverageOk: tier1 * MICRO >= leverageDenominator * BigInt(b.sib ? 35000 : 30000), lcrOk: hqla >= netOut, nsfrOk: asf >= rsf };
+    return { ...sheet, ccpRingFenced: ringFenced, cet1, tier1, rwa, requirementPpm: 70000 + f.ccybPpm + b.sibSurchargePpm, hqla, netOut, asf, rsf, leverageDenominator, leverageOk: tier1 * MICRO >= leverageDenominator * BigInt(b.sib ? 35000 : 30000), lcrOk: hqla >= netOut, nsfrOk: asf >= rsf };
 }
 export function assertLiquidityAccounting(s: LiquidityState): void {
     if (s.mmfClaims.reduce((n, c) => n + c.amount, ZERO) !== s.mmfCash || s.mmfClaims.some(c => c.amount < ZERO))

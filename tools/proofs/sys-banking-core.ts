@@ -202,6 +202,8 @@ async function main() {
         // The causal frames equal the old two-pass placement rule applied to the observed failure tick.
         assert.equal(wire(frames), wire(build(g, TARGET, o, edit(failedAt))), "single-pass frames equal the placement rule");
         for (const later of failures.slice(1)) assert(later.failedAt > failedAt + CLOSEOUT_DELAY, "a later failure can only follow the closeout");
+        // 07 ring-fence (unit doc "Decision: the post-closeout second failure"): the bank's own CCP close-out is never a second hit.
+        assert.deepEqual(failures.map(x => x.failedAt), [failedAt], "exactly one resolution of bank a");
         crossModule = { chunk: CHUNK, chunks: Math.ceil((TARGET + 1) / CHUNK), firstFailedAt: failedAt, observedAtTick: observedAt, closeoutTick: failedAt + CLOSEOUT_DELAY, failures, framesSha256: sha(wire(frames)), planningPass: false };
         const fa = failedAt;
         await scenario(out, "cross-module", "loan-run-bailin-ccp-default", g, frames, TARGET, s => {
