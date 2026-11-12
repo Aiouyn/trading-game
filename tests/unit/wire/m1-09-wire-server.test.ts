@@ -17,7 +17,7 @@ import { GET as wireRoute } from "@/app/api/wire/route";
 import { CAUSES } from "@/apps/wire/causes";
 import { EN } from "@/apps/wire/strings";
 import { ASSET_BY_ID } from "@/market/catalog";
-import { CRISES, COMPANY_STORIES, STORY_EVERY, crisisHits, storyAt, type StoryDef } from "@/market/wireStories";
+import { CRISES, COMPANY_STORIES, STORY_EVERY, STORY_SEVERITY_MAX, crisisHits, storyAt, type StoryDef } from "@/market/wireStories";
 import { parseWireSnapshot, type WireSnapshot } from "@/market/wireSnapshot";
 import { AuthService, MemoryAuthStore, SESSION_COOKIE_NAME, setAuthServiceForTests, type AuthStore, type AuthStoreSnapshot } from "@/server/auth";
 import { setBrokerForTests } from "@/server/broker";
@@ -82,7 +82,7 @@ describe("M1-09 story schedule", () => {
     expect(new Set(all.filter((s) => !s.crisis).map((s) => s.defId))).toEqual(new Set(COMPANY_STORIES.map((c) => c.defId)));
     for (const s of all) {
       for (const id of s.assets) expect(ASSET_BY_ID[id], id).toBeDefined();
-      for (const e of s.effects) { expect(s.assets).toContain(e.assetId); expect(Math.abs(e.bp)).toBeLessThanOrEqual(600); expect(e.bp).not.toBe(0); }
+      for (const e of s.effects) { expect(s.assets).toContain(e.assetId); expect(Math.abs(e.bp)).toBeLessThanOrEqual(Math.round(600 * STORY_SEVERITY_MAX)); expect(e.bp).not.toBe(0); }
       expect(EN.headlines[s.headlineKey], s.headlineKey).toBeDefined();
       expect(CAUSES[s.causeKey], s.causeKey).toBeDefined();
     }

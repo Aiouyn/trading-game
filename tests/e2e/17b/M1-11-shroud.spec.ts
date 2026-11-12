@@ -46,6 +46,16 @@ test.describe("default flags", () => {
     await expect(page.getByTestId("quay-ready")).toHaveCount(0);
   });
 
+  test("backslash, leftover escapes, .json, NUL and a locale prefix are 404", async ({ page, request }) => {
+    const paths = ["/bank%5Cdesk", "/api/bank%5Cdraw", "/bank.json", "/bank%00", "/en/bank", "/bank%252525252Fdesk"];
+    for (const path of paths) {
+      expect((await request.get(path)).status(), path).toBe(404);
+      const res = await page.goto(path);
+      expect(res?.status(), path).toBe(404);
+      await expect(page.getByTestId("quay-ready"), path).toHaveCount(0);
+    }
+  });
+
   test("case, encoded slashes and .rsc do not return the shell", async ({ page }) => {
     for (const path of ["/Bank", "/api/Bank", "/api/bank%2Fdraw", "/bank%2Fdesk", "/bank.rsc"]) {
       const res = await page.goto(path);
