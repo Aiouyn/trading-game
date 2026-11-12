@@ -47,10 +47,10 @@ Covered sources:
 `sync_commit` is the commit at which this check was last confirmed to describe those files. Move it forward only after you have read the diff of the covered files, updated the check so it still describes them, rerun `npm run test:formal-money`, and seen each property fail on a scratch break (below) before you restore the product code.
 
 ```
-sync_commit: f8f51ad92273214eafd0a0d06afa4c0b79fabaec
+sync_commit: 6bfb1909980bc29598f219e89f3d3509aa7599ac
 ```
 
-`f8f51ad92273214eafd0a0d06afa4c0b79fabaec` is the product tree this check was written against (`origin/main` at the Broker idempotency merge). The commit that adds the check does not change those sources. After that commit, set `sync_commit` to it once the run above has passed on that commit. If a later commit edits a covered file and does not move `sync_commit`, the check can still pass while describing code that is gone. Run `/maintain-formal-verification-skill`.
+`6bfb1909980bc29598f219e89f3d3509aa7599ac` is the commit that added this check. `npm run test:formal-money` passed on that commit, and the three scratch breaks below failed there and were restored before the commit. The product sources are still the tree of `f8f51ad92273214eafd0a0d06afa4c0b79fabaec`. A later commit may only record this SHA in this file; that recording commit does not change the check or the covered sources. If a commit after `sync_commit` edits a covered file and does not move `sync_commit`, the check can still pass while describing code that is gone. Run `/maintain-formal-verification-skill`.
 
 ## How to tell a bug from a stale check
 

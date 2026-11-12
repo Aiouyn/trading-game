@@ -2,7 +2,7 @@
 
 Notes for the money-conservation check. Not a product change. `UNIT.md` is untouched.
 
-**Product tree read:** `f8f51ad92273214eafd0a0d06afa4c0b79fabaec` (`origin/main`, Broker idempotency merge).
+**Product tree read:** `f8f51ad92273214eafd0a0d06afa4c0b79fabaec` (`origin/main`, Broker idempotency merge). The check was confirmed at `6bfb1909980bc29598f219e89f3d3509aa7599ac` (no product source edits).
 
 **Tool:** fast-check 3.23.2 on the real TypeScript functions. No verifier runs on this language. A TLA+ model would not execute `applyPosting` or `centsOf`, so it was not used.
 
