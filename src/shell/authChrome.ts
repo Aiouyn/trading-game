@@ -8,6 +8,7 @@ import { settingsNav } from "@/apps/settings/sections";
 import { DEMO_STARTER_NW } from "@/shell/accountDemoBoundary";
 import { authSession, useAuthSession, type AuthUiState } from "@/shell/authSession";
 import type { ShellStore } from "@/shell/store";
+import { viewportOf } from "@/shell/wm";
 
 export { DEMO_STARTER_NW };
 
@@ -27,4 +28,15 @@ export function useAuthChrome() {
 export function openAccountSettings(store: ShellStore): void {
   settingsNav.open("SET-01");
   store.getState().open("settings", undefined, { deepLink: true });
+}
+
+/** After a successful sign-up, close Settings so the Portfolio goal/guide is visible (playtest d08). */
+export function closeSettingsAfterSignUp(store: ShellStore): void {
+  const s = store.getState();
+  if (viewportOf(s.vw) === "phone") {
+    if (s.phoneApp?.app === "settings") store.setState({ phoneApp: null });
+    return;
+  }
+  const w = s.local.windows.find((x) => x.app === "settings");
+  if (w) s.close(w);
 }
