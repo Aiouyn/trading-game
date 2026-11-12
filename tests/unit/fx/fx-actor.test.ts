@@ -11,6 +11,7 @@ import {
 } from "@/server/actor-binding";
 import { authService, register, Clock } from "../actor-binding/fixture";
 import { FX_ACTOR_DEFAULT_ENABLED, FileFxStore, FxEngine, stateHash } from "@/server/market/fx/store";
+import { authorizeFxCommands, assertLiveFxCommands } from "@/server/market/fx/actor";
 import { advanceFx, createFx, previewFx } from "@/server/market/fx/engine";
 import { canonical, cash, parseCommand, parseFrame, parseGenesis, type Command, type Genesis } from "@/server/market/fx/model";
 import { MARKS } from "../../fixtures/fx";
@@ -212,5 +213,82 @@ describe("fx actor guard", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+
+describe("fx actor guard: contexts are read as an own property (q5)", () => {
+  it("a prototype-inherited contexts map is ignored by authorizeFxCommands and assertLiveFxCommands", async () => {
+    const { ctxA, actorA, binding } = await session();
+    const cmd = bankCmd("pay", actorA);
+    const commands = [cmd];
+    expect(() => authorizeFxCommands(commands, { actorGuard: true, contexts: { [cmd.id]: ctxA } })).not.toThrow();
+    await assertLiveFxCommands(commands, { actorGuard: true, binding, contexts: { [cmd.id]: ctxA } });
+
+    const inherited = Object.assign(Object.create({ contexts: { [cmd.id]: ctxA } }) as object, { actorGuard: true });
+    try { authorizeFxCommands(commands, inherited); throw new Error("expected throw"); }
+    catch (err) { expectCode(err, "MISSING_SESSION"); }
+    const inheritedLive = Object.assign(Object.create({ contexts: { [cmd.id]: ctxA } }) as object, { actorGuard: true, binding });
+    await expectReject(() => assertLiveFxCommands(commands, inheritedLive), "MISSING_SESSION");
+
+    const g = genesisFor(actorA);
+    const start = advanceFx(createFx(g), [frame(0, [])]);
+    const before = fingerprint(start);
+    expect(() => advanceFx(start, [frame(1, [cmd])], inherited)).toThrow(BindingError);
+    try { advanceFx(start, [frame(1, [cmd])], inherited); } catch (err) { expectCode(err, "MISSING_SESSION"); }
+    expect(fingerprint(start)).toBe(before);
+  });
+});
+
+describe("fx actor guard: forged context values are FORGED_CONTEXT (q3)", () => {
+  it("Object.create, Proxy, null-prototype and spread context values are FORGED_CONTEXT, not CLAIM_MALFORMED", async () => {
+    const { ctxA, actorA, binding } = await session();
+    const cmd = bankCmd("pay", actorA);
+    const commands = [cmd];
+    const forgeries: Array<[string, unknown]> = [
+      ["Object.create", Object.create(ctxA)],
+      ["Proxy", new Proxy(ctxA, {})],
+      ["null-prototype", Object.assign(Object.create(null) as object, ctxA)],
+      ["spread", { ...ctxA }],
+    ];
+    const codes = forgeries.map(([name, value]) => {
+      try { authorizeFxCommands(commands, { actorGuard: true, contexts: { [cmd.id]: value } }); return [name, "ACCEPTED"]; }
+      catch (err) { return [name, err instanceof BindingError ? err.code : String(err)]; }
+    });
+    expect(codes).toEqual(forgeries.map(([name]) => [name, "FORGED_CONTEXT"]));
+    for (const [, value] of forgeries) {
+      await expectReject(() => assertLiveFxCommands(commands, { actorGuard: true, binding, contexts: { [cmd.id]: value } }), "FORGED_CONTEXT");
+    }
+
+    const g = genesisFor(actorA);
+    const start = advanceFx(createFx(g), [frame(0, [])]);
+    const before = fingerprint(start);
+    for (const [, value] of forgeries) {
+      try { advanceFx(start, [frame(1, [cmd])], { actorGuard: true, contexts: { [cmd.id]: value } }); throw new Error("expected throw"); }
+      catch (err) { expectCode(err, "FORGED_CONTEXT"); }
+    }
+    expect(fingerprint(start)).toBe(before);
+  });
+
+  it("a malformed contexts map stays CLAIM_MALFORMED and its getters never run", async () => {
+    const { ctxA, actorA, binding } = await session();
+    const cmd = bankCmd("pay", actorA);
+    const commands = [cmd];
+    let ran = 0;
+    const getter = Object.defineProperty({}, cmd.id, { enumerable: true, get: () => { ran++; return ctxA; } });
+    const maps: unknown[] = [
+      new Proxy({ [cmd.id]: ctxA }, {}),
+      Object.assign(Object.create(null) as object, { [cmd.id]: ctxA }),
+      [ctxA],
+      "contexts",
+      getter,
+      { "": ctxA },
+    ];
+    for (const contexts of maps) {
+      try { authorizeFxCommands(commands, { actorGuard: true, contexts }); throw new Error("expected throw"); }
+      catch (err) { expectCode(err, "CLAIM_MALFORMED"); }
+      await expectReject(() => assertLiveFxCommands(commands, { actorGuard: true, binding, contexts }), "CLAIM_MALFORMED");
+    }
+    expect(ran).toBe(0);
   });
 });
