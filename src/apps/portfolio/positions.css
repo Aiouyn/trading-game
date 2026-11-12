@@ -61,6 +61,11 @@
 .pos-empty p { margin: 0; }
 .pos-empty-title { color: var(--fg); }
 
+/* Card 27: Close sits with the asset, not as a ninth column (PF-B keeps 8 headers). */
+.pos-asset { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
+.pos-close { margin: 0; }
+.pos-card .pos-close { align-self: flex-start; }
+
 /* Label the existing three card rows; the sent numbers keep their no-wrap clusters. */
 .pos-reading-key { margin: 0; color: var(--fg-muted); font-size: var(--fs-13); }
 .pos-card-field { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); }

@@ -118,16 +118,18 @@ test("T4-05 a new account below 1264 opens Broker alone", async ({ browser, base
   await ctx.close();
 });
 
-test("T4-06 phone: 5 group labels in order, bottom row fixed 4 not in grid, edge mark --fg, long-press 400 ms = Recent (≤6)", async ({ page }, info) => {
+test("T4-06 phone: built group labels, bottom row fixed 3 not in grid, edge mark --fg, long-press 400 ms = Recent (≤6)", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
   const labels = await page.locator(".grid-group > .label").allTextContents();
-  expect(labels.map((l) => l.toUpperCase())).toEqual(["TRADE", "BUILD", "SHADOW", "WORLD", "ME"].filter((g) => labels.map((x) => x.toUpperCase()).includes(g)));
-  expect(labels.length).toBe(5);
-  for (const a of ["broker", "portfolio", "wire", "messages"]) {
+  expect(labels.map((l) => l.toUpperCase())).toEqual(["TRADE", "BUILD", "WORLD", "ME"]); // #105 builds Launchpad, City, Boards
+  expect(labels.length).toBe(4);
+  for (const a of ["broker", "portfolio", "wire"]) {
     await expect(page.getByTestId("bottom-row").getByTestId(`icon-${a}`)).toHaveCount(1);
     await expect(page.getByTestId("app-grid").getByTestId(`icon-${a}`)).toHaveCount(0);
   }
+  await expect(page.getByTestId("bottom-row").getByTestId("icon-messages")).toHaveCount(0);
+  await expect(page.getByTestId("app-grid").getByTestId("icon-messages")).toHaveCount(0);
   expect(await page.getByTestId("edge-mark").evaluate((e) => getComputedStyle(e).color)).toBe(await probe(page, "var(--fg)"));
   await page.getByTestId("edge-bar").screenshot({ path: `${SHOTS}/edge-bar-390x844.png` });
   const mark = page.getByTestId("quay-mark");
@@ -271,12 +273,12 @@ test("T4-10 C3/C4: DOM identical across palettes; axe clean on launcher, home, k
   }
 });
 
-test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 lines, no ellipsis; a too-long single word ellipsizes with the full name in title + aria-label", async ({ page }, info) => {
+test("T4 Studio label rulings at text scale 2.0: a too-long single word ellipsizes with the full name in title + aria-label", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
-  const fs0 = await page.locator(".phone-app .icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+  const fs0 = await page.getByTestId("icon-settings").locator(".icon-label").evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
   await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "2"));
-  await expect.poll(() => page.locator(".phone-app .icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(fs0 * 2 - 0.5);
+  await expect.poll(() => page.getByTestId("icon-settings").locator(".icon-label").evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(fs0 * 2 - 0.5);
   const label = (id: string) => page.getByTestId(id).evaluate((b: HTMLElement) => {
     const l = b.querySelector<HTMLElement>(".icon-label")!;
     const ws = [...l.querySelectorAll<HTMLElement>(".w")];
@@ -287,20 +289,14 @@ test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 line
       title: b.title, aria: b.getAttribute("aria-label"), trunc: b.dataset.trunc ?? null,
     };
   });
-  // Studio 08:20: the grid reflows to 2 columns at 2.0, so 'Research Desk' and 'Businesses' fit with no ellipsis.
-  for (const id of ["icon-research", "icon-businesses"]) {
-    const r = await label(id);
-    expect([id, r.over, r.trunc, r.aria]).toEqual([id, [], null, null]);
-  }
-  expect((await label("icon-research")).lines).toBeLessThanOrEqual(2);
   // Last resort still works: a synthetic overlong word (injected) takes the ellipsis with the name in title + aria-label.
   const long = "Supercalifragilisticexpialidocious";
-  await page.getByTestId("icon-markets").locator(".w").first().evaluate((w, t) => { w.textContent = t; }, long);
+  await page.getByTestId("icon-settings").locator(".w").first().evaluate((w, t) => { w.textContent = t; }, long);
   await page.evaluate(() => document.documentElement.style.setProperty("--x-refit", "1"));
-  const lw = await label("icon-markets");
+  const lw = await label("icon-settings");
   expect(lw.over).toEqual([long]);
   expect([lw.ellipsis[0], lw.hy, lw.ls >= 0, lw.trunc]).toEqual(["ellipsis", "none", true, "1"]);
-  expect(lw.aria).toContain("Markets");
+  expect(lw.aria).toContain("Settings");
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
   await shot(page, "label-trunc-scale2");
 });
@@ -308,13 +304,13 @@ test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 line
 test("T4 Studio 08:20: grid columns by text scale (4 / 3 / 2); tiles keep their size; bottom row unchanged", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
-  const tile0 = (await page.getByTestId("icon-markets").locator(".icon").boundingBox())!;
+  const tile0 = (await page.getByTestId("icon-settings").locator(".icon").boundingBox())!;
   const bottom0 = await page.getByTestId("bottom-row").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length);
   for (const [scale, cols, name] of [[1, 4, "home-scale1"], [1.5, 3, "home-scale1.5"], [2, 2, "home-scale2"]] as const) {
     await page.evaluate((v) => document.documentElement.style.setProperty("--text-scale", String(v)), scale);
-    await expect(page.getByTestId("grid-trade")).toHaveAttribute("data-cols", String(cols));
-    expect(await page.getByTestId("grid-trade").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(cols);
-    const t = (await page.getByTestId("icon-markets").locator(".icon").boundingBox())!;
+    await expect(page.getByTestId("grid-me")).toHaveAttribute("data-cols", String(cols));
+    expect(await page.getByTestId("grid-me").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(cols);
+    const t = (await page.getByTestId("icon-settings").locator(".icon").boundingBox())!;
     expect([t.width, t.height]).toEqual([tile0.width, tile0.height]);
     expect(await page.getByTestId("bottom-row").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(bottom0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
@@ -327,11 +323,11 @@ test("T4 Studio 08:31: bottom row is an icon-only dock at text scale ≥ 1.5; ar
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
   const dock = page.getByTestId("bottom-row");
-  const items = ["broker", "portfolio", "wire", "messages"] as const;
+  const items = ["broker", "portfolio", "wire"] as const;
   // Below 1.5: unchanged, visible labels.
   await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "1.4"));
   await expect(dock).not.toHaveAttribute("data-dock", "1");
-  await expect(dock.locator(".icon-label")).toHaveCount(4);
+  await expect(dock.locator(".icon-label")).toHaveCount(3);
   for (const scale of [1.5, 2]) {
     await page.evaluate((v) => document.documentElement.style.setProperty("--text-scale", String(v)), scale);
     await expect(dock).toHaveAttribute("data-dock", "1");
