@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Lesson 22: `next start` must name a bind host.
+ * Lesson 31: `next start` must name a bind host.
  *
  * A shell string or spawn/execFile argv that runs `next start` without
  * `-H` or `--hostname` exits 1 once boot refuses a non-loopback bind.

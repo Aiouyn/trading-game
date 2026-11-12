@@ -19,6 +19,7 @@ try {
   // The port must be free before our `next start`, so whatever answers on it afterwards is the server launched here.
   // A listener that accepts but never answers (probe timeout) counts as occupied too.
   if (await fetch(base + '/', { signal: AbortSignal.timeout(PROBE_MS) }).then(() => true, (e) => e?.name === 'TimeoutError')) throw new Error(`port ${port} already serves something; not ours`);
+  // -H 127.0.0.1 keeps this probe on loopback. A wildcard bind refuses to start without QUAY_TRUST_PROXY=1.
   srv = spawn('npx', ['next', 'start', '-H', '127.0.0.1', '-p', String(port)], { stdio: ['ignore', 'ignore', 'inherit'], detached: true });
   let up = false;
   for (let i = 0; i < 120 && !up && srv.exitCode === null; i++) {
