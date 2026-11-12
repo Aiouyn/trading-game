@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import legacyTape from "./legacy-seed17.json";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as marketGet } from "@/app/api/market/route";
@@ -178,20 +181,32 @@ describe("M1-05 authoritative live ticks", () => {
     vi.useFakeTimers();
     const env = process.env as Record<string, string | undefined>;
     const prev = env.NODE_ENV;
+    const prevStorm = env.QUAY_STORM_DATA_DIR;
+    const prevAuth = env.QUAY_AUTH_DATA_DIR;
+    // NODE_ENV=production makes getLiveMarket persist the storm world. That file must not land in the repo .data tree.
+    const dir = mkdtempSync(path.join(tmpdir(), "m1-05-clock-"));
     env.NODE_ENV = "production";
+    env.QUAY_STORM_DATA_DIR = dir;
+    env.QUAY_AUTH_DATA_DIR = dir;
     try {
       expect(shouldAutostartClock()).toBe(true);
       setLiveMarketForTests(undefined);
       const a = getLiveMarket();
       const b = getLiveMarket();
       expect(a).toBe(b);
+      expect(existsSync(path.join(dir, "storm-world.json"))).toBe(true);
       const t0 = a.snapshot().tick;
       vi.advanceTimersByTime(FEED_TICK_MS);
       expect(a.snapshot().tick).toBe(t0 + 1);
       expect(b.snapshot().tick).toBe(t0 + 1);
     } finally {
       env.NODE_ENV = prev;
+      if (prevStorm === undefined) delete env.QUAY_STORM_DATA_DIR;
+      else env.QUAY_STORM_DATA_DIR = prevStorm;
+      if (prevAuth === undefined) delete env.QUAY_AUTH_DATA_DIR;
+      else env.QUAY_AUTH_DATA_DIR = prevAuth;
       setLiveMarketForTests(undefined);
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

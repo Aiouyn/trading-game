@@ -15,6 +15,7 @@ import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from ".
 import { centsOf, heldValueMinor } from "@/market/valuation";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
+import { retryDelayMs } from "./backoff";
 import { ORDER_HISTORY_POLICY, ORDER_POLICY, type OrderHistoryPolicy, type OrderPolicy } from "./orderPolicy";
 import type { OrderHistoryReq, OrderHistoryRes } from "./orderHistory";
 
@@ -183,7 +184,9 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
    */
   authoritativeQuotes?: boolean;
   /** M2-05: the signed-in account whose adopted server ledgers feed the offline `me` snapshot (src/pwa/meSnapshot.ts). */
-  snapshotAccount?: string }
+  snapshotAccount?: string;
+  /** Card 19: the backoff jitter's random source (tests pass a fixed one). */
+  random?: () => number }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
 type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string; held?: true /* ?cancelFill: its fill landed */ }
@@ -208,6 +211,18 @@ export class MockFeed {
   ledgerAdopted = false;
   /** Signed-in: cash the server holds for working buy limits (spendable = cash − this). */
   reservedCash = 0;
+  /** True once a validated `/api/market` snapshot was adopted. */
+  get hasAdoptedQuotes(): boolean { return this.quotesAdopted; }
+  /**
+   * Card 19: "reconnecting" once a signed-in /api/market read fails after quotes were adopted; "live" again on the next
+   * adopt. `onConnection` hears each change (applySignedInDemo mirrors it into channels.system.connection).
+   */
+  connection: "live" | "reconnecting" = "live";
+  onConnection: ((c: "live" | "reconnecting") => void) | null = null;
+  private quoteFailures = 0;
+  /** Card 19: the quote poll is running (one read at a time, each scheduled after the last settles). */
+  private quotePolling = false;
+  private readonly random: () => number;
   tick: number;
   private rand: () => number;
   private extraAssetRandom = new Map<string, () => number>();
@@ -243,7 +258,7 @@ export class MockFeed {
   private nextId = 1;
   subs = new Set<Sub>();
   private timer: ReturnType<typeof setInterval> | null = null;
-  private quoteSync: ReturnType<typeof setInterval> | null = null;
+  private quoteSync: ReturnType<typeof setTimeout> | null = null;
   /** M1-07 signed-in: the server's live bar per `candles:{id}:{res}` channel (GET /api/market/candles). Never computed here. */
   serverCandles = new Map<string, Candle>();
   /** Per candles channel: the server's candle revision (`<epoch>.<n>`) read with the live bar. */
@@ -261,6 +276,7 @@ export class MockFeed {
     this.historyPolicy = opts.historyPolicy ?? ORDER_HISTORY_POLICY;
     this.authoritativeQuotes = opts.authoritativeQuotes === true;
     this.snapshotAccount = this.authoritativeQuotes ? opts.snapshotAccount ?? null : null; // guests never write
+    this.random = opts.random ?? Math.random;
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
       const prevClose = Math.round(a.base * (1 + (this.assetRandom(a.assetId)() - 0.5) * 0.02));
@@ -595,20 +611,47 @@ export class MockFeed {
       if (sub.snapTimer) clearTimeout(sub.snapTimer);
       this.subs.delete(sub);
       if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:") || s.ch === "me" || s.ch === "news")) {
-        if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
+        this.stopQuoteSync();
       }
       if (this.subs.size === 0) this.stop();
     };
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
+    this.pullChannel(ch);
+    this.replay(ch);
+  }
+  /** The online event already counted as this feed's quote reconnect. A new dispatch is a new object. */
+  private quoteReconnectEvent: object | null = null;
+  /**
+   * Browser came back online. A guest feed replays: its clock kept moving, so the cached snap is current.
+   * Signed-in quotes must not. The cached book is the pre-outage tick, and replaying it marks the Broker live
+   * there while the fresh read is still out (M1-05: the other account is already 1–2 ticks ahead).
+   * One online event is one quote read for this feed. Each openChannel store listens on its own, and a browser
+   * may flush microtasks between those listeners, so the key is the event object, not one microtask.
+   * BrokerFrame and the shell clock share one store via useChannel acquireEntry, so the shipped /broker page
+   * already makes a single call. This guard is for a second store on the same feed.
+   */
+  reconnect(ch: ChannelName, ev?: object): void {
+    if (!this.authoritativeQuotes) { this.resync(ch); return; }
+    if (ch.startsWith("ticker:")) {
+      if (ev && this.quoteReconnectEvent === ev) return;
+      if (ev) this.quoteReconnectEvent = ev;
+    }
+    this.pullChannel(ch, true);
+  }
+  private pullChannel(ch: ChannelName, followUp = false): void {
     if (this.authoritativeQuotes && ch.startsWith("candles:")) this.srv((s) => s.pullServerCandle(ch));
-    if (this.authoritativeQuotes && ch.startsWith("ticker:")) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed());
+    if (this.authoritativeQuotes && ch.startsWith("ticker:")) {
+      this.srv((s) => s.pullServerQuotes(undefined, followUp ? { followUp: true } : undefined), () => this.quotesFailed());
+    }
     if (this.authoritativeQuotes && ch === "news") this.srv((s) => s.pullWire(), () => this.wireFailed());
     if (this.authoritativeQuotes && ch === "me") {
       this.srv((s) => s.pullLedger(), () => this.failMe());
       if (!this.quotesAdopted) this.srv((s) => s.pullServerQuotes(), () => this.quotesFailed()); // M1-08: Retry after a failed first quote read reads quotes too
     }
+  }
+  private replay(ch: ChannelName): void {
     for (const s of this.subs) {
       if (s.ch !== ch) continue;
       if (MOCK_HOOKS && hookErrored?.delete(s)) this.sendSnap(s);
@@ -657,7 +700,7 @@ export class MockFeed {
   }
   stop(): void {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
+    this.stopQuoteSync();
   }
 
   /** A quote channel may publish: server marks adopted, and for candles a server bar received. */
@@ -692,22 +735,53 @@ export class MockFeed {
    *  where nothing was shown yet, and the next good read snaps it. After that the last adopted snapshot stays, and a
    *  long outage lets the channel watchdog mark quotes stale. */
   quotesFailed(): void {
-    if (!this.quotesAdopted) this.failMe();
+    if (!this.quotesAdopted) { this.failMe(); return; } // before the first adopt: `me` errors (M1-08); the connection flag stays (card 19)
+    // Card 19: after an adopt, a failed read means the server went away: say so at once (the watchdog's stale comes ~11 s later).
+    this.quoteFailures += 1;
+    this.setConnection("reconnecting");
   }
 
+  /**
+   * One read at a time, each scheduled after the last settles: every SERVER_QUOTE_POLL_MS while healthy, the capped,
+   * jittered backoff after failures (card 19). Stops when the last ticker unsubscribes or the feed stops.
+   */
   private startQuoteSync(): void {
-    if (this.quoteSync) return;
+    if (this.quotePolling) return;
+    this.quotePolling = true;
     // The first read starts now, in parallel with the server half's chunk, so the first live quote waits for neither in
     // turn. Each later read starts in the half. A step that finds the poll stopped (feed swapped, unsubscribed) is dropped.
     let first: Promise<Response> | undefined = fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
     first.catch(() => undefined); // read (or dropped) by the half; never an unhandled rejection
     const pull = () => {
+      this.quoteSync = null;
       const started = first;
       first = undefined;
-      this.srv((s) => s.pullServerQuotes(started), () => this.quotesFailed(), () => this.quoteSync !== null);
+      const next = () => { if (this.quotePolling && !this.quoteSync) this.quoteSync = setTimeout(pull, this.nextQuoteDelayMs()); };
+      this.serverSync()
+        // A routine poll is not a reconnect. If a read is already in flight this call is dropped; it must not
+        // ask for a follow-up, or a read slower than SERVER_QUOTE_POLL_MS is skipped and quotes stay stale.
+        .then((s) => (this.quotePolling ? s.pullServerQuotes(started) : undefined), () => this.quotesFailed())
+        .then(next, next);
     };
     pull();
-    this.quoteSync = setInterval(pull, SERVER_QUOTE_POLL_MS);
+  }
+  private stopQuoteSync(): void {
+    this.quotePolling = false;
+    if (this.quoteSync) { clearTimeout(this.quoteSync); this.quoteSync = null; }
+  }
+  /** Card 19: wait before the next quote read: the healthy poll, or the backoff after consecutive failures. */
+  nextQuoteDelayMs(): number {
+    return this.quoteFailures > 0 ? retryDelayMs(this.quoteFailures, this.random) : SERVER_QUOTE_POLL_MS;
+  }
+  /** Card 19: a validated /api/market snapshot was adopted (serverSync.ts): the connection is live, the backoff resets. */
+  quotesOk(): void {
+    this.quoteFailures = 0;
+    this.setConnection("live");
+  }
+  private setConnection(c: "live" | "reconnecting"): void {
+    if (this.connection === c) return;
+    this.connection = c;
+    this.onConnection?.(c);
   }
 
   /** Signed-in only: the server half (serverSync.ts), imported once per feed. A failed import is not kept, so the next

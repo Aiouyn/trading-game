@@ -101,10 +101,15 @@ export function GoalEntry({ accountId, locale }: { accountId: string; locale: st
   const open = () => {
     writeHidden(accountId, false);
     show(store, "portfolio");
+    // Opening Portfolio unmounts this Broker entry, so the retry cannot live on a
+    // component timer. Guard only `typeof document` so jsdom teardown after npm test
+    // is safe, while #pf-goal-h still receives focus once the guide is on screen.
     let n = 0;
     const tryFocus = () => {
+      if (typeof document === "undefined") return;
       const h = [...document.querySelectorAll<HTMLElement>('[data-testid="win-portfolio"] #pf-goal-h')].at(-1);
-      if (h) h.focus(); else if (++n < 40) window.setTimeout(tryFocus, 100);
+      if (h) h.focus();
+      else if (++n < 40) window.setTimeout(tryFocus, 100);
     };
     window.setTimeout(tryFocus, 0);
   };

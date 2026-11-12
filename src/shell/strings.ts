@@ -108,6 +108,13 @@ export const S = {
 /** Phone app-bar titles for in-app screens (level 2); the app root shows APP_NAMES (Studio T4 ruling 1). */
 export const SCREEN_NAMES: Record<string, string> = { journal: "Journal" };
 
+/** Card 9: phone Home for a logged-out visitor says what the game is, above card 36's Sign in and Example caption. */
+export const GUEST_HOME: Record<ShellLocale, { pitch: string }> = {
+  en: { pitch: "Quay is a trading game. Start with $10,000 in game money and try to grow it to $20,000. No real money." },
+  fr: { pitch: "Quay est un jeu de trading. Commencez avec 10\u202f000\u00a0$ d’argent fictif et essayez d’atteindre 20\u202f000\u00a0$. Pas d’argent réel." },
+};
+export const guestHome = (locale: string) => GUEST_HOME[locale === "fr" ? "fr" : "en"];
+
 /** French copy for the T4 app-bar keys. TODO: wire when a locale switch exists (no FR runtime yet). */
 export const S_FR = { back: "Retour", backTo: "Retour à", home: "Accueil" } as const;
 export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
@@ -119,6 +126,12 @@ export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
  * the separator with the day, as French typography requires.
  */
 export type ShellLocale = "en" | "fr";
+/** Card 19: the server stopped answering after prices were live; the feed retries on its own (backoff). */
+export const CONNECTION_LOST: Record<ShellLocale, string> = {
+  en: "Connection lost · retrying…",
+  fr: "Connexion perdue · nouvel essai…",
+};
+export const connectionLost = (locale: string) => CONNECTION_LOST[locale === "fr" ? "fr" : "en"];
 export const CLOCK_STRINGS: Record<ShellLocale, { strip: (day: number, hhmm: string) => string; phone: (day: number, hhmm: string) => string }> = {
   en: { strip: (day, hhmm) => `Day ${day} · ${hhmm}`, phone: (day, hhmm) => `D${day} · ${hhmm}` },
   fr: { strip: (day, hhmm) => `Jour\u00a0${day}\u00a0· ${hhmm}`, phone: (day, hhmm) => `J${day}\u00a0· ${hhmm}` },
