@@ -13,6 +13,8 @@ import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { setFeed } from "@/shell/contracts/useChannel";
 import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { S } from "@/shell/strings";
+import { portAvalonServer } from "../helpers/portAvalonServer";
+import { serverHalfLoaded } from "../helpers/serverHalf";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -57,6 +59,16 @@ describe("card 36 guest Home example caption", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 20); await Promise.resolve(); });
   }
 
+  /** Signed-in feed also reads /api/market and /api/broker/me (M1-06). */
+  function signInFetch(handle: string) {
+    fetchMock.mockImplementation(portAvalonServer({
+      cashCents: 1_000_000,
+      other: (url) => url.endsWith("/api/auth/me")
+        ? Response.json(signedInBody(handle))
+        : new Response(null, { status: 404 }),
+    }));
+  }
+
   it("a guest phone Home keeps Net worth and the demo amount, and captions it as an example", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     await act(async () => {
@@ -75,11 +87,12 @@ describe("card 36 guest Home example caption", () => {
   });
 
   it("a signed-in phone Home has no example caption", async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(signedInBody("qa_g36")), { status: 200, headers: { "content-type": "application/json" } }));
+    signInFetch("qa_g36");
     applySignedInDemo(store, "acc_g36");
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: store }, createElement(PhoneHome)));
     });
+    await serverHalfLoaded();
     await paint();
     expect(el.querySelector("[data-testid=account-chip-home]")?.textContent).toBe("qa_g36");
     expect(el.querySelector("[data-testid=widget] .label")?.textContent).toBe(S.netWorth);
@@ -104,11 +117,12 @@ describe("card 36 guest Home example caption", () => {
     authSession._resetForTests();
     const signedStore = createShellStore(mockChannels(new URLSearchParams()));
     applySignedInDemo(signedStore, "acc_g36");
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(signedInBody("qa_strip36")), { status: 200, headers: { "content-type": "application/json" } }));
+    signInFetch("qa_strip36");
     root = createRoot(el);
     await act(async () => {
       root.render(createElement(ShellCtx.Provider, { value: signedStore }, createElement(StatusStrip)));
     });
+    await serverHalfLoaded();
     await paint();
     expect(el.querySelector("[data-testid=account-chip]")?.textContent).toBe("qa_strip36");
     expect(el.querySelector("[data-testid=strip-demo-tag]")).toBeNull();
