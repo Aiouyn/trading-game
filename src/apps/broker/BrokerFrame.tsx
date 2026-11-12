@@ -182,8 +182,9 @@ export function BrokerFrame({ context }: { context?: string }) {
   const submitting = phase.kind === "placed" && !placed?.failed && !(placed?.intentId && result);
   useLayoutEffect(() => {
     submittingRef.current = submitting;
-    setTicketSubmitting(submitting && assetId ? assetId : null);
-    return () => setTicketSubmitting(null);
+    if (!assetId) return;
+    setTicketSubmitting(assetId, submitting);
+    return () => setTicketSubmitting(assetId, false);
   }, [submitting, assetId]);
 
   const row = ticker.body?.rows[assetId];

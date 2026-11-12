@@ -2,7 +2,7 @@
 // Positions (UI card 3, 17B PF-B): the player's holdings from `me`, with Last / Today from `ticker:wl_default`.
 // Desktop: a 7-column table (Avg cost + Last hidden under 640 px of window, kept in the row label). Phone, and any
 // text scale >= 1.5: 3-line cards (Studio PF-B round 2). Rows are A→Z by assetId. No tick flash, no brass.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { isTicketSubmitting, offerTicketPrefill, resetTicketPrefill } from "@/apps/broker/ticketPrefill";
@@ -99,6 +99,10 @@ export function Positions({ phone }: { phone: boolean }) {
   const big = useShell((s) => s.prefs.textScale >= POS_STACK_SCALE);
   const store = useShellStore();
   const [capNotice, setCapNotice] = useState(false);
+  const brokerCount = useShell((s) => s.local.windows.filter((w) => w.app === "broker").length);
+  useEffect(() => {
+    if (capNotice && brokerCount < 4) setCapNotice(false);
+  }, [capNotice, brokerCount]);
   const onClosePosition = (assetId: string, qty: string) => {
     if (isTicketSubmitting(assetId)) return;
     offerTicketPrefill({ assetId, side: "SELL", qtyText: qty });
