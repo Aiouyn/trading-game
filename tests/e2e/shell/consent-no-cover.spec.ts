@@ -31,12 +31,27 @@ async function boxOf(loc: Locator): Promise<Box> {
   return b!;
 }
 
-async function assertNoOverlap(prompt: Locator, target: Locator, label: string) {
+async function visibleBox(loc: Locator, clip?: Locator): Promise<Box | null> {
+  const b = await loc.boundingBox();
+  if (!b) return null;
+  if (!clip) return b;
+  const c = await clip.boundingBox();
+  if (!c) return b;
+  const x = Math.max(b.x, c.x);
+  const y = Math.max(b.y, c.y);
+  const r = Math.min(b.x + b.width, c.x + c.width);
+  const bot = Math.min(b.y + b.height, c.y + c.height);
+  if (r <= x || bot <= y) return null; // fully clipped inside the window frame
+  return { x, y, width: r - x, height: bot - y };
+}
+
+async function assertNoOverlap(prompt: Locator, target: Locator, label: string, clip?: Locator) {
   if ((await target.count()) === 0) return;
   if (!(await target.first().isVisible())) return;
   await settle(prompt.page());
   const a = await boxOf(prompt);
-  const b = await boxOf(target.first());
+  const b = await visibleBox(target.first(), clip);
+  if (!b) return;
   expect(overlaps(a, b), `${label} overlaps the consent prompt`).toBe(false);
 }
 
@@ -64,8 +79,9 @@ test("desktop: the prompt does not cover Portfolio or the shelf at 1440 and 1280
     expect(await accept.getAttribute("class")).toBe(await decline.getAttribute("class"));
     await assertNoOverlap(prompt, page.getByTestId("win-portfolio"), `Portfolio at ${w}`);
     await assertNoOverlap(prompt, page.getByTestId("shelf"), `shelf at ${w}`);
-    const cash = page.getByTestId("win-portfolio").getByText(/Cash/i);
-    if (await cash.count()) await assertNoOverlap(prompt, cash.first(), `Portfolio Cash at ${w}`);
+    const portfolio = page.getByTestId("win-portfolio");
+    const cash = portfolio.getByText(/Cash/i);
+    if (await cash.count()) await assertNoOverlap(prompt, cash.first(), `Portfolio Cash at ${w}`, portfolio);
     if (w === 1440) {
       await dismiss.click();
       await expect(page.getByTestId("quay-consent")).toHaveCount(0);
