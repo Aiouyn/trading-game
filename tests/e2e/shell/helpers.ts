@@ -1,7 +1,20 @@
 import { expect, type Page } from "@playwright/test";
+import { SHROUD_FLAGS } from "../../../src/shell/v1Shroud";
+
+/**
+ * Official shell specs open the full registry. Merge the M1-11 shroud flags into `flags=` so those
+ * systems stay reachable here. The shroud spec (M1-11) does not call boot(); it visits paths with nothing set.
+ */
+export function withShroudFlags(path: string): string {
+  const u = new URL(path, "http://quay.local");
+  const have = (u.searchParams.get("flags") ?? "").split(",").filter(Boolean);
+  for (const f of SHROUD_FLAGS) if (!have.includes(f)) have.push(f);
+  u.searchParams.set("flags", have.join(","));
+  return `${u.pathname}${u.search}${u.hash}`;
+}
 
 export async function boot(page: Page, path = "/") {
-  await page.goto(path);
+  await page.goto(withShroudFlags(path));
   await expect(page.getByTestId("quay-ready")).toBeVisible();
   if (/^\/settings(?:\/|\?|$)/.test(path)) await expect(page.getByTestId("settings")).toBeVisible();
 }

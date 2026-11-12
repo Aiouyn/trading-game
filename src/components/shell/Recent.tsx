@@ -8,12 +8,14 @@ import { useShell, useShellStore } from "./ShellContext";
 export function Recent() {
   const store = useShellStore();
   const recent = useShell((s) => s.recent);
+  const vis = useShell((s) => s.vis);
+  const shown = recent.filter((a) => isBuiltApp(a) && vis[a] !== "hidden");
   return (
     <Sheet side="bottom" label={S.recent} onClose={() => store.getState().setRecent(false)} testId="recent">
       <h2 className="label" id="recent-title">{S.recent}</h2>
-      {recent.filter(isBuiltApp).length === 0 && <p className="muted">{S.noRecent}</p>}
+      {shown.length === 0 && <p className="muted">{S.noRecent}</p>}
       <ul className="recent-list">
-        {recent.filter(isBuiltApp).slice(0, 6).map((a) => (
+        {shown.slice(0, 6).map((a) => (
           <li key={a}><button data-testid="recent-item" onClick={() => store.getState().open(a)}>{APP_NAMES[a]}</button></li>
         ))}
       </ul>
