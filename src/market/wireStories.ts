@@ -90,6 +90,83 @@ function shuffledIndices(n: number, seed: number, key: string): number[] {
   return idx;
 }
 
+/** Far enough back that boot-history ticks (HISTORY_LOOKBACK = 720) stay on the repair chain. */
+const SHUFFLE_CHAIN_START = -64;
+
+function sameOrder(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/** Reject identical decks, first==previous last, and company 60/72-tick lags (q = p-3 / p-2). */
+function companyAcceptable(order: readonly number[], prev: readonly number[]): boolean {
+  if (sameOrder(order, prev)) return false;
+  if (order[0] === prev[prev.length - 1]) return false;
+  const prevPos = new Map<number, number>();
+  for (let p = 0; p < prev.length; p++) prevPos.set(prev[p]!, p);
+  for (let q = 0; q < order.length; q++) {
+    const pos = prevPos.get(order[q]!)!;
+    if (q === pos - 2 || q === pos - 3) return false;
+  }
+  return true;
+}
+
+function crisisAcceptable(order: readonly number[], prev: readonly number[]): boolean {
+  if (sameOrder(order, prev)) return false;
+  if (order[0] === prev[prev.length - 1]) return false;
+  return true;
+}
+
+function pickCycleOrder(
+  n: number,
+  seed: number,
+  kind: "co" | "order",
+  cycle: number,
+  prev: readonly number[] | null,
+  acceptable: (order: readonly number[], prev: readonly number[]) => boolean,
+): number[] {
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const key = attempt === 0 ? `${kind}:${cycle}` : `${kind}:${cycle}:r${attempt}`;
+    const order = shuffledIndices(n, seed, key);
+    if (!prev || acceptable(order, prev)) return order;
+  }
+  const base = prev ? [...prev].reverse() : shuffledIndices(n, seed, `${kind}:${cycle}:fallback`);
+  for (let rot = 0; rot < n; rot++) {
+    const order = base.map((_, i) => base[(i + rot) % n]!);
+    if (!prev || acceptable(order, prev)) return order;
+  }
+  throw new Error(`wireStories: no valid ${kind} shuffle for cycle ${cycle}`);
+}
+
+const orderCache = new Map<string, number[][]>();
+
+function cycleOrder(
+  n: number,
+  seed: number,
+  kind: "co" | "order",
+  cycle: number,
+  acceptable: (order: readonly number[], prev: readonly number[]) => boolean,
+): number[] {
+  if (cycle < SHUFFLE_CHAIN_START) return shuffledIndices(n, seed, `${kind}:${cycle}`);
+  const key = `${kind}:${seed}`;
+  let chain = orderCache.get(key);
+  if (!chain) { chain = []; orderCache.set(key, chain); }
+  const idx = cycle - SHUFFLE_CHAIN_START;
+  while (chain.length <= idx) {
+    const c = SHUFFLE_CHAIN_START + chain.length;
+    const prev = chain.length ? chain[chain.length - 1]! : null;
+    chain.push(pickCycleOrder(n, seed, kind, c, prev, acceptable));
+  }
+  return chain[idx]!;
+}
+
+function companyOrder(seed: number, cycle: number): number[] {
+  return cycleOrder(COMPANY_STORIES.length, seed, "co", cycle, companyAcceptable);
+}
+
+function crisisOrderOf(seed: number, cycle: number): number[] {
+  return cycleOrder(CRISES.length, seed, "order", cycle, crisisAcceptable);
+}
+
 /** Severity in [0.6, 1.4] for this seed and key. */
 export function storySeverity(seed: number, key: string): number {
   return STORY_SEVERITY_MIN + (STORY_SEVERITY_MAX - STORY_SEVERITY_MIN) * (hash(`${seed}:sev:${key}`) / 0x100000000);
@@ -104,19 +181,19 @@ export function scaleEffects(effects: readonly StoryEffect[], severity: number):
 }
 
 /** Catalog story on the STORY_EVERY grid, including ticks at or before START_TICK. Null off-grid.
- *  Company and crisis order are a seeded shuffle per cycle, so a defId does not recur until the
- *  rest of that deck has appeared (no 5–6 minute identical loop). Magnitudes vary by severity. */
+ *  Company and crisis order are a seeded shuffle per cycle from hash(seed, cycleIndex), not a
+ *  shared stream, so jump-to-k equals a walk from 0 and consecutive cycles differ. Magnitudes vary. */
 export function catalogStoryAt(seed: number, tick: number): StoryDef | null {
   const d = tick - START_TICK;
   if (!Number.isSafeInteger(d) || d % STORY_EVERY !== 0) return null;
   const slot = d / STORY_EVERY - 1;
   const cycle = Math.floor(slot / CYCLE), pos = floorMod(slot, CYCLE), quartet = Math.floor(pos / 4), step = pos % 4;
-  // One seeded deck for the run: a defId cannot return until the other
-  // members of the deck have appeared (8 company slots / 96 ticks).
-  const crisisOrder = shuffledIndices(CRISES.length, seed, "order");
+  // Per-cycle deck from hash(seed, cycle): a defId cannot return until the rest of that
+  // cycle's deck has appeared, consecutive cycles differ, and jump-to-k equals a walk from 0.
+  const crisisOrder = crisisOrderOf(seed, cycle);
   const crisis = CRISES[crisisOrder[quartet]!]!;
   if (step === 0 || step === 2) {
-    const coOrder = shuffledIndices(COMPANY_STORIES.length, seed, "co");
+    const coOrder = companyOrder(seed, cycle);
     const c = COMPANY_STORIES[coOrder[quartet * 2 + step / 2]!]!;
     const scaled = scaleEffects(c.effects, storySeverity(seed, `${tick}`));
     // RUMOR publishes as a forecast: belief may later move the mark; lnV waits on confirmation (05:324).
