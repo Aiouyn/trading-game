@@ -1,12 +1,15 @@
 "use client";
-// Launchpad app (owner-restored meme-coin Launchpad, first playable loop). Reads GET /api/launchpad (public coins and
-// curves, plus only the caller's own cash and holdings) and sends reviewed launches and trades to the server, which
-// decides and saves them (src/server/launchpad). Every money action is two steps, Review then Confirm; the review is
-// computed with the server's own curve rules, and the server refuses a fill worse than the reviewed one by more than
-// 5%. Nothing completes locally: a result is shown only from the server's reply, then the board is read again. Keyed by
-// account, so an account switch starts a fresh board with that account's reads only.
-// L4: a coin whose curve sold its last token has graduated: it moves to the Graduated tab, which shows its graduation and
-// its Broker price and opens it in the Broker, where it trades from then on (it is no longer traded here).
+// Launchpad app (owner-restored meme-coin Launchpad). Reads GET /api/launchpad (public coins and curves, plus only the
+// caller's own cash and holdings) and sends reviewed launches and trades to the server, which decides and saves them
+// (src/server/launchpad). Every money action is two steps, Review then Confirm; the review is computed with the server's
+// own curve rules, and the server refuses a fill worse than the reviewed one by more than 5%. Nothing completes locally: a
+// result is shown only from the server's reply, then the board is read again. Keyed by account, so an account switch
+// starts a fresh board with that account's reads only.
+// Look and layout: the owner's first version board (origin/p10/integration launchpad/{LaunchpadApp,FeedTab,Board,
+// TokenPage}.tsx): live trades bar, King of the Hill, New / Trending / Graduated / Holdings / Create, picture cards with
+// the market cap first, and a coin page with candles (CoinCandles.tsx), the curve, the tape and the ticket beside it.
+// L4: a coin whose curve sold its last token has graduated: it shows under Graduated with its Broker price and opens in
+// the Broker, where it trades from then on (it is no longer traded here).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { retryableLazy } from "@/components/shell/retryableLazy";
 import { Button } from "@/components/ui/Button";
@@ -15,17 +18,21 @@ import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { viewportOf } from "@/shell/wm";
 import {
-  LP, TAGLINES, curveLeft, feeOf, graduationOf, impactBp, marketCapCents, minAfterSlip, nameOk, priceText, quoteBuy, quoteSell, tickerOk,
+  LP, TAGLINES, curveLeft, feeOf, graduationOf, impactBp, liquidationCents, marketCapCents, minAfterSlip, nameOk, priceText, quoteBuy, quoteSell, tickerOk,
   type Book, type Curve, type TaglineId,
 } from "@/launchpad/rules";
+import { DEFAULT_SORT, GRAD_CAP_CENTS, capOf, ago, barOf, feedOf, kingOf, progressOf, raisedOf, volOf, type BoardSort, type Feed } from "./boardModel";
+import { BoardCard, KingBanner, StatusChip, TokenIcon, TradesBar } from "./Board";
 import { LPS } from "./strings";
 import "./launchpad.css";
 
-// The price/volume chart is its own chunk, loaded when a coin panel opens.
+// The charts are their own chunks, loaded when a coin page opens (the candles) or its step history is expanded.
 const RetryableHistory = retryableLazy(() => import("./HistoryChart"));
+const RetryableCandles = retryableLazy(() => import("./CoinCandles"));
 const histFallback = (label: string) => (
   <div className="lpad-skel lpad-hist-skel" aria-busy="true" aria-label={label} data-testid="lp-hist-loading" />
 );
+const candleFallback = (label: string) => <div className="lpad-skel lpad-cc-skel" aria-busy="true" aria-label={label} data-testid="lp-candles-loading" />;
 
 export const LAUNCHPAD_POLL_MS = 5_000;
 
@@ -84,27 +91,41 @@ export default function LaunchpadApp() {
   const id = isSignedIn(auth) ? auth.account.accountId : auth.status === "loading" ? null : "guest";
   return (
     <div className={`lpad${phone ? " lpad-phone" : ""}`} data-testid="launchpad">
-      <h2>{LPS.title}</h2>
-      <div className="lpad-note" data-testid="lp-game-only"><p>{LPS.gameOnly}</p><p>{LPS.risk}</p><p>{LPS.notCounted}</p></div>
+      <div className="lpad-note" data-testid="lp-game-only">
+        <p>{LPS.gameOnly}</p>
+        <details className="lpad-how"><summary>{LPS.howItWorks}</summary><p>{LPS.risk}</p><p>{LPS.notCounted}</p></details>
+      </div>
       {id === null ? <div className="lpad-skel" aria-busy="true" aria-label={LPS.loading} /> : <Board key={id} signedIn={id !== "guest"} />}
     </div>
   );
 }
 
+type Tab = Feed | "create";
+const FEEDS: readonly { id: Feed; label: string }[] = [
+  { id: "new", label: LPS.tabNew }, { id: "trending", label: LPS.tabTrending }, { id: "graduated", label: LPS.tabGraduated }, { id: "holdings", label: LPS.tabHoldings },
+];
+const SORTS: readonly { id: BoardSort; label: string }[] = [
+  { id: "bump", label: LPS.sortBump }, { id: "cap", label: LPS.mcap }, { id: "created", label: LPS.sortCreated }, { id: "vol", label: LPS.sortVol }, { id: "curve", label: LPS.sortCurve },
+];
+
 function Board({ signedIn }: { signedIn: boolean }) {
   const store = useShellStore();
-  const [{ view, state }, setBoard] = useState<{ view: View | null; state: "loading" | "error" | "live" | "stale" }>({ view: null, state: "loading" });
-  const [tab, setTab] = useState<"coins" | "graduated" | "create">("coins");
+  const [{ view, state, now }, setBoard] = useState<{ view: View | null; state: "loading" | "error" | "live" | "stale"; now: number }>({ view: null, state: "loading", now: 0 });
+  const [tab, setTab] = useState<Tab>("new");
   const [sel, setSel] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [sortPick, setSortPick] = useState<Partial<Record<Feed, BoardSort>>>({});
   // The buy that graduated the selected coin: its result stays on screen in the coin's Graduated panel.
   const [gradNote, setGradNote] = useState<{ ticker: string; text: string } | null>(null);
   const seq = useRef(0);
+  const top = useRef<HTMLDivElement>(null);
   const load = useCallback(async () => {
     const mine = ++seq.current;
     let v: View | null = null;
     try { v = await readView(); } catch { v = null; }
     if (mine !== seq.current) return;
-    setBoard((b) => (v ? { view: v, state: "live" } : b.view ? { ...b, state: "stale" } : { view: null, state: "error" }));
+    const at = Date.now();
+    setBoard((b) => (v ? { view: v, state: "live", now: at } : b.view ? { ...b, state: "stale", now: at } : { view: null, state: "error", now: at }));
   }, []);
   useEffect(() => {
     void load();
@@ -112,60 +133,116 @@ function Board({ signedIn }: { signedIn: boolean }) {
     const reads = seq;
     return () => { clearInterval(t); reads.current++; };
   }, [load]);
+  const open = (t: string) => { setSel(t); top.current?.scrollIntoView?.({ block: "start" }); };
 
   if (state === "loading") return <div className="lpad-skel" aria-busy="true" aria-label={LPS.loading} data-testid="lp-loading" />;
   if (state === "error" || !view) {
-    return <div className="lpad-row2" data-testid="lp-error"><span role="alert">{LPS.couldntLoad}</span><Button onClick={() => { setBoard({ view: null, state: "loading" }); void load(); }}>{LPS.retry}</Button></div>;
+    return <div className="lpad-row2" data-testid="lp-error"><span role="alert">{LPS.couldntLoad}</span><Button onClick={() => { setBoard({ view: null, state: "loading", now: 0 }); void load(); }}>{LPS.retry}</Button></div>;
   }
-  const list = view.coins.filter((c) => !c.grad === (tab !== "graduated"));
-  // A selected coin that graduates (this player's buy or another's) stays selected, now as its Graduated panel.
-  const coin = list.find((c) => c.ticker === sel) ?? (tab === "coins" ? view.coins.find((c) => c.ticker === sel && c.grad) : undefined) ?? null;
-  return (
+  const holdings = view.self?.holdings ?? {};
+  const coin = sel === null ? null : view.coins.find((c) => c.ticker === sel) ?? null;
+  const banner = (
     <>
       {state === "stale" && <p className="lpad-msg" role="status" data-testid="lp-stale">{LPS.couldntUpdate}</p>}
       {!signedIn && (
         <div className="lpad-row2" data-testid="lp-signed-out"><span>{LPS.signedOut}</span><Button size="sm" onClick={() => openAccountSettings(store)}>{LPS.signIn}</Button></div>
       )}
       {signedIn && !view.self && <p className="lpad-msg" data-testid="lp-no-ledger">{LPS.unavailable}</p>}
-      {view.self && <p className="lpad-sub" data-testid="lp-spendable">{LPS.spendable(usd(view.self.spendableCents))}</p>}
-      <div className="lpad-tabs" role="tablist" aria-label={LPS.title}>
-        <Button size="sm" role="tab" aria-selected={tab === "coins"} data-testid="lp-tab-coins" onClick={() => setTab("coins")}>{LPS.tabCoins}</Button>
-        <Button size="sm" role="tab" aria-selected={tab === "graduated"} data-testid="lp-tab-graduated" onClick={() => setTab("graduated")}>{LPS.tabGraduated}</Button>
-        {view.self && <Button size="sm" role="tab" aria-selected={tab === "create"} data-testid="lp-tab-create" onClick={() => setTab("create")}>{LPS.tabCreate}</Button>}
+    </>
+  );
+  if (sel !== null) {
+    return (
+      <div className="lpad-pagewrap" ref={top}>
+        <div className="lpad-row2"><Button size="sm" variant="ghost" data-testid="lp-board-back" onClick={() => setSel(null)}>{LPS.backToBoard}</Button></div>
+        {banner}
+        {!coin ? <p className="lpad-sub" data-testid="lp-missing">{LPS.missing(sel)}</p>
+          : coin.grad ? <GradPanel key={coin.ticker} coin={coin} grad={coin.grad} now={now} note={gradNote?.ticker === coin.ticker ? gradNote.text : null} />
+            : <CoinPanel key={coin.ticker} coin={coin} self={view.self} now={now} onDone={load} onGraduated={(text) => setGradNote({ ticker: coin.ticker, text })} />}
       </div>
-      {tab === "create" && view.self ? (
-        <Create self={view.self} onDone={(t) => { void load(); setTab("coins"); setSel(t); }} />
-      ) : (
-        <div className="lpad-body">
-          {list.length === 0 ? <p className="lpad-sub" data-testid="lp-empty">{tab === "graduated" ? LPS.emptyGraduated : LPS.empty}</p> : (
-            <ul className="lpad-list" data-testid={tab === "graduated" ? "lp-graduated" : "lp-coins"} aria-label={tab === "graduated" ? LPS.tabGraduated : LPS.tabCoins}>
-              {list.map((c) => (
-                <li key={c.ticker}>
-                  <button type="button" className="lpad-coin" data-testid="lp-coin" data-ticker={c.ticker} aria-current={c.ticker === sel ? "true" : undefined} onClick={() => setSel(c.ticker)}>
-                    <span><b>{c.ticker}</b> {c.name} {c.mine && <Chip>{LPS.yours}</Chip>}</span>
-                    <span className="num">{c.grad ? px8(c.grad.mark ?? c.grad.price) : priceText(c)}</span>
-                    <span className="lpad-sub">{c.grad ? `${LPS.by(c.creator)} · ${LPS.graduatedOn(new Date(c.grad.atMs).toLocaleDateString())}` : `${LPS.by(c.creator)} · ${LPS.holders(c.holders)}`}</span>
-                    {!c.grad && <span className="lpad-sub num">{`${LPS.mcap} ${usd(marketCapCents(c))}`}</span>}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {coin && (coin.grad ? <GradPanel key={coin.ticker} coin={coin} grad={coin.grad} note={gradNote?.ticker === coin.ticker ? gradNote.text : null} /> : <CoinPanel key={coin.ticker} coin={coin} self={view.self} onDone={load} onGraduated={(text) => setGradNote({ ticker: coin.ticker, text })} />)}
+    );
+  }
+  const feed: Feed = tab === "create" ? "new" : tab;
+  const sort = sortPick[feed] ?? DEFAULT_SORT[feed];
+  const list = feedOf(view.coins, feed, holdings, q, sort);
+  const self = view.self;
+  const heldValue = self ? view.coins.reduce((s, c) => s + (c.grad ? 0 : liquidationCents(c, holdings[c.ticker] ?? 0)), 0) : 0;
+  return (
+    <div className="lpad-boardwrap" ref={top}>
+      {banner}
+      {self && (
+        <div className="lpad-stats" data-testid="lp-stats">
+          <div><span className="lpad-kicker">{LPS.statCash}</span><span className="num" data-testid="lp-spendable">{usd(self.spendableCents)}</span></div>
+          <div><span className="lpad-kicker">{LPS.statLive}</span><span className="num">{`${self.live} / ${LP.MAX_LIVE}`}</span></div>
+          <div><span className="lpad-kicker">{LPS.statHeld}</span><span className="num" data-testid="lp-held-value">{usd(heldValue)}</span></div>
         </div>
       )}
-    </>
+      {tab !== "holdings" && tab !== "create" && <TradesBar rows={barOf(view.coins)} now={now} onOpen={open} />}
+      {tab === "new" && <KingBanner king={kingOf(view.coins)} now={now} onOpen={open} />}
+      <div className="lpad-tabbar" role="tablist" aria-label={LPS.title}>
+        {FEEDS.map((f) => (
+          <button key={f.id} type="button" role="tab" className="lpad-tab" aria-selected={tab === f.id} data-testid={`lp-tab-${f.id}`} onClick={() => setTab(f.id)}>
+            {f.label}{f.id === "holdings" && self ? <span className="lpad-badge num">{Object.values(holdings).filter((n) => n > 0).length}</span> : null}
+          </button>
+        ))}
+        {self && <button type="button" role="tab" className="lpad-tab" aria-selected={tab === "create"} data-testid="lp-tab-create" onClick={() => setTab("create")}>{LPS.tabCreate}</button>}
+      </div>
+      {tab === "create" && self ? (
+        <Create self={self} onDone={(t) => { void load(); setTab("new"); setSel(t); }} />
+      ) : (
+        <>
+          <div className="lpad-filter">
+            <input type="search" className="lpad-search" placeholder={LPS.search} aria-label={LPS.search} value={q} onChange={(e) => setQ(e.target.value)} data-testid="lp-search" />
+            <select aria-label={LPS.sortLabel} value={sort} onChange={(e) => setSortPick((p) => ({ ...p, [feed]: e.target.value as BoardSort }))} data-testid="lp-sort">
+              {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <span className="lpad-faint">{LPS.count(list.length)}</span>
+          </div>
+          {list.length === 0 ? (
+            <p className="lpad-sub lpad-empty" data-testid="lp-empty">{q.trim() ? LPS.noMatch : LPS.emptyFeed[feed]}</p>
+          ) : (
+            <div className="lpad-grid" data-testid={`lp-feed-${feed}`}>
+              {list.map((c) => <BoardCard key={c.ticker} c={c} held={holdings[c.ticker] ?? 0} now={now} onOpen={open} />)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
-function CoinPanel({ coin, self, onDone, onGraduated }: { coin: Coin; self: Self | null; onDone: () => Promise<void>; onGraduated: (text: string) => void }) {
+/** The coin's header (p10 TokenPage): icon, name, ticker, status, tagline, creator and age, then the key figures. */
+function CoinHeader({ coin, now, children }: { coin: Coin; now: number; children?: React.ReactNode }) {
+  return (
+    <header className="lpad-panel lpad-head">
+      <div className="lpad-head-id">
+        <TokenIcon ticker={coin.ticker} size={96} />
+        <div className="lpad-head-text">
+          <h3 className="lpad-title" data-testid="lp-page-name">{coin.name}</h3>
+          <span className="lpad-chips"><span className="lpad-tick" data-testid="lp-page-ticker">{coin.ticker}</span><StatusChip c={coin} />{coin.mine && <Chip outline>{LPS.yours}</Chip>}</span>
+          <p className="lpad-sub">{TAGLINES[coin.tagline] ?? ""}</p>
+          <p className="lpad-faint">{`${LPS.by(coin.creator)} · ${LPS.launchedAgo(ago(coin.createdAtMs, now))}`}</p>
+        </div>
+      </div>
+      {children}
+    </header>
+  );
+}
+
+const Fact = ({ label, value, testId }: { label: string; value: string; testId?: string }) => (
+  <div className="lpad-fact"><span className="lpad-kicker">{label}</span><span className="num" data-testid={testId}>{value}</span></div>
+);
+
+const QUICK_BUYS = [10, 50, 100, 500] as const;
+
+function CoinPanel({ coin, self, now, onDone, onGraduated }: { coin: Coin; self: Self | null; now: number; onDone: () => Promise<void>; onGraduated: (text: string) => void }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [review, setReview] = useState<null | { key: string; amount: number; min: number }>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<null | { kind: "ok" | "refused" | "unknown"; text: string }>(null);
+  const [steps, setSteps] = useState(false);
   const held = self?.holdings[coin.ticker] ?? 0;
-  const sold = ((coin.sold / (LP.Y0 - LP.GRAD_Y)) * 100).toFixed(1) + "%";
+  const progress = progressOf(coin);
   const n = side === "buy" ? Math.round(Number(amount) * 100) : Math.floor(Number(amount));
   const q = !Number.isFinite(n) || n <= 0 ? null : side === "buy" ? quoteBuy(coin, n) : quoteSell(coin, n);
   const why = !q ? null : !q.ok ? (q.why === "CURVE_FULL" ? `At most ${qty(curveLeft(coin))} tokens are left on this curve.` : q.why === "MIN" ? "The smallest buy is $1.00." : "Too small to fill.")
@@ -186,55 +263,95 @@ function CoinPanel({ coin, self, onDone, onGraduated }: { coin: Coin; self: Self
     setAmount("");
     await onDone();
   };
+  const version = `${coin.x}/${coin.sold}/${coin.tape.length}/${coin.tape[0]?.atMs ?? 0}`;
   return (
-    <section className="lpad-panel" data-testid="lp-coin-panel" data-ticker={coin.ticker} aria-label={`${coin.ticker} ${coin.name}`}>
-      <h3>{`${coin.ticker} · ${coin.name}`}</h3>
-      <p className="lpad-sub">{`“${TAGLINES[coin.tagline] ?? ""}” ${LPS.by(coin.creator)}`}</p>
-      <dl className="lpad-dl">
-        <dt>{LPS.price}</dt><dd className="num" data-testid="lp-price">{priceText(coin)}</dd>
-        <dt>{LPS.mcap}</dt><dd className="num">{usd(marketCapCents(coin))}</dd>
-        <dt>{LPS.sold(sold)}</dt><dd className="num">{LPS.holders(coin.holders)}</dd>
-      </dl>
-      <div className="lpad-panel" data-testid="lp-status">
-        <label>{LPS.progressLabel}
-          <progress data-testid="lp-progress" max={LP.Y0 - LP.GRAD_Y} value={coin.sold} aria-valuetext={LPS.progress(qty(coin.sold), qty(LP.Y0 - LP.GRAD_Y))} />
-        </label>
-        <p className="lpad-sub">{LPS.gradRule(usd(coin.x - LP.X0), qty(curveLeft(coin)))}</p>
-      </div>
-      {self && <p data-testid="lp-held" data-qty={held}>{LPS.youHold(`${qty(held)} ${coin.ticker}`)}</p>}
-      {self && !review && (
-        <form className="lpad-panel" onSubmit={(e) => { e.preventDefault(); if (q?.ok && !why) setReview({ key: key(), amount: n, min: minAfterSlip(q.ok && "tokens" in q ? q.tokens : (q as { pay: number }).pay) }); }}>
-          <div className="lpad-tabs" role="radiogroup" aria-label="Side">
-            <Button size="sm" role="radio" aria-checked={side === "buy"} data-testid="lp-side-buy" onClick={() => { setSide("buy"); setAmount(""); }}>{LPS.buy}</Button>
-            <Button size="sm" role="radio" aria-checked={side === "sell"} data-testid="lp-side-sell" disabled={held === 0} onClick={() => { setSide("sell"); setAmount(""); }}>{LPS.sell}</Button>
+    <section className="lpad-page" data-testid="lp-coin-panel" data-ticker={coin.ticker} aria-label={`${coin.ticker} ${coin.name}`}>
+      <CoinHeader coin={coin} now={now}>
+        <div className="lpad-facts">
+          <Fact label={LPS.mcap} value={usd(marketCapCents(coin))} testId="lp-mcap" />
+          <Fact label={LPS.price} value={priceText(coin)} testId="lp-price" />
+          <Fact label={LPS.raised} value={usd(raisedOf(coin))} />
+          <Fact label={LPS.volRecent} value={usd(volOf(coin))} />
+          <Fact label={LPS.holdersLabel} value={qty(coin.holders)} testId="lp-holders" />
+        </div>
+      </CoinHeader>
+      <div className="lpad-cols">
+        <div className="lpad-panel lpad-area-chart">
+          <RetryableCandles ticker={coin.ticker} version={version}
+            fallback={candleFallback(LPS.hLoading)} errorMessage={LPS.couldntLoad} retryLabel={LPS.retry}
+            errorTestId="lp-candles-chunk-error" retryTestId="lp-candles-chunk-retry" />
+        </div>
+        <aside className="lpad-panel lpad-area-ticket" data-testid="lp-ticket" aria-label={LPS.trade}>
+          <span className="lpad-kicker">{LPS.trade}</span>
+          {!self ? <p className="lpad-sub">{LPS.signedOut}</p> : <p data-testid="lp-held" data-qty={held}>{LPS.youHold(`${qty(held)} ${coin.ticker}`)}</p>}
+          {self && !review && (
+            <form className="lpad-ticket" onSubmit={(e) => { e.preventDefault(); if (q?.ok && !why) setReview({ key: key(), amount: n, min: minAfterSlip(q.ok && "tokens" in q ? q.tokens : (q as { pay: number }).pay) }); }}>
+              <div className="lpad-sides" role="radiogroup" aria-label="Side">
+                <button type="button" className="lpad-side" role="radio" aria-checked={side === "buy"} data-side="buy" data-testid="lp-side-buy" onClick={() => { setSide("buy"); setAmount(""); }}>{LPS.buy}</button>
+                <button type="button" className="lpad-side" role="radio" aria-checked={side === "sell"} data-side="sell" data-testid="lp-side-sell" disabled={held === 0} onClick={() => { setSide("sell"); setAmount(""); }}>{LPS.sell}</button>
+              </div>
+              <label>{side === "buy" ? LPS.amountBuy : LPS.amountSell}
+                <input data-testid="lp-amount" inputMode={side === "buy" ? "decimal" : "numeric"} value={amount} onChange={(e) => setAmount(e.target.value)} autoComplete="off" />
+              </label>
+              <div className="lpad-quick" data-testid="lp-quick">
+                {side === "buy" ? (
+                  <>
+                    {QUICK_BUYS.map((d) => <button key={d} type="button" className="lpad-chipbtn" data-testid={`lp-quick-${d}`} onClick={() => setAmount(String(d))}>{`$${d}`}</button>)}
+                    <button type="button" className="lpad-chipbtn" data-testid="lp-quick-max" onClick={() => setAmount((Math.floor(self.spendableCents) / 100).toFixed(2))}>{LPS.max}</button>
+                  </>
+                ) : (
+                  <>
+                    {[0.25, 0.5, 0.75].map((f) => <button key={f} type="button" className="lpad-chipbtn" data-testid={`lp-sell-${f * 100}`} onClick={() => setAmount(String(Math.floor(held * f)))}>{`${f * 100}%`}</button>)}
+                    <button type="button" className="lpad-chipbtn" data-testid="lp-all" onClick={() => setAmount(String(held))}>{LPS.all}</button>
+                  </>
+                )}
+              </div>
+              {why && <p className="lpad-msg" data-kind="refused" data-testid="lp-why">{why}</p>}
+              <Button type="submit" data-testid="lp-review" disabled={!q?.ok || !!why}>{side === "buy" ? LPS.reviewBuy : LPS.reviewSell}</Button>
+              <p className="lpad-faint">{LPS.ticketNote}</p>
+            </form>
+          )}
+          {self && review && q?.ok && <TradeReview coin={coin} side={side} self={self} q={q} asked={review.amount} min={review.min} busy={busy} onBack={() => setReview(null)} onConfirm={() => void send()} />}
+          {msg && <p className="lpad-msg" role="status" data-kind={msg.kind} data-testid="lp-result">{msg.text}</p>}
+        </aside>
+        <div className="lpad-panel lpad-area-curve" data-testid="lp-status">
+          <span className="lpad-kicker">{LPS.curveTitle}</span>
+          <div className="lpad-curve">
+            <progress className="lpad-progress" data-testid="lp-progress" max={LP.Y0 - LP.GRAD_Y} value={coin.sold} aria-label={LPS.progressLabel} aria-valuetext={LPS.progress(qty(coin.sold), qty(LP.Y0 - LP.GRAD_Y))} />
+            <span className="num">{`${(progress * 100).toFixed(2)}%`}</span>
           </div>
-          <label>{side === "buy" ? LPS.amountBuy : LPS.amountSell}
-            <span className="lpad-row2">
-              <input data-testid="lp-amount" inputMode={side === "buy" ? "decimal" : "numeric"} value={amount} onChange={(e) => setAmount(e.target.value)} autoComplete="off" />
-              {side === "sell" && <Button size="sm" data-testid="lp-all" onClick={() => setAmount(String(held))}>{LPS.all}</Button>}
-            </span>
-          </label>
-          {why && <p className="lpad-msg" data-kind="refused" data-testid="lp-why">{why}</p>}
-          <div className="lpad-actions"><Button type="submit" data-testid="lp-review" disabled={!q?.ok || !!why}>{side === "buy" ? LPS.reviewBuy : LPS.reviewSell}</Button></div>
-        </form>
-      )}
-      {self && review && q?.ok && <TradeReview coin={coin} side={side} self={self} q={q} asked={review.amount} min={review.min} busy={busy} onBack={() => setReview(null)} onConfirm={() => void send()} />}
-      {msg && <p className="lpad-msg" role="status" data-kind={msg.kind} data-testid="lp-result">{msg.text}</p>}
-      {/* Below the ticket and its review, so the chart never covers Review or Confirm. Re-read when the curve or tape moves. */}
-      <RetryableHistory ticker={coin.ticker} version={`${coin.x}/${coin.sold}/${coin.tape.length}/${coin.tape[0]?.atMs ?? 0}`}
-        fallback={histFallback(LPS.hLoading)} errorMessage={LPS.couldntLoad} retryLabel={LPS.retry}
-        errorTestId="lp-hist-error" retryTestId="lp-hist-retry" />
-      <h3>{LPS.tape}</h3>
-      {coin.tape.length === 0 ? <p className="lpad-sub">{LPS.noTape}</p> : (
-        <ul className="lpad-tape" data-testid="lp-tape">
-          {coin.tape.slice(0, 10).map((p, i) => (
-            <li key={`${p.atMs}-${i}`} data-side={p.side}>
-              <span>{`${p.side === "buy" ? LPS.buy : LPS.sell}${p.creator ? ` · ${LPS.creatorFlag}` : ""}`}</span>
-              <span className="num">{`${qty(p.tokens)} · ${usd(p.cents)}`}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+          <p className="lpad-sub">{LPS.curveNote(usd(raisedOf(coin)), usd(GRAD_CAP_CENTS))}</p>
+          <p className="lpad-faint">{LPS.gradRule(usd(coin.x - LP.X0), qty(curveLeft(coin)))}</p>
+        </div>
+        <div className="lpad-panel lpad-area-tape">
+          <span className="lpad-kicker">{LPS.tape}</span>
+          {coin.tape.length === 0 ? <p className="lpad-sub">{LPS.noTape}</p> : (
+            <table className="lpad-trades" data-testid="lp-tape">
+              <thead><tr><th>{LPS.colTime}</th><th>{LPS.colTrader}</th><th>{LPS.colSide}</th><th className="num">{LPS.colUsd}</th><th className="num lpad-wide">{LPS.colTokens}</th><th className="num lpad-wide">{LPS.avg}</th></tr></thead>
+              <tbody>
+                {coin.tape.slice(0, 20).map((p, i) => (
+                  <tr key={`${p.atMs}-${i}`} data-side={p.side}>
+                    <td className="lpad-faint">{ago(p.atMs, now) === "now" ? LPS.now : LPS.agoText(ago(p.atMs, now))}</td>
+                    <td>{p.creator ? <Chip tone="steel" outline>{LPS.creatorFlag}</Chip> : <span className="lpad-faint">{LPS.barTrader}</span>}</td>
+                    <td data-side={p.side}>{p.side === "buy" ? LPS.buy : LPS.sell}</td>
+                    <td className="num">{usd(p.cents)}</td>
+                    <td className="num lpad-wide">{qty(p.tokens)}</td>
+                    <td className="num lpad-wide">{`$${(p.cents / 100 / p.tokens).toPrecision(4)}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <details className="lpad-steps" onToggle={(e) => setSteps((e.currentTarget as HTMLDetailsElement).open)}>
+            <summary data-testid="lp-steps-toggle">{LPS.stepsTitle}</summary>
+            {steps && (
+              <RetryableHistory ticker={coin.ticker} version={version}
+                fallback={histFallback(LPS.hLoading)} errorMessage={LPS.couldntLoad} retryLabel={LPS.retry}
+                errorTestId="lp-hist-error" retryTestId="lp-hist-retry" />
+            )}
+          </details>
+        </div>
+      </div>
     </section>
   );
 }
@@ -278,15 +395,27 @@ function TradeReview({ coin, side, self, q, asked, min, busy, onBack, onConfirm 
 }
 
 /** A graduated coin: its graduation, its listing and Broker price now, its book, and the way to the Broker. */
-function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string | null }) {
+function GradPanel({ coin, grad, now, note }: { coin: Coin; grad: Grad; now: number; note: string | null }) {
   const store = useShellStore();
   const noteRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => { noteRef.current?.scrollIntoView?.({ block: "nearest" }); }, [note]); // the curve panel it replaced may have been scrolled
   return (
-    <section className="lpad-panel" data-testid="lp-grad-panel" data-ticker={coin.ticker} aria-label={`${coin.ticker} ${coin.name}`}>
-      <h3>{`${coin.ticker} · ${coin.name}`} <Chip>{LPS.graduated}</Chip></h3>
+    <section className="lpad-page" data-testid="lp-grad-panel" data-ticker={coin.ticker} aria-label={`${coin.ticker} ${coin.name}`}>
+      <CoinHeader coin={coin} now={now}>
+        <div className="lpad-facts">
+          <Fact label={LPS.mcap} value={usd(capOf(coin))} />
+          <Fact label={LPS.markNow} value={grad.mark === null ? "—" : px8(grad.mark)} />
+          <Fact label={LPS.raised} value={usd(grad.raise)} />
+          <Fact label={LPS.holdersLabel} value={qty(coin.holders)} />
+        </div>
+      </CoinHeader>
       {note && <p className="lpad-msg" role="status" data-kind="ok" data-testid="lp-result" ref={noteRef}>{note}</p>}
-      <p className="lpad-sub">{`“${TAGLINES[coin.tagline] ?? ""}” ${LPS.by(coin.creator)}`}</p>
+      <div className="lpad-panel">
+        <RetryableCandles ticker={coin.ticker} version={`grad/${grad.atMs}`}
+          fallback={candleFallback(LPS.hLoading)} errorMessage={LPS.couldntLoad} retryLabel={LPS.retry}
+          errorTestId="lp-candles-chunk-error" retryTestId="lp-candles-chunk-retry" />
+      </div>
+      <div className="lpad-panel">
       <p><b>{LPS.graduatedOn(new Date(grad.atMs).toLocaleString())}</b></p>
       <dl className="lpad-dl">
         <dt>{LPS.markNow}</dt><dd className="num" data-testid="lp-mark">{grad.mark === null ? "—" : px8(grad.mark)}</dd>
@@ -324,10 +453,8 @@ function GradPanel({ coin, grad, note }: { coin: Coin; grad: Grad; note: string 
           )}
         </div>
       )}
+      </div>
       <div className="lpad-actions"><Button variant="primary" data-testid="lp-open-broker" onClick={() => store.getState().open("broker", coin.ticker)}>{LPS.openBroker}</Button></div>
-      <RetryableHistory ticker={coin.ticker} version={`grad/${grad.atMs}`}
-        fallback={histFallback(LPS.hLoading)} errorMessage={LPS.couldntLoad} retryLabel={LPS.retry}
-        errorTestId="lp-hist-error" retryTestId="lp-hist-retry" />
     </section>
   );
 }

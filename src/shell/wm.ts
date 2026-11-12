@@ -25,6 +25,9 @@ export const DEFAULT_WINDOW_H = 560;
  *  default left the tool under the fold once the overlay controls were added, and a click then
  *  scrolled the plot (tests/e2e/17b/broker-trendline.spec.ts). */
 export const BROKER_WINDOW_H = 640;
+/** Launchpad opens wide so its board shows three picture cards per row and a coin page puts the ticket beside the
+ *  candles (the owner's first version layout); a smaller work area clamps it as usual. */
+export const LAUNCHPAD_WINDOW = { w: 1180, h: 760 } as const;
 
 /**
  * Move a window; its top is clamped below the strip's hit band so the title bar never sits under it. With the work
@@ -105,7 +108,8 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
     return { windows: [...windows.filter((x) => !sameWin(x, existing)), moved], focused: moved, opened: false };
   }
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
-  const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, app === "broker" ? BROKER_WINDOW_H : DEFAULT_WINDOW_H), a.w);
+  const lp = app === "launchpad";
+  const size = clampSize(app, Math.min(a.w, lp ? LAUNCHPAD_WINDOW.w : 840), Math.min(a.h, app === "broker" ? BROKER_WINDOW_H : lp ? LAUNCHPAD_WINDOW.h : DEFAULT_WINDOW_H), a.w);
   const n = windows.length % 6;
   const rect: WindowRect = {
     app, instance, workspace: 1, collapsed: false, snap: null, context,
