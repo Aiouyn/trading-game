@@ -118,7 +118,13 @@ function BoardView({ view, refreshFailed, phone, onRetry }: { view: LeaderboardV
           </p>
         )}
         {next.kind === "lead" && <p className="lb-next-line muted" data-testid="lb-lead">{LB.atTop}</p>}
-        {next.kind === "tied" && <p className="lb-next-line muted" data-testid="lb-tied">{LB.tied(next.others)}</p>}
+        {next.kind === "tied" && (
+          <p className="lb-next-line muted" data-testid="lb-tied">
+            {LB.tied(next.others)}
+            {" · "}
+            <MoneyText amount={next.nw} ctx="table" />
+          </p>
+        )}
         {refreshFailed && (
           <p className="lb-stale" role="status" data-testid="lb-refresh-failed">
             <span>{LB.couldntUpdate}</span>
