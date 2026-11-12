@@ -16,7 +16,7 @@ import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
-import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { isAuthPending, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 const LONG_PRESS_MS = 400;
@@ -209,12 +209,13 @@ export function PhoneHome() {
   const nw = reading.nw ?? "0.00"; // only read with a value: the rank bar and guest today row wait for one
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
+  const pending = isAuthPending(auth);
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
   const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
-  const next = signedIn ? null : nextRankTarget(rank);
+  const next = signedIn || pending ? null : nextRankTarget(rank);
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -274,14 +275,18 @@ export function PhoneHome() {
         <section className="widget" data-testid="widget">
           <div className="widget-top">
             <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.demoBalance : S.netWorth}</span>
-            {signedIn ? (
+            {pending ? (
+              <span className="auth-skel-chrome" data-testid="auth-skel-chrome" aria-hidden="true" />
+            ) : signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
               <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
             )}
           </div>
           {/* Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
-          {!signedIn ? (
+          {pending ? (
+            <span className="auth-skel-chrome auth-skel-chrome-cta" data-testid="auth-skel-cta" aria-hidden="true" />
+          ) : !signedIn ? (
             <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
           ) : null}
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>

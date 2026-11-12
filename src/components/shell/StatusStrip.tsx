@@ -2,7 +2,7 @@
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { clockLabel } from "@/shell/mockChannels";
-import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
+import { isAuthPending, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { RANK_NAMES, RANKS } from "@/shell/registry";
 import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
@@ -25,12 +25,15 @@ export function StatusStrip() {
   const nw = useNwReading();
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
+  const pending = isAuthPending(auth);
   const focusMode = useShell((s) => s.local.focusMode);
   const { day, hhmm } = clockLabel(clock);
   const clockText = clockStrings(useShell((s) => s.prefs.locale)).strip(day, hhmm);
   const release = signedIn
     ? `${S.quay} · ${auth.account.handle}`
-    : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
+    : pending
+      ? null
+      : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const offline = useShell((s) => s.channels.system.offline);
@@ -60,7 +63,7 @@ export function StatusStrip() {
       <div className="brand">
         <span className="fg"><Glyph name="quay" size={20} /></span>
         <span className="wordmark">{S.quay}</span>
-        <span className="num release" data-testid="release">{release}</span>
+        <span className="num release" data-testid="release">{pending ? <span className="auth-skel-release" data-testid="auth-skel-release" aria-hidden="true" /> : release}</span>
       </div>
       <button className="launch-field" onClick={() => store.getState().setLauncher(true)}>
         <Glyph name="search" size={14} />
@@ -75,7 +78,9 @@ export function StatusStrip() {
       <div className="strip-right">
         <HaltChip halted={sys.halted} />
         {me.protectionEndsRealMs !== null && <Chip data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</Chip>}
-        {signedIn ? (
+        {pending ? (
+          <span className="auth-skel-chrome" data-testid="auth-skel-chrome" aria-hidden="true" />
+        ) : signedIn ? (
           <button
             type="button"
             className="chip chip-acc strip-account"

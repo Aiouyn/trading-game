@@ -228,5 +228,15 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 /* M1-01 auth chrome */
 .strip-demo-tag { font-size: var(--fs-13); }
 .strip-account, .sb-account { cursor: pointer; border: 0; font: inherit; }
+/* Unknown session: muted static bars, no animation, no invented rank or Sign in (card 23). */
+.auth-skel-release, .auth-skel-chrome {
+  display: inline-block;
+  border-radius: var(--r-input);
+  background: var(--win2);
+  vertical-align: middle;
+}
+.auth-skel-release { width: 8.5rem; height: 0.85em; }
+.auth-skel-chrome { width: 9.5rem; height: 1.5rem; }
+.auth-skel-chrome-cta { display: block; width: 100%; height: 2.75rem; margin-top: var(--sp-8); }
 
 .lazy-chunk-error { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-8); min-height: 96px; }
