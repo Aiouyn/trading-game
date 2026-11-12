@@ -59,8 +59,13 @@ describe("Card 9 phone guest first screen", () => {
     // Order a stranger reads in: what this is, then the one thing to do, then the example numbers.
     const order = ["widget-nw-label", "guest-pitch", "sign-in-entry", "hero-nw"].map((id) => q(id)!);
     for (let i = 1; i < order.length; i++) expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The example stays visible: it shows what the game looks like.
-    expect(el.textContent).toMatch(/R2\s*·\s*Owner/);
+    // The example numbers stay visible: they show what the game looks like.
+    expect(q("hero-nw")).toBeTruthy();
+    // Card 20: do not present the example book's R2 · Owner / Next: Mogul as the visitor's rank.
+    expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
+    expect(q("rank-bar")).toBeNull();
+    expect(q("rank-next")).toBeNull();
+    expect(el.textContent).not.toMatch(/Next:\s*Mogul/);
   });
 
   it("FR: the same three things in French", async () => {

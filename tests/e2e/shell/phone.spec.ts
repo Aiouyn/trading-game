@@ -83,14 +83,15 @@ test("S1-19 axe: phone home, launcher, ComingLater", async ({ page }) => {
   }
 });
 
-test("Phone widget: sparkline, rank bar, today's change, cents at 65% muted, rank target from thresholds (M2, M3, B2)", async ({ page }) => {
+test("Phone widget: sparkline, today's change, cents at 65% muted; no example rank target (card 20)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
-  await expect(page.getByTestId("rank-next")).toHaveText("Next: Owner · $30k / $250k");
+  await expect(page.getByTestId("rank-next")).toHaveCount(0);
+  await expect(page.getByTestId("rank-bar")).toHaveCount(0);
   await boot(page, "/?nw=412860.15"); // pinned: the mock feed now moves NW with marks every tick (one NW source, #67)
-  await expect(page.getByTestId("rank-next")).toHaveText("Next: Mogul · $412k / $5M");
+  await expect(page.getByTestId("rank-next")).toHaveCount(0);
+  await expect(page.getByTestId("rank-bar")).toHaveCount(0);
   const sp = await page.getByTestId("sparkline").boundingBox();
   expect([sp?.width, sp?.height]).toEqual([92, 22]);
-  expect((await page.getByTestId("rank-bar").boundingBox())?.height).toBe(4);
   await expect(page.getByTestId("today")).toHaveText("+$3,204.10 +0.78%");
   const cents = await page.getByTestId("hero-cents").evaluate((e) => {
     const p = getComputedStyle(e.parentElement!);

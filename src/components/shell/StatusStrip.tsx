@@ -3,7 +3,6 @@ import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { clockLabel } from "@/shell/mockChannels";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
-import { RANK_NAMES, RANKS } from "@/shell/registry";
 import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
@@ -18,7 +17,6 @@ const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms 
 export function StatusStrip() {
   const store = useShellStore();
   const clock = useShell((s) => s.channels.clock);
-  const rank = useShell((s) => s.channels.rank.rank);
   const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
   const nw = useNwReading();
@@ -27,9 +25,7 @@ export function StatusStrip() {
   const focusMode = useShell((s) => s.local.focusMode);
   const { day, hhmm } = clockLabel(clock);
   const clockText = clockStrings(useShell((s) => s.prefs.locale)).strip(day, hhmm);
-  const release = signedIn
-    ? `${S.quay} · ${auth.account.handle}`
-    : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
+  const release = signedIn ? `${S.quay} · ${auth.account.handle}` : S.quay;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const offline = useShell((s) => s.channels.system.offline);
@@ -86,7 +82,6 @@ export function StatusStrip() {
           </button>
         ) : (
           <>
-            <Chip tone="acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</Chip>
             <Button
               variant="secondary"
               size="sm"

@@ -18,11 +18,12 @@ export type AppId =
 export type AppGroup = "trade" | "build" | "shadow" | "world" | "me";
 export const GROUPS: readonly AppGroup[] = ["trade", "build", "shadow", "world", "me"];
 
-/** 17 header: R0 Broke, R1 Hustler, R2 Owner, R3 Mogul, R4 Tycoon, R5 Titan, R6 Dynasty. */
+/** Rank ids follow 14 §3.2.2 / 00 §5.8 / 17 header (R0–R6). The table name for R0 is Broke;
+ *  the player-facing label is Starter: honest start cash is $10,000, not penniless (card 20). */
 export type Rank = "R0" | "R1" | "R2" | "R3" | "R4" | "R5" | "R6";
 export const RANKS: readonly Rank[] = ["R0", "R1", "R2", "R3", "R4", "R5", "R6"];
 export const RANK_NAMES: Record<Rank, string> = {
-  R0: "Broke", R1: "Hustler", R2: "Owner", R3: "Mogul", R4: "Tycoon", R5: "Titan", R6: "Dynasty",
+  R0: "Starter", R1: "Hustler", R2: "Owner", R3: "Mogul", R4: "Tycoon", R5: "Titan", R6: "Dynasty",
 };
 
 export type UnlockRule =
