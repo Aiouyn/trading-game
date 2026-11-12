@@ -35,6 +35,11 @@ const globalForMarket = globalThis as typeof globalThis & {
 export const WIRE_STATEMENTS_SETTLED_WAIT_MS = 2_000;
 
 let autostartClockForTests: boolean | undefined;
+let settledWaitMsForTests: number | undefined;
+
+function wireStatementsSettledWaitMs(): number {
+  return settledWaitMsForTests ?? WIRE_STATEMENTS_SETTLED_WAIT_MS;
+}
 
 export type LiveMarketOptions = {
   /** Override only in tests. Production uses FEED_TICK_MS. */
@@ -190,7 +195,7 @@ export class LiveMarket {
    */
   whenWireStatementsSettled(): Promise<boolean> {
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(false), WIRE_STATEMENTS_SETTLED_WAIT_MS);
+      const timer = setTimeout(() => resolve(false), wireStatementsSettledWaitMs());
       void this.statementsSettled.then(() => {
         clearTimeout(timer);
         resolve(true);
@@ -678,6 +683,11 @@ export function shouldAutostartClock(): boolean {
 /** Test-only: force or suppress the production autostart in getLiveMarket(). Pass undefined to restore. */
 export function setAutostartClockForTests(value: boolean | undefined): void {
   autostartClockForTests = value;
+}
+
+/** Test-only: shorten or restore the GET persist-wait bound. Pass undefined to restore the production 2 s. */
+export function setWireStatementsSettledWaitForTests(ms: number | undefined): void {
+  settledWaitMsForTests = ms;
 }
 
 /** Process singleton. The first production read starts the one interval. */

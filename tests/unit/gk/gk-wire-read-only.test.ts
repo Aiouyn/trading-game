@@ -14,7 +14,7 @@ import {
   type AuthStoreSnapshot,
 } from "@/server/auth";
 import { setBrokerForTests } from "@/server/broker";
-import { LiveMarket, WIRE_STATEMENTS_SETTLED_WAIT_MS, setAutostartClockForTests, setLiveMarketForTests } from "@/server/market/clock";
+import { LiveMarket, setAutostartClockForTests, setLiveMarketForTests, setWireStatementsSettledWaitForTests } from "@/server/market/clock";
 import { parseWireSnapshot } from "@/market/wireSnapshot";
 import { WIRE_POST_FEE_CENTS, publicHandleId } from "@/server/wire/playerStatements";
 import { STATEMENT_RESOLVE_TICKS } from "@/server/wire/statementResolve";
@@ -54,6 +54,7 @@ describe("GET /api/wire is a pure read; the clock resolves due statements", () =
   afterEach(async () => {
     for (const m of markets.splice(0)) m.stop();
     setAutostartClockForTests(undefined);
+    setWireStatementsSettledWaitForTests(undefined);
     setBrokerForTests(undefined);
     setLiveMarketForTests(undefined);
     setAuthServiceForTests(undefined);
@@ -329,12 +330,14 @@ describe("GET /api/wire is a pure read; the clock resolves due statements", () =
     expect((await seed.listPublicWirePosts())[0]!.verdict).toBe("UNRESOLVED");
     const hanging = new AuthService({ store: new HangingStore(inner) });
     setAuthServiceForTests(hanging);
+    const waitMs = 200;
+    setWireStatementsSettledWaitForTests(waitMs);
     void market.catchUpWireStatements();
     const t0 = Date.now();
     const firstGet = await wireGet();
     const elapsed = Date.now() - t0;
-    expect(elapsed).toBeGreaterThanOrEqual(WIRE_STATEMENTS_SETTLED_WAIT_MS - 100);
-    expect(elapsed).toBeLessThan(WIRE_STATEMENTS_SETTLED_WAIT_MS + 1000);
+    expect(elapsed).toBeGreaterThanOrEqual(waitMs - 50);
+    expect(elapsed).toBeLessThan(waitMs + 1000);
     expect(firstGet.snap.tick).toBe(now);
     const posted = playerItems(firstGet.snap);
     expect(posted).toHaveLength(1);
