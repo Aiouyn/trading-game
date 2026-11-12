@@ -80,7 +80,11 @@ test("phone: unscrolled Trade keeps the asset-select focus contract on Back", as
   await phoneBroker(page, 390, "en", 1);
   expect(await scrollTop(page)).toBe(0);
   await broker(page).getByTestId("br-view-about").evaluate((e) => (e as HTMLElement).click());
+  // PR105 loads AssetPage (which registers phone Back-to-trade) as a retryable lazy chunk.
+  await expect(broker(page)).toHaveAttribute("data-view", "about");
+  await expect(page.getByTestId("br-about-title")).toBeFocused();
   await page.getByTestId("app-back").click();
+  await expect(broker(page)).toHaveAttribute("data-view", "trade");
   await expect(page.getByTestId("br-asset-select")).toBeFocused();
   expect(await scrollTop(page)).toBe(0);
 });
