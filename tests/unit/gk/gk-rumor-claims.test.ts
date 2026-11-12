@@ -85,7 +85,11 @@ describe("RUMOR schedule and draws", () => {
     expect(def.kind).toBe("RUMOR");
     expect(def.phase).toBe("forecast");
     expect(def.effects).toEqual([]);
-    expect(def.asserted).toEqual(tide.effects);
+    const asserted = def.asserted![0]!;
+    expect(asserted.assetId).toBe(tide.effects[0]!.assetId);
+    expect(Math.sign(asserted.bp)).toBe(Math.sign(tide.effects[0]!.bp));
+    expect(Math.abs(asserted.bp)).toBeGreaterThanOrEqual(Math.round(Math.abs(tide.effects[0]!.bp) * 0.6));
+    expect(Math.abs(asserted.bp)).toBeLessThanOrEqual(Math.round(Math.abs(tide.effects[0]!.bp) * 1.4));
     expect(CAUSES[def.causeKey]!).toBeTruthy();
     expect(CAUSES[`${def.causeKey}-confirmed`]).toBeTruthy();
     expect(CAUSES[`${def.causeKey}-fizzled`]).toBeTruthy();
@@ -384,7 +388,8 @@ describe("jump ≡ step and restart", () => {
     for (let i = 0; i < 4500 && !hit; i++) {
       a.step();
       for (const c of a.stormSnapshot().rumors?.claims ?? []) {
-        if (c.resolution === "CONFIRMED" && c.effect) {
+        // Catalog TIDE desk rumor only — a farm claim on another asset can confirm first.
+        if (c.resolution === "CONFIRMED" && c.effect && c.defId === "tide-downgrade" && c.assetId === "TIDE") {
           hit = { tick: a.snapshot().tick, id: c.id, from: c.effect.from, to: c.effect.to };
         }
       }

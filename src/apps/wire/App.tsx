@@ -32,6 +32,7 @@ export default function WireApp({ context }: { context?: string }) {
     phone,
     // The shell's open (as Launcher `tk:` items): opens or focuses Broker on the asset; a locked Broker stays shut.
     openAsset: (assetId) => store.getState().open("broker", assetId),
+    openBroker: () => store.getState().open("broker"),
     filing: (filingId) => <FilingSection filingId={filingId} t={t} />,
     pushPhone,
   }), [phone, store, t, pushPhone]);
