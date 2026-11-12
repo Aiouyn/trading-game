@@ -103,6 +103,19 @@ describe("input size limits", () => {
     expect(() => commandFarm(s, { ...trade, key: "k".repeat(FARM_LIMITS.inputString) })).not.toThrow();
     expect(() => advanceFarm(s, [{ hour: 1, coins: { ["G".repeat(FARM_LIMITS.inputString + 1)]: {} } }])).toThrow("INVALID_FARM_FRAME");
   });
+  it("rejects a 2 MB name on size before the name rules, without a BAD_NAME receipt or a save", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "avalon-farm-premise-"));
+    try {
+      const file = join(dir, "farm.json"), engine = await FailureFarmEngine.open(new FileFarmStore(file), world()), bytes = await readFile(file, "utf8");
+      const huge = { kind: "LAUNCH", wallet: "holder", key: "huge", ticker: "TERN", name: "N".repeat(2 * 1024 * 1024), fee: LP.LAUNCH_FEE, nowMs: 0 };
+      expect(() => commandFarm(engine.snapshot(), huge)).toThrow("INVALID_FARM_COMMAND");
+      await expect(engine.execute(huge)).rejects.toThrow("INVALID_FARM_COMMAND");
+      expect(engine.snapshot().receipts["holder:huge"]).toBeUndefined();
+      expect(await readFile(file, "utf8")).toBe(bytes);
+      // The same key with an ordinary over-long (but bounded) name reaches the name rules as a persisted refusal.
+      expect(await engine.execute({ ...huge, name: "N".repeat(200) })).toEqual({ kind: "REFUSED", code: "BAD_NAME" });
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   it("refuses checkpoint strings over 4,096 units", () => {
     const s = world();
     expect(() => parseFarm({ ...s, coins: { GULL: { ...s.coins.GULL!, name: "n".repeat(FARM_LIMITS.checkpointString + 1) } } })).toThrow("BAD_FARM_CHECKPOINT");
