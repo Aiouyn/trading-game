@@ -349,6 +349,8 @@ function openResolution(s: LiquidityState, b: LiquidityBank, trigger: "SOLVENCY"
     b.status = "IN_RESOLUTION";
     b.run = false;
     b.calmSince = null;
+    if (b.resolution)
+        (b.priorResolutions ??= []).push(b.resolution);
     b.failedAt = s.tick;
     b.ownerWiped = true;
     b.charterBanUntil = s.tick + TICKS_PER_CHAPTER;
