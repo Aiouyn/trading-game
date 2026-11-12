@@ -61,6 +61,11 @@
 .pos-empty p { margin: 0; }
 .pos-empty-title { color: var(--fg); }
 
+/* Card 27: Close sits with the asset, not as a ninth column (PF-B keeps 8 headers). */
+.pos-asset { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
+.pos-close { margin: 0; }
+.pos-card .pos-close { align-self: flex-start; }
+
 /* Live last sits with qty @ avg on line 3 (card 13). At text scale >= 1.5 last stacks under the cost so 390 still fits. */
 .pos-cost { display: inline-flex; align-items: baseline; column-gap: var(--sp-8); flex: none; white-space: nowrap; min-width: 0; }
 .pos-big .pos-line3 { align-items: flex-start; }
