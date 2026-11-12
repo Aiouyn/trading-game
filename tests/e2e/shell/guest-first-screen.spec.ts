@@ -99,5 +99,7 @@ test("desktop guest first screen is unchanged: strip Sign in, example windows, n
   await expect(page.getByTestId("guest-pitch")).toHaveCount(0);
   await expect(page.getByTestId("release")).toHaveText("Quay");
   await expect(page.getByTestId("rank-chip")).toHaveCount(0);
+  await expect(page.getByTestId("pf-rank-chip")).toHaveCount(0);
+  await expect(page.getByTestId("pf-next")).toHaveCount(0);
   await shot(page, "desktop-en-1440-guest-first-screen");
 });

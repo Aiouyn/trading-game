@@ -6,6 +6,7 @@ import { Overview } from "@/apps/portfolio/Overview";
 import { AppearancePreview } from "@/apps/settings/AppearancePreview";
 import { ShellCtx } from "@/components/shell/ShellContext";
 import { applySignedInDemo, DEMO_STARTER_NW, leaksCannedOwnerMock } from "@/shell/accountDemoBoundary";
+import * as authSession from "@/shell/authSession";
 import { START_NW } from "@/shell/contracts/fixtures/me";
 import { setFeed } from "@/shell/contracts/useChannel";
 import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
@@ -27,6 +28,13 @@ describe("M1-01 signed-in Portfolio + Appearance use account demo boundary", () 
     vi.useFakeTimers();
     // M1-06: signed-in `me` is the saved server ledger at server marks.
     vi.stubGlobal("fetch", vi.fn(portAvalonServer({ cashCents: 1_000_000 })));
+    vi.spyOn(authSession, "useAuthSession").mockReturnValue({
+      status: "signed_in",
+      account: { accountId: "acc_pf", handle: "acc_pf", createdAtMs: 1, worldId: "world_port_avalon" },
+      player: { accountId: "acc_pf", cashCents: 1_000_000, positions: {}, openOrders: {} },
+      world: { worldId: "world_port_avalon", marketSeed: 17, persistence: "player_private" },
+      sessionExpiresAtMs: 9e15,
+    });
   });
 
   afterEach(async () => {
@@ -35,6 +43,7 @@ describe("M1-01 signed-in Portfolio + Appearance use account demo boundary", () 
     setFeed(null);
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("Portfolio overview after applySignedInDemo: $10k, R0, no Owner/412k/Sharpe", async () => {

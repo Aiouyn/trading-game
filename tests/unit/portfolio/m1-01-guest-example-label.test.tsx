@@ -42,5 +42,9 @@ describe("M1-01 guest portfolio example label", () => {
     const label = el.querySelector("[data-testid=pf-guest-example]")?.textContent ?? "";
     expect(label).toMatch(/Example portfolio/i);
     expect(label).toMatch(/not your account/i);
+    // Card 20: the example book's R2 is not presented as the visitor's rank.
+    expect(el.querySelector("[data-testid=pf-rank-chip]")).toBeNull();
+    expect(el.querySelector("[data-testid=pf-next]")).toBeNull();
+    expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
   });
 });
