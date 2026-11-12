@@ -29,6 +29,15 @@ export function PortfolioFrame() {
   const guest = !isSignedIn(auth);
   const [tab, setTab] = useState<PfTab>("overview");
   const tabRefs = useRef<Record<PfTab, HTMLButtonElement | null>>({ overview: null, positions: null, orders: null });
+  const rootRef = useRef<HTMLDivElement>(null);
+  // A tall Overview (guest goal line / signed-in guide) can leave .phone-appbody scrolled
+  // after the nav-row click; the pushed Orders screen would then paint at a fractional Y
+  // and PF-8-11's Working chip antialiases off the baseline (16 px, max 1/channel).
+  useEffect(() => {
+    for (let p: HTMLElement | null = rootRef.current; p; p = p.parentElement) {
+      if (p.scrollTop) p.scrollTop = 0;
+    }
+  }, [tab]);
   const label: Record<PfTab, string> = { overview: t.overview, positions: t.positions, orders: t.orders };
 
   useEffect(() => {
@@ -40,7 +49,7 @@ export function PortfolioFrame() {
 
   if (phone) {
     return (
-      <div className="pf pf-phone-root" data-testid="portfolio" data-tab={tab}>
+      <div ref={rootRef} className="pf pf-phone-root" data-testid="portfolio" data-tab={tab}>
         {/* Guest example label on Overview only — Orders/Positions shots stay baseline-stable (PF-8). */}
         {guest && tab === "overview" && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
         {tab === "positions" ? <Positions phone /> : tab === "orders" ? <Orders phone /> : (
@@ -72,7 +81,7 @@ export function PortfolioFrame() {
     tabRefs.current[next]?.focus();
   };
   return (
-    <div className="pf" data-testid="portfolio" data-tab={tab}>
+    <div ref={rootRef} className="pf" data-testid="portfolio" data-tab={tab}>
       {guest && <p className="pf-guest-example muted" data-testid="pf-guest-example">{t.guestExample}</p>}
       <div className={`pf-seg${stacked ? " stacked" : ""}`} role="tablist" aria-label={t.views} data-testid="pf-tabs" onKeyDown={onKey}>
         {TABS.map((id) => (
