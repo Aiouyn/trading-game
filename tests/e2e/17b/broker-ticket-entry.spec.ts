@@ -111,7 +111,8 @@ test("phone keeps main's Broker layout: no ticket entry, at text scale 1 and 2",
   test.skip(info.project.name !== "phone", "phone case");
   await page.goto("/broker?asset=HALC");
   await expect(b(page)).toHaveAttribute("data-state", "live");
-  await expect(b(page).getByTestId("market-tick")).toBeVisible();
+  await expect(b(page).getByTestId("br-ticker")).toHaveText("HALC");
+  await expect(b(page).getByTestId("br-view-about")).toBeVisible();
   await expect(b(page).getByTestId("br-ticket-entry")).toHaveCount(0);
   await page.goto("/settings");
   await expect(page.getByTestId("settings")).toBeVisible();
