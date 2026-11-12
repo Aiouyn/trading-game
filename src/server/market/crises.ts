@@ -180,7 +180,7 @@ export function majorStockShocks(kind: MajorKindV1, severity: number): StormPric
         { assetId: "GX", bp: Math.round(-800 * sev) },
       ];
     case "FLASH_CRASH":
-      // Session crash proxy: GX −10% (recovery path not modelled; one-shot).
+      // Session crash proxy: GX −10% (04:1024). Residual recovery is modelled in shockFeed.ts (70% of the price drawdown in one game day).
       return [{ assetId: "GX", bp: Math.round(-1000 * sev) }];
     case "CRYPTO_WINTER":
       return []; // hype path, not stock marks

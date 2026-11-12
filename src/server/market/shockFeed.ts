@@ -58,6 +58,35 @@ export function halfLifeK(hlDays: number): number {
   return 1 - Math.pow(2, -1 / (hlDays * TICKS_PER_DAY));
 }
 
+/** 04:1024 FLASH_CRASH calibration: 70% of the price drawdown recovered within one game day. */
+export const FLASH_PRICE_RECOVERY_PER_DAY = 0.7;
+/**
+ * Legacy log-space half-life (game days): 70% of the *log* gap recovers in 1 GD.
+ * For a −10% session print that is only 68.886% of the price drawdown.
+ * `shockHalfLifeDays("FLASH_CRASH")` keeps this number so kind-table callers stay stable;
+ * `applyShock` re-solves k from the actual downward log move (04:1024 price recovery).
+ */
+export const FLASH_LOG_HALF_LIFE_DAYS = 1 / Math.log2(1 / 0.3);
+/**
+ * Residual half-life in game days so the price drawdown (not the log gap) recovers
+ * FLASH_PRICE_RECOVERY_PER_DAY in one game day: exp(L0·2^(−1/h)) = 1 − 0.3·(1 − exp(L0)).
+ */
+export function flashCrashHalfLifeDays(initialLog: number): number {
+  if (!(initialLog < 0) || !Number.isFinite(initialLog)) return FLASH_LOG_HALF_LIFE_DAYS;
+  const dayLog = Math.log(1 - (1 - FLASH_PRICE_RECOVERY_PER_DAY) * (1 - Math.exp(initialLog)));
+  if (!(dayLog < 0) || !Number.isFinite(dayLog)) return FLASH_LOG_HALF_LIFE_DAYS;
+  const ratio = dayLog / initialLog;
+  if (!(ratio > 0 && ratio < 1)) return FLASH_LOG_HALF_LIFE_DAYS;
+  return -1 / Math.log2(ratio);
+}
+/**
+ * A FLASH residual's k sits strictly between CRYPTO_FLUSH (1 GD) and LIQUIDITY_HICCUP (60 ticks).
+ * Used to re-identify FLASH rows after a store hydrate that only persists {assetId, log, k}.
+ */
+export function isFlashResidualK(k: number): boolean {
+  return k > halfLifeK(1) && k < halfLifeK(1 / 12);
+}
+
 /** 04:1031 / 04:1015 shock residual half-lives (game days). Cite 04:1033 "Shocks decay on their own schedules". */
 
 /** Extract the 04 kind token from a durable stockApplied stormId (`storm:day:KIND`, `major:force:KIND:tick`, …). */
@@ -68,7 +97,8 @@ export function kindFromAppliedId(id: string): string {
   return p[2] ?? "RATE_SCARE";
 }
 
-export function shockHalfLifeDays(kind: string): number {
+export function shockHalfLifeDays(kind: string, initialLog?: number): number {
+  if (kind === "FLASH_CRASH" && initialLog !== undefined) return flashCrashHalfLifeDays(initialLog);
   switch (kind) {
     case "RATE_SCARE": return 30;
     case "OIL_SPIKE_LITE": return 20;
@@ -79,7 +109,7 @@ export function shockHalfLifeDays(kind: string): number {
     case "SECTOR_ROTATION": return 30;
     case "EARNINGS_SCARE": return 30;
     case "EQUITY_BUBBLE_BURST": return 120; // 04:1015 erpShock half-life 120 d
-    case "FLASH_CRASH": return 1 / Math.log2(1 / 0.3); // 04:1024 ~70% recovered within 1 GD
+    case "FLASH_CRASH": return FLASH_LOG_HALF_LIFE_DAYS;
     case "OIL_SHOCK": return 20;
     case "BANKING_PANIC": return 30;
     case "CREDIT_CRUNCH": return 30;
@@ -100,8 +130,8 @@ export class ShockFeed extends MockFeed {
   readonly world = new WorldInputs();
   /** 04 §3.16 storm tier in this base (storms.ts). */
   readonly storms = new StormScheduler();
-  /** Remaining log-gap from decaying applyShock moves (04:1033). Unwound each advance tick. */
-  private readonly shockResidual = new Map<string, { log: number; k: number }>();
+  /** Remaining log-gaps from decaying applyShock moves (04:1033). FLASH rows stay on their own k; other kinds merge per asset. */
+  private readonly shockResidual = new Map<string, { log: number; k: number; flash: boolean }[]>();
   /** Unused equity-ERP log (per asset) so per-tick μ is not lost to minor-unit rounding. */
   private readonly erpAccrued = new Map<string, number>();
   /** Catalog RUMOR book (15/16 first slice). Lazy so the MockFeed seed is already set. */
@@ -280,19 +310,31 @@ export class ShockFeed extends MockFeed {
 
   /** 04:1033: unwind each registered shock log-residual one tick toward 0 on its own half-life. */
   private unwindShockResiduals(): void {
-    for (const [id, r] of [...this.shockResidual.entries()]) {
+    for (const [id, rows] of [...this.shockResidual.entries()]) {
       const s = this.assets.get(id);
-      if (!s || this.tradingState(id) !== "CONTINUOUS" || r.log === 0) {
+      if (!s || this.tradingState(id) !== "CONTINUOUS") {
         this.shockResidual.delete(id);
         continue;
       }
-      const dec = r.k * r.log;
-      const to = Math.max(1, Math.round(s.last * Math.exp(-dec)));
-      s.dir = to > s.last ? 1 : to < s.last ? -1 : s.dir;
-      s.last = to;
-      const next = r.log - dec;
-      if (Math.abs(next) < 1e-12) this.shockResidual.delete(id);
-      else this.shockResidual.set(id, { log: next, k: r.k });
+      const kept: { log: number; k: number; flash: boolean }[] = [];
+      for (const r of rows) {
+        if (r.log === 0) continue;
+        const dec = r.k * r.log, from = s.last, want = -dec;
+        const to = Math.max(1, Math.round(from * Math.exp(want)));
+        const printed = to !== from ? Math.log(to / from) : 0;
+        // FLASH only: credit unprinted unwind into erpAccrued (same leftover law as ERP). Other kinds keep the
+        // historical discard of a no-op round, so non-FLASH marks stay byte-identical.
+        if (r.flash) {
+          const unapplied = want - printed;
+          if (unapplied !== 0) this.erpAccrued.set(id, (this.erpAccrued.get(id) ?? 0) + unapplied);
+        }
+        s.dir = to > from ? 1 : to < from ? -1 : s.dir;
+        s.last = to;
+        const next = r.log - dec;
+        if (Math.abs(next) >= 1e-12) kept.push({ log: next, k: r.k, flash: r.flash });
+      }
+      if (kept.length) this.shockResidual.set(id, kept);
+      else this.shockResidual.delete(id);
     }
   }
 
@@ -334,17 +376,32 @@ export class ShockFeed extends MockFeed {
     const p = s.prints.at(-1);
     if (p && p.tick === this.tick) s.prints = [...s.prints.slice(0, -1), { ...p, price: fmt(to, ASSET_BY_ID[assetId]!.displayDecimals) }];
     if (halfLifeDays != null && from > 0 && to !== from) {
-      const prev = this.shockResidual.get(assetId);
-      const log = Math.log(to / from) + (prev?.log ?? 0);
-      const k = halfLifeK(halfLifeDays);
-      this.shockResidual.set(assetId, { log, k: prev ? Math.max(prev.k, k) : k });
+      const moveLog = Math.log(to / from);
+      const flash = halfLifeDays === FLASH_LOG_HALF_LIFE_DAYS && moveLog < 0;
+      const days = flash ? flashCrashHalfLifeDays(moveLog) : halfLifeDays;
+      const k = halfLifeK(days);
+      const rows = this.shockResidual.get(assetId) ?? [];
+      // 04:1024 + 04:1033: each FLASH keeps its own solved k and recovers 70% of *its* price drawdown
+      // one game day after *that* shock. Non-FLASH rows on the same asset still merge (max k, added logs).
+      if (flash) rows.push({ log: moveLog, k, flash: true });
+      else {
+        const i = rows.findIndex((r) => !r.flash);
+        if (i < 0) rows.push({ log: moveLog, k, flash: false });
+        else {
+          const prev = rows[i]!;
+          rows[i] = { log: prev.log + moveLog, k: Math.max(prev.k, k), flash: false };
+        }
+      }
+      this.shockResidual.set(assetId, rows);
     }
     return { from, to };
   }
 
   /** Durable residual rows for StormWorldSnapshot (04:1033 mid-decay restart). */
   residualSnapshot(): ReadonlyArray<{ assetId: string; log: number; k: number }> {
-    return [...this.shockResidual.entries()].map(([assetId, r]) => ({ assetId, log: r.log, k: r.k }));
+    const out: { assetId: string; log: number; k: number }[] = [];
+    for (const [assetId, rows] of this.shockResidual) for (const r of rows) out.push({ assetId, log: r.log, k: r.k });
+    return out;
   }
 
   /** Restore residuals without re-applying stockApplied bp (restart mid-decay).
@@ -356,7 +413,18 @@ export class ShockFeed extends MockFeed {
     for (const r of rows) {
       if (!r || typeof r.assetId !== "string") continue;
       if (!Number.isFinite(r.log) || !Number.isFinite(r.k) || r.k <= 0) continue;
-      this.shockResidual.set(r.assetId, { log: r.log, k: r.k });
+      const list = this.shockResidual.get(r.assetId) ?? [];
+      const flash = isFlashResidualK(r.k);
+      if (flash) list.push({ log: r.log, k: r.k, flash: true });
+      else {
+        const i = list.findIndex((x) => !x.flash);
+        if (i < 0) list.push({ log: r.log, k: r.k, flash: false });
+        else {
+          const prev = list[i]!;
+          list[i] = { log: prev.log + r.log, k: Math.max(prev.k, r.k), flash: false };
+        }
+      }
+      this.shockResidual.set(r.assetId, list);
       if (!materialize) continue;
       const s = this.assets.get(r.assetId);
       if (!s || this.tradingState(r.assetId) !== "CONTINUOUS" || !(s.last > 0) || r.log === 0) continue;
