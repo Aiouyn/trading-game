@@ -79,7 +79,7 @@ function floorMod(n: number, m: number): number {
 }
 
 /** Fisher-Yates permutation of 0..n-1, drawn only from `hash` (never the quote RNG). */
-function shuffledIndices(n: number, seed: number, key: string): number[] {
+export function shuffledIndices(n: number, seed: number, key: string): number[] {
   const idx = Array.from({ length: n }, (_, i) => i);
   for (let i = n - 1; i > 0; i--) {
     const j = hash(`${seed}:${key}:${i}`) % (i + 1);

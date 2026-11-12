@@ -86,6 +86,28 @@ const jumpEqualsWalk = jumpKs.every((k) => {
   return walkedCo.join() === cycleCompanyIds(k).join() && walkedCr.join() === cycleCrisisKinds(k).join();
 });
 
+// Gatekeeper B1 (82576f02): minimum same-headline gap over 10k ticks on several seeds.
+const COMPANY_FLOOR = 84;
+const CRISIS_FLOOR = 72;
+const minGaps = [SEED, 7, 18, 21, 27, 31, 42, 100].map((seed) => {
+  const lastCo = new Map<string, number>(), lastCr = new Map<string, number>();
+  let company = Infinity, crisis = Infinity;
+  for (const t of slots(Math.floor(10_000 / STORY_EVERY))) {
+    const s = storyAt(seed, t)!;
+    if (!s.crisis) {
+      const p = lastCo.get(s.defId);
+      if (p !== undefined) company = Math.min(company, t - p);
+      lastCo.set(s.defId, t);
+    } else if (s.phase === "forecast") {
+      const p = lastCr.get(s.crisis);
+      if (p !== undefined) crisis = Math.min(crisis, t - p);
+      lastCr.set(s.crisis, t);
+    }
+  }
+  return { seed, company, crisis };
+});
+const minGapFloorsHeld = minGaps.every((g) => g.company >= COMPANY_FLOOR && g.crisis >= CRISIS_FLOOR);
+
 const summary = {
   seed: SEED,
   playtest,
@@ -105,6 +127,8 @@ const summary = {
   identicalConsecutiveCycles: identicalConsecutive,
   boundaryRepeats,
   jumpEqualsWalk,
+  minGaps,
+  minGapFloorsHeld,
 };
 const ok = summary.playtestNoIdenticalTriple
   && summary.gapRepeats60or72InTenMin.length === 0
@@ -118,8 +142,9 @@ const ok = summary.playtestNoIdenticalTriple
   && summary.periodicAtOrBelow72 === 0
   && summary.identicalConsecutiveCycles.length === 0
   && summary.boundaryRepeats.length === 0
-  && summary.jumpEqualsWalk;
+  && summary.jumpEqualsWalk
+  && summary.minGapFloorsHeld;
 
 writeFileSync(join(outDir, "summary.json"), JSON.stringify({ ok, ...summary }, null, 2) + "\n");
-console.log(JSON.stringify({ ok, playtest, gapRepeats: gapRepeats.length, varyingDefs: varying.length }, null, 2));
+console.log(JSON.stringify({ ok, playtest, gapRepeats: gapRepeats.length, varyingDefs: varying.length, minGaps }, null, 2));
 if (!ok) process.exit(1);

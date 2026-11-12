@@ -1,8 +1,8 @@
 // sys/wire-variety: seeded no-repeat deck and varied magnitudes (playtest e30f6822 / d34).
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   COMPANY_STORIES, CRISES, STORY_EVERY, STORY_SEVERITY_MAX, STORY_SEVERITY_MIN,
-  catalogStoryAt, crisisHits, scaleEffects, storyAt, storySeverity,
+  catalogStoryAt, crisisHits, scaleEffects, shuffledIndices, storyAt, storySeverity,
 } from "@/market/wireStories";
 import { LiveMarket } from "@/server/market/clock";
 import { MemoryStormWorldStore } from "@/server/market/stormWorldStore";
@@ -162,23 +162,28 @@ describe("per-cycle reshuffle", () => {
     }
   });
 
-  it("jumping straight to cycle k yields the same deck as walking from cycle 0 (no stream state)", () => {
-    // Walk first, recording decks, then make isolated calls as if starting at k
-    // (catalogStoryAt must not depend on prior calls or a shared stream).
-    const ks = [0, 1, 7, 40];
-    const walkedCo: string[][] = [];
-    const walkedCr: (string | undefined)[][] = [];
-    const last = Math.max(...ks);
-    for (let c = 0; c <= last; c++) {
-      walkedCo.push(companyIds(c));
-      walkedCr.push(crisisKinds(c));
+  it("a cold module jumping straight to cycle k yields the same deck as a separate module walking from cycle 0", async () => {
+    // Each import below is a fresh module instance with an empty deck memo, so the jump is really cold
+    // (Gatekeeper note on 82576f02: the old version walked first and warmed the memo it then "jumped" with).
+    const fresh = async () => { vi.resetModules(); return import("@/market/wireStories"); };
+    const ids = (m: typeof import("@/market/wireStories"), seed: number, cycle: number) => {
+      const stories = cycleTicks(cycle).map((t) => m.storyAt(seed, t)!);
+      return {
+        co: stories.filter((s) => !s.crisis).map((s) => s.defId),
+        cr: stories.filter((s) => s.phase === "forecast" && s.crisis).map((s) => s.crisis),
+      };
+    };
+    const ks = [0, 1, 7, 40, 450];
+    for (const seed of [SEED, 18, 21]) {
+      const walker = await fresh();
+      const walked = new Map<number, ReturnType<typeof ids>>();
+      for (let c = 0; c <= Math.max(...ks); c++) walked.set(c, ids(walker, seed, c));
+      for (const k of ks) {
+        const jumper = await fresh();
+        expect(ids(jumper, seed, k), `seed ${seed} cold jump to cycle ${k}`).toEqual(walked.get(k));
+      }
     }
-    for (const k of ks) {
-      expect(companyIds(k), `jump company cycle ${k}`).toEqual(walkedCo[k]);
-      expect(crisisKinds(k), `jump crisis cycle ${k}`).toEqual(walkedCr[k]);
-      const tick = cycleTicks(k)[0]!;
-      expect(catalogStoryAt(SEED, tick)).toEqual(catalogStoryAt(SEED, tick));
-    }
+    vi.resetModules();
   });
 
   it("catalogStoryAt can jump to a far cycle on several seeds without throwing", () => {
@@ -205,4 +210,77 @@ describe("per-cycle reshuffle", () => {
       }
     }
   });
+});
+
+// Gatekeeper B1 on 82576f02: the per-cycle reshuffle let the same company headline return 24/36/48
+// ticks apart and the same crisis 48 ticks apart. Floors: company 84 ticks (7 real minutes, above the
+// 60/72-tick playtest repeats), crisis 72 (main's rotation; 96 is infeasible for 4 crises).
+const COMPANY_FLOOR = 84;
+const CRISIS_FLOOR = 72;
+const GAP_SEEDS = [SEED, 7, 18, 21, 27, 31, 42, 100];
+
+function minGaps(seed: number, tickSpan: number) {
+  const lastCo = new Map<string, number>(), lastCr = new Map<string, number>();
+  let company = Infinity, crisis = Infinity;
+  for (const t of slots(Math.floor(tickSpan / STORY_EVERY))) {
+    const s = storyAt(seed, t)!;
+    if (!s.crisis) {
+      const p = lastCo.get(s.defId);
+      if (p !== undefined) company = Math.min(company, t - p);
+      lastCo.set(s.defId, t);
+    } else if (s.phase === "forecast") {
+      const p = lastCr.get(s.crisis);
+      if (p !== undefined) crisis = Math.min(crisis, t - p);
+      lastCr.set(s.crisis, t);
+    }
+  }
+  return { company, crisis };
+}
+
+describe("minimum same-headline gap", () => {
+  it(`over 10k ticks on several seeds, a company headline never returns within ${COMPANY_FLOOR} ticks and a crisis within ${CRISIS_FLOOR}`, () => {
+    for (const seed of GAP_SEEDS) {
+      const gaps = minGaps(seed, 10_000);
+      expect(gaps.company, `seed ${seed} min company gap`).toBeGreaterThanOrEqual(COMPANY_FLOOR);
+      expect(gaps.crisis, `seed ${seed} min crisis gap`).toBeGreaterThanOrEqual(CRISIS_FLOOR);
+    }
+  });
+
+  it("the official seed's first 10 Wire minutes (ticks 27706-27814) show no same-company pair closer than the floor", () => {
+    // Played on 82576f02: halc-volumes 27778/27802 and orca-trial 27790/27814 on one Wire screen.
+    // 108 ticks is longer than one 96-tick deck, so a company may appear twice; never closer than the floor.
+    const seen = new Map<string, number>();
+    for (let t = 27706; t <= 27814; t += STORY_EVERY) {
+      const s = storyAt(SEED, t);
+      if (!s || s.crisis) continue;
+      const before = seen.get(s.defId);
+      if (before !== undefined) expect(t - before, `${s.defId} at ${before} and ${t}`).toBeGreaterThanOrEqual(COMPANY_FLOOR);
+      seen.set(s.defId, t);
+    }
+  });
+
+  it("a legal deck is always found: 24 seeds walked over 60 game days keep both floors", () => {
+    // 60 GD = 43,200 ticks = 450 cycles, the calibration horizon. pickCycleOrder throws if no deck fits.
+    for (let seed = 1; seed <= 24; seed++) {
+      const gaps = minGaps(seed, 60 * 720);
+      expect(gaps.company, `seed ${seed}`).toBeGreaterThanOrEqual(COMPANY_FLOOR);
+      expect(gaps.crisis, `seed ${seed}`).toBeGreaterThanOrEqual(CRISIS_FLOOR);
+    }
+  }, 60_000);
+});
+
+describe("shuffle reachability", () => {
+  // Gatekeeper q1 on 82576f02: hash % (i + 1) on FNV-1a low bits reached 12/24 crisis orders and ~3.9%
+  // of company decks. With 100k uniform draws over 8! = 40,320 decks the expected share is
+  // 1 - e^(-100000/40320) = 91.6% (measured 91.5-91.6% on seeds 17/18/21/42); 90% leaves margin.
+  it("10k keys reach all 24 crisis orders and 100k keys reach at least 90% of company decks", () => {
+    for (const seed of [SEED, 18, 21, 42]) {
+      const crisis = new Set<string>();
+      for (let k = 0; k < 10_000; k++) crisis.add(shuffledIndices(CRISES.length, seed, `order:${k}`).join());
+      expect(crisis.size, `seed ${seed} crisis orders`).toBe(24);
+      const company = new Set<string>();
+      for (let k = 0; k < 100_000; k++) company.add(shuffledIndices(COMPANY_STORIES.length, seed, `co:${k}`).join());
+      expect(company.size / 40_320, `seed ${seed} company deck share`).toBeGreaterThanOrEqual(0.9);
+    }
+  }, 60_000);
 });
