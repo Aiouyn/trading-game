@@ -122,6 +122,12 @@ export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
  * the separator with the day, as French typography requires.
  */
 export type ShellLocale = "en" | "fr";
+/** Card 19: the server stopped answering after prices were live; the feed retries on its own (backoff). */
+export const CONNECTION_LOST: Record<ShellLocale, string> = {
+  en: "Connection lost · retrying…",
+  fr: "Connexion perdue · nouvel essai…",
+};
+export const connectionLost = (locale: string) => CONNECTION_LOST[locale === "fr" ? "fr" : "en"];
 export const CLOCK_STRINGS: Record<ShellLocale, { strip: (day: number, hhmm: string) => string; phone: (day: number, hhmm: string) => string }> = {
   en: { strip: (day, hhmm) => `Day ${day} · ${hhmm}`, phone: (day, hhmm) => `D${day} · ${hhmm}` },
   fr: { strip: (day, hhmm) => `Jour\u00a0${day}\u00a0· ${hhmm}`, phone: (day, hhmm) => `J${day}\u00a0· ${hhmm}` },

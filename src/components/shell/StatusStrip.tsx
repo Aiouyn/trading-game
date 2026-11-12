@@ -35,8 +35,12 @@ export function StatusStrip() {
   const nwChip = (
     <span className="strip-nw" data-testid="strip-nw" data-nw-state={nw.state} title={nw.nw === null ? nwStateLabel(nw.state) : signedIn ? S.demoBalance : undefined}>
       {nw.nw === null ? <span className="num muted" aria-hidden="true">{S.nwUnknown}</span> : <MoneyText amount={nw.nw} ctx="chip" />}
-      {signedIn || nw.nw === null ? (
-        <span className="muted strip-demo-tag" data-testid="strip-demo-tag"><span aria-hidden="true">{" · "}</span>{nw.nw === null ? nwStateLabel(nw.state) : S.demoBalance}</span>
+      {nw.nw === null ? (
+        // NW not known yet (session loading / ledger unavailable): say which, never a number. Card 29: no Demo balance tag.
+        <span className="muted strip-demo-tag" data-testid="strip-nw-state"><span aria-hidden="true">{" · "}</span>{nwStateLabel(nw.state)}</span>
+      ) : signedIn ? (
+        // Signed-in: the server-saved NW is labelled as such (M1-08) and today's % shows too (card 29); never "Demo balance".
+        <><span className="muted strip-demo-tag" data-testid="strip-nw-label"><span aria-hidden="true">{" · "}</span>{S.demoBalance}</span> <PctText value={me.todayPct} /></>
       ) : (
         <> <PctText value={me.todayPct} /></>
       )}

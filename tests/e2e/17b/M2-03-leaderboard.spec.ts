@@ -31,11 +31,16 @@ const selfRow = (page: Page) => lb(page).evaluate((el) => {
   const r = el.querySelector('[data-testid="lb-row"][data-self="true"]');
   return r ? { rank: Number(r.getAttribute("data-rank")), handle: r.getAttribute("data-handle"), nw: r.querySelector('[data-testid="lb-nw"]')?.textContent ?? null, tick: Number(el.getAttribute("data-tick")) } : null;
 });
-/** My marked row = my own valuation at the board's tick (polled: the clock moves). */
+/** My marked row = my own valuation at the board's tick. The board re-reads every 5 s and the server ticks every 5 s, so
+ *  the two can stay phase-locked one tick apart for the whole poll (CI 43145796322: board 27781, server 27782 for 25 s).
+ *  So value my account at every tick a read sees, and compare the row with the valuation at the board's own tick. */
 async function selfMatches(page: Page, request: APIRequestContext, handle: string) {
+  const atTick = new Map<number, number>();
   await expect.poll(async () => {
     const [s, v] = await Promise.all([selfRow(page), ownNw(request)]);
-    return s && s.handle === handle && s.tick === v.tick && s.nw === usd(v.nw) ? "ok" : JSON.stringify({ s, v: { tick: v.tick, nw: usd(v.nw) } });
+    atTick.set(v.tick, v.nw);
+    const nw = s ? atTick.get(s.tick) : undefined;
+    return s && s.handle === handle && nw !== undefined && s.nw === usd(nw) ? "ok" : JSON.stringify({ s, seen: [...atTick].map(([t, c]) => [t, usd(c)]) });
   }, { timeout: 25_000 }).toBe("ok");
   return (await selfRow(page))!;
 }

@@ -1,59 +1,86 @@
-# Card 18: top-bar clock must not invent a time before the first server tick
+# Unit: durable Broker order idempotency (not just the last 50)
 
-Written 12 Nov 2026, 01:36 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
+**Branch:** `eng/broker-idempotency`  
+**Base:** `43127f9e` (`eng/broker-headroom`)  
+**Worktree:** `/workspace/avalon/broker-idempotency`  
+**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
+**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
 
-## Value and scope
+## Why this unit
 
-Playtest e30f6822 (d11), on eng/broker-day-expiry, held the first `/api/market` for 8 s then answered 503. From 300 ms through 7 s the signed-in top bar already printed `Day 39 · 11:20` / `data-tick=27700` and `Market open · Port Avalon`, while prices were skeletons and net worth correctly said "— · Net worth loading…". At 9 s, after the 503, net worth became "— · Net worth unavailable" and the pane said "Couldn't load", but the clock was still the invented `Day 39 · 11:20`.
+On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
 
-This reproduces on `abf14e57`. `defaultChannels()` boots `clockAt(DEFAULT_TICK)` (`38 * 720 + 340` = 27700 = Day 39 · 11:20, phase `continuous`). `ServerClock` only writes the channel when `useChannel("ticker:wl_default").tick` is non-null (`QuayShell.tsx`, "Signed-in clock: the shell day follows the server quote tick"). Until `/api/market` is adopted, `ticker.tick` is null (`authoritativeQuoteProvenance`: "Guest clocks, and a signed-in feed that has not adopted `/api/market` yet, return null. The label is the adopted server tick only, never the constructor book."). `StatusStrip` and `PhoneHome` still format `channels.clock` as a live time. Guest mock time is a different path (`GuestClock` advances the demo feed) and stays as it is.
+The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
 
-17 §3.2.1 (`export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:240`) puts a real game clock in the status strip once there is one. The Skeleton rule in the same file (`:480`) is "never shows fake numbers". Universal screen states (`:781`) are loading (Skeleton) and error ("Couldn't load"). Net worth already follows that rule for a signed-in account (`useNwReading`, M1-08): the boot value is not shown as a valuation. The clock must do the same.
+### Readiness flags checked on `43127f9e` (not this unit)
 
-Do not invent a neighbour time, do not keep printing `DEFAULT_TICK`, and do not say "Market open" or "After hours" from that boot tick. Do not change the guest demo clock, the engine, `/api/market`, Broker ticket order-type/TIF logic, the Portfolio Orders list, Boards, guest Home, the rank label, Settings/sign-up, consent, deep links, `nav.css` safe-area rules, `notices.css` `.qs-bottom`, or `layout.tsx` meta.
+| Flag | Status on this base | Why not this unit |
+|---|---|---|
+| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
+| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
+| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
+| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
 
-## Exact base, branch, and identity
+Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
 
-- Branch `ui/clock-first-load`, worktree `/workspace/avalon/ui-clock-first-load`.
-- Base `abf14e57f719689e1a94a65223c6f24ab71a6ae0`. The change is shell chrome (status strip / phone status bar), not the in-flight `ui/pwa-safe-area` files, so this is the required base.
-- Verify Forge (trading-game bot) `<forge@trading-game.local>` as author and committer. Remove every `GIT_*` variable from manual npm-test and Git subprocesses. Never skip hooks.
-- Local checkout only. No cloud, push, PR, deploy, or external handoff.
+## Smallest observable outcome
 
-## Grounding and sketch
+After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
 
-Two local shapes were compared:
+1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
+2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
+3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
+4. A process restart over the same store still honours (1) and (2).
+5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
 
-1. Chosen: a signed-in clock reading, parallel to `useNwReading`. While the session is unknown, or `ticker:wl_default` has no adopted tick (`state: "loading"` or `"error"`/`"denied"` with `tick: null`), the strip and the phone status bar print a muted em dash (`S.nwUnknown`) and a short loading or unavailable label in the same family as "Net worth loading…" / "Net worth unavailable". No `data-tick` of 27700. `MarketPhase` is not rendered from the boot phase. Once `ticker.tick` is a number, format that tick (the same `clockAt` / `clockLabel` path used today) and show the real phase. Guest (session known, not signed in) keeps the demo clock from `channels.clock`. After a later outage, the last adopted tick may stay; that is card 19, not this one.
-2. Rejected: blanking the whole mid-strip, or driving the label from a new server field. The client already has the signal (`ticker.tick === null` until adopt). Rejected: leaving "Market open" up while hiding only the time — that phase is also computed from the invented tick.
+Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
 
-## Acceptance and proof plan
+## Plan
 
-- Signed-in, first `/api/market` held: `[data-testid=clock]` is not `Day 39 · 11:20` and has no `data-tick="27700"`. The visible mid-strip matches the loading treatment (muted dash plus a loading label). Phase is not "Market open · Port Avalon". Prices and net worth keep their existing loading treatment.
-- Signed-in, first fetch ends in error before any adopt: still no invented time; an unavailable label, not the boot clock.
-- Signed-in, after a good adopt: the clock is the adopted server tick, formatted as today, and then follows later ticks.
-- Guest: the demo clock at `DEFAULT_TICK` (and its local steps) is unchanged. Existing e66 clock-string tests that render the strip as a guest must stay green.
-- Phone 390 status bar uses the same rule as the desktop strip. No horizontal overflow. Do not edit `nav.css` safe-area rules.
-- Fail-first unit of the signed-in held-first-fetch case (and the error-before-adopt case) on StatusStrip, plus a fail-first e2e that holds `/api/market` on a signed-in `/broker` and asserts the clock is not the boot time. Do not weaken existing clock or M1-08 tests.
-- Evidence under `/workspace/avalon/evidence/ui-clock-first-load/`: before/after desktop 1280 and phone 390 with the first fetch held. Official checks with `GIT_*` unset (lint, typecheck, build, check-hooks, map-no-dup, npm test, `/broker` route-budget ≤ 220,160 B). One clean e2e in a scratch worktree with fresh `.data`. No push.
+Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
 
-## Qualifications
+## Acceptance
 
-- Reproduced the d11 shape in source on `abf14e57` (same `DEFAULT_TICK` boot + `ServerClock` guard). Live before-shots are part of this card's evidence, not of this UNIT commit.
-- Card 19 (outage presentation) is a separate branch. This card does not change reconnecting / After hours / Review order copy.
+1. UNIT.md is written first (this file), before product-code edits.
+2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
+3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
+4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
+5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
 
-## Notes (Gatekeeper B1, 12 Nov 2026)
+---
 
-Lesson: loading skeletons must cover the unknown-session state too. `!isSignedIn(auth)` was read as "guest" while `auth.status` was still `"loading"` (`authSession.ts` starts as `{ status: "loading" }`). That painted the invented boot clock (`Day 39 · 11:20` / `data-tick=27700`) plus `MarketPhase` / `TickRing` for a signed-in player, for about 70–90 ms on a natural load. `useNwReading` already special-cased `auth.status === "loading"`. The catch: for every `isSignedIn()` branch, ask what renders while auth is loading. Proof: a unit and an e2e that hold `/api/auth/me` (and the first `/api/market`) and assert no tick, phase, or ring is painted.
+<!-- Merged from main (latest unit on main). Both unit notes are kept. -->
 
-This addendum does not rewrite the UNIT-only first commit.
+# Card 29 — Signed-in Home hero says Net worth, not “Demo balance”
 
-### `isSignedIn()` audit on this card's surfaces (clock / strip / phone home)
+**When:** 12 Nov 2026, 06:55 Europe/Paris (CET)
+**Branch:** `ui/signed-in-hero-copy`
+**Base:** `origin/main` `1fd4a6d9cc27a61dfd28ddc6288bf1ecd6ea6f3e` (PR114 after PR111/113)
+**Identity:** Forge (trading-game bot) <forge@trading-game.local>
+**Tier:** low (copy). Not opening a PR. No push this pass.
 
-This batch fixes only the clock reading. The other branches below still treat `loading` as "not signed in". They are noted, not changed (rank label and Settings/sign-in stay out of scope).
+## Player outcome
 
-- **Clock / `MarketPhase` / `TickRing` (StatusStrip and phone StatusBar).** `useClockReading` now returns `{ state: "loading" }` while auth is loading, so the muted dash is shown and phase, ring, and the phone phase dot are not mounted. Fixed.
-- **StatusStrip `release` and right chrome.** While auth is loading, the release string uses the boot rank (`Quay 2 · Owner`) and the right chrome shows the rank chip plus Sign in, not the account chip (no handle is invented). Same flash Gatekeeper photographed. Not changed here.
-- **StatusStrip and phone NW chips.** `useNwReading` already returns loading, so these already print "— · Net worth loading…". Unaffected.
-- **Phone StatusBar account chip.** Omitted while loading (no invented handle). Unaffected.
-- **PhoneHome widget (home, not the status bar).** While auth is loading, the rank chip and Sign in CTA render (`!signedIn`). The next-rank bar uses `nextRankTarget(rank)` on that same branch, so a signed-in load can briefly show guest next-rank chrome once NW is live. Account chip, goal, and first-trade guide wait for `signed_in`. Not changed here.
-- **Guest, once auth resolves to `signed_out`.** The demo clock at `DEFAULT_TICK` (and its local steps) is unchanged.
+A signed-in player looking at Home sees the same “Net worth” hero the spec describes, not “Demo balance” and not “Starter account: $10,000 (demo placeholder, not a live balance).” Their cash and positions are already described in Account as saved on the server. The main screen should not contradict that, and it should not look like a throwaway demo.
+
+## Grounding
+
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:257` — Home widget: “NET WORTH label + rank chip, serif 44 px NW, today’s change, sparkline, rank progress bar.” The label is Net worth. There is no “Demo balance” line and no $10k “not a live balance” disclaimer on this widget.
+- Same file :240 — desktop status strip: net worth (mono) with today’s %. Not a “Demo balance” tag.
+- Settings › Account already says “Account, cash, and position quantities are saved on the server.” (`src/apps/settings/strings.ts` `accountDisclaimer`; tests in `m1-01-account.test.tsx`). The hero copy is stale relative to that.
+- `docs/v1/M1-01-AUTH.md:15` still says mock trading is not a server save and “Account may show starter cash placeholder only.” That note is about Account, and Account has already moved on. It is not a license to label the Home hero a fake balance.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash “Demo balance” or the $10k disclaimer, and must not invent a signed-in number. Guest chrome (Net worth) is the honest unknown-session path.
+
+## Scope (tiny copy)
+
+- Phone Home widget: the label is `S.netWorth` for signed-in and guest. Remove `phone-demo-disclaimer` (`S.starterPlaceholder`) from the signed-in hero.
+- Desktop status strip: drop the signed-in “Demo balance” tag (`strip-demo-tag`). Show today’s % next to NW, as the spec and the guest strip already do.
+- Do not retouch the signed-in today slot or the $20k rank bar — that is card 25 (`ui/signed-in-home-today`).
+- Do not rewrite Account or M1-01-AUTH.md in this card.
+
+## Acceptance / proof
+
+- Fail-first unit: a signed-in Phone Home / StatusStrip still says “Demo balance” and the starter disclaimer before the fix; after the fix the hero label is “Net worth”, `phone-demo-disclaimer` is absent, and `strip-demo-tag` is absent. The $10,000 starter amount may still appear as the NW figure; it is not captioned as a demo placeholder.
+- Auth / first paint: hold `/api/auth/me` — first paint has no “Demo balance”, no “not a live balance” / starter placeholder, and no account handle. After the session resolves signed-in, still no those phrases on the hero or strip.
+- Official-flag e2e on fresh `.data` (register a handle) plus production play at 1280 and 390 with screenshots.
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.
