@@ -87,7 +87,7 @@ test.describe("phone", () => {
     await expect(page.getByTestId("account-chip-home")).toBeVisible();
     await expect(page.getByTestId("guest-pitch")).toHaveCount(0);
     await expect(page.getByTestId("sign-in-entry")).toHaveCount(0);
-    await expect(page.getByTestId("widget-nw-label")).toHaveText("Net worth") // main card 29: signed-in Home says Net worth;
+    await expect(page.getByTestId("widget-nw-label")).toHaveText("Net worth"); // main card 29: signed-in Home says Net worth
     await shot(page, "phone-en1-390-home-after-register");
   });
 });
