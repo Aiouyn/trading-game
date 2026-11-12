@@ -37,6 +37,16 @@ test.describe("card 35 Wire empty-state recovery", () => {
 
   test("a signed-in empty All feed offers the wait line and Open Broker", async ({ page, baseURL }) => {
     const handle = `Wire${Date.now()}`;
+    // After M1-09, a signed-in All feed is GET /api/wire (server stories), so ?empty=1
+    // alone no longer empties it. Stub an empty snapshot to reach the card's All-empty path.
+    await page.route("**/api/wire", (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ worldId: "world_port_avalon", epoch: "e2eempty1", tick: 0, items: [] }),
+      });
+    });
     await register(page, baseURL!, handle);
     await boot(page, "/wire?empty=1");
     await expect(page.getByTestId("wire")).toHaveAttribute("data-state", "live");
