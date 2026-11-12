@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { tokenFromRequest } from "@/server/auth/http";
+import { getAuthService } from "@/server/auth/instance";
 import { hashSessionToken, isAnonId } from "./ids";
 
 /** HttpOnly guest session. Distinguishes browsers that have no auth cookie and no trusted IP. */
@@ -120,10 +121,27 @@ export function trustedClientIp(request: Request): string | null {
   return forwardedClientFromRight(request.headers.get("x-forwarded-for"), hops);
 }
 
-export function clientKey(request: Request, anonId?: string): string {
+/**
+ * TCP peer, when this runtime still has the Node socket on the request.
+ * Next 16 builds the route Request without copying `socket.remoteAddress`
+ * (`ip` is left unset). `X-Forwarded-For` is not a substitute: the client can set it.
+ */
+export function connectionAddress(request: Request): string | null {
+  const withSock = request as Request & {
+    socket?: { remoteAddress?: unknown };
+    connection?: { remoteAddress?: unknown };
+  };
+  const raw = withSock.socket?.remoteAddress ?? withSock.connection?.remoteAddress;
+  if (typeof raw !== "string") return null;
+  const addr = raw.trim();
+  if (!addr || addr.length > 64) return null;
+  return addr;
+}
+
+export async function clientKey(request: Request, anonId?: string): Promise<string> {
   const parts: string[] = [];
   const token = tokenFromRequest(request);
-  if (token) parts.push(`s:${hashSessionToken(token)}`);
+  if (token && (await getAuthService().peekSession(token))) parts.push(`s:${hashSessionToken(token)}`);
   if (anonId && isAnonId(anonId)) parts.push(`a:${anonId}`);
   const ip = trustedClientIp(request);
   if (ip) parts.push(`ip:${ip}`);
@@ -158,6 +176,13 @@ function enforceRateKeyBound(now: number, protect: string): void {
   }
 }
 
+function popHit(bucket: string): void {
+  const prev = hits.get(bucket) ?? [];
+  prev.pop();
+  if (prev.length === 0) hits.delete(bucket);
+  else hits.set(bucket, prev);
+}
+
 function overLimit(bucket: string, limit: Limit, now: number): number | null {
   const start = now - limit.windowMs;
   const prev = (hits.get(bucket) ?? []).filter((t) => t > start);
@@ -170,25 +195,33 @@ function overLimit(bucket: string, limit: Limit, now: number): number | null {
   return null;
 }
 
-/** Returns retry-after ms when over the per-client or global cap, else null. */
-export function checkTelemetryRate(
+/** Returns retry-after ms when over the connection, per-client, or global cap, else null. */
+export async function checkTelemetryRate(
   kind: string,
   request: Request,
   anonId?: string,
   now = Date.now(),
-): number | null {
+): Promise<number | null> {
   const per = limits[kind] ?? DEFAULTS.error;
   const glob = globalLimits[kind] ?? GLOBAL_DEFAULTS.error;
-  const key = `${kind}:${clientKey(request, anonId)}`;
-  enforceRateKeyBound(now, key);
+  const key = `${kind}:${await clientKey(request, anonId)}`;
+  const conn = trustedClientIp(request) ? null : connectionAddress(request);
+  const connKey = conn ? `${kind}:conn:${conn}` : null;
+  enforceRateKeyBound(now, connKey ?? key);
+  if (connKey) {
+    const connRetry = overLimit(connKey, per, now);
+    if (connRetry !== null) return connRetry;
+  }
   const perRetry = overLimit(key, per, now);
-  if (perRetry !== null) return perRetry;
+  if (perRetry !== null) {
+    if (connKey) popHit(connKey);
+    return perRetry;
+  }
   const globalRetry = overLimit(`${kind}:global`, glob, now);
   if (globalRetry !== null) {
-    // Do not keep the per-client slot we just reserved if the global cap refuses the write.
-    const prev = hits.get(key) ?? [];
-    prev.pop();
-    hits.set(key, prev);
+    // Do not keep the slots we just reserved if the global cap refuses the write.
+    popHit(key);
+    if (connKey) popHit(connKey);
     return globalRetry;
   }
   return null;

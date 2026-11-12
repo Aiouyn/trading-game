@@ -1,6 +1,8 @@
 /**
  * In-memory attempt throttle (single process). Not a substitute for M3 edge limits.
- * Expired buckets are removed, and the map never grows past {@link ATTEMPT_THROTTLE_MAX_ENTRIES}.
+ * Expired buckets are removed. A full map drops zero and low-count entries first.
+ * A key at or over its limit inside its window is never evicted. If every slot is
+ * a live lockout, a new key is refused.
  */
 
 export interface ThrottleBucket {
@@ -36,13 +38,39 @@ export class AttemptThrottle {
     }
   }
 
-  /** Make one free slot for a new key. Oldest insertion is dropped first. */
-  private makeRoom(): void {
-    while (this.buckets.size >= this.maxEntries) {
-      const oldest = this.buckets.keys().next().value;
-      if (oldest === undefined) break;
-      this.buckets.delete(oldest);
+  /** Lowest in-window count under the limit, oldest insertion first. Lockouts are skipped. */
+  private evictable(now: number): string | undefined {
+    let drop: string | undefined;
+    let dropCount = Infinity;
+    for (const [key, bucket] of this.buckets) {
+      if (now >= bucket.resetAtMs) return key;
+      if (bucket.count >= this.limit) continue;
+      if (bucket.count < dropCount) {
+        drop = key;
+        dropCount = bucket.count;
+      }
     }
+    return drop;
+  }
+
+  /** Free one slot without touching an in-window lockout. */
+  private makeRoom(now: number): boolean {
+    while (this.buckets.size >= this.maxEntries) {
+      const drop = this.evictable(now);
+      if (drop === undefined) return false;
+      this.buckets.delete(drop);
+    }
+    return true;
+  }
+
+  /** Retry until the soonest live lockout expires, when a new key cannot be stored. */
+  private failClosedRetry(now: number): number {
+    let soonest = this.windowMs;
+    for (const bucket of this.buckets.values()) {
+      const left = bucket.resetAtMs - now;
+      if (left > 0 && left < soonest) soonest = left;
+    }
+    return Math.max(0, soonest);
   }
 
   /** Returns null if allowed; otherwise retryAfterMs. Does not count the attempt. */
@@ -51,7 +79,7 @@ export class AttemptThrottle {
     this.prune(now);
     const b = this.buckets.get(key);
     if (!b) {
-      this.makeRoom();
+      if (!this.makeRoom(now)) return this.failClosedRetry(now);
       this.buckets.set(key, { count: 0, resetAtMs: now + this.windowMs });
       return null;
     }
@@ -64,7 +92,7 @@ export class AttemptThrottle {
     this.prune(now);
     const b = this.buckets.get(key);
     if (!b) {
-      this.makeRoom();
+      if (!this.makeRoom(now)) return;
       this.buckets.set(key, { count: 1, resetAtMs: now + this.windowMs });
       return;
     }

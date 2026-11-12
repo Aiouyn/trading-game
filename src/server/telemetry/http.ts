@@ -77,6 +77,8 @@ export function telemetryGuard(request: Request): string {
 }
 
 function withGuestCookie(response: Response, request: Request): Response {
+  // A 429 must not mint quay_tel. That cookie would be a new client key and a one-step exit from anon-missing.
+  if (response.status === 429) return response;
   if (readTelemetryGuestId(request.headers.get("cookie"))) return response;
   let secure = false;
   try {
@@ -102,7 +104,7 @@ export async function handleTelemetry(
       if (!/^application\/json\b/i.test(type)) throw new AuthError("BAD_REQUEST", "Expected application/json.", 415);
       const body = await readTelemetryBody(request);
       const anonId = isAnonId(body.anonId) ? body.anonId : undefined;
-      const retry = checkTelemetryRate(kind, request, anonId);
+      const retry = await checkTelemetryRate(kind, request, anonId);
       if (retry !== null) {
         throw new AuthError("RATE_LIMITED", "Too many telemetry requests. Try again later.", 429, retry);
       }
