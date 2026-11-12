@@ -40,3 +40,20 @@ Two local shapes were compared:
 
 - Reproduced the d11 shape in source on `abf14e57` (same `DEFAULT_TICK` boot + `ServerClock` guard). Live before-shots are part of this card's evidence, not of this UNIT commit.
 - Card 19 (outage presentation) is a separate branch. This card does not change reconnecting / After hours / Review order copy.
+
+## Notes (Gatekeeper B1, 12 Nov 2026)
+
+Lesson: loading skeletons must cover the unknown-session state too. `!isSignedIn(auth)` was read as "guest" while `auth.status` was still `"loading"` (`authSession.ts` starts as `{ status: "loading" }`). That painted the invented boot clock (`Day 39 · 11:20` / `data-tick=27700`) plus `MarketPhase` / `TickRing` for a signed-in player, for about 70–90 ms on a natural load. `useNwReading` already special-cased `auth.status === "loading"`. The catch: for every `isSignedIn()` branch, ask what renders while auth is loading. Proof: a unit and an e2e that hold `/api/auth/me` (and the first `/api/market`) and assert no tick, phase, or ring is painted.
+
+This addendum does not rewrite the UNIT-only first commit.
+
+### `isSignedIn()` audit on this card's surfaces (clock / strip / phone home)
+
+This batch fixes only the clock reading. The other branches below still treat `loading` as "not signed in". They are noted, not changed (rank label and Settings/sign-in stay out of scope).
+
+- **Clock / `MarketPhase` / `TickRing` (StatusStrip and phone StatusBar).** `useClockReading` now returns `{ state: "loading" }` while auth is loading, so the muted dash is shown and phase, ring, and the phone phase dot are not mounted. Fixed.
+- **StatusStrip `release` and right chrome.** While auth is loading, the release string uses the boot rank (`Quay 2 · Owner`) and the right chrome shows the rank chip plus Sign in, not the account chip (no handle is invented). Same flash Gatekeeper photographed. Not changed here.
+- **StatusStrip and phone NW chips.** `useNwReading` already returns loading, so these already print "— · Net worth loading…". Unaffected.
+- **Phone StatusBar account chip.** Omitted while loading (no invented handle). Unaffected.
+- **PhoneHome widget (home, not the status bar).** While auth is loading, the rank chip and Sign in CTA render (`!signedIn`). The next-rank bar uses `nextRankTarget(rank)` on that same branch, so a signed-in load can briefly show guest next-rank chrome once NW is live. Account chip, goal, and first-trade guide wait for `signed_in`. Not changed here.
+- **Guest, once auth resolves to `signed_out`.** The demo clock at `DEFAULT_TICK` (and its local steps) is unchanged.
