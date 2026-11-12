@@ -63,7 +63,10 @@ const EN = {
   accountPassword: "Password",
   accountWorld: (worldId: string) => `World: ${worldId}`,
   accountStarterLabel: "Saved balance",
-  accountDisclaimer: "Account, cash, and position quantities are saved on the server. Broker trades and fills are still a demo and are not saved until live trading is wired (M1-06). Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
+  accountStart: "Start with $10,000 of game money and a $20,000 (Hustler) goal.",
+  accountOpenPortfolio: "Open Portfolio",
+  accountSaveDetails: "Save and demo details",
+  accountDisclaimer: "Account, cash, and position quantities are saved on the server. Broker trades and fills are still a demo and are not saved when you reload. Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
 };
 
 type Strings = typeof EN;
@@ -122,7 +125,10 @@ const FR: Strings = {
   accountPassword: "Mot de passe",
   accountWorld: (worldId: string) => `Monde : ${worldId}`,
   accountStarterLabel: "Solde enregistré",
-  accountDisclaimer: "Le compte, les liquidités et les quantités de positions sont enregistrés sur le serveur. Les échanges et exécutions Broker sont encore une démo et ne sont pas enregistrés tant que le trading live n’est pas branché (M1-06). Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
+  accountStart: "Commencez avec 10 000 $ d’argent fictif et un objectif de 20 000 $ (Hustler).",
+  accountOpenPortfolio: "Ouvrir Portefeuille",
+  accountSaveDetails: "Détails sur la sauvegarde et la démo",
+  accountDisclaimer: "Le compte, les liquidités et les quantités de positions sont enregistrés sur le serveur. Les échanges et exécutions Broker sont encore une démo et ne sont pas enregistrés quand vous rechargez la page. Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };
