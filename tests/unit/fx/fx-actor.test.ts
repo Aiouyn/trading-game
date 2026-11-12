@@ -116,7 +116,7 @@ describe("fx actor guard default-off", () => {
 
 describe("fx actor guard", () => {
   it("rejects missing, spoofed and cross-account commands with no state or audit change", async () => {
-    const { ctxA, ctxB, actorA, actorB } = await session();
+    const { ctxA, ctxB, actorA, actorB, auth, binding, a } = await session();
     const g = genesisFor(actorA, actorB);
     const start = advanceFx(createFx(g), [frame(0, [])]);
     const before = fingerprint(start);
@@ -126,8 +126,8 @@ describe("fx actor guard", () => {
     const cmdB = bankCmd("other", actorB);
     const spoof = bankCmd("spoof", actorA);
 
-    expect(() => advanceFx(start, [frame(1, [cmdA])], { actorGuard: true })).toThrow(BindingError);
-    try { advanceFx(start, [frame(1, [cmdA])], { actorGuard: true }); } catch (err) { expectCode(err, "MISSING_SESSION"); }
+    expect(() => advanceFx(start, [frame(1, [cmdA])], { actorGuard: true, binding })).toThrow(BindingError);
+    try { advanceFx(start, [frame(1, [cmdA])], { actorGuard: true, binding }); } catch (err) { expectCode(err, "MISSING_SESSION"); }
     expect(fingerprint(start)).toBe(before);
     expect(start.receipts).toHaveLength(receipts);
     expect(start.transfers).toHaveLength(transfers);
@@ -138,19 +138,25 @@ describe("fx actor guard", () => {
     const fake = { ...ctxA, actorId: ctxB.actorId };
     expect(() => advanceFx(start, [frame(1, [spoof])], { actorGuard: true, contexts: { [spoof.id]: fake } })).toThrow(BindingError);
 
-    expect(() => previewFx(start, cmdA, { actorGuard: true })).toThrow(BindingError);
+    expect(() => previewFx(start, cmdA, { actorGuard: true, binding })).toThrow(BindingError);
     expect(() => previewFx(start, cmdB, { actorGuard: true, contexts: { [cmdB.id]: ctxA } })).toThrow(BindingError);
 
     const dir = await mkdtemp(join(tmpdir(), "fx-actor-reject-"));
     try {
-      const engine = await FxEngine.open(new FileFxStore(join(dir, "fx.json")), g, { actorGuard: true });
+      await expect(FxEngine.open(new FileFxStore(join(dir, "nobind.json")), g, { actorGuard: true })).rejects.toBeInstanceOf(BindingError);
+      const engine = await FxEngine.open(new FileFxStore(join(dir, "fx.json")), g, { actorGuard: true, binding });
       await engine.observe([frame(0, [])], {});
       const opened = engine.snapshot();
       const bytes = await readFile(join(dir, "fx.json"));
       await expectReject(() => engine.observe([frame(1, [cmdA])]), "MISSING_SESSION");
       await expectReject(() => engine.observe([frame(1, [cmdA])], { [cmdA.id]: ctxB }), "ACTOR_MISMATCH");
+      await expectReject(() => engine.observe([frame(1, [cmdA])], { [cmdA.id]: { ...ctxA } }), "FORGED_CONTEXT");
+      await expectReject(() => engine.observe([frame(1, [cmdA])], { [cmdA.id]: structuredClone(ctxA) }), "FORGED_CONTEXT");
       expect(() => engine.preview(cmdA)).toThrow(BindingError);
       expect(() => engine.preview(cmdA, ctxB)).toThrow(BindingError);
+      expect(() => engine.preview(cmdA, { ...ctxA })).toThrow(BindingError);
+      await auth.logout(a.rawToken);
+      await expectReject(() => engine.observe([frame(1, [cmdA])], { [cmdA.id]: ctxA }), "SESSION_REJECTED");
       expect(fingerprint(engine.snapshot())).toBe(fingerprint(opened));
       expect(engine.snapshot().receipts).toEqual(opened.receipts);
       expect(engine.snapshot().transfers).toEqual(opened.transfers);
@@ -161,7 +167,7 @@ describe("fx actor guard", () => {
   });
 
   it("lets a legitimate command match the unguarded sys/fx state and journal bytes", async () => {
-    const { ctxA, actorA } = await session();
+    const { ctxA, actorA, binding } = await session();
     const g = genesisFor(actorA);
     const cmd = bankCmd("pay", actorA);
     const tape = [frame(0, [cmd])];
@@ -176,7 +182,7 @@ describe("fx actor guard", () => {
     try {
       const off = await FxEngine.open(new FileFxStore(join(dir, "off.json")), g);
       await off.observe(tape);
-      const on = await FxEngine.open(new FileFxStore(join(dir, "on.json")), g, { actorGuard: true });
+      const on = await FxEngine.open(new FileFxStore(join(dir, "on.json")), g, { actorGuard: true, binding });
       await on.observe(tape, { [cmd.id]: ctxA });
       expect(canonical(on.snapshot())).toBe(canonical(off.snapshot()));
       expect(await readFile(join(dir, "on.json"))).toEqual(await readFile(join(dir, "off.json")));
@@ -189,16 +195,16 @@ describe("fx actor guard", () => {
   });
 
   it("reopens a guarded journal without sessions and keeps conservation", async () => {
-    const { ctxA, actorA } = await session();
+    const { ctxA, actorA, binding } = await session();
     const g = genesisFor(actorA);
     const cmd = bankCmd("pay", actorA);
     const dir = await mkdtemp(join(tmpdir(), "fx-actor-reopen-"));
     try {
       const path = join(dir, "fx.json");
-      const first = await FxEngine.open(new FileFxStore(path), g, { actorGuard: true });
+      const first = await FxEngine.open(new FileFxStore(path), g, { actorGuard: true, binding });
       await first.observe([frame(0, [cmd])], { [cmd.id]: ctxA });
       const bytes = await readFile(path);
-      const reopened = await FxEngine.open(new FileFxStore(path), g, { actorGuard: true });
+      const reopened = await FxEngine.open(new FileFxStore(path), g, { actorGuard: true, binding });
       expect(canonical(reopened.snapshot())).toBe(canonical(first.snapshot()));
       expect(await readFile(path)).toEqual(bytes);
       const { assertFxConservation } = await import("@/server/market/fx/engine");
