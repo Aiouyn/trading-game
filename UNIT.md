@@ -41,3 +41,13 @@ Two local shapes were compared:
 - Freeze final HEAD before final proof. Run lint, typecheck, ordinary production build, check-hooks, ledger map-no-dup, and npm test with all `GIT_*` unset. Unchanged `/broker` route-budget ≤ 220,160 bytes; report the number.
 - Clean e2e once in a scratch worktree with fresh `.data`, affected cohort: the new board tests plus `tests/e2e/17b/M2-03-leaderboard.spec.ts`. Existing Chromium only; no apt or `--with-deps`. Ports 3300–3399 only, never 3199. Delete the scratch worktree afterwards. Prefer hardlink or symlink for `node_modules` if inodes are tight, and record that.
 - Report SHA, exact base, UNIT-first, checks, bytes, screenshots, and qualifications (local Node 24 vs CI 22). Do not push.
+
+## Addendum — tied line names the shared amount (Gatekeeper card 12 qual)
+
+Written 12 Nov 2026, 01:26 Europe/Paris (CET), before any further implementation. This addendum is the only change in its commit. Timestamp taken from `date` on the box (Europe/Paris).
+
+Gatekeeper passed `f6c45644` with one qualification: the tied-at-top line leaves out the shared amount this UNIT already sketched (Grounding, shape 1: "When they share the best net worth, say they are tied, with the shared amount."). `App.tsx` renders only `LB.tied(next.others)`; `strings.ts` has "Tied with N other player(s) at the top of the board." and no amount. `nextUpFromView` already returns `nw` on `{ kind: "tied" }`.
+
+Show that public `nw` on the tied line with `MoneyText` `ctx="table"` (same as the Next up gap and the table cells; not `delta`, which would add a +). Keep the existing sentence and append the amount after a mid-dot: "Tied with 1 other player at the top of the board · $10,000.00". Do not invent a neighbour or a gap; unique lead stays "You're at the top of the board." with no amount line. No engine or API change.
+
+Fail-first unit: a live tied board's `lb-tied` line includes the shared amount as table money. Then lint, typecheck, build, check-hooks, map-no-dup, npm test, route-budget `/broker` with GIT_* unset, and one clean e2e (boards-next-up + M2-03) with fresh `.data`. Evidence under `/workspace/avalon/evidence/ui-boards-next-up/batch1/`. No push.
