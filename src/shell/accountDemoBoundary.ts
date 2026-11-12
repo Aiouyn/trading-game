@@ -9,7 +9,7 @@ import { cashCentsToMoney } from "@/shell/cashFormat";
 import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
 import type { Channels } from "./channels";
 import { MockFeed, scenarioFromQuery } from "./contracts/mockFeed";
-import { setFeed } from "./contracts/useChannel";
+import { getFeed, setFeed } from "./contracts/useChannel";
 import { defaultChannels, mockChannels, mockShells, RANK_THRESHOLDS } from "./mockChannels";
 import { RANKS, type Rank } from "./registry";
 import type { ShellStore } from "./store";
@@ -62,7 +62,15 @@ export function applySignedInDemo(
   const nw = cashCentsToMoney(cashCents);
   // Quotes come from the server clock and `me` from the saved server ledger (M1-06): orders go to the server door,
   // which prices, fills and saves them. No NW pin: cash and lots are the server's, marked at server quotes.
-  setFeed(new MockFeed({ empty: true, seed: marketSeed }, { authoritativeQuotes: true, snapshotAccount: accountId }));
+  const feed = new MockFeed({ empty: true, seed: marketSeed }, { authoritativeQuotes: true, snapshotAccount: accountId });
+  // Card 19: a lost /api/market shows as "Reconnecting…" in the header, the notice and the ticket. A feed that was
+  // swapped out (sign-out, another account) no longer writes.
+  feed.onConnection = (connection) => {
+    if (getFeed() !== feed) return;
+    const c = store.getState().channels;
+    store.getState().setChannels({ ...c, system: { ...c.system, connection } });
+  };
+  setFeed(feed);
   const channels = starterChannels();
   channels.me.nw = nw;
   // Saved cash seeds the boot NW only until `me` (server ledger at server marks) is live.
