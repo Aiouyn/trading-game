@@ -7,7 +7,7 @@
 // `candles` channel, so it shows in the loading and error branches too when the asset is known.
 // UI card 10: Trade | About under the header. About (AssetPage) replaces the ticket column in place; on phone it is a
 // pushed screen. The draft and phase live here, so switching back finds the ticket as it was.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
@@ -160,8 +160,8 @@ export function BrokerFrame({ context }: { context?: string }) {
   const placed = phase.kind === "placed" ? phase : null;
   const result = placed?.intentId && me.body ? me.body.intents.find((i) => i.intentId === placed.intentId) ?? null : null;
   const submitting = phase.kind === "placed" && !placed?.failed && !(placed?.intentId && result);
-  submittingRef.current = submitting;
-  useEffect(() => {
+  useLayoutEffect(() => {
+    submittingRef.current = submitting;
     setTicketSubmitting(submitting && assetId ? assetId : null);
     return () => setTicketSubmitting(null);
   }, [submitting, assetId]);
