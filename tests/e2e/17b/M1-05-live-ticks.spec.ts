@@ -2,6 +2,7 @@
 // Real timers. The preview process owns the cadence; this spec only reads it.
 import { existsSync, mkdirSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { bookAtUiTick } from "./tickBound";
 
 const ARTIFACTS = "/opt/cursor/artifacts";
 
@@ -165,11 +166,17 @@ test("a held and failed first market read stays unlabeled, then matches the othe
     await register(late.request, baseURL!, `Late${stamp}`);
     const pageB = await ready.newPage();
     await pageB.goto("/broker");
+    // One bracketed observation (tickBound.ts): GET, the UI caught up to that served tick within its poll (one server
+    // tick at most), the UI read, GET again. The UI must equal, exactly, the book at whichever bracketing tick it shows.
+    await expect(liveBroker(pageB)).toBeVisible({ timeout: 20_000 }); // the page's own first load, as uiQuotes allows
+    const pre = await market(ready.request);
+    await expect.poll(async () => Number(await liveBroker(pageB).getByTestId("market-tick").getAttribute("data-tick")), { timeout: pre.tickMs, intervals: [100] }).toBeGreaterThanOrEqual(pre.tick);
     const liveB = await uiQuotes(pageB);
-    const book = await market(ready.request);
-    expect(liveB.tick).toBe(String(book.tick));
+    const post = await market(ready.request);
+    const seen = bookAtUiTick(pre, liveB, post);
+    expect(seen, `pre ${pre.tick}, UI ${liveB.tick}, post ${post.tick}`).toHaveProperty("book");
+    const book = (seen as { book: MarketBody }).book;
     expect(liveB.world).toBe("world_port_avalon");
-    for (const [id, row] of Object.entries(book.quotes.rows)) expect(liveB.lasts[id]).toBe(row.last);
 
     const pageA = await late.newPage();
     let hits = 0;
