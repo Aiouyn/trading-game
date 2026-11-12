@@ -320,6 +320,9 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     api.current = a;
     const lines = studyLines.current;
     const onMove = () => place();
+    // The tag follows every chart redraw: the library rescales the price axis on its own frame, after setData, so a
+    // tag placed only on data / range / size events could sit off the last price until the next one (S1-03).
+    redraw.add(place);
     chart.timeScale().subscribeVisibleLogicalRangeChange(onMove);
     chart.timeScale().subscribeSizeChange(onMove);
     const onCross = (p: MouseEventParams<Time>) => {
@@ -363,6 +366,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     }
     return () => {
       mo.disconnect();
+      redraw.delete(place);
       chart.unsubscribeCrosshairMove(onCross);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onMove);
       chart.timeScale().unsubscribeSizeChange(onMove);
