@@ -10,6 +10,7 @@
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { decText } from "@/apps/portfolio/positions/format";
 import { Glyph } from "@/components/shell/Glyph";
+import { pickCorner, type Corner } from "@/components/shell/fillAckPlace";
 import { useShell } from "@/components/shell/ShellContext";
 import type { MeTradingBody } from "@/shell/contracts/channels";
 import { useChannel } from "@/shell/contracts/useChannel";
@@ -55,28 +56,6 @@ export function ackLines(t: BrStrings, locale: string, ticker: string, s: AckSho
     case "failed": return { title: s.why === "offline" ? t.placeOffline : s.why === "unknown" ? t.placeUnknown : t.couldntLoad, line: null };
     case "expired": return { title: t.placeUnknown, line: null };
   }
-}
-
-type Corner = "tr" | "tl" | "br" | "bl";
-const GAP = 8;
-function cssPx(name: string, fallback: number): number {
-  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
-  return Number.isFinite(v) ? v : fallback;
-}
-/** Desktop: the first corner whose box covers no visible Broker ticket; else the one covering the least. */
-function pickCorner(el: HTMLElement): { corner: Corner; style: CSSProperties } {
-  const w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
-  const top = cssPx("--strip-h", 34) + GAP, bottom = vh - cssPx("--shelf-h", 52) - GAP - h;
-  const spots: Record<Corner, { x: number; y: number }> = { tr: { x: vw - GAP - w, y: top }, tl: { x: GAP, y: top }, br: { x: vw - GAP - w, y: bottom }, bl: { x: GAP, y: bottom } };
-  const tickets = [...document.querySelectorAll<HTMLElement>('[data-testid="broker"]')].map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
-  const cover = (x: number, y: number) => tickets.reduce((a, r) => a + Math.max(0, Math.min(x + w, r.right) - Math.max(x, r.left)) * Math.max(0, Math.min(y + h, r.bottom) - Math.max(y, r.top)), 0);
-  let best: Corner = "tr", bestA = Infinity;
-  for (const c of ["tr", "tl", "br", "bl"] as const) {
-    const a = cover(spots[c].x, spots[c].y);
-    if (a < bestA) { best = c; bestA = a; }
-    if (a === 0) break;
-  }
-  return { corner: best, style: { left: spots[best].x, top: spots[best].y } };
 }
 
 function Toasts({ variant }: { variant: FillAckVariant }) {
