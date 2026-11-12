@@ -120,6 +120,8 @@ test("T2-06 phone tile glyphs are never brass (all apps)", async ({ page }, info
     await setPalette(page, p);
     const acc = await token(page, "acc");
     const colours = await page.locator(".phone-app .icon").evaluateAll((els) => els.map((e) => getComputedStyle(e).color));
+    // Card 31: unbuilt apps are no longer offered on Home, so the never-brass
+    // check covers the 3 V1 dock icons plus Settings (4), not card 30's 29.
     expect(colours.length).toBeGreaterThanOrEqual(4);
     expect(colours.filter((c) => c === acc)).toEqual([]);
   }

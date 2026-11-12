@@ -1,34 +1,33 @@
-# Card 31 — Unbuilt apps are not offered in Home, shelf, or launcher
+# Card 29 — Signed-in Home hero says Net worth, not “Demo balance”
 
-**When:** 12 Nov 2026, 07:34 Europe/Paris (CET)
-**Branch:** `ui/hide-unbuilt-chrome`
-**Base:** `origin/main` `a62983dda0e0ffea436a98648d0cf474fb38a13e` (PR116, card 25)
+**When:** 12 Nov 2026, 06:55 Europe/Paris (CET)
+**Branch:** `ui/signed-in-hero-copy`
+**Base:** `origin/main` `1fd4a6d9cc27a61dfd28ddc6288bf1ecd6ea6f3e` (PR114 after PR111/113)
 **Identity:** Forge (trading-game bot) <forge@trading-game.local>
-**Tier:** low (shell chrome). Not opening a PR. No push this pass.
+**Tier:** low (copy). Not opening a PR. No push this pass.
 
 ## Player outcome
 
-A new player looking at phone Home, the desktop shelf, or the launcher only sees apps that actually open. Markets, City, Boards, and the rest of the unbuilt catalog no longer sit in the first session as “Coming later” traps.
+A signed-in player looking at Home sees the same “Net worth” hero the spec describes, not “Demo balance” and not “Starter account: $10,000 (demo placeholder, not a live balance).” Their cash and positions are already described in Account as saved on the server. The main screen should not contradict that, and it should not look like a throwaway demo.
 
 ## Grounding
 
-- `docs/v1/V1-BOARD.md` M0-05 / M1-11: out-of-scope systems stay in the tree, default off; flags off means that UI is unreachable from ordinary chrome.
-- `17-UX` SH-03: the phone grid opens apps. Offering unbuilt tiles as if they were playable is not a first-10-minutes clarity.
-- Built is already derived from `APP_MODULES` (`isBuiltApp`). On this tip that is settings, broker, portfolio, and wire only.
-- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, unbuilt tiles must not flash in and then disappear. The filter is by built-ness, not session, so the unknown-session path is the same.
-- Deep links such as `/markets` or Settings › About integrity may still render `ComingLater`. This card stops *offering* those apps in the grid, shelf, and launcher. It does not invent a Boards or Markets body.
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:257` — Home widget: “NET WORTH label + rank chip, serif 44 px NW, today’s change, sparkline, rank progress bar.” The label is Net worth. There is no “Demo balance” line and no $10k “not a live balance” disclaimer on this widget.
+- Same file :240 — desktop status strip: net worth (mono) with today’s %. Not a “Demo balance” tag.
+- Settings › Account already says “Account, cash, and position quantities are saved on the server.” (`src/apps/settings/strings.ts` `accountDisclaimer`; tests in `m1-01-account.test.tsx`). The hero copy is stale relative to that.
+- `docs/v1/M1-01-AUTH.md:15` still says mock trading is not a server save and “Account may show starter cash placeholder only.” That note is about Account, and Account has already moved on. It is not a license to label the Home hero a fake balance.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash “Demo balance” or the $10k disclaimer, and must not invent a signed-in number. Guest chrome (Net worth) is the honest unknown-session path.
 
-## Scope
+## Scope (tiny copy)
 
-- Phone app grid: list only built apps (empty groups stay omitted).
-- Desktop shelf: same.
-- Launcher app search (and Recents shown there): only built apps.
-- Do not change `evaluate()` visibility, keyboard-only deep behaviour, or the ComingLater placeholder. Do not touch orders, money, or submit code.
-- The phone dock’s Messages slot is card 30; this card still hides Messages from the *grid* / shelf / launcher even if the dock on this base still has it.
+- Phone Home widget: the label is `S.netWorth` for signed-in and guest. Remove `phone-demo-disclaimer` (`S.starterPlaceholder`) from the signed-in hero.
+- Desktop status strip: drop the signed-in “Demo balance” tag (`strip-demo-tag`). Show today’s % next to NW, as the spec and the guest strip already do.
+- Do not retouch the signed-in today slot or the $20k rank bar — that is card 25 (`ui/signed-in-home-today`).
+- Do not rewrite Account or M1-01-AUTH.md in this card.
 
 ## Acceptance / proof
 
-- Fail-first unit: phone grid still has `icon-markets`; shelf still has `tile-markets`; `search("markets", vis, [])` still returns the Markets app. After the fix, none of those offer Markets (or other unbuilt ids). Built apps (Broker, Portfolio, Wire, Settings) remain offered. Empty groups are not rendered.
-- Auth / first paint: hold `/api/auth/me` — no `icon-markets` / `tile-markets` on first paint.
-- Official-flag e2e on fresh `.data` plus production play at 1280 and 390, screenshots under `/workspace/avalon/evidence/hide-unbuilt-chrome/` (play scripts live there, not in the worktree).
-- Full checks on the exact final head. No push.
+- Fail-first unit: a signed-in Phone Home / StatusStrip still says “Demo balance” and the starter disclaimer before the fix; after the fix the hero label is “Net worth”, `phone-demo-disclaimer` is absent, and `strip-demo-tag` is absent. The $10,000 starter amount may still appear as the NW figure; it is not captioned as a demo placeholder.
+- Auth / first paint: hold `/api/auth/me` — first paint has no “Demo balance”, no “not a live balance” / starter placeholder, and no account handle. After the session resolves signed-in, still no those phrases on the hero or strip.
+- Official-flag e2e on fresh `.data` (register a handle) plus production play at 1280 and 390 with screenshots.
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.

@@ -118,16 +118,18 @@ test("T4-05 a new account below 1264 opens Broker alone", async ({ browser, base
   await ctx.close();
 });
 
-test("T4-06 phone: built group labels, bottom row not in grid, edge mark --fg, long-press 400 ms = Recent (≤6)", async ({ page }, info) => {
+test("T4-06 phone: built group labels, bottom row fixed 3 not in grid, edge mark --fg, long-press 400 ms = Recent (≤6)", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
   const labels = await page.locator(".grid-group > .label").allTextContents();
   expect(labels.map((l) => l.toUpperCase())).toEqual(["ME"]);
   expect(labels.length).toBe(1);
-  for (const a of ["broker", "portfolio", "wire", "messages"]) {
+  for (const a of ["broker", "portfolio", "wire"]) {
     await expect(page.getByTestId("bottom-row").getByTestId(`icon-${a}`)).toHaveCount(1);
     await expect(page.getByTestId("app-grid").getByTestId(`icon-${a}`)).toHaveCount(0);
   }
+  await expect(page.getByTestId("bottom-row").getByTestId("icon-messages")).toHaveCount(0);
+  await expect(page.getByTestId("app-grid").getByTestId("icon-messages")).toHaveCount(0);
   expect(await page.getByTestId("edge-mark").evaluate((e) => getComputedStyle(e).color)).toBe(await probe(page, "var(--fg)"));
   await page.getByTestId("edge-bar").screenshot({ path: `${SHOTS}/edge-bar-390x844.png` });
   const mark = page.getByTestId("quay-mark");
@@ -321,11 +323,11 @@ test("T4 Studio 08:31: bottom row is an icon-only dock at text scale ≥ 1.5; ar
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
   const dock = page.getByTestId("bottom-row");
-  const items = ["broker", "portfolio", "wire", "messages"] as const;
+  const items = ["broker", "portfolio", "wire"] as const;
   // Below 1.5: unchanged, visible labels.
   await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "1.4"));
   await expect(dock).not.toHaveAttribute("data-dock", "1");
-  await expect(dock.locator(".icon-label")).toHaveCount(4);
+  await expect(dock.locator(".icon-label")).toHaveCount(3);
   for (const scale of [1.5, 2]) {
     await page.evaluate((v) => document.documentElement.style.setProperty("--text-scale", String(v)), scale);
     await expect(dock).toHaveAttribute("data-dock", "1");
