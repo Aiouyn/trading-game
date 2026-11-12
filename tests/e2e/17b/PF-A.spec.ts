@@ -107,7 +107,7 @@ test("PF-2-05 summary: Cash · FDL via MoneyText; mock MDOL '1250.00' renders '1
 
 test("PF-2-06 new player (?empty=1): EmptyState copy, no button, no positions table", async ({ page }) => {
   await openPortfolio(page, "?empty=1");
-  await expect(pf(page).getByTestId("pf-empty")).toHaveText("Your money is all cash. Broker or Businesses are good first stops.");
+  await expect(pf(page).getByTestId("pf-empty")).toHaveText("Your money is all cash. Broker is a good first stop.");
   expect(await pf(page).getByTestId("pf-empty").evaluate((e) => getComputedStyle(e).color)).toBe(await color(page, "var(--fg-muted)"));
   await expect(pf(page).getByRole("button")).toHaveCount(0);
   await expect(pf(page).getByRole("table")).toHaveCount(1); // the cash summary only
