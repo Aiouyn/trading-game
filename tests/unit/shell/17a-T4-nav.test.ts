@@ -15,7 +15,9 @@ describe("17A T4 §3: Trade layout below 1264", () => {
     expect(w.find((x) => x.app === "portfolio")!.w).toBeGreaterThanOrEqual(520);
   });
   it("a new account below 1264 gets Broker alone", () => {
-    expect(applyLayout("trade", area(1263), () => true).map((w) => w.app)).toEqual(["broker"]);
+    const alone = applyLayout("trade", area(1263), () => true);
+    expect(alone.map((w) => w.app)).toEqual(["broker"]);
+    expect(alone[0]).toMatchObject({ w: 840, h: 640 });
   });
 });
 

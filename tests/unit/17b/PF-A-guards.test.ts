@@ -94,9 +94,11 @@ describe("strings", () => {
     expect([en.overview, en.positions, en.backToPortfolio, en.netWorth, en.drawdownReal, en.sharpe, en.nextRankAt, en.topRank, en.updating, en.couldntLoad, en.retry, en.held])
       .toEqual(["Overview", "Positions", "Back to Portfolio", "Net worth", "Drawdown (real)", "Sharpe (whole NW)", "Next rank at", "Top rank", "Updating…", "Couldn't load", "Retry", "held"]);
     expect(en.cash("FDL")).toBe("Cash · FDL");
-    expect(en.emptyCash).toBe("Your money is all cash. Broker or Businesses are good first stops.");
+    expect(en.emptyCash).toBe("Your money is all cash. Broker is a good first stop.");
   });
-  it("emptyCash FR is the Studio ruling (2026-10-28): app names as given, the registry has no FR names", () => {
-    expect(PF_STRINGS.fr.emptyCash).toBe("Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.");
+  it("emptyCash FR names only Broker; Businesses is unbuilt in V1", () => {
+    expect(PF_STRINGS.fr.emptyCash).toBe("Tout votre argent est en liquidités. Le Courtier est un bon point de départ.");
+    expect(PF_STRINGS.en.emptyCash).not.toMatch(/Businesses/);
+    expect(PF_STRINGS.fr.emptyCash).not.toMatch(/Entreprises/);
   });
 });

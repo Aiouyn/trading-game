@@ -3,6 +3,9 @@
 // documented static fallback; see districts.ts). No WebGL, no three.js, no network, no animation; nothing to buy,
 // own or change: the only controls pick a district to read its landmark and go back to Broker.
 // The 3D renderer seam (CityWindow, src/city) is kept for when city data is published; the shell does not mount it.
+// @city-e2e-seam is a stub in production and the real renderer only when NEXT_PUBLIC_CITY_E2E=1, so the
+// official e2e / prod-hook control still sees window.__city hook strings and a no-flag build still has 0.
+import "@city-e2e-seam";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";

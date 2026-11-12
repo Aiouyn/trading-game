@@ -29,5 +29,8 @@
   },
   "include": [
     "*.ts"
+  ],
+  "exclude": [
+    "regen-calibration-fixture.ts"
   ]
 }
