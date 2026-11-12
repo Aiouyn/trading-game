@@ -129,11 +129,24 @@ function pickCycleOrder(
     const order = shuffledIndices(n, seed, key);
     if (!prev || acceptable(order, prev)) return order;
   }
-  const base = prev ? [...prev].reverse() : shuffledIndices(n, seed, `${kind}:${cycle}:fallback`);
-  for (let rot = 0; rot < n; rot++) {
-    const order = base.map((_, i) => base[(i + rot) % n]!);
-    if (!prev || acceptable(order, prev)) return order;
-  }
+  // Complete search, still seeded: try items in a hash-derived preference order so
+  // a valid permutation is always found when one exists (rotate-reverse can miss).
+  const pref = shuffledIndices(n, seed, `${kind}:${cycle}:bt`);
+  const used = new Array<boolean>(n).fill(false);
+  const acc: number[] = [];
+  const search = (): boolean => {
+    if (acc.length === n) return !prev || acceptable(acc, prev);
+    for (const item of pref) {
+      if (used[item]) continue;
+      acc.push(item);
+      used[item] = true;
+      if (search()) return true;
+      used[item] = false;
+      acc.pop();
+    }
+    return false;
+  };
+  if (search()) return acc.slice();
   throw new Error(`wireStories: no valid ${kind} shuffle for cycle ${cycle}`);
 }
 
