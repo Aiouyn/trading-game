@@ -36,31 +36,31 @@ async function desktopPlace(page: Page, win: Locator) {
   await expect(win.getByTestId("broker")).toHaveAttribute("data-phase", "submitting");
 }
 
-/** Desktop guest: NRON Broker (buy 4) plus a HALC Broker opened by Positions Close (sell 1200), replies held 6 s. */
+/** Desktop guest: MRDN Broker (buy 4) plus a HALC Broker opened by Positions Close (sell 1200), replies held 6 s. */
 async function twoBrokers(page: Page) {
-  await boot(page, "/broker?asset=NRON&replyMs=6000");
-  const nron = ticketOf(page, "NRON");
-  await expect(nron.getByTestId("broker")).toHaveAttribute("data-state", "live");
-  await nron.getByTestId("br-qty").fill("4");
+  await boot(page, "/broker?asset=MRDN&replyMs=6000");
+  const mrdn = ticketOf(page, "MRDN");
+  await expect(mrdn.getByTestId("broker")).toHaveAttribute("data-state", "live");
+  await mrdn.getByTestId("br-qty").fill("4");
   await page.getByTestId("tile-portfolio").click();
   await page.getByTestId("win-portfolio").first().getByTestId("pf-tab-positions").click();
   await expect(page.getByTestId("pf-positions").first()).toHaveAttribute("data-state", "live");
   await page.locator('[data-testid="pos-row"][data-asset="HALC"]').getByTestId("pos-close").click();
   const halc = ticketOf(page, "HALC");
   await expect(halc.getByTestId("br-qty")).toHaveValue("1200");
-  return { nron, halc };
+  return { mrdn, halc };
 }
 
 test("desktop: closing the Broker window mid-Place gives one toast that covers no open ticket; Esc dismisses it", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "desktop windows");
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1280, height: 800 });
-  const { nron, halc } = await twoBrokers(page);
-  await desktopPlace(page, nron);
-  await nron.getByTestId("win-close").click();
-  await expect(nron).toHaveCount(0);
+  const { mrdn, halc } = await twoBrokers(page);
+  await desktopPlace(page, mrdn);
+  await mrdn.getByTestId("win-close").click();
+  await expect(mrdn).toHaveCount(0);
   await expect(toasts(page)).toHaveCount(1, { timeout: 15_000 });
-  await expect(toasts(page).first()).toContainText(/Bought 4 NRON at \d/);
+  await expect(toasts(page).first()).toContainText(/Bought 4 MRDN at \d/);
   // the open HALC ticket is not covered: its controls are hit-testable and no toast box overlaps the ticket
   const t = (await toasts(page).first().boundingBox())!;
   const h = (await halc.getByTestId("broker").boundingBox())!;
@@ -77,14 +77,14 @@ test("desktop: two Brokers closed mid-Place give two toasts", async ({ page }, i
   test.skip(info.project.name !== "desktop", "desktop windows");
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1280, height: 800 });
-  const { nron, halc } = await twoBrokers(page);
-  await desktopPlace(page, nron);
+  const { mrdn, halc } = await twoBrokers(page);
+  await desktopPlace(page, mrdn);
   await desktopPlace(page, halc);
-  await nron.getByTestId("win-close").click();
+  await mrdn.getByTestId("win-close").click();
   await halc.getByTestId("win-close").click();
   await expect(page.getByTestId("win-broker")).toHaveCount(0);
   await expect(toasts(page)).toHaveCount(2, { timeout: 15_000 });
-  await expect(toasts(page).filter({ hasText: /Bought 4 NRON at \d/ })).toHaveCount(1);
+  await expect(toasts(page).filter({ hasText: /Bought 4 MRDN at \d/ })).toHaveCount(1);
   await expect(toasts(page).filter({ hasText: /Sold 1,?200 HALC at \d/ })).toHaveCount(1);
   await page.screenshot({ path: info.outputPath("desktop-two-toasts.png") });
 });
