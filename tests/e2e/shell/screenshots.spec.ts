@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { boot, setTextScale } from "./helpers";
+import { boot, setTextScale, withShroudFlags } from "./helpers";
 
 // S1-22: screenshots of home, launcher, a locked tile and a ComingLater window. Run with SHOTS=1.
 const OUT = process.env.SHOTS_DIR ?? "tests/e2e/shell/__screenshots__";
@@ -21,13 +21,13 @@ async function four(page: Page, prefix: string, phone: boolean) {
   await page.getByRole("combobox", { name: "Find an app, a ticker, a command" }).fill("po");
   await page.screenshot({ path: `${OUT}/${prefix}-launcher.png` });
   await boot(page, "/?rank=R1&nw=30000");
-  if (!phone) await page.getByTestId("tile-quantlab").hover();
+  // Unbuilt teasers are no longer on the shelf; this shot is the built-only shelf at R1.
   await page.screenshot({ path: `${OUT}/${prefix}-locked-tile.png` });
   await boot(page, "/markets");
   await page.screenshot({ path: `${OUT}/${prefix}-coming-later.png` });
   // Shadow sub-palette windows (AI Lab, Security) and the protection chip (mocked active state).
   await boot(page, "/ailab?nw=200000&prot=1");
-  if (!phone) await page.getByTestId("tile-security").click();
+  if (!phone) await page.evaluate((h) => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(h), withShroudFlags("/security?nw=200000&prot=1"));
   await page.screenshot({ path: `${OUT}/${prefix}-shadow-ailab-security${phone ? "-ailab" : ""}.png` });
   if (phone) {
     await boot(page, "/security?prot=1");
@@ -72,7 +72,7 @@ test("phone 390×844", async ({ page }, info) => {
       await page.screenshot({ path: `${OUT}/phone-${width}x844-offline-scale${scale}-inapp.png` });
       await page.context().setOffline(false);
       await page.getByTestId("offline-state").waitFor({ state: "detached" });
-      await page.getByRole("button", { name: "Back" }).click();
+      await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
       await page.context().setOffline(true);
       await page.getByTestId("offline-state").waitFor();
       await page.waitForTimeout(200);

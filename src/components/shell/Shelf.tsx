@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { LAYOUTS, layoutFits } from "@/shell/layouts";
 import { shelfOrder } from "@/shell/prefs";
 import { APP_IDS, APPS } from "@/shell/registry";
+import { isBuiltApp } from "@/shell/appModules";
+import { isShrouded } from "@/shell/v1Shroud";
 import { workspacesFor } from "@/shell/store";
 import { APP_NAMES, S } from "@/shell/strings";
 import { viewportOf, workArea } from "@/shell/wm";
@@ -16,16 +18,18 @@ export function Shelf() {
   const windows = useShell((s) => s.local.windows);
   const ws = useShell((s) => s.local.activeWorkspace);
   const rank = useShell((s) => s.channels.rank.rank);
+  const flags = useShell((s) => s.channels.me.flags);
   const vw = useShell((s) => s.vw);
   const vh = useShell((s) => s.vh);
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const row = useRef<HTMLDivElement>(null);
   const [clipped, setClipped] = useState({ left: false, right: false });
-  const apps = shelfOrder(APP_IDS).filter((a) => vis[a] !== "hidden");
+  const apps = shelfOrder(APP_IDS).filter((a) => isBuiltApp(a) && vis[a] !== "hidden");
   const top = windows.at(-1);
   const desktop = viewportOf(vw) === "desktop";
   const area = workArea(vw, vh);
-  const layouts = LAYOUTS.filter((l) => layoutFits(l.id, area));
+  // A layout that names a shrouded app is itself a nav entry for that system (M1-11).
+  const layouts = LAYOUTS.filter((l) => layoutFits(l.id, area) && [l.left, ...l.right].every((p) => !isShrouded(p.app, flags)));
 
   // The tile row is its own scroll region ending before the tools, with a fade on each clipped edge.
   useEffect(() => {

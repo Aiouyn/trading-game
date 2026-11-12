@@ -1,5 +1,12 @@
 .quay-feedback { position: relative; }
-.quay-feedback-btn { cursor: pointer; }
+.quay-feedback-btn {
+  cursor: pointer;
+  min-width: var(--hit-pointer);
+  min-height: var(--hit-pointer);
+  box-sizing: border-box;
+}
+.phone .quay-feedback-btn { min-width: var(--hit-touch); min-height: var(--hit-touch); }
+
 .quay-feedback-panel {
   position: absolute;
   top: calc(100% + 8px);

@@ -115,6 +115,7 @@ export function authErrorCopy(err: AuthClientError, locale: "en" | "fr"): string
     FORBIDDEN: "That request was blocked.",
     UNAUTHORIZED: "You are signed out.",
     UNSUPPORTED_DEPLOY: "Account service is not available in this environment.",
+    READ_ONLY: "The game is paused.",
     BAD_REQUEST: "Check the form and try again.",
   };
   const fr: Record<string, string> = {
@@ -126,6 +127,7 @@ export function authErrorCopy(err: AuthClientError, locale: "en" | "fr"): string
     FORBIDDEN: "Requête bloquée.",
     UNAUTHORIZED: "Vous êtes déconnecté.",
     UNSUPPORTED_DEPLOY: "Compte indisponible dans cet environnement.",
+    READ_ONLY: "Le jeu est en pause.",
     BAD_REQUEST: "Vérifiez le formulaire et réessayez.",
   };
   const table = locale === "fr" ? fr : en;

@@ -143,11 +143,16 @@ describe("farm belief, lnV, conservation", () => {
   });
 
   it("farm confirm: retained belief releases linearly over 15 ticks; lnV is the fact-only X", () => {
-    const b = book();
+    // Opening all 40 days into the live book made advanceTo walk every tick across 320
+    // pending claims and timed out at 5s on CI. Planning is cheap (~40ms): pick the same
+    // claim from a probe book, then open only rumors that can publish before the handoff ends.
+    const probe = book();
+    const drafts = [];
     for (let day = firstFarmDay; day < firstFarmDay + 40; day++) {
-      for (const d of planFarmDay(SEED, day)) b.openFromDraft(d);
+      for (const d of planFarmDay(SEED, day)) drafts.push(d);
     }
-    const farm = b.allClaims().filter((c) => c.channel === "farm").sort((a, c) => a.resolvesByTick - c.resolvesByTick);
+    for (const d of drafts) probe.openFromDraft(d);
+    const farm = probe.allClaims().filter((c) => c.channel === "farm").sort((a, c) => a.resolvesByTick - c.resolvesByTick);
     const hits = new Map<string, number>();
     let chosen: (typeof farm)[number] | null = null;
     for (const c of farm) {
@@ -156,6 +161,11 @@ describe("farm belief, lnV, conservation", () => {
       if (c.isTrue) hits.set(c.sourceId ?? "", prior + 1);
     }
     expect(chosen).not.toBeNull();
+    const cutoff = chosen!.resolvesByTick + RUMOR.handoffTicks;
+    const b = book();
+    for (const d of drafts) {
+      if (d.publishTick <= cutoff) b.openFromDraft(d);
+    }
     const last = new Map<string, number>();
     const listing = (id: string) => ASSET_BY_ID[id]!.base;
     const applyLog = (id: string, log: number) => {
@@ -175,8 +185,11 @@ describe("farm belief, lnV, conservation", () => {
     const pending = b.snapshot().belief.find((p) => p.claimId === chosen!.id);
     expect(pending?.mode).toBe("pending");
     expect(pending!.log).not.toBe(0);
-    const src = b.sourceOf(chosen!.sourceId);
-    const wantStart = farmContribution(chosen!, resolve, src.hits, src.resolved);
+    // startLog is the pending farm overlay at the resolve tick. Use the live claim
+    // (denials may have set rebuttal); a probe copy would compute a different impulse.
+    const live = b.claim(chosen!.id)!;
+    const src = b.sourceOf(live.sourceId);
+    const wantStart = farmContribution(live, resolve, src.hits, src.resolved);
     b.advanceTo(resolve, applyLog, applyConfirmed);
     const claim = b.claim(chosen!.id)!;
     expect(claim.resolution).toBe("CONFIRMED");
@@ -202,7 +215,7 @@ describe("farm belief, lnV, conservation", () => {
       }
       expect(b.lnVOf(chosen!.assetId)).toBe(lnV);
     }
-  });
+  }, 15_000);
 
 });
 
