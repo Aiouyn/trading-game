@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -41,9 +41,117 @@ describe("lesson 17: a skipped check is not a pass", () => {
       `${call("it", "skip")}(true, "literal true");`,
       `${call("xit")}("old skip");`,
       `${call("describe", "skipIf")}(process.env.CI !== "1")("not on the list", () => {});`,
+      `${call("fit")}("hides the rest", () => {});`,
+      `${call("fdescribe")}("hides the suite", () => {});`,
+      `${call("ftest")}("hides one", () => {});`,
+      "const label = `${" + call("it", "skip") + "(\"hidden\", () => {})}`;",
     ].join("\n");
     const kinds = auditSource(src, "tests/unit/example.test.ts").map((f) => f.kind);
-    expect(kinds).toEqual(["focused", "unconditional-skip", "unconditional-skip", "unconditional-skip", "unexpected-skip"]);
+    expect(kinds).toEqual([
+      "focused",
+      "unconditional-skip",
+      "unconditional-skip",
+      "unconditional-skip",
+      "unexpected-skip",
+      "focused",
+      "focused",
+      "focused",
+      "unconditional-skip",
+    ]);
+  });
+
+  it("does not flag skip-like text that is not a test call", () => {
+    // Snippets are the matches from main that are not skipped tests. They sit in this
+    // file on purpose: a string, comment, regex, or local fit() must not fail the tree scan.
+    const asTest = "tests/unit/example.test.ts";
+    const fixtures: { name: string; file: string; src: string }[] = [
+      {
+        name: "QuayShell local fit() (src/components/shell/QuayShell.tsx:218)",
+        file: asTest,
+        src: "const fit = () => store.getState().setViewport(window.innerWidth, window.innerHeight);\nfit();\n",
+      },
+      {
+        name: "PhoneHome comment (src/components/shell/PhoneHome.tsx:37)",
+        file: asTest,
+        src: "/**\n * Label fit (Studio T4 rulings, 07:46 + 08:04): wrap at spaces first, at most 2 lines; never break inside a word.\n */\n",
+      },
+      {
+        name: "lesson 17 prose (docs/v1/units/ci-lesson17.md:27)",
+        file: asTest,
+        src: "const note = \"Playwright `test.skip(condition)` viewport and project filters\";\n",
+      },
+      {
+        name: "e2e conventions prose (specs/tape-e2e-conventions.md:40)",
+        file: asTest,
+        src: "const note = \"marked `test.skip(project === 'phone', 'keyboard only')` with a reason\";\n",
+      },
+      {
+        name: "build-plan prose (export/build-plan/cards/03/T03-29.md:21)",
+        file: asTest,
+        src: "const note = \"The default pnpm test skips them with describe.skipIf(!process.env.TYCOON_LONG).\";\n",
+      },
+      {
+        name: "Nelson-Siegel table (export/build-plan/packs/04/T04-07.md:936)",
+        file: asTest,
+        src: "const row = \"Nelson-Siegel fit (§3.7.5)\";\n",
+      },
+      {
+        name: "desktop shell prose (specs/tape-desktop-shell.md:82)",
+        file: asTest,
+        src: "const row = \"halves refused if either window's min width doesn't fit (Broker min 480, Portfolio 520)\";\n",
+      },
+      {
+        name: "LLM prose (grok-bot-export/04-quant.md)",
+        file: asTest,
+        src: "const row = \"propose where LLMs fit (news, filings, CEO quotes, rumors\";\n",
+      },
+      {
+        name: "review fixture text (export/ledger-ref/pr3-review.md:12)",
+        file: asTest,
+        src: "const row = \"Add `it.todo('T03-15 negative reserves convert to standing facility at close')`;\";\n",
+      },
+      {
+        name: "ledger it.todo (packages/engine/ledger/test/conflict-accrual.test.ts:230)",
+        file: "packages/engine/ledger/test/conflict-accrual.test.ts",
+        src: "it.todo('T03-15 negative reserves convert to standing facility at close (A-6; no bank overdraws 1002 until T03-15 lands)');\n",
+      },
+      {
+        name: "regex literal",
+        file: asTest,
+        src: "const re = /xit(/;\nconst re2 = /fit (/;\nconst re3 = /describe.only(/;\n",
+      },
+      {
+        name: "skipIf helper identifier",
+        file: asTest,
+        src: "function skipIf(cond: boolean) { return cond; }\nskipIf(process.env.CI !== \"1\");\n",
+      },
+    ];
+    for (const fixture of fixtures) {
+      expect(auditSource(fixture.src, fixture.file), fixture.name).toEqual([]);
+    }
+  });
+
+  it("does not flag those matches in the non-test files where they live", () => {
+    const files = [
+      "src/components/shell/QuayShell.tsx",
+      "src/components/shell/PhoneHome.tsx",
+      "docs/v1/units/ci-lesson17.md",
+      "specs/tape-e2e-conventions.md",
+      "specs/tape-desktop-shell.md",
+      "export/build-plan/cards/03/T03-29.md",
+      "export/build-plan/packs/04/T04-07.md",
+      "export/ledger-ref/pr3-review.md",
+      "grok-bot-export/raw/03-ledger.json",
+    ];
+    for (const file of files) {
+      expect(auditSource(readFileSync(join(ROOT, file), "utf8"), file), file).toEqual([]);
+    }
+    for (const file of [
+      "packages/engine/ledger/test/conflict-accrual.test.ts",
+      "packages/engine/ledger/test/sysside.test.ts",
+    ]) {
+      expect(auditSource(readFileSync(join(ROOT, file), "utf8"), file), file).toEqual([]);
+    }
   });
 
   it("does not flag a conditional Playwright project filter", () => {
