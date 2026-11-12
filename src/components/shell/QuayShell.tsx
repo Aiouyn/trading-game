@@ -223,7 +223,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     // (Audit A-8, 17A T4-04): openApp never creates a window past the instance cap.
     const app = route[0];
     const deepLink = () => applyDeepLink(store, { app, screen: route[1] }, () => {
-      if (app && isAppId(app)) store.getState().open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
+      if (app && isAppId(app)) store.getState().open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true, reuse: true });
       // /settings/SET-xx opens that section (17B SET-01).
       if (app === "settings" && isSectionId(route[1])) settingsNav.open(route[1]);
     });
