@@ -86,16 +86,38 @@ export function telemetryGuestCookieHeader(id: string, secure: boolean): string 
   return parts.join("; ");
 }
 
+/** 1 = the rightmost X-Forwarded-For hop, the address our proxy appended. */
+const TRUSTED_PROXY_HOPS_DEFAULT = 1;
+
+/** Positive integer env, or `fallback` when the variable is missing or not usable. */
+function readPositiveInt(name: string, fallback: number, max: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return fallback;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n < 1 || n > max) return fallback;
+  return n;
+}
+
 /**
- * Client address our proxy appended. The left hops are whatever the caller sent
- * and are not the bucket key.
+ * Client address from X-Forwarded-For, counting `hops` in from the right.
+ * hops 1 is the rightmost value (appended by the proxy closest to us).
+ * A chain shorter than `hops` uses that rightmost value, not a left-hand spoof.
+ * Same rule as mutationLimit's forwardedClientFromRight, so the two can share one helper.
  */
+export function forwardedClientFromRight(header: string | null, hops = TRUSTED_PROXY_HOPS_DEFAULT): string | null {
+  if (!header) return null;
+  const parts = header.split(",").map((part) => part.trim()).filter((part) => part.length > 0 && part.length <= 64);
+  if (parts.length === 0) return null;
+  const n = Number.isInteger(hops) && hops >= 1 ? hops : TRUSTED_PROXY_HOPS_DEFAULT;
+  const index = parts.length - n;
+  return parts[index >= 0 ? index : parts.length - 1] ?? null;
+}
+
+/** Trusted client IP. QUAY_TRUSTED_PROXY_HOPS counts in from the right (default 1). */
 export function trustedClientIp(request: Request): string | null {
   if (process.env.QUAY_TRUST_PROXY !== "1") return null;
-  const fwd = request.headers.get("x-forwarded-for");
-  if (!fwd) return null;
-  const hops = fwd.split(",").map((hop) => hop.trim()).filter((hop) => hop.length > 0);
-  return hops.length > 0 ? hops[hops.length - 1]! : null;
+  const hops = readPositiveInt("QUAY_TRUSTED_PROXY_HOPS", TRUSTED_PROXY_HOPS_DEFAULT, 16);
+  return forwardedClientFromRight(request.headers.get("x-forwarded-for"), hops);
 }
 
 export function clientKey(request: Request, anonId?: string): string {

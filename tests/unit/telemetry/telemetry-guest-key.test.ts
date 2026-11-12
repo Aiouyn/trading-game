@@ -3,6 +3,7 @@ import { POST as postError } from "@/app/api/telemetry/error/route";
 import { POST as postFeedback } from "@/app/api/telemetry/feedback/route";
 import {
   clientKey,
+  forwardedClientFromRight,
   resetTelemetryLimits,
   setTelemetryGlobalLimits,
   setTelemetryLimits,
@@ -26,11 +27,13 @@ function error(headers: Record<string, string> = {}, message = "boom"): Request 
 describe("telemetry guest keys and trusted forwarding", () => {
   beforeEach(() => {
     delete process.env.QUAY_TRUST_PROXY;
+    delete process.env.QUAY_TRUSTED_PROXY_HOPS;
     resetTelemetryLimits();
   });
 
   afterEach(() => {
     delete process.env.QUAY_TRUST_PROXY;
+    delete process.env.QUAY_TRUSTED_PROXY_HOPS;
     resetTelemetryLimits();
   });
 
@@ -91,5 +94,28 @@ describe("telemetry guest keys and trusted forwarding", () => {
     expect((await postError(error({ "x-forwarded-for": `1.1.1.1, ${right}` }, "first"))).status).toBe(200);
     expect((await postError(error({ "x-forwarded-for": `9.9.9.9, ${right}` }, "same hop"))).status).toBe(429);
     expect((await postError(error({ "x-forwarded-for": `1.1.1.1, ${other}` }, "other hop"))).status).toBe(200);
+  });
+
+  it("skips QUAY_TRUSTED_PROXY_HOPS from the right and will not use a left spoof on a short chain", async () => {
+    process.env.QUAY_TRUST_PROXY = "1";
+    process.env.QUAY_TRUSTED_PROXY_HOPS = "2";
+    const client = "198.51.100.20";
+    const proxy = "203.0.113.1";
+    expect(clientKey(error({ "x-forwarded-for": `203.0.113.9, ${client}, ${proxy}` }))).toBe(`ip:${client}`);
+    expect(clientKey(error({ "x-forwarded-for": `198.51.100.99, ${client}, 203.0.113.8` }))).toBe(`ip:${client}`);
+
+    setTelemetryLimits({ error: { n: 1, windowMs: 60_000 } });
+    setTelemetryGlobalLimits({ error: { n: 50, windowMs: 60_000 } });
+    expect((await postError(error({ "x-forwarded-for": `203.0.113.9, ${client}, ${proxy}` }, "first"))).status).toBe(200);
+    expect((await postError(error({ "x-forwarded-for": `198.51.100.99, ${client}, 203.0.113.8` }, "same client"))).status).toBe(429);
+    expect((await postError(error({ "x-forwarded-for": `203.0.113.9, 198.51.100.21, ${proxy}` }, "other client"))).status).toBe(200);
+
+    process.env.QUAY_TRUSTED_PROXY_HOPS = "4";
+    expect(clientKey(error({ "x-forwarded-for": `203.0.113.9, ${client}` }))).toBe(`ip:${client}`);
+    process.env.QUAY_TRUSTED_PROXY_HOPS = "nope";
+    expect(clientKey(error({ "x-forwarded-for": `203.0.113.9, ${client}` }))).toBe(`ip:${client}`);
+    const huge = "h".repeat(65);
+    expect(forwardedClientFromRight(`${huge}, ${client}`, 1)).toBe(client);
+    expect(forwardedClientFromRight(`${huge}, ${client}`, 2)).toBe(client);
   });
 });
