@@ -28,7 +28,9 @@ describe("signed-in top-bar clock before the first adopted tick", () => {
   let root: Root;
   let snap: MarketSnapshot;
   let marketMode: "ok" | "hold" | "500" | "net";
+  let authMode: "ok" | "hold";
   let held: Array<() => void>;
+  let heldAuth: Array<() => void>;
 
   beforeEach(() => {
     el = document.createElement("div");
@@ -37,7 +39,9 @@ describe("signed-in top-bar clock before the first adopted tick", () => {
     authSession._resetForTests();
     snap = structuredClone(new LiveMarket().snapshot());
     marketMode = "ok";
+    authMode = "ok";
     held = [];
+    heldAuth = [];
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(async (input: string) => {
       if (input === "/api/market") {
@@ -54,6 +58,7 @@ describe("signed-in top-bar clock before the first adopted tick", () => {
         return Response.json(body);
       }
       if (input === "/api/auth/me") {
+        if (authMode === "hold") await new Promise<void>((r) => heldAuth.push(r));
         return Response.json({
           account: { accountId: "acc_clk", handle: "clk_player", createdAtMs: 1, worldId: "world_port_avalon" },
           session: { sessionId: "ses_clk", expiresAtMs: 9e15 },
@@ -65,6 +70,7 @@ describe("signed-in top-bar clock before the first adopted tick", () => {
   });
   afterEach(async () => {
     held.forEach((r) => r());
+    heldAuth.forEach((r) => r());
     await act(async () => root.unmount());
     el.remove();
     setFeed(null);
@@ -95,6 +101,17 @@ describe("signed-in top-bar clock before the first adopted tick", () => {
     expect(node!.getAttribute("data-tick")).not.toBe("27700");
     expect(phase()).not.toContain("Market open");
   };
+
+  it("while the session is still unknown, the clock is a muted dash, not Day 39 · 11:20", async () => {
+    marketMode = "hold";
+    authMode = "hold";
+    await mount(signedInStore());
+    noInventedTime();
+    expect(clock()!.textContent).toMatch(/Time loading/);
+    expect(clock()!.getAttribute("data-clock-state")).toBe("loading");
+    expect(clock()!.textContent).toContain("—");
+    expect(el.querySelector("[data-testid=tickring]")).toBeNull();
+  });
 
   it("a guest strip still shows the demo clock at the boot tick", async () => {
     expect(bootLabel()).toBe(BOOT_TEXT);
