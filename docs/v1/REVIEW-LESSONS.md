@@ -44,7 +44,7 @@ enforced by: tools/ci/skipped-checks.mjs (ci.yml); tests/unit/ci/skipped-checks.
 18. **evidence must be for the exact head under review.** mistake: a handoff that quotes only a SHA can look green on head X while the logs were from a dirty tree or an earlier commit (pr-100). catch it: record the SHA and a content fingerprint, and re-run if the head moved. proof: checks.log / PROVENANCE name the same SHA as `git rev-parse HEAD` and `ls-remote`.
 enforced by: tests/unit/ci/preflight.test.ts (HEAD + dirty-tree fingerprint; a mid-run edit is stale).
 19. **tests must watch the unknown-session and first-paint path, not only the settled state.** mistake: clock-first-load e2e waited for `data-clock-state=loading`, which is the post-auth state, and missed the invented boot-clock flash (af5d724e). catch it: hold `/api/auth/me` and `/api/market` and assert the first paint. proof: the test fails on that flash and passes when the unknown-session branch is honest.
-enforced by: none yet.
+enforced by: tests/e2e/shell/clock-first-load.spec.ts; tests/unit/shell/clock-first-load.test.tsx.
 20. **a GET must not write under the kill switch.** mistake: `GET /api/auth/me` still persisted `lastSeenAtMs` under `QUAY_KILL_SWITCH=1` (f8a4e4bd). catch it: grep read routes for persist while read-only. proof: under the kill switch, GET `/api/auth/me` and GET `/api/wire` leave store bytes and mtime unchanged.
 enforced by: none yet.
 21. **env flags are unset or exactly `1`.** mistake: padded `" 1"` was accepted after trim while the docs said padding is a boot failure (f8a4e4bd). catch it: try `" 1"`, `"1 "`, `"true"`, `"0"`, and a trailing newline. proof: those refuse to boot; only exact `1` or unset is accepted.
