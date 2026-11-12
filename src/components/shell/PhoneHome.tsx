@@ -267,7 +267,7 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label">{signedIn ? S.demoBalance : S.netWorth}</span>
+            <span className="label">{S.netWorth}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
@@ -287,9 +287,6 @@ export function PhoneHome() {
             )}
             {!signedIn && <Sparkline />}
           </div>
-          {signedIn ? (
-            <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
-          ) : null}
           {next && (
             <>
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
