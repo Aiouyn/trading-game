@@ -87,6 +87,9 @@ export const S = {
   nwLoading: "Net worth loading…",
   nwUnavailable: "Net worth unavailable",
   nwUnknown: "—",
+  /** Signed-in clock before the first adopted /api/market tick, or after that read fails (card 18). */
+  clockLoading: "Time loading…",
+  clockUnavailable: "Time unavailable",
   demoTradingNote: "Your trades, cash and positions are saved on the server.",
   starterPlaceholder: "Starter account: $10,000 in game money.",
   /** M2-02 phone home (signed in): the goal, and the way to the first-trade guide (Portfolio). */

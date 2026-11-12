@@ -1,14 +1,14 @@
 "use client";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
-import { clockLabel } from "@/shell/mockChannels";
 import { isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { RANK_NAMES, RANKS } from "@/shell/registry";
-import { clockStrings, S } from "@/shell/strings";
+import { S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 import { nwStateLabel, useNwReading } from "./useNw";
+import { ClockText, useClockReading } from "./useClock";
 import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
@@ -17,7 +17,7 @@ const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms 
 
 export function StatusStrip() {
   const store = useShellStore();
-  const clock = useShell((s) => s.channels.clock);
+  const clock = useClockReading();
   const rank = useShell((s) => s.channels.rank.rank);
   const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
@@ -25,8 +25,6 @@ export function StatusStrip() {
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
   const focusMode = useShell((s) => s.local.focusMode);
-  const { day, hhmm } = clockLabel(clock);
-  const clockText = clockStrings(useShell((s) => s.prefs.locale)).strip(day, hhmm);
   const release = signedIn
     ? `${S.quay} · ${auth.account.handle}`
     : `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
@@ -47,8 +45,8 @@ export function StatusStrip() {
   if (focusMode) {
     return (
       <header className="strip strip-focus" data-testid="strip">
-        <span className="num clock" data-tick={clock.tick}>{clockText}</span>
-        <TickRing tick={clock.tick} />
+        <ClockText variant="strip" />
+        {clock.state === "live" && <TickRing tick={clock.tick} />}
         <HaltChip halted={sys.halted} />
         {nwChip}
       </header>
@@ -67,9 +65,13 @@ export function StatusStrip() {
         <kbd>{S.ctrlK}</kbd>
       </button>
       <div className="strip-mid">
-        <span className="num clock" data-testid="clock" data-tick={clock.tick}>{clockText}</span>
-        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} />
-        <TickRing tick={clock.tick} />
+        <ClockText variant="strip" />
+        {clock.state === "live" && (
+          <>
+            <MarketPhase phase={clock.clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} />
+            <TickRing tick={clock.tick} />
+          </>
+        )}
       </div>
       <div className="strip-right">
         <HaltChip halted={sys.halted} />
