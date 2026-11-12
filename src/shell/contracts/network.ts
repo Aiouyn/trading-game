@@ -25,3 +25,8 @@ export class IntentNotSentOffline extends Error {
 export class IntentOutcomeUnknown extends Error {
   constructor() { super("outcome unknown: network lost in flight"); this.name = "IntentOutcomeUnknown"; }
 }
+
+/** Kill switch: the server refused the mutation. Nothing was committed. */
+export class GamePaused extends Error {
+  constructor(message = "The game is paused.") { super(message); this.name = "GamePaused"; }
+}

@@ -50,7 +50,7 @@ export const PREVIEW_DEBOUNCE_MS = 300;
 type Phase =
   | { kind: "edit" }
   | { kind: "review" }
-  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: false | "error" | "offline" | "unknown" };
+  | { kind: "placed"; atTick: number; intentId: IntentId | null; failed: false | "error" | "offline" | "unknown" | "paused" };
 
 interface Draft { assetId: string; side: Side; type: DayOrderType; limitText: string; stopText: string; qtyText: string }
 const draftKey = (d: DayDraft): string => `${d.assetId}|${d.side}|${d.type}|${d.qty}|${d.stop ?? ""}|${d.limit ?? ""}`;
@@ -231,7 +231,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     setPhase({ kind: "placed", atTick, intentId: null, failed: false });
     void placeOrder(order).then((r) => {
       setPhase(r.ok ? { kind: "placed", atTick, intentId: r.value, failed: false }
-        : { kind: "placed", atTick, intentId: null, failed: r.error.kind === "offline" || r.error.kind === "unknown" ? r.error.kind : "error" });
+        : { kind: "placed", atTick, intentId: null, failed: r.error.kind === "offline" || r.error.kind === "unknown" || r.error.kind === "paused" ? r.error.kind : "error" });
     });
   };
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.

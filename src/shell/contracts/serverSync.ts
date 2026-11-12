@@ -7,7 +7,7 @@
 import type { Candle, CandleHistoryReq, CandleRes } from "./channels";
 import type { Lot, MockFeed } from "./mockFeed";
 import { CANDLE_REV_RE } from "./candleRev";
-import { IntentNotSentOffline, IntentOutcomeUnknown, knownOffline } from "./network";
+import { GamePaused, IntentNotSentOffline, IntentOutcomeUnknown, knownOffline } from "./network";
 import { saveMeSnapshot } from "@/pwa/meSnapshot";
 import { ASSETS, ASSET_BY_ID, WATCHLISTS } from "@/market/catalog";
 import { adoptListed } from "@/market/listings";
@@ -19,6 +19,19 @@ import type { CoinRow } from "./channels";
 export const ORDER_SEND_ATTEMPTS = 3;
 export const ORDER_RETRY_MS = 300;
 const quoteRead = () => fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
+
+/** Kill-switch body `{ error: { code: "READ_ONLY", message } }`. Null for any other refusal. */
+async function pausedMessage(res: Response): Promise<string | null> {
+  try {
+    const body: unknown = await res.json();
+    if (!body || typeof body !== "object" || !("error" in body)) return null;
+    const err = (body as { error?: { code?: unknown; message?: unknown } }).error;
+    if (!err || err.code !== "READ_ONLY") return null;
+    return typeof err.message === "string" && err.message !== "" ? err.message : "The game is paused.";
+  } catch {
+    return null;
+  }
+}
 
 /** One signed-in feed's server steps and the state only they use. */
 export class ServerSync {
@@ -254,7 +267,11 @@ export class ServerSync {
     if (knownOffline()) throw new IntentNotSentOffline();
     const r = await fetch("/api/broker/preview", { method: "POST", credentials: "same-origin", cache: "no-store",
       headers: { "content-type": "application/json" }, body: JSON.stringify({ draft }) });
-    if (!r.ok) throw new IntentNotSentOffline();
+    if (!r.ok) {
+      const paused = await pausedMessage(r);
+      if (paused) throw new GamePaused(paused);
+      throw new IntentNotSentOffline();
+    }
     return (await import("./schema")).previewRes(await r.json(), "preview");
   }
 
@@ -279,8 +296,12 @@ export class ServerSync {
         if (attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
         throw new IntentOutcomeUnknown();
       }
-      if (res.status >= 500 && attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
-      if (!res.ok) return "";
+      if (!res.ok) {
+        const paused = await pausedMessage(res);
+        if (paused) throw new GamePaused(paused);
+        if (res.status >= 500 && attempt < ORDER_SEND_ATTEMPTS) { await new Promise((r) => setTimeout(r, ORDER_RETRY_MS * attempt)); continue; }
+        return "";
+      }
       let reply;
       try { reply = parseBrokerIntentReply(await res.json()); } catch { reply = null; }
       if (!reply) return "";
