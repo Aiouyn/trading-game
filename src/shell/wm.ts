@@ -95,11 +95,16 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
     // UI card 10: a single-instance app opened on another context (Wire on a story id) focuses with that context, so
     // the app sees it; the window keeps its place and size. A reuse deep link does the same for multi-instance apps
     // (playtest d40: /broker?asset=HALC must not open a second Broker).
+    let next = existing;
     if (context !== undefined && existing.context !== context && (opts?.reuse || cap === 1)) {
-      const moved = { ...existing, context };
-      return { windows: [...windows.filter((x) => !sameWin(x, existing)), moved], focused: moved, opened: false };
+      next = { ...next, context };
     }
-    return { windows: bringToFront(windows, existing), focused: existing, opened: false };
+    // Card 15 batch 1: a deep-link reuse restores a minimized window; shelf/launcher focus does not.
+    if (opts?.reuse && next.collapsed) next = { ...next, collapsed: false };
+    if (next === existing) {
+      return { windows: bringToFront(windows, existing), focused: existing, opened: false };
+    }
+    return { windows: [...windows.filter((x) => !sameWin(x, existing)), next], focused: next, opened: false };
   }
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
   const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, 560), a.w);
