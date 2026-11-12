@@ -14,7 +14,9 @@ async function openBroker(page: Page, asset: string) {
 
 test("desktop: Close HALC at the 4-Broker cap tells the player and leaves nothing held", async ({ page }, info) => {
   desktopOnly(info.project.name);
-  for (const asset of ["NRON", "VOLT", "AVB", "GX"]) await openBroker(page, asset);
+  // Card 15: repeated /broker?asset= links reuse one Broker, so open the other three from the shelf (no asset, picker shown).
+  await openBroker(page, "NRON");
+  for (let i = 0; i < 3; i++) await page.getByTestId("tile-broker").click();
   await expect(page.getByTestId("win-broker")).toHaveCount(4);
 
   await page.getByTestId("tile-portfolio").click();
@@ -27,8 +29,7 @@ test("desktop: Close HALC at the 4-Broker cap tells the player and leaves nothin
 
   // Deep-link at the cap focuses an existing Broker and does not open HALC (17a-T4).
   // Free one slot, then open HALC: it must not be a leftover Sell.
-  const gx = page.getByTestId("win-broker").filter({ has: page.getByTestId("br-ticker").filter({ hasText: "GX" }) });
-  await gx.getByTestId("win-close").click();
+  await page.getByTestId("win-broker").last().getByTestId("win-close").click();
   await expect(page.getByTestId("win-broker")).toHaveCount(3);
   await boot(page, "/broker?asset=HALC");
   const halc = ticketOf(page, "HALC");
