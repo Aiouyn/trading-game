@@ -4,7 +4,7 @@
 .fill-ack-region:empty { display: none; }
 .fill-ack-desktop { position: fixed; z-index: var(--z-toast); width: 332px; }
 .fill-ack-phone { flex: none; padding: var(--sp-8) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); }
-.fill-ack { pointer-events: auto; display: flex; align-items: flex-start; gap: var(--sp-8); padding: 10px 6px 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--win2); color: var(--fg); box-shadow: 0 6px 20px rgb(0 0 0 / 0.28); }
+.fill-ack { pointer-events: auto; display: flex; align-items: flex-start; gap: var(--sp-8); padding: 10px 6px 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--win2); color: var(--fg); box-shadow: var(--elev-window); }
 .fill-ack-text { flex: 1; min-width: 0; }
 .fill-ack-title { margin: 0; font-weight: 600; }
 .fill-ack-line { margin: 2px 0 0; color: var(--fg-muted); font-size: var(--fs-12, 12px); }
