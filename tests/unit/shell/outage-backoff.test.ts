@@ -299,7 +299,7 @@ describe("reconnect does not publish the pre-outage book", () => {
 
 describe("a slow quote read after online still becomes live", () => {
   const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
-  type NetListener = () => void;
+  type NetListener = (ev?: object) => void;
   const listeners: Record<"online" | "offline", Set<NetListener>> = { online: new Set(), offline: new Set() };
   const latency = SERVER_QUOTE_POLL_MS + 500;
 
@@ -366,8 +366,8 @@ describe("a slow quote read after online still becomes live", () => {
   });
 
   it("two ticker subscribers make one market read and go live within that read", async () => {
-    // Gatekeeper P15: BrokerFrame and the shell clock both subscribe ticker:wl_default, so one
-    // online event calls reconnect twice. The second marks the first fresh read superseded.
+    // Two openChannel stores, not the shipped page: BrokerFrame and the shell clock share one
+    // store via acquireEntry, so /broker already makes one call. A second store has its own listener.
     const market = new LiveMarket();
     let onLine = true;
     let delay = 0;
@@ -397,7 +397,53 @@ describe("a slow quote read after online still becomes live", () => {
     expect(shell.get().state).toBe("stale");
     expect(broker.get().state).toBe("stale");
     onLine = true;
-    for (const fn of listeners.online) fn();
+    const online = new Event("online");
+    for (const fn of listeners.online) fn(online);
+    await flush();
+    await vi.advanceTimersByTimeAsync(latency);
+    await flush();
+    expect(reads).toBe(1);
+    expect(shell.get()).toMatchObject({ state: "live", tick: server });
+    expect(broker.get()).toMatchObject({ state: "live", tick: server });
+    shell.close();
+    broker.close();
+  });
+
+  it("two ticker listeners with a microtask between them still make one market read", async () => {
+    // A browser can flush microtasks between online listeners. A same-turn flag cleared by
+    // queueMicrotask would let the second listener start another read.
+    const market = new LiveMarket();
+    let onLine = true;
+    let delay = 0;
+    let reads = 0;
+    vi.stubGlobal("navigator", { get onLine() { return onLine; } });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.endsWith("/api/market")) return Promise.resolve(new Response("no", { status: 404 }));
+      const reply = () => Response.json(market.snapshot());
+      if (delay === 0) return Promise.resolve(reply());
+      reads += 1;
+      return new Promise<Response>((resolve) => { setTimeout(() => resolve(reply()), delay); });
+    }));
+    const feed = new MockFeed({ empty: true, nw: "10000.00", seed: 1 }, { authoritativeQuotes: true, random: () => 0.5 });
+    const shell = openChannel(feed, "ticker:wl_default");
+    const broker = openChannel(feed, "ticker:wl_default");
+    await feed.serverSync();
+    await flush();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(shell.get().state).toBe("live");
+    const server = market.snapshot().tick;
+    delay = latency;
+    reads = 0;
+    onLine = false;
+    for (const fn of listeners.offline) fn();
+    onLine = true;
+    const online = new Event("online");
+    const hear = [...listeners.online];
+    expect(hear.length).toBe(2);
+    await hear[0]!(online);
+    await flush();
+    await hear[1]!(online);
     await flush();
     await vi.advanceTimersByTimeAsync(latency);
     await flush();
