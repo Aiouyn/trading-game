@@ -33,4 +33,4 @@ Existing branches checked: eng/first-trade-goal adds the goal/guide, eng/portfol
 
 ## Result
 
-Verified 2026-11-11T17:59:22+01:00 Europe/Paris (UTC+1). All listed checks pass. See `UI-EVIDENCE.md` for commands, counts, screenshots, and the corrected initial browser test fixtures. Implementation is committed locally. Push authorization remains pending with the coordinator. No Gatekeeper handoff occurred.
+Verified 2026-11-11T17:59:22+01:00 Europe/Paris (UTC+1). All listed checks pass. Commands, counts and screenshots are in the PR body and under /workspace/avalon/evidence; they are not shipped in the repo.
