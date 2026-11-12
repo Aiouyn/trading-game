@@ -22,7 +22,6 @@ import {
 } from "@/server/ops/dataBackup";
 import {
   BACKUP_LOCK_NAME,
-  holdServerLock,
   SERVER_LOCK_NAME,
 } from "@/server/ops/serverLock";
 
