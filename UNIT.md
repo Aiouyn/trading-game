@@ -1,32 +1,34 @@
-# Card 25: signed-in phone Home shows today's change and progress to $20,000
+# Card 31 — Unbuilt apps are not offered in Home, shelf, or launcher
 
-Written 12 Nov 2026, 06:31 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
+**When:** 12 Nov 2026, 07:34 Europe/Paris (CET)
+**Branch:** `ui/hide-unbuilt-chrome`
+**Base:** `origin/main` `a62983dda0e0ffea436a98648d0cf474fb38a13e` (PR116, card 25)
+**Identity:** Forge (trading-game bot) <forge@trading-game.local>
+**Tier:** low (shell chrome). Not opening a PR. No push this pass.
 
-## Value and scope
+## Player outcome
 
-A signed-in player on phone Home sees their saved net worth, but the today slot is replaced by “Your trades, cash and positions are saved on the server.” (`S.demoTradingNote`), and `next = signedIn ? null` hides the rank progress bar. The guest Home already shows today's change, a sparkline, and “Next: {rank} · {nw} / {target}”. V1 M2-02 is “grow $10k” with a visible NW target; 17 §3.2.3 says the phone Home widget is NET WORTH, today's change, sparkline, and the rank progress bar (“Next: Mogul · $412.9k / $5M”). For a new signed-in account that target is Hustler at $20,000 (RANK_THRESHOLDS[0], starter rank R0).
+A new player looking at phone Home, the desktop shelf, or the launcher only sees apps that actually open. Markets, City, Boards, and the rest of the unbuilt catalog no longer sit in the first session as “Coming later” traps.
 
-Player outcome: after signing in, phone Home shows today's change (and percent) from the live `me` channel, and the next-rank bar toward $20,000, using the same presentation as the guest widget. The saved-account note can stay as muted context under the hero; it must not occupy the today slot.
+## Grounding
 
-Front-end only. Do not change `/api/auth/me`, rank thresholds, or `me.todayChg` / `me.todayPct` sources. Do not invent a sparkline series: the existing Sparkline stub is a flat dashed no-data line (`17-UX` :441); it may be shown honestly, never with made-up points.
+- `docs/v1/V1-BOARD.md` M0-05 / M1-11: out-of-scope systems stay in the tree, default off; flags off means that UI is unreachable from ordinary chrome.
+- `17-UX` SH-03: the phone grid opens apps. Offering unbuilt tiles as if they were playable is not a first-10-minutes clarity.
+- Built is already derived from `APP_MODULES` (`isBuiltApp`). On this tip that is settings, broker, portfolio, and wire only.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, unbuilt tiles must not flash in and then disappear. The filter is by built-ness, not session, so the unknown-session path is the same.
+- Deep links such as `/markets` or Settings › About integrity may still render `ComingLater`. This card stops *offering* those apps in the grid, shelf, and launcher. It does not invent a Boards or Markets body.
 
-## Exact base, branch, and identity
+## Scope
 
-- Branch `ui/signed-in-home-today`, worktree `/workspace/avalon/ui-signed-in-home-today`.
-- Base `origin/main` `98939480a24654f729a260de4c3ad0b9f5693f9a` (fetched this turn). The brief named `d2875ef3`; main has since taken PR111 (card 19) and PR113. Phone Home's signed-in widget already lives on this tip. PR105 (`f62bc63b`) adds a later first-trade guide on the same file and is not needed for this behaviour.
-- Verify Forge (trading-game bot) `<forge@trading-game.local>` as author and committer. Unset every `GIT_*` variable for npm-test and Git. No push.
+- Phone app grid: list only built apps (empty groups stay omitted).
+- Desktop shelf: same.
+- Launcher app search (and Recents shown there): only built apps.
+- Do not change `evaluate()` visibility, keyboard-only deep behaviour, or the ComingLater placeholder. Do not touch orders, money, or submit code.
+- The phone dock’s Messages slot is card 30; this card still hides Messages from the *grid* / shelf / launcher even if the dock on this base still has it.
 
-## Grounding and sketch
+## Acceptance / proof
 
-`isSignedIn` is true only for `auth.status === "signed_in"`. The today row and `next` are branched on that flag, so a signed-in player loses the live change and the $20k bar. `applySignedInDemo` already seeds starter rank R0 and `todayChg` / `todayPct` (then the server `me` channel updates them).
-
-1. Chosen: when `signed_in`, render today's change the same way as the guest row (`MoneyText` + `PctText` from `me.todayChg` / `me.todayPct`), and compute `next` with `nextRankTarget(rank)` for signed-in too. Keep the starter / saved-account copy out of the today slot.
-2. Rejected: inventing sparkline points. Rejected: pulling card 23's unknown-session skeleton into this card — different behaviour, already queued. This card only adds signed-in rows inside the `signed_in` branch, so they do not appear while `auth.status === "loading"`.
-3. Auth-loading check (REVIEW-LESSONS 19): hold `/api/auth/me` and assert first paint has no account handle, no signed-in today-from-starter, and no “Next: Hustler” bar. Guest today/rank may still flash until card 23; that is out of scope here and must not regress further.
-
-## Acceptance and proof plan
-
-- Fail-first unit: a signed-in PhoneHome (starter channels, known `todayChg` / `todayPct`, rank R0) shows those exact today figures in `data-testid=today`, and `rank-next` names Hustler with the live NW and $20,000. The today slot is not only `demoTradingNote`. The same test fails on this base.
-- Guest end state unchanged: canned today change and “Next: Owner / Mogul” still match existing `phone.spec` cases.
-- Loading: hold `/api/auth/me`; first paint has no `account-chip-home` and no Hustler rank-next from a signed-in session.
-- Play-through: production build, desktop 1280 and phone 390, signed-in Home screenshots. Official checks with `GIT_*` unset. Affected e2e in a clean scratch worktree with fresh `.data`. Evidence under `/workspace/avalon/evidence/signed-in-home-today/`. No push.
+- Fail-first unit: phone grid still has `icon-markets`; shelf still has `tile-markets`; `search("markets", vis, [])` still returns the Markets app. After the fix, none of those offer Markets (or other unbuilt ids). Built apps (Broker, Portfolio, Wire, Settings) remain offered. Empty groups are not rendered.
+- Auth / first paint: hold `/api/auth/me` — no `icon-markets` / `tile-markets` on first paint.
+- Official-flag e2e on fresh `.data` plus production play at 1280 and 390, screenshots under `/workspace/avalon/evidence/hide-unbuilt-chrome/` (play scripts live there, not in the worktree).
+- Full checks on the exact final head. No push.
