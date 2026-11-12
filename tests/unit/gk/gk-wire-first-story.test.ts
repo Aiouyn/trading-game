@@ -134,10 +134,11 @@ describe("LiveMarket seeds history at t0 without moving marks", () => {
     expect(again.wire().items.filter((i) => i.id.startsWith("w-h-")).map((i) => i.id)).toEqual(ids);
     expect(again.snapshot().quotes).toEqual(quotes);
     expect(parseWireSnapshot(again.wire())).not.toBeNull();
-    // mid-run resume does not inject a second copy at a later tick
+    // mid-run resume does not inject a second copy at a later tick; b3: it restores the saved history rows, once each
     first.step();
     const mid = new LiveMarket({ seed: SEED, stormWorld: store, rumorSecret: "gk-wire-first-story-secret" });
     expect(mid.snapshot().tick).toBeGreaterThan(START_TICK);
-    expect(mid.wire().items.filter((i) => i.id.startsWith("w-h-"))).toEqual([]);
+    expect(mid.wire().items.filter((i) => i.id.startsWith("w-h-")).map((i) => i.id)).toEqual(ids);
+    expect(mid.wire().items.filter((i) => i.id.startsWith("w-h-"))).toEqual(first.wire().items.filter((i) => i.id.startsWith("w-h-")));
   });
 });
