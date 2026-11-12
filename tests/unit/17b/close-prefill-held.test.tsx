@@ -104,8 +104,13 @@ describe("card 34 Close prefill holding", () => {
     function Harness() {
       const [, bump] = useState(0);
       (Harness as unknown as { bump: () => void }).bump = () => bump((n) => n + 1);
-      return createElement(ShellCtx.Provider, { value: store },
-        createElement(AuthAccountBoundary, { query: "", children: createElement("div", { "data-testid": "child" }) }));
+      return (
+        <ShellCtx.Provider value={store}>
+          <AuthAccountBoundary query="">
+            <div data-testid="child" />
+          </AuthAccountBoundary>
+        </ShellCtx.Provider>
+      );
     }
 
     await act(async () => { root.render(createElement(Harness)); });
