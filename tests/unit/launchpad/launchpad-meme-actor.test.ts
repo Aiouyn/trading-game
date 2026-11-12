@@ -54,7 +54,7 @@ async function session() {
 
 function walk(root: string, files: string[] = []): string[] {
   for (const name of readdirSync(root)) {
-    if (name === "node_modules" || name === ".next" || name === "failureFarm" || name === "actor-binding") continue;
+    if (name === "node_modules" || name === ".next" || name === "failureFarm" || name === "actor-binding" || name === "fx") continue;
     const path = join(root, name);
     const st = statSync(path);
     if (st.isDirectory()) walk(path, files);

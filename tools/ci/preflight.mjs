@@ -155,9 +155,9 @@ export function e2eReport(browser, results) {
 }
 
 /**
- * @param {{ phases: import('./phases.mjs').Phase[], runPhase?: Function, cwd?: string, onPhase?: Function, logDir?: string }} opts
+ * @param {{ phases: import('./phases.mjs').Phase[], runPhase?: Function, cwd?: string, onPhase?: Function, logDir?: string, freshDataBeforeE2e?: boolean }} opts
  */
-export function runPhases({ phases, runPhase, cwd = ROOT, onPhase, logDir }) {
+export function runPhases({ phases, runPhase, cwd = ROOT, onPhase, logDir, freshDataBeforeE2e = false }) {
   const results = [];
   const exec =
     runPhase ??
@@ -191,6 +191,30 @@ export function runPhases({ phases, runPhase, cwd = ROOT, onPhase, logDir }) {
 
   for (let i = 0; i < phases.length; i++) {
     const phase = phases[i];
+    if (freshDataBeforeE2e && phase.id === "e2e") {
+      // M2-01 (and the rest of e2e) expects a fresh checkout store. Unit tests must not
+      // leave one, and this still clears a store left by an earlier local server.
+      console.log("rm -rf .data");
+      const cleared = spawnSync("rm", ["-rf", ".data"], { cwd, stdio: "inherit", shell: false });
+      if ((cleared.status ?? 1) !== 0) {
+        onPhase?.(phase);
+        results.push({
+          id: phase.id,
+          command: phaseShellLine(phase),
+          cwd: phase.cwd ?? ".",
+          env: phase.env ?? null,
+          exit: cleared.status ?? 1,
+          signal: cleared.signal ?? null,
+          error: cleared.error ? String(cleared.error.message || cleared.error) : "rm -rf .data failed",
+          ok: false,
+          stdoutLog: null,
+          stderrLog: null,
+          status: "failed",
+        });
+        for (const rest of phases.slice(i + 1)) results.push(plannedRow(rest));
+        return { ok: false, results, failedAt: phase.id };
+      }
+    }
     onPhase?.(phase);
     const out = exec(phase);
     const entry = {
@@ -266,6 +290,7 @@ Notes:
   - Phase logs are written to evidence files (not live-streamed to the console).
   - Never claims remote CI / Gatekeeper certification (certified is always false).
   - Core-only success is incomplete vs full CI (e2e omitted). Remote CI still required.
+  - With --browser, \`rm -rf .data\` runs in the checkout immediately before the e2e phase.
 `;
 }
 
@@ -397,6 +422,7 @@ export function main(argv = process.argv.slice(2), deps = {}) {
     cwd: root,
     runPhase: deps.runPhase,
     logDir,
+    freshDataBeforeE2e: args.browser,
     onPhase: (p) => console.log(`== ${p.id}: ${phaseShellLine(p)}`),
   });
 
