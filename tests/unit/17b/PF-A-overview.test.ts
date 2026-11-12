@@ -99,12 +99,12 @@ describe("PF-2-06 new player", () => {
   it("empty positions shows the EmptyState copy with no button", () => {
     expect(Object.keys(ME_EMPTY.positions)).toHaveLength(0);
     const h = html({ view: live(ME_EMPTY) });
-    expect(text(block(h, "pf-empty")!)).toBe("Your money is all cash. Broker or Businesses are good first stops.");
+    expect(text(block(h, "pf-empty")!)).toBe("Your money is all cash. Broker is a good first stop.");
     expect(block(h, "pf-summary")).not.toContain("<button");
   });
-  it("FR copy opens with the Positions empty body, then the two first stops (Studio emptyCash text, UI card 4 brief)", () => {
+  it("FR copy opens with the Positions empty body, then Broker as the only first stop (V1: Businesses is unbuilt)", () => {
     const h = html({ locale: "fr", view: live(ME_EMPTY) });
-    expect(text(block(h, "pf-empty")!)).toBe("Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.");
+    expect(text(block(h, "pf-empty")!)).toBe("Tout votre argent est en liquidités. Le Courtier est un bon point de départ.");
     expect(pfStrings("fr").emptyCash.startsWith(posStrings("fr").emptyBody)).toBe(true);
   });
   it("with positions there is no EmptyState", () => {

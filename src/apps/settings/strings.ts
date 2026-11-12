@@ -65,6 +65,9 @@ const EN = {
   accountPassword: "Password",
   accountWorld: (worldId: string) => `World: ${worldId}`,
   accountStarterLabel: "Saved balance",
+  accountStart: "Start with $10,000 of game money and a $20,000 (Hustler) goal.",
+  accountOpenPortfolio: "Open Portfolio",
+  accountSaveDetails: "Save and demo details",
   accountDisclaimer: "Signed in, your cash, positions with their cost, and working limit orders are saved on the server; Broker market and limit orders are priced and filled by the server at its shared quotes. Signed out, the Broker is a demo and its trades are not saved. Shared quotes follow this process's server clock: refresh does not reset them, and a server restart does.",
 };
 
@@ -126,6 +129,9 @@ const FR: Strings = {
   accountPassword: "Mot de passe",
   accountWorld: (worldId: string) => `Monde : ${worldId}`,
   accountStarterLabel: "Solde enregistré",
+  accountStart: "Commencez avec 10 000 $ d’argent fictif et un objectif de 20 000 $ (Hustler).",
+  accountOpenPortfolio: "Ouvrir Portefeuille",
+  accountSaveDetails: "Détails sur la sauvegarde et la démo",
   accountDisclaimer: "Connecté, vos liquidités, vos positions avec leur coût et vos ordres à cours limité en cours sont enregistrés sur le serveur ; les ordres Broker au marché et à cours limité sont exécutés par le serveur à ses cours partagés. Déconnecté, le Broker est une démo et ses échanges ne sont pas enregistrés. Les cours partagés suivent l’horloge serveur de ce processus : un rechargement ne les remet pas à zéro, un redémarrage du serveur oui.",
 };
 
