@@ -247,20 +247,39 @@ describe("M3-05 data store backup and restore", () => {
       });
       child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`holder exited ${code}`)); });
     });
-    const stopHolder = () => {
-      if (child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } }
-      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    const stopHolder = async () => {
+      let lockedPid = 0;
+      try {
+        const raw = JSON.parse(await readFile(path.join(dataDir, SERVER_LOCK_NAME), "utf8")) as { pid?: number };
+        if (typeof raw.pid === "number") lockedPid = raw.pid;
+      } catch { /* lock already gone */ }
+      for (const pid of [lockedPid, child.pid ?? 0]) {
+        if (pid <= 0) continue;
+        try { process.kill(-pid, "SIGKILL"); } catch { /* not a group */ }
+        try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+      }
+      await new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) resolve(null);
+        else child.once("exit", () => resolve(null));
+      });
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        try {
+          const raw = JSON.parse(await readFile(path.join(dataDir, SERVER_LOCK_NAME), "utf8")) as { pid?: number };
+          if (typeof raw.pid !== "number") return;
+          try { process.kill(raw.pid, 0); } catch { return; }
+        } catch {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
     };
     try {
       await started;
       await expect(restoreDataStore({ roots, backupDir })).rejects.toThrow(/still running/);
       expect(await readFile(file, "utf8")).toBe("{\"v\":3}\n");
     } finally {
-      stopHolder();
-      await new Promise((resolve) => {
-        if (child.exitCode !== null || child.signalCode !== null) resolve(null);
-        else child.once("exit", () => resolve(null));
-      });
+      await stopHolder();
     }
     await restoreDataStore({ roots, backupDir });
     expect(await readFile(file, "utf8")).toBe("{\"v\":1}\n");
