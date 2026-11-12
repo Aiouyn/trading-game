@@ -16,7 +16,7 @@ A signed-in player who reads the Wire, then sees the server restart (crash, SIGK
 
 ## Approved plan (Gatekeeper)
 
-1. Persist the retained Wire rows (≤ STORY_KEEP plus held rumors) as a versioned, strictly parsed `wire` field (`{ v: 1, items }`) inside the storm-world snapshot. It is written in the same per-step atomic write (temp + rename), so rows and rumor claims commit together. On boot, restore the rows and merge `rebuildRumorStories()` by id (the saved row wins, missing rumor rows are added), then apply the STORY_KEEP window. Fresh worlds keep `seedBootHistory`. A snapshot without `wire` boots as today. A corrupt `wire` is refused. A newer `v` is refused. Nothing silently resets.
+1. Persist the retained Wire rows (≤ STORY_KEEP plus held rumors) as a versioned, strictly parsed `wire` field (`{ v: 1, items }`) inside the storm-world snapshot. It is written in the same per-step atomic write (temp + rename), so rows and rumor claims commit together. On boot, restore the rows and merge `rebuildRumorStories()` by id (the saved row wins; with a saved `wire`, only missing rumor rows that `retainStories` still holds are added, see b1 below), then apply the STORY_KEEP window. Fresh worlds keep `seedBootHistory`. A snapshot without `wire` boots as today. A corrupt `wire` is refused. A newer `v` is refused. Nothing silently resets.
 2. Tests first, red on main.
 3. Proofs: restart ≡ uninterrupted, prices and ledger unchanged, write cost, crash mid-write.
 
@@ -60,3 +60,13 @@ Filled 2026-11-12 19:52 Europe/Paris (commit `fbf554b0`). Product commit `6d76ae
   - `retainStories` takes `rest.slice(-room)` with room 0 when 60 or more rumors are held. That returns the whole array, so the window is unbounded from about day 3-4. Rows grow about 140 per game day on main and head (`/api/wire` is about 2 477 rows at day 20 on main too). With this unit the same rows are also written each step: about 1.1 MB per 5 s step at day 20. A naive fix would hide all catalog stories once 60 rumors are pending, so it needs its own unit.
   - Killed writes leave `storm-world.json.*.tmp` files in the store directory. They are never cleaned up.
 - port-avalon verify passed 16/16 on :3450. The tool has no port option, so it ran in a temp worktree at head with a local, uncommitted patch that starts the port search at 3450 and stops it at 3499.
+
+## Gatekeeper b321731f NO-GO b1: a restart brought back old rows
+
+Written 2026-11-12 Europe/Paris, before the fix. Base: head `b321731f` with origin/main `45440483` merged forward (`a1e2c3fb`, --no-ff; one doc conflict in REVIEW-LESSONS.md, main's #30 kept, ours renumbered to #31).
+
+- Gap: from game day ~4, a restart re-added up to 17 old rumor and denial rows that a never-restarted server had already dropped (6 catalog ids: w-27790, w-27886, w-28234, w-28318, w-28414, w-28606), and they stayed for good. Repro: gatekeeper `gk-diff.ts`, N=2880 (N=1440 and N=2160 clean).
+- Cause: `restoreStories` (clock.ts:121-125 on `b321731f`) merged every `rebuildRumorStories()` row the save lacked, even when the saved `wire` was present. `rebuildRumorStories()` applies `retainStories` to the rebuilt rows alone, so its own STORY_KEEP window kept old rumor rows the live list had already trimmed. Once 60+ rumors are held, the pre-existing `slice(-0)` trim (room 0) never removes them again.
+- Fix (minimal): when `wire` exists, add only rebuilt rumor rows that `retainStories` holds right now (claim pending, or resolved within the last 60 ticks) and that are not already in `wire`. The hold test moved into `storyHoldPredicate()`, shared with `retainStories` (no behaviour change there). A snapshot without `wire` keeps today's path (every rebuilt row). Out of scope, unchanged: the `slice(-0)` trim itself (the dropped rumor-trim unit) and the `.tmp` sweep (backlog).
+- Tests first: `tests/unit/wire/wire-restart-parity.test.ts`. A restart at START_TICK+3600 (fixed secret) and at the gk-diff point (seed 17, 2880 steps, gatekeeper's secret) lists exactly the ids and canonical-JSON values of a server that never restarted, and after +120 steps both list the same ids. Later values are not compared: a restart re-marks prices on main's path (`quotes equal after +120 false` on main's clock too), owned by `eng/market-restart-marks`.
+- f2: the prod e2e now compares canonical JSON rows (sorted keys). Rumor-linked rows skip the fields the resumed clock may restamp when a claim resolves (phase, cause, source record, effects).
