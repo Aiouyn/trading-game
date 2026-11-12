@@ -52,6 +52,7 @@ export function Composer({ t }: { t: WireStrings }) {
 
   const submit = async () => {
     if (!canSubmit) return;
+    const sent = text;
     setBusy(true);
     setError(null);
     try {
@@ -59,7 +60,7 @@ export function Composer({ t }: { t: WireStrings }) {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ idempotencyKey: key, text, assetTags: assets }),
+        body: JSON.stringify({ idempotencyKey: key, text: sent, assetTags: assets }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string }; remainingToday?: number };
       if (!res.ok) {
@@ -69,7 +70,8 @@ export function Composer({ t }: { t: WireStrings }) {
         return;
       }
       if (typeof body.remainingToday === "number") setRemaining(body.remainingToday);
-      setText("");
+      // Clear only what was posted: text typed while the post was in flight is the player's next draft, not sent yet.
+      setText((cur) => (cur === sent ? "" : cur));
       setKey(newKey());
       getFeed().resync("news");
       getFeed().resync("me");

@@ -19,6 +19,12 @@ export const minWindowTop = (focusMode = false) => (focusMode ? 24 : STRIP_H) + 
 
 /** AC-WM-SHELF-CLAMP §1: at least this much of the title bar stays inside the viewport horizontally. */
 export const TITLE_KEEP = 96;
+/** Default height of a newly opened desktop window. */
+export const DEFAULT_WINDOW_H = 560;
+/** Broker is taller so the plot and the Trend line control stay in view together. The 560 px
+ *  default left the tool under the fold once the overlay controls were added, and a click then
+ *  scrolled the plot (tests/e2e/17b/broker-trendline.spec.ts). */
+export const BROKER_WINDOW_H = 640;
 
 /**
  * Move a window; its top is clamped below the strip's hit band so the title bar never sits under it. With the work
@@ -107,7 +113,7 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
     return { windows: [...windows.filter((x) => !sameWin(x, existing)), next], focused: next, opened: false };
   }
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
-  const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, 560), a.w);
+  const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, app === "broker" ? BROKER_WINDOW_H : DEFAULT_WINDOW_H), a.w);
   const n = windows.length % 6;
   const rect: WindowRect = {
     app, instance, workspace: 1, collapsed: false, snap: null, context,

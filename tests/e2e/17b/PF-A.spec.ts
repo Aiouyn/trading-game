@@ -32,7 +32,7 @@ async function openPortfolio(page: Page, query = "") {
 // Text scale lives in the shell store for this document: open Portfolio in-app after changing it, not via a reload.
 async function openPortfolioInApp(page: Page, project: string) {
   if (project === "phone") {
-    await page.getByRole("button", { name: /^Back/i }).click();
+    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
     await page.getByTestId("icon-portfolio").click();
   } else {
     await page.getByTestId("tile-portfolio").click();
@@ -107,7 +107,7 @@ test("PF-2-05 summary: Cash · FDL via MoneyText; mock MDOL '1250.00' renders '1
 
 test("PF-2-06 new player (?empty=1): EmptyState copy, no button, no positions table", async ({ page }) => {
   await openPortfolio(page, "?empty=1");
-  await expect(pf(page).getByTestId("pf-empty")).toHaveText("Your money is all cash. Broker or Businesses are good first stops.");
+  await expect(pf(page).getByTestId("pf-empty")).toHaveText("Your money is all cash. Broker is a good first stop.");
   expect(await pf(page).getByTestId("pf-empty").evaluate((e) => getComputedStyle(e).color)).toBe(await color(page, "var(--fg-muted)"));
   await expect(pf(page).getByRole("button")).toHaveCount(0);
   await expect(pf(page).getByRole("table")).toHaveCount(1); // the cash summary only
@@ -278,7 +278,7 @@ test("PF-2-10 phone: Overview root, Positions push with 'Back to Portfolio', hit
   for (const scale of ["1", "2"]) {
     await boot(page, "/settings");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: /^Back/i }).click();
+    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
     await page.getByTestId("icon-portfolio").click();
     await expect(pf(page)).toHaveAttribute("data-state", "live");
     await expect(page.getByTestId("app-title")).toHaveText("Portfolio");

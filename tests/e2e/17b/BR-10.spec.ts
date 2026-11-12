@@ -355,8 +355,11 @@ for (const scale of ["1", "2"] as const) {
     phoneOnly(info.project.name);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await bootPaused(page, "/settings");
+    // Settings is a lazy chunk under Suspense; on a slow host it lands after bootPaused pauses the clock, and React 19's
+    // reveal timer then never fires (CI run 43161314039). Step the clock until the panel is up, as every other lazy panel here.
+    await revealOnPausedClock(page, page.getByTestId("settings"), "Settings visible on the paused clock");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: /^Back/i }).click();
+    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
     await page.getByTestId("icon-broker").click();
     await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
     await page.getByTestId("br-asset-select").selectOption("HALC");

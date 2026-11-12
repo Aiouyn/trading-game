@@ -126,6 +126,38 @@ describe("M2-01/02 goal + first-trade guide", () => {
     expect(ws.at(-1)!.app).toBe("portfolio");
   });
 
+  it("opening the guide still focuses #pf-goal-h after the Broker entry unmounts; leftover retries do not throw once document is gone", async () => {
+    vi.useFakeTimers();
+    const store = createShellStore(mockChannels(new URLSearchParams()));
+    store.getState().setViewport(1200, 768);
+    await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(GoalEntry, { accountId: "acc_a", locale: "en" }))); });
+    await act(async () => { q("br-goal-open")!.click(); });
+    // Mid-width Trade layout: opening Portfolio takes Broker (and this entry) off the screen.
+    await act(async () => root.unmount());
+    const win = document.createElement("div");
+    win.setAttribute("data-testid", "win-portfolio");
+    const h = document.createElement("h2");
+    h.id = "pf-goal-h";
+    h.tabIndex = -1;
+    win.append(h);
+    document.body.append(win);
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(document.activeElement).toBe(h);
+    win.remove();
+
+    root = createRoot(el);
+    await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(GoalEntry, { accountId: "acc_a", locale: "en" }))); });
+    await act(async () => { q("br-goal-open")!.click(); });
+    await act(async () => root.unmount());
+    const desc = Object.getOwnPropertyDescriptor(globalThis, "document");
+    try {
+      Reflect.deleteProperty(globalThis, "document");
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    } finally {
+      if (desc) Object.defineProperty(globalThis, "document", desc);
+    }
+  });
+
   it("an open order waits; a fill shows done with the Portfolio fill words; below start says prices can fall", async () => {
     await mountGuide(me({ orders: { o1: {} as never } }));
     expect(q("pf-guide-waiting")!.textContent).toBe("You have an open order. It counts once it fills.");

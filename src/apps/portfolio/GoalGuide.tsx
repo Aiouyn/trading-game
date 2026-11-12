@@ -4,7 +4,7 @@
 // `me.fills` / `me.positions` / `me.orders`. The guide never places, pre-fills or confirms an order: its buttons only
 // open Wire or Broker, and "done" comes from the server ledger alone (a fill or a position), never from a click.
 // Hiding the guide is saved on this device per account (localStorage), not on the server.
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/Button";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { useShellStore } from "@/components/shell/ShellContext";
@@ -98,31 +98,20 @@ export default function GoalGuide({ me, accountId, locale, phone }: { me: MeTrad
 export function GoalEntry({ accountId, locale }: { accountId: string; locale: string }) {
   const t = goalStrings(locale);
   const store = useShellStore();
-  const focusTimer = useRef<number | null>(null);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-      if (focusTimer.current != null) window.clearTimeout(focusTimer.current);
-      focusTimer.current = null;
-    };
-  }, []);
   const open = () => {
     writeHidden(accountId, false);
     show(store, "portfolio");
+    // Opening Portfolio unmounts this Broker entry, so the retry cannot live on a
+    // component timer. Guard only `typeof document` so jsdom teardown after npm test
+    // is safe, while #pf-goal-h still receives focus once the guide is on screen.
     let n = 0;
     const tryFocus = () => {
-      focusTimer.current = null;
-      // Don't touch `document` after unmount: happy-dom / jsdom may already be torn down
-      // ("document is not defined" after a passing npm test).
-      if (!alive.current || typeof document === "undefined") return;
+      if (typeof document === "undefined") return;
       const h = [...document.querySelectorAll<HTMLElement>('[data-testid="win-portfolio"] #pf-goal-h')].at(-1);
       if (h) h.focus();
-      else if (++n < 40) focusTimer.current = window.setTimeout(tryFocus, 100);
+      else if (++n < 40) window.setTimeout(tryFocus, 100);
     };
-    if (focusTimer.current != null) window.clearTimeout(focusTimer.current);
-    focusTimer.current = window.setTimeout(tryFocus, 0);
+    window.setTimeout(tryFocus, 0);
   };
   return (
     <div className="br-goal" data-testid="br-goal">

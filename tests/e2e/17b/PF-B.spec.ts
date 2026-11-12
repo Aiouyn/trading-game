@@ -133,7 +133,7 @@ test("PF-3-09 phone: pushed 'Positions', 3-line cards, no overflow, rows ≥ 44 
   for (const scale of ["1", "2"]) {
     await boot(page, "/settings");
     await setTextScale(page, scale);
-    await page.getByRole("button", { name: /^Back/i }).click();
+    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
     await page.getByTestId("icon-portfolio").click();
     await page.getByTestId("pf-open-positions").click();
     await expect(pos(page)).toHaveAttribute("data-state", "live");
@@ -160,7 +160,7 @@ test("PF-3-09b text scale 2: HALC and a short ticker (AVB) get the same 3-line g
   phoneOnly(info.project.name);
   await boot(page, "/settings");
   await setTextScale(page, "2");
-  await page.getByRole("button", { name: /^Back/i }).click();
+  await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
   await page.getByTestId("icon-portfolio").click();
   await page.getByTestId("pf-open-positions").click();
   await expect(pos(page)).toHaveAttribute("data-state", "live");

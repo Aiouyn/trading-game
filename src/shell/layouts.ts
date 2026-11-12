@@ -4,7 +4,7 @@
 // that cannot fit with every minimum honoured is not offered at that size.
 import type { AppId } from "./registry";
 import type { SnapSlot, WindowRect } from "./types";
-import { GUTTER, minSize, type Area } from "./wm";
+import { BROKER_WINDOW_H, GUTTER, minSize, type Area } from "./wm";
 
 export type LayoutId = "trade" | "review" | "research" | "operator" | "shadow" | "institution";
 interface Pane { app: AppId; context?: string }
@@ -69,7 +69,7 @@ export function applyLayout(id: LayoutId, a: Area, isUnlocked: (app: AppId) => b
   // A new account below 1264 px opens Broker alone instead of the Trade layout.
   if (!plan && id === "trade" && isUnlocked("broker")) {
     const s = minSize("broker", a.w);
-    return [{ app: "broker", instance: 1, x: a.x, y: a.y, w: Math.min(a.w, Math.max(s.w, Math.min(a.w, 840))), h: Math.min(a.h, Math.max(s.h, 560)), snap: null, workspace: 1, collapsed: false }];
+    return [{ app: "broker", instance: 1, x: a.x, y: a.y, w: Math.min(a.w, Math.max(s.w, Math.min(a.w, 840))), h: Math.min(a.h, Math.max(s.h, BROKER_WINDOW_H)), snap: null, workspace: 1, collapsed: false }];
   }
   if (!plan) return [];
   const count: Partial<Record<AppId, number>> = {};
