@@ -15,7 +15,8 @@ import { createShellStore, type ShellStore } from "@/shell/store";
 import type { Channels } from "@/shell/channels";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const boot = (nw: string): Channels => { const c = defaultChannels(); return { ...c, me: { ...c.me, nw } }; };
+// v1.ailab lifts the M1-11 shroud so these cases still exercise the $100k NW rule.
+const boot = (nw: string): Channels => { const c = defaultChannels(); return { ...c, me: { ...c.me, nw, flags: ["v1.ailab"] } }; };
 
 describe("store: unlock rules use liveNw (unlock.ts case nw via withLiveNw)", () => {
   it("AI Lab ($100k) unlocks on the live NW while channels.me.nw keeps the boot value", () => {
