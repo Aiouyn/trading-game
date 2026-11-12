@@ -13,6 +13,7 @@ import { parseMarketSnapshot, parseMinor } from "@/market/quoteSnapshot";
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
+import { retryDelayMs } from "./backoff";
 import { ORDER_HISTORY_POLICY, ORDER_POLICY, type OrderHistoryPolicy, type OrderPolicy } from "./orderPolicy";
 import type { OrderHistoryReq, OrderHistoryRes } from "./orderHistory";
 
@@ -166,7 +167,9 @@ export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: 
    * Signed-in Port Avalon (M1-05). start() polls GET /api/market instead of advance().
    * The server clock owns the seed-17 path; this feed only adopts that snapshot.
    */
-  authoritativeQuotes?: boolean }
+  authoritativeQuotes?: boolean;
+  /** Card 19: the backoff jitter's random source (tests pass a fixed one). */
+  random?: () => number }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
 type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string; held?: true /* ?cancelFill: its fill landed */ }
@@ -179,6 +182,17 @@ export class MockFeed {
   readonly authoritativeQuotes: boolean;
   /** Set only after a validated `/api/market` snapshot replaces the constructor book. */
   private quotesAdopted = false;
+  /** True once a validated `/api/market` snapshot was adopted. */
+  get hasAdoptedQuotes(): boolean { return this.quotesAdopted; }
+  /**
+   * Card 19: "reconnecting" once a signed-in /api/market read fails after quotes were adopted; "live" again on the next
+   * adopt. `onConnection` hears each change (applySignedInDemo mirrors it into channels.system.connection).
+   */
+  connection: "live" | "reconnecting" = "live";
+  onConnection: ((c: "live" | "reconnecting") => void) | null = null;
+  private quoteFailures = 0;
+  private quotePolling = false;
+  private readonly random: () => number;
   tick: number;
   private rand: () => number;
   private extraAssetRandom = new Map<string, () => number>();
@@ -211,7 +225,7 @@ export class MockFeed {
   private nextId = 1;
   private subs = new Set<Sub>();
   private timer: ReturnType<typeof setInterval> | null = null;
-  private quoteSync: ReturnType<typeof setInterval> | null = null;
+  private quoteSync: ReturnType<typeof setTimeout> | null = null;
   private quotePulling = false;
   private autoStart: boolean;
 
@@ -223,6 +237,7 @@ export class MockFeed {
     this.policy = opts.policy ?? ORDER_POLICY;
     this.historyPolicy = opts.historyPolicy ?? ORDER_HISTORY_POLICY;
     this.authoritativeQuotes = opts.authoritativeQuotes === true;
+    this.random = opts.random ?? Math.random;
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
       const prevClose = Math.round(a.base * (1 + (this.assetRandom(a.assetId)() - 0.5) * 0.02));
@@ -539,7 +554,7 @@ export class MockFeed {
       if (sub.snapTimer) clearTimeout(sub.snapTimer);
       this.subs.delete(sub);
       if (this.authoritativeQuotes && ![...this.subs].some((s) => s.ch.startsWith("ticker:"))) {
-        if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
+        this.stopQuoteSync();
       }
       if (this.subs.size === 0) this.stop();
     };
@@ -590,7 +605,7 @@ export class MockFeed {
   }
   stop(): void {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    if (this.quoteSync) { clearInterval(this.quoteSync); this.quoteSync = null; }
+    this.stopQuoteSync();
   }
 
   /**
@@ -624,6 +639,7 @@ export class MockFeed {
     }
     this.tick = snap.tick;
     this.quotesAdopted = true;
+    this.quotesOk();
     if (snap.tick > prevTick) this.settle();
     this.emitTick();
     // First publication is a snap. emitTick only reaches subscribers that already have one.
@@ -633,11 +649,42 @@ export class MockFeed {
     return true;
   }
 
+  /**
+   * One read at a time, each scheduled after the last settles: every SERVER_QUOTE_POLL_MS while healthy, the capped,
+   * jittered backoff after failures (card 19). Stops when the last ticker unsubscribes or the feed stops.
+   */
   private startQuoteSync(): void {
-    if (this.quoteSync) return;
-    const pull = () => { void this.pullServerQuotes(); };
-    void pull();
-    this.quoteSync = setInterval(pull, SERVER_QUOTE_POLL_MS);
+    if (this.quotePolling) return;
+    this.quotePolling = true;
+    const pull = () => {
+      this.quoteSync = null;
+      const next = () => { if (this.quotePolling && !this.quoteSync) this.quoteSync = setTimeout(pull, this.nextQuoteDelayMs()); };
+      void this.pullServerQuotes().then(next, next);
+    };
+    pull();
+  }
+  private stopQuoteSync(): void {
+    this.quotePolling = false;
+    if (this.quoteSync) { clearTimeout(this.quoteSync); this.quoteSync = null; }
+  }
+  /** Card 19: wait before the next quote read: the healthy poll, or the backoff after consecutive failures. */
+  nextQuoteDelayMs(): number {
+    return this.quoteFailures > 0 ? retryDelayMs(this.quoteFailures, this.random) : SERVER_QUOTE_POLL_MS;
+  }
+  /** Card 19: after an adopt, a failed read means the server went away: say so at once (the watchdog's stale comes ~11 s later). */
+  private quotesFailed(): void {
+    if (!this.quotesAdopted) return; // before the first adopt the quote channels are simply held (M1-05)
+    this.quoteFailures += 1;
+    this.setConnection("reconnecting");
+  }
+  private quotesOk(): void {
+    this.quoteFailures = 0;
+    this.setConnection("live");
+  }
+  private setConnection(c: "live" | "reconnecting"): void {
+    if (this.connection === c) return;
+    this.connection = c;
+    this.onConnection?.(c);
   }
 
   private async pullServerQuotes(): Promise<void> {
@@ -645,10 +692,10 @@ export class MockFeed {
     this.quotePulling = true;
     try {
       const res = await fetch("/api/market", { cache: "no-store", headers: { accept: "application/json" } });
-      if (!res.ok) return;
-      this.adoptAuthoritativeQuotes(await res.json());
+      if (!res.ok || !this.adoptAuthoritativeQuotes(await res.json())) this.quotesFailed();
     } catch {
-      // Keep the last adopted snapshot. A long outage lets the channel watchdog mark quotes stale.
+      // Keep the last adopted snapshot, say the connection is lost and back off (card 19).
+      this.quotesFailed();
     } finally {
       this.quotePulling = false;
     }

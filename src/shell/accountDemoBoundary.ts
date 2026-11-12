@@ -8,7 +8,7 @@ import { cashCentsToMoney } from "@/shell/cashFormat";
 import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
 import type { Channels } from "./channels";
 import { MockFeed, scenarioFromQuery } from "./contracts/mockFeed";
-import { setFeed } from "./contracts/useChannel";
+import { getFeed, setFeed } from "./contracts/useChannel";
 import { defaultChannels, mockChannels, mockShells, RANK_THRESHOLDS } from "./mockChannels";
 import { RANKS, type Rank } from "./registry";
 import type { ShellStore } from "./store";
@@ -59,7 +59,15 @@ export function applySignedInDemo(
   const cashCents = privateSnap?.cashCents ?? 1_000_000;
   const nw = cashCentsToMoney(cashCents);
   // Quotes come from the server clock. This feed does not advance prices; demo orders still settle locally and are not saved.
-  setFeed(new MockFeed({ empty: true, nw, seed: marketSeed }, { authoritativeQuotes: true }));
+  const feed = new MockFeed({ empty: true, nw, seed: marketSeed }, { authoritativeQuotes: true });
+  // Card 19: a lost /api/market shows as "Reconnecting…" in the header, the notice and the ticket. A feed that was
+  // swapped out (sign-out, another account) no longer writes.
+  feed.onConnection = (connection) => {
+    if (getFeed() !== feed) return;
+    const c = store.getState().channels;
+    store.getState().setChannels({ ...c, system: { ...c.system, connection } });
+  };
+  setFeed(feed);
   const channels = starterChannels();
   channels.me.nw = nw;
   // Saved cash seeds NW. Saved lots/orders are server-durable (M1-03) but not rendered into the demo
