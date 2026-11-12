@@ -31,11 +31,17 @@ const selfRow = (page: Page) => lb(page).evaluate((el) => {
   const r = el.querySelector('[data-testid="lb-row"][data-self="true"]');
   return r ? { rank: Number(r.getAttribute("data-rank")), handle: r.getAttribute("data-handle"), nw: r.querySelector('[data-testid="lb-nw"]')?.textContent ?? null, tick: Number(el.getAttribute("data-tick")) } : null;
 });
-/** My marked row = my own valuation at the board's tick (polled: the clock moves). */
+/** My marked row = my own valuation at one shared tick.
+ *  The board only re-reads every 5 s, so a live /api/market read (Playwright's request context, not the page)
+ *  can already be one tick ahead of the DOM. Pin the valuation first, then wait until the board's data-tick
+ *  equals that tick before comparing NW. A torn sample is skipped, not a failed comparison. */
 async function selfMatches(page: Page, request: APIRequestContext, handle: string) {
   await expect.poll(async () => {
-    const [s, v] = await Promise.all([selfRow(page), ownNw(request)]);
-    return s && s.handle === handle && s.tick === v.tick && s.nw === usd(v.nw) ? "ok" : JSON.stringify({ s, v: { tick: v.tick, nw: usd(v.nw) } });
+    const v = await ownNw(request);
+    const s = await selfRow(page);
+    if (!s || s.handle !== handle) return JSON.stringify({ phase: "row", s, v: { tick: v.tick, nw: usd(v.nw) } });
+    if (s.tick !== v.tick) return `waiting-for-tick board=${s.tick} market=${v.tick}`;
+    return s.nw === usd(v.nw) ? "ok" : JSON.stringify({ s, v: { tick: v.tick, nw: usd(v.nw) } });
   }, { timeout: 25_000 }).toBe("ok");
   return (await selfRow(page))!;
 }
