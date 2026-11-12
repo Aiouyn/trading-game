@@ -27,7 +27,14 @@ async function hitsItself(loc: Locator): Promise<boolean> {
 type Box = { x: number; y: number; width: number; height: number };
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
+/** Bring a Broker window to the front (windows overlap at 1280), as a click on its frame does. */
+async function front(win: Locator) {
+  await win.dispatchEvent("pointerdown");
+  await win.dispatchEvent("mousedown");
+  await expect(win).toHaveClass(/\bactive\b/);
+}
 async function desktopPlace(page: Page, win: Locator) {
+  await front(win);
   await enabled(win.getByTestId("br-review"));
   await win.getByTestId("br-review").click();
   const place = win.getByTestId("br-review-block").getByTestId("br-place");
@@ -57,6 +64,7 @@ test("desktop: closing the Broker window mid-Place gives one toast that covers n
   await page.setViewportSize({ width: 1280, height: 800 });
   const { mrdn, halc } = await twoBrokers(page);
   await desktopPlace(page, mrdn);
+  await front(mrdn);
   await mrdn.getByTestId("win-close").click();
   await expect(mrdn).toHaveCount(0);
   await expect(toasts(page)).toHaveCount(1, { timeout: 15_000 });
@@ -80,7 +88,9 @@ test("desktop: two Brokers closed mid-Place give two toasts", async ({ page }, i
   const { mrdn, halc } = await twoBrokers(page);
   await desktopPlace(page, mrdn);
   await desktopPlace(page, halc);
+  await front(mrdn);
   await mrdn.getByTestId("win-close").click();
+  await front(halc);
   await halc.getByTestId("win-close").click();
   await expect(page.getByTestId("win-broker")).toHaveCount(0);
   await expect(toasts(page)).toHaveCount(2, { timeout: 15_000 });
