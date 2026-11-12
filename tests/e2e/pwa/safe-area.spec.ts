@@ -68,3 +68,37 @@ test("Recent empty state 'Nothing open yet.' clears a 34 px home-indicator stand
   const box = (await line.boundingBox())!;
   expect(box.y + box.height).toBeLessThanOrEqual(844 - 34);
 });
+
+test("ticket Review order clears a 34 px home-indicator stand-in at 390 and 320", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "phone trade sheet only");
+  const home = 34;
+  const limit = 844 - home;
+  for (const width of [390, 320] as const) {
+    await page.setViewportSize({ width, height: 844 });
+    await boot(page, "/broker");
+    await applyStandin(page, { bottom: home });
+    await page.getByTestId("br-trade").click();
+    const sheet = page.getByTestId("br-sheet");
+    await expect(sheet).toBeVisible();
+    // Gatekeeper's 799–843 / 833–877 readings were taken ~80 ms into the 220 ms
+    // sheet-up animation (transform still applied). Wait until it settles.
+    await sheet.evaluate(async (el) => {
+      const done = () => {
+        const t = getComputedStyle(el).transform;
+        return t === "none" || t === "matrix(1, 0, 0, 1, 0, 0)";
+      };
+      if (done()) return;
+      await new Promise<void>((res) => {
+        const ev = () => { el.removeEventListener("animationend", ev); res(); };
+        el.addEventListener("animationend", ev);
+        setTimeout(res, 800);
+      });
+    });
+    const box = await page.locator(".br-phone-order [data-testid=br-review]").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { y: r.top, bottom: r.bottom, h: r.height };
+    });
+    expect(box.bottom, `${width}x844 Review bottom after sheet-up`).toBeLessThanOrEqual(limit);
+    expect(box.h, `${width}x844 Review height`).toBeGreaterThanOrEqual(43.5);
+  }
+});
