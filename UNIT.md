@@ -1,61 +1,41 @@
-# Card 19: say "Connection lost · retrying" early, stop showing "After hours", explain a disabled Review (ui/outage-reconnecting)
+# Card 28 — Broker footer: “Simulated market. Not financial advice.”
 
-Written 2026-11-12 02:05 CET. Assigned by Avalon Builder (playtest #4, outage). The first draft of this unit was ecd9bd24
-on the old stack (abf14e57). Under Builder's base rule it is rewritten here on the lowest branch that already has the
-code it touches. The archived stack attempt is on local branch ui/outage-reconnecting-on-abf14e57 (ecd9bd24, 3e200da4,
-a6f65c64), not pushed.
+**When:** 12 Nov 2026, 06:51 Europe/Paris (CET)
+**Branch:** `ui/broker-sim-disclaimer`
+**Base:** `origin/main` `98939480a24654f729a260de4c3ad0b9f5693f9a` (PR111 + PR113)
+**Identity:** Forge (trading-game bot) <forge@trading-game.local>
+**Tier:** low (copy). Not opening a PR. No push this pass.
 
-## Base: origin/main 24f67e0a
-main already has everything this card touches: the signed-in /api/market poll in MockFeed (`authoritativeQuotes`,
-`SERVER_QUOTE_POLL_MS` 1 s), `applySignedInDemo` (where the feed is created), `channels.system.connection`, MarketPhase's
-"Reconnecting…" label (StatusStrip and PhoneHome pass it through), LoadState, PhoneBanners, the Broker ticket
-(BrokerFrame, SimpleTicket) and the EN/FR shell and broker string tables. Neither PR105 (eng/broker-idempotency) nor the
-old stack is needed.
+## Why this card, not phone-dock Messages
 
-## Problem on main
-After a mid-session server kill, a signed-in player sees nothing for about 11 s. `pullServerQuotes` ignores a failed
-read ("keep the last snapshot"), and `system.connection` is only ever written by the `?conn=` test hook. Quotes go stale
-only when the channel watchdog fires. Until then the header keeps saying "After hours" or "Market open", and Review
-order, once disabled as stale, gives no reason. The poll fires every 1 s for the whole outage, with no backoff.
+Shortlist #4 was the phone dock's dead Messages slot (`17-UX` :259). Card 28 was to be that slot only if Wire/messages **inbox** data already exists on main. It does not:
 
-## Behaviour (client feed and UI only; src only, no engine, no server)
-1. Signal. When a signed-in /api/market read fails after quotes were adopted (network error, non-2xx, or a body that
-   cannot be adopted), the feed reports "reconnecting". `applySignedInDemo` copies that into
-   `channels.system.connection`, ignoring a feed that has since been swapped out. The next successful adopt sets it back
-   to "live". A failure before the first adopt does not set the flag.
-2. Backoff. The healthy cadence stays `SERVER_QUOTE_POLL_MS` (1 s). The brief says 5 s, but 5 s is the price tick
-   `FEED_TICK_MS`; this is flagged as a caveat. After the n-th failure in a row, the next read waits
-   min(15 s, 1 s·2^(n-1)) with ±20 % jitter, clamped to 15 s. A success resets the count, so the next outage starts again
-   at about 1 s. `retryDelayMs(failures, random)` is pure and takes an injectable random. The poll becomes a
-   self-scheduling timeout with at most one read in flight, and it stops on stop() or unsubscribe.
-3. Presentation.
-   - Notice: the existing LoadState slot (desktop pill under the strip, phone banner, alerts-sheet row) reads
-     "Connection lost · retrying…" (FR "Connexion perdue · nouvel essai…"). It is `role="alert"` and has no Retry button.
-     Priority: offline, then load error (which keeps its Retry), then connection lost.
-   - Header: MarketPhase already shows "Reconnecting… · Port Avalon" from the flag. StatusStrip and PhoneHome are not
-     edited.
-   - Broker: Review order and Place order are disabled while reconnecting. A visible reason sits next to Review
-     (`br-review-reason`, linked with aria-describedby), in EN and FR. A stale-only reason covers the case where the
-     watchdog has marked prices stale. Order-type and time-in-force controls are not touched, nor are the Portfolio
-     Orders list, nav.css safe-area, notices.css .qs-bottom or layout.tsx meta.
+- No `src/apps/messages`, no inbox/DM files, no messages channel or API on `origin/main` `98939480`.
+- Wire exists (news feed + composer). That is not an inbox. Building a Messages body would invent data.
+- Replacing the slot with Boards is a real gap, but it is not "messages data exists"; this UNIT does not do that swap.
 
-## Gatekeeper proof additions
-(a) A ticket already in Review before the outage cannot be placed while reconnecting. After recovery, Review re-prices
-    from fresh data (a preview at the new tick) and one Place makes exactly one order.
-(b) The notice clears by itself after the restart, with no refresh.
-(c) The backoff resets after a success: the first retry of the next blip comes after about 1 s, not 15 s.
-(d) The guest view does not change: the guest feed never sets the flag, nothing shows the notice, and the shell visuals
-    match base and head.
+So Messages is skipped (note at `/workspace/avalon/evidence/phone-dock-messages/SKIPPED.md`). The next real, already-grounded player-facing gap on the same shortlist is the Broker footer disclaimer (`17-UX` :707): the footer is missing, and a new player can take the ticket as a real-market tool.
 
-## Acceptance and evidence
-- Fail-first units, each logged red on base and green on head: the backoff schedule and jitter bounds; the feed's flag
-  transitions and gaps, including the reset; the notice copy in EN and FR; the Review/Place gating and reason, including
-  (a); the guest feed and guest shell, for (d).
-- Real kill: a production `next start` on a 33xx port, at desktop 1280 and phone 390 and 320. Kill the server with
-  SIGKILL. The notice must appear within about 2 s, the header must not show a market phase, and Review must show its
-  reason. Log the /api/market timestamps both on the network and in the page, along with renderer stalls. Restart the
-  server on the same port: the app must recover without a reload (b), and a second blip must retry after about 1 s (c).
-  A guest tab stays unchanged throughout (d). Take screenshots at every stage. Stop the server by pid only.
-- Preflight on the head, with GIT_* unset: lint, typecheck, a build with no flags, npm test, /broker bytes (215 KB gz),
-  plus check-hooks and ledger-no-dup where main has them. Run a clean e2e on fresh .data, with the visual suite on both
-  base and head. Delete the scratch worktree. No push.
+## Player outcome
+
+The Broker window carries the line “Simulated market. Not financial advice.” in the footer, on both phone and desktop, so the first ticket is visibly a game, not advice.
+
+## Grounding
+
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:707` — that exact sentence “sits in the Broker footer and the Settings › About page”.
+- Settings › About already has a close pair (`disclaimerGame` / `disclaimerAdvice`) in different words. This card does not rewrite About; it adds the specified Broker footer line.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: the footer is static copy, not a number. It must not appear in a way that invents session or money data. On the ticket skeleton (`data-state=loading`) it may be absent (the frame is not the live ticket yet) or present as the same static sentence — never with a fake quote or cash figure beside it. Test the held-`/api/auth/me` path so the line does not depend on signed-in.
+
+## Scope
+
+- One footer line on the live Broker ticket (Trade view; also About, so the window still says it when the ticket column is swapped).
+- EN exact spec wording. FR equivalent, same meaning.
+- `data-testid="br-disclaimer"`.
+- No order, preview, or submit changes. No Settings rewrite.
+
+## Acceptance / proof
+
+- Fail-first unit: mount the live HALC ticket; no `br-disclaimer` before the fix; after the fix, the exact English sentence is there (and FR when locale is `fr`).
+- While auth `/api/auth/me` is held, a live (or guest) ticket still shows the same static line, or the loading frame shows no invented numbers next to it.
+- Official-flag e2e on fresh `.data` plus production play at 1280 and 390, with screenshots, on `/broker?asset=HALC` (and phone Broker).
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget (`/broker` headroom is tight), e2e. No push.
