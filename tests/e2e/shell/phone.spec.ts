@@ -223,7 +223,8 @@ test("Phone error/offline banner: under the status bar, pushes content down, nev
   const banner = await rect("[data-testid=phone-banner]");
   const sb = await rect("[data-testid=statusbar]");
   const label = await rect("[data-testid=widget] .label");
-  const chip = await rect("[data-testid=widget] .chip");
+  // Card 20: a guest's widget has no rank chip any more; the wealth the banner must not cover is the hero figure.
+  const chip = await rect("[data-testid=widget] [data-testid=hero-nw]");
   expect(banner.top).toBe(sb.bottom);
   expect(banner.right - banner.left).toBe(390);
   await expect.poll(async () => (await rect("[data-testid=widget]")).top).toBe(before.top + 44 + 8); // content moves down by banner height + the 8 px gap (after the ease)
@@ -339,7 +340,8 @@ for (const width of [390, 320]) {
       expect(b.w).toBe(width);
       expect(b.h).toBeGreaterThanOrEqual(44);
       expect(Math.abs((await top("[data-testid=widget]")) - (before + b.h + 8))).toBeLessThanOrEqual(0.5); // pushed by the actual height + 8 px gap
-      for (const sel of ["[data-testid=widget] .label", "[data-testid=widget] .chip"]) expect(await top(sel)).toBeGreaterThanOrEqual(b.bottom);
+      // Card 20: no guest rank chip; check the label and the hero figure instead.
+      for (const sel of ["[data-testid=widget] .label", "[data-testid=widget] [data-testid=hero-nw]"]) expect(await top(sel)).toBeGreaterThanOrEqual(b.bottom);
       const home = await retryGeometry(page);
       expect(home, `home ${JSON.stringify(home)}`).toMatchObject({ rect: true, inBanner: true, inViewport: true });
       expect(home.minGap, "home gap to status bar targets").toBeGreaterThanOrEqual(8);
