@@ -53,6 +53,7 @@ describe("preflight phases ↔ CI parity (bidirectional)", () => {
       "build",
       "check-hooks",
       "test",
+      "skipped-checks",
       "pw-install",
       "route-budget",
     ]);

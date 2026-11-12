@@ -40,7 +40,7 @@ enforced by: tests/unit/auth/trust-proxy-boot.test.ts.
 16. **don't put app `@/` imports under tools/ci.** mistake: a file in `tools/ci` broke `core:typecheck` because engine-core typechecks that tree with the engine tsconfig, which has no `@/` paths (060061e5). catch it: run `npm run core:typecheck` when touching `tools/ci`. proof: it exits 0.
 enforced by: .github/workflows/engine-core.yml (npm run core:check, which typechecks tools/ci).
 17. **skipped checks are not passes.** catch it: the handoff lists pass/fail/skip separately and never calls a skip a pass (b8257aaf and later reviews).
-enforced by: none yet.
+enforced by: tools/ci/skipped-checks.mjs (ci.yml); tests/unit/ci/skipped-checks.test.ts.
 18. **evidence must be for the exact head under review.** mistake: a handoff that quotes only a SHA can look green on head X while the logs were from a dirty tree or an earlier commit (pr-100). catch it: record the SHA and a content fingerprint, and re-run if the head moved. proof: checks.log / PROVENANCE name the same SHA as `git rev-parse HEAD` and `ls-remote`.
 enforced by: tests/unit/ci/preflight.test.ts (HEAD + dirty-tree fingerprint; a mid-run edit is stale).
 19. **tests must watch the unknown-session and first-paint path, not only the settled state.** mistake: clock-first-load e2e waited for `data-clock-state=loading`, which is the post-auth state, and missed the invented boot-clock flash (af5d724e). catch it: hold `/api/auth/me` and `/api/market` and assert the first paint. proof: the test fails on that flash and passes when the unknown-session branch is honest.
