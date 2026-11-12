@@ -271,12 +271,12 @@ test("T4-10 C3/C4: DOM identical across palettes; axe clean on launcher, home, k
   }
 });
 
-test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 lines, no ellipsis; a too-long single word ellipsizes with the full name in title + aria-label", async ({ page }, info) => {
+test("T4 Studio label rulings at text scale 2.0: a too-long single word ellipsizes with the full name in title + aria-label", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
-  const fs0 = await page.locator(".phone-app .icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+  const fs0 = await page.getByTestId("icon-settings").locator(".icon-label").evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
   await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "2"));
-  await expect.poll(() => page.locator(".phone-app .icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(fs0 * 2 - 0.5);
+  await expect.poll(() => page.getByTestId("icon-settings").locator(".icon-label").evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(fs0 * 2 - 0.5);
   const label = (id: string) => page.getByTestId(id).evaluate((b: HTMLElement) => {
     const l = b.querySelector<HTMLElement>(".icon-label")!;
     const ws = [...l.querySelectorAll<HTMLElement>(".w")];
@@ -287,12 +287,6 @@ test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 line
       title: b.title, aria: b.getAttribute("aria-label"), trunc: b.dataset.trunc ?? null,
     };
   });
-  // Studio 08:20: the grid reflows to 2 columns at 2.0, so 'Research Desk' and 'Businesses' fit with no ellipsis.
-  for (const id of ["icon-research", "icon-businesses"]) {
-    const r = await label(id);
-    expect([id, r.over, r.trunc, r.aria]).toEqual([id, [], null, null]);
-  }
-  expect((await label("icon-research")).lines).toBeLessThanOrEqual(2);
   // Last resort still works: a synthetic overlong word (injected) takes the ellipsis with the name in title + aria-label.
   const long = "Supercalifragilisticexpialidocious";
   await page.getByTestId("icon-settings").locator(".w").first().evaluate((w, t) => { w.textContent = t; }, long);
@@ -300,7 +294,7 @@ test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 line
   const lw = await label("icon-settings");
   expect(lw.over).toEqual([long]);
   expect([lw.ellipsis[0], lw.hy, lw.ls >= 0, lw.trunc]).toEqual(["ellipsis", "none", true, "1"]);
-  expect(lw.aria).toContain("Markets");
+  expect(lw.aria).toContain("Settings");
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
   await shot(page, "label-trunc-scale2");
 });
@@ -312,8 +306,8 @@ test("T4 Studio 08:20: grid columns by text scale (4 / 3 / 2); tiles keep their 
   const bottom0 = await page.getByTestId("bottom-row").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length);
   for (const [scale, cols, name] of [[1, 4, "home-scale1"], [1.5, 3, "home-scale1.5"], [2, 2, "home-scale2"]] as const) {
     await page.evaluate((v) => document.documentElement.style.setProperty("--text-scale", String(v)), scale);
-    await expect(page.getByTestId("grid-trade")).toHaveAttribute("data-cols", String(cols));
-    expect(await page.getByTestId("grid-trade").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(cols);
+    await expect(page.getByTestId("grid-me")).toHaveAttribute("data-cols", String(cols));
+    expect(await page.getByTestId("grid-me").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(cols);
     const t = (await page.getByTestId("icon-settings").locator(".icon").boundingBox())!;
     expect([t.width, t.height]).toEqual([tile0.width, tile0.height]);
     expect(await page.getByTestId("bottom-row").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(bottom0);

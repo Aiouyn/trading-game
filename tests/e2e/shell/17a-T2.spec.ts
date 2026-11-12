@@ -120,7 +120,7 @@ test("T2-06 phone tile glyphs are never brass (all apps)", async ({ page }, info
     await setPalette(page, p);
     const acc = await token(page, "acc");
     const colours = await page.locator(".phone-app .icon").evaluateAll((els) => els.map((e) => getComputedStyle(e).color));
-    expect(colours.length).toBeGreaterThanOrEqual(30);
+    expect(colours.length).toBeGreaterThanOrEqual(4);
     expect(colours.filter((c) => c === acc)).toEqual([]);
   }
   const ds = await page.goto("/__ds");

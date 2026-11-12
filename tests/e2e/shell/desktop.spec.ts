@@ -107,15 +107,16 @@ test("Shelf: tiles never sit under the tools at 1280, 1440, 1920; Broker first; 
   await expect(page.getByTestId("win-broker").last()).toHaveClass(/active/);
 });
 
-test("Glyph colours: muted, white when active, disabled when locked; never brass (B1, m1–m3)", async ({ page }) => {
+test("Glyph colours: muted, white when active; unbuilt locked tiles are not offered; never brass (B1, m1–m3)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
+  await page.getByTestId("tile-broker").click();
   const c = await page.evaluate(() => {
     const color = (sel: string) => getComputedStyle(document.querySelector(sel)!).color;
     const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
     const ws = document.querySelector("[data-testid=ws-1]")!;
     const active = document.querySelector(".win.active")!;
     return {
-      tile: color("[data-testid=tile-portfolio]:not(.on)"), lockedCount: document.querySelectorAll(".shelf .tile.locked").length, on: color(".tile.on"),
+      tile: color("[data-testid=tile-settings]:not(.on)"), lockedCount: document.querySelectorAll(".shelf .tile.locked").length, on: color(".tile.on"),
       wsColor: getComputedStyle(ws).color, wsBorder: getComputedStyle(ws).borderTopColor,
       winBorder: getComputedStyle(active).borderTopColor, winGlyph: color(".win.active .tb-glyph"),
       before: getComputedStyle(active.querySelector(".titlebar")!, "::before").backgroundColor,
@@ -418,38 +419,37 @@ test("§5 error / offline: inline \"Couldn't load · Retry\"; Retry reloads; off
   expect(await intents(page)).toBe(0);
 });
 
-test("Lock tags: Label style 10.5 px, inside every locked shelf tile; Quay mark --fg; tick sweep --fg-muted", async ({ page }) => {
+test("Quay mark --fg and tick sweep --fg-muted; shelf offers no locked tiles", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
   const r = await page.evaluate(() => {
     const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
-    const tags = Array.from(document.querySelectorAll(".tile.locked")).map((t) => {
-      const tag = t.querySelector(".lock-tag")!; const a = tag.getBoundingClientRect(); const b = t.getBoundingClientRect(); const cs = getComputedStyle(tag);
-      return { inside: a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom, size: cs.fontSize, upper: cs.textTransform, color: cs.color, h: b.height };
-    });
-    return { tags, mark: getComputedStyle(document.querySelector("[data-testid=strip] .fg")!).color, acc: probe("--acc"), sweep: getComputedStyle(document.querySelector(".tickring-sweep")!).stroke, fg: probe("--fg"), muted: probe("--fg-muted"), disabled: probe("--fg-disabled") };
+    return {
+      locked: document.querySelectorAll(".tile.locked").length,
+      mark: getComputedStyle(document.querySelector("[data-testid=strip] .fg")!).color,
+      sweep: getComputedStyle(document.querySelector(".tickring-sweep")!).stroke,
+      fg: probe("--fg"), muted: probe("--fg-muted"),
+    };
   });
-  expect(r.tags.length).toBeGreaterThan(0);
-  for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px", upper: "uppercase", color: r.muted, h: 40 });
-  for (const t of r.tags) expect(t.color).not.toBe(r.acc);
+  expect(r.locked).toBe(0);
   expect(r.mark).toBe(r.fg);
   expect(r.sweep).toBe(r.muted);
 });
 
-test("Shelf spacing stays even when locked tiles widen (Studio round 6)", async ({ page }) => {
+test("Shelf spacing stays even between built tiles (Studio round 6)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
   const gaps = await page.getByTestId("shelf-tiles").evaluate((row) => {
     const kids = Array.from(row.querySelectorAll(".tile"));
-    const out: { gap: number; wide: boolean }[] = [];
+    const out: number[] = [];
     for (let i = 1; i < kids.length; i++) {
       const [a, b] = [kids[i - 1], kids[i]];
       if (b.parentElement!.querySelector(".shelf-divider")) continue; // across a group divider the divider sets the spacing
       const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
-      out.push({ gap: Math.round((rb.left - ra.right) * 10) / 10, wide: ra.width > 40 || rb.width > 40 });
+      out.push(Math.round((rb.left - ra.right) * 10) / 10);
     }
     return out;
   });
-  expect(gaps.some((g) => g.wide)).toBe(true);
-  expect(new Set(gaps.map((g) => g.gap))).toEqual(new Set([4]));
+  expect(gaps.length).toBeGreaterThan(0);
+  expect(new Set(gaps)).toEqual(new Set([4]));
 });
 
 test("Retry a11y (QA r11): keeps focus, aria-disabled toggles, a second activation while pending does nothing, the alert text never changes, label left x fixed", async ({ page }) => {
