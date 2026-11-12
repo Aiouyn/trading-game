@@ -18,7 +18,7 @@ export default defineConfig({
     { name: "phone", use: { browserName: "chromium", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
   ],
   webServer: {
-    command: `npm run build && npx next start -p ${PORT}`,
+    command: `npm run build && npx next start -H 127.0.0.1 -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     // QUAY_DS=1 serves the dev-only /__ds primitives sheet in the production build (17A T1).
     // NEXT_PUBLIC_QUAY_E2E is a build-time inline used only by this official e2e webServer, and

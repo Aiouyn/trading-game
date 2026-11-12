@@ -14,6 +14,10 @@ Sessions are file-backed, and this build is one process. The current plan is a p
 
 A serverless host would first need a hosted session store. That store is owned by the auth lane. Until the auth lane lands it, leave the 503 in place. It is a prerequisite, not a spend-guard defect, and not a reason to pick a serverless target.
 
+A reachable alpha must run behind a real reverse proxy with `QUAY_TRUST_PROXY=1`, because App Router route handlers can't see the peer socket address, so the per-IP limits rely on the proxy's X-Forwarded-For.
+
+With no `-H`, `next start` prints `ready` and the network address before `exit(1)`. That listen is every interface, so the bind check refuses it. The `ready` line is not proof the process is still serving.
+
 ## In-app gate
 
 | Paid provider | Env that requests it | Without `QUAY_SPEND_OPT_IN=1` | With the flag set to `1` |
