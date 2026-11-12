@@ -51,6 +51,41 @@ const sameSeed = slots(32).every((t) => JSON.stringify(storyAt(SEED, t)) === JSO
 const otherSeedDiffers = slots(32).some((t) => storyAt(SEED, t)!.defId !== storyAt(SEED + 1, t)!.defId);
 const sev = storySeverity(SEED, "probe");
 
+const CYCLE_SLOTS = 16;
+const cycleTicks = (cycle: number) =>
+  Array.from({ length: CYCLE_SLOTS }, (_, i) => START_TICK + (cycle * CYCLE_SLOTS + i + 1) * STORY_EVERY);
+const cycleCompanyIds = (cycle: number) =>
+  cycleTicks(cycle).map((t) => storyAt(SEED, t)!).filter((s) => !s.crisis).map((s) => s.defId);
+const cycleCrisisKinds = (cycle: number) =>
+  cycleTicks(cycle).map((t) => storyAt(SEED, t)!).filter((s) => s.phase === "forecast" && s.crisis).map((s) => s.crisis);
+
+const longSlots = Math.floor(10_000 / STORY_EVERY);
+const longIds = slots(longSlots).map((t) => storyAt(SEED, t)!.defId);
+let periodicAtOrBelow72 = 0;
+for (let p = 1; p <= 72 / STORY_EVERY; p++) {
+  let periodic = true;
+  for (let i = 0; i + p < longIds.length; i++) {
+    if (longIds[i] !== longIds[i + p]) { periodic = false; break; }
+  }
+  if (periodic) periodicAtOrBelow72 = p * STORY_EVERY;
+}
+const nCycles = Math.floor(longSlots / CYCLE_SLOTS);
+const identicalConsecutive: number[] = [];
+const boundaryRepeats: number[] = [];
+for (let c = 0; c < nCycles - 1; c++) {
+  const a = cycleCompanyIds(c), b = cycleCompanyIds(c + 1);
+  if (a.every((id, i) => id === b[i])) identicalConsecutive.push(c);
+  if (b[0] === a[a.length - 1]) boundaryRepeats.push(c);
+  const ca = cycleCrisisKinds(c), cb = cycleCrisisKinds(c + 1);
+  if (ca.every((k, i) => k === cb[i]) || cb[0] === ca[ca.length - 1]) boundaryRepeats.push(c);
+}
+const jumpKs = [0, 1, 7, 40];
+const jumpEqualsWalk = jumpKs.every((k) => {
+  const walkedCo = cycleCompanyIds(k);
+  const walkedCr = cycleCrisisKinds(k);
+  return walkedCo.join() === cycleCompanyIds(k).join() && walkedCr.join() === cycleCrisisKinds(k).join();
+});
+
 const summary = {
   seed: SEED,
   playtest,
@@ -66,6 +101,10 @@ const summary = {
   sameSeed,
   otherSeedDiffers,
   gridNullAtStart: storyAt(SEED, START_TICK) === null,
+  periodicAtOrBelow72,
+  identicalConsecutiveCycles: identicalConsecutive,
+  boundaryRepeats,
+  jumpEqualsWalk,
 };
 const ok = summary.playtestNoIdenticalTriple
   && summary.gapRepeats60or72InTenMin.length === 0
@@ -75,7 +114,11 @@ const ok = summary.playtestNoIdenticalTriple
   && summary.severityInBand
   && summary.sameSeed
   && summary.otherSeedDiffers
-  && summary.gridNullAtStart;
+  && summary.gridNullAtStart
+  && summary.periodicAtOrBelow72 === 0
+  && summary.identicalConsecutiveCycles.length === 0
+  && summary.boundaryRepeats.length === 0
+  && summary.jumpEqualsWalk;
 
 writeFileSync(join(outDir, "summary.json"), JSON.stringify({ ok, ...summary }, null, 2) + "\n");
 console.log(JSON.stringify({ ok, playtest, gapRepeats: gapRepeats.length, varyingDefs: varying.length }, null, 2));
