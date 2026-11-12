@@ -13,9 +13,19 @@ import { expect, test, type APIRequestContext, type Browser, type Page } from "@
 const PORT = Number(process.env.WIRE_RESTART_PORT ?? 3411);
 const BASE = `http://127.0.0.1:${PORT}`;
 const MIN_CATALOG = 3; // one catalog story every 6 ticks (30 s); 3 is ~90 s after boot
-interface Item { id: string; tick: number; headlineKey: string; kind: string; effects?: unknown[] }
+interface Item { id: string; tick: number; headlineKey: string; kind: string; effects?: unknown[]; slots?: Record<string, unknown> }
 interface Wire { epoch: string; tick: number; items: Item[] }
 const isCatalog = (i: Item) => /^w-\d+$/.test(i.id);
+/** f2: rows are value-equal across the restart, not byte-equal (key order), so compare canonical JSON (sorted keys). */
+const canon = (v: unknown): unknown =>
+  Array.isArray(v) ? v.map(canon)
+  : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])]))
+  : v;
+/** A rumor-linked row may be restamped by the resumed clock when its claim resolves (phase, cause, source record, effects);
+ *  everything else it shows must be the same. Other rows must be equal in full. */
+const RESTAMPED = ["phase", "causeKey", "causeEventIds", "sourceRecord", "sourceBand", "effects"];
+const rumorLinked = (i: Item) => i.kind === "RUMOR" || typeof i.slots?.rumorId === "string";
+const shownJson = (i: Item) => JSON.stringify(canon(rumorLinked(i) ? Object.fromEntries(Object.entries(i).filter(([k]) => !RESTAMPED.includes(k))) : i));
 
 let dataRoot = "";
 let server: ChildProcess | null = null;
@@ -83,7 +93,7 @@ test.describe("b3: Wire history survives a production server restart", () => {
     try {
       const after = await wire(ctx.request);
       expect(after.tick).toBeGreaterThanOrEqual(before!.tick); // the clock resumed, it did not restart from day 39
-      const lost = before!.items.filter((x) => !after.items.some((y) => y.id === x.id && y.tick === x.tick && y.headlineKey === x.headlineKey && JSON.stringify(y.effects ?? null) === JSON.stringify(x.effects ?? null)));
+      const lost = before!.items.filter((x) => !after.items.some((y) => y.id === x.id && shownJson(y) === shownJson(x)));
       expect(lost.map((x) => `${x.id}@${x.tick} ${x.headlineKey}`), "stories lost by the restart (api)").toEqual([]);
       const page = await ctx.newPage();
       await page.goto(`${BASE}/wire`);
