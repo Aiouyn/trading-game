@@ -78,11 +78,21 @@ function floorMod(n: number, m: number): number {
   return ((n % m) + m) % m;
 }
 
-/** Fisher-Yates permutation of 0..n-1, drawn only from `hash` (never the quote RNG). */
+/** murmur3 fmix32 finalizer. FNV-1a's low k bits depend only on the key's low k bits, so
+ *  `hash % (i + 1)` reached only 12/24 crisis orders and ~4% of company decks (Gatekeeper q1). */
+function mix32(h: number): number {
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+/** Fisher-Yates permutation of 0..n-1, drawn only from `hash` (never the quote RNG).
+ *  j comes from the high bits of the mixed hash, so every permutation is reachable. */
 export function shuffledIndices(n: number, seed: number, key: string): number[] {
   const idx = Array.from({ length: n }, (_, i) => i);
   for (let i = n - 1; i > 0; i--) {
-    const j = hash(`${seed}:${key}:${i}`) % (i + 1);
+    const j = Math.floor((mix32(hash(`${seed}:${key}:${i}`)) / 0x100000000) * (i + 1));
     const a = idx[i]!, b = idx[j]!;
     idx[i] = b;
     idx[j] = a;
@@ -97,23 +107,42 @@ function sameOrder(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-/** Reject identical decks, first==previous last, and company 60/72-tick lags (q = p-3 / p-2). */
-function companyAcceptable(order: readonly number[], prev: readonly number[]): boolean {
-  if (sameOrder(order, prev)) return false;
-  if (order[0] === prev[prev.length - 1]) return false;
+/** Ticks per 16-slot cycle (96). Company slots are 2 apart (12 ticks), crisis watches 4 apart (24 ticks). */
+const CYCLE_TICKS = CYCLE * STORY_EVERY;
+const COMPANY_SLOT_TICKS = 2 * STORY_EVERY;
+const CRISIS_SLOT_TICKS = 4 * STORY_EVERY;
+/** Minimum ticks between two appearances of the same company headline. Above the 60/72-tick
+ *  (5-6 real minute) repeats from the playtests; 84 is the largest floor that still leaves 127
+ *  legal next decks (96 would force the identical deck). */
+export const COMPANY_MIN_GAP_TICKS = 84;
+/** Minimum ticks between two watches of the same crisis kind (main's rotation gave 72). 72 is the
+ *  largest feasible floor for 4 crises: 96 would force the identical order. 7 legal next orders. */
+export const CRISIS_MIN_GAP_TICKS = 72;
+
+/** Each item's gap from its slot in `prev` to its slot in `order` (one cycle later) is >= minGap.
+ *  Works on a prefix of `order` too, so the backtracking search can prune early. Inside one cycle
+ *  every item appears once, so cross-cycle gaps are the only repeats. */
+function gapsAtLeast(order: readonly number[], prev: readonly number[], slotTicks: number, minGap: number): boolean {
   const prevPos = new Map<number, number>();
   for (let p = 0; p < prev.length; p++) prevPos.set(prev[p]!, p);
   for (let q = 0; q < order.length; q++) {
-    const pos = prevPos.get(order[q]!)!;
-    if (q === pos - 2 || q === pos - 3) return false;
+    if (CYCLE_TICKS + slotTicks * (q - prevPos.get(order[q]!)!) < minGap) return false;
   }
   return true;
 }
 
+/** Reject an identical deck, first==previous last, and any company repeat closer than COMPANY_MIN_GAP_TICKS. */
+function companyAcceptable(order: readonly number[], prev: readonly number[]): boolean {
+  if (sameOrder(order, prev)) return false;
+  if (order[0] === prev[prev.length - 1]) return false;
+  return gapsAtLeast(order, prev, COMPANY_SLOT_TICKS, COMPANY_MIN_GAP_TICKS);
+}
+
+/** Reject an identical order, first==previous last, and any crisis repeat closer than CRISIS_MIN_GAP_TICKS. */
 function crisisAcceptable(order: readonly number[], prev: readonly number[]): boolean {
   if (sameOrder(order, prev)) return false;
   if (order[0] === prev[prev.length - 1]) return false;
-  return true;
+  return gapsAtLeast(order, prev, CRISIS_SLOT_TICKS, CRISIS_MIN_GAP_TICKS);
 }
 
 function pickCycleOrder(
@@ -131,6 +160,7 @@ function pickCycleOrder(
   }
   // Complete search, still seeded: try items in a hash-derived preference order so
   // a valid permutation is always found when one exists (rotate-reverse can miss).
+  // `acceptable` also judges a prefix (the identical-deck test needs the full length), so prune early.
   const pref = shuffledIndices(n, seed, `${kind}:${cycle}:bt`);
   const used = new Array<boolean>(n).fill(false);
   const acc: number[] = [];
@@ -140,7 +170,7 @@ function pickCycleOrder(
       if (used[item]) continue;
       acc.push(item);
       used[item] = true;
-      if (search()) return true;
+      if ((!prev || acceptable(acc, prev)) && search()) return true;
       used[item] = false;
       acc.pop();
     }
@@ -194,15 +224,18 @@ export function scaleEffects(effects: readonly StoryEffect[], severity: number):
 }
 
 /** Catalog story on the STORY_EVERY grid, including ticks at or before START_TICK. Null off-grid.
- *  Company and crisis order are a seeded shuffle per cycle from hash(seed, cycleIndex), not a
- *  shared stream, so jump-to-k equals a walk from 0 and consecutive cycles differ. Magnitudes vary. */
+ *  Company and crisis order are a seeded shuffle per cycle from hash(seed, cycleIndex), repaired
+ *  against the previous cycle (a deterministic chain from SHUFFLE_CHAIN_START, not a shared stream),
+ *  so jump-to-k equals a walk from 0 and consecutive cycles differ. Magnitudes vary. */
 export function catalogStoryAt(seed: number, tick: number): StoryDef | null {
   const d = tick - START_TICK;
   if (!Number.isSafeInteger(d) || d % STORY_EVERY !== 0) return null;
   const slot = d / STORY_EVERY - 1;
   const cycle = Math.floor(slot / CYCLE), pos = floorMod(slot, CYCLE), quartet = Math.floor(pos / 4), step = pos % 4;
-  // Per-cycle deck from hash(seed, cycle): a defId cannot return until the rest of that
-  // cycle's deck has appeared, consecutive cycles differ, and jump-to-k equals a walk from 0.
+  // Per-cycle deck from hash(seed, cycle), repaired against the previous cycle's deck. Inside a
+  // cycle each defId appears once; across a boundary the same company returns no sooner than
+  // COMPANY_MIN_GAP_TICKS and the same crisis no sooner than CRISIS_MIN_GAP_TICKS. Consecutive
+  // cycles differ, and jump-to-k equals a walk from 0 (the chain is recomputed, not stream state).
   const crisisOrder = crisisOrderOf(seed, cycle);
   const crisis = CRISES[crisisOrder[quartet]!]!;
   if (step === 0 || step === 2) {
