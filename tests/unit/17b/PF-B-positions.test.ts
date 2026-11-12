@@ -156,7 +156,7 @@ describe("PF-3-06 states", () => {
 describe("PF-3-07 row label", () => {
   it("HALC: ticker, qty shares, spoken value, up/down chgPct percent today", () => {
     const halc = rows(html())[1];
-    expect(attr(halc, "aria-label")).toMatch(/^HALC, 1,200 shares, value 50,616\.00 dollars, down 0\.35 percent today, average cost 39\.90, last 42\.18$/);
+    expect(attr(halc, "aria-label")).toMatch(/^HALC, 1,200 shares, value 50,616\.00 dollars, down 0\.35 percent today, average cost 39\.90, last 42\.18, unrealized P&amp;L 2,736\.00 dollars, before fees$/);
     expect(attr(halc, "tabindex")).toBe("0");
   });
   it("up and unchanged wording; FR", () => {
@@ -164,7 +164,7 @@ describe("PF-3-07 row label", () => {
     expect(rowLabel(p, { ...TICK.HALC, chgPct: "1.20" }, EN, "en")).toContain(", up 1.20 percent today");
     expect(rowLabel(p, { ...TICK.HALC, chgPct: "0.00" }, EN, "en")).toContain(", unchanged today");
     expect(rowLabel(p, { ...TICK.HALC, chgPct: null }, EN, "en")).not.toContain("today");
-    expect(rowLabel(p, TICK.HALC, FR, "fr")).toMatch(/^HALC, 1\u202F200 actions, valeur .*, en baisse de 0\.35 pour cent aujourd’hui, coût moyen 39,90, dernier cours 42,18$/);
+    expect(rowLabel(p, TICK.HALC, FR, "fr")).toMatch(/^HALC, 1\u202F200 actions, valeur .*, en baisse de 0\.35 pour cent aujourd’hui, coût moyen 39,90, dernier cours 42,18, plus ou moins-value latente 2,736\.00 dollars, hors frais$/);
   });
 });
 
@@ -175,10 +175,11 @@ describe("PF-3-09 cards (phone, text scale ≥ 1.5)", () => {
     const halc = rows(h)[1];
     expect(halc.startsWith('<li class="pos-card"')).toBe(true);
     const lines = halc.split('class="pos-line').slice(1).map((l) => text(l.replace(/^[^>]*>/, "").replace(/<div\s*$/, "")));
-    expect(lines[0]).toBe("HALC ▲ +$2,736.00 (+5.7%)");
-    expect(lines[1]).toBe("$50,616.00 · 12.3%");
+    expect(lines[0]).toBe("HALC P&L ▲ +$2,736.00 (+5.7%)");
+    expect(lines[1]).toBe("Value · Weight $50,616.00 · 12.3%");
     // Card 27 (main) puts Close after the badges, so the extracted line text runs on into "Close": match the start.
-    expect(lines[2].startsWith(`1,200 @ 39.90 ${EN.colLast} ${decText(TICK.HALC.last, "en")} ▼ −0.35%`)).toBe(true);
+    // Card 13 (main): live last sits with qty @ avg; card 3 labels the cluster.
+    expect(lines[2].startsWith(`Qty @ avg cost 1,200 @ 39.90 ${EN.colLast} ${decText(TICK.HALC.last, "en")} Today ▼ −0.35%`)).toBe(true);
     expect(h).toContain('class="pos pos-cards pos-phone"');
     expect(html({ cards: true, big: true })).toContain('class="pos pos-cards pos-big"');
   });
@@ -246,6 +247,27 @@ describe("Studio FR rulings (art GO at efad6b1a)", () => {
   });
 });
 
+
+describe("first-fill number reading", () => {
+  it("labels card clusters without changing the sent amounts", () => {
+    const halc = rows(html({ cards: true, phone: true }))[1];
+    const labels = [...halc.matchAll(/data-testid="pos-card-label"[^>]*>([\s\S]*?)<\/span>/g)].map((m) => text(m[1]));
+    expect(labels).toEqual(["P&L", "Value · Weight", "Qty @ avg cost", "Today"]);
+    expect(cell(halc, "pos-qtyat")).toBe("1,200 @ 39.90");
+    expect(cell(halc, "pos-pnl-pct")).toBe("(+5.7%)");
+  });
+  it("explains before-fee P&L versus the asset's day move only when holdings exist", () => {
+    expect(html()).toContain('data-testid="pos-reading-key"');
+    expect(text(html())).toContain("P&L is the change from your average cost, before fees. Today is the asset’s daily price move, not your return.");
+    expect(text(html({ locale: "fr" }))).toContain("hors frais");
+    for (const view of [live(ME_EMPTY), { state: "loading", body: null, tick: null }, { state: "error", body: null, tick: null }] satisfies ChannelView<MeTradingBody>[]) {
+      expect(html({ view })).not.toContain('data-testid="pos-reading-key"');
+    }
+  });
+  it.each([["2736.00", "2,736.00 dollars"], ["-318.00", "minus 318.00 dollars"], ["0.00", "0.00 dollars"]])("speaks signed unrealized P&L %s independently of Today", (upl, spoken) => {
+    expect(rowLabel({ ...ME.positions.HALC, upl }, TICK.HALC, EN, "en")).toContain(`, unrealized P&L ${spoken}, before fees`);
+  });
+});
 
 describe("card 13: phone card shows the live last", () => {
   it("exposes pos-last equal to the ticker last, and falls back to mark when the ticker row is missing", () => {

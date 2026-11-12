@@ -70,3 +70,9 @@
 .pos-cost { display: inline-flex; align-items: baseline; column-gap: var(--sp-8); flex: none; white-space: nowrap; min-width: 0; }
 .pos-big .pos-line3 { align-items: flex-start; }
 .pos-big .pos-cost { flex-direction: column; align-items: flex-start; gap: 0; }
+
+/* Label the existing three card rows; the sent numbers keep their no-wrap clusters. */
+.pos-reading-key { margin: 0; color: var(--fg-muted); font-size: var(--fs-13); }
+.pos-card-field { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+.pos-card-end { align-items: flex-end; }
+.pos-card-label { color: var(--fg-muted); font-family: var(--font-ui); font-size: var(--fs-12_5); }

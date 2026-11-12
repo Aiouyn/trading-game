@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "ci:lesson13": "node tools/ci/lesson13-pid-kills.mjs",
+    "ci:next-start-host": "node tools/ci/next-start-host.mjs",
     "ci:streams": "tsx tools/ci/scan-stream-keys-cli.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "core:install": "npm --prefix packages/engine/core ci",

@@ -15,6 +15,11 @@ export function isSignedIn(auth: AuthUiState): auth is Extract<AuthUiState, { st
   return auth.status === "signed_in";
 }
 
+/** Session cookie check has not resolved. Chrome must not paint guest or signed-in identity yet. */
+export function isAuthPending(auth: AuthUiState): boolean {
+  return auth.status === "loading";
+}
+
 export function useAuthChrome() {
   const auth = useAuthSession();
   useEffect(() => {

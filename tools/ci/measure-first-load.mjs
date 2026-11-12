@@ -2,9 +2,11 @@
 import { spawn } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { FIRST_LOAD_BUDGET_KB, PLOT_EXCLUDE_CAP_KB, firstLoadBytes, watchScripts } from '../../tests/e2e/17b/plotChunk.ts';
 
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const PROBE_MS = 2000;
 const sleep = (ms) => new Promise((s) => setTimeout(s, ms));
 const port = Number(process.env.BUDGET_PORT ?? 3974);
@@ -37,7 +39,7 @@ try {
   if (await fetch(base + '/', { signal: AbortSignal.timeout(PROBE_MS) }).then(() => true, (e) => e?.name === 'TimeoutError')) {
     throw new Error(`port ${port} already serves something`);
   }
-  srv = spawn('npx', ['next', 'start', '-p', String(port)], { cwd: '/workspace/avalon/broker-headroom', stdio: ['ignore', 'ignore', 'inherit'], detached: true });
+  srv = spawn('npx', ['next', 'start', '-H', '127.0.0.1', '-p', String(port)], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'inherit'], detached: true });
   let up = false;
   for (let i = 0; i < 120 && !up && srv.exitCode === null; i++) {
     up = await fetch(base + route, { signal: AbortSignal.timeout(PROBE_MS) }).then((r) => r.ok, () => false);
