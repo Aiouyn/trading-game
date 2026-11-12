@@ -22,6 +22,9 @@ export function useClockReading(): ClockReading {
   const auth = useAuthSession();
   const ticker = useChannel("ticker:wl_default");
   const me = useChannel("me");
+  // Session not known yet: the shell still holds the guest clock (DEFAULT_TICK), which may not be this player's.
+  // useNwReading already special-cases auth loading; a muted dash here is the same rule.
+  if (auth.status === "loading") return { state: "loading", tick: null, clock: null };
   if (!isSignedIn(auth)) return { state: "live", tick: boot.tick, clock: boot };
   if (ticker.tick !== null) {
     if (boot.tick === ticker.tick) return { state: "live", tick: boot.tick, clock: boot };
