@@ -13,7 +13,6 @@ import { applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { setFeed } from "@/shell/contracts/useChannel";
 import { SNAP_DELAY_MS } from "@/shell/contracts/mockFeed";
 import { S } from "@/shell/strings";
-import { HOME_EXAMPLE } from "@/components/shell/homeExample";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -69,7 +68,7 @@ describe("card 36 guest Home example caption", () => {
     expect(el.querySelector("[data-testid=sign-in-entry]")?.textContent).toBe(S.signIn);
     const caption = el.querySelector("[data-testid=home-example-caption]");
     expect(caption).not.toBeNull();
-    expect(caption?.textContent).toBe(HOME_EXAMPLE.en.caption);
+    expect(caption?.textContent).toBe("Example portfolio · not your account");
     expect(el.querySelector("[data-testid=home-example-skel]")).toBeNull();
     await act(async () => { el.querySelector<HTMLButtonElement>("[data-testid=sign-in-entry]")!.click(); });
     expect(store.getState().local.windows.some((w) => w.app === "settings")).toBe(true);
@@ -97,7 +96,7 @@ describe("card 36 guest Home example caption", () => {
     });
     await paint();
     expect(el.querySelector("[data-testid=sign-in-entry]")?.textContent).toBe(S.signIn);
-    expect(el.querySelector("[data-testid=strip-demo-tag]")?.textContent).toBe(HOME_EXAMPLE.en.tag);
+    expect(el.querySelector("[data-testid=strip-demo-tag]")?.textContent).toBe("Example");
     expect(el.querySelector("[data-testid=strip-nw]")?.textContent).toMatch(/412/);
 
     await act(async () => root.unmount());
