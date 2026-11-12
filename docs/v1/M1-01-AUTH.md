@@ -19,8 +19,9 @@
 |---|---|
 | `QUAY_AUTH_DATA_DIR` | Directory for `store.json` (default `.data/auth`) |
 | `QUAY_AUTH_STORE=memory` | In-memory only (tests) |
-| `QUAY_PUBLIC_HOST` | Pin CSRF Origin/Referer host (e.g. `localhost:3000`) |
-| `QUAY_TRUST_PROXY=1` + `QUAY_TRUSTED_HOSTS` | Only then extra hosts allowed; **never** auto-trust raw `X-Forwarded-Host` |
+| `QUAY_PUBLIC_HOST` | Pin CSRF Origin/Referer to this host only. Loopback aliases are not added. |
+| `QUAY_TRUSTED_HOSTS` | Extra allowed hosts, comma-separated. Works without `QUAY_TRUST_PROXY`. |
+| `QUAY_TRUST_PROXY` | Exactly `1` to believe `X-Forwarded-Host` and `X-Forwarded-For`. A non-loopback bind refuses to start without it. |
 
 ## Rate limits
 In-process login/register attempt throttle (10 / 15 min per handle). Full edge rate limits remain **M3-05 before private alpha**.
