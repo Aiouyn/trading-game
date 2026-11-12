@@ -9,11 +9,38 @@ export function ConsentPrompt({ onDone }: { onDone: () => void }) {
     onDone();
   }
   return (
-    <div className="quay-consent" role="dialog" aria-label={CS.aria} data-testid="quay-consent">
+    <div
+      className="quay-consent"
+      role="dialog"
+      aria-label={CS.aria}
+      data-testid="quay-consent"
+    >
       <p className="quay-consent-text">{CS.prompt}</p>
       <div className="quay-consent-actions">
-        <button type="button" className="chip" data-testid="quay-consent-accept" onClick={() => choose(true)}>{CS.accept}</button>
-        <button type="button" className="chip" data-testid="quay-consent-decline" onClick={() => choose(false)}>{CS.decline}</button>
+        <button
+          type="button"
+          className="chip"
+          data-testid="quay-consent-accept"
+          onClick={() => choose(true)}
+        >
+          {CS.accept}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          data-testid="quay-consent-decline"
+          onClick={() => choose(false)}
+        >
+          {CS.decline}
+        </button>
+        <button
+          type="button"
+          className="chip quay-consent-dismiss"
+          data-testid="quay-consent-dismiss"
+          onClick={onDone}
+        >
+          {CS.dismiss}
+        </button>
       </div>
     </div>
   );
