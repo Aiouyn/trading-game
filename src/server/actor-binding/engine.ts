@@ -62,6 +62,10 @@ export type SessionLookup = {
   peekSession(rawToken: string | null | undefined): Promise<AuthSessionView | null>;
 };
 
+// TypeScript `private constructor` is compile-time only; Reflect.construct can still call it
+// and would skip open()'s enabled/load gate. Only open() holds this token.
+const OPEN_TOKEN = Symbol("actor-binding-open");
+
 export class ActorBinding {
   private queue: Promise<void> = Promise.resolve();
   private bindings = new Map<string, BindingRecord>();
@@ -74,7 +78,9 @@ export class ActorBinding {
     auth: SessionLookup,
     private readonly store: BindingStore,
     private readonly now: () => number,
+    token?: symbol,
   ) {
+    if (token !== OPEN_TOKEN) throw new BindingError("ACTOR_BINDING_DISABLED");
     this.#auth = auth;
   }
 
@@ -88,7 +94,7 @@ export class ActorBinding {
     const enabled = own("enabled") ? options?.enabled : ACTOR_BINDING_DEFAULT_ENABLED;
     if (enabled !== true) throw new BindingError("ACTOR_BINDING_DISABLED");
     const loaded = await store.load();
-    const binding = new ActorBinding(auth, store, (own("now") && typeof options?.now === "function" ? options.now : () => Date.now()));
+    const binding = new ActorBinding(auth, store, (own("now") && typeof options?.now === "function" ? options.now : () => Date.now()), OPEN_TOKEN);
     if (loaded !== null) {
       for (const row of parseCheckpoint(loaded).bindings) binding.bindings.set(row.accountId, row);
     } else {
