@@ -191,22 +191,15 @@ test("T4-08 desktop Back refocuses the previous window; window count unchanged",
   expect(await wins(page)).toBe(n);
 });
 
-test("T4-09 rank progress text R0..R5 = next rank + threshold; R1 'Next: Owner · … / $250k'", async ({ page }, info) => {
+test("T4-09 logged-out Home does not show the example's next-rank bar (card 20)", async ({ page }, info) => {
   phoneOnly(info.project.name);
-  const names: Record<string, string> = {};
-  for (const r of ["R0", "R1", "R2", "R3", "R4"]) {
-    await boot(page, `/?rank=${r}`);
-    const t = await page.getByTestId("rank-next").textContent();
-    names[r] = t ?? "";
-    expect(t).toMatch(/^Next: \S.* · .+ \/ \$/);
+  for (const r of ["R0", "R1", "R2", "R3", "R4", "R5", "R6"]) {
+    await boot(page, r === "R5" ? "/?rank=R5&nw=4200000000" : `/?rank=${r}`);
+    await expect(page.getByTestId("rank-next")).toHaveCount(0);
+    await expect(page.getByTestId("rank-bar")).toHaveCount(0);
   }
-  // R5 → R6 Dynasty at $20B (E-21); only R6 itself hides the line.
   await boot(page, "/?rank=R5&nw=4200000000");
-  await expect(page.getByTestId("rank-next")).toHaveText(/^Next: Dynasty · .+ \/ \$20B$/);
   await shot(page, "home-r5");
-  await boot(page, "/?rank=R6");
-  await expect(page.getByTestId("rank-next")).toHaveCount(0);
-  expect(names.R1).toMatch(/^Next: Owner · .+ \/ \$250k$/);
   await boot(page, "/?rank=R1&nw=30000");
   await shot(page, "home-r1");
   await boot(page, "/?rank=R2");

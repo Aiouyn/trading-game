@@ -47,7 +47,8 @@ describe("M1-01 signed-in Portfolio + Appearance use account demo boundary", () 
     await act(async () => { await vi.advanceTimersByTimeAsync(SNAP_DELAY_MS + 20); });
     const text = el.textContent ?? "";
     expect(el.querySelector("[data-testid=pf-hero-nw]")?.textContent).toMatch(/\$10k|10,?000/);
-    expect(el.querySelector("[data-testid=pf-rank-chip]")?.textContent).toMatch(/R0/);
+    expect(el.querySelector("[data-testid=pf-rank-chip]")?.textContent).toMatch(/R0\s*·\s*Starter/);
+    expect(text).not.toMatch(/\bBroke\b/);
     expect(text).not.toMatch(/R2\s*·\s*Owner/);
     expect(text).not.toMatch(/412/);
     expect(text).not.toMatch(/Sharpe/i);

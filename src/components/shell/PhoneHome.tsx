@@ -2,8 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
-import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
-import { nextRankTarget } from "@/shell/unlock";
+import { APP_IDS, APPS, GROUPS, subPalette, type AppId } from "@/shell/registry";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
 import { Sparkline } from "./Sparkline";
@@ -206,21 +205,17 @@ export function PhoneHome() {
   const vis = useShell((s) => s.vis);
   const me = useShell((s) => s.channels.me);
   const reading = useNwReading();
-  const nw = reading.nw ?? "0.00"; // only read with a value: the rank bar and guest today row wait for one
   const auth = useAuthChrome();
   const signedIn = isSignedIn(auth);
-  const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
   const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
-  const next = signedIn ? null : nextRankTarget(rank);
   const guestCopy = guestHome(useShell((s) => s.prefs.locale));
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
   const bar = phoneApp ? appBarLabels(phoneApp.app, screen) : null;
-  const progress = next ? Math.min(1, Math.max(0, Number(nw) / Number(next.at))) : 1;
   const edge = useRef<{ x: number; y: number } | null>(null);
   // Edge gestures (17 §3.2.3): swipe up on the edge bar = Home; swipe from the left edge = back.
   const gestures = {
@@ -277,9 +272,7 @@ export function PhoneHome() {
             <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.demoBalance : guestCopy.label}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
-            ) : (
-              <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
-            )}
+            ) : null}
           </div>
           {/* Card 9: a logged-out stranger reads what Quay is, then the one thing to do, then the example numbers.
               Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
@@ -307,14 +300,6 @@ export function PhoneHome() {
               <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="phone-first-trade-guide" onClick={() => store.getState().open("portfolio")}>{S.firstTradeGuide}</Button>
             </>
           ) : null}
-          {next && reading.nw !== null && (
-            <>
-              <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
-                <span style={{ width: `${progress * 100}%` }} />
-              </div>
-              <p className="num muted rank-next" data-testid="rank-next">{`${S.next}: ${RANK_NAMES[next.rank]} · `}<MoneyText amount={nw} ctx="chip" />{" / "}<MoneyText amount={next.at} ctx="chip" /></p>
-            </>
-          )}
         </section>
         <div className="app-grid" data-testid="app-grid">
           {GROUPS.map((g) => {

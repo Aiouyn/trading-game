@@ -50,7 +50,7 @@ describe("M1-01 shell auth chrome", () => {
     expect(res.bodyUsed).toBe(true);
   });
 
-  it("logged-out: discoverable Sign in; may still show demo rank", async () => {
+  it("logged-out: discoverable Sign in; does not advertise the demo as Owner", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     const store = createShellStore(mockChannels(new URLSearchParams()));
     await act(async () => {
@@ -58,7 +58,9 @@ describe("M1-01 shell auth chrome", () => {
     });
     await act(async () => { await Promise.resolve(); });
     expect(el.querySelector("[data-testid=sign-in-entry]")?.textContent).toMatch(/Sign in/i);
-    expect(el.querySelector("[data-testid=rank-chip]")?.textContent).toMatch(/R2/);
+    expect(el.querySelector("[data-testid=rank-chip]")).toBeNull();
+    expect(el.textContent).not.toMatch(/R2\s*·\s*Owner/);
+    expect(el.querySelector("[data-testid=release]")?.textContent).toBe("Quay");
   });
 
   it("signed-in: shows own handle; hides Owner/$412k; shows $10k saved balance", async () => {
