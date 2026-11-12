@@ -27,7 +27,7 @@ test.describe("Account next step after signup", () => {
     await expect(page.getByTestId("account-logout")).toBeVisible();
     await expect(page.getByTestId("settings-account")).not.toContainText("M1-06");
     await page.getByTestId("account-open-portfolio").click();
-    await expect(page.getByTestId("portfolio").or(page.getByTestId("pf-overview"))).toBeVisible();
+    await expect(page.getByTestId("pf-overview")).toBeVisible();
   });
 
   test("holding /api/auth/me: Open Portfolio does not flash in", async ({ page }) => {
