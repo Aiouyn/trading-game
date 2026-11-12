@@ -119,9 +119,9 @@ const keyGaps = [SEED, 7, 18, 21, 27, 31, 42, 100].map((seed) => {
     if (prev !== undefined && prev.defId !== s.defId) min = Math.min(min, t - prev.tick);
     last.set(s.headlineKey, { tick: t, defId: s.defId });
   }
-  return { seed, min };
+  return { seed, min: Number.isFinite(min) ? min : null };
 });
-const keyGapFloorHeld = keyGaps.every((g) => g.min >= COMPANY_FLOOR);
+const keyGapFloorHeld = keyGaps.every((g) => g.min === null || g.min >= COMPANY_FLOOR);
 const seed17KeySplit = storyAt(SEED, 27802)!.headlineKey !== storyAt(SEED, 27814)!.headlineKey;
 
 const summary = {
