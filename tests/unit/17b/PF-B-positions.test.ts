@@ -177,7 +177,8 @@ describe("PF-3-09 cards (phone, text scale ≥ 1.5)", () => {
     const lines = halc.split('class="pos-line').slice(1).map((l) => text(l.replace(/^[^>]*>/, "").replace(/<div\s*$/, "")));
     expect(lines[0]).toBe("HALC ▲ +$2,736.00 (+5.7%)");
     expect(lines[1]).toBe("$50,616.00 · 12.3%");
-    expect(lines[2]).toBe(`1,200 @ 39.90 ${EN.colLast} ${decText(TICK.HALC.last, "en")} ▼ −0.35%`);
+    // Card 27 (main) puts Close after the badges, so the extracted line text runs on into "Close": match the start.
+    expect(lines[2].startsWith(`1,200 @ 39.90 ${EN.colLast} ${decText(TICK.HALC.last, "en")} ▼ −0.35%`)).toBe(true);
     expect(h).toContain('class="pos pos-cards pos-phone"');
     expect(html({ cards: true, big: true })).toContain('class="pos pos-cards pos-big"');
   });
