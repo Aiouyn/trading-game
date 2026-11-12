@@ -70,18 +70,40 @@ async function plotBox(page: Page) {
   return { x: b.x + x0, y: b.y, width: Math.max(20, x1 - x0), height: b.height };
 }
 
+/** Bars recorded, their drawn spacing (px, from the library's own mapping), the widest spacing the chart allows, and how
+ *  many bars the plot holds at that widest spacing. */
+async function geometry(page: Page) {
+  return page.evaluate(() => {
+    const h = (window as unknown as { __quayChart: Hook & { chart: () => { timeScale: { maxBarSpacing: number } } } }).__quayChart;
+    const d = h.data() as { time: number; close: number }[];
+    const v = h.visible()!;
+    const max = h.chart().timeScale.maxBarSpacing;
+    const x = (i: number) => h.coord(d[i]!.time / 120, d[i]!.close).x ?? NaN;
+    const spacing = d.length >= 2 ? x(d.length - 1) - x(d.length - 2) : max;
+    return { n: d.length, spacing, max, fitAtMax: ((v.to - v.from) * spacing) / max };
+  });
+}
+
 test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, ticks, resize; kept per account and asset", async ({ browser, baseURL }, info) => {
   test.skip(info.project.name !== "desktop", "desktop journey; the phone test covers 390 touch");
   test.setTimeout(240_000);
   const ctx = await browser.newContext();
   try {
-    const stamp = Date.now().toString(36);
+    const stamp = Date.now().toString(36) + info.workerIndex; // two workers can start in the same ms (--repeat-each)
     await register(ctx.request, baseURL!, `TrA${stamp}`);
     const page = await ctx.newPage();
     await page.goto("/broker?asset=HALC");
     await plotted(page, "server");
-    // Enough recorded bars to zoom and pan.
-    await expect.poll(async () => (await hook<unknown[]>(page, "data")).length, { timeout: 60_000, intervals: [1_000] }).toBeGreaterThanOrEqual(8);
+    // Enough recorded bars to zoom and pan: more than the plot holds at its widest bar spacing, plus room to pan. Right
+    // after a server start there are a few bars (one per tick), drawn at the widest spacing with the left of the plot
+    // empty; a wheel zoom-in then does nothing and the fixed left edge leaves no room to pan (from stuck at -3.25 with
+    // 9 bars). The view fits the bars when the page loads, so once there are enough, reload: the fitted bars are
+    // narrower than the widest spacing, and a zoom-in has room to widen them.
+    await expect.poll(async () => { const g = await geometry(page); return g.n - g.fitAtMax; }, { timeout: 120_000, intervals: [1_000] }).toBeGreaterThanOrEqual(4);
+    await page.reload();
+    await plotted(page, "server");
+    const g0 = await geometry(page);
+    expect(g0.spacing, `fitted bar spacing below the widest (${JSON.stringify(g0)})`).toBeLessThan(g0.max - 1);
     const chart = signedBr(page).getByTestId("br-chart");
     const tool = chart.getByTestId("br-trend-tool");
     await expect(tool).toHaveText("Trend line");
@@ -157,7 +179,9 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
     const v0 = await hook<{ from: number; to: number }>(page, "visible");
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.9);
     await page.mouse.wheel(0, -400);
-    await expect.poll(async () => (await hook<{ from: number; to: number }>(page, "visible"))!.from).not.toBe(v0.from);
+    // Zoomed = fewer bars in view. (A new bar also moves "from", so a changed "from" alone does not prove the zoom.)
+    const span = (v: { from: number; to: number }) => v.to - v.from;
+    await expect.poll(async () => span((await hook<{ from: number; to: number }>(page, "visible"))!)).toBeLessThan(span(v0) - 0.5);
     await aligned(page, l1); await aligned(page, l2);
     const v1 = await hook<{ from: number; to: number }>(page, "visible");
     await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.95);
@@ -211,6 +235,9 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
 
     // Another asset: none of HALC's. A line drawn there stays there. (One Broker window at a time: the shell restores
     // saved windows, and the chart hooks follow the last chart mounted.)
+    // The close is a layout change the shell queues to IndexedDB; a page load before it commits restores the closed
+    // window next to the new one, and the page-wide line list then holds both windows' lines (a 10x run: MRDN's line
+    // listed first on the HALC page). So wait for the save before the next load.
     const closeBroker = async () => {
       await page.getByTestId("win-broker").first().getByTestId("win-close").click();
       await expect(page.getByTestId("win-broker")).toHaveCount(0);
@@ -273,6 +300,24 @@ test("desktop: draw, select, adjust, delete, cancel; aligned through zoom, pan, 
   }
 });
 
+/** The visible range once it has stopped moving: a touch pan glides on (kinetic scroll) after the finger lifts, so a
+ *  read right after the first change is mid-glide (CI 43140479723: from 19.65, 18.78, then 16.73 over 700 ms). Settled =
+ *  unchanged over 10 consecutive animation frames. */
+async function settledVisible(page: Page) {
+  await expect.poll(() => page.evaluate(() => new Promise<boolean>((resolve) => {
+    const h = (window as unknown as { __quayChart: Hook }).__quayChart;
+    const first = JSON.stringify(h.visible());
+    let frames = 0;
+    const step = () => {
+      if (JSON.stringify(h.visible()) !== first) return resolve(false);
+      if (++frames >= 10) return resolve(true);
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }))).toBe(true);
+  return hook<{ from: number; to: number }>(page, "visible");
+}
+
 /** A one-finger touch drag through CDP (Playwright's touchscreen only taps). */
 async function touchDrag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, steps = 8) {
   const cdp = await page.context().newCDPSession(page);
@@ -293,7 +338,7 @@ test("phone 390 touch: tap-tap a line, drag its end, no pan while placing, pan o
   test.setTimeout(150_000);
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   try {
-    await register(ctx.request, baseURL!, `TrP${Date.now().toString(36)}`);
+    await register(ctx.request, baseURL!, `TrP${Date.now().toString(36)}${info.workerIndex}`);
     const page = await ctx.newPage();
     await page.goto("/broker?asset=HALC");
     await plotted(page, "server");
@@ -325,7 +370,7 @@ test("phone 390 touch: tap-tap a line, drag its end, no pan while placing, pan o
     // Placing: a touch drag draws (press-drag-release) and does not pan.
     await tool.tap();
     await expect(tool).toHaveAttribute("aria-pressed", "true");
-    const v1 = await hook<{ from: number; to: number }>(page, "visible");
+    const v1 = await settledVisible(page);
     box = await plotBox(page);
     await touchDrag(page, { x: box.x + box.width * 0.25, y: box.y + box.height * 0.7 }, { x: box.x + box.width * 0.6, y: box.y + box.height * 0.3 });
     expect(await hook<{ from: number; to: number }>(page, "visible")).toEqual(v1);
