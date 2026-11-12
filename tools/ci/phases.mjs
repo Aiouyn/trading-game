@@ -14,6 +14,7 @@ export const CORE_PHASES = [
   { id: "build", argv: ["npm", "run", "build"] },
   { id: "check-hooks", argv: ["node", "tools/check-hooks.mjs", ".next/static", ".next/server"] },
   { id: "test", argv: ["npm", "test"] },
+  { id: "formal-money", argv: ["npm", "run", "test:formal-money"] },
   { id: "skipped-checks", argv: ["node", "tools/ci/skipped-checks.mjs"] },
   { id: "pw-install", argv: ["npx", "playwright", "install", "--with-deps", "chromium"] },
   { id: "route-budget", argv: ["node", "tools/ci/route-budget.mjs", "/broker"] },

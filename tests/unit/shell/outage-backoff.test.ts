@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyGuestDemo, applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { RETRY_BASE_MS, RETRY_CAP_MS, RETRY_JITTER, retryDelayMs } from "@/shell/contracts/backoff";
 import { MockFeed, SERVER_QUOTE_POLL_MS } from "@/shell/contracts/mockFeed";
-import { getFeed, setFeed } from "@/shell/contracts/useChannel";
+import { getFeed, openChannel, setFeed } from "@/shell/contracts/useChannel";
 import { mockChannels } from "@/shell/mockChannels";
 import { createShellStore } from "@/shell/store";
 import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
@@ -171,5 +171,197 @@ describe("signed-in feed connection flag and retry cadence", () => {
     expect(flags).toEqual([]);
     expect(store.getState().channels.system.connection).toBe("live");
     off(); feed.stop();
+  });
+});
+
+describe("reconnect does not publish the pre-outage book", () => {
+  // M1-05 sameBook flake: after offline, player A was live at tick 27702 while B and GET /api/market were at 27704.
+  // The online handler asked for a fresh read while one was still in flight, that read was dropped, and resync
+  // replayed the cached snap so the Broker looked live on the stale book.
+  const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  type NetListener = () => void;
+  const listeners: Record<"online" | "offline", Set<NetListener>> = { online: new Set(), offline: new Set() };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    listeners.online.clear();
+    listeners.offline.clear();
+    vi.stubGlobal("window", {
+      addEventListener: (type: "online" | "offline", fn: NetListener) => { listeners[type].add(fn); },
+      removeEventListener: (type: "online" | "offline", fn: NetListener) => { listeners[type].delete(fn); },
+    });
+  });
+  afterEach(() => {
+    setFeed(null);
+    setLiveMarketForTests(undefined);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  async function hungReconnect(steps = 2) {
+    const market = new LiveMarket();
+    let onLine = true;
+    vi.stubGlobal("navigator", { get onLine() { return onLine; } });
+    const slots: { resolve: (r: Response) => void; reject: (e: unknown) => void }[] = [];
+    let hold = false;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.endsWith("/api/market")) return Promise.resolve(new Response("no", { status: 404 }));
+      if (!hold) return Promise.resolve(Response.json(market.snapshot()));
+      return new Promise<Response>((resolve, reject) => { slots.push({ resolve, reject }); });
+    }));
+    const feed = new MockFeed({ empty: true, nw: "10000.00", seed: 1 }, { authoritativeQuotes: true, random: () => 0.5 });
+    const store = openChannel(feed, "ticker:wl_default");
+    await feed.serverSync();
+    await flush();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(store.get().state).toBe("live");
+    const adopted = feed.tick;
+
+    hold = true;
+    await vi.advanceTimersByTimeAsync(SERVER_QUOTE_POLL_MS);
+    await flush();
+    expect(slots).toHaveLength(1);
+
+    const stale = market.snapshot();
+    expect(stale.tick).toBe(adopted);
+    for (let i = 0; i < steps; i++) market.step();
+    const fresh = market.snapshot();
+    expect(fresh.tick).toBe(adopted + steps);
+
+    onLine = false;
+    for (const fn of listeners.offline) fn();
+    expect(store.get().state).toBe("stale");
+    onLine = true;
+    for (const fn of listeners.online) fn();
+    await flush();
+    return { feed, store, slots, stale, fresh, adopted, market };
+  }
+
+  it("an in-flight read that resolves with the pre-outage book does not become the live book", async () => {
+    const { feed, store, slots, stale, fresh, adopted } = await hungReconnect();
+    // Back online, still on the outage book, and not live on it: the fresh read has not landed.
+    expect(store.get().state).toBe("stale");
+    expect(store.get().tick).toBe(adopted);
+
+    slots[0]!.resolve(Response.json(stale));
+    await flush();
+    // The replacement read is already in flight. No poll interval and no backoff wait.
+    expect(slots).toHaveLength(2);
+    expect(feed.tick).toBe(adopted);
+    expect(store.get().state).toBe("stale");
+
+    slots[1]!.resolve(Response.json(fresh));
+    await flush();
+    expect(feed.tick).toBe(fresh.tick);
+    expect(feed.body("ticker:wl_default")).toEqual(fresh.quotes);
+    expect(store.get()).toMatchObject({ state: "live", tick: fresh.tick });
+    store.close();
+  });
+
+  it("an in-flight read that fails as the browser comes back retries at once", async () => {
+    const { feed, store, slots, fresh, adopted } = await hungReconnect();
+    expect(store.get().state).toBe("stale");
+    slots[0]!.reject(new TypeError("Failed to fetch"));
+    await flush();
+    expect(slots).toHaveLength(2);
+    expect(feed.tick).toBe(adopted);
+    slots[1]!.resolve(Response.json(fresh));
+    await flush();
+    expect(feed.connection).toBe("live");
+    expect(feed.tick).toBe(fresh.tick);
+    expect(store.get()).toMatchObject({ state: "live", tick: fresh.tick });
+    store.close();
+  });
+
+  it("an in-flight tick between the adopted book and the server is not what goes live", async () => {
+    // Gatekeeper: adopted 27700, held body 27701, server 27703 must not go live at 27701.
+    const { feed, store, slots, adopted, market } = await hungReconnect(0);
+    market.step();
+    const mid = market.snapshot();
+    expect(mid.tick).toBe(adopted + 1);
+    market.step();
+    market.step();
+    const server = market.snapshot();
+    expect(server.tick).toBe(adopted + 3);
+    slots[0]!.resolve(Response.json(mid));
+    await flush();
+    expect(feed.tick).toBe(adopted);
+    expect(store.get().state).toBe("stale");
+    expect(slots).toHaveLength(2);
+    slots[1]!.resolve(Response.json(server));
+    await flush();
+    expect(feed.tick).toBe(server.tick);
+    expect(store.get()).toMatchObject({ state: "live", tick: server.tick });
+    store.close();
+  });
+});
+
+describe("a slow quote read after online still becomes live", () => {
+  const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  type NetListener = () => void;
+  const listeners: Record<"online" | "offline", Set<NetListener>> = { online: new Set(), offline: new Set() };
+  const latency = SERVER_QUOTE_POLL_MS + 500;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    listeners.online.clear();
+    listeners.offline.clear();
+    vi.stubGlobal("window", {
+      addEventListener: (type: "online" | "offline", fn: NetListener) => { listeners[type].add(fn); },
+      removeEventListener: (type: "online" | "offline", fn: NetListener) => { listeners[type].delete(fn); },
+    });
+  });
+  afterEach(() => {
+    setFeed(null);
+    setLiveMarketForTests(undefined);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  async function onlineWithSlowReads(body: () => unknown) {
+    const market = new LiveMarket();
+    let onLine = true;
+    let delay = 0;
+    vi.stubGlobal("navigator", { get onLine() { return onLine; } });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.endsWith("/api/market")) return Promise.resolve(new Response("no", { status: 404 }));
+      const reply = () => Response.json(delay === 0 ? market.snapshot() : body());
+      if (delay === 0) return Promise.resolve(reply());
+      return new Promise<Response>((resolve) => { setTimeout(() => resolve(reply()), delay); });
+    }));
+    const feed = new MockFeed({ empty: true, nw: "10000.00", seed: 1 }, { authoritativeQuotes: true, random: () => 0.5 });
+    const store = openChannel(feed, "ticker:wl_default");
+    await feed.serverSync();
+    await flush();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(store.get().state).toBe("live");
+    delay = latency;
+    onLine = false;
+    for (const fn of listeners.offline) fn();
+    expect(store.get().state).toBe("stale");
+    onLine = true;
+    for (const fn of listeners.online) fn();
+    await flush();
+    return { market, feed, store };
+  }
+
+  it("goes live within one read and one poll when each read outlasts the poll", async () => {
+    const { market, store } = await onlineWithSlowReads(() => market.snapshot());
+    const server = market.snapshot().tick;
+    await vi.advanceTimersByTimeAsync(latency + SERVER_QUOTE_POLL_MS);
+    await flush();
+    expect(store.get()).toMatchObject({ state: "live", tick: server });
+    store.close();
+  });
+
+  it("adopts a restarted server three ticks lower within one read and one poll", async () => {
+    const { market, feed, store } = await onlineWithSlowReads(() => ({ ...market.snapshot(), tick: feed.adoptedServerTick()! - 3 }));
+    const restarted = feed.adoptedServerTick()! - 3;
+    await vi.advanceTimersByTimeAsync(latency + SERVER_QUOTE_POLL_MS);
+    await flush();
+    expect(store.get()).toMatchObject({ state: "live", tick: restarted });
+    store.close();
   });
 });
