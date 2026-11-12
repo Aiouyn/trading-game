@@ -1,7 +1,7 @@
 "use client";
 // Review / submitting / acked (UI cards 4 and 5). Review repeats the server's estimate and holds the Broker's only primary
 // ("Place order"). The acked panel reads our IntentResult (and its MyFill) from `me`: nothing is computed here.
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { decText } from "@/apps/portfolio/positions/format";
 import type { IntentResult, MyFill, PreviewRes } from "@/shell/contracts/channels";
@@ -34,10 +34,47 @@ export interface ReviewBlockProps {
   previewRows?: ReactNode;
 }
 
+/** Keep the trigger line and Place inside the ticket column (or window body) of a short 840×560 window. */
+function scrollReviewIntoColumn(block: HTMLElement) {
+  const trigger = block.querySelector<HTMLElement>("[data-testid=br-trigger]");
+  const place = block.querySelector<HTMLElement>("[data-testid=br-place]");
+  const top = trigger ?? place ?? block;
+  const bottom = place ?? trigger ?? block;
+  if (block.closest(".br-phone")) return;
+  const winBody = block.closest(".win-body");
+  /* A tall edit form leaves the window body scrolled down; Review is shorter and sits at the top. */
+  if (winBody instanceof HTMLElement) winBody.scrollTop = 0;
+  const col = block.closest(".br-col-ticket");
+  const box = (col instanceof HTMLElement ? col : winBody);
+  if (!(box instanceof HTMLElement)) {
+    top.scrollIntoView({ block: "nearest" });
+    bottom.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  if (box.scrollHeight <= box.clientHeight + 1) {
+    box.scrollTop = 0;
+    return;
+  }
+  const cr = box.getBoundingClientRect();
+  const t = top.getBoundingClientRect();
+  if (t.top < cr.top) box.scrollTop -= cr.top - t.top;
+  const b2 = bottom.getBoundingClientRect();
+  if (b2.bottom > cr.bottom) box.scrollTop += b2.bottom - cr.bottom;
+  const t2 = top.getBoundingClientRect();
+  if (t2.top < cr.top) box.scrollTop -= cr.top - t2.top;
+}
+
 export function ReviewBlock({ t, action, stale, halted, canPlace, pendingTick, failed, offline, onEdit, onPlace, trigger, previewRows }: ReviewBlockProps) {
   const submitting = pendingTick !== null;
+  const blockRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const id = requestAnimationFrame(() => {
+      if (blockRef.current) scrollReviewIntoColumn(blockRef.current);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [trigger, submitting]);
   return (
-    <section className="br-review-block" data-testid="br-review-block" aria-labelledby="br-review-title">
+    <section ref={blockRef} className="br-review-block" data-testid="br-review-block" aria-labelledby="br-review-title">
       <h3 id="br-review-title" className="br-action" data-testid="br-action">{action}</h3>
       {trigger && <p className="br-note" data-testid="br-trigger">{trigger}</p>}
       {previewRows}

@@ -172,7 +172,7 @@ $$ P_{exec} = P_{mid}\,\big(1 \pm (s/2 + Y\,\sigma_{daily}\sqrt{Q P / ADV})\big)
 - Each order fills at most `3 × ADV` of notional per tick; the rest stays open and continues next tick.
 - Phase 0 fills sequentially in order-id order inside a tick. The uniform-price batch auction between players arrives with multiplayer.
 
-**Order types.** Market fills next tick. Limit fills once the execution price (spread and impact included) is at or better than the limit, at that price. Stop triggers when mid crosses the stop (buy: at or above, sell: at or below) and then fills like a market order, so a gap fills through the stop. `tif: 'day'` expires at the next game-day boundary; `gtc` (default) stays. Orders on a halted asset wait for the reopen.
+**Order types.** Market fills next tick. Limit fills once the execution price (spread and impact included) is at or better than the limit, at that price. Stop triggers when the last trade crosses the stop (buy: last at or above, sell: last at or below) and then fills like a market order, so a gap fills through the stop. `tif: 'day'` is the default and expires at the next game-day boundary; `gtc` stays. Orders on a halted asset wait for the reopen.
 
 **Rules.** Long only, no margin. Stocks trade whole shares (`qtyStep: 1`); crypto and commodities are fractional. A buy is rejected if it would exceed cash minus what other open buys reserve (limit price, or estimated price for market and stop). A sell is rejected beyond the held quantity minus other open sells. If a buy no longer fits the cash at fill time (price moved), it fills what the cash covers and the rest is cancelled with `insufficient cash`.
 
