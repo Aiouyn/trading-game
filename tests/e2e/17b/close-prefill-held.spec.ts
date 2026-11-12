@@ -56,6 +56,9 @@ test("desktop: after a fresh sign-in, Positions open, a new HALC fill's Close is
   await expect(page.getByTestId("pf-positions").first()).toHaveAttribute("data-state", "live");
   await expect(page.locator('[data-testid="pos-row"][data-asset="HALC"]')).toHaveCount(0);
 
+  // Positions stays mounted (the B1 case); raise Broker so Portfolio does not intercept Review / Place.
+  const brokerWin = page.getByTestId("win-broker").filter({ has: page.getByTestId("br-ticker").filter({ hasText: "HALC" }) });
+  await brokerWin.locator(".tb-name").click();
   await tkt.getByTestId("br-qty").fill("7");
   await expect(tkt.getByTestId("br-est")).toBeVisible({ timeout: 10_000 });
   await expect.poll(async () => {
@@ -71,6 +74,7 @@ test("desktop: after a fresh sign-in, Positions open, a new HALC fill's Close is
 
   const halc = page.locator('[data-testid="pos-row"][data-asset="HALC"]');
   await expect(halc).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("win-portfolio").first().locator(".tb-name").click();
   const close = halc.getByTestId("pos-close");
   await expect.poll(async () => (await close.getAttribute("aria-disabled")) !== "true" && !(await close.isDisabled()), { timeout: 5_000 }).toBe(true);
   await close.click();
