@@ -89,6 +89,10 @@ export const EN = {
   /** [provisional] aria-label of the loading skeleton (aria-busy). */
   loading: "Loading order ticket",
   updating: "Updating…",
+  /** Card 19: why Review / Place is disabled during an outage, next to the button. */
+  reviewWaitConnection: "Connection lost. You can review once prices are live again.",
+  reviewWaitPrices: "Prices are updating. You can review once they are live.",
+  placeWaitConnection: "Connection lost. You can place this order once prices are live again.",
   couldntLoad: "Couldn't load",
   retry: "Retry",
   // ---- UI card 5: order types, prices, Open orders ----
