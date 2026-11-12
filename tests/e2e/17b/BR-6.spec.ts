@@ -59,6 +59,25 @@ async function axe(page: Page) {
 const rowId = async (r: Locator) => (await r.getAttribute("data-testid"))!.replace("br-oo-row-", "");
 /** Mask what moves with the tick (placed tick, pending tick) so a baseline compares only the cancel UI. */
 const volatile = (page: Page) => [list(page).getByTestId("br-oo-meta"), list(page).getByTestId("br-oo-cancelling")];
+/** Subpixel Y of the committed 950×124 BR-6-11 baselines. A 123 px list at Y+0.1875
+ *  screenshots as 124 px (ceil(y+h)-floor(y)); an integer Y would be 123 px and miss them. */
+const LIST_Y_PHASE = 0.1875;
+/** Blur, let --dur-fast transitions finish on the paused clock, and pin `root` to LIST_Y_PHASE.
+ *  After Fill the list's Y fraction can differ on CI, so the 1 px / 10 px-radius transparent
+ *  Keep / Yes corners antialias by 1 RGB level from run to run, which `threshold: 0` still
+ *  counts when Playwright's AA skip misses them (CI 43133532999: 14 px on both buttons;
+ *  43138654886: 6 px on Keep only). rAF is not used: the installed clock is paused, so a
+ *  rAF wait would never resolve. */
+async function settleShot(page: Page, root: Locator) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.clock.runFor(200); // --dur-fast is 120 ms
+  await root.evaluate((el, phase) => {
+    const b = el.getBoundingClientRect();
+    const dx = Math.round(b.x) - b.x;
+    const dy = Math.floor(b.y) + phase - b.y;
+    if (dx || dy) (el as HTMLElement).style.translate = `${dx}px ${dy}px`;
+  }, LIST_Y_PHASE);
+}
 
 async function openPaused(page: Page, query = "") {
   await openBrokerPaused(page, `/broker?asset=HALC${query}`, br(page));
@@ -470,6 +489,7 @@ test("BR-6-11 1440: Cancel ≥ 28 px, rows one line, no --acc in idle / hover / 
   const today = br(page).getByTestId("br-today");
   await expect(today).toHaveAttribute("data-dir", "down");
   expect(await today.evaluate((e) => getComputedStyle(e).color)).toBe(SPEC_COLOUR.cbLoss);
+  await settleShot(page, list(page));
   await expect(list(page)).toHaveScreenshot(["BR-6", "cb-1440x900.png"], { mask: volatile(page) });
   await pinHtml(page, "cb", false);
   await pinHtml(page, "hc", true);
@@ -477,6 +497,7 @@ test("BR-6-11 1440: Cancel ≥ 28 px, rows one line, no --acc in idle / hover / 
   await expect.poll(() => border(r.getByTestId("br-oo-keep"))).toEqual(["2px", SPEC_COLOUR.hcLine]);
   expect(await border(cancelBtn(rows(page).nth(1)))).toEqual(["2px", SPEC_COLOUR.hcLine]);
   expect(await r.getByTestId("br-oo-yes").evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe("2px");
+  await settleShot(page, list(page));
   await expect(list(page)).toHaveScreenshot(["BR-6", "hc-1440x900.png"], { mask: volatile(page) });
   await shot(page, "hc");
   await pinHtml(page, "hc", false);
