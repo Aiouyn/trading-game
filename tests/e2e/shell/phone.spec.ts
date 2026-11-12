@@ -23,7 +23,7 @@ test("S1-13 phone home: status bar 44, 4-col 60×60 grid, 5 groups, bottom row, 
   await setTextScale(page, "2");
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--text-scale").trim())).toBe("2");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole("button", { name: /^Back/i }).click();
+  await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
   const label = await page.getByTestId("app-grid").locator(".icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
   expect(label).toBe(23);
   expect(await noHScroll()).toBe(true);
@@ -54,7 +54,7 @@ test("S1-14 long-press 400 ms on the Quay mark opens Recent with ≤ 6 entries",
   await boot(page);
   for (const id of ["markets", "wire", "broker", "portfolio", "messages", "bank", "funds", "insurance"]) {
     await page.getByTestId(`icon-${id}`).click();
-    await page.getByRole("button", { name: /^Back/i }).click();
+    await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
   }
   const mark = await box(page, "quay-mark");
   await page.mouse.move(mark.x + 10, mark.y + 10);
@@ -338,7 +338,7 @@ for (const width of [390, 320]) {
       await page.context().setOffline(false);
       await expect(page.getByTestId("offline-state")).toHaveCount(0);
       // ...and on the home screen.
-      await page.getByRole("button", { name: /^Back/i }).click();
+      await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
       const top = (sel: string) => page.locator(sel).first().evaluate((e) => e.getBoundingClientRect().top);
       const before = await top("[data-testid=widget]");
       await page.context().setOffline(true);
@@ -397,7 +397,7 @@ for (const width of [390, 320]) {
         if (state === "offline") await page.context().setOffline(true);
         await expect(page.getByTestId(state === "error" ? "load-error" : "offline-state")).toBeVisible();
         await tapAndMeasure(`${state} in-app`, ".appbar");
-        await page.getByRole("button", { name: /^Back/i }).click();
+        await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
         await tapAndMeasure(`${state} home`, "[data-testid=widget]");
         if (state === "offline") await page.context().setOffline(false);
       }

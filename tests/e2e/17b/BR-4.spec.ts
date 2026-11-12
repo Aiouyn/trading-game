@@ -421,7 +421,7 @@ test("BR-4-14 phone text scale 2: segment stacks, no horizontal overflow, amount
   phoneOnly(info.project.name);
   await boot(page, "/settings");
   await setTextScale(page, "2");
-  await page.getByRole("button", { name: /^Back/i }).click();
+  await page.getByRole("button", { name: /^Back(?:\s|$)/i }).click();
   await page.getByTestId("icon-broker").click();
   await expect(brAny(page)).toHaveAttribute("data-state", "live");
   await brAny(page).getByTestId("br-qty").fill("40");
