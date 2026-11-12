@@ -22,6 +22,8 @@ import { LiveMarket, setLiveMarketForTests } from "@/server/market/clock";
 import {
   MUTATION_SESSION_LIMIT_DEFAULT,
   assertMutationAllowed,
+  forwardedClientFromRight,
+  mutationBucketCountForTests,
   resetMutationLimits,
   setMutationLimitNowForTests,
 } from "@/server/mutationLimit";
@@ -31,6 +33,8 @@ const ENV_KEYS = [
   "QUAY_MUTATION_SESSION_LIMIT",
   "QUAY_MUTATION_IP_LIMIT",
   "QUAY_MUTATION_WINDOW_MS",
+  "QUAY_MUTATION_MAX_KEYS",
+  "QUAY_TRUSTED_PROXY_HOPS",
   "QUAY_TRUST_PROXY",
 ] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]])) as Record<(typeof ENV_KEYS)[number], string | undefined>;
@@ -44,7 +48,7 @@ function restoreEnv(): void {
 }
 
 let now = 10_000_000;
-function configure(opts: { session?: number; ip?: number; windowMs?: number; trust?: boolean }): void {
+function configure(opts: { session?: number; ip?: number; windowMs?: number; trust?: boolean; maxKeys?: number; hops?: number }): void {
   now = 10_000_000;
   setMutationLimitNowForTests(() => now);
   if (opts.session !== undefined) process.env.QUAY_MUTATION_SESSION_LIMIT = String(opts.session);
@@ -52,6 +56,10 @@ function configure(opts: { session?: number; ip?: number; windowMs?: number; tru
   if (opts.ip !== undefined) process.env.QUAY_MUTATION_IP_LIMIT = String(opts.ip);
   else delete process.env.QUAY_MUTATION_IP_LIMIT;
   process.env.QUAY_MUTATION_WINDOW_MS = String(opts.windowMs ?? 60_000);
+  if (opts.maxKeys !== undefined) process.env.QUAY_MUTATION_MAX_KEYS = String(opts.maxKeys);
+  else delete process.env.QUAY_MUTATION_MAX_KEYS;
+  if (opts.hops !== undefined) process.env.QUAY_TRUSTED_PROXY_HOPS = String(opts.hops);
+  else delete process.env.QUAY_TRUSTED_PROXY_HOPS;
   if (opts.trust) process.env.QUAY_TRUST_PROXY = "1";
   else delete process.env.QUAY_TRUST_PROXY;
   resetMutationLimits();
@@ -166,13 +174,13 @@ describe("M3-05 mutation rate limits", () => {
     configure({ session: 100, ip: 1, trust: true });
     const a = await signUp("IpA");
     const b = await signUp("IpB");
-    const ok = await place(a, "key-ip-00001", mkt("HALC", "BUY", "1"), { "x-forwarded-for": "203.0.113.8" });
+    const ok = await place(a, "key-ip-00001", mkt("HALC", "BUY", "1"), { "x-forwarded-for": "198.51.100.9, 203.0.113.8" });
     expect(ok.status).toBe(200);
-    const shared = await place(b, "key-ip-00002", mkt("HALC", "BUY", "1"), { "x-forwarded-for": "203.0.113.8, 198.51.100.1" });
+    const shared = await place(b, "key-ip-00002", mkt("HALC", "BUY", "1"), { "x-forwarded-for": "203.0.113.1, 203.0.113.8" });
     expectLimited(shared, await shared.json());
     expect((await ledger(b)).cashCents).toBe(START_CASH_CENTS);
 
-    const otherIp = await place(a, "key-ip-00003", mkt("HALC", "BUY", "1"), { "x-forwarded-for": "203.0.113.9" });
+    const otherIp = await place(a, "key-ip-00003", mkt("HALC", "BUY", "1"), { "x-forwarded-for": "203.0.113.8, 203.0.113.9" });
     expect(otherIp.status).toBe(200);
 
     configure({ session: 100, ip: 1, trust: false });
@@ -214,5 +222,41 @@ describe("M3-05 mutation rate limits", () => {
     const req = () => new Request("http://localhost/api/broker/orders", { headers: { cookie: a, origin: "http://localhost" } });
     for (let i = 0; i < MUTATION_SESSION_LIMIT_DEFAULT; i++) await assertMutationAllowed(req());
     await expect(assertMutationAllowed(req())).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+  });
+
+  it("junk cookies share one IP cap and the bucket map stays bounded", async () => {
+    configure({ session: 1000, ip: 2, trust: true, maxKeys: 4, hops: 1 });
+    expect(forwardedClientFromRight("1.1.1.1, 203.0.113.8", 1)).toBe("203.0.113.8");
+    expect(forwardedClientFromRight("9.9.9.9, 203.0.113.8, 198.51.100.2", 2)).toBe("203.0.113.8");
+    const junk = (n: number, xff: string) => new Request("http://localhost/api/broker/orders", {
+      headers: { cookie: `${SESSION_COOKIE_NAME}=junk-${n}-not-a-session`, origin: "http://localhost", "x-forwarded-for": xff },
+    });
+    await assertMutationAllowed(junk(0, "9.9.9.9, 203.0.113.8"));
+    await assertMutationAllowed(junk(1, "8.8.8.8, 203.0.113.8"));
+    await expect(assertMutationAllowed(junk(2, "7.7.7.7, 203.0.113.8"))).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    for (let i = 0; i < 5000; i++) {
+      await assertMutationAllowed(junk(1000 + i, `spoof-${i}, 203.0.113.8`)).catch((err: unknown) => {
+        if (!(err instanceof Error) || !("code" in err) || (err as { code?: string }).code !== "RATE_LIMITED") throw err;
+      });
+    }
+    expect(mutationBucketCountForTests()).toBe(1);
+
+    for (let i = 1; i <= 20; i++) {
+      await assertMutationAllowed(junk(i, `1.2.3.4, 203.0.113.${i}`)).catch(() => undefined);
+    }
+    expect(mutationBucketCountForTests()).toBeLessThanOrEqual(4);
+  });
+
+  it("drops expired buckets on the next check", async () => {
+    configure({ session: 10, ip: 10, trust: true, windowMs: 1_000, maxKeys: 10 });
+    const req = (ip: string) => new Request("http://localhost/api/broker/orders", {
+      headers: { cookie: `${SESSION_COOKIE_NAME}=junk-${ip}`, origin: "http://localhost", "x-forwarded-for": ip },
+    });
+    await assertMutationAllowed(req("203.0.113.1"));
+    await assertMutationAllowed(req("203.0.113.2"));
+    expect(mutationBucketCountForTests()).toBe(2);
+    now += 1_000;
+    await assertMutationAllowed(req("203.0.113.3"));
+    expect(mutationBucketCountForTests()).toBe(1);
   });
 });
