@@ -18,7 +18,7 @@
 //    line of their own under it; VWAP's name says where its sum starts.
 //  - Colours are tokens read with getComputedStyle (chartTheme.ts) and re-read when the palette, hc, motion or text
 //    scale changes. The last-price tag and the halt band are DOM overlays moved with transforms (no layout shift).
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, TickMarkType, createChart,
   type CandlestickData, type HistogramData, type IChartApi, type IPriceLine, type ISeriesApi, type LineData, type MouseEventParams, type Time, type UTCTimestamp,
@@ -158,7 +158,7 @@ const NO_STUDIES: readonly StudyOn[] = [];
 
 interface Api { chart: IChartApi; series: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Histogram">; line: IPriceLine | null; theme: ChartTheme }
 
-function chartOptions(th: ChartTheme, locale: string, precision: number, s: Pick<BrStrings, "tickLabel">) {
+function chartOptions(th: ChartTheme, locale: string, precision: number, s: Pick<BrStrings, "tickLabel">, lockView = false) {
   const c = th.colours;
   return {
     autoSize: true,
@@ -185,9 +185,11 @@ function chartOptions(th: ChartTheme, locale: string, precision: number, s: Pick
     // Prices are formatted per series (priceFormat below): a chart-wide price formatter would print the RSI pane's 0..100
     // scale with the asset's decimals too.
     localization: { locale: pfNumberLocale(locale), timeFormatter: (time: Time) => barTime(tickOfTime(time), locale, s) },
-    kineticScroll: { touch: !th.reducedMotion, mouse: false },
-    // A vertical drag on a phone scrolls the page, never the chart.
-    handleScroll: { vertTouchDrag: false },
+    kineticScroll: { touch: !th.reducedMotion && !lockView, mouse: false },
+    // A vertical drag on a phone scrolls the page, never the chart. While a trend
+    // line is being placed, lock the view: the layer takes the pointer, and this
+    // also stops a kinetic fling from the pan just before the tool was tapped.
+    handleScroll: { vertTouchDrag: false, horzTouchDrag: !lockView, pressedMouseMove: !lockView, mouseWheel: !lockView },
   };
 }
 
@@ -252,6 +254,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
   const tagRef = useRef<HTMLSpanElement>(null);
   const bandRef = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
+  const lockRef = useRef(false);
   const shown = useRef<readonly Bar[]>([]);
   const points = useRef<Points>({ data: [], vol: [], last: null });
   const [cursor, setCursor] = useState<Cursor>(NO_CURSOR);
@@ -304,7 +307,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     let series: ISeriesApi<"Candlestick">;
     let volume: ISeriesApi<"Histogram">;
     try {
-      chart = createChart(plot, chartOptions(th, locale, precision, t));
+      chart = createChart(plot, chartOptions(th, locale, precision, t, lockRef.current));
       series = chart.addSeries(CandlestickSeries, seriesOptions(th, precision, locale));
       volume = chart.addSeries(HistogramSeries, VOLUME_OPTIONS);
       series.attachPrimitive({ updateAllViews: () => redraw.forEach((f) => f()) });
@@ -317,6 +320,9 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     api.current = a;
     const lines = studyLines.current;
     const onMove = () => place();
+    // The tag follows every chart redraw: the library rescales the price axis on its own frame, after setData, so a
+    // tag placed only on data / range / size events could sit off the last price until the next one (S1-03).
+    redraw.add(place);
     chart.timeScale().subscribeVisibleLogicalRangeChange(onMove);
     chart.timeScale().subscribeSizeChange(onMove);
     const onCross = (p: MouseEventParams<Time>) => {
@@ -330,7 +336,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
       th = next;
       a.theme = next;
       try {
-        chart.applyOptions(chartOptions(th, locale, precision, t));
+        chart.applyOptions(chartOptions(th, locale, precision, t, lockRef.current));
         series.applyOptions(seriesOptions(th, precision, locale));
         volume.setData(points.current.vol.map((v) => volPoint(v, th)));
         a.line?.applyOptions({ color: th.colours.lastLine });
@@ -360,6 +366,7 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     }
     return () => {
       mo.disconnect();
+      redraw.delete(place);
       chart.unsubscribeCrosshairMove(onCross);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onMove);
       chart.timeScale().unsubscribeSizeChange(onMove);
@@ -372,12 +379,18 @@ export function CandleChart({ bars, last, halted, t, locale, label, onFail, draw
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    lockRef.current = draw?.placing != null;
     const a = api.current;
     if (!a) return;
-    a.chart.applyOptions(chartOptions(a.theme, locale, precision, t));
+    a.chart.applyOptions(chartOptions(a.theme, locale, precision, t, lockRef.current));
     a.series.applyOptions(seriesOptions(a.theme, precision, locale));
-  }, [locale, precision, t]);
+    // Pin the range so a kinetic fling from a pan just before placing cannot keep sliding.
+    if (lockRef.current) {
+      const range = a.chart.timeScale().getVisibleLogicalRange();
+      if (range) a.chart.timeScale().setVisibleLogicalRange(range);
+    }
+  }, [locale, precision, t, draw?.placing]);
 
   // Bars: a frame that only replaces bars in place (same t: the live bar, a closed bar's final values, late volume) and/or
   // appends newer ones is an update that keeps the view; anything else (a new range) is new data.
