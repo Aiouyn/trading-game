@@ -1,48 +1,27 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# Card 16: close Settings after sign-up so the goal/guide is visible
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+Written 12 Nov 2026, 01:36 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
 
-## Why this unit
+## Value and scope
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+Playtest e30f6822, shots `d07_A_after_signup_0s.png` and `d08_A_home_signed_in_0s.png`, and log: a new player clicks Sign in (which opens Settings → Account), creates an account, and Settings stays frontmost. After `goto('/')` it is still on top (Appearance) and covers Portfolio's "YOUR GOAL" and first-trade guide. Phase B of the same playtest even had to "close settings" before it could continue.
 
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+Reproduced on this base (`abf14e57`), unfixed, production `next start` :3374, 1440×900: after UI sign-up, `top=win-settings` and URL `/settings`; after `goto('/')`, Settings still frontmost and its rect overlaps `pf-goal`. See `/workspace/avalon/evidence/ui-settings-after-signup/repro-base/`.
 
-### Readiness flags checked on `43127f9e` (not this unit)
+`AccountSettings` already switches to the signed-in Account panel after `authSession.register` but never closes or lowers the Settings window (or the phone Settings app). The goal/guide itself is Builder's — this card does not change it. After a successful sign-up only (not a failed attempt, and not a later Sign-in of an existing account), close Settings: desktop removes the window, phone returns to home, so the goal/guide is visible. The player can reopen Settings from the account chip.
 
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
+Base `abf14e57f719689e1a94a65223c6f24ab71a6ae0`. Branch `ui/settings-after-signup`, worktree `/workspace/avalon/ui-settings-after-signup`. Forge (trading-game bot) `<forge@trading-game.local>`. Unset `GIT_*` for npm-test and Git subprocesses. No push, PR, or merge. Stay off the goal/guide body, the ticket's order-type/TIF, card 10 safe-area files, Boards, the engine, Broker deep-link reuse (card 15), and the analytics consent prompt (card 17).
 
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
+## Sketch
 
-## Smallest observable outcome
+1. A small helper next to `openAccountSettings` (auth chrome): close the Settings window on desktop, or clear `phoneApp` when it is Settings on phone.
+2. `AccountSettings` calls it after a successful `register` only. Login stays on the signed-in Account panel. A failed register leaves Settings open with the error.
+3. Closing Settings persists through the existing window-save path, so a later `/` does not restore Settings on top (the d08 case).
 
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
+## Acceptance and proof plan
 
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
-
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
-
-## Plan
-
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
-
-## Acceptance
-
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+- Fail-first unit: after a successful register with Settings already open, the helper / submit path leaves no Settings window (desktop) or no Settings phone app; the goal/guide is not mounted or changed by this code. A failed register keeps Settings open. Login does not close Settings.
+- Fail-first e2e (desktop 1440): `/` → Sign in → Create account with a fresh handle. `win-settings` is gone, `pf-goal` and `pf-guide` are visible, and Settings does not overlap them. A subsequent `goto('/')` still has no Settings window on top. On the current tree this fails (Settings stays frontmost and overlaps the goal).
+- lint, typecheck, build, check-hooks, route-budget (`/broker` ≤ 220,160 B, report B; expect unchanged vs base), ledger map-no-dup, npm test, all with `GIT_*` unset. Hook flags must be unset for the no-flag build / check-hooks.
+- Clean e2e in a scratch worktree with fresh `.data`, ports 3300–3399 never 3199: the new spec plus a small desktop settings/auth cohort if one already covers Sign in (`tests/e2e/settings` and/or M2-01 only if it stays green without depending on Settings staying open). Delete the scratch afterwards.
+- Evidence under `/workspace/avalon/evidence/ui-settings-after-signup/`. Do not push.
