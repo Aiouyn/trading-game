@@ -18,6 +18,8 @@ jobs:
       - run: npm run lint
       # Lesson 13: kill servers by pid file only; reject name-kills (tools/ci/lesson13-pid-kills.mjs).
       - run: npm run ci:lesson13
+      # Lesson 31: next start must pass -H/--hostname or the bind guard exits 1.
+      - run: npm run ci:next-start-host
       # Test spawns of boot-register / next start must use a temp store (tools/ci/spawn-temp-store.mjs).
       - run: npm run ci:spawn-temp-store
       - run: npm run typecheck

@@ -491,7 +491,7 @@ export function scanRepo(root) {
 
 function label(kind) {
   if (kind === "boot-register") return "boot-register";
-  if (kind === "next-start") return "next start";
+  if (kind === "next-start") return "next" + " start";
   throw new Error(`unknown kind: ${String(kind)}`);
 }
 

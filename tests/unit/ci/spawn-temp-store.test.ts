@@ -24,9 +24,9 @@ describe("spawn-temp-store: boot-register and next start need a temp store", () 
     expect(scanSource('spawnSync("tsx", ["tools/ops/boot-register.ts"]);\n', "tests/bad.ts")).toEqual([
       { file: "tests/bad.ts", line: 1, kind: "boot-register" },
     ]);
-    const next = ['import { spawn } from "node:child_process";', 'spawn("npx", ["next", "start", "-p", "9"]);'].join("\n");
+    const next = ['import { spawn } from "node:child_process";', 'spawn("npx", ["next", "start", "-H", "127.0.0.1", "-p", "9"]);'].join("\n");
     expect(scanSource(next, "tests/next.ts")).toEqual([{ file: "tests/next.ts", line: 2, kind: "next-start" }]);
-    expect(scanSource('execSync("npx next start -p 9");\n', "tests/next-cmd.ts")).toEqual([
+    expect(scanSource('execSync("npx next start -H 127.0.0.1 -p 9");\n', "tests/next-cmd.ts")).toEqual([
       { file: "tests/next-cmd.ts", line: 1, kind: "next-start" },
     ]);
     expect(scanSource('execFileSync("tsx", ["tools/ops/boot-register.ts"]);\n', "tests/file.ts")).toEqual([
@@ -102,7 +102,7 @@ describe("spawn-temp-store: boot-register and next start need a temp store", () 
   it("flags fixtures on disk and ignores files outside tests/", () => {
     const root = fixture({
       "tests/bad-boot.ts": 'spawnSync("tsx", ["tools/ops/boot-register.ts"]);\n',
-      "tests/bad-next.ts": 'execSync("npx next start -p 9");\n',
+      "tests/bad-next.ts": 'execSync("npx next start -H 127.0.0.1 -p 9");\n',
       "tests/ok.ts": 'function run() {\n  env.QUAY_DATA_DIR = dir;\n  spawnSync("tsx", ["tools/ops/boot-register.ts"]);\n}\n',
       "tests/nested/comment.ts": '// next start\n// boot-register\n',
       "tools/ignored.ts": 'spawnSync("tsx", ["tools/ops/boot-register.ts"]);\n',
@@ -122,7 +122,7 @@ describe("spawn-temp-store: boot-register and next start need a temp store", () 
     expect(bad.stderr).toContain("spawnBootRegister");
 
     const okRoot = fixture({
-      "tests/ok.ts": 'function run() {\n  env.QUAY_DATA_DIR = dir;\n  execSync("npx next start -p 9");\n}\n',
+      "tests/ok.ts": 'function run() {\n  env.QUAY_DATA_DIR = dir;\n  execSync("npx next start -H 127.0.0.1 -p 9");\n}\n',
     });
     const ok = spawnSync(process.execPath, [SCRIPT, "--root", okRoot], { encoding: "utf8" });
     expect(ok.status).toBe(0);
