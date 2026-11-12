@@ -62,3 +62,76 @@ test("empty book has no Close", async ({ page }, info) => {
   await expect(page.getByTestId("pos-empty")).toBeVisible();
   await expect(page.getByTestId("pos-close")).toHaveCount(0);
 });
+
+
+const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
+
+const ticketOf = (page: Page, asset: string) =>
+  page.getByTestId("win-broker").filter({ has: page.getByTestId("br-ticker").filter({ hasText: asset }) }).getByTestId("broker");
+
+async function waitEnabled(loc: ReturnType<Page["getByTestId"]>, ms = 10_000) {
+  await expect.poll(async () => (await loc.getAttribute("aria-disabled")) !== "true" && !(await loc.isDisabled()), { timeout: ms }).toBe(true);
+}
+
+async function reviewPlace(page: Page, tkt: ReturnType<typeof ticketOf>) {
+  await expect(tkt.getByTestId("br-est")).toBeVisible({ timeout: 10_000 });
+  await waitEnabled(tkt.getByTestId("br-review"));
+  await tkt.getByTestId("br-review").click();
+  const place = page.getByTestId("br-review-block").getByTestId("br-place");
+  await expect(place).toBeVisible();
+  await waitEnabled(place);
+  const before = await page.getByTestId("br-ack-title").count();
+  await place.click();
+  await expect.poll(async () => page.getByTestId("br-ack-title").count(), { timeout: 15_000 }).toBe(before + 1);
+  return before + 1;
+}
+
+test("desktop: after a buy, Close then Place gives exactly 1 new ack", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await boot(page, "/broker?asset=HALC");
+  const tkt = ticketOf(page, "HALC");
+  await expect(tkt).toHaveAttribute("data-state", "live");
+  await tkt.getByTestId("br-qty").fill("7");
+  const afterBuy = await reviewPlace(page, tkt);
+  expect(afterBuy).toBe(1);
+
+  await page.getByTestId("tile-portfolio").click();
+  await page.getByTestId("win-portfolio").first().getByTestId("pf-tab-positions").click();
+  await expect(page.getByTestId("pf-positions").first()).toHaveAttribute("data-state", "live");
+  const halc = page.locator('[data-testid="pos-row"][data-asset="HALC"]');
+  await expect(halc.getByTestId("pos-close")).toBeVisible();
+  const acksBeforeClose = await page.getByTestId("br-ack-title").count();
+  await halc.getByTestId("pos-close").click();
+
+  await expect(tkt).toHaveAttribute("data-phase", "edit");
+  await expect(tkt.getByTestId("br-side-sell")).toHaveAttribute("aria-pressed", "true");
+  await expect(tkt.getByTestId("br-qty")).not.toHaveValue("");
+  expect(await page.getByTestId("br-ack-title").count()).toBe(acksBeforeClose);
+
+  const afterSell = await reviewPlace(page, tkt);
+  expect(afterSell).toBe(acksBeforeClose + 1);
+});
+
+test("desktop: Close on HALC while a NRON ticket is open pre-fills HALC and leaves the NRON draft", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await boot(page, "/broker?asset=NRON");
+  const nron = ticketOf(page, "NRON");
+  await expect(nron).toHaveAttribute("data-state", "live");
+  await nron.getByTestId("br-qty").fill("4");
+  await expect(nron.getByTestId("br-qty")).toHaveValue("4");
+  await expect(nron.getByTestId("br-side-buy")).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByTestId("tile-portfolio").click();
+  await page.getByTestId("win-portfolio").first().getByTestId("pf-tab-positions").click();
+  await expect(page.getByTestId("pf-positions").first()).toHaveAttribute("data-state", "live");
+  await page.locator('[data-testid="pos-row"][data-asset="HALC"]').getByTestId("pos-close").click();
+
+  const halc = ticketOf(page, "HALC");
+  await expect(halc).toBeVisible();
+  await expect(halc).toHaveAttribute("data-phase", "edit");
+  await expect(halc.getByTestId("br-side-sell")).toHaveAttribute("aria-pressed", "true");
+  await expect(halc.getByTestId("br-qty")).toHaveValue("1200");
+
+  await expect(nron.getByTestId("br-qty")).toHaveValue("4");
+  await expect(nron.getByTestId("br-side-buy")).toHaveAttribute("aria-pressed", "true");
+});
