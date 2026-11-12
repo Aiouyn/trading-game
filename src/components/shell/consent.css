@@ -1,16 +1,55 @@
+/* Docked above the desktop shelf / in the phone layout above the bottom row.
+   Bottom inset respects the safe area; --sa-bottom may be unset on this base. */
 .quay-consent {
+  --consent-sa: max(var(--sa-bottom, 0px), env(safe-area-inset-bottom));
   position: fixed;
   z-index: var(--z-chrome);
-  right: var(--sp-8);
-  bottom: var(--sp-8);
-  width: min(320px, 92vw);
-  padding: var(--sp-8);
+  left: 0;
+  right: 0;
+  bottom: calc(var(--shelf-h) + var(--consent-sa));
+  width: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-8);
+  padding: var(--sp-8) var(--sp-12, 12px);
   background: var(--win);
   color: var(--fg);
-  border: 1px solid var(--line);
-  border-radius: var(--r-input);
-  box-shadow: var(--elev-sheet);
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
 }
-.quay-consent-text { margin: 0 0 var(--sp-8); font-size: var(--fs-13); }
-.quay-consent-actions { display: flex; gap: var(--sp-8); justify-content: flex-end; }
-.is-phone .quay-consent { bottom: calc(var(--sp-8) + var(--hit-touch)); }
+.quay-consent-text {
+  margin: 0;
+  flex: 1 1 12rem;
+  font-size: var(--fs-13);
+}
+.quay-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+  align-items: center;
+  justify-content: flex-start;
+}
+/* Phone: in-flow dock above the bottom row, so it does not cover .phone-appbody. */
+.is-phone [data-testid="consent-dock"] .quay-consent {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: auto;
+}
+
+[data-testid="consent-dock"] {
+  flex: none;
+  width: 100%;
+}
+.quay-consent-actions .chip {
+  min-height: var(--hit-pointer);
+}
+.is-phone .quay-consent-actions .chip {
+  min-height: var(--hit-touch);
+}
