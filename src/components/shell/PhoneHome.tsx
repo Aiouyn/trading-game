@@ -208,7 +208,9 @@ export function PhoneHome() {
   const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
-  const next = signedIn ? null : nextRankTarget(rank);
+  // Signed-in and guest both get the next-rank bar (M2-02 / 17 §3.2.3).
+  // Loading is not signed_in, so a Hustler bar is not invented before the session is known.
+  const next = nextRankTarget(rank);
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -267,7 +269,7 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label">{signedIn ? S.demoBalance : S.netWorth}</span>
+            <span className="label">{S.netWorth}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
@@ -280,16 +282,10 @@ export function PhoneHome() {
           ) : null}
           <div className="hero-nw" data-testid="hero-nw"><MoneyText value={nw} ctx="hero" /></div>
           <div className="widget-row">
-            {signedIn ? (
-              <span className="today muted" data-testid="today">{S.demoTradingNote}</span>
-            ) : (
-              <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
-            )}
-            {!signedIn && <Sparkline />}
+            <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
+            {/* Honest no-data stub until an NW series exists; never invented points. */}
+            <Sparkline />
           </div>
-          {signedIn ? (
-            <p className="muted" data-testid="phone-demo-disclaimer">{S.starterPlaceholder}</p>
-          ) : null}
           {next && (
             <>
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
