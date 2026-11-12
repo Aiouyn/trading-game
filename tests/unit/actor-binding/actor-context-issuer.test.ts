@@ -7,6 +7,7 @@ import {
   MemoryBindingStore,
   actorIdFor,
   isIssuedActorContext,
+  makeCheckpoint,
   requireBoundActor,
   type ActorContext,
 } from "@/server/actor-binding";
@@ -86,5 +87,45 @@ describe("actor-binding: contexts cannot be self-issued (q4)", () => {
       if ((await minted(() => binding.bindToken("tok"))).length) hits.push(name);
     }
     expect(hits).toEqual([]);
+  });
+
+  it("Reflect.construct does not skip the enabled or load gate and cannot mint a context", async () => {
+    const clock = new Clock();
+    const fakeAuth = { resolveSession: async () => view, peekSession: async () => view };
+    const store = new MemoryBindingStore();
+    await store.save(makeCheckpoint([{ accountId, actorId, boundAtMs: 1 }]));
+    // A legitimate open must still load the checkpoint, so a skipped load is observable.
+    const honest = await ActorBinding.open(authService(clock), store, { enabled: true, now: clock.now });
+    expect(honest.snapshot().bindings.map((row) => row.accountId)).toEqual([accountId]);
+    const before = await store.load();
+
+    const forgedStore = new MemoryBindingStore();
+    await forgedStore.save(honest.snapshot());
+    let constructed: ActorBinding | undefined;
+    let constructError: unknown;
+    try {
+      constructed = Reflect.construct(ActorBinding, [fakeAuth, forgedStore, clock.now]) as ActorBinding;
+    } catch (err) {
+      constructError = err;
+    }
+
+    if (constructed !== undefined) {
+      const mintedCtxs = await minted(() => constructed.bindToken("tok"));
+      expect(mintedCtxs).toEqual([]);
+      try {
+        await constructed.bindToken("tok");
+        throw new Error("Reflect.construct instance accepted bindToken");
+      } catch (err) {
+        expect(err).toBeInstanceOf(BindingError);
+        expect((err as BindingError).code).toBe("ACTOR_BINDING_DISABLED");
+      }
+      // Load gate: an instance that never went through open() must not present the seeded bindings
+      // as if they had been loaded, and must not have overwritten the store by minting.
+      expect(await forgedStore.load()).toEqual(before);
+    } else {
+      expect(constructError).toBeInstanceOf(BindingError);
+      expect((constructError as BindingError).code).toBe("ACTOR_BINDING_DISABLED");
+      expect(await forgedStore.load()).toEqual(await store.load());
+    }
   });
 });
