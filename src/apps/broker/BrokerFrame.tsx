@@ -7,7 +7,7 @@
 // `candles` channel, so it shows in the loading and error branches too when the asset is known.
 // UI card 10: Trade | About under the header. About (AssetPage) replaces the ticket column in place; on phone it is a
 // pushed screen. The draft and phase live here, so switching back finds the ticket as it was.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { Sheet } from "@/components/shell/Sheet";
 import { Button } from "@/components/ui/Button";
@@ -23,7 +23,7 @@ import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
 import { PreviewRows, SimpleTicket } from "./SimpleTicket";
 import { fillOf, orderIdOf } from "./ticketResult";
-import { subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
+import { setTicketSubmitting, subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
 import { dropPlaced, notePlaced, releaseTickets, settlePlaced } from "./placedAcks";
 import { BR_STACK_SCALE, reasonCopy } from "./strings-en";
 import { useBrStrings } from "./useBrStrings";
@@ -108,11 +108,14 @@ export function BrokerFrame({ context }: { context?: string }) {
     setPhase({ kind: "edit" });
     apply?.();
   };
+  const submittingRef = useRef(false);
   // Apply a later Close while this ticket is already mounted on the same asset. Never reviews or places.
   // Returns true only when this ticket consumed the prefill (same assetId); otherwise pending stays for the mount.
+  // Mid-Place: consume and drop so nothing is held; the in-flight ack still lands.
   useEffect(() => subscribeTicketPrefill((p) => {
     const a = context ? parseAssetId(context) : null;
     if (!a || p.assetId !== a) return false;
+    if (submittingRef.current) return true;
     toFreshEdit(() => {
       setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
       setTouched(false);
@@ -198,6 +201,13 @@ export function BrokerFrame({ context }: { context?: string }) {
   // Our IntentResult, once `me` carries it.
   const placed = phase.kind === "placed" ? phase : null;
   const result = placed?.intentId && me.body ? me.body.intents.find((i) => i.intentId === placed.intentId) ?? null : null;
+  const submitting = phase.kind === "placed" && !placed?.failed && !(placed?.intentId && result);
+  useLayoutEffect(() => {
+    submittingRef.current = submitting;
+    if (!assetId) return;
+    setTicketSubmitting(assetId, submitting);
+    return () => setTicketSubmitting(assetId, false);
+  }, [submitting, assetId]);
 
   const row = ticker.body?.rows[assetId];
   const halted = row?.halted === true;
