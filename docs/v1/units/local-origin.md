@@ -9,7 +9,7 @@
 
 A loopback server accepts a same-origin auth mutation from both `127.0.0.1:PORT` and `localhost:PORT`. `QUAY_TRUSTED_HOSTS` is that allowlist on its own. `QUAY_TRUST_PROXY` only decides whether `X-Forwarded-Host` and `X-Forwarded-For` are believed, and only the exact value `1` counts. A process that binds or serves a non-loopback host without that flag refuses to start. When `VERCEL` is set or `QUAY_PUBLIC_HOST` is set, only the configured hosts pass, and a spoofed Host or Origin does not.
 
-`next start` with no `-H` listens on `::` (every interface). That is not loopback. `npm run dev` and `npm start` bind `127.0.0.1`, which still accepts `localhost` on this host file.
+`next start` with no `-H` listens on `::` (every interface). That is not loopback. With no `-H`, `next start` prints `ready` and the network address before `exit(1)`. `npm run dev` and `npm start` bind `127.0.0.1`, which still accepts `localhost` on this host file.
 
 ## Files
 

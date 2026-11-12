@@ -21,7 +21,7 @@
 | `QUAY_AUTH_STORE=memory` | In-memory only (tests) |
 | `QUAY_PUBLIC_HOST` | Pin CSRF Origin/Referer to this host only. Loopback aliases are not added. |
 | `QUAY_TRUSTED_HOSTS` | Extra allowed hosts, comma-separated. Works without `QUAY_TRUST_PROXY`. |
-| `QUAY_TRUST_PROXY` | Exactly `1` to believe `X-Forwarded-Host` and `X-Forwarded-For`. A non-loopback bind refuses to start without it. |
+| `QUAY_TRUST_PROXY` | Exactly `1` to believe `X-Forwarded-Host` and `X-Forwarded-For`. A non-loopback bind refuses to start without it. With no `-H`, `next start` prints `ready` and the network address before `exit(1)`. |
 
 ## Rate limits
 In-process login/register attempt throttle (10 / 15 min per handle). Full edge rate limits remain **M3-05 before private alpha**.
