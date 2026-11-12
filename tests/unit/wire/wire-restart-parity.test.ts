@@ -1,7 +1,7 @@
 // gatekeeper b321731f NO-GO b1: from game day ~4 a restart re-added up to 17 old rumor/denial rows that a server
 // that never restarted had already dropped (catalog ids among them), and they stayed for good. Cause: restoreStories
 // merged every rebuildRumorStories() row under the saved `wire`, not only the rows retainStories would still hold.
-// Lesson (REVIEW-LESSONS 32): a restart at any tick lists exactly the rows (ids and values) of a never-restarted server.
+// Lesson (REVIEW-LESSONS 33): a restart at any tick lists exactly the rows (ids and values) of a never-restarted server.
 import { describe, expect, it } from "vitest";
 import { LiveMarket } from "@/server/market/clock";
 import { MemoryStormWorldStore } from "@/server/market/stormWorldStore";

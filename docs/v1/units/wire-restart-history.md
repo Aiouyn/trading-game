@@ -63,10 +63,18 @@ Filled 2026-11-12 19:52 Europe/Paris (commit `fbf554b0`). Product commit `6d76ae
 
 ## Gatekeeper b321731f NO-GO b1: a restart brought back old rows
 
-Written 2026-11-12 Europe/Paris, before the fix. Base: head `b321731f` with origin/main `45440483` merged forward (`a1e2c3fb`, --no-ff; one doc conflict in REVIEW-LESSONS.md, main's #30 kept, ours renumbered to #31).
+Written 2026-11-12 Europe/Paris, before the fix. Base: head `b321731f` with origin/main `45440483` merged forward (`a1e2c3fb`, --no-ff; one doc conflict in REVIEW-LESSONS.md, main's #30 kept, ours renumbered to #31). origin/main `eea61d1b` was then merged forward too (`d9298aaa`; same file, main's #31 kept, ours are #32 and #33).
 
 - Gap: from game day ~4, a restart re-added up to 17 old rumor and denial rows that a never-restarted server had already dropped (6 catalog ids: w-27790, w-27886, w-28234, w-28318, w-28414, w-28606), and they stayed for good. Repro: gatekeeper `gk-diff.ts`, N=2880 (N=1440 and N=2160 clean).
 - Cause: `restoreStories` (clock.ts:121-125 on `b321731f`) merged every `rebuildRumorStories()` row the save lacked, even when the saved `wire` was present. `rebuildRumorStories()` applies `retainStories` to the rebuilt rows alone, so its own STORY_KEEP window kept old rumor rows the live list had already trimmed. Once 60+ rumors are held, the pre-existing `slice(-0)` trim (room 0) never removes them again.
 - Fix (minimal): when `wire` exists, add only rebuilt rumor rows that `retainStories` holds right now (claim pending, or resolved within the last 60 ticks) and that are not already in `wire`. The hold test moved into `storyHoldPredicate()`, shared with `retainStories` (no behaviour change there). A snapshot without `wire` keeps today's path (every rebuilt row). Out of scope, unchanged: the `slice(-0)` trim itself (the dropped rumor-trim unit) and the `.tmp` sweep (backlog).
 - Tests first: `tests/unit/wire/wire-restart-parity.test.ts`. A restart at START_TICK+3600 (fixed secret) and at the gk-diff point (seed 17, 2880 steps, gatekeeper's secret) lists exactly the ids and canonical-JSON values of a server that never restarted, and after +120 steps both list the same ids. Later values are not compared: a restart re-marks prices on main's path (`quotes equal after +120 false` on main's clock too), owned by `eng/market-restart-marks`.
 - f2: the prod e2e now compares canonical JSON rows (sorted keys). Rumor-linked rows skip the fields the resumed clock may restamp when a claim resolves (phase, cause, source record, effects).
+
+### b1 results
+
+Filled 2026-11-12 21:25 Europe/Paris. Evidence: `/workspace/avalon/evidence/sys-wire-restart-history/gk-fix/`.
+
+- Red/green: `wire-restart-parity.test.ts` fails on `b321731f`'s clock (both cases: 16 and 17 re-added rows, the 6 gatekeeper catalog ids among them) and passes on head. The b3 units (21) still pass.
+- gk-diff (gatekeeper's script, unchanged) on head: N=1440 60/60/60 rows, N=2160 64/64/64, N=2880 190/190/190; extra in boot 0, canonical live≠boot 0, catalog ids after +120 equal (23, 28, 148), nothing only-in-restarted. On `b321731f`'s clock N=2880 gave 207 boot rows, 17 extra, 6 catalog ids only-in-restarted. `quotes equal after +120` is false on both clocks (main's restart re-marks prices, not this unit).
+- Preflight, e2e in a fresh detached worktree, port-avalon verify and a seed-17 prod SIGKILL replay (desktop 1280 and phone 390, signed-in, api canonical-equal, `/wire` and reload list every row): all passed on the final head. Exact numbers are in the evidence folder and `/workspace/avalon/sys-PLAN.md`.
