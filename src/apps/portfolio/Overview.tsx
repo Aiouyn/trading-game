@@ -147,11 +147,13 @@ export interface OverviewViewProps {
   phone: boolean;
   /** Text scale >= 1.5 (STACK_SCALE): each row stacks, label line on top, value line below (Studio fix c). */
   stacked?: boolean;
+  /** False for a guest: the example book's rank is not the visitor's (card 20). Default true for isolated view tests. */
+  showRank?: boolean;
   onRetry: () => void;
 }
 
 /** Pure view of one `me` channel state (unit-testable without a feed). */
-export function OverviewView({ view, rank, locale, phone, stacked = false, onRetry }: OverviewViewProps) {
+export function OverviewView({ view, rank, locale, phone, stacked = false, showRank = true, onRetry }: OverviewViewProps) {
   const t = pfStrings(locale);
   const cls = `pf-ov${phone ? " pf-phone" : ""}${stacked ? " pf-stacked" : ""}`;
   if (view.state === "loading") {
@@ -180,7 +182,7 @@ export function OverviewView({ view, rank, locale, phone, stacked = false, onRet
   return (
     <div className={cls} data-testid="pf-overview" data-state={view.state} data-stats={me.nwStats ? "1" : "0"}>
       <Hero me={me} t={t} stale={view.state === "stale"} />
-      <RankBlock rank={rank} t={t} />
+      {showRank ? <RankBlock rank={rank} t={t} /> : null}
       <section className="pf-block pf-summary" data-testid="pf-summary" aria-label={t.balances}>
         <table className="pf-rows"><tbody>
           {Object.entries(me.balances).map(([code, amount]) => (
@@ -212,5 +214,5 @@ export function Overview({ phone }: { phone: boolean }) {
     : auth.status === "signed_out" ? <p className={`pf-goal-guest muted${phone ? " pf-phone" : ""}`} data-testid="pf-goal-guest">{pfStrings(locale).guestGoal}</p> : null;
   // Retry asks the feed for a fresh snap. Against the mock's error / denied modes it is a no-op by design (the mode is
   // fixed for the page); against the server it re-requests the channel.
-  return <>{goal}<OverviewView view={view} rank={rank} locale={locale} phone={phone} stacked={stacked} onRetry={() => getFeed().resync("me")} /></>;
+  return <>{goal}<OverviewView view={view} rank={rank} locale={locale} phone={phone} stacked={stacked} showRank={isSignedIn(auth)} onRetry={() => getFeed().resync("me")} /></>;
 }
