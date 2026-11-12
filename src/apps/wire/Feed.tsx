@@ -8,9 +8,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { Button } from "@/components/ui/Button";
 import type { NewsBody, WireItem } from "@/shell/contracts/channels";
 import { getFeed, type ChannelView } from "@/shell/contracts/useChannel";
+import { authSession, useAuthSession } from "@/shell/authSession";
 import { BreakingStrip } from "./BreakingStrip";
 import { FilterChips, filterItems } from "./FilterChips";
 import { ItemDetail } from "./ItemDetail";
+import { feedHelp } from "./feedHelp";
 import { fill, type WireFilter, type WireStrings } from "./strings";
 import { WireItemRow } from "./WireItemRow";
 import { WireSkeletonList } from "./Skeleton";
@@ -34,6 +36,8 @@ export interface PhoneSub { title: string; backLabel: string; onBack: () => void
 export interface WireHost {
   phone: boolean;
   openAsset(assetId: string): void;
+  /** Opens Broker with no ticket pre-fill (empty All-feed next step). */
+  openBroker?(): void;
   /** Section 6 for an open FILING item; App mounts the filings channel only inside it. */
   filing(filingId: string): ReactNode;
   pushPhone(sub: PhoneSub | null): void;
@@ -73,6 +77,9 @@ export function Feed({ view, t, host = NO_HOST, select }: { view: ChannelView<Ne
   /** The open id at the last commit: closing returns focus to that row's button. */
   const prevOpen = useRef<string | null>(null);
   const split = useSplit(root, host.phone);
+  const auth = useAuthSession();
+  const help = feedHelp(t.locale);
+  useEffect(() => { void authSession.ensureBoot(); }, []);
 
   const body = view.body;
   // Derived during render: a new `select` is applied once there is a body to look it up in.
@@ -140,6 +147,13 @@ export function Feed({ view, t, host = NO_HOST, select }: { view: ChannelView<Ne
     savedTop.current = 0;
     setScrolled(false);
   };
+  const resetFilter = () => {
+    setFilter("all");
+    toTop();
+    const chip = root.current?.querySelector<HTMLButtonElement>('[data-filter="all"]');
+    chip?.focus({ preventScroll: true });
+    chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
   const onOpen = (id: string) => {
     const it = visible.find((i) => i.id === id);
     if (it) setOpen({ id, last: it });
@@ -162,7 +176,22 @@ export function Feed({ view, t, host = NO_HOST, select }: { view: ChannelView<Ne
         {view.state === "loading" ? (
           <WireSkeletonList label={t.loading} />
         ) : rows.length === 0 ? (
-          <p className="wire-state" data-testid="wire-empty">{t.empty}</p>
+          <div className="wire-empty-panel">
+            <p className="wire-state" data-testid="wire-empty">{t.empty}</p>
+            {filter !== "all" ? (
+              <div className="wire-empty-help" data-testid="wire-empty-help">
+                <p>{help.filtered}</p>
+                <Button variant="secondary" size="sm" className="wire-empty-reset" data-testid="wire-show-all" onClick={resetFilter}>{help.reset}</Button>
+              </div>
+            ) : auth.status === "loading" ? (
+              <div className="wire-empty-auth-skel" data-testid="wire-empty-auth-skel" aria-hidden="true" />
+            ) : auth.status === "signed_in" ? (
+              <div className="wire-empty-help" data-testid="wire-empty-help">
+                <p>{help.waiting}</p>
+                <Button variant="secondary" size="sm" className="wire-empty-open" data-testid="wire-open-broker" onClick={() => host.openBroker?.()}>{help.openBroker}</Button>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <ul className="wire-list" data-testid="wire-list" tabIndex={0} aria-label={t.listLabel} ref={list}
             onScroll={(e) => { if (!replaced) savedTop.current = e.currentTarget.scrollTop; setScrolled(e.currentTarget.scrollTop > 0); }}>
