@@ -71,9 +71,9 @@ test("Boot runs once per page load: an R0 client-side route change shows no boot
   await page.goto("/settings?rank=R0");
   await expect(page.getByTestId("boot")).toBeVisible(); // R0 boot (900 ms)
   await expect(page.getByTestId("quay-ready")).toBeVisible();
-  await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/help?rank=R0"));
+  await page.getByTestId("tile-portfolio").click();
   const before = await page.locator(".win").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")).sort().join(","));
-  expect(before).toBe("win-help,win-settings");
+  expect(before).toBe("win-portfolio,win-settings");
   await page.evaluate(() => {
     const w = window as unknown as { __bootSeen: boolean };
     w.__bootSeen = false;
