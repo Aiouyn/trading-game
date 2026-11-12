@@ -106,6 +106,7 @@ export const EN: WireStrings = {
   retry: S.retry,
   headlines: {
     "wire.news.earningsBeat": "{company} beats earnings expectations",
+    "wire.news.earningsExpectations": "{company} earnings {beatMiss} expectations",
     "wire.rumor.takeover": "Takeover talk around {company}",
     "wire.filing.ownership5": "{filer} discloses a major stake in {company}",
     "wire.market.blockTrade": "Block trade: {qty} {asset}",
@@ -239,6 +240,7 @@ export const FR: WireStrings = {
   retry: "Réessayer",
   headlines: {
     "wire.news.earningsBeat": "{company} dépasse les attentes de résultats",
+    "wire.news.earningsExpectations": "{company} earnings {beatMiss} expectations",
     "wire.rumor.takeover": "Rumeurs de rachat autour de {company}",
     "wire.filing.ownership5": "{filer} déclare une participation importante dans {company}",
     "wire.market.blockTrade": "Transaction de bloc : {qty} {asset}",

@@ -1,3 +1,4 @@
+import { authorizeFxCommands, type FxActorOptions } from "./actor";
 import { isPlainJson } from "./json";
 import { CURRENCIES, LEGS, SCALE, bounded, canonical, cash, divUp, legIds, minor, pairQuotes, parseCommand, parseFrame, parseGenesis, units, type AutoFx, type Ccy, type Command, type Converted, type Decision, type Frame, type Minor, type Offer, type RejectCode, type State, type Transfer, type Wallet, type WalletId } from "./model";
 class Rejection extends Error { constructor(readonly code: RejectCode) { super(code); } }
@@ -180,11 +181,12 @@ function commands(state: State, f: Frame, cmds: Command[]): State {
   if (s.reservations.length) throw new Error("FX_RESERVATION_LEAK");
   assertFxConservation(s); return s;
 }
-export function advanceFx(state: State, frames: readonly Frame[]): State {
+export function advanceFx(state: State, frames: readonly Frame[], options?: FxActorOptions): State {
   if (!isPlainJson(frames)) throw new Error("INVALID_FX_FRAME");
+  const parsed = frames.map((raw) => parseFrame(raw));
+  authorizeFxCommands(parsed.flatMap((f) => f.commands), options);
   let s = structuredClone(state);
-  for (const raw of frames) {
-    const f = parseFrame(raw);
+  for (const f of parsed) {
     if (f.epoch !== s.epoch) throw new Error("FX_EPOCH_MISMATCH");
     if (f.tick === s.tick && s.lastFrame && canonical(f) === canonical(s.lastFrame)) continue;
     if (f.tick !== s.tick + 1) throw new Error(f.tick <= s.tick ? "FX_FRAME_CONFLICT" : "FX_TICK_GAP");
@@ -193,9 +195,11 @@ export function advanceFx(state: State, frames: readonly Frame[]): State {
   }
   return s;
 }
-export function previewFx(s: State, raw: unknown): Decision {
+export function previewFx(s: State, raw: unknown, options?: FxActorOptions): Decision {
   if (!s.lastFrame) throw new Error("FX_OBSERVATION_REQUIRED");
-  const c = parseCommand(raw), next = commands(structuredClone(s), s.lastFrame, [c]);
+  const c = parseCommand(raw);
+  authorizeFxCommands([c], options);
+  const next = commands(structuredClone(s), s.lastFrame, [c]);
   const r = next.receipts.find((r) => r.id === c.id); if (!r) throw new Error("FX_RECEIPT_MISSING"); return structuredClone(r.result);
 }
 export function publicFx(s: State) {

@@ -4,9 +4,10 @@
  * Remounts children on account key so useChannel stores do not keep a prior feed.
  */
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { setPlacedAcksAccount } from "@/apps/broker/placedAcks";
 import { applyGuestDemo, applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
-import { resetTicketPrefill } from "@/apps/broker/ticketPrefill";
+import { clearTicketSubmitting, resetTicketPrefill } from "@/apps/broker/ticketPrefill";
 import { useShellStore } from "./ShellContext";
 
 export function AuthAccountBoundary({ query, children }: { query: string; children: ReactNode }) {
@@ -15,12 +16,15 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
   const applied = useRef<string | null>(null);
   const authBoundaryKey = isSignedIn(auth) ? auth.account.accountId : "guest";
 
+  // Card 41: an account switch or sign-out drops every pending order toast, so B never sees A's outcome.
+  useLayoutEffect(() => { setPlacedAcksAccount(authBoundaryKey); }, [authBoundaryKey]);
+
   // Layout (before useChannel's passive retain): install the account feed before subscribers
   // rebind. useChannel also tolerates setFeed mid-flight; this keeps the first paint coherent.
   useLayoutEffect(() => {
     if (auth.status === "loading") return;
     if (applied.current === authBoundaryKey) return;
-    if (applied.current !== null) resetTicketPrefill();
+    if (applied.current !== null) { resetTicketPrefill(); clearTicketSubmitting(); }
     applied.current = authBoundaryKey;
     if (isSignedIn(auth)) {
       applySignedInDemo(store, auth.account.accountId, auth.world.marketSeed, {

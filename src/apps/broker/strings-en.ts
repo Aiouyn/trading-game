@@ -61,6 +61,7 @@ export const EN = {
   offlineNoPlace: "You're offline. Prices shown are the last received. Place is off until you're back online.",
   placeOffline: "You're offline. Nothing was sent.",
   placeUnknown: "No answer from the server. This order may have gone through. Check Open orders and Positions before placing it again.",
+  gamePaused: "The game is paused.",
   note: "Prices can fall. That's the game.",
   disclaimer: "Simulated market. Not financial advice.",
   pending: (n: string) => `Pending · tick ${n}`,
@@ -112,6 +113,9 @@ export const EN = {
   /** Review title: action + terms ("Buy 40 HALC · Limit 42.10"); market keeps card 4's bare action. */
   actionTerms: (action: string, terms: string) => `${action} · ${terms}`,
   restingAck: "Order placed. It's in Open orders.",
+  /** Card 41: the shell toast for an order whose ticket was left before its result (17 §3.10.2). */
+  toastRegion: "Order updates",
+  toastDismiss: "Dismiss",
   openOrders: "Open orders",
   noOpenOrders: "No open orders.",
   filledOf: (filled: string, qty: string) => `${filled} / ${qty} filled`,
