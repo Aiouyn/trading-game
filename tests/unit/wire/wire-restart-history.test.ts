@@ -72,3 +72,36 @@ describe("b3: Wire history survives a server restart (same persisted store)", ()
     expect(c.wire().items.map((i) => i.id)).toEqual(want);
   });
 });
+
+describe("b3: bounds and prices", () => {
+  it("STORY_KEEP bound: after a long run the restored Wire equals the live window and stays within the retain bound", () => {
+    const store = new MemoryStormWorldStore();
+    const a = new LiveMarket({ persistStorms: true, stormWorld: store, rumorSecret: SECRET, seed: SEED });
+    stepTo(a, START_TICK + 3 * STORY_KEEP * STORY_EVERY); // three windows: plenty of rows trimmed
+    const live = a.wire().items;
+    expect(live.filter((i) => /^w-\d+$/.test(i.id)).length).toBeLessThanOrEqual(STORY_KEEP);
+    const b = new LiveMarket({ persistStorms: true, stormWorld: store, seed: SEED });
+    expect(b.wire().items.map((i) => i.id)).toEqual(live.map((i) => i.id));
+    expect(b.wire().items.length).toBe(live.length);
+  });
+
+  it("prices: a restart with the Wire restored gives byte-identical quotes and storm state to a restart without it (main's boot)", () => {
+    const store = new MemoryStormWorldStore();
+    const a = new LiveMarket({ persistStorms: true, stormWorld: store, rumorSecret: SECRET, seed: SEED });
+    stepTo(a, START_TICK + 20 * STORY_EVERY);
+    const saved = store.load() as unknown as Record<string, unknown>;
+    expect(saved.wire, "no wire in the saved snapshot").toBeDefined();
+    const stripped = new MemoryStormWorldStore();
+    const noWire = { ...saved }; delete noWire.wire;
+    stripped.save(noWire as never);
+    const withWire = new LiveMarket({ persistStorms: true, stormWorld: store, seed: SEED });
+    const mainBoot = new LiveMarket({ persistStorms: true, stormWorld: stripped, seed: SEED });
+    const same = () => {
+      expect(JSON.stringify(withWire.snapshot())).toBe(JSON.stringify(mainBoot.snapshot()));
+      expect(JSON.stringify(withWire.stormSnapshot())).toBe(JSON.stringify(mainBoot.stormSnapshot()));
+    };
+    same();
+    for (let i = 0; i < 60; i++) { withWire.step(); mainBoot.step(); }
+    same();
+  });
+});
