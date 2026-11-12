@@ -41,6 +41,15 @@ export function parseActorContext(raw: unknown): ActorContext {
   return raw;
 }
 
+/** Own property only (Gatekeeper q5): a prototype-poisoned options bag must not smuggle contexts. */
+export function contextsFromOptions(options?: { contexts?: unknown }): unknown {
+  if (options != null && typeof options === "object" && !Array.isArray(options)
+    && Object.hasOwn(options, "contexts")) {
+    return options.contexts;
+  }
+  return undefined;
+}
+
 export function bindingForGuard(options?: { binding?: unknown }): ActorBinding {
   if (options != null && typeof options === "object" && !Array.isArray(options)
     && Object.hasOwn(options, "binding") && options.binding instanceof ActorBinding) {
@@ -52,7 +61,7 @@ export function bindingForGuard(options?: { binding?: unknown }): ActorBinding {
 export async function assertLiveCoreCommands(frames: readonly CoreFrame[], options?: BankingCoreActorOptions): Promise<void> {
   if (!actorGuardEnabled(options)) return;
   const binding = bindingForGuard(options);
-  const contexts = parseActorContexts(options?.contexts);
+  const contexts = parseActorContexts(contextsFromOptions(options));
   for (const item of collectPlayerCommands(frames)) {
     const context = contexts.get(item.command.id);
     if (context === undefined) throw new BindingError("MISSING_SESSION");
@@ -142,7 +151,7 @@ export function authorizeCoreCommands(
   state?: CoreState,
 ): void {
   if (!actorGuardEnabled(options)) return;
-  const contexts = parseActorContexts(options?.contexts);
+  const contexts = parseActorContexts(contextsFromOptions(options));
   for (const item of collectPlayerCommands(frames)) {
     const context = contexts.get(item.command.id);
     if (context === undefined) throw new BindingError("MISSING_SESSION");
