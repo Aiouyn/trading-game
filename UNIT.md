@@ -1,48 +1,86 @@
-# Card 7: first-fill receipt and position P&L
+# Unit: durable Broker order idempotency (not just the last 50)
 
-Written before implementation. This is the only file changed by the first commit.
+**Branch:** `eng/broker-idempotency`  
+**Base:** `43127f9e` (`eng/broker-headroom`)  
+**Worktree:** `/workspace/avalon/broker-idempotency`  
+**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
+**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
 
-## Value and scope
+## Why this unit
 
-Choose candidate (d). The first successful purchase already says Bought, price, and fee, but gives no immediate answer to "what do I own now and am I up or down?" Keep that receipt and add the current position quantity and explicitly unrealized P&L from the same authoritative me snapshot. Explain that this value changes with prices, and name the existing Portfolio > Positions destination. Show no invented zero, forecast, realized profit, goal completion, or celebratory milestone.
+On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
 
-Bundle candidate (a) only after a failing-before reproduction: make the phone Portfolio's DOM own its initial focus after its lazy mount/remount instead of leaving BODY focused. This is a navigation accessibility repair, not a new app flow. Preserve focus already deliberately inside the new app. Prove Card2's second-Enter path on the merged UI stack.
+The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
 
-Defer (b), scroll continuity, because it is a separate navigation contract and Card6's About framing is already explicit. Defer (c), goal progress while trading, to avoid Builder's goal/guide lane. Do not edit GoalGuide, GoalSlot, goal strings or model, Wire stories, engine, server, market, economy, shared contracts, dependencies, route-budget scripts, limits, or helpers.
+### Readiness flags checked on `43127f9e` (not this unit)
 
-## Exact base, branch, and identity
+| Flag | Status on this base | Why not this unit |
+|---|---|---|
+| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
+| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
+| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
+| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
 
-- Branch ui/broker-fill-feedback, worktree /workspace/avalon/ui-broker-fill-feedback.
-- Base 1f263883407623e21f27bbd26653dd632e27fcad on ui/broker-trade-sheet. This is a stacked UNMERGED UI branch through Card6, final Card5 bfe320dd, original split 009f50bf, and 110583b0. It does not contain Cards1–4 or main's 11540036 preflight fix.
-- Use the broker stack rather than 110583b0 because the new feedback must fit and retain focus in Card6's one phone ticket sheet. Do not rebuild the superseded inline phone ticket or duplicate order logic.
-- Verify Forge (trading-game bot) <forge@trading-game.local> as author and committer. Remove every GIT_* variable from manual npm-test and Git subprocesses. Before every commit inspect log -3 and all new commits, and check for stray init or tracked.txt fixture changes. Never skip hooks.
-- Local checkout only. No cloud, push, PR, deploy, or external handoff. Scratch integration merges are evidence only.
+Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
 
-## Grounding and sketch
+## Smallest observable outcome
 
-BrokerFrame alone owns draft, review, pending intent, and acknowledgement. TicketReview's AckPanel displays IntentResult and MyFill from me. Position.upl and qty are already server strings. Formatting may reuse MoneyText and decText; do not calculate P&L or add a subscription. The same accepted-fill presentation runs inside the desktop ticket or the single PhoneTradeSheet. Rejected, resting, queued, submitting, and missing-position states must not claim a filled holding or show a made-up P&L.
+After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
 
-PhoneHome keeps an app bar while AppBody lazily mounts PortfolioFrame. Account changes and route navigation can remount app bodies. A caller's timer that focuses a soon-to-be-removed node does not own the final mounted destination. If reproduced, focus restoration belongs to the destination Portfolio root's mount, not another timer, MutationObserver, global selector, or polling loop.
+1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
+2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
+3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
+4. A process restart over the same store still honours (1) and (2).
+5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
 
-Two local design candidates were compared. Task/arena tools are not exposed, so no independent-runner review is claimed.
+Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
 
-1. Chosen: extend the existing receipt with server-backed position context. Put the changing position value outside the receipt's polite live region, so every quote does not re-announce the purchase. Keep the existing New order action and all order handlers. Phone Portfolio may recover lost BODY focus on mount at its own focusable root, without stealing an already intentional focus.
-2. Rejected: a global first-trade toast or new completion state and portfolio shortcut protocol. That duplicates Builder's milestone ownership, adds persistence and dismiss policy, and risks a second navigation or submission path. Reusing the full Positions component inside the ticket would also add subscriptions, CSS and unrelated rows.
+## Plan
 
-Rubric: authoritative figures only; immediate post-fill clarity; no duplicate order/goal ownership; correct modal and destination focus; EN/FR at 320/390px and 200% text; small counted /broker delta. The chosen shape has one source of order state and no parallel first-fill storage.
+Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
 
-## Acceptance and proof plan
+## Acceptance
 
-- Keep Bought/Sold quantity, execution price and fee unchanged. Only an acknowledged ACCEPTED fill gets the new holding context. Read its asset's quantity and upl from the same me body; do not treat an absent row as zero or realized P&L. Label stale values as last known. Reject, queued/resting, pending and missing-position cases get no misleading valuation.
-- Put only the stable receipt in role=status. Keep updating position figures outside that live region. Preserve the existing sheet's focus trap, Escape/backdrop/Close, Trade focus return, safe-area and strict 44px controls.
-- Normal pre-fill Broker desktop must remain visually unchanged. Post-fill desktop changes are intentional feedback. Phone sheet receipt and FR200% at320/390 must wrap without horizontal overflow, with Close and New order reachable.
-- Add focused unit red/green proof for receipt values and missing/rejected/queued states. Reproduce and regression-test (a) before shipping its fix. Do not weaken existing tests or broadly regenerate golden images.
-- Freeze final HEAD before final proof. Run lint, typecheck, ordinary production build, check-hooks, ledger map-no-dup, npm test with all GIT_* unset, and unchanged /broker route-budget <=220160 bytes.
-- Measure ordinary-production /broker on exact base 1f263883 and final Card7, and on a scratch merge of approved Cards1–7. Record exact commits, build IDs, counted asset hashes and two page probes per build. This is bundle size, not a runtime speed claim.
-- Preserve Card5's all-built-apps-lazy app-modules.test.tsx contract. Merge Cards1–4 around the Card6 base with the documented ticket-column union, then Card7 last. Keep Card1 compact-desktop shortcut; phone uses Trade. Preserve Card2 Portfolio focusability when resolving any root-ref conflict. Record the merge order and union in evidence.
-- Clean e2e: fresh worktree/install and initially absent .data, real signed-in phone open -> quantity -> review -> Place -> receipt/P&L -> Portfolio position/fill. Also cover desktop, no order before Place or on New order, chunk-abort retry, account second Enter in the integrated stack, and existing affected Broker/Portfolio cohorts.
-- Capture phone and desktop screenshots, post-fill P&L and FR200% views. Use only ports3300–3399, never3302/3199/3102. Existing Chromium only; no apt or --with-deps.
-- Write progress and raw failures under /workspace/avalon/evidence/ui-broker-fill-feedback after each phase. Keep primary worktree and evidence. Remove only owned scratch dirs, stop owned previews, and verify clean final HEAD and Forge identities. Report SHA, exact base/UNIT first, all checks, bytes, screenshots, integration and qualifications. Do not push. Local Node24 versus CI22 and independent Gatekeeper remain qualifications.
+1. UNIT.md is written first (this file), before product-code edits.
+2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
+3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
+4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
+5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
 
-## Rebase note (local, unpushed)
-Card 7 was checkpointed at b5b55b05 on 1f263883, then rebased locally onto the final Card 6 follow-up head 6f58c342 (opaque sticky Trade bar clearance, FR 200% cash wrap, sheet first-trade cap-row e2e, two explained phone goldens; Card 6 UNIT addenda 5f45bb69/54dbe154/aa413b3d/57f3f9c9 first). The rebased tree differs from b5b55b05 only by that Card 6 batch; UNIT.md kept Card 7's own text. The first-fill receipt still renders inside the same Card 6 sheet; all Card 7 checks, fresh-.data e2e and the stack proof are re-run on the rebased exact head rather than carried over.
+---
+
+<!-- Merged from main (latest unit on main). Both unit notes are kept. -->
+
+# Card 29 — Signed-in Home hero says Net worth, not “Demo balance”
+
+**When:** 12 Nov 2026, 06:55 Europe/Paris (CET)
+**Branch:** `ui/signed-in-hero-copy`
+**Base:** `origin/main` `1fd4a6d9cc27a61dfd28ddc6288bf1ecd6ea6f3e` (PR114 after PR111/113)
+**Identity:** Forge (trading-game bot) <forge@trading-game.local>
+**Tier:** low (copy). Not opening a PR. No push this pass.
+
+## Player outcome
+
+A signed-in player looking at Home sees the same “Net worth” hero the spec describes, not “Demo balance” and not “Starter account: $10,000 (demo placeholder, not a live balance).” Their cash and positions are already described in Account as saved on the server. The main screen should not contradict that, and it should not look like a throwaway demo.
+
+## Grounding
+
+- `export/vision-review/complete/17-UX-SCREENS-DESIGN-SYSTEM.md:257` — Home widget: “NET WORTH label + rank chip, serif 44 px NW, today’s change, sparkline, rank progress bar.” The label is Net worth. There is no “Demo balance” line and no $10k “not a live balance” disclaimer on this widget.
+- Same file :240 — desktop status strip: net worth (mono) with today’s %. Not a “Demo balance” tag.
+- Settings › Account already says “Account, cash, and position quantities are saved on the server.” (`src/apps/settings/strings.ts` `accountDisclaimer`; tests in `m1-01-account.test.tsx`). The hero copy is stale relative to that.
+- `docs/v1/M1-01-AUTH.md:15` still says mock trading is not a server save and “Account may show starter cash placeholder only.” That note is about Account, and Account has already moved on. It is not a license to label the Home hero a fake balance.
+- `docs/v1/REVIEW-LESSONS.md` entry 19: while `/api/auth/me` is held, `isSignedIn()` is false. First paint must not flash “Demo balance” or the $10k disclaimer, and must not invent a signed-in number. Guest chrome (Net worth) is the honest unknown-session path.
+
+## Scope (tiny copy)
+
+- Phone Home widget: the label is `S.netWorth` for signed-in and guest. Remove `phone-demo-disclaimer` (`S.starterPlaceholder`) from the signed-in hero.
+- Desktop status strip: drop the signed-in “Demo balance” tag (`strip-demo-tag`). Show today’s % next to NW, as the spec and the guest strip already do.
+- Do not retouch the signed-in today slot or the $20k rank bar — that is card 25 (`ui/signed-in-home-today`).
+- Do not rewrite Account or M1-01-AUTH.md in this card.
+
+## Acceptance / proof
+
+- Fail-first unit: a signed-in Phone Home / StatusStrip still says “Demo balance” and the starter disclaimer before the fix; after the fix the hero label is “Net worth”, `phone-demo-disclaimer` is absent, and `strip-demo-tag` is absent. The $10,000 starter amount may still appear as the NW figure; it is not captioned as a demo placeholder.
+- Auth / first paint: hold `/api/auth/me` — first paint has no “Demo balance”, no “not a live balance” / starter placeholder, and no account handle. After the session resolves signed-in, still no those phrases on the hero or strip.
+- Official-flag e2e on fresh `.data` (register a handle) plus production play at 1280 and 390 with screenshots.
+- Lint, typecheck, build, check-hooks, unit, ledger-no-dup, route-budget, e2e. No push.

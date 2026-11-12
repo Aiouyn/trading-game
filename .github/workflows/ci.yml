@@ -16,11 +16,15 @@ jobs:
       - run: npm run check:paths -- origin/${{ github.base_ref }}
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'v3/quay-shell')
       - run: npm run lint
+      # Lesson 13: kill servers by pid file only; reject name-kills (tools/ci/lesson13-pid-kills.mjs).
+      - run: npm run ci:lesson13
       - run: npm run typecheck
       - run: npm run build
       # AC-HOOKS-PROD: the build above has no e2e flags; neither its client nor its server output may contain a test/mock hook or /__ds code.
       - run: node tools/check-hooks.mjs .next/static .next/server
       - run: npm test
+      # Lesson 17: a skipped, focused, or empty required check is not a pass.
+      - run: node tools/ci/skipped-checks.mjs
       # Route budget: the Broker route's first-load JS on this build is at most FIRST_LOAD_BUDGET_KB gz (tests/e2e/17b/plotChunk.ts;
       # counted as in S1-20; tools/ci/route-budget.mjs).
       - run: npx playwright install --with-deps chromium

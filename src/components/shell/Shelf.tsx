@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { LAYOUTS, layoutFits } from "@/shell/layouts";
 import { shelfOrder } from "@/shell/prefs";
 import { APP_IDS, APPS } from "@/shell/registry";
+import { isBuiltApp } from "@/shell/appModules";
 import { workspacesFor } from "@/shell/store";
 import { APP_NAMES, S } from "@/shell/strings";
 import { viewportOf, workArea } from "@/shell/wm";
@@ -21,7 +22,7 @@ export function Shelf() {
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const row = useRef<HTMLDivElement>(null);
   const [clipped, setClipped] = useState({ left: false, right: false });
-  const apps = shelfOrder(APP_IDS).filter((a) => vis[a] !== "hidden");
+  const apps = shelfOrder(APP_IDS).filter((a) => isBuiltApp(a) && vis[a] !== "hidden");
   const top = windows.at(-1);
   const desktop = viewportOf(vw) === "desktop";
   const area = workArea(vw, vh);

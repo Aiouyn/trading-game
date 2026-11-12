@@ -41,7 +41,7 @@ const EN = {
   rank: "Rank",
   nextRankAt: "Next rank at",
   topRank: "Top rank",
-  emptyCash: "Your money is all cash. Broker or Businesses are good first stops.",
+  emptyCash: "Your money is all cash. Broker is a good first stop.",
   guestExample: "Example portfolio · not your account",
   /** M2-02: the guest is told the start and the goal, no figures of theirs (the example portfolio is not theirs). */
   guestGoal: "Sign in to start with $10,000 in game money and a goal of $20,000.",
@@ -84,7 +84,7 @@ const FR: Strings = {
   rank: "Rang",
   nextRankAt: "Rang suivant à",
   topRank: "Rang maximal",
-  emptyCash: "Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.",
+  emptyCash: "Tout votre argent est en liquidités. Le Courtier est un bon point de départ.",
   guestExample: "Portefeuille d’exemple · pas le vôtre",
   guestGoal: "Connectez-vous pour commencer avec 10\u202F000\u00A0$ de monnaie du jeu et un objectif de 20\u202F000\u00A0$.",
   orders: "Ordres",
