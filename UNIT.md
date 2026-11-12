@@ -1,48 +1,36 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# Card 17: the analytics consent prompt must not cover app content
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+Written 12 Nov 2026, 02:06 Europe/Paris (CET), before any implementation on this base. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
 
-## Why this unit
+Original UNIT commit on the expiry lineage: `3d78d24b903a22a274590a3b66fd21b20214ae67` (12 Nov 2026, 01:56 Europe/Paris (CET)). Restacked onto a lower base that already has the same prompt; this commit is the UNIT for the new base (lesson: a restack gets a new author date — the original SHA is recorded here).
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+## Value and scope
 
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+Playtest e30f6822, shots `d35_A_portfolio_overview.png` and `p13b_phone_B_wire_item.png`. The first-launch consent card ("Share anonymous usage analytics to help improve Quay? Accept / Decline") is `position: fixed` at `bottom: var(--sp-8)` (phone: plus `--hit-touch`). It floats over app content: on desktop 1440 it covers the bottom of the Portfolio window (Cash · FDL is clipped) and shelf tiles; on phone 390 it sits over the Wire item and the bottom chrome.
 
-### Readiness flags checked on `43127f9e` (not this unit)
+This prompt was introduced in `90a06e79` (telemetry Gatekeeper follow-up). It is not on `origin/main` @ `24f67e0a`. It is present, and byte-identical in the files this card touches, on `origin/eng/broker-idempotency` @ `7aaefce8df2fbc92cc181ae3fc804ecd32fd48b1` (PR105, 16 commits over a divergent main). That is the lowest candidate that already has the UI this card fixes. The older expiry HEAD `a7460c78` has the same prompt but is a higher, separate lineage — do not base here.
 
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
+The prompt must never cover app content. Dock it into reserved space (above the 52 px desktop shelf / above the phone bottom row) and keep it compact, at desktop 1280 and 1440 and phone 390 and 320. Its bottom inset is `max(var(--sa-bottom, 0px), env(safe-area-inset-bottom))` — this base may not define `--sa-bottom`, so the 0px fallback matters. Keep it honest: the question stays readable, Accept and Decline stay equal-weight, and it is easy to dismiss (a dismiss control that only hides the prompt for this visit, without writing a consent value). Presentation only: do not change `setTelemetryConsent`, the consent API, telemetry events, or when the prompt is offered (`needsTelemetryConsentPrompt`, `ConsentBoot`, the lazy chunk, `?telemetry_consent=1`).
 
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
+Do not edit `nav.css` safe-area rules, `notices.css` `.qs-bottom`, or `layout.tsx` meta (card 10). Stay off the ticket's order-type/TIF logic, the engine, Boards, guest Home, the rank label, Settings/sign-up, and deep links.
 
-## Smallest observable outcome
+## Exact base, branch, and identity
 
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
+- Branch `ui/consent-no-cover`, worktree `/workspace/avalon/ui-consent-no-cover`.
+- Base `7aaefce8df2fbc92cc181ae3fc804ecd32fd48b1` (`origin/eng/broker-idempotency`).
+- Verify Forge (trading-game bot) `<forge@trading-game.local>` as author and committer. Unset every `GIT_*` variable for npm-test and Git. No push.
 
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
+## Grounding and sketch
 
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
+`ConsentPrompt` / `consent.css` today: a 320 px card, `z-index: var(--z-chrome)`, anchored to the viewport bottom. The desktop work area already stops above `--shelf-h` (52 px); the card is taller than the remaining shelf band, so it overlaps windows. The phone card is similarly taller than the offset above the dock.
 
-## Plan
+1. Chosen: a compact strip docked into reserved space. Desktop: a bar immediately above the shelf, and `workArea`'s bottom reserve grows by the strip height so windows shrink instead of sitting under it. Phone: the same strip in layout above the bottom row (flex, not a viewport-fixed overlay over `.phone-appbody`). Bottom inset `max(var(--sa-bottom, 0px), env(safe-area-inset-bottom))`. Accept and Decline stay the same two equal chips; add a dismiss control that only calls the existing `onDone()` (no `setTelemetryConsent`). Copy unchanged.
+2. Rejected: shrinking the typography until the card fits inside the 52 px shelf (unreadable, and it would still cover shelf tiles). Rejected: a blocking modal. Rejected: changing consent storage or when the prompt appears.
 
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
+## Acceptance and proof plan
 
-## Acceptance
-
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+- Reproduce d35 (Portfolio) and p13b (phone Wire item) on this base, with before-shots, at 1280, 1440, 390, and 320.
+- After the fix, the prompt's box does not intersect `win-portfolio` / other desktop windows, the shelf tiles, `.phone-appbody` / the Wire item, or the phone bottom row. Cash · FDL and "Open in Broker" stay visible.
+- Accept and Decline remain equal-weight, both ≥ 44 px on phone, and still persist as today's e2e already checks. Dismiss hides the prompt without writing `quay.telemetry.consent`. Existing `tests/e2e/17b/telemetry-consent.spec.ts` stays green.
+- Fail-first unit or component test of the reserved/docked layout, plus a fail-first e2e on those four viewports that the prompt and app content do not overlap.
+- Official checks with `GIT_*` unset. Report `/broker` first-load gz bytes on this HEAD versus this base (`7aaefce8`), against this branch's own budget. One clean e2e in a scratch worktree with fresh `.data` (new spec + `telemetry-consent.spec.ts`). Evidence under `/workspace/avalon/evidence/ui-consent-no-cover/`. No push.
