@@ -2,7 +2,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { retryableModule } from "@/components/shell/RetryableModule";
+import { retryableLazy, scopedModuleProps } from "@/components/shell/retryableLazy";
 
 let host: HTMLDivElement, outside: HTMLButtonElement, root: Root;
 beforeEach(() => {
@@ -22,13 +22,14 @@ function retryButton() {
   return button;
 }
 
+// Card 5 folded into main's retryableLazy ({ focus: true } + scopedModuleProps); these are its original behaviours.
 describe("scoped lazy module recovery", () => {
   it.each(["en", "fr"])("%s reimports the failed module and returns focus to recovered content", async (locale) => {
     const load = vi.fn<() => Promise<{ default: typeof Loaded }>>()
       .mockRejectedValueOnce(new Error("Chunk transport failed"))
       .mockResolvedValueOnce({ default: Loaded });
-    const Module = retryableModule(load);
-    await act(async () => root.render(<Module name="settings" locale={locale} componentProps={{}} fallback={<span>Loading</span>} />));
+    const Module = retryableLazy(load, { focus: true });
+    await act(async () => root.render(<Module {...scopedModuleProps("settings", locale)} fallback={<span>Loading</span>} />));
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
     expect(retryButton().textContent).toBe(locale === "fr" ? "Réessayer" : "Retry");
     expect(document.activeElement).toBe(retryButton());
@@ -42,8 +43,8 @@ describe("scoped lazy module recovery", () => {
     const load = vi.fn<() => Promise<{ default: typeof Loaded }>>()
       .mockRejectedValueOnce(new Error("Offline"))
       .mockResolvedValueOnce({ default: Loaded });
-    const Module = retryableModule(load); outside.focus();
-    await act(async () => root.render(<Module name="news" locale="en" componentProps={{}} fallback={null} />));
+    const Module = retryableLazy(load, { focus: true }); outside.focus();
+    await act(async () => root.render(<Module {...scopedModuleProps("news", "en")} fallback={null} />));
     expect(document.activeElement).toBe(outside);
     await act(async () => retryButton().click());
     expect(document.activeElement).toBe(outside);
@@ -56,8 +57,8 @@ describe("scoped lazy module recovery", () => {
       return <button onClick={() => setCount(count + 1)}>{label}: {count}</button>;
     }
     const load = vi.fn(async () => ({ default: Counter }));
-    const Module = retryableModule<{ label: string }>(load);
-    const render = (label: string) => root.render(<Module name="news" locale="en" componentProps={{ label }} fallback={<span>Loading</span>} />);
+    const Module = retryableLazy<{ label: string }>(load, { focus: true });
+    const render = (label: string) => root.render(<Module {...scopedModuleProps("news", "en")} label={label} fallback={<span>Loading</span>} />);
     await act(async () => render("First"));
     await act(async () => retryButton().click());
     await act(async () => render("Updated"));
@@ -66,5 +67,20 @@ describe("scoped lazy module recovery", () => {
     act(() => render("Remounted"));
     expect(retryButton().textContent).toBe("Remounted: 0");
     expect(load).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("main's retryableLazy without focus (Broker, GoalGuide, Launchpad callers)", () => {
+  it("does not move focus on failure or after Retry", async () => {
+    const load = vi.fn<() => Promise<{ default: typeof Loaded }>>()
+      .mockRejectedValueOnce(new Error("Offline"))
+      .mockResolvedValueOnce({ default: Loaded });
+    const Module = retryableLazy(load);
+    await act(async () => root.render(<Module errorMessage="Couldn't load" retryLabel="Retry" fallback={null} />));
+    expect(document.activeElement).toBe(document.body);
+    await act(async () => retryButton().click());
+    expect(host.querySelector("input")).not.toBeNull();
+    expect(document.activeElement).toBe(document.body);
+    expect(host.querySelector('[data-testid="lazy-chunk-focus"]')).toBeNull();
   });
 });
