@@ -63,7 +63,7 @@ function fingerprint(s: ReturnType<typeof createFx>): string {
 
 function walk(root: string, files: string[] = []): string[] {
   for (const name of readdirSync(root)) {
-    if (name === "node_modules" || name === ".next" || name === "fx" || name === "actor-binding") continue;
+    if (name === "node_modules" || name === ".next" || name === "fx" || name === "actor-binding" || name === "failureFarm") continue;
     const path = join(root, name);
     const st = statSync(path);
     if (st.isDirectory()) walk(path, files);
