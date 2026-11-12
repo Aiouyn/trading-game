@@ -23,6 +23,10 @@ jobs:
       # AC-HOOKS-PROD: the build above has no e2e flags; neither its client nor its server output may contain a test/mock hook or /__ds code.
       - run: node tools/check-hooks.mjs .next/static .next/server
       - run: npm test
+      # Formal money: ledger conservation and the Broker fill/fee/idempotency check. Needs the ledger package's own install.
+      - run: npm ci
+        working-directory: packages/engine/ledger
+      - run: npm run test:formal-money
       # Lesson 17: a skipped, focused, or empty required check is not a pass.
       - run: node tools/ci/skipped-checks.mjs
       # Route budget: the Broker route's first-load JS on this build is at most FIRST_LOAD_BUDGET_KB gz (tests/e2e/17b/plotChunk.ts;
