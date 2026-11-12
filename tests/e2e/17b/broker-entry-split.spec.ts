@@ -29,14 +29,18 @@ test("Broker does not fetch Settings; the cold Account entry still opens a usabl
 test("Broker keeps Overview synchronous and defers News without losing entry focus or the trade draft", async ({ page }, info) => {
   const loaded = scripts(page);
   await openBroker(page);
-  expect(await loaded()).toContain('"ap-overview"');
+  // PR105 already loads AssetPage (and therefore Overview) as a retryable lazy chunk only when About opens,
+  // so first-load Trade JS does not contain Overview. News stays out until the News tab.
+  expect(await loaded()).not.toContain('"ap-overview"');
   expect(await loaded()).not.toContain('"ap-news"');
   const qty = page.getByTestId("br-qty").first();
   await qty.fill("7");
   await page.getByTestId("br-view-about").first().click();
   await expect(page.getByTestId("br-about-title")).toBeFocused();
   await expect(page.getByTestId("ap-overview")).toBeVisible();
+  await expect(page.getByTestId("ap-news-loading")).toHaveCount(0);
   expect(await loaded()).toContain('"ap-overview"');
+  expect(await loaded()).not.toContain('"ap-news"');
   await page.getByTestId("br-about-tabs-news").click();
   await expect(page.getByTestId("ap-news")).toBeVisible();
   expect(await loaded()).toContain('"ap-news"');
