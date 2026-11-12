@@ -34,7 +34,7 @@ Login uses `new AttemptThrottle(10, 15 * 60 * 1000)` (10 failures, 15 minutes):
 - Global failure cap `G = ceil(200/s × 900s) = 180,000` hits per window.
 - A lockout costs 10 hits, so one window can create at most `floor(180,000 / 10) = 18,000` lockouts.
 - Map cap `M = 18,000 + 1 = 18,001`. Lockouts alone cannot fill it. The next new key is refused because `G` is spent, not because a live lockout was evicted.
-- Callers that pass `maxEntries` / `globalFailureCap` (tests) override this. The 3-argument constructor login already uses does not.
+- Callers that pass `maxEntries` / `globalFailureCap` (tests) override this. Login's 3-argument constructor does not.
 
 **Memory at that cap:** 18,000 buckets with 32-character keys use about **6.5 MB** of heap (~363 bytes each), measured with `process.memoryUsage().heapUsed` after the map is filled and before a second GC. Eight-character keys are about 3.6 MB (~199 bytes each).
 
