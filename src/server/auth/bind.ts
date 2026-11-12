@@ -87,7 +87,7 @@ export function listeningHosts(): string[] {
   ] as const) {
     let text: string;
     try {
-      text = readFileSync(file, "utf8");
+      text = readFileSync(/*turbopackIgnore: true*/ file, "utf8");
     } catch {
       continue;
     }
@@ -104,9 +104,9 @@ export function listeningHosts(): string[] {
 
 function socketInodes(): Set<string> {
   const inodes = new Set<string>();
-  for (const fd of readdirSync("/proc/self/fd")) {
+  for (const fd of readdirSync(/*turbopackIgnore: true*/ "/proc/self/fd")) {
     try {
-      const target = readlinkSync(`/proc/self/fd/${fd}`);
+      const target = readlinkSync(/*turbopackIgnore: true*/ `/proc/self/fd/${fd}`);
       const match = /^socket:\[(\d+)\]$/.exec(target);
       if (match?.[1]) inodes.add(match[1]);
     } catch {
