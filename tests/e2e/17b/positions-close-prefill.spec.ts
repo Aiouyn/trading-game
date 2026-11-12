@@ -100,16 +100,18 @@ test("desktop: after a buy, Close then Place gives exactly 1 new ack", async ({ 
   await expect(page.getByTestId("pf-positions").first()).toHaveAttribute("data-state", "live");
   const halc = page.locator('[data-testid="pos-row"][data-asset="HALC"]');
   await expect(halc.getByTestId("pos-close")).toBeVisible();
-  const acksBeforeClose = await page.getByTestId("br-ack-title").count();
+  const beforeClose = await intents(page);
   await halc.getByTestId("pos-close").click();
 
   await expect(tkt).toHaveAttribute("data-phase", "edit");
   await expect(tkt.getByTestId("br-side-sell")).toHaveAttribute("aria-pressed", "true");
   await expect(tkt.getByTestId("br-qty")).not.toHaveValue("");
-  expect(await page.getByTestId("br-ack-title").count()).toBe(acksBeforeClose);
+  // Close replaces the ack panel with the edit ticket, so the old title unmounts. The intent log must not grow.
+  expect(await intents(page)).toBe(beforeClose);
 
   const afterSell = await reviewPlace(page, tkt);
-  expect(afterSell).toBe(acksBeforeClose + 1);
+  expect(afterSell).toBe(1); // exactly one new ack on this ticket
+  expect(await intents(page)).toBe(beforeClose + 1);
 });
 
 test("desktop: Close on HALC while a NRON ticket is open pre-fills HALC and leaves the NRON draft", async ({ page }, info) => {
