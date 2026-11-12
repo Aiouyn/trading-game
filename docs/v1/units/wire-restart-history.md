@@ -43,4 +43,20 @@ If the server refuses to start with `WIRE_SNAPSHOT_CORRUPT` or `WIRE_SNAPSHOT_NE
 
 ## Results
 
-(filled after the fix)
+Filled 2026-11-12 ~19:55 Europe/Paris. Product commit `6d76ae75` (on merge `a5ec02b2`, origin/main `c469b03f`). Evidence: `/workspace/avalon/evidence/sys-wire-restart-history/fix/`.
+
+- Checks 1-8: the new unit tests fail on main (16 failed, 5 passed of 21) and all pass on head (21/21). The 5 that pass on main are guards (old snapshot boots, etc.). The signed-in e2e fails on main `c469b03f` (5 rows lost via the api) and passes on head.
+- Seed-17 prod SIGKILL replay on :3440, kill by own pgid at 19:50:19. Before the kill: 26 rows at tick 27838 (epoch `8jvuk3po`). After the restart: the same 26 rows, byte-equal including effects (epoch `j5mahhz1`). 35 s later: 29 rows, a superset. `/wire` signed-in, desktop and phone, first load and reload: every row is still listed, and the w-27706 detail shows the same price move.
+- Crash mid-write (check 7): 50 SIGKILLs of a writer that alternates two snapshots (403 328 B). 6 kills left a half-written `.tmp`. All 50 boot reads got a complete snapshot (A 23, B 27), never a partial `wire`.
+- Refusals (checks 5-6): not-an-object, bad item and duplicate id are refused with `WIRE_SNAPSHOT_CORRUPT`. v2 is refused with `WIRE_SNAPSHOT_NEWER`. Every message names the file path and the field `"wire"`. The file is unchanged, and the message echoes no secret or content.
+- Prices (check 8): quotes plus the storm snapshot minus `wire` are byte-identical to main's boot of the same store, at the restart and after 60 steps. test:formal-money and ledger-no-dup pass.
+- Write cost (check 9), 20 game days (14 400 steps), fixed rumor secret. The head and main runs ran at the same time on one box, so the timings are noisy.
+  - One save, with `wire` vs without:
+    - day 2 (60 rows = STORY_KEEP): 0.403 ms / 40 207 B vs 17 817 B
+    - day 10 (1 074 rows): 2.629 ms / 494 929 B vs 0.366 ms / 82 382 B
+    - day 20 (2 477 rows): 4.818 ms / 1 112 283 B vs 0.778 ms / 157 932 B
+  - Whole step, head: p50 2.684, p99 8.579, max 140.109 ms. Main: p50 0.71, p99 4.344, max 114.837 ms. Overruns of 5 000 ms: 0 on both.
+- Found, not fixed (pre-existing on main, follow-up):
+  - `retainStories` takes `rest.slice(-room)` with room 0 when 60 or more rumors are held. That returns the whole array, so the window is unbounded from about day 3-4. Rows grow about 140 per game day on main and head (`/api/wire` is about 2 477 rows at day 20 on main too). With this unit the same rows are also written each step: about 1.1 MB per 5 s step at day 20. A naive fix would hide all catalog stories once 60 rumors are pending, so it needs its own unit.
+  - Killed writes leave `storm-world.json.*.tmp` files in the store directory. They are never cleaned up.
+- port-avalon verify passed 16/16 on :3450. The tool has no port option, so it ran in a temp worktree at head with a local, uncommitted patch that starts the port search at 3450 and stops it at 3499.
