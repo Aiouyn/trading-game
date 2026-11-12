@@ -9,7 +9,7 @@
 Three bounds on shared in-memory counters:
 
 1. Guests without `QUAY_TRUST_PROXY=1` all share the telemetry client key `anon-missing`, so 8 feedback posts 429 every guest. Key a guest by session when one exists, otherwise by a guest cookie (`quay_tel`) minted on the telemetry response. One guest at the per-client cap must not 429 a second guest. The per-kind global cap stays.
-2. With `QUAY_TRUST_PROXY=1`, the trusted client IP is the rightmost `X-Forwarded-For` hop (the one our proxy appended). A spoofed left hop does not pick the bucket.
+2. With `QUAY_TRUST_PROXY=1`, the trusted client IP is `forwardedClientFromRight`: count `QUAY_TRUSTED_PROXY_HOPS` in from the right (default 1, the hop our proxy appended). A spoofed left hop does not pick the bucket. A chain shorter than the hop count still uses the rightmost value. Hops longer than 64 characters are dropped. Same env name and rule as the mutation limiter, so the two can share one helper later.
 3. `AttemptThrottle` drops expired buckets and refuses to grow past a max under 5,000 entries, for every caller (login, telemetry, mutation limits). `check` / `hit` / `clear` stay the same for existing callers. Expired buckets reset. The map stays under 5,000 keys.
 
 ## Files
@@ -26,7 +26,7 @@ Three bounds on shared in-memory counters:
 
 1. This note is its own commit, before the product edit.
 2. Two guests with different `quay_tel` cookies: the one at the feedback cap receives 429; the other still receives 200. The global cap still applies.
-3. With `QUAY_TRUST_PROXY=1`, rate-limit identity follows the rightmost `X-Forwarded-For` hop. A different left hop with the same right hop shares the bucket. A different right hop does not.
+3. With `QUAY_TRUST_PROXY=1`, rate-limit identity follows `QUAY_TRUSTED_PROXY_HOPS` from the right (default 1). A different left hop with the same selected hop shares the bucket. A different selected hop does not. A short chain does not fall through to the left spoof.
 4. After 5,000 distinct `AttemptThrottle` keys, `size` is under 5,000. A key that was blocked is allowed again after its window, and expired keys do not keep the map full.
 5. Exact-head checks: lint, typecheck, no-flag build, check-hooks, route-budget (`/broker` ≤ 205 KB), ledger map-no-dup, `npm test`. Telemetry feedback and consent e2e once on a fresh `.data` directory and a free port (not 3199 or 3102).
 
