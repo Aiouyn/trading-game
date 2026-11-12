@@ -67,6 +67,166 @@ const REQUIRED_GATE = [
 
 const CALL_RE = /\b(?:(it|test|describe|test\.describe)\.(only|skipIf|skip)|(fit|fdescribe|ftest)|(xit|xtest|xdescribe))\s*\(/g;
 
+/** A `/` here starts a regex literal. Binary `/` (division) does not. */
+function isRegexStart(text, index) {
+  let j = index - 1;
+  while (j >= 0 && (text[j] === " " || text[j] === "\t" || text[j] === "\n" || text[j] === "\r")) j--;
+  if (j < 0) return true;
+  const c = text[j];
+  if ("([{,;!&|?:~=".includes(c)) return true;
+  const keywords = ["return", "throw", "case", "else", "do", "typeof", "void", "delete", "instanceof", "await", "yield", "new", "in", "of"];
+  for (const word of keywords) {
+    if (j + 1 < word.length) continue;
+    const start = j + 1 - word.length;
+    if (text.slice(start, j + 1) !== word) continue;
+    const prev = text[start - 1];
+    if (prev === undefined || !/[\w$]/.test(prev)) return true;
+  }
+  return false;
+}
+
+/**
+ * Same length as text. Comments, string contents, template contents outside ${},
+ * and regex literals are blanked, so a skip written in those places is not a call.
+ * Quotes and backticks stay, so a real call's string title is still visible.
+ * @param {string} text
+ */
+function maskNonCode(text) {
+  const out = text.split("");
+  const blank = (i) => {
+    if (out[i] !== "\n") out[i] = " ";
+  };
+  const region = (start, end, stopBrace) => {
+    let i = start;
+    let brace = 0;
+    while (i < end) {
+      const c = text[i];
+      const next = text[i + 1];
+      if (c === "/" && next === "/" && text[i - 1] !== ":") {
+        while (i < end && text[i] !== "\n") {
+          blank(i);
+          i++;
+        }
+        continue;
+      }
+      if (c === "/" && next === "*") {
+        blank(i);
+        if (i + 1 < end) blank(i + 1);
+        i += 2;
+        while (i < end && !(text[i] === "*" && text[i + 1] === "/")) {
+          blank(i);
+          i++;
+        }
+        if (i < end) {
+          blank(i);
+          if (i + 1 < end) blank(i + 1);
+          i += 2;
+        }
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        const q = c;
+        i++;
+        while (i < end && text[i] !== q) {
+          if (text[i] === "\\") {
+            blank(i);
+            i++;
+            if (i < end) {
+              blank(i);
+              i++;
+            }
+            continue;
+          }
+          if (text[i] === "\n") break;
+          blank(i);
+          i++;
+        }
+        if (i < end && text[i] === q) i++;
+        continue;
+      }
+      if (c === "`") {
+        i++;
+        while (i < end && text[i] !== "`") {
+          if (text[i] === "\\") {
+            blank(i);
+            i++;
+            if (i < end) {
+              blank(i);
+              i++;
+            }
+            continue;
+          }
+          if (text[i] === "$" && text[i + 1] === "{") {
+            i += 2;
+            i = region(i, end, true);
+            if (i < end && text[i] === "}") i++;
+            continue;
+          }
+          blank(i);
+          i++;
+        }
+        if (i < end && text[i] === "`") i++;
+        continue;
+      }
+      if (c === "/" && isRegexStart(text, i)) {
+        i++;
+        while (i < end && text[i] !== "/" && text[i] !== "\n") {
+          if (text[i] === "\\") {
+            blank(i);
+            i++;
+            if (i < end) {
+              blank(i);
+              i++;
+            }
+            continue;
+          }
+          if (text[i] === "[") {
+            blank(i);
+            i++;
+            while (i < end && text[i] !== "]" && text[i] !== "\n") {
+              if (text[i] === "\\") {
+                blank(i);
+                i++;
+                if (i < end) {
+                  blank(i);
+                  i++;
+                }
+                continue;
+              }
+              blank(i);
+              i++;
+            }
+            if (i < end && text[i] === "]") {
+              blank(i);
+              i++;
+            }
+            continue;
+          }
+          blank(i);
+          i++;
+        }
+        if (i < end && text[i] === "/") i++;
+        continue;
+      }
+      if (stopBrace && c === "}" && brace === 0) return i;
+      if (c === "{") brace++;
+      else if (c === "}") brace--;
+      i++;
+    }
+    return i;
+  };
+  region(0, text.length, false);
+  return out.join("");
+}
+
+/** `fit("title", fn)` is a focused test. `fit()` is the shell's viewport helper. */
+function opensWithString(text, parenIndex) {
+  let i = parenIndex + 1;
+  while (i < text.length && /\s/.test(text[i])) i++;
+  const c = text[i];
+  return c === "'" || c === '"' || c === "`";
+}
+
 /**
  * @typedef {{ kind: string, file: string, line: number, message: string }} Finding
  * @typedef {{ file: string, title: string, reason: string, line: number }} AllowedSkip
@@ -113,39 +273,6 @@ function contextAt(text, index) {
   return text.slice(start, end);
 }
 
-/** Same length as text, comments blanked, so a commented-out skip is not a live call. */
-function maskComments(text) {
-  let out = "";
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    const next = text[i + 1];
-    if (c === "/" && next === "/" && text[i - 1] !== ":") {
-      while (i < text.length && text[i] !== "\n") {
-        out += " ";
-        i++;
-      }
-      continue;
-    }
-    if (c === "/" && next === "*") {
-      out += "  ";
-      i += 2;
-      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
-        out += text[i] === "\n" ? "\n" : " ";
-        i++;
-      }
-      if (i < text.length) {
-        out += "  ";
-        i += 2;
-      }
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
-
 function allowHit(file, context) {
   return SKIP_ALLOWLIST.find((entry) => entry.file === posix(file) && context.includes(entry.title));
 }
@@ -174,7 +301,7 @@ function scanSource(text, file) {
   const findings = /** @type {Finding[]} */ ([]);
   const allowed = /** @type {AllowedSkip[]} */ ([]);
   const src = text.replace(/\r\n/g, "\n");
-  const masked = maskComments(src);
+  const masked = maskNonCode(src);
   if (isVitestConfig(file)) {
     const re = /passWithNoTests\s*:\s*true\b/g;
     for (const match of masked.matchAll(re)) {
@@ -190,10 +317,13 @@ function scanSource(text, file) {
   const rootSuite = isRootSuiteTest(file);
   for (const match of masked.matchAll(CALL_RE)) {
     const index = match.index ?? 0;
+    if (masked[index - 1] === ".") continue;
     const paren = index + match[0].length - 1;
     const method = match[2];
     const focused = method === "only" || Boolean(match[3]);
     const xSkip = Boolean(match[4]);
+    // `fit(` is also the viewport helper in QuayShell. A focused `fit` takes a string title.
+    if (match[3] === "fit" && !opensWithString(masked, paren)) continue;
     const where = { file: posix(file), line: lineOf(src, index) };
     if (focused) {
       findings.push({ ...where, kind: "focused", message: "focused test skips the rest of the file; that is not a pass" });

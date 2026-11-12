@@ -31,30 +31,37 @@ export function subscribeTicketPrefill(fn: (p: TicketPrefill) => boolean): () =>
   return () => { listeners.delete(fn); };
 }
 
+/** Drops the held prefill only. Mid-Place busy belongs to the tickets themselves (card 40). */
 export function resetTicketPrefill(): void {
   pending = null;
-  setTicketSubmitting(null);
 }
 
-const submitting = new Set<string>();
+/** Card 40: per asset, the ticket instances that are mid-Place. Close stays off while any is left. */
+const submitting = new Map<string, Set<object>>();
 const busyListeners = new Set<() => void>();
 
 function notifyBusy(): void {
   for (const l of busyListeners) l();
 }
 
-/** Mark (or clear) one asset as mid-Place. `null` clears every asset (tests / reset). */
-export function setTicketSubmitting(assetId: string | null, busy = true): void {
-  if (assetId === null) {
-    if (submitting.size === 0) return;
-    submitting.clear();
-    notifyBusy();
-    return;
+/** Mark (or clear) one ticket instance as mid-Place on an asset. Clearing touches only that instance. */
+export function setTicketSubmitting(assetId: string, instance: object, busy: boolean): void {
+  const set = submitting.get(assetId);
+  if (busy) {
+    if (set?.has(instance)) return;
+    if (set) set.add(instance);
+    else submitting.set(assetId, new Set([instance]));
+  } else {
+    if (!set?.delete(instance)) return;
+    if (set.size === 0) submitting.delete(assetId);
   }
-  const had = submitting.has(assetId);
-  if (busy && !had) submitting.add(assetId);
-  else if (!busy && had) submitting.delete(assetId);
-  else return;
+  notifyBusy();
+}
+
+/** Account boundary: the next account starts with no ticket mid-Place. */
+export function clearTicketSubmitting(): void {
+  if (submitting.size === 0) return;
+  submitting.clear();
   notifyBusy();
 }
 
@@ -66,4 +73,3 @@ export function subscribeTicketSubmitting(fn: () => void): () => void {
   busyListeners.add(fn);
   return () => { busyListeners.delete(fn); };
 }
-

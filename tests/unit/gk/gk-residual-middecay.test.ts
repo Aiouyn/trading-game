@@ -4,6 +4,13 @@ import { DEMO_CRISIS_HALF_LIFE_DAYS, ShockFeed, halfLifeK, shockedMinor } from "
 import { TICKS_PER_DAY } from "@/server/market/meme";
 import { MemoryStormWorldStore } from "@/server/market/stormWorldStore";
 import { LiveMarket } from "@/server/market/clock";
+import { PORT_AVALON_MARKET_SEED } from "@/shell/worldIdentity";
+
+const SEED = PORT_AVALON_MARKET_SEED;
+const SECRET = "gk-residual-middecay-test-secret";
+
+const clock = (store: MemoryStormWorldStore) =>
+  new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true, seed: SEED, rumorSecret: SECRET });
 
 const lastOf = (f: ShockFeed, id = "AVB") =>
   Number((f.body("ticker:wl_default") as { rows: Record<string, { last: string }> }).rows[id]!.last);
@@ -11,7 +18,7 @@ const lastOf = (f: ShockFeed, id = "AVB") =>
 describe("GK residual mid-decay durability", () => {
   it("LiveMarket restart mid-decay restores residual rows and does not full-reapply stockApplied on base", () => {
     const store = new MemoryStormWorldStore();
-    const a = new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true });
+    const a = clock(store);
     a.step();
     a.forceStormForTests("RATE_SCARE", { precursorDays: 0, severity: 1 });
     a.step();
@@ -23,7 +30,7 @@ describe("GK residual mid-decay durability", () => {
     expect(residual.length).toBeGreaterThan(0);
     expect(erp.length).toBeGreaterThan(0);
 
-    const b = new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true });
+    const b = clock(store);
     const restored = Number(b.snapshot().quotes.rows.AVB!.last);
     const bp = a.stormSnapshot().stockApplied[0]!.shocks.find((p) => p.assetId === "AVB")!.bp;
     const fullOnBase = shockedMinor(ASSET_BY_ID.AVB!.base, bp) / 10 ** ASSET_BY_ID.AVB!.displayDecimals;
@@ -92,11 +99,11 @@ describe("GK residual mid-decay durability", () => {
 
   it("LiveMarket restart restores erpAccrued (atomic with residual)", () => {
     const store = new MemoryStormWorldStore();
-    const a = new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true });
+    const a = clock(store);
     for (let i = 0; i < 400; i++) a.step(); // accrue unused ERP log
     const midErp = a.stormSnapshot().erpAccrued ?? [];
     expect(midErp.length).toBeGreaterThan(0);
-    const b = new LiveMarket({ tickMs: 60_000, stormWorld: store, persistStorms: true });
+    const b = clock(store);
     expect(b.stormSnapshot().erpAccrued).toEqual(midErp);
   });
 });

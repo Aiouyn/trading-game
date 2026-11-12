@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "lint": "eslint && stylelint \"src/**/*.css\" && node tools/lint/contrast.mjs && bash tools/lint/check-fixtures.sh",
     "test": "vitest run",
     "test:formal-money": "npm --prefix packages/engine/ledger test -- test/formal-money.test.ts && vitest run --config vitest.formal.config.mts",
@@ -25,7 +25,8 @@
     "tokens": "node tools/lint/gen-tokens.mjs",
     "check:paths": "bash tools/lint/check-paths.sh",
     "preflight": "node tools/ci/preflight.mjs",
-    "preflight:browser": "node tools/ci/preflight.mjs --browser"
+    "preflight:browser": "node tools/ci/preflight.mjs --browser",
+    "ready": "tsx tools/ops/ready.ts"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.1",
