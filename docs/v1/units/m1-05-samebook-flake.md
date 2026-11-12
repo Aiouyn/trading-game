@@ -38,8 +38,11 @@ A guest feed is different: its local clock keeps moving while offline, so replay
 
 Seq-gap `resync` still replays a snap. That path is what realigns the channel sequence, and it is not the offline/online path.
 
+Broker and the shell clock both subscribe `ticker:wl_default`, so one online event used to call `reconnect` twice. The second call marked the first fresh read superseded: three reads, live at 3.0s instead of 1.5s (Gatekeeper P15). A signed-in feed now takes one quote reconnect per online event, however many ticker subscribers hear it. A later online event can reconnect again.
+
 ## Proof
 
 - `tests/unit/shell/outage-backoff.test.ts`, describe "reconnect does not publish the pre-outage book". The first two tests failed on the unmodified feed (`expected 'live' to be 'stale'` right after online, with the replacement read not issued). A third failed by adopting the in-flight tick that sat between the last adopted book and the server (`expected 27701 to be 27700`). They pass after the fix: that in-flight body is not published, a failed in-flight read retries at once, and the channel goes live on the post-outage tick.
 - The same file, describe "a slow quote read after online still becomes live". With each read lasting `SERVER_QUOTE_POLL_MS + 500`, both tests stayed `stale` past one read plus one poll (same tick, and a restart three ticks lower). They pass after the fix: live inside that bound.
+- The same describe, two `openChannel` subscribers on `ticker:wl_default`. Before the coalesce the online event started 2 market reads (`expected 2 to be 1`) and was not live after one read. After it, exactly one read, and both subscribers are live when that read settles.
 - The repeat counts above.
