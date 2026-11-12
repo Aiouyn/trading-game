@@ -48,14 +48,13 @@ describe("Card 9 phone guest first screen", () => {
     return store;
   }
 
-  it("EN: labels the canned numbers as an example, says what the game is, and offers Create account or sign in", async () => {
+  it("EN: says what the game is between card 36's Net worth label and its Sign in action", async () => {
     await guest("en");
-    expect(q("widget-nw-label")?.textContent).toBe("Example account");
+    expect(q("widget-nw-label")?.textContent).toBe("Net worth");
     expect(q("guest-pitch")?.textContent).toBe("Quay is a trading game. Start with $10,000 in game money and try to grow it to $20,000. No real money.");
     const cta = q("sign-in-entry")!;
-    expect(cta.textContent).toBe("Create account or sign in");
-    expect(cta.getAttribute("aria-label")).toBeNull(); // the visible text is the name
-    expect(cta.className).toMatch(/btn-primary/);
+    expect(cta.textContent).toBe("Sign in"); // card 36 (main) owns the CTA copy
+    expect(q("home-example-caption")?.textContent).toBe("Example portfolio · not your account");
     // Order a stranger reads in: what this is, then the one thing to do, then the example numbers.
     const order = ["widget-nw-label", "guest-pitch", "sign-in-entry", "hero-nw"].map((id) => q(id)!);
     for (let i = 1; i < order.length; i++) expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -63,11 +62,9 @@ describe("Card 9 phone guest first screen", () => {
     expect(el.textContent).toMatch(/R2\s*·\s*Owner/);
   });
 
-  it("FR: the same three things in French", async () => {
+  it("FR: the pitch is in French", async () => {
     await guest("fr");
-    expect(q("widget-nw-label")?.textContent).toBe("Compte d’exemple");
     expect(q("guest-pitch")?.textContent).toBe("Quay est un jeu de trading. Commencez avec 10\u202f000\u00a0$ d’argent fictif et essayez d’atteindre 20\u202f000\u00a0$. Pas d’argent réel.");
-    expect(q("sign-in-entry")?.textContent).toBe("Créer un compte ou se connecter");
   });
 
   it("the CTA opens Settings -> Account", async () => {

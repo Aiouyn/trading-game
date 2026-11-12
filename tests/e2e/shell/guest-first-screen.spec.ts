@@ -11,8 +11,9 @@ async function shot(page: Page, name: string) {
 }
 
 const COPY = {
-  en: { label: "Example account", pitch: /^Quay is a trading game\. Start with \$10,000 in game money and try to grow it to \$20,000\. No real money\.$/, cta: "Create account or sign in" },
-  fr: { label: "Compte d’exemple", pitch: /^Quay est un jeu de trading\. .*Pas d’argent réel\.$/, cta: "Créer un compte ou se connecter" },
+  // Label and CTA are card 36's (main), not localized yet; card 9 adds the pitch.
+  en: { label: "Net worth", pitch: /^Quay is a trading game\. Start with \$10,000 in game money and try to grow it to \$20,000\. No real money\.$/, cta: "Sign in" },
+  fr: { label: "Net worth", pitch: /^Quay est un jeu de trading\. .*Pas d’argent réel\.$/, cta: "Sign in" },
 } as const;
 
 async function guestHome(page: Page, width: number, locale: "en" | "fr", scale: 1 | 2) {
@@ -29,7 +30,7 @@ test.describe("phone", () => {
   test.beforeEach(({}, info) => test.skip(info.project.name !== "phone", "phone project only"));
 
   for (const [width, locale, scale] of [[390, "en", 1], [320, "en", 1], [390, "fr", 2], [320, "fr", 2]] as const) {
-    test(`guest ${locale} x${scale} ${width}: example label, what the game is and the one action fit the first viewport`, async ({ page }) => {
+    test(`guest ${locale} x${scale} ${width}: what the game is and the one action fit the first viewport`, async ({ page }) => {
       await guestHome(page, width, locale, scale);
       const c = COPY[locale];
       await expect(page.getByTestId("widget-nw-label")).toHaveText(c.label);

@@ -294,19 +294,20 @@ export function PhoneHome() {
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top">
-            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : signedIn ? S.netWorth : guestCopy.label}</span>
+            <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : S.netWorth}</span>
             {signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
             ) : (
               <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
             )}
           </div>
-          {/* Card 9: a logged-out stranger reads what Quay is, then the one thing to do, then the example numbers.
+          {/* Card 9: a logged-out stranger reads what Quay is before the Sign in action and the example numbers
+              (label, Sign in and the example caption are card 36's on main).
               Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
           {!signedIn ? (
             <>
               <p className="guest-pitch" data-testid="guest-pitch">{guestCopy.pitch}</p>
-              <Button variant="primary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" onClick={() => openAccountSettings(store)}>{guestCopy.cta}</Button>
+              <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="sign-in-entry" aria-label={S.signIn} onClick={() => openAccountSettings(store)}>{S.signIn}</Button>
             </>
           ) : null}
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
