@@ -85,18 +85,21 @@ export interface OpenResult { windows: WindowRect[]; focused: WindowRect; opened
  * Open an app, or focus the existing instance when the cap is reached or a single-instance
  * app (or the same Broker context) is already open (Audit A-8). New windows go to workspace 1.
  */
-export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: string): OpenResult {
+export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: string, opts?: { reuse?: boolean }): OpenResult {
   const mine = windows.filter((w) => w.app === app);
   const same = context ? mine.find((w) => w.context === context) : undefined;
   const cap = APPS[app].maxInstances;
-  // At the cap, focus the main instance (the Review layout's "Journal" Portfolio is never the target).
-  const existing = same ?? (mine.length >= cap ? (mine.find((w) => w.context !== "Journal") ?? mine[0]) : undefined);
+  // At the cap, or when a deep link asks to reuse, focus the main instance (the Review layout's "Journal" Portfolio is never the target).
+  const existing = same ?? ((opts?.reuse && mine.length) || mine.length >= cap ? (mine.find((w) => w.context !== "Journal") ?? mine[0]) : undefined);
   if (existing) {
     // UI card 10: a single-instance app opened on another context (Wire on a story id) focuses with that context, so
-    // the app sees it; the window keeps its place and size.
-    if (context === undefined || cap !== 1 || existing.context === context) return { windows: bringToFront(windows, existing), focused: existing, opened: false };
-    const moved = { ...existing, context };
-    return { windows: [...windows.filter((x) => !sameWin(x, existing)), moved], focused: moved, opened: false };
+    // the app sees it; the window keeps its place and size. A reuse deep link does the same for multi-instance apps
+    // (playtest d40: /broker?asset=HALC must not open a second Broker).
+    if (context !== undefined && existing.context !== context && (opts?.reuse || cap === 1)) {
+      const moved = { ...existing, context };
+      return { windows: [...windows.filter((x) => !sameWin(x, existing)), moved], focused: moved, opened: false };
+    }
+    return { windows: bringToFront(windows, existing), focused: existing, opened: false };
   }
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
   const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, 560), a.w);

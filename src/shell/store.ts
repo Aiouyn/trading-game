@@ -119,7 +119,7 @@ export const createShellStore = (channels: Channels) =>
         if (v === "hidden" || (v === "locked" && !opts?.deepLink)) return;
         touchRecent(app);
         if (wm.viewportOf(get().vw) === "phone") { set({ phoneApp: { app, context }, recentOpen: false }); return; }
-        const r = wm.openApp(get().local.windows, app, area(), context);
+        const r = wm.openApp(get().local.windows, app, area(), context, opts?.deepLink ? { reuse: true } : undefined);
         setWindows(r.windows, { activeWorkspace: 1 });
       },
       // TODO(17A T4): ask before closing a window with unsent ticket input (trigger: ticket input exists).
