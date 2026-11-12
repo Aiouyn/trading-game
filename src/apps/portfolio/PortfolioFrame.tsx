@@ -31,8 +31,7 @@ export function PortfolioFrame() {
   const tabRefs = useRef<Record<PfTab, HTMLButtonElement | null>>({ overview: null, positions: null, orders: null });
   const rootRef = useRef<HTMLDivElement>(null);
   // A tall Overview (guest goal line / signed-in guide) can leave .phone-appbody scrolled
-  // after the nav-row click; the pushed Orders screen would then paint at a fractional Y
-  // and PF-8-11's Working chip antialiases off the baseline (16 px, max 1/channel).
+  // after the nav-row click; the pushed screen would then start mid-scroll.
   useEffect(() => {
     for (let p: HTMLElement | null = rootRef.current; p; p = p.parentElement) {
       if (p.scrollTop) p.scrollTop = 0;
