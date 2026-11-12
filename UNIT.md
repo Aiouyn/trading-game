@@ -1,48 +1,27 @@
-# Unit: durable Broker order idempotency (not just the last 50)
+# Card 15: a /broker deep link must reuse the existing Broker window
 
-**Branch:** `eng/broker-idempotency`  
-**Base:** `43127f9e` (`eng/broker-headroom`)  
-**Worktree:** `/workspace/avalon/broker-idempotency`  
-**When written:** 2026-11-11 23:45:55 Europe/Paris — before product-code edits.  
-**Board:** M1-06 (approved V1 board, `/workspace/avalon-m0/V1-BOARD.md` and `docs/v1/V1-BOARD.md`): place/cancel must be **idempotent** on duplicate submit / reconnect (**no double fill**).
+Written 12 Nov 2026, 01:20 Europe/Paris (CET), before any implementation. This is the only file changed by the first commit. Timestamp taken from `date` on the box (Europe/Paris).
 
-## Why this unit
+## Value and scope
 
-On `43127f9e`, decided intents are one ring: `MAX_INTENTS = 50` (`src/server/player/privateState.ts`). `decidePlace` / `decideCancel` look up a key only in that ring (`replayOf`). The 51st new decision drops the oldest key. A retry of that key is treated as a **new** order: a new `intentId`, a new fill, and cash moves again. That violates M1-06.
+Playtest e30f6822, shot `d40_A_deeplink_windows.png` and log: after the Trade layout already had one Broker window, three `goto('/broker')` deep links (with a `/portfolio` in between) left **4** Broker windows (`win-broker` × 4). The ticket, chart and first-trade path were buried in a stack.
 
-The `me` / ledger receipt window can stay last-50 (Q4 keepLast). Idempotency itself cannot.
+`openApp` reuses a window only when the same Broker context is already open, or when the instance cap (Broker `maxInstances: 4`) is reached. A bare `/broker` deep link has no `?asset=` context, so each visit opens a new window up to the cap. QuayShell already documents the intended rule: after restore, a deep link should "open it, or focus and front the open instance (Audit A-8, 17A T4-04)" and "the deep-link effect below focuses the existing instance (17B S1-02, Audit A-8)". `store.open` already receives `{ deepLink: true }` but does not pass a reuse flag to `openApp`.
 
-### Readiness flags checked on `43127f9e` (not this unit)
+The cap of 4 stays for a deliberate second Broker (launcher / same-app open with a different ticker). Only the deep-link path reuses. `?asset=` on a deep link focuses the existing window (the one with that context, else the main instance) and applies the asset, without opening another.
 
-| Flag | Status on this base | Why not this unit |
-|---|---|---|
-| Order idempotency window (last 50) | **Live.** `replayOf` uses the 50-long `intents` ring only. | **This unit.** Core trade loop, real double-fill. |
-| Day expiry / stop-order UI | **Live.** Server refuses stop / non-day TIF (`MKT_ORDER_TYPE_UNSUPPORTED`); docs: “day orders have no session close yet.” Ticket still offers Stop / Stop limit. | Day close is a separate session-rules unit. Stop buttons are ticket UI; Avalon Builder UI is on `ui/broker-ticket-entry`, `ui/account-first-step`, `ui/broker-trade-sheet` — leave them. |
-| GET that rewrites the store | **Live on Wire only.** `GET /api/wire` calls `resolveDueWireStatements` and may `persist()` verdicts. Broker `GET /api/broker/me` and `GET /api/market` do not write cash, holdings, or orders. | Wire verdicts, not the order door. |
-| Clock resetting on restart | **Partly fixed, rest disclosed.** Tick resumes from persisted `lastTick`; a restart is still a new epoch for the quote *walk* (virgin marks + rematerialized residuals). Tests and LAUNCHPAD.md treat that as a V1 choice, not a bug. | Do not reopen a disclosed clock-epoch design here. |
+Base `abf14e57f719689e1a94a65223c6f24ab71a6ae0`. Branch `ui/broker-deeplink-reuse`, worktree `/workspace/avalon/ui-broker-deeplink-reuse`. The earlier "card 15 desktop Broker audit" was dropped before any branch or worktree was created. Forge (trading-game bot) `<forge@trading-game.local>`. Unset `GIT_*` for npm-test and Git subprocesses. No push, PR, merge, or product changes outside window open/deep-link. Stay off the ticket's order-type/TIF, card 10 safe-area files, Boards, the engine, Settings-after-signup (card 16) and the analytics consent prompt (card 17).
 
-Recent `origin/ui/*` and `origin/sys/*` branches do not own Broker idempotency (UI is ticket/sheet/copy; Systems is banking/FX/credit/flags-off).
+## Sketch
 
-## Smallest observable outcome
+1. `wm.openApp(..., opts?: { reuse?: boolean })`: when `reuse` is set and any window of that app exists, focus it (prefer the same context, else the main instance, never a Portfolio "Journal") instead of creating one. If the deep link names a context, apply it to that window, keeping place and size (same as today's single-instance path).
+2. `store.open` passes `{ reuse: true }` when `opts?.deepLink` is set.
+3. Launcher / shelf opens without `deepLink` still stack up to the cap. Existing S1-11 tests stay valid.
 
-After **more than 50 later decisions** on the same account (enough to evict the first receipt from the last-50 ring):
+## Acceptance and proof plan
 
-1. Replaying the **first** idempotency key with the **same** request returns the original `intentId` and `IntentResult`. Cash, positions, and fill count are unchanged (no second fill).
-2. Replaying that same key with a **different** request is still **409** `IDEMPOTENCY_CONFLICT`. Still no extra fill.
-3. `GET /api/broker/me` (and the place reply's ledger) still exposes at most **50** intent receipts and **50** fills. The durable journal is not a new public ring.
-4. A process restart over the same store still honours (1) and (2).
-5. `first_trade` telemetry does not fire again merely because earlier accepts have left the last-50 receipt ring.
-
-Existing same-key replay and 409 behaviour inside the 50-window stays unchanged. Charge path, taker fee, and the 215 KB first-load cap stay unchanged.
-
-## Plan
-
-Keep `intents` as the last-50 receipt ring for `me`. Persist a separate durable idempotency journal (`idempotency`: every decided key + fingerprint + result) on the v2 private ledger as an optional field (old saves: seed the journal from the existing ring; no forced v3 bump). `replayOf` and the first-accept check read the journal, not only the ring. Cap the journal high enough for V1 play (fail closed if full — never re-execute a dropped key).
-
-## Acceptance
-
-1. UNIT.md is written first (this file), before product-code edits.
-2. Official unit coverage: a 51st (or later) decision evicts the first receipt from the `me` ring; replaying the first key still matches (1)–(2) and (4)–(5) above; the ledger view still has ≤ 50 intents.
-3. Exact-head checks: lint, typecheck, build, check-hooks, route-budget /broker, ledger map-no-dup, official `npm test`. Preview :3199 stays 200.
-4. One affected e2e batch on a clean temp tree, fresh `.data`, free port (not :3199 / :3102), desktop and phone: Broker order path (`BR-4`, and `BR-5` if cancel/limits are in scope).
-5. Stray-init; normal push, no force, no PR, no merge, no contact with Gatekeeper. Evidence-only handoff.
+- Fail-first unit: on the current `openApp`, a reuse (or equivalent) open of a second bare `/broker` after one window already exists adds a window; after the fix, count stays 1 and that window is focused. A `/broker?asset=HALC` deep-link reuse applies HALC to the existing window. A non-reuse open of a second ticker still opens a second window. At the cap, behaviour is unchanged.
+- Fail-first e2e (desktop 1440, Trade layout): after `/` then three client-side or `goto('/broker')` visits (and one `/portfolio` in between, as the playtest), `win-broker` count is 1 and the Broker window is frontmost. On the current tree this is 4.
+- lint, typecheck, build, check-hooks, route-budget (`/broker` ≤ 220,160 B, report B; test+wm only, expect unchanged vs base), ledger map-no-dup, npm test, all with `GIT_*` unset.
+- Clean e2e in a scratch worktree with fresh `.data`, ports 3300–3399 never 3199, hardlinked `node_modules`: the new deep-link spec plus the existing desktop shell/window cohort that covers open/focus (`tests/e2e/shell/desktop.spec.ts` and any wm-resize tests if they open Broker). Delete the scratch afterwards.
+- Evidence under `/workspace/avalon/evidence/ui-broker-deeplink-reuse/`. Do not push.
