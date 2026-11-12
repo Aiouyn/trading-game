@@ -22,6 +22,7 @@ import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
 import { SimpleTicket } from "./SimpleTicket";
 import { AckPanel, ReviewBlock, fillOf, orderIdOf } from "./TicketReview";
+import { subscribeTicketPrefill, takeTicketPrefill } from "./ticketPrefill";
 import { BR_STACK_SCALE, brStrings, reasonCopy } from "./strings";
 import "./broker.css";
 
@@ -65,14 +66,40 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const choices = useMemo(() => (ticker.body ? Object.keys(ticker.body.rows).sort() : []), [ticker.body]);
   const fixedAsset = context ? parseAssetId(context) : null;
-  const [draft, setDraft] = useState<Draft>({ assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" });
+  const [draft, setDraft] = useState<Draft>(() => {
+    const pre = takeTicketPrefill();
+    if (pre && fixedAsset && pre.assetId === fixedAsset) {
+      return { assetId: fixedAsset, side: pre.side, type: "market", limitText: "", stopText: "", qtyText: pre.qtyText };
+    }
+    return { assetId: fixedAsset ?? "", side: "BUY", type: "market", limitText: "", stopText: "", qtyText: "" };
+  });
   const assetId = fixedAsset ?? (draft.assetId || choices[0] || "");
   const [touched, setTouched] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "edit" });
-  const [est, setEst] = useState<{ key: string; res: PreviewRes } | null>(null);
+  // `epoch`: the reconnect epoch the estimate was asked in (card 24).
+  const [est, setEst] = useState<{ key: string; res: PreviewRes; epoch: number } | null>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const placing = useRef(false);
+  const focusQty = useRef(false);
   const [view, setView] = useState<BrokerView>("trade");
+  /** Shared reset used by New order, Edit-after-reject, and a Positions Close prefill. Clears the in-flight place latch. */
+  const toFreshEdit = (apply?: () => void) => {
+    placing.current = false;
+    setPhase({ kind: "edit" });
+    apply?.();
+  };
+  // Apply a later Close while this ticket is already mounted on the same asset. Never reviews or places.
+  // Returns true only when this ticket consumed the prefill (same assetId); otherwise pending stays for the mount.
+  useEffect(() => subscribeTicketPrefill((p) => {
+    const a = context ? parseAssetId(context) : null;
+    if (!a || p.assetId !== a) return false;
+    toFreshEdit(() => {
+      setDraft({ assetId: a, side: p.side, type: "market", limitText: "", stopText: "", qtyText: p.qtyText });
+      setTouched(false);
+      setView("trade");
+    });
+    return true;
+  }), [context]);
   const viewBase = useId();
   const viewIds = { trade: `${viewBase}-trade`, about: `${viewBase}-about` };
   // Back to Trade: focus returns to the header's ticker heading (or the asset select) once Trade is rendered again.
@@ -104,13 +131,20 @@ export function BrokerFrame({ context }: { context?: string }) {
   const tickRef = useRef(tickerTick);
   const deferred = useRef(false);
   useEffect(() => { tickRef.current = tickerTick; });
+  // Card 24: a restarted server can come back on the same or a lower tick (boot tick 27700), so "older tick" alone does
+  // not catch an estimate priced before the outage. The epoch goes up once per reconnecting→live flip, which the feed
+  // makes inside the first good adopt; healthy polls never flip it, so they never re-price (no flicker).
+  const [epoch, setEpoch] = useState(0);
+  const epochRef = useRef(0);
+  const wasLost = useRef(lost);
   const request = useCallback((d: DayDraft) => {
     const tk = tickRef.current ?? -1;
     if (budget.current.tick !== tk) budget.current = { tick: tk, n: 0 };
     if (budget.current.n >= MAX_PREVIEWS_PER_TICK) { deferred.current = true; return; }
     budget.current.n += 1;
     const mine = ++seq.current;
-    void previewOrder(d).then((r) => { if (mine === seq.current && r.ok) setEst({ key: draftKey(d), res: r.value }); });
+    const asked = epochRef.current;
+    void previewOrder(d).then((r) => { if (mine === seq.current && r.ok) setEst({ key: draftKey(d), res: r.value, epoch: asked }); });
   }, []);
   const settled = phase.kind === "placed";
   useEffect(() => {
@@ -126,6 +160,18 @@ export function BrokerFrame({ context }: { context?: string }) {
     deferred.current = false;
     request(cur.draft);
   }, [tickerTick, request]);
+  useEffect(() => {
+    const back = wasLost.current && !lost;
+    wasLost.current = lost;
+    if (!back) return;
+    epochRef.current += 1;
+    setEpoch(epochRef.current);
+    const cur = shownRef.current;
+    if (!cur) return;
+    budget.current = { tick: -1, n: 0 }; // the pre-outage tick's count must not hold back the one re-price
+    deferred.current = false;
+    request(cur.draft);
+  }, [lost, request]);
 
   // Our IntentResult, once `me` carries it.
   const placed = phase.kind === "placed" ? phase : null;
@@ -136,7 +182,7 @@ export function BrokerFrame({ context }: { context?: string }) {
   const bare = order ? (order.side === "BUY" ? t.actionBuy : t.actionSell)(order.qty, assetId) : "";
   // Review title: action + terms for priced types ("Buy 40 HALC · Limit 42.10"); market keeps card 4's bare action.
   const action = order && order.type !== "market" ? t.actionTerms(bare, termsText(t, locale, order)) : bare;
-  const reviewStale = preview !== null && tickerTick !== null && preview.computedAtTick < tickerTick;
+  const reviewStale = preview !== null && ((tickerTick !== null && preview.computedAtTick < tickerTick) || (est !== null && est.epoch < epoch));
   const canReview = phase.kind === "edit" && preview !== null && preview.valid && !frozen && !lost;
   const canPlace = phase.kind === "review" && preview !== null && preview.valid && !reviewStale && !frozen && !lost;
   // Card 19: say why, next to the button, when it is the connection and not the draft.
@@ -160,10 +206,9 @@ export function BrokerFrame({ context }: { context?: string }) {
     });
   };
   // The ack panel replaces the ticket, so focus moves to the quantity once the ticket is back in the DOM.
-  const focusQty = useRef(false);
   useEffect(() => { if (focusQty.current && qtyRef.current) { focusQty.current = false; qtyRef.current.focus(); } });
-  const newOrder = () => { placing.current = false; focusQty.current = true; setTouched(false); setDraft((d) => ({ ...d, qtyText: "" })); setPhase({ kind: "edit" }); };
-  const editAfterReject = () => { placing.current = false; focusQty.current = true; setPhase({ kind: "edit" }); };
+  const newOrder = () => { toFreshEdit(() => { focusQty.current = true; setTouched(false); setDraft((d) => ({ ...d, qtyText: "" })); }); };
+  const editAfterReject = () => { toFreshEdit(() => { focusQty.current = true; }); };
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || isSelect(e.target) || inOpenOrders(e.target)) return;
