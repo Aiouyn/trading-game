@@ -101,11 +101,11 @@ export function PositionRow({ pos, ticker, t, locale, stale, layout }: RowProps)
           </span>
         </div>
         <div className="pos-line pos-line3">
-          <span className="num pos-qtyat" data-testid="pos-qtyat">{t.qtyAt(decText(pos.qty, locale), decText(pos.avgCost, locale))}</span>
-          <span className="pos-mark">
+          <span className="pos-cost">
+            <span className="num pos-qtyat" data-testid="pos-qtyat">{t.qtyAt(decText(pos.qty, locale), decText(pos.avgCost, locale))}</span>
             <span data-testid="pos-last" className={lastCls}>{`${t.colLast} ${decText(last, locale)}`}</span>
-            <Today pct={ticker?.chgPct ?? null} t={t} locale={locale} />
           </span>
+          <Today pct={ticker?.chgPct ?? null} t={t} locale={locale} />
         </div>
         <Badges pos={pos} ticker={ticker} t={t} locale={locale} />
       </li>
