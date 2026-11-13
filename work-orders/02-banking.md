@@ -1,6 +1,6 @@
 # Work order 02: business investment, banks and credit
 
-You own `sim/modules/banking/` and one `w.use(banking)` line in `sim/run.ts` (after `economy`, before `markets`). You may add fields to `Firm` and replace the capacity rule and `borrow()` in `sim/modules/economy/index.ts`, nothing else there. Read `AGENTS.md` and `sim/README.md` first.
+You own `sim/modules/banking/` and one `w.use(banking)` line in `sim/run.ts` (after `economy`, before `markets`). You may add fields to `Firm` and replace the capacity rule and `borrow()` in `sim/modules/economy/index.ts`, nothing else there. Read `AGENTS.md` and `sim/README.md` first, including "People are parallel arrays": per-person loan data (balance, missed payments, lender) goes in typed arrays on `P` or in arrays indexed by loan, never one object per person.
 
 ## Why
 
@@ -18,4 +18,4 @@ Read "Known weak spots" in `sim/README.md`. Today output depends on labour alone
 
 ## Done
 
-`SIM_POP=6000 node sim/run.ts --years 30 --seed 1` and `--seed 2` finish with "Books balanced every day"; public debt stops rising without limit; no year above 15% inflation; unemployment mostly between 4% and 10%. Commit to `v1-build`, push, reply with both tables, your run time and cost. Then stop.
+`SIM_POP=6000 node sim/run.ts --years 30 --seed 1` and `--seed 2` finish, and `SIM_POP=200000 node sim/run.ts --years 5` stays under 15 seconds per year, with "Books balanced every day"; public debt stops rising without limit; no year above 15% inflation; unemployment mostly between 4% and 10%. Commit to `v1-build`, push, reply with both tables, your run time and cost. Then stop.

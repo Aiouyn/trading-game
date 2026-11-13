@@ -575,7 +575,7 @@ export const markets: Module = {
         if (c <= 0 || !pay(w, f.id, h, c, 'fund.payout', m.root) || !h.startsWith('p_')) continue;
         const t = Math.floor(c * 0.35), e = econ(w); // fund payouts are taxed like dividends
         if (pay(w, h, 'gov', t, 'tax.dividend', m.root)) e.divTax += t;
-        e.people[+h.slice(2)].incWeek += c - t;
+        e.P.incWeek[+h.slice(2)] += c - t;
       }
     }
   },

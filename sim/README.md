@@ -1,6 +1,19 @@
 # sim: the world simulation
 
 Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no install, no build).
+`SIM_POP=200000` sets the population (default 20,000). `--chronicle` prints the history; `--check-every N` sets how often the full conservation check runs (daily up to 20,000 people, weekly above).
+
+## Scale
+
+| People | Seconds per simulated year | Memory |
+|---|---|---|
+| 6,000 | 2.3 | |
+| 100,000 | 5.3 | |
+| 200,000 | 9 | |
+| 300,000 | 10 | 520 MB |
+| 500,000 | 13 | 540 MB |
+
+How: people are parallel arrays, not objects (below); the ledger gives every actor a numeric slot and keeps money in one dense array; shoppers pay once into a clearing account that buys from firms in bulk; staff lists remove in O(1).
 
 ## The four laws
 
@@ -17,6 +30,14 @@ Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no
 | `ledger.ts` | Actors, instruments (`money`, `claim`, `share`, `real`), postings, `netWorth`, `check()`, `hash()`. |
 | `events.ts` | The causality log: `emit`, `exo`, `last(kind)`, `explain(id)`. |
 | `rng.ts` | Deterministic named random streams. |
+
+## People are parallel arrays
+
+As in STONKS-9800 (`docs/reverse-engineering/STONKS-9800/analysis/02-companies-npcs.md:97`), there is no person object. `w.state.economy.P` is a `People` store (`modules/economy/people.ts`) with one typed array per attribute: `P.skill[i]`, `P.employer[i]`, `P.born[i]`, `P.slot[i]` (the person's ledger slot), and so on. Person `i` has ledger id `p_${i}`.
+
+- To add an attribute, add it to `FIELDS` in `people.ts` and give it a default in `People.add`. Never keep a per-person JavaScript object or Map with an entry for everyone.
+- Hot loops use the ledger's slot API: `L.balS(P.slot[i], 'dep')`, `L.moveS('dep', from, to, cents, reason, cause)`.
+- Expensive per-person behaviour (conversations, memories, detailed decisions) should run only for people involved in something, the way Dwarf Fortress keeps population / 50 + 1 detailed figures per civilisation (`decompiled_141522ee0.c:108-112`). Everyone keeps money, a job and a family in the arrays; detail is switched on when it matters.
 
 ## Writing a module
 
@@ -53,4 +74,4 @@ Add a good, a firm or a shock by editing these files; the economy calibrates sta
 ## Known weak spots (next work orders)
 
 - **No business investment and no working credit market.** Profits go out as dividends and the rich save them; only the government recycles that saving, so public debt rises for decades and boom-bust inflation spikes appear every 10 to 15 years. Work order 02 adds investment and credit.
-- **Speed**: about 9 seconds per simulated year at 6,000 people, roughly three times that at 20,000.
+- **Size-dependence**: at 500,000 people the first two years run hotter (15% inflation, 25% unemployment) than at 6,000 to 300,000. Not yet investigated.

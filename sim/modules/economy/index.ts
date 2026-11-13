@@ -11,10 +11,10 @@
 // state in w.state.economy, money only through the ledger, every event with a cause.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { CEO_POSITION, FIRM_DEFS, GOODS, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
-import { type Person, isAdult, joinFirm, leaveJob, makePerson, personName, succession, thought, yearlyLifePass } from './people.ts';
+import { People, joinFirm, leaveJob, succession, thought, yearlyLifePass } from './people.ts';
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
-export const BANK = 'bank_1', GOV = 'gov', CB = 'cb';
+export const BANK = 'bank_1', GOV = 'gov', CB = 'cb', CLEAR = 'clearing';
 const BOND = 'bond:gov';
 
 const CONSUMER_GOODS = Object.values(GOODS).filter((g) => g.share > 0);
@@ -27,14 +27,14 @@ const NATURAL_UNEMP = 0.07;
 
 export interface Firm {
   id: string; idx: number; name: string; sector: string; good: string; price: number; workers: number; expSales: number;
-  staff: number[]; eff: number; ceo: number; family: boolean; badMonths: number; ceoEv?: number; // people: indexes into s.people; eff = sum of staff skill
+  slot: number; staff: number[]; eff: number; ceo: number; family: boolean; badMonths: number; ceoEv?: number; // staff: person indexes into s.P; eff = sum of staff skill
   sold: number; lost: number; unitCost: number; markup: number; made: number; soldEma: number; lostEma: number; madeEma: number;
   mRev: number; mCost: number; mStockDays: number; mPrice0: number; mUnitCost0: number; layoffEv?: number;
   stockoutEv?: number; inputShortEv?: number; priceEv?: number;
   lastProfit: number; lastDividend: number; // last month's figures, for valuation
 }
 export interface EconState {
-  firms: Firm[]; people: Person[]; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
+  firms: Firm[]; P: People; shareIds: string[]; govSlot: number; bankSlot: number; clearSlot: number; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
   wage: number; policyRate: number; cpi: number; cpiBase: number; cpiHist: number[];
   unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number;
   yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force
@@ -52,6 +52,14 @@ export function pay(w: World, from: string, to: string, cents: number, reason: s
   if (to === BANK) return w.ledger.redeem(DEP, from, a, reason, cause);
   return w.ledger.move(DEP, from, to, a, reason, cause);
 }
+/** Slot version of pay(), for loops over people. */
+export function payS(w: World, s: EconState, from: number, to: number, cents: number, reason: string, cause: number): boolean {
+  const a = Math.round(cents);
+  if (a <= 0) return true;
+  if (from === s.bankSlot) { w.ledger.issueS(DEP, to, a, reason, cause); return true; }
+  if (to === s.bankSlot) return w.ledger.redeemS(DEP, from, a, reason, cause);
+  return w.ledger.moveS(DEP, from, to, a, reason, cause);
+}
 const bankEquity = (w: World): number => w.ledger.netWorth(BANK);
 function totalLoans(w: World, s: EconState): number { let t = 0; for (const f of s.firms) t += loanOf(w, f); return t; }
 
@@ -65,6 +73,14 @@ function borrow(w: World, s: EconState, f: Firm, cents: number, cause: number): 
   w.ledger.issue('loan:' + f.id, BANK, a, 'loan.grant', cause);
   w.ledger.issue(DEP, f.id, a, 'loan.grant', cause);
   return true;
+}
+/** Make sure the government holds at least `cents`: if short it sells bonds to the bank, which creates the deposits. */
+function govFund(w: World, cents: number, cause: number): void {
+  if (cash(w, GOV) < cents) {
+    const need = Math.round(cents - cash(w, GOV) + 50_000_00);
+    w.ledger.issue(BOND, BANK, need, 'gov.borrow', cause);
+    w.ledger.issue(DEP, GOV, need, 'gov.borrow', cause);
+  }
 }
 /** Government pays; if short it sells bonds to the bank, which creates the deposits. */
 function govPay(w: World, to: string, cents: number, reason: string, cause: number): void {
@@ -149,38 +165,44 @@ export const economy: Module = {
     L.define({ id: 'eq:' + BANK, kind: 'share', issuer: BANK });
     for (const d of Object.values(GOODS)) L.define({ id: 'good:' + d.good, kind: 'real' });
 
+    L.addActor(CLEAR, 'clearing'); // a payment hub: shoppers pay in, it buys from firms, unspent money goes back the same day
+
     const wage = 100_00; // cents per day for skill 1.0
+    const P = new People(Math.ceil(POPULATION * 1.6));
     const s: EconState = {
-      firms: [], people: [], investors: [], laborForce: 0, hirePtr: 0, breakdowns: 0, successions: 0,
+      firms: [], P, shareIds: ['eq:' + BANK], govSlot: L.slot(GOV), bankSlot: L.slot(BANK), clearSlot: L.slot(CLEAR),
+      investors: [], laborForce: 0, hirePtr: 0, breakdowns: 0, successions: 0,
       wage, policyRate: 0.03, cpi: 1, cpiBase: 1, cpiHist: [], unemployment: 0.1, shockUntil: -1, shocks: [],
       macroEv: g, wageEv: g, rateEv: g, yGdp: 0, yGdpEma: 1, yReal: 0, mSpend: 0, defaults: 0, taxEma: 0, taxToday: 0, profitTaxDaily: 0, dayGdp: 0, taxRate: INCOME_TAX, pensionEma: 0, pensionToday: 0, divTax: 0, fiscal: 0, uEma: 0.08,
     };
     w.state.economy = s;
 
-    // People first. Founding generation: adults aged 18 to 64.
+    // People first. Founding generation: ages 0 to 64.
     const rng = w.rng('genesis:people');
-    for (let i = 0; i < POPULATION; i++) {
-      const p = makePerson(w, s, i, -rng.int(65) * DAYS_PER_YEAR - rng.int(DAYS_PER_YEAR), undefined);
-      s.people.push(p); L.addActor(p.id, 'person');
-    }
+    for (let i = 0; i < POPULATION; i++) P.add(w, -rng.int(65) * DAYS_PER_YEAR - rng.int(DAYS_PER_YEAR), -1, -1);
     { // Founding couples: most adults over 25 start out married, to someone close in age.
-      const adults = s.people.filter((p) => w.day - p.born >= 25 * DAYS_PER_YEAR).sort((a, b) => a.born - b.born || a.i - b.i);
-      for (let k = 0; k + 1 < adults.length; k += 2) if (rng.chance(0.7)) { adults[k].spouse = adults[k + 1].i; adults[k + 1].spouse = adults[k].i; }
+      const adults: number[] = [];
+      for (let i = 0; i < P.n; i++) if (w.day - P.born[i] >= 25 * DAYS_PER_YEAR) adults.push(i);
+      adults.sort((a, b) => P.born[a] - P.born[b] || a - b);
+      for (let k = 0; k + 1 < adults.length; k += 2) if (rng.chance(0.7)) { P.spouse[adults[k]] = adults[k + 1]; P.spouse[adults[k + 1]] = adults[k]; }
       // Founding families: most people are given parents among the couples 20 to 40 years older, and take their name.
-      const couples = adults.filter((p) => p.spouse > p.i);
-      const byAge = [...s.people].sort((a, b) => b.born - a.born || a.i - b.i); // youngest first
+      const couples = adults.filter((i) => P.spouse[i] > i);
+      const byAge: number[] = [];
+      for (let i = 0; i < P.n; i++) byAge.push(i);
+      byAge.sort((a, b) => P.born[b] - P.born[a] || a - b); // youngest first
       for (const c of byAge) {
         if (!rng.chance(0.85)) continue;
         for (let t = 0; t < 40; t++) {
-          const a = couples[rng.int(couples.length)], b = s.people[a.spouse];
-          const gap = (c.born - Math.max(a.born, b.born)) / DAYS_PER_YEAR;
-          if (gap < 20 || gap > 40 || a.kids.length >= 4 || a.family === c.family) continue;
-          c.parent = a.i; c.family = a.family; a.kids.push(c.i); b.kids.push(c.i); break;
+          const a = couples[rng.int(couples.length)], b = P.spouse[a];
+          const gap = (P.born[c] - Math.max(P.born[a], P.born[b])) / DAYS_PER_YEAR;
+          if (gap < 20 || gap > 40 || P.nkids[a] >= 4 || P.family[a] === P.family[c]) continue;
+          P.linkChild(a, b, c); P.family[c] = P.family[a]; break;
         }
       }
     }
-    const workforce = s.people.filter((p) => isAdult(w, p));
-    s.laborForce = s.people.filter((p) => isAdult(w, p)).length;
+    const workforce: number[] = [];
+    for (let i = 0; i < P.n; i++) if (P.adult(w, i)) workforce.push(i);
+    s.laborForce = workforce.length;
 
     // Firms, staffed by named people. Staffing is calibrated from the recipes: price every good at cost plus markup,
     // turn household and government budgets into final demand, add what producers need of each other (the input chain),
@@ -200,24 +222,25 @@ export const economy: Module = {
       Object.assign(gross, next);
     }
     const labour = Object.values(GOODS).reduce((t, g) => t + gross[g.good] / g.prod, 0);
-    const skills = workforce.reduce((t, p) => t + p.skill, 0);
+    const skills = workforce.reduce((t, p) => t + P.skill[p], 0);
     const scale = 0.9 * skills / labour;
     let next = 0;
     for (const def of FIRM_DEFS) {
       const d = GOODS[def.good], rivals = FIRM_DEFS.filter((x) => x.good === def.good).length;
-      L.addActor(def.id, 'firm');
+      const fslot = L.addActor(def.id, 'firm');
+      s.shareIds.push('eq:' + def.id);
       L.define({ id: 'eq:' + def.id, kind: 'share', issuer: def.id });
       L.define({ id: 'loan:' + def.id, kind: 'claim', issuer: def.id });
-      const f: Firm = { id: def.id, idx: s.firms.length, name: def.name, sector: d.sector, good: d.good, price: 0, workers: 0, expSales: 0, sold: 0, lost: 0, unitCost: 0, markup: MARKUP, made: 0, soldEma: 0, lostEma: 0, madeEma: 0,
+      const f: Firm = { id: def.id, idx: s.firms.length, slot: fslot, name: def.name, sector: d.sector, good: d.good, price: 0, workers: 0, expSales: 0, sold: 0, lost: 0, unitCost: 0, markup: MARKUP, made: 0, soldEma: 0, lostEma: 0, madeEma: 0,
         staff: [], eff: 0, ceo: -1, family: def.family, badMonths: 0,
         mRev: 0, mCost: 0, mStockDays: 0, mPrice0: 0, mUnitCost0: 0, lastProfit: 0, lastDividend: 0 };
       const need = scale * gross[d.good] / d.prod / rivals;
-      while (f.eff < need && next < workforce.length) { const p = workforce[next++]; p.employer = f.idx; f.staff.push(p.i); f.eff += p.skill; }
-      if (!f.staff.length) { const p = workforce[next++]; p.employer = f.idx; f.staff.push(p.i); f.eff += p.skill; }
-      f.workers = f.staff.length; f.expSales = f.eff * d.prod;
-      f.ceo = f.staff.reduce((b, x) => (s.people[x].skill > s.people[b].skill ? x : b), f.staff[0]);
-      f.price = price0[d.good]; f.unitCost = price0[d.good] / MARKUP;
       s.firms.push(f);
+      while (f.eff < need && next < workforce.length) joinFirm(s, workforce[next++], f);
+      if (!f.staff.length) joinFirm(s, workforce[next++], f);
+      f.workers = f.staff.length; f.expSales = f.eff * d.prod;
+      f.ceo = f.staff.reduce((b, x) => (P.skill[x] > P.skill[b] ? x : b), f.staff[0]);
+      f.price = price0[d.good]; f.unitCost = price0[d.good] / MARKUP;
     }
     s.hirePtr = 0;
     for (const f of s.firms) { f.mPrice0 = f.price; f.mUnitCost0 = f.unitCost; if (!GOODS[f.good].perishable) L.produce('good:' + f.good, f.id, f.expSales * INV_DAYS, 'genesis', g); }
@@ -226,32 +249,34 @@ export const economy: Module = {
     // founding owners (the top 5% by skill, the chief executives first) the capital they put into the firms and the bank.
     const SHARES = 10_000; // few enough that a share costs dollars, not cents: prices are whole cents
     const dailyWages = s.firms.reduce((t, f) => t + f.eff, 0) * wage;
-    const owners = [...workforce].sort((a, b) => b.skill - a.skill || a.i - b.i).slice(0, Math.max(10, Math.round(workforce.length * 0.05)));
-    const wsum = owners.reduce((t, p) => t + p.skill ** 3, 0);
+    const owners = [...workforce].sort((a, b) => P.skill[b] - P.skill[a] || a - b).slice(0, Math.max(10, Math.round(workforce.length * 0.05)));
+    const wsum = owners.reduce((t, p) => t + P.skill[p] ** 3, 0);
     const capital = (f: Firm): number => Math.round(f.eff * wage * 30);
     const bankCap = Math.round(dailyWages * 40);
     const firmCap = s.firms.reduce((t, f) => t + capital(f), 0);
     const liquid = Math.round(firmCap * 0.6); // the owners' financial savings, which seed the investment funds
     const endow = Math.round(dailyWages * 75) + firmCap + bankCap + liquid;
     L.issue(BOND, BANK, endow, 'genesis', g); L.issue(DEP, GOV, endow, 'genesis', g);
-    for (const p of workforce) { pay(w, GOV, p.id, Math.round(wage * p.skill * 60), 'genesis.endowment', g); p.incEma = wage * p.skill * (1 - INCOME_TAX); }
-    const float = (issuer: string, cents: number, lead: Person | undefined): void => {
+    for (const p of workforce) { payS(w, s, s.govSlot, P.slot[p], Math.round(wage * P.skill[p] * 60), 'genesis.endowment', g); P.incEma[p] = wage * P.skill[p] * (1 - INCOME_TAX); }
+    const float = (issuer: string, cents: number, lead: number): void => {
       let left = SHARES, paid = 0;
       owners.forEach((p, k) => {
-        let share = p.skill ** 3 / wsum;
-        if (lead) share = p === lead ? 0.4 + 0.6 * share : 0.6 * share; // a founder holds 40% of a family firm
+        let share = P.skill[p] ** 3 / wsum;
+        if (lead >= 0) share = p === lead ? 0.4 + 0.6 * share : 0.6 * share; // a founder holds 40% of a family firm
         const sh = k === owners.length - 1 ? left : Math.min(left, Math.round(SHARES * share));
         const c = k === owners.length - 1 ? cents - paid : Math.round(cents * share);
         left -= sh; paid += c;
-        pay(w, GOV, p.id, c, 'genesis.capital', g); pay(w, p.id, issuer, c, 'genesis.equity', g);
-        if (sh > 0) L.issue('eq:' + issuer, p.id, sh, 'genesis.equity', g);
+        pay(w, GOV, P.id(p), c, 'genesis.capital', g); pay(w, P.id(p), issuer, c, 'genesis.equity', g);
+        if (sh > 0) L.issue('eq:' + issuer, P.id(p), sh, 'genesis.equity', g);
       });
     };
-    for (const f of s.firms) float(f.id, capital(f), f.family ? (owners.includes(s.people[f.ceo]) ? s.people[f.ceo] : owners[f.idx]) : undefined);
-    float(BANK, bankCap, undefined);
-    for (const p of owners) pay(w, GOV, p.id, Math.floor(liquid * p.skill ** 3 / wsum), 'genesis.endowment', g);
-    for (const f of s.firms) if (f.family) { const lead = owners.includes(s.people[f.ceo]) ? s.people[f.ceo] : owners[f.idx]; if (lead.employer !== f.idx) joinFirm(s, lead, f); f.ceo = lead.i; }
-    s.investors = owners.slice(0, 300).map((p, k) => ({ id: p.id, target: 0.6 - 0.3 * k / 300 }));
+    const ownerSet = new Set(owners);
+    const leadOf = (f: Firm): number => (ownerSet.has(f.ceo) ? f.ceo : owners[f.idx % owners.length]);
+    for (const f of s.firms) float(f.id, capital(f), f.family ? leadOf(f) : -1);
+    float(BANK, bankCap, -1);
+    for (const p of owners) payS(w, s, s.govSlot, P.slot[p], Math.floor(liquid * P.skill[p] ** 3 / wsum), 'genesis.endowment', g);
+    for (const f of s.firms) if (f.family) { const lead = leadOf(f); if (P.employer[lead] !== f.idx) joinFirm(s, lead, f); f.ceo = lead; }
+    s.investors = owners.slice(0, 300).map((p, k) => ({ id: P.id(p), target: 0.6 - 0.3 * k / 300 }));
     s.taxEma = dailyWages * INCOME_TAX;
     s.cpiBase = cpiLevel(s); s.cpiHist.push(1);
   },
@@ -273,11 +298,12 @@ export const economy: Module = {
     }
 
     // 1. Hiring and firing toward planned output. Real people are hired from the unemployed and laid off last-in first-out.
-    const invDays = (f: Firm): number => INV_DAYS * (f.ceo >= 0 ? 0.7 + 0.6 * (0.98 - s.people[f.ceo].cY) / 0.18 : 1); // a prudent chief keeps more stock
+    const P = s.P;
+    const invDays = (f: Firm): number => INV_DAYS * (f.ceo >= 0 ? 0.7 + 0.6 * (0.98 - P.cY[f.ceo]) / 0.18 : 1); // a prudent chief keeps more stock
     // The day's job seekers, in a rotating order so hiring is spread fairly.
-    const pool: Person[] = [];
-    for (let k = 0; k < s.people.length; k++) { const p = s.people[(s.hirePtr + k) % s.people.length]; if (p.employer < 0 && isAdult(w, p)) pool.push(p); }
-    pool.reverse(); s.hirePtr = (s.hirePtr + 97) % Math.max(1, s.people.length);
+    const pool: number[] = [], adultBorn = w.day - 18 * DAYS_PER_YEAR;
+    for (let k = 0; k < P.n; k++) { const i = (s.hirePtr + k) % P.n; if (P.employer[i] < 0 && P.flags[i] === 1 && P.born[i] <= adultBorn) pool.push(i); }
+    pool.reverse(); s.hirePtr = (s.hirePtr + 97) % Math.max(1, P.n);
     const gaps = s.firms.map((f) => {
       const d = GOODS[f.good], prodEff = d.prod * prodMult(s, f.good);
       const target = d.perishable ? f.expSales * 1.03 : f.expSales + (f.expSales * invDays(f) - inv(w, f)) / 10;
@@ -285,13 +311,13 @@ export const economy: Module = {
     });
     // When nobody is out of work, firms that need staff hire away from firms that are overstaffed (poaching).
     const surplus = s.firms.map((f, i) => (gaps[i] < -1 ? Math.floor(-gaps[i]) : 0));
-    const poach = (): Person | undefined => {
+    const poach = (): number | undefined => {
       for (let j = 0; j < s.firms.length; j++) {
         const k = (s.hirePtr + j) % s.firms.length, g = s.firms[k];
         if (surplus[k] <= 0 || g.staff.length <= 1) continue;
         let x = g.staff.length - 1; if (g.staff[x] === g.ceo) x--;
-        surplus[k]--; gaps[k] += s.people[g.staff[x]].skill;
-        return s.people[g.staff[x]];
+        surplus[k]--; gaps[k] += P.skill[g.staff[x]];
+        return g.staff[x];
       }
       return undefined;
     };
@@ -301,14 +327,14 @@ export const economy: Module = {
       const gap = gaps[i];
       if (gap > 1) {
         const goal = f.eff + Math.max(0.06 * gap, 1);
-        while (f.eff < goal - 0.3) { const p = pool.pop() ?? poach(); if (!p) break; joinFirm(s, p, f); p.lastEv = undefined; }
+        while (f.eff < goal - 0.3) { const p = pool.pop() ?? poach(); if (p === undefined) break; joinFirm(s, p, f); P.lastEv[p] = -1; }
       } else if (gap < -2) {
         const goal = f.eff + Math.min(0.06 * gap, -1);
         while (f.eff > goal + 0.3 && f.staff.length > 1) {
           let k = f.staff.length - 1; if (f.staff[k] === f.ceo) k--;
-          const p = s.people[f.staff[k]];
+          const p = f.staff[k];
           f.layoffEv ??= w.events.emit('firm.layoffs', `sales of ${GOODS[f.good].name} below plan: laying off staff`, [f.priceEv ?? cause], f.id);
-          leaveJob(s, p); p.lastEv = f.layoffEv;
+          leaveJob(s, p); P.lastEv[p] = f.layoffEv;
         }
       }
     });
@@ -319,7 +345,8 @@ export const economy: Module = {
       const d = GOODS[f.good], prodEff = d.prod * prodMult(s, f.good);
       const cause = shockCause(s, f.good) ?? s.macroEv;
       f.unitCost = unitCost(s, f, prodEff);
-      let out = f.eff * prodEff;
+      const full = f.eff * prodEff;
+      let out = full;
       for (const [g, k] of Object.entries(d.inputs)) {
         const avail = firmsOf(s, g).reduce((t, x) => t + inv(w, x), 0);
         if (avail < out * k) {
@@ -337,6 +364,9 @@ export const economy: Module = {
         f.mCost += r.spent;
         if (r.got < out * k - 1e-6) out = r.got / k;
       }
+      // Without an input a firm improvises at a heavy cost: it can still make 30% of capacity. This keeps supply loops
+      // (power needs coal, coal mines need power) from locking at zero forever after a bust.
+      out = Math.max(out, 0.3 * full);
       f.mCost += f.eff * s.wage;
       out = Math.max(0, out); f.made = out;
       L.produce('good:' + f.good, f.id, out, 'production', cause);
@@ -347,17 +377,17 @@ export const economy: Module = {
         if (cash(w, f.id) < bill) borrow(w, s, f, bill - cash(w, f.id) + bill, cause);
         const frac = Math.min(1, cash(w, f.id) / Math.max(1, bill)) * (cash(w, f.id) < bill ? 0.98 : 1);
         let tax = 0;
+        const base = s.wage * PAY_EVERY * frac;
         for (const x of f.staff) {
-          const p = s.people[x];
-          const gross = Math.round(p.skill * s.wage * PAY_EVERY * frac), t = Math.round(gross * s.taxRate);
-          if (pay(w, f.id, p.id, gross - t, 'wages', cause)) { p.incWeek += gross - t; tax += t; }
+          const gross = Math.round(P.skill[x] * base), t = Math.round(gross * s.taxRate);
+          if (L.moveS(DEP, f.slot, P.slot[x], gross - t, 'wages', cause)) { P.incWeek[x] += gross - t; tax += t; }
         }
         if (pay(w, f.id, GOV, tax, 'tax.income', cause)) s.taxToday += tax;
         if (frac < 1) {
           const ev = w.events.emit('firm.cashCrunch', `no cash and no credit: paid ${(frac * 100).toFixed(0)}% of wages and cut a sixth of the staff`, [f.priceEv ?? cause], f.id);
           for (let k = Math.floor(f.staff.length / 6); k > 0 && f.staff.length > 1; k--) {
             let j = f.staff.length - 1; if (f.staff[j] === f.ceo) j--;
-            const p = s.people[f.staff[j]]; leaveJob(s, p); p.lastEv = ev;
+            const p = f.staff[j]; leaveJob(s, p); P.lastEv[p] = ev;
           }
         }
       }
@@ -376,43 +406,68 @@ export const economy: Module = {
       wts[d.good] = priceWeights(sellers[d.good]);
     }
     const thrift = Math.max(0.88, 1 - 0.8 * Math.max(0, s.policyRate - 0.02)); // higher interest rates make saving more attractive
-    const slot = w.day % PAY_EVERY;
-    for (let i = slot; i < s.people.length; i += PAY_EVERY) {
-      const p = s.people[i];
-      if (!p.alive) continue;
-      const adult = isAdult(w, p);
-      if (p.retired || (adult && p.employer < 0)) {
-        const b = Math.round(s.wage * BENEFIT_RATE * PAY_EVERY * (p.retired ? 1 : Math.min(1, p.skill)));
-        govPay(w, p.id, b, p.retired ? 'gov.pensions' : 'gov.benefits', s.macroEv); p.incWeek += b; if (p.retired) s.pensionToday += b;
+    // Today's shoppers are every seventh person. Each one decides a budget from their own income, wealth and state of mind,
+    // and pays it into the clearing account; the clearing account buys the basket from the firms in bulk and refunds
+    // whatever it could not buy. One ledger posting per shopper, however many goods and sellers there are.
+    const slot = w.day % PAY_EVERY, clear = s.clearSlot, macro = s.macroEv;
+    const benefit = s.wage * BENEFIT_RATE * PAY_EVERY;
+    govFund(w, benefit * (P.n / PAY_EVERY + 1), macro);
+    const who: number[] = [], paid: number[] = [];
+    let total = 0;
+    for (let i = slot; i < P.n; i += PAY_EVERY) {
+      const fl = P.flags[i];
+      if (!(fl & 1)) continue;
+      const retired = (fl & 2) !== 0, adult = !retired && P.born[i] <= adultBorn, me = P.slot[i];
+      if (retired || (adult && P.employer[i] < 0)) {
+        const b = Math.round(benefit * (retired ? 1 : Math.min(1, P.skill[i])));
+        L.moveS(DEP, s.govSlot, me, b, retired ? 'gov.pensions' : 'gov.benefits', macro); P.incWeek[i] += b; if (retired) s.pensionToday += b;
       }
-      if (!adult && !p.retired) continue; // children live off their parents
-      if (w.day >= PAY_EVERY) p.incEma += (p.incWeek / PAY_EVERY - p.incEma) / 4;
-      p.incWeek = 0;
-      const money = cash(w, p.id);
+      if (!adult && !retired) continue; // children live off their parents
+      if (w.day >= PAY_EVERY) P.incEma[i] += (P.incWeek[i] / PAY_EVERY - P.incEma[i]) / 4;
+      P.incWeek[i] = 0;
+      const money = L.balS(me, DEP);
       // Needs are timers; crossing a threshold fires a thought.
-      if (adult && p.employer < 0) {
-        const before = p.jobless; p.jobless += PAY_EVERY;
-        if (before < 28 && p.jobless >= 28) thought(w, s, p, 100, 'a month without work', s.macroEv);
-        else if (before < 91 && p.jobless >= 91) thought(w, s, p, 200, 'three months without work', s.macroEv);
-        else if (p.jobless > 91 && p.jobless % 56 < PAY_EVERY) thought(w, s, p, 100, 'still without work', s.macroEv);
+      if (adult && P.employer[i] < 0) {
+        const before = P.jobless[i]; P.jobless[i] += PAY_EVERY;
+        const j = P.jobless[i];
+        if (before < 28 && j >= 28) thought(w, s, i, 100, 'a month without work', macro);
+        else if (before < 91 && j >= 91) thought(w, s, i, 200, 'three months without work', macro);
+        else if (j > 91 && j % 56 < PAY_EVERY) thought(w, s, i, 100, 'still without work', macro);
       }
-      if (money < 3 * p.incEma) { p.broke += PAY_EVERY; if (p.broke % 14 < PAY_EVERY) thought(w, s, p, 150, 'cannot cover the week', s.macroEv); } else p.broke = 0;
-      p.stress = Math.max(0, p.stress - PAY_EVERY);
-      const fear = w.day < p.fearUntil ? 0.8 : 1;
-      const budget = Math.min(money, PAY_EVERY * (p.cY * fear * thrift * p.incEma + 0.001 * money));
+      if (money < 3 * P.incEma[i]) { P.broke[i] += PAY_EVERY; if (P.broke[i] % 14 < PAY_EVERY) thought(w, s, i, 150, 'cannot cover the week', macro); } else P.broke[i] = 0;
+      P.stress[i] = Math.max(0, P.stress[i] - PAY_EVERY);
+      const fear = w.day < P.fearUntil[i] ? 0.8 : 1;
+      const budget = Math.floor(Math.min(money, PAY_EVERY * (P.cY[i] * fear * thrift * P.incEma[i] + 0.001 * money)));
+      if (budget <= 0 || !L.moveS(DEP, me, clear, budget, 'consumption', macro)) continue;
+      who.push(i); paid.push(budget); total += budget;
+    }
+    if (total > 0) {
+      let norm = 0;
+      for (const d of CONSUMER_GOODS) norm += d.share * dm[d.good];
+      norm = Math.max(1, norm);
       for (const d of CONSUMER_GOODS) {
-        let want = (budget * d.share * dm[d.good]) / avgP[d.good], got = 0;
-        const fs = sellers[d.good], qs = allocate(w, fs, want, wts[d.good]), want0 = want, done = fs.map(() => 0);
+        const fs = sellers[d.good], want = total * d.share * dm[d.good] / norm / avgP[d.good];
+        const qs = allocate(w, fs, want, wts[d.good]), done = fs.map(() => 0);
+        let got = 0;
         for (let k = 0; k < fs.length; k++) {
           const f = fs[k], q = qs[k];
           if (q <= 1e-9) continue;
-          const cost = Math.round(q * f.price);
-          if (!pay(w, p.id, f.id, cost, 'consumption', s.macroEv)) continue;
-          L.consume('good:' + d.good, f.id, q, 'consumption', s.macroEv);
-          f.sold += q; f.mRev += cost; want -= q; got += cost; done[k] = q;
+          const cost = Math.min(Math.round(q * f.price), L.balS(clear, DEP));
+          if (cost <= 0 || !L.moveS(DEP, clear, f.slot, cost, 'consumption', macro)) continue;
+          L.consumeS('good:' + d.good, f.slot, q, 'consumption', macro);
+          f.sold += q; f.mRev += cost; got += cost; done[k] = q;
         }
-        bookLost(fs, want0, done, wts[d.good]);
+        bookLost(fs, want, done, wts[d.good]);
         s.yGdp += got; s.mSpend += got; s.dayGdp += got;
+      }
+      // Refund what could not be bought, in proportion to what each shopper paid in.
+      let left = L.balS(clear, DEP);
+      if (left > 0) {
+        const all = left;
+        for (let k = 0; k < who.length && left > 0; k++) {
+          const r = k === who.length - 1 ? left : Math.min(left, Math.floor(all * paid[k] / total));
+          if (r > 0) { L.moveS(DEP, clear, P.slot[who[k]], r, 'consumption.refund', macro); left -= r; }
+        }
       }
     }
     // 5. Government buys public services.
@@ -544,11 +599,11 @@ export const economy: Module = {
       // A chief executive who loses money for six months running is removed by the owners.
       f.badMonths = profit < 0 ? f.badMonths + 1 : 0;
       if (f.badMonths >= CEO_POSITION.removeAfter && f.ceo >= 0) {
-        const old = s.people[f.ceo];
-        const ev = E.emit('firm.ceoFired', `${personName(old)} removed as chief executive after ${f.badMonths} losing months`, [f.priceEv ?? s.macroEv], f.id);
-        const keepFamily = f.family; f.family = false; // the founding family loses the seat
-        succession(w, s, f, old, 'was removed', ev); f.family = keepFamily && false;
-        old.lastEv = ev; leaveJob(s, old);
+        const old = f.ceo;
+        const ev = E.emit('firm.ceoFired', `${s.P.name(old)} removed as chief executive after ${f.badMonths} losing months`, [f.priceEv ?? s.macroEv], f.id);
+        f.family = false; // the founding family loses the seat for good
+        succession(w, s, f, old, 'was removed', ev);
+        s.P.lastEv[old] = ev; leaveJob(s, old);
       }
       f.layoffEv = undefined;
       f.mRev = 0; f.mCost = 0; f.mStockDays = 0; f.mPrice0 = f.price; f.mUnitCost0 = f.unitCost;
@@ -559,7 +614,7 @@ export const economy: Module = {
 
     // Government coupon, bank deposit interest, bank dividends.
     govPay(w, BANK, (L.issued.get(BOND) ?? 0) * s.policyRate / 12, 'gov.coupon', s.rateEv);
-    if (depRate > 0) for (const p of s.people) { if (!p.alive) continue; const i = Math.round(cash(w, p.id) * depRate / 12); if (i > 0) { pay(w, BANK, p.id, i, 'deposit.interest', s.rateEv); p.incWeek += i; } }
+    if (depRate > 0) { const P = s.P; for (let k = 0; k < P.n; k++) { if (!P.alive(k)) continue; const i = Math.round(L.balS(P.slot[k], DEP) * depRate / 12); if (i > 0) { L.issueS(DEP, P.slot[k], i, 'deposit.interest', s.rateEv); P.incWeek[k] += i; } } }
     const eqTarget = 0.12 * totalLoans(w, s) + 0.04 * (L.issued.get(BOND) ?? 0);
     const bankSpare = bankEquity(w) - eqTarget;
     if (bankSpare > 0) payDividends(w, s, BANK, bankSpare * 0.25, s.rateEv);
@@ -583,7 +638,7 @@ export const economy: Module = {
       tax_pct: +(s.taxRate * 100).toFixed(1),
       fiscal_pct: +(s.fiscal * 100).toFixed(1),
       defaults: s.defaults,
-      people: s.people.reduce((t, p) => t + (p.alive ? 1 : 0), 0),
+      people: (() => { let n = 0; for (let k = 0; k < s.P.n; k++) if (s.P.alive(k)) n++; return n; })(),
       breakdowns: s.breakdowns,
       successions: s.successions,
     };
@@ -600,7 +655,7 @@ function payDividends(w: World, s: EconState, issuer: string, cents: number, cau
     if (a <= 0 || !pay(w, issuer, h, a, 'dividends', cause) || !h.startsWith('p_')) continue;
     const t = Math.floor(a * DIVIDEND_TAX); // withheld at source from people; funds pass theirs on and are taxed then
     if (pay(w, h, GOV, t, 'tax.dividend', cause)) s.divTax += t;
-    s.people[+h.slice(2)].incWeek += a - t; // counted as that week's income
+    s.P.incWeek[+h.slice(2)] += a - t; // counted as that week's income
   }
 }
 function cpiLevel(s: EconState): number {
