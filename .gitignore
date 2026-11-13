@@ -74,3 +74,4 @@ out/
 .preflight/
 # verification skill scratch (pid, log, disposable auth). Proof stays in proof/.
 .verify/
+worlds/
