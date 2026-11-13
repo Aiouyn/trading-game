@@ -6,6 +6,7 @@ import { abroad } from './modules/abroad/index.ts';
 import { banking } from './modules/banking/index.ts';
 import { bonds } from './modules/bonds/index.ts';
 import { markets } from './modules/markets/index.ts';
+import { options } from './modules/options/index.ts';
 import { commodities } from './modules/commodities/index.ts';
 import { social } from './modules/social/index.ts';
 import { psyche } from './modules/psyche/index.ts';
@@ -22,7 +23,9 @@ const arg = (k: string, d: string): string => { const i = process.argv.indexOf('
 export function useModules(w: World, without: Set<string>): void {
   w.use(economy);
   if (!without.has('abroad')) w.use(abroad);
-  for (const m of [banking, bonds, markets, commodities, social, psyche, crypto]) if (!without.has(m.id)) w.use(m);
+  for (const m of [banking, bonds, markets]) if (!without.has(m.id)) w.use(m);
+  if (!without.has('options')) w.use(options);
+  for (const m of [commodities, social, psyche, crypto]) if (!without.has(m.id)) w.use(m);
   if (!without.has('law')) w.use(law);
   if (!without.has('player')) w.use(player);
   if (!without.has('history')) w.use(history);
