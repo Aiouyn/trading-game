@@ -170,7 +170,7 @@ function exportQty(w: World, good: string, homePx: number): number {
   // Home price in foreign cents. A weaker home currency (higher mid) makes this smaller, so orders rise.
   const rel = fxPx / (homePx / st.mid);
   let base = 0;
-  for (const f of econ(w).firms) if (f.good === good) base += f.expSales;
+  for (const f of econ(w).firms) if (f.good === good && !f.closed) base += f.expSales;
   const q = base * spec.share * st.activity * rel ** st.cfg.elasticity;
   return q > 1e-6 ? q : 0;
 }

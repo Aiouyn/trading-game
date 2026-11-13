@@ -55,7 +55,7 @@ function money(cents: number): string {
 function anchor(w: World): { person: string; firm: string } {
   const s = econ(w);
   let best: Firm | undefined;
-  for (const f of s.firms) if (!best || f.workers > best.workers) best = f;
+  for (const f of s.firms) if (!f.closed && (!best || f.workers > best.workers)) best = f;
   const person = best && best.ceo >= 0 ? s.P.name(best.ceo) : s.P.name(0);
   return { person, firm: best?.name ?? 'the city' };
 }
@@ -199,6 +199,25 @@ function heirsOf(msg: string): string[] {
 
 function consider(w: World, e: Ev): void {
   const s = econ(w), h = historyOf(w), P = s.P;
+  if (e.kind === 'firm.founded' || e.kind === 'firm.listed' || e.kind === 'firm.failed') {
+    const f = firmOf(w, e.actor);
+    if (f) syncCareer(w, f.id);
+    const people = f && f.ceo >= 0 ? [P.name(f.ceo)] : [];
+    const kind = e.kind === 'firm.founded' ? 'founding' : e.kind === 'firm.listed' ? 'listing' : 'failure';
+    add(w, kind, people, f ? [f.name] : [], e.msg, e.id);
+    return;
+  }
+  if (e.kind === 'firm.takeover') {
+    const buyer = firmOf(w, e.actor);
+    if (buyer) syncCareer(w, buyer.id);
+    const targetName = /takes over (.+) from /.exec(e.msg)?.[1] ?? '';
+    const target = targetName ? s.firms.find((f) => f.name === targetName) : undefined;
+    if (target) syncCareer(w, target.id);
+    const from = / from (.+)$/.exec(e.msg)?.[1] ?? '';
+    const people = [buyer && buyer.ceo >= 0 ? P.name(buyer.ceo) : '', from];
+    add(w, 'takeover', people, [buyer?.name ?? '', targetName], e.msg, e.id);
+    return;
+  }
   if (e.kind === 'firm.succession' || e.kind === 'firm.ceoFired') {
     const f = firmOf(w, e.actor);
     if (f) syncCareer(w, f.id);

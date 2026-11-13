@@ -9,7 +9,7 @@
 // is that claim, moved from losers to winners. Nothing is priced from a random
 // draw: w.rng('cmdty:...') jitters only the timing and the size of an order.
 import { GOODS } from '../economy/content.ts';
-import { DEP, pay, type EconState, type Firm } from '../economy/index.ts';
+import { DEP, pay, setFirmCloseHook, type EconState, type Firm } from '../economy/index.ts';
 import { type Module, type World } from '../../kernel/index.ts';
 
 const LISTED = ['CRUDE_OIL', 'NATURAL_GAS', 'COAL', 'IRON_ORE', 'COPPER', 'LITHIUM', 'GRAIN', 'LIVESTOCK'] as const;
@@ -73,7 +73,7 @@ function netOf(w: World, actor: string, t: Tenor): number {
 
 function spotOf(w: World, s: EconState, good: string): number {
   let p = 0, n = 0;
-  for (const f of s.firms) if (f.good === good) {
+  for (const f of s.firms) if (f.good === good && !f.closed) {
     const wgt = Math.max(1, f.expSales);
     p += f.price * wgt; n += wgt;
   }
@@ -726,6 +726,18 @@ export const commodities: Module = {
   id: 'commodities',
 
   init(w) {
+    setFirmCloseHook((world, actor, cause) => {
+      const st = world.state.commodities as CmdState | undefined;
+      if (!st) return;
+      flattenActor(world, st, actor, cause);
+      releaseMargin(world, actor, marginOf(world, actor), cause);
+      const at = st.roster.indexOf(actor);
+      if (at >= 0) st.roster.splice(at, 1);
+      for (const b of st.books) {
+        b.prod = b.prod.filter((id) => id !== actor);
+        b.buyers = b.buyers.filter((x) => x.id !== actor);
+      }
+    });
     const s = econ(w), L = w.ledger;
     L.addActor(EX, 'exchange');
     L.define({ id: MARGIN, kind: 'claim', issuer: EX });

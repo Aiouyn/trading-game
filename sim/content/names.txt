@@ -1,0 +1,56 @@
+Names for firms people found. Each sector has prefixes and suffixes; the engine pairs them.
+Anything outside brackets is a comment.
+
+[OBJECT:STYLE]
+
+[STYLE:ENERGY]
+[PREFIX:North] [PREFIX:Volt] [PREFIX:Salt] [PREFIX:Deep] [PREFIX:Harbour]
+[SUFFIX:Power] [SUFFIX:Grid] [SUFFIX:Fuel] [SUFFIX:Light] [SUFFIX:Energy]
+
+[STYLE:AGRICULTURE]
+[PREFIX:Golden] [PREFIX:Prairie] [PREFIX:Tall] [PREFIX:Hollow] [PREFIX:Green]
+[SUFFIX:Field] [SUFFIX:Farm] [SUFFIX:Grove] [SUFFIX:Harvest] [SUFFIX:Acre]
+
+[STYLE:MINING]
+[PREFIX:Black] [PREFIX:Red] [PREFIX:Copper] [PREFIX:Grey] [PREFIX:Salar]
+[SUFFIX:Vein] [SUFFIX:Hill] [SUFFIX:Cliff] [SUFFIX:Quarry] [SUFFIX:Shaft]
+
+[STYLE:METALS]
+[PREFIX:Iron] [PREFIX:Ruddy] [PREFIX:Sky] [PREFIX:Forge] [PREFIX:Alloy]
+[SUFFIX:Gate] [SUFFIX:Works] [SUFFIX:Metal] [SUFFIX:Foundry] [SUFFIX:Mill]
+
+[STYLE:CHEMICALS]
+[PREFIX:Alkane] [PREFIX:Verdant] [PREFIX:Poly] [PREFIX:Callow] [PREFIX:Solvent]
+[SUFFIX:Chem] [SUFFIX:Labs] [SUFFIX:Compound] [SUFFIX:Synth] [SUFFIX:Acid]
+
+[STYLE:CONSTRUCTION]
+[PREFIX:Corner] [PREFIX:Kestrel] [PREFIX:Civic] [PREFIX:Bedrock] [PREFIX:Stone]
+[SUFFIX:Build] [SUFFIX:Homes] [SUFFIX:Mason] [SUFFIX:Yard] [SUFFIX:Works]
+
+[STYLE:MANUFACTURING]
+[PREFIX:Titan] [PREFIX:Hearth] [PREFIX:Thread] [PREFIX:Oak] [PREFIX:Home]
+[SUFFIX:Line] [SUFFIX:Plant] [SUFFIX:Mill] [SUFFIX:Works] [SUFFIX:Forge]
+
+[STYLE:TECHNOLOGY]
+[PREFIX:Quanta] [PREFIX:Lumen] [PREFIX:Pixel] [PREFIX:Code] [PREFIX:Signal]
+[SUFFIX:Devices] [SUFFIX:Soft] [SUFFIX:Circuit] [SUFFIX:Net] [SUFFIX:Forge]
+
+[STYLE:TRANSPORT]
+[PREFIX:Metro] [PREFIX:Swift] [PREFIX:Road] [PREFIX:Harbour] [PREFIX:Sky]
+[SUFFIX:Link] [SUFFIX:Haul] [SUFFIX:Transit] [SUFFIX:Freight] [SUFFIX:Air]
+
+[STYLE:RETAIL]
+[PREFIX:Fresh] [PREFIX:Emporia] [PREFIX:Daily] [PREFIX:Bargain] [PREFIX:Market]
+[SUFFIX:Way] [SUFFIX:Hall] [SUFFIX:Basket] [SUFFIX:Mart] [SUFFIX:Store]
+
+[STYLE:HEALTHCARE]
+[PREFIX:Margaret] [PREFIX:Haven] [PREFIX:Care] [PREFIX:Pulse] [PREFIX:Mercy]
+[SUFFIX:Health] [SUFFIX:Clinic] [SUFFIX:Ward] [SUFFIX:Medical] [SUFFIX:House]
+
+[STYLE:FINANCE]
+[PREFIX:Crown] [PREFIX:Ledger] [PREFIX:Aegis] [PREFIX:Halcyon] [PREFIX:Trust]
+[SUFFIX:Savings] [SUFFIX:Mutual] [SUFFIX:Capital] [SUFFIX:Cover] [SUFFIX:Bank]
+
+[STYLE:MEDIA]
+[PREFIX:Herald] [PREFIX:Marquee] [PREFIX:Play] [PREFIX:Beacon] [PREFIX:Daily]
+[SUFFIX:News] [SUFFIX:Studio] [SUFFIX:Press] [SUFFIX:Stage] [SUFFIX:House]

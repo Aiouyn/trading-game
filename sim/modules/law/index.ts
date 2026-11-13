@@ -224,6 +224,13 @@ function eachKnower(know: KnowPeek | null, fn: (p: number) => void): void {
   if (!tab) return;
   for (let i = 0; i < tab.length; i++) if (tab[i] >= 0) fn(tab[i]);
 }
+function growFirms(st: Law, n: number): void {
+  if (st.firmHeat.length >= n && st.firmCut.length >= n && st.fraudAt.length >= n) return;
+  let cap = Math.max(16, st.firmHeat.length);
+  while (cap < n) cap *= 2;
+  const g = (a: Int32Array): Int32Array => { const x = new Int32Array(cap); x.fill(-1); x.set(a); return x; };
+  st.firmHeat = g(st.firmHeat); st.firmCut = g(st.firmCut); st.fraudAt = g(st.fraudAt);
+}
 function grow(st: Law, n: number): void {
   if (st.heat.length >= n && st.freeAt.length >= n) return;
   let cap = Math.max(16, st.heat.length);
@@ -550,7 +557,7 @@ function dividendFraud(w: World): void {
   for (const c of st.crunch) {
     if (c.day < from || c.firm < 0 || hit.has(c.firm)) continue;
     const f = s.firms[c.firm];
-    if (!f || f.lastDividend < s.wage * 20 || f.ceo < 0 || !alive(w, f.ceo)) continue;
+    if (!f || f.closed || c.firm >= st.fraudAt.length || f.lastDividend < s.wage * 20 || f.ceo < 0 || !alive(w, f.ceo)) continue;
     if (st.fraudAt[c.firm] >= 0 && w.day - st.fraudAt[c.firm] < 360) continue;
     hit.add(c.firm);
     st.fraudAt[c.firm] = w.day;
@@ -573,7 +580,7 @@ function bankFraud(w: World): void {
     if (st.seenKey.has(key)) continue;
     let hidden = 0;
     for (const f of s.firms) {
-      if (!book.firmMiss[f.idx]) continue;
+      if (f.closed || f.idx >= book.firmMiss.length || !book.firmMiss[f.idx]) continue;
       const instr = 'cf:' + f.id;
       if (L.instruments.has(instr)) hidden += Math.floor(L.balance(bank.id, instr));
     }
@@ -893,6 +900,7 @@ export const law: Module = {
   dayClose(w) {
     const st = lawOf(w);
     grow(st, econ(w).P.n);
+    growFirms(st, econ(w).firms.length);
     release(w);
     ingest(w);
     settle(w);
@@ -902,6 +910,7 @@ export const law: Module = {
   monthEnd(w) {
     const st = lawOf(w);
     grow(st, econ(w).P.n);
+    growFirms(st, econ(w).firms.length);
     freshenStaff(w);
     dividendFraud(w);
     bankFraud(w);

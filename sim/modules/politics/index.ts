@@ -394,7 +394,7 @@ function donations(w: World): void {
     if (a > topAmt) { topAmt = a; topWho = from; topParty = party; topPerson = person; topFirm = firm; }
   };
   for (const f of s.firms) {
-    if (!(f.lastProfit > 0)) continue;
+    if (f.closed || !(f.lastProfit > 0)) continue;
     const ideo = firmChoice(f.lastProfit, st.gov);
     const amt = f.lastProfit * 0.025;
     const sec = SECTOR_NAMES.indexOf(f.sector);
@@ -466,7 +466,7 @@ function subsidiseFrom(w: World, saved: Float64Array): void {
   if (!(sum > 0) || saved[top] < sum * 0.22 || saved[top] < s.wage * 30) { st.boost = ''; return; }
   const sec = SECTOR_NAMES[top];
   st.boost = sec;
-  const firms = s.firms.filter((f) => f.sector === sec);
+  const firms = s.firms.filter((f) => !f.closed && f.sector === sec);
   if (!firms.length) return;
   const pool = Math.round(Math.min(saved[top] * 0.08, Math.max(s.taxEma, s.wage) * 2));
   const each = Math.floor(pool / firms.length);

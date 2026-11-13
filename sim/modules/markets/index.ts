@@ -74,7 +74,7 @@ function sharesOut(w: World, instr: string): number { return w.ledger.issued.get
 
 function goodPrice(s: EconState, good: string): number {
   let n = 0, p = 0;
-  for (const f of s.firms) if (f.good === good) { p += f.price; n++; }
+  for (const f of s.firms) if (f.good === good && !f.closed) { p += f.price; n++; }
   return n ? p / n : 0;
 }
 
@@ -616,6 +616,7 @@ export const markets: Module = {
     const s = econ(w);
     let peSum = 0, n = 0;
     for (const f of s.firms) {
+      if (f.closed) continue;
       const st = m.stocks.find((x) => x.issuer === f.id);
       if (!st) continue;
       const eps = f.lastProfit * 12 / sharesOut(w, st.instr);

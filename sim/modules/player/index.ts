@@ -115,13 +115,14 @@ function chooseFirm(w: World): Firm {
   const need = (w.state.social as { need?: number } | undefined)?.need ?? Math.ceil(s.P.n * 0.01);
   let best: Firm | undefined;
   for (const f of s.firms) {
+    if (f.closed) continue;
     const n = f.staff.length;
     if (n < 16 || n + 1 >= need) continue;
     if (!best || n < best.staff.length) best = f;
   }
   if (best) return best;
-  for (const f of s.firms) if (f.staff.length >= 16 && (!best || f.staff.length < best.staff.length)) best = f;
-  return best ?? s.firms[0];
+  for (const f of s.firms) if (!f.closed && f.staff.length >= 16 && (!best || f.staff.length < best.staff.length)) best = f;
+  return best ?? s.firms.find((f) => !f.closed) ?? s.firms[0];
 }
 
 function parentsOf(P: EconState['P'], born: number): [number, number] {
@@ -219,6 +220,7 @@ function stockInstr(w: World, sym: string): string | undefined {
   const k = sym.toLowerCase();
   for (const s of stocks) if (s.instr.toLowerCase() === k || s.instr.slice(3).toLowerCase() === k) return s.instr;
   for (const f of econ(w).firms) {
+    if (f.closed) continue;
     const bare = f.id.startsWith('frm_') ? f.id.slice(4) : f.id;
     if (f.id.toLowerCase() === k || bare === k || f.name.toLowerCase() === k) return 'eq:' + f.id;
   }

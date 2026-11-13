@@ -34,6 +34,7 @@ export interface Firm {
   mRev: number; mCost: number; mStockDays: number; mPrice0: number; mUnitCost0: number; layoffEv?: number;
   stockoutEv?: number; inputShortEv?: number; priceEv?: number;
   lastProfit: number; lastDividend: number; // last month's figures, for valuation
+  closed: boolean; listed: boolean; founder: number; bornDay: number; bornWorkers: number; listOn: number; ipoEv: number; ipoPx: number;
 }
 export interface EconState {
   firms: Firm[]; P: People; shareIds: string[]; govSlot: number; bankSlot: number; clearSlot: number; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
@@ -93,6 +94,11 @@ const bankEquity = (w: World): number => w.ledger.netWorth(BANK);
 function totalLoans(w: World, s: EconState): number { let t = 0; for (const f of s.firms) t += loanOf(w, f); return t; }
 
 /** A firm borrows from the banks in `w.state.banking`. They compete on rate and refuse when capital is thin. */
+type CloseHook = (w: World, actor: string, cause: number) => void;
+let closeHook: CloseHook | undefined;
+/** Commodities registers this so a winding-up firm is taken off the futures book before its accounts go to zero. */
+export function setFirmCloseHook(fn: CloseHook): void { closeHook = fn; }
+
 function borrow(w: World, s: EconState, f: Firm, cents: number, cause: number): boolean {
   const lend = (w.state.banking as { lendFirm?: (w: World, s: EconState, f: Firm, cents: number, cause: number) => boolean } | undefined)?.lendFirm;
   if (!lend) return false;
@@ -140,7 +146,7 @@ function govPay(w: World, to: string, cents: number, reason: string, cause: numb
   }
   pay(w, GOV, to, a, reason, cause);
 }
-const firmsOf = (s: EconState, good: string): Firm[] => s.firms.filter((f) => f.good === good);
+const firmsOf = (s: EconState, good: string): Firm[] => s.firms.filter((f) => f.good === good && !f.closed);
 
 /** Sell `qty` of a good to a buyer from the cheapest firms with stock. Returns { got, spent }. */
 /** Split an order across rival sellers: each gets a share that falls steeply with its price relative to the cheapest
@@ -199,7 +205,12 @@ function unitCost(w: World, s: EconState, f: Firm, prodEff: number): number {
   const d = GOODS[f.good];
   let c = s.wage / prodEff;
   const port = abroadOf(w);
-  for (const [g, k] of Object.entries(d.inputs)) { const dom = Math.min(...firmsOf(s, g).map((x) => x.price)); c += k * (port ? port.landed(w, g, dom) : dom); }
+  for (const [g, k] of Object.entries(d.inputs)) {
+    const fs = firmsOf(s, g);
+    const dom = fs.length ? Math.min(...fs.map((x) => x.price)) : 0;
+    if (!(dom > 0)) continue;
+    c += k * (port ? port.landed(w, g, dom) : dom);
+  }
   return c;
 }
 
@@ -282,12 +293,13 @@ export const economy: Module = {
       L.define({ id: 'loan:' + def.id, kind: 'claim', issuer: def.id });
       const f: Firm = { id: def.id, idx: s.firms.length, slot: fslot, name: def.name, sector: d.sector, good: d.good, price: 0, workers: 0, expSales: 0, sold: 0, lost: 0, unitCost: 0, markup: MARKUP, made: 0, soldEma: 0, lostEma: 0, madeEma: 0,
         staff: [], eff: 0, ceo: -1, family: def.family, badMonths: 0,
-        mRev: 0, mCost: 0, mStockDays: 0, mPrice0: 0, mUnitCost0: 0, lastProfit: 0, lastDividend: 0 };
+        mRev: 0, mCost: 0, mStockDays: 0, mPrice0: 0, mUnitCost0: 0, lastProfit: 0, lastDividend: 0,
+        closed: false, listed: true, founder: -1, bornDay: 0, bornWorkers: 0, listOn: 0, ipoEv: -1, ipoPx: 0 };
       const need = scale * gross[d.good] / d.prod / rivals;
       s.firms.push(f);
       while (f.eff < need && next < workforce.length) joinFirm(s, workforce[next++], f);
       if (!f.staff.length) joinFirm(s, workforce[next++], f);
-      f.workers = f.staff.length; f.expSales = f.eff * d.prod;
+      f.workers = f.staff.length; f.bornWorkers = f.workers; f.expSales = f.eff * d.prod;
       f.ceo = f.staff.reduce((b, x) => (P.skill[x] > P.skill[b] ? x : b), f.staff[0]);
       f.price = price0[d.good]; f.unitCost = price0[d.good] / MARKUP;
     }
@@ -372,6 +384,7 @@ export const economy: Module = {
     pool = pool.slice(pool.length - Math.ceil(pool.length * MATCH_RATE));
     let poachLeft = Math.ceil(employedAtDawn * POACH_RATE);
     const gaps = s.firms.map((f) => {
+      if (f.closed) return 0;
       const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
       const target = d.perishable ? f.expSales * 1.03 : f.expSales + (f.expSales * invDays(f) - inv(w, f)) / 10;
       // Capacity is the tighter of staff and installed machinery. Without a capital stock yet, labour still sets it.
@@ -384,7 +397,7 @@ export const economy: Module = {
       if (poachLeft <= 0) return undefined;
       for (let j = 0; j < s.firms.length; j++) {
         const k = (s.hirePtr + j) % s.firms.length, g = s.firms[k];
-        if (surplus[k] <= 0 || g.staff.length <= 1) continue;
+        if (g.closed || surplus[k] <= 0 || g.staff.length <= 1) continue;
         let x = g.staff.length - 1; if (g.staff[x] === g.ceo) x--;
         surplus[k]--; gaps[k] += P.skill[g.staff[x]]; poachLeft--;
         return g.staff[x];
@@ -392,6 +405,7 @@ export const economy: Module = {
       return undefined;
     };
     s.firms.forEach((f, i) => {
+      if (f.closed) return;
       const cause = shockCause(s, f.good) ?? s.macroEv;
       // Close 6% of the gap a day, but always at least one person once the gap is a whole worker, so small firms can grow.
       const gap = gaps[i];
@@ -412,6 +426,7 @@ export const economy: Module = {
     // 2. Production: buy inputs, make goods. Wages accrue daily and are paid weekly.
     const payday = w.day % PAY_EVERY === PAY_EVERY - 1;
     for (const f of s.firms) {
+      if (f.closed) continue;
       const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
       const cause = shockCause(s, f.good) ?? s.macroEv;
       f.unitCost = unitCost(w, s, f, prodEff);
@@ -475,6 +490,7 @@ export const economy: Module = {
     const dm: Record<string, number> = {}, wts: Record<string, number[]> = {};
     for (const d of CONSUMER_GOODS) {
       sellers[d.good] = firmsOf(s, d.good).sort((a, b) => a.price - b.price || (a.id < b.id ? -1 : 1));
+      if (!sellers[d.good].length) continue;
       avgP[d.good] = sellers[d.good].reduce((t, x) => t + x.price, 0) / sellers[d.good].length;
       dm[d.good] = demandMult(s, d.good);
       wts[d.good] = priceWeights(sellers[d.good]);
@@ -521,7 +537,9 @@ export const economy: Module = {
       for (const d of CONSUMER_GOODS) norm += d.share * dm[d.good];
       norm = Math.max(1, norm);
       for (const d of CONSUMER_GOODS) {
-        const fs = sellers[d.good], want = total * d.share * dm[d.good] / norm / avgP[d.good];
+        const fs = sellers[d.good];
+        if (!fs?.length || !(avgP[d.good] > 0)) continue;
+        const want = total * d.share * dm[d.good] / norm / avgP[d.good];
         const qs = allocate(w, fs, want, wts[d.good]), done = fs.map(() => 0);
         let got = 0;
         for (let k = 0; k < fs.length; k++) {
@@ -562,7 +580,9 @@ export const economy: Module = {
     for (const d of GOV_GOODS) govW += pri ? d.gov * (pri[d.good] ?? 1) : d.gov;
     if (!(govW > 0)) govW = 1;
     for (const d of GOV_GOODS) {
-      const fs = firmsOf(s, d.good), p = fs.reduce((t, x) => t + x.price, 0) / fs.length;
+      const fs = firmsOf(s, d.good);
+      if (!fs.length) continue;
+      const p = fs.reduce((t, x) => t + x.price, 0) / fs.length;
       const share = pri ? d.gov * (pri[d.good] ?? 1) / govW : d.gov;
       const gr = buy(w, s, GOV, d.good, (govBudget + stimulus) * spendMul * share / p, 'gov.purchases', s.macroEv);
       L.consume('good:' + d.good, GOV, gr.got, 'gov.purchases', s.macroEv);
@@ -584,6 +604,7 @@ export const economy: Module = {
 
     // 6. Firms close the day: spoilage, sales expectations, prices.
     for (const f of s.firms) {
+      if (f.closed) continue;
       const d = GOODS[f.good];
       if (d.perishable) L.consume('good:' + f.good, f.id, inv(w, f), 'spoilage', s.macroEv);
       f.expSales += 0.1 * (f.sold + f.lost - f.expSales);
@@ -622,6 +643,7 @@ export const economy: Module = {
 
     const priceEvs: { id: number; mag: number }[] = [];
     for (const f of s.firms) {
+      if (f.closed) continue;
       const ch = f.price / f.mPrice0 - 1, costCh = f.unitCost / f.mUnitCost0 - 1;
       if (Math.abs(ch) > 0.015) {
         const c: number[] = [];
@@ -693,6 +715,7 @@ export const economy: Module = {
     // Firms: interest, profit tax, loan repayment, dividends, defaults.
     let profitTax = 0;
     for (const f of s.firms) {
+      if (f.closed) continue;
       const loan = loanOf(w, f), interest = Math.round(loan * loanRate / 12);
       if (!pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv)) borrow(w, s, f, interest, s.rateEv) && pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv);
       const profit = f.mRev - f.mCost - interest;
@@ -783,8 +806,250 @@ function payDividends(w: World, s: EconState, issuer: string, cents: number, cau
 function cpiLevel(s: EconState): number {
   let c = 0;
   for (const d of CONSUMER_GOODS) {
-    const fs = firmsOf(s, d.good), wsum = fs.reduce((t, f) => t + f.expSales, 0) || 1;
+    const fs = firmsOf(s, d.good);
+    if (!fs.length) continue;
+    const wsum = fs.reduce((t, f) => t + f.expSales, 0) || 1;
     c += d.share * fs.reduce((t, f) => t + f.price * f.expSales, 0) / wsum;
   }
   return c;
+}
+
+export interface NewFirm { name: string; good: string; founder: number; cash: number; hires: number; cause: number }
+
+/** A person starts a small private firm: their cash for the equity, a loan for the machines, staff from the unemployed. */
+export function addFirm(w: World, spec: NewFirm): Firm | null {
+  const s: EconState = w.state.economy, L = w.ledger, P = s.P, d = GOODS[spec.good];
+  if (!d || spec.founder < 0 || spec.founder >= P.n || !P.alive(spec.founder)) return null;
+  const cashIn = Math.round(spec.cash);
+  if (cashIn > 0 && L.balS(P.slot[spec.founder], DEP) < cashIn) return null;
+  const id = 'frm_n' + s.firms.length;
+  if (L.hasActor(id)) return null;
+  const hires = Math.max(1, spec.hires);
+  const rivals = firmsOf(s, d.good);
+  const price = rivals.length ? rivals.reduce((t, f) => t + f.price, 0) / rivals.length : 1;
+  const unit = rivals.length ? rivals.reduce((t, f) => t + f.unitCost, 0) / rivals.length : price / MARKUP;
+  const slot = L.addActor(id, 'firm');
+  const eq = 'eq:' + id;
+  s.shareIds.push(eq);
+  L.define({ id: eq, kind: 'share', issuer: id });
+  L.define({ id: 'loan:' + id, kind: 'claim', issuer: id });
+  L.define({ id: 'cf:' + id, kind: 'claim', issuer: id });
+  const f: Firm = {
+    id, idx: s.firms.length, slot, name: spec.name, sector: d.sector, good: d.good, price, workers: 0, expSales: 0,
+    staff: [], eff: 0, ceo: -1, family: true, badMonths: 0,
+    sold: 0, lost: 0, unitCost: unit, markup: MARKUP, made: 0, soldEma: 0, lostEma: 0, madeEma: 0,
+    mRev: 0, mCost: 0, mStockDays: 0, mPrice0: price, mUnitCost0: unit, lastProfit: 0, lastDividend: 0,
+    closed: false, listed: false, founder: spec.founder, bornDay: w.day, bornWorkers: 0, listOn: 0, ipoEv: -1, ipoPx: 0,
+  };
+  s.firms.push(f);
+  if (cashIn > 0 && !pay(w, P.id(spec.founder), id, cashIn, 'equity.found', spec.cause)) { closeFirm(w, f, spec.cause); return null; }
+  L.issue(eq, P.id(spec.founder), 1000, 'equity.found', spec.cause);
+  joinFirm(s, spec.founder, f);
+  f.ceo = spec.founder;
+  let hired = 1;
+  for (let k = 0; k < P.n && hired < hires; k++) {
+    const i = (s.hirePtr + k) % P.n;
+    if (P.employer[i] >= 0 || !P.adult(w, i) || (P.flags[i] & 4) !== 0) continue;
+    joinFirm(s, i, f);
+    hired++;
+  }
+  f.workers = f.staff.length;
+  f.bornWorkers = f.workers;
+  f.expSales = f.eff * d.prod * 0.85;
+  const want = f.eff * d.prod;
+  if (L.instruments.has(CAPITAL) && !installCapital(w, s, f, want, spec.cause)) { closeFirm(w, f, spec.cause); return null; }
+  if (L.instruments.has(CAPITAL)) f.expSales = Math.min(f.expSales, L.balance(f.id, CAPITAL) * 0.9);
+  return f;
+}
+
+/** Buy machinery and install it as capital. Shelf stock is a few days of sales, so the rest is commissioned:
+ *  the makers build it, get paid, and it is installed. Returns false when almost none of `want` was installed. */
+function installCapital(w: World, s: EconState, f: Firm, want: number, cause: number): boolean {
+  const L = w.ledger;
+  if (!(want > 0)) return false;
+  const makers = s.firms.filter((m) => m.good === 'MACHINERY' && !m.closed && m.idx !== f.idx && m.price > 0);
+  if (!makers.length) return false;
+  const cpu = 360 * s.wage / Math.max(0.01, GOODS[f.good].prod);
+  const cost = Math.round(want * cpu);
+  const floor = Math.round(f.eff * s.wage * 21);
+  let cash = Math.max(0, Math.floor(L.balance(f.id, DEP) - floor));
+  if (cash < cost) borrow(w, s, f, cost - cash, cause);
+  cash = Math.max(0, Math.floor(L.balance(f.id, DEP) - floor));
+  const budget = Math.min(cost, cash);
+  if (budget <= 0) return false;
+  let spent = 0;
+  const take = (m: Firm, q2: number, fromShelf: boolean): boolean => {
+    if (!(q2 > 1e-8) || m.price <= 0) return false;
+    const c = Math.min(budget - spent, Math.round(q2 * m.price));
+    const q = Math.min(q2, c / m.price);
+    if (!(q > 1e-8) || c <= 0) return false;
+    if (!fromShelf) L.produce('good:MACHINERY', m.id, q, 'invest.build', cause);
+    if (!pay(w, f.id, m.id, c, 'invest.buy', cause)) {
+      if (!fromShelf) L.consume('good:MACHINERY', m.id, q, 'invest.build', cause);
+      return false;
+    }
+    if (!L.move('good:MACHINERY', m.id, f.id, q, 'invest.buy', cause)) {
+      pay(w, m.id, f.id, c, 'invest.refund', cause);
+      if (!fromShelf) L.consume('good:MACHINERY', m.id, q, 'invest.build', cause);
+      return false;
+    }
+    L.consume('good:MACHINERY', f.id, q, 'invest.install', cause);
+    m.mRev += c; m.sold += q; s.yGdp += c; s.mSpend += c;
+    spent += c;
+    return true;
+  };
+  for (const m of makers) {
+    if (spent >= budget) break;
+    const stock = Math.max(0, L.balance(m.id, 'good:MACHINERY') - Math.max(0, m.soldEma) * 2);
+    if (stock > 1e-8) take(m, Math.min(stock, (budget - spent) / m.price), true);
+  }
+  if (spent < budget) {
+    const m = makers.reduce((a, b) => (b.eff > a.eff ? b : a));
+    take(m, (budget - spent) / m.price, false);
+  }
+  if (spent <= 0) return false;
+  L.produce(CAPITAL, f.id, spent / cpu, 'invest.install', cause);
+  return spent >= cost * 0.3;
+}
+
+/** Creditors are paid in order from what the assets sell for. Shareholders take what remains. The firm then goes to zero. */
+export function closeFirm(w: World, f: Firm, cause: number): boolean {
+  if (f.closed) return false;
+  const s: EconState = w.state.economy;
+  let rivals = 0;
+  for (const o of s.firms) if (!o.closed && o.good === f.good && o.idx !== f.idx) rivals++;
+  if (!rivals) return false;
+  const L = w.ledger, P = s.P;
+  if (f.staff.length) {
+    const ev = w.events.emit('firm.layoffs', `${f.name} lays off its staff`, [cause], f.id);
+    while (f.staff.length) {
+      const p = f.staff[f.staff.length - 1];
+      leaveJob(s, p);
+      P.lastEv[p] = ev;
+    }
+  }
+  f.ceo = -1; f.eff = 0; f.workers = 0; f.expSales = 0;
+  closeHook?.(w, f.id, cause);
+  sellOff(w, s, f, cause);
+  repayClaims(w, s, f, 'cf:' + f.id, cause);
+  repayClaims(w, s, f, 'loan:' + f.id, cause);
+  payResidual(w, s, f, cause);
+  for (const [id, inst] of L.instruments) {
+    const bal = L.balance(f.id, id);
+    if (!(bal > 1e-8)) continue;
+    if (inst.kind === 'real') { L.consume(id, f.id, bal, 'bankrupt.scrap', cause); continue; }
+    const a = Math.floor(bal);
+    if (a <= 0) continue;
+    if (inst.issuer === f.id) L.redeem(id, f.id, a, 'bankrupt.retire', cause);
+    else L.move(id, f.id, GOV, a, 'bankrupt.residual', cause);
+  }
+  const dust = Math.floor(L.balance(f.id, DEP));
+  if (dust > 0) pay(w, f.id, GOV, dust, 'bankrupt.residual', cause);
+  f.closed = true; f.listed = false; f.listOn = 0; f.family = false;
+  const m = w.state.markets as { stocks?: { issuer: string; instr: string }[]; orders?: { open: boolean; instr: string }[] } | undefined;
+  if (m?.stocks) {
+    const instr = 'eq:' + f.id;
+    m.stocks = m.stocks.filter((st) => st.issuer !== f.id);
+    if (m.orders) for (const o of m.orders) if (o.instr === instr) o.open = false;
+  }
+  return true;
+}
+
+function sellOff(w: World, s: EconState, f: Firm, cause: number): void {
+  const L = w.ledger;
+  const good = 'good:' + f.good;
+  let qty = L.balance(f.id, good);
+  for (const r of s.firms) {
+    if (qty <= 1e-8) break;
+    if (r.closed || r.idx === f.idx || r.price <= 0) continue;
+    const px = Math.max(1, Math.round(r.price * 0.5));
+    const spare = Math.max(0, Math.floor(L.balance(r.id, DEP) - r.eff * s.wage * 14));
+    const q = Math.min(qty, L.balance(f.id, good), spare / px);
+    const c = Math.round(q * px);
+    if (!(q > 1e-8) || c <= 0) continue;
+    if (!pay(w, r.id, f.id, c, 'bankrupt.sale', cause)) continue;
+    if (!L.move(good, f.id, r.id, q, 'bankrupt.sale', cause)) { pay(w, f.id, r.id, c, 'bankrupt.sale', cause); continue; }
+    qty -= q;
+  }
+  if (L.instruments.has(CAPITAL) && L.balance(f.id, CAPITAL) > 1e-8) placePlant(w, s, f, cause);
+}
+
+/** The machines are sold to the largest rival in the trade, who borrows if the till is short.
+ *  Anything still unsold is handed over rather than scrapped, so a failure does not delete the industry's capacity. */
+function placePlant(w: World, s: EconState, f: Firm, cause: number): void {
+  const L = w.ledger;
+  const cpu = 360 * s.wage / Math.max(0.01, GOODS[f.good].prod);
+  const px = Math.max(1, cpu * 0.4);
+  let buyer: Firm | undefined;
+  for (const r of s.firms) if (!r.closed && r.idx !== f.idx && r.good === f.good && (!buyer || r.eff > buyer.eff)) buyer = r;
+  if (!buyer) return;
+  const floor = Math.round(buyer.eff * s.wage * 14);
+  let have = L.balance(f.id, CAPITAL);
+  let spare = Math.max(0, Math.floor(L.balance(buyer.id, DEP) - floor));
+  const bill = Math.round(have * px);
+  if (spare + 1 < bill) {
+    borrow(w, s, buyer, bill - spare, cause);
+    spare = Math.max(0, Math.floor(L.balance(buyer.id, DEP) - floor));
+  }
+  const paidUnits = Math.min(have, spare / px);
+  const paid = Math.round(paidUnits * px);
+  if (paid > 0 && paidUnits > 1e-8 && pay(w, buyer.id, f.id, paid, 'bankrupt.plant', cause)) {
+    if (!L.consume(CAPITAL, f.id, paidUnits, 'bankrupt.plant', cause)) pay(w, f.id, buyer.id, paid, 'bankrupt.plant', cause);
+    else L.produce(CAPITAL, buyer.id, paidUnits, 'bankrupt.plant', cause);
+  }
+  have = L.balance(f.id, CAPITAL);
+  if (have > 1e-8) {
+    L.consume(CAPITAL, f.id, have, 'bankrupt.plant', cause);
+    L.produce(CAPITAL, buyer.id, have, 'bankrupt.plant', cause);
+  }
+}
+
+function repayClaims(w: World, s: EconState, f: Firm, instr: string, cause: number): void {
+  const L = w.ledger;
+  if (!L.instruments.has(instr)) return;
+  let guard = 0;
+  while (guard++ < 64) {
+    const owed = Math.floor(L.issued.get(instr) ?? 0);
+    const cash = Math.floor(L.balance(f.id, DEP));
+    if (owed <= 0 || cash <= 0) break;
+    let step = false;
+    for (const [id, bal] of [...L.holders(instr).entries()]) {
+      const a = Math.min(Math.floor(bal), cash, owed);
+      if (a <= 0) continue;
+      if (id === BANK) {
+        if (!L.redeem(DEP, f.id, a, 'bankrupt.repay', cause)) continue;
+        if (!L.redeem(instr, id, a, 'bankrupt.repay', cause)) { L.issue(DEP, f.id, a, 'bankrupt.repay', cause); continue; }
+      } else {
+        if (!pay(w, f.id, id, a, 'bankrupt.repay', cause)) continue;
+        if (!L.redeem(instr, id, a, 'bankrupt.repay', cause)) { pay(w, id, f.id, a, 'bankrupt.repay', cause); continue; }
+      }
+      step = true;
+      break;
+    }
+    if (!step) break;
+  }
+  for (const [id] of [...L.holders(instr).entries()]) {
+    const a = Math.floor(L.balance(id, instr));
+    if (a > 0) L.redeem(instr, id, a, 'loan.writeoff', cause);
+  }
+}
+
+function payResidual(w: World, s: EconState, f: Firm, cause: number): void {
+  const L = w.ledger, instr = 'eq:' + f.id;
+  if (!L.instruments.has(instr)) return;
+  const total = Math.floor(L.issued.get(instr) ?? 0);
+  const pot = Math.floor(L.balance(f.id, DEP));
+  if (total > 0 && pot > 0) {
+    const holders = [...L.holdersS(instr)].filter(([, n]) => n > 0).sort((a, b) => a[1] - b[1]);
+    let left = pot;
+    for (let i = 0; i < holders.length && left > 0; i++) {
+      const [slot, n] = holders[i];
+      const a = i === holders.length - 1 ? left : Math.min(left, Math.floor(pot * n / total));
+      if (a > 0 && payS(w, s, f.slot, slot, a, 'bankrupt.equity', cause)) left -= a;
+    }
+  }
+  for (const [slot, n] of [...L.holdersS(instr)]) {
+    const a = Math.floor(n);
+    if (a > 0) L.redeemS(instr, slot, a, 'bankrupt.retire', cause);
+  }
 }

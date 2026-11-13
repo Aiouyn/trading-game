@@ -662,13 +662,13 @@ function attachActor(w: World, fact: Fact, actor: string | undefined): void {
 }
 function bankingFirms(w: World, fact: Fact): void {
   const firms = econ(w).firms;
-  for (let i = 0; i < firms.length; i++) if (firms[i].good === 'BANKING') fact.firms.push(firms[i].idx);
+  for (let i = 0; i < firms.length; i++) if (firms[i].good === 'BANKING' && !firms[i].closed) fact.firms.push(firms[i].idx);
 }
 function shockFirms(w: World, fact: Fact): void {
   const def = fact.shock;
   if (!def) return;
   const firms = econ(w).firms;
-  for (let i = 0; i < firms.length; i++) if (shockTouches(def, firms[i].good)) {
+  for (let i = 0; i < firms.length; i++) if (!firms[i].closed && shockTouches(def, firms[i].good)) {
     fact.firms.push(firms[i].idx);
     fact.instrs.push('eq:' + firms[i].id);
   }
@@ -694,11 +694,23 @@ function ingest(w: World): void {
   }
   st.seen = w.events.count;
 }
+function indexFirms(w: World): void {
+  const st = soc(w), firms = econ(w).firms;
+  if (st.insiderFact.length < firms.length) {
+    const a = new Int32Array(Math.max(firms.length, st.insiderFact.length * 2, 16));
+    a.fill(-1);
+    a.set(st.insiderFact);
+    st.insiderFact = a;
+  }
+  for (let i = 0; i < firms.length; i++) if (!st.firmById.has(firms[i].id)) st.firmById.set(firms[i].id, firms[i].idx);
+}
 function insiderLeak(w: World): void {
   if (w.day % DAYS_PER_MONTH !== LEAK_DAY) return;
   const st = soc(w), s = econ(w);
+  indexFirms(w);
   for (let i = 0; i < s.firms.length; i++) {
     const f = s.firms[i];
+    if (f.closed) continue;
     const profit = Math.round(f.mRev - f.mCost);
     const word = profit >= 0 ? 'profit' : 'loss';
     const amt = (Math.abs(profit) / 100).toFixed(0);
@@ -976,6 +988,7 @@ export const social: Module = {
   dayClose(w) {
     const st = soc(w);
     ensure(st, econ(w).P.n);
+    indexFirms(w);
     if (w.day % DAYS_PER_YEAR === 0) {
       indexPeople(st, w);
       if (w.day > 0) { reclaimDead(st, w); tieAll(st, w); }
@@ -988,6 +1001,7 @@ export const social: Module = {
 
   monthEnd(w) {
     ensure(soc(w), econ(w).P.n);
+    indexFirms(w);
     ingest(w);
   },
 

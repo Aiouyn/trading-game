@@ -6,7 +6,7 @@ import { EventLog } from '../../kernel/events.ts';
 import { Ledger } from '../../kernel/ledger.ts';
 import type { World } from '../../kernel/index.ts';
 import { SHOCKS } from '../economy/content.ts';
-import { People, setEffScaled, setFirmScale, setSimDay } from '../economy/people.ts';
+import { People, clearFirmScales, setEffScaled, setFirmScale, setSimDay } from '../economy/people.ts';
 import { dumpRng, restoreRng } from './rngbox.ts';
 
 const MAGIC = 0x314c5641;
@@ -286,6 +286,7 @@ export function applySnapshot(w: World, dir: string): void {
 function resyncScales(w: World): void {
   setSimDay(w.day);
   setEffScaled(false);
+  clearFirmScales();
   const s = w.state.economy as { firms?: { idx: number; staff: number[] }[]; P?: { mood: Uint8Array } } | undefined;
   if (!s?.firms || !s.P || !w.state.psyche) return;
   const saved = (w.state.psyche as { scale?: Float64Array }).scale;

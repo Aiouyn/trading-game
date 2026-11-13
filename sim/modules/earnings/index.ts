@@ -595,13 +595,13 @@ export const earnings: Module = {
     b.waves = keep;
     if ((w.day + 1) % 30 === 0) {
       for (const f of econ(w).firms) {
-        if (f.idx >= n) continue;
+        if (f.closed || f.idx >= n) continue;
         b.snapRev[f.idx] = f.mRev; b.snapCost[f.idx] = f.mCost; b.snapDay[f.idx] = w.day;
         b.openEv[f.idx] = causesNow(w, f);
       }
     }
     if (w.day % 30 === 22) {
-      for (const f of econ(w).firms) if (w.month % 3 === f.idx % 3 && listed(w, f.id)) previewFirm(w, f);
+      for (const f of econ(w).firms) if (!f.closed && w.month % 3 === f.idx % 3 && listed(w, f.id)) previewFirm(w, f);
       if (w.month % 3 === 2 && listed(w, BANK)) lockBank(w);
     }
   },
@@ -612,7 +612,7 @@ export const earnings: Module = {
     fit(b, needN(w));
     coverAll(b, econ(w).firms.length);
     reportBank(w);
-    for (const f of econ(w).firms) reportFirm(w, f);
+    for (const f of econ(w).firms) if (!f.closed) reportFirm(w, f);
   },
 
   stats(w) {

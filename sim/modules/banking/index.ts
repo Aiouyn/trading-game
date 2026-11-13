@@ -63,9 +63,18 @@ const book = (w: World): Book => w.state.banking as Book;
 const econ = (w: World): EconState => w.state.economy as EconState;
 const firmsMaking = (s: EconState, good: string): Firm[] => {
   const out: Firm[] = [];
-  for (const f of s.firms) if (f.good === good) out.push(f);
+  for (const f of s.firms) if (f.good === good && !f.closed) out.push(f);
   return out;
 };
+function growFirms(b: Book, n: number): void {
+  if (b.hot.length >= n && b.need.length >= n && b.firmMiss.length >= n && b.firmRate.length >= n && b.firmRefuse.length >= n && (!b.plan || b.plan.length >= n)) return;
+  const m = Math.max(n, b.hot.length * 2, 16);
+  const u8 = (a: Uint8Array): Uint8Array => { const x = new Uint8Array(m); x.set(a); return x; };
+  const f64 = (a: Float64Array): Float64Array => { const x = new Float64Array(m); x.set(a); return x; };
+  const i32 = (a: Int32Array): Int32Array => { const x = new Int32Array(m); x.set(a); return x; };
+  b.hot = u8(b.hot); b.need = f64(b.need); b.firmMiss = u8(b.firmMiss); b.firmRate = f64(b.firmRate); b.firmRefuse = i32(b.firmRefuse);
+  if (b.plan) b.plan = f64(b.plan);
+}
 const centsPerUnit = (s: EconState, f: Firm): number => YEARS * 360 * s.wage / Math.max(0.01, GOODS[f.good].prod);
 const firmInstr = (f: Firm): string => 'cf:' + f.id;
 const plInstr = (k: number): string => 'pl_' + k;
@@ -209,6 +218,8 @@ function writeoffLoan(w: World, instr: string, cause: number): number {
 
 function lendFirm(w: World, s: EconState, f: Firm, cents: number, cause: number): boolean {
   const b = book(w);
+  growFirms(b, s.firms.length);
+  if (f.closed || f.idx >= b.firmRefuse.length) return false;
   const ask = Math.round(cents);
   if (ask <= 0) return true;
   const owed = firmOwed(w, f);
@@ -364,7 +375,9 @@ function afterLoss(w: World, s: EconState, losses: { bank: Bank; amt: number }[]
 }
 
 function serviceFirms(w: World, s: EconState, b: Book): void {
+  growFirms(b, s.firms.length);
   for (const f of s.firms) {
+    if (f.closed) continue;
     const instr = firmInstr(f);
     const owed = Math.floor(w.ledger.issued.get(instr) ?? 0);
     if (owed <= 0) { b.firmMiss[f.idx] = 0; continue; }
@@ -408,7 +421,9 @@ function serviceFirms(w: World, s: EconState, b: Book): void {
 
 function planInvestment(w: World, s: EconState, b: Book): void {
   const L = w.ledger;
+  growFirms(b, s.firms.length);
   for (const f of s.firms) {
+    if (f.closed) continue;
     const before = L.balance(f.id, CAPITAL);
     const wear = before * WEAR;
     if (wear > 1e-8) L.consume(CAPITAL, f.id, Math.min(before, wear), 'depreciation', s.macroEv);
@@ -446,11 +461,13 @@ function surplus(w: World, f: Firm): number {
 }
 
 function deliver(w: World, s: EconState, b: Book): void {
+  growFirms(b, s.firms.length);
   const makers = firmsMaking(s, 'MACHINERY');
   if (!makers.length) { b.machPerDay = 0; return; }
   const price = makers.reduce((t, m) => t + m.price, 0) / makers.length;
   let machQty = 0;
-  for (let i = 0; i < s.firms.length; i++) {
+  for (let i = 0; i < s.firms.length && i < b.need.length; i++) {
+    if (s.firms[i].closed) continue;
     if (b.need[i] > 0 && price > 0) machQty += b.need[i] * centsPerUnit(s, s.firms[i]) / price;
   }
   b.machPerDay = machQty / 20;
@@ -463,7 +480,7 @@ function deliver(w: World, s: EconState, b: Book): void {
     return floor > 1e-6 ? w.ledger.balance(f.id, CAPITAL) / floor : 1;
   };
   const shocked = (i: number): boolean => shockMult(s, s.firms[i].good) < 0.82 && b.need[i] > 0;
-  const rank = s.firms.map((_, i) => i).sort((a, c) => {
+  const rank = s.firms.map((_, i) => i).filter((i) => !s.firms[i].closed && i < b.need.length).sort((a, c) => {
     const pa = shocked(a) ? 0 : makers.some((m) => m.idx === a) ? 1 : 2;
     const pb = shocked(c) ? 0 : makers.some((m) => m.idx === c) ? 1 : 2;
     return pa - pb || behind(a) - behind(c);
@@ -874,6 +891,7 @@ export const banking: Module = {
 
   dayClose(w) {
     const s = econ(w), b = book(w);
+    growFirms(b, s.firms.length);
     deliver(w, s, b);
     pinSales(s, b);
     if ((w.day + 1) % 30 !== 0) return;

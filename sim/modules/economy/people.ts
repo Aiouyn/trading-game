@@ -122,6 +122,8 @@ export function setSimDay(d: number): void { simDay = d; }
 export function setEffScaled(v: boolean): void { effScaled = v; }
 export function setFirmScale(idx: number, scale: number): void { firmScale[idx] = scale; }
 export function firmScaleOf(idx: number): number { return firmScale[idx] || 1; }
+/** The scale table is process-global. A second world in this process must not inherit the first world's leftovers. */
+export function clearFirmScales(): void { firmScale.length = 0; }
 function appliedScale(idx: number): number { return effScaled ? firmScaleOf(idx) : 1; }
 
 /** Skill currently inside f.eff: nothing while withdrawn, 70% while health is under 30. */

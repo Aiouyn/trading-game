@@ -209,6 +209,8 @@ function stageScale(w: World): void {
   const s = econ(w), st = psy(w);
   let hi = 0, lo = 100, any = false;
   for (const f of s.firms) {
+    if (!st.scale || st.scale.length <= f.idx) { const a = new Float64Array(Math.max(16, s.firms.length)); if (st.scale) a.set(st.scale); st.scale = a; }
+    if (f.closed) { setFirmScale(f.idx, 1); st.scale[f.idx] = 1; continue; }
     let sum = 0;
     const staff = f.staff;
     for (let i = 0; i < staff.length; i++) sum += s.P.mood[staff[i]];
@@ -217,7 +219,6 @@ function stageScale(w: World): void {
     setFirmScale(f.idx, sc);
     // Kept in the saved state too: a reload must use these exact scales, not ones recomputed from moods that
     // later modules may have changed since.
-    if (!st.scale || st.scale.length <= f.idx) { const a = new Float64Array(Math.max(16, s.firms.length)); if (st.scale) a.set(st.scale); st.scale = a; }
     st.scale[f.idx] = sc;
     if (!staff.length) continue;
     any = true;
@@ -238,7 +239,7 @@ function applyScale(s: EconState): void {
 
 function cheapest(s: EconState, good: string): Firm | undefined {
   let best: Firm | undefined;
-  for (const f of s.firms) if (f.good === good && (!best || f.price < best.price)) best = f;
+  for (const f of s.firms) if (!f.closed && f.good === good && (!best || f.price < best.price)) best = f;
   return best;
 }
 
