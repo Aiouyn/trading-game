@@ -1,4 +1,4 @@
-// Headless run: node sim/run.ts --years 10 --seed 1 [--explain cb.rate] [--chronicle] [--without bonds,social]   (SIM_POP=5000 for a quick run)
+// Headless run: node sim/run.ts --years 10 --seed 1 [--explain cb.rate] [--chronicle] [--load worlds/7] [--without bonds,social]
 // This is the only acceptance check a module needs: it runs, the books balance every day, the stats look sane.
 import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
@@ -9,37 +9,43 @@ import { commodities } from './modules/commodities/index.ts';
 import { social } from './modules/social/index.ts';
 import { psyche } from './modules/psyche/index.ts';
 import { crypto } from './modules/crypto/index.ts';
+import { history } from './modules/history/index.ts';
+import { simulate } from './modules/history/boot.ts';
+import { installRng } from './modules/history/rngbox.ts';
+import { applySnapshot, snapshotSeed } from './modules/history/save.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
-const years = +arg('years', '10'), seed = arg('seed', '1'), explain = arg('explain', 'cb.rate');
-// The full conservation check sums every holding; past 20,000 people it runs weekly unless --check-every says otherwise.
-const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 20000 ? 7 : 1));
 
-const w = new World(seed, 8);
-// --without bonds,social switches modules off (economy is always on), to find which one causes a behaviour.
-const without = new Set(arg('without', '').split(',').filter(Boolean));
-for (const m of [economy, banking, bonds, markets, commodities, social, psyche, crypto]) if (m === economy || !without.has(m.id)) w.use(m);
+export function useModules(w: World, without: Set<string>): void {
+  for (const m of [economy, banking, bonds, markets, commodities, social, psyche, crypto]) if (m === economy || !without.has(m.id)) w.use(m);
+  if (!without.has('history')) w.use(history);
+}
 
-const t0 = Date.now();
-let header = false;
-for (let y = 0; y < years; y++) {
-  for (let d = 0; d < DAYS_PER_YEAR; d++) {
-    w.step();
-    if (w.day % checkEvery !== 0) continue;
-    const bad = w.ledger.check();
-    if (bad.length) { console.error(`BOOKS DO NOT BALANCE on day ${w.day}:\n  ${bad.slice(0, 10).join('\n  ')}`); process.exit(1); }
+export function openWorld(seed: string, without: Set<string>): World {
+  const w = new World(seed, 8);
+  installRng(w);
+  useModules(w, without);
+  return w;
+}
+
+function main(): void {
+  const years = +arg('years', '10'), seed = arg('seed', '1'), explain = arg('explain', 'cb.rate'), load = arg('load', '');
+  const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 20000 ? 7 : 1));
+  const without = new Set(arg('without', '').split(',').filter(Boolean));
+  const t0 = Date.now();
+  const w = openWorld(load ? snapshotSeed(load) : seed, without);
+  if (load) applySnapshot(w, load);
+  simulate(w, years, checkEvery, true);
+  console.log(`\nmemory ${(process.memoryUsage().rss / 1e6).toFixed(0)} MB`);
+  console.log(`\n${years} years, ${w.day} days, ${w.events.count} events, ${Date.now() - t0} ms. Books balanced ${checkEvery === 1 ? 'every day' : `at every check (every ${checkEvery} days)`}. State hash ${w.ledger.hash()}`);
+  if (process.argv.includes('--chronicle')) {
+    console.log('\nChronicle (latest notable events):');
+    for (const e of w.events.recent(['shock.energy', 'firm.succession', 'firm.ceoFired', 'firm.default', 'firm.cashCrunch', 'person.died', 'person.breakdown', 'life.tally'], 40))
+      console.log(`  year ${Math.floor(e.day / DAYS_PER_YEAR) + 1}, day ${e.day % DAYS_PER_YEAR}: ${e.actor ? e.actor + ': ' : ''}${e.msg}`);
   }
-  const row: Record<string, number | string> = { year: y + 1 };
-  for (const m of w.modules) Object.assign(row, m.stats?.(w));
-  if (!header) { console.log(Object.keys(row).join('\t')); header = true; }
-  console.log(Object.values(row).join('\t'));
+  const id = w.events.last(explain);
+  if (id !== undefined) console.log(`\nWhy? Last '${explain}':\n` + w.events.explain(id, 7).join('\n'));
 }
-console.log(`\nmemory ${(process.memoryUsage().rss / 1e6).toFixed(0)} MB`);
-console.log(`\n${years} years, ${w.day} days, ${w.events.count} events, ${Date.now() - t0} ms. Books balanced ${checkEvery === 1 ? 'every day' : `at every check (every ${checkEvery} days)`}. State hash ${w.ledger.hash()}`);
-if (process.argv.includes('--chronicle')) {
-  console.log('\nChronicle (latest notable events):');
-  for (const e of w.events.recent(['shock.energy', 'firm.succession', 'firm.ceoFired', 'firm.default', 'firm.cashCrunch', 'person.died', 'person.breakdown', 'life.tally'], 40))
-    console.log(`  year ${Math.floor(e.day / DAYS_PER_YEAR) + 1}, day ${e.day % DAYS_PER_YEAR}: ${e.actor ? e.actor + ': ' : ''}${e.msg}`);
-}
-const id = w.events.last(explain);
-if (id !== undefined) console.log(`\nWhy? Last '${explain}':\n` + w.events.explain(id, 7).join('\n'));
+
+const entry = process.argv[1] ?? '';
+if (entry.endsWith('run.ts') || entry.endsWith('run.js')) main();
