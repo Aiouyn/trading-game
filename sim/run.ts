@@ -5,6 +5,7 @@ import { economy } from './modules/economy/index.ts';
 import { banking } from './modules/banking/index.ts';
 import { bonds } from './modules/bonds/index.ts';
 import { markets } from './modules/markets/index.ts';
+import { commodities } from './modules/commodities/index.ts';
 import { social } from './modules/social/index.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
@@ -17,6 +18,7 @@ w.use(economy);
 w.use(banking);
 w.use(bonds);
 w.use(markets);
+w.use(commodities);
 w.use(social);
 
 const t0 = Date.now();
