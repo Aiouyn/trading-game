@@ -13,6 +13,7 @@ import { social } from './modules/social/index.ts';
 import { psyche } from './modules/psyche/index.ts';
 import { crypto } from './modules/crypto/index.ts';
 import { law } from './modules/law/index.ts';
+import { politics } from './modules/politics/index.ts';
 import { player } from './modules/player/index.ts';
 import { history } from './modules/history/index.ts';
 import { simulate } from './modules/history/boot.ts';
@@ -28,6 +29,7 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('options')) w.use(options);
   for (const m of [commodities, social, psyche, crypto]) if (!without.has(m.id)) w.use(m);
   if (!without.has('law')) w.use(law);
+  if (!without.has('politics')) w.use(politics);
   if (!without.has('player')) w.use(player);
   if (!without.has('history')) w.use(history);
 }

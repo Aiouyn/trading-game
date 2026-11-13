@@ -1,0 +1,46 @@
+Parties that contest elections. Rates are the platform: income tax, profit tax, dividend tax,
+benefit as a fraction of the wage, the inflation target the party would hand a loyal governor,
+how hard it regulates, how independent the central bank stays, and how dovish that governor is.
+SPEND weights tilt public purchases toward a good (1 is the ordinary share).
+
+[OBJECT:PARTY]
+
+[PARTY:CIVIC]
+[NAME:Civic]
+[TAX:0.12]
+[PROFIT:0.20]
+[DIVIDEND:0.35]
+[BENEFIT:0.40]
+[INFLATION:0.020]
+[REGULATION:0.50]
+[INDEPENDENCE:0.75]
+[DOVISH:0.50]
+
+[PARTY:SOLIDARITY]
+[NAME:Solidarity]
+[TAX:0.15]
+[PROFIT:0.22]
+[DIVIDEND:0.40]
+[BENEFIT:0.42]
+[INFLATION:0.024]
+[REGULATION:0.72]
+[INDEPENDENCE:0.35]
+[DOVISH:0.75]
+[SPEND:HEALTHCARE:1.12]
+[SPEND:TRANSIT:1.08]
+[SPEND:PUBLIC_WORKS:0.94]
+
+[PARTY:MERCHANTS]
+[NAME:Merchants]
+[TAX:0.09]
+[PROFIT:0.18]
+[DIVIDEND:0.30]
+[BENEFIT:0.38]
+[INFLATION:0.017]
+[REGULATION:0.28]
+[INDEPENDENCE:0.55]
+[DOVISH:0.30]
+[SPEND:PUBLIC_WORKS:1.1]
+[SPEND:FUEL:1.08]
+[SPEND:VEHICLES:1.06]
+[SPEND:HEALTHCARE:0.92]

@@ -40,6 +40,8 @@ export interface EconState {
   wage: number; policyRate: number; cpi: number; cpiBase: number; cpiHist: number[];
   unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number;
   yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force
+  taxAim?: number; profitTax?: number; divRate?: number; benefitRate?: number; inflTarget?: number;
+  spendPri?: Record<string, number>; spendScale?: number;
 }
 
 const inv = (w: World, f: Firm): number => w.ledger.balance(f.id, 'good:' + f.good);
@@ -61,6 +63,31 @@ export function payS(w: World, s: EconState, from: number, to: number, cents: nu
   if (from === s.bankSlot) { w.ledger.issueS(DEP, to, a, reason, cause); return true; }
   if (to === s.bankSlot) return w.ledger.redeemS(DEP, from, a, reason, cause);
   return w.ledger.moveS(DEP, from, to, a, reason, cause);
+}
+const clipRate = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
+/** Politics turns these. Left unset, day-to-day policy stays on the constants above. */
+export function setIncomeTax(w: World, rate: number): void {
+  (w.state.economy as EconState).taxAim = clipRate(rate, 0.05, 0.32);
+}
+export function setProfitTax(w: World, rate: number): void {
+  (w.state.economy as EconState).profitTax = clipRate(rate, 0.05, 0.4);
+}
+export function setDividendTax(w: World, rate: number): void {
+  (w.state.economy as EconState).divRate = clipRate(rate, 0, 0.55);
+}
+export function setBenefitRate(w: World, rate: number): void {
+  (w.state.economy as EconState).benefitRate = clipRate(rate, 0.2, 0.65);
+}
+export function setInflationTarget(w: World, rate: number): void {
+  (w.state.economy as EconState).inflTarget = clipRate(rate, 0.01, 0.04);
+}
+export function setSpendPriority(w: World, good: string, weight: number): void {
+  const s = w.state.economy as EconState;
+  if (!s.spendPri) s.spendPri = {};
+  s.spendPri[good] = clipRate(weight, 0.35, 2.8);
+}
+export function setSpendScale(w: World, scale: number): void {
+  (w.state.economy as EconState).spendScale = clipRate(scale, 0.85, 1.15);
 }
 const bankEquity = (w: World): number => w.ledger.netWorth(BANK);
 function totalLoans(w: World, s: EconState): number { let t = 0; for (const f of s.firms) t += loanOf(w, f); return t; }
@@ -457,7 +484,8 @@ export const economy: Module = {
     // and pays it into the clearing account; the clearing account buys the basket from the firms in bulk and refunds
     // whatever it could not buy. One ledger posting per shopper, however many goods and sellers there are.
     const slot = w.day % PAY_EVERY, clear = s.clearSlot, macro = s.macroEv;
-    const benefit = s.wage * BENEFIT_RATE * PAY_EVERY;
+    const benefitRate = s.benefitRate ?? BENEFIT_RATE;
+    const benefit = s.wage * benefitRate * PAY_EVERY;
     govFund(w, benefit * (P.n / PAY_EVERY + 1), macro);
     const who: number[] = [], paid: number[] = [];
     let total = 0;
@@ -525,13 +553,18 @@ export const economy: Module = {
     // The budget follows the year's trend in tax receipts, not last month's, so a slump does not cut public purchases
     // just when private demand falls (and a boom does not add to them).
     s.taxTrend = s.taxTrend === undefined || w.day < 90 ? s.taxEma : s.taxTrend + (s.taxEma - s.taxTrend) / 360;
-    const govBudget = Math.max(0, s.taxTrend + s.profitTaxDaily - coupon - s.pensionEma - NATURAL_UNEMP * s.laborForce * s.wage * BENEFIT_RATE);
+    const govBudget = Math.max(0, s.taxTrend + s.profitTaxDaily - coupon - s.pensionEma - NATURAL_UNEMP * s.laborForce * s.wage * benefitRate);
     // Fiscal stance (set monthly): extra purchases that build up while unemployment stays above the natural rate
     // and unwind while it is below, so the gap does not persist.
     const stimulus = s.fiscal * s.laborForce * s.wage;
+    const pri = s.spendPri, spendMul = s.spendScale ?? 1;
+    let govW = 0;
+    for (const d of GOV_GOODS) govW += pri ? d.gov * (pri[d.good] ?? 1) : d.gov;
+    if (!(govW > 0)) govW = 1;
     for (const d of GOV_GOODS) {
       const fs = firmsOf(s, d.good), p = fs.reduce((t, x) => t + x.price, 0) / fs.length;
-      const gr = buy(w, s, GOV, d.good, (govBudget + stimulus) * d.gov / p, 'gov.purchases', s.macroEv);
+      const share = pri ? d.gov * (pri[d.good] ?? 1) / govW : d.gov;
+      const gr = buy(w, s, GOV, d.good, (govBudget + stimulus) * spendMul * share / p, 'gov.purchases', s.macroEv);
       L.consume('good:' + d.good, GOV, gr.got, 'gov.purchases', s.macroEv);
       s.yGdp += gr.spent; s.dayGdp += gr.spent;
     }
@@ -620,8 +653,16 @@ export const economy: Module = {
     }
     const debtDays = (L.issued.get(BOND) ?? 0) / Math.max(1, s.yGdpEma);
     const t0 = s.taxRate;
-    if (debtDays > 200 && s.taxRate < 0.3 && s.unemployment < NATURAL_UNEMP + 0.02) s.taxRate += 0.0025; // no tax rises in a slump
-    else if (debtDays < 160 && s.taxRate > 0.06) s.taxRate -= 0.0025;
+    const aim = s.taxAim;
+    const taxLo = aim !== undefined ? Math.max(0.05, aim - 0.03) : 0.06;
+    const taxHi = aim !== undefined ? Math.min(0.32, aim + 0.03) : 0.3;
+    if (debtDays > 200 && s.taxRate < taxHi && s.unemployment < NATURAL_UNEMP + 0.02) s.taxRate += 0.0025; // no tax rises in a slump
+    else if (debtDays < 160 && s.taxRate > taxLo) s.taxRate -= 0.0025;
+    if (aim !== undefined && s.unemployment < 0.16) {
+      if (s.taxRate < aim - 0.0008) s.taxRate = Math.min(aim, s.taxRate + 0.0015);
+      else if (s.taxRate > aim + 0.0008) s.taxRate = Math.max(aim, s.taxRate - 0.0015);
+    }
+    s.taxRate = Math.max(taxLo, Math.min(taxHi, s.taxRate));
     if (Math.round(s.taxRate * 100) !== Math.round(t0 * 100)) E.emit('gov.tax', `income tax now ${(s.taxRate * 100).toFixed(0)}%: public debt is ${debtDays.toFixed(0)} days of GDP`, [s.macroEv], GOV);
 
     // Wages follow the labour market and part of inflation.
@@ -638,7 +679,8 @@ export const economy: Module = {
     // Central bank: Taylor rule with smoothing. It reads inflation as half the year-on-year rate and half the last three
     // months annualised: it reacts sooner to a burst and stops tightening sooner once the burst is over.
     const infl = (yoy + Math.max(-0.05, Math.min(0.3, ann3))) / 2;
-    const target = Math.max(0, Math.min(0.2, 0.02 + infl + 0.5 * (infl - 0.02) + 0.5 * (NATURAL_UNEMP - s.unemployment)));
+    const piStar = s.inflTarget ?? 0.02;
+    const target = Math.max(0, Math.min(0.2, 0.02 + infl + 0.5 * (infl - piStar) + 0.5 * (NATURAL_UNEMP - s.unemployment)));
     // Rates move gradually, except that a central bank cuts hard once unemployment is climbing well above normal.
     const speed = target < s.policyRate && s.unemployment > NATURAL_UNEMP + 0.03 ? 0.5 : 0.15;
     const next = Math.round(((1 - speed) * s.policyRate + speed * target) * 400) / 400; // quarter-point grid
@@ -654,7 +696,7 @@ export const economy: Module = {
       const loan = loanOf(w, f), interest = Math.round(loan * loanRate / 12);
       if (!pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv)) borrow(w, s, f, interest, s.rateEv) && pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv);
       const profit = f.mRev - f.mCost - interest;
-      if (profit > 0) { const t = Math.round(Math.min(cash(w, f.id), profit * PROFIT_TAX)); if (pay(w, f.id, GOV, t, 'tax.profit', s.macroEv)) profitTax += t; }
+      if (profit > 0) { const t = Math.round(Math.min(cash(w, f.id), profit * (s.profitTax ?? PROFIT_TAX))); if (pay(w, f.id, GOV, t, 'tax.profit', s.macroEv)) profitTax += t; }
       const buffer = f.eff * s.wage * 30;
       let excess = Math.floor(cash(w, f.id) - buffer);
       if (excess > 0 && loan > 0) {
@@ -733,7 +775,7 @@ function payDividends(w: World, s: EconState, issuer: string, cents: number, cau
     if (a <= 0 || !payS(w, s, from, h, a, 'dividends', cause)) continue;
     const id = L.ids[h];
     if (!id.startsWith('p_')) continue;
-    const t = Math.floor(a * DIVIDEND_TAX); // withheld at source from people; funds pass theirs on and are taxed then
+    const t = Math.floor(a * (s.divRate ?? DIVIDEND_TAX)); // withheld at source from people; funds pass theirs on and are taxed then
     if (L.moveS(DEP, h, s.govSlot, t, 'tax.dividend', cause)) s.divTax += t;
     s.P.incWeek[+id.slice(2)] += a - t; // counted as that week's income
   }
