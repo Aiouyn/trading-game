@@ -6,7 +6,7 @@ Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no
 
 1. **Money moves only through the ledger.** `w.ledger.issue / redeem / move` for financial claims (integer cents), `produce / consume` for physical goods. Never keep a balance in module state.
 2. **Every actor has a balance sheet.** Net worth is derived with `ledger.netWorth()`, never stored.
-3. **No number from thin air.** Prices, earnings, rates and defaults are computed from actor state. `w.rng(key)` is allowed only for tagged outside shocks (`w.events.exo`) and market microstructure noise.
+3. **No number from thin air.** Prices, earnings, rates and defaults are computed from actor state. `w.rng(key)` is allowed only for tagged outside shocks (`w.events.exo`), individual life events (traits at birth, death, pairing, births) and market microstructure noise.
 4. **Every event has a cause.** `w.events.emit(kind, msg, causes)` needs the ids of the events that caused it. Every ledger posting carries a cause id. `w.events.explain(id)` must give a chain a player can read.
 
 ## Kernel (`sim/kernel/`)
@@ -27,4 +27,12 @@ Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no
 
 ## What exists
 
-`modules/economy` is the seed: 12 firms in 4 sectors with an input chain, 3 household classes, one bank that creates deposits by lending, a government with a budget rule, a central bank on a Taylor rule, and one tagged outside shock (energy supply). It is deliberately small. Work orders deepen it.
+`modules/economy` is the seed, simulated person by person (20,000 by default, `SIM_POP` to change):
+
+- **People** (`people.ts`): name, family, age, skill, traits, employer, their own bank balance. Needs are timers that fire thoughts at thresholds; a resilience trait dampens each thought; enough stress causes a breakdown that cuts spending. Once a year: deaths with inheritance on the ledger, retirements, marriages, births.
+- **Firms**: 12 firms in 4 sectors with an input chain, staffed by named people, each with a chief executive whose prudence sets the firm's stock policy. A chief who loses money six months running is removed. Seats are refilled heirs first in family firms, then from the staff, and a successor's old seat is refilled in turn.
+- **Institutions**: one bank that creates deposits by lending, a government with a budget rule, a central bank on a Taylor rule, and one tagged outside shock (energy supply).
+
+`modules/markets` is the stock exchange (work order 01): a price-time order book where funds and the 300 richest people trade the firms' shares.
+
+Known weak spots, for later work orders: no firm borrows yet, so interest rates only bite through household saving; the labour market runs very tight after year 5; ten years take about 50 seconds.

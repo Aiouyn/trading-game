@@ -1,4 +1,4 @@
-// Headless run: node sim/run.ts --years 10 --seed 1 [--explain cb.rate]
+// Headless run: node sim/run.ts --years 10 --seed 1 [--explain cb.rate] [--chronicle]   (SIM_POP=5000 for a quick run)
 // This is the only acceptance check a module needs: it runs, the books balance every day, the stats look sane.
 import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
@@ -25,5 +25,10 @@ for (let y = 0; y < years; y++) {
   console.log(Object.values(row).join('\t'));
 }
 console.log(`\n${years} years, ${w.day} days, ${w.events.count} events, ${Date.now() - t0} ms. Books balanced every day. State hash ${w.ledger.hash()}`);
+if (process.argv.includes('--chronicle')) {
+  console.log('\nChronicle (latest notable events):');
+  for (const e of w.events.recent(['shock.energy', 'firm.succession', 'firm.ceoFired', 'firm.default', 'firm.cashCrunch', 'person.died', 'person.breakdown', 'life.tally'], 40))
+    console.log(`  year ${Math.floor(e.day / DAYS_PER_YEAR) + 1}, day ${e.day % DAYS_PER_YEAR}: ${e.actor ? e.actor + ': ' : ''}${e.msg}`);
+}
 const id = w.events.last(explain);
 if (id !== undefined) console.log(`\nWhy? Last '${explain}':\n` + w.events.explain(id, 7).join('\n'));

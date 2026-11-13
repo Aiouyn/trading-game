@@ -9,8 +9,6 @@ const SHARES = 1_000_000;
 const W_DIV = 0.7;
 const W_EARN = 0.3;
 const PAYOUT = 0.5;
-const HH_TARGET: Record<string, number> = { hh_workers: 0.10, hh_middle: 0.32, hh_rich: 0.58 };
-const HH_WEIGHT = [0.05, 0.25, 0.70];
 
 type Side = 'buy' | 'sell';
 type Src = 'player' | 'value' | 'momentum' | 'mm' | 'hh';
@@ -223,9 +221,16 @@ function matchBook(w: World, st: Stock): void {
   const m = book(w);
   const hi = Math.max(1, Math.floor(st.prev * (1 + band(st))));
   const lo = Math.max(1, Math.ceil(st.prev * (1 - band(st))));
+  // Sort this stock's live orders once per pass instead of rescanning the whole book for every fill.
+  const live = (side: Side): Order[] => m.orders.filter((o) => o.open && !o.skip && o.instr === st.instr && o.side === side && o.qty >= 1);
+  const bids = live('buy').sort((x, y) => bidRank(y) - bidRank(x) || x.seq - y.seq);
+  const asks = live('sell').sort((x, y) => askRank(x) - askRank(y) || x.seq - y.seq);
+  let bi = 0, ai = 0;
+  const ok = (o: Order | undefined): boolean => !!o && o.open && !o.skip && o.qty >= 1;
   for (let guard = 0; guard < 4000; guard++) {
-    const bid = best(m.orders, st.instr, 'buy');
-    const ask = best(m.orders, st.instr, 'sell');
+    while (bi < bids.length && !ok(bids[bi])) bi++;
+    while (ai < asks.length && !ok(asks[ai])) ai++;
+    const bid = bids[bi], ask = asks[ai];
     if (!bid || !ask) break;
     const cross = bid.limit === null || ask.limit === null || bid.limit >= ask.limit;
     if (!cross) break;
@@ -345,14 +350,14 @@ function momentumOrders(w: World, fund: Fund): void {
 function householdOrders(w: World): void {
   const s = econ(w);
   const m = book(w);
-  for (const h of s.hh) {
+  for (const h of s.investors) {
     const rng = w.rng('mkt:' + h.id);
     if (!rng.chance(0.8)) continue;
     const wealth = w.ledger.netWorth(h.id, m.price);
     if (!(wealth > 0)) continue;
     let eq = 0;
     for (const st of m.stocks) eq += w.ledger.balance(h.id, st.instr) * st.last;
-    const gap = (HH_TARGET[h.id] ?? 0.3) * wealth - eq;
+    const gap = h.target * wealth - eq;
     if (Math.abs(gap) / wealth < 0.02) continue;
     const side: Side = gap > 0 ? 'buy' : 'sell';
     for (const st of m.stocks) {
@@ -382,7 +387,8 @@ function causesFor(w: World, st: Stock): number[] {
 }
 
 function seedInventory(w: World, mm: string): void {
-  const rich = 'hh_rich';
+  const s0 = econ(w);
+  const rich = [...s0.investors].sort((a, b) => w.ledger.balance(b.id, book(w).stocks[0].instr) - w.ledger.balance(a.id, book(w).stocks[0].instr))[0].id;
   const budget = Math.floor(cash(w, mm) * 0.5);
   const each = Math.floor(budget / book(w).stocks.length);
   for (const st of book(w).stocks) {
@@ -454,16 +460,16 @@ export const markets: Module = {
       st.profitEma = x;
     }
 
-    const slice = [0.01, 0.01, 0.008, 0.014];
-    const baseCash = s.hh.map((h) => cash(w, h.id));
+    const slice = [0.06, 0.06, 0.05, 0.08];
+    const baseCash = s.investors.map((h) => cash(w, h.id));
     for (let fi = 0; fi < funds.length; fi++) {
       const fund = funds[fi];
       w.ledger.addActor(fund.id, 'fund');
       w.ledger.define({ id: 'eq:' + fund.id, kind: 'share', issuer: fund.id });
       let left = SHARES;
-      for (let i = 0; i < s.hh.length; i++) {
-        const h = s.hh[i];
-        const sh = i === s.hh.length - 1 ? left : Math.round(SHARES * HH_WEIGHT[i]);
+      for (let i = 0; i < s.investors.length; i++) {
+        const h = s.investors[i];
+        const sh = i === s.investors.length - 1 ? left : Math.round(SHARES / s.investors.length);
         left -= sh;
         const cents = Math.floor(baseCash[i] * slice[fi]);
         if (cents > 0 && !pay(w, h.id, fund.id, cents, 'genesis.equity', w.genesis)) throw new Error(`fund capital failed ${fund.id}`);
@@ -534,6 +540,18 @@ export const markets: Module = {
       cap += st.last * sharesOut(w, st.instr);
     }
     m.index = 100 * cap / m.baseCap;
+  },
+
+  // Funds pay out cash they cannot use: anything above the value of the shares they hold goes to their owners.
+  monthEnd(w) {
+    const m = book(w);
+    for (const f of m.funds) {
+      const held = m.stocks.reduce((t, st) => t + w.ledger.balance(f.id, st.instr) * st.last, 0);
+      const spare = Math.floor(cash(w, f.id) - Math.max(held, 1));
+      const total = w.ledger.issued.get('eq:' + f.id) ?? 0;
+      if (spare <= 0 || !total) continue;
+      for (const [h, n] of w.ledger.holders('eq:' + f.id)) { const c = Math.floor(spare * n / total); if (c > 0) pay(w, f.id, h, c, 'fund.payout', m.root); }
+    }
   },
 
   stats(w) {

@@ -14,7 +14,7 @@ export class Ledger {
   issued = new Map<string, number>();
   flows = new Map<string, number>();                  // reason -> cumulative amount
   journal: Posting[] = [];
-  journalCap = 20_000;
+  journalCap = 0; // set > 0 to keep the last postings for debugging
   day = 0;
 
   addActor(id: string, kind: string): void { if (this.actors.has(id)) throw new Error(`actor ${id} exists`); this.actors.set(id, kind); }
@@ -38,6 +38,7 @@ export class Ledger {
   private add(instr: string, actor: string, d: number): void { const m = this.hold.get(instr)!; m.set(actor, (m.get(actor) ?? 0) + d); }
   private log(p: Omit<Posting, 'day'>): void {
     this.flows.set(p.reason, (this.flows.get(p.reason) ?? 0) + p.amount);
+    if (!this.journalCap) return;
     this.journal.push({ day: this.day, ...p });
     if (this.journal.length > this.journalCap) this.journal.splice(0, this.journalCap >> 1);
   }

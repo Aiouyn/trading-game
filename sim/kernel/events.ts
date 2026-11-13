@@ -28,6 +28,8 @@ export class EventLog {
   get(id: number): Ev | undefined { return this.evs[id - this.base]; }
   last(kind: string): number | undefined { return this.lastByKind.get(kind); }
   get count(): number { return this.base + this.evs.length; }
+  /** The most recent `n` events whose kind is in `kinds`, oldest first. */
+  recent(kinds: string[], n: number): Ev[] { const out: Ev[] = []; for (let i = this.evs.length - 1; i >= 0 && out.length < n; i--) if (kinds.includes(this.evs[i].kind)) out.push(this.evs[i]); return out.reverse(); }
 
   /** The causal chain behind an event, as indented lines. */
   explain(id: number, maxDepth = 10): string[] {
