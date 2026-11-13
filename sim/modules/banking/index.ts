@@ -30,6 +30,7 @@ interface Book {
   banks: Bank[];
   hot: Uint8Array;
   need: Float64Array;
+  plan?: Float64Array; // each firm's capacity plan: its output at full staff, averaged over about a year
   firmMiss: Uint8Array;
   firmRate: Float64Array;
   firmRefuse: Int32Array;
@@ -414,7 +415,11 @@ function planInvestment(w: World, s: EconState, b: Book): void {
     const { util } = loadOf(w, f);
     b.hot[f.idx] = util > HOT ? Math.min(250, b.hot[f.idx] + 1) : 0;
     const labour = f.eff * GOODS[f.good].prod;
-    const floor = labour * BUFFER;
+    // Machinery is planned for the long run, not for this month's staff: a firm that lays people off keeps
+    // replacing worn machines, so one slump does not cut machinery orders and then the machinery maker's jobs.
+    if (!b.plan || b.plan.length < s.firms.length) { const p = new Float64Array(s.firms.length); if (b.plan) p.set(b.plan); b.plan = p; }
+    b.plan[f.idx] = b.plan[f.idx] > 0 ? b.plan[f.idx] + (labour - b.plan[f.idx]) / 12 : labour;
+    const floor = Math.max(labour, b.plan[f.idx]) * BUFFER;
     let order = 0;
     if (util >= 0.5) order += Math.max(0, Math.min(floor, before) - now);
     order += 0.08 * Math.max(0, floor - now - order);

@@ -25,6 +25,7 @@ const PAY_EVERY = 7; // wages, benefits and shopping run weekly per person
 const MARKUP = 1.2, INV_DAYS = 5;
 const INCOME_TAX = 0.12, PROFIT_TAX = 0.2, DIVIDEND_TAX = 0.35, BENEFIT_RATE = 0.4;
 const NATURAL_UNEMP = 0.07;
+const MATCH_RATE = 0.035, POACH_RATE = 0.001; // share of job seekers who can be hired today; share of the employed who can be poached today
 
 export interface Firm {
   id: string; idx: number; name: string; sector: string; good: string; price: number; workers: number; expSales: number;
@@ -38,7 +39,7 @@ export interface EconState {
   firms: Firm[]; P: People; shareIds: string[]; govSlot: number; bankSlot: number; clearSlot: number; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
   wage: number; policyRate: number; cpi: number; cpiBase: number; cpiHist: number[];
   unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number;
-  yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force
+  yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force
 }
 
 const inv = (w: World, f: Firm): number => w.ledger.balance(f.id, 'good:' + f.good);
@@ -327,9 +328,18 @@ export const economy: Module = {
     const P = s.P;
     const invDays = (f: Firm): number => INV_DAYS * (f.ceo >= 0 ? 0.7 + 0.6 * (0.98 - P.cY[f.ceo]) / 0.18 : 1); // a prudent chief keeps more stock
     // The day's job seekers, in a rotating order so hiring is spread fairly.
-    const pool: number[] = [], adultBorn = w.day - 18 * DAYS_PER_YEAR;
+    let pool: number[] = [];
+    const adultBorn = w.day - 18 * DAYS_PER_YEAR;
     for (let k = 0; k < P.n; k++) { const i = (s.hirePtr + k) % P.n; if (P.employer[i] < 0 && P.flags[i] === 1 && P.born[i] <= adultBorn) pool.push(i); }
     pool.reverse(); s.hirePtr = (s.hirePtr + 97) % Math.max(1, P.n);
+    // Today's labour force: everyone working plus everyone looking, counted daily so new adults are not missed.
+    let employedAtDawn = 0;
+    for (const f of s.firms) employedAtDawn += f.staff.length;
+    s.laborForce = employedAtDawn + pool.length;
+    // Finding a job takes time: on a given day only a few percent of job seekers meet an employer who is hiring,
+    // so unemployment drains over weeks and months rather than emptying in a day. Poaching is limited the same way.
+    pool = pool.slice(pool.length - Math.ceil(pool.length * MATCH_RATE));
+    let poachLeft = Math.ceil(employedAtDawn * POACH_RATE);
     const gaps = s.firms.map((f) => {
       const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
       const target = d.perishable ? f.expSales * 1.03 : f.expSales + (f.expSales * invDays(f) - inv(w, f)) / 10;
@@ -340,11 +350,12 @@ export const economy: Module = {
     // When nobody is out of work, firms that need staff hire away from firms that are overstaffed (poaching).
     const surplus = s.firms.map((f, i) => (gaps[i] < -1 ? Math.floor(-gaps[i]) : 0));
     const poach = (): number | undefined => {
+      if (poachLeft <= 0) return undefined;
       for (let j = 0; j < s.firms.length; j++) {
         const k = (s.hirePtr + j) % s.firms.length, g = s.firms[k];
         if (surplus[k] <= 0 || g.staff.length <= 1) continue;
         let x = g.staff.length - 1; if (g.staff[x] === g.ceo) x--;
-        surplus[k]--; gaps[k] += P.skill[g.staff[x]];
+        surplus[k]--; gaps[k] += P.skill[g.staff[x]]; poachLeft--;
         return g.staff[x];
       }
       return undefined;
@@ -507,7 +518,10 @@ export const economy: Module = {
     // Above that rate benefits are deficit-financed (automatic stabiliser); below it the budget runs a surplus.
     s.taxEma += (s.taxToday - s.taxEma) / 30; s.pensionEma += (s.pensionToday - s.pensionEma) / 30;
     const coupon = (L.issued.get(BOND) ?? 0) * s.policyRate / 360;
-    const govBudget = Math.max(0, s.taxEma + s.profitTaxDaily - coupon - s.pensionEma - NATURAL_UNEMP * s.laborForce * s.wage * BENEFIT_RATE);
+    // The budget follows the year's trend in tax receipts, not last month's, so a slump does not cut public purchases
+    // just when private demand falls (and a boom does not add to them).
+    s.taxTrend = s.taxTrend === undefined || w.day < 90 ? s.taxEma : s.taxTrend + (s.taxEma - s.taxTrend) / 360;
+    const govBudget = Math.max(0, s.taxTrend + s.profitTaxDaily - coupon - s.pensionEma - NATURAL_UNEMP * s.laborForce * s.wage * BENEFIT_RATE);
     // Fiscal stance (set monthly): extra purchases that build up while unemployment stays above the natural rate
     // and unwind while it is below, so the gap does not persist.
     const stimulus = s.fiscal * s.laborForce * s.wage;
@@ -545,7 +559,9 @@ export const economy: Module = {
       const tight = d.perishable ? f.lostEma > 0.02 * Math.max(1, f.soldEma) : stock < 0.7 * target;
       const loose = d.perishable ? f.soldEma < 0.94 * f.madeEma : stock > 1.3 * target;
       if (tight) {
-        f.markup = Math.min(1.8, f.markup + 0.0015); f.mStockDays++;
+        // Margins widen slowly: input prices already carry other firms' margins, so a fast rise compounds along the supply
+        // chain into an economy-wide burst.
+        f.markup = Math.min(1.6, f.markup + 0.0008); f.mStockDays++;
         if (f.stockoutEv === undefined && f.lost > 0) {
           const c = [f.inputShortEv, shockCause(s, f.good)].filter((x): x is number => x !== undefined);
           f.stockoutEv = w.events.emit('firm.stockout', `sold out of ${GOODS[f.good].name}; demand unmet`, c.length ? c : [s.macroEv], f.id);
@@ -563,6 +579,8 @@ export const economy: Module = {
     const mInfl = cpi / s.cpi - 1;
     const prev12 = s.cpiHist[Math.max(0, s.cpiHist.length - 12)];
     const yoy = cpi / prev12 - 1;
+    const prev3 = s.cpiHist[Math.max(0, s.cpiHist.length - 3)];
+    const ann3 = Math.pow(cpi / prev3, 4) - 1; // the last three months, annualised
     s.cpi = cpi; s.cpiHist.push(cpi);
 
     const priceEvs: { id: number; mag: number }[] = [];
@@ -613,9 +631,13 @@ export const economy: Module = {
     s.wage = Math.round(s.wage * (1 + wCh));
     if (Math.abs(wCh) > 0.002) s.wageEv = E.emit('macro.wage', `wages ${(wCh * 100).toFixed(2)}% this month`, [uEv, cpiEv]);
 
-    // Central bank: Taylor rule with smoothing.
-    const target = Math.max(0, Math.min(0.2, 0.02 + yoy + 0.5 * (yoy - 0.02) + 0.5 * (NATURAL_UNEMP - s.unemployment)));
-    const next = Math.round((0.85 * s.policyRate + 0.15 * target) * 400) / 400; // quarter-point grid
+    // Central bank: Taylor rule with smoothing. It reads inflation as half the year-on-year rate and half the last three
+    // months annualised: it reacts sooner to a burst and stops tightening sooner once the burst is over.
+    const infl = (yoy + Math.max(-0.05, Math.min(0.3, ann3))) / 2;
+    const target = Math.max(0, Math.min(0.2, 0.02 + infl + 0.5 * (infl - 0.02) + 0.5 * (NATURAL_UNEMP - s.unemployment)));
+    // Rates move gradually, except that a central bank cuts hard once unemployment is climbing well above normal.
+    const speed = target < s.policyRate && s.unemployment > NATURAL_UNEMP + 0.03 ? 0.5 : 0.15;
+    const next = Math.round(((1 - speed) * s.policyRate + speed * target) * 400) / 400; // quarter-point grid
     if (next !== s.policyRate) {
       s.rateEv = E.emit('cb.rate', `policy rate ${(s.policyRate * 100).toFixed(2)}% -> ${(next * 100).toFixed(2)}%`, [cpiEv, uEv], CB);
       s.policyRate = next;
