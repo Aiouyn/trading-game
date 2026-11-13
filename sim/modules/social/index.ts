@@ -13,6 +13,8 @@ import { thought } from '../economy/people.ts';
 
 const DEG = 16;
 const TALKS = 2;
+/** Offsets inside Social.bond: slot p's respect is bond[p * 4 + B_RESPECT]. */
+export const B_RESPECT = 0, B_FEAR = 1, B_LOYALTY = 2, B_FRIEND = 3;
 const FAM_STEP = 30;
 const FAM_SPOUSE = 480, FAM_PARENT = 360, FAM_SIB = 200, FAM_WORK = 140;
 const TR_SPOUSE = 90, TR_PARENT = 80, TR_SIB = 65, TR_WORK = 50;
@@ -58,10 +60,7 @@ interface Social {
   contact: Int32Array;
   fam: Uint16Array;
   trust: Uint8Array;
-  respect: Uint8Array;
-  fear: Uint8Array;
-  loyalty: Uint8Array;
-  friend: Uint8Array;
+  bond: Uint8Array; // four bytes per contact slot, side by side so one memory read gets them all: respect, fear, loyalty, friendship (see B_*)
   kind: Uint8Array;
   emp: Int16Array;
   head: Int32Array;
@@ -201,7 +200,7 @@ function blank(cap: number): Social {
   cellNext.fill(-1);
   return {
     cap, words: Math.ceil(cap / 32), contact, fam: new Uint16Array(cap * DEG), trust: new Uint8Array(cap * DEG),
-    respect: new Uint8Array(cap * DEG), fear: new Uint8Array(cap * DEG), loyalty: new Uint8Array(cap * DEG), friend: new Uint8Array(cap * DEG),
+    bond: new Uint8Array(cap * DEG * 4),
     kind: new Uint8Array(cap * DEG),
     emp, head, stamp: new Uint16Array(cap), gen: 1, holdDay: new Int32Array(cap),
     cellFact: new Int32Array(cells), cellNext, cellN: 0, free: -1, personOf: new Int32Array(0),
@@ -216,16 +215,13 @@ function ensure(st: Social, n: number): void {
   const contact = new Int32Array(cap * DEG); contact.fill(-1); contact.set(st.contact);
   const fam = new Uint16Array(cap * DEG); fam.set(st.fam);
   const trust = new Uint8Array(cap * DEG); trust.set(st.trust);
-  const respect = new Uint8Array(cap * DEG); respect.set(st.respect);
-  const fear = new Uint8Array(cap * DEG); fear.set(st.fear);
-  const loyalty = new Uint8Array(cap * DEG); loyalty.set(st.loyalty);
-  const friend = new Uint8Array(cap * DEG); friend.set(st.friend);
+  const bond = new Uint8Array(cap * DEG * 4); bond.set(st.bond);
   const kind = new Uint8Array(cap * DEG); kind.set(st.kind);
   const emp = new Int16Array(cap); emp.fill(-1); emp.set(st.emp);
   const head = new Int32Array(cap); head.fill(-1); head.set(st.head);
   const stamp = new Uint16Array(cap); stamp.set(st.stamp);
   const holdDay = new Int32Array(cap); holdDay.set(st.holdDay);
-  st.contact = contact; st.fam = fam; st.trust = trust; st.respect = respect; st.fear = fear; st.loyalty = loyalty; st.friend = friend;
+  st.contact = contact; st.fam = fam; st.trust = trust; st.bond = bond;
   st.kind = kind; st.emp = emp; st.head = head; st.stamp = stamp; st.holdDay = holdDay;
   st.cap = cap;
   st.words = Math.ceil(cap / 32);
@@ -265,10 +261,11 @@ function place(st: Social, a: number, b: number, fam: number, trust: number, kin
     st.trust[p] = trust;
     st.kind[p] = kind;
     const seeded = seedBonds(kind, fam);
-    st.respect[p] = seeded.respect;
-    st.fear[p] = seeded.fear;
-    st.loyalty[p] = seeded.loyalty;
-    st.friend[p] = seeded.friend;
+    const q = p * 4;
+    st.bond[q + B_RESPECT] = seeded.respect;
+    st.bond[q + B_FEAR] = seeded.fear;
+    st.bond[q + B_LOYALTY] = seeded.loyalty;
+    st.bond[q + B_FRIEND] = seeded.friend;
     return;
   }
 }
@@ -311,7 +308,7 @@ function refreshWork(st: Social, w: World, i: number): void {
   for (let k = 0; k < DEG; k++) if (st.kind[b + k] === KIND_WORK) {
     const p = b + k;
     st.contact[p] = -1; st.kind[p] = 0; st.fam[p] = 0; st.trust[p] = 0;
-    st.respect[p] = 0; st.fear[p] = 0; st.loyalty[p] = 0; st.friend[p] = 0;
+    st.bond.fill(0, p * 4, p * 4 + 4);
   }
   const e = P.employer[i];
   st.emp[i] = e;
@@ -487,6 +484,18 @@ function isHolder(w: World, fact: Fact, person: number): boolean {
   for (let i = 0; i < fact.instrs.length; i++) if (w.ledger.balS(slot, fact.instrs[i]) > 0) return true;
   return false;
 }
+// A shareholder's wealth, valued at most once a month: news reactions only need its size.
+// Kept in the module state (not a module variable) so a saved and reloaded world continues identically.
+function wealthOf(w: World, person: number, px: ((i: string) => number) | undefined): number {
+  const st = soc(w) as Social & { wealthMemo?: Float64Array; wealthDay?: Int32Array };
+  if (!st.wealthMemo || st.wealthMemo.length <= person) {
+    const n = Math.max(16, (person + 1) * 2), a = new Float64Array(n), d = new Int32Array(n).fill(-1e9);
+    if (st.wealthMemo && st.wealthDay) { a.set(st.wealthMemo); d.set(st.wealthDay); }
+    st.wealthMemo = a; st.wealthDay = d;
+  }
+  if (w.day - st.wealthDay![person] >= 30) { st.wealthMemo[person] = w.ledger.netWorth(econ(w).P.id(person), px ?? (() => 0)); st.wealthDay![person] = w.day; }
+  return st.wealthMemo[person];
+}
 function react(w: World, st: Social, fact: Fact, person: number): void {
   if (!fact.bad) return;
   const P = econ(w).P;
@@ -496,7 +505,16 @@ function react(w: World, st: Social, fact: Fact, person: number): void {
     if (fact.hold <= 0 || st.holdDay[person] === w.day + 1 || !isHolder(w, fact, person)) return;
     st.holdDay[person] = w.day + 1;
   }
-  const raw = employee ? fact.intensity : fact.hold;
+  let raw = employee ? fact.intensity : fact.hold;
+  if (!employee) {
+    // A shareholder feels bad news in proportion to how much of their wealth is in that firm:
+    // a quarter of their wealth or more is the full blow, a token holding is barely noticed.
+    const s = econ(w), slot = s.P.slot[person], px = (w.state.markets as { price?: (i: string) => number } | undefined)?.price;
+    let stake = 0;
+    for (const id of fact.instrs) stake += w.ledger.balS(slot, id) * (px ? px(id) : 0);
+    const wealth = Math.max(1, wealthOf(w, person, px));
+    raw = Math.round(raw * Math.min(1, 4 * stake / wealth));
+  }
   if (raw <= 0) return;
   thought(w, econ(w), person, raw, whatOf(w, fact), fact.eventId);
 }
@@ -774,16 +792,17 @@ function fearOfChief(w: World, st: Social, speaker: number): number {
   const chief = econ(w).firms[e].ceo;
   if (chief < 0) return 0;
   const k = findContact(st, speaker, chief);
-  return k < 0 ? 0 : st.fear[speaker * DEG + k];
+  return k < 0 ? 0 : st.bond[(speaker * DEG + k) * 4 + B_FEAR];
 }
 function bumpAt(st: Social, i: number, k: number, chief: boolean): void {
   const p = i * DEG + k;
   const f = st.fam[p] + FAM_STEP;
   st.fam[p] = f > 65535 ? 65535 : f;
-  st.friend[p] = clampByte(st.friend[p] + 1);
-  st.loyalty[p] = clampByte(st.loyalty[p] + 1);
-  st.respect[p] = clampByte(st.respect[p] + (chief ? 0 : 1));
-  st.fear[p] = clampByte(st.fear[p] + (chief ? 1 : -1));
+  const q = p * 4, bd = st.bond;
+  bd[q + B_FRIEND] = clampByte(bd[q + B_FRIEND] + 1);
+  bd[q + B_LOYALTY] = clampByte(bd[q + B_LOYALTY] + 1);
+  bd[q + B_RESPECT] = clampByte(bd[q + B_RESPECT] + (chief ? 0 : 1));
+  bd[q + B_FEAR] = clampByte(bd[q + B_FEAR] + (chief ? 1 : -1));
 }
 function bumpPair(w: World, st: Social, a: number, b: number, ka: number): void {
   const P = econ(w).P;

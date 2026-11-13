@@ -174,7 +174,7 @@ function releaseMargin(w: World, actor: string, cents: number, cause: number): b
 
 function applyDelta(w: World, actor: string, t: Tenor, delta: number, cause: number): void {
   if (delta === 0) return;
-  netCache?.delete(actor + '|' + t.longId); expoCache?.delete(actor);
+  netCache?.delete(actor + '|' + t.longId); // the planning pass updates its exposure cache itself
   const L = w.ledger;
   if (delta > 0) {
     const cover = Math.min(delta, Math.round(L.balance(actor, t.shortId)));
@@ -501,7 +501,12 @@ function tradeBook(w: World, st: CmdState, b: Book, active: Set<string>, halted:
         const mag = jitter(w, actor, Math.min(Math.abs(delta), step));
         delta = Math.sign(delta) * mag;
       } else delta = 0;
-      plan.set(actor + '|' + t.longId, cur + delta); expoCache?.delete(actor);
+      const pk = actor + '|' + t.longId;
+      const was = plan.has(pk) ? plan.get(pk)! : cur;
+      plan.set(pk, cur + delta);
+      // Keep the cached exposure in step instead of recounting every contract for the next one.
+      const ex = expoCache?.get(actor);
+      if (ex !== undefined) expoCache!.set(actor, ex + (Math.abs(cur + delta) - Math.abs(was)) * Math.max(1, t.px * b.lot * IM));
       if (delta !== 0) intents.push({ actor, qty: delta });
     }
     const mmNet = netOf(w, MM, t);
@@ -534,7 +539,15 @@ function tradeBook(w: World, st: CmdState, b: Book, active: Set<string>, halted:
       mmDelta -= i.qty;
     }
     if (mmDelta !== 0) applyDelta(w, MM, t, mmDelta, cause);
-    for (const id of st.roster) { plan.set(id + '|' + t.longId, netOf(w, id, t)); expoCache?.delete(id); }
+    // Fills can be smaller than planned: move each plan to the actual position and adjust the cached exposure by the difference.
+    for (const id of st.roster) {
+      const k = id + '|' + t.longId;
+      const now = netOf(w, id, t);
+      const was = plan.has(k) ? plan.get(k)! : id === MM ? mmNet : now;
+      plan.set(k, now);
+      const ex = expoCache?.get(id);
+      if (ex !== undefined && now !== was) expoCache!.set(id, ex + (Math.abs(now) - Math.abs(was)) * per);
+    }
     assertBook(w, t);
   }
 }

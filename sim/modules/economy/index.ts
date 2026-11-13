@@ -280,7 +280,16 @@ export const economy: Module = {
       });
     };
     const ownerSet = new Set(owners);
-    const leadOf = (f: Firm): number => (ownerSet.has(f.ceo) ? f.ceo : owners[f.idx % owners.length]);
+    // Each family firm gets its own founder: the chief if they are an owner, otherwise the next unused owner.
+    const leads = new Map<number, number>(), used = new Set<number>();
+    let nextOwner = 0;
+    for (const f of s.firms) if (f.family) {
+      let lead = ownerSet.has(f.ceo) && !used.has(f.ceo) ? f.ceo : -1;
+      while (lead < 0 && nextOwner < owners.length) { const o = owners[nextOwner++]; if (!used.has(o) && !s.firms.some((x) => x.ceo === o)) lead = o; }
+      if (lead < 0) lead = f.ceo;
+      used.add(lead); leads.set(f.idx, lead);
+    }
+    const leadOf = (f: Firm): number => leads.get(f.idx) ?? f.ceo;
     for (const f of s.firms) float(f.id, capital(f), f.family ? leadOf(f) : -1);
     float(BANK, bankCap, -1);
     for (const p of owners) payS(w, s, s.govSlot, P.slot[p], Math.floor(liquid * P.skill[p] ** 3 / wsum), 'genesis.endowment', g);

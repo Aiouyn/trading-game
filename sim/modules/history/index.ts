@@ -258,10 +258,11 @@ function macro(w: World): void {
   const pct = (s.unemployment * 100).toFixed(1);
   const cause = macroCause(w);
   const jobs = w.events.last('macro.jobs') ?? cause;
-  if (!h.recess && s.unemployment > 0.12) {
+  // Judged on unemployment averaged over about three months, so one bad week is not a recession.
+  if (!h.recess && s.uEma > 0.12) {
     h.recess = true; h.recessions++; h.recessStart = yearOf(w.day);
     add(w, 'recession', [], [], `Unemployment reaches ${pct}% and the city falls into recession.`, jobs);
-  } else if (h.recess && s.unemployment < 0.08) {
+  } else if (h.recess && s.uEma < 0.08) {
     h.recess = false;
     add(w, 'recovery', [], [], `Unemployment is back to ${pct}%. The recession that began in year ${h.recessStart} is over.`, jobs);
   }

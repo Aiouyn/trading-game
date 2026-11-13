@@ -7,10 +7,10 @@ Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no
 
 | People | Seconds per simulated year | Memory |
 |---|---|---|
-| 6,000 | 3.5 | |
-| 200,000 | 14 (18 including world creation) | 540 MB |
+| 20,000 (default) | 5.5 | |
+| 200,000 | 22 (about 4 more for world creation) | 530 MB |
 
-Measured with all six modules: economy, banking, bonds, markets, commodities, social. `--without bonds,social` switches modules off to isolate a behaviour.
+Measured with all nine modules: economy, banking, bonds, markets, commodities, social, psyche, crypto, history. At 200,000 people about a third of the time is conversations (social). `--without bonds,social` switches modules off to isolate a behaviour.
 
 How: people are parallel arrays, not objects (below); the ledger gives every actor a numeric slot and keeps money in one dense array; shoppers pay once into a clearing account that buys from firms in bulk; staff lists remove in O(1).
 
@@ -72,5 +72,6 @@ Add a good, a firm or a shock by editing these files; the economy calibrates sta
 
 ## Known weak spots (next work orders)
 
-- **No business investment and no working credit market.** Profits go out as dividends and the rich save them; only the government recycles that saving, so public debt rises for decades and boom-bust inflation spikes appear every 10 to 15 years. Work order 02 adds investment and credit.
+- **Boom and bust.** Over 30 years (seeds 1 and 2, 20,000 people) unemployment averages 7 to 8% but spikes past 25% once or twice, and inflation bursts to 19 to 22% after an oil shock when unemployment falls to zero. Traced causes: the machinery maker swings by hundreds of workers a month (firms size their machinery to today's staff, so layoffs cut machinery orders, which cut more jobs), firms adjust staff by 6% of the gap a day, and the central bank reads year-on-year inflation, so it is still tightening a year after a burst. A leaky fiscal integral and a three-month inflation reading were tried and made unemployment worse; this needs a proper pass, not one-line tweaks.
+- **Year 1 calibration**: the first year opens at about 25% unemployment before settling.
 - **Size-dependence**: at 500,000 people the first two years run hotter (15% inflation, 25% unemployment) than at 6,000 to 300,000. Not yet investigated.

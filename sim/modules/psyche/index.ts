@@ -13,8 +13,7 @@ const KIND_WORK = 2;
 
 interface Soc {
   contact: Int32Array;
-  fear: Uint8Array;
-  loyalty: Uint8Array;
+  bond: Uint8Array; // social: respect, fear, loyalty, friendship per slot
   kind: Uint8Array;
   facts: { pub: boolean; drop: boolean; pubDay: number; firms: number[] }[];
 }
@@ -311,6 +310,12 @@ function habitTick(w: World, s: EconState, i: number): void {
     if (took) { P.habitLeft[i] = 45; P.wdDays[i] = 0; }
     return;
   }
+  // Habits end. A year of withdrawal breaks it, and a calm person may simply stop (about one in five a year).
+  if (P.wdDays[i] >= 360 || (P.stress[i] < 50 && w.rng('psyche:recover').chance(0.006))) {
+    P.habit[i] = 0; P.wdDays[i] = 0; P.habitLeft[i] = 0;
+    w.events.emit('person.recovered', `${P.name(i)} gives up ${habitName(h)}`, [cause], P.id(i));
+    return;
+  }
   P.wdDays[i] = Math.min(65535, P.wdDays[i] + 8);
   const raw = Math.round(P.wdDays[i] / 90 * 10);
   if (raw > 0) thought(w, s, i, Math.min(40, raw), 'the habit has worn off', cause);
@@ -364,10 +369,10 @@ export function loyaltyOf(w: World, person: number): number {
   const chief = e >= 0 ? econ(w).firms[e].ceo : -1;
   const b = person * DEG;
   if (chief >= 0) {
-    for (let k = 0; k < DEG; k++) if (st.contact[b + k] === chief) return st.loyalty[b + k];
+    for (let k = 0; k < DEG; k++) if (st.contact[b + k] === chief) return st.bond[(b + k) * 4 + 2];
   }
   let sum = 0, n = 0;
-  for (let k = 0; k < DEG; k++) if (st.contact[b + k] >= 0 && st.kind[b + k] === KIND_WORK) { sum += st.loyalty[b + k]; n++; }
+  for (let k = 0; k < DEG; k++) if (st.contact[b + k] >= 0 && st.kind[b + k] === KIND_WORK) { sum += st.bond[(b + k) * 4 + 2]; n++; }
   return n ? Math.round(sum / n) : 0;
 }
 

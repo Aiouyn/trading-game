@@ -169,17 +169,17 @@ export function joinFirm(s: EconState, i: number, f: Firm): void {
 }
 
 const DEG = 16;
-interface SocBonds { contact: Int32Array; respect: Uint8Array; friend: Uint8Array }
+interface SocBonds { contact: Int32Array; bond: Uint8Array } // bond: respect, fear, loyalty, friendship per slot (social B_*)
 
 function bonds(w: World): SocBonds | undefined {
   const st = w.state.social as SocBonds | undefined;
-  if (!st?.contact || !st.respect || !st.friend) return undefined;
+  if (!st?.contact || !st.bond) return undefined;
   return st;
 }
 
 function regard(st: SocBonds, from: number, who: number, which: 'respect' | 'friend'): number {
   const b = from * DEG, contact = st.contact;
-  for (let k = 0; k < DEG; k++) if (contact[b + k] === who) return which === 'respect' ? st.respect[b + k] : st.friend[b + k];
+  for (let k = 0; k < DEG; k++) if (contact[b + k] === who) return st.bond[(b + k) * 4 + (which === 'respect' ? 0 : 3)];
   return 0;
 }
 
@@ -212,7 +212,7 @@ function preferredSpouse(w: World, P: People, i: number, taken: Uint8Array): num
     const c = st.contact[b + k];
     if (c < 0 || taken[c] || P.spouse[c] >= 0 || !P.alive(c)) continue;
     if (P.family[c] === P.family[i] || P.parent[c] === i || P.parent[i] === c) continue;
-    const fr = st.friend[b + k];
+    const fr = st.bond[(b + k) * 4 + 3];
     if (fr > score) { score = fr; best = c; }
   }
   return best;
@@ -225,16 +225,19 @@ export function succession(w: World, s: EconState, f: Firm, old: number, why: st
   const best = (xs: number[]): number => xs.reduce((a, b) => (a < 0 || P.skill[b] > P.skill[a] ? b : a), -1);
   // No heir: skill, plus a small weight for how much the staff respects the candidate.
   const bestStaff = (xs: number[]): number => xs.reduce((a, b) => (a < 0 || staffScore(w, f, b) > staffScore(w, f, a) ? b : a), -1);
+  // Nobody within a year of retirement, and nobody under 23, takes the seat.
+  const can = (c: number): boolean => P.adult(w, c) && P.age(w, c) >= 23 && P.age(w, c) < RETIRE_AGE - 1;
   if (f.family && old >= 0) {
     let gen = P.kids(old);
     for (let depth = 0; depth < 3 && gen.length && pick < 0; depth++) {
-      const ok = gen.filter((c) => P.adult(w, c));
+      const ok = gen.filter(can);
       if (ok.length) { pick = best(ok); how = depth ? `grandchild of ${P.name(old)}` : `child of ${P.name(old)}`; }
       else gen = gen.flatMap((c) => P.kids(c));
     }
     const sp = P.spouse[old];
-    if (pick < 0 && sp >= 0 && P.adult(w, sp)) { pick = sp; how = `spouse of ${P.name(old)}`; }
+    if (pick < 0 && sp >= 0 && can(sp)) { pick = sp; how = `spouse of ${P.name(old)}`; }
   }
+  if (pick < 0) pick = bestStaff(f.staff.filter((x) => x !== old && can(x)));
   if (pick < 0) pick = bestStaff(f.staff.filter((x) => x !== old && P.adult(w, x)));
   if (pick < 0) { f.ceo = -1; return; }
   const from = P.employer[pick] >= 0 && P.employer[pick] !== f.idx ? s.firms[P.employer[pick]] : undefined;
