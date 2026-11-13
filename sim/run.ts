@@ -7,6 +7,7 @@ import { bonds } from './modules/bonds/index.ts';
 import { markets } from './modules/markets/index.ts';
 import { commodities } from './modules/commodities/index.ts';
 import { social } from './modules/social/index.ts';
+import { crypto } from './modules/crypto/index.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const years = +arg('years', '10'), seed = arg('seed', '1'), explain = arg('explain', 'cb.rate');
@@ -16,7 +17,7 @@ const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 
 const w = new World(seed, 8);
 // --without bonds,social switches modules off (economy is always on), to find which one causes a behaviour.
 const without = new Set(arg('without', '').split(',').filter(Boolean));
-for (const m of [economy, banking, bonds, markets, commodities, social]) if (m === economy || !without.has(m.id)) w.use(m);
+for (const m of [economy, banking, bonds, markets, commodities, social, crypto]) if (m === economy || !without.has(m.id)) w.use(m);
 
 const t0 = Date.now();
 let header = false;
