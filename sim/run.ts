@@ -3,6 +3,7 @@
 import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
 import { banking } from './modules/banking/index.ts';
+import { bonds } from './modules/bonds/index.ts';
 import { markets } from './modules/markets/index.ts';
 import { social } from './modules/social/index.ts';
 
@@ -14,6 +15,7 @@ const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 
 const w = new World(seed, 8);
 w.use(economy);
 w.use(banking);
+w.use(bonds);
 w.use(markets);
 w.use(social);
 

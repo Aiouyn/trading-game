@@ -16,7 +16,7 @@ import { People, joinFirm, leaveJob, succession, thought, yearlyLifePass } from 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
 export const BANK = 'bank_1', GOV = 'gov', CB = 'cb', CLEAR = 'clearing';
 export const CAPITAL = 'capital'; // installed machinery: one unit makes one unit of the firm's good per day
-const BOND = 'bond:gov';
+export const BOND = 'bond:gov';
 
 const CONSUMER_GOODS = Object.values(GOODS).filter((g) => g.share > 0);
 const GOV_GOODS = Object.values(GOODS).filter((g) => g.gov > 0);
@@ -70,18 +70,31 @@ function borrow(w: World, s: EconState, f: Firm, cents: number, cause: number): 
   if (!lend) return false;
   return lend(w, s, f, cents, cause);
 }
-/** Make sure the government holds at least `cents`: if short it sells bonds to the bank, which creates the deposits. */
+interface BondApi {
+  fund(w: World, cents: number, cause: number): void;
+  pay(w: World, to: string, cents: number, reason: string, cause: number): void;
+  repay(w: World, spare: number, cause: number): void;
+  coupons(w: World, cause: number): void;
+}
+function bondApi(w: World): BondApi | undefined {
+  return (w.state.bonds as { api?: BondApi } | undefined)?.api;
+}
+/** Make sure the government holds at least `cents`. The bond market auctions whatever is short. */
 function govFund(w: World, cents: number, cause: number): void {
+  const api = bondApi(w);
+  if (api) { api.fund(w, cents, cause); return; }
   if (cash(w, GOV) < cents) {
     const need = Math.round(cents - cash(w, GOV) + 50_000_00);
     w.ledger.issue(BOND, BANK, need, 'gov.borrow', cause);
     w.ledger.issue(DEP, GOV, need, 'gov.borrow', cause);
   }
 }
-/** Government pays; if short it sells bonds to the bank, which creates the deposits. */
+/** Government pays. If short, the bond market raises the cash first. */
 function govPay(w: World, to: string, cents: number, reason: string, cause: number): void {
   const a = Math.round(cents);
   if (a <= 0) return;
+  const api = bondApi(w);
+  if (api) { api.pay(w, to, a, reason, cause); return; }
   if (cash(w, GOV) < a) {
     const need = a - cash(w, GOV) + 50_000_00;
     w.ledger.issue(BOND, BANK, need, 'gov.borrow', cause);
@@ -547,7 +560,11 @@ export const economy: Module = {
     // Fiscal rule: the income tax rate moves a quarter point a month to keep public debt between 160 and 200 days of GDP.
     // Spare government cash retires bonds.
     const spare = Math.min(L.issued.get(BOND) ?? 0, Math.floor(cash(w, GOV) - 20 * s.yGdpEma * 0.2));
-    if (spare > 0 && L.redeem(DEP, GOV, spare, 'gov.repay', s.macroEv)) L.redeem(BOND, BANK, spare, 'gov.repay', s.macroEv);
+    const api = bondApi(w);
+    if (spare > 0) {
+      if (api) api.repay(w, spare, s.macroEv);
+      else if (L.redeem(DEP, GOV, spare, 'gov.repay', s.macroEv)) L.redeem(BOND, BANK, spare, 'gov.repay', s.macroEv);
+    }
     const debtDays = (L.issued.get(BOND) ?? 0) / Math.max(1, s.yGdpEma);
     const t0 = s.taxRate;
     if (debtDays > 200 && s.taxRate < 0.3 && s.unemployment < NATURAL_UNEMP + 0.02) s.taxRate += 0.0025; // no tax rises in a slump
@@ -612,8 +629,9 @@ export const economy: Module = {
 
     s.profitTaxDaily = (profitTax + s.divTax) / 30; s.divTax = 0;
 
-    // Government coupon, bank deposit interest, bank dividends.
-    govPay(w, BANK, (L.issued.get(BOND) ?? 0) * s.policyRate / 12, 'gov.coupon', s.rateEv);
+    // Bond coupons are paid by the bond market on their own dates. Without that market, the bank is paid the policy rate.
+    if (api) api.coupons(w, s.rateEv);
+    else govPay(w, BANK, (L.issued.get(BOND) ?? 0) * s.policyRate / 12, 'gov.coupon', s.rateEv);
     if (depRate > 0) { const P = s.P; for (let k = 0; k < P.n; k++) { if (!P.alive(k)) continue; const i = Math.round(L.balS(P.slot[k], DEP) * depRate / 12); if (i > 0) { L.issueS(DEP, P.slot[k], i, 'deposit.interest', s.rateEv); P.incWeek[k] += i; } } }
     const eqTarget = 0.12 * totalLoans(w, s) + 0.04 * (L.issued.get(BOND) ?? 0);
     const bankSpare = bankEquity(w) - eqTarget;
