@@ -4,6 +4,7 @@ import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
 import { banking } from './modules/banking/index.ts';
 import { markets } from './modules/markets/index.ts';
+import { social } from './modules/social/index.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const years = +arg('years', '10'), seed = arg('seed', '1'), explain = arg('explain', 'cb.rate');
@@ -14,6 +15,7 @@ const w = new World(seed, 8);
 w.use(economy);
 w.use(banking);
 w.use(markets);
+w.use(social);
 
 const t0 = Date.now();
 let header = false;
