@@ -11,7 +11,7 @@
 // state in w.state.economy, money only through the ledger, every event with a cause.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { CEO_POSITION, FIRM_DEFS, GOODS, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
-import { People, joinFirm, leaveJob, succession, thought, yearlyLifePass } from './people.ts';
+import { People, PRISON, joinFirm, leaveJob, succession, thought, yearlyLifePass } from './people.ts';
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
 export const BANK = 'bank_1', GOV = 'gov', CB = 'cb', CLEAR = 'clearing';
@@ -450,7 +450,7 @@ export const economy: Module = {
       const fl = P.flags[i];
       if (!(fl & 1)) continue;
       const retired = (fl & 2) !== 0, adult = !retired && P.born[i] <= adultBorn, me = P.slot[i];
-      if (retired || (adult && P.employer[i] < 0)) {
+      if ((fl & PRISON) === 0 && (retired || (adult && P.employer[i] < 0))) {
         const b = Math.round(benefit * (retired ? 1 : Math.min(1, P.skill[i])));
         L.moveS(DEP, s.govSlot, me, b, retired ? 'gov.pensions' : 'gov.benefits', macro); P.incWeek[i] += b; if (retired) s.pensionToday += b;
       }

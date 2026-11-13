@@ -16,7 +16,7 @@ import { DEP, type EconState, type Firm } from './index.ts';
 
 const RETIRE_AGE = CEO_POSITION.retireAge, ADULT_AGE = 18;
 const BREAKDOWN_AT = 220;
-export const ALIVE = 1, RETIRED = 2;
+export const ALIVE = 1, RETIRED = 2, PRISON = 4; // PRISON: no job, no wage and no benefit until the sentence ends
 
 const SYL = ['an', 'bel', 'cor', 'dan', 'el', 'far', 'gal', 'hal', 'is', 'jor', 'kel', 'lin', 'mar', 'nor', 'or', 'per', 'quin', 'ros', 'sal', 'tor', 'ul', 'ver', 'wen', 'yan', 'zel'];
 const END = ['a', 'e', 'o', 'en', 'is', 'ia', 'us', 'el', 'an', 'in'];

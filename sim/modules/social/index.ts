@@ -23,7 +23,7 @@ const GOSSIP = 4;
 
 const KIND_FAM = 1, KIND_WORK = 2;
 
-type Tag = 'firm.default' | 'firm.ceoFired' | 'firm.succession' | 'firm.cashCrunch' | 'cb.rate' | 'mkt.move' | 'shock' | 'insider.profit';
+type Tag = 'firm.default' | 'firm.ceoFired' | 'firm.succession' | 'firm.cashCrunch' | 'cb.rate' | 'mkt.move' | 'shock' | 'insider.profit' | 'law.case';
 
 interface Know {
   tab: Int32Array | null;
@@ -401,6 +401,7 @@ function tone(tag: Tag, msg: string, profit: number, shock: ShockDef | null): { 
     case 'mkt.move': return movePct(msg) <= -10 ? { bad: true, intensity: 35, hold: 35 } : { bad: false, intensity: 0, hold: 0 };
     case 'shock': return shock && shockHurts(shock) ? { bad: true, intensity: 45, hold: 15 } : { bad: false, intensity: 0, hold: 0 };
     case 'insider.profit': return profit < 0 ? { bad: true, intensity: 40, hold: 5 } : { bad: false, intensity: 0, hold: 0 };
+    case 'law.case': return { bad: true, intensity: 120, hold: 70 };
     default: {
       const never: never = tag;
       return never;
@@ -430,6 +431,7 @@ function headline(paper: string, w: World, fact: Fact): string {
       const amt = (Math.abs(fact.profit) / 100).toFixed(0);
       return `${paper}: ${name} ${fact.profit >= 0 ? 'profit' : 'loss'} of ${amt} leaks a week before the figures`;
     }
+    case 'law.case': return `${paper}: ${fact.msg}`;
     default: {
       const never: never = fact.tag;
       return never;
@@ -447,6 +449,7 @@ function whatOf(w: World, fact: Fact): string {
     case 'mkt.move': return `shares fell at ${name}`;
     case 'shock': return fact.msg;
     case 'insider.profit': return `a loss at ${name}`;
+    case 'law.case': return `the case against ${name}`;
     default: {
       const never: never = fact.tag;
       return never;
@@ -832,6 +835,30 @@ function conversations(w: World): void {
       if (head[i] >= 0) gossip(w, st, i, other, trust[b + k], t + 1);
     }
   }
+}
+
+/** A charge, a trial or a sentence. Contacts trust this person less. Pass a firm index and the paper prints it at once. */
+export function reportCase(w: World, person: number, eventId: number, msg: string, firm: number): void {
+  const st = w.state.social as Social | undefined;
+  if (!st || person < 0) return;
+  const P = econ(w).P;
+  if (person >= P.n) return;
+  const contact = st.contact, trust = st.trust, bond = st.bond;
+  const b = person * DEG;
+  for (let k = 0; k < DEG; k++) {
+    const c = contact[b + k];
+    if (c < 0 || c >= st.cap) continue;
+    const cb = c * DEG;
+    for (let j = 0; j < DEG; j++) if (contact[cb + j] === person) {
+      trust[cb + j] = Math.max(0, trust[cb + j] - 14);
+      const q = (cb + j) * 4 + B_FEAR;
+      bond[q] = Math.min(100, bond[q] + 8);
+    }
+  }
+  if (firm < 0 || !msg) return;
+  const fact = openFact(w, 'law.case', eventId, msg, null, 0);
+  attachFirm(w, fact, firm);
+  publish(w, fact);
 }
 
 /** True when this person currently knows this fact. A published fact is known by everyone until it is a year old. */

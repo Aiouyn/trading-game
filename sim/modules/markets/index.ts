@@ -186,6 +186,15 @@ export function cancelOrder(w: World, actor: string, orderId: number): boolean {
   return true;
 }
 
+/** A published scandal: buyers mark earnings down, and the next session's value orders sell into that. */
+export function discountForNews(w: World, issuer: string, cause: number): void {
+  const st = book(w).stocks.find((x) => x.issuer === issuer);
+  if (!st) return;
+  st.profitEma *= 0.7;
+  st.divEma = Math.max(0, st.divEma * 0.7);
+  w.events.emit('mkt.news', `${st.instr} earnings marked down after the news`, [cause], issuer);
+}
+
 function bidRank(o: Order): number { return o.limit === null ? Number.POSITIVE_INFINITY : o.limit; }
 function askRank(o: Order): number { return o.limit === null ? 0 : o.limit; }
 
