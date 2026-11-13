@@ -7,6 +7,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { GOODS } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, type EconState, type Firm, pay } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
+import { noteBuiltHome } from '../property/index.ts';
 
 const BUFFER = 2.4;         // spare machines so a firm can hire through a supply shock without capital binding
 const YEARS = 1;            // labour-years embodied in one unit of daily output capacity
@@ -580,6 +581,7 @@ function housingOrders(w: World, s: EconState, b: Book): void {
     }
     w.ledger.produce('dwelling', hs[0].id, 1, 'housing.build', cause);
     w.ledger.move('dwelling', hs[0].id, P.id(i), 1, 'housing.sale', cause);
+    noteBuiltHome(w, i, spent > 0 ? spent : priceH, cause);
     n++;
   }
   b.housePerDay = price > 0 ? spent / price / 30 : 0;
