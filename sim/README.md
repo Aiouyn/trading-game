@@ -72,6 +72,8 @@ Add a good, a firm or a shock by editing these files; the economy calibrates sta
 
 ## Known weak spots (next work orders)
 
-- **Boom and bust.** Over 30 years (seeds 1 and 2, 20,000 people) unemployment averages 7 to 8% but spikes past 25% once or twice, and inflation bursts to 19 to 22% after an oil shock when unemployment falls to zero. Traced causes: the machinery maker swings by hundreds of workers a month (firms size their machinery to today's staff, so layoffs cut machinery orders, which cut more jobs), firms adjust staff by 6% of the gap a day, and the central bank reads year-on-year inflation, so it is still tightening a year after a burst. A leaky fiscal integral and a three-month inflation reading were tried and made unemployment worse; this needs a proper pass, not one-line tweaks.
-- **Year 1 calibration**: the first year opens at about 25% unemployment before settling.
+- **Business cycle.** Over 30 years (seeds 1 to 3, 20,000 people, all modules) unemployment averages 7 to 8%, peaks at 16 to 21% once or twice, and inflation peaks at 8 to 9%. The remaining slumps follow rate rises after the economy runs below 4% unemployment.
+- **Trade is still small**: about 2% of output each way.
+- **Law**: no wrongful convictions have appeared yet in 30-year runs.
+- **Year 1 calibration**: the first year opens at about 16% unemployment before settling.
 - **Size-dependence**: at 500,000 people the first two years run hotter (15% inflation, 25% unemployment) than at 6,000 to 300,000. Not yet investigated.
