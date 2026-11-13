@@ -7,10 +7,10 @@ Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no
 
 | People | Seconds per simulated year | Memory |
 |---|---|---|
-| 6,000 | 4 | |
-| 200,000 | 13 (including world creation) | 630 MB |
+| 6,000 | 3.5 | |
+| 200,000 | 14 (18 including world creation) | 540 MB |
 
-Measured with economy, banking and markets. Before banking: 200,000 people at 9 s, 500,000 at 13 s.
+Measured with all six modules: economy, banking, bonds, markets, commodities, social. `--without bonds,social` switches modules off to isolate a behaviour.
 
 How: people are parallel arrays, not objects (below); the ledger gives every actor a numeric slot and keeps money in one dense array; shoppers pay once into a clearing account that buys from firms in bulk; staff lists remove in O(1).
 

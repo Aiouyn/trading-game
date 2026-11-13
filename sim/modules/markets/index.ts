@@ -364,9 +364,14 @@ function householdOrders(w: World): void {
     const gap = h.target * wealth - eq;
     if (Math.abs(gap) / wealth < 0.02) continue;
     const side: Side = gap > 0 ? 'buy' : 'sell';
-    for (const st of m.stocks) {
-      let qty = Math.max(1, Math.min(240, Math.round(Math.abs(gap) / wealth * 160)));
-      if (side === 'buy') qty = Math.min(qty, Math.floor(cash(w, h.id) / Math.max(1, st.last) / m.stocks.length));
+    // A person rebalances a handful of names at a time, not the whole market.
+    const PICK = 6, scale = m.stocks.length / PICK;
+    const picks = new Set<number>();
+    while (picks.size < Math.min(PICK, m.stocks.length)) picks.add(rng.int(m.stocks.length));
+    for (const k of picks) {
+      const st = m.stocks[k];
+      let qty = Math.max(1, Math.min(240 * scale, Math.round(Math.abs(gap) / wealth * 160 * scale)));
+      if (side === 'buy') qty = Math.min(qty, Math.floor(cash(w, h.id) / Math.max(1, st.last) / PICK));
       else qty = Math.min(qty, w.ledger.balance(h.id, st.instr));
       qty = noiseQty(w, 'mkt:' + h.id, qty);
       if (qty >= 1) place(w, h.id, st.instr, side, qty, null, 'hh');
@@ -428,8 +433,11 @@ export const markets: Module = {
       price: () => 0,
     };
     let pricing = false;
+    let byInstr: Map<string, Stock> | null = null;
     state.price = (instr: string): number => {
-      for (const st of state.stocks) if (st.instr === instr) return st.last;
+      if (!byInstr || byInstr.size !== state.stocks.length) byInstr = new Map(state.stocks.map((x) => [x.instr, x]));
+      const hit = byInstr.get(instr);
+      if (hit) return hit.last;
       if (!instr.startsWith('eq:fund_') || pricing) return 0;
       const issued = w.ledger.issued.get(instr) ?? 0;
       if (issued <= 0) return 0;

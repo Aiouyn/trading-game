@@ -1,4 +1,4 @@
-// Headless run: node sim/run.ts --years 10 --seed 1 [--explain cb.rate] [--chronicle]   (SIM_POP=5000 for a quick run)
+// Headless run: node sim/run.ts --years 10 --seed 1 [--explain cb.rate] [--chronicle] [--without bonds,social]   (SIM_POP=5000 for a quick run)
 // This is the only acceptance check a module needs: it runs, the books balance every day, the stats look sane.
 import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
@@ -14,12 +14,9 @@ const years = +arg('years', '10'), seed = arg('seed', '1'), explain = arg('expla
 const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 20000 ? 7 : 1));
 
 const w = new World(seed, 8);
-w.use(economy);
-w.use(banking);
-w.use(bonds);
-w.use(markets);
-w.use(commodities);
-w.use(social);
+// --without bonds,social switches modules off (economy is always on), to find which one causes a behaviour.
+const without = new Set(arg('without', '').split(',').filter(Boolean));
+for (const m of [economy, banking, bonds, markets, commodities, social]) if (m === economy || !without.has(m.id)) w.use(m);
 
 const t0 = Date.now();
 let header = false;

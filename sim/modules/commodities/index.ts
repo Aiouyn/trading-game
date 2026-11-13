@@ -61,8 +61,14 @@ function cashOf(w: World, actor: string): number { return Math.floor(w.ledger.ba
 function marginOf(w: World, actor: string): number { return Math.round(w.ledger.balance(actor, MARGIN)); }
 function issued(w: World, id: string): number { return Math.round(w.ledger.issued.get(id) ?? 0); }
 
+// While traders plan the day's orders nothing settles, so positions and resources are read once and cached.
+let netCache: Map<string, number> | null = null, resCache: Map<string, number> | null = null, expoCache: Map<string, number> | null = null;
 function netOf(w: World, actor: string, t: Tenor): number {
-  return Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
+  const k = netCache ? actor + '|' + t.longId : '';
+  if (netCache) { const v = netCache.get(k); if (v !== undefined) return v; }
+  const v = Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
+  if (netCache) netCache.set(k, v);
+  return v;
 }
 
 function spotOf(w: World, s: EconState, good: string): number {
@@ -134,7 +140,10 @@ function freeCash(w: World, s: EconState, actor: string): number {
 }
 
 function resources(w: World, s: EconState, actor: string): number {
-  return freeCash(w, s, actor) + marginOf(w, actor);
+  if (resCache) { const v = resCache.get(actor); if (v !== undefined) return v; }
+  const v = freeCash(w, s, actor) + marginOf(w, actor);
+  if (resCache) resCache.set(actor, v);
+  return v;
 }
 
 function notional(w: World, st: CmdState, actor: string): number {
@@ -165,6 +174,7 @@ function releaseMargin(w: World, actor: string, cents: number, cause: number): b
 
 function applyDelta(w: World, actor: string, t: Tenor, delta: number, cause: number): void {
   if (delta === 0) return;
+  netCache?.delete(actor + '|' + t.longId); expoCache?.delete(actor);
   const L = w.ledger;
   if (delta > 0) {
     const cover = Math.min(delta, Math.round(L.balance(actor, t.shortId)));
@@ -406,13 +416,20 @@ function carryWant(near: Tenor, far: Tenor, rate: number, which: 'near' | 'far',
 function clampTarget(w: World, s: EconState, st: CmdState, actor: string, b: Book, t: Tenor, target: number, plan: Map<string, number>): number {
   const cap = resources(w, s, actor) * (actor === MM ? 0.55 : 0.3);
   const per = Math.max(1, t.px * b.lot * IM);
-  let other = 0;
-  for (const bb of st.books) for (const tt of bb.tenors) {
-    if (bb === b && tt === t) continue;
-    const k = actor + '|' + tt.longId;
-    const n = plan.has(k) ? plan.get(k)! : netOf(w, actor, tt);
-    other += Math.abs(n) * Math.max(1, tt.px * bb.lot * IM);
+  // Margin already committed elsewhere: the actor's total exposure, cached for the planning pass, minus this contract.
+  const k0 = actor + '|' + t.longId;
+  const own = Math.abs(plan.has(k0) ? plan.get(k0)! : netOf(w, actor, t)) * per;
+  let total = expoCache?.get(actor);
+  if (total === undefined) {
+    total = 0;
+    for (const bb of st.books) for (const tt of bb.tenors) {
+      const k = actor + '|' + tt.longId;
+      const n = plan.has(k) ? plan.get(k)! : netOf(w, actor, tt);
+      total += Math.abs(n) * Math.max(1, tt.px * bb.lot * IM);
+    }
+    expoCache?.set(actor, total);
   }
+  const other = total - own;
   const maxC = Math.max(0, Math.floor((cap - other) / per));
   return clamp(Math.round(target), -maxC, maxC);
 }
@@ -484,7 +501,7 @@ function tradeBook(w: World, st: CmdState, b: Book, active: Set<string>, halted:
         const mag = jitter(w, actor, Math.min(Math.abs(delta), step));
         delta = Math.sign(delta) * mag;
       } else delta = 0;
-      plan.set(actor + '|' + t.longId, cur + delta);
+      plan.set(actor + '|' + t.longId, cur + delta); expoCache?.delete(actor);
       if (delta !== 0) intents.push({ actor, qty: delta });
     }
     const mmNet = netOf(w, MM, t);
@@ -517,7 +534,7 @@ function tradeBook(w: World, st: CmdState, b: Book, active: Set<string>, halted:
       mmDelta -= i.qty;
     }
     if (mmDelta !== 0) applyDelta(w, MM, t, mmDelta, cause);
-    for (const id of st.roster) plan.set(id + '|' + t.longId, netOf(w, id, t));
+    for (const id of st.roster) { plan.set(id + '|' + t.longId, netOf(w, id, t)); expoCache?.delete(id); }
     assertBook(w, t);
   }
 }
@@ -730,7 +747,9 @@ export const commodities: Module = {
     }
     active.add(MM);
     const plan = new Map<string, number>();
-    for (const b of st.books) tradeBook(w, st, b, active, halted, plan, cause);
+    netCache = new Map(); resCache = new Map(); expoCache = new Map();
+    try { for (const b of st.books) tradeBook(w, st, b, active, halted, plan, cause); }
+    finally { netCache = null; resCache = null; expoCache = null; }
     for (const id of st.roster) rebalance(w, st, id, cause, halted);
     for (const b of st.books) finishPrices(b);
     assertMargin(w);
