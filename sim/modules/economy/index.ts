@@ -648,14 +648,19 @@ export const economy: Module = {
 };
 
 function payDividends(w: World, s: EconState, issuer: string, cents: number, cause: number): void {
-  const holders = w.ledger.holders('eq:' + issuer), total = w.ledger.issued.get('eq:' + issuer) ?? 0;
+  const L = w.ledger, total = L.issued.get('eq:' + issuer) ?? 0;
   if (!total) return;
+  const from = L.slot(issuer);
+  // Snapshot first: paying can create new holders only in other instruments, but keep it safe.
+  const holders = [...L.holdersS('eq:' + issuer)];
   for (const [h, n] of holders) {
     const a = Math.floor(cents * n / total);
-    if (a <= 0 || !pay(w, issuer, h, a, 'dividends', cause) || !h.startsWith('p_')) continue;
+    if (a <= 0 || !payS(w, s, from, h, a, 'dividends', cause)) continue;
+    const id = L.ids[h];
+    if (!id.startsWith('p_')) continue;
     const t = Math.floor(a * DIVIDEND_TAX); // withheld at source from people; funds pass theirs on and are taxed then
-    if (pay(w, h, GOV, t, 'tax.dividend', cause)) s.divTax += t;
-    s.P.incWeek[+h.slice(2)] += a - t; // counted as that week's income
+    if (L.moveS(DEP, h, s.govSlot, t, 'tax.dividend', cause)) s.divTax += t;
+    s.P.incWeek[+id.slice(2)] += a - t; // counted as that week's income
   }
 }
 function cpiLevel(s: EconState): number {

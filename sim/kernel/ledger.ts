@@ -55,6 +55,8 @@ export class Ledger {
   private st(instr: string): Store { const s = this.stores.get(instr); if (!s) throw new Error(`unknown instrument ${instr}`); return s; }
   balS(slot: number, instr: string): number { const s = this.st(instr); return s.dense ? s.dense[slot] : s.sparse!.get(slot) ?? 0; }
   balance(actor: string, instr: string): number { const sl = this.slotOf.get(actor); return sl === undefined || !this.stores.has(instr) ? 0 : this.balS(sl, instr); }
+  /** Holders of a sparse instrument (shares, loans, goods) by slot: the live map, do not modify. */
+  holdersS(instr: string): ReadonlyMap<number, number> { const s = this.st(instr); if (!s.sparse) throw new Error(`${instr} is dense; use holders()`); return s.sparse; }
   /** Holders with a non-zero balance, by actor id. Built on demand: cheap for shares and loans, slow for money. */
   holders(instr: string): ReadonlyMap<string, number> {
     const s = this.stores.get(instr), out = new Map<string, number>();
