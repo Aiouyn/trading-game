@@ -21,6 +21,7 @@ interface StockPeek { instr: string; last: number; rets: number[] }
 
 interface Psyche {
   detail: Uint8Array;
+  scale?: Float64Array; // each firm's morale scale on output, as set at the last day close
   back: number[];
   quit: number;
   withdraw: number;
@@ -212,7 +213,12 @@ function stageScale(w: World): void {
     const staff = f.staff;
     for (let i = 0; i < staff.length; i++) sum += s.P.mood[staff[i]];
     const avg = staff.length ? sum / staff.length : 67;
-    setFirmScale(f.idx, moraleScale(avg));
+    const sc = moraleScale(avg);
+    setFirmScale(f.idx, sc);
+    // Kept in the saved state too: a reload must use these exact scales, not ones recomputed from moods that
+    // later modules may have changed since.
+    if (!st.scale || st.scale.length <= f.idx) { const a = new Float64Array(Math.max(16, s.firms.length)); if (st.scale) a.set(st.scale); st.scale = a; }
+    st.scale[f.idx] = sc;
     if (!staff.length) continue;
     any = true;
     if (avg >= hi) hi = avg;

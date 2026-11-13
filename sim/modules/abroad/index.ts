@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOODS } from '../economy/content.ts';
-import { BANK, DEP, type EconState, pay } from '../economy/index.ts';
+import { BANK, DEP, type EconState, pay, registerPortHooks } from '../economy/index.ts';
 
 const FXCB = 'fxcb', FXGOV = 'fxgov', DEALER = 'fxdealer', WORLD = 'fxworld';
 const FXBOND = 'bond:fx', LOAN = 'loan:fxdealer';
@@ -26,21 +26,13 @@ interface Cfg {
   discount: number; hike: number; hikeChance: number; hikeDays: number; recessAt: number;
 }
 interface Traded { flow: 'import' | 'export'; share: number }
-interface Hooks {
-  buyer: string;
-  exportQty: (good: string, homePx: number) => number;
-  fundBuyer: (cents: number, cause: number) => void;
-  noteExport: (cents: number) => void;
-  importFill: (w: World, buyer: string, good: string, qty: number, dom: number, cause: number) => { got: number; spent: number };
-  landed: (good: string, dom: number) => number;
-}
 interface Book {
   cfg: Cfg; fx: string; traded: Record<string, Traded>; anchor: Record<string, number>;
   mid: number; mMid0: number; plevel: number; policy: number; announced: number; activity: number; depth: number;
   crisis: boolean; hikeUntil: number; pressure: number;
   mImp: number; mExp: number; mCarry: number; yImp: number; yExp: number; yCarry: number;
   cycleEv: number; policyEv: number; priceEv: number; tradeEv: number; carryEv: number; rateEv: number;
-  recessionEv?: number; hikeEv?: number; hooks: Hooks;
+  recessionEv?: number; hikeEv?: number;
 }
 
 const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
@@ -401,14 +393,6 @@ export const abroad: Module = {
       activity: 1 + cfg.activityAmp * Math.sin(0), depth, crisis: false, hikeUntil: 0, pressure: 0,
       mImp: 0, mExp: 0, mCarry: 0, yImp: 0, yExp: 0, yCarry: 0,
       cycleEv: 0, policyEv: 0, priceEv: 0, tradeEv: 0, carryEv: 0, rateEv: 0,
-      hooks: {
-        buyer: WORLD,
-        exportQty: (good, homePx) => exportQty(w, good, homePx),
-        fundBuyer: (cents, cause) => fundBuyer(w, cents, cause),
-        noteExport: (cents) => noteExport(w, cents),
-        importFill: (world, buyer, good, qty, dom, cause) => importFill(world, buyer, good, qty, dom, cause),
-        landed: (good, dom) => landed(w, good, dom),
-      },
     };
     st.activity = activityAt(st, 0);
     w.state.abroad = st;
@@ -457,3 +441,5 @@ export const abroad: Module = {
     return out;
   },
 };
+
+registerPortHooks({ buyer: WORLD, exportQty, fundBuyer, noteExport, importFill, landed });

@@ -288,6 +288,8 @@ function resyncScales(w: World): void {
   setEffScaled(false);
   const s = w.state.economy as { firms?: { idx: number; staff: number[] }[]; P?: { mood: Uint8Array } } | undefined;
   if (!s?.firms || !s.P || !w.state.psyche) return;
+  const saved = (w.state.psyche as { scale?: Float64Array }).scale;
+  if (saved) { for (const f of s.firms) setFirmScale(f.idx, saved[f.idx] || 1); return; }
   for (const f of s.firms) {
     let sum = 0;
     for (let i = 0; i < f.staff.length; i++) sum += s.P.mood[f.staff[i]];
