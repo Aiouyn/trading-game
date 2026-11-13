@@ -118,7 +118,9 @@ function onThought(w: World, s: EconState, i: number, raw: number, what: string,
   const st = psy(w);
   if (raw > 0 && i < st.detail.length && st.detail[i]) remember(P, i, what);
   if (raw <= 0 || P.stress[i] < BREAK_AT || w.day < P.fearUntil[i]) return;
-  const kind = chooseBreak(P, i);
+  let kind = chooseBreak(P, i);
+  // A withdrawal holds the seat and produces nothing. In a slump the firm can hire, so the person quits instead.
+  if (kind === 'withdraw' && s.unemployment > 0.1) kind = 'quit';
   const name = P.name(i), age = P.age(w, i);
   const e = P.employer[i];
   const firm = e >= 0 ? s.firms[e].name : '';
@@ -201,7 +203,7 @@ function unscale(s: EconState): void {
   setEffScaled(false);
 }
 
-function moraleScale(avg: number): number { return 0.9 + 0.15 * (avg / 100); }
+function moraleScale(avg: number): number { return 0.96 + 0.09 * (avg / 100); }
 
 function stageScale(w: World): void {
   const s = econ(w), st = psy(w);
