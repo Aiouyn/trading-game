@@ -1,7 +1,7 @@
 talk 0
 talk 8
 ask 0 frm_verdant
-why 987468
+why 1057587
 buy BANK 1
 wait 1d
 borrow 50000
