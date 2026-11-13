@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
-import { BANK, DEP, GOV, pay, type EconState } from '../economy/index.ts';
+import { BANK, DEP, GOV, pay, payS, type EconState } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
 
 const PROP = 'prop:value';
@@ -99,11 +99,15 @@ function mix(a: number, b: number): number {
 function quality(st: Book, p: number): number {
   return Math.max(0.4, st.size[p] * (0.55 + 0.45 * st.cond[p] / 100));
 }
+// Average income moves slowly: count it once a day (kept in the saved state, so a reload gives the same value).
 function meanIncome(w: World): number {
+  const st = book(w) as Book & { miDay?: number; mi?: number };
+  if (st.miDay === w.day && st.mi !== undefined) return st.mi;
   const P = econ(w).P;
   let s = 0, n = 0;
   for (let i = 0; i < P.n; i++) if (P.alive(i) && P.incEma[i] > 0) { s += P.incEma[i]; n++; }
-  return n ? s / n : book(w).inc0 || 1;
+  st.mi = n ? s / n : st.inc0 || 1; st.miDay = w.day;
+  return st.mi;
 }
 
 function growParcels(st: Book): void {
@@ -666,16 +670,21 @@ function collectRent(w: World): void {
   for (let p = 0; p < st.n; p++) {
     if (st.tenK[p] === 0 || ownerOccupies(w, p)) { st.missR[p] = 0; continue; }
     const due = Math.round(st.rent[p]);
-    const to = ownerActor(w, p);
-    if (due <= 0 || !to) continue;
-    let from = '';
+    if (due <= 0) continue;
+    // Ledger slots, not actor names: this runs over every rented parcel each month.
+    const L = w.ledger;
+    let toS = -1;
+    if (st.ownK[p] === PERSON) toS = st.own[p] >= 0 && st.own[p] < P.n ? P.slot[st.own[p]] : -1;
+    else { const to = ownerActor(w, p); toS = to && L.hasActor(to) ? L.slot(to) : -1; }
+    if (toS < 0) continue;
+    let fromS = -1;
     if (st.tenK[p] === PERSON) {
       const t = st.ten[p];
-      from = t >= 0 && t < P.n ? P.id(t) : '';
-    } else if (st.tenK[p] === FIRM) from = s.firms[st.ten[p]]?.id ?? '';
-    if (!from || from === to) continue;
-    const a = Math.min(due, Math.floor(w.ledger.balance(from, DEP)));
-    const got = a > 0 && pay(w, from, to, a, 'property.rent', cause) ? a : 0;
+      fromS = t >= 0 && t < P.n ? P.slot[t] : -1;
+    } else if (st.tenK[p] === FIRM) { const fid = s.firms[st.ten[p]]?.id; fromS = fid && L.hasActor(fid) ? L.slot(fid) : -1; }
+    if (fromS < 0 || fromS === toS) continue;
+    const a = Math.min(due, Math.floor(L.balS(fromS, DEP)));
+    const got = a > 0 && payS(w, s, fromS, toS, a, 'property.rent', cause) ? a : 0;
     if (st.tenK[p] !== PERSON) continue;
     if (got + 1 < due) st.missR[p] = Math.min(24, st.missR[p] + 1);
     else st.missR[p] = 0;
