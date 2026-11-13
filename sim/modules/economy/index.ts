@@ -15,6 +15,7 @@ import { People, joinFirm, leaveJob, succession, thought, yearlyLifePass } from 
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
 export const BANK = 'bank_1', GOV = 'gov', CB = 'cb', CLEAR = 'clearing';
+export const CAPITAL = 'capital'; // installed machinery: one unit makes one unit of the firm's good per day
 const BOND = 'bond:gov';
 
 const CONSUMER_GOODS = Object.values(GOODS).filter((g) => g.share > 0);
@@ -63,16 +64,11 @@ export function payS(w: World, s: EconState, from: number, to: number, cents: nu
 const bankEquity = (w: World): number => w.ledger.netWorth(BANK);
 function totalLoans(w: World, s: EconState): number { let t = 0; for (const f of s.firms) t += loanOf(w, f); return t; }
 
-/** Bank lends by creating a loan asset and a matching deposit. Refused if it would breach 8% capital. */
+/** A firm borrows from the banks in `w.state.banking`. They compete on rate and refuse when capital is thin. */
 function borrow(w: World, s: EconState, f: Firm, cents: number, cause: number): boolean {
-  const a = Math.round(cents);
-  if (a <= 0) return true;
-  const dailyCost = f.eff * s.wage + 1;
-  if (loanOf(w, f) + a > 150 * dailyCost) return false;
-  if (bankEquity(w) < 0.08 * (totalLoans(w, s) + a)) return false;
-  w.ledger.issue('loan:' + f.id, BANK, a, 'loan.grant', cause);
-  w.ledger.issue(DEP, f.id, a, 'loan.grant', cause);
-  return true;
+  const lend = (w.state.banking as { lendFirm?: (w: World, s: EconState, f: Firm, cents: number, cause: number) => boolean } | undefined)?.lendFirm;
+  if (!lend) return false;
+  return lend(w, s, f, cents, cause);
 }
 /** Make sure the government holds at least `cents`: if short it sells bonds to the bank, which creates the deposits. */
 function govFund(w: World, cents: number, cause: number): void {
@@ -305,9 +301,11 @@ export const economy: Module = {
     for (let k = 0; k < P.n; k++) { const i = (s.hirePtr + k) % P.n; if (P.employer[i] < 0 && P.flags[i] === 1 && P.born[i] <= adultBorn) pool.push(i); }
     pool.reverse(); s.hirePtr = (s.hirePtr + 97) % Math.max(1, P.n);
     const gaps = s.firms.map((f) => {
-      const d = GOODS[f.good], prodEff = d.prod * prodMult(s, f.good);
+      const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
       const target = d.perishable ? f.expSales * 1.03 : f.expSales + (f.expSales * invDays(f) - inv(w, f)) / 10;
-      return Math.max(0, target) / prodEff - f.eff;
+      // Capacity is the tighter of staff and installed machinery. Without a capital stock yet, labour still sets it.
+      const ceiling = w.ledger.instruments.has(CAPITAL) ? w.ledger.balance(f.id, CAPITAL) * mult : Infinity;
+      return Math.min(Math.max(0, target), ceiling) / prodEff - f.eff;
     });
     // When nobody is out of work, firms that need staff hire away from firms that are overstaffed (poaching).
     const surplus = s.firms.map((f, i) => (gaps[i] < -1 ? Math.floor(-gaps[i]) : 0));
@@ -342,10 +340,12 @@ export const economy: Module = {
     // 2. Production: buy inputs, make goods. Wages accrue daily and are paid weekly.
     const payday = w.day % PAY_EVERY === PAY_EVERY - 1;
     for (const f of s.firms) {
-      const d = GOODS[f.good], prodEff = d.prod * prodMult(s, f.good);
+      const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
       const cause = shockCause(s, f.good) ?? s.macroEv;
       f.unitCost = unitCost(s, f, prodEff);
-      const full = f.eff * prodEff;
+      const labour = f.eff * prodEff;
+      const ceiling = w.ledger.instruments.has(CAPITAL) ? w.ledger.balance(f.id, CAPITAL) * mult : labour;
+      const full = Math.min(labour, ceiling);
       let out = full;
       for (const [g, k] of Object.entries(d.inputs)) {
         const avail = firmsOf(s, g).reduce((t, x) => t + inv(w, x), 0);

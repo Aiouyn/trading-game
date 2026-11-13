@@ -2,6 +2,7 @@
 // This is the only acceptance check a module needs: it runs, the books balance every day, the stats look sane.
 import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
+import { banking } from './modules/banking/index.ts';
 import { markets } from './modules/markets/index.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
@@ -11,6 +12,7 @@ const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 
 
 const w = new World(seed, 8);
 w.use(economy);
+w.use(banking);
 w.use(markets);
 
 const t0 = Date.now();
