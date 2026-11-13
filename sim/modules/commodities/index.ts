@@ -190,6 +190,36 @@ function assertMargin(w: World): void {
   if (dep !== claim) throw new Error(`clearing margin cash ${dep} != claims ${claim}`);
 }
 
+/** A sight-deposit bail-in redeems dep at the clearing house and leaves margin claims behind. Write the claims down to the cash that is still there. */
+function absorbHaircut(w: World, cause: number): void {
+  const dep = cashOf(w, EX);
+  const claim = issued(w, MARGIN);
+  if (claim <= dep) return;
+  const rows: { id: string; v: number }[] = [];
+  let total = 0;
+  for (const [id, v0] of w.ledger.holders(MARGIN)) {
+    const v = Math.floor(v0);
+    if (v > 0) { rows.push({ id, v }); total += v; }
+  }
+  let hole = Math.min(claim - dep, total);
+  if (hole <= 0 || total <= 0) return;
+  let left = hole;
+  for (let i = 0; i < rows.length && left > 0; i++) {
+    const cut = i === rows.length - 1 ? left : Math.min(rows[i].v, Math.floor(hole * rows[i].v / total));
+    const a = Math.min(left, rows[i].v, cut);
+    if (a > 0 && w.ledger.redeem(MARGIN, rows[i].id, a, 'futures.margin', cause)) left -= a;
+  }
+  if (left > 0) {
+    rows.sort((a, b) => b.v - a.v);
+    for (const r of rows) {
+      if (left <= 0) break;
+      const have = Math.floor(w.ledger.balance(r.id, MARGIN));
+      const a = Math.min(left, have);
+      if (a > 0 && w.ledger.redeem(MARGIN, r.id, a, 'futures.margin', cause)) left -= a;
+    }
+  }
+}
+
 /** Front-month is monthsAhead 0. Returns the settlement price in cents, or 0 if that month is not listed. */
 export function futuresPrice(w: World, good: string, monthsAhead: number): number {
   const st = w.state.commodities as CmdState | undefined;
@@ -685,6 +715,7 @@ export const commodities: Module = {
 
   dayClose(w) {
     const st = bookOf(w), s = econ(w);
+    absorbHaircut(w, st.root);
     const moves: number[] = [];
     for (const b of st.books) moves.push(...markBook(w, s, b));
     const cause = moves[0] ?? st.root;
@@ -707,6 +738,7 @@ export const commodities: Module = {
 
   monthEnd(w) {
     const st = bookOf(w);
+    absorbHaircut(w, st.root);
     for (const b of st.books) expire(w, st, b, st.root);
     const halted = new Set<string>();
     for (const id of st.roster) rebalance(w, st, id, st.root, halted);
