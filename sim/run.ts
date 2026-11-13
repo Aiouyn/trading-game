@@ -2,6 +2,7 @@
 // This is the only acceptance check a module needs: it runs, the books balance every day, the stats look sane.
 import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
+import { abroad } from './modules/abroad/index.ts';
 import { banking } from './modules/banking/index.ts';
 import { bonds } from './modules/bonds/index.ts';
 import { markets } from './modules/markets/index.ts';
@@ -17,7 +18,9 @@ import { applySnapshot, snapshotSeed } from './modules/history/save.ts';
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 
 export function useModules(w: World, without: Set<string>): void {
-  for (const m of [economy, banking, bonds, markets, commodities, social, psyche, crypto]) if (m === economy || !without.has(m.id)) w.use(m);
+  w.use(economy);
+  if (!without.has('abroad')) w.use(abroad);
+  for (const m of [banking, bonds, markets, commodities, social, psyche, crypto]) if (!without.has(m.id)) w.use(m);
   if (!without.has('history')) w.use(history);
 }
 

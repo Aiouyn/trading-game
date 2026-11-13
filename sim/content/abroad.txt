@@ -1,0 +1,76 @@
+The rest of the world, as one aggregate economy. It is not simulated person by person.
+Its currency, its central bank rate, its price level and the goods the port trades live here.
+The exchange rate is not in this file after the opening print: the forex desk sets it by clearing orders.
+
+Tags on WORLD:
+  (NAME:text)            what the chronicle calls it
+  (CURRENCY:USD)         ledger instrument FX:USD, integer cents, issued by the foreign central bank
+  (SIZE:n)               how many times a home-sized economy the foreign one is (mobile capital)
+  (START_RATE:r)         foreign central bank rate at the open
+  (START_FX:x)           opening home cents per foreign cent
+  (INFLATION:r)          foreign price level, per year, before the cycle
+  (SPREAD:x)             dealer spread around the mid (a quote, not a target rate)
+  (ELASTICITY:e)         export orders rise this steeply when home goods get cheaper in foreign currency
+  (IMPORT_SHARE:s)       fraction of an input bought abroad when the landed price beats the home seller
+  (EXPORT_SHARE:s)       export orders as a fraction of home sales when prices match
+  (CARRY:c)              how hard mobile capital chases the higher interest rate
+  (BOND_SHARE:s)         share of a fund's book in foreign bonds when the foreign rate leads by 1pp
+  (RATE_CYCLE:years)     length of the foreign central bank's slow cycle
+  (RATE_AMP:r)           how far that cycle moves the foreign rate either side of START_RATE
+  (ACTIVITY_CYCLE:years) length of the foreign demand cycle
+  (ACTIVITY_AMP:a)       how far foreign demand swings around trend
+  (DEPTH_DAYS:n)         dealer book depth, in days of opening trade
+  (DISCOUNT:d)           foreign goods start this much cheaper than home goods, in their own currency
+  (HIKE:r)               size of a foreign funding-squeeze hike
+  (HIKE_CHANCE:p)        chance of that hike each year
+  (HIKE_DAYS:n)          how long the hike stays on
+  (RECESS_AT:a)          foreign demand below this fraction of trend is a recession
+
+Tags on TRADED:
+  (FLOW:import or export)
+  (SHARE:s)              overrides IMPORT_SHARE or EXPORT_SHARE for this good
+
+[OBJECT:WORLD]
+
+[WORLD:ABROAD]
+  [NAME:the rest of the world]
+  [CURRENCY:USD]
+  [SIZE:6]
+  [START_RATE:0.03]
+  [START_FX:1]
+  [INFLATION:0.02]
+  [SPREAD:0.001]
+  [ELASTICITY:1.2]
+  [IMPORT_SHARE:0.18]
+  [EXPORT_SHARE:0.04]
+  [CARRY:0.12]
+  [BOND_SHARE:0.04]
+  [RATE_CYCLE:10]
+  [RATE_AMP:0.012]
+  [ACTIVITY_CYCLE:8]
+  [ACTIVITY_AMP:0.06]
+  [DEPTH_DAYS:50]
+  [DISCOUNT:0.04]
+  [HIKE:0.015]
+  [HIKE_CHANCE:0.2]
+  [HIKE_DAYS:360]
+  [RECESS_AT:0.955]
+
+[OBJECT:TRADED]
+
+Oil, metals and machinery come in when the foreign price, at today's rate, beats the home seller.
+[TRADED:CRUDE_OIL] [FLOW:import]
+[TRADED:FUEL] [FLOW:import]
+[TRADED:IRON_ORE] [FLOW:import]
+[TRADED:STEEL] [FLOW:import]
+[TRADED:COPPER] [FLOW:import]
+[TRADED:ALUMINIUM] [FLOW:import]
+[TRADED:MACHINERY] [FLOW:import]
+
+What the port sells when the home currency is cheap in foreign terms.
+[TRADED:GRAIN] [FLOW:export]
+[TRADED:CHEMICALS] [FLOW:export]
+[TRADED:APPAREL] [FLOW:export]
+[TRADED:FURNITURE] [FLOW:export]
+[TRADED:VEHICLES] [FLOW:export]
+[TRADED:ELECTRONICS] [FLOW:export]

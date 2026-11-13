@@ -79,6 +79,12 @@ interface BondApi {
 function bondApi(w: World): BondApi | undefined {
   return (w.state.bonds as { api?: BondApi } | undefined)?.api;
 }
+/** Rest-of-world hooks. Absent, and therefore a no-op, when that module is off. */
+interface PortHooks {
+  buyer?: string; exportQty?: (good: string, homePx: number) => number; fundBuyer?: (cents: number, cause: number) => void; noteExport?: (cents: number) => void;
+  importFill?: (w: World, buyer: string, good: string, qty: number, dom: number, cause: number) => { got: number; spent: number }; landed?: (good: string, dom: number) => number;
+}
+function abroadOf(w: World): PortHooks | undefined { return (w.state.abroad as { hooks?: PortHooks } | undefined)?.hooks; }
 /** Make sure the government holds at least `cents`. The bond market auctions whatever is short. */
 function govFund(w: World, cents: number, cause: number): void {
   const api = bondApi(w);
@@ -143,6 +149,7 @@ function buy(w: World, s: EconState, buyer: string, good: string, qty: number, r
     if (buyer === GOV) govPay(w, f.id, cost, reason, cause); else payFn(w, buyer, f.id, cost, reason, cause);
     w.ledger.move('good:' + good, f.id, buyer, q, reason, cause);
     f.sold += q; f.mRev += cost; got += q; spent += cost;
+    if (reason === 'trade.export') abroadOf(w)?.noteExport?.(cost);
   });
   bookLost(sellers, qty, done);
   return { got, spent };
@@ -156,10 +163,11 @@ function shockCause(s: EconState, good: string): number | undefined {
   return undefined;
 }
 
-function unitCost(s: EconState, f: Firm, prodEff: number): number {
+function unitCost(w: World, s: EconState, f: Firm, prodEff: number): number {
   const d = GOODS[f.good];
   let c = s.wage / prodEff;
-  for (const [g, k] of Object.entries(d.inputs)) { const fs = firmsOf(s, g); c += k * Math.min(...fs.map((x) => x.price)); }
+  const landed = abroadOf(w)?.landed;
+  for (const [g, k] of Object.entries(d.inputs)) { const dom = Math.min(...firmsOf(s, g).map((x) => x.price)); c += k * (landed ? landed(g, dom) : dom); }
   return c;
 }
 
@@ -364,7 +372,7 @@ export const economy: Module = {
     for (const f of s.firms) {
       const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
       const cause = shockCause(s, f.good) ?? s.macroEv;
-      f.unitCost = unitCost(s, f, prodEff);
+      f.unitCost = unitCost(w, s, f, prodEff);
       const labour = f.eff * prodEff;
       const ceiling = w.ledger.instruments.has(CAPITAL) ? w.ledger.balance(f.id, CAPITAL) * mult : labour;
       const full = Math.min(labour, ceiling);
@@ -381,10 +389,12 @@ export const economy: Module = {
         }
       }
       for (const [g, k] of Object.entries(d.inputs)) {
-        const r = buy(w, s, f.id, g, out * k, 'b2b.input', cause);
+        const need = out * k, fs = firmsOf(s, g), dom = fs.length ? Math.min(...fs.map((x) => x.price)) : Infinity;
+        const imp = abroadOf(w)?.importFill?.(w, f.id, g, need, dom, cause) ?? { got: 0, spent: 0 };
+        const r = buy(w, s, f.id, g, Math.max(0, need - imp.got), 'b2b.input', cause);
         L.consume('good:' + g, f.id, r.got, 'production.input', cause);
-        f.mCost += r.spent;
-        if (r.got < out * k - 1e-6) out = r.got / k;
+        f.mCost += r.spent + imp.spent;
+        if (r.got + imp.got < need - 1e-6) out = (r.got + imp.got) / k;
       }
       // Without an input a firm improvises at a heavy cost: it can still make 30% of capacity. This keeps supply loops
       // (power needs coal, coal mines need power) from locking at zero forever after a bust.
@@ -506,6 +516,18 @@ export const economy: Module = {
       const gr = buy(w, s, GOV, d.good, (govBudget + stimulus) * d.gov / p, 'gov.purchases', s.macroEv);
       L.consume('good:' + d.good, GOV, gr.got, 'gov.purchases', s.macroEv);
       s.yGdp += gr.spent; s.dayGdp += gr.spent;
+    }
+    // Foreign buyers use the same order path. Nothing happens when that module is off.
+    const abroad = abroadOf(w);
+    if (abroad?.exportQty && abroad.buyer) for (const d of Object.values(GOODS)) {
+      const fs = firmsOf(s, d.good);
+      if (!fs.length) continue;
+      const px = fs.reduce((t, x) => t + x.price, 0) / fs.length, q = abroad.exportQty(d.good, px);
+      if (!(q > 0)) continue;
+      abroad.fundBuyer?.(Math.ceil(q * px), s.macroEv);
+      const r = buy(w, s, abroad.buyer, d.good, q, 'trade.export', s.macroEv);
+      if (r.got > 0) L.consume('good:' + d.good, abroad.buyer, r.got, 'trade.export', s.macroEv);
+      s.yGdp += r.spent; s.dayGdp += r.spent;
     }
     s.yGdpEma = w.day < 30 ? Math.max(s.yGdpEma, s.dayGdp) : s.yGdpEma + (s.dayGdp - s.yGdpEma) / 30; s.dayGdp = 0;
 
