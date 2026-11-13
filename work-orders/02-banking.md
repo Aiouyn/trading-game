@@ -1,14 +1,21 @@
-# Work order 02: banking and credit
+# Work order 02: business investment, banks and credit
 
-You own `sim/modules/banking/` and one `w.use(banking)` line in `sim/run.ts` (after `economy`, before `markets`). Read `AGENTS.md` and `sim/README.md` first. Touch nothing else.
+You own `sim/modules/banking/` and one `w.use(banking)` line in `sim/run.ts` (after `economy`, before `markets`). You may add fields to `Firm` and replace the capacity rule and `borrow()` in `sim/modules/economy/index.ts`, nothing else there. Read `AGENTS.md` and `sim/README.md` first.
 
-Today one bank exists, no firm ever borrows, and interest rates only reach the economy through household saving. Build the credit channel.
+## Why
 
-1. **Three more banks**, each a ledger actor with its own deposit instrument (`dep:<bank>`) and shares, capitalised at init by the richest people (same pattern as the funds in `modules/markets`). People and firms keep using `dep` (bank_1) for payments; your banks take term deposits from people who hold more than 90 days of income, and lend.
-2. **Loans to people**: mortgages and consumer loans. A person applies when a need fires (see `thought()` in `modules/economy/people.ts`) or to buy shares. The bank scores income, job tenure, existing debt and the person's `cY` trait. Each loan is its own `claim` instrument issued by the borrower. Monthly payments; missed payments; default after three; the bank writes the loan off against its equity.
-3. **Loans to firms** for expansion: a firm whose sales exceed capacity for a month borrows to hire ahead. Rate = policy rate + a spread from the firm's `lastProfit` history and leverage.
-4. **Bank failure**: a bank whose equity falls below 4% of its loans stops lending; below 0 it fails. Depositors lose what its assets cannot cover. Emit `bank.run` when withdrawals in a week exceed 10% of deposits, with causes pointing at the defaults that scared people. People who lose savings get a `thought()` of 300.
-5. **Causality**: every loan decision, default and failure is an event whose causes include the borrower's situation (`person.lastEv`, `firm.priceEv`) and the last `cb.rate`.
-6. **Stats**: total credit in millions, default rate, weakest bank's capital ratio.
+Read "Known weak spots" in `sim/README.md`. Today output depends on labour alone, firms never invest, and the one bank barely lends. Profits are paid out and saved by the richest people, so only the government recycles saving: public debt climbs for decades and the economy swings into an inflation spike every 10 to 15 years. Fixing that is the point of this order.
 
-Done: `SIM_POP=6000 node sim/run.ts --years 20 --seed 1 --explain bank.run` (or `firm.default` if no run occurs) finishes with "Books balanced every day" and your stats moving. Commit to `v1-build`, push, reply with the output, your run time and cost. Then stop.
+## Build
+
+1. **Capital.** Each firm owns a capital stock of `MACHINERY` (factories, offices) on the ledger. Capacity = min(staff skill x output per worker, capital x output per machine). Capital wears out at 1% a month (consumed through the ledger). Set initial stocks at genesis so capital is not binding.
+2. **Investment.** A firm whose utilisation has been above 90% for three months orders machinery from the `MACHINERY` firms to expand, paid from retained earnings first, then a bank loan. Dividends are paid only from what is left after planned investment. Housing works the same way for `HOUSING` builders.
+3. **Three more banks**, each a ledger actor with its own shares, capitalised by the richest people at genesis. Deposits stay in `dep`; banks compete for loans on rate.
+4. **Loans to firms and people.** Firm loans priced at policy rate + a spread from leverage and profit history; mortgages and consumer loans for people, scored on income, tenure and existing debt. Each loan is its own `claim` instrument. Missed payments, default after three, write-off against bank equity.
+5. **Bank failure.** Below 4% capital a bank stops lending; below zero it fails and depositors take losses. `bank.run` when a week's withdrawals exceed 10% of deposits, caused by the defaults that scared people. People who lose savings get `thought()` of 300.
+6. **Causality.** Every loan decision, investment, default and failure is an event whose causes include the borrower's situation and the last `cb.rate`.
+7. **Stats**: investment per day, total credit, default rate, weakest bank's capital ratio.
+
+## Done
+
+`SIM_POP=6000 node sim/run.ts --years 30 --seed 1` and `--seed 2` finish with "Books balanced every day"; public debt stops rising without limit; no year above 15% inflation; unemployment mostly between 4% and 10%. Commit to `v1-build`, push, reply with both tables, your run time and cost. Then stop.

@@ -27,12 +27,30 @@ Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no
 
 ## What exists
 
-`modules/economy` is the seed, simulated person by person (20,000 by default, `SIM_POP` to change):
+## Content
 
-- **People** (`people.ts`): name, family, age, skill, traits, employer, their own bank balance. Needs are timers that fire thoughts at thresholds; a resilience trait dampens each thought; enough stress causes a breakdown that cuts spending. Once a year: deaths with inheritance on the ledger, retirements, marriages, births.
-- **Firms**: 12 firms in 4 sectors with an input chain, staffed by named people, each with a chief executive whose prudence sets the firm's stock policy. A chief who loses money six months running is removed. Seats are refilled heirs first in family firms, then from the staff, and a successor's old seat is refilled in turn.
-- **Institutions**: one bank that creates deposits by lending, a government with a budget rule, a central bank on a Taylor rule, and one tagged outside shock (energy supply).
+All content lives in plain-text files in `sim/content/`, separate from the engine, the way Dwarf Fortress keeps its raws. Parser: `sim/kernel/content.ts` (errors name the file and line). Loader: `sim/modules/economy/content.ts`.
 
-`modules/markets` is the stock exchange (work order 01): a price-time order book where funds and the 300 richest people trade the firms' shares.
+| File | Objects |
+|---|---|
+| `goods.txt` | 44 goods in 13 sectors, each with its recipe (inputs per unit, output per worker-day), household and government budget shares, perishability. File order is production order. |
+| `firms.txt` | 63 named founding firms; each makes one good; `FAMILY` firms pass the chief's seat to heirs. |
+| `shocks.txt` | 8 outside shocks (drought, oil embargo, port strike, mine collapse, pandemic, fab fire, battery breakthrough, heatwave) with yearly chance, duration, productivity and demand effects. |
+| `positions.txt` | The chief executive position: removal after losing months, retirement age. |
 
-Known weak spots, for later work orders: no firm borrows yet, so interest rates only bite through household saving; the labour market runs very tight after year 5; ten years take about 50 seconds.
+Add a good, a firm or a shock by editing these files; the economy calibrates staffing from the recipes at genesis.
+
+## What exists
+
+`modules/economy`, simulated person by person (20,000 by default, `SIM_POP` to change):
+
+- **People** (`people.ts`): name, family (founding families are generated), age, skill, traits, employer, their own bank balance. Needs are timers that fire thoughts; a resilience trait dampens each thought; stress causes breakdowns that cut spending. Yearly: deaths with inheritance on the ledger, retirements, marriages, births.
+- **Firms**: cost-plus pricing with a markup that widens under shortage and narrows with unsold stock; buyers split orders across rivals by price; unmet demand is booked against the sellers that ran short; hiring from the unemployed, then poaching from overstaffed firms. Chief executives removed after six losing months; heirs-first succession.
+- **Institutions**: one bank, a government (income tax rule, dividend tax at source, pensions, benefits, an integral fiscal stance that builds up while unemployment stays above 7%), a central bank on a Taylor rule.
+
+`modules/markets`: price-time order book; funds and the 300 richest people trade the firms' shares; a closing mark from the book when a stock does not trade.
+
+## Known weak spots (next work orders)
+
+- **No business investment and no working credit market.** Profits go out as dividends and the rich save them; only the government recycles that saving, so public debt rises for decades and boom-bust inflation spikes appear every 10 to 15 years. Work order 02 adds investment and credit.
+- **Speed**: about 9 seconds per simulated year at 6,000 people, roughly three times that at 20,000.

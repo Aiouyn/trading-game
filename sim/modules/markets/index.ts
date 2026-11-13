@@ -217,12 +217,12 @@ function note(st: Stock, px: number, qty: number): void {
   st.vol += qty;
 }
 
-function matchBook(w: World, st: Stock): void {
+function matchBook(w: World, st: Stock, mine: Order[]): void {
   const m = book(w);
   const hi = Math.max(1, Math.floor(st.prev * (1 + band(st))));
   const lo = Math.max(1, Math.ceil(st.prev * (1 - band(st))));
   // Sort this stock's live orders once per pass instead of rescanning the whole book for every fill.
-  const live = (side: Side): Order[] => m.orders.filter((o) => o.open && !o.skip && o.instr === st.instr && o.side === side && o.qty >= 1);
+  const live = (side: Side): Order[] => mine.filter((o) => o.open && !o.skip && o.side === side && o.qty >= 1);
   const bids = live('buy').sort((x, y) => bidRank(y) - bidRank(x) || x.seq - y.seq);
   const asks = live('sell').sort((x, y) => askRank(x) - askRank(y) || x.seq - y.seq);
   let bi = 0, ai = 0;
@@ -261,10 +261,14 @@ function matchBook(w: World, st: Stock): void {
     note(st, px, qty);
     m.yTurn += qty * px;
   }
-  for (const o of m.orders) if (o.open && o.instr === st.instr && o.limit === null) o.open = false;
+  for (const o of mine) if (o.open && o.limit === null) o.open = false;
 }
 
-function matchAll(w: World): void { for (const st of book(w).stocks) matchBook(w, st); }
+function matchAll(w: World): void {
+  const m = book(w), by = new Map<string, Order[]>();
+  for (const o of m.orders) { if (!o.open) continue; const l = by.get(o.instr); if (l) l.push(o); else by.set(o.instr, [o]); }
+  for (const st of m.stocks) { const l = by.get(st.instr); if (l) matchBook(w, st, l); }
+}
 
 function mmQuotes(w: World, fund: Fund): void {
   const stream = 'mkt:' + fund.id;
@@ -352,7 +356,7 @@ function householdOrders(w: World): void {
   const m = book(w);
   for (const h of s.investors) {
     const rng = w.rng('mkt:' + h.id);
-    if (!rng.chance(0.8)) continue;
+    if (!rng.chance(0.2)) continue; // each person rebalances about once a week
     const wealth = w.ledger.netWorth(h.id, m.price);
     if (!(wealth > 0)) continue;
     let eq = 0;
@@ -361,7 +365,7 @@ function householdOrders(w: World): void {
     if (Math.abs(gap) / wealth < 0.02) continue;
     const side: Side = gap > 0 ? 'buy' : 'sell';
     for (const st of m.stocks) {
-      let qty = Math.max(1, Math.min(60, Math.round(Math.abs(gap) / wealth * 40)));
+      let qty = Math.max(1, Math.min(240, Math.round(Math.abs(gap) / wealth * 160)));
       if (side === 'buy') qty = Math.min(qty, Math.floor(cash(w, h.id) / Math.max(1, st.last) / m.stocks.length));
       else qty = Math.min(qty, w.ledger.balance(h.id, st.instr));
       qty = noiseQty(w, 'mkt:' + h.id, qty);
@@ -515,6 +519,22 @@ export const markets: Module = {
     const m = book(w);
     for (const o of m.orders) o.skip = false;
     let cap = 0;
+    // Closing mark: a stock that did not trade is marked to the side of the book that is there, within the daily band.
+    // Without this, a stock nobody offers can never reprice, however much it earns.
+    const quotes = new Map<string, { bid: number; ask: number }>();
+    for (const o of m.orders) {
+      if (!o.open || o.limit === null || o.qty < 1) continue;
+      const q = quotes.get(o.instr) ?? { bid: 0, ask: Infinity };
+      if (o.side === 'buy') q.bid = Math.max(q.bid, o.limit); else q.ask = Math.min(q.ask, o.limit);
+      quotes.set(o.instr, q);
+    }
+    for (const st of m.stocks) {
+      const q = quotes.get(st.instr);
+      if (st.traded || !q) continue;
+      const hi = Math.floor(st.prev * (1 + band(st))), lo = Math.ceil(st.prev * (1 - band(st)));
+      if (q.bid > st.last && q.ask > q.bid) st.last = Math.max(st.last, Math.min(q.bid, hi, Number.isFinite(q.ask) ? q.ask - 1 : Infinity));
+      else if (q.ask < st.last && q.bid < q.ask) st.last = Math.min(st.last, Math.max(q.ask, lo, q.bid + 1));
+    }
     for (const st of m.stocks) {
       const ch = st.prev > 0 ? st.last / st.prev - 1 : 0;
       if (Math.abs(ch) > 0.03) {
@@ -550,7 +570,13 @@ export const markets: Module = {
       const spare = Math.floor(cash(w, f.id) - Math.max(held, 1));
       const total = w.ledger.issued.get('eq:' + f.id) ?? 0;
       if (spare <= 0 || !total) continue;
-      for (const [h, n] of w.ledger.holders('eq:' + f.id)) { const c = Math.floor(spare * n / total); if (c > 0) pay(w, f.id, h, c, 'fund.payout', m.root); }
+      for (const [h, n] of w.ledger.holders('eq:' + f.id)) {
+        const c = Math.floor(spare * n / total);
+        if (c <= 0 || !pay(w, f.id, h, c, 'fund.payout', m.root) || !h.startsWith('p_')) continue;
+        const t = Math.floor(c * 0.35), e = econ(w); // fund payouts are taxed like dividends
+        if (pay(w, h, 'gov', t, 'tax.dividend', m.root)) e.divTax += t;
+        e.people[+h.slice(2)].incWeek += c - t;
+      }
     }
   },
 

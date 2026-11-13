@@ -12,6 +12,8 @@ export class Ledger {
   instruments = new Map<string, Instrument>();
   private hold = new Map<string, Map<string, number>>(); // instr -> actor -> amount
   issued = new Map<string, number>();
+  private heldBy = new Map<string, Set<string>>();   // actor -> instruments it has ever held (index for netWorth)
+  private issuedBy = new Map<string, string[]>();    // issuer -> instruments it issued
   flows = new Map<string, number>();                  // reason -> cumulative amount
   journal: Posting[] = [];
   journalCap = 0; // set > 0 to keep the last postings for debugging
@@ -22,6 +24,7 @@ export class Ledger {
     if (this.instruments.has(i.id)) throw new Error(`instrument ${i.id} exists`);
     if (i.kind !== 'real' && (!i.issuer || !this.actors.has(i.issuer))) throw new Error(`instrument ${i.id} needs a known issuer`);
     this.instruments.set(i.id, i); this.hold.set(i.id, new Map()); this.issued.set(i.id, 0);
+    if (i.issuer) { const l = this.issuedBy.get(i.issuer) ?? []; l.push(i.id); this.issuedBy.set(i.issuer, l); }
   }
   balance(actor: string, instr: string): number { return this.hold.get(instr)?.get(actor) ?? 0; }
   holders(instr: string): ReadonlyMap<string, number> { return this.hold.get(instr) ?? new Map(); }
@@ -35,7 +38,11 @@ export class Ledger {
     for (const w of who) if (!this.actors.has(w)) throw new Error(`unknown actor ${w}`);
     return i;
   }
-  private add(instr: string, actor: string, d: number): void { const m = this.hold.get(instr)!; m.set(actor, (m.get(actor) ?? 0) + d); }
+  private add(instr: string, actor: string, d: number): void {
+    const m = this.hold.get(instr)!, was = m.get(actor);
+    if (was === undefined) { let h = this.heldBy.get(actor); if (!h) { h = new Set(); this.heldBy.set(actor, h); } h.add(instr); }
+    m.set(actor, (was ?? 0) + d);
+  }
   private log(p: Omit<Posting, 'day'>): void {
     this.flows.set(p.reason, (this.flows.get(p.reason) ?? 0) + p.amount);
     if (!this.journalCap) return;
@@ -71,6 +78,7 @@ export class Ledger {
     return true;
   }
   produce(instr: string, to: string, qty: number, reason: string, cause: number): void {
+    if (qty < 0 && qty > -1e-6) qty = 0; // float dust on physical quantities
     const i = this.chk(instr, qty, cause, to);
     if (i.kind !== 'real') throw new Error('produce() is for real goods');
     if (qty === 0) return;
@@ -78,6 +86,7 @@ export class Ledger {
     this.log({ op: 'produce', instr, to, amount: qty, reason, cause });
   }
   consume(instr: string, from: string, qty: number, reason: string, cause: number): boolean {
+    if (qty < 0 && qty > -1e-6) qty = 0; // float dust on physical quantities
     const i = this.chk(instr, qty, cause, from);
     if (i.kind !== 'real') throw new Error('consume() is for real goods');
     if (qty === 0) return true;
@@ -90,11 +99,11 @@ export class Ledger {
   /** Assets minus liabilities. `price` values shares and real goods (cents per unit); money and claims count at face. */
   netWorth(actor: string, price: (instr: string) => number = () => 0): number {
     let nw = 0;
-    for (const [id, i] of this.instruments) {
-      const h = this.hold.get(id)!.get(actor) ?? 0;
+    for (const id of this.heldBy.get(actor) ?? []) {
+      const i = this.instruments.get(id)!, h = this.hold.get(id)!.get(actor) ?? 0;
       if (h) nw += i.kind === 'money' || i.kind === 'claim' ? h : h * price(id);
-      if (i.issuer === actor && (i.kind === 'money' || i.kind === 'claim')) nw -= this.issued.get(id)!;
     }
+    for (const id of this.issuedBy.get(actor) ?? []) { const i = this.instruments.get(id)!; if (i.kind === 'money' || i.kind === 'claim') nw -= this.issued.get(id)!; }
     return nw;
   }
   /** Conservation check. Returns problems; empty means the books balance. */

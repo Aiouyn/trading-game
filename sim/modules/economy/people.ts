@@ -8,8 +8,8 @@
 import { DAYS_PER_YEAR, type World } from '../../kernel/index.ts';
 import { DEP, GOV, pay, type EconState, type Firm } from './index.ts';
 
-export const CEO_BAD_MONTHS = 6;
-const RETIRE_AGE = 65, ADULT_AGE = 18;
+import { CEO_POSITION } from './content.ts';
+const RETIRE_AGE = CEO_POSITION.retireAge, ADULT_AGE = 18;
 const BREAKDOWN_AT = 220;
 
 export interface Person {
@@ -40,7 +40,7 @@ export function makePerson(w: World, s: EconState, i: number, born: number, pare
   return {
     i, id: 'p_' + i, given: cap(SYL[r.int(SYL.length)] + END[r.int(END.length)]),
     family: parents ? parents[0].family : cap(SYL[r.int(SYL.length)] + SYL[r.int(SYL.length)] + FAM[r.int(FAM.length)]),
-    born, skill, resil: r.int(101), cY: 0.8 + 0.18 * r.next(), employer: -1, spouse: -1,
+    born, skill, resil: r.int(101), cY: 0.86 + 0.13 * r.next(), employer: -1, spouse: -1,
     parent: parents ? parents[0].i : -1, kids: [], alive: true, retired: false,
     incEma: 0, incWeek: 0, jobless: 0, broke: 0, stress: 0, fearUntil: -1,
   };
@@ -90,9 +90,9 @@ export function succession(w: World, s: EconState, f: Firm, old: Person | undefi
   const wasCeoThere = from !== undefined && from.ceo === pick.i;
   joinFirm(s, pick, f);
   f.ceo = pick.i; f.badMonths = 0; s.successions++;
-  f.ceoEv = w.events.emit('firm.succession', `${personName(pick)} (${ageOf(w, pick)}) becomes chief executive of ${f.id}, ${how}, after ${old ? personName(old) : 'a vacancy'} ${why}`, [cause], f.id);
+  f.ceoEv = w.events.emit('firm.succession', `${personName(pick)} (${ageOf(w, pick)}) becomes chief executive of ${f.name}, ${how}, after ${old ? personName(old) : 'a vacancy'} ${why}`, [cause], f.id);
   pick.lastEv = f.ceoEv;
-  if (wasCeoThere && from) succession(w, s, from, pick, `left to run ${f.id}`, f.ceoEv); // the vacated seat is refilled too
+  if (wasCeoThere && from) succession(w, s, from, pick, `left to run ${f.name}`, f.ceoEv); // the vacated seat is refilled too
 }
 
 function die(w: World, s: EconState, p: Person, yearEv: number): void {

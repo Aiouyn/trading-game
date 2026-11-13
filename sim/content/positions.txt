@@ -1,0 +1,8 @@
+Positions held by people. Filled heirs-first in family firms (children, then grandchildren, then a spouse),
+otherwise by the most skilled member of staff; a successor's old seat is refilled in turn.
+
+[OBJECT:POSITION]
+
+[POSITION:CHIEF_EXECUTIVE] [NAME:chief executive]
+  [REMOVE_AFTER_LOSING_MONTHS:6]
+  [RETIRE_AGE:65]

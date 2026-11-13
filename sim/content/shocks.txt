@@ -1,0 +1,30 @@
+Outside shocks: the only events that start a causal chain with no cause inside the simulation.
+Each year every shock rolls its CHANCE. While active, PRODUCTIVITY multiplies output per worker for a good,
+DEMAND multiplies what households want of a good.
+
+[OBJECT:SHOCK]
+
+[SHOCK:DROUGHT] [CHANCE:0.10] [DAYS:120]
+  [TEXT:a drought withers the harvest: grain output falls 40%, livestock 20%]
+  [PRODUCTIVITY:GRAIN:0.6] [PRODUCTIVITY:LIVESTOCK:0.8]
+[SHOCK:OIL_EMBARGO] [CHANCE:0.06] [DAYS:180]
+  [TEXT:an embargo cuts crude oil supply by 40%]
+  [PRODUCTIVITY:CRUDE_OIL:0.6]
+[SHOCK:PORT_STRIKE] [CHANCE:0.08] [DAYS:45]
+  [TEXT:dockworkers strike: freight capacity halves]
+  [PRODUCTIVITY:FREIGHT:0.5]
+[SHOCK:MINE_COLLAPSE] [CHANCE:0.07] [DAYS:150]
+  [TEXT:a mine collapse shuts coal and iron seams]
+  [PRODUCTIVITY:COAL:0.65] [PRODUCTIVITY:IRON_ORE:0.8]
+[SHOCK:PANDEMIC] [CHANCE:0.025] [DAYS:240]
+  [TEXT:an epidemic spreads: people stay home, hospitals fill]
+  [PRODUCTIVITY:ALL:0.92] [DEMAND:HEALTHCARE:1.8] [DEMAND:AIR_TRAVEL:0.3] [DEMAND:ENTERTAINMENT:0.6] [DEMAND:TRANSIT:0.5]
+[SHOCK:FAB_FIRE] [CHANCE:0.05] [DAYS:200]
+  [TEXT:a fire destroys a chip fabrication line]
+  [PRODUCTIVITY:CHIPS:0.55]
+[SHOCK:BATTERY_BREAKTHROUGH] [CHANCE:0.04] [DAYS:1800]
+  [TEXT:a new cell chemistry is patented: battery output per worker rises 35%]
+  [PRODUCTIVITY:BATTERIES:1.35] [DEMAND:VEHICLES:1.15]
+[SHOCK:HEATWAVE] [CHANCE:0.12] [DAYS:60]
+  [TEXT:a heatwave strains the grid as demand for power soars]
+  [PRODUCTIVITY:ELECTRICITY:0.85] [DEMAND:ELECTRICITY:1.4]
