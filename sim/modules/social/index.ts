@@ -1,5 +1,5 @@
 // Relationships, rumours and the newspaper.
-// People are not objects: each person has 16 contact slots (who, familiarity, trust) in typed arrays.
+// People are not objects: each person has 16 contact slots (who, familiarity, trust, respect, fear, loyalty, friendship) in typed arrays.
 // A conversation adds 30 familiarity. A fact is a set of bits, or a short list of knowers while that list
 // is smaller than a bitset of the population. The first person to learn it is recorded on the fact.
 // Staff, owners and the people at the banks hear a notable event first. It spreads to contacts with a
@@ -58,6 +58,10 @@ interface Social {
   contact: Int32Array;
   fam: Uint16Array;
   trust: Uint8Array;
+  respect: Uint8Array;
+  fear: Uint8Array;
+  loyalty: Uint8Array;
+  friend: Uint8Array;
   kind: Uint8Array;
   emp: Int16Array;
   head: Int32Array;
@@ -196,7 +200,9 @@ function blank(cap: number): Social {
   const cellNext = new Int32Array(cells);
   cellNext.fill(-1);
   return {
-    cap, words: Math.ceil(cap / 32), contact, fam: new Uint16Array(cap * DEG), trust: new Uint8Array(cap * DEG), kind: new Uint8Array(cap * DEG),
+    cap, words: Math.ceil(cap / 32), contact, fam: new Uint16Array(cap * DEG), trust: new Uint8Array(cap * DEG),
+    respect: new Uint8Array(cap * DEG), fear: new Uint8Array(cap * DEG), loyalty: new Uint8Array(cap * DEG), friend: new Uint8Array(cap * DEG),
+    kind: new Uint8Array(cap * DEG),
     emp, head, stamp: new Uint16Array(cap), gen: 1, holdDay: new Int32Array(cap),
     cellFact: new Int32Array(cells), cellNext, cellN: 0, free: -1, personOf: new Int32Array(0),
     firmById: new Map(), paper: -1, insiderFact: new Int32Array(0), facts: [], seen: 0, pop: 1, need: 1,
@@ -210,12 +216,17 @@ function ensure(st: Social, n: number): void {
   const contact = new Int32Array(cap * DEG); contact.fill(-1); contact.set(st.contact);
   const fam = new Uint16Array(cap * DEG); fam.set(st.fam);
   const trust = new Uint8Array(cap * DEG); trust.set(st.trust);
+  const respect = new Uint8Array(cap * DEG); respect.set(st.respect);
+  const fear = new Uint8Array(cap * DEG); fear.set(st.fear);
+  const loyalty = new Uint8Array(cap * DEG); loyalty.set(st.loyalty);
+  const friend = new Uint8Array(cap * DEG); friend.set(st.friend);
   const kind = new Uint8Array(cap * DEG); kind.set(st.kind);
   const emp = new Int16Array(cap); emp.fill(-1); emp.set(st.emp);
   const head = new Int32Array(cap); head.fill(-1); head.set(st.head);
   const stamp = new Uint16Array(cap); stamp.set(st.stamp);
   const holdDay = new Int32Array(cap); holdDay.set(st.holdDay);
-  st.contact = contact; st.fam = fam; st.trust = trust; st.kind = kind; st.emp = emp; st.head = head; st.stamp = stamp; st.holdDay = holdDay;
+  st.contact = contact; st.fam = fam; st.trust = trust; st.respect = respect; st.fear = fear; st.loyalty = loyalty; st.friend = friend;
+  st.kind = kind; st.emp = emp; st.head = head; st.stamp = stamp; st.holdDay = holdDay;
   st.cap = cap;
   st.words = Math.ceil(cap / 32);
   for (const f of st.facts) {
@@ -253,6 +264,11 @@ function place(st: Social, a: number, b: number, fam: number, trust: number, kin
     st.fam[p] = fam;
     st.trust[p] = trust;
     st.kind[p] = kind;
+    const seeded = seedBonds(kind, fam);
+    st.respect[p] = seeded.respect;
+    st.fear[p] = seeded.fear;
+    st.loyalty[p] = seeded.loyalty;
+    st.friend[p] = seeded.friend;
     return;
   }
 }
@@ -292,7 +308,11 @@ function tieAll(st: Social, w: World): void {
 function refreshWork(st: Social, w: World, i: number): void {
   const P = econ(w).P;
   const b = i * DEG;
-  for (let k = 0; k < DEG; k++) if (st.kind[b + k] === KIND_WORK) { st.contact[b + k] = -1; st.kind[b + k] = 0; }
+  for (let k = 0; k < DEG; k++) if (st.kind[b + k] === KIND_WORK) {
+    const p = b + k;
+    st.contact[p] = -1; st.kind[p] = 0; st.fam[p] = 0; st.trust[p] = 0;
+    st.respect[p] = 0; st.fear[p] = 0; st.loyalty[p] = 0; st.friend[p] = 0;
+  }
   const e = P.employer[i];
   st.emp[i] = e;
   if (e < 0) return;
@@ -717,7 +737,9 @@ function gossip(w: World, st: Social, speaker: number, listener: number, trust: 
   for (let k = 0; k < tries; k++) {
     const fact = st.facts[scratch[(start + k) % n]];
     if (!fact || fact.pub || fact.drop || hasKnow(fact.know, listener)) continue;
-    if (mix(w.day, speaker, listener, fact.id) % 200 < trust) learn(w, fact, listener);
+    let room = trust;
+    if (fact.tag === 'insider.profit') room = Math.max(0, trust - (fearOfChief(w, st, speaker) >> 1));
+    if (mix(w.day, speaker, listener, fact.id) % 200 < room) learn(w, fact, listener);
   }
 }
 function pick(st: Social, flags: Uint8Array, i: number, day: number, salt: number, skip: number): number {
@@ -738,15 +760,39 @@ function pick(st: Social, flags: Uint8Array, i: number, day: number, salt: numbe
   }
   return -1;
 }
-function bumpAt(st: Social, i: number, k: number): void {
+function clampByte(n: number): number { return n < 0 ? 0 : n > 100 ? 100 : n; }
+function seedBonds(kind: number, fam: number): { respect: number; fear: number; loyalty: number; friend: number } {
+  if (kind === KIND_FAM && fam >= FAM_SPOUSE) return { respect: 55, fear: 8, loyalty: 70, friend: 75 };
+  if (kind === KIND_FAM && fam >= FAM_PARENT) return { respect: 65, fear: 25, loyalty: 60, friend: 50 };
+  if (kind === KIND_FAM) return { respect: 40, fear: 10, loyalty: 45, friend: 40 };
+  return { respect: 35, fear: 18, loyalty: 30, friend: 22 };
+}
+function fearOfChief(w: World, st: Social, speaker: number): number {
+  const P = econ(w).P;
+  const e = P.employer[speaker];
+  if (e < 0) return 0;
+  const chief = econ(w).firms[e].ceo;
+  if (chief < 0) return 0;
+  const k = findContact(st, speaker, chief);
+  return k < 0 ? 0 : st.fear[speaker * DEG + k];
+}
+function bumpAt(st: Social, i: number, k: number, chief: boolean): void {
   const p = i * DEG + k;
   const f = st.fam[p] + FAM_STEP;
   st.fam[p] = f > 65535 ? 65535 : f;
+  st.friend[p] = clampByte(st.friend[p] + 1);
+  st.loyalty[p] = clampByte(st.loyalty[p] + 1);
+  st.respect[p] = clampByte(st.respect[p] + (chief ? 0 : 1));
+  st.fear[p] = clampByte(st.fear[p] + (chief ? 1 : -1));
 }
-function bumpPair(st: Social, a: number, b: number, ka: number): void {
-  bumpAt(st, a, ka);
+function bumpPair(w: World, st: Social, a: number, b: number, ka: number): void {
+  const P = econ(w).P;
+  const firms = econ(w).firms;
+  const chiefA = P.employer[a] >= 0 && firms[P.employer[a]].ceo === b;
+  const chiefB = P.employer[b] >= 0 && firms[P.employer[b]].ceo === a;
+  bumpAt(st, a, ka, chiefA);
   const kb = findContact(st, b, a);
-  if (kb >= 0) bumpAt(st, b, kb);
+  if (kb >= 0) bumpAt(st, b, kb, chiefB);
 }
 function conversations(w: World): void {
   const st = soc(w), P = econ(w).P;
@@ -763,7 +809,7 @@ function conversations(w: World): void {
       if (k < 0) break;
       const other = contact[b + k];
       skip = other;
-      bumpPair(st, i, other, k);
+      bumpPair(w, st, i, other, k);
       if (head[i] >= 0) gossip(w, st, i, other, trust[b + k], t + 1);
     }
   }

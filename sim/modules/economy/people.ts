@@ -31,6 +31,11 @@ const FIELDS: [string, any][] = [
   ['incEma', Float64Array], ['incWeek', Float64Array], ['jobless', Int32Array], ['broke', Int32Array],
   ['stress', Float64Array], ['fearUntil', Int32Array], ['lastEv', Int32Array],
   ['given', Uint16Array], ['family', Int32Array], ['slot', Int32Array],
+  ['health', Uint8Array], ['mood', Uint8Array], ['condition', Uint8Array],
+  ['anxiety', Uint8Array], ['greed', Uint8Array], ['kin', Uint8Array], ['diligence', Uint8Array],
+  ['habit', Uint8Array], ['habitLeft', Uint16Array], ['wdDays', Uint16Array], ['outUntil', Int32Array],
+  ['brokeStep', Uint8Array], ['stressRun', Uint16Array], ['mem', Uint32Array], ['memN', Uint32Array],
+  ['anxDone', Uint8Array], ['wealthMark', Float64Array], ['incMark', Float64Array],
 ];
 
 /** All people, one typed array per attribute. Grows by doubling. Person i's ledger id is `p_${i}`. */
@@ -43,6 +48,11 @@ export class People {
   incEma!: Float64Array; incWeek!: Float64Array; jobless!: Int32Array; broke!: Int32Array;
   stress!: Float64Array; fearUntil!: Int32Array; lastEv!: Int32Array;
   given!: Uint16Array; family!: Int32Array; slot!: Int32Array;
+  health!: Uint8Array; mood!: Uint8Array; condition!: Uint8Array;
+  anxiety!: Uint8Array; greed!: Uint8Array; kin!: Uint8Array; diligence!: Uint8Array;
+  habit!: Uint8Array; habitLeft!: Uint16Array; wdDays!: Uint16Array; outUntil!: Int32Array;
+  brokeStep!: Uint8Array; stressRun!: Uint16Array; mem!: Uint32Array; memN!: Uint32Array;
+  anxDone!: Uint8Array; wealthMark!: Float64Array; incMark!: Float64Array;
   families: string[] = [];
 
   constructor(capacity: number) {
@@ -67,6 +77,14 @@ export class People {
     this.employer[i] = -1; this.staffPos[i] = -1; this.spouse[i] = -1; this.parent[i] = -1;
     this.firstKid[i] = -1; this.nextSib[i] = -1; this.nkids[i] = 0; this.flags[i] = ALIVE;
     this.incEma[i] = 0; this.incWeek[i] = 0; this.jobless[i] = 0; this.broke[i] = 0; this.stress[i] = 0; this.fearUntil[i] = -1; this.lastEv[i] = -1;
+    this.health[i] = 84; this.mood[i] = 67; this.condition[i] = 0;
+    this.anxiety[i] = 0;
+    this.greed[i] = Math.max(0, Math.min(100, Math.round((this.cY[i] - 0.86) / 0.13 * 100)));
+    this.kin[i] = (this.given[i] * 17 + this.family[i]) % 101;
+    this.diligence[i] = this.resil[i];
+    this.habit[i] = 0; this.habitLeft[i] = 0; this.wdDays[i] = 0; this.outUntil[i] = 0;
+    this.brokeStep[i] = 0; this.stressRun[i] = 0; this.mem[i] = 0; this.memN[i] = 0; this.anxDone[i] = 0;
+    this.wealthMark[i] = 0; this.incMark[i] = 0;
     this.slot[i] = w.ledger.addActor('p_' + i, 'person');
     if (mother >= 0) this.linkChild(mother, father, i);
     return i;
@@ -92,14 +110,45 @@ export class People {
   adult(w: World, i: number): boolean { return this.flags[i] === ALIVE && this.born[i] <= w.day - ADULT_AGE * DAYS_PER_YEAR; }
 }
 
-/** A thought lands on a person. The resilience trait dampens it. Enough stress causes a breakdown: months of fearful saving. */
+/** Psyche registers this. It chooses the breakdown, the habit and the memory. Absent, the old fearful-saving breakdown remains. */
+export type ThoughtHook = (w: World, s: EconState, i: number, raw: number, what: string, cause: number) => void;
+let thoughtHook: ThoughtHook | undefined;
+export function setThoughtHook(fn: ThoughtHook): void { thoughtHook = fn; }
+
+let simDay = 0;
+let effScaled = false;
+const firmScale: number[] = [];
+export function setSimDay(d: number): void { simDay = d; }
+export function setEffScaled(v: boolean): void { effScaled = v; }
+export function setFirmScale(idx: number, scale: number): void { firmScale[idx] = scale; }
+export function firmScaleOf(idx: number): number { return firmScale[idx] || 1; }
+function appliedScale(idx: number): number { return effScaled ? firmScaleOf(idx) : 1; }
+
+/** Skill currently inside f.eff: nothing while withdrawn, 70% while health is under 30. */
+export function labourOf(P: People, i: number, day: number): number {
+  if (P.outUntil[i] > day) return 0;
+  const sk = P.skill[i];
+  return P.health[i] < 30 ? sk * 0.7 : sk;
+}
+
+/** Move one person's contribution by the change in labourOf, in whatever units f.eff is using right now. */
+export function retargetLabour(s: EconState, i: number, before: number, after: number): void {
+  const e = s.P.employer[i];
+  if (e < 0 || before === after) return;
+  s.firms[e].eff += (after - before) * appliedScale(e);
+}
+
+/** A thought lands on a person. The resilience trait dampens it. A positive raw is a bad thought; a negative raw is a good one (a raise, a wedding). */
 export function thought(w: World, s: EconState, i: number, raw: number, what: string, cause: number): void {
   const P = s.P, r = P.resil[i];
   const v = r >= 100 ? 0 : r >= 67 ? Math.floor(raw / 10) : r >= 33 ? Math.floor(raw / 2) : raw;
-  P.stress[i] += v;
+  P.stress[i] = Math.max(0, P.stress[i] + v);
+  if (v >= 0) P.mood[i] = Math.max(0, P.mood[i] - Math.min(6, 1 + (v >> 4)));
+  else P.mood[i] = Math.min(100, P.mood[i] + Math.min(8, 1 + ((-v) >> 3)));
+  setSimDay(w.day);
+  if (thoughtHook) { thoughtHook(w, s, i, raw, what, cause); return; }
   if (P.stress[i] >= BREAKDOWN_AT && w.day >= P.fearUntil[i]) {
     P.fearUntil[i] = w.day + 180; P.stress[i] = BREAKDOWN_AT / 2; s.breakdowns++;
-    // Only one in 25 is written to the log; the count is in the stats.
     if (s.breakdowns % 25 === 1) P.lastEv[i] = w.events.emit('person.breakdown', `${P.name(i)} (${P.age(w, i)}) broke down: ${what}. Cuts spending for six months`, [P.lastEv[i] >= 0 ? P.lastEv[i] : cause], P.id(i));
   }
 }
@@ -109,14 +158,64 @@ export function leaveJob(s: EconState, i: number): void {
   if (e < 0) return;
   const f = s.firms[e], k = P.staffPos[i], last = f.staff.length - 1;
   if (k !== last) { const moved = f.staff[last]; f.staff[k] = moved; P.staffPos[moved] = k; } // swap-remove: O(1)
-  f.staff.pop(); f.eff -= P.skill[i]; f.workers = f.staff.length;
+  f.staff.pop(); f.eff -= labourOf(P, i, simDay) * appliedScale(e); f.workers = f.staff.length;
   P.employer[i] = -1; P.staffPos[i] = -1;
 }
 export function joinFirm(s: EconState, i: number, f: Firm): void {
   const P = s.P;
   leaveJob(s, i);
   P.employer[i] = f.idx; P.staffPos[i] = f.staff.length; P.jobless[i] = 0;
-  f.staff.push(i); f.eff += P.skill[i]; f.workers = f.staff.length;
+  f.staff.push(i); f.eff += labourOf(P, i, simDay) * appliedScale(f.idx); f.workers = f.staff.length;
+}
+
+const DEG = 16;
+interface SocBonds { contact: Int32Array; respect: Uint8Array; friend: Uint8Array }
+
+function bonds(w: World): SocBonds | undefined {
+  const st = w.state.social as SocBonds | undefined;
+  if (!st?.contact || !st.respect || !st.friend) return undefined;
+  return st;
+}
+
+function regard(st: SocBonds, from: number, who: number, which: 'respect' | 'friend'): number {
+  const b = from * DEG, contact = st.contact;
+  for (let k = 0; k < DEG; k++) if (contact[b + k] === who) return which === 'respect' ? st.respect[b + k] : st.friend[b + k];
+  return 0;
+}
+
+/** Skill plus a small staff-respect weight. Samples coworkers so a large firm does not scan everyone. */
+function staffScore(w: World, f: Firm, person: number): number {
+  const P = (w.state.economy as EconState).P;
+  const st = bonds(w);
+  let extra = 0;
+  if (st) {
+    const staff = f.staff;
+    const step = Math.max(1, Math.floor(staff.length / 16));
+    let n = 0, sum = 0;
+    for (let i = 0; i < staff.length && n < 16; i += step) {
+      if (staff[i] === person) continue;
+      sum += regard(st, staff[i], person, 'respect');
+      n++;
+    }
+    if (n) extra = sum / n / 250;
+  }
+  return P.skill[person] + extra;
+}
+
+/** A single contact with high friendship, ahead of the next person by age. -1 if nobody qualifies. */
+function preferredSpouse(w: World, P: People, i: number, taken: Uint8Array): number {
+  const st = bonds(w);
+  if (!st) return -1;
+  const b = i * DEG;
+  let best = -1, score = 49;
+  for (let k = 0; k < DEG; k++) {
+    const c = st.contact[b + k];
+    if (c < 0 || taken[c] || P.spouse[c] >= 0 || !P.alive(c)) continue;
+    if (P.family[c] === P.family[i] || P.parent[c] === i || P.parent[i] === c) continue;
+    const fr = st.friend[b + k];
+    if (fr > score) { score = fr; best = c; }
+  }
+  return best;
 }
 
 /** Fill a vacant chief executive seat. Family firms search the old chief's descendants first. */
@@ -124,6 +223,8 @@ export function succession(w: World, s: EconState, f: Firm, old: number, why: st
   const P = s.P;
   let pick = -1, how = 'promoted from the staff';
   const best = (xs: number[]): number => xs.reduce((a, b) => (a < 0 || P.skill[b] > P.skill[a] ? b : a), -1);
+  // No heir: skill, plus a small weight for how much the staff respects the candidate.
+  const bestStaff = (xs: number[]): number => xs.reduce((a, b) => (a < 0 || staffScore(w, f, b) > staffScore(w, f, a) ? b : a), -1);
   if (f.family && old >= 0) {
     let gen = P.kids(old);
     for (let depth = 0; depth < 3 && gen.length && pick < 0; depth++) {
@@ -134,7 +235,7 @@ export function succession(w: World, s: EconState, f: Firm, old: number, why: st
     const sp = P.spouse[old];
     if (pick < 0 && sp >= 0 && P.adult(w, sp)) { pick = sp; how = `spouse of ${P.name(old)}`; }
   }
-  if (pick < 0) pick = best(f.staff.filter((x) => x !== old && P.adult(w, x)));
+  if (pick < 0) pick = bestStaff(f.staff.filter((x) => x !== old && P.adult(w, x)));
   if (pick < 0) { f.ceo = -1; return; }
   const from = P.employer[pick] >= 0 && P.employer[pick] !== f.idx ? s.firms[P.employer[pick]] : undefined;
   const wasCeoThere = from !== undefined && from.ceo === pick;
@@ -182,7 +283,9 @@ export function yearlyLifePass(w: World, s: EconState): void {
   for (let i = 0; i < n0; i++) {
     if (!P.alive(i)) continue;
     const a = P.age(w, i);
-    if (r.chance(Math.min(0.9, 0.0004 * Math.exp(Math.max(0, a - 30) / 9.5)))) { die(w, s, i, yearEv); deaths++; continue; }
+    let pDeath = Math.min(0.9, 0.0004 * Math.exp(Math.max(0, a - 30) / 9.5));
+    if (P.health[i] < 30) pDeath = Math.min(0.9, pDeath + 0.02);
+    if (r.chance(pDeath)) { die(w, s, i, yearEv); deaths++; continue; }
     if (a >= RETIRE_AGE && !P.retired(i)) {
       const e = P.employer[i], f = e >= 0 ? s.firms[e] : undefined, wasCeo = f?.ceo === i;
       P.flags[i] |= RETIRED; leaveJob(s, i);
@@ -191,10 +294,23 @@ export function yearlyLifePass(w: World, s: EconState): void {
     if (P.spouse[i] < 0 && a >= 20 && a <= 50 && r.chance(1 / 3)) single.push(i);
   }
   single.sort((a, b) => P.born[a] - P.born[b] || a - b);
-  for (let k = 0; k + 1 < single.length; k += 2) {
-    const a = single[k], b = single[k + 1];
+  const taken = new Uint8Array(n0);
+  for (const i of single) {
+    if (taken[i]) continue;
+    const j = preferredSpouse(w, P, i, taken);
+    if (j < 0) continue;
+    P.spouse[i] = j; P.spouse[j] = i; taken[i] = 1; taken[j] = 1; pairs++;
+    thought(w, s, i, -80, 'a wedding', yearEv);
+    thought(w, s, j, -80, 'a wedding', yearEv);
+  }
+  const rest: number[] = [];
+  for (const i of single) if (!taken[i]) rest.push(i);
+  for (let k = 0; k + 1 < rest.length; k += 2) {
+    const a = rest[k], b = rest[k + 1];
     if (P.family[a] === P.family[b] || P.parent[a] === b || P.parent[b] === a) continue;
     P.spouse[a] = b; P.spouse[b] = a; pairs++;
+    thought(w, s, a, -80, 'a wedding', yearEv);
+    thought(w, s, b, -80, 'a wedding', yearEv);
   }
   for (let i = 0; i < n0; i++) {
     const q = P.spouse[i];
@@ -202,6 +318,8 @@ export function yearlyLifePass(w: World, s: EconState): void {
     const young = Math.min(P.age(w, i), P.age(w, q));
     if (young < 20 || young > 42 || P.nkids[i] >= 4 || !r.chance(0.13)) continue;
     P.add(w, w.day, i, q); births++;
+    thought(w, s, i, -60, 'a birth', yearEv);
+    thought(w, s, q, -60, 'a birth', yearEv);
   }
   let lf = 0, living = 0;
   for (let i = 0; i < P.n; i++) { if (P.adult(w, i)) lf++; if (P.alive(i)) living++; }
@@ -210,6 +328,10 @@ export function yearlyLifePass(w: World, s: EconState): void {
   const rich: number[] = [];
   for (let i = 0; i < P.n; i++) if (P.alive(i)) rich.push(i);
   rich.sort((a, b) => L.balS(P.slot[b], DEP) - L.balS(P.slot[a], DEP) || a - b);
-  s.investors = rich.slice(0, 300).map((p, k) => ({ id: P.id(p), target: 0.6 - 0.3 * k / 300 }));
+  s.investors = rich.slice(0, 300).map((p, k) => {
+    const base = 0.6 - 0.3 * k / 300;
+    // Same formula as psyche.stockTargetOf: a crash raises anxiety and the person holds fewer shares for life.
+    return { id: P.id(p), target: base * (1 - 0.45 * P.anxiety[p] / 100) };
+  });
   w.events.emit('life.tally', `${deaths} deaths, ${births} births, ${pairs} marriages; ${living} people alive`, [yearEv]);
 }
