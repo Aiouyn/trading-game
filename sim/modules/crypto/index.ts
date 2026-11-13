@@ -513,6 +513,52 @@ function capitalise(w: World, id: string, slice: number, cause: number): void {
   }
 }
 
+/** Rest a major-coin order, or trade a memecoin against its pool. `qty` is coins for a major and, for a meme, coins to sell or cents to spend. */
+export function orderCoin(w: World, actor: string, coin: string, side: 'buy' | 'sell', qty: number, limit?: number): { orderId?: number; fill?: number; why?: string } {
+  if (!w.ledger.actors.has(actor)) return { why: `unknown actor ${actor}` };
+  if (!Number.isSafeInteger(qty) || qty < 1) return { why: 'qty must be a positive integer' };
+  const st = book(w);
+  const key = coin.toLowerCase();
+  const major = st.majors.find((m) => m.id.toLowerCase() === key || m.name.toLowerCase() === key || m.id.toLowerCase() === 'coin:' + key);
+  if (major) {
+    const px = limit && limit > 0 ? Math.round(limit) : major.last;
+    const before = st.nextId;
+    place(w, actor, major.id, side, qty, px);
+    if (st.nextId === before) return { why: 'order rejected' };
+    return { orderId: before };
+  }
+  const meme = st.memes.find((m) => m.id.toLowerCase() === key || m.name.toLowerCase() === key || m.id.toLowerCase() === 'coin:' + key);
+  if (!meme || !meme.live || meme.rugged) return { why: `no coin ${coin}` };
+  if (!actor.startsWith('p_')) return { why: 'a memecoin trades from a person' };
+  const i = +actor.slice(2);
+  if (side === 'buy') {
+    const ok = buyMeme(w, meme, i, qty, meme.launchEv);
+    return ok ? { fill: qty } : { why: 'the pool did not take that buy' };
+  }
+  const got = sellMeme(w, meme, i, qty, meme.launchEv);
+  return got > 0 ? { fill: got } : { why: 'the pool did not take that sale' };
+}
+
+/** Same gates as an NPC creator: spare cash, eight contacts, the nerve, and room on the exchange. */
+export function launchCoin(w: World, person: number): { id?: string; name?: string; why?: string } {
+  const st = book(w), P = econ(w).P;
+  if (person < 0 || person >= P.n || !P.alive(person)) return { why: 'dead' };
+  let live = 0;
+  for (const m of st.memes) if (m.live) live++;
+  if (live >= 6) return { why: 'six memecoins are already live' };
+  if (w.day < 90) return { why: 'the exchange has not been open long enough' };
+  if (w.day < P.fearUntil[person]) return { why: 'too shaken to launch a coin' };
+  if (P.resil[person] < 55) return { why: 'not the temperament to launch a coin' };
+  if (contactsOf(w, person).length < 8) return { why: 'a launch needs eight contacts to tell' };
+  const surplus = cashOf(w, P.id(person)) - P.incEma[person] * 90;
+  if (surplus < FEE + SEED) return { why: 'needs spare cash for the fee and the seed' };
+  const n0 = st.memes.length;
+  launch(w, person);
+  if (st.memes.length === n0) return { why: 'the launch did not clear' };
+  const m = st.memes[st.memes.length - 1];
+  return { id: m.id, name: m.name };
+}
+
 export const crypto: Module = {
   id: 'crypto',
 

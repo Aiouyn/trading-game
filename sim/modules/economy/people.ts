@@ -107,7 +107,7 @@ export class People {
   retired(i: number): boolean { return (this.flags[i] & RETIRED) !== 0; }
   age(w: World, i: number): number { return Math.floor((w.day - this.born[i]) / DAYS_PER_YEAR); }
   /** Alive, not retired, 18 or over: in the labour force. */
-  adult(w: World, i: number): boolean { return this.flags[i] === ALIVE && this.born[i] <= w.day - ADULT_AGE * DAYS_PER_YEAR; }
+  adult(w: World, i: number): boolean { return (this.flags[i] & ALIVE) !== 0 && (this.flags[i] & RETIRED) === 0 && this.born[i] <= w.day - ADULT_AGE * DAYS_PER_YEAR; }
 }
 
 /** Psyche registers this. It chooses the breakdown, the habit and the memory. Absent, the old fearful-saving breakdown remains. */

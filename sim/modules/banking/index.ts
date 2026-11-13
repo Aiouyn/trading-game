@@ -260,7 +260,7 @@ function openPersonal(w: World, s: EconState, i: number, kind: number, cents: nu
   b.lnMiss[k] = 0; b.lnOpen[k] = 1; b.lnOpened[k] = w.day; b.lnTerm[k] = kind === MTG ? MTG_TERM : CON_TERM;
   addOwed(b, i, pick.take);
   if (kind === MTG) { growPeople(b, i + 1); b.mtg[i] = 1; }
-  const what = kind === MTG ? 'mortgage' : 'consumer loan';
+  const what = kind === MTG ? 'mortgage' : kind === 3 ? 'margin loan' : 'consumer loan';
   w.events.emit('loan.grant', `${P.name(i)} takes a ${what} of ${(pick.take / 100).toFixed(0)} from ${bank.id} at ${(pick.rate * 100).toFixed(1)}%`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv]), P.id(i));
   return pick.take;
 }
@@ -759,6 +759,65 @@ function capitalise(w: World, s: EconState, id: string, payers: { i: number; cen
     if (sh > 0) L.issue(eq, s.P.id(p.i), sh, 'genesis.equity', w.genesis);
   });
   return { id, slot, depo, failed: false, ranDay: -999, runEv: -1 };
+}
+
+/** Move sight deposits into a time deposit at the main bank. Returns cents placed. */
+export function depositSight(w: World, holder: string, cents: number, cause: number): number {
+  const bank = book(w).banks.find((b) => b.id === BANK);
+  if (!bank || bank.failed) return 0;
+  const a = Math.min(Math.round(cents), Math.floor(w.ledger.balance(holder, DEP)));
+  return a > 0 && depositAt(w, bank, holder, a, cause) ? a : 0;
+}
+
+/** Turn a time deposit back into spendable cash. Returns cents paid out. */
+export function withdrawSight(w: World, holder: string, cents: number, cause: number): number {
+  const bank = book(w).banks.find((b) => b.id === BANK);
+  if (!bank) return 0;
+  return withdraw(w, bank, holder, cents, cause);
+}
+
+/** A margin loan against listed shares, at the bank's quoted rate. Kind 3 is serviced with the other personal loans. */
+export function borrowMargin(w: World, person: number, cents: number, cause: number): { taken: number; rate: number; why?: string } {
+  const s = econ(w), P = s.P;
+  if (person < 0 || person >= P.n || !P.alive(person)) return { taken: 0, rate: 0, why: 'the borrower is dead' };
+  const id = P.id(person);
+  let col = 0;
+  const stocks = (w.state.markets as { stocks?: { instr: string; last: number }[] } | undefined)?.stocks ?? [];
+  for (const st of stocks) col += Math.floor(w.ledger.balance(id, st.instr) * st.last);
+  const ask = Math.min(Math.round(cents), Math.floor(col * 0.5));
+  if (ask < 1) return { taken: 0, rate: 0, why: 'the bank lends up to half the market value of shares pledged' };
+  const q = quote(w, s, personSpread(w, s, person), ask);
+  if (!q) return { taken: 0, rate: 0, why: 'the bank refused the loan' };
+  const slot = book(w).ln;
+  const taken = openPersonal(w, s, person, 3, ask, cause);
+  if (taken <= 0) return { taken: 0, rate: 0, why: 'the bank refused the loan' };
+  return { taken, rate: book(w).lnRate[slot] || q.rate };
+}
+
+/** Repay personal loans, margin loans first. Returns cents of principal repaid. */
+export function repayPerson(w: World, person: number, cents: number, cause: number): number {
+  const b = book(w), s = econ(w), P = s.P;
+  let left = Math.round(cents), paid = 0;
+  const order: number[] = [];
+  for (let k = 0; k < b.ln; k++) if (b.lnOpen[k] && b.lnPerson[k] === person && b.lnKind[k] === 3) order.push(k);
+  for (let k = 0; k < b.ln; k++) if (b.lnOpen[k] && b.lnPerson[k] === person && b.lnKind[k] !== 3) order.push(k);
+  for (const k of order) {
+    if (left <= 0) break;
+    const bank = b.banks[b.lnBank[k]];
+    if (!bank) continue;
+    const instr = plInstr(k);
+    const got = repayHolder(w, bank, instr, P.id(person), left, cause);
+    if (got <= 0) continue;
+    addOwed(b, person, -got);
+    left -= got;
+    paid += got;
+    const dust = Math.floor(w.ledger.issued.get(instr) ?? 0);
+    if (dust <= 1) {
+      if (dust > 0) { writeoffLoan(w, instr, cause); addOwed(b, person, -dust); }
+      closePersonal(w, s, b, k, person);
+    }
+  }
+  return paid;
 }
 
 export const banking: Module = {

@@ -195,6 +195,20 @@ export function discountForNews(w: World, issuer: string, cause: number): void {
   w.events.emit('mkt.news', `${st.instr} earnings marked down after the news`, [cause], issuer);
 }
 
+/** Lend shares from the market maker so a margin account can sell short. The caller owes them back. */
+export function borrowShares(w: World, actor: string, instr: string, qty: number, cause: number): number {
+  const from = 'fund_mm';
+  const q = Math.min(qty, Math.floor(w.ledger.balance(from, instr)));
+  if (q < 1 || !w.ledger.actors.has(actor)) return 0;
+  return w.ledger.move(instr, from, actor, q, 'mkt.borrow', cause) ? q : 0;
+}
+
+export function returnShares(w: World, actor: string, instr: string, qty: number, cause: number): number {
+  const q = Math.min(qty, Math.floor(w.ledger.balance(actor, instr)));
+  if (q < 1) return 0;
+  return w.ledger.move(instr, actor, 'fund_mm', q, 'mkt.borrow', cause) ? q : 0;
+}
+
 function bidRank(o: Order): number { return o.limit === null ? Number.POSITIVE_INFINITY : o.limit; }
 function askRank(o: Order): number { return o.limit === null ? 0 : o.limit; }
 

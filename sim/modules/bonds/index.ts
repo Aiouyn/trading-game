@@ -5,7 +5,7 @@
 import { type Module, type World } from '../../kernel/index.ts';
 import { BANK, BOND, CB, DEP, GOV, pay, type EconState } from '../economy/index.ts';
 
-const LOT = 16_000; // one bond, in cents of face. Par price is LOT. Coupons land on whole cents.
+export const LOT = 16_000; // one bond, in cents of face. Par price is LOT. Coupons land on whole cents.
 const RESV = 'resv';
 const LAM = 0.2; // policy expectations converge slowly, so long yields stay near the current rate
 const TP = 0.0018; // term premium: about 180bp on a 10-year at a normal debt load

@@ -861,6 +861,91 @@ export function reportCase(w: World, person: number, eventId: number, msg: strin
   publish(w, fact);
 }
 
+export interface SharedFact { factId: number; eventId: number; msg: string; from: number; day: number }
+
+/** Coworkers first, then family, until `want` slots are filled. Returns how many contacts they have. */
+export function seatPerson(w: World, person: number, want: number): number {
+  const st = soc(w), s = econ(w), P = s.P;
+  ensure(st, P.n);
+  const e = P.employer[person];
+  const staff = e >= 0 ? s.firms[e].staff : [];
+  for (let i = 0; i < staff.length && contactCount(st, person) < 8; i++) {
+    if (staff[i] !== person) link(st, person, staff[i], FAM_WORK, TR_WORK, KIND_WORK);
+  }
+  tiePerson(st, w, person);
+  for (let i = 0; i < staff.length && contactCount(st, person) < want; i++) {
+    if (staff[i] !== person) link(st, person, staff[i], FAM_WORK, TR_WORK, KIND_WORK);
+  }
+  st.emp[person] = e;
+  indexPeople(st, w);
+  return contactCount(st, person);
+}
+
+function contactCount(st: Social, i: number): number {
+  let n = 0;
+  const b = i * DEG;
+  for (let k = 0; k < DEG; k++) if (st.contact[b + k] >= 0) n++;
+  return n;
+}
+
+export function contactsOf(w: World, person: number): { slot: number; who: number; trust: number; kind: number }[] {
+  const st = w.state.social as Social | undefined;
+  if (!st || person < 0) return [];
+  const out: { slot: number; who: number; trust: number; kind: number }[] = [];
+  const b = person * DEG;
+  for (let k = 0; k < DEG; k++) {
+    const who = st.contact[b + k];
+    if (who >= 0) out.push({ slot: k, who, trust: st.trust[b + k], kind: st.kind[b + k] });
+  }
+  return out;
+}
+
+/** One conversation: familiarity moves the way it does for anyone else, and each side may pass a rumour. */
+export function talk(w: World, person: number, slot: number): { who: number; why?: string } {
+  const st = soc(w), P = econ(w).P;
+  if (slot < 0 || slot >= DEG) return { who: -1, why: 'contacts are numbered from 0' };
+  const who = st.contact[person * DEG + slot];
+  if (who < 0 || who >= P.n || !P.alive(who)) return { who: -1, why: 'nobody in that contact slot' };
+  bumpPair(w, st, person, who, slot);
+  const trust = st.trust[person * DEG + slot];
+  if (st.head[person] >= 0) gossip(w, st, person, who, trust, 1);
+  if (st.head[who] >= 0) gossip(w, st, who, person, trust, 2);
+  return { who };
+}
+
+/** A contact shares private facts they know about a firm, when trust clears the bar. */
+export function askFirm(w: World, person: number, slot: number, firmKey: string): { facts: SharedFact[]; why?: string } {
+  const st = soc(w), P = econ(w).P, s = econ(w);
+  if (slot < 0 || slot >= DEG) return { facts: [], why: 'contacts are numbered from 0' };
+  const who = st.contact[person * DEG + slot];
+  if (who < 0 || who >= P.n || !P.alive(who)) return { facts: [], why: 'nobody in that contact slot' };
+  const key = firmKey.toLowerCase();
+  const firm = s.firms.find((f) => {
+    const bare = f.id.startsWith('frm_') ? f.id.slice(4) : f.id;
+    return f.id.toLowerCase() === key || bare === key || f.name.toLowerCase() === key;
+  });
+  if (!firm) return { facts: [], why: `no firm ${firmKey}` };
+  const trust = st.trust[person * DEG + slot];
+  const fear = fearOfChief(w, st, who) >> 1;
+  const n = liveIds(st, who);
+  const facts: SharedFact[] = [];
+  let hidden = 0;
+  for (let i = 0; i < n; i++) {
+    const fact = st.facts[scratch[i]];
+    if (!fact || fact.pub || fact.drop) continue;
+    const about = fact.firms.includes(firm.idx) || fact.instrs.includes('eq:' + firm.id);
+    if (!about) continue;
+    const room = fact.tag === 'insider.profit' ? Math.max(0, trust - fear) : trust;
+    if (room < 40) { hidden++; continue; }
+    if (knows(w, person, fact.id)) continue;
+    learn(w, fact, person);
+    if (!knows(w, person, fact.id)) continue;
+    facts.push({ factId: fact.id, eventId: fact.eventId, msg: fact.msg, from: who, day: w.day });
+  }
+  if (!facts.length) return { facts, why: hidden ? 'they do not trust you with that' : 'they know nothing private about that firm' };
+  return { facts };
+}
+
 /** True when this person currently knows this fact. A published fact is known by everyone until it is a year old. */
 export function knows(w: World, personIndex: number, factId: number): boolean {
   const st = w.state.social as Social | undefined;

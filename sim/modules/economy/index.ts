@@ -334,7 +334,7 @@ export const economy: Module = {
     // The day's job seekers, in a rotating order so hiring is spread fairly.
     let pool: number[] = [];
     const adultBorn = w.day - 18 * DAYS_PER_YEAR;
-    for (let k = 0; k < P.n; k++) { const i = (s.hirePtr + k) % P.n; if (P.employer[i] < 0 && P.flags[i] === 1 && P.born[i] <= adultBorn) pool.push(i); }
+    for (let k = 0; k < P.n; k++) { const i = (s.hirePtr + k) % P.n; if (P.employer[i] < 0 && (P.flags[i] & 1) !== 0 && (P.flags[i] & 6) === 0 && P.born[i] <= adultBorn) pool.push(i); }
     pool.reverse(); s.hirePtr = (s.hirePtr + 97) % Math.max(1, P.n);
     // Today's labour force: everyone working plus everyone looking, counted daily so new adults are not missed.
     let employedAtDawn = 0;

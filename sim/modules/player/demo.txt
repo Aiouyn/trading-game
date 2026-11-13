@@ -1,0 +1,9 @@
+talk 0
+talk 8
+ask 0 frm_verdant
+why 987468
+buy BANK 1
+wait 1d
+borrow 50000
+fut long OIL 1 1
+wait 1y

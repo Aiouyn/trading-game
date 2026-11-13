@@ -691,6 +691,37 @@ function capitalise(w: World, s: EconState, id: string, slice: number): void {
   }
 }
 
+/** Open, add to, or flatten a futures position. The market maker takes the other side. Margin is posted in cash. */
+export function tradeFuture(w: World, actor: string, good: string, monthsAhead: number, qty: number, side: 'long' | 'short' | 'flat'): { qty: number; px: number; net: number; why?: string } {
+  const st = bookOf(w);
+  const b = st.books.find((x) => x.good === good);
+  if (!b) return { qty: 0, px: 0, net: 0, why: `no futures listed for ${good}` };
+  if (!w.ledger.actors.has(actor)) return { qty: 0, px: 0, net: 0, why: 'unknown actor' };
+  if (monthsAhead < 0 || monthsAhead >= MONTHS) return { qty: 0, px: 0, net: 0, why: 'that delivery month is not listed' };
+  const t = b.tenors.find((x) => x.month === w.month + monthsAhead);
+  if (!t) return { qty: 0, px: 0, net: 0, why: 'that delivery month is not listed' };
+  const cur = Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
+  let delta = side === 'flat' ? -cur : side === 'long' ? qty : -qty;
+  if (!Number.isSafeInteger(qty) || (side !== 'flat' && qty < 1)) return { qty: 0, px: t.px, net: cur, why: 'qty must be a positive number of contracts' };
+  if (delta === 0) return { qty: 0, px: t.px, net: cur, why: side === 'flat' ? 'no position in that month' : 'nothing to trade' };
+  if (!st.roster.includes(actor)) st.roster.push(actor);
+  const cause = st.root;
+  applyDelta(w, actor, t, delta, cause);
+  applyDelta(w, MM, t, -delta, cause);
+  const net = Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
+  const need = Math.round(Math.abs(net) * t.px * b.lot * IM);
+  const have = marginOf(w, actor);
+  if (need > have) {
+    if (!postMargin(w, actor, need - have, cause)) {
+      applyDelta(w, actor, t, -delta, cause);
+      applyDelta(w, MM, t, delta, cause);
+      return { qty: 0, px: t.px, net: cur, why: 'not enough cash to post margin' };
+    }
+  } else if (have > need) releaseMargin(w, actor, have - need, cause);
+  assertBook(w, t);
+  return { qty: Math.abs(delta), px: t.px, net };
+}
+
 export const commodities: Module = {
   id: 'commodities',
 
