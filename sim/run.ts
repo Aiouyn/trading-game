@@ -3,6 +3,7 @@
 import { DAYS_PER_YEAR, World } from './kernel/index.ts';
 import { economy } from './modules/economy/index.ts';
 import { abroad } from './modules/abroad/index.ts';
+import { port } from './modules/port/index.ts';
 import { banking } from './modules/banking/index.ts';
 import { corporate } from './modules/corporate/index.ts';
 import { property } from './modules/property/index.ts';
@@ -33,6 +34,7 @@ const arg = (k: string, d: string): string => { const i = process.argv.indexOf('
 export function useModules(w: World, without: Set<string>): void {
   w.use(economy);
   if (!without.has('abroad')) w.use(abroad);
+  if (!without.has('port')) w.use(port);
   if (!without.has('banking')) w.use(banking);
   if (!without.has('corporate')) w.use(corporate);
   if (!without.has('property')) w.use(property);

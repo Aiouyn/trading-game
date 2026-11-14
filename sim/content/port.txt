@@ -1,0 +1,51 @@
+The harbour. Ships, berths and the time a cargo spends at sea live here.
+A route names its owner (a freight firm), how many days it sails, and which goods it carries.
+BERTHS and CRANES are how many ships can unload at once. HANDS is the dock crew one berth needs.
+BUFFER_DAYS is the warehouse, in days of ordinary imports. STORM_DAYS is how long a harbour storm
+keeps ships outside. STRIKE_DAYS is how long a dock strike closes the port, and how many days it
+adds to a voyage while the slowdown lasts. Two spare berths let a backlog clear after a closure.
+COVER is the share of an import order released while the port is shut. ADVALOREM is the opening
+freight rate as a fraction of cargo value. TARIFF is the customs duty before politics scales it.
+
+[OBJECT:PORT]
+
+[PORT:AVALON]
+  [NAME:Port Avalon]
+  [BERTHS:6]
+  [CRANES:6]
+  [HANDS:8]
+  [BUFFER_DAYS:18]
+  [STORM_DAYS:5]
+  [STRIKE_DAYS:3]
+  [COVER:1]
+  [ADVALOREM:0.002]
+  [TARIFF:0.006]
+
+[OBJECT:ROUTE]
+
+[ROUTE:NORTH]
+  [NAME:the northern crossing]
+  [DAYS:14]
+  [OWNER:HARBOURLINE]
+  [SHIPS:14]
+  [PREFIX:North]
+  [GOOD:CRUDE_OIL]
+  [GOOD:FUEL]
+  [GOOD:IRON_ORE]
+  [GOOD:STEEL]
+  [GOOD:GRAIN]
+  [GOOD:CHEMICALS]
+
+[ROUTE:OCEAN]
+  [NAME:the ocean run]
+  [DAYS:18]
+  [OWNER:ROADMARK]
+  [SHIPS:18]
+  [PREFIX:Ocean]
+  [GOOD:COPPER]
+  [GOOD:ALUMINIUM]
+  [GOOD:MACHINERY]
+  [GOOD:APPAREL]
+  [GOOD:FURNITURE]
+  [GOOD:VEHICLES]
+  [GOOD:ELECTRONICS]

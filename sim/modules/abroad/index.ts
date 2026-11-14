@@ -184,11 +184,25 @@ function fundBuyer(w: World, cents: number, cause: number): void {
   if (!(bid > 0)) return;
   sellUsd(w, WORLD, Math.ceil((need - have) / bid), cause, 'fx.export');
 }
+export interface ShipGate {
+  takeExport(w: World, holder: string, cents: number, cause: number): void;
+  landImport(w: World, buyer: string, good: string, qty: number, homePx: number, cause: number): number;
+}
+let shipGate: ShipGate | undefined;
+/** The port module registers this. Absent, goods change hands the day they are ordered. */
+export function setShipGate(g: ShipGate): void { shipGate = g; }
+export function foreignTrade(w: World): { good: string; flow: 'import' | 'export'; share: number }[] {
+  const out: { good: string; flow: 'import' | 'export'; share: number }[] = [];
+  for (const [good, t] of Object.entries(book(w).traded)) out.push({ good, flow: t.flow, share: t.share });
+  return out;
+}
+
 function noteExport(w: World, cents: number): void {
   const a = Math.round(cents);
   if (a <= 0) return;
   const st = book(w);
   st.mExp += a; st.yExp += a;
+  if (shipGate && w.state.port) shipGate.takeExport(w, WORLD, a, st.tradeEv);
 }
 function landed(w: World, good: string, dom: number): number {
   const st = book(w), spec = st.traded[good];
@@ -207,6 +221,11 @@ function importFill(w: World, buyer: string, good: string, qty: number, dom: num
   const got = buyUsd(w, buyer, WORLD, usd, cause, 'fx.import');
   if (got.usd < 1) return { got: 0, spent: 0 };
   const q = got.usd / fxPx;
+  if (shipGate && w.state.port) {
+    const arrive = shipGate.landImport(w, buyer, good, q, homePx, cause);
+    st.mImp += got.home; st.yImp += got.home;
+    return { got: arrive, spent: got.home };
+  }
   const gid = 'good:' + good;
   w.ledger.produce(gid, WORLD, q, 'trade.import', cause);
   w.ledger.move(gid, WORLD, buyer, q, 'trade.import', cause);
