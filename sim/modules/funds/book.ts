@@ -10,6 +10,7 @@ export interface Ticket { id: number; day: number }
 export interface Borrow {
   instr: string; issuer: string; qty: number; entry: number; sold: number;
   report: number; deny: number; cover: number; squeeze: number; since: number; wrong: number;
+  goal: number; lender: string; located: number; fromMm: number; speak: number;
 }
 export interface Camp {
   issuer: string; instr: string; firm: number; demand: Demand;
@@ -21,10 +22,11 @@ export interface Fund {
   down: number; year0: number; nav: number; peak: number; yBps: number;
   wind: number; cool: number; need: number; pushed: number; flowEv: number;
   orders: Ticket[]; force: Ticket[]; borrowed: Borrow[];
-  camp: Camp | null; pend: Pend | null; note: string; lever: number;
+  camp: Camp | null; pend: Pend | null; note: string; lever: number; trail: number[];
 }
 export interface FundsState {
-  funds: Fund[]; root: number; yCamp: number; yBlow: number; yRep: number; shortHi: number; reported: string[];
+  funds: Fund[]; root: number; yCamp: number; yBlow: number; yRep: number; ySqueeze: number;
+  shortSum: number; shortN: number; reps: { day: number; wrong: number }[];
 }
 
 export interface Stock {

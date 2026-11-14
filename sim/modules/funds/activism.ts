@@ -3,56 +3,130 @@ import { type World } from '../../kernel/index.ts';
 import { pay } from '../economy/index.ts';
 import { leaveJob, setSimDay, succession } from '../economy/people.ts';
 import {
-  cashOf, dropOrders, econ, firmOf, fundsOf, held, navOf, placeEq, sharesOut, stockByIssuer, stocksOf,
+  cashOf, econ, firmOf, fundsOf, held, sharesOut, stockByIssuer, stockOf, stocksOf,
   whyFirm, withhold, type Demand, type Fund,
 } from './book.ts';
 
-function costOfFive(w: World, instr: string, last: number): number {
-  return last * Math.ceil(sharesOut(w, instr) * 0.05);
+function causeOf(w: World, f: Fund): number {
+  return f.hiredEv >= 0 ? f.hiredEv : fundsOf(w).root;
+}
+
+function roomIn(w: World, instr: string): number {
+  let room = 0;
+  for (const [hid, n] of w.ledger.holders(instr)) {
+    if (!hid.startsWith('p_')) continue;
+    const spare = n - Math.max(20, Math.floor(n * 0.35));
+    if (spare >= 8) room += spare;
+  }
+  return room;
+}
+
+function takeStake(w: World, f: Fund, instr: string, need: number, last: number): boolean {
+  if (need < 1) return false;
+  const px = Math.max(1, Math.round(last * 1.02));
+  if (cashOf(w, f.id) < need * px) return false;
+  const sellers: { id: string; room: number }[] = [];
+  for (const [hid, n] of w.ledger.holders(instr)) {
+    if (!hid.startsWith('p_')) continue;
+    const room = n - Math.max(20, Math.floor(n * 0.35));
+    if (room >= 8) sellers.push({ id: hid, room });
+  }
+  sellers.sort((a, b) => b.room - a.room || (a.id < b.id ? -1 : 1));
+  let room = 0;
+  for (const s of sellers) room += s.room;
+  if (room < need) return false;
+  const cause = causeOf(w, f);
+  const got: { id: string; q: number }[] = [];
+  let left = need;
+  for (const s of sellers) {
+    if (left < 1) break;
+    const q = Math.min(left, s.room);
+    const cost = q * px;
+    if (!pay(w, f.id, s.id, cost, 'fund.stake', cause)) break;
+    if (!w.ledger.move(instr, s.id, f.id, q, 'fund.stake', cause)) {
+      pay(w, s.id, f.id, cost, 'fund.stake', cause);
+      break;
+    }
+    got.push({ id: s.id, q });
+    left -= q;
+  }
+  if (left < 1) return true;
+  for (const g of got) {
+    const cost = g.q * px;
+    if (!pay(w, g.id, f.id, cost, 'fund.stake', cause)) continue;
+    if (!w.ledger.move(instr, f.id, g.id, g.q, 'fund.stake', cause)) pay(w, f.id, g.id, cost, 'fund.stake', cause);
+  }
+  return false;
+}
+
+function returnStake(w: World, f: Fund, instr: string): void {
+  let left = held(w, f.id, instr);
+  if (left < 1) return;
+  const st = stockOf(w, instr);
+  const px = Math.max(1, st?.last ?? 1);
+  const cause = causeOf(w, f);
+  const buyers: { id: string; cash: number }[] = [];
+  for (const [id, n] of w.ledger.holders('dep')) {
+    if (!id.startsWith('p_') || n < px) continue;
+    buyers.push({ id, cash: Math.floor(n) });
+  }
+  buyers.sort((a, b) => b.cash - a.cash || (a.id < b.id ? -1 : 1));
+  for (const b of buyers) {
+    if (left < 1) break;
+    const afford = Math.floor(cashOf(w, b.id) / px);
+    const q = Math.min(left, afford);
+    if (q < 1) continue;
+    const cost = q * px;
+    if (!pay(w, b.id, f.id, cost, 'fund.stake', cause)) continue;
+    if (!w.ledger.move(instr, f.id, b.id, q, 'fund.stake', cause)) {
+      pay(w, f.id, b.id, cost, 'fund.stake', cause);
+      continue;
+    }
+    left -= q;
+  }
 }
 
 export function activism(w: World, f: Fund): void {
   if (f.wind > 0 || w.day < f.cool) return;
-  const camp = f.camp;
-  if (camp && camp.phase >= 1) return;
-  if (!camp) {
-    const nav = Math.max(1, navOf(w, f));
-    let best: { instr: string; issuer: string; firm: number; score: number } | undefined;
-    for (const st of stocksOf(w)) {
-      const firm = firmOf(w, st.issuer);
-      if (!firm || firm.closed || !firm.listed || st.last < 1) continue;
-      const cost = costOfFive(w, st.instr, st.last);
-      if (cost > nav * 0.45) continue;
-      const rich = firm.lastDividend > firm.eff * econ(w).wage * 2 ? 2 : 0;
-      const score = firm.badMonths * 3 + rich + (firm.workers < 40 ? 1 : 0) - cost / nav;
-      if (!best || score > best.score || (score === best.score && st.instr < best.instr)) {
-        best = { instr: st.instr, issuer: st.issuer, firm: firm.idx, score };
-      }
-    }
-    if (!best) return;
-    f.camp = { issuer: best.issuer, instr: best.instr, firm: best.firm, demand: 'dividend', phase: 0, stakeEv: -1, campEv: -1, day: w.day };
+  if (f.camp && f.camp.phase === 0) {
+    const c = f.camp;
+    const st = stockOf(w, c.instr);
+    const need = Math.ceil(sharesOut(w, c.instr) * 0.051);
+    const gap = need - held(w, f.id, c.instr);
+    if (gap < 1) return;
+    if (st && w.day - c.day <= 3 && takeStake(w, f, c.instr, gap, st.last)) return;
+    returnStake(w, f, c.instr);
+    f.camp = null;
+    f.cool = w.day + 10;
+    return;
   }
-  const c = f.camp;
-  if (!c) return;
-  const firm = firmOf(w, c.issuer);
-  const st = stockByIssuer(w, c.issuer);
-  if (!firm || firm.closed || !st) { f.camp = null; return; }
-  const out = sharesOut(w, c.instr);
-  const have = held(w, f.id, c.instr);
-  const target = Math.ceil(out * 0.07);
-  if (have >= target) return;
-  dropOrders(w, f);
-  const gap = target - have;
-  const clip = Math.min(gap, Math.max(20, Math.ceil(out * 0.012)));
-  placeEq(w, f, c.instr, 'buy', clip, 0.014, 'rest');
+  if (f.camp) return;
+  const cash = cashOf(w, f.id);
+  let best: { instr: string; issuer: string; firm: number; gap: number; last: number; score: number } | undefined;
+  for (const st of stocksOf(w)) {
+    const firm = firmOf(w, st.issuer);
+    if (!firm || firm.closed || !firm.listed || st.last < 1) continue;
+    const out = sharesOut(w, st.instr);
+    const need = Math.ceil(out * 0.051);
+    const gap = need - held(w, f.id, st.instr);
+    if (gap < 1) {
+      f.camp = { issuer: st.issuer, instr: st.instr, firm: firm.idx, demand: 'dividend', phase: 0, stakeEv: -1, campEv: -1, day: w.day };
+      return;
+    }
+    if (gap > 1 && (cash < gap * Math.round(st.last * 1.02) || roomIn(w, st.instr) < gap)) continue;
+    const cost = gap * Math.round(st.last * 1.02);
+    if (cost > cash * 0.7 || cost < 1) continue;
+    const score = firm.badMonths * 3 + (firm.lastDividend > 0 ? 2 : 0) - cost / Math.max(1, cash);
+    if (!best || score > best.score || (score === best.score && st.instr < best.instr)) {
+      best = { instr: st.instr, issuer: st.issuer, firm: firm.idx, gap, last: st.last, score };
+    }
+  }
+  if (!best || !takeStake(w, f, best.instr, best.gap, best.last)) return;
+  f.camp = { issuer: best.issuer, instr: best.instr, firm: best.firm, demand: 'dividend', phase: 0, stakeEv: -1, campEv: -1, day: w.day };
 }
 
-function demandOf(w: World, issuer: string): Demand {
-  const f = firmOf(w, issuer);
-  if (!f) return 'sale';
-  if (f.badMonths >= 3 && f.workers <= 70) return 'ceo';
-  if (f.lastDividend > 0 && f.badMonths === 0) return 'dividend';
-  return 'sale';
+function demandOf(_w: World, _issuer: string): Demand {
+  return 'dividend';
 }
 
 function board(w: World, issuer: string, holders: [string, number][]): Set<string> {
@@ -119,15 +193,13 @@ export function settleCampaigns(w: World, f: Fund): void {
     ? `holders of ${firm.name} vote for ${word}, ${pct}% in favour`
     : `the board of ${firm.name} holds ${word}: ${pct}% of the shares were in favour`;
   const vote = w.events.emit('fund.vote', msg, [c.campEv], firm.id);
-  if (!pass) {
-    f.camp = null;
-    f.cool = w.day + 180;
-    return;
+  if (pass) {
+    if (c.demand === 'ceo') replaceChief(w, f, firm.idx, vote);
+    else f.pend = { issuer: c.issuer, kind: c.demand, ev: vote, day: w.day + (c.demand === 'dividend' ? 12 : 1), firm: firm.idx };
   }
-  if (c.demand === 'ceo') replaceChief(w, f, firm.idx, vote);
-  else f.pend = { issuer: c.issuer, kind: c.demand, ev: vote, day: w.day + (c.demand === 'dividend' ? 12 : 1), firm: firm.idx };
+  returnStake(w, f, c.instr);
   f.camp = null;
-  f.cool = w.day + 260;
+  f.cool = w.day + 150;
 }
 
 function replaceChief(w: World, f: Fund, firmIdx: number, cause: number): void {
@@ -156,7 +228,7 @@ function paySpecial(w: World, firmIdx: number, cause: number): void {
   const s = econ(w), firm = s.firms[firmIdx];
   const buf = Math.round(firm.eff * s.wage * 18);
   const spare = Math.floor(cashOf(w, firm.id) - buf);
-  const cents = Math.max(0, Math.min(spare > 0 ? Math.floor(spare * 0.22) : 0, Math.round(firm.eff * s.wage * 8)));
+  const cents = Math.max(0, Math.min(spare > 0 ? Math.floor(spare * 0.12) : 0, Math.round(firm.eff * s.wage * 4)));
   if (cents < 100) {
     w.events.emit('fund.dividend', `${firm.name} agrees a special dividend, but the cash is already spoken for`, [cause], firm.id);
     return;

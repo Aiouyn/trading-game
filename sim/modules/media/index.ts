@@ -27,7 +27,8 @@ interface Resting { actor: string; id: number; until: number }
 interface Book {
   outlets: Outlet[]; totalRead: number; seated: Uint8Array; firmStory: Int32Array;
   stories: Story[]; rumours: Rumour[]; resting: Resting[];
-  yStories: number; yScoops: number; yRetract: number; yRumours: number; root: number;
+  yStories: number; yScoops: number; yRetract: number; yRumours: number;
+  yScoopSe: number; yScoopSn: number; yRetractSe: number; yRetractSn: number; root: number;
 }
 interface FactPeek {
   id: number; eventId: number; tag: string; msg: string; firms: number[]; profit: number;
@@ -126,25 +127,25 @@ function trade(w: World, issuer: string, side: number, trust: number, outlet: nu
   const limit = Math.max(1, Math.round(st.last * (side > 0 ? 1.018 : 0.982)));
   const dir: 'buy' | 'sell' = side > 0 ? 'buy' : 'sell';
   const funds = mkt(w)?.funds ?? [];
-  for (const f of funds) if (f.style === 'value' && trust >= 48) {
-    const qty = Math.min(48, Math.max(8, Math.round(22 * trust / 70 * weight)));
-    place(w, f.id, st.instr, dir, qty, limit, w.day + 2);
+  for (const f of funds) if (f.style === 'value' && trust >= 42) {
+    const qty = Math.min(52, Math.max(8, Math.round(24 * trust / 70 * weight)));
+    place(w, f.id, st.instr, dir, qty, limit, w.day + 3);
     break;
   }
   const step = 89;
   const start = mix(w.day, outlet, issuer.length) % Math.max(1, P.n);
   const lean = b.outlets[outlet]?.leaning ?? 0;
   let n = 0;
-  for (let k = 0; k < P.n && n < 12; k += step) {
+  for (let k = 0; k < P.n && n < 14; k += step) {
     const i = (start + k) % P.n;
     if (!P.adult(w, i) || readerOf(b, i) !== outlet) continue;
     const gap = Math.abs((P.greed[i] - 50) / 50 - lean);
-    const belief = trust / 100 * (1 - 0.15 * gap) * weight;
-    if (belief < 0.28) continue;
+    const belief = Math.max(trust, 42) / 100 * (1 - 0.14 * gap) * weight;
+    if (belief < 0.26) continue;
     let qty = Math.round((4 + P.greed[i] / 28) * belief);
     if (P.anxiety[i] > 68) qty -= 2;
     if (P.diligence[i] > 75) qty = Math.max(1, qty - 1);
-    place(w, P.id(i), st.instr, dir, Math.max(1, Math.min(16, qty)), limit, w.day + 2);
+    place(w, P.id(i), st.instr, dir, Math.max(1, Math.min(16, qty)), limit, w.day + 3);
     n++;
   }
 }
@@ -162,32 +163,33 @@ function factAt(st: SocPeek, id: number): FactPeek | undefined {
   if (!f || f.pub || f.drop || f.tag !== 'insider.profit') return undefined;
   return f;
 }
-function sourcesFor(w: World, journalist: number, st: SocPeek): { fact: FactPeek; firm: number; sources: Source[] } | undefined {
+function gather(w: World, journalists: number[], st: SocPeek): { fact: FactPeek; firm: number; sources: Source[]; edge: number; journalist: number }[] {
   const P = econ(w).P;
-  const contacts = contactsOf(w, journalist);
-  const grouped = new Map<number, { fact: FactPeek; firm: number; sources: Source[] }>();
-  for (const c of contacts) {
-    if (!P.alive(c.who)) continue;
-    const firm = P.employer[c.who];
-    if (firm < 0 || firm >= st.insiderFact.length) continue;
-    const fact = factAt(st, st.insiderFact[firm]);
-    if (!fact || !fact.firms.includes(firm)) continue;
-    if (!knows(w, c.who, fact.id)) continue;
-    let g = grouped.get(fact.id);
-    if (!g) { g = { fact, firm, sources: [] }; grouped.set(fact.id, g); }
-    if (!g.sources.some((s) => s.who === c.who)) g.sources.push({ who: c.who, trust: c.trust, slot: c.slot });
+  const grouped = new Map<number, { fact: FactPeek; firm: number; sources: Source[]; journalist: number }>();
+  for (const journalist of journalists) {
+    if (!P.alive(journalist)) continue;
+    for (const c of contactsOf(w, journalist)) {
+      if (!P.alive(c.who)) continue;
+      const firm = P.employer[c.who];
+      if (firm < 0 || firm >= st.insiderFact.length) continue;
+      const fact = factAt(st, st.insiderFact[firm]);
+      if (!fact || !fact.firms.includes(firm) || !knows(w, c.who, fact.id)) continue;
+      let g = grouped.get(fact.id);
+      if (!g) { g = { fact, firm, sources: [], journalist }; grouped.set(fact.id, g); }
+      if (!g.sources.some((s) => s.who === c.who)) g.sources.push({ who: c.who, trust: c.trust, slot: c.slot });
+    }
   }
-  let best: { fact: FactPeek; firm: number; sources: Source[] } | undefined;
-  let score = 0;
+  const out: { fact: FactPeek; firm: number; sources: Source[]; edge: number; journalist: number }[] = [];
   for (const g of grouped.values()) {
     const f = econ(w).firms[g.firm];
     if (!f || f.closed || !stockOf(w, f.id)) continue;
     const scale = Math.max(econ(w).wage * 30, Math.abs(g.fact.profit), Math.abs(f.lastProfit), 1);
-    const edge = Math.abs(g.fact.profit - f.lastProfit) / scale;
-    const s = edge * (1 + g.sources.length) * (g.sources[0]?.trust ?? 0);
-    if (edge >= 0.05 && s > score) { score = s; best = g; }
+    const edge = (g.fact.profit - f.lastProfit) / scale;
+    if (Math.abs(edge) < 0.06) continue;
+    out.push({ ...g, edge });
   }
-  return best;
+  out.sort((a, b) => Math.abs(b.edge) * b.sources.length - Math.abs(a.edge) * a.sources.length || a.firm - b.firm);
+  return out;
 }
 function learnFrom(w: World, journalist: number, firm: Firm, fact: FactPeek, sources: Source[], need: number): boolean {
   if (knows(w, journalist, fact.id)) return true;
@@ -239,31 +241,31 @@ function consider(w: World): void {
   const b = book(w), s = econ(w), P = s.P;
   growFirms(b, s.firms.length);
   const order = b.outlets.map((_, i) => i).sort((a, c) => Number(b.outlets[c].serious) - Number(b.outlets[a].serious) || b.outlets[c].trust - b.outlets[a].trust || a - c);
-  let printed = 0;
+  let seriousDone = 0, sensDone = 0;
   for (const oi of order) {
-    if (printed >= 2) break;
     const o = b.outlets[oi];
-    if (!o.journalists.length || w.day - o.lastStory < 8) continue;
+    if (!o.journalists.length) continue;
+    if (o.serious) {
+      if (seriousDone || (w.day % 30) < 24 || w.day - o.lastStory < 16) continue;
+    } else if (sensDone || w.day - o.lastStory < 22) continue;
+    const tips = gather(w, o.journalists, st);
     let chosen: { journalist: number; got: { fact: FactPeek; firm: number; sources: Source[] } } | undefined;
-    for (const journalist of o.journalists) {
-      if (!P.alive(journalist)) continue;
-      const got = sourcesFor(w, journalist, st);
-      if (!got) continue;
-      if (b.firmStory[got.firm] >= 0 && w.day - b.firmStory[got.firm] < 18) continue;
-      const need = o.serious ? 2 : 1;
-      if (got.sources.length < need) {
-        if (o.serious) leakRumour(w, oi, journalist, got);
+    for (const tip of tips) {
+      if (b.firmStory[tip.firm] >= 0 && w.day - b.firmStory[tip.firm] < 20) continue;
+      if (o.serious && (tip.sources.length < 2 || Math.abs(tip.edge) < 0.15)) {
+        if (tip.sources.length === 1) leakRumour(w, oi, tip.journalist, tip);
         continue;
       }
-      if (!learnFrom(w, journalist, s.firms[got.firm], got.fact, got.sources, st.need)) continue;
-      if (got.fact.pub) continue;
-      chosen = { journalist, got };
+      if (!o.serious && Math.abs(tip.edge) < 0.07) continue;
+      if (!learnFrom(w, tip.journalist, s.firms[tip.firm], tip.fact, tip.sources, st.need)) continue;
+      if (tip.fact.pub) continue;
+      chosen = { journalist: tip.journalist, got: tip };
       break;
     }
     if (!chosen) continue;
     const careless = !o.serious && chosen.got.sources.length < 2 && P.diligence[chosen.journalist] < 48 && P.greed[chosen.journalist] > P.diligence[chosen.journalist];
-    publishTip(w, oi, chosen.journalist, chosen.got, careless && chosen.got.sources[0].trust < 70);
-    printed++;
+    publishTip(w, oi, chosen.journalist, chosen.got, careless && chosen.got.sources[0].trust < 68);
+    if (o.serious) seriousDone++; else sensDone++;
   }
 }
 function leakRumour(w: World, outlet: number, journalist: number, got: { fact: FactPeek; firm: number; sources: Source[] }): void {
@@ -290,8 +292,8 @@ function watch(w: World): void {
     if (st.done || w.day <= st.day) continue;
     const px = stockOf(w, st.issuer)?.last ?? 0;
     const ch = st.px > 0 ? px / st.px - 1 : 0;
-    const moved = st.side > 0 ? ch > 0.003 : ch < -0.003;
-    if (moved && !st.wrong && px > 0) {
+    const moved = st.side > 0 ? ch > 0.0015 : ch < -0.0015;
+    if (moved && !st.wrong && px > 0 && !st.scooped) {
       const o = b.outlets[st.outlet];
       const name = s.firms[st.firm]?.name ?? st.issuer;
       w.events.emit('media.scoop',
@@ -299,8 +301,9 @@ function watch(w: World): void {
         [st.story], st.issuer);
       st.scooped = true;
       b.yScoops++;
+      if (o.serious) b.yScoopSe++; else b.yScoopSn++;
       st.done = true;
-    } else if (w.day > st.day + 2) st.done = true;
+    } else if (w.day > st.day + 28) st.done = true;
   }
 }
 function spread(w: World): void {
@@ -392,16 +395,24 @@ function judge(w: World): void {
     const f = s.firms[st.firm];
     if (!f || f.closed) { st.judged = true; continue; }
     const truth = Math.sign(f.lastProfit - st.base);
-    if (truth === 0) { st.judged = true; continue; }
     const o = b.outlets[st.outlet];
-    if (truth !== st.side) {
+    const scale = Math.max(s.wage * 30, Math.abs(st.base), 1);
+    const material = Math.abs(f.lastProfit - st.base) > scale * 0.2;
+    const miss = st.wrong || (truth !== 0 && truth !== st.side && (!o.serious || material));
+    if (!miss) {
+      if (truth === st.side) o.trust = Math.min(o.serious ? 90 : 68, o.trust + (o.serious ? 2 : 1));
+      st.judged = true;
+      continue;
+    }
+    if (miss) {
       w.events.emit('media.retraction',
         `${o.name} retracts its report on ${f.name}: the month did not come out that way`,
         [st.story, f.priceEv ?? s.macroEv ?? b.root], o.firm >= 0 ? s.firms[o.firm]?.id : f.id);
-      o.trust = Math.max(18, o.trust - (st.scooped ? 10 : 7));
+      o.trust = o.serious ? Math.max(42, o.trust - 3) : Math.max(24, o.trust - 8);
       b.yRetract++;
-      trade(w, f.id, truth, o.trust, st.outlet, 0.45);
-    } else o.trust = Math.min(92, o.trust + (st.scooped ? 3 : 1));
+      if (o.serious) b.yRetractSe++; else b.yRetractSn++;
+      if (truth !== 0) trade(w, f.id, truth, o.trust, st.outlet, 0.45);
+    }
     st.judged = true;
   }
   b.stories = b.stories.filter((st) => !(st.judged && st.done) && w.day - st.day < 50);
@@ -463,7 +474,8 @@ export const media: Module = {
     const n = econ(w).P.n;
     w.state.media = {
       outlets, totalRead, seated: new Uint8Array(Math.max(16, n)), firmStory: new Int32Array(Math.max(16, econ(w).firms.length)).fill(-1),
-      stories: [], rumours: [], resting: [], yStories: 0, yScoops: 0, yRetract: 0, yRumours: 0, root,
+      stories: [], rumours: [], resting: [], yStories: 0, yScoops: 0, yRetract: 0, yRumours: 0,
+      yScoopSe: 0, yScoopSn: 0, yRetractSe: 0, yRetractSn: 0, root,
     } satisfies Book;
     desks(w);
   },
@@ -486,9 +498,12 @@ export const media: Module = {
   stats(w) {
     const b = book(w);
     const out = {
-      stories: b.yStories, scoops: b.yScoops, retractions: b.yRetract, rumours: b.yRumours, trusted: trustedName(b),
+      stories: b.yStories, scoops: b.yScoops, retractions: b.yRetract,
+      scSerious: b.yScoopSe, reSerious: b.yRetractSe, scSens: b.yScoopSn, reSens: b.yRetractSn,
+      rumours: b.yRumours, trusted: trustedName(b),
     };
     b.yStories = 0; b.yScoops = 0; b.yRetract = 0; b.yRumours = 0;
+    b.yScoopSe = 0; b.yScoopSn = 0; b.yRetractSe = 0; b.yRetractSn = 0;
     return out;
   },
 };

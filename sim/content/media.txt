@@ -1,5 +1,5 @@
 The papers. Readership is how many people in a hundred buy it. Leaning runs from -1 to 1.
-A serious paper waits for a second source. A sensational one will print a single source, and sometimes the wrong way.
+A serious paper waits for a second source and a wide gap, close to the end of the month. A sensational one will print a single source, and sometimes the wrong way.
 
 [OBJECT:OUTLET]
 

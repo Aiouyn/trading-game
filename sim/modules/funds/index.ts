@@ -7,13 +7,13 @@ import { tradeFuture } from '../commodities/index.ts';
 import { cancelOrder } from '../markets/index.ts';
 import { actOnVotes, activism, announce, settleCampaigns } from './activism.ts';
 import {
-  LABEL, cashOf, dropForce, econ, fundsOf, held, managers, navOf, placeEq, sharesOut, stocksOf, withhold,
+  LABEL, cashOf, dropForce, econ, firmOf, fundsOf, held, managers, navOf, placeEq, stocksOf, withhold,
   type Fund, type FundsState, type Strat, type Ticket,
 } from './book.ts';
 import { macro } from './macro.ts';
 import { momentum } from './momentum.ts';
 import { quant } from './quant.ts';
-import { reviewShorts, shortSell } from './short.ts';
+import { hunt, reviewShorts } from './short.ts';
 import { value } from './value.ts';
 
 const SHARES = 1_000_000;
@@ -32,7 +32,7 @@ function blank(spec: Spec): Fund {
   return {
     id: spec.id, name: LABEL[spec.strat], strat: spec.strat, manager: -1, hiredEv: -1, hiredDay: 0,
     down: 0, year0: 1, nav: 1, peak: 1, yBps: 0, wind: 0, cool: 0, need: 0, pushed: -10, flowEv: -1,
-    orders: [], force: [], borrowed: [], camp: null, pend: null, note: '', lever: spec.lever,
+    orders: [], force: [], borrowed: [], camp: null, pend: null, note: '', lever: spec.lever, trail: [],
   };
 }
 
@@ -213,31 +213,47 @@ function redeem(w: World, f: Fund, frac: number, cause: number): void {
   if (leftSh > shWant * 0.5) f.need = Math.floor(leftSh * nav / total);
 }
 
-function yearEnd(w: World, f: Fund): void {
+function scoreTrail(f: Fund): number {
+  if (!f.trail.length) return f.yBps;
+  let s = 0;
+  for (const x of f.trail) s += x;
+  return s / f.trail.length;
+}
+function markYear(w: World, f: Fund): void {
   const nav = navOf(w, f);
   const bps = f.year0 > 0 ? Math.round((nav - f.year0) / f.year0 * 10000) : 0;
   f.yBps = bps;
   f.nav = nav;
-  const why = econ(w).macroEv >= 0 ? [econ(w).macroEv] : [fundsOf(w).root];
-  if (bps > 700) {
-    const ev = w.events.emit('fund.flow', `${f.name} takes in money after a ${(bps / 100).toFixed(1)}% year`, why, f.id);
-    f.flowEv = ev;
-    subscribe(w, f, 0.05, ev);
-  } else if (bps < -300) {
-    const ev = w.events.emit('fund.flow', `${f.name} returns money after a ${(bps / 100).toFixed(1)}% year`, why, f.id);
-    f.flowEv = ev;
-    redeem(w, f, bps < -1200 ? 0.12 : 0.06, ev);
-    if (f.need > 0) {
-      const sale = w.events.emit('fund.forced', `${f.name} must sell to pay investors back`, [ev], f.id);
-      unload(w, f, sale, true);
-      f.pushed = w.day;
+  f.trail.push(bps);
+  if (f.trail.length > 3) f.trail.shift();
+  if (bps < -200) f.down++; else f.down = 0;
+  const why = econ(w).macroEv >= 0 ? econ(w).macroEv : fundsOf(w).root;
+  if (f.wind === 0 && w.day - f.hiredDay > 300 && aliveManager(w, f) && (f.down >= 2 || bps < -1800)) {
+    replaceManager(w, f, f.flowEv >= 0 ? f.flowEv : why, 'after the losses');
+  }
+}
+function chase(w: World): void {
+  const st = fundsOf(w);
+  const ranked = [...st.funds].sort((a, b) => scoreTrail(b) - scoreTrail(a) || (a.id < b.id ? -1 : 1));
+  const best = ranked[0], worst = ranked[ranked.length - 1];
+  if (!best || !worst || best.id === worst.id) return;
+  const why = econ(w).macroEv >= 0 ? [econ(w).macroEv] : [st.root];
+  const lead = scoreTrail(best);
+  const lag = scoreTrail(worst);
+  if (lead > 0 && lead > lag + 150 && lag < 0) {
+    const ev = w.events.emit('fund.flow', `investors move money toward ${best.name} after it led recent years`, why, best.id);
+    best.flowEv = ev;
+    subscribe(w, best, 0.03, ev);
+    const out = w.events.emit('fund.flow', `${worst.name} returns money as investors leave for ${best.name}`, [ev], worst.id);
+    worst.flowEv = out;
+    redeem(w, worst, 0.04, out);
+    if (worst.need > 0) {
+      const sale = w.events.emit('fund.forced', `${worst.name} must sell to pay investors back`, [out], worst.id);
+      unload(w, worst, sale, true);
+      worst.pushed = w.day;
     }
   }
-  if (bps < -200) f.down++; else f.down = 0;
-  if (f.wind === 0 && w.day - f.hiredDay > 300 && aliveManager(w, f) && (f.down >= 2 || bps < -1800)) {
-    replaceManager(w, f, f.flowEv >= 0 ? f.flowEv : why[0], 'after the losses');
-  }
-  f.year0 = Math.max(1, navOf(w, f));
+  for (const f of st.funds) f.year0 = Math.max(1, navOf(w, f));
 }
 
 function act(w: World, f: Fund): void {
@@ -250,8 +266,8 @@ function act(w: World, f: Fund): void {
     case 'momentum': if (w.day % 10 === 1) momentum(w, f); break;
     case 'value': if (w.day % 10 === 3) value(w, f); break;
     case 'macro': if (w.day % 10 === 5) macro(w, f); break;
-    case 'short': if (w.day % 20 === 7) shortSell(w, f); break;
-    case 'activist': if (w.day % 8 === 2) activism(w, f); break;
+    case 'short': hunt(w, f); break;
+    case 'activist': activism(w, f); break;
     default: { const n: never = f.strat; void n; }
   }
 }
@@ -260,7 +276,7 @@ export const funds: Module = {
   id: 'funds',
 
   init(w) {
-    const st: FundsState = { funds: [], root: -1, yCamp: 0, yBlow: 0, yRep: 0, shortHi: 0, reported: [] };
+    const st: FundsState = { funds: [], root: -1, yCamp: 0, yBlow: 0, yRep: 0, ySqueeze: 0, shortSum: 0, shortN: 0, reps: [] };
     w.state.funds = st;
     if (!w.state.markets) return;
     st.root = w.events.emit('funds.open', 'six funds open, each with a manager', [w.genesis]);
@@ -303,12 +319,15 @@ export const funds: Module = {
       actOnVotes(w, f);
       if (f.borrowed.length) reviewShorts(w, f);
     }
-    let hi = 0;
+    let pct = 0;
     for (const f of st.funds) for (const b of f.borrowed) {
-      const out = sharesOut(w, b.instr);
-      if (out > 0 && b.qty > 0) hi = Math.max(hi, 100 * b.qty / out);
+      const issued = Math.round(w.ledger.issued.get(b.instr) ?? 0);
+      const firm = firmOf(w, b.issuer);
+      if (issued < 100 || !firm || firm.closed || b.qty < 1) continue;
+      pct = Math.max(pct, 100 * b.qty / issued);
     }
-    if (hi > st.shortHi) st.shortHi = hi;
+    st.shortSum += pct;
+    st.shortN++;
     if (w.day > 420) {
       for (const f of st.funds) {
         if (f.wind > 0 || w.day < f.cool) continue;
@@ -319,7 +338,7 @@ export const funds: Module = {
           if (row) shortLoss += b.qty * (row.last - b.entry);
         }
         const crushed = f.peak > 0 && f.nav < f.peak * 0.45;
-        if ((f.lever && shortLoss > Math.max(1, f.nav) * 0.22) || crushed) blow(w, f);
+        if (f.strat !== 'short' && ((f.lever && shortLoss > Math.max(1, f.nav) * 0.22) || crushed)) blow(w, f);
       }
     }
     for (const f of st.funds) if (f.wind > 0) f.wind--;
@@ -349,7 +368,10 @@ export const funds: Module = {
         unload(w, f, sale, true);
         f.pushed = w.day;
       }
-      if ((w.day + 1) % 360 === 0) yearEnd(w, f);
+    }
+    if ((w.day + 1) % 360 === 0) {
+      for (const f of st.funds) markYear(w, f);
+      chase(w);
     }
   },
 
@@ -368,12 +390,13 @@ export const funds: Module = {
       aumAct: +aum('activist').toFixed(2),
       fundBest: fmt(ranked[0]),
       fundWorst: fmt(ranked[ranked.length - 1]),
-      short_pct: +st.shortHi.toFixed(3),
+      short_pct: +(st.shortN ? st.shortSum / st.shortN : 0).toFixed(2),
       campaigns: st.yCamp,
       blowups: st.yBlow,
       briefs: st.yRep,
+      squeezes: st.ySqueeze,
     };
-    st.yCamp = 0; st.yBlow = 0; st.yRep = 0; st.shortHi = 0;
+    st.yCamp = 0; st.yBlow = 0; st.yRep = 0; st.ySqueeze = 0; st.shortSum = 0; st.shortN = 0;
     return out;
   },
 };
