@@ -60,6 +60,16 @@ export function pay(w: World, from: string, to: string, cents: number, reason: s
   if (to === BANK) return w.ledger.redeem(DEP, from, a, reason, cause);
   return w.ledger.move(DEP, from, to, a, reason, cause);
 }
+/** Negotiated multiple of the national wage. Zero means the plant is struck: no output and no pay that day. */
+export type WageHook = (w: World, firmIdx: number) => number;
+let wageHook: WageHook | undefined;
+export function setWageHook(fn: WageHook): void { wageHook = fn; }
+function wageMul(w: World, firmIdx: number): number {
+  if (!wageHook) return 1;
+  const m = wageHook(w, firmIdx);
+  if (!(m > 0)) return 0;
+  return m < 3 ? m : 3;
+}
 /** Slot version of pay(), for loops over people. */
 export function payS(w: World, s: EconState, from: number, to: number, cents: number, reason: string, cause: number): boolean {
   const a = Math.round(cents);
@@ -231,9 +241,9 @@ function shockCause(s: EconState, good: string): number | undefined {
   return undefined;
 }
 
-function unitCost(w: World, s: EconState, f: Firm, prodEff: number): number {
+function unitCost(w: World, s: EconState, f: Firm, prodEff: number, wageK = 1): number {
   const d = GOODS[f.good];
-  let c = s.wage / prodEff;
+  let c = wageK === 1 ? s.wage / prodEff : s.wage * wageK / prodEff;
   const port = abroadOf(w);
   for (const [g, k] of Object.entries(d.inputs)) {
     const fs = firmsOf(s, g);
@@ -450,7 +460,7 @@ export const economy: Module = {
       return undefined;
     };
     s.firms.forEach((f, i) => {
-      if (f.closed) return;
+      if (f.closed || !(wageMul(w, f.idx) > 0)) return;
       const cause = shockCause(s, f.good) ?? s.macroEv;
       // Close 6% of the gap a day, but always at least one person once the gap is a whole worker, so small firms can grow.
       const gap = gaps[i];
@@ -474,7 +484,9 @@ export const economy: Module = {
       if (f.closed) continue;
       const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
       const cause = shockCause(s, f.good) ?? s.macroEv;
-      f.unitCost = unitCost(w, s, f, prodEff);
+      const wageK = wageMul(w, f.idx);
+      if (!(wageK > 0)) { f.made = 0; continue; }
+      f.unitCost = unitCost(w, s, f, prodEff, wageK);
       const labour = f.eff * prodEff;
       const ceiling = w.ledger.instruments.has(CAPITAL) ? w.ledger.balance(f.id, CAPITAL) * mult : labour;
       const full = Math.min(labour, ceiling);
@@ -505,19 +517,19 @@ export const economy: Module = {
         const capped = powerHook(w, f, out);
         if (capped < out) out = Math.max(0, capped);
       }
-      f.mCost += f.eff * s.wage;
+      f.mCost += wageK === 1 ? f.eff * s.wage : f.eff * s.wage * wageK;
       out = Math.max(0, out); f.made = out;
       L.produce(GOOD_INSTR[f.good], f.id, out, 'production', cause);
       s.yReal += out;
 
       if (payday) {
-        const bill = Math.round(f.eff * s.wage * PAY_EVERY);
+        const bill = Math.round(wageK === 1 ? f.eff * s.wage * PAY_EVERY : f.eff * s.wage * wageK * PAY_EVERY);
         const till = Math.floor(L.balS(f.slot, DEP));
         if (till < bill) borrow(w, s, f, bill - till + bill, cause);
         const till2 = Math.floor(L.balS(f.slot, DEP));
         const frac = Math.min(1, till2 / Math.max(1, bill)) * (till2 < bill ? 0.98 : 1);
         let tax = 0;
-        const base = s.wage * PAY_EVERY * frac;
+        const base = (wageK === 1 ? s.wage : s.wage * wageK) * PAY_EVERY * frac;
         for (const x of f.staff) {
           const gross = Math.round(P.skill[x] * base), t = Math.round(gross * s.taxRate);
           if (L.moveS(DEP, f.slot, P.slot[x], gross - t, 'wages', cause)) { P.incWeek[x] += gross - t; tax += t; }
@@ -666,6 +678,7 @@ export const economy: Module = {
       if (f.closed) continue;
       const d = GOODS[f.good];
       if (d.perishable) L.consume(GOOD_INSTR[f.good], f.id, inv(w, f), 'spoilage', s.macroEv);
+      if (!(wageMul(w, f.idx) > 0)) continue;
       f.expSales += 0.1 * (f.sold + f.lost - f.expSales);
       const stock = inv(w, f), target = f.expSales * invDays(f);
       // Cost-plus pricing. The markup widens while demand outruns supply and narrows while goods go unsold,

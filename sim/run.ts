@@ -18,6 +18,7 @@ import { social } from './modules/social/index.ts';
 import { media } from './modules/media/index.ts';
 import { psyche } from './modules/psyche/index.ts';
 import { careers } from './modules/careers/index.ts';
+import { labour } from './modules/labour/index.ts';
 import { crypto } from './modules/crypto/index.ts';
 import { earnings } from './modules/earnings/index.ts';
 import { law } from './modules/law/index.ts';
@@ -48,6 +49,7 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('media')) w.use(media);
   for (const m of [psyche]) if (!without.has(m.id)) w.use(m);
   if (!without.has('careers')) w.use(careers);
+  if (!without.has('labour')) w.use(labour);
   for (const m of [crypto]) if (!without.has(m.id)) w.use(m);
   if (!without.has('earnings')) w.use(earnings);
   if (!without.has('law')) w.use(law);
