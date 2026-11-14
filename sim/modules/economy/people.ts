@@ -36,6 +36,8 @@ const FIELDS: [string, any][] = [
   ['habit', Uint8Array], ['habitLeft', Uint16Array], ['wdDays', Uint16Array], ['outUntil', Int32Array],
   ['brokeStep', Uint8Array], ['stressRun', Uint16Array], ['mem', Uint32Array], ['memN', Uint32Array],
   ['anxDone', Uint8Array], ['wealthMark', Float64Array], ['incMark', Float64Array],
+  ['school', Uint8Array], ['occ', Uint8Array], ['occYrs', Uint8Array], ['poor', Uint8Array], ['migrant', Uint8Array],
+  ['apt', Float64Array],
 ];
 
 /** All people, one typed array per attribute. Grows by doubling. Person i's ledger id is `p_${i}`. */
@@ -53,6 +55,8 @@ export class People {
   habit!: Uint8Array; habitLeft!: Uint16Array; wdDays!: Uint16Array; outUntil!: Int32Array;
   brokeStep!: Uint8Array; stressRun!: Uint16Array; mem!: Uint32Array; memN!: Uint32Array;
   anxDone!: Uint8Array; wealthMark!: Float64Array; incMark!: Float64Array;
+  school!: Uint8Array; occ!: Uint8Array; occYrs!: Uint8Array; poor!: Uint8Array; migrant!: Uint8Array;
+  apt!: Float64Array;
   families: string[] = [];
 
   constructor(capacity: number) {
@@ -85,6 +89,7 @@ export class People {
     this.habit[i] = 0; this.habitLeft[i] = 0; this.wdDays[i] = 0; this.outUntil[i] = 0;
     this.brokeStep[i] = 0; this.stressRun[i] = 0; this.mem[i] = 0; this.memN[i] = 0; this.anxDone[i] = 0;
     this.wealthMark[i] = 0; this.incMark[i] = 0;
+    this.school[i] = 0; this.occ[i] = 0; this.occYrs[i] = 0; this.poor[i] = 0; this.migrant[i] = 0; this.apt[i] = 0;
     this.slot[i] = w.ledger.addActor('p_' + i, 'person');
     if (mother >= 0) this.linkChild(mother, father, i);
     return i;

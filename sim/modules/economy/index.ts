@@ -99,6 +99,11 @@ let closeHook: CloseHook | undefined;
 /** Commodities registers this so a winding-up firm is taken off the futures book before its accounts go to zero. */
 export function setFirmCloseHook(fn: CloseHook): void { closeHook = fn; }
 
+/** Careers sets this. Called when a person is taken on, so the module can give them an occupation. Absent, hiring is unchanged. */
+export type HireHook = (w: World, person: number, firm: Firm) => void;
+let hireHook: HireHook | undefined;
+export function setHireHook(fn: HireHook): void { hireHook = fn; }
+
 function borrow(w: World, s: EconState, f: Firm, cents: number, cause: number): boolean {
   const lend = (w.state.banking as { lendFirm?: (w: World, s: EconState, f: Firm, cents: number, cause: number) => boolean } | undefined)?.lendFirm;
   if (!lend) return false;
@@ -411,7 +416,7 @@ export const economy: Module = {
       const gap = gaps[i];
       if (gap > 1) {
         const goal = f.eff + Math.max(0.06 * gap, 1);
-        while (f.eff < goal - 0.3) { const p = pool.pop() ?? poach(); if (p === undefined) break; joinFirm(s, p, f); P.lastEv[p] = -1; }
+        while (f.eff < goal - 0.3) { const p = pool.pop() ?? poach(); if (p === undefined) break; joinFirm(s, p, f); hireHook?.(w, p, f); P.lastEv[p] = -1; }
       } else if (gap < -2) {
         const goal = f.eff + Math.min(0.06 * gap, -1);
         while (f.eff > goal + 0.3 && f.staff.length > 1) {
