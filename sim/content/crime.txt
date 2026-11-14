@@ -1,0 +1,47 @@
+Crime in Port Avalon. A few gangs, the cash businesses they wash through, and how
+small each take is, as a share of one day's wage. The treasury's tax rate sets
+how many officers it can pay. Takes stay inside a firm's wage buffer.
+
+[OBJECT:GANG]
+
+[GANG:DOCKS]
+  [NAME:The Dock Syndicate]
+  [TRADE:smuggling]
+  [MEMBERS:6]
+
+[GANG:MARKET]
+  [NAME:The Market Firm]
+  [TRADE:racket]
+  [MEMBERS:6]
+
+[GANG:ALLEY]
+  [NAME:The Alley Bank]
+  [TRADE:shark]
+  [MEMBERS:6]
+
+[OBJECT:FRONT]
+
+Cash-heavy goods. A front reports the washed cash as sales that never happened.
+[FRONT:GROCERIES]
+[FRONT:GENERAL_RETAIL]
+
+[OBJECT:SCALE]
+
+[SCALE:TAKE]
+  [THEFT:0.02]
+  [BURGLARY:0.02]
+  [EMBEZZLE:0.04]
+  [EVASION:0.05]
+  [FRAUD:0.08]
+  [RACKET:0.04]
+  [SMUGGLE:0.04]
+  [SHARK:0.3]
+  [STAKE:0.02]
+  [BRIBE:0.02]
+  [WASH:0.03]
+  [FINE:0.02]
+  [POLICE_PAY:0.08]
+  [POLICE_MIN:4]
+  [POLICE_MAX:8]
+  [DETECT:6]
+  [BUFFER_DAYS:36]

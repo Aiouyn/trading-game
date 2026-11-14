@@ -14,7 +14,7 @@ const STAFF_N = 6;
 const CASELOAD = 3;
 const TRADES = 4;
 
-type Kind = 'insider' | 'manipulation' | 'fraud' | 'debt';
+type Kind = 'insider' | 'manipulation' | 'fraud' | 'debt' | 'street';
 type Phase = 0 | 1 | 2 | 3;
 type Side = 'buy' | 'sell';
 
@@ -155,6 +155,7 @@ function kindWord(k: Kind): string {
     case 'manipulation': return 'market manipulation';
     case 'fraud': return 'fraud';
     case 'debt': return 'unpaid debt';
+    case 'street': return 'a street offence';
     default: { const n: never = k; return n; }
   }
 }
@@ -284,8 +285,10 @@ function file(w: World, spec: {
     st.debtN++;
   }
   let recent = 0;
-  for (let i = st.offences.length - 1; i >= 0 && recent < 16; i--) {
+  for (let i = st.offences.length - 1, seen = 0; i >= 0 && seen < 40; i--) {
     if (w.day - st.offences[i].day > 30) break;
+    if (st.offences[i].kind === 'street') continue;
+    seen++;
     recent++;
   }
   if (recent >= 12) return;
@@ -885,6 +888,26 @@ function blank(n: number, firms: number): Law {
     heat, freeAt, cells: [], firmHeat, firmCut, fraudAt, nextId: 1, seen: 0, root: 0, paid: 0, snapDay: -1,
     debtMonth: -1, debtN: 0, yOff: 0, yCharge: 0, yConv: 0, yWrong: 0, yFines: 0, yInside: 0,
   };
+}
+
+/** File a street or white-collar offence. The police make the arrest; this desk only keeps the record. */
+export function reportOffence(w: World, spec: {
+  person: number; firm: number; gain: number; text: string; cause: number;
+}): void {
+  if (!w.state.law || spec.cause < 0 || spec.person < 0) return;
+  const st = lawOf(w);
+  const key = 'street:' + spec.person + ':' + spec.cause;
+  if (st.seenKey.has(key)) return;
+  st.seenKey.add(key);
+  // Street files sit on the list and are not prosecuted. They do not take an id from the
+  // regulator's counter: politics breaks ties on that id when it files its own bribes.
+  st.offences.push({
+    id: -1, kind: 'street', day: w.day, person: spec.person, firm: spec.firm, bank: '',
+    gain: Math.max(0, Math.round(spec.gain)), qty: 1, vol: 0, knowers: 2,
+    factId: -1, factEvent: spec.cause, tradeEvent: spec.cause, event: spec.cause,
+    solid: true, used: false,
+  });
+  st.yOff++;
 }
 
 export const law: Module = {
