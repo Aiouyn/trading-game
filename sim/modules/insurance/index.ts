@@ -50,6 +50,9 @@ interface Book {
   pendEv: number;
   root: number;
   lastLoss: number;
+  scare: number;
+  low: number;
+  floor: number[];
   n: number;
   cap: number;
   live: Uint8Array;
@@ -58,10 +61,12 @@ interface Book {
   ins: Uint8Array;
   cover: Float64Array;
   prem: Float64Array;
+  miss: Uint8Array;
   firmPol: Int32Array;
   homePol: Int32Array;
 }
 
+const OPEN_RATE = 0.0135;
 const hazFile = fileURLToPath(new URL('../../content/hazards.txt', import.meta.url));
 const propFile = fileURLToPath(new URL('../../content/property.txt', import.meta.url));
 const NB: string[] = parseRaws(readFileSync(propFile, 'utf8'), 'property.txt').filter((r) => r.type === 'NEIGHBOURHOOD').map((r) => r.id);
@@ -141,7 +146,7 @@ function growPol(st: Book): void {
   const i32 = (a: Int32Array): Int32Array => { const b = new Int32Array(n); b.set(a); return b; };
   const f64 = (a: Float64Array): Float64Array => { const b = new Float64Array(n); b.set(a); return b; };
   st.live = u8(st.live); st.polKind = u8(st.polKind); st.ref = i32(st.ref); st.ins = u8(st.ins);
-  st.cover = f64(st.cover); st.prem = f64(st.prem); st.cap = n;
+  st.cover = f64(st.cover); st.prem = f64(st.prem); st.miss = u8(st.miss); st.cap = n;
 }
 function growFirms(st: Book, n: number): void {
   if (st.firmPol.length >= n) return;
@@ -157,25 +162,32 @@ function addPol(st: Book, kind: number, ref: number, ins: number, cover: number)
   if (st.n >= st.cap) growPol(st);
   const k = st.n++;
   st.live[k] = IN_FORCE; st.polKind[k] = kind; st.ref[k] = ref; st.ins[k] = ins;
-  st.cover[k] = cover; st.prem[k] = Math.round(cover * st.rate);
+  st.cover[k] = cover; st.prem[k] = premiumOf(st, kind, cover); st.miss[k] = 0;
   return k;
 }
 
+function tilt(n: number): number {
+  let x = Math.imul(n + 1, 0x9e3779b1);
+  x = Math.imul(x ^ (x >>> 16), 0xc2b2ae35);
+  return (x >>> 0) / 4294967296;
+}
+// After a big loss people buy. After a premium jump the reluctant ones drop off.
+// The floor stays above the uptake the book has to keep.
+function appetite(st: Book, home: boolean): number {
+  // 0 at the opening rate, 1 when premiums have doubled.
+  const dear = Math.max(0, st.rate / OPEN_RATE - 1);
+  if (home) return clamp(0.96 + 0.1 * st.scare - dear * 0.08, 0.9, 1);
+  return clamp(0.78 + 0.35 * st.scare - dear * 0.28, 0.62, 1);
+}
 function wantsFirm(w: World, f: Firm): boolean {
   if (f.closed || f.good === 'INSURANCE' || f.good === 'BANKING') return false;
-  // The oldest firm in a good that still has a competitor carries its own risk,
-  // so a fire there can end it. Once it is the only maker, it buys cover.
-  let bare = -1, n = 0;
-  for (const o of econ(w).firms) {
-    if (o.closed || o.good !== f.good) continue;
-    n++;
-    if (bare < 0 || o.idx < bare) bare = o.idx;
-  }
-  return !(n >= 2 && f.idx === bare);
+  return tilt(f.idx) < appetite(book(w), false);
 }
-function homeWants(st: Prop, p: number): boolean {
-  // A mortgage is not written on a house with no cover.
-  return st.kind[p] === HOME && st.mtg[p] >= 0 && st.ownK[p] === PERSON && st.own[p] >= 0;
+function homeWants(w: World, st: Prop, p: number): boolean {
+  // A mortgage is not written on a house with no cover. A premium jump still
+  // shakes the most reluctant borrowers off.
+  if (!(st.kind[p] === HOME && st.mtg[p] >= 0 && st.ownK[p] === PERSON && st.own[p] >= 0)) return false;
+  return tilt(p + 100003) < appetite(book(w), true);
 }
 function ownerId(w: World, p: number): string {
   const st = prop(w);
@@ -198,20 +210,30 @@ function pickInsurer(w: World, n: number): number {
   return -1;
 }
 function firmCover(w: World, f: Firm): number {
-  return Math.max(0, Math.round(0.1 * capitalValue(w, f)));
+  // Most of the plant, plus the stock a fire or a flood actually takes.
+  const plant = capitalValue(w, f);
+  let stock = 0;
+  if (!GOODS[f.good].perishable) stock = Math.round(w.ledger.balance(f.id, 'good:' + f.good) * Math.max(0, f.price));
+  return Math.max(0, Math.round(plant * 0.9 + Math.min(stock, plant * 0.45)));
 }
 function homeCover(w: World, p: number, ins: string): number {
   const st = prop(w);
   const marked = st ? Math.round(st.marked[p]) : 0;
-  const cap = Math.max(40_000, worth(w, ins) * 0.04);
-  return Math.max(0, Math.round(Math.min(marked * 0.25, cap)));
+  const cap = Math.max(marked, worth(w, ins) * 0.35);
+  return Math.max(0, Math.round(Math.min(marked * 0.85, cap)));
+}
+function premiumOf(st: Book, kind: number, cover: number): number {
+  // A house is a smaller, steadier risk than a plant, so the rate on it is lighter.
+  const weight = kind === POL_HOME ? 0.12 : 1;
+  return Math.max(1, Math.round(cover * st.rate * weight));
 }
 
 function bindFirms(w: World): void {
   const st = book(w), s = econ(w);
   growFirms(st, s.firms.length);
   for (const f of s.firms) {
-    const have = f.idx < st.firmPol.length ? st.firmPol[f.idx] : -1;
+    let have = f.idx < st.firmPol.length ? st.firmPol[f.idx] : -1;
+    if (have >= 0 && st.live[have] === 0) { st.firmPol[f.idx] = -1; have = -1; }
     if (have >= 0 && (f.closed || !wantsFirm(w, f))) {
       st.live[have] = 0; st.firmPol[f.idx] = -1; continue;
     }
@@ -229,7 +251,11 @@ function bindHomes(w: World): void {
   const st = book(w);
   growHomes(st, props.n);
   for (let p = 0; p < props.n; p++) {
-    if (st.homePol[p] >= 0 || !homeWants(props, p)) continue;
+    let have = st.homePol[p];
+    if (have >= 0 && st.live[have] === 0) { st.homePol[p] = -1; have = -1; }
+    const want = homeWants(w, props, p);
+    if (have >= 0 && !want) { st.live[have] = 0; st.homePol[p] = -1; continue; }
+    if (!want || have >= 0) continue;
     const ins = pickInsurer(w, p);
     if (ins < 0) continue;
     const cover = homeCover(w, p, st.insId[ins]);
@@ -258,7 +284,7 @@ function refreshCovers(w: World): void {
       cover = homeCover(w, st.ref[k], id);
     }
     st.cover[k] = cover;
-    st.prem[k] = Math.round(cover * st.rate);
+    st.prem[k] = premiumOf(st, st.polKind[k], cover);
   }
 }
 
@@ -366,7 +392,9 @@ function cede(w: World, from: string, premium: number, cause: number): void {
 }
 function recover(w: World, to: string, loss: number, cause: number): number {
   if (!w.state.abroad || !w.ledger.actors.has(WORLD) || !(loss > 0)) return 0;
-  const keep = Math.round(worth(w, to) * 0.12);
+  // The carrier keeps most of an ordinary claim. A single enormous one is cut
+  // at a slice of its own capital, which is what a bad year does to the surplus.
+  const keep = Math.round(Math.min(loss * 0.72, Math.max(0, worth(w, to) * 0.3)));
   const excess = Math.round(loss - keep);
   if (excess <= 0) return 0;
   const have = Math.floor(w.ledger.balance(WORLD, DEP));
@@ -401,9 +429,15 @@ function collect(w: World, cause: number): void {
     const spare = Math.floor(w.ledger.balance(from, DEP) - floor);
     if (spare >= due && pay(w, from, ins, due, 'ins.premium', cause)) {
       st.live[k] = IN_FORCE;
+      st.miss[k] = 0;
       st.premiums += due;
       cede(w, ins, due, cause);
-    } else st.live[k] = ARREARS;
+    } else if (st.polKind[k] === POL_HOME && st.miss[k] < 2) {
+      st.miss[k]++;
+    } else {
+      st.live[k] = ARREARS;
+      if (st.miss[k] < 12) st.miss[k]++;
+    }
   }
 }
 
@@ -580,6 +614,7 @@ function hitFirm(w: World, f: Firm, h: Hazard, root: number, at: Int32Array): vo
   const pol = policyForFirm(st, f);
   const paid = indemnify(w, f.id, loss, pol, ev);
   noteLoss(st, loss, paid, pol >= 0);
+  noteScare(st, loss);
   const staff = f.staff.slice();
   harm(w, staff, h, ev);
   const s = econ(w);
@@ -641,6 +676,7 @@ function homesIn(w: World, h: Hazard, root: number): void {
   const people: number[] = [];
   let n = 0, insured = 0, bare = 0;
   const cap = 70;
+  const lossAt = st.insured + st.uninsured;
   for (let p = 0; p < props.n && n < cap; p++) {
     if (props.kind[p] !== HOME || !inPlace(h.places, props.nb[p])) continue;
     if (!rollDayHit(w.day, p, h.homes)) continue;
@@ -656,6 +692,8 @@ function homesIn(w: World, h: Hazard, root: number): void {
   if (!n) return;
   const ev = w.events.emit('hazard.loss', `${h.name} damaged ${n} homes (${insured} insured, ${bare} not)`, [root]);
   st.lastLoss = ev;
+  const homeLoss = (st.insured + st.uninsured) - lossAt;
+  noteScare(st, homeLoss);
   harm(w, people, h, ev);
 }
 
@@ -692,18 +730,42 @@ function strike(w: World, h: Hazard, root: number): void {
   }
 }
 
+function noteScare(st: Book, loss: number): void {
+  if (!(loss > 0)) return;
+  const bump = loss >= 600_000_000 ? 0.85 : loss >= 120_000_000 ? 0.45 : 0.12;
+  st.scare = Math.min(1, st.scare + bump);
+}
+function markSolvency(w: World): void {
+  const st = book(w);
+  for (let i = 0; i < st.insId.length; i++) {
+    const need = st.floor[i] ?? 0;
+    if (!(need > 0) || !insurerFirm(w, st.insId[i])) continue;
+    const ratio = worth(w, st.insId[i]) / need;
+    if (ratio < st.low) st.low = ratio;
+  }
+}
+function markFloor(w: World): void {
+  const st = book(w);
+  for (let i = 0; i < st.insId.length; i++) {
+    if (!insurerFirm(w, st.insId[i])) continue;
+    st.floor[i] = worth(w, st.insId[i]);
+  }
+}
 function reprice(w: World): void {
   const st = book(w);
-  const ratio = st.premiums > 0 ? st.claims / st.premiums : (st.claims > 0 ? 2.5 : 0);
+  const ratio = st.premiums > 0 ? st.claims / st.premiums : (st.claims > 0 ? 3 : 0);
   const prev = st.rate;
-  st.loss = st.loss * 0.5 + ratio * 0.5;
-  if (ratio > 0.4) st.rate = clamp(st.rate * (1 + (ratio - 0.15) * 0.45), 0.02, 0.18);
-  else if (ratio < 0.15) st.rate = clamp(st.rate * 0.98, 0.025, 0.18);
+  st.loss = st.loss * 0.6 + ratio * 0.4;
+  if (ratio > 1) st.rate = clamp(st.rate * (1.45 + Math.min(1.2, ratio - 1) * 0.4), 0.008, 0.045);
+  else if (ratio > 0.6) st.rate = clamp(st.rate * (1 + (ratio - 0.4) * 0.3), 0.008, 0.045);
+  else if (ratio < 0.35) st.rate = clamp(st.rate * 0.97, 0.008, 0.045);
   refreshCovers(w);
-  if (st.rate > prev * 1.08 && st.claims > st.premiums * 0.4 && st.insId.length) {
+  if (st.rate > prev * 1.05 && st.insId.length) {
     const who = st.insId.find((id) => insurerFirm(w, id)) ?? st.insId[0];
     st.lastLoss = w.events.emit('ins.rate', `premiums rise to ${(st.rate * 100).toFixed(1)}% of cover after claims of ${dol(st.claims)} against premiums of ${dol(st.premiums)}`, [causeOf(st)], who);
   }
+  st.scare *= 0.42;
+  markFloor(w);
 }
 
 export const insurance: Module = {
@@ -714,12 +776,12 @@ export const insurance: Module = {
     const props = prop(w);
     const st: Book = {
       insId: firms.map((f) => f.id),
-      rate: 0.04, loss: 0.65,
+      rate: OPEN_RATE, loss: 0.65,
       disasters: 0, insured: 0, uninsured: 0, premiums: 0, claims: 0,
-      failYear: -1, pend: -1, pendEv: -1, root: 0, lastLoss: -1,
+      failYear: -1, pend: -1, pendEv: -1, root: 0, lastLoss: -1, scare: 0, low: 99, floor: firms.map(() => 0),
       n: 0, cap: 64,
       live: new Uint8Array(64), polKind: new Uint8Array(64), ref: new Int32Array(64), ins: new Uint8Array(64),
-      cover: new Float64Array(64), prem: new Float64Array(64),
+      cover: new Float64Array(64), prem: new Float64Array(64), miss: new Uint8Array(64),
       firmPol: new Int32Array(Math.max(16, econ(w).firms.length)),
       homePol: new Int32Array(Math.max(16, props?.n ?? 16)),
     };
@@ -752,13 +814,26 @@ export const insurance: Module = {
     // Cash above the wage buffer is dividended at month end, so the float has to be in bonds
     // before that sweep, and again the day after a maturity pays the principal back as cash.
     investFloat(w, causeOf(st));
+    if (monthEnd) markSolvency(w);
     if (yearEnd && w.day > 0) reprice(w);
   },
 
   stats(w) {
-    const st = book(w);
-    let cap = 0;
+    const st = book(w), s = econ(w);
+    const props = prop(w);
+    let cap = 0, firmN = 0, firmOn = 0, homeN = 0, homeOn = 0;
     for (const id of st.insId) if (insurerFirm(w, id)) cap += worth(w, id);
+    for (const f of s.firms) {
+      if (f.closed || f.good === 'INSURANCE' || f.good === 'BANKING') continue;
+      firmN++;
+      if (policyForFirm(st, f) >= 0) firmOn++;
+    }
+    if (props) for (let p = 0; p < props.n; p++) {
+      if (!(props.kind[p] === HOME && props.mtg[p] >= 0 && props.ownK[p] === PERSON)) continue;
+      homeN++;
+      const k = p < st.homePol.length ? st.homePol[p] : -1;
+      if (k >= 0 && st.live[k] === IN_FORCE) homeOn++;
+    }
     const out = {
       disasters: st.disasters,
       insured: Math.round(st.insured / 100),
@@ -766,13 +841,21 @@ export const insurance: Module = {
       premiums: Math.round(st.premiums / 100),
       claims: Math.round(st.claims / 100),
       insCap: Math.round(cap / 100),
+      firmPct: +(100 * firmOn / Math.max(1, firmN)).toFixed(1),
+      homePct: homeN ? +(100 * homeOn / homeN).toFixed(1) : 100,
+      premPct: +(st.rate * 100).toFixed(2),
+      insLow: +Math.min(99, st.low).toFixed(2),
     };
     st.disasters = 0; st.insured = 0; st.uninsured = 0; st.premiums = 0; st.claims = 0;
+    st.low = 99;
     return out;
   },
 
   monthEnd(w) {
     if (!book(w).insId.length) return;
+    // Mortgages written in this month's property close are not visible to the
+    // day's earlier bind, and the year-end count would miss them.
+    bindHomes(w);
     settleFailure(w);
   },
 };
