@@ -24,6 +24,9 @@ interface CorpState {
   steer?: Steer[];
   chair?: number[];
   parked?: Parked[];
+  wasOpen?: Uint8Array;
+  absorbed?: string[];
+  born?: Uint8Array;
 }
 interface Listing {
   instr: string; issuer: string; last: number; prev: number; open: number; high: number; low: number;
@@ -113,7 +116,72 @@ function hotGoods(s: EconState): string[] {
   return rows.map((r) => r.good);
 }
 
-function founder(w: World, s: EconState): number {
+function aliveCount(s: EconState): number {
+  let n = 0;
+  for (const f of s.firms) if (!f.closed) n++;
+  return n;
+}
+function sectorCount(s: EconState, sector: string): number {
+  let n = 0;
+  for (const f of s.firms) if (!f.closed && f.sector === sector) n++;
+  return n;
+}
+function sectorFloor(c: CorpState, sector: string): number {
+  const i = SECTOR_NAMES.indexOf(sector);
+  const born = c.born && i >= 0 && i < c.born.length ? c.born[i] : 2;
+  return born <= 1 ? 1 : 2;
+}
+function marginOf(s: EconState, good: string): number {
+  let price = 0, cost = 0, lost = 0, sold = 0, n = 0;
+  for (const f of s.firms) if (!f.closed && f.good === good) {
+    price += f.price; cost += f.unitCost; lost += f.lostEma; sold += f.soldEma; n++;
+  }
+  if (!n || !(cost > 1)) return 0;
+  return price / n / (cost / n) - 1 + (lost > 0.02 * Math.max(1, sold) ? 0.08 : 0);
+}
+function youngGood(s: EconState, good: string, day: number): boolean {
+  for (const f of s.firms) if (!f.closed && f.good === good && f.founder >= 0 && day - f.bornDay < 400) return true;
+  return false;
+}
+function noteGone(w: World): void {
+  const s = econ(w), c = ready(w), n = s.firms.length;
+  if (!c.wasOpen || c.wasOpen.length < n) {
+    const a = new Uint8Array(Math.max(n, (c.wasOpen?.length ?? 0) * 2, 16));
+    if (c.wasOpen) a.set(c.wasOpen);
+    c.wasOpen = a;
+  }
+  if (!c.absorbed) c.absorbed = [];
+  for (let i = 0; i < n; i++) {
+    const open = s.firms[i].closed ? 0 : 1;
+    if (c.wasOpen[i] === 1 && open === 0 && c.absorbed.length < 12) c.absorbed.push(s.firms[i].good);
+    c.wasOpen[i] = open;
+  }
+}
+function chooseGood(w: World): string {
+  const s = econ(w), c = ready(w);
+  for (const sector of SECTOR_NAMES) {
+    if (sectorCount(s, sector) >= sectorFloor(c, sector)) continue;
+    let best = '', sc = -1;
+    for (const g of Object.values(GOODS)) if (g.sector === sector) {
+      const m = marginOf(s, g.good);
+      if (m > sc) { sc = m; best = g.good; }
+    }
+    if (best) return best;
+  }
+  const absorbed = c.absorbed ?? [];
+  while (absorbed.length && youngGood(s, absorbed[0], w.day)) absorbed.shift();
+  if (absorbed.length) return absorbed[0];
+  let best = '', sc = 0.16;
+  const seen = new Set<string>();
+  for (const f of s.firms) {
+    if (f.closed || seen.has(f.good) || youngGood(s, f.good, w.day)) continue;
+    seen.add(f.good);
+    const m = marginOf(s, f.good);
+    if (m > sc) { sc = m; best = f.good; }
+  }
+  return best;
+}
+function founder(w: World, s: EconState, eager: boolean): number {
   const P = s.P, L = w.ledger;
   const busy = new Set<number>();
   for (const f of s.firms) {
@@ -121,18 +189,21 @@ function founder(w: World, s: EconState): number {
     if (f.ceo >= 0) busy.add(f.ceo);
     if (f.founder >= 0) busy.add(f.founder);
   }
+  const skillMin = eager ? 1.35 : 1.6;
+  const greedMin = eager ? 45 : 55;
+  const keep = eager ? 12 : 20;
+  const need = eager ? 18 : 30;
   let best = -1, score = 0;
   for (let i = 0; i < P.n; i++) {
     if (busy.has(i) || !P.adult(w, i) || (P.flags[i] & 4) !== 0) continue;
-    if (P.skill[i] < 1.6 || P.greed[i] < 55) continue;
-    const spare = L.balS(P.slot[i], DEP) - s.wage * P.skill[i] * 20;
-    if (spare < s.wage * 30) continue;
+    if (P.skill[i] < skillMin || P.greed[i] < greedMin) continue;
+    const spare = L.balS(P.slot[i], DEP) - s.wage * P.skill[i] * keep;
+    if (spare < s.wage * need) continue;
     const sc = P.skill[i] * 100 + P.greed[i];
     if (sc > score) { score = sc; best = i; }
   }
   return best;
 }
-
 function found(w: World): void {
   const s = econ(w), c = corp(w);
   if (w.day < 80 || s.unemployment < 0.02 || s.unemployment > 0.22 || c.foundedY >= 1) return;
@@ -141,7 +212,7 @@ function found(w: World): void {
     let young = false;
     for (const f of s.firms) if (!f.closed && f.good === good && f.founder >= 0 && w.day - f.bornDay < 420) young = true;
     if (young) continue;
-    const who = founder(w, s);
+    const who = founder(w, s, false);
     if (who < 0) return;
     const spare = Math.floor(w.ledger.balS(P.slot[who], DEP) - s.wage * P.skill[who] * 20);
     const cash = Math.max(0, Math.min(spare, Math.round(s.wage * P.skill[who] * 160)));
@@ -155,6 +226,45 @@ function found(w: World): void {
     P.lastEv[who] = ev;
     c.foundedY++; c.foundedN++;
     return;
+  }
+}
+
+// The ordinary opening above is one firm a year. A second opening is allowed only once the
+// count is near the floor, or a sector has been reduced to a single firm. Tight credit
+// (a high policy rate) skips that second opening unless a sector has to be refilled.
+function replenish(w: World): void {
+  const s = econ(w), c = ready(w);
+  if (w.day < 80) return;
+  const alive = aliveCount(s);
+  const repair = SECTOR_NAMES.some((sec) => sectorCount(s, sec) < sectorFloor(c, sec));
+  if (!repair && alive >= 58) return;
+  const tight = s.policyRate > 0.09;
+  let extra = 0;
+  if (repair) extra = 1;
+  else if (alive < 52) extra = tight ? 1 : 2;
+  else extra = tight ? 0 : 1;
+  if (!repair && alive >= 55 && (s.unemployment > 0.22 || s.unemployment < 0.02)) extra = 0;
+  if (extra <= 0 || c.foundedY >= 1 + extra || alive >= 92) return;
+  const good = chooseGood(w);
+  if (!good) return;
+  const eager = repair || alive < 54 || (c.absorbed ?? []).includes(good);
+  const who = founder(w, s, eager);
+  if (who < 0) return;
+  const P = s.P;
+  const spare = Math.floor(w.ledger.balS(P.slot[who], DEP) - s.wage * P.skill[who] * (eager ? 12 : 20));
+  const cash = Math.max(0, Math.min(spare, Math.round(s.wage * P.skill[who] * (eager ? 140 : 160))));
+  const d = GOODS[good];
+  const rival = s.firms.find((f) => !f.closed && f.good === good) ?? s.firms.find((f) => !f.closed && f.sector === d.sector);
+  const why = rival ? causesOf(s, rival) : [s.macroEv];
+  if (P.lastEv[who] >= 0) why.push(P.lastEv[who]);
+  const f = addFirm(w, { name: christen(s, d.sector), good, founder: who, cash, hires: 5, cause: why[0] });
+  if (!f) return;
+  const ev = w.events.emit('firm.founded', `${P.name(who)} founds ${f.name}, which makes ${d.name}`, why.slice(0, 4), f.id);
+  P.lastEv[who] = ev;
+  c.foundedY++; c.foundedN++;
+  if (c.absorbed) {
+    const at = c.absorbed.indexOf(good);
+    if (at >= 0) c.absorbed.splice(at, 1);
   }
 }
 
@@ -378,11 +488,18 @@ export const corporate: Module = {
   id: 'corporate',
   init(w) {
     const s = econ(w);
+    const born = new Uint8Array(SECTOR_NAMES.length);
+    const wasOpen = new Uint8Array(Math.max(16, s.firms.length));
+    for (const f of s.firms) {
+      const i = SECTOR_NAMES.indexOf(f.sector);
+      if (i >= 0 && !f.closed) born[i]++;
+      if (!f.closed) wasOpen[f.idx] = 1;
+    }
     const st: CorpState = {
       foundedY: 0, listedY: 0, takenY: 0, failedY: 0,
       foundedN: 0, listedN: 0, takenN: 0, failedN: 0,
       seen: w.events.count, struck: new Uint8Array(Math.max(16, s.firms.length)),
-      steer: [], chair: [], parked: [],
+      steer: [], chair: [], parked: [], wasOpen, absorbed: [], born,
     };
     w.state.corporate = st;
   },
@@ -396,10 +513,12 @@ export const corporate: Module = {
     for (let i = 0; i < s.firms.length && i < c.struck.length; i++) {
       if (s.firms[i].lastProfit > 0 && c.struck[i] > 0) c.struck[i]--;
     }
+    noteGone(w);
     if (w.month % 12 === 8 && w.day > 400) contest(w);
     listings(w);
     if (w.month % 6 === 2) found(w);
     failures(w);
+    replenish(w);
   },
   stats(w) {
     const s = econ(w), c = corp(w);
@@ -541,6 +660,8 @@ function ready(w: World): CorpState {
   if (!c.steer) c.steer = [];
   if (!c.chair) c.chair = [];
   if (!c.parked) c.parked = [];
+  if (!c.absorbed) c.absorbed = [];
+  if (!c.born) c.born = new Uint8Array(SECTOR_NAMES.length);
   return c;
 }
 
