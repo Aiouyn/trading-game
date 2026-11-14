@@ -839,6 +839,22 @@ export function repayPerson(w: World, person: number, cents: number, cause: numb
   return paid;
 }
 
+/** Destroy a fraction of a firm's installed machinery and queue that quantity for replacement. Returns the replacement cost in cents. */
+export function damageCapital(w: World, firmId: string, fraction: number, cause: number): number {
+  if (!w.state.banking || !(fraction > 0)) return 0;
+  const s = econ(w);
+  const f = s.firms.find((x) => x.id === firmId);
+  if (!f || f.closed) return 0;
+  const have = w.ledger.balance(f.id, CAPITAL);
+  const qty = Math.min(have, have * Math.min(1, fraction));
+  if (!(qty > 1e-6)) return 0;
+  if (!w.ledger.consume(CAPITAL, f.id, qty, 'hazard.damage', cause)) return 0;
+  const b = book(w);
+  growFirms(b, s.firms.length);
+  if (f.idx < b.need.length) b.need[f.idx] += qty;
+  return Math.round(qty * centsPerUnit(s, f));
+}
+
 export const banking: Module = {
   id: 'banking',
 

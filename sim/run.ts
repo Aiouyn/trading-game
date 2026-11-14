@@ -6,6 +6,7 @@ import { abroad } from './modules/abroad/index.ts';
 import { banking } from './modules/banking/index.ts';
 import { corporate } from './modules/corporate/index.ts';
 import { property } from './modules/property/index.ts';
+import { insurance } from './modules/insurance/index.ts';
 import { bonds } from './modules/bonds/index.ts';
 import { markets } from './modules/markets/index.ts';
 import { options } from './modules/options/index.ts';
@@ -33,6 +34,7 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('banking')) w.use(banking);
   if (!without.has('corporate')) w.use(corporate);
   if (!without.has('property')) w.use(property);
+  if (!without.has('insurance')) w.use(insurance);
   for (const m of [bonds, markets]) if (!without.has(m.id)) w.use(m);
   if (!without.has('options')) w.use(options);
   if (!without.has('funds')) w.use(funds);

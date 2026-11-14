@@ -1214,6 +1214,36 @@ export function noteBuiltHome(w: World, person: number, paid: number, cause: num
   else if (cur < 0) { setLive(st, P.n, person, p); st.tenK[p] = PERSON; st.ten[p] = person; }
 }
 
+/** Lower a parcel's condition. A home is marked down with the fabric. Returns cents of value destroyed. */
+export function damageCondition(w: World, parcel: number, points: number, cause: number): number {
+  const st = w.state.property as Book | undefined;
+  if (!st || parcel < 0 || parcel >= st.n) return 0;
+  const cut = Math.min(st.cond[parcel], Math.max(0, Math.round(points)));
+  if (cut < 1) return 0;
+  const before = Math.round(st.marked[parcel]);
+  st.cond[parcel] -= cut;
+  if (st.kind[parcel] === HOME && st.px[st.nb[parcel]] > 0) {
+    const target = Math.round(st.px[st.nb[parcel]] * quality(st, parcel));
+    if (target < before) setMarked(w, parcel, target, cause);
+  }
+  return Math.max(0, before - Math.round(st.marked[parcel]));
+}
+
+/** Raise a parcel's condition after a repair. A home is marked back up. Returns cents of value restored. */
+export function repairCondition(w: World, parcel: number, points: number, cause: number): number {
+  const st = w.state.property as Book | undefined;
+  if (!st || parcel < 0 || parcel >= st.n) return 0;
+  const add = Math.min(100 - st.cond[parcel], Math.max(0, Math.round(points)));
+  if (add < 1) return 0;
+  const before = Math.round(st.marked[parcel]);
+  st.cond[parcel] += add;
+  if (st.kind[parcel] === HOME && st.px[st.nb[parcel]] > 0) {
+    const target = Math.round(st.px[st.nb[parcel]] * quality(st, parcel));
+    if (target > before) setMarked(w, parcel, target, cause);
+  }
+  return Math.max(0, Math.round(st.marked[parcel]) - before);
+}
+
 export const property: Module = {
   id: 'property',
 
