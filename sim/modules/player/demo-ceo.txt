@@ -1,0 +1,10 @@
+# Found a firm, run it for two years, list it, and take control of a listed company.
+found North Pier / MANUFACTURING 140000
+ceo North-Pier hires 20
+ceo North-Pier dividend 0
+wait 2y
+ceo North-Pier
+ipo North-Pier 0.4
+wait 1d
+bid frm_salar 2x cash
+board

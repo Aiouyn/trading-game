@@ -123,6 +123,8 @@ footer {
 .ticket { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .ticket .row, .ticket form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ticket input { width: 88px; }
+#main[data-page="run"] input { width: 148px; }
+#main[data-page="run"] h2 { margin: 4px 0; font-size: 14px; }
 #ticketmsg { min-height: 1.2em; }
 .scroll { overflow: auto; }
 table { width: 100%; border-collapse: collapse; }

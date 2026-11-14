@@ -9,15 +9,21 @@ import { fileURLToPath } from 'node:url';
 import { type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOODS, SECTOR_NAMES } from '../economy/content.ts';
+import { borrowMargin } from '../banking/index.ts';
 import { addFirm, closeFirm, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
-import { joinFirm } from '../economy/people.ts';
+import { joinFirm, leaveJob } from '../economy/people.ts';
 
 interface Style { prefix: string[]; suffix: string[] }
+interface Steer { idx: number; by: number; price: number | null; hires: number | null; dividend: number | null; capex: number }
+interface Parked { idx: number; cents: number }
 interface CorpState {
   foundedY: number; listedY: number; takenY: number; failedY: number;
   foundedN: number; listedN: number; takenN: number; failedN: number;
   seen: number;
   struck: Uint8Array;
+  steer?: Steer[];
+  chair?: number[];
+  parked?: Parked[];
 }
 interface Listing {
   instr: string; issuer: string; last: number; prev: number; open: number; high: number; low: number;
@@ -376,13 +382,16 @@ export const corporate: Module = {
       foundedY: 0, listedY: 0, takenY: 0, failedY: 0,
       foundedN: 0, listedN: 0, takenN: 0, failedN: 0,
       seen: w.events.count, struck: new Uint8Array(Math.max(16, s.firms.length)),
+      steer: [], chair: [], parked: [],
     };
     w.state.corporate = st;
   },
   tick(w) { openListings(w); },
-  dayClose(w) { noteStruck(w); },
+  dayClose(w) { noteStruck(w); applySteer(w); parkDividends(w); briefBoard(w); },
   monthEnd(w) {
     const s = econ(w), c = corp(w);
+    restoreParked(w);
+    briefBoard(w);
     growStruck(c, s.firms.length);
     for (let i = 0; i < s.firms.length && i < c.struck.length; i++) {
       if (s.firms[i].lastProfit > 0 && c.struck[i] > 0) c.struck[i]--;
@@ -518,4 +527,493 @@ function merge(w: World, s: EconState, buyer: Firm, target: Firm, cause: number)
     spare -= s.P.skill[p];
   }
   closeFirm(w, target, cause);
+}
+
+const HOLD = 'corp_hold';
+
+function dollars(cents: number): string {
+  const v = Math.round(cents);
+  return `${v < 0 ? '-' : ''}$${(Math.abs(v) / 100).toFixed(2)}`;
+}
+
+function ready(w: World): CorpState {
+  const c = corp(w);
+  if (!c.steer) c.steer = [];
+  if (!c.chair) c.chair = [];
+  if (!c.parked) c.parked = [];
+  return c;
+}
+
+function seat(c: CorpState, f: Firm): number {
+  return c.chair && f.idx < c.chair.length ? c.chair[f.idx] : -1;
+}
+
+function setChair(c: CorpState, f: Firm, person: number): void {
+  if (!c.chair) c.chair = [];
+  while (c.chair.length <= f.idx) c.chair.push(-1);
+  c.chair[f.idx] = person;
+}
+
+function rootOf(s: EconState, f: Firm): number[] {
+  return causesOf(s, f).slice(0, 4);
+}
+
+function findFirm(w: World, key: string): Firm | undefined {
+  const k = key.toLowerCase().replace(/-/g, ' ').replace(/^eq:/, '');
+  return econ(w).firms.find((f) => !f.closed && (f.id === key || f.id === k || f.name.toLowerCase() === k));
+}
+
+function pickGood(s: EconState, sector: string): string | undefined {
+  const goods = Object.values(GOODS).filter((g) => g.sector === sector);
+  if (!goods.length) return;
+  const hot = new Set(hotGoods(s));
+  return (goods.find((g) => g.share > 0 && hot.has(g.good)) ?? goods.find((g) => g.share > 0) ?? goods.find((g) => hot.has(g.good)) ?? goods[0]).good;
+}
+
+function controls(w: World, person: number, f: Firm): boolean {
+  return f.ceo === person || seat(ready(w), f) === person;
+}
+
+/** Shares the person holds, plus shares held by firms they run. */
+function blockOf(w: World, person: number, f: Firm): number {
+  const s = econ(w), c = ready(w);
+  let n = stakeOf(w, s.P.id(person), f);
+  for (const o of s.firms) {
+    if (o.closed || o.idx === f.idx) continue;
+    if (o.ceo !== person && seat(c, o) !== person) continue;
+    n += stakeOf(w, o.id, f);
+  }
+  return n;
+}
+
+export interface CompanyPost {
+  id: string; name: string; good: string; sector: string; role: string;
+  listed: boolean; workers: number; price: number; cash: number;
+  sales: number; cost: number; profit: number; stake: number; shares: number;
+  dividend: string; hire: string; quote: string;
+}
+
+export function companyPosts(w: World, person: number): CompanyPost[] {
+  const s = econ(w), c = ready(w), out: CompanyPost[] = [];
+  for (const f of s.firms) {
+    if (f.closed) continue;
+    const shares = sharesOf(w, f);
+    const mine = blockOf(w, person, f);
+    const chair = seat(c, f) === person;
+    const ceo = f.ceo === person;
+    if (!ceo && !chair && (shares <= 0 || mine * 10 < shares)) continue;
+    const st = c.steer?.find((x) => x.idx === f.idx);
+    out.push({
+      id: f.id, name: f.name, good: f.good, sector: f.sector,
+      role: ceo ? 'chief executive' : chair ? 'chairman' : 'director',
+      listed: f.listed, workers: f.workers, price: Math.round(f.price),
+      cash: Math.floor(w.ledger.balance(f.id, DEP)), sales: Math.round(f.mRev),
+      cost: Math.round(f.mCost), profit: Math.round(f.lastProfit), stake: mine, shares,
+      dividend: st && st.dividend !== null ? `${Math.round(st.dividend * 100)}%` : 'the usual rule',
+      hire: st && st.hires !== null ? String(st.hires) : 'the usual rule',
+      quote: st && st.price !== null ? dollars(st.price) : 'the usual rule',
+    });
+  }
+  return out;
+}
+
+export function foundCompany(w: World, person: number, name: string, sector: string, cents: number, useLoan: boolean): { why: string } | { id: string; name: string; good: string } {
+  const s = econ(w), c = ready(w), P = s.P;
+  const called = name.trim().replace(/\s+/g, ' ');
+  if (called.length < 2 || called.length > 40) return { why: 'give it a name' };
+  if (s.firms.some((f) => f.name.toLowerCase() === called.toLowerCase())) return { why: `${called} is already a firm` };
+  if (!SECTOR_NAMES.includes(sector)) return { why: `unknown sector ${sector}` };
+  const good = pickGood(s, sector);
+  if (!good) return { why: `${sector} makes nothing yet` };
+  const root = s.macroEv >= 0 ? s.macroEv : w.genesis;
+  let put = Math.floor(cents);
+  if (!(put > 0)) put = Math.min(Math.floor(w.ledger.balance(P.id(person), DEP)), s.wage * 500);
+  if (!(put > 0)) return { why: 'that takes money' };
+  if (Math.floor(w.ledger.balance(P.id(person), DEP)) < put && useLoan) borrowMargin(w, person, put - Math.floor(w.ledger.balance(P.id(person), DEP)), root);
+  if (Math.floor(w.ledger.balance(P.id(person), DEP)) < put) return { why: useLoan ? 'no bank will lend the rest' : 'you do not have that much' };
+  const f = addFirm(w, { name: called, good, founder: person, cash: put, hires: 2, cause: root });
+  if (!f) return { why: 'the bank would not finance the machinery' };
+  w.events.emit('firm.founded', `${P.name(person)} founds ${f.name}, a ${sector.toLowerCase()} company`, [root], f.id);
+  c.foundedN++;
+  setChair(c, f, person);
+  return { id: f.id, name: f.name, good: f.good };
+}
+
+function steerOf(c: CorpState, f: Firm, person: number): Steer {
+  let st = c.steer?.find((x) => x.idx === f.idx);
+  if (!st) {
+    st = { idx: f.idx, by: person, price: null, hires: null, dividend: null, capex: 0 };
+    c.steer?.push(st);
+  }
+  st.by = person;
+  return st;
+}
+
+export function steerCompany(w: World, person: number, key: string, op: 'report' | 'price' | 'hires' | 'dividend' | 'invest', value: number | undefined, auto: boolean): { why: string } | { lines: string[] } {
+  const f = findFirm(w, key);
+  if (!f) return { why: 'no such firm' };
+  if (f.ceo !== person) return { why: `you are not the chief executive of ${f.name}` };
+  const st = steerOf(ready(w), f, person);
+  if (op === 'price') st.price = auto ? null : Math.max(1, Math.round(value ?? 0));
+  else if (op === 'hires') st.hires = auto ? null : Math.max(1, Math.round(value ?? 0));
+  else if (op === 'dividend') st.dividend = auto ? null : Math.min(1, Math.max(0, value ?? 0));
+  else if (op === 'invest') st.capex += Math.max(1, Math.round(value ?? 1));
+  const lines = [
+    `${f.name} (${f.id}) ${f.listed ? 'listed' : 'private'} — ${f.workers} workers, cash ${dollars(w.ledger.balance(f.id, DEP))}`,
+    `this month: sales ${dollars(f.mRev)}, costs ${dollars(f.mCost)}, last profit ${dollars(f.lastProfit)}`,
+    `price ${st.price === null ? 'follows the usual rule' : dollars(st.price)} · hiring ${st.hires === null ? 'follows the usual rule' : String(st.hires)} · dividend ${st.dividend === null ? 'follows the usual rule' : `${Math.round(st.dividend * 100)}% of the surplus`} · machinery still to buy: ${st.capex}`,
+  ];
+  return { lines };
+}
+
+function applySteer(w: World): void {
+  const s = econ(w);
+  for (const st of ready(w).steer ?? []) {
+    const f = s.firms[st.idx];
+    if (!f || f.closed || f.ceo !== st.by) continue;
+    if (st.price !== null) f.price = st.price;
+    if (st.hires !== null) {
+      if (f.staff.length < st.hires) seekStaff(w, f, st.hires);
+      else if (f.staff.length > st.hires) shedStaff(s, f, st.hires);
+    }
+    if (st.capex > 0) st.capex -= buyMachines(w, f, Math.min(st.capex, 2));
+  }
+}
+
+function seekStaff(w: World, f: Firm, n: number): void {
+  const s = econ(w), P = s.P;
+  let taken = 0;
+  for (let i = 0; i < P.n && f.staff.length < n && taken < 4; i++) {
+    if (P.employer[i] >= 0 || !P.adult(w, i) || (P.flags[i] & 4) !== 0) continue;
+    joinFirm(s, i, f);
+    taken++;
+  }
+}
+
+function shedStaff(s: EconState, f: Firm, n: number): void {
+  let sent = 0;
+  while (f.staff.length > n && sent < 4) {
+    const who = f.staff.find((p) => p !== f.ceo);
+    if (who === undefined) break;
+    leaveJob(s, who);
+    sent++;
+  }
+}
+
+function buyMachines(w: World, f: Firm, units: number): number {
+  if (!(units > 0)) return 0;
+  const s = econ(w), L = w.ledger, def = GOODS[f.good];
+  const makers = s.firms.filter((m) => !m.closed && m.good === 'MACHINERY' && m.idx !== f.idx && m.price > 0);
+  if (!def || !makers.length || !L.instruments.has('capital')) return 0;
+  const cpu = Math.max(1, 360 * s.wage / Math.max(0.01, def.prod));
+  const cost = Math.round(Math.min(units, 2) * cpu);
+  const cause = s.macroEv >= 0 ? s.macroEv : w.genesis;
+  if (Math.floor(L.balance(f.id, DEP)) < cost) raiseCash(w, s, f, cost, cause);
+  const have = Math.floor(L.balance(f.id, DEP));
+  if (have < 1) return 0;
+  const spent = Math.min(cost, have);
+  const maker = makers.reduce((a, b) => (b.eff > a.eff ? b : a));
+  const q = spent / maker.price;
+  if (!(q > 1e-8)) return 0;
+  L.produce('good:MACHINERY', maker.id, q, 'invest.build', cause);
+  if (!pay(w, f.id, maker.id, spent, 'invest.buy', cause)) {
+    L.consume('good:MACHINERY', maker.id, q, 'invest.build', cause);
+    return 0;
+  }
+  if (!L.move('good:MACHINERY', maker.id, f.id, q, 'invest.buy', cause)) {
+    pay(w, maker.id, f.id, spent, 'invest.refund', cause);
+    L.consume('good:MACHINERY', maker.id, q, 'invest.build', cause);
+    return 0;
+  }
+  L.consume('good:MACHINERY', f.id, q, 'invest.install', cause);
+  L.produce('capital', f.id, spent / cpu, 'invest.install', cause);
+  maker.mRev += spent; maker.sold += q; s.yGdp += spent; s.mSpend += spent;
+  return spent / cpu;
+}
+
+/** On the last day of the month, set aside the cash a steered firm will not pay out. */
+function parkDividends(w: World): void {
+  if ((w.day + 1) % 30 !== 0) return;
+  const s = econ(w), c = ready(w), L = w.ledger;
+  if (!L.hasActor(HOLD)) L.addActor(HOLD, HOLD);
+  const tax = s.profitTax ?? 0.21;
+  const loanRate = s.policyRate + 0.03;
+  for (const st of c.steer ?? []) {
+    if (st.dividend === null || st.dividend >= 1) continue;
+    const f = s.firms[st.idx];
+    if (!f || f.closed || f.ceo !== st.by) continue;
+    const cash = Math.floor(L.balance(f.id, DEP));
+    const loan = Math.floor((L.issued.get('loan:' + f.id) ?? 0) + (L.issued.get('cf:' + f.id) ?? 0));
+    const interest = Math.round(loan * loanRate / 12);
+    const profit = f.mRev - f.mCost - interest;
+    const duty = interest + (profit > 0 ? Math.round(Math.min(cash, profit * tax)) : 0);
+    const excess = Math.floor(cash - duty - f.eff * s.wage * 30);
+    const repay = excess > 0 ? Math.min(excess, loan) : 0;
+    const dividend = excess - repay;
+    const aside = Math.floor(dividend * (1 - st.dividend));
+    if (aside < 1) continue;
+    const cause = s.macroEv >= 0 ? s.macroEv : w.genesis;
+    if (pay(w, f.id, HOLD, aside, 'dividend.retain', cause)) c.parked?.push({ idx: f.idx, cents: aside });
+  }
+}
+
+function restoreParked(w: World): void {
+  const c = ready(w), s = econ(w);
+  const held = c.parked ?? [];
+  c.parked = [];
+  const cause = s.macroEv >= 0 ? s.macroEv : w.genesis;
+  for (const p of held) {
+    const f = s.firms[p.idx];
+    if (!f || f.closed) pay(w, HOLD, 'bank_1', p.cents, 'dividend.retain', cause);
+    else pay(w, HOLD, f.id, p.cents, 'dividend.retain', cause);
+  }
+}
+
+export function takePublic(w: World, person: number, key: string, fraction: number): { why: string } | { text: string } {
+  const f = findFirm(w, key);
+  if (!f) return { why: 'no such firm' };
+  if (f.ceo !== person && f.founder !== person) return { why: `you do not own ${f.name}` };
+  if (f.listed) return { text: `${f.name} is already listed` };
+  if (f.listOn > 0) return { text: `${f.name} is already filing to list` };
+  const s = econ(w), L = w.ledger, bank = underwriter(w);
+  if (!bank) return { why: 'no bank will underwrite it' };
+  const part = Math.min(0.9, Math.max(0, fraction));
+  if (!(part > 0)) return { why: 'sell part of your stake' };
+  const { price } = offerPrice(w, s, f);
+  const held = stakeOf(w, s.P.id(person), f);
+  if (held < 2) return { why: 'you hold no shares to sell' };
+  const budget = Math.floor(L.balance(bank.id, DEP) * 0.35);
+  const raiseCap = Math.round(f.eff * s.wage * 90);
+  let primary = Math.max(0, Math.min(400, Math.floor(raiseCap / price)));
+  let secondary = Math.min(held - 1, Math.floor(held * part));
+  while (primary > 0 && (primary + secondary) * price > budget) primary--;
+  while (secondary > 0 && (primary + secondary) * price > budget) secondary--;
+  if (secondary < 1) return { why: 'the bank has no room for your shares' };
+  const ev = w.events.emit('firm.ipo', `${bank.id} prices ${f.name} at ${price} cents`, rootOf(s, f), f.id);
+  if (primary > 0) {
+    if (!pay(w, bank.id, f.id, primary * price, 'ipo.primary', ev)) return { why: 'the bank could not pay for the new shares' };
+    L.issue('eq:' + f.id, bank.id, primary, 'ipo.primary', ev);
+  }
+  if (!pay(w, bank.id, s.P.id(person), secondary * price, 'ipo.secondary', ev)) return { why: 'the bank could not pay you' };
+  if (!L.move('eq:' + f.id, s.P.id(person), bank.id, secondary, 'ipo.secondary', ev)) {
+    pay(w, s.P.id(person), bank.id, secondary * price, 'ipo.secondary', ev);
+    return { why: 'your shares did not reach the bank' };
+  }
+  f.listOn = w.day;
+  f.ipoPx = price;
+  f.ipoEv = ev;
+  return { text: `${f.name} lists when the market next opens, through ${bank.id} at ${dollars(price)}; you sell ${secondary} of ${held} shares` };
+}
+
+/** Cash from the person, the firm they run, a margin loan, or the firm borrowing the rest. */
+function fundBid(w: World, person: number, run: Firm | undefined, cost: number, cause: number): string | undefined {
+  const s = econ(w), L = w.ledger, pid = s.P.id(person);
+  const cash = (): number => Math.floor(L.balance(pid, DEP));
+  const till = (): number => run ? Math.floor(L.balance(run.id, DEP)) : 0;
+  if (cash() >= cost) return pid;
+  if (run && till() >= cost) return run.id;
+  if (run && cash() + till() >= cost) {
+    const top = cost - till();
+    if (top > 0 && !pay(w, pid, run.id, top, 'equity.topup', cause)) return;
+    return run.id;
+  }
+  if (cash() < cost) borrowMargin(w, person, cost - cash(), cause);
+  if (cash() >= cost) return pid;
+  if (!run) return;
+  if (till() < cost) raiseCash(w, s, run, cost, cause);
+  if (till() >= cost) return run.id;
+  if (cash() + till() < cost) return;
+  const top = cost - till();
+  if (top > 0 && !pay(w, pid, run.id, top, 'equity.topup', cause)) return;
+  return run.id;
+}
+
+export function tenderOffer(w: World, person: number, key: string, cents: number, multiple: number, paper: boolean): { why: string } | { text: string } {
+  const target = findFirm(w, key);
+  if (!target || !target.listed) return { why: 'that firm is not listed' };
+  const s = econ(w), c = ready(w), L = w.ledger;
+  const q = quote(w, target);
+  const last = q?.last ?? 0;
+  if (!(last > 0)) return { why: 'the shares have no price' };
+  const price = multiple > 0 ? Math.max(1, Math.round(last * multiple)) : Math.round(cents);
+  if (!(price > 0)) return { why: 'name a price' };
+  const run = s.firms.find((f) => !f.closed && f.ceo === person && f.idx !== target.idx && (!paper || f.listed));
+  const pid = s.P.id(person);
+  const holders = holdersOf(w, target);
+  const total = holders.reduce((a, [, n]) => a + n, 0);
+  const board = boardSet(s, target, holders);
+  const mine = new Set<string>([pid]);
+  if (run) mine.add(run.id);
+  const yes: [string, number][] = [];
+  let owned = 0;
+  for (const [id, n] of holders) {
+    if (mine.has(id)) { owned += n; continue; }
+    if (price < hurdle(s, id, last, board.has(id))) continue;
+    if (paper && id.startsWith('p_')) {
+      const i = Number(id.slice(2));
+      if (!(i >= 0 && i < s.P.n && s.P.greed[i] >= 40)) continue;
+    }
+    yes.push([id, n]);
+  }
+  const gaining = yes.reduce((a, [, n]) => a + n, 0);
+  if (!(total > 0) || (owned + gaining) * 2 <= total) return { why: `shareholders of ${target.name} decline ${dollars(price)}` };
+  const cause = w.events.emit('firm.bid', `${s.P.name(person)} bids ${dollars(price)} a share for ${target.name}`, rootOf(s, target), pid);
+  if (paper) {
+    if (!run) return { why: 'a share bid has to come from a listed firm you run' };
+    const bpx = quote(w, run)?.last ?? run.ipoPx;
+    if (!(bpx > 0)) return { why: `${run.name} has no share price to pay with` };
+    for (const [id, n] of yes) {
+      const give = Math.max(1, Math.round(n * price / bpx));
+      L.issue('eq:' + run.id, id, give, 'tender.paper', cause);
+      if (!L.move('eq:' + target.id, id, run.id, n, 'tender.shares', cause)) return { why: 'the shares did not come across' };
+    }
+  } else {
+    const from = fundBid(w, person, run, gaining * price, cause);
+    if (!from) return { why: `${dollars(gaining * price)} is more than you can raise` };
+    for (const [id, n] of yes) {
+      if (!pay(w, from, id, n * price, 'tender.cash', cause)) return { why: 'the cash did not go out' };
+      if (!L.move('eq:' + target.id, id, from, n, 'tender.shares', cause)) return { why: 'the shares did not come across' };
+    }
+  }
+  setChair(c, target, person);
+  c.takenN++;
+  const now = blockOf(w, person, target);
+  w.events.emit('firm.control', `${s.P.name(person)} takes the chair of ${target.name}`, [cause], target.id);
+  return { text: `you take the chair of ${target.name} at ${dollars(price)} a share, holding ${now} of ${total}` };
+}
+
+export function appointChief(w: World, person: number, key: string, who: number): { why: string } | { text: string } {
+  const f = findFirm(w, key);
+  if (!f) return { why: 'no such firm' };
+  const s = econ(w);
+  if (!controls(w, person, f)) return { why: `you do not control ${f.name}` };
+  if (!(who >= 0 && who < s.P.n) || !s.P.adult(w, who)) return { why: 'no such person' };
+  for (const o of s.firms) if (o.ceo === who && o.idx !== f.idx) o.ceo = -1;
+  joinFirm(s, who, f);
+  f.ceo = who;
+  w.events.emit('firm.succession', `${s.P.name(person)} names ${s.P.name(who)} chief executive of ${f.name}`, rootOf(s, f), f.id);
+  return { text: `${s.P.name(who)} is chief executive of ${f.name}` };
+}
+
+export function foldFirm(w: World, person: number, key: string, intoKey: string): { why: string } | { text: string } {
+  const target = findFirm(w, key), into = findFirm(w, intoKey);
+  if (!target || !into) return { why: 'no such firm' };
+  if (target.idx === into.idx) return { why: 'a firm cannot merge with itself' };
+  if (!controls(w, person, target) || !controls(w, person, into)) return { why: 'you have to control both firms' };
+  const s = econ(w);
+  const cause = w.events.emit('firm.takeover', `${into.name} absorbs ${target.name}`, rootOf(s, target), into.id);
+  merge(w, s, into, target, cause);
+  return { text: `${target.name} is merged into ${into.name}` };
+}
+
+export function sellDivision(w: World, person: number, key: string, buyerKey: string): { why: string } | { text: string } {
+  const target = findFirm(w, key), buyer = findFirm(w, buyerKey);
+  if (!target || !buyer) return { why: 'no such firm' };
+  const s = econ(w), L = w.ledger;
+  if (!controls(w, person, target)) return { why: `you do not control ${target.name}` };
+  if (buyer.idx === target.idx) return { why: 'it cannot buy itself' };
+  let rivals = 0;
+  for (const o of s.firms) if (!o.closed && o.idx !== target.idx && o.good === target.good) rivals++;
+  if (!rivals) return { why: `${target.name} is the last maker of ${target.good}` };
+  const def = GOODS[target.good];
+  const cpu = def ? Math.max(1, 360 * s.wage / Math.max(0.01, def.prod)) : 1;
+  const cap = L.instruments.has('capital') ? L.balance(target.id, 'capital') : 0;
+  const price = Math.max(1, Math.round(cap * cpu));
+  const cause = s.macroEv >= 0 ? s.macroEv : w.genesis;
+  if (Math.floor(L.balance(buyer.id, DEP)) < price) raiseCash(w, s, buyer, price, cause);
+  if (Math.floor(L.balance(buyer.id, DEP)) < price) return { why: `${buyer.name} cannot pay ${dollars(price)}` };
+  const ev = w.events.emit('firm.sold', `${buyer.name} buys the business of ${target.name} for ${dollars(price)}`, rootOf(s, target), target.id);
+  if (!pay(w, buyer.id, target.id, price, 'division.sale', ev)) return { why: 'the buyer did not pay' };
+  if (cap > 1e-8) {
+    L.consume('capital', target.id, cap, 'division.plant', ev);
+    L.produce('capital', buyer.id, cap, 'division.plant', ev);
+  }
+  for (const g of Object.keys(GOODS)) {
+    const qty = L.balance(target.id, 'good:' + g);
+    if (qty > 1e-9) L.move('good:' + g, target.id, buyer.id, qty, 'division.stock', ev);
+  }
+  buyer.expSales += target.expSales;
+  target.expSales = 0;
+  for (const p of [...target.staff]) joinFirm(s, p, buyer);
+  closeFirm(w, target, ev);
+  return { text: `${buyer.name} buys ${target.name} for ${dollars(price)} and the shell is wound up` };
+}
+
+/** A board seat is an early look at the profit the street has not heard. */
+function briefBoard(w: World): void {
+  const social = w.state.social as {
+    words?: number;
+    insiderFact?: Int32Array;
+    facts?: { id: number; tag: string; day: number; eventId: number; pub: boolean; drop: boolean; know: { tab: Int32Array | null; mask: number; n: number; bits: Uint32Array | null } | null }[];
+  } | undefined;
+  const player = w.state.player as { who?: number; heard?: { factId: number; eventId: number; from: number; day: number }[] } | undefined;
+  if (!social?.insiderFact || !social.facts || player?.who === undefined || player.who < 0 || !player.heard) return;
+  const who = player.who;
+  const words = social.words ?? 1;
+  for (const post of companyPosts(w, who)) {
+    const f = findFirm(w, post.id);
+    if (!f || f.idx >= social.insiderFact.length) continue;
+    const id = social.insiderFact[f.idx];
+    if (!(id >= 0)) continue;
+    const fact = social.facts[id];
+    if (!fact || fact.pub || fact.drop || fact.tag !== 'insider.profit' || !fact.know) continue;
+    addKnower(fact.know, who, words);
+    if (!player.heard.some((h) => h.factId === fact.id)) player.heard.push({ factId: fact.id, eventId: fact.eventId, from: f.ceo >= 0 ? f.ceo : who, day: fact.day });
+  }
+}
+
+function hashPerson(person: number, mask: number): number {
+  let x = Math.imul(person ^ (person >>> 16), 0x7feb352d);
+  x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
+  x ^= x >>> 16;
+  return (x >>> 0) & mask;
+}
+
+function addKnower(know: { tab: Int32Array | null; mask: number; n: number; bits: Uint32Array | null }, person: number, words: number): void {
+  if (person < 0) return;
+  if (know.bits) {
+    if (know.bits.length < words) {
+      const grown = new Uint32Array(Math.max(words, (person >>> 5) + 1));
+      grown.set(know.bits);
+      know.bits = grown;
+    }
+    const word = person >>> 5;
+    if (word < know.bits.length) know.bits[word] |= 1 << (person & 31);
+    return;
+  }
+  if (!know.tab) return;
+  if ((know.n + 1) * 2 > know.tab.length) {
+    if ((know.tab.length << 1) > words) {
+      const bits = new Uint32Array(Math.max(1, words));
+      for (let i = 0; i < know.tab.length; i++) {
+        const p = know.tab[i];
+        if (p >= 0 && (p >>> 5) < bits.length) bits[p >>> 5] |= 1 << (p & 31);
+      }
+      know.bits = bits; know.tab = null; know.mask = 0;
+      addKnower(know, person, words);
+      return;
+    }
+    const old = know.tab;
+    const tab = new Int32Array(old.length << 1);
+    tab.fill(-1);
+    const mask = tab.length - 1;
+    for (let i = 0; i < old.length; i++) {
+      const p = old[i];
+      if (p < 0) continue;
+      let h = hashPerson(p, mask);
+      while (tab[h] !== -1) h = (h + 1) & mask;
+      tab[h] = p;
+    }
+    know.tab = tab; know.mask = mask;
+  }
+  const tab = know.tab;
+  if (!tab) return;
+  const mask = know.mask;
+  let h = hashPerson(person, mask);
+  while (tab[h] !== -1) {
+    if (tab[h] === person) return;
+    h = (h + 1) & mask;
+  }
+  tab[h] = person;
+  know.n++;
 }

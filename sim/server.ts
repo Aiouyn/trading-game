@@ -158,6 +158,49 @@ function commandOf(body: unknown): Command | string {
       if (days > 360) return 'wait at most one year at a time';
       return { kind: 'wait', days };
     }
+    case 'found': {
+      if (typeof b.name !== 'string' || b.name.trim().length < 2) return 'found needs a name';
+      if (typeof b.sector !== 'string' || !b.sector) return 'found needs a sector';
+      const cents = b.cents === undefined ? 0 : whole(b.cents, 0);
+      if (cents === undefined) return 'cash must be a number of cents';
+      return { kind: 'found', name: b.name, sector: b.sector, cents, loan: b.loan === true };
+    }
+    case 'ceo': {
+      if (typeof b.firm !== 'string' || !b.firm) return 'ceo needs a firm';
+      if (b.op !== 'report' && b.op !== 'price' && b.op !== 'hires' && b.op !== 'dividend' && b.op !== 'invest') return 'ceo op must be report, price, hires, dividend or invest';
+      const cmd: Command = { kind: 'ceo', firm: b.firm, op: b.op, auto: b.auto === true };
+      if (b.value !== undefined) {
+        const value = Number(b.value);
+        if (!Number.isFinite(value) || value < 0) return 'value must be a number';
+        cmd.value = value;
+      }
+      return cmd;
+    }
+    case 'ipo': {
+      if (typeof b.firm !== 'string' || !b.firm) return 'ipo needs a firm';
+      const fraction = Number(b.fraction);
+      if (!Number.isFinite(fraction) || fraction <= 0 || fraction > 0.9) return 'fraction is the part of your stake you sell';
+      return { kind: 'ipo', firm: b.firm, fraction };
+    }
+    case 'bid': {
+      if (typeof b.firm !== 'string' || !b.firm) return 'bid needs a firm';
+      const cents = b.cents === undefined ? 0 : whole(b.cents, 0);
+      const multiple = Number(b.multiple ?? 0);
+      if (cents === undefined || !Number.isFinite(multiple) || multiple < 0) return 'bid needs a price';
+      return { kind: 'bid', firm: b.firm, cents, multiple, paper: b.paper === true };
+    }
+    case 'board': {
+      if (b.op !== 'list' && b.op !== 'chief' && b.op !== 'merge' && b.op !== 'sell') return 'board op must be list, chief, merge or sell';
+      const cmd: Command = { kind: 'board', op: b.op };
+      if (typeof b.firm === 'string') cmd.firm = b.firm;
+      if (b.slot !== undefined) {
+        const slot = whole(b.slot, 0);
+        if (slot === undefined) return 'slot is a contact number';
+        cmd.slot = slot;
+      }
+      if (typeof b.into === 'string') cmd.into = b.into;
+      return cmd;
+    }
     default: return 'unknown command';
   }
 }

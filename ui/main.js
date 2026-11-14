@@ -8,6 +8,7 @@ const PAGES = [
   ['fx', 'FX', '7'],
   ['economy', 'MACRO', '8'],
   ['log', 'LOG', '9'],
+  ['run', 'RUN', '0'],
 ];
 const SPEEDS = [['pause', 'PAUSE'], ['day', '1D'], ['week', '1W'], ['month', '1M']];
 const SPEED_ORDER = ['pause', 'day', 'week', 'month'];
@@ -232,6 +233,11 @@ function onSubmit(ev) {
   if (!(form instanceof HTMLFormElement)) return;
   ev.preventDefault();
   if (form.id === 'ticket') submitTicket();
+  else if (form.id === 'found-form') submitFound(form);
+  else if (form.id === 'ceo-form') submitCeo(form);
+  else if (form.id === 'ipo-form') submitIpo(form);
+  else if (form.id === 'bid-form') submitBid(form);
+  else if (form.id === 'board-form') submitBoard(form);
 }
 function onChange() { /* selects keep their own state */ }
 
@@ -252,7 +258,8 @@ async function postAct(cmd) {
   const res = await fetch('/act', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cmd) });
   const data = await res.json();
   if (data.view) S.view = data.view;
-  note(data.status === 'rejected' ? (data.why || 'rejected') : (data.text || 'accepted'), data.status === 'rejected');
+  const said = data.text || (Array.isArray(data.lines) ? data.lines.join(' · ') : '');
+  note(data.status === 'rejected' ? (data.why || 'rejected') : (said || 'accepted'), data.status === 'rejected');
   if (S.page === 'desk') { paintChrome(); patchDesk(); }
   else { await renderMain(); paintChrome(); }
   return data;
@@ -771,6 +778,99 @@ async function ensureHistory() {
   return S.history;
 }
 
+const SECTORS = ['ENERGY', 'AGRICULTURE', 'MINING', 'METALS', 'CHEMICALS', 'CONSTRUCTION', 'MANUFACTURING', 'TECHNOLOGY', 'TRANSPORT', 'RETAIL', 'HEALTHCARE', 'FINANCE', 'MEDIA'];
+
+function renderRun() {
+  const rows = (S.view?.companies ?? []).map((c) => `<tr>
+    <td><a href="#firm/${encodeURIComponent(c.id)}">${esc(c.name)}</a> <span class="dim">${esc(c.id)}</span></td>
+    <td>${esc(c.role)}</td>
+    <td class="num">${c.workers}</td>
+    <td class="num">${money(c.cash)}</td>
+    <td class="num">${money(c.sales)}</td>
+    <td class="num">${money(c.cost)}</td>
+    <td class="num">${money(c.profit)}</td>
+    <td>${c.listed ? 'listed' : 'private'}</td>
+    <td class="num">${c.stake}/${c.shares}</td>
+    <td class="dim">${esc(c.quote)} · hire ${esc(c.hire)} · div ${esc(c.dividend)}</td>
+  </tr>`).join('');
+  const sectors = SECTORS.map((s) => `<option>${s}</option>`).join('');
+  return `<div class="ticket">
+    <h2>Companies</h2>
+    <table class="grid">
+      <thead><tr><th>Firm</th><th>Seat</th><th>Staff</th><th>Cash</th><th>Sales</th><th>Costs</th><th>Profit</th><th></th><th>Stake</th><th>Policy</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="10" class="dim">you run nothing yet</td></tr>'}</tbody>
+    </table>
+    <form id="found-form"><b>Found</b>
+      <input name="name" placeholder="name" required>
+      <select name="sector">${sectors}</select>
+      <input name="cash" type="number" min="0" step="1" placeholder="dollars">
+      <label><input name="loan" type="checkbox"> loan</label>
+      <button type="submit">found</button>
+    </form>
+    <form id="ceo-form"><b>Run</b>
+      <input name="firm" placeholder="firm" required>
+      <select name="op"><option>report</option><option>price</option><option>hires</option><option>dividend</option><option>invest</option></select>
+      <input name="value" placeholder="value">
+      <label><input name="auto" type="checkbox"> usual rule</label>
+      <button type="submit">set</button>
+    </form>
+    <form id="ipo-form"><b>List</b>
+      <input name="firm" placeholder="firm" required>
+      <input name="fraction" type="number" min="0.01" max="0.9" step="0.01" value="0.4" required>
+      <button type="submit">ipo</button>
+    </form>
+    <form id="bid-form"><b>Bid</b>
+      <input name="firm" placeholder="firm" required>
+      <input name="price" placeholder="12.50 or 2x" required>
+      <select name="how"><option>cash</option><option>shares</option></select>
+      <button type="submit">bid</button>
+    </form>
+    <form id="board-form"><b>Board</b>
+      <select name="op"><option>list</option><option>chief</option><option>merge</option><option>sell</option></select>
+      <input name="firm" placeholder="firm">
+      <input name="into" placeholder="buyer / into / slot">
+      <button type="submit">do</button>
+    </form>
+  </div>`;
+}
+
+function field(form, name) { return String(new FormData(form).get(name) ?? '').trim(); }
+
+function submitFound(form) {
+  const cash = Number(field(form, 'cash'));
+  postAct({ kind: 'found', name: field(form, 'name'), sector: field(form, 'sector'), cents: Number.isFinite(cash) && cash > 0 ? Math.round(cash * 100) : 0, loan: form.loan.checked });
+}
+function submitCeo(form) {
+  const op = field(form, 'op');
+  const cmd = { kind: 'ceo', firm: field(form, 'firm'), op, auto: form.auto.checked };
+  const raw = field(form, 'value');
+  if (!cmd.auto && raw) {
+    if (op === 'price') cmd.value = Math.round(Number(raw) * 100);
+    else if (op === 'dividend') cmd.value = Number(raw);
+    else cmd.value = Math.round(Number(raw));
+  }
+  postAct(cmd);
+}
+function submitIpo(form) {
+  postAct({ kind: 'ipo', firm: field(form, 'firm'), fraction: Number(field(form, 'fraction')) });
+}
+function submitBid(form) {
+  const raw = field(form, 'price').toLowerCase();
+  const mult = /^(\d+(?:\.\d+)?)x$/.exec(raw);
+  const cmd = { kind: 'bid', firm: field(form, 'firm'), cents: 0, multiple: 0, paper: field(form, 'how') === 'shares' };
+  if (mult) cmd.multiple = Number(mult[1]);
+  else cmd.cents = Math.round(Number(raw) * 100);
+  postAct(cmd);
+}
+function submitBoard(form) {
+  const op = field(form, 'op');
+  const cmd = { kind: 'board', op, firm: field(form, 'firm') };
+  const into = field(form, 'into');
+  if (op === 'chief') cmd.slot = Number(into);
+  else if (into) cmd.into = into;
+  postAct(cmd);
+}
+
 async function renderMain() {
   const main = document.getElementById('main');
   if (!main) return;
@@ -813,6 +913,7 @@ async function renderMain() {
     requestAnimationFrame(bindMacroCanvases);
     return;
   }
+  if (S.page === 'run') { main.innerHTML = renderRun(); return; }
   if (S.page === 'log') {
     main.innerHTML = '<div class="dim">reading the chronicle…</div>';
     await ensureHistory();
@@ -960,7 +1061,7 @@ document.addEventListener('keydown', (ev) => {
     return;
   }
   if (typing) return;
-  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log' };
+  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'run' };
   if (goKey[ev.key]) { go(goKey[ev.key]); return; }
   if (ev.key === 'j' || ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
   else if (ev.key === 'k' || ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }

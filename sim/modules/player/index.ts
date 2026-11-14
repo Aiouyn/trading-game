@@ -4,6 +4,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { borrowMargin, depositSight, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
+import { appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { launchCoin, orderCoin } from '../crypto/index.ts';
 import { BANK, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
 import { joinFirm } from '../economy/people.ts';
@@ -38,7 +39,12 @@ export type Command =
   | { kind: 'ask'; slot: number; firm: string }
   | { kind: 'news' }
   | { kind: 'why'; id: number }
-  | { kind: 'wait'; days: number };
+  | { kind: 'wait'; days: number }
+  | { kind: 'found'; name: string; sector: string; cents: number; loan: boolean }
+  | { kind: 'ceo'; firm: string; op: 'report' | 'price' | 'hires' | 'dividend' | 'invest'; value?: number; auto?: boolean }
+  | { kind: 'ipo'; firm: string; fraction: number }
+  | { kind: 'bid'; firm: string; cents: number; multiple: number; paper: boolean }
+  | { kind: 'board'; op: 'list' | 'chief' | 'merge' | 'sell'; firm?: string; slot?: number; into?: string };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -79,6 +85,7 @@ export interface PlayerView {
   news: Line[];
   private: Priv[];
   score: ScorePoint[];
+  companies: CompanyPost[];
 }
 
 const FUTURES: Record<string, string> = {
@@ -392,6 +399,46 @@ export function act(w: World, cmd: Command): ActResult {
     case 'wait':
       if (!Number.isSafeInteger(cmd.days) || cmd.days < 1) return rejected('wait needs a length of time');
       return { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
+    case 'found': {
+      const r = foundCompany(w, i, cmd.name, cmd.sector.toUpperCase(), cmd.cents, cmd.loan);
+      if ('why' in r) return rejected(r.why);
+      return { status: 'accepted', text: `you found ${r.name} (${r.id}), making ${r.good}` };
+    }
+    case 'ceo': {
+      const r = steerCompany(w, i, cmd.firm, cmd.op, cmd.value, cmd.auto === true);
+      if ('why' in r) return rejected(r.why);
+      return { status: 'accepted', lines: r.lines };
+    }
+    case 'ipo': {
+      const r = takePublic(w, i, cmd.firm, cmd.fraction);
+      if ('why' in r) return rejected(r.why);
+      return { status: 'accepted', text: r.text };
+    }
+    case 'bid': {
+      const r = tenderOffer(w, i, cmd.firm, cmd.cents, cmd.multiple, cmd.paper);
+      if ('why' in r) return rejected(r.why);
+      return { status: 'accepted', text: r.text };
+    }
+    case 'board': {
+      if (cmd.op === 'list') {
+        const rows = companyPosts(w, i);
+        const lines = rows.length ? rows.map((c) => `${c.role} of ${c.name} (${c.id}) — ${c.stake} of ${c.shares} shares, ${c.listed ? 'listed' : 'private'}, profit $${(c.profit / 100).toFixed(2)}`) : ['you hold no board seat'];
+        return { status: 'accepted', lines };
+      }
+      if (!cmd.firm) return rejected('name the firm');
+      if (cmd.op === 'chief') {
+        const slot = cmd.slot ?? -1;
+        const who = contactsOf(w, i).find((c) => c.slot === slot)?.who;
+        if (who === undefined) return rejected('no such contact');
+        const r = appointChief(w, i, cmd.firm, who);
+        if ('why' in r) return rejected(r.why);
+        return { status: 'accepted', text: r.text };
+      }
+      if (!cmd.into) return rejected(cmd.op === 'merge' ? 'name the firm it folds into' : 'name the buyer');
+      const r = cmd.op === 'merge' ? foldFirm(w, i, cmd.firm, cmd.into) : sellDivision(w, i, cmd.firm, cmd.into);
+      if ('why' in r) return rejected(r.why);
+      return { status: 'accepted', text: r.text };
+    }
     default: {
       const never: never = cmd;
       return never;
@@ -502,6 +549,7 @@ export function view(w: World): PlayerView {
     marginPosted: i >= 0 ? Math.round(w.ledger.balance(id, 'cmdty:margin')) : 0,
     stockLoans: st.loans.map((l) => ({ instr: l.instr, qty: l.qty, face: l.face, eventId: arrived })),
     orders, contacts, prices, news, private: priv, bonds, score: st.score,
+    companies: i >= 0 ? companyPosts(w, i) : [],
   };
 }
 

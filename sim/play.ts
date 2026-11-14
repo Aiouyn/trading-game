@@ -116,6 +116,79 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!days) return { error: 'usage: wait 1d|1w|1m|1y' };
     return { kind: 'wait', days };
   }
+  if (head === 'found') {
+    const cut = t.indexOf('/');
+    if (cut < 2 || !t[cut + 1]) return { error: 'usage: found NAME / SECTOR [DOLLARS] [loan]' };
+    const name = t.slice(1, cut).join(' ');
+    const sector = t[cut + 1].toUpperCase();
+    let cents = 0;
+    let loan = false;
+    for (const tok of t.slice(cut + 2)) {
+      if (tok.toLowerCase() === 'loan') loan = true;
+      else {
+        const c = centsOf(tok);
+        if (!c) return { error: 'dollars must be positive' };
+        cents = c;
+      }
+    }
+    return { kind: 'found', name, sector, cents, loan };
+  }
+  if (head === 'ceo') {
+    if (!t[1]) return { error: 'usage: ceo FIRM [price DOLLARS|auto | hires N|auto | dividend FRACTION|auto | invest UNITS]' };
+    const firm = t[1];
+    if (!t[2]) return { kind: 'ceo', firm, op: 'report' };
+    const op = t[2].toLowerCase();
+    if (op !== 'price' && op !== 'hires' && op !== 'dividend' && op !== 'invest') return { error: 'ceo sets price, hires, dividend or invest' };
+    const raw = t[3]?.toLowerCase();
+    if (!raw) return { error: 'missing value' };
+    if (raw === 'auto') {
+      if (op === 'invest') return { error: 'invest needs a number of machines' };
+      return { kind: 'ceo', firm, op, auto: true };
+    }
+    if (op === 'price') {
+      const cents = centsOf(raw);
+      if (!cents) return { error: 'price is in dollars' };
+      return { kind: 'ceo', firm, op, value: cents };
+    }
+    if (op === 'hires' || op === 'invest') {
+      const n = Number(raw);
+      if (!Number.isSafeInteger(n) || n < 1) return { error: 'that needs a whole number' };
+      return { kind: 'ceo', firm, op, value: n };
+    }
+    const fraction = Number(raw);
+    if (!Number.isFinite(fraction) || fraction < 0 || fraction > 1) return { error: 'dividend is a fraction from 0 to 1' };
+    return { kind: 'ceo', firm, op: 'dividend', value: fraction };
+  }
+  if (head === 'ipo') {
+    if (!t[1] || !t[2]) return { error: 'usage: ipo FIRM FRACTION' };
+    const fraction = Number(t[2]);
+    if (!Number.isFinite(fraction) || fraction <= 0 || fraction > 0.9) return { error: 'fraction is the part of your stake you sell, above 0 and at most 0.9' };
+    return { kind: 'ipo', firm: t[1], fraction };
+  }
+  if (head === 'bid') {
+    if (!t[1] || !t[2] || !t[3]) return { error: 'usage: bid FIRM DOLLARS|Nx cash|shares' };
+    const how = t[3].toLowerCase();
+    if (how !== 'cash' && how !== 'shares') return { error: 'pay cash or shares' };
+    const mult = /^(\d+(?:\.\d+)?)x$/.exec(t[2].toLowerCase());
+    if (mult) return { kind: 'bid', firm: t[1], cents: 0, multiple: Number(mult[1]), paper: how === 'shares' };
+    const cents = centsOf(t[2]);
+    if (!cents) return { error: 'name a price in dollars, or a multiple like 2x' };
+    return { kind: 'bid', firm: t[1], cents, multiple: 0, paper: how === 'shares' };
+  }
+  if (head === 'board') {
+    if (!t[1] || t[1].toLowerCase() === 'list') return { kind: 'board', op: 'list' };
+    const op = t[1].toLowerCase();
+    if (op === 'chief') {
+      const slot = Number(t[3]);
+      if (!t[2] || !Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: board chief FIRM SLOT' };
+      return { kind: 'board', op: 'chief', firm: t[2], slot };
+    }
+    if (op === 'merge' || op === 'sell') {
+      if (!t[2] || !t[3]) return { error: op === 'merge' ? 'usage: board merge FIRM INTO' : 'usage: board sell FIRM BUYER' };
+      return { kind: 'board', op, firm: t[2], into: t[3] };
+    }
+    return { error: 'usage: board | board chief FIRM SLOT | board merge FIRM INTO | board sell FIRM BUYER' };
+  }
   return { error: `unknown command ${head}` };
 }
 
@@ -134,6 +207,7 @@ function summary(v: PlayerView): string[] {
   const news = v.news.slice(-3);
   if (news.length) lines.push('  news: ' + news.map((n) => `[${n.eventId}] ${n.text}`).join(' | '));
   if (v.private.length) lines.push('  private: ' + v.private.map((p) => `[${p.eventId}] ${p.from} day ${p.day}: ${p.text}`).join(' | '));
+  if (v.companies.length) lines.push('  companies: ' + v.companies.map((c) => `${c.role} ${c.name} (${c.id}) ${c.workers} workers cash ${dollars(c.cash)} sales ${dollars(c.sales)} profit ${dollars(c.profit)} ${c.listed ? 'listed' : 'private'}`).join(' | '));
   if (v.contacts.length) lines.push('  contacts: ' + v.contacts.map((c) => `${c.slot} ${c.name.split(' ')[0]} ${c.kind} ${c.trust}`).join(', '));
   return lines;
 }
