@@ -160,19 +160,27 @@ export function thought(w: World, s: EconState, i: number, raw: number, what: st
   }
 }
 
+/** Careers keeps a headcount of occupations. `joined` is false when `person` leaves `firmIdx`. Absent, hiring is unchanged. */
+export type StaffHook = (firmIdx: number, person: number, occ: number, joined: boolean) => void;
+let staffHook: StaffHook | undefined;
+export function setStaffHook(fn: StaffHook): void { staffHook = fn; }
+
 export function leaveJob(s: EconState, i: number): void {
   const P = s.P, e = P.employer[i];
   if (e < 0) return;
   const f = s.firms[e], k = P.staffPos[i], last = f.staff.length - 1;
   if (k !== last) { const moved = f.staff[last]; f.staff[k] = moved; P.staffPos[moved] = k; } // swap-remove: O(1)
   f.staff.pop(); f.eff -= labourOf(P, i, simDay) * appliedScale(e); f.workers = f.staff.length;
+  const occ = P.occ[i], idx = f.idx;
   P.employer[i] = -1; P.staffPos[i] = -1;
+  staffHook?.(idx, i, occ, false);
 }
 export function joinFirm(s: EconState, i: number, f: Firm): void {
   const P = s.P;
   leaveJob(s, i);
   P.employer[i] = f.idx; P.staffPos[i] = f.staff.length; P.jobless[i] = 0;
   f.staff.push(i); f.eff += labourOf(P, i, simDay) * appliedScale(f.idx); f.workers = f.staff.length;
+  staffHook?.(f.idx, i, P.occ[i], true);
 }
 
 const DEG = 16;

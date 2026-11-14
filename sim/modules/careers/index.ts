@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOV, pay, setHireHook, type EconState, type Firm } from '../economy/index.ts';
-import { ALIVE, labourOf, leaveJob, retargetLabour, thought } from '../economy/people.ts';
+import { ALIVE, labourOf, leaveJob, retargetLabour, setStaffHook, thought } from '../economy/people.ts';
 import { PLAYER } from '../player/index.ts';
 import { knows } from '../social/index.ts';
 
@@ -74,7 +74,11 @@ function paySkill(i: number, occ: number, years: number, P: EconState['P']): num
 }
 
 function groupOf(sector: string): string { return GROUP[sector] ?? 'PLANT'; }
+const targetCache = new Map<string, number[]>();
 function targets(sector: string, n: number): number[] {
+  const key = sector + ':' + n;
+  const hit = targetCache.get(key);
+  if (hit) return hit;
   const g = groupOf(sector);
   const raw = OCC.map((o, k) => (k === 0 ? 0 : o.share[g] ?? 0));
   const out = raw.map((s) => Math.floor(s * n));
@@ -84,6 +88,7 @@ function targets(sector: string, n: number): number[] {
     if (frac[i].k === 0) continue;
     out[frac[i].k]++; left--;
   }
+  targetCache.set(key, out);
   return out;
 }
 function qualifies(school: number, occ: number, ceo: boolean): boolean {
@@ -126,28 +131,44 @@ function educate(w: World, i: number): void {
   P.occ[i] = 0; P.occYrs[i] = 0;
 }
 
+const RANK: number[] = [];
+for (let k = 1; k < OCC.length; k++) RANK.push(k);
+RANK.sort((a, b) => OCC[b].rank - OCC[a].rank || a - b);
+
+/** One stamp array, reused. A person is taken for this firm when the stamp equals the generation. */
+let usedStamp = new Int32Array(0);
+let usedGen = 1;
+function taken(i: number): boolean { return i < usedStamp.length && usedStamp[i] === usedGen; }
+function take(i: number): void {
+  if (usedStamp.length <= i) {
+    const next = new Int32Array(Math.max(i + 1, usedStamp.length * 2));
+    next.set(usedStamp);
+    usedStamp = next;
+  }
+  usedStamp[i] = usedGen;
+}
+
 function assignFirm(w: World, f: Firm): void {
   const P = econ(w).P, staff = f.staff, n = staff.length;
   if (!n) return;
   const want = targets(f.sector, n);
-  const left = new Set(staff);
-  const order: number[] = [];
-  for (let k = 1; k < OCC.length; k++) order.push(k);
-  order.sort((a, b) => OCC[b].rank - OCC[a].rank);
-  for (const k of order) {
-    let need = want[k];
-    while (need > 0 && left.size) {
-      let best = -1, sc = -1e9;
-      for (const i of left) {
-        if (!qualifies(P.school[i], k, i === f.ceo)) continue;
-        const scv = P.skill[i] + (i === f.ceo ? 2 : 0);
-        if (scv > sc || (scv === sc && (best < 0 || i < best))) { sc = scv; best = i; }
-      }
-      if (best < 0) break;
-      P.occ[best] = k; left.delete(best); need--;
+  const order = staff.slice();
+  order.sort((a, b) => {
+    const sa = P.skill[a] + (a === f.ceo ? 2 : 0);
+    const sb = P.skill[b] + (b === f.ceo ? 2 : 0);
+    return sb - sa || a - b;
+  });
+  if (++usedGen === 0x7fffffff) { usedStamp = new Int32Array(usedStamp.length); usedGen = 1; }
+  for (const k of RANK) {
+    let need = want[k] ?? 0;
+    if (!(need > 0)) continue;
+    for (let t = 0; t < order.length && need > 0; t++) {
+      const i = order[t];
+      if (taken(i) || !qualifies(P.school[i], k, i === f.ceo)) continue;
+      P.occ[i] = k; take(i); need--;
     }
   }
-  for (const i of left) P.occ[i] = LAB;
+  for (let t = 0; t < staff.length; t++) if (!taken(staff[t])) P.occ[staff[t]] = LAB;
   let sum0 = 0, sumW = 0;
   const wgt = new Float64Array(n);
   for (let k = 0; k < n; k++) {
@@ -165,10 +186,27 @@ function assignFirm(w: World, f: Firm): void {
   }
 }
 
+/** Headcount for one firm. Joins and leaves update it; a promotion or a retrain throws it away. */
+let cacheF = -1;
+let cacheOk = false;
+let cacheHave: number[] = [];
+
+function bustOcc(): void { cacheOk = false; }
+function noteStaff(firmIdx: number, _person: number, occ: number, joined: boolean): void {
+  if (!cacheOk || cacheF !== firmIdx) return;
+  if (occ > 0 && occ < cacheHave.length) cacheHave[occ] += joined ? 1 : -1;
+}
 function haveOcc(f: Firm, P: EconState['P']): number[] {
-  const have = OCC.map(() => 0);
-  for (const i of f.staff) if (P.occ[i] > 0 && P.occ[i] < OCC.length) have[P.occ[i]]++;
-  return have;
+  if (cacheOk && cacheF === f.idx) return cacheHave;
+  if (cacheHave.length !== OCC.length) cacheHave = OCC.map(() => 0);
+  else cacheHave.fill(0);
+  const occ = P.occ, staff = f.staff, h = cacheHave, m = h.length;
+  for (let k = 0; k < staff.length; k++) {
+    const o = occ[staff[k]];
+    if (o > 0 && o < m) h[o]++;
+  }
+  cacheF = f.idx; cacheOk = true;
+  return h;
 }
 function pickOcc(w: World, f: Firm, person: number): number {
   const P = econ(w).P;
@@ -188,7 +226,13 @@ function onHire(w: World, person: number, f: Firm): void {
   if (P.school[person] < 6) P.school[person] = schoolFromSkill(P.skill[person]);
   const prev = P.occ[person];
   const occ = pickOcc(w, f, person);
-  if (occ !== prev) P.occYrs[person] = 0;
+  if (occ !== prev) {
+    if (cacheOk && cacheF === f.idx) {
+      if (prev > 0 && prev < cacheHave.length) cacheHave[prev]--;
+      if (occ > 0 && occ < cacheHave.length) cacheHave[occ]++;
+    }
+    P.occYrs[person] = 0;
+  }
   P.occ[person] = occ;
   setSkill(w, person, paySkill(person, occ, P.occYrs[person], P));
 }
@@ -204,7 +248,7 @@ function liked(w: World, person: number, chief: number): number {
 }
 function promote(w: World, cause: number): void {
   const st = book(w), s = econ(w), P = s.P;
-  let noted = 0;
+  let noted = 0, dirty = false;
   for (const f of s.firms) {
     if (f.closed || f.staff.length < 6) continue;
     const have = haveOcc(f, P);
@@ -223,13 +267,14 @@ function promote(w: World, cause: number): void {
       const from = OCC[P.occ[best]]?.name ?? 'the floor';
       P.occYrs[best] = 0; P.occ[best] = seat;
       setSkill(w, best, paySkill(best, seat, 0, P));
-      have[seat]++; st.yPromo++;
+      have[seat]++; st.yPromo++; dirty = true;
       if (noted < 16) {
         const ev = w.events.emit('career.promotion', `${P.name(best)} is promoted from ${from} to ${OCC[seat].name} at ${f.name}`, [cause, f.ceoEv ?? cause], P.id(best));
         P.lastEv[best] = ev; thought(w, s, best, -50, 'a promotion', ev); noted++;
       }
     }
   }
+  if (dirty) bustOcc();
 }
 
 function retrain(w: World, cause: number): void {
@@ -264,6 +309,7 @@ function retrain(w: World, cause: number): void {
   }
   st.scan = (start + 89) % Math.max(1, P.n);
   if (!moved) return;
+  bustOcc();
   st.yRetrain += moved;
   w.events.emit('career.retrain', `${moved} ${OCC[surplus].name}s retrain as ${OCC[short].name}s, where firms are short`, [cause]);
 }
@@ -378,6 +424,8 @@ export const careers: Module = {
     const s = econ(w), P = s.P;
     const st: Book = { seen: 0, poorLine: 1, scan: 0, openEv: 0, yPromo: 0, yEmigr: 0, yImmigr: 0, yRetrain: 0 };
     w.state.careers = st;
+    cacheOk = false; cacheF = -1;
+    setStaffHook(noteStaff);
     setHireHook(onHire);
     for (let i = 0; i < P.n; i++) {
       if (!P.alive(i)) continue;
