@@ -12,6 +12,7 @@ import { markets } from './modules/markets/index.ts';
 import { options } from './modules/options/index.ts';
 import { funds } from './modules/funds/index.ts';
 import { commodities } from './modules/commodities/index.ts';
+import { energy } from './modules/energy/index.ts';
 import { social } from './modules/social/index.ts';
 import { media } from './modules/media/index.ts';
 import { psyche } from './modules/psyche/index.ts';
@@ -39,7 +40,9 @@ export function useModules(w: World, without: Set<string>): void {
   for (const m of [bonds, markets]) if (!without.has(m.id)) w.use(m);
   if (!without.has('options')) w.use(options);
   if (!without.has('funds')) w.use(funds);
-  for (const m of [commodities, social]) if (!without.has(m.id)) w.use(m);
+  if (!without.has(commodities.id)) w.use(commodities);
+  if (!without.has(energy.id)) w.use(energy);
+  if (!without.has(social.id)) w.use(social);
   if (!without.has('media')) w.use(media);
   for (const m of [psyche]) if (!without.has(m.id)) w.use(m);
   if (!without.has('careers')) w.use(careers);

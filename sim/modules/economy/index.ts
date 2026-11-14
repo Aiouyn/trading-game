@@ -107,6 +107,15 @@ export type HireHook = (w: World, person: number, firm: Firm) => void;
 let hireHook: HireHook | undefined;
 export function setHireHook(fn: HireHook): void { hireHook = fn; }
 
+/** Energy sets this. A plant fleet can cap today's output. Absent, production is unchanged. */
+export type PowerHook = (w: World, f: Firm, planned: number) => number;
+let powerHook: PowerHook | undefined;
+export function setPowerHook(fn: PowerHook): void { powerHook = fn; }
+function gridPass(w: World): number {
+  const px = (w.state.energy as { pass?: number } | undefined)?.pass;
+  return px !== undefined && px > 0 ? px : 0;
+}
+
 function borrow(w: World, s: EconState, f: Firm, cents: number, cause: number): boolean {
   const lend = (w.state.banking as { lendFirm?: (w: World, s: EconState, f: Firm, cents: number, cause: number) => boolean } | undefined)?.lendFirm;
   if (!lend) return false;
@@ -230,7 +239,9 @@ function unitCost(w: World, s: EconState, f: Firm, prodEff: number): number {
     const fs = firmsOf(s, g);
     const dom = fs.length ? Math.min(...fs.map((x) => x.price)) : 0;
     if (!(dom > 0)) continue;
-    c += k * (port ? port.landed(w, g, dom) : dom);
+    let use = port ? port.landed(w, g, dom) : dom;
+    if (g === 'ELECTRICITY') use += gridPass(w);
+    c += k * use;
   }
   return c;
 }
@@ -490,6 +501,10 @@ export const economy: Module = {
       // Without an input a firm improvises at a heavy cost: it can still make 30% of capacity. This keeps supply loops
       // (power needs coal, coal mines need power) from locking at zero forever after a bust.
       out = Math.max(out, 0.3 * full);
+      if (powerHook && w.state.energy) {
+        const capped = powerHook(w, f, out);
+        if (capped < out) out = Math.max(0, capped);
+      }
       f.mCost += f.eff * s.wage;
       out = Math.max(0, out); f.made = out;
       L.produce(GOOD_INSTR[f.good], f.id, out, 'production', cause);
