@@ -416,7 +416,12 @@ export const economy: Module = {
     const gaps = s.firms.map((f) => {
       if (f.closed) return 0;
       const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
-      const target = d.perishable ? f.expSales * 1.03 : f.expSales + (f.expSales * invDays(f) - inv(w, f)) / 10;
+      // Stock above the plan slows the line, and a short shelf rebuilds it, but only by a quarter.
+      // An unbound correction treats a few weeks of unsold goods as a closed plant: the firm fires
+      // most of its staff in a month and hires them back when the pile finally sells.
+      const stockGap = (f.expSales * invDays(f) - inv(w, f)) / 10;
+      const bent = Math.max(-0.25 * f.expSales, Math.min(0.25 * f.expSales, stockGap));
+      const target = d.perishable ? f.expSales * 1.03 : Math.max(0, f.expSales + bent);
       // Capacity is the tighter of staff and installed machinery. Without a capital stock yet, labour still sets it.
       const ceiling = w.ledger.instruments.has(CAPITAL) ? w.ledger.balance(f.id, CAPITAL) * mult : Infinity;
       return Math.min(Math.max(0, target), ceiling) / prodEff - f.eff;
@@ -505,8 +510,11 @@ export const economy: Module = {
         }
         if (pay(w, f.id, GOV, tax, 'tax.income', cause)) s.taxToday += tax;
         if (frac < 1) {
-          const ev = w.events.emit('firm.cashCrunch', `no cash and no credit: paid ${(frac * 100).toFixed(0)}% of wages and cut a sixth of the staff`, [f.priceEv ?? cause], f.id);
-          for (let k = Math.floor(f.staff.length / 6); k > 0 && f.staff.length > 1; k--) {
+          // A till that is a few percent short used to shed a sixth of the staff anyway, so a
+          // payroll that almost cleared still produced a mass layoff and a rehire within the year.
+          const shed = Math.min(1 / 6, 1 - frac);
+          const ev = w.events.emit('firm.cashCrunch', `no cash and no credit: paid ${(frac * 100).toFixed(0)}% of wages and cut ${(shed * 100).toFixed(0)}% of the staff`, [f.priceEv ?? cause], f.id);
+          for (let k = Math.max(1, Math.floor(f.staff.length * shed)); k > 0 && f.staff.length > 1; k--) {
             let j = f.staff.length - 1; if (f.staff[j] === f.ceo) j--;
             const p = f.staff[j]; leaveJob(s, p); P.lastEv[p] = ev;
           }
