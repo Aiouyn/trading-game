@@ -70,6 +70,47 @@ const econ = (w: World): EconState => w.state.economy as EconState;
 const book = (w: World): MktState => w.state.markets as MktState;
 
 function cash(w: World, actor: string): number { return w.ledger.balance(actor, DEP); }
+
+// Open orders by actor, instrument and source, so a quote refresh does not scan the whole book.
+const byActor = new Map<string, Map<string, Map<Src, Order[]>>>();
+const bookLists = new Map<string, Order[]>();
+function ordersFor(actor: string, instr: string, src: Src, create: boolean): Order[] | undefined {
+  let byInstr = byActor.get(actor);
+  if (!byInstr) {
+    if (!create) return undefined;
+    byInstr = new Map();
+    byActor.set(actor, byInstr);
+  }
+  let bySrc = byInstr.get(instr);
+  if (!bySrc) {
+    if (!create) return undefined;
+    bySrc = new Map();
+    byInstr.set(instr, bySrc);
+  }
+  let list = bySrc.get(src);
+  if (!list) {
+    if (!create) return undefined;
+    list = [];
+    bySrc.set(src, list);
+  }
+  return list;
+}
+function indexOrder(o: Order): void {
+  ordersFor(o.actor, o.instr, o.src, true)!.push(o);
+}
+function resetOrderIndex(): void {
+  byActor.clear();
+  for (const list of bookLists.values()) list.length = 0;
+}
+function compactOrders(m: MktState): void {
+  if (m.orders.length <= 500) return;
+  const a = m.orders;
+  let w = 0;
+  for (let i = 0; i < a.length; i++) if (a[i].open) a[w++] = a[i];
+  a.length = w;
+  byActor.clear();
+  for (let i = 0; i < w; i++) indexOrder(a[i]);
+}
 function sharesOut(w: World, instr: string): number { return w.ledger.issued.get(instr) ?? SHARES; }
 
 function goodPrice(s: EconState, good: string): number {
@@ -155,11 +196,15 @@ function place(w: World, actor: string, instr: string, side: Side, qty: number, 
   const m = book(w);
   const o: Order = { id: m.nextId++, actor, instr, side, qty, limit, seq: m.seq++, open: true, skip: false, src };
   m.orders.push(o);
+  indexOrder(o);
   return o.id;
 }
 
 function cancelSrc(w: World, actor: string, instr: string, src: Src): void {
-  for (const o of book(w).orders) if (o.open && o.actor === actor && o.instr === instr && o.src === src) o.open = false;
+  const list = ordersFor(actor, instr, src, false);
+  if (!list) return;
+  for (let i = 0; i < list.length; i++) list[i].open = false;
+  list.length = 0;
 }
 
 function noiseQty(w: World, stream: string, qty: number): number {
@@ -288,16 +333,31 @@ function matchBook(w: World, st: Stock, mine: Order[]): void {
 }
 
 function matchAll(w: World): void {
-  const m = book(w), by = new Map<string, Order[]>();
-  for (const o of m.orders) { if (!o.open) continue; const l = by.get(o.instr); if (l) l.push(o); else by.set(o.instr, [o]); }
-  for (const st of m.stocks) { const l = by.get(st.instr); if (l) matchBook(w, st, l); }
+  for (const list of bookLists.values()) list.length = 0;
+  const m = book(w);
+  const orders = m.orders;
+  for (let i = 0; i < orders.length; i++) {
+    const o = orders[i];
+    if (!o.open) continue;
+    let list = bookLists.get(o.instr);
+    if (!list) { list = []; bookLists.set(o.instr, list); }
+    list.push(o);
+  }
+  const stocks = m.stocks;
+  for (let i = 0; i < stocks.length; i++) {
+    const list = bookLists.get(stocks[i].instr);
+    if (list && list.length) matchBook(w, stocks[i], list);
+  }
 }
 
 function mmQuotes(w: World, fund: Fund): void {
   const stream = 'mkt:' + fund.id;
-  for (const st of book(w).stocks) {
+  const L = w.ledger, me = L.slot(fund.id);
+  const stocks = book(w).stocks;
+  for (let i = 0; i < stocks.length; i++) {
+    const st = stocks[i];
     cancelSrc(w, fund.id, st.instr, 'mm');
-    const held = w.ledger.balance(fund.id, st.instr);
+    const held = L.balS(me, st.instr);
     const invGap = (held - st.targetInv) / Math.max(1, st.targetInv);
     const vol = volOf(st);
     const half = Math.min(0.008, 0.0025 * (1 + Math.min(3, Math.abs(invGap)) + Math.min(3, vol * 40)));
@@ -307,22 +367,37 @@ function mmQuotes(w: World, fund: Fund): void {
     const bid = Math.max(1, mid - width);
     const ask = mid + width;
     const size = noiseQty(w, stream, Math.max(30, Math.round(90 * (1 + Math.min(2, vol * 15)))));
-    if (cash(w, fund.id) >= bid) place(w, fund.id, st.instr, 'buy', size, bid, 'mm');
+    if (L.balS(me, DEP) >= bid) place(w, fund.id, st.instr, 'buy', size, bid, 'mm');
     if (held > 0) place(w, fund.id, st.instr, 'sell', Math.min(size, held), ask, 'mm');
   }
 }
 
 /** Hit a resting order that is already through the quote. Selling a bid above the market is the MM's job. */
+function bestIn(orders: Order[], side: Side): Order | undefined {
+  let win: Order | undefined;
+  for (let i = 0; i < orders.length; i++) {
+    const o = orders[i];
+    if (!o.open || o.skip || o.side !== side || o.qty < 1) continue;
+    if (!win) { win = o; continue; }
+    const better = side === 'buy'
+      ? bidRank(o) > bidRank(win) || (bidRank(o) === bidRank(win) && o.seq < win.seq)
+      : askRank(o) < askRank(win) || (askRank(o) === askRank(win) && o.seq < win.seq);
+    if (better) win = o;
+  }
+  return win;
+}
+
 function mmTake(w: World, fund: Fund): void {
   const m = book(w);
   for (const st of m.stocks) {
-    const bid = best(m.orders, st.instr, 'buy');
+    const mine = bookLists.get(st.instr);
+    const bid = mine ? bestIn(mine, 'buy') : best(m.orders, st.instr, 'buy');
     if (bid && bid.actor !== fund.id && bid.limit !== null && bid.limit > st.last * 1.02) {
       const qty = Math.min(80, w.ledger.balance(fund.id, st.instr), bid.qty);
       if (qty >= 1) place(w, fund.id, st.instr, 'sell', qty, null, 'mm');
       continue;
     }
-    const ask = best(m.orders, st.instr, 'sell');
+    const ask = mine ? bestIn(mine, 'sell') : best(m.orders, st.instr, 'sell');
     if (ask && ask.actor !== fund.id && ask.limit !== null && ask.limit < st.last * 0.98) {
       const qty = Math.min(80, Math.floor(cash(w, fund.id) / Math.max(1, ask.limit)), ask.qty);
       if (qty >= 1) place(w, fund.id, st.instr, 'buy', qty, null, 'mm');
@@ -444,6 +519,7 @@ export const markets: Module = {
   id: 'markets',
 
   init(w) {
+    resetOrderIndex();
     const s = econ(w);
     const funds: Fund[] = [
       { id: 'fund_value', style: 'value', premium: 0.04 },
@@ -525,7 +601,8 @@ export const markets: Module = {
   tick(w, t) {
     if (t === 0) { updateEmas(w); markWide(w); }
     const m = book(w);
-    if (m.orders.length > 500) m.orders = m.orders.filter((o) => o.open);
+    if (byActor.size === 0) for (let i = 0; i < m.orders.length; i++) if (m.orders[i].open) indexOrder(m.orders[i]);
+    compactOrders(m);
     // On a repricing morning the value limits rest first, so a quote that crosses them prints at that limit.
     if (t === 0) for (const f of m.funds) if (f.style === 'value') valueOrders(w, f, t);
     for (const f of m.funds) if (f.style === 'mm') mmQuotes(w, f);

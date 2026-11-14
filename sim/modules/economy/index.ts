@@ -11,7 +11,7 @@
 // state in w.state.economy, money only through the ledger, every event with a cause.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { CEO_POSITION, FIRM_DEFS, GOODS, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
-import { People, PRISON, joinFirm, leaveJob, succession, thought, yearlyLifePass } from './people.ts';
+import { People, PRISON, joinFirm, leaveJob, seekCopy, seekCount, seekLive, seekPromote, seekRebuild, seekReset, setSimDay, succession, thought, yearlyLifePass } from './people.ts';
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
 export const BANK = 'bank_1', GOV = 'gov', CB = 'cb', CLEAR = 'clearing';
@@ -239,6 +239,7 @@ export const economy: Module = {
   id: 'economy',
 
   init(w) {
+    seekReset();
     const L = w.ledger, g = w.genesis;
     L.addActor(CB, 'centralbank'); L.addActor(GOV, 'government'); L.addActor(BANK, 'bank');
     L.define({ id: DEP, kind: 'money', issuer: BANK });
@@ -374,6 +375,7 @@ export const economy: Module = {
 
   dayClose(w) {
     firmLists = new Map();
+    setSimDay(w.day);
     const s: EconState = w.state.economy, L = w.ledger;
     for (const f of s.firms) { f.sold = 0; f.lost = 0; }
     s.taxToday = 0; s.pensionToday = 0;
@@ -395,14 +397,11 @@ export const economy: Module = {
     // The day's job seekers, in a rotating order so hiring is spread fairly.
     const adultBorn = w.day - 18 * DAYS_PER_YEAR;
     const nP = P.n, ptr = s.hirePtr;
-    if (seekBuf.length < nP) seekBuf = new Int32Array(nP);
-    const empA = P.employer, flgA = P.flags, bornA = P.born;
-    let ns = 0;
-    for (let k = 0; k < nP; k++) {
-      const i = ptr + k < nP ? ptr + k : ptr + k - nP;
-      const fl = flgA[i];
-      if (empA[i] < 0 && (fl & 1) !== 0 && (fl & 6) === 0 && bornA[i] <= adultBorn) seekBuf[ns++] = i;
-    }
+    if (!seekLive()) seekRebuild(P, adultBorn);
+    else seekPromote(P, adultBorn);
+    const nsNeed = seekCount();
+    if (seekBuf.length < nsNeed) seekBuf = new Int32Array(Math.max(nsNeed, 16));
+    const ns = seekCopy(ptr, seekBuf);
     const keep = Math.ceil(ns * MATCH_RATE);
     let sp = 0;
     s.hirePtr = (ptr + 97) % Math.max(1, nP);

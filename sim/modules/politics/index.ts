@@ -223,11 +223,10 @@ function dovishOf(party: Party, P: People, governor: number): number {
   return clip(pulled + personal, 0, 1);
 }
 
-function leanOf(w: World, i: number): void {
+function leanOf(st: Pol, soc: Soc | undefined, i: number): void {
   LEAN.fill(0);
-  const soc = w.state.social as Soc | undefined;
   if (!soc || i >= soc.cap) return;
-  const st = pol(w), b = i * DEG;
+  const b = i * DEG;
   for (let k = 0; k < DEG; k++) {
     const c = soc.contact[b + k];
     if (c < 0 || c >= st.partyOf.length) continue;
@@ -237,17 +236,10 @@ function leanOf(w: World, i: number): void {
   }
 }
 
-function utility(w: World, i: number, p: number, infl: number): number {
-  const s = econ(w), st = pol(w), P = s.P, party = PARTIES[p];
-  const retired = (P.flags[i] & 2) !== 0;
-  const job = P.employer[i] >= 0 && !retired;
-  const wealth = w.ledger.balS(P.slot[i], DEP);
+function utility(s: EconState, st: Pol, p: number, infl: number, wealth: number, retired: boolean, job: boolean, ch: number, home: number): number {
+  const party = PARTIES[p];
   const rich = wealth > s.wage * 900;
   const poor = wealth < s.wage * 80;
-  const base = st.incSnap[i];
-  const ch = base > 1 ? clip(realInc(s, i) / base - 1, -0.4, 0.4) : 0;
-  const bloc = mix(i, 3, 11) % 100;
-  const home = bloc < 34 ? 0 : bloc < 67 ? 1 : 2;
   let u = p === home ? 0.55 : 0;
   if (!job && !retired) u += party.benefit * 3.1 - party.tax * 0.5;
   else u += (0.2 - party.tax) * 1.5 + (0.42 - party.benefit) * 0.25;
@@ -266,31 +258,39 @@ function utility(w: World, i: number, p: number, infl: number): number {
 }
 
 function tally(w: World, cast: boolean): Poll {
-  const s = econ(w), st = pol(w), P = s.P;
+  const s = econ(w), st = pol(w), P = s.P, L = w.ledger;
   const votes = new Float64Array(PARTIES.length);
   const infl = yoyOf(s);
+  const soc = w.state.social as Soc | undefined;
+  const cpi = Math.max(0.2, s.cpi);
   let turned = 0, eligible = 0;
   const salt = st.elections.length + 1;
+  const nParty = PARTIES.length;
   for (let i = 0; i < P.n; i++) {
     if (!canVote(P, w, i)) continue;
     eligible++;
     const retired = (P.flags[i] & 2) !== 0;
-    const jobless = P.employer[i] < 0 && !retired;
+    const job = P.employer[i] >= 0 && !retired;
     const base = st.incSnap[i];
-    const ch = base > 1 ? Math.abs(realInc(s, i) / base - 1) : 0;
+    const ratio = base > 1 ? P.incEma[i] / cpi / base - 1 : 0;
+    const chAbs = base > 1 ? Math.abs(ratio) : 0;
     let pTurn = 58;
-    if (jobless) pTurn += 12;
+    if (!job && !retired) pTurn += 12;
     if (retired) pTurn += 6;
     if (P.age(w, i) > 50) pTurn += 8;
     if (P.stress[i] > 140) pTurn -= 12;
-    if (ch > 0.08) pTurn += 6;
+    if (chAbs > 0.08) pTurn += 6;
     pTurn = clip(pTurn, 28, 90);
     if (mix(i, salt, 5) % 100 >= pTurn) continue;
     turned++;
-    leanOf(w, i);
+    leanOf(st, soc, i);
+    const wealth = L.balS(P.slot[i], DEP);
+    const ch = base > 1 ? clip(ratio, -0.4, 0.4) : 0;
+    const bloc = mix(i, 3, 11) % 100;
+    const home = bloc < 34 ? 0 : bloc < 67 ? 1 : 2;
     let best = 0, bs = -1e18;
-    for (let p = 0; p < PARTIES.length; p++) {
-      const sc = utility(w, i, p, infl);
+    for (let p = 0; p < nParty; p++) {
+      const sc = utility(s, st, p, infl, wealth, retired, job, ch, home);
       if (sc > bs) { bs = sc; best = p; }
     }
     votes[best]++;
@@ -401,12 +401,45 @@ function donations(w: World): void {
     if (ideo === st.gov) give(f.id, st.gov, amt, f.ceo, f.idx, sec);
     else { give(f.id, st.gov, amt * 0.7, f.ceo, f.idx, sec); give(f.id, ideo, amt * 0.3, f.ceo, f.idx, -1); }
   }
-  const rich: number[] = [];
-  for (let i = 0; i < P.n; i++) if (P.alive(i)) rich.push(i);
-  rich.sort((a, b) => L.balS(P.slot[b], DEP) - L.balS(P.slot[a], DEP) || a - b);
-  for (let k = 0; k < rich.length && k < 40; k++) {
-    const i = rich[k];
-    const bal = L.balS(P.slot[i], DEP);
+  // The forty richest living people. A heap keeps the same set the full sort used to, then those forty are ordered.
+  const hi = new Int32Array(40), hb = new Float64Array(40);
+  let hn = 0;
+  const siftUp = (p: number): void => {
+    while (p > 0) {
+      const parent = (p - 1) >> 1;
+      const d = hb[p] - hb[parent];
+      if (!(d < 0 || (d === 0 && hi[p] > hi[parent]))) break;
+      const ti = hi[p]; hi[p] = hi[parent]; hi[parent] = ti;
+      const tb = hb[p]; hb[p] = hb[parent]; hb[parent] = tb;
+      p = parent;
+    }
+  };
+  const siftDown = (p: number): void => {
+    for (;;) {
+      let m = p;
+      const l = p * 2 + 1, r = l + 1;
+      if (l < hn) { const d = hb[l] - hb[m]; if (d < 0 || (d === 0 && hi[l] > hi[m])) m = l; }
+      if (r < hn) { const d = hb[r] - hb[m]; if (d < 0 || (d === 0 && hi[r] > hi[m])) m = r; }
+      if (m === p) break;
+      const ti = hi[p]; hi[p] = hi[m]; hi[m] = ti;
+      const tb = hb[p]; hb[p] = hb[m]; hb[m] = tb;
+      p = m;
+    }
+  };
+  for (let i = 0; i < P.n; i++) {
+    if (!P.alive(i)) continue;
+    const b = L.balS(P.slot[i], DEP);
+    if (hn < 40) { hi[hn] = i; hb[hn] = b; hn++; siftUp(hn - 1); continue; }
+    const d0 = hb[0] - b;
+    if (d0 < 0 || (d0 === 0 && hi[0] > i)) { hi[0] = i; hb[0] = b; siftDown(0); }
+  }
+  const richI = new Int32Array(hn), richB = new Float64Array(hn);
+  for (let k = 0; k < hn; k++) { richI[k] = hi[k]; richB[k] = hb[k]; }
+  const ord = Array.from({ length: hn }, (_, k) => k);
+  ord.sort((a, b) => richB[b] - richB[a] || richI[a] - richI[b]);
+  for (let k = 0; k < hn; k++) {
+    const i = richI[ord[k]];
+    const bal = richB[ord[k]];
     const spare = bal - s.wage * 500;
     if (spare <= 0) continue;
     let party = st.gov, score = -1e9;

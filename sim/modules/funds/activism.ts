@@ -13,8 +13,10 @@ function causeOf(w: World, f: Fund): number {
 
 function roomIn(w: World, instr: string): number {
   let room = 0;
-  for (const [hid, n] of w.ledger.holders(instr)) {
-    if (!hid.startsWith('p_')) continue;
+  const ids = w.ledger.ids;
+  for (const [slot, n] of w.ledger.holdersS(instr)) {
+    const hid = ids[slot];
+    if (!hid || !hid.startsWith('p_')) continue;
     const spare = n - Math.max(20, Math.floor(n * 0.35));
     if (spare >= 8) room += spare;
   }
@@ -26,8 +28,10 @@ function takeStake(w: World, f: Fund, instr: string, need: number, last: number)
   const px = Math.max(1, Math.round(last * 1.02));
   if (cashOf(w, f.id) < need * px) return false;
   const sellers: { id: string; room: number }[] = [];
-  for (const [hid, n] of w.ledger.holders(instr)) {
-    if (!hid.startsWith('p_')) continue;
+  const ids = w.ledger.ids;
+  for (const [slot, n] of w.ledger.holdersS(instr)) {
+    const hid = ids[slot];
+    if (!hid || !hid.startsWith('p_')) continue;
     const room = n - Math.max(20, Math.floor(n * 0.35));
     if (room >= 8) sellers.push({ id: hid, room });
   }

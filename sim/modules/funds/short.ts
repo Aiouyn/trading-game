@@ -71,8 +71,10 @@ function publish(w: World, f: Fund, b: Borrow): void {
 function locate(w: World, f: Fund, b: Borrow, need: number, cause: number): void {
   if (need < 1) return;
   let lender = '', have = 0;
-  for (const [id, n] of w.ledger.holders(b.instr)) {
-    if (!id.startsWith('p_') || n < have) continue;
+  const ids = w.ledger.ids;
+  for (const [slot, n] of w.ledger.holdersS(b.instr)) {
+    const id = ids[slot];
+    if (!id || !id.startsWith('p_') || n < have) continue;
     const spare = n - Math.max(80, Math.floor(n * 0.55));
     if (spare > have) { have = spare; lender = id; }
   }

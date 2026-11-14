@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOV, pay, setHireHook, type EconState, type Firm } from '../economy/index.ts';
-import { ALIVE, labourOf, leaveJob, retargetLabour, setStaffHook, thought } from '../economy/people.ts';
+import { ALIVE, labourOf, leaveJob, retargetLabour, seekRefresh, setStaffHook, thought } from '../economy/people.ts';
 import { PLAYER } from '../player/index.ts';
 import { knows } from '../social/index.ts';
 
@@ -331,6 +331,7 @@ function depart(w: World, i: number, cause: number): boolean {
   }
   leaveJob(s, i);
   P.flags[i] &= ~ALIVE;
+  seekRefresh(P, i);
   P.migrant[i] = 2; P.occ[i] = 0;
   return true;
 }

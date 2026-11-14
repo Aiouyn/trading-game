@@ -19,7 +19,7 @@ export class Ledger {
   actors = new Map<string, string>();                 // id -> kind
   instruments = new Map<string, Instrument>();
   issued = new Map<string, number>();
-  flows = new Map<string, number>();                  // reason -> cumulative amount
+  flows = new Map<string, number>();                  // unused: postings no longer write it; nothing in the sim reads it
   journal: Posting[] = [];
   journalCap = 0; // set > 0 to keep the last postings for debugging
   day = 0;
@@ -112,11 +112,7 @@ export class Ledger {
     this.journal.push({ day: this.day, op, instr, from: from >= 0 ? this.ids[from] : undefined, to: to >= 0 ? this.ids[to] : undefined, amount, reason, cause });
     if (this.journal.length > this.journalCap) this.journal.splice(0, this.journalCap >> 1);
   }
-  private flow(reason: string, amount: number): void {
-    this.flows.set(reason, (this.flows.get(reason) ?? 0) + amount);
-  }
   private log(op: Posting['op'], instr: string, from: number, to: number, amount: number, reason: string, cause: number): void {
-    this.flow(reason, amount);
     if (this.journalCap) this.jot(op, instr, from, to, amount, reason, cause);
   }
 
@@ -126,7 +122,7 @@ export class Ledger {
     const dep = instr === 'dep' ? this._dep : null;
     if (dep && typeof cause === 'number' && Number.isSafeInteger(amount) && amount >= 0) {
       if (amount === 0) return;
-      dep[to] += amount; this.issued.set(instr, this.issued.get(instr)! + amount); this.flow(reason, amount);
+      dep[to] += amount; this.issued.set(instr, this.issued.get(instr)! + amount);
       if (this.journalCap) this.jot('issue', instr, -1, to, amount, reason, cause);
       return;
     }
@@ -142,7 +138,7 @@ export class Ledger {
     if (dep && typeof cause === 'number' && Number.isSafeInteger(amount) && amount >= 0) {
       if (amount === 0) return true;
       if (dep[from] < amount) return false;
-      dep[from] -= amount; this.issued.set(instr, this.issued.get(instr)! - amount); this.flow(reason, amount);
+      dep[from] -= amount; this.issued.set(instr, this.issued.get(instr)! - amount);
       if (this.journalCap) this.jot('redeem', instr, from, -1, amount, reason, cause);
       return true;
     }
@@ -160,7 +156,7 @@ export class Ledger {
     if (dep && typeof cause === 'number' && Number.isSafeInteger(amount) && amount >= 0) {
       if (amount === 0 || from === to) return true;
       if (dep[from] < amount - 1e-9) return false;
-      dep[from] -= amount; dep[to] += amount; this.flow(reason, amount);
+      dep[from] -= amount; dep[to] += amount;
       if (this.journalCap) this.jot('move', instr, from, to, amount, reason, cause);
       return true;
     }

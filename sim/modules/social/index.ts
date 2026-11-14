@@ -48,6 +48,7 @@ interface Fact {
   profit: number;
   bad: boolean;
   intensity: number;
+  what: string;
   hold: number;
   pub: boolean;
   drop: boolean;
@@ -475,6 +476,11 @@ function whatOf(w: World, fact: Fact): string {
   }
 }
 
+function whatCached(w: World, fact: Fact): string {
+  if (fact.what) return fact.what;
+  fact.what = whatOf(w, fact);
+  return fact.what;
+}
 function personAt(w: World, st: Social, slot: number): number {
   const of = st.personOf;
   if (slot >= 0 && slot < of.length) {
@@ -537,7 +543,7 @@ function react(w: World, st: Social, fact: Fact, person: number): void {
     raw = Math.round(raw * Math.min(1, 4 * stake / wealth));
   }
   if (raw <= 0) return;
-  thought(w, econ(w), person, raw, whatOf(w, fact), fact.eventId);
+  thought(w, econ(w), person, raw, whatCached(w, fact), fact.eventId);
 }
 function reactUnaware(w: World, fact: Fact): void {
   if (!fact.bad) return;
@@ -660,7 +666,7 @@ function openFact(w: World, tag: Tag, eventId: number, msg: string, shock: Shock
   const t = tone(tag, msg, profit, shock);
   const fact: Fact = {
     id: st.facts.length, eventId, day: w.day, year: w.year, tag, msg, firms: [], instrs: [], shock, profit,
-    bad: t.bad, intensity: t.intensity, hold: t.hold, pub: false, drop: false, pubDay: -1, first: -1, firstDay: w.day, know: null,
+    bad: t.bad, intensity: t.intensity, hold: t.hold, what: '', pub: false, drop: false, pubDay: -1, first: -1, firstDay: w.day, know: null,
   };
   st.facts.push(fact);
   st.yCreated++;

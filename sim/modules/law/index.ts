@@ -5,7 +5,7 @@
 // be wrong in both directions. Fines move on the ledger. Prison is a flag.
 import { DAYS_PER_MONTH, type Module, type World } from '../../kernel/index.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
-import { PRISON, leaveJob, setSimDay, succession, thought } from '../economy/people.ts';
+import { PRISON, leaveJob, seekRefresh, setSimDay, succession, thought } from '../economy/people.ts';
 import { discountForNews, submitOrder } from '../markets/index.ts';
 import { knows, reportCase } from '../social/index.ts';
 
@@ -306,7 +306,7 @@ function release(w: World): void {
   const st = lawOf(w), P = econ(w).P, keep: number[] = [];
   for (const i of st.cells) {
     if (!P.alive(i) || (i < st.freeAt.length && st.freeAt[i] >= 0 && w.day >= st.freeAt[i])) {
-      if (i >= 0 && i < P.n) P.flags[i] &= ~PRISON;
+      if (i >= 0 && i < P.n) { P.flags[i] &= ~PRISON; seekRefresh(P, i); }
       if (i < st.freeAt.length) st.freeAt[i] = -1;
       continue;
     }
@@ -719,6 +719,7 @@ function imprison(w: World, person: number, months: number, cause: number): void
   setSimDay(w.day);
   leaveJob(econ(w), person);
   P.flags[person] |= PRISON;
+  seekRefresh(P, person);
   const until = w.day + months * DAYS_PER_MONTH;
   if (st.freeAt[person] < until) st.freeAt[person] = until;
   if (!st.cells.includes(person)) st.cells.push(person);

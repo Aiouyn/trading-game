@@ -92,6 +92,7 @@ export class People {
     this.school[i] = 0; this.occ[i] = 0; this.occYrs[i] = 0; this.poor[i] = 0; this.migrant[i] = 0; this.apt[i] = 0;
     this.slot[i] = w.ledger.addActor('p_' + i, 'person');
     if (mother >= 0) this.linkChild(mother, father, i);
+    seekRefresh(this, i);
     return i;
   }
   /** Record i as the child of a and b. Children form a linked list from parent a (firstKid / nextSib). */
@@ -121,6 +122,145 @@ let thoughtHook: ThoughtHook | undefined;
 export function setThoughtHook(fn: ThoughtHook): void { thoughtHook = fn; }
 
 let simDay = 0;
+
+// Job seekers, in person-index order, and children who are not seekers yet. Hiring walks the seeker
+// list instead of every person. A second world in this process calls seekReset from economy init.
+let seekAt = new Int32Array(0);
+let seekN = 0;
+let minorAt = new Int32Array(0);
+let minorN = 0;
+let seekOn = false;
+
+export function seekReset(): void { seekOn = false; seekN = 0; minorN = 0; }
+export function seekLive(): boolean { return seekOn; }
+export function seekCount(): number { return seekN; }
+
+function growAt(buf: Int32Array, need: number): Int32Array {
+  let n = Math.max(16, buf.length || 16);
+  while (n < need) n *= 2;
+  const a = new Int32Array(n);
+  a.set(buf);
+  return a;
+}
+function seekInsert(i: number): void {
+  let lo = 0, hi = seekN;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (seekAt[mid] < i) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo < seekN && seekAt[lo] === i) return;
+  if (seekN >= seekAt.length) seekAt = growAt(seekAt, seekN + 1);
+  seekAt.copyWithin(lo + 1, lo, seekN);
+  seekAt[lo] = i;
+  seekN++;
+}
+function seekRemove(i: number): void {
+  let lo = 0, hi = seekN;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (seekAt[mid] < i) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo >= seekN || seekAt[lo] !== i) return;
+  seekAt.copyWithin(lo, lo + 1, seekN);
+  seekN--;
+}
+function minorInsert(P: People, i: number): void {
+  const born = P.born[i];
+  let lo = 0, hi = minorN;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const j = minorAt[mid];
+    const jb = P.born[j];
+    if (jb < born || (jb === born && j < i)) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo < minorN && minorAt[lo] === i) return;
+  if (minorN >= minorAt.length) minorAt = growAt(minorAt, minorN + 1);
+  minorAt.copyWithin(lo + 1, lo, minorN);
+  minorAt[lo] = i;
+  minorN++;
+}
+function minorRemove(P: People, i: number): void {
+  const born = P.born[i];
+  let lo = 0, hi = minorN;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const j = minorAt[mid];
+    const jb = P.born[j];
+    if (jb < born || (jb === born && j < i)) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo >= minorN || minorAt[lo] !== i) return;
+  minorAt.copyWithin(lo, lo + 1, minorN);
+  minorN--;
+}
+function adultLine(): number { return simDay - ADULT_AGE * DAYS_PER_YEAR; }
+function canSeek(P: People, i: number, line: number): boolean {
+  const fl = P.flags[i];
+  return P.employer[i] < 0 && (fl & 1) !== 0 && (fl & 6) === 0 && P.born[i] <= line;
+}
+
+/** Put person i on the seeker list, the minor list, or neither, matching the hiring scan. */
+export function seekRefresh(P: People, i: number): void {
+  if (!seekOn || i < 0 || i >= P.n) return;
+  const line = adultLine();
+  if (canSeek(P, i, line)) { minorRemove(P, i); seekInsert(i); return; }
+  seekRemove(i);
+  const fl = P.flags[i];
+  if ((fl & 1) !== 0 && P.born[i] > line) minorInsert(P, i);
+  else minorRemove(P, i);
+}
+
+/** Build both lists from the people arrays. Used on the first morning and after a fresh world. */
+export function seekRebuild(P: People, line: number): void {
+  seekOn = false;
+  seekN = 0;
+  minorN = 0;
+  if (seekAt.length < P.n) seekAt = new Int32Array(P.n);
+  if (minorAt.length < P.n) minorAt = new Int32Array(P.n);
+  for (let i = 0; i < P.n; i++) {
+    const fl = P.flags[i];
+    if ((fl & 1) === 0) continue;
+    if (P.employer[i] < 0 && (fl & 6) === 0 && P.born[i] <= line) seekAt[seekN++] = i;
+    else if (P.born[i] > line) minorAt[minorN++] = i;
+  }
+  const tmp = Array.from(minorAt.subarray(0, minorN));
+  tmp.sort((a, b) => P.born[a] - P.born[b] || a - b);
+  minorAt.set(tmp);
+  seekOn = true;
+}
+
+/** Children who turned 18 since the last morning join the seeker list, in index order. */
+export function seekPromote(P: People, line: number): void {
+  if (!seekOn) return;
+  let cut = 0;
+  while (cut < minorN && P.born[minorAt[cut]] <= line) cut++;
+  if (!cut) return;
+  for (let k = 0; k < cut; k++) {
+    const i = minorAt[k];
+    if (canSeek(P, i, line)) seekInsert(i);
+  }
+  minorAt.copyWithin(0, cut, minorN);
+  minorN -= cut;
+}
+
+/** Seekers in the rotating order the old full scan used: from `ptr` upward, then from 0. */
+export function seekCopy(ptr: number, buf: Int32Array): number {
+  const n = seekN;
+  let lo = 0, hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (seekAt[mid] < ptr) lo = mid + 1;
+    else hi = mid;
+  }
+  let ns = 0;
+  for (let k = lo; k < n; k++) buf[ns++] = seekAt[k];
+  for (let k = 0; k < lo; k++) buf[ns++] = seekAt[k];
+  return ns;
+}
+
 let effScaled = false;
 const firmScale: number[] = [];
 export function setSimDay(d: number): void { simDay = d; }
@@ -167,13 +307,14 @@ export function setStaffHook(fn: StaffHook): void { staffHook = fn; }
 
 export function leaveJob(s: EconState, i: number): void {
   const P = s.P, e = P.employer[i];
-  if (e < 0) return;
+  if (e < 0) { seekRefresh(P, i); return; }
   const f = s.firms[e], k = P.staffPos[i], last = f.staff.length - 1;
   if (k !== last) { const moved = f.staff[last]; f.staff[k] = moved; P.staffPos[moved] = k; } // swap-remove: O(1)
   f.staff.pop(); f.eff -= labourOf(P, i, simDay) * appliedScale(e); f.workers = f.staff.length;
   const occ = P.occ[i], idx = f.idx;
   P.employer[i] = -1; P.staffPos[i] = -1;
   staffHook?.(idx, i, occ, false);
+  seekRefresh(P, i);
 }
 export function joinFirm(s: EconState, i: number, f: Firm): void {
   const P = s.P;
@@ -181,6 +322,7 @@ export function joinFirm(s: EconState, i: number, f: Firm): void {
   P.employer[i] = f.idx; P.staffPos[i] = f.staff.length; P.jobless[i] = 0;
   f.staff.push(i); f.eff += labourOf(P, i, simDay) * appliedScale(f.idx); f.workers = f.staff.length;
   staffHook?.(f.idx, i, P.occ[i], true);
+  seekRefresh(P, i);
 }
 
 const DEG = 16;
