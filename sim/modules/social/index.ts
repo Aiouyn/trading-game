@@ -538,10 +538,10 @@ function reactUnaware(w: World, fact: Fact): void {
   if (fact.hold <= 0) return;
   for (let i = 0; i < fact.instrs.length; i++) forHolders(w, st, fact.instrs[i], once);
 }
-function publish(w: World, fact: Fact): void {
+function release(w: World, fact: Fact, quiet = false): void {
   if (fact.pub || fact.drop) return;
   const st = soc(w);
-  reactUnaware(w, fact);
+  if (!quiet) reactUnaware(w, fact);
   fact.pub = true;
   fact.pubDay = w.day;
   fact.know = null;
@@ -580,7 +580,7 @@ function learn(w: World, fact: Fact, person: number): void {
   if (fact.first < 0) { fact.first = person; fact.firstDay = w.day; }
   remember(st, person, fact.id);
   react(w, st, fact, person);
-  if (fact.know.n >= st.need) publish(w, fact);
+  if (fact.know.n >= st.need) release(w, fact);
 }
 function staffCount(w: World, fact: Fact): number {
   const firms = econ(w).firms;
@@ -620,7 +620,7 @@ function seed(w: World, fact: Fact, withHolders: boolean): void {
   noteFirst(w, fact);
   const staffN = staffCount(w, fact);
   if (staffN >= st.need || (withHolders && circleReaches(w, fact))) {
-    publish(w, fact);
+    release(w, fact);
     return;
   }
   const firms = econ(w).firms;
@@ -870,7 +870,15 @@ export function reportCase(w: World, person: number, eventId: number, msg: strin
   if (firm < 0 || !msg) return;
   const fact = openFact(w, 'law.case', eventId, msg, null, 0);
   attachFirm(w, fact, firm);
-  publish(w, fact);
+  release(w, fact);
+}
+
+/** The newsroom prints a fact it has already learned. The crowd's own shock stays on the path where a fact spreads by itself. */
+export function publish(w: World, factId: number): void {
+  const st = w.state.social as Social | undefined;
+  if (!st || factId < 0 || factId >= st.facts.length) return;
+  const fact = st.facts[factId];
+  if (fact) release(w, fact, true);
 }
 
 export interface SharedFact { factId: number; eventId: number; msg: string; from: number; day: number }

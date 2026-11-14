@@ -1,0 +1,29 @@
+The papers. Readership is how many people in a hundred buy it. Leaning runs from -1 to 1.
+A serious paper waits for a second source. A sensational one will print a single source, and sometimes the wrong way.
+
+[OBJECT:OUTLET]
+
+[OUTLET:HERALD]
+[NAME:The Daily Herald]
+[FIRM:DAILY_HERALD]
+[READERSHIP:42]
+[LEANING:0]
+[SERIOUS]
+
+[OUTLET:MERCURY]
+[NAME:The City Mercury]
+[READERSHIP:22]
+[LEANING:-1]
+[SENSATIONAL]
+
+[OUTLET:LEDGER]
+[NAME:The Commercial Ledger]
+[READERSHIP:22]
+[LEANING:1]
+[SERIOUS]
+
+[OUTLET:GAZETTE]
+[NAME:The Evening Gazette]
+[READERSHIP:14]
+[LEANING:0]
+[SENSATIONAL]
