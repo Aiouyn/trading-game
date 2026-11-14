@@ -12,6 +12,9 @@ import { type EconState } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
 
 const DEG = 16;
+const NO_PX = (_instr: string): number => 0;
+let ceoBuf = new Int32Array(0);
+let ceoOn: Int32Array | null = null;
 const TALKS = 2;
 /** Offsets inside Social.bond: slot p's respect is bond[p * 4 + B_RESPECT]. */
 export const B_RESPECT = 0, B_FEAR = 1, B_LOYALTY = 2, B_FRIEND = 3;
@@ -245,9 +248,24 @@ function claim(st: Social, i: number): boolean {
   return true;
 }
 function findContact(st: Social, i: number, who: number): number {
+  const c = st.contact;
   const b = i * DEG;
-  const contact = st.contact;
-  for (let k = 0; k < DEG; k++) if (contact[b + k] === who) return k;
+  if (c[b] === who) return 0;
+  if (c[b + 1] === who) return 1;
+  if (c[b + 2] === who) return 2;
+  if (c[b + 3] === who) return 3;
+  if (c[b + 4] === who) return 4;
+  if (c[b + 5] === who) return 5;
+  if (c[b + 6] === who) return 6;
+  if (c[b + 7] === who) return 7;
+  if (c[b + 8] === who) return 8;
+  if (c[b + 9] === who) return 9;
+  if (c[b + 10] === who) return 10;
+  if (c[b + 11] === who) return 11;
+  if (c[b + 12] === who) return 12;
+  if (c[b + 13] === who) return 13;
+  if (c[b + 14] === who) return 14;
+  if (c[b + 15] === who) return 15;
   return -1;
 }
 function place(st: Social, a: number, b: number, fam: number, trust: number, kind: number): void {
@@ -496,7 +514,7 @@ function wealthOf(w: World, person: number, px: ((i: string) => number) | undefi
     if (st.wealthMemo && st.wealthDay) { a.set(st.wealthMemo); d.set(st.wealthDay); }
     st.wealthMemo = a; st.wealthDay = d;
   }
-  if (w.day - st.wealthDay![person] >= 30) { st.wealthMemo[person] = w.ledger.netWorth(econ(w).P.id(person), px ?? (() => 0)); st.wealthDay![person] = w.day; }
+  if (w.day - st.wealthDay![person] >= 30) { st.wealthMemo[person] = w.ledger.netWorthSlot(econ(w).P.slot[person], px ?? NO_PX); st.wealthDay![person] = w.day; }
   return st.wealthMemo[person];
 }
 function react(w: World, st: Social, fact: Fact, person: number): void {
@@ -819,17 +837,28 @@ function bumpAt(st: Social, i: number, k: number, chief: boolean): void {
   bd[q + B_RESPECT] = clampByte(bd[q + B_RESPECT] + (chief ? 0 : 1));
   bd[q + B_FEAR] = clampByte(bd[q + B_FEAR] + (chief ? 1 : -1));
 }
+function bumpWith(st: Social, employer: Int32Array, ceo: Int32Array, a: number, b: number, ka: number): void {
+  const ea = employer[a], eb = employer[b];
+  bumpAt(st, a, ka, ea >= 0 && ceo[ea] === b);
+  const kb = findContact(st, b, a);
+  if (kb >= 0) bumpAt(st, b, kb, eb >= 0 && ceo[eb] === a);
+}
 function bumpPair(w: World, st: Social, a: number, b: number, ka: number): void {
   const P = econ(w).P;
   const firms = econ(w).firms;
-  const chiefA = P.employer[a] >= 0 && firms[P.employer[a]].ceo === b;
-  const chiefB = P.employer[b] >= 0 && firms[P.employer[b]].ceo === a;
+  const ea = P.employer[a], eb = P.employer[b];
+  const chiefA = ea >= 0 && firms[ea].ceo === b;
+  const chiefB = eb >= 0 && firms[eb].ceo === a;
   bumpAt(st, a, ka, chiefA);
   const kb = findContact(st, b, a);
   if (kb >= 0) bumpAt(st, b, kb, chiefB);
 }
 function conversations(w: World): void {
   const st = soc(w), P = econ(w).P;
+  const firms = econ(w).firms;
+  if (ceoBuf.length < firms.length) ceoBuf = new Int32Array(firms.length);
+  for (let f = 0; f < firms.length; f++) ceoBuf[f] = firms[f].ceo;
+  ceoOn = ceoBuf;
   const flags = P.flags, born = P.born, employer = P.employer;
   const day = w.day, line = day - 18 * DAYS_PER_YEAR, slot = day % 7;
   const contact = st.contact, trust = st.trust, head = st.head;
@@ -843,10 +872,11 @@ function conversations(w: World): void {
       if (k < 0) break;
       const other = contact[b + k];
       skip = other;
-      bumpPair(w, st, i, other, k);
+      bumpWith(st, employer, ceoOn, i, other, k);
       if (head[i] >= 0) gossip(w, st, i, other, trust[b + k], t + 1);
     }
   }
+  ceoOn = null;
 }
 
 /** A charge, a trial or a sentence. Contacts trust this person less. Pass a firm index and the paper prints it at once. */

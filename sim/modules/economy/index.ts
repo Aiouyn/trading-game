@@ -20,6 +20,9 @@ export const BOND = 'bond:gov';
 
 const CONSUMER_GOODS = Object.values(GOODS).filter((g) => g.share > 0);
 const GOV_GOODS = Object.values(GOODS).filter((g) => g.gov > 0);
+const GOOD_INSTR: Record<string, string> = {};
+const INPUTS: Record<string, [string, number][]> = {};
+for (const g of Object.values(GOODS)) { GOOD_INSTR[g.good] = 'good:' + g.good; INPUTS[g.good] = Object.entries(g.inputs); }
 export const POPULATION = +(process.env.SIM_POP ?? 20_000);
 const PAY_EVERY = 7; // wages, benefits and shopping run weekly per person
 const MARKUP = 1.2, INV_DAYS = 5;
@@ -45,7 +48,7 @@ export interface EconState {
   spendPri?: Record<string, number>; spendScale?: number;
 }
 
-const inv = (w: World, f: Firm): number => w.ledger.balance(f.id, 'good:' + f.good);
+const inv = (w: World, f: Firm): number => w.ledger.balS(f.slot, GOOD_INSTR[f.good]);
 const cash = (w: World, a: string): number => w.ledger.balance(a, DEP);
 const loanOf = (w: World, f: Firm): number => w.ledger.issued.get('loan:' + f.id) ?? 0;
 
@@ -151,7 +154,20 @@ function govPay(w: World, to: string, cents: number, reason: string, cause: numb
   }
   pay(w, GOV, to, a, reason, cause);
 }
-const firmsOf = (s: EconState, good: string): Firm[] => s.firms.filter((f) => f.good === good && !f.closed);
+let firmLists: Map<string, Firm[]> | null = null;
+const firmsOf = (s: EconState, good: string): Firm[] => {
+  if (firmLists) {
+    const hit = firmLists.get(good);
+    if (hit) return hit;
+    const xs = s.firms.filter((f) => f.good === good && !f.closed);
+    firmLists.set(good, xs);
+    return xs;
+  }
+  return s.firms.filter((f) => f.good === good && !f.closed);
+};
+let seekBuf = new Int32Array(16);
+let whoBuf = new Int32Array(16);
+let paidBuf = new Float64Array(16);
 
 /** Sell `qty` of a good to a buyer from the cheapest firms with stock. Returns { got, spent }. */
 /** Split an order across rival sellers: each gets a share that falls steeply with its price relative to the cheapest
@@ -190,7 +206,7 @@ function buy(w: World, s: EconState, buyer: string, good: string, qty: number, r
     if (buyer !== GOV && cash(w, buyer) < cost) return;
     done[i] = q;
     if (buyer === GOV) govPay(w, f.id, cost, reason, cause); else payFn(w, buyer, f.id, cost, reason, cause);
-    w.ledger.move('good:' + good, f.id, buyer, q, reason, cause);
+    w.ledger.move(GOOD_INSTR[good], f.id, buyer, q, reason, cause);
     f.sold += q; f.mRev += cost; got += q; spent += cost;
     if (reason === 'trade.export') abroadOf(w)?.noteExport(w, cost);
   });
@@ -357,6 +373,7 @@ export const economy: Module = {
   },
 
   dayClose(w) {
+    firmLists = new Map();
     const s: EconState = w.state.economy, L = w.ledger;
     for (const f of s.firms) { f.sold = 0; f.lost = 0; }
     s.taxToday = 0; s.pensionToday = 0;
@@ -376,17 +393,25 @@ export const economy: Module = {
     const P = s.P;
     const invDays = (f: Firm): number => INV_DAYS * (f.ceo >= 0 ? 0.7 + 0.6 * (0.98 - P.cY[f.ceo]) / 0.18 : 1); // a prudent chief keeps more stock
     // The day's job seekers, in a rotating order so hiring is spread fairly.
-    let pool: number[] = [];
     const adultBorn = w.day - 18 * DAYS_PER_YEAR;
-    for (let k = 0; k < P.n; k++) { const i = (s.hirePtr + k) % P.n; if (P.employer[i] < 0 && (P.flags[i] & 1) !== 0 && (P.flags[i] & 6) === 0 && P.born[i] <= adultBorn) pool.push(i); }
-    pool.reverse(); s.hirePtr = (s.hirePtr + 97) % Math.max(1, P.n);
+    const nP = P.n, ptr = s.hirePtr;
+    if (seekBuf.length < nP) seekBuf = new Int32Array(nP);
+    const empA = P.employer, flgA = P.flags, bornA = P.born;
+    let ns = 0;
+    for (let k = 0; k < nP; k++) {
+      const i = ptr + k < nP ? ptr + k : ptr + k - nP;
+      const fl = flgA[i];
+      if (empA[i] < 0 && (fl & 1) !== 0 && (fl & 6) === 0 && bornA[i] <= adultBorn) seekBuf[ns++] = i;
+    }
+    const keep = Math.ceil(ns * MATCH_RATE);
+    let sp = 0;
+    s.hirePtr = (ptr + 97) % Math.max(1, nP);
     // Today's labour force: everyone working plus everyone looking, counted daily so new adults are not missed.
     let employedAtDawn = 0;
     for (const f of s.firms) employedAtDawn += f.staff.length;
-    s.laborForce = employedAtDawn + pool.length;
+    s.laborForce = employedAtDawn + ns;
     // Finding a job takes time: on a given day only a few percent of job seekers meet an employer who is hiring,
     // so unemployment drains over weeks and months rather than emptying in a day. Poaching is limited the same way.
-    pool = pool.slice(pool.length - Math.ceil(pool.length * MATCH_RATE));
     let poachLeft = Math.ceil(employedAtDawn * POACH_RATE);
     const gaps = s.firms.map((f) => {
       if (f.closed) return 0;
@@ -416,7 +441,7 @@ export const economy: Module = {
       const gap = gaps[i];
       if (gap > 1) {
         const goal = f.eff + Math.max(0.06 * gap, 1);
-        while (f.eff < goal - 0.3) { const p = pool.pop() ?? poach(); if (p === undefined) break; joinFirm(s, p, f); hireHook?.(w, p, f); P.lastEv[p] = -1; }
+        while (f.eff < goal - 0.3) { const p = sp < keep ? seekBuf[sp++] : poach(); if (p === undefined) break; joinFirm(s, p, f); hireHook?.(w, p, f); P.lastEv[p] = -1; }
       } else if (gap < -2) {
         const goal = f.eff + Math.min(0.06 * gap, -1);
         while (f.eff > goal + 0.3 && f.staff.length > 1) {
@@ -439,7 +464,7 @@ export const economy: Module = {
       const ceiling = w.ledger.instruments.has(CAPITAL) ? w.ledger.balance(f.id, CAPITAL) * mult : labour;
       const full = Math.min(labour, ceiling);
       let out = full;
-      for (const [g, k] of Object.entries(d.inputs)) {
+      for (const [g, k] of INPUTS[f.good]) {
         const avail = firmsOf(s, g).reduce((t, x) => t + inv(w, x), 0);
         if (avail < out * k) {
           { const fs = firmsOf(s, g); bookLost(fs, out * k, fs.map((x) => inv(w, x))); } // suppliers that ran short see the unmet order
@@ -450,11 +475,11 @@ export const economy: Module = {
           }
         }
       }
-      for (const [g, k] of Object.entries(d.inputs)) {
+      for (const [g, k] of INPUTS[f.good]) {
         const need = out * k, fs = firmsOf(s, g), dom = fs.length ? Math.min(...fs.map((x) => x.price)) : Infinity;
         const imp = abroadOf(w)?.importFill(w, f.id, g, need, dom, cause) ?? { got: 0, spent: 0 };
         const r = buy(w, s, f.id, g, Math.max(0, need - imp.got), 'b2b.input', cause);
-        L.consume('good:' + g, f.id, r.got, 'production.input', cause);
+        L.consume(GOOD_INSTR[g], f.id, r.got, 'production.input', cause);
         f.mCost += r.spent + imp.spent;
         if (r.got + imp.got < need - 1e-6) out = (r.got + imp.got) / k;
       }
@@ -463,13 +488,15 @@ export const economy: Module = {
       out = Math.max(out, 0.3 * full);
       f.mCost += f.eff * s.wage;
       out = Math.max(0, out); f.made = out;
-      L.produce('good:' + f.good, f.id, out, 'production', cause);
+      L.produce(GOOD_INSTR[f.good], f.id, out, 'production', cause);
       s.yReal += out;
 
       if (payday) {
         const bill = Math.round(f.eff * s.wage * PAY_EVERY);
-        if (cash(w, f.id) < bill) borrow(w, s, f, bill - cash(w, f.id) + bill, cause);
-        const frac = Math.min(1, cash(w, f.id) / Math.max(1, bill)) * (cash(w, f.id) < bill ? 0.98 : 1);
+        const till = Math.floor(L.balS(f.slot, DEP));
+        if (till < bill) borrow(w, s, f, bill - till + bill, cause);
+        const till2 = Math.floor(L.balS(f.slot, DEP));
+        const frac = Math.min(1, till2 / Math.max(1, bill)) * (till2 < bill ? 0.98 : 1);
         let tax = 0;
         const base = s.wage * PAY_EVERY * frac;
         for (const x of f.staff) {
@@ -494,7 +521,7 @@ export const economy: Module = {
     const sellers: Record<string, Firm[]> = {}, avgP: Record<string, number> = {};
     const dm: Record<string, number> = {}, wts: Record<string, number[]> = {};
     for (const d of CONSUMER_GOODS) {
-      sellers[d.good] = firmsOf(s, d.good).sort((a, b) => a.price - b.price || (a.id < b.id ? -1 : 1));
+      sellers[d.good] = firmsOf(s, d.good).slice().sort((a, b) => a.price - b.price || (a.id < b.id ? -1 : 1));
       if (!sellers[d.good].length) continue;
       avgP[d.good] = sellers[d.good].reduce((t, x) => t + x.price, 0) / sellers[d.good].length;
       dm[d.good] = demandMult(s, d.good);
@@ -508,8 +535,8 @@ export const economy: Module = {
     const benefitRate = s.benefitRate ?? BENEFIT_RATE;
     const benefit = s.wage * benefitRate * PAY_EVERY;
     govFund(w, benefit * (P.n / PAY_EVERY + 1), macro);
-    const who: number[] = [], paid: number[] = [];
-    let total = 0;
+    if (whoBuf.length < (P.n >> 2) + 8) { const m = Math.max(whoBuf.length * 2, (P.n >> 2) + 8); whoBuf = new Int32Array(m); paidBuf = new Float64Array(m); }
+    let nw = 0, total = 0;
     for (let i = slot; i < P.n; i += PAY_EVERY) {
       const fl = P.flags[i];
       if (!(fl & 1)) continue;
@@ -535,7 +562,12 @@ export const economy: Module = {
       const fear = w.day < P.fearUntil[i] ? 0.8 : 1;
       const budget = Math.floor(Math.min(money, PAY_EVERY * (P.cY[i] * fear * thrift * P.incEma[i] + 0.001 * money)));
       if (budget <= 0 || !L.moveS(DEP, me, clear, budget, 'consumption', macro)) continue;
-      who.push(i); paid.push(budget); total += budget;
+      if (nw === whoBuf.length) {
+        const m = whoBuf.length * 2;
+        const w2 = new Int32Array(m); w2.set(whoBuf); whoBuf = w2;
+        const p2 = new Float64Array(m); p2.set(paidBuf); paidBuf = p2;
+      }
+      whoBuf[nw] = i; paidBuf[nw] = budget; nw++; total += budget;
     }
     if (total > 0) {
       let norm = 0;
@@ -552,7 +584,7 @@ export const economy: Module = {
           if (q <= 1e-9) continue;
           const cost = Math.min(Math.round(q * f.price), L.balS(clear, DEP));
           if (cost <= 0 || !L.moveS(DEP, clear, f.slot, cost, 'consumption', macro)) continue;
-          L.consumeS('good:' + d.good, f.slot, q, 'consumption', macro);
+          L.consumeS(GOOD_INSTR[d.good], f.slot, q, 'consumption', macro);
           f.sold += q; f.mRev += cost; got += cost; done[k] = q;
         }
         bookLost(fs, want, done, wts[d.good]);
@@ -562,9 +594,9 @@ export const economy: Module = {
       let left = L.balS(clear, DEP);
       if (left > 0) {
         const all = left;
-        for (let k = 0; k < who.length && left > 0; k++) {
-          const r = k === who.length - 1 ? left : Math.min(left, Math.floor(all * paid[k] / total));
-          if (r > 0) { L.moveS(DEP, clear, P.slot[who[k]], r, 'consumption.refund', macro); left -= r; }
+        for (let k = 0; k < nw && left > 0; k++) {
+          const r = k === nw - 1 ? left : Math.min(left, Math.floor(all * paidBuf[k] / total));
+          if (r > 0) { L.moveS(DEP, clear, P.slot[whoBuf[k]], r, 'consumption.refund', macro); left -= r; }
         }
       }
     }
@@ -590,7 +622,7 @@ export const economy: Module = {
       const p = fs.reduce((t, x) => t + x.price, 0) / fs.length;
       const share = pri ? d.gov * (pri[d.good] ?? 1) / govW : d.gov;
       const gr = buy(w, s, GOV, d.good, (govBudget + stimulus) * spendMul * share / p, 'gov.purchases', s.macroEv);
-      L.consume('good:' + d.good, GOV, gr.got, 'gov.purchases', s.macroEv);
+      L.consume(GOOD_INSTR[d.good], GOV, gr.got, 'gov.purchases', s.macroEv);
       s.yGdp += gr.spent; s.dayGdp += gr.spent;
     }
     // Foreign buyers use the same order path. Nothing happens when that module is off.
@@ -602,7 +634,7 @@ export const economy: Module = {
       if (!(q > 0)) continue;
       abroad.fundBuyer(w, Math.ceil(q * px), s.macroEv);
       const r = buy(w, s, abroad.buyer, d.good, q, 'trade.export', s.macroEv);
-      if (r.got > 0) L.consume('good:' + d.good, abroad.buyer, r.got, 'trade.export', s.macroEv);
+      if (r.got > 0) L.consume(GOOD_INSTR[d.good], abroad.buyer, r.got, 'trade.export', s.macroEv);
       s.yGdp += r.spent; s.dayGdp += r.spent;
     }
     s.yGdpEma = w.day < 30 ? Math.max(s.yGdpEma, s.dayGdp) : s.yGdpEma + (s.dayGdp - s.yGdpEma) / 30; s.dayGdp = 0;
@@ -611,7 +643,7 @@ export const economy: Module = {
     for (const f of s.firms) {
       if (f.closed) continue;
       const d = GOODS[f.good];
-      if (d.perishable) L.consume('good:' + f.good, f.id, inv(w, f), 'spoilage', s.macroEv);
+      if (d.perishable) L.consume(GOOD_INSTR[f.good], f.id, inv(w, f), 'spoilage', s.macroEv);
       f.expSales += 0.1 * (f.sold + f.lost - f.expSales);
       const stock = inv(w, f), target = f.expSales * invDays(f);
       // Cost-plus pricing. The markup widens while demand outruns supply and narrows while goods go unsold,
@@ -633,6 +665,7 @@ export const economy: Module = {
       f.markup += (MARKUP - f.markup) * 0.002;
       f.price += 0.1 * (f.unitCost * f.markup - f.price);
     }
+    firmLists = null;
   },
 
   monthEnd(w) {
@@ -797,8 +830,7 @@ function payDividends(w: World, s: EconState, issuer: string, cents: number, cau
   if (!total) return;
   const from = L.slot(issuer);
   // Snapshot first: paying can create new holders only in other instruments, but keep it safe.
-  const holders = [...L.holdersS('eq:' + issuer)];
-  for (const [h, n] of holders) {
+  for (const [h, n] of L.holdersS('eq:' + issuer)) {
     const a = Math.floor(cents * n / total);
     if (a <= 0 || !payS(w, s, from, h, a, 'dividends', cause)) continue;
     const id = L.ids[h];

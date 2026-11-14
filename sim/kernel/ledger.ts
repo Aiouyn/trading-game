@@ -13,6 +13,8 @@ export interface Posting { day: number; op: 'issue' | 'redeem' | 'move' | 'produ
 
 interface Store { kind: InstrKind; dense?: Float64Array; sparse?: Map<number, number> }
 
+const NO_PRICE = (_instr: string): number => 0;
+
 export class Ledger {
   actors = new Map<string, string>();                 // id -> kind
   instruments = new Map<string, Instrument>();
@@ -29,6 +31,18 @@ export class Ledger {
   private denseIds: string[] = [];
   private heldBy = new Map<number, Set<string>>();    // slot -> sparse instruments it has ever held (index for netWorth)
   private issuedBy = new Map<string, string[]>();     // issuer -> instruments it issued
+  // Money lives in one dense array. Non-enumerable, so a snapshot does not copy it; the next call rebinds it from `stores`.
+  declare _dep: Float64Array | null;
+  declare _ready: boolean;
+
+  constructor() { this.ready(); }
+
+  private ready(): void {
+    if (this._ready) return;
+    const dep = this.stores.get('dep')?.dense ?? null;
+    Object.defineProperty(this, '_dep', { value: dep, writable: true, enumerable: false, configurable: true });
+    Object.defineProperty(this, '_ready', { value: true, writable: true, enumerable: false, configurable: true });
+  }
 
   addActor(id: string, kind: string): number {
     if (this.actors.has(id)) throw new Error(`actor ${id} exists`);
@@ -37,6 +51,7 @@ export class Ledger {
     if (slot >= this.cap) {
       this.cap *= 2;
       for (const st of this.stores.values()) if (st.dense) { const a = new Float64Array(this.cap); a.set(st.dense); st.dense = a; }
+      if (this._ready) this._dep = this.stores.get('dep')?.dense ?? null;
     }
     return slot;
   }
@@ -47,13 +62,27 @@ export class Ledger {
     if (this.instruments.has(i.id)) throw new Error(`instrument ${i.id} exists`);
     if (i.kind !== 'real' && (!i.issuer || !this.actors.has(i.issuer))) throw new Error(`instrument ${i.id} needs a known issuer`);
     this.instruments.set(i.id, i); this.issued.set(i.id, 0);
-    if (i.kind === 'money') { this.stores.set(i.id, { kind: i.kind, dense: new Float64Array(this.cap) }); this.denseIds.push(i.id); }
-    else this.stores.set(i.id, { kind: i.kind, sparse: new Map() });
+    if (i.kind === 'money') {
+      const dense = new Float64Array(this.cap);
+      this.stores.set(i.id, { kind: i.kind, dense }); this.denseIds.push(i.id);
+      if (i.id === 'dep' && this._ready) this._dep = dense;
+    } else this.stores.set(i.id, { kind: i.kind, sparse: new Map() });
     if (i.issuer) { const l = this.issuedBy.get(i.issuer) ?? []; l.push(i.id); this.issuedBy.set(i.issuer, l); }
   }
 
-  private st(instr: string): Store { const s = this.stores.get(instr); if (!s) throw new Error(`unknown instrument ${instr}`); return s; }
-  balS(slot: number, instr: string): number { const s = this.st(instr); return s.dense ? s.dense[slot] : s.sparse!.get(slot) ?? 0; }
+  private st(instr: string): Store {
+    const s = this.stores.get(instr); if (!s) throw new Error(`unknown instrument ${instr}`);
+    return s;
+  }
+  balS(slot: number, instr: string): number {
+    if (instr === 'dep') {
+      const d = this._dep;
+      if (d) return d[slot];
+      if (!this._ready) this.ready();
+      if (this._dep) return this._dep[slot];
+    }
+    const s = this.st(instr); return s.dense ? s.dense[slot] : s.sparse!.get(slot) ?? 0;
+  }
   balance(actor: string, instr: string): number { const sl = this.slotOf.get(actor); return sl === undefined || !this.stores.has(instr) ? 0 : this.balS(sl, instr); }
   /** Holders of a sparse instrument (shares, loans, goods) by slot: the live map, do not modify. */
   holdersS(instr: string): ReadonlyMap<number, number> { const s = this.st(instr); if (!s.sparse) throw new Error(`${instr} is dense; use holders()`); return s.sparse; }
@@ -79,15 +108,28 @@ export class Ledger {
     if (was === undefined) { let h = this.heldBy.get(slot); if (!h) { h = new Set(); this.heldBy.set(slot, h); } h.add(instr); }
     m.set(slot, (was ?? 0) + d);
   }
-  private log(op: Posting['op'], instr: string, from: number, to: number, amount: number, reason: string, cause: number): void {
-    this.flows.set(reason, (this.flows.get(reason) ?? 0) + amount);
-    if (!this.journalCap) return;
+  private jot(op: Posting['op'], instr: string, from: number, to: number, amount: number, reason: string, cause: number): void {
     this.journal.push({ day: this.day, op, instr, from: from >= 0 ? this.ids[from] : undefined, to: to >= 0 ? this.ids[to] : undefined, amount, reason, cause });
     if (this.journal.length > this.journalCap) this.journal.splice(0, this.journalCap >> 1);
+  }
+  private flow(reason: string, amount: number): void {
+    this.flows.set(reason, (this.flows.get(reason) ?? 0) + amount);
+  }
+  private log(op: Posting['op'], instr: string, from: number, to: number, amount: number, reason: string, cause: number): void {
+    this.flow(reason, amount);
+    if (this.journalCap) this.jot(op, instr, from, to, amount, reason, cause);
   }
 
   // ---- slot API (hot paths) ----
   issueS(instr: string, to: number, amount: number, reason: string, cause: number): void {
+    if (!this._ready) this.ready();
+    const dep = instr === 'dep' ? this._dep : null;
+    if (dep && typeof cause === 'number' && Number.isSafeInteger(amount) && amount >= 0) {
+      if (amount === 0) return;
+      dep[to] += amount; this.issued.set(instr, this.issued.get(instr)! + amount); this.flow(reason, amount);
+      if (this.journalCap) this.jot('issue', instr, -1, to, amount, reason, cause);
+      return;
+    }
     const s = this.chk(instr, amount, cause);
     if (s.kind === 'real') throw new Error('use produce() for real goods');
     if (amount === 0) return;
@@ -95,6 +137,15 @@ export class Ledger {
     this.log('issue', instr, -1, to, amount, reason, cause);
   }
   redeemS(instr: string, from: number, amount: number, reason: string, cause: number): boolean {
+    if (!this._ready) this.ready();
+    const dep = instr === 'dep' ? this._dep : null;
+    if (dep && typeof cause === 'number' && Number.isSafeInteger(amount) && amount >= 0) {
+      if (amount === 0) return true;
+      if (dep[from] < amount) return false;
+      dep[from] -= amount; this.issued.set(instr, this.issued.get(instr)! - amount); this.flow(reason, amount);
+      if (this.journalCap) this.jot('redeem', instr, from, -1, amount, reason, cause);
+      return true;
+    }
     const s = this.chk(instr, amount, cause);
     if (s.kind === 'real') throw new Error('use consume() for real goods');
     if (amount === 0) return true;
@@ -104,6 +155,15 @@ export class Ledger {
     return true;
   }
   moveS(instr: string, from: number, to: number, amount: number, reason: string, cause: number): boolean {
+    if (!this._ready) this.ready();
+    const dep = instr === 'dep' ? this._dep : null;
+    if (dep && typeof cause === 'number' && Number.isSafeInteger(amount) && amount >= 0) {
+      if (amount === 0 || from === to) return true;
+      if (dep[from] < amount - 1e-9) return false;
+      dep[from] -= amount; dep[to] += amount; this.flow(reason, amount);
+      if (this.journalCap) this.jot('move', instr, from, to, amount, reason, cause);
+      return true;
+    }
     const s = this.chk(instr, amount, cause);
     if (amount === 0 || from === to) return true;
     if (this.balS(from, instr) < amount - 1e-9) return false;
@@ -141,16 +201,27 @@ export class Ledger {
   consume(instr: string, from: string, qty: number, reason: string, cause: number): boolean { return this.consumeS(instr, this.slot(from), qty, reason, cause); }
 
   /** Assets minus liabilities. `price` values shares and real goods (cents per unit); money and claims count at face. */
-  netWorth(actor: string, price: (instr: string) => number = () => 0): number {
+  netWorth(actor: string, price: (instr: string) => number = NO_PRICE): number {
     const sl = this.slotOf.get(actor);
     if (sl === undefined) return 0;
+    return this.netWorthAt(sl, actor, price);
+  }
+  /** Same as netWorth, for a loop that already holds the actor's slot. */
+  netWorthSlot(slot: number, price: (instr: string) => number = NO_PRICE): number {
+    const actor = this.ids[slot];
+    if (actor === undefined) return 0;
+    return this.netWorthAt(slot, actor, price);
+  }
+  private netWorthAt(sl: number, actor: string, price: (instr: string) => number): number {
     let nw = 0;
     for (const id of this.denseIds) nw += this.stores.get(id)!.dense![sl];
-    for (const id of this.heldBy.get(sl) ?? []) {
+    const held = this.heldBy.get(sl);
+    if (held) for (const id of held) {
       const s = this.stores.get(id)!, h = s.sparse!.get(sl) ?? 0;
       if (h) nw += s.kind === 'money' || s.kind === 'claim' ? h : h * price(id);
     }
-    for (const id of this.issuedBy.get(actor) ?? []) { const i = this.instruments.get(id)!; if (i.kind === 'money' || i.kind === 'claim') nw -= this.issued.get(id)!; }
+    const issued = this.issuedBy.get(actor);
+    if (issued) for (const id of issued) { const i = this.instruments.get(id)!; if (i.kind === 'money' || i.kind === 'claim') nw -= this.issued.get(id)!; }
     return nw;
   }
   /** Conservation check. Returns problems; empty means the books balance. */

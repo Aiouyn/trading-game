@@ -601,8 +601,10 @@ export const markets: Module = {
       const spare = Math.floor(cash(w, f.id) - Math.max(held, 1));
       const total = w.ledger.issued.get('eq:' + f.id) ?? 0;
       if (spare <= 0 || !total) continue;
-      for (const [h, n] of w.ledger.holders('eq:' + f.id)) {
+      const L = w.ledger;
+      for (const [slot, n] of L.holdersS('eq:' + f.id)) {
         const c = Math.floor(spare * n / total);
+        const h = L.ids[slot];
         if (c <= 0 || !pay(w, f.id, h, c, 'fund.payout', m.root) || !h.startsWith('p_')) continue;
         const t = Math.floor(c * 0.35), e = econ(w); // fund payouts are taxed like dividends
         if (pay(w, h, 'gov', t, 'tax.dividend', m.root)) e.divTax += t;

@@ -435,13 +435,64 @@ function heirOf(P: EconState['P'], i: number): number {
   for (const c of P.kids(i)) if (P.alive(c)) return c;
   return -1;
 }
+// Who lives in each parcel, so a household can move without scanning the whole city. Rebuilt from
+// `live` for each book (a reloaded world gets a new book), then kept in step with every later write.
+let occBook: Book | null = null;
+let occOn = false;
+let occHead = new Int32Array(0);
+let occNext = new Int32Array(0);
+let rankList: Int32Array | null = null;
+let rankLen = 0;
+
+function occEnsure(st: Book, nPeople: number): void {
+  if (occBook !== st) { occOn = false; occBook = st; }
+  if (occHead.length < st.n) {
+    const a = new Int32Array(Math.max(st.n, occHead.length * 2, 16));
+    a.fill(-1);
+    if (occOn) a.set(occHead);
+    occHead = a;
+  }
+  if (occNext.length < nPeople) {
+    const a = new Int32Array(Math.max(nPeople, occNext.length * 2, 16));
+    a.fill(-1);
+    if (occOn) a.set(occNext);
+    occNext = a;
+  }
+  if (occOn) return;
+  occHead.fill(-1, 0, st.n);
+  const lim = Math.min(nPeople, st.live.length);
+  occNext.fill(-1, 0, lim);
+  const live = st.live;
+  for (let i = 0; i < lim; i++) {
+    const p = live[i];
+    if (p < 0 || p >= st.n) continue;
+    occNext[i] = occHead[p];
+    occHead[p] = i;
+  }
+  occOn = true;
+}
+function setLive(st: Book, _nPeople: number, i: number, p: number): void {
+  st.live[i] = p;
+  // Any direct move drops the household index. The next shiftAll rebuilds it from `live`.
+  occOn = false;
+}
 function shiftAll(w: World, from: number, dest: number): void {
   if (from === dest || from < 0 || dest < 0) return;
   const st = book(w), P = econ(w).P;
+  occEnsure(st, P.n);
   const head = st.tenK[from] === PERSON ? st.ten[from] : -1;
-  for (let i = 0; i < P.n && i < st.live.length; i++) if (st.live[i] === from) st.live[i] = dest;
+  let i = occHead[from];
+  occHead[from] = -1;
+  while (i >= 0) {
+    const next = occNext[i];
+    st.live[i] = dest;
+    occNext[i] = occHead[dest];
+    occHead[dest] = i;
+    i = next;
+  }
   st.tenK[from] = 0; st.ten[from] = -1; st.missR[from] = 0;
   if (st.tenK[dest] === 0 && head >= 0) { st.tenK[dest] = PERSON; st.ten[dest] = head; }
+  rankInsert(st, from);
 }
 function cheapest(st: Book, maxRent: number, minSize: number): number {
   let best = -1, rent = Infinity, size = -1;
@@ -453,21 +504,85 @@ function cheapest(st: Book, maxRent: number, minSize: number): number {
   }
   return best;
 }
+function rankedVacant(st: Book): Int32Array {
+  const tmp: number[] = [];
+  const kind = st.kind, tenK = st.tenK;
+  for (let p = 0; p < st.n; p++) if (kind[p] === HOME && tenK[p] === 0) tmp.push(p);
+  const rent = st.rent, size = st.size;
+  tmp.sort((a, b) => rent[a] - rent[b] || size[b] - size[a] || a - b);
+  return Int32Array.from(tmp);
+}
+function pickRanked(st: Book, ranked: Int32Array, maxRent: number, minSize: number): number {
+  const rent = st.rent, size = st.size, tenK = st.tenK;
+  for (let i = 0; i < ranked.length; i++) {
+    const p = ranked[i];
+    if (tenK[p] !== 0) continue;
+    if (rent[p] > maxRent) return -1;
+    if (size[p] >= minSize) return p;
+  }
+  return -1;
+}
+function beginRanked(st: Book): void {
+  const tmp: number[] = [];
+  const kind = st.kind, tenK = st.tenK;
+  for (let p = 0; p < st.n; p++) if (kind[p] === HOME && tenK[p] === 0) tmp.push(p);
+  const rent = st.rent, size = st.size;
+  tmp.sort((a, b) => rent[a] - rent[b] || size[b] - size[a] || a - b);
+  if (!rankList || rankList.length < tmp.length) rankList = new Int32Array(Math.max(tmp.length, 16));
+  rankList.set(tmp);
+  rankLen = tmp.length;
+}
+function endRanked(): void { rankList = null; rankLen = 0; }
+function rankInsert(st: Book, p: number): void {
+  const list = rankList;
+  if (!list || st.kind[p] !== HOME || st.tenK[p] !== 0) return;
+  const rent = st.rent, size = st.size, rp = rent[p], sp = size[p];
+  let lo = 0, hi = rankLen;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1, q = list[mid];
+    const c = rent[q] - rp || sp - size[q] || q - p;
+    if (c < 0) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo < rankLen && list[lo] === p) return;
+  if (rankLen >= list.length) {
+    const grown = new Int32Array(list.length * 2);
+    grown.set(list);
+    rankList = grown;
+  }
+  const buf = rankList!;
+  for (let i = rankLen; i > lo; i--) buf[i] = buf[i - 1];
+  buf[lo] = p;
+  rankLen++;
+}
+function pickOpen(st: Book, maxRent: number, minSize: number): number {
+  const list = rankList;
+  if (!list) return cheapest(st, maxRent, minSize);
+  const rent = st.rent, size = st.size, tenK = st.tenK;
+  for (let i = 0; i < rankLen; i++) {
+    const p = list[i];
+    if (tenK[p] !== 0) continue;
+    if (rent[p] > maxRent) return -1;
+    if (size[p] >= minSize) return p;
+  }
+  return -1;
+}
 function shelter(w: World): void {
   const st = book(w), P = econ(w).P;
   ensurePeople(st, P.n);
+  const ranked = rankedVacant(st);
   for (let i = 0; i < P.n; i++) {
     if (!P.alive(i)) continue;
     if (st.live[i] >= 0 && st.live[i] < st.n) continue;
     const par = P.parent[i];
     const home = par >= 0 && par < st.live.length ? st.live[par] : -1;
-    if (home >= 0) { st.live[i] = home; continue; }
+    if (home >= 0) { setLive(st, P.n, i, home); continue; }
     const sp = P.spouse[i];
     const sh = sp >= 0 && sp < st.live.length ? st.live[sp] : -1;
-    if (sh >= 0) { st.live[i] = sh; continue; }
-    const v = cheapest(st, Infinity, 1);
+    if (sh >= 0) { setLive(st, P.n, i, sh); continue; }
+    const v = pickRanked(st, ranked, Infinity, 1);
     if (v >= 0) {
-      st.live[i] = v;
+      setLive(st, P.n, i, v);
       if (st.tenK[v] === 0) { st.tenK[v] = PERSON; st.ten[v] = i; }
     }
   }
@@ -515,10 +630,10 @@ function cohabit(w: World): void {
     if (a < 0 || b < 0 || a === b) continue;
     if (st.tenK[b] === PERSON && st.ten[b] === sp) shiftAll(w, b, a);
     else {
-      st.live[sp] = a;
+      setLive(st, P.n, sp, a);
       for (let c = P.firstKid[sp]; c >= 0; c = P.nextSib[c]) {
         if (!P.alive(c) || P.age(w, c) >= 22 || P.spouse[c] >= 0) continue;
-        if (c < st.live.length && st.live[c] === b) st.live[c] = a;
+        if (c < st.live.length && st.live[c] === b) setLive(st, P.n, c, a);
       }
     }
   }
@@ -666,44 +781,65 @@ function checkBankRepos(w: World): void {
 }
 
 function collectRent(w: World): void {
-  const st = book(w), s = econ(w), P = s.P, cause = st.priceEv;
-  for (let p = 0; p < st.n; p++) {
-    if (st.tenK[p] === 0 || ownerOccupies(w, p)) { st.missR[p] = 0; continue; }
-    const due = Math.round(st.rent[p]);
+  const st = book(w), s = econ(w), P = s.P, cause = st.priceEv, L = w.ledger;
+  beginRanked(st);
+  try { collectRentAt(w, st, s, P, cause, L); }
+  finally { endRanked(); }
+}
+function collectRentAt(w: World, st: Book, s: ReturnType<typeof econ>, P: ReturnType<typeof econ>['P'], cause: number, L: World['ledger']): void {
+  const n = st.n, nP = P.n;
+  const kind = st.kind, ownK = st.ownK, tenK = st.tenK, own = st.own, ten = st.ten;
+  const rent = st.rent, missR = st.missR, flag = st.flag, hhInc = st.hhInc, nb = st.nb;
+  const spouse = P.spouse, slot = P.slot;
+  const firmSlot = new Int32Array(s.firms.length);
+  firmSlot.fill(-2);
+  for (let p = 0; p < n; p++) {
+    const tk = tenK[p];
+    if (tk === 0) { missR[p] = 0; continue; }
+    if (kind[p] === HOME && ownK[p] === PERSON && tk === PERSON) {
+      const o = own[p], t = ten[p];
+      if (o === t || (t >= 0 && t < nP && spouse[t] === o) || (o >= 0 && o < nP && spouse[o] === t)) { missR[p] = 0; continue; }
+    }
+    const due = Math.round(rent[p]);
     if (due <= 0) continue;
-    // Ledger slots, not actor names: this runs over every rented parcel each month.
-    const L = w.ledger;
     let toS = -1;
-    if (st.ownK[p] === PERSON) toS = st.own[p] >= 0 && st.own[p] < P.n ? P.slot[st.own[p]] : -1;
-    else { const to = ownerActor(w, p); toS = to && L.hasActor(to) ? L.slot(to) : -1; }
+    const ok = ownK[p];
+    if (ok === PERSON) { const o = own[p]; toS = o >= 0 && o < nP ? slot[o] : -1; }
+    else { const to = actorOf(w, ok, own[p]); toS = to && L.hasActor(to) ? L.slot(to) : -1; }
     if (toS < 0) continue;
     let fromS = -1;
-    if (st.tenK[p] === PERSON) {
-      const t = st.ten[p];
-      fromS = t >= 0 && t < P.n ? P.slot[t] : -1;
-    } else if (st.tenK[p] === FIRM) { const fid = s.firms[st.ten[p]]?.id; fromS = fid && L.hasActor(fid) ? L.slot(fid) : -1; }
+    if (tk === PERSON) { const t = ten[p]; fromS = t >= 0 && t < nP ? slot[t] : -1; }
+    else if (tk === FIRM) {
+      const fi = ten[p], f = s.firms[fi];
+      if (f) {
+        let fs = firmSlot[fi];
+        if (fs < -1) { fs = L.hasActor(f.id) ? L.slot(f.id) : -1; firmSlot[fi] = fs; }
+        fromS = fs;
+      }
+    }
     if (fromS < 0 || fromS === toS) continue;
     const a = Math.min(due, Math.floor(L.balS(fromS, DEP)));
     const got = a > 0 && payS(w, s, fromS, toS, a, 'property.rent', cause) ? a : 0;
-    if (st.tenK[p] !== PERSON) continue;
-    if (got + 1 < due) st.missR[p] = Math.min(24, st.missR[p] + 1);
-    else st.missR[p] = 0;
-    if (st.missR[p] < MISS_EVICT || (st.flag[p] & 2) !== 0) continue;
-    const t = st.ten[p];
-    const budget = Math.max(0, st.hhInc[p]) * 30 * 0.2;
-    const alt = cheapest(st, Math.min(st.rent[p] * 0.9, budget > 0 ? budget : st.rent[p] * 0.9), 1);
-    if (alt < 0 || alt === p || t < 0 || !P.alive(t)) { st.flag[p] |= 2; continue; }
-    const ev = w.events.emit('property.evict', `${P.name(t)} is evicted in ${NBHDS[st.nb[p]].name}`, [cause], P.id(t));
+    if (tk !== PERSON) continue;
+    if (got + 1 < due) missR[p] = Math.min(24, missR[p] + 1);
+    else missR[p] = 0;
+    if (missR[p] < MISS_EVICT || (flag[p] & 2) !== 0) continue;
+    const t = ten[p];
+    const budget = Math.max(0, hhInc[p]) * 30 * 0.2;
+    const alt = pickOpen(st, Math.min(rent[p] * 0.9, budget > 0 ? budget : rent[p] * 0.9), 1);
+    if (alt < 0 || alt === p || t < 0 || !P.alive(t)) { flag[p] |= 2; continue; }
+    const ev = w.events.emit('property.evict', `${P.name(t)} is evicted in ${NBHDS[nb[p]].name}`, [cause], P.id(t));
     thought(w, s, t, 180, 'being evicted', ev);
     P.lastEv[t] = ev;
     shiftAll(w, p, alt);
-    st.flag[p] |= 2;
+    flag[p] |= 2;
   }
 }
 function leaveHome(w: World): void {
   const st = book(w), P = econ(w).P;
   const cap = Math.max(2, Math.floor(P.n / 2000));
   let moved = 0;
+  const ranked = rankedVacant(st);
   const start = st.scan % Math.max(1, P.n);
   for (let step = 0; step < P.n && moved < cap; step++) {
     const i = (start + step) % P.n;
@@ -714,9 +850,9 @@ function leaveHome(w: World): void {
     if (par < 0 || par >= st.live.length || st.live[par] < 0 || st.live[i] !== st.live[par]) continue;
     if (P.incEma[i] <= 0) continue;
     const budget = P.incEma[i] * 30 * 0.3;
-    const dest = cheapest(st, budget, 1);
+    const dest = pickRanked(st, ranked, budget, 1);
     if (dest < 0) continue;
-    st.live[i] = dest;
+    setLive(st, P.n, i, dest);
     if (st.tenK[dest] === 0) { st.tenK[dest] = PERSON; st.ten[dest] = i; }
     moved++;
   }
@@ -724,33 +860,39 @@ function leaveHome(w: World): void {
 }
 function rentBurden(w: World): void {
   const st = book(w), P = econ(w).P;
+  beginRanked(st);
   let moved = 0;
+  try {
   for (let p = 0; p < st.n && moved < 8; p++) {
     if (st.kind[p] !== HOME || st.tenK[p] !== PERSON || ownerOccupies(w, p)) continue;
     const inc = st.hhInc[p] * 30;
     if (!(inc > 0) || st.rent[p] <= inc * 0.22) continue;
-    const dest = cheapest(st, st.rent[p] * 0.85, 1);
+    const dest = pickOpen(st, st.rent[p] * 0.85, 1);
     if (dest < 0 || dest === p) continue;
     shiftAll(w, p, dest);
     moved++;
   }
+  } finally { endRanked(); }
 }
 function growFamilies(w: World): void {
   const st = book(w), P = econ(w).P;
   ensurePeople(st, P.n);
+  beginRanked(st);
   let moved = 0;
+  try {
   for (let i = 0; i < P.n && moved < 6; i++) {
     if (!P.alive(i) || i >= st.live.length) continue;
     const p = st.live[i];
     if (p < 0 || st.tenK[p] !== PERSON || st.ten[p] !== i) continue;
     if (P.nkids[i] <= st.nk[i] || st.size[p] >= 2 + P.nkids[i]) { st.nk[i] = P.nkids[i]; continue; }
     const budget = Math.max(st.rent[p], st.hhInc[p] * 30 * 0.25);
-    const dest = cheapest(st, budget, 2 + P.nkids[i]);
+    const dest = pickOpen(st, budget, 2 + P.nkids[i]);
     if (dest < 0) continue;
     shiftAll(w, p, dest);
     st.nk[i] = P.nkids[i];
     moved++;
   }
+  } finally { endRanked(); }
 }
 
 function arrearsNow(st: Book): number {
@@ -768,6 +910,7 @@ function fillVacants(w: World): void {
   if (v.rate > 0.14) cap = Math.floor(P.n / 200);
   cap = Math.min(cap, v.vac);
   let moved = 0;
+  const ranked = rankedVacant(st);
   const start = (st.scan * 3) % Math.max(1, P.n);
   for (let step = 0; step < P.n && moved < cap; step++) {
     const i = (start + step) % P.n;
@@ -779,15 +922,15 @@ function fillVacants(w: World): void {
     const head = st.ten[p];
     if (head === i || P.spouse[head] === i) continue;
     if (P.spouse[i] >= 0 && P.spouse[i] < i) continue;
-    const dest = cheapest(st, Infinity, 1);
+    const dest = pickRanked(st, ranked, Infinity, 1);
     if (dest < 0) break;
     const budget = Math.round(P.incEma[i] * 30 * 0.3);
     if (st.rent[dest] > budget) st.rent[dest] = Math.max(1, budget);
-    st.live[i] = dest;
+    setLive(st, P.n, i, dest);
     const sp = P.spouse[i];
-    if (sp >= 0 && sp < st.live.length && st.live[sp] === p && st.ten[p] !== sp) st.live[sp] = dest;
+    if (sp >= 0 && sp < st.live.length && st.live[sp] === p && st.ten[p] !== sp) setLive(st, P.n, sp, dest);
     for (let c = P.firstKid[i]; c >= 0; c = P.nextSib[c]) {
-      if (c < st.live.length && P.alive(c) && st.live[c] === p && P.age(w, c) < 22) st.live[c] = dest;
+      if (c < st.live.length && P.alive(c) && st.live[c] === p && P.age(w, c) < 22) setLive(st, P.n, c, dest);
     }
     st.tenK[dest] = PERSON; st.ten[dest] = i; st.missR[dest] = 0;
     moved++;
@@ -1068,7 +1211,7 @@ export function noteBuiltHome(w: World, person: number, paid: number, cause: num
   const cur = st.live[person];
   const renting = cur >= 0 && st.tenK[cur] === PERSON && st.ten[cur] === person && !ownerOccupies(w, cur);
   if (renting) { shiftAll(w, cur, p); st.tenK[p] = PERSON; st.ten[p] = person; }
-  else if (cur < 0) { st.live[person] = p; st.tenK[p] = PERSON; st.ten[p] = person; }
+  else if (cur < 0) { setLive(st, P.n, person, p); st.tenK[p] = PERSON; st.ten[p] = person; }
 }
 
 export const property: Module = {
