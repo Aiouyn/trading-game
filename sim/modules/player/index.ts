@@ -6,16 +6,20 @@ import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
 import { appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { launchCoin, orderCoin } from '../crypto/index.ts';
-import { BANK, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
-import { joinFirm } from '../economy/people.ts';
+import { CEO_POSITION } from '../economy/content.ts';
+import { BANK, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
+import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { borrowShares, cancelOrder, returnShares, submitOrder } from '../markets/index.ts';
-import { askFirm, contactsOf, knows, seatPerson, talk } from '../social/index.ts';
+import { B_FRIEND, askFirm, contactsOf, knows, seatPerson, talk } from '../social/index.ts';
 
 export const PLAYER = 8;
 
 export interface Heard { factId: number; eventId: number; from: number; day: number }
 export interface ScorePoint { day: number; worth: number }
 interface StockLoan { instr: string; qty: number; claim: string; face: number }
+interface Share { who: number; bps: number }
+
+export interface Will { heir: number; shares: Share[]; eventId: number }
 
 export interface PlayerState {
   who: number;
@@ -25,6 +29,19 @@ export interface PlayerState {
   heard: Heard[];
   score: ScorePoint[];
   loans: StockLoan[];
+  line: number[];
+  generation: number;
+  founded: number;
+  controlled: number;
+  offices: number;
+  convictions: number;
+  officeWas: string;
+  seenLaw: number[];
+  will: Will | null;
+  chair: number;
+  handed: number;
+  final: string;
+  passed: number;
 }
 
 export type Command =
@@ -44,7 +61,15 @@ export type Command =
   | { kind: 'ceo'; firm: string; op: 'report' | 'price' | 'hires' | 'dividend' | 'invest'; value?: number; auto?: boolean }
   | { kind: 'ipo'; firm: string; fraction: number }
   | { kind: 'bid'; firm: string; cents: number; multiple: number; paper: boolean }
-  | { kind: 'board'; op: 'list' | 'chief' | 'merge' | 'sell'; firm?: string; slot?: number; into?: string };
+  | { kind: 'board'; op: 'list' | 'chief' | 'merge' | 'sell'; firm?: string; slot?: number; into?: string }
+  | { kind: 'court'; slot: number }
+  | { kind: 'marry'; slot: number }
+  | { kind: 'child' }
+  | { kind: 'school'; nth: number }
+  | { kind: 'will'; how: 'spouse' | 'child' | 'slot'; nth: number }
+  | { kind: 'retire' }
+  | { kind: 'hand'; firm: string }
+  | { kind: 'die' };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -86,6 +111,22 @@ export interface PlayerView {
   private: Priv[];
   score: ScorePoint[];
   companies: CompanyPost[];
+  health: number;
+  final: string;
+  family: {
+    spouse: { index: number; name: string; alive: boolean; age: number } | null;
+    children: { index: number; name: string; alive: boolean; age: number; school: number }[];
+    will: string;
+  };
+  dynasty: {
+    generation: number;
+    worth: number;
+    founded: number;
+    controlled: number;
+    offices: number;
+    convictions: number;
+    people: { index: number; name: string; role: string; alive: boolean; age: number; worth: number }[];
+  };
 }
 
 const FUTURES: Record<string, string> = {
@@ -96,11 +137,29 @@ const FUTURES: Record<string, string> = {
   LIVESTOCK: 'LIVESTOCK', CATTLE: 'LIVESTOCK',
 };
 
+const DEG = 16;
 const econ = (w: World): EconState => w.state.economy as EconState;
-const blank = (): PlayerState => ({ who: -1, over: false, margin: false, arrived: -1, heard: [], score: [], loans: [] });
+const blank = (): PlayerState => ({
+  who: -1, over: false, margin: false, arrived: -1, heard: [], score: [], loans: [],
+  line: [], generation: 1, founded: 0, controlled: 0, offices: 0, convictions: 0,
+  officeWas: '', seenLaw: [], will: null, chair: -1, handed: -1, final: '', passed: -1,
+});
 const stOf = (w: World): PlayerState => {
   let st = w.state.player as PlayerState | undefined;
   if (!st) { st = blank(); w.state.player = st; }
+  if (!st.line) st.line = [];
+  if (st.generation === undefined) st.generation = 1;
+  if (st.founded === undefined) st.founded = 0;
+  if (st.controlled === undefined) st.controlled = 0;
+  if (st.offices === undefined) st.offices = 0;
+  if (st.convictions === undefined) st.convictions = 0;
+  if (st.officeWas === undefined) st.officeWas = '';
+  if (!st.seenLaw) st.seenLaw = [];
+  if (st.will === undefined) st.will = null;
+  if (st.chair === undefined) st.chair = -1;
+  if (st.handed === undefined) st.handed = -1;
+  if (st.final === undefined) st.final = '';
+  if (st.passed === undefined) st.passed = -1;
   return st;
 };
 const rejected = (why: string): ActResult => ({ status: 'rejected', why });
@@ -169,6 +228,7 @@ function spawn(w: World): number {
   st.who = i;
   st.over = false;
   st.arrived = ev;
+  if (!st.line.includes(i)) st.line.push(i);
   st.score.push({ day: w.day, worth: Math.round(worth(w, i)) });
   return i;
 }
@@ -253,6 +313,317 @@ function isMe(x: { st: PlayerState; i: number; id: string } | ActResult): x is {
   return 'id' in x;
 }
 
+function remember(st: PlayerState, i: number): void {
+  if (i >= 0 && !st.line.includes(i)) st.line.push(i);
+}
+
+function bondsOf(w: World): { contact: Int32Array; bond: Uint8Array } | undefined {
+  const st = w.state.social as { contact?: Int32Array; bond?: Uint8Array } | undefined;
+  if (!st?.contact || !st.bond) return undefined;
+  return { contact: st.contact, bond: st.bond };
+}
+
+function friendship(w: World, person: number, slot: number): number {
+  const st = bondsOf(w);
+  if (!st || slot < 0 || slot >= DEG) return 0;
+  const p = person * DEG + slot;
+  if (st.contact[p] < 0) return 0;
+  return st.bond[p * 4 + B_FRIEND] ?? 0;
+}
+
+function liftFriend(w: World, person: number, slot: number, who: number): void {
+  const st = bondsOf(w);
+  if (!st) return;
+  const bump = (i: number, k: number): void => {
+    const q = (i * DEG + k) * 4 + B_FRIEND;
+    // A work contact starts at 22. The city's pairing bar is friendship past 49, so one courtship clears it.
+    const n = st.bond[q] + 28;
+    st.bond[q] = n > 100 ? 100 : n;
+  };
+  bump(person, slot);
+  const b = who * DEG;
+  for (let k = 0; k < DEG; k++) if (st.contact[b + k] === person) { bump(who, k); break; }
+}
+
+function canPair(w: World, a: number, b: number): string | undefined {
+  const P = econ(w).P;
+  if (a === b) return 'you cannot marry yourself';
+  if (!P.alive(a) || !P.alive(b)) return 'one of you has died';
+  if (P.spouse[a] >= 0 || P.spouse[b] >= 0) return 'one of you is already married';
+  const aa = P.age(w, a), bb = P.age(w, b);
+  if (aa < 20 || aa > 50 || bb < 20 || bb > 50) return 'the pairing rules stop at 20 and 50';
+  if (P.family[a] === P.family[b] || P.parent[a] === b || P.parent[b] === a) return 'you are already family';
+  if (P.kids(a).includes(b) || P.kids(b).includes(a)) return 'you are already family';
+  return undefined;
+}
+
+function pairSlot(w: World, i: number, slot: number): { slot: number; who: number } | { why: string } {
+  const list = contactsOf(w, i);
+  if (slot >= 0) {
+    const c = list.find((x) => x.slot === slot);
+    if (!c) return { why: 'no such contact' };
+    const why = canPair(w, i, c.who);
+    if (why) return { why };
+    return { slot: c.slot, who: c.who };
+  }
+  for (const c of list) if (!canPair(w, i, c.who)) return { slot: c.slot, who: c.who };
+  return { why: 'no contact passes the pairing rules' };
+}
+
+function causeOf(w: World, st: PlayerState): number {
+  return st.arrived >= 0 ? st.arrived : econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis;
+}
+
+function firmByKey(w: World, key: string): Firm | undefined {
+  const k = key.toLowerCase();
+  for (const f of econ(w).firms) {
+    if (f.closed) continue;
+    const bare = f.id.startsWith('frm_') ? f.id.slice(4) : f.id;
+    if (f.id.toLowerCase() === k || bare === k || f.name.toLowerCase() === k) return f;
+  }
+  return undefined;
+}
+
+function household(w: World, st: PlayerState): number[] {
+  const P = econ(w).P;
+  const seen = new Set<number>();
+  const out: number[] = [];
+  const add = (i: number): void => {
+    if (i < 0 || i >= P.n || seen.has(i)) return;
+    seen.add(i);
+    out.push(i);
+  };
+  for (const i of st.line) add(i);
+  add(st.who);
+  const me = st.who;
+  if (me >= 0 && me < P.n) {
+    add(P.spouse[me]);
+    for (const k of P.kids(me)) add(k);
+    add(P.parent[me]);
+  }
+  return out;
+}
+
+function houseWorth(w: World, ids: number[]): number {
+  const P = econ(w).P;
+  const price = markPrice(w);
+  let n = 0;
+  for (const i of ids) if (P.alive(i)) n += w.ledger.netWorth(P.id(i), price);
+  return Math.round(n);
+}
+
+function refreshFirms(w: World, st: PlayerState): void {
+  const members = new Set(household(w, st));
+  let founded = 0, controlled = 0;
+  for (const f of econ(w).firms) {
+    if (members.has(f.founder)) founded++;
+    if (!f.closed && members.has(f.ceo)) controlled++;
+  }
+  st.founded = founded;
+  st.controlled = controlled;
+}
+
+function refreshLife(w: World, st: PlayerState): void {
+  const P = econ(w).P;
+  const members = new Set(household(w, st));
+  const pol = w.state.politics as { leader?: number; finance?: number; governor?: number; regulator?: number } | undefined;
+  if (pol) {
+    const seats: [string, number][] = [
+      ['leader', pol.leader ?? -1],
+      ['finance', pol.finance ?? -1],
+      ['governor', pol.governor ?? -1],
+      ['regulator', pol.regulator ?? -1],
+    ];
+    let key = '';
+    for (const [name, who] of seats) {
+      if (!members.has(who)) continue;
+      const bit = `${name}:${who};`;
+      key += bit;
+      if (!st.officeWas.includes(bit)) st.offices++;
+    }
+    st.officeWas = key;
+  }
+  const ids = new Set<string>();
+  for (const i of members) ids.add(P.id(i));
+  for (const e of w.events.recent(['law.verdict', 'law.judgment'], 40)) {
+    if (!e.msg.includes('convicted') || !e.actor || !ids.has(e.actor)) continue;
+    if (st.seenLaw.includes(e.id)) continue;
+    st.seenLaw.push(e.id);
+    st.convictions++;
+  }
+}
+
+function personBit(w: World, i: number): { index: number; name: string; alive: boolean; age: number } | null {
+  const P = econ(w).P;
+  if (i < 0 || i >= P.n) return null;
+  return { index: i, name: P.name(i), alive: P.alive(i), age: P.age(w, i) };
+}
+
+function willText(w: World, st: PlayerState): string {
+  const will = st.will;
+  if (!will) return 'no will';
+  const P = econ(w).P;
+  const heir = will.heir >= 0 && will.heir < P.n ? P.name(will.heir) : 'nobody';
+  if (!will.shares.length) return `${heir} continues the house; the city's rule splits the estate`;
+  const bits = will.shares.map((s) => `${s.who >= 0 && s.who < P.n ? P.name(s.who) : 'someone'} ${Math.round(s.bps / 100)}%`);
+  return `${heir} continues the house; ${bits.join(', ')}`;
+}
+
+function dynastyOf(w: World, st: PlayerState): PlayerView['dynasty'] {
+  const P = econ(w).P;
+  const ids = household(w, st);
+  const price = markPrice(w);
+  const me = st.who;
+  const people = ids.map((i) => {
+    let role = 'kin';
+    if (i === me) role = 'you';
+    else if (me >= 0 && i === P.spouse[me]) role = 'spouse';
+    else if (me >= 0 && P.parent[i] === me) role = 'child';
+    else if (me >= 0 && P.parent[me] === i) role = 'parent';
+    return {
+      index: i, name: P.name(i), role, alive: P.alive(i), age: P.age(w, i),
+      worth: P.alive(i) ? Math.round(w.ledger.netWorth(P.id(i), price)) : 0,
+    };
+  });
+  return {
+    generation: st.generation,
+    worth: houseWorth(w, ids),
+    founded: st.founded,
+    controlled: st.controlled,
+    offices: st.offices,
+    convictions: st.convictions,
+    people,
+  };
+}
+
+function epitaph(w: World, st: PlayerState, dead: number): string {
+  const P = econ(w).P;
+  const d = dynastyOf(w, st);
+  return `${P.name(dead)} has died, and nobody is left to take the name. The house ends. Generation ${d.generation}. Family net worth ${(d.worth / 100).toFixed(0)} dollars. Firms founded ${d.founded}, controlled ${d.controlled}. Offices held ${d.offices}. Convictions ${d.convictions}.`;
+}
+
+function livingHeir(w: World, dead: number, st: PlayerState): number {
+  const P = econ(w).P;
+  const ok = (h: number): boolean => h >= 0 && h < P.n && h !== dead && P.alive(h);
+  const will = st.will;
+  if (will && ok(will.heir)) {
+    const child = P.parent[will.heir] === dead || P.kids(dead).includes(will.heir);
+    const spouse = will.heir === P.spouse[dead];
+    const named = contactsOf(w, dead).some((c) => c.who === will.heir) || will.shares.some((s) => s.who === will.heir);
+    if (child || spouse || named) return will.heir;
+  }
+  const sp = P.spouse[dead];
+  if (ok(sp)) return sp;
+  const kids = P.kids(dead).filter(ok);
+  kids.sort((a, b) => P.born[a] - P.born[b] || a - b);
+  const adult = kids.find((k) => P.age(w, k) >= 18);
+  if (adult !== undefined) return adult;
+  if (kids.length) return kids[0];
+  if (will) for (const s of will.shares) if (ok(s.who)) return s.who;
+  return -1;
+}
+
+function continueAs(w: World, dead: number, heir: number, cause: number): number {
+  const P = econ(w).P, st = stOf(w);
+  P.flags[dead] &= ~PLAYER;
+  P.flags[heir] |= PLAYER;
+  st.who = heir;
+  st.over = false;
+  st.passed = dead;
+  st.generation += 1;
+  st.will = null;
+  st.chair = -1;
+  remember(st, heir);
+  const ev = w.events.emit(
+    'player.heir',
+    `${P.name(heir)} (${P.age(w, heir)}) takes up the life ${P.name(dead)} left. Skill ${P.skill[heir].toFixed(2)}, health ${P.health[heir]}, and the contacts and reputation already their own`,
+    [cause],
+    P.id(heir),
+  );
+  P.lastEv[heir] = ev;
+  chronicle(w, heir, `${P.name(heir)} continues the house after ${P.name(dead)}`, ev);
+  refreshFirms(w, st);
+  return ev;
+}
+
+function endHouse(w: World, dead: number, cause: number): void {
+  const st = stOf(w), P = econ(w).P;
+  st.over = true;
+  st.passed = dead;
+  st.final = epitaph(w, st, dead);
+  chronicle(w, dead, st.final, cause);
+  P.lastEv[dead] = cause;
+}
+
+function moveEstate(w: World, i: number, shares: Share[], ev: number): void {
+  const s = econ(w), L = w.ledger, P = s.P, me = P.slot[i];
+  const alive = shares.filter((r) => r.who >= 0 && r.who < P.n && r.who !== i && P.alive(r.who) && r.bps > 0);
+  const holdings = s.shareIds.filter((id) => L.balS(me, id) > 0);
+  const cashNow = L.balS(me, DEP);
+  if (!alive.length) {
+    if (cashNow > 0) L.moveS(DEP, me, s.govSlot, cashNow, 'estate.escheat', ev);
+    for (const id of holdings) {
+      const n = L.balS(me, id);
+      if (n > 0) L.moveS(id, me, s.govSlot, n, 'estate.escheat', ev);
+    }
+    return;
+  }
+  const sum = alive.reduce((t, r) => t + r.bps, 0);
+  alive.forEach((r, k) => {
+    const last = k === alive.length - 1;
+    const to = P.slot[r.who];
+    const cash = last ? L.balS(me, DEP) : Math.floor(cashNow * r.bps / sum);
+    if (cash > 0) L.moveS(DEP, me, to, cash, 'estate.inherit', ev);
+    for (const id of holdings) {
+      const n = L.balS(me, id);
+      const q = last ? n : Math.floor(n * r.bps / sum);
+      if (q > 0) L.moveS(id, me, to, q, 'estate.inherit', ev);
+    }
+    P.lastEv[r.who] = ev;
+  });
+}
+
+function cityShares(w: World, i: number): Share[] {
+  const P = econ(w).P;
+  const sp = P.spouse[i];
+  const heirs = sp >= 0 && P.alive(sp) ? [sp] : P.kids(i).filter((k) => P.alive(k));
+  if (!heirs.length) return [];
+  const bps = Math.floor(10000 / heirs.length);
+  return heirs.map((who, k) => ({ who, bps: k === heirs.length - 1 ? 10000 - bps * (heirs.length - 1) : bps }));
+}
+
+function noticeBoard(w: World, st: PlayerState, i: number): void {
+  const s = econ(w), P = s.P;
+  const chair = st.chair;
+  if (chair >= 0 && chair < s.firms.length && s.firms[chair].ceo !== i) {
+    const held = s.firms[chair];
+    if (st.handed !== chair) {
+      const id = w.events.last('firm.ceoFired');
+      const ev = id !== undefined ? w.events.get(id) : undefined;
+      const cause = ev && ev.actor === held.id ? ev.id : causeOf(w, st);
+      chronicle(w, i, `the board removes ${P.name(i)} from ${held.name}`, cause);
+    }
+    st.chair = -1;
+    st.handed = -1;
+  }
+  const e = P.employer[i];
+  if (e >= 0 && s.firms[e].ceo === i) st.chair = e;
+}
+
+function ageYear(w: World, i: number): void {
+  const s = econ(w), P = s.P;
+  if (P.age(w, i) < 40 || P.health[i] <= 40) return;
+  const before = labourOf(P, i, w.day);
+  P.health[i]--;
+  const after = labourOf(P, i, w.day);
+  retargetLabour(s, i, before, after);
+  if (P.health[i] === 60 || P.health[i] === 45 || P.health[i] === 30) {
+    const st = stOf(w);
+    const ev = w.events.emit('player.health', `${P.name(i)} is ${P.age(w, i)} and health has fallen to ${P.health[i]}`, [causeOf(w, st)], P.id(i));
+    chronicle(w, i, `${P.name(i)} feels the years; health ${P.health[i]}`, ev);
+  }
+}
+
 function shortSell(w: World, st: PlayerState, id: string, instr: string, qty: number, limit: number | undefined): ActResult {
   if (!st.margin) return rejected('short selling needs a margin account at a bank');
   const stock = (w.state.markets as { stocks: { instr: string; last: number }[] }).stocks.find((s) => s.instr === instr);
@@ -283,7 +654,7 @@ export function act(w: World, cmd: Command): ActResult {
   const dead = st.over || !P.alive(i);
   if (dead) {
     st.over = true;
-    if (cmd.kind !== 'news' && cmd.kind !== 'why') return rejected('you have died');
+    if (cmd.kind !== 'news' && cmd.kind !== 'why') return rejected(st.final || 'you have died');
   }
   switch (cmd.kind) {
     case 'order': {
@@ -402,6 +773,7 @@ export function act(w: World, cmd: Command): ActResult {
     case 'found': {
       const r = foundCompany(w, i, cmd.name, cmd.sector.toUpperCase(), cmd.cents, cmd.loan);
       if ('why' in r) return rejected(r.why);
+      refreshFirms(w, st);
       return { status: 'accepted', text: `you found ${r.name} (${r.id}), making ${r.good}` };
     }
     case 'ceo': {
@@ -438,6 +810,149 @@ export function act(w: World, cmd: Command): ActResult {
       const r = cmd.op === 'merge' ? foldFirm(w, i, cmd.firm, cmd.into) : sellDivision(w, i, cmd.firm, cmd.into);
       if ('why' in r) return rejected(r.why);
       return { status: 'accepted', text: r.text };
+    }
+    case 'court': {
+      const hit = pairSlot(w, i, cmd.slot);
+      if ('why' in hit) return rejected(hit.why);
+      const talked = talk(w, i, hit.slot);
+      if (talked.who < 0) return rejected(talked.why ?? 'nobody there');
+      liftFriend(w, i, hit.slot, hit.who);
+      const fr = friendship(w, i, hit.slot);
+      const ev = w.events.emit('player.court', `${P.name(i)} courts ${P.name(hit.who)} (friendship ${fr})`, [causeOf(w, st)], id);
+      chronicle(w, i, `${P.name(i)} courts ${P.name(hit.who)}`, ev);
+      const ready = fr > 49 ? ' The pairing rules would allow a marriage.' : ' Friendship is not past 49 yet.';
+      return { status: 'accepted', eventId: ev, text: `courted ${P.name(hit.who)}, friendship ${fr}.${ready}` };
+    }
+    case 'marry': {
+      const hit = pairSlot(w, i, cmd.slot);
+      if ('why' in hit) return rejected(hit.why);
+      if (!(friendship(w, i, hit.slot) > 49)) return rejected(`friendship is ${friendship(w, i, hit.slot)}; the pairing rules want it past 49`);
+      P.spouse[i] = hit.who;
+      P.spouse[hit.who] = i;
+      const ev = w.events.emit('player.wed', `${P.name(i)} marries ${P.name(hit.who)}, on the same pairing rules as anyone else`, [causeOf(w, st)], id);
+      const s = econ(w);
+      thought(w, s, i, -80, 'a wedding', ev);
+      thought(w, s, hit.who, -80, 'a wedding', ev);
+      seatPerson(w, i, 16);
+      seatPerson(w, hit.who, 16);
+      remember(st, hit.who);
+      P.lastEv[i] = ev;
+      chronicle(w, i, `${P.name(i)} marries ${P.name(hit.who)}`, ev);
+      return { status: 'accepted', eventId: ev, text: `married ${P.name(hit.who)}` };
+    }
+    case 'child': {
+      const q = P.spouse[i];
+      if (q < 0 || !P.alive(q)) return rejected('you have no spouse');
+      const young = Math.min(P.age(w, i), P.age(w, q));
+      if (young < 20 || young > 42 || P.nkids[i] >= 4) return rejected('the birth rules stop outside 20 to 42, and at four children');
+      const child = P.add(w, w.day, i, q);
+      const ev = w.events.emit('player.birth', `${P.name(i)} and ${P.name(q)} have a child, ${P.name(child)}`, [causeOf(w, st)], id);
+      const s = econ(w);
+      thought(w, s, i, -60, 'a birth', ev);
+      thought(w, s, q, -60, 'a birth', ev);
+      seatPerson(w, child, 8);
+      remember(st, child);
+      P.lastEv[i] = ev;
+      chronicle(w, i, `${P.name(child)} is born to ${P.name(i)} and ${P.name(q)}`, ev);
+      return { status: 'accepted', eventId: ev, text: `${P.name(child)} is born` };
+    }
+    case 'school': {
+      const kids = P.kids(i).filter((k) => P.alive(k));
+      const child = kids[cmd.nth];
+      if (child === undefined) return rejected('no such child');
+      if (P.school[child] >= 18) return rejected('schooling already runs to 18 years');
+      const cost = Math.round(econ(w).wage * 100);
+      if (Math.floor(w.ledger.balance(id, DEP)) < cost) return rejected('you cannot pay the school');
+      const ev = w.events.emit('player.school', `${P.name(i)} pays for a year of schooling for ${P.name(child)}`, [causeOf(w, st)], id);
+      if (!pay(w, id, GOV, cost, 'player.school', ev)) return rejected('the payment did not clear');
+      P.school[child] = Math.min(18, P.school[child] + 1);
+      chronicle(w, i, `${P.name(child)} now has ${P.school[child]} years of school, paid by ${P.name(i)}`, ev);
+      return { status: 'accepted', eventId: ev, fill: cost, text: `paid for ${P.name(child)}; school ${P.school[child]}` };
+    }
+    case 'will': {
+      let heir = -1;
+      let shares: Share[] = [];
+      if (cmd.how === 'spouse') {
+        const sp = P.spouse[i];
+        if (sp < 0 || !P.alive(sp)) return rejected('you have no spouse');
+        heir = sp;
+      } else if (cmd.how === 'child') {
+        const kids = P.kids(i).filter((k) => P.alive(k));
+        const child = kids[cmd.nth];
+        if (child === undefined) return rejected('no such child');
+        heir = child;
+        const sp = P.spouse[i];
+        shares = sp >= 0 && P.alive(sp)
+          ? [{ who: sp, bps: 5000 }, { who: child, bps: 5000 }]
+          : [{ who: child, bps: 10000 }];
+      } else if (cmd.how === 'slot') {
+        const c = contactsOf(w, i).find((x) => x.slot === cmd.nth);
+        if (!c || !P.alive(c.who) || c.who === i) return rejected('no such contact');
+        heir = c.who;
+      } else {
+        const never: never = cmd.how;
+        return never;
+      }
+      const split = shares.length
+        ? shares.map((s) => `${P.name(s.who)} ${Math.round(s.bps / 100)}%`).join(', ')
+        : 'the city\'s rule, a living spouse or else the children in equal parts, or the state if nobody is left';
+      const ev = w.events.emit('player.will', `${P.name(i)} writes a will. ${P.name(heir)} continues the house. The estate: ${split}`, [causeOf(w, st)], id);
+      st.will = { heir, shares, eventId: ev };
+      chronicle(w, i, `${P.name(i)} writes a will naming ${P.name(heir)}`, ev);
+      return { status: 'accepted', eventId: ev, text: willText(w, st) };
+    }
+    case 'retire': {
+      if (P.retired(i)) return rejected('you have already retired');
+      const s = econ(w);
+      const e = P.employer[i], f = e >= 0 ? s.firms[e] : undefined, wasCeo = f?.ceo === i;
+      const ev = w.events.emit('player.retire', `${P.name(i)} retires at ${P.age(w, i)}`, [causeOf(w, st)], id);
+      P.flags[i] |= RETIRED;
+      setSimDay(w.day);
+      leaveJob(s, i);
+      if (f && wasCeo) {
+        st.handed = f.idx;
+        succession(w, s, f, i, 'retired', ev);
+      }
+      chronicle(w, i, `${P.name(i)} retires`, ev);
+      refreshFirms(w, st);
+      return { status: 'accepted', eventId: ev, text: 'retired' };
+    }
+    case 'hand': {
+      const f = firmByKey(w, cmd.firm);
+      if (!f) return rejected('no such firm');
+      if (f.ceo !== i) return rejected('you do not hold that seat');
+      if (!f.family) return rejected('succession searches the children only in a family firm');
+      const retire = CEO_POSITION.retireAge;
+      const kids = P.kids(i).filter((c) => P.alive(c) && P.adult(w, c) && P.age(w, c) >= 23 && P.age(w, c) < retire - 1);
+      if (!kids.length) return rejected('no child is old enough for the succession rules');
+      const ev = w.events.emit('player.hand', `${P.name(i)} hands ${f.name} to the next generation`, [causeOf(w, st)], id);
+      st.handed = f.idx;
+      setSimDay(w.day);
+      succession(w, econ(w), f, i, 'handed the seat on', ev);
+      chronicle(w, i, `${P.name(i)} hands ${f.name} on`, ev);
+      refreshFirms(w, st);
+      return { status: 'accepted', eventId: ev, text: `${f.name} passes by the succession rules` };
+    }
+    case 'die': {
+      const cause = st.will?.eventId ?? causeOf(w, st);
+      const shares = st.will && st.will.shares.length ? st.will.shares : cityShares(w, i);
+      const named = st.will && st.will.heir >= 0 && st.will.heir < P.n ? P.name(st.will.heir) : '';
+      const ev = w.events.emit('player.died', `${P.name(i)} dies aged ${P.age(w, i)}. ${named ? `The will names ${named}. ` : ''}The estate follows the will, and the city's rule where the will is silent`, [cause], id);
+      moveEstate(w, i, shares, ev);
+      P.flags[i] &= ~ALIVE;
+      const sp = P.spouse[i];
+      if (sp >= 0 && sp < P.n) P.spouse[sp] = -1;
+      setSimDay(w.day);
+      const e = P.employer[i], f = e >= 0 ? econ(w).firms[e] : undefined, wasCeo = f?.ceo === i;
+      leaveJob(econ(w), i);
+      if (f && wasCeo) succession(w, econ(w), f, i, 'died', ev);
+      const heir = livingHeir(w, i, st);
+      if (heir < 0) {
+        endHouse(w, i, ev);
+        return { status: 'accepted', eventId: ev, lines: w.events.explain(ev, 6), text: st.final };
+      }
+      const heirEv = continueAs(w, i, heir, ev);
+      return { status: 'accepted', eventId: heirEv, lines: w.events.explain(heirEv, 6), text: `${P.name(heir)} continues the house` };
     }
     default: {
       const never: never = cmd;
@@ -550,6 +1065,17 @@ export function view(w: World): PlayerView {
     stockLoans: st.loans.map((l) => ({ instr: l.instr, qty: l.qty, face: l.face, eventId: arrived })),
     orders, contacts, prices, news, private: priv, bonds, score: st.score,
     companies: i >= 0 ? companyPosts(w, i) : [],
+    health: i >= 0 ? P.health[i] : 0,
+    final: st.final,
+    family: {
+      spouse: i >= 0 ? personBit(w, P.spouse[i]) : null,
+      children: i >= 0 ? P.kids(i).map((k) => {
+        const bit = personBit(w, k);
+        return bit ? { ...bit, school: P.school[k] } : { index: k, name: '', alive: false, age: 0, school: 0 };
+      }) : [],
+      will: willText(w, st),
+    },
+    dynasty: dynastyOf(w, st),
   };
 }
 
@@ -561,32 +1087,41 @@ export const player: Module = {
     if (playerIndex(w) < 0) spawn(w);
   },
   dayClose(w) {
-    const st = w.state.player as PlayerState | undefined;
-    if (!st || st.who < 0) return;
+    const st = stOf(w);
+    if (st.who < 0) return;
     const P = econ(w).P;
     const i = st.who;
     if (i >= P.n) return;
     if (!P.alive(i)) {
-      if (!st.over) {
-        st.over = true;
-        const died = w.events.last('person.died');
-        const ev = died !== undefined ? w.events.get(died) : undefined;
-        const cause = ev?.actor === P.id(i) ? ev.id : (st.arrived >= 0 ? st.arrived : w.genesis);
-        chronicle(w, i, `${P.name(i)} has died. The game is over`, cause);
-      }
+      if (st.over || st.passed === i) return;
+      const died = w.events.last('person.died');
+      const ev = died !== undefined ? w.events.get(died) : undefined;
+      const cause = ev?.actor === P.id(i) ? ev.id : causeOf(w, st);
+      const heir = livingHeir(w, i, st);
+      if (heir < 0) endHouse(w, i, cause);
+      else continueAs(w, i, heir, cause);
       return;
     }
+    noticeBoard(w, st, i);
     if (w.day > 0 && w.day % DAYS_PER_YEAR === 0 && (st.score.length === 0 || st.score[st.score.length - 1].day !== w.day)) {
+      ageYear(w, i);
       const nw = Math.round(worth(w, i));
       st.score.push({ day: w.day, worth: nw });
       const cause = econ(w).macroEv || st.arrived;
       chronicle(w, i, `${P.name(i)} marks the year with a net worth of ${(nw / 100).toFixed(0)} dollars`, cause);
+      refreshFirms(w, st);
+      refreshLife(w, st);
     }
   },
   stats(w) {
     const i = playerIndex(w);
     if (i < 0) return { player: 0 };
-    const P = econ(w).P;
-    return { player: Math.round(worth(w, i) / 100), playerAlive: P.alive(i) ? 1 : 0 };
+    const P = econ(w).P, st = stOf(w);
+    return {
+      player: Math.round(worth(w, i) / 100),
+      playerAlive: P.alive(i) ? 1 : 0,
+      dynasty: st.generation,
+      house: Math.round(houseWorth(w, household(w, st)) / 100),
+    };
   },
 };

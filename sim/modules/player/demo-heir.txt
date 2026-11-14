@@ -1,0 +1,7 @@
+# Court a contact, marry on the same pairing rules, have a child, pay for school, write the will, die, and continue as the heir.
+court
+marry
+child
+school
+will child
+die

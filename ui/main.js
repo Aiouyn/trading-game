@@ -8,6 +8,7 @@ const PAGES = [
   ['fx', 'FX', '7'],
   ['economy', 'MACRO', '8'],
   ['log', 'LOG', '9'],
+  ['family', 'FAMILY', 'F'],
   ['run', 'RUN', '0'],
 ];
 const SPEEDS = [['pause', 'PAUSE'], ['day', '1D'], ['week', '1W'], ['month', '1M']];
@@ -150,7 +151,9 @@ function paintChrome() {
   }
   when.textContent = whenOf(v.date);
   const job = v.firm ? firmLink(v.firm, v.employer) : esc(v.employer || 'unemployed');
-  who.innerHTML = v.alive ? `${esc(v.name)}, ${v.age} · ${job}` : `<span class="dead">${esc(v.name)} has died</span>`;
+  who.innerHTML = v.over
+    ? `<span class="dead">${esc(v.name)} · the house ends</span>`
+    : v.alive ? `${esc(v.name)}, ${v.age}${v.health !== undefined ? ` · health ${v.health}` : ''} · ${job}` : `<span class="dead">${esc(v.name)} has died</span>`;
   nw.textContent = money(v.netWorth);
   const day = v.nwChange || 0;
   nwd.textContent = pctSignedMoney(day);
@@ -198,7 +201,7 @@ function go(page, arg) {
 
 function onClick(ev) {
   if (ev.target.closest('a[href]')) return;
-  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro]');
+  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro]');
   if (!t || !document.getElementById('app').contains(t)) return;
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.speed) { setSpeed(t.dataset.speed); return; }
@@ -214,6 +217,9 @@ function onClick(ev) {
   if (t.dataset.otype) { S.orderType = t.dataset.otype; paintSides(); return; }
   if (t.dataset.sort) { toggleSort(t.dataset.sort); return; }
   if (t.dataset.talk) { postAct({ kind: 'talk', slot: Number(t.dataset.talk) }); return; }
+  if (t.dataset.court !== undefined) { postAct({ kind: 'court', slot: t.dataset.court === '' ? -1 : Number(t.dataset.court) }); return; }
+  if (t.dataset.marry !== undefined) { postAct({ kind: 'marry', slot: t.dataset.marry === '' ? -1 : Number(t.dataset.marry) }); return; }
+  if (t.dataset.life) { lifeAct(t.dataset.life); return; }
   if (t.dataset.ask) {
     const firm = document.getElementById('askfirm')?.value || S.view?.firm || '';
     postAct({ kind: 'ask', slot: Number(t.dataset.ask), firm });
@@ -361,12 +367,74 @@ function ticketHtml() {
     </div>`;
 }
 
+function finalBanner() {
+  const v = S.view;
+  if (!v?.final) return '';
+  const d = v.dynasty;
+  return `<div class="panel"><h2>THE HOUSE ENDS</h2><div style="padding:8px">${esc(v.final)}</div>
+    ${d ? `<div class="facts"><span class="k">generation</span><span>${d.generation}</span><span class="k">family worth</span><span>${money(d.worth)}</span><span class="k">founded</span><span>${d.founded}</span><span class="k">controlled</span><span>${d.controlled}</span><span class="k">offices</span><span>${d.offices}</span><span class="k">convictions</span><span>${d.convictions}</span></div>` : ''}
+  </div>`;
+}
+function lifeAct(raw) {
+  if (raw === 'child') { postAct({ kind: 'child' }); return; }
+  if (raw === 'retire') { postAct({ kind: 'retire' }); return; }
+  if (raw === 'die') { postAct({ kind: 'die' }); return; }
+  if (raw === 'hand') {
+    const firm = S.view?.firm || S.view?.companies?.[0]?.id;
+    if (!firm) { note('you do not run a firm', true); return; }
+    postAct({ kind: 'hand', firm });
+    return;
+  }
+  if (raw.startsWith('school:')) { postAct({ kind: 'school', nth: Number(raw.slice(7)) }); return; }
+  if (raw === 'will:spouse') { postAct({ kind: 'will', how: 'spouse', nth: 0 }); return; }
+  if (raw === 'will:child') { postAct({ kind: 'will', how: 'child', nth: 0 }); return; }
+}
+function renderFamily() {
+  const v = S.view;
+  if (!v) return '<div class="dim">loading the books…</div>';
+  const d = v.dynasty || {};
+  const fam = v.family || { children: [], will: '' };
+  const people = (d.people || []).map((p) => `<tr>
+    <td>${personLink(p.index, p.name)}</td><td>${esc(p.role)}</td><td class="num">${p.age}</td>
+    <td>${p.alive ? 'living' : '<span class="dead">dead</span>'}</td><td class="num">${money(p.worth)}</td></tr>`).join('');
+  const kids = (fam.children || []).map((k, n) => `<button type="button" data-life="school:${n}">SCHOOL ${esc(k.name)} (${k.school})</button>`).join(' ');
+  const chronicle = (S.history?.entries ?? []).filter((e) => e.kind === 'player').slice().reverse().map((e) => `
+    <div class="log-item"><span class="dim">Y${e.year} · ${dateOf(e.day)}</span><br>${esc(e.text)}</div>`).join('')
+    || '<div class="dim" style="padding:8px">the family page of the chronicle is still blank</div>';
+  const acts = v.over ? '' : `<div style="padding:8px">
+    <button type="button" data-court>COURT</button>
+    <button type="button" data-marry>MARRY</button>
+    <button type="button" data-life="child">CHILD</button>
+    ${kids}
+    <button type="button" data-life="will:spouse">WILL SPOUSE</button>
+    <button type="button" data-life="will:child">WILL CHILD</button>
+    <button type="button" data-life="retire">RETIRE</button>
+    <button type="button" data-life="hand">HAND THE FIRM</button>
+    <button type="button" data-life="die">DIE</button>
+    <div class="dim" style="margin-top:6px">${esc(fam.will || '')}</div>
+  </div>`;
+  return `${finalBanner()}<div class="split">
+    <div class="panel"><h2>DYNASTY <span>generation ${d.generation ?? 1}</span></h2>
+      <div class="facts">
+        <span class="k">family worth</span><span>${money(d.worth || 0)}</span>
+        <span class="k">firms founded</span><span>${d.founded ?? 0}</span>
+        <span class="k">firms controlled</span><span>${d.controlled ?? 0}</span>
+        <span class="k">offices held</span><span>${d.offices ?? 0}</span>
+        <span class="k">convictions</span><span>${d.convictions ?? 0}</span>
+        <span class="k">health</span><span>${v.health ?? ''}</span>
+      </div>
+      <table><tbody>${people || '<tr><td class="dim">no one in the house</td></tr>'}</tbody></table>
+      ${acts}
+    </div>
+    <div class="panel"><h2>CHRONICLE <span>the family</span></h2>${chronicle}</div>
+  </div>`;
+}
 function renderDesk() {
   const q = S.view?.quotes?.find((x) => x.instr === S.selected) ?? sortedQuotes()[0];
   if (q && !S.selected) S.selected = q.instr;
   const cur = S.view?.quotes?.find((x) => x.instr === S.selected);
   const title = cur ? `${esc(cur.symbol)} ${firmLink(cur.issuer, cur.name)} <span class="${cls(cur.chg)}">${px(cur.px)} ${pct(cur.chg)}</span>` : 'no listings';
-  return `
+  return `${finalBanner()}
     <div class="desk">
       <div class="panel quotes" id="quotes">${quotesHtml()}</div>
       <div class="side">
@@ -443,7 +511,7 @@ function renderContacts() {
       <span>${personLink(c.who, c.name)}</span>
       <span class="dim">${esc(c.kind)}</span>
       <div class="bars">${bar('fam', c.familiarity, 480)}${bar('trust', c.trust, 100)}${bar('friend', c.friendship, 100)}</div>
-      <span><button type="button" data-talk="${c.slot}">TALK</button> <button type="button" data-ask="${c.slot}">ASK</button></span>
+      <span><button type="button" data-talk="${c.slot}">TALK</button> <button type="button" data-ask="${c.slot}">ASK</button> <button type="button" data-court="${c.slot}">COURT</button> <button type="button" data-marry="${c.slot}">MARRY</button></span>
     </div>`).join('') || '<div class="dim">no contacts</div>';
   return `<div class="panel"><h2>CONTACTS <span>${v?.contacts?.length ?? 0} / 16</span></h2>
     <div style="padding:8px">Ask about <select id="askfirm">${opts}</select></div>${rows}</div>`;
@@ -614,7 +682,7 @@ function renderPerson(p) {
   const line = (label, node) => node ? `<div>${label} ${personLink(node.index, node.name)}${node.alive ? '' : ' <span class="dead">dead</span>'}</div>` : '';
   const list = (nodes) => (nodes ?? []).map((n) => personLink(n.index, n.name) + (n.alive ? '' : ' <span class="dead">†</span>')).join(', ') || '<span class="dim">none</span>';
   const rel = p.contact ? `<div class="bars">${bar('fam', p.contact.familiarity, 480)}${bar('trust', p.contact.trust, 100)}${bar('friend', p.contact.friendship, 100)}</div>
-    <div style="margin-top:8px"><button type="button" data-talk="${p.contact.slot}">TALK</button> <button type="button" data-ask="${p.contact.slot}">ASK</button></div>
+    <div style="margin-top:8px"><button type="button" data-talk="${p.contact.slot}">TALK</button> <button type="button" data-ask="${p.contact.slot}">ASK</button> <button type="button" data-court="${p.contact.slot}">COURT</button> <button type="button" data-marry="${p.contact.slot}">MARRY</button></div>
     <div class="dim" style="margin-top:6px">${esc(p.contact.kind)} · slot ${p.contact.slot}</div>` : '<div class="dim">not a contact</div>';
   const job = p.employer ? `${esc(p.title)} of ${firmLink(p.employer.id, p.employer.name)}${p.good ? ` <span class="dim">${esc(p.good)}</span>` : ''}` : esc(p.title);
   return `<div class="split">
@@ -914,6 +982,14 @@ async function renderMain() {
     return;
   }
   if (S.page === 'run') { main.innerHTML = renderRun(); return; }
+  if (S.page === 'family') {
+    main.innerHTML = renderFamily();
+    ensureHistory().then(() => {
+      if (S.page !== 'family') return;
+      main.innerHTML = renderFamily();
+    });
+    return;
+  }
   if (S.page === 'log') {
     main.innerHTML = '<div class="dim">reading the chronicle…</div>';
     await ensureHistory();
@@ -968,6 +1044,7 @@ function paint() {
   const same = main && main.dataset.page === S.page && (main.dataset.arg || '') === (S.arg || '');
   if (!same) renderMain();
   else if (S.page === 'desk') patchDesk();
+  else if (S.page === 'family') renderMain();
   else if (S.page === 'wire') {
     const top = main.scrollTop;
     main.innerHTML = renderWire();
@@ -984,6 +1061,12 @@ function applyDay(msg) {
   S.view.cash = msg.cash;
   S.view.alive = msg.alive;
   S.view.over = msg.over;
+  if (msg.name) S.view.name = msg.name;
+  if (msg.age !== undefined) S.view.age = msg.age;
+  if (msg.health !== undefined) S.view.health = msg.health;
+  if (msg.final !== undefined) S.view.final = msg.final;
+  if (msg.family) S.view.family = msg.family;
+  if (msg.dynasty) S.view.dynasty = msg.dynasty;
   if (S.view.tape) {
     S.view.tape.index = msg.index;
     S.view.tape.indexChg = msg.indexChg;
@@ -1061,7 +1144,7 @@ document.addEventListener('keydown', (ev) => {
     return;
   }
   if (typing) return;
-  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'run' };
+  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'run', 'f': 'family', 'F': 'family' };
   if (goKey[ev.key]) { go(goKey[ev.key]); return; }
   if (ev.key === 'j' || ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
   else if (ev.key === 'k' || ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }

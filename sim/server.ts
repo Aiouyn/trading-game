@@ -201,6 +201,31 @@ function commandOf(body: unknown): Command | string {
       if (typeof b.into === 'string') cmd.into = b.into;
       return cmd;
     }
+    case 'court':
+    case 'marry': {
+      const n = b.slot === undefined ? -1 : whole(b.slot, 0);
+      if (n === undefined) return 'that needs a contact slot';
+      return b.kind === 'marry' ? { kind: 'marry', slot: n } : { kind: 'court', slot: n };
+    }
+    case 'child': return { kind: 'child' };
+    case 'school': {
+      const nth = b.nth === undefined ? 0 : whole(b.nth, 0);
+      if (nth === undefined) return 'school needs a child number';
+      return { kind: 'school', nth };
+    }
+    case 'will': {
+      const how = b.how === 'spouse' || b.how === 'child' || b.how === 'slot' ? b.how : undefined;
+      if (!how) return 'will names a spouse, a child or a contact slot';
+      const nth = b.nth === undefined ? 0 : whole(b.nth, 0);
+      if (nth === undefined) return 'will needs a number';
+      return { kind: 'will', how, nth };
+    }
+    case 'retire': return { kind: 'retire' };
+    case 'hand': {
+      if (typeof b.firm !== 'string' || !b.firm) return 'hand needs a firm';
+      return { kind: 'hand', firm: b.firm };
+    }
+    case 'die': return { kind: 'die' };
     default: return 'unknown command';
   }
 }
@@ -846,6 +871,12 @@ function compact(snap: Record<string, unknown>): Record<string, unknown> {
     cash: snap.cash,
     alive: snap.alive,
     over: snap.over,
+    name: snap.name,
+    age: snap.age,
+    health: snap.health,
+    final: snap.final,
+    family: snap.family,
+    dynasty: snap.dynasty,
     index: tape.index,
     indexChg: tape.indexChg,
     quotes: (snap.quotes as { instr: string; px: number; prev: number; chg: number; vol: number }[]).map((q) => ({

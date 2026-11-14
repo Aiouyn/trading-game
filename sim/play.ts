@@ -189,13 +189,44 @@ export function parseCommand(line: string, employer: string): Command | { error:
     }
     return { error: 'usage: board | board chief FIRM SLOT | board merge FIRM INTO | board sell FIRM BUYER' };
   }
+  if (head === 'court' || head === 'marry') {
+    const slot = t[1] === undefined ? -1 : Number(t[1]);
+    if (!Number.isInteger(slot) || slot < -1) return { error: `usage: ${head} [SLOT]` };
+    return { kind: head, slot };
+  }
+  if (head === 'child') return { kind: 'child' };
+  if (head === 'school') {
+    const nth = t[1] === undefined ? 0 : Number(t[1]);
+    if (!Number.isInteger(nth) || nth < 0) return { error: 'usage: school [CHILD]' };
+    return { kind: 'school', nth };
+  }
+  if (head === 'will') {
+    const how = t[1]?.toLowerCase();
+    if (how !== 'spouse' && how !== 'child' && how !== 'slot') return { error: 'usage: will spouse | will child [N] | will slot N' };
+    const nth = t[2] === undefined ? 0 : Number(t[2]);
+    if (!Number.isInteger(nth) || nth < 0) return { error: 'usage: will spouse | will child [N] | will slot N' };
+    if (how === 'slot' && t[2] === undefined) return { error: 'usage: will slot N' };
+    return { kind: 'will', how, nth };
+  }
+  if (head === 'retire') return { kind: 'retire' };
+  if (head === 'hand') {
+    if (!t[1]) return { error: 'usage: hand FIRM' };
+    return { kind: 'hand', firm: t[1] };
+  }
+  if (head === 'die') return { kind: 'die' };
   return { error: `unknown command ${head}` };
 }
 
 function summary(v: PlayerView): string[] {
   const when = `Year ${v.date.year}, month ${v.date.month}, day ${v.date.day}`;
-  const who = v.alive ? `${v.name}, ${v.age}, ${v.employer || 'unemployed'} (${v.firm})` : `${v.name} has died`;
+  const who = v.alive
+    ? `${v.name}, ${v.age}, health ${v.health}, ${v.employer || 'unemployed'} (${v.firm})`
+    : (v.final || `${v.name} has died`);
   const lines = [`${when}  ${who}  net worth ${dollars(v.netWorth)}  cash ${dollars(v.cash)}`];
+  const spouse = v.family?.spouse;
+  const kids = v.family?.children ?? [];
+  lines.push(`  family: ${spouse ? `spouse ${spouse.name} (${spouse.age})` : 'no spouse'}; children ${kids.length ? kids.map((k) => `${k.name} ${k.age} school ${k.school}`).join(', ') : 'none'}; ${v.family?.will ?? ''}`);
+  if (v.dynasty) lines.push(`  dynasty gen ${v.dynasty.generation} worth ${dollars(v.dynasty.worth)} founded ${v.dynasty.founded} controlled ${v.dynasty.controlled} offices ${v.dynasty.offices} convictions ${v.dynasty.convictions}`);
   if (v.marginPosted) lines.push(`  futures margin ${dollars(v.marginPosted)}`);
   if (v.shares.length) lines.push('  shares: ' + v.shares.map((s) => `${s.instr} ${s.qty} @ ${dollars(s.px)}`).join(', '));
   if (v.loans.length) lines.push('  loans: ' + v.loans.map((l) => `${l.kind} ${dollars(l.owed)} @ ${(l.rate * 100).toFixed(2)}%`).join(', '));
@@ -266,7 +297,12 @@ async function main(): Promise<void> {
     if (res.status === 'accepted' && res.days) {
       const bad = advance(w, res.days);
       stepped = true;
-      if (bad === 'over') { console.log('The game is over.'); return false; }
+      if (bad === 'over') {
+        const v = view(w);
+        if (v.final) console.log(v.final);
+        console.log('The game is over.');
+        return false;
+      }
       if (bad) { failed = bad; console.error(`BOOKS DO NOT BALANCE: ${bad}`); return false; }
       for (const line of summary(view(w))) console.log(line);
     }
