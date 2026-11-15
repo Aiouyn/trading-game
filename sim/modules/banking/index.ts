@@ -284,6 +284,7 @@ function lossThought(w: World, s: EconState, id: string, lost: number, held: num
   if (lost >= 0.2 * Math.max(held, 1) || lost >= income * 60) thought(w, s, i, 300, why, cause);
 }
 
+const SEGREGATED = /(^clearing$|_exch$|escrow|custod)/;
 function haircutClaim(w: World, s: EconState, instr: string, hole: number, cause: number): void {
   dirtyFin(w);
   const rows = holdersOf(w, instr);
@@ -293,6 +294,7 @@ function haircutClaim(w: World, s: EconState, instr: string, hole: number, cause
   for (let pass = 0; pass < 2 && left > 0; pass++) {
     for (let i = 0; i < rows.length && left > 0; i++) {
       const [id, bal] = rows[i];
+      if (SEGREGATED.test(id)) continue; // collateral held for others is not the clearing house's to lose
       const have = Math.floor(w.ledger.balance(id, instr));
       const share = pass === 0 ? Math.min(have, Math.floor(hole * bal / issued)) : have;
       const a = Math.min(left, Math.max(0, share));
@@ -312,6 +314,8 @@ function haircutSight(w: World, s: EconState, hole: number, cause: number): void
   for (let pass = 0; pass < 2 && left > 0; pass++) {
     for (let i = 0; i < rows.length && left > 0; i++) {
       const [id, bal] = rows[i];
+      // Clearing houses hold other people's collateral, segregated by law: a bank failure cannot take it.
+      if (SEGREGATED.test(id)) continue;
       const have = Math.floor(w.ledger.balance(id, DEP));
       const share = pass === 0 ? Math.min(have, Math.floor(hole * bal / issued)) : have;
       const a = Math.min(left, Math.max(0, share));
