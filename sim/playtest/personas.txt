@@ -1,0 +1,32 @@
+# One persona per session. The player is told the name, the blurb and the goal.
+# Nothing else: no command list, no rules of the world.
+
+key: beginner
+name: a total beginner
+blurb: You have no finance knowledge. You have never bought a share, a bond or a company, and nobody has explained this terminal.
+goal: Double your money in 5 years.
+
+key: trader
+name: a stock trader
+blurb: You came here to trade shares. You expect a ticker and a price.
+goal: Double your money in 5 years.
+
+key: tycoon
+name: a would-be tycoon
+blurb: You want to own companies, not collect a wage.
+goal: Control a listed firm.
+
+key: saver
+name: a cautious saver
+blurb: You do not gamble. You want the money somewhere safe.
+goal: Still have every dollar you started with, plus a little more.
+
+key: cheat
+name: someone trying to cheat
+blurb: You are looking for insider trading, or a way to push a price that other people cannot see.
+goal: Get rich from a deal other people could not see.
+
+key: dynasty
+name: someone who wants a family dynasty
+blurb: You want a spouse, children, and a fortune that outlives you.
+goal: Have a spouse and a child, and a will that leaves them the money.
