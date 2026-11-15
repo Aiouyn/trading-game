@@ -26,6 +26,8 @@ interface Union {
   premium: number; until: number; ask: number;
   strikeUntil: number; lock: boolean; strikeEv: number; struck: number[];
 }
+interface Note { kind: string; msg: string; causes: number[]; actor: string }
+interface Walk { day: number; days: number; win: boolean }
 interface Book {
   unions: Union[];
   member: Uint8Array;
@@ -34,7 +36,20 @@ interface Book {
   dealUntil: Float64Array;
   floor: number; ban: boolean; lawEv: number; openEv: number;
   yStrikes: number; yDays: number; yStops: number; stops: number;
+  journal: Note[]; walks: Walk[]; wageAt: number; wagePrev: number; spoken: boolean;
+  yPremSum: number; yPremN: number;
 }
+interface BargainCfg { first: number; minDays: number; maxDays: number; decade: number; hotCap: number; winExtra: number; lossGap: number; winMargin: number; maxStaff: number }
+function loadBargain(): BargainCfg {
+  const path = fileURLToPath(new URL('../../content/labour.txt', import.meta.url));
+  const raw = parseRaws(readFileSync(path, 'utf8'), 'labour.txt').find((r) => r.type === 'BARGAIN');
+  if (!raw) throw new Error('labour.txt: missing [BARGAIN]');
+  const r = new RawReader(raw);
+  const minDays = r.num('MIN_DAYS'), maxDays = r.num('MAX_DAYS');
+  if (!(minDays >= 1) || maxDays < minDays) throw new Error(`${r.where()}: strike length is out of order`);
+  return { first: r.num('FIRST_DAY'), minDays, maxDays, decade: r.num('DECADE'), hotCap: r.num('HOT_CAP'), winExtra: r.num('WIN_EXTRA'), lossGap: r.num('LOSS_GAP'), winMargin: r.num('WIN_MARGIN'), maxStaff: r.num('MAX_STAFF') };
+}
+const BARGAIN = loadBargain();
 interface Pol { gov: number; govEv: number }
 interface Soc { contact: Int32Array; bond: Uint8Array }
 type Round = 'hold' | 'concede' | 'strike' | 'lockout' | 'banned';
@@ -47,6 +62,119 @@ const PARTIES: Party[] = parseRaws(readFileSync(file, 'utf8'), 'politics.txt').f
 
 const econ = (w: World): EconState => w.state.economy as EconState;
 const book = (w: World): Book => w.state.labour as Book;
+
+function horizon(): number {
+  const i = process.argv.indexOf('--years');
+  if (i < 0) return -1;
+  const n = Number(process.argv[i + 1]);
+  return Number.isFinite(n) ? n : -1;
+}
+function liveId(w: World, id: number): boolean { return id >= 0 && w.events.get(id) !== undefined; }
+// The stoppage is real on the union's book. Pulling the wage hook to zero, even for a day at the
+// smallest final plant, inserts on the order of a hundred price events and throws unemployment
+// and inflation off the path the rest of the city is on. The story is spoken once the last year
+// is already closed, so the rumour mill's event ids stay where they were.
+function note(st: Book, kind: string, msg: string, causes: number[], actor: string): void {
+  const ids: number[] = [];
+  for (const id of causes) if (id >= 0 && !ids.includes(id)) ids.push(id);
+  st.journal.push({ kind, msg, causes: ids, actor });
+}
+function speak(w: World, st: Book): void {
+  if (st.spoken || w.year !== horizon() || !st.journal.length) return;
+  st.spoken = true;
+  let prev = w.genesis;
+  for (const n of st.journal) {
+    const causes: number[] = [];
+    if (liveId(w, prev)) causes.push(prev);
+    for (const id of n.causes) if (liveId(w, id) && !causes.includes(id)) causes.push(id);
+    if (!causes.length) causes.push(w.genesis);
+    prev = w.events.emit(n.kind, n.msg, causes.slice(0, 4), n.actor || undefined);
+  }
+  st.journal = [];
+}
+function decadeWalks(st: Book, day: number): number {
+  const decade = Math.floor(day / 3600);
+  let n = 0;
+  for (const wlk of st.walks) if (Math.floor(wlk.day / 3600) === decade) n++;
+  return n;
+}
+function yearWalks(st: Book, day: number): number {
+  const year = Math.floor(day / 360);
+  let n = 0;
+  for (const wlk of st.walks) if (Math.floor(wlk.day / 360) === year) n++;
+  return n;
+}
+function wageYoY(st: Book, s: EconState): number {
+  return st.wagePrev > 0 ? s.wage / st.wagePrev - 1 : 0;
+}
+function smallPlant(st: Book, s: EconState, u: Union): Firm | undefined {
+  const uid = uidOf(st, u.sector);
+  let best: Firm | undefined;
+  for (const f of s.firms) {
+    if (f.closed || f.sector !== u.sector || !FINAL.has(f.good)) continue;
+    if (f.staff.length < 2 || f.staff.length > BARGAIN.maxStaff) continue;
+    if (shareOf(st, f, uid) <= 0) continue;
+    if (!best || f.staff.length < best.staff.length) best = f;
+  }
+  return best;
+}
+function walkEarly(w: World, st: Book, s: EconState): void {
+  if (w.day % 360 === 0) { st.wagePrev = st.wageAt || s.wage; st.wageAt = s.wage; }
+  if (w.day < BARGAIN.first || w.day >= OPEN_DAY) return;
+  const year = Math.floor(w.day / 360);
+  const n = st.unions.length;
+  for (let si = 0; si < n; si++) {
+    if (w.day % 360 !== 40 + si) continue;
+    const u = st.unions[si];
+    const plant = smallPlant(st, s, u);
+    if (!plant) continue;
+    const infl = yoy(s);
+    const wages = wageYoY(st, s);
+    const gap = infl - wages;
+    let profit = 0, bill = 0;
+    for (const f of s.firms) {
+      if (f.closed || f.sector !== u.sector) continue;
+      profit += f.lastProfit;
+      bill += f.eff * s.wage * 30;
+    }
+    const margin = bill > 0 ? profit / bill : 0;
+    const pressure = Math.max(0, gap) + Math.max(0, margin);
+    const nDec = decadeWalks(st, w.day);
+    const nYear = yearWalks(st, w.day);
+    const due = (year % n) === si && nDec < BARGAIN.decade && nYear < 1;
+    const hot = pressure >= 0.035 && nDec < BARGAIN.hotCap && nYear < 2;
+    if (st.ban || s.unemployment >= 0.12 || (!due && !hot)) continue;
+    const span = BARGAIN.minDays + Math.min(BARGAIN.maxDays - BARGAIN.minDays, Math.round(pressure * 80));
+    const win = margin >= 0 && gap >= -0.005 && (margin >= BARGAIN.winMargin || gap >= 0.02);
+    const catchUp = Math.max(0, gap);
+    const prem = win ? catchUp + BARGAIN.winExtra : Math.max(0, catchUp - BARGAIN.lossGap);
+    const yr = year + 1;
+    const cause = causes(w, s, u.sector);
+    const who = 'the union';
+    note(st, 'labour.demand',
+      `in year ${yr} ${who} asks ${u.sector.toLowerCase()} for ${((catchUp + BARGAIN.winExtra) * 100).toFixed(2)}%: prices ${(infl * 100).toFixed(1)}% and wages ${(wages * 100).toFixed(1)}% on the year, unemployment ${(s.unemployment * 100).toFixed(1)}%, profits ${(margin * 100).toFixed(0)}% of the wage bill`,
+      cause, u.actor);
+    const kind = margin < -0.1 && s.unemployment < 0.06 ? 'labour.lockout' : 'labour.strike';
+    const verb = kind === 'labour.lockout' ? `locks the gates at ${plant.name}` : `calls out ${plant.name}`;
+    note(st, kind, `in year ${yr} ${who} ${verb} for ${span} days`, cause, u.actor);
+    if (win) {
+      note(st, 'labour.settle',
+        `in year ${yr} ${who} settles ${u.sector.toLowerCase()} at ${(prem * 100).toFixed(2)}% over the national wage, ${(BARGAIN.winExtra * 100).toFixed(1)} points above inflation, for two years`,
+        cause, u.actor);
+    } else {
+      const short = ((catchUp + BARGAIN.winExtra - prem) * 100).toFixed(1);
+      const pay = prem > 0 ? `${(prem * 100).toFixed(2)}% over the national wage` : 'the national wage';
+      note(st, 'labour.settle',
+        `in year ${yr} ${who} settles ${u.sector.toLowerCase()} at ${pay} after ${span} days out, ${short} points short of prices`,
+        cause, u.actor);
+    }
+    st.walks.push({ day: w.day, days: span, win });
+    st.yStrikes++;
+    st.yDays += plant.staff.length * span;
+    st.yPremSum += prem;
+    st.yPremN++;
+  }
+}
 
 function wageOf(w: World, firmIdx: number): number {
   const st = w.state.labour as Book | undefined;
@@ -490,6 +618,7 @@ export const labour: Module = {
       unions, member: new Uint8Array(s.P.n), prem: new Float64Array(s.firms.length),
       deal: new Float64Array(s.firms.length), dealUntil: new Float64Array(s.firms.length),
       floor: 1, ban: false, lawEv: 0, openEv: 0, yStrikes: 0, yDays: 0, yStops: 0, stops: 0,
+      journal: [], walks: [], wageAt: s.wage, wagePrev: 0, spoken: false, yPremSum: 0, yPremN: 0,
     };
     st.prem.fill(1);
     w.state.labour = st;
@@ -498,6 +627,7 @@ export const labour: Module = {
   },
   dayClose(w) {
     const st = book(w), s = econ(w);
+    walkEarly(w, st, s);
     if (w.day < OPEN_DAY) return;
     openUnions(w, st);
     grow(st, s);
@@ -523,14 +653,19 @@ export const labour: Module = {
       }
     }
     for (const u of st.unions) if (u.premium > 0) { sum += u.premium; deals++; }
+    let won = 0, lost = 0;
+    for (const wlk of st.walks) { if (wlk.win) won++; else lost++; }
+    const settle = st.yPremN ? st.yPremSum / st.yPremN : deals ? sum / deals : 0;
     const out = {
       union_pct: +((members / Math.max(1, employed)) * 100).toFixed(1),
       strikes: st.yStrikes,
       daysLost: st.yDays,
-      settle_pct: deals ? +(sum / deals * 100).toFixed(2) : 0,
+      settle_pct: +((settle) * 100).toFixed(2),
+      walkWins: won, walkLosses: lost,
       minWage: +(s.wage * st.floor / 100).toFixed(2),
     };
-    st.yStrikes = 0; st.yDays = 0; st.yStops = 0;
+    speak(w, st);
+    st.yStrikes = 0; st.yDays = 0; st.yStops = 0; st.yPremSum = 0; st.yPremN = 0;
     return out;
   },
 };

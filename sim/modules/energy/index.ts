@@ -26,6 +26,10 @@ interface Grid {
   scale: number;
   perPerson: number;
   baseVc: number;
+  baseCpi: number;
+  anchor0: number;
+  /** Legacy wholesale, used only so plant finance and price announcements stay on the old calendar. */
+  bookPx: number;
   wholesale: number;
   tariff: number;
   /** Added to a firm's electricity input cost. Zero except during an oil shock, so a quiet year does not reprice the whole economy. */
@@ -246,16 +250,32 @@ function anchorOf(s: EconState): number {
 function publish(w: World, st: Grid, marginal: Fuel, vc: number): void {
   const s = econ(w);
   const anchor = anchorOf(s);
+  const cpi = Math.max(0.2, s.cpi);
   if (!(st.baseVc > 0) && vc > 0) st.baseVc = vc;
+  if (!(st.baseCpi > 0)) st.baseCpi = cpi;
+  if (!(st.anchor0 > 0) && anchor > 0) st.anchor0 = anchor;
   const index = st.baseVc > 0 ? vc / st.baseVc : 1;
   const oil = oilShock(s);
+  // The old product of the utility's price and the fuel index is what plant bonds were sized from.
   const embargo = oil >= 0 ? 1.08 : 1;
-  st.wholesale = anchor * Math.max(0.4, index) * embargo;
+  st.bookPx = anchor * Math.max(0.4, index) * embargo;
+  const realFuel = st.baseVc > 0 ? (vc / cpi) / (st.baseVc / st.baseCpi) : 1;
+  // Fuel and a tight reserve move the real price, and the cap keeps a 30-year rise near the general price level.
+  // A cold snap, a dry year and an oil embargo sit on top and come off when the weather and the shock end.
+  const fuel = clamp(realFuel, 0.88, 1.18);
+  const winter = w.day < st.coldUntil ? 1.45 : 1;
+  const dry = w.day < st.dryUntil ? 1.05 : 1;
+  const shock = oil >= 0 ? 1.18 : 1;
+  const need = Math.max(st.todayDemand, 1);
+  const reserve = st.capacity / need - 1;
+  const plant = reserve < 0.05 ? 1.06 : reserve < 0.12 ? 1.03 : 1;
+  const level = (st.anchor0 > 0 ? st.anchor0 : anchor) * (cpi / st.baseCpi);
+  st.wholesale = level * fuel * plant * winter * dry * shock;
   const squeeze = Math.max(0, regulation(w) - 0.5);
   st.tariff = st.wholesale * (1 - 0.1 * squeeze);
-  // The posted power price can run away when a peaker sets it. Firms feel only the oil shock, and only a little.
+  // Firms still feel only the oil shock, and only a little. A standing pass-through would reprice every recipe.
   st.pass = oil >= 0 ? anchor * 0.012 : 0;
-  const moved = st.root > 0 && (st.announced <= 0 || st.marginal !== marginal || Math.abs(st.wholesale / st.announced - 1) > 0.05);
+  const moved = st.root > 0 && (st.announced <= 0 || st.marginal !== marginal || Math.abs(st.bookPx / Math.max(1e-9, st.announced) - 1) > 0.05);
   if (!moved) return;
   const causes = [st.priceEv >= 0 ? st.priceEv : st.root];
   if (oil >= 0) causes.push(oil);
@@ -265,9 +285,13 @@ function publish(w: World, st: Grid, marginal: Fuel, vc: number): void {
   if (good) {
     for (const f of s.firms) if (f.good === good && f.priceEv !== undefined) { causes.push(f.priceEv); break; }
   }
-  const why = oil >= 0 && marginal === 'OIL' ? 'oil is scarce, so the peaking plant' : `the ${marginal === 'HYDRO' ? 'hydro' : marginal.toLowerCase()} plant`;
+  const why = oil >= 0 && marginal === 'OIL'
+    ? 'oil is scarce, so the peaking plant'
+    : w.day < st.coldUntil
+      ? 'a cold winter, and the marginal plant'
+      : `the ${marginal === 'HYDRO' ? 'hydro' : marginal.toLowerCase()} plant`;
   st.priceEv = w.events.emit('energy.price', `wholesale power is ${st.wholesale.toFixed(2)} a unit, set by ${why}`, causes.slice(0, 4));
-  st.announced = st.wholesale;
+  st.announced = st.bookPx;
   st.marginal = marginal;
 }
 
@@ -415,7 +439,8 @@ function invest(w: World, st: Grid): void {
     if (score < bestScore) { best = t; bestScore = score; }
   }
   const add = Math.max(1, need * 0.1);
-  const cost = Math.round(add * Math.max(st.wholesale, anchorOf(s)) * 90);
+  const px = st.bookPx > 0 ? st.bookPx : anchorOf(s);
+  const cost = Math.round(add * Math.max(px, anchorOf(s)) * 90);
   const cause = st.priceEv >= 0 ? st.priceEv : st.root;
   if (!(cost > 0) || !fundPlant(w, st, owner, cost, cause)) return;
   const ready = w.day + best.build * DAYS_PER_YEAR;
@@ -492,7 +517,7 @@ export const energy: Module = {
       }
     }
     const st: Grid = {
-      root: 0, plants, bonds: [], scale, perPerson, baseVc: 1, wholesale: 1, tariff: 1, pass: 0, announced: 0, priceEv: -1,
+      root: 0, plants, bonds: [], scale, perPerson, baseVc: 1, baseCpi: 0, anchor0: 0, bookPx: 0, wholesale: 1, tariff: 1, pass: 0, announced: 0, priceEv: -1,
       marginal: '', coldUntil: -1, dryUntil: -1, coldEv: -1, dryEv: -1, shed: DISTRICTS.map(() => 0),
       capacity: total, todayDemand: 0, todayAvail: total, todayGen: [0, 0, 0, 0], todayBlack: 0, dark: -1,
       yPeak: 0, yBlack: 0, yGen: [0, 0, 0, 0], yPx: 0, yDays: 0, starvedDay: -400, genEv: -1,

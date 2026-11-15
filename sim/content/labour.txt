@@ -1,0 +1,17 @@
+How a stoppage is called and how it ends. A decade should see a few strikes, and more
+when prices outrun wages or the plants are making money. Days are the length of a walkout.
+WIN_EXTRA is the points of pay the settlement adds on top of inflation. LOSS_GAP is how
+far a failed strike finishes behind inflation.
+
+[OBJECT:BARGAIN]
+
+[BARGAIN:STANDARD]
+  [FIRST_DAY:400]
+  [MIN_DAYS:6]
+  [MAX_DAYS:9]
+  [DECADE:3]
+  [HOT_CAP:5]
+  [WIN_EXTRA:0.008]
+  [LOSS_GAP:0.015]
+  [WIN_MARGIN:0.08]
+  [MAX_STAFF:200]

@@ -49,6 +49,22 @@
 | landlord | 1.32x | 1.93x | 2.60x | 0/20 | 0/20 | 0/20 | 0 | 3.3% | 6.9% | -3.8% |
 | random | 3.21x | 4.22x | 6.47x | 0/20 | 0/20 | 4/20 | 17 | 7.5% | 7.1% | 0.0% |
 
+The same strategies on the tree before hospitals, epidemics and the capitalisation-weighted index:
+
+| Strategy | p10 | median | p90 | bankrupt | dead | prison | caught | ann. return | index ann. | excess |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| do nothing | 1.03x | 1.36x | 1.98x | 0/20 | 0/20 | 0/20 | 0 | 1.5% | 14.0% | -12.3% |
+| index investor | 3.28x | 4.13x | 5.72x | 0/20 | 0/20 | 0/20 | 5 | 7.3% | 13.1% | -6.5% |
+| bond ladder | 1.73x | 2.44x | 3.87x | 0/20 | 0/20 | 0/20 | 1 | 4.6% | 13.8% | -9.4% |
+| momentum | 0.54x | 0.66x | 0.92x | 0/20 | 0/20 | 0/20 | 4 | -2.0% | 13.7% | -16.3% |
+| value | 0.88x | 1.12x | 1.59x | 0/20 | 0/20 | 0/20 | 3 | 0.6% | 14.4% | -14.4% |
+| gambler | 0.77x | 1.09x | 1.94x | 0/20 | 0/20 | 0/20 | 13 | 0.4% | 13.7% | -13.5% |
+| memecoin | 0.81x | 1.15x | 2.74x | 0/20 | 0/20 | 0/20 | 7 | 0.7% | 14.2% | -14.2% |
+| insider | 0.83x | 1.26x | 1.92x | 0/20 | 0/20 | 0/20 | 2 | 1.2% | 17.2% | -15.0% |
+| raider | 0.67x | 0.92x | 2.55x | 0/20 | 0/20 | 0/20 | 6 | -0.4% | 13.7% | -14.4% |
+| landlord | 1.44x | 1.94x | 2.67x | 0/20 | 0/20 | 0/20 | 0 | 3.4% | 14.2% | -10.9% |
+| random | 0.95x | 1.41x | 2.22x | 0/20 | 0/20 | 0/20 | 2 | 1.7% | 14.2% | -12.8% |
+
 Final net worth is the multiple of the player’s worth on day 0. Annualised return uses the days the run actually lived. Excess is that return minus the same world’s index. Caught is charges and convictions of anyone who was the player, counting a case once.
 
 ## Exploits
@@ -1932,3 +1948,5 @@ None. Every strategy had the commands it needed.
 ## Cost
 
 Wall clock 6509s on 4 cores. Sum of run times 25931s across 220 runs. No paid model API.
+
+Earlier run, before hospitals and the capitalisation-weighted index: wall clock 18198s on 4 cores. Sum of run times 72747s across 220 runs. No paid model API.
