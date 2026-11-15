@@ -339,12 +339,12 @@ function infect(w: World, i: number, r: Rng): void {
   const st = book(w), dis = DISEASES[st.epi];
   const s = econ(w), P = s.P;
   if (!dis || !P.alive(i) || P.ill[i] !== 0 || st.nCase >= CASE_CAP) return;
-  const killed = r.chance(dis.kill);
+  const killed = r.chance(dis.kill * 0.8);
   P.ill[i] = st.epi + 1;
   const day = w.day;
   writeHealth(s, i, day, P.health[i] - dis.harm);
   grantLeave(w, i, Math.max(1, Math.round(dis.sick)));
-  if (P.fearUntil[i] < day) P.fearUntil[i] = day + dis.sick + 8;
+  if (P.fearUntil[i] < day) P.fearUntil[i] = day + dis.sick + 4;
   st.cases[st.nCase] = i;
   st.caseUntil[st.nCase] = day + dis.days;
   st.nCase++;
