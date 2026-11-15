@@ -965,6 +965,95 @@ function wealth(w: World): number {
   return Math.round(v);
 }
 
+export interface OptRow {
+  id: string;
+  instr: string;
+  right: Right;
+  strike: number;
+  months: number;
+  bid: number;
+  ask: number;
+  oi: number;
+  net: number;
+}
+
+function rowOf(w: World, c: Contract, actor: string): OptRow {
+  return {
+    id: c.longId, instr: c.instr, right: c.right, strike: c.strike,
+    months: c.expMonth - w.month, bid: c.bid, ask: c.ask,
+    oi: issued(w, c.longId), net: actor ? netOf(w, actor, c) : 0,
+  };
+}
+
+/** Every live contract. `actor` is marked with their net (long minus short). */
+export function optionChain(w: World, actor: string): OptRow[] {
+  const st = w.state.options as OptState | undefined;
+  if (!st || st.off) return [];
+  const out: OptRow[] = [];
+  for (const c of st.contracts) if (c.live) out.push(rowOf(w, c, actor));
+  return out;
+}
+
+function sameName(instr: string, want: string): boolean {
+  const a = instr.toLowerCase();
+  const b = want.toLowerCase();
+  if (a === b) return true;
+  const bare = a.startsWith('eq:') ? a.slice(3) : a;
+  return bare === b || bare.replace(/^frm_/, '') === b;
+}
+
+/** The listed contract nearest this strike and expiry. A strike of 0 is at the money. */
+export function matchOption(w: World, instr: string, right: Right, strike: number, months: number): OptRow | undefined {
+  const st = w.state.options as OptState | undefined;
+  if (!st || st.off) return undefined;
+  const spot = spotOf(w, st.contracts.find((c) => c.live && sameName(c.instr, instr))?.instr ?? instr);
+  const wantK = strike > 0 ? strike : spot;
+  const ahead = Number.isFinite(months) ? months : 2;
+  let best: Contract | undefined;
+  let score = Infinity;
+  for (const c of st.contracts) {
+    if (!c.live || c.right !== right || !sameName(c.instr, instr)) continue;
+    if (c.bid < 1 && c.ask < 1) continue;
+    const m = c.expMonth - w.month;
+    if (m < 0) continue;
+    const ds = Math.abs(c.strike - wantK) / Math.max(1, wantK);
+    const s = Math.abs(m - ahead) * 10 + ds;
+    if (s < score) { score = s; best = c; }
+  }
+  return best ? rowOf(w, best, '') : undefined;
+}
+
+/** Hit the market maker. Buy pays the ask, write sells the bid and posts margin, close flattens the net. */
+export function tradeOption(w: World, actor: string, contractId: string, side: 'buy' | 'write' | 'close', qty: number, cause: number): { qty: number; px: number; why?: string } {
+  const st = w.state.options as OptState | undefined;
+  if (!st || st.off) return { qty: 0, px: 0, why: 'no options market' };
+  const c = st.contracts.find((x) => x.longId === contractId || x.shortId === contractId);
+  if (!c || !c.live) return { qty: 0, px: 0, why: 'that contract is not listed' };
+  if (side === 'close') {
+    const net = netOf(w, actor, c);
+    if (net === 0) return { qty: 0, px: 0, why: 'you have no position' };
+    const q = Math.min(Math.abs(net), qty > 0 ? Math.round(qty) : Math.abs(net));
+    const px = net > 0 ? c.bid : c.ask;
+    if (px < 1 || q < 1) return { qty: 0, px: 0, why: 'no quote' };
+    const ok = net > 0 ? trade(w, MM, actor, c, q, px, cause) : trade(w, actor, MM, c, q, px, cause);
+    return ok ? { qty: q, px } : { qty: 0, px: 0, why: 'the close did not print' };
+  }
+  const q = Math.round(qty);
+  if (q < 1) return { qty: 0, px: 0, why: 'qty must be a positive integer' };
+  if (side === 'buy') {
+    if (c.ask < 1) return { qty: 0, px: 0, why: 'no ask' };
+    const room = roomFor(w, c, true, q);
+    if (room < 1) return { qty: 0, px: 0, why: 'the market maker will not sell that many' };
+    const n = Math.min(q, room);
+    return trade(w, actor, MM, c, n, c.ask, cause) ? { qty: n, px: c.ask } : { qty: 0, px: 0, why: 'not enough cash' };
+  }
+  if (c.bid < 1) return { qty: 0, px: 0, why: 'no bid' };
+  const room = roomFor(w, c, false, q);
+  if (room < 1) return { qty: 0, px: 0, why: 'the market maker will not buy that many' };
+  const n = Math.min(q, room);
+  return trade(w, MM, actor, c, n, c.bid, cause) ? { qty: n, px: c.bid } : { qty: 0, px: 0, why: 'you could not post the margin' };
+}
+
 function blank(): OptState {
   return {
     off: true, contracts: [], roster: [], borrowed: {}, hedgeOrders: [], insiderAt: {},

@@ -9,6 +9,9 @@ const PAGES = [
   ['economy', 'MACRO', '8'],
   ['log', 'LOG', '9'],
   ['family', 'FAMILY', 'F'],
+  ['options', 'OPTS', 'O'],
+  ['homes', 'HOMES', 'P'],
+  ['help', 'HELP', '?'],
   ['run', 'RUN', '0'],
 ];
 const SPEEDS = [['pause', 'PAUSE'], ['day', '1D'], ['week', '1W'], ['month', '1M']];
@@ -201,7 +204,7 @@ function go(page, arg) {
 
 function onClick(ev) {
   if (ev.target.closest('a[href]')) return;
-  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro]');
+  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home]');
   if (!t || !document.getElementById('app').contains(t)) return;
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.speed) { setSpeed(t.dataset.speed); return; }
@@ -232,6 +235,8 @@ function onClick(ev) {
   if (t.dataset.launch !== undefined) { postAct({ kind: 'launch' }); return; }
   if (t.dataset.cash) { cash(t.dataset.cash); return; }
   if (t.dataset.macro) { openExplain(Number(t.dataset.macro), t.dataset.title || ''); return; }
+  if (t.dataset.opt) { dealOption(t.dataset.opt, t.dataset.id, t.dataset.right); return; }
+  if (t.dataset.home) { dealHome(t.dataset.home, Number(t.dataset.id)); return; }
 }
 
 function onSubmit(ev) {
@@ -245,7 +250,9 @@ function onSubmit(ev) {
   else if (form.id === 'bid-form') submitBid(form);
   else if (form.id === 'board-form') submitBoard(form);
 }
-function onChange() { /* selects keep their own state */ }
+function onChange(ev) {
+  if (ev.target?.id === 'optname') { S.optInstr = ev.target.value; renderMain(); }
+}
 
 async function setSpeed(speed) {
   const res = await fetch('/speed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ speed }) });
@@ -445,7 +452,8 @@ function renderDesk() {
         ${ticketHtml()}
       </div>
       <div class="book" id="book">${positionsHtml()}</div>
-    </div>`;
+    </div>
+    ${S.view?.date?.abs === 0 ? '<div class="dim" id="hint">type help</div>' : ''}`;
 }
 function patchDesk() {
   const box = document.getElementById('quotes');
@@ -602,6 +610,77 @@ function renderCrypto() {
 }
 function coin(side) {
   postAct({ kind: 'coin', side, coin: document.getElementById('coin')?.value, qty: Number(document.getElementById('cqty')?.value) });
+}
+
+function renderOptions() {
+  const chain = S.view?.chain ?? [];
+  const names = [];
+  for (const c of chain) if (!names.includes(c.instr)) names.push(c.instr);
+  if (!S.optInstr || !names.includes(S.optInstr)) S.optInstr = names[0] || '';
+  const rows = chain.filter((c) => c.instr === S.optInstr).map((c) => `<tr>
+    <td>${c.right === 'C' ? 'call' : 'put'}</td>
+    <td class="num">${px(c.strike)}</td>
+    <td class="num">M+${c.months}</td>
+    <td class="num">${px(c.bid)}</td>
+    <td class="num">${px(c.ask)}</td>
+    <td class="num">${c.oi}</td>
+    <td class="num">${c.net || ''}</td>
+    <td>
+      <button type="button" data-opt="buy" data-id="${esc(c.id)}" data-right="${c.right}">buy</button>
+      <button type="button" data-opt="write" data-id="${esc(c.id)}" data-right="${c.right}">write</button>
+      ${c.net ? `<button type="button" data-opt="close" data-id="${esc(c.id)}">close</button>` : ''}
+    </td></tr>`).join('');
+  const pick = names.map((n) => `<option value="${esc(n)}"${n === S.optInstr ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  return `<div class="panel ticket"><h2>OPTIONS</h2>
+    <div class="row"><select id="optname">${pick}</select><label>QTY <input id="optqty" value="1"></label></div>
+    <div class="dim" style="padding:4px 8px">buy pays the ask. write posts margin. an in-the-money contract exercises at expiry.</div></div>
+    <div class="panel" style="margin-top:8px"><table><thead><tr><th>RIGHT</th><th class="num">STRIKE</th><th class="num">EXP</th><th class="num">BID</th><th class="num">ASK</th><th class="num">OI</th><th class="num">NET</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td class="dim" colspan="8">no chain</td></tr>'}</tbody></table></div>`;
+}
+function dealOption(op, id, right) {
+  const qty = Number(document.getElementById('optqty')?.value);
+  if (op === 'close') { postAct({ kind: 'optclose', id, instr: '', qty: Number.isFinite(qty) && qty > 0 ? qty : 0 }); return; }
+  const row = (S.view?.chain ?? []).find((c) => c.id === id);
+  if (!row) { note('no such contract', true); return; }
+  const kind = op === 'write' ? 'write' : 'optbuy';
+  postAct({ kind, right: right || row.right, instr: row.instr, qty: Number.isFinite(qty) && qty > 0 ? qty : 1, months: row.months, strike: row.strike });
+}
+function renderHomes() {
+  const rows = (S.view?.homes ?? []).map((h) => `<tr>
+    <td>#${h.id} ${esc(h.neighbourhood)}</td>
+    <td class="num">${money(h.price)}</td>
+    <td class="num">${money(h.rent)}</td>
+    <td>${h.mine ? 'yours' : ''}${h.live ? ' home' : ''}${h.vacant ? ' vacant' : ''}</td>
+    <td>
+      ${h.mine ? '' : `<button type="button" data-home="bid" data-id="${h.id}">bid</button>`}
+      ${h.mine && !h.live ? `<button type="button" data-home="sell" data-id="${h.id}">sell</button>` : ''}
+      ${h.mine && !h.live ? `<button type="button" data-home="let" data-id="${h.id}">let</button>` : ''}
+      ${h.mine || h.live ? `<button type="button" data-home="move" data-id="${h.id}">move</button>` : ''}
+      ${h.mine ? `<button type="button" data-home="loan" data-id="${h.id}">mortgage</button>` : ''}
+    </td></tr>`).join('');
+  return `<div class="panel ticket"><h2>HOMES</h2>
+    <div class="row"><label>RENT $ <input id="homerent" value="900"></label><label>LOAN $ <input id="homeloan" value=""></label></div></div>
+    <div class="panel" style="margin-top:8px"><table><thead><tr><th>HOME</th><th class="num">PRICE</th><th class="num">RENT</th><th></th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td class="dim" colspan="5">no listings</td></tr>'}</tbody></table></div>`;
+}
+function dealHome(op, id) {
+  if (op === 'bid') { postAct({ kind: 'homebid', id, cents: 0 }); return; }
+  if (op === 'sell') { postAct({ kind: 'homesell', id }); return; }
+  if (op === 'move') { postAct({ kind: 'move', id }); return; }
+  if (op === 'let') {
+    const dollars = Number(document.getElementById('homerent')?.value);
+    if (!(dollars > 0)) { note('name a rent', true); return; }
+    postAct({ kind: 'let', id, cents: Math.round(dollars * 100) });
+    return;
+  }
+  if (op === 'loan') {
+    const dollars = Number(document.getElementById('homeloan')?.value);
+    postAct({ kind: 'mortgage', id, cents: dollars > 0 ? Math.round(dollars * 100) : 0 });
+  }
+}
+function renderHelp(lines) {
+  const body = (lines ?? []).map((l) => esc(l)).join('\n');
+  return `<div class="panel"><h2>HELP</h2><pre class="cause">${body || 'type help'}</pre></div>`;
 }
 
 function renderFx() {
@@ -981,6 +1060,17 @@ async function renderMain() {
     requestAnimationFrame(bindMacroCanvases);
     return;
   }
+  if (S.page === 'options') { main.innerHTML = renderOptions(); return; }
+  if (S.page === 'homes') { main.innerHTML = renderHomes(); return; }
+  if (S.page === 'help') {
+    main.innerHTML = '<div class="dim">reading the commands…</div>';
+    const res = await fetch('/act', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'help', command: '' }) });
+    const data = await res.json();
+    if (S.page !== 'help') return;
+    if (data.view) S.view = data.view;
+    main.innerHTML = renderHelp(data.lines);
+    return;
+  }
   if (S.page === 'run') { main.innerHTML = renderRun(); return; }
   if (S.page === 'family') {
     main.innerHTML = renderFamily();
@@ -1144,7 +1234,7 @@ document.addEventListener('keydown', (ev) => {
     return;
   }
   if (typing) return;
-  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'run', 'f': 'family', 'F': 'family' };
+  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'run', 'f': 'family', 'F': 'family', 'o': 'options', 'O': 'options', 'p': 'homes', 'P': 'homes', '?': 'help' };
   if (goKey[ev.key]) { go(goKey[ev.key]); return; }
   if (ev.key === 'j' || ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
   else if (ev.key === 'k' || ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }

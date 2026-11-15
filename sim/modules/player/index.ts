@@ -9,8 +9,11 @@ import { launchCoin, orderCoin } from '../crypto/index.ts';
 import { CEO_POSITION } from '../economy/content.ts';
 import { BANK, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
+import { reportOffence } from '../law/index.ts';
 import { borrowShares, cancelOrder, returnShares, submitOrder } from '../markets/index.ts';
-import { B_FRIEND, askFirm, contactsOf, knows, seatPerson, talk } from '../social/index.ts';
+import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
+import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
+import { B_FRIEND, askFirm, contactsOf, knows, publish, seatPerson, talk } from '../social/index.ts';
 
 export const PLAYER = 8;
 
@@ -69,7 +72,20 @@ export type Command =
   | { kind: 'will'; how: 'spouse' | 'child' | 'slot'; nth: number }
   | { kind: 'retire' }
   | { kind: 'hand'; firm: string }
-  | { kind: 'die' };
+  | { kind: 'die' }
+  | { kind: 'help'; command: string }
+  | { kind: 'opt'; instr: string }
+  | { kind: 'optbuy'; right: 'C' | 'P'; instr: string; qty: number; months: number; strike: number }
+  | { kind: 'write'; right: 'C' | 'P'; instr: string; qty: number; months: number; strike: number }
+  | { kind: 'optclose'; id: string; instr: string; qty: number }
+  | { kind: 'homes' }
+  | { kind: 'homebid'; id: number; cents: number }
+  | { kind: 'homesell'; id: number }
+  | { kind: 'let'; id: number; cents: number }
+  | { kind: 'move'; id: number }
+  | { kind: 'mortgage'; id: number; cents: number }
+  | { kind: 'tip'; fact: number }
+  | { kind: 'report'; slot: number; text: string };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -127,6 +143,124 @@ export interface PlayerView {
     convictions: number;
     people: { index: number; name: string; role: string; alive: boolean; age: number; worth: number }[];
   };
+  homes: HomeRow[];
+  chain: OptRow[];
+}
+
+const COMMANDS: { topic: string; name: string; use: string; about: string }[] = [
+  { topic: 'markets', name: 'buy', use: 'buy silicrest 10', about: 'Buy shares of a listed name.\nA trailing @ PRICE is a limit; otherwise it is a market order.' },
+  { topic: 'markets', name: 'sell', use: 'sell silicrest 10', about: 'Sell shares you hold.\nA trailing @ PRICE is a limit.' },
+  { topic: 'markets', name: 'short', use: 'short silicrest 10', about: 'Borrow shares and sell them.\nYou post the cash the lender requires.' },
+  { topic: 'markets', name: 'cancel', use: 'cancel 3', about: 'Cancel an open order by its number.\nA filled order is already done.' },
+  { topic: 'bonds', name: 'bond', use: 'bond buy 10y 1', about: 'Buy or sell the bond on the run for that tenor.\nbond sell 2y 1 sells one bond.' },
+  { topic: 'futures', name: 'fut', use: 'fut long oil 1 2', about: 'Go long or short a commodity future, month 0 to 5.\nfut close oil 2 flattens that month.' },
+  { topic: 'options', name: 'opt', use: 'opt silicrest', about: 'List strikes, expiries, bid, ask and open interest.\nopt alone names the underlyings.' },
+  { topic: 'options', name: 'call', use: 'call silicrest', about: 'Buy a call from the market maker at the ask.\ncall SYMBOL STRIKE MONTHS QTY; a strike of 0 is at the money.' },
+  { topic: 'options', name: 'put', use: 'put silicrest 0 2 1', about: 'Buy a put from the market maker at the ask.\nThe strike is in dollars. Months run from 0 to 5.' },
+  { topic: 'options', name: 'write', use: 'write put silicrest', about: 'Sell a call or a put to the market maker and post margin.\nwrite call SYMBOL STRIKE MONTHS QTY is the same shape.' },
+  { topic: 'options', name: 'close', use: 'close optL:12', about: 'Close a contract, at the bid if you are long and the ask if you are short.\nclose SYMBOL flattens that name. At expiry an in-the-money contract is exercised for you, as it is for anyone.' },
+  { topic: 'coins', name: 'coin', use: 'coin buy ember 2', about: 'Buy or sell a coin.\nA trailing @ PRICE is a limit.' },
+  { topic: 'coins', name: 'launch', use: 'launch', about: 'Launch a coin of your own.\nThe market decides whether it trades.' },
+  { topic: 'bank', name: 'deposit', use: 'deposit 500', about: 'Place cash in a time deposit.\nThe amount is in dollars.' },
+  { topic: 'bank', name: 'withdraw', use: 'withdraw 500', about: 'Take cash back from a time deposit.\nThe amount is in dollars.' },
+  { topic: 'bank', name: 'borrow', use: 'borrow 500', about: 'Borrow cash on margin from a bank.\nYou pay it back with repay.' },
+  { topic: 'bank', name: 'repay', use: 'repay 500', about: 'Repay a margin loan.\nThe amount is in dollars.' },
+  { topic: 'property', name: 'homes', use: 'homes', about: 'List homes by neighbourhood, with price and rent.\nHomes you own are marked, and so is the one you live in.' },
+  { topic: 'property', name: 'bid', use: 'bid 12', about: 'Bid for home 12 at the asking price, or bid 12 150000 to name dollars.\nA bank lends the shortfall on the same terms as for anyone. bid FIRM 2x cash is still a takeover bid.' },
+  { topic: 'property', name: 'sell', use: 'sell 12', about: 'Sell home 12, which you own and do not live in.\nsell SYMBOL QTY still sells shares.' },
+  { topic: 'property', name: 'let', use: 'let 12 900', about: 'Set the monthly rent in dollars and take a tenant.\nYou have to own the home and live somewhere else.' },
+  { topic: 'property', name: 'move', use: 'move 12', about: 'Live in a home you own, or one you already rent.\nThe owned home you leave falls vacant, so you can let it.' },
+  { topic: 'property', name: 'mortgage', use: 'mortgage 12', about: 'Borrow against a home you own from a bank that has room.\nmortgage 12 40000 asks for that many dollars.' },
+  { topic: 'people', name: 'talk', use: 'talk 0', about: 'Talk to contact 0.\nWhat they know can pass to you.' },
+  { topic: 'people', name: 'ask', use: 'ask 0 silicrest', about: 'Ask a contact about a firm.\nYou only hear what they are willing to say.' },
+  { topic: 'people', name: 'court', use: 'court', about: 'Court a contact, or court with no number if there is an obvious one.\nA marriage needs a willing spouse.' },
+  { topic: 'people', name: 'marry', use: 'marry 0', about: 'Marry contact 0.\nThe two households become one.' },
+  { topic: 'people', name: 'child', use: 'child', about: 'Have a child, if the household can.\nThe child joins the family.' },
+  { topic: 'people', name: 'school', use: 'school 0', about: 'Send child 0 to the next school.\nschool with no number is the eldest.' },
+  { topic: 'people', name: 'will', use: 'will spouse', about: 'Name who inherits. will child 0 or will slot 1 names someone else.\nWhere the will is silent, the city rule stands.' },
+  { topic: 'people', name: 'retire', use: 'retire', about: 'Retire from your job.\nA family firm you run passes by the succession rules.' },
+  { topic: 'people', name: 'hand', use: 'hand silicrest', about: 'Hand a family firm to the next generation.\nA child has to be old enough.' },
+  { topic: 'people', name: 'die', use: 'die', about: 'End this life.\nThe heir continues the house, or the house ends.' },
+  { topic: 'company', name: 'found', use: 'found North Mill / MANUFACTURING 5000', about: 'Found a firm. Add loan to borrow the starting cash.\nThe sector is one the city already has.' },
+  { topic: 'company', name: 'ceo', use: 'ceo frm_north', about: 'Read how your firm is doing, or set price, hires, dividend or invest.\nceo frm_north price auto puts the usual rule back.' },
+  { topic: 'company', name: 'ipo', use: 'ipo frm_north 0.4', about: 'Sell part of your stake to the public.\nThe fraction is at most 0.9.' },
+  { topic: 'company', name: 'bid', use: 'bid frm_north 2x cash', about: 'Offer cash or shares for a firm.\nA number like 2x is a multiple of the last price. bid HOME is a house, not a firm.' },
+  { topic: 'company', name: 'board', use: 'board list', about: 'List the firms you can direct.\nboard chief, merge and sell move a firm you control.' },
+  { topic: 'news', name: 'news', use: 'news', about: 'Show the stories you can read.\nPrivate lines are facts not yet in the paper.' },
+  { topic: 'news', name: 'why', use: 'why 41', about: 'Show the cause of an event.\nThe number is the one in brackets.' },
+  { topic: 'news', name: 'tip', use: 'tip 4', about: 'Give a paper a fact you know. The number is the fact on a private line.\nThat is the source a journalist prints.' },
+  { topic: 'news', name: 'report', use: 'report 0 a theft', about: 'Report a crime by a contact. The words are the complaint.\nA street report is filed and is not itself a trial.' },
+  { topic: 'time', name: 'wait', use: 'wait 1m', about: 'Let the city run for 1d, 1w, 1m or 1y.\nThe books are checked as the days pass.' },
+  { topic: 'help', name: 'help', use: 'help call', about: 'Explain one command in a few lines.\nhelp alone lists every command by topic.' },
+];
+
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const row = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) row[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cur = row[j];
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + cost);
+      prev = cur;
+    }
+  }
+  return row[n];
+}
+
+export function suggestCommand(head: string): string {
+  const names = [...new Set(COMMANDS.map((c) => c.name))];
+  let best = 'help', dist = 99;
+  const h = head.toLowerCase();
+  for (const name of names) {
+    const d = editDistance(h, name);
+    if (d < dist || (d === dist && name < best)) { dist = d; best = name; }
+  }
+  return `did you mean ${best}?`;
+}
+
+export function helpLines(which: string): string[] {
+  const q = which.trim().toLowerCase();
+  if (!q) {
+    const lines = ['commands'];
+    let topic = '';
+    for (const c of COMMANDS) {
+      if (c.topic !== topic) { topic = c.topic; lines.push(topic); }
+      lines.push(`  ${c.use}`);
+    }
+    lines.push('sheet prints the balance sheet. quit leaves.');
+    return lines;
+  }
+  const hits = COMMANDS.filter((c) => c.name === q);
+  if (!hits.length) return [`no command ${q}. ${suggestCommand(q)}`];
+  const lines: string[] = [];
+  for (const c of hits) {
+    lines.push(c.use);
+    for (const part of c.about.split('\n')) lines.push(part);
+  }
+  return lines;
+}
+
+function optionLines(w: World, actor: string, instr: string): string[] {
+  const all = optionChain(w, actor);
+  if (!instr) {
+    const names: string[] = [];
+    for (const r of all) if (!names.includes(r.instr)) names.push(r.instr);
+    return names.length ? ['underlyings: ' + names.join(', ')] : ['no options listed'];
+  }
+  const key = stockInstr(w, instr) ?? instr;
+  const rows = all.filter((r) => r.instr === key || r.instr.toLowerCase().endsWith(instr.toLowerCase()));
+  if (!rows.length) return [`no chain for ${instr}`];
+  return rows.map((r) => `${r.right === 'C' ? 'call' : 'put'} strike ${(r.strike / 100).toFixed(2)} exp ${r.months} bid ${(r.bid / 100).toFixed(2)} ask ${(r.ask / 100).toFixed(2)} oi ${r.oi}${r.net ? ` net ${r.net}` : ''} id ${r.id}`);
+}
+
+function homeLines(w: World, person: number): string[] {
+  const rows = homeBoard(w, person);
+  if (!rows.length) return ['no homes listed'];
+  return rows.map((h) => `#${h.id} ${h.neighbourhood} price ${(h.price / 100).toFixed(0)} rent ${(h.rent / 100).toFixed(0)}${h.mine ? ' yours' : ''}${h.live ? ' home' : ''}${h.vacant ? ' vacant' : ''}`);
 }
 
 const FUTURES: Record<string, string> = {
@@ -654,7 +788,7 @@ export function act(w: World, cmd: Command): ActResult {
   const dead = st.over || !P.alive(i);
   if (dead) {
     st.over = true;
-    if (cmd.kind !== 'news' && cmd.kind !== 'why') return rejected(st.final || 'you have died');
+    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help') return rejected(st.final || 'you have died');
   }
   switch (cmd.kind) {
     case 'order': {
@@ -954,6 +1088,91 @@ export function act(w: World, cmd: Command): ActResult {
       const heirEv = continueAs(w, i, heir, ev);
       return { status: 'accepted', eventId: heirEv, lines: w.events.explain(heirEv, 6), text: `${P.name(heir)} continues the house` };
     }
+    case 'help':
+      return { status: 'accepted', lines: helpLines(cmd.command) };
+    case 'opt':
+      return { status: 'accepted', lines: optionLines(w, id, cmd.instr) };
+    case 'optbuy':
+    case 'write': {
+      const instr = stockInstr(w, cmd.instr);
+      if (!instr) return rejected(`not listed ${cmd.instr}`);
+      const row = matchOption(w, instr, cmd.right, cmd.strike, cmd.months);
+      if (!row) return rejected('no listed contract');
+      const word = cmd.kind === 'write' ? 'writes' : 'buys';
+      const ev = w.events.emit('player.option', `${P.name(i)} ${word} ${cmd.right === 'C' ? 'a call' : 'a put'} on ${instr}`, [causeOf(w, st)], id);
+      const got = tradeOption(w, id, row.id, cmd.kind === 'write' ? 'write' : 'buy', cmd.qty, ev);
+      if (got.qty < 1) return rejected(got.why || 'no fill');
+      const verb = cmd.kind === 'write' ? 'wrote' : 'bought';
+      return { status: 'accepted', eventId: ev, fill: got.qty, text: `${verb} ${got.qty} @ ${(got.px / 100).toFixed(2)} (${row.id})` };
+    }
+    case 'optclose': {
+      const ev = w.events.emit('player.option', `${P.name(i)} closes an option`, [causeOf(w, st)], id);
+      if (cmd.id) {
+        const got = tradeOption(w, id, cmd.id, 'close', cmd.qty, ev);
+        if (got.qty < 1) return rejected(got.why || 'no fill');
+        return { status: 'accepted', eventId: ev, fill: got.qty, text: `closed ${got.qty} @ ${(got.px / 100).toFixed(2)}` };
+      }
+      const instr = stockInstr(w, cmd.instr);
+      if (!instr) return rejected(`not listed ${cmd.instr}`);
+      const open = optionChain(w, id).filter((r) => r.instr === instr && r.net !== 0);
+      if (!open.length) return rejected('you have no position');
+      const lines: string[] = [];
+      for (const r of open) {
+        const got = tradeOption(w, id, r.id, 'close', cmd.qty || Math.abs(r.net), ev);
+        if (got.qty > 0) lines.push(`closed ${got.qty} ${r.id} @ ${(got.px / 100).toFixed(2)}`);
+      }
+      if (!lines.length) return rejected('the close did not print');
+      return { status: 'accepted', eventId: ev, lines };
+    }
+    case 'homes':
+      return { status: 'accepted', lines: homeLines(w, i) };
+    case 'homebid': {
+      const ev = w.events.emit('player.home', `${P.name(i)} bids for a home`, [causeOf(w, st)], id);
+      const got = bidHome(w, i, cmd.id, cmd.cents, ev);
+      if (got.why) return rejected(got.why);
+      return { status: 'accepted', eventId: ev, text: got.text };
+    }
+    case 'homesell': {
+      const ev = w.events.emit('player.home', `${P.name(i)} sells a home`, [causeOf(w, st)], id);
+      const got = sellHome(w, i, cmd.id, ev);
+      if (got.why) return rejected(got.why);
+      return { status: 'accepted', eventId: ev, text: got.text };
+    }
+    case 'let': {
+      const ev = w.events.emit('player.home', `${P.name(i)} lets a home`, [causeOf(w, st)], id);
+      const got = letHome(w, i, cmd.id, cmd.cents, ev);
+      if (got.why) return rejected(got.why);
+      return { status: 'accepted', eventId: ev, text: got.text };
+    }
+    case 'move': {
+      const got = moveHome(w, i, cmd.id);
+      if (got.why) return rejected(got.why);
+      const ev = w.events.emit('player.home', `${P.name(i)} moves house`, [causeOf(w, st)], id);
+      return { status: 'accepted', eventId: ev, text: got.text };
+    }
+    case 'mortgage': {
+      const ev = w.events.emit('player.home', `${P.name(i)} mortgages a home`, [causeOf(w, st)], id);
+      const got = mortgageHome(w, i, cmd.id, cmd.cents, ev);
+      if (got.why) return rejected(got.why);
+      return { status: 'accepted', eventId: ev, text: got.text };
+    }
+    case 'tip': {
+      if (!knows(w, i, cmd.fact)) return rejected('you do not know that');
+      const facts = (w.state.social as { facts?: { pub?: boolean }[] } | undefined)?.facts;
+      const fact = facts?.[cmd.fact];
+      if (!fact) return rejected('no such fact');
+      if (fact.pub) return rejected('the paper already has it');
+      const ev = w.events.emit('player.tip', `${P.name(i)} gives a paper a story`, [causeOf(w, st)], id);
+      publish(w, cmd.fact);
+      return { status: 'accepted', eventId: ev, text: 'the paper has it' };
+    }
+    case 'report': {
+      const who = contactsOf(w, i).find((c) => c.slot === cmd.slot)?.who;
+      if (who === undefined || who < 0) return rejected('no such contact');
+      const ev = w.events.emit('player.report', `${P.name(i)} reports a crime: ${cmd.text}`, [causeOf(w, st)], id);
+      reportOffence(w, { person: who, firm: -1, gain: 0, text: cmd.text, cause: ev });
+      return { status: 'accepted', eventId: ev, text: 'reported' };
+    }
     default: {
       const never: never = cmd;
       return never;
@@ -1076,6 +1295,8 @@ export function view(w: World): PlayerView {
       will: willText(w, st),
     },
     dynasty: dynastyOf(w, st),
+    homes: homeBoard(w, i),
+    chain: (process.argv[1] ?? '').includes('worker') ? [] : optionChain(w, id),
   };
 }
 

@@ -226,6 +226,75 @@ function commandOf(body: unknown): Command | string {
       return { kind: 'hand', firm: b.firm };
     }
     case 'die': return { kind: 'die' };
+    case 'help': return { kind: 'help', command: typeof b.command === 'string' ? b.command : '' };
+    case 'opt': {
+      if (b.instr !== undefined && typeof b.instr !== 'string') return 'opt needs a symbol';
+      return { kind: 'opt', instr: typeof b.instr === 'string' ? b.instr : '' };
+    }
+    case 'optbuy':
+    case 'write': {
+      if (b.right !== 'C' && b.right !== 'P') return 'right must be C or P';
+      if (typeof b.instr !== 'string' || !b.instr) return 'option needs a symbol';
+      const qty = whole(b.qty, 1);
+      if (qty === undefined) return 'qty is a number of contracts';
+      const months = b.months === undefined ? 2 : whole(b.months, 0);
+      if (months === undefined || months > 6) return 'months is 0 to 6';
+      const strike = b.strike === undefined ? 0 : whole(b.strike, 0);
+      if (strike === undefined) return 'strike is a price in cents, or 0';
+      return b.kind === 'write'
+        ? { kind: 'write', right: b.right, instr: b.instr, qty, months, strike }
+        : { kind: 'optbuy', right: b.right, instr: b.instr, qty, months, strike };
+    }
+    case 'optclose': {
+      const id = typeof b.id === 'string' ? b.id : '';
+      const instr = typeof b.instr === 'string' ? b.instr : '';
+      if (!id && !instr) return 'close needs a contract or a symbol';
+      const qty = b.qty === undefined ? 0 : whole(b.qty, 0);
+      if (qty === undefined) return 'qty is a number of contracts';
+      return { kind: 'optclose', id, instr, qty };
+    }
+    case 'homes': return { kind: 'homes' };
+    case 'homebid': {
+      const id = whole(b.id, 0);
+      if (id === undefined) return 'bid needs a home';
+      const cents = b.cents === undefined ? 0 : whole(b.cents, 0);
+      if (cents === undefined) return 'price is in cents';
+      return { kind: 'homebid', id, cents };
+    }
+    case 'homesell': {
+      const id = whole(b.id, 0);
+      if (id === undefined) return 'sell needs a home';
+      return { kind: 'homesell', id };
+    }
+    case 'let': {
+      const id = whole(b.id, 0);
+      const cents = whole(b.cents, 1);
+      if (id === undefined || cents === undefined) return 'let needs a home and a rent';
+      return { kind: 'let', id, cents };
+    }
+    case 'move': {
+      const id = whole(b.id, 0);
+      if (id === undefined) return 'move needs a home';
+      return { kind: 'move', id };
+    }
+    case 'mortgage': {
+      const id = whole(b.id, 0);
+      if (id === undefined) return 'mortgage needs a home';
+      const cents = b.cents === undefined ? 0 : whole(b.cents, 0);
+      if (cents === undefined) return 'amount is in cents';
+      return { kind: 'mortgage', id, cents };
+    }
+    case 'tip': {
+      const fact = whole(b.fact, 0);
+      if (fact === undefined) return 'tip needs a fact';
+      return { kind: 'tip', fact };
+    }
+    case 'report': {
+      const slot = whole(b.slot, 0);
+      if (slot === undefined) return 'report needs a contact';
+      if (typeof b.text !== 'string' || !b.text.trim()) return 'report needs a few words';
+      return { kind: 'report', slot, text: b.text.trim() };
+    }
     default: return 'unknown command';
   }
 }

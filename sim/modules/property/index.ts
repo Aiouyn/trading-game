@@ -1244,6 +1244,165 @@ export function repairCondition(w: World, parcel: number, points: number, cause:
   return Math.max(0, Math.round(st.marked[parcel]) - before);
 }
 
+export interface HomeRow {
+  id: number;
+  neighbourhood: string;
+  price: number;
+  rent: number;
+  mine: boolean;
+  vacant: boolean;
+  live: boolean;
+}
+
+function askOf(st: Book, p: number): number {
+  const m = Math.round(st.marked[p]);
+  if (m > 0) return m;
+  const nb = st.nb[p] ?? 0;
+  return Math.max(1, Math.round((st.px[nb] || 0) * quality(st, p)));
+}
+
+const homeCache = new WeakMap<World, { day: number; person: number; rows: HomeRow[] }>();
+function dropHomes(w: World): void { homeCache.delete(w); }
+
+/** Homes you own, the one you live in, and the cheapest listings. */
+export function homeBoard(w: World, person: number): HomeRow[] {
+  const hit = homeCache.get(w);
+  if (hit && hit.day === w.day && hit.person === person) return hit.rows;
+  const st = w.state.property as Book | undefined;
+  const rows: HomeRow[] = [];
+  if (!st) { homeCache.set(w, { day: w.day, person, rows }); return rows; }
+  const rest: HomeRow[] = [];
+  const cheaper = (a: HomeRow, b: HomeRow): number => a.price - b.price || a.id - b.id;
+  const liveAt = person >= 0 && person < st.live.length ? st.live[person] : -1;
+  for (let p = 0; p < st.n; p++) {
+    if (st.kind[p] !== HOME) continue;
+    const mine = st.ownK[p] === PERSON && st.own[p] === person;
+    const vacant = st.tenK[p] === 0;
+    const live = p === liveAt;
+    const listed = st.ownK[p] === BANKK || vacant || (st.tenK[p] === PERSON && !ownerOccupies(w, p));
+    if (!mine && !live && !listed) continue;
+    const row: HomeRow = {
+      id: p, neighbourhood: NBHDS[st.nb[p]]?.name ?? '', price: askOf(st, p),
+      rent: Math.round(st.rent[p]), mine, vacant, live,
+    };
+    if (mine || live) { rows.push(row); continue; }
+    if (rest.length < 16) {
+      rest.push(row);
+      if (rest.length === 16) rest.sort(cheaper);
+      continue;
+    }
+    const last = rest[15];
+    if (cheaper(row, last) >= 0) continue;
+    rest[15] = row;
+    rest.sort(cheaper);
+  }
+  if (rest.length < 16) rest.sort(cheaper);
+  const out = rows.concat(rest);
+  homeCache.set(w, { day: w.day, person, rows: out });
+  return out;
+}
+
+export function bidHome(w: World, person: number, parcel: number, cents: number, cause: number): { why?: string; text?: string } {
+  dropHomes(w);
+  const st = book(w);
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
+  if (st.ownK[parcel] === PERSON && st.own[parcel] === person) return { why: 'you already own it' };
+  const price = cents > 0 ? cents : askOf(st, parcel);
+  const before = person < st.live.length ? st.live[person] : -1;
+  if (!sell(w, parcel, PERSON, person, price, cause, false)) return { why: 'the bid did not clear' };
+  // sell() moves a renter into a vacant house. Buying is not moving: put them back so the house can be let.
+  if (before >= 0 && before !== parcel && st.live[person] === parcel && st.ten[parcel] === person) shiftAll(w, parcel, before);
+  const nb = NBHDS[st.nb[parcel]]?.name ?? 'a';
+  return { text: `bought a ${nb} home (#${parcel}) for ${(price / 100).toFixed(0)}` };
+}
+
+export function sellHome(w: World, person: number, parcel: number, cause: number): { why?: string; text?: string } {
+  dropHomes(w);
+  const st = book(w);
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
+  if (st.ownK[parcel] !== PERSON || st.own[parcel] !== person) return { why: 'you do not own it' };
+  if (person < st.live.length && st.live[person] === parcel) return { why: 'move out before you sell it' };
+  const price = askOf(st, parcel);
+  if (st.tenK[parcel] === PERSON && st.ten[parcel] !== person && st.ten[parcel] >= 0) {
+    if (sell(w, parcel, PERSON, st.ten[parcel], price, cause, false)) return { text: `sold #${parcel} for ${(price / 100).toFixed(0)}` };
+  }
+  const buyer = findCashBuyer(w, price, person);
+  if (!buyer || !sell(w, parcel, buyer.k, buyer.id, price, cause, true)) return { why: 'no buyer at that price' };
+  return { text: `sold #${parcel} for ${(price / 100).toFixed(0)}` };
+}
+
+function takeTenant(w: World, parcel: number, rent: number, owner: number): number {
+  const st = book(w), P = econ(w).P;
+  const n = P.n;
+  if (n < 1) return -1;
+  const start = (w.day + parcel) % n;
+  for (let step = 0; step < n; step++) {
+    const i = (start + step) % n;
+    if (!P.alive(i) || i === owner || P.age(w, i) < 21) continue;
+    if (P.incEma[i] * 30 * 0.3 < rent) continue;
+    const cur = i < st.live.length ? st.live[i] : -1;
+    if (cur < 0 || cur === parcel) continue;
+    if (st.tenK[cur] !== PERSON || st.ten[cur] === i) continue;
+    const head = st.ten[cur];
+    if (head >= 0 && head < n && P.spouse[head] === i) continue;
+    ensurePeople(st, i + 1);
+    setLive(st, n, i, parcel);
+    st.tenK[parcel] = PERSON; st.ten[parcel] = i; st.missR[parcel] = 0;
+    return i;
+  }
+  return -1;
+}
+
+export function letHome(w: World, person: number, parcel: number, cents: number, cause: number): { why?: string; text?: string } {
+  dropHomes(w);
+  const st = book(w), P = econ(w).P;
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
+  if (st.ownK[parcel] !== PERSON || st.own[parcel] !== person) return { why: 'you do not own it' };
+  if (person < st.live.length && st.live[person] === parcel) return { why: 'move out before you let it' };
+  const rent = Math.round(cents);
+  if (rent < 1) return { why: 'name a rent in dollars' };
+  st.rent[parcel] = rent;
+  let tenant = st.tenK[parcel] === PERSON && st.ten[parcel] >= 0 && st.ten[parcel] !== person ? st.ten[parcel] : -1;
+  if (tenant < 0 && st.tenK[parcel] === 0) tenant = takeTenant(w, parcel, rent, person);
+  const ev = w.events.emit('property.let', `${P.name(person)} lets a ${NBHDS[st.nb[parcel]]?.name ?? ''} home for ${(rent / 100).toFixed(0)} a month`, [cause], P.id(person));
+  P.lastEv[person] = ev;
+  if (tenant < 0) return { text: `rent on #${parcel} is ${(rent / 100).toFixed(0)} a month, no tenant yet` };
+  return { text: `${P.name(tenant)} rents #${parcel} for ${(rent / 100).toFixed(0)} a month` };
+}
+
+export function moveHome(w: World, person: number, parcel: number): { why?: string; text?: string } {
+  dropHomes(w);
+  const st = book(w), P = econ(w).P;
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
+  const owns = st.ownK[parcel] === PERSON && st.own[parcel] === person;
+  const tenant = st.tenK[parcel] === PERSON && st.ten[parcel] === person;
+  if (!owns && !tenant) return { why: 'you do not own it' };
+  ensurePeople(st, person + 1);
+  const old = person < st.live.length ? st.live[person] : -1;
+  setLive(st, P.n, person, parcel);
+  if (owns && st.tenK[parcel] === 0) { st.tenK[parcel] = PERSON; st.ten[parcel] = person; st.missR[parcel] = 0; }
+  if (old >= 0 && old !== parcel && st.ownK[old] === PERSON && st.own[old] === person && st.ten[old] === person) {
+    st.tenK[old] = 0; st.ten[old] = -1; st.missR[old] = 0;
+  }
+  return { text: `you live in #${parcel}` };
+}
+
+export function mortgageHome(w: World, person: number, parcel: number, cents: number, cause: number): { why?: string; text?: string } {
+  dropHomes(w);
+  const st = book(w);
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
+  if (st.ownK[parcel] !== PERSON || st.own[parcel] !== person) return { why: 'you do not own it' };
+  if (st.mtg[parcel] >= 0 && st.lnOpen[st.mtg[parcel]]) return { why: 'it is already mortgaged' };
+  const offer = loanOffer(w, person, askOf(st, parcel));
+  if (offer < 1000) return { why: 'no bank will lend' };
+  const draw = cents > 0 ? Math.min(Math.round(cents), offer) : offer;
+  const k = openLoan(w, person, parcel, draw, cause);
+  if (k < 0) return { why: 'the bank refused' };
+  st.mtg[parcel] = k;
+  const got = Math.floor(w.ledger.issued.get('pm_' + k) ?? 0);
+  return { text: `borrowed ${(got / 100).toFixed(0)} against #${parcel}` };
+}
+
 export const property: Module = {
   id: 'property',
 

@@ -1,11 +1,10 @@
-// Maximum leverage: borrow against shares, buy more, hold a few futures, and short one name.
-// Listed options have no player command, so this bot cannot buy a call or a put.
+// Maximum leverage: borrow against shares, buy more, hold a few futures, short one name,
+// and from time to time buy a call or write a put.
 import type { World } from '../kernel/index.ts';
 import type { Command, PlayerView } from '../modules/player/index.ts';
 import { live, spendable, stocks } from './lib.ts';
 
 export const name = 'gambler';
-export const missing = 'option: there is no command to buy or write a call or a put';
 
 const NAMES = ['eq:frm_deepwell', 'eq:frm_quanta', 'eq:frm_silicrest', 'eq:frm_ampere'];
 
@@ -42,6 +41,13 @@ export function bot(v: PlayerView, _w: World): Command[] {
     const held = new Set(v.shares.map((s) => s.instr));
     const victim = book.find((s) => !held.has(s.instr) && !use.includes(s.instr));
     if (victim) cmds.push({ kind: 'order', side: 'short', instr: victim.instr, qty: 8 });
+  }
+  const name = use[0] ?? NAMES[0];
+  if (v.date.month % 2 === 1 && v.date.day <= 7 && spendable(v) > 500_000) {
+    cmds.push({ kind: 'optbuy', right: 'C', instr: name, qty: 1, months: 2, strike: 0 });
+  }
+  if (v.date.month % 3 === 0 && v.date.day <= 7 && spendable(v) > 2_000_000) {
+    cmds.push({ kind: 'write', right: 'P', instr: name, qty: 1, months: 2, strike: 0 });
   }
   return cmds;
 }

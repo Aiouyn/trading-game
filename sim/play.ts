@@ -4,7 +4,7 @@ import readline from 'node:readline/promises';
 import { World } from './kernel/index.ts';
 import { openWorld } from './run.ts';
 import { applySnapshot, snapshotSeed, writeSnapshot } from './modules/history/save.ts';
-import { act, ensurePlayer, playerIndex, view, type Command, type PlayerView } from './modules/player/index.ts';
+import { act, ensurePlayer, playerIndex, suggestCommand, view, type Command, type PlayerView } from './modules/player/index.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const dollars = (cents: number): string => `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`;
@@ -32,6 +32,8 @@ export function parseCommand(line: string, employer: string): Command | { error:
   const t = line.trim().split(/\s+/).filter(Boolean);
   if (!t.length) return { error: 'empty' };
   const head = t[0].toLowerCase();
+  if (head === 'help') return { kind: 'help', command: t.slice(1).join(' ') };
+  if (head === 'sell' && t.length === 2 && /^\d+$/.test(t[1])) return { kind: 'homesell', id: Number(t[1]) };
   if (head === 'buy' || head === 'sell' || head === 'short') {
     if (t.length < 3) return { error: `usage: ${head} SYMBOL QTY [@ PRICE]` };
     const qty = Number(t[2]);
@@ -165,6 +167,13 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!Number.isFinite(fraction) || fraction <= 0 || fraction > 0.9) return { error: 'fraction is the part of your stake you sell, above 0 and at most 0.9' };
     return { kind: 'ipo', firm: t[1], fraction };
   }
+  if (head === 'bid' && /^\d+$/.test(t[1] ?? '')) {
+    const id = Number(t[1]);
+    if (!t[2]) return { kind: 'homebid', id, cents: 0 };
+    const cents = centsOf(t[2]);
+    if (!cents) return { error: 'usage: bid HOME [DOLLARS]' };
+    return { kind: 'homebid', id, cents };
+  }
   if (head === 'bid') {
     if (!t[1] || !t[2] || !t[3]) return { error: 'usage: bid FIRM DOLLARS|Nx cash|shares' };
     const how = t[3].toLowerCase();
@@ -214,7 +223,70 @@ export function parseCommand(line: string, employer: string): Command | { error:
     return { kind: 'hand', firm: t[1] };
   }
   if (head === 'die') return { kind: 'die' };
-  return { error: `unknown command ${head}` };
+  if (head === 'opt') return { kind: 'opt', instr: t[1] ?? '' };
+  if (head === 'call' || head === 'put') return optOrder(t, head === 'call' ? 'C' : 'P');
+  if (head === 'write') {
+    const which = t[1]?.toLowerCase();
+    if ((which !== 'call' && which !== 'put') || !t[2]) return { error: 'usage: write call|put SYMBOL [STRIKE] [MONTHS] [QTY]' };
+    const built = optOrder(['write', t[2], ...t.slice(3)], which === 'call' ? 'C' : 'P');
+    if ('error' in built) return built;
+    return { ...built, kind: 'write' };
+  }
+  if (head === 'close') {
+    if (!t[1]) return { error: 'usage: close ID|SYMBOL [QTY]' };
+    const qty = t[2] === undefined ? 0 : Number(t[2]);
+    if (t[2] !== undefined && (!Number.isSafeInteger(qty) || qty < 1)) return { error: 'qty is a number of contracts' };
+    if (t[1].startsWith('opt')) return { kind: 'optclose', id: t[1], instr: '', qty };
+    return { kind: 'optclose', id: '', instr: t[1], qty };
+  }
+  if (head === 'homes') return { kind: 'homes' };
+  if (head === 'let') {
+    const id = Number(t[1]);
+    const cents = t[2] ? centsOf(t[2]) : undefined;
+    if (!Number.isSafeInteger(id) || id < 0 || !cents) return { error: 'usage: let HOME DOLLARS' };
+    return { kind: 'let', id, cents };
+  }
+  if (head === 'move') {
+    const id = Number(t[1]);
+    if (!Number.isSafeInteger(id) || id < 0) return { error: 'usage: move HOME' };
+    return { kind: 'move', id };
+  }
+  if (head === 'mortgage') {
+    const id = Number(t[1]);
+    if (!Number.isSafeInteger(id) || id < 0) return { error: 'usage: mortgage HOME [DOLLARS]' };
+    if (!t[2]) return { kind: 'mortgage', id, cents: 0 };
+    const cents = centsOf(t[2]);
+    if (!cents) return { error: 'dollars must be positive' };
+    return { kind: 'mortgage', id, cents };
+  }
+  if (head === 'tip') {
+    const fact = Number(t[1]);
+    if (!Number.isSafeInteger(fact) || fact < 0) return { error: 'usage: tip FACT' };
+    return { kind: 'tip', fact };
+  }
+  if (head === 'report') {
+    const slot = Number(t[1]);
+    const text = t.slice(2).join(' ');
+    if (!Number.isSafeInteger(slot) || slot < 0 || !text) return { error: 'usage: report SLOT TEXT' };
+    return { kind: 'report', slot, text };
+  }
+  return { error: `unknown command ${head}. ${suggestCommand(head)}` };
+}
+
+function optOrder(t: string[], right: 'C' | 'P'): Command | { error: string } {
+  const name = right === 'C' ? 'call' : 'put';
+  if (!t[1]) return { error: `usage: ${name} SYMBOL [STRIKE] [MONTHS] [QTY]` };
+  let strike = 0;
+  if (t[2] !== undefined) {
+    const n = Number(t[2]);
+    if (!Number.isFinite(n) || n < 0) return { error: 'strike is in dollars, or 0 for at the money' };
+    strike = Math.round(n * 100);
+  }
+  const months = t[3] === undefined ? 2 : Number(t[3]);
+  const qty = t[4] === undefined ? 1 : Number(t[4]);
+  if (!Number.isInteger(months) || months < 0 || months > 6) return { error: 'months is 0 to 6' };
+  if (!Number.isSafeInteger(qty) || qty < 1) return { error: 'qty is a number of contracts' };
+  return { kind: 'optbuy', right, instr: t[1], qty, months, strike };
 }
 
 function summary(v: PlayerView): string[] {
@@ -240,6 +312,10 @@ function summary(v: PlayerView): string[] {
   if (v.private.length) lines.push('  private: ' + v.private.map((p) => `[${p.eventId}] ${p.from} day ${p.day}: ${p.text}`).join(' | '));
   if (v.companies.length) lines.push('  companies: ' + v.companies.map((c) => `${c.role} ${c.name} (${c.id}) ${c.workers} workers cash ${dollars(c.cash)} sales ${dollars(c.sales)} profit ${dollars(c.profit)} ${c.listed ? 'listed' : 'private'}`).join(' | '));
   if (v.contacts.length) lines.push('  contacts: ' + v.contacts.map((c) => `${c.slot} ${c.name.split(' ')[0]} ${c.kind} ${c.trust}`).join(', '));
+  const owned = (v.homes ?? []).filter((h) => h.mine || h.live);
+  if (owned.length) lines.push('  homes: ' + owned.map((h) => `#${h.id} ${h.neighbourhood} ${dollars(h.price)}${h.live ? ' home' : ''}${h.vacant ? ' vacant' : ''}`).join(', '));
+  const held = (v.chain ?? []).filter((c) => c.net);
+  if (held.length) lines.push('  options: ' + held.map((c) => `${c.right} ${c.instr} ${c.net > 0 ? 'long' : 'short'} ${Math.abs(c.net)}`).join(', '));
   return lines;
 }
 
@@ -309,6 +385,7 @@ async function main(): Promise<void> {
     return !over(w);
   };
   for (const line of summary(view(w))) console.log(line);
+  console.log('type help');
   if (script) {
     const text = fs.readFileSync(script, 'utf8');
     for (const raw of text.split(/\r?\n/)) {
