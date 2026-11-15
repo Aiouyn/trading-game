@@ -27,19 +27,11 @@ const byName = new Map(strategies.map((s) => [s.name, s]));
 
 const why = (e: unknown): string => e instanceof Error ? e.message : String(e);
 
-function basket(px: { instr: string; px: number }[]): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const p of px) if (p.instr.startsWith('eq:') && p.px > 0) m.set(p.instr, p.px);
-  return m;
-}
-
-function indexRel(start: Map<string, number>, end: Map<string, number>): number {
-  let s = 0, n = 0;
-  for (const [k, p0] of start) {
-    const p1 = end.get(k);
-    if (p1 && p0 > 0) { s += p1 / p0; n++; }
-  }
-  return n ? s / n : 1;
+function indexRel(w: World): number {
+  // Capitalisation-weighted price index the exchange already publishes. Equal-weight price
+  // change was not a portfolio: with a common share count it is a bet on the cheapest names.
+  const m = w.state.markets as { index?: number } | undefined;
+  return m?.index && m.index > 0 ? m.index / 100 : 1;
 }
 
 function keep(jumps: Jump[], j: Jump): void {
@@ -98,7 +90,6 @@ export function runJob(job: Job): RunResult {
   const ids = new Set<string>();
   const v0 = view(w);
   const start = v0.netWorth;
-  const startPx = basket(v0.prices);
   let prev = start;
   let name = v0.name;
   const horizon = Math.max(1, job.years) * DAYS_PER_YEAR;
@@ -161,7 +152,12 @@ export function runJob(job: Job): RunResult {
   const who = playerIndex(w);
   if (who >= 0) ids.add(`p_${who}`);
   const P = (w.state.economy as { P: { flags: Uint8Array; n: number } }).P;
-  const prison = who >= 0 && who < P.n && (P.flags[who] & PRISON) !== 0;
+  let prison = who >= 0 && who < P.n && (P.flags[who] & PRISON) !== 0;
+  if (!prison) {
+    for (const e of w.events.recent(['law.verdict'], 20000)) {
+      if (e.actor && ids.has(e.actor) && e.msg.includes('imprisoned')) { prison = true; break; }
+    }
+  }
   const dead = end.over || !end.alive;
   const rel = start > 0 ? end.netWorth / start : 0;
   if (path.length === 0 || path[path.length - 1].day !== w.day) path.push({ day: w.day, worth: end.netWorth });
@@ -171,7 +167,7 @@ export function runJob(job: Job): RunResult {
     start,
     end: end.netWorth,
     rel,
-    indexRel: indexRel(startPx, basket(end.prices)),
+    indexRel: indexRel(w),
     days: w.day,
     years: job.years,
     bankrupt: !dead && end.netWorth <= 0,

@@ -9,6 +9,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { BANK, DEP, GOV, pay, payS, type EconState } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
+import { playerTrading } from '../markets/index.ts';
 
 const PROP = 'prop:value';
 const LAND = 'land';
@@ -649,9 +650,10 @@ function findCashBuyer(w: World, price: number, notPerson: number): { k: number;
   for (const f of funds) {
     if (w.ledger.balance(f.id, DEP) >= price) return { k: FUND, id: fundIndex(st, f.id) };
   }
+  const player = playerTrading(w) ? ((w.state.player as { who?: number } | undefined)?.who ?? -1) : -1;
   for (const inv of s.investors) {
     const i = +inv.id.slice(2);
-    if (i === notPerson || i < 0 || i >= s.P.n || !s.P.alive(i)) continue;
+    if (i === notPerson || i === player || i < 0 || i >= s.P.n || !s.P.alive(i)) continue;
     if (w.ledger.balance(inv.id, DEP) >= price + s.P.incEma[i] * KEEP) return { k: PERSON, id: i };
   }
   return null;
@@ -995,9 +997,10 @@ function collectBids(w: World, listings: Listing[]): Bid[] {
     const cash = Math.floor(w.ledger.balance(f.id, DEP));
     if (cash >= cheapestAsk) bids.push({ k: FUND, id: fundIndex(st, f.id), max: cash, live: false });
   }
+  const player = playerTrading(w) ? ((w.state.player as { who?: number } | undefined)?.who ?? -1) : -1;
   for (const inv of s.investors) {
     const i = +inv.id.slice(2);
-    if (i < 0 || i >= P.n || !P.alive(i)) continue;
+    if (i === player || i < 0 || i >= P.n || !P.alive(i)) continue;
     const cash = Math.floor(w.ledger.balance(inv.id, DEP) - P.incEma[i] * KEEP);
     if (cash >= cheapestAsk) bids.push({ k: PERSON, id: i, max: cash, live: false });
   }

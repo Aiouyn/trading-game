@@ -10,7 +10,7 @@ import { CEO_POSITION } from '../economy/content.ts';
 import { BANK, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
-import { borrowShares, cancelOrder, returnShares, submitOrder } from '../markets/index.ts';
+import { borrowShares, cancelOrder, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
 import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, publish, seatPerson, talk } from '../social/index.ts';
@@ -795,6 +795,7 @@ export function act(w: World, cmd: Command): ActResult {
       const instr = stockInstr(w, cmd.instr);
       if (!instr) return rejected(`not listed ${cmd.instr}`);
       if (!Number.isSafeInteger(cmd.qty) || cmd.qty < 1) return rejected('qty must be a positive integer');
+      markPlayerTrading(w);
       if (cmd.side === 'short') return shortSell(w, st, id, instr, cmd.qty, cmd.limit);
       try {
         const orderId = submitOrder(w, id, { instr, side: cmd.side, qty: cmd.qty, limit: cmd.limit });
@@ -1180,7 +1181,7 @@ export function act(w: World, cmd: Command): ActResult {
   }
 }
 
-interface Fact { id: number; eventId: number; day: number; msg: string; pub: boolean; drop: boolean; firms: number[] }
+interface Fact { id: number; eventId: number; day: number; msg: string; pub: boolean; drop: boolean; firms: number[]; tag?: string }
 
 export function view(w: World): PlayerView {
   const s = econ(w), P = s.P, st = stOf(w);
@@ -1257,17 +1258,27 @@ export function view(w: World): PlayerView {
   if (crypto?.majors) for (const m of crypto.majors) prices.push({ instr: m.id, px: m.last, eventId: coinRoot });
   const facts = (w.state.social as { facts?: Fact[] } | undefined)?.facts ?? [];
   const news: Line[] = [];
-  if (i >= 0) for (let f = facts.length - 1; f >= 0 && news.length < 8; f--) {
+  // A results week is more than eight lines. The page keeps a month so a printed profit can be read.
+  if (i >= 0) for (let f = facts.length - 1; f >= 0 && news.length < 24; f--) {
     const fact = facts[f];
     if (!fact || fact.drop || !fact.pub || !knows(w, i, fact.id)) continue;
     news.push({ eventId: fact.eventId, day: fact.day, text: fact.msg });
   }
   news.reverse();
   const priv: Priv[] = [];
-  if (i >= 0) for (const h of st.heard) {
-    const fact = facts[h.factId];
-    if (!fact || fact.drop || fact.pub || !knows(w, i, fact.id)) continue;
-    priv.push({ eventId: fact.eventId, factId: fact.id, day: h.day, from: P.name(h.from), text: fact.msg });
+  if (i >= 0) {
+    for (const h of st.heard) {
+      const fact = facts[h.factId];
+      if (!fact || fact.drop || fact.pub || !knows(w, i, fact.id)) continue;
+      priv.push({ eventId: fact.eventId, factId: fact.id, day: h.day, from: P.name(h.from), text: fact.msg });
+    }
+    // Staff are told the month's figure directly. Asking a nervous colleague is not the only way to know.
+    for (let f = facts.length - 1; f >= 0 && priv.length < 12; f--) {
+      const fact = facts[f];
+      if (!fact || fact.drop || fact.pub || fact.tag !== 'insider.profit' || w.day - fact.day > 12) continue;
+      if (priv.some((p) => p.factId === fact.id) || !knows(w, i, fact.id)) continue;
+      priv.push({ eventId: fact.eventId, factId: fact.id, day: fact.day, from: 'the desk', text: fact.msg });
+    }
   }
   return {
     date: { year: Math.floor(abs / DAYS_PER_YEAR) + 1, month: Math.floor(doy / 30) + 1, day: (doy % 30) + 1, abs },

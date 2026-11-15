@@ -6,7 +6,7 @@
 import { DAYS_PER_MONTH, type Module, type World } from '../../kernel/index.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { PRISON, leaveJob, seekRefresh, setSimDay, succession, thought } from '../economy/people.ts';
-import { discountForNews, submitOrder } from '../markets/index.ts';
+import { discountForNews, playerTrading, submitOrder } from '../markets/index.ts';
 import { knows, reportCase } from '../social/index.ts';
 
 const SEC = 'sec';
@@ -473,9 +473,15 @@ function snapshot(w: World): void {
     const vol = medianVol(stock.hist);
     if (vol > 0 && vol < 35) thin.push({ instr: stock.instr, firm: f.idx, vol, px: stock.last });
   }
-  for (const h of s.investors) {
-    if (!h.id.startsWith('p_')) continue;
-    const person = +h.id.slice(2);
+  const watched = s.investors.map((h) => h.id);
+  const player = (w.state.player as { who?: number } | undefined)?.who;
+  if (playerTrading(w) && player !== undefined && player >= 0 && player < P.n) {
+    const id = P.id(player);
+    if (!watched.includes(id)) watched.push(id);
+  }
+  for (const id of watched) {
+    if (!id.startsWith('p_')) continue;
+    const person = +id.slice(2);
     if (!P.adult(w, person)) continue;
     for (const fact of facts) {
       if (!knows(w, person, fact.id)) continue;
@@ -488,12 +494,12 @@ function snapshot(w: World): void {
       const edge = (fact.profit - f.lastProfit) / scale;
       if (Math.abs(edge) < 0.08) continue;
       st.snaps.push({
-        person, firm, instr: stock.instr, qty: Math.floor(w.ledger.balance(h.id, stock.instr)),
+        person, firm, instr: stock.instr, qty: Math.floor(w.ledger.balance(id, stock.instr)),
         factId: fact.id, factEvent: fact.eventId, knowers: fact.know?.n ?? 0, edge, vol: medianVol(stock.hist), px: stock.last,
       });
     }
     for (const t of thin) {
-      st.thins.push({ person, instr: t.instr, firm: t.firm, qty: Math.floor(w.ledger.balance(h.id, t.instr)), vol: t.vol, px: t.px });
+      st.thins.push({ person, instr: t.instr, firm: t.firm, qty: Math.floor(w.ledger.balance(id, t.instr)), vol: t.vol, px: t.px });
     }
   }
 }

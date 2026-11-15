@@ -61,6 +61,9 @@ interface MktState {
   baseCap: number;
   yTurn: number;
   root: number;
+  playerLive: boolean;
+  fadeDay: number;
+  fadeIds: number[];
   price: (instr: string) => number;
 }
 
@@ -224,6 +227,16 @@ export function submitOrder(w: World, actor: string, req: OrderRequest): number 
   return place(w, actor, req.instr, req.side, req.qty, req.limit ?? null, 'player');
 }
 
+/** The player has chosen to trade. Household rebalancing and house bids then leave their cash and book alone. */
+export function markPlayerTrading(w: World): void {
+  book(w).playerLive = true;
+}
+
+/** True once the player has sent an order. Until then the household and the land market treat them as anyone else. */
+export function playerTrading(w: World): boolean {
+  return book(w).playerLive === true;
+}
+
 export function cancelOrder(w: World, actor: string, orderId: number): boolean {
   const o = book(w).orders.find((x) => x.id === orderId);
   if (!o || !o.open || o.actor !== actor) return false;
@@ -329,7 +342,10 @@ function matchBook(w: World, st: Stock, mine: Order[]): void {
     note(st, px, qty);
     m.yTurn += qty * px;
   }
-  for (const o of mine) if (o.open && o.limit === null) o.open = false;
+  // Once the player has chosen to trade, their market order stands for the session and can lift
+  // each quote. Until then, and for everyone else, a market order is done after this pass.
+  const self = playerTrading(w) ? playerActor(w) : '';
+  for (const o of mine) if (o.open && o.limit === null && o.actor !== self) o.open = false;
 }
 
 function matchAll(w: World): void {
@@ -350,10 +366,30 @@ function matchAll(w: World): void {
   }
 }
 
+/** Offer a retail buy from people who already hold the shares, at the market maker's ask. */
+function fadeRetail(w: World, st: Stock, ask: number, need: number): void {
+  const m = book(w);
+  const self = playerActor(w);
+  const L = w.ledger;
+  let left = Math.min(need, 400);
+  for (const [slot, n] of L.holdersS(st.instr)) {
+    if (left < 1) break;
+    const id = L.ids[slot];
+    if (!id || id === self || id === 'fund_mm' || !id.startsWith('p_')) continue;
+    const qty = Math.min(Math.floor(n), left, 500);
+    if (qty < 1) continue;
+    m.fadeIds.push(place(w, id, st.instr, 'sell', qty, ask, 'hh'));
+    left -= qty;
+  }
+}
+
 function mmQuotes(w: World, fund: Fund): void {
   const stream = 'mkt:' + fund.id;
   const L = w.ledger, me = L.slot(fund.id);
-  const stocks = book(w).stocks;
+  const mkt = book(w);
+  const stocks = mkt.stocks;
+  const fade = playerTrading(w) && mkt.fadeDay !== w.day;
+  if (fade) mkt.fadeDay = w.day;
   for (let i = 0; i < stocks.length; i++) {
     const st = stocks[i];
     cancelSrc(w, fund.id, st.instr, 'mm');
@@ -366,9 +402,26 @@ function mmQuotes(w: World, fund: Fund): void {
     const width = Math.max(1, Math.round(st.last * half));
     const bid = Math.max(1, mid - width);
     const ask = mid + width;
-    const size = noiseQty(w, stream, Math.max(30, Math.round(90 * (1 + Math.min(2, vol * 15)))));
-    if (L.balS(me, DEP) >= bid) place(w, fund.id, st.instr, 'buy', size, bid, 'mm');
-    if (held > 0) place(w, fund.id, st.instr, 'sell', Math.min(size, held), ask, 'mm');
+    const clip = noiseQty(w, stream, Math.max(30, Math.round(90 * (1 + Math.min(2, vol * 15)))));
+    // Until the player chooses to trade, the quote is the same small clip as before.
+    // After that, their own order is faded up to a retail ticket.
+    let askSize = Math.min(held, clip);
+    let bidSize = clip;
+    if (playerTrading(w)) {
+      let pBuy = 0, pSell = 0;
+      const self = playerActor(w);
+      const mine = self ? ordersFor(self, st.instr, 'player', false) : undefined;
+      if (mine) for (let k = 0; k < mine.length; k++) {
+        const o = mine[k];
+        if (!o.open || o.qty < 1) continue;
+        if (o.side === 'buy') pBuy += o.qty; else pSell += o.qty;
+      }
+      askSize = Math.min(held, Math.max(clip, Math.min(pBuy, 8_000)));
+      bidSize = Math.max(clip, Math.min(pSell, 8_000));
+      if (fade && pBuy > held) fadeRetail(w, st, ask, pBuy - held);
+    }
+    if (L.balS(me, DEP) >= bid) place(w, fund.id, st.instr, 'buy', bidSize, bid, 'mm');
+    if (held > 0 && askSize > 0) place(w, fund.id, st.instr, 'sell', askSize, ask, 'mm');
   }
 }
 
@@ -449,10 +502,20 @@ function momentumOrders(w: World, fund: Fund): void {
   }
 }
 
+/** The player trades only through their own orders. A household rebalance would sell a passive book back to a savings target. */
+function playerActor(w: World): string {
+  const who = (w.state.player as { who?: number } | undefined)?.who;
+  if (who === undefined || who < 0) return '';
+  const P = econ(w).P;
+  return who < P.n ? P.id(who) : '';
+}
+
 function householdOrders(w: World): void {
   const s = econ(w);
   const m = book(w);
+  const self = playerTrading(w) ? playerActor(w) : '';
   for (const h of s.investors) {
+    if (self && h.id === self) continue;
     const rng = w.rng('mkt:' + h.id);
     if (!rng.chance(0.2)) continue; // each person rebalances about once a week
     const wealth = w.ledger.netWorth(h.id, m.price);
@@ -529,6 +592,7 @@ export const markets: Module = {
     ];
     const state: MktState = {
       stocks: [], funds, orders: [], nextId: 1, seq: 1, index: 100, baseCap: 1, yTurn: 0, root: 0,
+      playerLive: false, fadeDay: -1, fadeIds: [],
       price: () => 0,
     };
     let pricing = false;
@@ -625,7 +689,16 @@ export const markets: Module = {
 
   dayClose(w) {
     const m = book(w);
-    for (const o of m.orders) o.skip = false;
+    for (let i = 0; i < m.fadeIds.length; i++) {
+      const o = m.orders.find((x) => x.id === m.fadeIds[i]);
+      if (o && o.open) o.open = false;
+    }
+    m.fadeIds.length = 0;
+    const self = playerTrading(w) ? playerActor(w) : '';
+    for (const o of m.orders) {
+      o.skip = false;
+      if (self && o.open && o.limit === null && o.actor === self) o.open = false;
+    }
     let cap = 0;
     // Closing mark: a stock that did not trade is marked to the side of the book that is there, within the daily band.
     // Without this, a stock nobody offers can never reprice, however much it earns.
