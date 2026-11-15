@@ -4,76 +4,100 @@
 
 ## Flags
 
-- **index investor** 10th percentile 4.53x beats the index median 3.77x (too safe).
-- **momentum** 10th percentile 5.63x beats the index median 3.81x (too safe).
-- **value** 10th percentile 7.63x beats the index median 3.79x (too safe).
-- **gambler** 10th percentile 29.09x beats the index median 3.94x (too safe).
+- **index investor** 10th percentile 4.45x beats the index median 3.69x (too safe).
+- **momentum** 10th percentile 5.61x beats the index median 3.78x (too safe).
+- **value** 10th percentile 7.63x beats the index median 3.82x (too safe).
+- **gambler** 10th percentile 29.09x beats the index median 3.89x (too safe).
 - **insider** 10th percentile 4.28x beats the index median 3.78x (too safe).
 - **insider** was caught in every run (20/20).
-- **gambler** seed 3 finished at 70.80x (above 50×, likely exploit).
+- **gambler** seed 3 finished at 59.55x (above 50×, likely exploit).
 - **gambler** seed 6 finished at 61.53x (above 50×, likely exploit).
-- **gambler** seed 8 finished at 109.69x (above 50×, likely exploit).
-- **gambler** seed 9 finished at 53.47x (above 50×, likely exploit).
+- **gambler** seed 8 finished at 92.75x (above 50×, likely exploit).
+- **gambler** seed 9 finished at 52.36x (above 50×, likely exploit).
 - **gambler** seed 13 finished at 58.52x (above 50×, likely exploit).
 - **gambler** seed 19 finished at 85.17x (above 50×, likely exploit).
-- **value** seed 19 act threw: day 6120: Maximum call stack size exceeded
-- **value** seed 19 act threw: [day 6120] firm.succession frm_sawyer: Quinis Verorstone (36) becomes chief executive of Sawyer and Sons, spouse of Torin Wenkelford, after Torin Wenkelford left to run Meridian Fuels
-[day 6120] firm.succession frm_beacon_net: Torin Wenkelford (36) becomes chief executive of Beacon Networks, spouse of Quinis Verorstone, after Quinis Verorstone left to run Sawyer and Sons
-[day 6120] firm.succession frm_meridian_fuel: Quinis Verorstone (36) becomes chief executive of Meridian Fuels, spouse of Torin Wenkelford, after Torin Wenkelford left to run Beacon Networks
-[day 6120] firm.succession frm_sawyer: Torin Wenkelford (36) becomes chief executive of Sawyer and Sons, spouse of Quinis Verorstone, after Quinis Verorstone left to run Meridian Fuels
-[day 6120] firm.succession frm_beacon_net: Quinis Verorstone (36) becomes chief executive of Beacon Networks, spouse of Torin Wenkelford, after Torin Wenkelford left to run Sawyer and Sons
-[day 6120] firm.succession frm_meridian_fuel: Torin Wenkelford (36) becomes chief executive of Meridian Fuels, spouse of Quinis Verorstone, after Quinis Verorstone left to run Beacon Networks
-[day 6120] firm.succession frm_sawyer: Quinis Verorstone (36) becomes chief executive of Sawyer and Sons, spouse of Torin Wenkelford, after Torin Wenkelford left to run Meridian Fuels
-[day 6120] firm.succession frm_beacon_net: Torin Wenkelford (36) becomes chief executive of Beacon Networks, spouse of Quinis Verorstone, after Quinis Verorstone left to run Sawyer and Sons
-- **value** seed 19 act threw: [day 6038] opt.insider p_2864: Belel Oryanstone bought a short-dated call on Verdant Agrichem while its monthly figures were still unpublished
-[day 6038] opt.insider p_3992: Ela Isnorham bought a short-dated put on Polymera while its monthly figures were still unpublished
-[day 6039] opt.insider p_1708: Wenis Belsalby bought a short-dated call on Verdant Agrichem while its monthly figures were still unpublished
-[day 6040] opt.insider p_1000: Tora Corjorwell bought a short-dated call on Verdant Agrichem while its monthly figures were still unpublished
-[day 6059] opt.insider p_2755: Linus Ordanley bought a short-dated put on Verdant Agrichem while its monthly figures were still unpublished
-[day 6119] opt.insider p_4019: Dania Perdanell bought a short-dated put on The Daily Herald while its monthly figures were still unpublished
-- **value** seed 19 broke the books: day 6120: Maximum call stack size exceeded
 
 ## Strategies
 
 | Strategy | p10 | median | p90 | bankrupt | dead | prison | caught | ann. return | index ann. | excess |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| do nothing | 0.96x | 1.28x | 2.36x | 0/20 | 0/20 | 0/20 | 0 | 1.2% | 6.9% | -5.3% |
-| index investor | 4.53x | 5.53x | 6.83x | 0/20 | 0/20 | 5/20 | 12 | 8.9% | 6.9% | 2.0% |
-| bond ladder | 1.51x | 2.49x | 3.41x | 0/20 | 0/20 | 0/20 | 1 | 4.6% | 6.7% | -2.1% |
-| momentum | 5.63x | 6.95x | 12.68x | 0/20 | 0/20 | 2/20 | 9 | 10.2% | 6.9% | 3.9% |
-| value | 7.63x | 9.92x | 16.42x | 0/20 | 0/20 | 3/20 | 20 | 12.2% | 6.9% | 5.3% |
-| gambler | 29.09x | 37.86x | 72.24x | 0/20 | 0/20 | 3/20 | 29 | 19.9% | 7.1% | 12.9% |
+| do nothing | 0.97x | 1.33x | 2.36x | 0/20 | 0/20 | 0/20 | 0 | 1.5% | 6.9% | -5.3% |
+| index investor | 4.45x | 5.65x | 6.83x | 0/20 | 0/20 | 4/20 | 13 | 9.0% | 6.7% | 2.1% |
+| bond ladder | 1.51x | 2.44x | 3.17x | 0/20 | 0/20 | 0/20 | 2 | 4.5% | 6.6% | -2.4% |
+| momentum | 5.61x | 7.26x | 11.70x | 0/20 | 0/20 | 3/20 | 12 | 10.4% | 6.9% | 3.5% |
+| value | 7.63x | 9.60x | 16.42x | 0/20 | 0/20 | 4/20 | 22 | 12.0% | 6.9% | 5.3% |
+| gambler | 29.09x | 37.86x | 63.90x | 0/20 | 0/20 | 3/20 | 25 | 19.9% | 7.0% | 12.9% |
 | memecoin | 0.84x | 1.21x | 1.85x | 0/20 | 0/20 | 0/20 | 8 | 1.0% | 6.7% | -5.7% |
-| insider | 4.28x | 5.87x | 8.70x | 0/20 | 0/20 | 19/20 | 57 | 9.2% | 6.9% | 2.2% |
+| insider | 4.28x | 5.87x | 8.72x | 0/20 | 0/20 | 19/20 | 58 | 9.2% | 6.9% | 2.2% |
 | raider | 0.62x | 0.82x | 7.06x | 0/20 | 0/20 | 3/20 | 7 | -1.0% | 6.6% | -7.2% |
-| landlord | 1.32x | 1.93x | 2.60x | 0/20 | 0/20 | 0/20 | 0 | 3.3% | 6.9% | -3.8% |
-| random | 3.21x | 4.22x | 6.47x | 0/20 | 0/20 | 4/20 | 17 | 7.5% | 7.1% | 0.0% |
-
-The same strategies on the tree before hospitals, epidemics and the capitalisation-weighted index:
-
-| Strategy | p10 | median | p90 | bankrupt | dead | prison | caught | ann. return | index ann. | excess |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| do nothing | 1.03x | 1.36x | 1.98x | 0/20 | 0/20 | 0/20 | 0 | 1.5% | 14.0% | -12.3% |
-| index investor | 3.28x | 4.13x | 5.72x | 0/20 | 0/20 | 0/20 | 5 | 7.3% | 13.1% | -6.5% |
-| bond ladder | 1.73x | 2.44x | 3.87x | 0/20 | 0/20 | 0/20 | 1 | 4.6% | 13.8% | -9.4% |
-| momentum | 0.54x | 0.66x | 0.92x | 0/20 | 0/20 | 0/20 | 4 | -2.0% | 13.7% | -16.3% |
-| value | 0.88x | 1.12x | 1.59x | 0/20 | 0/20 | 0/20 | 3 | 0.6% | 14.4% | -14.4% |
-| gambler | 0.77x | 1.09x | 1.94x | 0/20 | 0/20 | 0/20 | 13 | 0.4% | 13.7% | -13.5% |
-| memecoin | 0.81x | 1.15x | 2.74x | 0/20 | 0/20 | 0/20 | 7 | 0.7% | 14.2% | -14.2% |
-| insider | 0.83x | 1.26x | 1.92x | 0/20 | 0/20 | 0/20 | 2 | 1.2% | 17.2% | -15.0% |
-| raider | 0.67x | 0.92x | 2.55x | 0/20 | 0/20 | 0/20 | 6 | -0.4% | 13.7% | -14.4% |
-| landlord | 1.44x | 1.94x | 2.67x | 0/20 | 0/20 | 0/20 | 0 | 3.4% | 14.2% | -10.9% |
-| random | 0.95x | 1.41x | 2.22x | 0/20 | 0/20 | 0/20 | 2 | 1.7% | 14.2% | -12.8% |
+| landlord | 1.45x | 1.95x | 3.34x | 0/20 | 0/20 | 0/20 | 0 | 3.4% | 6.9% | -3.5% |
+| random | 3.21x | 4.31x | 6.81x | 0/20 | 0/20 | 4/20 | 22 | 7.6% | 7.1% | 0.2% |
 
 Final net worth is the multiple of the player’s worth on day 0. Annualised return uses the days the run actually lived. Excess is that return minus the same world’s index. Caught is charges and convictions of anyone who was the player, counting a case once.
 
 ## Exploits
 
-### gambler seed 3 — 70.80x
+### gambler seed 3 — 59.55x
 
-Start $150,000, end $10,619,884, 7200 days. Year-end worth: day 360 $790,178; day 720 $1,107,394; day 1080 $1,093,847; day 1440 $1,209,320; day 1800 $1,262,362; day 2160 $2,771,547; day 2520 $2,997,638; day 2880 $3,439,083; day 3240 $4,059,020; day 3600 $4,209,273; day 3960 $4,393,477; day 4320 $4,509,202; day 4680 $4,741,875; day 5040 $4,972,115; day 5400 $5,212,777; day 5760 $5,596,563; day 6120 $6,822,132; day 6480 $8,281,540; day 6840 $9,622,168; day 7200 $10,619,884.
+Start $150,000, end $8,932,035, 7200 days. Year-end worth: day 360 $790,178; day 720 $1,107,393; day 1080 $1,093,846; day 1440 $1,209,319; day 1800 $1,633,803; day 2160 $2,738,085; day 2520 $2,926,277; day 2880 $3,116,996; day 3240 $3,385,307; day 3600 $3,543,937; day 3960 $3,606,440; day 4320 $3,753,045; day 4680 $4,168,019; day 5040 $4,430,716; day 5400 $4,615,363; day 5760 $4,867,836; day 6120 $5,055,187; day 6480 $6,329,390; day 6840 $7,517,991; day 7200 $8,932,035.
 
 Biggest up-days:
+
+- Day 6300: $5,433,797 → $5,777,846
+
+```
+[day 6299] loan.default p_5000: Danin Yanwenby missed three payments on 338103
+  <- [day 6239] cb.rate cb: policy rate 5.50% -> 6.00%
+    <- [day 6239] macro.cpi: CPI 0.26% on the month, 3.0% on the year
+      <- [day 6239] firm.price frm_deepwell: crude oil price -2.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 6209] macro.demand: household spending 0.74M per day
+    <- [day 6239] macro.jobs: unemployment 8.2%
+      <- [day 6209] macro.demand: household spending 0.74M per day
+        <- [day 6209] macro.cpi: CPI 0.62% on the month, 2.4% on the year
+        <- [day 6209] macro.jobs: unemployment 7.2%
+        <- [day 6179] cb.rate cb: policy rate 4.00% -> 4.50%
+
+[day 6299] loan.default p_5000: Danin Yanwenby missed three payments on 52
+  <- [day 6239] cb.rate cb: policy rate 5.50% -> 6.00%
+    <- [day 6239] macro.cpi: CPI 0.26% on the month, 3.0% on the year
+      <- [day 6239] firm.price frm_deepwell: crude oil price -2.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 6209] macro.demand: household spending 0.74M per day
+    <- [day 6239] macro.jobs: unemployment 8.2%
+      <- [day 6209] macro.demand: household spending 0.74M per day
+        <- [day 6209] macro.cpi: CPI 0.62% on the month, 2.4% on the year
+        <- [day 6209] macro.jobs: unemployment 7.2%
+        <- [day 6179] cb.rate cb: policy rate 4.00% -> 4.50%
+
+[day 6299] loan.default p_5000: Danin Yanwenby missed three payments on 10290
+  <- [day 6239] cb.rate cb: policy rate 5.50% -> 6.00%
+    <- [day 6239] macro.cpi: CPI 0.26% on the month, 3.0% on the year
+      <- [day 6239] firm.price frm_deepwell: crude oil price -2.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 6209] macro.demand: household spending 0.74M per day
+    <- [day 6239] macro.jobs: unemployment 8.2%
+      <- [day 6209] macro.demand: household spending 0.74M per day
+        <- [day 6209] macro.cpi: CPI 0.62% on the month, 2.4% on the year
+        <- [day 6209] macro.jobs: unemployment 7.2%
+        <- [day 6179] cb.rate cb: policy rate 4.00% -> 4.50%
+
+[day 6299] loan.default p_5000: Danin Yanwenby missed three payments on 119
+  <- [day 6239] cb.rate cb: policy rate 5.50% -> 6.00%
+    <- [day 6239] macro.cpi: CPI 0.26% on the month, 3.0% on the year
+      <- [day 6239] firm.price frm_deepwell: crude oil price -2.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 6209] macro.demand: household spending 0.74M per day
+    <- [day 6239] macro.jobs: unemployment 8.2%
+      <- [day 6209] macro.demand: household spending 0.74M per day
+        <- [day 6209] macro.cpi: CPI 0.62% on the month, 2.4% on the year
+        <- [day 6209] macro.jobs: unemployment 7.2%
+        <- [day 6179] cb.rate cb: policy rate 4.00% -> 4.50%
+
+[day 6299] law.offence p_5000: Danin Yanwenby left $338103 unpaid after a default
+  <- [day 6299] loan.default p_5000: Danin Yanwenby missed three payments on 338103
+    <- [day 6239] cb.rate cb: policy rate 5.50% -> 6.00%
+      <- [day 6239] macro.cpi: CPI 0.26% on the month, 3.0% on the year
+        <- [day 6239] firm.price frm_deepwell: crude oil price -2.2% this month (unit cost 0.4%, 0 tight days)
+      <- [day 6239] macro.jobs: unemployment 8.2%
+        <- [day 6209] macro.demand: household spending 0.74M per day
+```
 
 - Day 240: $300,749 → $626,918
 
@@ -137,330 +161,25 @@ Biggest up-days:
       <- [day 0] genesis: world created from seed '3'  (outside shock)
 ```
 
-- Day 1890: $1,348,181 → $1,511,057
-
-```
-[day 1889] loan.default p_5000: Danin Yanwenby missed three payments on 99420
-  <- [day 1859] cb.rate cb: policy rate 4.75% -> 6.00%
-    <- [day 1859] macro.cpi: CPI 0.95% on the month, 5.7% on the year
-      <- [day 1859] firm.price frm_northgrid: electricity price +2.9% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1829] firm.price frm_blackvein: coal price +48.1% this month (unit cost 49.4%, 12 tight days)
-        <- [day 1829] macro.wage: wages 0.68% this month
-      <- [day 1859] firm.price frm_voltana: electricity price +2.8% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1829] firm.price frm_blackvein: coal price +48.1% this month (unit cost 49.4%, 12 tight days)
-        <- [day 1829] macro.wage: wages 0.68% this month
-      <- [day 1859] firm.price frm_vantage_motors: vehicles price +2.0% this month (unit cost 1.7%, 0 tight days)
-        <- [day 1859] firm.price frm_irongate: steel price +2.5% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_forgeworks: steel price +2.6% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_skylite: aluminium price +2.1% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_silicrest: semiconductors price +2.1% this month (unit cost 0.9%, 11 tight days)
-    <- [day 1859] macro.jobs: unemployment 7.4%
-      <- [day 1829] macro.demand: household spending 0.50M per day
-        <- [day 1829] macro.cpi: CPI 1.05% on the month, 4.8% on the year
-        <- [day 1829] macro.jobs: unemployment 5.2%
-        <- [day 1799] cb.rate cb: policy rate 3.75% -> 4.00%
-  <- [day 1792] person.breakdown p_5000: Danin Yanwenby (34) stops working at Titan Machine Works for sixty days after a loss at Titan Machine Works
-    <- [day 1792] person.thought p_5000: Danin Yanwenby (34) cannot shake it: a loss at Titan Machine Works
-      <- [day 1792] firm.insider frm_titan_machine: Titan Machine Works insiders see a monthly loss of 1420 with a week still to run
-        <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.3% this month (unit cost -0.6%, 0 tight days)
-
-[day 1889] loan.default p_5000: Danin Yanwenby missed three payments on 64682
-  <- [day 1859] cb.rate cb: policy rate 4.75% -> 6.00%
-    <- [day 1859] macro.cpi: CPI 0.95% on the month, 5.7% on the year
-      <- [day 1859] firm.price frm_northgrid: electricity price +2.9% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1829] firm.price frm_blackvein: coal price +48.1% this month (unit cost 49.4%, 12 tight days)
-        <- [day 1829] macro.wage: wages 0.68% this month
-      <- [day 1859] firm.price frm_voltana: electricity price +2.8% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1829] firm.price frm_blackvein: coal price +48.1% this month (unit cost 49.4%, 12 tight days)
-        <- [day 1829] macro.wage: wages 0.68% this month
-      <- [day 1859] firm.price frm_vantage_motors: vehicles price +2.0% this month (unit cost 1.7%, 0 tight days)
-        <- [day 1859] firm.price frm_irongate: steel price +2.5% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_forgeworks: steel price +2.6% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_skylite: aluminium price +2.1% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_silicrest: semiconductors price +2.1% this month (unit cost 0.9%, 11 tight days)
-    <- [day 1859] macro.jobs: unemployment 7.4%
-      <- [day 1829] macro.demand: household spending 0.50M per day
-        <- [day 1829] macro.cpi: CPI 1.05% on the month, 4.8% on the year
-        <- [day 1829] macro.jobs: unemployment 5.2%
-        <- [day 1799] cb.rate cb: policy rate 3.75% -> 4.00%
-  <- [day 1792] person.breakdown p_5000: Danin Yanwenby (34) stops working at Titan Machine Works for sixty days after a loss at Titan Machine Works
-    <- [day 1792] person.thought p_5000: Danin Yanwenby (34) cannot shake it: a loss at Titan Machine Works
-      <- [day 1792] firm.insider frm_titan_machine: Titan Machine Works insiders see a monthly loss of 1420 with a week still to run
-        <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.3% this month (unit cost -0.6%, 0 tight days)
-
-[day 1889] loan.default p_5000: Danin Yanwenby missed three payments on 31
-  <- [day 1859] cb.rate cb: policy rate 4.75% -> 6.00%
-    <- [day 1859] macro.cpi: CPI 0.95% on the month, 5.7% on the year
-      <- [day 1859] firm.price frm_northgrid: electricity price +2.9% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1829] firm.price frm_blackvein: coal price +48.1% this month (unit cost 49.4%, 12 tight days)
-        <- [day 1829] macro.wage: wages 0.68% this month
-      <- [day 1859] firm.price frm_voltana: electricity price +2.8% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1829] firm.price frm_blackvein: coal price +48.1% this month (unit cost 49.4%, 12 tight days)
-        <- [day 1829] macro.wage: wages 0.68% this month
-      <- [day 1859] firm.price frm_vantage_motors: vehicles price +2.0% this month (unit cost 1.7%, 0 tight days)
-        <- [day 1859] firm.price frm_irongate: steel price +2.5% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_forgeworks: steel price +2.6% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_skylite: aluminium price +2.1% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_silicrest: semiconductors price +2.1% this month (unit cost 0.9%, 11 tight days)
-    <- [day 1859] macro.jobs: unemployment 7.4%
-      <- [day 1829] macro.demand: household spending 0.50M per day
-        <- [day 1829] macro.cpi: CPI 1.05% on the month, 4.8% on the year
-        <- [day 1829] macro.jobs: unemployment 5.2%
-        <- [day 1799] cb.rate cb: policy rate 3.75% -> 4.00%
-  <- [day 1792] person.breakdown p_5000: Danin Yanwenby (34) stops working at Titan Machine Works for sixty days after a loss at Titan Machine Works
-    <- [day 1792] person.thought p_5000: Danin Yanwenby (34) cannot shake it: a loss at Titan Machine Works
-      <- [day 1792] firm.insider frm_titan_machine: Titan Machine Works insiders see a monthly loss of 1420 with a week still to run
-        <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.3% this month (unit cost -0.6%, 0 tight days)
-
-[day 1889] law.offence p_5000: Danin Yanwenby left $99420 unpaid after a default
-  <- [day 1889] loan.default p_5000: Danin Yanwenby missed three payments on 99420
-    <- [day 1859] cb.rate cb: policy rate 4.75% -> 6.00%
-      <- [day 1859] macro.cpi: CPI 0.95% on the month, 5.7% on the year
-        <- [day 1859] firm.price frm_northgrid: electricity price +2.9% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_voltana: electricity price +2.8% this month (unit cost 1.5%, 0 tight days)
-        <- [day 1859] firm.price frm_vantage_motors: vehicles price +2.0% this month (unit cost 1.7%, 0 tight days)
-      <- [day 1859] macro.jobs: unemployment 7.4%
-        <- [day 1829] macro.demand: household spending 0.50M per day
-    <- [day 1792] person.breakdown p_5000: Danin Yanwenby (34) stops working at Titan Machine Works for sixty days after a loss at Titan Machine Works
-      <- [day 1792] person.thought p_5000: Danin Yanwenby (34) cannot shake it: a loss at Titan Machine Works
-        <- [day 1792] firm.insider frm_titan_machine: Titan Machine Works insiders see a monthly loss of 1420 with a week still to run
-```
-
-- Day 7171: $10,379,949 → $10,529,848
+- Day 7172: $8,697,512 → $8,845,661
 
 ```
 (no event that day names the player; the move is a mark)
 ```
 
-- Day 5880: $5,790,226 → $5,935,495
+- Day 7171: $8,551,793 → $8,697,512
 
 ```
-[day 5879] loan.default p_5000: Danin Yanwenby missed three payments on 102448
-  <- [day 5819] cb.rate cb: policy rate 6.00% -> 6.25%
-    <- [day 5819] macro.cpi: CPI 0.32% on the month, 2.6% on the year
-      <- [day 5819] firm.price frm_salar: lithium price +2.5% this month (unit cost 0.3%, 25 tight days)
-        <- [day 5791] firm.stockout frm_salar: sold out of lithium; demand unmet
-    <- [day 5819] macro.jobs: unemployment 5.3%
-      <- [day 5789] macro.demand: household spending 0.75M per day
-        <- [day 5789] macro.cpi: CPI 0.40% on the month, 3.7% on the year
-        <- [day 5789] macro.jobs: unemployment 5.9%
-        <- [day 5759] cb.rate cb: policy rate 5.25% -> 5.75%
-  <- [day 5707] person.breakdown p_5000: Danin Yanwenby (45) withdraws and stops looking for work after a month without work
-    <- [day 5707] person.thought p_5000: Danin Yanwenby (45) cannot shake it: a month without work
-      <- [day 5699] macro.demand: household spending 0.75M per day
-        <- [day 5699] macro.cpi: CPI 0.18% on the month, 4.2% on the year
-        <- [day 5699] macro.jobs: unemployment 4.6%
-        <- [day 5669] cb.rate cb: policy rate 4.00% -> 4.25%
-
-[day 5879] loan.default p_5000: Danin Yanwenby missed three payments on 6
-  <- [day 5819] cb.rate cb: policy rate 6.00% -> 6.25%
-    <- [day 5819] macro.cpi: CPI 0.32% on the month, 2.6% on the year
-      <- [day 5819] firm.price frm_salar: lithium price +2.5% this month (unit cost 0.3%, 25 tight days)
-        <- [day 5791] firm.stockout frm_salar: sold out of lithium; demand unmet
-    <- [day 5819] macro.jobs: unemployment 5.3%
-      <- [day 5789] macro.demand: household spending 0.75M per day
-        <- [day 5789] macro.cpi: CPI 0.40% on the month, 3.7% on the year
-        <- [day 5789] macro.jobs: unemployment 5.9%
-        <- [day 5759] cb.rate cb: policy rate 5.25% -> 5.75%
-  <- [day 5707] person.breakdown p_5000: Danin Yanwenby (45) withdraws and stops looking for work after a month without work
-    <- [day 5707] person.thought p_5000: Danin Yanwenby (45) cannot shake it: a month without work
-      <- [day 5699] macro.demand: household spending 0.75M per day
-        <- [day 5699] macro.cpi: CPI 0.18% on the month, 4.2% on the year
-        <- [day 5699] macro.jobs: unemployment 4.6%
-        <- [day 5669] cb.rate cb: policy rate 4.00% -> 4.25%
-
-[day 5879] loan.default p_5000: Danin Yanwenby missed three payments on 22842
-  <- [day 5819] cb.rate cb: policy rate 6.00% -> 6.25%
-    <- [day 5819] macro.cpi: CPI 0.32% on the month, 2.6% on the year
-      <- [day 5819] firm.price frm_salar: lithium price +2.5% this month (unit cost 0.3%, 25 tight days)
-        <- [day 5791] firm.stockout frm_salar: sold out of lithium; demand unmet
-    <- [day 5819] macro.jobs: unemployment 5.3%
-      <- [day 5789] macro.demand: household spending 0.75M per day
-        <- [day 5789] macro.cpi: CPI 0.40% on the month, 3.7% on the year
-        <- [day 5789] macro.jobs: unemployment 5.9%
-        <- [day 5759] cb.rate cb: policy rate 5.25% -> 5.75%
-  <- [day 5707] person.breakdown p_5000: Danin Yanwenby (45) withdraws and stops looking for work after a month without work
-    <- [day 5707] person.thought p_5000: Danin Yanwenby (45) cannot shake it: a month without work
-      <- [day 5699] macro.demand: household spending 0.75M per day
-        <- [day 5699] macro.cpi: CPI 0.18% on the month, 4.2% on the year
-        <- [day 5699] macro.jobs: unemployment 4.6%
-        <- [day 5669] cb.rate cb: policy rate 4.00% -> 4.25%
-
-[day 5879] loan.default p_5000: Danin Yanwenby missed three payments on 30
-  <- [day 5819] cb.rate cb: policy rate 6.00% -> 6.25%
-    <- [day 5819] macro.cpi: CPI 0.32% on the month, 2.6% on the year
-      <- [day 5819] firm.price frm_salar: lithium price +2.5% this month (unit cost 0.3%, 25 tight days)
-        <- [day 5791] firm.stockout frm_salar: sold out of lithium; demand unmet
-    <- [day 5819] macro.jobs: unemployment 5.3%
-      <- [day 5789] macro.demand: household spending 0.75M per day
-        <- [day 5789] macro.cpi: CPI 0.40% on the month, 3.7% on the year
-        <- [day 5789] macro.jobs: unemployment 5.9%
-        <- [day 5759] cb.rate cb: policy rate 5.25% -> 5.75%
-  <- [day 5707] person.breakdown p_5000: Danin Yanwenby (45) withdraws and stops looking for work after a month without work
-    <- [day 5707] person.thought p_5000: Danin Yanwenby (45) cannot shake it: a month without work
-      <- [day 5699] macro.demand: household spending 0.75M per day
-        <- [day 5699] macro.cpi: CPI 0.18% on the month, 4.2% on the year
-        <- [day 5699] macro.jobs: unemployment 4.6%
-        <- [day 5669] cb.rate cb: policy rate 4.00% -> 4.25%
-
-[day 5879] loan.default p_5000: Danin Yanwenby missed three payments on 1114
-  <- [day 5819] cb.rate cb: policy rate 6.00% -> 6.25%
-    <- [day 5819] macro.cpi: CPI 0.32% on the month, 2.6% on the year
-      <- [day 5819] firm.price frm_salar: lithium price +2.5% this month (unit cost 0.3%, 25 tight days)
-        <- [day 5791] firm.stockout frm_salar: sold out of lithium; demand unmet
-    <- [day 5819] macro.jobs: unemployment 5.3%
-      <- [day 5789] macro.demand: household spending 0.75M per day
-        <- [day 5789] macro.cpi: CPI 0.40% on the month, 3.7% on the year
-        <- [day 5789] macro.jobs: unemployment 5.9%
-        <- [day 5759] cb.rate cb: policy rate 5.25% -> 5.75%
-  <- [day 5707] person.breakdown p_5000: Danin Yanwenby (45) withdraws and stops looking for work after a month without work
-    <- [day 5707] person.thought p_5000: Danin Yanwenby (45) cannot shake it: a month without work
-      <- [day 5699] macro.demand: household spending 0.75M per day
-        <- [day 5699] macro.cpi: CPI 0.18% on the month, 4.2% on the year
-        <- [day 5699] macro.jobs: unemployment 4.6%
-        <- [day 5669] cb.rate cb: policy rate 4.00% -> 4.25%
+(no event that day names the player; the move is a mark)
 ```
 
-- Day 2010: $1,859,648 → $1,994,818
+- Day 6812: $7,329,243 → $7,449,857
 
 ```
-[day 2009] loan.default p_5000: Danin Yanwenby missed three payments on 88946
-  <- [day 1979] cb.rate cb: policy rate 5.50% -> 2.75%
-    <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year
-      <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_blackvein: coal price -32.7% this month (unit cost -32.9%, 0 tight days)
-        <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-    <- [day 1979] macro.jobs: unemployment 15.4%
-      <- [day 1949] macro.demand: household spending 0.49M per day
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-        <- [day 1919] cb.rate cb: policy rate 7.00% -> 7.25%
-  <- [day 2001] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 48% of wages and cut 17% of the staff
-    <- [day 1979] macro.demand: household spending 0.44M per day
-      <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year  (see above)
-      <- [day 1979] macro.jobs: unemployment 15.4%  (see above)
-      <- [day 1949] cb.rate cb: policy rate 7.25% -> 5.50%
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-
-[day 2009] loan.default p_5000: Danin Yanwenby missed three payments on 485
-  <- [day 1979] cb.rate cb: policy rate 5.50% -> 2.75%
-    <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year
-      <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_blackvein: coal price -32.7% this month (unit cost -32.9%, 0 tight days)
-        <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-    <- [day 1979] macro.jobs: unemployment 15.4%
-      <- [day 1949] macro.demand: household spending 0.49M per day
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-        <- [day 1919] cb.rate cb: policy rate 7.00% -> 7.25%
-  <- [day 2001] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 48% of wages and cut 17% of the staff
-    <- [day 1979] macro.demand: household spending 0.44M per day
-      <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year  (see above)
-      <- [day 1979] macro.jobs: unemployment 15.4%  (see above)
-      <- [day 1949] cb.rate cb: policy rate 7.25% -> 5.50%
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-
-[day 2009] loan.default p_5000: Danin Yanwenby missed three payments on 1724
-  <- [day 1979] cb.rate cb: policy rate 5.50% -> 2.75%
-    <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year
-      <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_blackvein: coal price -32.7% this month (unit cost -32.9%, 0 tight days)
-        <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-    <- [day 1979] macro.jobs: unemployment 15.4%
-      <- [day 1949] macro.demand: household spending 0.49M per day
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-        <- [day 1919] cb.rate cb: policy rate 7.00% -> 7.25%
-  <- [day 2001] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 48% of wages and cut 17% of the staff
-    <- [day 1979] macro.demand: household spending 0.44M per day
-      <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year  (see above)
-      <- [day 1979] macro.jobs: unemployment 15.4%  (see above)
-      <- [day 1949] cb.rate cb: policy rate 7.25% -> 5.50%
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-
-[day 2009] loan.default p_5000: Danin Yanwenby missed three payments on 26443
-  <- [day 1979] cb.rate cb: policy rate 5.50% -> 2.75%
-    <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year
-      <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_blackvein: coal price -32.7% this month (unit cost -32.9%, 0 tight days)
-        <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-    <- [day 1979] macro.jobs: unemployment 15.4%
-      <- [day 1949] macro.demand: household spending 0.49M per day
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-        <- [day 1919] cb.rate cb: policy rate 7.00% -> 7.25%
-  <- [day 2001] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 48% of wages and cut 17% of the staff
-    <- [day 1979] macro.demand: household spending 0.44M per day
-      <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year  (see above)
-      <- [day 1979] macro.jobs: unemployment 15.4%  (see above)
-      <- [day 1949] cb.rate cb: policy rate 7.25% -> 5.50%
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-
-[day 2009] loan.default p_5000: Danin Yanwenby missed three payments on 4926
-  <- [day 1979] cb.rate cb: policy rate 5.50% -> 2.75%
-    <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year
-      <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-      <- [day 1979] firm.price frm_blackvein: coal price -32.7% this month (unit cost -32.9%, 0 tight days)
-        <- [day 1979] firm.price frm_northgrid: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1979] firm.price frm_voltana: electricity price -11.3% this month (unit cost -13.8%, 0 tight days)  (see above)
-        <- [day 1949] firm.price frm_titan_machine: industrial machinery price -3.0% this month (unit cost 0.4%, 0 tight days)
-        <- [day 1889] macro.wage: wages 0.29% this month
-    <- [day 1979] macro.jobs: unemployment 15.4%
-      <- [day 1949] macro.demand: household spending 0.49M per day
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
-        <- [day 1919] cb.rate cb: policy rate 7.00% -> 7.25%
-  <- [day 2001] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 48% of wages and cut 17% of the staff
-    <- [day 1979] macro.demand: household spending 0.44M per day
-      <- [day 1979] macro.cpi: CPI -0.52% on the month, 3.3% on the year  (see above)
-      <- [day 1979] macro.jobs: unemployment 15.4%  (see above)
-      <- [day 1949] cb.rate cb: policy rate 7.25% -> 5.50%
-        <- [day 1949] macro.cpi: CPI -0.05% on the month, 4.3% on the year
-        <- [day 1949] macro.jobs: unemployment 12.8%
+(no event that day names the player; the move is a mark)
 ```
 
-- Day 6721: $9,115,232 → $9,245,952
+- Day 6811: $7,210,443 → $7,329,243
 
 ```
 (no event that day names the player; the move is a mark)
@@ -739,101 +458,430 @@ Biggest up-days:
 (no event that day names the player; the move is a mark)
 ```
 
-### gambler seed 8 — 109.69x
+### gambler seed 8 — 92.75x
 
-Start $150,000, end $16,453,277, 7200 days. Year-end worth: day 360 $623,523; day 720 $931,151; day 1080 $984,801; day 1440 $1,045,832; day 1800 $1,542,293; day 2160 $1,794,399; day 2520 $1,736,885; day 2880 $1,945,091; day 3240 $2,609,807; day 3600 $2,854,617; day 3960 $3,190,024; day 4320 $3,702,148; day 4680 $4,133,967; day 5040 $4,609,628; day 5400 $5,268,181; day 5760 $6,471,976; day 6120 $8,105,815; day 6480 $10,000,700; day 6840 $13,600,236; day 7200 $16,453,277.
+Start $150,000, end $13,912,623, 7200 days. Year-end worth: day 360 $623,523; day 720 $931,151; day 1080 $984,800; day 1440 $1,045,830; day 1800 $1,727,849; day 2160 $1,716,241; day 2520 $1,587,107; day 2880 $1,779,553; day 3240 $2,262,773; day 3600 $2,478,994; day 3960 $2,790,724; day 4320 $3,090,623; day 4680 $4,006,563; day 5040 $4,477,870; day 5400 $4,913,659; day 5760 $5,690,105; day 6120 $7,485,930; day 6480 $8,676,975; day 6840 $11,489,885; day 7200 $13,912,623.
 
 Biggest up-days:
 
-- Day 6060: $7,426,597 → $7,754,147
+- Day 6030: $6,774,360 → $7,202,497
 
 ```
-[day 6059] loan.default p_5000: Elen Orhalard missed three payments on 254141
-  <- [day 5969] cb.rate cb: policy rate 7.75% -> 7.50%
-    <- [day 5969] macro.cpi: CPI 0.25% on the month, 3.8% on the year
-      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.6% this month (unit cost 0.4%, 30 tight days)
-        <- [day 5939] macro.demand: household spending 0.78M per day
-    <- [day 5969] macro.jobs: unemployment 4.0%
-      <- [day 5939] macro.demand: household spending 0.78M per day
-        <- [day 5939] macro.cpi: CPI 0.17% on the month, 4.0% on the year
-        <- [day 5939] macro.jobs: unemployment 4.0%
-        <- [day 5909] cb.rate cb: policy rate 9.00% -> 8.25%
+[day 6029] loan.default p_5000: Elen Orhalard missed three payments on 100358
+  <- [day 5969] cb.rate cb: policy rate 8.75% -> 8.50%
+    <- [day 5969] macro.cpi: CPI 0.29% on the month, 4.8% on the year
+      <- [day 5969] firm.price frm_forgeworks: steel price +2.9% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5940] firm.inputShort frm_forgeworks: could not buy enough iron ore; output cut
+        <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5939] macro.wage: wages 0.28% this month
+      <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5940] firm.stockout frm_redhill: sold out of iron ore; demand unmet
+      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.6%, 26 tight days)
+        <- [day 5939] macro.demand: household spending 0.80M per day
+    <- [day 5969] macro.jobs: unemployment 4.4%
+      <- [day 5939] macro.demand: household spending 0.80M per day
+        <- [day 5939] macro.cpi: CPI 0.18% on the month, 4.9% on the year
+        <- [day 5939] macro.jobs: unemployment 4.4%
+        <- [day 5909] cb.rate cb: policy rate 10.00% -> 9.25%
+  <- [day 5820] firm.layoffs frm_voltana: sales of electricity below plan: laying off staff
+    <- [day 5819] firm.price frm_voltana: electricity price +1.6% this month (unit cost 1.1%, 0 tight days)
+      <- [day 5789] firm.price frm_blackvein: coal price +1.8% this month (unit cost 1.8%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_saltmarsh_gas: natural gas price +1.8% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_titan_machine: industrial machinery price +2.6% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5789] firm.price frm_ruddy_metals: copper price +1.7% this month (unit cost 1.4%, 0 tight days)
+        <- [day 5789] firm.price frm_silicrest: semiconductors price +1.6% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+      <- [day 5789] macro.wage: wages 0.83% this month
+        <- [day 5789] macro.jobs: unemployment 5.1%
+        <- [day 5789] macro.cpi: CPI 1.35% on the month, 6.9% on the year
 
-[day 6059] loan.default p_5000: Elen Orhalard missed three payments on 74643
-  <- [day 5969] cb.rate cb: policy rate 7.75% -> 7.50%
-    <- [day 5969] macro.cpi: CPI 0.25% on the month, 3.8% on the year
-      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.6% this month (unit cost 0.4%, 30 tight days)
-        <- [day 5939] macro.demand: household spending 0.78M per day
-    <- [day 5969] macro.jobs: unemployment 4.0%
-      <- [day 5939] macro.demand: household spending 0.78M per day
-        <- [day 5939] macro.cpi: CPI 0.17% on the month, 4.0% on the year
-        <- [day 5939] macro.jobs: unemployment 4.0%
-        <- [day 5909] cb.rate cb: policy rate 9.00% -> 8.25%
+[day 6029] loan.default p_5000: Elen Orhalard missed three payments on 706
+  <- [day 5969] cb.rate cb: policy rate 8.75% -> 8.50%
+    <- [day 5969] macro.cpi: CPI 0.29% on the month, 4.8% on the year
+      <- [day 5969] firm.price frm_forgeworks: steel price +2.9% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5940] firm.inputShort frm_forgeworks: could not buy enough iron ore; output cut
+        <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5939] macro.wage: wages 0.28% this month
+      <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5940] firm.stockout frm_redhill: sold out of iron ore; demand unmet
+      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.6%, 26 tight days)
+        <- [day 5939] macro.demand: household spending 0.80M per day
+    <- [day 5969] macro.jobs: unemployment 4.4%
+      <- [day 5939] macro.demand: household spending 0.80M per day
+        <- [day 5939] macro.cpi: CPI 0.18% on the month, 4.9% on the year
+        <- [day 5939] macro.jobs: unemployment 4.4%
+        <- [day 5909] cb.rate cb: policy rate 10.00% -> 9.25%
+  <- [day 5820] firm.layoffs frm_voltana: sales of electricity below plan: laying off staff
+    <- [day 5819] firm.price frm_voltana: electricity price +1.6% this month (unit cost 1.1%, 0 tight days)
+      <- [day 5789] firm.price frm_blackvein: coal price +1.8% this month (unit cost 1.8%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_saltmarsh_gas: natural gas price +1.8% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_titan_machine: industrial machinery price +2.6% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5789] firm.price frm_ruddy_metals: copper price +1.7% this month (unit cost 1.4%, 0 tight days)
+        <- [day 5789] firm.price frm_silicrest: semiconductors price +1.6% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+      <- [day 5789] macro.wage: wages 0.83% this month
+        <- [day 5789] macro.jobs: unemployment 5.1%
+        <- [day 5789] macro.cpi: CPI 1.35% on the month, 6.9% on the year
 
-[day 6059] loan.default p_5000: Elen Orhalard missed three payments on 3993
-  <- [day 5969] cb.rate cb: policy rate 7.75% -> 7.50%
-    <- [day 5969] macro.cpi: CPI 0.25% on the month, 3.8% on the year
-      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.6% this month (unit cost 0.4%, 30 tight days)
-        <- [day 5939] macro.demand: household spending 0.78M per day
-    <- [day 5969] macro.jobs: unemployment 4.0%
-      <- [day 5939] macro.demand: household spending 0.78M per day
-        <- [day 5939] macro.cpi: CPI 0.17% on the month, 4.0% on the year
-        <- [day 5939] macro.jobs: unemployment 4.0%
-        <- [day 5909] cb.rate cb: policy rate 9.00% -> 8.25%
+[day 6029] loan.default p_5000: Elen Orhalard missed three payments on 23032
+  <- [day 5969] cb.rate cb: policy rate 8.75% -> 8.50%
+    <- [day 5969] macro.cpi: CPI 0.29% on the month, 4.8% on the year
+      <- [day 5969] firm.price frm_forgeworks: steel price +2.9% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5940] firm.inputShort frm_forgeworks: could not buy enough iron ore; output cut
+        <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5939] macro.wage: wages 0.28% this month
+      <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5940] firm.stockout frm_redhill: sold out of iron ore; demand unmet
+      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.6%, 26 tight days)
+        <- [day 5939] macro.demand: household spending 0.80M per day
+    <- [day 5969] macro.jobs: unemployment 4.4%
+      <- [day 5939] macro.demand: household spending 0.80M per day
+        <- [day 5939] macro.cpi: CPI 0.18% on the month, 4.9% on the year
+        <- [day 5939] macro.jobs: unemployment 4.4%
+        <- [day 5909] cb.rate cb: policy rate 10.00% -> 9.25%
+  <- [day 5820] firm.layoffs frm_voltana: sales of electricity below plan: laying off staff
+    <- [day 5819] firm.price frm_voltana: electricity price +1.6% this month (unit cost 1.1%, 0 tight days)
+      <- [day 5789] firm.price frm_blackvein: coal price +1.8% this month (unit cost 1.8%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_saltmarsh_gas: natural gas price +1.8% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_titan_machine: industrial machinery price +2.6% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5789] firm.price frm_ruddy_metals: copper price +1.7% this month (unit cost 1.4%, 0 tight days)
+        <- [day 5789] firm.price frm_silicrest: semiconductors price +1.6% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+      <- [day 5789] macro.wage: wages 0.83% this month
+        <- [day 5789] macro.jobs: unemployment 5.1%
+        <- [day 5789] macro.cpi: CPI 1.35% on the month, 6.9% on the year
 
-[day 6059] loan.default p_5000: Elen Orhalard missed three payments on 7
-  <- [day 5969] cb.rate cb: policy rate 7.75% -> 7.50%
-    <- [day 5969] macro.cpi: CPI 0.25% on the month, 3.8% on the year
-      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.6% this month (unit cost 0.4%, 30 tight days)
-        <- [day 5939] macro.demand: household spending 0.78M per day
-    <- [day 5969] macro.jobs: unemployment 4.0%
-      <- [day 5939] macro.demand: household spending 0.78M per day
-        <- [day 5939] macro.cpi: CPI 0.17% on the month, 4.0% on the year
-        <- [day 5939] macro.jobs: unemployment 4.0%
-        <- [day 5909] cb.rate cb: policy rate 9.00% -> 8.25%
+[day 6029] loan.default p_5000: Elen Orhalard missed three payments on 129480
+  <- [day 5969] cb.rate cb: policy rate 8.75% -> 8.50%
+    <- [day 5969] macro.cpi: CPI 0.29% on the month, 4.8% on the year
+      <- [day 5969] firm.price frm_forgeworks: steel price +2.9% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5940] firm.inputShort frm_forgeworks: could not buy enough iron ore; output cut
+        <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5939] macro.wage: wages 0.28% this month
+      <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5940] firm.stockout frm_redhill: sold out of iron ore; demand unmet
+      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.6%, 26 tight days)
+        <- [day 5939] macro.demand: household spending 0.80M per day
+    <- [day 5969] macro.jobs: unemployment 4.4%
+      <- [day 5939] macro.demand: household spending 0.80M per day
+        <- [day 5939] macro.cpi: CPI 0.18% on the month, 4.9% on the year
+        <- [day 5939] macro.jobs: unemployment 4.4%
+        <- [day 5909] cb.rate cb: policy rate 10.00% -> 9.25%
+  <- [day 5820] firm.layoffs frm_voltana: sales of electricity below plan: laying off staff
+    <- [day 5819] firm.price frm_voltana: electricity price +1.6% this month (unit cost 1.1%, 0 tight days)
+      <- [day 5789] firm.price frm_blackvein: coal price +1.8% this month (unit cost 1.8%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_saltmarsh_gas: natural gas price +1.8% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_titan_machine: industrial machinery price +2.6% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5789] firm.price frm_ruddy_metals: copper price +1.7% this month (unit cost 1.4%, 0 tight days)
+        <- [day 5789] firm.price frm_silicrest: semiconductors price +1.6% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+      <- [day 5789] macro.wage: wages 0.83% this month
+        <- [day 5789] macro.jobs: unemployment 5.1%
+        <- [day 5789] macro.cpi: CPI 1.35% on the month, 6.9% on the year
 
-[day 6059] law.offence p_5000: Elen Orhalard left $254141 unpaid after a default
-  <- [day 6059] loan.default p_5000: Elen Orhalard missed three payments on 254141
-    <- [day 5969] cb.rate cb: policy rate 7.75% -> 7.50%
-      <- [day 5969] macro.cpi: CPI 0.25% on the month, 3.8% on the year
-        <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.6% this month (unit cost 0.4%, 30 tight days)
-      <- [day 5969] macro.jobs: unemployment 4.0%
-        <- [day 5939] macro.demand: household spending 0.78M per day
+[day 6029] loan.default p_5000: Elen Orhalard missed three payments on 34642
+  <- [day 5969] cb.rate cb: policy rate 8.75% -> 8.50%
+    <- [day 5969] macro.cpi: CPI 0.29% on the month, 4.8% on the year
+      <- [day 5969] firm.price frm_forgeworks: steel price +2.9% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5940] firm.inputShort frm_forgeworks: could not buy enough iron ore; output cut
+        <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5939] macro.wage: wages 0.28% this month
+      <- [day 5969] firm.price frm_redhill: iron ore price +1.9% this month (unit cost 0.4%, 30 tight days)
+        <- [day 5940] firm.stockout frm_redhill: sold out of iron ore; demand unmet
+      <- [day 5969] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.6%, 26 tight days)
+        <- [day 5939] macro.demand: household spending 0.80M per day
+    <- [day 5969] macro.jobs: unemployment 4.4%
+      <- [day 5939] macro.demand: household spending 0.80M per day
+        <- [day 5939] macro.cpi: CPI 0.18% on the month, 4.9% on the year
+        <- [day 5939] macro.jobs: unemployment 4.4%
+        <- [day 5909] cb.rate cb: policy rate 10.00% -> 9.25%
+  <- [day 5820] firm.layoffs frm_voltana: sales of electricity below plan: laying off staff
+    <- [day 5819] firm.price frm_voltana: electricity price +1.6% this month (unit cost 1.1%, 0 tight days)
+      <- [day 5789] firm.price frm_blackvein: coal price +1.8% this month (unit cost 1.8%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_saltmarsh_gas: natural gas price +1.8% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+        <- [day 5759] firm.price frm_titan_machine: industrial machinery price +2.4% this month (unit cost 0.6%, 27 tight days)
+        <- [day 5759] macro.wage: wages 0.91% this month
+      <- [day 5789] firm.price frm_titan_machine: industrial machinery price +2.6% this month (unit cost 0.9%, 30 tight days)
+        <- [day 5789] firm.price frm_ruddy_metals: copper price +1.7% this month (unit cost 1.4%, 0 tight days)
+        <- [day 5789] firm.price frm_silicrest: semiconductors price +1.6% this month (unit cost 1.6%, 0 tight days)
+        <- [day 5789] firm.price frm_northgrid: electricity price +10.8% this month (unit cost 9.8%, 25 tight days)
+        <- [day 5789] firm.price frm_voltana: electricity price +10.7% this month (unit cost 9.8%, 21 tight days)
+      <- [day 5789] macro.wage: wages 0.83% this month
+        <- [day 5789] macro.jobs: unemployment 5.1%
+        <- [day 5789] macro.cpi: CPI 1.35% on the month, 6.9% on the year
 ```
 
-- Day 7194: $16,213,239 → $16,459,494
+- Day 1800: $1,407,442 → $1,727,849
+
+```
+[day 1799] loan.default p_5000: Elen Orhalard missed three payments on 17095
+  <- [day 1769] cb.rate cb: policy rate 8.50% -> 8.25%
+    <- [day 1769] macro.cpi: CPI 0.08% on the month, 5.9% on the year
+      <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.7% this month (unit cost -0.7%, 0 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_forgeworks: steel price -2.3% this month (unit cost -1.1%, 4 tight days)
+        <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)  (see above)
+        <- [day 1649] macro.wage: wages 0.31% this month
+    <- [day 1769] macro.jobs: unemployment 6.0%
+      <- [day 1739] macro.demand: household spending 0.50M per day
+        <- [day 1739] macro.cpi: CPI 0.35% on the month, 6.3% on the year
+        <- [day 1739] macro.jobs: unemployment 8.6%
+        <- [day 1679] cb.rate cb: policy rate 9.75% -> 8.75%
+  <- [day 1708] firm.layoffs frm_cornerstone: sales of housing below plan: laying off staff
+    <- [day 1679] macro.demand: household spending 0.51M per day
+      <- [day 1679] macro.cpi: CPI 0.30% on the month, 7.0% on the year
+        <- [day 1679] firm.price frm_titan_machine: industrial machinery price -2.5% this month (unit cost -0.0%, 3 tight days)
+      <- [day 1679] macro.jobs: unemployment 10.2%
+        <- [day 1649] macro.demand: household spending 0.52M per day
+      <- [day 1619] cb.rate cb: policy rate 9.50% -> 9.75%
+        <- [day 1619] macro.cpi: CPI 0.40% on the month, 4.4% on the year
+        <- [day 1619] macro.jobs: unemployment 5.6%
+
+[day 1799] loan.default p_5000: Elen Orhalard missed three payments on 9943
+  <- [day 1769] cb.rate cb: policy rate 8.50% -> 8.25%
+    <- [day 1769] macro.cpi: CPI 0.08% on the month, 5.9% on the year
+      <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.7% this month (unit cost -0.7%, 0 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_forgeworks: steel price -2.3% this month (unit cost -1.1%, 4 tight days)
+        <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)  (see above)
+        <- [day 1649] macro.wage: wages 0.31% this month
+    <- [day 1769] macro.jobs: unemployment 6.0%
+      <- [day 1739] macro.demand: household spending 0.50M per day
+        <- [day 1739] macro.cpi: CPI 0.35% on the month, 6.3% on the year
+        <- [day 1739] macro.jobs: unemployment 8.6%
+        <- [day 1679] cb.rate cb: policy rate 9.75% -> 8.75%
+  <- [day 1708] firm.layoffs frm_cornerstone: sales of housing below plan: laying off staff
+    <- [day 1679] macro.demand: household spending 0.51M per day
+      <- [day 1679] macro.cpi: CPI 0.30% on the month, 7.0% on the year
+        <- [day 1679] firm.price frm_titan_machine: industrial machinery price -2.5% this month (unit cost -0.0%, 3 tight days)
+      <- [day 1679] macro.jobs: unemployment 10.2%
+        <- [day 1649] macro.demand: household spending 0.52M per day
+      <- [day 1619] cb.rate cb: policy rate 9.50% -> 9.75%
+        <- [day 1619] macro.cpi: CPI 0.40% on the month, 4.4% on the year
+        <- [day 1619] macro.jobs: unemployment 5.6%
+
+[day 1799] loan.default p_5000: Elen Orhalard missed three payments on 22350
+  <- [day 1769] cb.rate cb: policy rate 8.50% -> 8.25%
+    <- [day 1769] macro.cpi: CPI 0.08% on the month, 5.9% on the year
+      <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.7% this month (unit cost -0.7%, 0 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_forgeworks: steel price -2.3% this month (unit cost -1.1%, 4 tight days)
+        <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)  (see above)
+        <- [day 1649] macro.wage: wages 0.31% this month
+    <- [day 1769] macro.jobs: unemployment 6.0%
+      <- [day 1739] macro.demand: household spending 0.50M per day
+        <- [day 1739] macro.cpi: CPI 0.35% on the month, 6.3% on the year
+        <- [day 1739] macro.jobs: unemployment 8.6%
+        <- [day 1679] cb.rate cb: policy rate 9.75% -> 8.75%
+  <- [day 1708] firm.layoffs frm_cornerstone: sales of housing below plan: laying off staff
+    <- [day 1679] macro.demand: household spending 0.51M per day
+      <- [day 1679] macro.cpi: CPI 0.30% on the month, 7.0% on the year
+        <- [day 1679] firm.price frm_titan_machine: industrial machinery price -2.5% this month (unit cost -0.0%, 3 tight days)
+      <- [day 1679] macro.jobs: unemployment 10.2%
+        <- [day 1649] macro.demand: household spending 0.52M per day
+      <- [day 1619] cb.rate cb: policy rate 9.50% -> 9.75%
+        <- [day 1619] macro.cpi: CPI 0.40% on the month, 4.4% on the year
+        <- [day 1619] macro.jobs: unemployment 5.6%
+
+[day 1799] loan.default p_5000: Elen Orhalard missed three payments on 45842
+  <- [day 1769] cb.rate cb: policy rate 8.50% -> 8.25%
+    <- [day 1769] macro.cpi: CPI 0.08% on the month, 5.9% on the year
+      <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.7% this month (unit cost -0.7%, 0 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_forgeworks: steel price -2.3% this month (unit cost -1.1%, 4 tight days)
+        <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)  (see above)
+        <- [day 1649] macro.wage: wages 0.31% this month
+    <- [day 1769] macro.jobs: unemployment 6.0%
+      <- [day 1739] macro.demand: household spending 0.50M per day
+        <- [day 1739] macro.cpi: CPI 0.35% on the month, 6.3% on the year
+        <- [day 1739] macro.jobs: unemployment 8.6%
+        <- [day 1679] cb.rate cb: policy rate 9.75% -> 8.75%
+  <- [day 1708] firm.layoffs frm_cornerstone: sales of housing below plan: laying off staff
+    <- [day 1679] macro.demand: household spending 0.51M per day
+      <- [day 1679] macro.cpi: CPI 0.30% on the month, 7.0% on the year
+        <- [day 1679] firm.price frm_titan_machine: industrial machinery price -2.5% this month (unit cost -0.0%, 3 tight days)
+      <- [day 1679] macro.jobs: unemployment 10.2%
+        <- [day 1649] macro.demand: household spending 0.52M per day
+      <- [day 1619] cb.rate cb: policy rate 9.50% -> 9.75%
+        <- [day 1619] macro.cpi: CPI 0.40% on the month, 4.4% on the year
+        <- [day 1619] macro.jobs: unemployment 5.6%
+
+[day 1799] loan.default p_5000: Elen Orhalard missed three payments on 39503
+  <- [day 1769] cb.rate cb: policy rate 8.50% -> 8.25%
+    <- [day 1769] macro.cpi: CPI 0.08% on the month, 5.9% on the year
+      <- [day 1769] firm.price frm_titan_machine: industrial machinery price -4.7% this month (unit cost -0.7%, 0 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)
+        <- [day 1739] macro.demand: household spending 0.50M per day
+      <- [day 1769] firm.price frm_forgeworks: steel price -2.3% this month (unit cost -1.1%, 4 tight days)
+        <- [day 1769] firm.price frm_redhill: iron ore price -2.7% this month (unit cost 0.0%, 7 tight days)  (see above)
+        <- [day 1649] macro.wage: wages 0.31% this month
+    <- [day 1769] macro.jobs: unemployment 6.0%
+      <- [day 1739] macro.demand: household spending 0.50M per day
+        <- [day 1739] macro.cpi: CPI 0.35% on the month, 6.3% on the year
+        <- [day 1739] macro.jobs: unemployment 8.6%
+        <- [day 1679] cb.rate cb: policy rate 9.75% -> 8.75%
+  <- [day 1708] firm.layoffs frm_cornerstone: sales of housing below plan: laying off staff
+    <- [day 1679] macro.demand: household spending 0.51M per day
+      <- [day 1679] macro.cpi: CPI 0.30% on the month, 7.0% on the year
+        <- [day 1679] firm.price frm_titan_machine: industrial machinery price -2.5% this month (unit cost -0.0%, 3 tight days)
+      <- [day 1679] macro.jobs: unemployment 10.2%
+        <- [day 1649] macro.demand: household spending 0.52M per day
+      <- [day 1619] cb.rate cb: policy rate 9.50% -> 9.75%
+        <- [day 1619] macro.cpi: CPI 0.40% on the month, 4.4% on the year
+        <- [day 1619] macro.jobs: unemployment 5.6%
+```
+
+- Day 4620: $3,661,123 → $3,907,072
+
+```
+[day 4619] loan.default p_5000: Elen Orhalard missed three payments on 71453
+  <- [day 4589] cb.rate cb: policy rate 6.25% -> 6.00%
+    <- [day 4589] macro.cpi: CPI 0.05% on the month, 3.9% on the year
+      <- [day 4589] firm.price frm_salar: lithium price +1.9% this month (unit cost 0.1%, 29 tight days)
+        <- [day 4577] firm.stockout frm_salar: sold out of lithium; demand unmet
+      <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)
+        <- [day 4559] macro.demand: household spending 0.64M per day
+    <- [day 4589] macro.jobs: unemployment 6.3%
+      <- [day 4559] macro.demand: household spending 0.64M per day
+        <- [day 4559] macro.cpi: CPI 0.25% on the month, 3.9% on the year
+        <- [day 4559] macro.jobs: unemployment 8.6%
+        <- [day 4529] cb.rate cb: policy rate 7.50% -> 6.75%
+  <- [day 4619] firm.cashCrunch frm_titan_machine: no cash and no credit: paid 77% of wages and cut 17% of the staff
+    <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)  (see above)
+
+[day 4619] loan.default p_5000: Elen Orhalard missed three payments on 39036
+  <- [day 4589] cb.rate cb: policy rate 6.25% -> 6.00%
+    <- [day 4589] macro.cpi: CPI 0.05% on the month, 3.9% on the year
+      <- [day 4589] firm.price frm_salar: lithium price +1.9% this month (unit cost 0.1%, 29 tight days)
+        <- [day 4577] firm.stockout frm_salar: sold out of lithium; demand unmet
+      <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)
+        <- [day 4559] macro.demand: household spending 0.64M per day
+    <- [day 4589] macro.jobs: unemployment 6.3%
+      <- [day 4559] macro.demand: household spending 0.64M per day
+        <- [day 4559] macro.cpi: CPI 0.25% on the month, 3.9% on the year
+        <- [day 4559] macro.jobs: unemployment 8.6%
+        <- [day 4529] cb.rate cb: policy rate 7.50% -> 6.75%
+  <- [day 4619] firm.cashCrunch frm_titan_machine: no cash and no credit: paid 77% of wages and cut 17% of the staff
+    <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)  (see above)
+
+[day 4619] loan.default p_5000: Elen Orhalard missed three payments on 55
+  <- [day 4589] cb.rate cb: policy rate 6.25% -> 6.00%
+    <- [day 4589] macro.cpi: CPI 0.05% on the month, 3.9% on the year
+      <- [day 4589] firm.price frm_salar: lithium price +1.9% this month (unit cost 0.1%, 29 tight days)
+        <- [day 4577] firm.stockout frm_salar: sold out of lithium; demand unmet
+      <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)
+        <- [day 4559] macro.demand: household spending 0.64M per day
+    <- [day 4589] macro.jobs: unemployment 6.3%
+      <- [day 4559] macro.demand: household spending 0.64M per day
+        <- [day 4559] macro.cpi: CPI 0.25% on the month, 3.9% on the year
+        <- [day 4559] macro.jobs: unemployment 8.6%
+        <- [day 4529] cb.rate cb: policy rate 7.50% -> 6.75%
+  <- [day 4619] firm.cashCrunch frm_titan_machine: no cash and no credit: paid 77% of wages and cut 17% of the staff
+    <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)  (see above)
+
+[day 4619] loan.default p_5000: Elen Orhalard missed three payments on 8
+  <- [day 4589] cb.rate cb: policy rate 6.25% -> 6.00%
+    <- [day 4589] macro.cpi: CPI 0.05% on the month, 3.9% on the year
+      <- [day 4589] firm.price frm_salar: lithium price +1.9% this month (unit cost 0.1%, 29 tight days)
+        <- [day 4577] firm.stockout frm_salar: sold out of lithium; demand unmet
+      <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)
+        <- [day 4559] macro.demand: household spending 0.64M per day
+    <- [day 4589] macro.jobs: unemployment 6.3%
+      <- [day 4559] macro.demand: household spending 0.64M per day
+        <- [day 4559] macro.cpi: CPI 0.25% on the month, 3.9% on the year
+        <- [day 4559] macro.jobs: unemployment 8.6%
+        <- [day 4529] cb.rate cb: policy rate 7.50% -> 6.75%
+  <- [day 4619] firm.cashCrunch frm_titan_machine: no cash and no credit: paid 77% of wages and cut 17% of the staff
+    <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)  (see above)
+
+[day 4619] loan.default p_5000: Elen Orhalard missed three payments on 19875
+  <- [day 4589] cb.rate cb: policy rate 6.25% -> 6.00%
+    <- [day 4589] macro.cpi: CPI 0.05% on the month, 3.9% on the year
+      <- [day 4589] firm.price frm_salar: lithium price +1.9% this month (unit cost 0.1%, 29 tight days)
+        <- [day 4577] firm.stockout frm_salar: sold out of lithium; demand unmet
+      <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)
+        <- [day 4559] macro.demand: household spending 0.64M per day
+    <- [day 4589] macro.jobs: unemployment 6.3%
+      <- [day 4559] macro.demand: household spending 0.64M per day
+        <- [day 4559] macro.cpi: CPI 0.25% on the month, 3.9% on the year
+        <- [day 4559] macro.jobs: unemployment 8.6%
+        <- [day 4529] cb.rate cb: policy rate 7.50% -> 6.75%
+  <- [day 4619] firm.cashCrunch frm_titan_machine: no cash and no credit: paid 77% of wages and cut 17% of the staff
+    <- [day 4589] firm.price frm_titan_machine: industrial machinery price +1.8% this month (unit cost 0.1%, 20 tight days)  (see above)
+```
+
+- Day 7194: $13,719,759 → $13,921,317
 
 ```
 (no event that day names the player; the move is a mark)
 ```
 
-- Day 7164: $15,949,070 → $16,188,328
+- Day 7164: $13,532,389 → $13,728,642
 
 ```
 (no event that day names the player; the move is a mark)
 ```
 
-- Day 7134: $15,719,714 → $15,957,282
+- Day 7134: $13,350,524 → $13,544,979
 
 ```
 (no event that day names the player; the move is a mark)
 ```
 
-- Day 7104: $15,488,526 → $15,721,899
+### gambler seed 9 — 52.36x
 
-```
-(no event that day names the player; the move is a mark)
-```
-
-- Day 7074: $15,267,919 → $15,497,197
-
-```
-(no event that day names the player; the move is a mark)
-```
-
-### gambler seed 9 — 53.47x
-
-Start $150,000, end $8,020,923, 7200 days. Year-end worth: day 360 $926,999; day 720 $1,257,438; day 1080 $1,250,348; day 1440 $1,354,870; day 1800 $2,759,342; day 2160 $2,784,423; day 2520 $3,068,942; day 2880 $3,395,622; day 3240 $3,773,287; day 3600 $4,141,239; day 3960 $4,214,031; day 4320 $4,497,377; day 4680 $4,571,311; day 5040 $4,904,470; day 5400 $5,212,003; day 5760 $5,577,845; day 6120 $6,274,288; day 6480 $7,014,570; day 6840 $8,690,155; day 7200 $8,020,923.
+Start $150,000, end $7,854,541, 7200 days. Year-end worth: day 360 $926,999; day 720 $1,257,438; day 1080 $1,211,592; day 1440 $1,274,966; day 1800 $2,450,149; day 2160 $2,535,981; day 2520 $2,652,442; day 2880 $2,749,946; day 3240 $2,955,945; day 3600 $2,992,311; day 3960 $3,176,359; day 4320 $3,535,488; day 4680 $3,690,472; day 5040 $3,849,591; day 5400 $4,113,387; day 5760 $4,574,633; day 6120 $5,217,768; day 6480 $6,127,119; day 6840 $7,007,935; day 7200 $7,854,541.
 
 Biggest up-days:
 
@@ -916,379 +964,223 @@ Biggest up-days:
       <- [day 0] genesis: world created from seed '9'  (outside shock)
 ```
 
-- Day 6510: $7,108,228 → $7,357,242
+- Day 6240: $5,437,639 → $5,708,443
 
 ```
-[day 6509] loan.default p_5000: Nora Elorford missed three payments on 198466
-  <- [day 6479] cb.rate cb: policy rate 7.50% -> 8.00%
-    <- [day 6479] macro.cpi: CPI 0.71% on the month, 4.6% on the year
-      <- [day 6479] firm.price frm_titan_machine: industrial machinery price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 6449] macro.demand: household spending 0.81M per day
-      <- [day 6479] firm.price frm_civitas: public works price +1.6% this month (unit cost 0.4%, 17 tight days)
-        <- [day 6452] firm.stockout frm_civitas: sold out of public works; demand unmet
-    <- [day 6479] macro.jobs: unemployment 4.0%
-      <- [day 6449] macro.demand: household spending 0.81M per day
-        <- [day 6449] macro.cpi: CPI 0.37% on the month, 4.3% on the year
-        <- [day 6449] macro.jobs: unemployment 4.3%
-        <- [day 6419] cb.rate cb: policy rate 7.00% -> 7.25%
-  <- [day 5655] person.breakdown p_5000: Nora Elorford (45) stops working at Kestrel Builders for sixty days after wages unpaid at Kestrel Builders
-    <- [day 5655] person.thought p_5000: Nora Elorford (45) cannot shake it: wages unpaid at Kestrel Builders
-      <- [day 5655] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 94% of wages and cut 6% of the staff
-        <- [day 5639] macro.demand: household spending 0.74M per day
+[day 6239] loan.default p_5000: Nora Elorford missed three payments on 277174
+  <- [day 6209] cb.rate cb: policy rate 3.00% -> 2.75%
+    <- [day 6209] macro.cpi: CPI 0.06% on the month, 0.4% on the year
+      <- [day 6209] firm.price frm_civitas: public works price +2.0% this month (unit cost 0.2%, 30 tight days)
+        <- [day 6180] firm.stockout frm_civitas: sold out of public works; demand unmet
+      <- [day 6209] firm.price frm_titan_machine: industrial machinery price -1.8% this month (unit cost 0.1%, 3 tight days)
+        <- [day 6179] macro.demand: household spending 0.77M per day
+    <- [day 6209] macro.jobs: unemployment 8.2%
+      <- [day 6179] macro.demand: household spending 0.77M per day
+        <- [day 6179] macro.cpi: CPI 0.01% on the month, 1.0% on the year
+        <- [day 6179] macro.jobs: unemployment 5.3%
+        <- [day 6149] cb.rate cb: policy rate 3.25% -> 3.00%
 
-[day 6509] loan.default p_5000: Nora Elorford missed three payments on 52368
-  <- [day 6479] cb.rate cb: policy rate 7.50% -> 8.00%
-    <- [day 6479] macro.cpi: CPI 0.71% on the month, 4.6% on the year
-      <- [day 6479] firm.price frm_titan_machine: industrial machinery price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 6449] macro.demand: household spending 0.81M per day
-      <- [day 6479] firm.price frm_civitas: public works price +1.6% this month (unit cost 0.4%, 17 tight days)
-        <- [day 6452] firm.stockout frm_civitas: sold out of public works; demand unmet
-    <- [day 6479] macro.jobs: unemployment 4.0%
-      <- [day 6449] macro.demand: household spending 0.81M per day
-        <- [day 6449] macro.cpi: CPI 0.37% on the month, 4.3% on the year
-        <- [day 6449] macro.jobs: unemployment 4.3%
-        <- [day 6419] cb.rate cb: policy rate 7.00% -> 7.25%
-  <- [day 5655] person.breakdown p_5000: Nora Elorford (45) stops working at Kestrel Builders for sixty days after wages unpaid at Kestrel Builders
-    <- [day 5655] person.thought p_5000: Nora Elorford (45) cannot shake it: wages unpaid at Kestrel Builders
-      <- [day 5655] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 94% of wages and cut 6% of the staff
-        <- [day 5639] macro.demand: household spending 0.74M per day
-
-[day 6509] law.offence p_5000: Nora Elorford left $198466 unpaid after a default
-  <- [day 6509] loan.default p_5000: Nora Elorford missed three payments on 198466
-    <- [day 6479] cb.rate cb: policy rate 7.50% -> 8.00%
-      <- [day 6479] macro.cpi: CPI 0.71% on the month, 4.6% on the year
-        <- [day 6479] firm.price frm_titan_machine: industrial machinery price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 6479] firm.price frm_civitas: public works price +1.6% this month (unit cost 0.4%, 17 tight days)
-      <- [day 6479] macro.jobs: unemployment 4.0%
-        <- [day 6449] macro.demand: household spending 0.81M per day
-    <- [day 5655] person.breakdown p_5000: Nora Elorford (45) stops working at Kestrel Builders for sixty days after wages unpaid at Kestrel Builders
-      <- [day 5655] person.thought p_5000: Nora Elorford (45) cannot shake it: wages unpaid at Kestrel Builders
-        <- [day 5655] firm.cashCrunch frm_kestrel_build: no cash and no credit: paid 94% of wages and cut 6% of the staff
+[day 6239] law.offence p_5000: Nora Elorford left $277174 unpaid after a default
+  <- [day 6239] loan.default p_5000: Nora Elorford missed three payments on 277174
+    <- [day 6209] cb.rate cb: policy rate 3.00% -> 2.75%
+      <- [day 6209] macro.cpi: CPI 0.06% on the month, 0.4% on the year
+        <- [day 6209] firm.price frm_civitas: public works price +2.0% this month (unit cost 0.2%, 30 tight days)
+        <- [day 6209] firm.price frm_titan_machine: industrial machinery price -1.8% this month (unit cost 0.1%, 3 tight days)
+      <- [day 6209] macro.jobs: unemployment 8.2%
+        <- [day 6179] macro.demand: household spending 0.77M per day
 ```
 
-- Day 1620: $1,457,388 → $1,634,539
+- Day 6870: $7,077,817 → $7,327,721
 
 ```
-[day 1619] loan.default p_5000: Nora Elorford missed three payments on 21214
-  <- [day 1589] cb.rate cb: policy rate 11.25% -> 8.00%
-    <- [day 1589] macro.cpi: CPI -0.04% on the month, 7.6% on the year
-      <- [day 1589] firm.price frm_sawyer: lumber price -4.1% this month (unit cost -1.9%, 0 tight days)
-        <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_bedrock: cement price -3.9% this month (unit cost -1.2%, 0 tight days)
-        <- [day 1589] firm.price frm_greystone: sand and gravel price -2.7% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1559] macro.demand: household spending 0.43M per day
-    <- [day 1589] macro.jobs: unemployment 18.9%
-      <- [day 1559] macro.demand: household spending 0.43M per day
-        <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-        <- [day 1559] macro.jobs: unemployment 15.3%
-        <- [day 1529] cb.rate cb: policy rate 10.75% -> 11.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day
-      <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] firm.price frm_kestrel_build: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_cornerstone: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_urbana: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-      <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] macro.demand: household spending 0.48M per day
-      <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-        <- [day 1499] macro.cpi: CPI 1.11% on the month, 7.2% on the year
-        <- [day 1499] macro.jobs: unemployment 6.9%
+[day 6869] person.thought p_5000: Nora Elorford (49) cannot shake it: cannot cover the week
+  <- [day 6839] macro.demand: household spending 0.77M per day
+    <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year
+      <- [day 6809] macro.demand: household spending 0.79M per day
+        <- [day 6809] macro.cpi: CPI -0.11% on the month, 2.9% on the year
+        <- [day 6809] macro.jobs: unemployment 6.2%
+        <- [day 6779] cb.rate cb: policy rate 5.75% -> 5.25%
+    <- [day 6839] macro.jobs: unemployment 9.0%
+      <- [day 6809] macro.demand: household spending 0.79M per day  (see above)
+    <- [day 6809] cb.rate cb: policy rate 5.25% -> 5.00%
+      <- [day 6809] macro.cpi: CPI -0.11% on the month, 2.9% on the year
+        <- [day 6809] firm.price frm_irongate: steel price -2.7% this month (unit cost -0.8%, 0 tight days)
+        <- [day 6809] firm.price frm_redhill: iron ore price -2.6% this month (unit cost -0.1%, 0 tight days)
+        <- [day 6809] firm.price frm_forgeworks: steel price -2.0% this month (unit cost -0.8%, 2 tight days)
+      <- [day 6809] macro.jobs: unemployment 6.2%
+        <- [day 6779] macro.demand: household spending 0.79M per day
 
-[day 1619] loan.default p_5000: Nora Elorford missed three payments on 3485
-  <- [day 1589] cb.rate cb: policy rate 11.25% -> 8.00%
-    <- [day 1589] macro.cpi: CPI -0.04% on the month, 7.6% on the year
-      <- [day 1589] firm.price frm_sawyer: lumber price -4.1% this month (unit cost -1.9%, 0 tight days)
-        <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_bedrock: cement price -3.9% this month (unit cost -1.2%, 0 tight days)
-        <- [day 1589] firm.price frm_greystone: sand and gravel price -2.7% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1559] macro.demand: household spending 0.43M per day
-    <- [day 1589] macro.jobs: unemployment 18.9%
-      <- [day 1559] macro.demand: household spending 0.43M per day
-        <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-        <- [day 1559] macro.jobs: unemployment 15.3%
-        <- [day 1529] cb.rate cb: policy rate 10.75% -> 11.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day
-      <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] firm.price frm_kestrel_build: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_cornerstone: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_urbana: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-      <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] macro.demand: household spending 0.48M per day
-      <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-        <- [day 1499] macro.cpi: CPI 1.11% on the month, 7.2% on the year
-        <- [day 1499] macro.jobs: unemployment 6.9%
+[day 6869] person.breakdown p_5000: Nora Elorford (49) quits St Margaret Health after cannot cover the week
+  <- [day 6869] person.thought p_5000: Nora Elorford (49) cannot shake it: cannot cover the week
+    <- [day 6839] macro.demand: household spending 0.77M per day
+      <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year
+        <- [day 6809] macro.demand: household spending 0.79M per day
+      <- [day 6839] macro.jobs: unemployment 9.0%
+        <- [day 6809] macro.demand: household spending 0.79M per day
+      <- [day 6809] cb.rate cb: policy rate 5.25% -> 5.00%
+        <- [day 6809] macro.cpi: CPI -0.11% on the month, 2.9% on the year
+        <- [day 6809] macro.jobs: unemployment 6.2%
 
-[day 1619] loan.default p_5000: Nora Elorford missed three payments on 22696
-  <- [day 1589] cb.rate cb: policy rate 11.25% -> 8.00%
-    <- [day 1589] macro.cpi: CPI -0.04% on the month, 7.6% on the year
-      <- [day 1589] firm.price frm_sawyer: lumber price -4.1% this month (unit cost -1.9%, 0 tight days)
-        <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_bedrock: cement price -3.9% this month (unit cost -1.2%, 0 tight days)
-        <- [day 1589] firm.price frm_greystone: sand and gravel price -2.7% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1559] macro.demand: household spending 0.43M per day
-    <- [day 1589] macro.jobs: unemployment 18.9%
-      <- [day 1559] macro.demand: household spending 0.43M per day
-        <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-        <- [day 1559] macro.jobs: unemployment 15.3%
-        <- [day 1529] cb.rate cb: policy rate 10.75% -> 11.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day
-      <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] firm.price frm_kestrel_build: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_cornerstone: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_urbana: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-      <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] macro.demand: household spending 0.48M per day
-      <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-        <- [day 1499] macro.cpi: CPI 1.11% on the month, 7.2% on the year
-        <- [day 1499] macro.jobs: unemployment 6.9%
+[day 6869] loan.default p_5000: Nora Elorford missed three payments on 217760
+  <- [day 6839] cb.rate cb: policy rate 5.00% -> 4.50%
+    <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year
+      <- [day 6809] macro.demand: household spending 0.79M per day
+        <- [day 6809] macro.cpi: CPI -0.11% on the month, 2.9% on the year
+        <- [day 6809] macro.jobs: unemployment 6.2%
+        <- [day 6779] cb.rate cb: policy rate 5.75% -> 5.25%
+    <- [day 6839] macro.jobs: unemployment 9.0%
+      <- [day 6809] macro.demand: household spending 0.79M per day  (see above)
+  <- [day 6869] person.breakdown p_5000: Nora Elorford (49) quits St Margaret Health after cannot cover the week
+    <- [day 6869] person.thought p_5000: Nora Elorford (49) cannot shake it: cannot cover the week
+      <- [day 6839] macro.demand: household spending 0.77M per day
+        <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year  (see above)
+        <- [day 6839] macro.jobs: unemployment 9.0%  (see above)
+        <- [day 6809] cb.rate cb: policy rate 5.25% -> 5.00%
 
-[day 1619] loan.default p_5000: Nora Elorford missed three payments on 40613
-  <- [day 1589] cb.rate cb: policy rate 11.25% -> 8.00%
-    <- [day 1589] macro.cpi: CPI -0.04% on the month, 7.6% on the year
-      <- [day 1589] firm.price frm_sawyer: lumber price -4.1% this month (unit cost -1.9%, 0 tight days)
-        <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_bedrock: cement price -3.9% this month (unit cost -1.2%, 0 tight days)
-        <- [day 1589] firm.price frm_greystone: sand and gravel price -2.7% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1559] macro.demand: household spending 0.43M per day
-    <- [day 1589] macro.jobs: unemployment 18.9%
-      <- [day 1559] macro.demand: household spending 0.43M per day
-        <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-        <- [day 1559] macro.jobs: unemployment 15.3%
-        <- [day 1529] cb.rate cb: policy rate 10.75% -> 11.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day
-      <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] firm.price frm_kestrel_build: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_cornerstone: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_urbana: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-      <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] macro.demand: household spending 0.48M per day
-      <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-        <- [day 1499] macro.cpi: CPI 1.11% on the month, 7.2% on the year
-        <- [day 1499] macro.jobs: unemployment 6.9%
+[day 6869] loan.default p_5000: Nora Elorford missed three payments on 738
+  <- [day 6839] cb.rate cb: policy rate 5.00% -> 4.50%
+    <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year
+      <- [day 6809] macro.demand: household spending 0.79M per day
+        <- [day 6809] macro.cpi: CPI -0.11% on the month, 2.9% on the year
+        <- [day 6809] macro.jobs: unemployment 6.2%
+        <- [day 6779] cb.rate cb: policy rate 5.75% -> 5.25%
+    <- [day 6839] macro.jobs: unemployment 9.0%
+      <- [day 6809] macro.demand: household spending 0.79M per day  (see above)
+  <- [day 6869] person.breakdown p_5000: Nora Elorford (49) quits St Margaret Health after cannot cover the week
+    <- [day 6869] person.thought p_5000: Nora Elorford (49) cannot shake it: cannot cover the week
+      <- [day 6839] macro.demand: household spending 0.77M per day
+        <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year  (see above)
+        <- [day 6839] macro.jobs: unemployment 9.0%  (see above)
+        <- [day 6809] cb.rate cb: policy rate 5.25% -> 5.00%
 
-[day 1619] loan.default p_5000: Nora Elorford missed three payments on 9933
-  <- [day 1589] cb.rate cb: policy rate 11.25% -> 8.00%
-    <- [day 1589] macro.cpi: CPI -0.04% on the month, 7.6% on the year
-      <- [day 1589] firm.price frm_sawyer: lumber price -4.1% this month (unit cost -1.9%, 0 tight days)
-        <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_bedrock: cement price -3.9% this month (unit cost -1.2%, 0 tight days)
-        <- [day 1589] firm.price frm_greystone: sand and gravel price -2.7% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1589] firm.price frm_tallpine: timber price -3.2% this month (unit cost -0.1%, 0 tight days)
-        <- [day 1559] macro.demand: household spending 0.43M per day
-    <- [day 1589] macro.jobs: unemployment 18.9%
-      <- [day 1559] macro.demand: household spending 0.43M per day
-        <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-        <- [day 1559] macro.jobs: unemployment 15.3%
-        <- [day 1529] cb.rate cb: policy rate 10.75% -> 11.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day
-      <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] firm.price frm_kestrel_build: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_cornerstone: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-        <- [day 1529] firm.price frm_urbana: housing price +1.8% this month (unit cost 0.2%, 30 tight days)
-      <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] macro.demand: household spending 0.48M per day
-      <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-        <- [day 1499] macro.cpi: CPI 1.11% on the month, 7.2% on the year
-        <- [day 1499] macro.jobs: unemployment 6.9%
+[day 6869] loan.default p_5000: Nora Elorford missed three payments on 9
+  <- [day 6839] cb.rate cb: policy rate 5.00% -> 4.50%
+    <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year
+      <- [day 6809] macro.demand: household spending 0.79M per day
+        <- [day 6809] macro.cpi: CPI -0.11% on the month, 2.9% on the year
+        <- [day 6809] macro.jobs: unemployment 6.2%
+        <- [day 6779] cb.rate cb: policy rate 5.75% -> 5.25%
+    <- [day 6839] macro.jobs: unemployment 9.0%
+      <- [day 6809] macro.demand: household spending 0.79M per day  (see above)
+  <- [day 6869] person.breakdown p_5000: Nora Elorford (49) quits St Margaret Health after cannot cover the week
+    <- [day 6869] person.thought p_5000: Nora Elorford (49) cannot shake it: cannot cover the week
+      <- [day 6839] macro.demand: household spending 0.77M per day
+        <- [day 6839] macro.cpi: CPI 0.06% on the month, 2.3% on the year  (see above)
+        <- [day 6839] macro.jobs: unemployment 9.0%  (see above)
+        <- [day 6809] cb.rate cb: policy rate 5.25% -> 5.00%
 ```
 
-- Day 2430: $2,826,353 → $2,992,248
+- Day 1590: $1,201,777 → $1,334,416
 
 ```
-[day 2429] loan.default p_5000: Nora Elorford missed three payments on 152890
-  <- [day 2399] cb.rate cb: policy rate 8.75% -> 8.50%
-    <- [day 2399] macro.cpi: CPI 0.22% on the month, 4.3% on the year
-      <- [day 2369] macro.demand: household spending 0.56M per day
-        <- [day 2369] macro.cpi: CPI 0.28% on the month, 4.5% on the year
-        <- [day 2369] macro.jobs: unemployment 6.2%
-        <- [day 2099] cb.rate cb: policy rate 9.25% -> 9.00%
-    <- [day 2399] macro.jobs: unemployment 5.0%
-      <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-  <- [day 2383] firm.layoffs frm_titan_machine: sales of industrial machinery below plan: laying off staff
-    <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-
-[day 2429] loan.default p_5000: Nora Elorford missed three payments on 892
-  <- [day 2399] cb.rate cb: policy rate 8.75% -> 8.50%
-    <- [day 2399] macro.cpi: CPI 0.22% on the month, 4.3% on the year
-      <- [day 2369] macro.demand: household spending 0.56M per day
-        <- [day 2369] macro.cpi: CPI 0.28% on the month, 4.5% on the year
-        <- [day 2369] macro.jobs: unemployment 6.2%
-        <- [day 2099] cb.rate cb: policy rate 9.25% -> 9.00%
-    <- [day 2399] macro.jobs: unemployment 5.0%
-      <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-  <- [day 2383] firm.layoffs frm_titan_machine: sales of industrial machinery below plan: laying off staff
-    <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-
-[day 2429] loan.default p_5000: Nora Elorford missed three payments on 9433
-  <- [day 2399] cb.rate cb: policy rate 8.75% -> 8.50%
-    <- [day 2399] macro.cpi: CPI 0.22% on the month, 4.3% on the year
-      <- [day 2369] macro.demand: household spending 0.56M per day
-        <- [day 2369] macro.cpi: CPI 0.28% on the month, 4.5% on the year
-        <- [day 2369] macro.jobs: unemployment 6.2%
-        <- [day 2099] cb.rate cb: policy rate 9.25% -> 9.00%
-    <- [day 2399] macro.jobs: unemployment 5.0%
-      <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-  <- [day 2383] firm.layoffs frm_titan_machine: sales of industrial machinery below plan: laying off staff
-    <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-
-[day 2429] loan.default p_5000: Nora Elorford missed three payments on 77
-  <- [day 2399] cb.rate cb: policy rate 8.75% -> 8.50%
-    <- [day 2399] macro.cpi: CPI 0.22% on the month, 4.3% on the year
-      <- [day 2369] macro.demand: household spending 0.56M per day
-        <- [day 2369] macro.cpi: CPI 0.28% on the month, 4.5% on the year
-        <- [day 2369] macro.jobs: unemployment 6.2%
-        <- [day 2099] cb.rate cb: policy rate 9.25% -> 9.00%
-    <- [day 2399] macro.jobs: unemployment 5.0%
-      <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-  <- [day 2383] firm.layoffs frm_titan_machine: sales of industrial machinery below plan: laying off staff
-    <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-
-[day 2429] loan.default p_5000: Nora Elorford missed three payments on 2615
-  <- [day 2399] cb.rate cb: policy rate 8.75% -> 8.50%
-    <- [day 2399] macro.cpi: CPI 0.22% on the month, 4.3% on the year
-      <- [day 2369] macro.demand: household spending 0.56M per day
-        <- [day 2369] macro.cpi: CPI 0.28% on the month, 4.5% on the year
-        <- [day 2369] macro.jobs: unemployment 6.2%
-        <- [day 2099] cb.rate cb: policy rate 9.25% -> 9.00%
-    <- [day 2399] macro.jobs: unemployment 5.0%
-      <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-  <- [day 2383] firm.layoffs frm_titan_machine: sales of industrial machinery below plan: laying off staff
-    <- [day 2369] macro.demand: household spending 0.56M per day  (see above)
-```
-
-- Day 1590: $1,278,186 → $1,428,324
-
-```
-[day 1589] loan.default p_5000: Nora Elorford missed three payments on 71164
-  <- [day 1559] cb.rate cb: policy rate 11.75% -> 11.25%
-    <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-      <- [day 1559] firm.price frm_sawyer: lumber price -4.8% this month (unit cost -1.5%, 0 tight days)
-        <- [day 1559] firm.price frm_tallpine: timber price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_bedrock: cement price -4.3% this month (unit cost -0.9%, 0 tight days)
-        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.4%, 30 tight days)
+[day 1589] loan.default p_5000: Nora Elorford missed three payments on 76786
+  <- [day 1559] cb.rate cb: policy rate 10.25% -> 8.75%
+    <- [day 1559] macro.cpi: CPI 0.14% on the month, 6.7% on the year
+      <- [day 1559] firm.price frm_sawyer: lumber price -5.0% this month (unit cost -1.7%, 0 tight days)
+        <- [day 1559] firm.price frm_tallpine: timber price -3.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_bedrock: cement price -4.5% this month (unit cost -1.0%, 0 tight days)
+        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.1% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.3%, 30 tight days)
         <- [day 1530] firm.stockout frm_ruddy_metals: sold out of copper; demand unmet
         <- [day 1530] firm.inputShort frm_ruddy_metals: could not buy enough copper ore; output cut
-        <- [day 1559] firm.price frm_coppercliff: copper ore price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-    <- [day 1559] macro.jobs: unemployment 15.3%
+        <- [day 1559] firm.price frm_coppercliff: copper ore price +2.0% this month (unit cost 0.4%, 30 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+    <- [day 1559] macro.jobs: unemployment 13.6%
       <- [day 1529] macro.demand: household spending 0.44M per day
-        <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day  (see above)
+        <- [day 1529] macro.cpi: CPI 0.72% on the month, 5.9% on the year
+        <- [day 1529] macro.jobs: unemployment 9.0%
+        <- [day 1499] cb.rate cb: policy rate 9.00% -> 9.75%
 
-[day 1589] loan.default p_5000: Nora Elorford missed three payments on 4088
-  <- [day 1559] cb.rate cb: policy rate 11.75% -> 11.25%
-    <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-      <- [day 1559] firm.price frm_sawyer: lumber price -4.8% this month (unit cost -1.5%, 0 tight days)
-        <- [day 1559] firm.price frm_tallpine: timber price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_bedrock: cement price -4.3% this month (unit cost -0.9%, 0 tight days)
-        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.4%, 30 tight days)
+[day 1589] loan.default p_5000: Nora Elorford missed three payments on 4729
+  <- [day 1559] cb.rate cb: policy rate 10.25% -> 8.75%
+    <- [day 1559] macro.cpi: CPI 0.14% on the month, 6.7% on the year
+      <- [day 1559] firm.price frm_sawyer: lumber price -5.0% this month (unit cost -1.7%, 0 tight days)
+        <- [day 1559] firm.price frm_tallpine: timber price -3.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_bedrock: cement price -4.5% this month (unit cost -1.0%, 0 tight days)
+        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.1% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.3%, 30 tight days)
         <- [day 1530] firm.stockout frm_ruddy_metals: sold out of copper; demand unmet
         <- [day 1530] firm.inputShort frm_ruddy_metals: could not buy enough copper ore; output cut
-        <- [day 1559] firm.price frm_coppercliff: copper ore price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-    <- [day 1559] macro.jobs: unemployment 15.3%
+        <- [day 1559] firm.price frm_coppercliff: copper ore price +2.0% this month (unit cost 0.4%, 30 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+    <- [day 1559] macro.jobs: unemployment 13.6%
       <- [day 1529] macro.demand: household spending 0.44M per day
-        <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day  (see above)
+        <- [day 1529] macro.cpi: CPI 0.72% on the month, 5.9% on the year
+        <- [day 1529] macro.jobs: unemployment 9.0%
+        <- [day 1499] cb.rate cb: policy rate 9.00% -> 9.75%
 
-[day 1589] loan.default p_5000: Nora Elorford missed three payments on 65
-  <- [day 1559] cb.rate cb: policy rate 11.75% -> 11.25%
-    <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-      <- [day 1559] firm.price frm_sawyer: lumber price -4.8% this month (unit cost -1.5%, 0 tight days)
-        <- [day 1559] firm.price frm_tallpine: timber price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_bedrock: cement price -4.3% this month (unit cost -0.9%, 0 tight days)
-        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.4%, 30 tight days)
+[day 1589] loan.default p_5000: Nora Elorford missed three payments on 70
+  <- [day 1559] cb.rate cb: policy rate 10.25% -> 8.75%
+    <- [day 1559] macro.cpi: CPI 0.14% on the month, 6.7% on the year
+      <- [day 1559] firm.price frm_sawyer: lumber price -5.0% this month (unit cost -1.7%, 0 tight days)
+        <- [day 1559] firm.price frm_tallpine: timber price -3.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_bedrock: cement price -4.5% this month (unit cost -1.0%, 0 tight days)
+        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.1% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.3%, 30 tight days)
         <- [day 1530] firm.stockout frm_ruddy_metals: sold out of copper; demand unmet
         <- [day 1530] firm.inputShort frm_ruddy_metals: could not buy enough copper ore; output cut
-        <- [day 1559] firm.price frm_coppercliff: copper ore price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-    <- [day 1559] macro.jobs: unemployment 15.3%
+        <- [day 1559] firm.price frm_coppercliff: copper ore price +2.0% this month (unit cost 0.4%, 30 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+    <- [day 1559] macro.jobs: unemployment 13.6%
       <- [day 1529] macro.demand: household spending 0.44M per day
-        <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day  (see above)
+        <- [day 1529] macro.cpi: CPI 0.72% on the month, 5.9% on the year
+        <- [day 1529] macro.jobs: unemployment 9.0%
+        <- [day 1499] cb.rate cb: policy rate 9.00% -> 9.75%
 
-[day 1589] loan.default p_5000: Nora Elorford missed three payments on 28785
-  <- [day 1559] cb.rate cb: policy rate 11.75% -> 11.25%
-    <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-      <- [day 1559] firm.price frm_sawyer: lumber price -4.8% this month (unit cost -1.5%, 0 tight days)
-        <- [day 1559] firm.price frm_tallpine: timber price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_bedrock: cement price -4.3% this month (unit cost -0.9%, 0 tight days)
-        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.4%, 30 tight days)
+[day 1589] loan.default p_5000: Nora Elorford missed three payments on 25951
+  <- [day 1559] cb.rate cb: policy rate 10.25% -> 8.75%
+    <- [day 1559] macro.cpi: CPI 0.14% on the month, 6.7% on the year
+      <- [day 1559] firm.price frm_sawyer: lumber price -5.0% this month (unit cost -1.7%, 0 tight days)
+        <- [day 1559] firm.price frm_tallpine: timber price -3.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_bedrock: cement price -4.5% this month (unit cost -1.0%, 0 tight days)
+        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.1% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.3%, 30 tight days)
         <- [day 1530] firm.stockout frm_ruddy_metals: sold out of copper; demand unmet
         <- [day 1530] firm.inputShort frm_ruddy_metals: could not buy enough copper ore; output cut
-        <- [day 1559] firm.price frm_coppercliff: copper ore price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-    <- [day 1559] macro.jobs: unemployment 15.3%
+        <- [day 1559] firm.price frm_coppercliff: copper ore price +2.0% this month (unit cost 0.4%, 30 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+    <- [day 1559] macro.jobs: unemployment 13.6%
       <- [day 1529] macro.demand: household spending 0.44M per day
-        <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day  (see above)
+        <- [day 1529] macro.cpi: CPI 0.72% on the month, 5.9% on the year
+        <- [day 1529] macro.jobs: unemployment 9.0%
+        <- [day 1499] cb.rate cb: policy rate 9.00% -> 9.75%
 
-[day 1589] loan.default p_5000: Nora Elorford missed three payments on 735
-  <- [day 1559] cb.rate cb: policy rate 11.75% -> 11.25%
-    <- [day 1559] macro.cpi: CPI 0.33% on the month, 8.2% on the year
-      <- [day 1559] firm.price frm_sawyer: lumber price -4.8% this month (unit cost -1.5%, 0 tight days)
-        <- [day 1559] firm.price frm_tallpine: timber price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_bedrock: cement price -4.3% this month (unit cost -0.9%, 0 tight days)
-        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.0% this month (unit cost 0.5%, 0 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.4%, 30 tight days)
+[day 1589] loan.default p_5000: Nora Elorford missed three payments on 5299
+  <- [day 1559] cb.rate cb: policy rate 10.25% -> 8.75%
+    <- [day 1559] macro.cpi: CPI 0.14% on the month, 6.7% on the year
+      <- [day 1559] firm.price frm_sawyer: lumber price -5.0% this month (unit cost -1.7%, 0 tight days)
+        <- [day 1559] firm.price frm_tallpine: timber price -3.2% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_bedrock: cement price -4.5% this month (unit cost -1.0%, 0 tight days)
+        <- [day 1559] firm.price frm_greystone: sand and gravel price -3.1% this month (unit cost 0.4%, 0 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+      <- [day 1559] firm.price frm_ruddy_metals: copper price +3.2% this month (unit cost 1.3%, 30 tight days)
         <- [day 1530] firm.stockout frm_ruddy_metals: sold out of copper; demand unmet
         <- [day 1530] firm.inputShort frm_ruddy_metals: could not buy enough copper ore; output cut
-        <- [day 1559] firm.price frm_coppercliff: copper ore price +1.9% this month (unit cost 0.5%, 30 tight days)
-        <- [day 1529] macro.wage: wages 0.48% this month
-    <- [day 1559] macro.jobs: unemployment 15.3%
+        <- [day 1559] firm.price frm_coppercliff: copper ore price +2.0% this month (unit cost 0.4%, 30 tight days)
+        <- [day 1529] macro.wage: wages 0.36% this month
+    <- [day 1559] macro.jobs: unemployment 13.6%
       <- [day 1529] macro.demand: household spending 0.44M per day
-        <- [day 1529] macro.cpi: CPI 0.97% on the month, 7.3% on the year
-        <- [day 1529] macro.jobs: unemployment 9.3%
-        <- [day 1499] cb.rate cb: policy rate 9.50% -> 10.75%
-  <- [day 1544] firm.layoffs frm_quanta: sales of semiconductors below plan: laying off staff
-    <- [day 1529] macro.demand: household spending 0.44M per day  (see above)
+        <- [day 1529] macro.cpi: CPI 0.72% on the month, 5.9% on the year
+        <- [day 1529] macro.jobs: unemployment 9.0%
+        <- [day 1499] cb.rate cb: policy rate 9.00% -> 9.75%
 ```
 
-- Day 6991: $7,938,253 → $8,055,358
+- Day 6991: $7,283,999 → $7,390,258
+
+```
+(no event that day names the player; the move is a mark)
+```
+
+- Day 6902: $7,482,223 → $7,583,486
 
 ```
 (no event that day names the player; the move is a mark)
@@ -1947,6 +1839,4 @@ None. Every strategy had the commands it needed.
 
 ## Cost
 
-Wall clock 6509s on 4 cores. Sum of run times 25931s across 220 runs. No paid model API.
-
-Earlier run, before hospitals and the capitalisation-weighted index: wall clock 18198s on 4 cores. Sum of run times 72747s across 220 runs. No paid model API.
+Wall clock 12012s on 4 cores. Sum of run times 47999s across 220 runs. No paid model API.
