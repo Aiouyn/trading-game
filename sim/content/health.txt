@@ -1,0 +1,42 @@
+Health. A person's health moves with age, income, how dangerous the job is, habits and stress,
+and the condition of the home they live in. Care is paid to a hospital by an insurer, the person,
+or the government. What is still unpaid is a debt. A disease can come in through the harbour and
+spread at work and through the people someone knows.
+
+[OBJECT:DISEASE]
+
+[DISEASE:DOCK_FEVER]
+  [NAME:dock fever]
+  [CHANCE:0.16]
+  [SPREAD:0.34]
+  [DAYS:42]
+  [SICK:4]
+  [HARM:8]
+  [KILL:0.018]
+  [PORT]
+
+[DISEASE:WINTER_FLU]
+  [NAME:winter flu]
+  [CHANCE:0.28]
+  [SPREAD:0.22]
+  [DAYS:30]
+  [SICK:3]
+  [HARM:4]
+  [KILL:0.006]
+
+[OBJECT:DANGER]
+
+[DANGER:JOBS]
+  [SECTOR:MINING:3]
+  [SECTOR:CONSTRUCTION:3]
+  [SECTOR:ENERGY:2]
+  [SECTOR:METALS:2]
+  [SECTOR:CHEMICALS:2]
+  [SECTOR:AGRICULTURE:2]
+  [SECTOR:MANUFACTURING:1]
+  [SECTOR:TRANSPORT:1]
+  [SECTOR:HEALTHCARE:1]
+  [SECTOR:RETAIL:0]
+  [SECTOR:TECHNOLOGY:0]
+  [SECTOR:FINANCE:0]
+  [SECTOR:MEDIA:0]

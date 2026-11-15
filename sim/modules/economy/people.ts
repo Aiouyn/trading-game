@@ -38,6 +38,7 @@ const FIELDS: [string, any][] = [
   ['anxDone', Uint8Array], ['wealthMark', Float64Array], ['incMark', Float64Array],
   ['school', Uint8Array], ['occ', Uint8Array], ['occYrs', Uint8Array], ['poor', Uint8Array], ['migrant', Uint8Array],
   ['apt', Float64Array],
+  ['ill', Uint8Array], ['cover', Uint8Array], ['bill', Uint16Array],
 ];
 
 /** All people, one typed array per attribute. Grows by doubling. Person i's ledger id is `p_${i}`. */
@@ -57,6 +58,7 @@ export class People {
   anxDone!: Uint8Array; wealthMark!: Float64Array; incMark!: Float64Array;
   school!: Uint8Array; occ!: Uint8Array; occYrs!: Uint8Array; poor!: Uint8Array; migrant!: Uint8Array;
   apt!: Float64Array;
+  ill!: Uint8Array; cover!: Uint8Array; bill!: Uint16Array;
   families: string[] = [];
 
   constructor(capacity: number) {
@@ -90,6 +92,7 @@ export class People {
     this.brokeStep[i] = 0; this.stressRun[i] = 0; this.mem[i] = 0; this.memN[i] = 0; this.anxDone[i] = 0;
     this.wealthMark[i] = 0; this.incMark[i] = 0;
     this.school[i] = 0; this.occ[i] = 0; this.occYrs[i] = 0; this.poor[i] = 0; this.migrant[i] = 0; this.apt[i] = 0;
+    this.ill[i] = 0; this.cover[i] = 0; this.bill[i] = 0;
     this.slot[i] = w.ledger.addActor('p_' + i, 'person');
     if (mother >= 0) this.linkChild(mother, father, i);
     seekRefresh(this, i);
@@ -120,6 +123,11 @@ export class People {
 export type ThoughtHook = (w: World, s: EconState, i: number, raw: number, what: string, cause: number) => void;
 let thoughtHook: ThoughtHook | undefined;
 export function setThoughtHook(fn: ThoughtHook): void { thoughtHook = fn; }
+
+/** Health replaces the flat age curve. Absent, yearly deaths stay on the old formula. */
+export type DeathChance = (w: World, i: number, age: number) => number;
+let deathChance: DeathChance | undefined;
+export function setDeathChance(fn: DeathChance): void { deathChance = fn; }
 
 let simDay = 0;
 
@@ -406,16 +414,19 @@ export function succession(w: World, s: EconState, f: Firm, old: number, why: st
   if (wasCeoThere && from) succession(w, s, from, pick, `left to run ${f.name}`, f.ceoEv); // the vacated seat is refilled too
 }
 
-function die(w: World, s: EconState, i: number, yearEv: number): void {
+function die(w: World, s: EconState, i: number, yearEv: number, cause?: number): void {
   const L = w.ledger, P = s.P, me = P.slot[i];
   const sp = P.spouse[i];
   const heirs = sp >= 0 && P.alive(sp) ? [sp] : P.kids(i).filter((k) => P.alive(k));
   const holdings = s.shareIds.filter((id) => L.balS(me, id) > 0);
   const cashNow = L.balS(me, DEP);
   const notable = holdings.length > 0 || (P.employer[i] >= 0 && s.firms[P.employer[i]].ceo === i);
-  const ev = notable
-    ? w.events.exo('person.died', `${P.name(i)} died aged ${P.age(w, i)}${heirs.length ? `; estate of ${(cashNow / 100).toFixed(0)} and ${holdings.length} shareholdings passes to ${heirs.map((h) => P.name(h)).join(', ')}` : '; no heirs, the estate goes to the state'}`, P.id(i))
-    : yearEv;
+  const tail = heirs.length ? `; estate of ${(cashNow / 100).toFixed(0)} and ${holdings.length} shareholdings passes to ${heirs.map((h) => P.name(h)).join(', ')}` : '; no heirs, the estate goes to the state';
+  const ev = cause !== undefined
+    ? w.events.emit('person.died', `${P.name(i)} died aged ${P.age(w, i)}${tail}`, [cause], P.id(i))
+    : notable
+      ? w.events.exo('person.died', `${P.name(i)} died aged ${P.age(w, i)}${tail}`, P.id(i))
+      : yearEv;
   P.flags[i] &= ~ALIVE;
   if (!heirs.length) {
     L.moveS(DEP, me, s.govSlot, cashNow, 'estate.escheat', ev);
@@ -433,6 +444,12 @@ function die(w: World, s: EconState, i: number, yearEv: number): void {
   if (f && wasCeo) succession(w, s, f, i, 'died', ev);
 }
 
+/** A death outside the yearly pass (an epidemic, an injury) still settles the estate, the job and the firm. */
+export function diePerson(w: World, s: EconState, i: number, cause: number): void {
+  if (!s.P.alive(i)) return;
+  die(w, s, i, cause, cause);
+}
+
 /** Once a year: deaths, retirements, pairings, births. */
 export function yearlyLifePass(w: World, s: EconState): void {
   const r = w.rng('life:events'), P = s.P, L = w.ledger;
@@ -443,8 +460,8 @@ export function yearlyLifePass(w: World, s: EconState): void {
   for (let i = 0; i < n0; i++) {
     if (!P.alive(i)) continue;
     const a = P.age(w, i);
-    let pDeath = Math.min(0.9, 0.0004 * Math.exp(Math.max(0, a - 30) / 9.5));
-    if (P.health[i] < 30) pDeath = Math.min(0.9, pDeath + 0.02);
+    let pDeath = deathChance ? deathChance(w, i, a) : Math.min(0.9, 0.0004 * Math.exp(Math.max(0, a - 30) / 9.5));
+    if (!deathChance && P.health[i] < 30) pDeath = Math.min(0.9, pDeath + 0.02);
     if (r.chance(pDeath)) { die(w, s, i, yearEv); deaths++; continue; }
     if (a >= RETIRE_AGE && !P.retired(i)) {
       const e = P.employer[i], f = e >= 0 ? s.firms[e] : undefined, wasCeo = f?.ceo === i;

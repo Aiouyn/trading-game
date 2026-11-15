@@ -17,6 +17,7 @@ import { energy } from './modules/energy/index.ts';
 import { social } from './modules/social/index.ts';
 import { media } from './modules/media/index.ts';
 import { psyche } from './modules/psyche/index.ts';
+import { health } from './modules/health/index.ts';
 import { careers } from './modules/careers/index.ts';
 import { labour } from './modules/labour/index.ts';
 import { crypto } from './modules/crypto/index.ts';
@@ -48,6 +49,7 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has(social.id)) w.use(social);
   if (!without.has('media')) w.use(media);
   for (const m of [psyche]) if (!without.has(m.id)) w.use(m);
+  if (!without.has('health')) w.use(health);
   if (!without.has('careers')) w.use(careers);
   if (!without.has('labour')) w.use(labour);
   for (const m of [crypto]) if (!without.has(m.id)) w.use(m);
