@@ -428,6 +428,7 @@ async function runSession(opts: {
   const child = spawn('python3', ['-u', bridge, process.execPath, play, '--load', dir, '--save', dir], {
     cwd: root,
     stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
   });
   let errText = '';
   child.stderr?.setEncoding('utf8');
