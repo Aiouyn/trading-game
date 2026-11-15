@@ -1,6 +1,6 @@
 // The player is one person in the same arrays as everyone else. They see only what they
 // know, and every order, loan and futures fill goes through the modules that already book it.
-import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
+import { DAYS_PER_YEAR, openingDay, type Module, type World } from '../../kernel/index.ts';
 import { borrowMargin, depositSight, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
@@ -1281,7 +1281,7 @@ export function view(w: World): PlayerView {
     }
   }
   return {
-    date: { year: Math.floor(abs / DAYS_PER_YEAR) + 1, month: Math.floor(doy / 30) + 1, day: (doy % 30) + 1, abs },
+    date: { year: Math.floor((abs - openingDay(w)) / DAYS_PER_YEAR) + 1, month: Math.floor(doy / 30) + 1, day: (doy % 30) + 1, abs },
     name: i >= 0 ? P.name(i) : '',
     age: i >= 0 ? P.age(w, i) : 0,
     alive: i >= 0 && P.alive(i),

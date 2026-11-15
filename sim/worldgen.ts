@@ -27,7 +27,7 @@ if (tail) {
   console.log(`checkpoint ${head} years saved in ${Date.now() - tSave} ms, hash ${saved}`);
   simulate(w, tail, checkEvery, true);
   const h1 = w.ledger.hash();
-  const w2 = openWorld(snapshotSeed(tmp), without);
+  const w2 = openWorld(snapshotSeed(tmp), without, false);
   applySnapshot(w2, tmp);
   const loaded = w2.ledger.hash();
   if (w2.day !== day || w2.events.count !== ev || loaded !== saved) {

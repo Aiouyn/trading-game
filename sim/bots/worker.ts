@@ -83,6 +83,7 @@ export function runJob(job: Job): RunResult {
   if (!mod) return blank(job.bot, job.seed, job.years, `unknown bot ${job.bot}`);
   const t0 = Date.now();
   const w = openWorld(String(job.seed), new Set());
+  const startIndex = indexRel(w);
   const threw: string[] = [];
   const books: string[] = [];
   const jumps: Jump[] = [];
@@ -92,7 +93,8 @@ export function runJob(job: Job): RunResult {
   const start = v0.netWorth;
   let prev = start;
   let name = v0.name;
-  const horizon = Math.max(1, job.years) * DAYS_PER_YEAR;
+  const startDay = w.day;
+  const horizon = startDay + Math.max(1, job.years) * DAYS_PER_YEAR;
   const open = w.ledger.check();
   if (open.length) books.push(...open.slice(0, 8));
   while (w.day < horizon && !books.length) {
@@ -142,7 +144,7 @@ export function runJob(job: Job): RunResult {
       keep(jumps, { day: w.day, from: prev, to: worth, trace: traceDay(w, c0, w.events.count, actor, name) });
     }
     prev = worth;
-    if (w.day % DAYS_PER_YEAR === 0) path.push({ day: w.day, worth });
+    if ((w.day - startDay) % DAYS_PER_YEAR === 0) path.push({ day: w.day - startDay, worth });
     if (w.day % 30 === 0 || w.day === horizon) {
       const bad = w.ledger.check();
       if (bad.length) books.push(...bad.slice(0, 8));
@@ -160,15 +162,15 @@ export function runJob(job: Job): RunResult {
   }
   const dead = end.over || !end.alive;
   const rel = start > 0 ? end.netWorth / start : 0;
-  if (path.length === 0 || path[path.length - 1].day !== w.day) path.push({ day: w.day, worth: end.netWorth });
+  if (path.length === 0 || path[path.length - 1].day !== w.day - startDay) path.push({ day: w.day - startDay, worth: end.netWorth });
   return {
     bot: mod.name,
     seed: job.seed,
     start,
     end: end.netWorth,
     rel,
-    indexRel: indexRel(w),
-    days: w.day,
+    indexRel: startIndex > 0 ? indexRel(w) / startIndex : 1,
+    days: w.day - startDay,
     years: job.years,
     bankrupt: !dead && end.netWorth <= 0,
     dead,

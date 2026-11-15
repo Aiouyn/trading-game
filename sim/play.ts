@@ -357,7 +357,7 @@ function printResult(res: ReturnType<typeof act>): void {
 
 async function main(): Promise<void> {
   const load = arg('load', ''), seed = arg('seed', '1'), script = arg('script', ''), save = arg('save', '');
-  const w: World = openWorld(load ? snapshotSeed(load) : seed, new Set());
+  const w: World = openWorld(load ? snapshotSeed(load) : seed, new Set(), !load);
   if (load) applySnapshot(w, load);
   ensurePlayer(w);
   const open = w.ledger.check();
