@@ -5,9 +5,12 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
 import type { World } from './kernel/index.ts';
 import { openWorld } from './run.ts';
-import { applySnapshot, snapshotSeed } from './modules/history/save.ts';
+import { applySnapshot, snapshotSeed, writeSnapshot } from './modules/history/save.ts';
+import { parseCode } from './modules/history/commands.ts';
+import { lifeBoard } from './modules/player/life.ts';
 import { knows, regardOf } from './modules/social/index.ts';
 import { innerOf } from './modules/psyche/index.ts';
 import { companyPosts } from './modules/corporate/index.ts';
@@ -43,6 +46,7 @@ const arg = (k: string, d: string): string => {
   return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : d;
 };
 const UI = fileURLToPath(new URL('../ui/', import.meta.url));
+const SAVES = path.join(fileURLToPath(new URL('..', import.meta.url)), 'worlds', 'saves');
 const DEG = 16;
 const B_FRIEND = 3;
 const MIME: Record<string, string> = {
@@ -627,7 +631,20 @@ function moodWord(n: number): string {
   return 'high';
 }
 
-function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; px: number; prev: number; chg: number; vol: number; eventId: number }[] {
+function sparkOf(st: Stock): number[] {
+  const h = st.hist;
+  const start = Math.max(0, h.length - 28);
+  const out: number[] = [];
+  for (let i = start; i < h.length; i++) out.push(h[i].c);
+  if (!out.length) {
+    out.push(st.prev > 0 ? st.prev : st.last);
+    if (st.last !== out[0]) out.push(st.last);
+  } else if (st.last !== out[out.length - 1]) out.push(st.last);
+  if (out.length > 28) out.splice(0, out.length - 28);
+  return out;
+}
+
+function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; px: number; prev: number; chg: number; vol: number; eventId: number; spark: number[] }[] {
   const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
   return stocksOf(w).map((st) => {
     const ses = session(st);
@@ -640,6 +657,7 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
       prev: ses.prev,
       chg: ses.prev > 0 ? ses.px / ses.prev - 1 : 0,
       vol: ses.vol,
+      spark: sparkOf(st),
       eventId: (() => {
         const f = econ(w).firms.find((x) => x.id === st.issuer);
         if (st.issuer === 'bank_1') return st.moveEv ?? econ(w).rateWho ?? econ(w).cpiWho ?? root;
@@ -1030,6 +1048,328 @@ function playerBook(w: World): { shares: { instr: string; qty: number; px: numbe
   return { shares, orders };
 }
 
+interface FeedLine { eventId: number; day: number; tag: string; text: string }
+interface PauseHit { why: string; eventId: number }
+interface SaveMeta {
+  id: string; label: string; scenario: string; scenarioId: string;
+  player: string; day: number; date: string; netWorth: number; savedAt: number;
+}
+interface GenJob { id: string; cash?: number; difficulty?: number; seed?: string; beat?: number }
+
+const feed: FeedLine[] = [];
+const pausedIds = new Set<number>();
+let feedSeen = -1;
+let pauseNote: PauseHit | null = null;
+let sawOutcome = '';
+let sawShock = false;
+let lastSavedMonth = -1;
+let challengeBeat = 0;
+let generating = false;
+
+function dateLabel(day: number): string {
+  const doy = ((day % 360) + 360) % 360;
+  return `Y${Math.floor(day / 360) + 1} M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
+}
+
+function scenarioCard(w: World): Record<string, unknown> | null {
+  const live = liveCard(w);
+  if (!live) return null;
+  const sc = w.state.scenario as { deadline?: number; limit?: number } | undefined;
+  const left = sc?.deadline && sc.deadline > 0 ? Math.max(0, sc.deadline - w.day) : -1;
+  let timeLeft = 'open-ended';
+  if (left >= 0) {
+    if (left >= 360 && left % 360 === 0) timeLeft = `${left / 360} years left`;
+    else if (left >= 30 && left % 30 === 0) timeLeft = `${left / 30} months left`;
+    else if (left === 1) timeLeft = '1 day left';
+    else timeLeft = `${left} days left`;
+  }
+  return { ...live, daysLeft: left, timeLeft, beat: challengeBeat };
+}
+
+function feedCtx(w: World): { id: string; family: Set<string>; firms: { id: string; name: string }[] } {
+  const i = playerIndex(w);
+  const P = econ(w).P;
+  const id = i >= 0 ? P.id(i) : '';
+  const family = new Set<string>();
+  for (const h of houseIds(w)) if (h.role !== 'you' && h.index >= 0) family.add(P.id(h.index));
+  return { id, family, firms: i >= 0 ? playerFirms(w, i) : [] };
+}
+
+function mentionsFirm(msg: string, actor: string | undefined, firms: { id: string; name: string }[]): boolean {
+  if (actor && firms.some((f) => f.id === actor)) return true;
+  return firms.some((f) => f.name.length > 0 && msg.includes(f.name));
+}
+
+function classify(e: { id: number; day: number; kind: string; actor?: string; msg: string }, ctx: ReturnType<typeof feedCtx>, news: number): FeedLine | null {
+  const you = !!ctx.id && e.actor === ctx.id;
+  let tag = '';
+  if (you && (e.kind.startsWith('player.') || e.kind === 'loan.grant' || e.kind === 'loan.margin' || e.kind === 'loan.default' || e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind.startsWith('law.') || e.kind === 'person.breakdown' || e.kind === 'health.injury' || e.kind === 'health.debt' || e.kind === 'person.died')) tag = 'you';
+  else if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) tag = 'family';
+  else if ((e.kind === 'health.injury' || e.kind === 'health.debt') && e.actor && ctx.family.has(e.actor)) tag = 'family';
+  else if ((e.kind === 'firm.bid' || e.kind === 'firm.takeover' || e.kind === 'firm.layoffs' || e.kind === 'firm.failed' || e.kind === 'firm.ceoFired' || e.kind === 'labour.strike' || e.kind === 'labour.lockout') && mentionsFirm(e.msg, e.actor, ctx.firms)) tag = 'firm';
+  else if (e.kind.startsWith('shock.')) tag = 'city';
+  else if ((e.kind === 'news.story' || e.kind === 'media.story') && (news < 3 || (ctx.id && e.msg.includes(ctx.id)))) tag = 'wire';
+  if (!tag) return null;
+  const text = e.msg.length > 280 ? e.msg.slice(0, 277) + '…' : e.msg;
+  return { eventId: e.id, day: e.day, tag, text };
+}
+
+function pauseHit(e: { id: number; kind: string; actor?: string; msg: string }, ctx: ReturnType<typeof feedCtx>): PauseHit | null {
+  if (!ctx.id) return null;
+  const you = e.actor === ctx.id;
+  if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind === 'loan.margin')) {
+    return { why: 'a margin call', eventId: e.id };
+  }
+  if (e.kind === 'firm.bid' && e.actor !== ctx.id && ctx.firms.some((f) => e.msg.includes('for ' + f.name))) {
+    return { why: 'a takeover bid', eventId: e.id };
+  }
+  if (you && (e.kind === 'law.charge' || e.kind === 'law.trial')) return { why: 'an arrest', eventId: e.id };
+  if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) return { why: 'a death in the family', eventId: e.id };
+  return null;
+}
+
+function milestone(w: World): PauseHit | null {
+  const sc = w.state.scenario as { outcome?: string; reason?: string; fired?: boolean } | undefined;
+  if (!sc) return null;
+  if (sc.outcome && sc.outcome !== sawOutcome) {
+    sawOutcome = sc.outcome;
+    const ev = w.events.last('player.scenario') ?? w.genesis;
+    return { why: sc.reason || (sc.outcome === 'win' ? 'the goal is met' : 'the scenario ends'), eventId: ev };
+  }
+  if (sc.fired && !sawShock) {
+    sawShock = true;
+    const ev = w.events.last('shock.forced') ?? w.genesis;
+    return { why: 'the scenario shock', eventId: ev };
+  }
+  return null;
+}
+
+/** New lines since the last call. Pause hits are remembered so a reload of the same event does not stop the clock twice. */
+function collect(w: World, minDay = -1): FeedLine[] {
+  const ctx = feedCtx(w);
+  const count = w.events.count;
+  const start = feedSeen < 0 ? Math.max(0, count - 8000) : feedSeen;
+  const lines: FeedLine[] = [];
+  let news = 0;
+  let hit: PauseHit | undefined;
+  for (let id = start; id < count; id++) {
+    const e = w.events.get(id);
+    if (!e) continue;
+    if (minDay >= 0 && e.day < minDay && !e.kind.startsWith('player.')) continue;
+    const line = classify(e, ctx, news);
+    if (line) {
+      if (line.tag === 'wire') news++;
+      lines.push(line);
+      feed.push(line);
+    }
+    const pause = pauseHit(e, ctx);
+    if (pause && !pausedIds.has(pause.eventId)) {
+      pausedIds.add(pause.eventId);
+      if (!hit) hit = pause;
+    }
+  }
+  feedSeen = count;
+  if (feed.length > 100) feed.splice(0, feed.length - 100);
+  if (!hit) hit = milestone(w) ?? undefined;
+  if (hit && speed !== 'pause') {
+    speed = 'pause';
+    pauseNote = hit;
+  }
+  return lines;
+}
+
+function seedFeed(w: World): void {
+  feed.length = 0;
+  feedSeen = -1;
+  pausedIds.clear();
+  pauseNote = null;
+  collect(w, Math.max(0, w.day - 2));
+  const sc = w.state.scenario as { outcome?: string; fired?: boolean } | undefined;
+  sawOutcome = sc?.outcome ?? '';
+  sawShock = !!sc?.fired;
+  lastSavedMonth = Math.floor(w.day / 30);
+}
+
+function listSaves(): SaveMeta[] {
+  if (!fs.existsSync(SAVES)) return [];
+  const out: SaveMeta[] = [];
+  for (const name of fs.readdirSync(SAVES)) {
+    if (name.startsWith('.')) continue;
+    const dir = path.join(SAVES, name);
+    if (!fs.existsSync(path.join(dir, 'world.json'))) continue;
+    const metaPath = path.join(dir, 'meta.json');
+    if (!fs.existsSync(metaPath)) continue;
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as SaveMeta;
+      if (meta && typeof meta.id === 'string') out.push(meta);
+    } catch { /* a half-written save is not listed */ }
+  }
+  out.sort((a, b) => b.savedAt - a.savedAt || b.day - a.day);
+  return out;
+}
+
+function saveDir(id: string): string | undefined {
+  if (!/^[a-z0-9][a-z0-9-]{0,60}$/.test(id)) return;
+  const root = path.resolve(SAVES);
+  const dir = path.resolve(root, id);
+  if (dir !== root && !dir.startsWith(root + path.sep)) return;
+  if (!fs.existsSync(path.join(dir, 'world.json'))) return;
+  return dir;
+}
+
+function writeSave(id: string, label: string): SaveMeta {
+  const dir = path.join(SAVES, id);
+  fs.mkdirSync(dir, { recursive: true });
+  writeSnapshot(dir, w);
+  const who = playerIndex(w);
+  const P = econ(w).P;
+  const sc = liveCard(w);
+  const meta: SaveMeta = {
+    id,
+    label,
+    scenario: sc?.name ?? '',
+    scenarioId: sc?.id ?? '',
+    player: who >= 0 ? P.name(who) : '',
+    day: w.day,
+    date: dateLabel(w.day),
+    netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w))) : 0,
+    savedAt: Date.now(),
+  };
+  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
+  return meta;
+}
+
+function slug(s: string): string {
+  const t = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+  return t || 'save';
+}
+
+function freshId(base: string): string {
+  let id = base;
+  let n = 2;
+  while (fs.existsSync(path.join(SAVES, id)) && n < 40) id = `${base}-${n++}`;
+  return id;
+}
+
+function maybeAutosave(): void {
+  if (!started) return;
+  const month = Math.floor(w.day / 30);
+  if (month === lastSavedMonth) return;
+  lastSavedMonth = month;
+  try { broadcast('saved', writeSave('autosave', 'Autosave')); }
+  catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    broadcast('saved', { error: why });
+  }
+}
+
+function hookHistory(onLine: (year: number, text: string) => void): () => void {
+  const orig = Array.prototype.push;
+  Array.prototype.push = function (this: unknown[], ...items: unknown[]) {
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const e = item as { year?: unknown; text?: unknown; kind?: unknown; cause?: unknown; firms?: unknown };
+      if (typeof e.year !== 'number' || typeof e.text !== 'string' || typeof e.kind !== 'string' || typeof e.cause !== 'string' || !Array.isArray(e.firms)) continue;
+      try { onLine(e.year, e.text); }
+      catch { /* a dropped progress line is not a failed world */ }
+    }
+    return orig.apply(this, items);
+  };
+  return () => { Array.prototype.push = orig; };
+}
+
+function runGenWorker(): void {
+  const job = workerData as GenJob & { dir: string };
+  const send = (msg: unknown): void => { try { parentPort?.postMessage(msg); } catch { /* parent gone */ } };
+  const unhook = hookHistory((year, text) => send({ type: 'line', year, text }));
+  try {
+    send({ type: 'phase', text: 'Writing the city…' });
+    const world = openScenario(job.id, { cash: job.cash, difficulty: job.difficulty, seed: job.seed });
+    unhook();
+    send({ type: 'phase', text: 'Saving the new city…' });
+    writeSnapshot(job.dir, world);
+    send({ type: 'done', dir: job.dir, seed: world.seed });
+  } catch (err) {
+    unhook();
+    send({ type: 'error', error: err instanceof Error ? err.message : String(err) });
+  }
+  setTimeout(() => process.exit(0), 50);
+}
+
+function beginGeneration(job: GenJob): string | null {
+  if (generating) return 'a city is already being written';
+  if (started) return 'a game is already open';
+  if (!listScenarios().some((s) => s.id === job.id)) return `no scenario ${job.id}`;
+  generating = true;
+  challengeBeat = job.beat && job.beat > 0 ? job.beat : 0;
+  const dir = path.join(SAVES, '.boot');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  broadcast('gen', { phase: 'open', text: 'Writing the city…' });
+  const worker = new Worker(new URL('./server.ts', import.meta.url), {
+    workerData: { ...job, dir },
+    execArgv: process.execArgv.filter((a) => !a.startsWith('--inspect')),
+  });
+  let settled = false;
+  const fail = (error: string): void => {
+    if (settled) return;
+    settled = true;
+    generating = false;
+    broadcast('gen', { phase: 'error', error });
+  };
+  worker.on('message', (msg: { type?: string; year?: number; text?: string; error?: string; dir?: string }) => {
+    if (msg.type === 'line') broadcast('gen', { phase: 'line', year: msg.year, text: msg.text });
+    else if (msg.type === 'phase') broadcast('gen', { phase: 'phase', text: msg.text });
+    else if (msg.type === 'error') fail(msg.error || 'the city could not be written');
+    else if (msg.type === 'done' && msg.dir) {
+      if (settled) return;
+      settled = true;
+      broadcast('gen', { phase: 'read', text: 'Reading the city into the books…' });
+      setImmediate(() => {
+        try {
+          const world = openWorld(snapshotSeed(msg.dir as string), new Set());
+          applySnapshot(world, msg.dir as string);
+          ensurePlayer(world);
+          boot(world);
+          try {
+            fs.rmSync(path.join(SAVES, 'autosave'), { recursive: true, force: true });
+            fs.renameSync(msg.dir as string, path.join(SAVES, 'autosave'));
+            const who = playerIndex(w);
+            const P = econ(w).P;
+            const sc = liveCard(w);
+            const meta: SaveMeta = {
+              id: 'autosave', label: 'Autosave', scenario: sc?.name ?? '', scenarioId: sc?.id ?? '',
+              player: who >= 0 ? P.name(who) : '', day: w.day, date: dateLabel(w.day),
+              netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w))) : 0,
+              savedAt: Date.now(),
+            };
+            fs.writeFileSync(path.join(SAVES, 'autosave', 'meta.json'), JSON.stringify(meta));
+          } catch {
+            try { writeSave('autosave', 'Autosave'); }
+            catch { /* the game is open even if the first autosave could not be written */ }
+          }
+          broadcast('gen', { phase: 'ready' });
+        } catch (err) {
+          const why = err instanceof Error ? err.message : String(err);
+          broadcast('gen', { phase: 'error', error: why });
+        }
+        generating = false;
+      });
+    }
+  });
+  worker.on('error', (err) => fail(err.message));
+  worker.on('exit', (code) => { if (!settled && code !== 0) fail('the city could not be written'); });
+  return null;
+}
+
+function openSave(dir: string): void {
+  speed = 'pause';
+  const world = openWorld(snapshotSeed(dir), new Set());
+  applySnapshot(world, dir);
+  ensurePlayer(world);
+  boot(world);
+}
+
 function tickFrame(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const i = playerIndex(w);
@@ -1058,11 +1398,15 @@ function tickFrame(w: World): Record<string, unknown> {
     companies: desks(w),
     index: idx.index,
     indexChg: idx.prev > 0 ? idx.index / idx.prev - 1 : 0,
-    quotes: quotesOf(w).map((q) => ({ instr: q.instr, px: q.px, prev: q.prev, chg: q.chg, vol: q.vol })),
+    quotes: quotesOf(w).map((q) => ({ instr: q.instr, px: q.px, prev: q.prev, chg: q.chg, vol: q.vol, spark: q.spark })),
     shares: book.shares,
     orders: book.orders,
     news: headlines(w),
-    scenario: liveCard(w),
+    scenario: scenarioCard(w),
+    feed,
+    speed,
+    pause: pauseNote,
+    stats: pst ? lifeBoard(w, i, pst, i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0).stats : [],
   };
 }
 
@@ -1207,7 +1551,9 @@ function screen(w: World): Record<string, unknown> {
     speed,
     books: booksOk ? { ok: true } : { ok: false, lines: booksBad },
     over: v.over || !v.alive,
-    scenario: liveCard(w),
+    scenario: scenarioCard(w),
+    feed,
+    pause: pauseNote,
   };
 }
 
@@ -1345,6 +1691,9 @@ const clients = new Set<http.ServerResponse>();
 
 function boot(world: World): void {
   w = world;
+  pins.length = 0;
+  notedThrough = -1;
+  bandDay = -1;
   const opening = w.ledger.check();
   if (opening.length) {
     console.error(`BOOKS DO NOT BALANCE:\n  ${opening.slice(0, 8).join('\n  ')}`);
@@ -1359,18 +1708,19 @@ function boot(world: World): void {
   openWorth = arrived.netWorth;
   closeWorth = openWorth;
   nwChange = 0;
+  seedFeed(w);
   console.log('reading the event log for the macro lines…');
   const tMacro = Date.now();
   buildMacro(w);
   console.log(`macro lines ready in ${Date.now() - tMacro} ms`);
 }
 
-if (load) {
+if (isMainThread && load) {
   const world = openWorld(snapshotSeed(load), new Set());
   applySnapshot(world, load);
   ensurePlayer(world);
   boot(world);
-} else if (scenarioId) {
+} else if (isMainThread && scenarioId) {
   const cash = arg('cash', ''), difficulty = arg('difficulty', '');
   boot(openScenario(scenarioId, {
     cash: cash ? Number(cash) : undefined,
@@ -1405,7 +1755,13 @@ function stepDay(): string | undefined {
     return booksBad[0];
   }
   let frame: Record<string, unknown>;
-  try { frame = tickFrame(w); }
+  try {
+    collect(w);
+    const seat = soleSeat(w);
+    const who = playerIndex(w);
+    if ((seat?.over ?? false) || who < 0 || !econ(w).P.alive(who)) { speed = 'pause'; over = true; }
+    frame = tickFrame(w);
+  }
   catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     speed = 'pause';
@@ -1417,8 +1773,10 @@ function stepDay(): string | undefined {
   closeWorth = now;
   frame.nwChange = nwChange;
   frame.sinceOpen = now - openWorth;
+  frame.speed = speed;
   if (w.day % 30 === 0) sampleMacro(w);
-  if (frame.over) { speed = 'pause'; over = true; }
+  maybeAutosave();
+  if (pauseNote && speed === 'pause') broadcast('speed', { speed, why: pauseNote.why, eventId: pauseNote.eventId });
   broadcast('day', frame);
   return undefined;
 }
@@ -1426,13 +1784,41 @@ function stepDay(): string | undefined {
 let pumping = false;
 function pump(): void {
   if (pumping) return;
-  const goal = daysFor(speed);
-  if (goal < 1 || !booksOk || over) return;
+  if (speed === 'pause' || !booksOk || over || !started) return;
   pumping = true;
+  if (speed === 'month') {
+    const left = (30 - (w.day % 30)) || 30;
+    let n = 0;
+    const next = (): void => {
+      if (speed !== 'month' || !booksOk || over) {
+        pumping = false;
+        if (speed !== 'pause' && speed !== 'month') pump();
+        return;
+      }
+      if (n >= left) {
+        speed = 'pause';
+        pumping = false;
+        broadcast('speed', { speed: 'pause', quiet: true });
+        return;
+      }
+      const bad = stepDay();
+      n++;
+      if (bad || speed === 'pause') { pumping = false; return; }
+      setImmediate(next);
+    };
+    next();
+    return;
+  }
+  const goal = daysFor(speed);
+  if (goal < 1) { pumping = false; return; }
   const t0 = Date.now();
   let n = 0;
   const next = (): void => {
-    if (speed === 'pause' || !booksOk || over) { pumping = false; return; }
+    if (speed === 'pause' || speed === 'month' || !booksOk || over) {
+      pumping = false;
+      if (speed === 'month') pump();
+      return;
+    }
     if (n >= goal) {
       pumping = false;
       const wait = Math.max(16, 1000 - (Date.now() - t0));
@@ -1488,17 +1874,65 @@ const server = http.createServer(async (req, res) => {
   const pathname = url.pathname;
   try {
     if (req.method === 'GET' && pathname === '/scenarios') { send(res, 200, { scenarios: listScenarios() }); return; }
+    if (req.method === 'GET' && pathname === '/title') {
+      const saves = listSaves();
+      send(res, 200, { scenarios: listScenarios(), saves, last: saves[0] ?? null });
+      return;
+    }
+    if (req.method === 'GET' && pathname === '/saves') { send(res, 200, { saves: listSaves() }); return; }
     if (req.method === 'POST' && pathname === '/start') {
-      if (started) { send(res, 409, { error: 'a game is already open' }); return; }
       const opts = startOpts(await readBody(req));
       if (typeof opts === 'string') { send(res, 400, { error: opts }); return; }
-      try { boot(openScenario(opts.id, opts)); }
+      const why = beginGeneration(opts);
+      if (why) { send(res, 409, { error: why }); return; }
+      send(res, 202, { ok: true });
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/challenge') {
+      const body = await readBody(req) as { code?: unknown };
+      let parsed: ReturnType<typeof parseCode>;
+      try { parsed = parseCode(typeof body.code === 'string' ? body.code : ''); }
+      catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        send(res, 400, { error: why });
+        return;
+      }
+      const why = beginGeneration({ id: parsed.scenario, seed: parsed.seed, difficulty: parsed.difficulty, beat: parsed.score });
+      if (why) { send(res, 409, { error: why }); return; }
+      send(res, 202, { ok: true, beat: parsed.score, scenario: parsed.scenario, seed: parsed.seed });
+      return;
+    }
+    if (req.method === 'POST' && (pathname === '/load' || pathname === '/continue')) {
+      if (generating) { send(res, 409, { error: 'a city is already being written' }); return; }
+      const saves = listSaves();
+      let id = '';
+      if (pathname === '/continue') {
+        if (!saves.length) { send(res, 404, { error: 'no save to continue' }); return; }
+        id = saves[0].id;
+      } else {
+        const body = await readBody(req) as { id?: unknown };
+        id = typeof body.id === 'string' ? body.id : '';
+      }
+      const dir = saveDir(id);
+      if (!dir) { send(res, 404, { error: 'no such save' }); return; }
+      try { openSave(dir); }
       catch (err) {
         const why = err instanceof Error ? err.message : String(err);
         send(res, 400, { error: why });
         return;
       }
       send(res, 200, { view: screen(w) });
+      return;
+    }
+    if (req.method === 'GET' && pathname === '/events') {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      res.write('retry: 2000\n\n');
+      clients.add(res);
+      req.on('close', () => clients.delete(res));
       return;
     }
     if (!started) {
@@ -1545,15 +1979,15 @@ const server = http.createServer(async (req, res) => {
       send(res, 200, page);
       return;
     }
-    if (req.method === 'GET' && pathname === '/events') {
-      res.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        connection: 'keep-alive',
-      });
-      res.write('retry: 2000\n\n');
-      clients.add(res);
-      req.on('close', () => clients.delete(res));
+    if (req.method === 'POST' && pathname === '/save') {
+      const body = await readBody(req) as { label?: unknown };
+      const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 60) : `Save ${dateLabel(w.day)}`;
+      const id = freshId(slug(label) === 'autosave' ? 'save' : slug(label));
+      try { send(res, 200, { save: writeSave(id, label) }); }
+      catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        send(res, 500, { error: why });
+      }
       return;
     }
     if (req.method === 'POST' && pathname === '/speed') {
@@ -1565,6 +1999,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!booksOk) { send(res, 409, { error: 'the books do not balance', lines: booksBad }); return; }
       if (over && next !== 'pause') { send(res, 409, { error: 'you have died' }); return; }
+      if (next !== 'pause') pauseNote = null;
       speed = next;
       send(res, 200, { speed });
       pump();
@@ -1579,6 +2014,11 @@ const server = http.createServer(async (req, res) => {
         ? (body as { playerId: string }).playerId
         : undefined;
       const result = playerId ? act(w, playerId, cmd) : act(w, cmd);
+      collect(w);
+      const seat = soleSeat(w);
+      const who = playerIndex(w);
+      if ((seat?.over ?? false) || who < 0 || !econ(w).P.alive(who)) { speed = 'pause'; over = true; }
+      maybeAutosave();
       const books = result.books;
       const snap = screen(w);
       if (books) send(res, 409, { ...result, status: 'rejected', why: `BOOKS DO NOT BALANCE: ${books}`, view: snap });
@@ -1600,16 +2040,18 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-setInterval(() => {
+if (!isMainThread) runGenWorker();
+
+if (isMainThread) setInterval(() => {
   if (started && clients.size) broadcast('ping', { day: w.day });
 }, 15000);
 
-server.on('error', (err: NodeJS.ErrnoException) => {
+if (isMainThread) server.on('error', (err: NodeJS.ErrnoException) => {
   console.error(err.code === 'EADDRINUSE' ? `port ${port} is in use` : err.message);
   process.exit(1);
 });
 
-server.listen(port, '127.0.0.1', () => {
+if (isMainThread) server.listen(port, '127.0.0.1', () => {
   console.log(`http://localhost:${port}`);
   if (!started) {
     console.log('choose a scenario');

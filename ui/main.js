@@ -1,27 +1,29 @@
 const PAGES = [
+  ['life', 'LIFE', 'L'],
   ['desk', 'DESK', '1'],
   ['wire', 'WIRE', '2'],
+  ['firms', 'FIRMS', '0'],
+  ['people', 'PEOPLE', 'N'],
   ['contacts', 'CONTACTS', '3'],
   ['bonds', 'BONDS', '4'],
   ['futures', 'FUTS', '5'],
+  ['options', 'OPTS', 'O'],
   ['crypto', 'COINS', '6'],
   ['fx', 'FX', '7'],
-  ['economy', 'MACRO', '8'],
-  ['log', 'LOG', '9'],
-  ['firms', 'FIRMS', '0'],
-  ['boards', 'BIDS', 'T'],
-  ['family', 'FAMILY', 'F'],
-  ['options', 'OPTS', 'O'],
   ['homes', 'HOMES', 'P'],
+  ['family', 'FAMILY', 'F'],
   ['health', 'HEALTH', 'G'],
+  ['economy', 'MACRO', '8'],
+  ['boards', 'BIDS', 'T'],
+  ['log', 'LOG', '9'],
   ['help', 'HELP', '?'],
 ];
-const SPEEDS = [['pause', 'PAUSE'], ['day', '1D'], ['week', '1W'], ['month', '1M']];
+const SPEEDS = [['pause', 'PAUSE', 'pause'], ['day', 'PLAY', '1 day a second'], ['week', 'FAST', '1 week a second'], ['month', 'MONTH', 'skip to the next month']];
 const SPEED_ORDER = ['pause', 'day', 'week', 'month'];
 
 const S = {
   view: null,
-  page: 'desk',
+  page: 'life',
   arg: '',
   selected: '',
   sort: 'chg',
@@ -39,6 +41,10 @@ const S = {
   flashBad: false,
   loading: '',
   gate: false,
+  titleData: null,
+  titleMode: 'menu',
+  gen: null,
+  generating: false,
 };
 
 const escMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -127,20 +133,13 @@ function trendArrow(n) {
 function statsHtml() {
   const stats = S.view?.stats ?? [];
   if (!stats.length) return '';
-  const chips = stats.map((s) => `<button type="button" class="stat" data-explain="${s.eventId}" data-title="${esc(s.label)}" title="${esc(s.hover)}">
+  return stats.map((s) => `<button type="button" class="stat" data-explain="${s.eventId}" data-title="${esc(s.label)}" title="${esc(s.hover)}">
       <span class="k">${esc(s.label)}</span><b>${esc(s.word)}</b>${s.note ? `<span class="dim">${esc(s.note)}</span>` : ''}${trendArrow(s.trend)}
     </button>`).join('');
-  const dead = S.view && (!S.view.alive || S.view.over);
-  const choices = (S.view?.choices ?? []).map((c) => {
-    const wait = c.left > 0 ? ` · ${c.left}d` : '';
-    const fee = c.id === 'overtime' ? '' : ` · ${money(c.cost)}`;
-    return `<button type="button" data-life="${esc(c.id)}" title="${esc(c.line + fee)}" ${dead || c.left > 0 ? 'disabled' : ''}>${esc(c.label).toUpperCase()}${wait}</button>`;
-  }).join('');
-  return chips + `<span class="life-row">${choices}</span>`;
 }
 
 function route() {
-  const raw = (location.hash || '#desk').replace(/^#/, '');
+  const raw = (location.hash || '#life').replace(/^#/, '');
   const cut = raw.indexOf('/');
   let page = (cut < 0 ? raw : raw.slice(0, cut)) || 'desk';
   const arg = cut < 0 ? '' : decodeURIComponent(raw.slice(cut + 1));
@@ -150,25 +149,34 @@ function route() {
 
 function shell() {
   const nav = PAGES.map(([id, label, key]) => `<button type="button" data-go="${id}" id="nav-${id}">${label} <span class="dim">${key}</span></button>`).join('');
-  const speeds = SPEEDS.map(([id, label]) => `<button type="button" data-speed="${id}" id="spd-${id}">${label}</button>`).join('');
+  const speeds = SPEEDS.map(([id, label, title]) => `<button type="button" data-speed="${id}" id="spd-${id}" title="${esc(title)}">${label}</button>`).join('');
   document.getElementById('app').innerHTML = `
-    <header>
-      <div class="brand">AVALON</div>
-      <div id="when" class="dim"></div>
-      <div id="who"></div>
-      <div class="tape" id="tape"></div>
-      <div class="speeds">${speeds}</div>
-    </header>
-    <div id="stats" class="stats"></div>
-    <nav>${nav}</nav>
-    <div id="alerts"></div>
-    <div id="hint" hidden></div>
-    <div id="body"><main id="main"></main><aside id="chain" hidden></aside></div>
-    <footer>
-      <span id="books">books …</span>
-      <span id="flash"></span>
-      <span class="dim">1-9 screens · 0 firms · g health · t bids · f family · o options · p homes · j/k · space pause · [ ] speed</span>
-    </footer>`;
+    <div id="title" hidden></div>
+    <div id="play">
+      <header>
+        <div class="brand">AVALON</div>
+        <div id="when" class="dim"></div>
+        <div id="who"></div>
+        <div id="worth" class="nw"></div>
+        <div id="goal" class="goal"></div>
+        <div class="tape" id="tape"></div>
+        <div class="speeds">${speeds}</div>
+        <button type="button" data-save id="save-btn">SAVE</button>
+        <button type="button" data-load>LOAD</button>
+      </header>
+      <div id="stats" class="stats"></div>
+      <div id="alerts"></div>
+      <div id="hint" hidden></div>
+      <div class="play-body">
+        <nav>${nav}</nav>
+        <div id="body"><main id="main"></main><aside id="chain" hidden></aside></div>
+      </div>
+      <footer>
+        <span id="books">books …</span>
+        <span id="flash"></span>
+        <span class="dim">L life · 1 desk · 2 wire · N people · space pause · [ ] speed</span>
+      </footer>
+    </div>`;
   document.getElementById('app').addEventListener('click', onClick);
   document.getElementById('app').addEventListener('submit', onSubmit);
   document.getElementById('app').addEventListener('change', onChange);
@@ -182,11 +190,15 @@ function paintChrome() {
   const books = document.getElementById('books');
   const flash = document.getElementById('flash');
   paintHint();
+  const worth = document.getElementById('worth');
+  const goal = document.getElementById('goal');
   if (S.gate) {
-    when.textContent = 'choose a life';
+    when.textContent = '';
+    if (worth) worth.innerHTML = '';
+    if (goal) goal.innerHTML = '';
     const stats = document.getElementById('stats');
     if (stats) stats.innerHTML = '';
-    if (books) { books.textContent = 'pick a scenario'; books.className = ''; }
+    if (books) { books.textContent = ''; books.className = ''; }
     return;
   }
   if (!v) {
@@ -198,6 +210,16 @@ function paintChrome() {
   who.innerHTML = v.over
     ? `<span class="dead">${esc(v.name)} · the house ends</span>`
     : v.alive ? `${esc(v.name)}, ${v.age} · ${job}` : `<span class="dead">${esc(v.name)} has died</span>`;
+  const worthStat = (v.stats || []).find((s) => s.id === 'worth');
+  if (worth) {
+    worth.innerHTML = `${whyNum(money(v.netWorth), worthStat?.eventId, 'net worth')} ${trendArrow(worthStat?.trend || 0)}`;
+  }
+  const sc = v.scenario;
+  if (goal) {
+    goal.innerHTML = sc
+      ? `<span class="dim">${esc(sc.name)}</span> ${esc(sc.goal)} <b>${esc(sc.timeLeft || '')}</b>${sc.beat ? ` <span class="dim">beat ${money(sc.beat)}</span>` : ''}`
+      : '';
+  }
   const stats = document.getElementById('stats');
   if (stats) stats.innerHTML = statsHtml();
   const t = v.tape;
@@ -230,9 +252,13 @@ function paintChrome() {
 }
 const ALERT_WORD = { margin: 'MARGIN', bid: 'BID', strike: 'STRIKE', letter: 'LETTER', child: 'CHILD', rent: 'RENT' };
 function alertsHtml() {
+  const pause = S.view?.pause;
   const rows = S.view?.alerts ?? [];
-  if (!rows.length) return '<span class="dim">nothing needs you</span>';
-  return rows.map((a) => `<span class="alert ${esc(a.kind)}">
+  const head = pause?.why
+    ? `<span class="alert"><button type="button" data-explain="${pause.eventId ?? ''}" data-title="${esc(pause.why)}">PAUSED</button> ${esc(pause.why)}</span>`
+    : '';
+  if (!rows.length && !head) return '<span class="dim">nothing needs you</span>';
+  return head + rows.map((a) => `<span class="alert ${esc(a.kind)}">
       <a href="#${esc(a.page)}${a.arg ? '/' + encodeURIComponent(a.arg) : ''}">${ALERT_WORD[a.kind] || esc(a.kind)}</a>
       <button type="button" data-explain="${a.eventId}" data-title="${esc(a.text)}">${esc(a.text)}</button>
     </span>`).join('');
@@ -253,7 +279,7 @@ function go(page, arg) {
 
 function onClick(ev) {
   if (ev.target.closest('a[href]')) return;
-  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home],[data-nb],[data-co],[data-parcel],[data-optmonth],[data-optright],[data-start],[data-hints],[data-story]');
+  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home],[data-nb],[data-co],[data-parcel],[data-optmonth],[data-optright],[data-start],[data-hints],[data-story],[data-mode],[data-continue],[data-save],[data-load],[data-pick-save],[data-back]');
   if (!t || !document.getElementById('app').contains(t)) return;
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.speed) { setSpeed(t.dataset.speed); return; }
@@ -298,6 +324,12 @@ function onClick(ev) {
   }
   if (t.dataset.optright) { S.optRight = t.dataset.optright; paintOptRight(); return; }
   if (t.dataset.start) { startScenario(t.dataset.start); return; }
+  if (t.dataset.mode) { openTitleMode(t.dataset.mode); return; }
+  if (t.hasAttribute('data-back')) { backTitle(); return; }
+  if (t.hasAttribute('data-continue')) { continueGame(); return; }
+  if (t.hasAttribute('data-save')) { saveGame(); return; }
+  if (t.hasAttribute('data-load')) { openLoad(); return; }
+  if (t.dataset.pickSave) { loadGame(t.dataset.pickSave); return; }
   if (t.dataset.hints) { postAct({ kind: 'hints', on: t.dataset.hints !== 'off' }); return; }
   if (t.dataset.story !== undefined) { showStory(); return; }
 }
@@ -311,6 +343,9 @@ function onSubmit(ev) {
   else if (form.id === 'sandbox') {
     const data = new FormData(form);
     startScenario('sandbox', Number(data.get('cash')), Number(data.get('difficulty')));
+  }
+  else if (form.id === 'challenge') {
+    startChallenge(String(new FormData(form).get('code') || ''));
   }
   else if (form.id === 'found-form') submitFound(form);
   else if (form.id === 'bid-ticket') submitBid(form);
@@ -383,12 +418,43 @@ async function loadChart(issuer) {
   drawChart();
 }
 
+function sparkSvg(values, chg) {
+  const v = values && values.length ? values : [0, 0];
+  const w = 72, h = 16;
+  let lo = Math.min.apply(null, v), hi = Math.max.apply(null, v);
+  if (!(hi > lo)) { lo -= 1; hi += 1; }
+  const d = v.map((n, i) => {
+    const x = v.length === 1 ? w / 2 : (i / (v.length - 1)) * (w - 2) + 1;
+    const y = (1 - (n - lo) / (hi - lo)) * (h - 3) + 1;
+    return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+  }).join(' ');
+  const col = chg > 0 ? '#3dce8e' : chg < 0 ? '#f07178' : '#8b97a6';
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><path d="${d}" fill="none" stroke="${col}" stroke-width="1.25"/></svg>`;
+}
+const series = new Map();
+function seriesOf(key, prev, value) {
+  const p = Number(value);
+  if (!Number.isFinite(p)) return [0, 0];
+  let a = series.get(key);
+  if (!a) {
+    const q = Number(prev);
+    a = Number.isFinite(q) && q !== p ? [q, p] : [p];
+    series.set(key, a);
+    return a;
+  }
+  if (a[a.length - 1] !== p) {
+    a.push(p);
+    if (a.length > 32) a.shift();
+  }
+  return a;
+}
 function quotesHtml() {
-  const head = `<div class="qhead"><button type="button" data-sort="symbol">SYMBOL</button><span></span><button type="button" class="num" data-sort="px">LAST</button><button type="button" class="num" data-sort="chg">CHG</button><button type="button" class="num" data-sort="vol">VOL</button></div>`;
+  const head = `<div class="qhead"><button type="button" data-sort="symbol">SYMBOL</button><span></span><span></span><button type="button" class="num" data-sort="px">LAST</button><button type="button" class="num" data-sort="chg">CHG</button><button type="button" class="num" data-sort="vol">VOL</button></div>`;
   const rows = sortedQuotes().map((q) => `
     <div class="qrow${q.instr === S.selected ? ' on' : ''}" data-pick="${esc(q.instr)}">
       <span>${firmLink(q.issuer, q.symbol)}</span>
       <span class="name">${firmLink(q.issuer, q.name)}</span>
+      <span class="sparkcell">${sparkSvg(q.spark, q.chg)}</span>
       <span class="num" data-cell="px">${whyNum(px(q.px), q.eventId, q.symbol + ' price')}</span>
       <span class="num ${cls(q.chg)}" data-cell="chg">${whyNum(pct(q.chg), q.eventId, q.symbol + ' change')}</span>
       <span class="num dim" data-cell="vol">${whyNum(vol(q.vol), q.eventId, q.symbol + ' volume')}</span>
@@ -523,6 +589,60 @@ function renderFamily() {
     <div class="panel"><h2>CHRONICLE <span>the family</span> <button type="button" data-story>your story</button></h2>${chronicle}</div>
   </div>`;
 }
+const TAG = { you: 'YOU', family: 'FAMILY', firm: 'FIRM', city: 'CITY', wire: 'WIRE' };
+function renderLife() {
+  const v = S.view;
+  if (!v) return '<div class="dim">loading the books…</div>';
+  const sc = v.scenario;
+  const hint = sc?.showHints ? (sc.hints?.life || sc.hints?.desk || sc.hints?.['*'] || '') : '';
+  const brief = sc ? `<div class="brief">
+      <b>${esc(sc.name)}</b>
+      <p>${esc(sc.story || '')}</p>
+      <p>Goal: ${esc(sc.goal)}. <b>${esc(sc.timeLeft || '')}</b></p>
+      <p class="dim">Play runs a day a second. Fast runs a week a second. Month skips to the next month. Space pauses. Every line and every number opens why.</p>
+      ${hint ? `<p class="dim">${esc(hint)}</p>` : ''}
+    </div>` : `<div class="brief"><b>Your life in this city</b><p class="dim">Play runs a day a second. The desk is where prices are.</p></div>`;
+  const lines = (v.feed || []).map((n) => `<button type="button" class="life-line" data-explain="${n.eventId}" data-title="${esc(n.text)}">
+      <span class="dim">${dateOf(n.day)}</span>
+      <span class="tag">${TAG[n.tag] || esc(n.tag || '')}</span>
+      <span>${esc(n.text)}</span>
+    </button>`).join('');
+  const empty = '<div class="dim life-empty">Nothing new since you last looked. Press play.</div>';
+  const choices = (v.choices || []).map((c) => {
+    const wait = c.left > 0 ? ` · ${c.left}d` : '';
+    const dead = !v.alive || v.over;
+    return `<button type="button" data-life="${esc(c.id)}" title="${esc(c.line)}" ${dead || c.left > 0 ? 'disabled' : ''}>${esc(c.label).toUpperCase()}${wait}</button>`;
+  }).join('');
+  return `${brief}<div class="life-feed">${lines || empty}</div><div class="life-acts">${choices}</div>`;
+}
+function renderPeople() {
+  const v = S.view;
+  if (!v) return '<div class="dim">loading the books…</div>';
+  const house = v.healthPanel?.house || [];
+  const rows = house.map((p) => `<tr>
+      <td>${personLink(p.index, p.name)}</td>
+      <td>${esc(p.role)}</td>
+      <td class="num">${whyNum(p.age, p.eventId, p.name + ' age')}</td>
+      <td>${p.alive ? esc(p.illness || 'well') : '<span class="dead">dead</span>'}</td>
+      <td><button type="button" data-explain="${p.eventId}" data-title="${esc(p.name)}">why</button></td>
+    </tr>`).join('');
+  const contacts = (v.contacts || []).map((c) => `<tr>
+      <td>${personLink(c.who, c.name)}</td>
+      <td class="dim">${esc(c.kind)}</td>
+      <td>${esc(c.line || c.word || '')}</td>
+      <td><button type="button" data-talk="${c.slot}">talk</button></td>
+    </tr>`).join('');
+  return `<div class="split">
+      <div class="panel"><h2>THE HOUSE</h2>
+        <table><thead><tr><th>NAME</th><th>ROLE</th><th class="num">AGE</th><th></th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td class="dim">no one in the house</td></tr>'}</tbody></table>
+      </div>
+      <div class="panel"><h2>PEOPLE YOU KNOW</h2>
+        <table><thead><tr><th>NAME</th><th></th><th>HOW YOU STAND</th><th></th></tr></thead>
+        <tbody>${contacts || '<tr><td class="dim">no contacts yet</td></tr>'}</tbody></table>
+      </div>
+    </div>`;
+}
 function renderDesk() {
   const q = S.view?.quotes?.find((x) => x.instr === S.selected) ?? sortedQuotes()[0];
   if (q && !S.selected) S.selected = q.instr;
@@ -615,7 +735,7 @@ function renderContacts() {
 function renderBonds() {
   const v = S.view;
   const cards = (v?.curve ?? []).map((c) => `
-    <div class="panel"><div class="tenor">${esc(c.tenor)}</div><div class="y">${whyNum((c.yield * 100).toFixed(2) + '%', c.eventId, c.tenor + ' yield')}</div>
+    <div class="panel"><div class="tenor">${esc(c.tenor)}</div><div class="y">${sparkSvg(seriesOf('bond:' + c.tenor, null, c.yield), 0)}${whyNum((c.yield * 100).toFixed(2) + '%', c.eventId, c.tenor + ' yield')}</div>
     <div class="dim">${c.id ? esc(c.id) : 'model'} · ${c.px ? whyNum(px(c.px), c.eventId, c.tenor + ' price') : ''}</div>
     <button type="button" data-explain="${c.eventId}">why</button></div>`).join('');
   const held = (v?.bonds ?? []).map((b) => `<tr><td>${esc(b.instr)}</td><td class="num">${whyNum(money(b.face), b.eventId, 'face')}</td><td><button type="button" data-explain="${b.eventId}">why</button></td></tr>`).join('');
@@ -647,7 +767,8 @@ function renderFutures() {
     const cells = b.tenors.map((t) => {
       const held = pos.get(b.good + ':' + t.monthsAhead);
       const chg = t.prev > 0 ? t.px / t.prev - 1 : 0;
-      return `<td class="num">${whyNum(px(t.px), b.eventId, b.name + ' price')} <span class="${cls(chg)}">${whyNum(pct(chg), b.eventId, b.name + ' change')}</span>${held ? `<br><span class="${cls(held.net)}">${whyNum((held.net > 0 ? 'L' : 'S') + Math.abs(held.net), held.eventId, 'position')}</span>` : ''}</td>`;
+      const spark = sparkSvg(seriesOf('fut:' + b.good + ':' + t.monthsAhead, t.prev, t.px), chg);
+      return `<td class="num">${spark}${whyNum(px(t.px), b.eventId, b.name + ' price')} <span class="${cls(chg)}">${whyNum(pct(chg), b.eventId, b.name + ' change')}</span>${held ? `<br><span class="${cls(held.net)}">${whyNum((held.net > 0 ? 'L' : 'S') + Math.abs(held.net), held.eventId, 'position')}</span>` : ''}</td>`;
     }).join('');
     return `<tr><td>${esc(b.name)} <span class="dim">${esc(b.good)}</span></td>${cells}<td><button type="button" data-explain="${b.eventId}">why</button></td></tr>`;
   }).join('');
@@ -681,7 +802,7 @@ function renderCrypto() {
     const h = held.get(c.id);
     const chg = c.prev > 0 ? c.px / c.prev - 1 : 0;
     return `<tr><td>${esc(c.name)} <span class="dim">${esc(c.id)}</span>${c.live ? '' : ' <span class="dead">dead</span>'}</td>
-      <td class="num">${whyNum(px(c.px), c.eventId, c.name + ' price')} <span class="${cls(chg)}">${whyNum(pct(chg), c.eventId, c.name + ' change')}</span></td>
+      <td class="num">${sparkSvg(seriesOf('coin:' + c.id, c.prev, c.px), chg)}${whyNum(px(c.px), c.eventId, c.name + ' price')} <span class="${cls(chg)}">${whyNum(pct(chg), c.eventId, c.name + ' change')}</span></td>
       <td class="num">${h ? whyNum(h.qty, h.eventId || c.eventId, 'held') : ''}</td>
       <td><button type="button" data-explain="${c.eventId}">why</button></td></tr>`;
   }).join('');
@@ -890,7 +1011,7 @@ function renderFx() {
   const series = S.history?.macro?.fx ?? [];
   return `<div class="panel" style="padding:8px">
     <div class="dim">${esc(t.fxName)} · ${esc(t.currency)}</div>
-    <div style="font-size:28px;color:var(--amber)">${whyNum(Number(t.fx).toFixed(4), t.events.fx, 'exchange rate')} <span class="dim" style="font-size:13px">home per ${esc(t.currency)}</span></div>
+    <div style="font-size:28px;color:var(--amber)">${sparkSvg((S.history?.macro?.fx ?? []).length > 1 ? (S.history.macro.fx.slice(-32).map((p) => p.v)) : seriesOf('fx', null, t.fx), 0)}${whyNum(Number(t.fx).toFixed(4), t.events.fx, 'exchange rate')} <span class="dim" style="font-size:13px">home per ${esc(t.currency)}</span></div>
     <div class="dim">home rate ${whyNum((t.policy * 100).toFixed(2) + '%', t.events.rate, 'policy rate')} · foreign ${whyNum((t.foreignRate * 100).toFixed(2) + '%', t.events.fx, 'foreign rate')}</div>
     <div style="margin-top:8px"><button type="button" data-explain="${t.events.fx}">why this rate</button></div>
     <canvas id="fxchart" style="width:100%;height:220px;margin-top:8px"></canvas>
@@ -1346,27 +1467,6 @@ function paintHint() {
   bar.innerHTML = text ? `${esc(text)} <button type="button" data-hints="off">hide hints</button>` : '';
 }
 
-function renderGate(list) {
-  const lives = (list || []).filter((s) => !s.sandbox);
-  const cards = lives.map((s) => `
-    <button type="button" class="gate-card" data-start="${esc(s.id)}">
-      <b>${esc(s.name)}</b>
-      <span class="dim">${esc(s.goal)} · ${esc(s.limit)} · ${esc(s.difficulty)}</span>
-      <span>${esc(s.story)}</span>
-    </button>`).join('');
-  return `<div class="gate">
-    <h1>Choose a life</h1>
-    <div class="gate-list">${cards}</div>
-    <form id="sandbox" class="sandbox">
-      <b>Sandbox</b>
-      <span class="dim">no goal · open-ended · you choose the cash and the difficulty</span>
-      <label>start money <input name="cash" value="100000" inputmode="decimal"></label>
-      <label>difficulty <input name="difficulty" value="1" inputmode="decimal"></label>
-      <button type="submit">begin</button>
-    </form>
-  </div>`;
-}
-
 function renderEnd(sc) {
   const s = sc.score || {};
   const word = sc.outcome === 'win' ? 'win' : 'loss';
@@ -1398,38 +1498,220 @@ async function showStory() {
   paintChrome();
 }
 
+function showTitleShell() {
+  S.gate = true;
+  const title = document.getElementById('title');
+  const play = document.getElementById('play');
+  if (title) title.hidden = false;
+  if (play) play.hidden = true;
+  renderTitle();
+}
+function hideTitle() {
+  S.gate = false;
+  const title = document.getElementById('title');
+  const play = document.getElementById('play');
+  if (title) title.hidden = true;
+  if (play) play.hidden = false;
+}
+function beginProgress(text) {
+  S.generating = true;
+  S.gen = { lines: [], text, pct: 6, error: '', count: 0 };
+  S.titleMode = 'progress';
+  showTitleShell();
+}
+function renderTitle() {
+  const root = document.getElementById('title');
+  if (!root) return;
+  const data = S.titleData || { scenarios: [], saves: [], last: null };
+  const back = '<button type="button" data-back>Back</button>';
+  let body = '';
+  if (S.titleMode === 'progress') {
+    const g = S.gen || { lines: [], text: 'Writing the city…', pct: 6, error: '' };
+    const lines = (g.lines || []).slice(-12).map((line) => `<div>${esc(line)}</div>`).join('');
+    body = `<div class="gen">
+      <div>${esc(g.text || '')}</div>
+      <div class="barline gen" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, g.pct || 0))}%"></span></div>
+      <div class="gen-lines">${lines}</div>
+      ${g.error ? `<p class="down">${esc(g.error)}</p>${back}` : ''}
+    </div>`;
+  } else if (S.titleMode === 'new') {
+    const cards = (data.scenarios || []).filter((s) => !s.sandbox).map((s) => `
+      <button type="button" class="gate-card" data-start="${esc(s.id)}">
+        <b>${esc(s.name)}</b>
+        <span class="dim">${esc(s.goal)} · ${esc(s.limit)} · ${esc(s.difficulty)}</span>
+        <span>${esc(s.story)}</span>
+      </button>`).join('');
+    body = `<h1>New game</h1><div class="gate-list">${cards}</div>
+      <form id="sandbox" class="sandbox">
+        <b>Sandbox</b>
+        <span class="dim">no goal · open-ended · you choose the cash and the difficulty</span>
+        <label>start money <input name="cash" value="100000" inputmode="decimal"></label>
+        <label>difficulty <input name="difficulty" value="1" inputmode="decimal"></label>
+        <button type="submit">begin</button>
+      </form>${back}`;
+  } else if (S.titleMode === 'load') {
+    const rows = (data.saves || []).map((s) => `
+      <button type="button" class="gate-card" data-pick-save="${esc(s.id)}">
+        <b>${esc(s.label)}</b>
+        <span class="dim">${esc(s.scenario)} · ${esc(s.player)} · ${esc(s.date)} · ${money(s.netWorth)}</span>
+      </button>`).join('') || '<div class="dim">no saves yet</div>';
+    body = `<h1>Load</h1><div class="gate-list">${rows}</div>${back}`;
+  } else if (S.titleMode === 'challenge') {
+    body = `<h1>Challenge code</h1>
+      <form id="challenge" class="sandbox">
+        <span class="dim">PA1.scenario.seed.difficulty.score.hash</span>
+        <label>code <input name="code" autocomplete="off" spellcheck="false"></label>
+        <button type="submit">begin</button>
+      </form>${back}`;
+  } else {
+    const last = data.last;
+    body = `<div class="title-acts">
+      <button type="button" data-mode="new">New game</button>
+      <button type="button" data-continue ${last ? '' : 'disabled'}>Continue${last ? ` · ${esc(last.label)} · ${esc(last.date)}` : ''}</button>
+      <button type="button" data-mode="load">Load</button>
+      <button type="button" data-mode="challenge">Challenge code</button>
+    </div>`;
+  }
+  root.innerHTML = `<div class="title-wrap"><div class="brand">AVALON</div><p class="dim">Your life in this city</p>${body}</div>`;
+}
+async function showTitle() {
+  if (S.generating && S.titleMode === 'progress') { showTitleShell(); return; }
+  const res = await fetch('/title');
+  S.titleData = res.ok ? await res.json() : { scenarios: [], saves: [], last: null };
+  if (!S.generating) S.titleMode = 'menu';
+  showTitleShell();
+}
+function openTitleMode(mode) {
+  S.titleMode = mode;
+  if ((mode === 'new' || mode === 'load' || mode === 'challenge') && !S.titleData) {
+    showTitle().then(() => { S.titleMode = mode; renderTitle(); });
+    return;
+  }
+  showTitleShell();
+}
+function backTitle() {
+  if (S.view && !S.generating) {
+    hideTitle();
+    paint();
+    renderMain();
+    return;
+  }
+  S.titleMode = 'menu';
+  S.generating = false;
+  renderTitle();
+}
+function adopt(view) {
+  S.view = view;
+  S.page = 'life';
+  S.arg = '';
+  S.generating = false;
+  hideTitle();
+  if (!S.selected) {
+    const mine = view.quotes?.find((q) => q.issuer === view.firm);
+    S.selected = mine?.instr || view.quotes?.[0]?.instr || '';
+  }
+  if (location.hash !== '#life') location.hash = 'life';
+  paint();
+  renderMain();
+}
 async function startScenario(id, cash, difficulty) {
   const body = { id };
   if (cash !== undefined && Number.isFinite(cash)) body.cash = cash;
   if (difficulty !== undefined && Number.isFinite(difficulty)) body.difficulty = difficulty;
-  note('opening the city…', false);
+  beginProgress('Writing the city…');
   const res = await fetch('/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const data = await res.json();
-  if (!res.ok) { note(data.error || 'could not start', true); return; }
-  S.gate = false;
-  S.view = data.view;
-  S.page = 'desk';
-  S.arg = '';
-  location.hash = 'desk';
-  note(data.view?.scenario?.name || id, false);
-  paint();
-  renderMain();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    S.generating = false;
+    if (S.gen) S.gen.error = data.error || 'could not start';
+    renderTitle();
+    return;
+  }
+  if (data.view) adopt(data.view);
 }
-
-async function showGate(list) {
-  S.gate = true;
-  S.view = null;
-  const main = document.getElementById('main');
-  if (!list?.length) {
-    const res = await fetch('/scenarios');
-    const data = res.ok ? await res.json() : {};
-    list = data.scenarios || [];
+async function startChallenge(code) {
+  beginProgress('Writing the city…');
+  const res = await fetch('/challenge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    S.generating = false;
+    if (S.gen) S.gen.error = data.error || 'could not start';
+    renderTitle();
+    return;
   }
-  if (main) {
-    main.dataset.page = 'gate';
-    main.innerHTML = renderGate(list);
+  if (data.beat && S.gen) S.gen.text = `Writing the city… beat ${money(data.beat)}`;
+  renderTitle();
+}
+async function continueGame() {
+  beginProgress('Reading the save…');
+  S.generating = false;
+  const res = await fetch('/continue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.view) {
+    if (S.gen) S.gen.error = data.error || 'no save to continue';
+    renderTitle();
+    return;
   }
-  paintChrome();
+  adopt(data.view);
+}
+async function openLoad() {
+  const res = await fetch('/saves');
+  const data = res.ok ? await res.json() : { saves: [] };
+  S.titleData = S.titleData || { scenarios: [], saves: [], last: null };
+  S.titleData.saves = data.saves || [];
+  S.titleData.last = S.titleData.saves[0] || S.titleData.last || null;
+  S.titleMode = 'load';
+  showTitleShell();
+}
+async function loadGame(id) {
+  beginProgress('Reading the save…');
+  S.generating = false;
+  const res = await fetch('/load', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.view) {
+    if (S.gen) S.gen.error = data.error || 'could not load';
+    renderTitle();
+    return;
+  }
+  adopt(data.view);
+}
+async function saveGame() {
+  if (!S.view) { note('nothing to save', true); return; }
+  const res = await fetch('/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { note(data.error || 'could not save', true); return; }
+  note(`saved ${data.save?.label || ''} ${data.save?.date || ''}`.trim(), false);
+}
+function onGen(msg) {
+  if (!S.gen) S.gen = { lines: [], text: '', pct: 0, error: '', count: 0 };
+  if (msg.phase === 'line') {
+    const line = `Year ${msg.year}: ${msg.text}`;
+    S.gen.lines.push(line);
+    if (S.gen.lines.length > 40) S.gen.lines.shift();
+    S.gen.count = (S.gen.count || 0) + 1;
+    S.gen.pct = Math.min(90, 8 + S.gen.count);
+    S.gen.text = line;
+  } else if (msg.phase === 'open') {
+    S.gen.text = msg.text || 'Writing the city…';
+    if ((S.gen.pct || 0) < 6) S.gen.pct = 6;
+  } else if (msg.phase === 'phase') {
+    S.gen.text = msg.text || S.gen.text;
+    if (/Saving/.test(msg.text || '')) S.gen.pct = 92;
+  } else if (msg.phase === 'read') {
+    S.gen.text = msg.text || 'Reading the city into the books…';
+    S.gen.pct = 96;
+  } else if (msg.phase === 'error') {
+    S.generating = false;
+    S.gen.error = msg.error || 'the city could not be written';
+  } else if (msg.phase === 'ready') {
+    S.gen.pct = 100;
+    S.gen.text = 'The city is open.';
+    S.generating = false;
+    renderTitle();
+    refresh();
+    return;
+  }
+  if (S.titleMode === 'progress') renderTitle();
 }
 
 async function renderMain() {
@@ -1446,6 +1728,13 @@ async function renderMain() {
     main.innerHTML = '<div class="dim">loading the books…</div>';
     return;
   }
+  if (S.page === 'life') {
+    main.innerHTML = renderLife();
+    const feed = main.querySelector('.life-feed');
+    if (feed) feed.scrollTop = feed.scrollHeight;
+    return;
+  }
+  if (S.page === 'people') { main.innerHTML = renderPeople(); return; }
   if (S.page === 'desk') {
     main.innerHTML = renderDesk();
     const cur = S.view?.quotes?.find((x) => x.instr === S.selected) ?? sortedQuotes()[0];
@@ -1598,6 +1887,19 @@ function paint() {
   const main = document.getElementById('main');
   const same = main && main.dataset.page === S.page && (main.dataset.arg || '') === (S.arg || '');
   if (!same) renderMain();
+  else if (S.page === 'life') {
+    const feed = main.querySelector('.life-feed');
+    const near = !feed || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 72;
+    const top = feed ? feed.scrollTop : 0;
+    main.innerHTML = renderLife();
+    const next = main.querySelector('.life-feed');
+    if (next) next.scrollTop = near ? next.scrollHeight : top;
+  }
+  else if (S.page === 'people') {
+    const top = main.scrollTop;
+    main.innerHTML = renderPeople();
+    main.scrollTop = top;
+  }
   else if (S.page === 'desk') patchDesk();
   else if (S.page === 'family' || S.page === 'health') {
     const top = main.scrollTop;
@@ -1633,6 +1935,13 @@ function applyDay(msg) {
   if (msg.heir !== undefined) S.view.heir = msg.heir;
   if (msg.healthPanel) S.view.healthPanel = msg.healthPanel;
   if (msg.alerts) S.view.alerts = msg.alerts;
+  if (msg.stats) S.view.stats = msg.stats;
+  if (msg.feed) S.view.feed = msg.feed;
+  if (msg.speed) S.view.speed = msg.speed;
+  if (Object.prototype.hasOwnProperty.call(msg, 'pause')) S.view.pause = msg.pause;
+  if (S.view.choices) {
+    for (const c of S.view.choices) if (c.left > 0) c.left -= 1;
+  }
   if (msg.companies) S.view.companies = msg.companies;
   if (S.view.tape) {
     S.view.tape.index = msg.index;
@@ -1644,6 +1953,7 @@ function applyDay(msg) {
       const n = by.get(q.instr);
       if (!n) continue;
       q.px = n.px; q.prev = n.prev; q.chg = n.chg; q.vol = n.vol;
+      if (n.spark) q.spark = n.spark;
     }
   }
   if (msg.shares) S.view.shares = msg.shares;
@@ -1676,16 +1986,24 @@ async function refresh() {
   const res = await fetch('/view');
   if (res.status === 409) {
     const data = await res.json().catch(() => ({}));
-    if (data.need === 'scenario') { await showGate(data.scenarios); return; }
+    if (data.need === 'scenario') {
+      if (S.generating) return;
+      await showTitle();
+    }
+    return;
   }
   if (!res.ok) return;
-  S.gate = false;
-  S.view = await res.json();
-  if (!S.selected) {
-    const mine = S.view.quotes?.find((q) => q.issuer === S.view.firm);
-    S.selected = mine?.instr || S.view.quotes?.[0]?.instr || '';
+  const wasGate = S.gate;
+  const view = await res.json();
+  if (wasGate) adopt(view);
+  else {
+    S.view = view;
+    if (!S.selected) {
+      const mine = S.view.quotes?.find((q) => q.issuer === S.view.firm);
+      S.selected = mine?.instr || S.view.quotes?.[0]?.instr || '';
+    }
+    paint();
   }
-  paint();
 }
 
 function move(dir) {
@@ -1715,9 +2033,10 @@ document.addEventListener('keydown', (ev) => {
     if (typing) document.activeElement.blur();
     return;
   }
-  if (typing) return;
-  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'firms', 'f': 'family', 'F': 'family', 'o': 'options', 'O': 'options', 'p': 'homes', 'P': 'homes', 'g': 'health', 'G': 'health', 't': 'boards', 'T': 'boards', '?': 'help' };
-  if (goKey[ev.key]) { go(goKey[ev.key]); return; }
+  if (typing || S.gate) return;
+  for (const [id, , key] of PAGES) {
+    if (ev.key === key || ev.key === key.toLowerCase()) { go(id); return; }
+  }
   if (ev.key === 'j' || ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
   else if (ev.key === 'k' || ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }
   else if (ev.key === 'b') { S.side = 'buy'; paintSides(); }
@@ -1730,6 +2049,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 window.addEventListener('hashchange', () => {
+  if (S.gate) return;
   const r = route();
   S.page = r.page;
   S.arg = r.arg;
@@ -1754,4 +2074,23 @@ es.addEventListener('books', (ev) => {
     paintChrome();
   } catch { /* ignore */ }
 });
-es.onopen = () => { if (S.view) refresh(); };
+es.addEventListener('gen', (ev) => { try { onGen(JSON.parse(ev.data)); } catch { /* ignore a bad frame */ } });
+es.addEventListener('speed', (ev) => {
+  try {
+    const data = JSON.parse(ev.data);
+    if (S.view) {
+      S.view.speed = data.speed || S.view.speed;
+      if (data.why && !data.quiet) S.view.pause = { why: data.why, eventId: data.eventId };
+    }
+    if (data.why && !data.quiet) note(data.why, false);
+    paintChrome();
+  } catch { /* ignore */ }
+});
+es.addEventListener('saved', (ev) => {
+  try {
+    const data = JSON.parse(ev.data);
+    if (data.error) note('autosave failed: ' + data.error, true);
+    else note(`saved ${data.label || 'autosave'}`, false);
+  } catch { /* ignore */ }
+});
+es.onopen = () => { if (S.view && !S.generating) refresh(); };
