@@ -2,7 +2,8 @@
 // Prices come from a price-time order book, not from a random walk. Funds and households are ledger
 // actors; a fill moves shares one way and deposits the other, through pay(). Microstructure noise
 // (timing, size) is the only use of w.rng('mkt:...'). Fair values and trade direction are not random.
-import { BANK, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
+import { BANK, CAPITAL, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
+import { GOODS } from '../economy/content.ts';
 import { type Module, type World } from '../../kernel/index.ts';
 
 const SHARES = 1_000_000;
@@ -259,7 +260,12 @@ function goodPrice(s: EconState, good: string): number {
 /** Mark goods at the producing firms' prices. Claims and money are already at face inside netWorth. */
 function bookEquity(w: World, actor: string): number {
   const s = econ(w);
-  return Math.round(w.ledger.netWorth(actor, (instr) => instr.startsWith('good:') ? goodPrice(s, instr.slice(5)) : 0));
+  // Installed machinery is worth what it costs to replace (the price corporate pays per unit in buyMachines);
+  // left at zero, every firm financed by a plant loan opens with negative equity and a one-cent share.
+  const f = s.firms.find((x) => x.id === actor);
+  const def = f ? GOODS[f.good] : undefined;
+  const capPx = def ? 360 * s.wage / Math.max(0.01, def.prod) : 0;
+  return Math.round(w.ledger.netWorth(actor, (instr) => instr.startsWith('good:') ? goodPrice(s, instr.slice(5)) : instr === CAPITAL ? capPx : 0));
 }
 
 function discount(policy: number, premium: number): number { return Math.max(0.04, policy + premium); }
