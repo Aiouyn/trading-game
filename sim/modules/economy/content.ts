@@ -42,6 +42,29 @@ export const SHOCKS: ShockDef[] = of('SHOCK').map((r) => {
   return { id: r.raw.id, chance: r.num('CHANCE'), days: r.num('DAYS'), text: r.str('TEXT'), prod, demand };
 });
 
+// Opening trade, read from the same raws the rest-of-world module uses, so staffing matches the first day's
+// orders: imports cover part of input purchases when the foreign good starts cheaper, and exports are a
+// fraction of home output when the opening prices are in the file.
+function openingTrade(): { importShare: Record<string, number>; exportFrac: Record<string, number> } {
+  const importShare: Record<string, number> = {}, exportFrac: Record<string, number> = {};
+  const world = of('WORLD')[0];
+  if (!world) return { importShare, exportFrac };
+  const discount = world.num('DISCOUNT', 0), spread = world.num('SPREAD', 0), elasticity = world.num('ELASTICITY', 1);
+  const importDefault = world.num('IMPORT_SHARE', 0), exportDefault = world.num('EXPORT_SHARE', 0);
+  const landedBeats = (1 - discount) * (1 + spread / 2) < 1;
+  const rel = 1 - discount;
+  const expK = rel > 0 ? rel ** elasticity : 0; // day 0 activity is 1, and the opening rate makes this the relative price
+  for (const t of of('TRADED')) {
+    const flow = t.str('FLOW');
+    const share = t.num('SHARE', flow === 'import' ? importDefault : exportDefault);
+    if (!GOODS[t.raw.id]) throw new Error(`${t.where()}: unknown good ${t.raw.id}`);
+    if (flow === 'import' && landedBeats) importShare[t.raw.id] = share;
+    else if (flow === 'export' && expK > 0) exportFrac[t.raw.id] = share * expK;
+  }
+  return { importShare, exportFrac };
+}
+export const OPEN_TRADE = openingTrade();
+
 const ceo = of('POSITION').find((r) => r.raw.id === 'CHIEF_EXECUTIVE');
 if (!ceo) throw new Error('positions: CHIEF_EXECUTIVE is required');
 export const CEO_POSITION: PositionDef = { id: 'CHIEF_EXECUTIVE', name: ceo.str('NAME'), removeAfter: ceo.num('REMOVE_AFTER_LOSING_MONTHS'), retireAge: ceo.num('RETIRE_AGE') };

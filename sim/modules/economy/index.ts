@@ -10,7 +10,7 @@
 // Later modules replace parts of this (markets, firm detail, banking); the pattern to copy is:
 // state in w.state.economy, money only through the ledger, every event with a cause.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
-import { CEO_POSITION, FIRM_DEFS, GOODS, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
+import { CEO_POSITION, FIRM_DEFS, GOODS, OPEN_TRADE, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
 import { People, PRISON, joinFirm, leaveJob, seekCopy, seekCount, seekLive, seekPromote, seekRebuild, seekReset, setSimDay, succession, thought, yearlyLifePass } from './people.ts';
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
@@ -307,26 +307,69 @@ export const economy: Module = {
     for (let i = 0; i < P.n; i++) if (P.adult(w, i)) workforce.push(i);
     s.laborForce = workforce.length;
 
-    // Firms, staffed by named people. Staffing is calibrated from the recipes: price every good at cost plus markup,
-    // turn household and government budgets into final demand, add what producers need of each other (the input chain),
-    // and hire enough people to make it. The most skilled hire becomes the first chief executive.
+    // Firms, staffed by named people. Prices are cost plus the normal markup. The opening budgets are the
+    // ones the daily rules will actually spend: after-tax wages and benefits, and government purchases
+    // funded by the tax on those wages and on profits. Founding debt takes the after-tax profit, so it is
+    // not household income yet. Staff and stocks match that demand.
     const price0: Record<string, number> = {};
-    for (const g of Object.values(GOODS)) price0[g.good] = wage / g.prod;
-    for (let it = 0; it < 200; it++) for (const g of Object.values(GOODS)) {
-      let c = wage / g.prod; for (const [i, k] of Object.entries(g.inputs)) c += k * price0[i];
-      price0[g.good] = c * MARKUP;
+    for (const gd of Object.values(GOODS)) price0[gd.good] = wage / gd.prod;
+    for (let it = 0; it < 200; it++) for (const gd of Object.values(GOODS)) {
+      let c = wage / gd.prod; for (const [i, k] of Object.entries(gd.inputs)) c += k * price0[i];
+      price0[gd.good] = c * MARKUP;
     }
-    const gross: Record<string, number> = {}, final: Record<string, number> = {};
-    for (const g of Object.values(GOODS)) final[g.good] = (g.share * 1 + g.gov * 0.2) / price0[g.good];
-    for (const g of Object.values(GOODS)) gross[g.good] = final[g.good];
-    for (let it = 0; it < 200; it++) {
-      const next: Record<string, number> = { ...final };
-      for (const g of Object.values(GOODS)) for (const [i, k] of Object.entries(g.inputs)) next[i] += k * gross[g.good];
-      Object.assign(gross, next);
-    }
-    const labour = Object.values(GOODS).reduce((t, g) => t + gross[g.good] / g.prod, 0);
     const skills = workforce.reduce((t, p) => t + P.skill[p], 0);
-    const scale = 0.9 * skills / labour;
+    const thrift0 = Math.max(0.88, 1 - 0.8 * Math.max(0, s.policyRate - 0.02));
+    let cySum = 0; for (const p of workforce) cySum += P.cY[p];
+    const mpc = cySum / Math.max(1, workforce.length) * thrift0;
+    // Days of a person's own gross wage at which an average adult spends the whole after-tax wage and no more.
+    const saveDays = (1 - INCOME_TAX) * (1 - mpc) / 0.001;
+    const owners = [...workforce].sort((a, b) => P.skill[b] - P.skill[a] || a - b).slice(0, Math.max(10, Math.round(workforce.length * 0.05)));
+    const wsum = owners.reduce((t, p) => t + P.skill[p] ** 3, 0);
+    let eSkill = (1 - NATURAL_UNEMP) * skills;
+    const chain = (hhW: number, govW: number): { labour: number; revenue: number; finalV: number; gross: Record<string, number> } => {
+      const gross: Record<string, number> = {}, fin: Record<string, number> = {};
+      for (const gd of Object.values(GOODS)) { fin[gd.good] = (gd.share * hhW + gd.gov * govW) / price0[gd.good]; gross[gd.good] = fin[gd.good]; }
+      for (let it = 0; it < 200; it++) {
+        const nxt: Record<string, number> = { ...fin };
+        for (const gd of Object.values(GOODS)) for (const [i, k] of Object.entries(gd.inputs)) nxt[i] += k * gross[gd.good] * (1 - (OPEN_TRADE.importShare[i] ?? 0));
+        for (const [i, x] of Object.entries(OPEN_TRADE.exportFrac)) nxt[i] += x * gross[i];
+        Object.assign(gross, nxt);
+      }
+      let labour = 0, revenue = 0, finalV = 0;
+      for (const gd of Object.values(GOODS)) { labour += gross[gd.good] / gd.prod; revenue += gross[gd.good] * price0[gd.good]; finalV += fin[gd.good] * price0[gd.good]; }
+      return { labour, revenue, finalV, gross };
+    };
+    let hhW = 1, govW = 0.2, scale = 1, plannedFinal = 0;
+    let gross: Record<string, number> = {};
+    let eFrac = 1 - NATURAL_UNEMP;
+    for (let it = 0; it < 12; it++) {
+      eSkill = eFrac * skills;
+      const onPayroll = new Set<number>();
+      { let acc = 0; for (const p of workforce) { if (acc >= eSkill) break; onPayroll.add(p); acc += P.skill[p]; } }
+      const ch = chain(hhW, govW);
+      scale = eSkill / Math.max(1e-9, ch.labour);
+      gross = ch.gross;
+      const Wplan = eSkill * wage;
+      const pi = scale * ch.revenue * (1 - 1 / MARKUP);
+      let Cw = 0;
+      for (const p of workforce) {
+        const sk = P.skill[p];
+        const inc = onPayroll.has(p) ? wage * sk * (1 - INCOME_TAX) : wage * BENEFIT_RATE * Math.min(1, sk);
+        Cw += P.cY[p] * thrift0 * inc + 0.001 * wage * sk * saveDays;
+      }
+      const liquidPlan = Wplan * 30 * 0.6;
+      const C = Cw + 0.001 * liquidPlan;
+      const householdPlan = saveDays * skills * wage;
+      const endowPlan = householdPlan + Wplan * 30 + Wplan * 8 + liquidPlan + Wplan * 10;
+      const Gbase = Wplan * INCOME_TAX + pi * PROFIT_TAX - endowPlan * s.policyRate / 360 - NATURAL_UNEMP * workforce.length * wage * BENEFIT_RATE;
+      const room = workforce.length * wage;
+      const V = scale * ch.finalV;
+      const need = (V - C - Gbase) / room;
+      const fiscalPlan = Math.max(-0.08, Math.min(0.20, need));
+      const G = Gbase + fiscalPlan * room;
+      plannedFinal = V;
+      hhW = C / Math.max(1e-9, scale); govW = Math.max(0, G) / Math.max(1e-9, scale);
+    }
     let next = 0;
     for (const def of FIRM_DEFS) {
       const d = GOODS[def.good], rivals = FIRM_DEFS.filter((x) => x.good === def.good).length;
@@ -347,21 +390,48 @@ export const economy: Module = {
       f.price = price0[d.good]; f.unitCost = price0[d.good] / MARKUP;
     }
     s.hirePtr = 0;
-    for (const f of s.firms) { f.mPrice0 = f.price; f.mUnitCost0 = f.unitCost; if (!GOODS[f.good].perishable) L.produce('good:' + f.good, f.id, f.expSales * INV_DAYS, 'genesis', g); }
+    for (const f of s.firms) {
+      f.mPrice0 = f.price; f.mUnitCost0 = f.unitCost;
+      if (GOODS[f.good].perishable) continue;
+      // The same shelf a chief will aim at on day one. A flat five days sits above a prudent chief's target,
+      // and the firm then cuts staff to work the pile down.
+      const days = f.ceo >= 0 ? INV_DAYS * (0.7 + 0.6 * (0.98 - P.cY[f.ceo]) / 0.18) : INV_DAYS;
+      L.produce('good:' + f.good, f.id, f.expSales * days, 'genesis', g);
+    }
 
     // All money starts as bank credit to the government. It endows every adult with savings, and gives the
     // founding owners (the top 5% by skill, the chief executives first) the capital they put into the firms and the bank.
     const SHARES = 10_000; // few enough that a share costs dollars, not cents: prices are whole cents
-    const dailyWages = s.firms.reduce((t, f) => t + f.eff, 0) * wage;
-    const owners = [...workforce].sort((a, b) => P.skill[b] - P.skill[a] || a - b).slice(0, Math.max(10, Math.round(workforce.length * 0.05)));
-    const wsum = owners.reduce((t, p) => t + P.skill[p] ** 3, 0);
     const capital = (f: Firm): number => Math.round(f.eff * wage * 30);
-    const bankCap = Math.round(dailyWages * 40);
     const firmCap = s.firms.reduce((t, f) => t + capital(f), 0);
+    const dailyWages0 = s.firms.reduce((t, f) => t + f.eff, 0) * wage;
     const liquid = Math.round(firmCap * 0.6); // the owners' financial savings, which seed the investment funds
-    const endow = Math.round(dailyWages * 75) + firmCap + bankCap + liquid;
+    let household = 0;
+    for (const p of workforce) household += Math.round(wage * P.skill[p] * saveDays);
+    const govBuffer = Math.round(dailyWages0 * 10);
+    const rest = household + firmCap + liquid + govBuffer;
+    // Two years of each firm's own after-tax profit. A wage-sized loan is repaid in a month by a firm whose
+    // revenue is mostly materials, and that firm then pays the profit out. The matching deposits sit with the
+    // vault: they are not spent and they do not retire the public debt.
+    const coverMonths = 24;
+    const loanFor = (f: Firm): number => {
+      const profit = f.expSales * f.price * (1 - 1 / MARKUP) * (1 - PROFIT_TAX);
+      let cover = profit * 30 * coverMonths;
+      // Worn machines are ordered once a month, so a machinery firm's profit arrives as a lump the opening
+      // sales forecast does not contain. The loan has to be able to take that lump.
+      if (f.good === 'MACHINERY') {
+        const rivals = Math.max(1, s.firms.filter((x) => x.good === 'MACHINERY').length);
+        const wageBill = s.firms.reduce((t, x) => t + x.eff, 0) * wage;
+        const repl = 0.288 * wageBill * (1 - 1 / MARKUP) * (1 - PROFIT_TAX) / rivals;
+        cover = Math.max(cover, repl * 30 * coverMonths);
+      }
+      return Math.round(cover);
+    };
+    const loansEst = s.firms.reduce((t, f) => t + loanFor(f), 0);
+    const bankCap = Math.max(Math.round(dailyWages0 * 8), Math.round((0.12 * loansEst + 0.04 * rest) / 0.96));
+    const endow = rest + bankCap;
     L.issue(BOND, BANK, endow, 'genesis', g); L.issue(DEP, GOV, endow, 'genesis', g);
-    for (const p of workforce) { payS(w, s, s.govSlot, P.slot[p], Math.round(wage * P.skill[p] * 60), 'genesis.endowment', g); P.incEma[p] = wage * P.skill[p] * (1 - INCOME_TAX); }
+    for (const p of workforce) payS(w, s, s.govSlot, P.slot[p], Math.round(wage * P.skill[p] * saveDays), 'genesis.endowment', g);
     const float = (issuer: string, cents: number, lead: number): void => {
       let left = SHARES, paid = 0;
       owners.forEach((p, k) => {
@@ -390,7 +460,34 @@ export const economy: Module = {
     for (const p of owners) payS(w, s, s.govSlot, P.slot[p], Math.floor(liquid * P.skill[p] ** 3 / wsum), 'genesis.endowment', g);
     for (const f of s.firms) if (f.family) { const lead = leadOf(f); if (P.employer[lead] !== f.idx) joinFirm(s, lead, f); f.ceo = lead; }
     s.investors = owners.slice(0, 300).map((p, k) => ({ id: P.id(p), target: 0.6 - 0.3 * k / 300 }));
+    let profitDaily = 0, charter = 0;
+    for (const f of s.firms) {
+      profitDaily += f.expSales * f.price * (1 - 1 / MARKUP) * PROFIT_TAX;
+      const principal = loanFor(f);
+      if (principal > 0) { L.issue('loan:' + f.id, BANK, principal, 'genesis', g); charter += principal; }
+    }
+    if (charter > 0) { L.addActor('vault', 'vault'); L.issue(DEP, 'vault', charter, 'genesis', g); }
+    for (const p of workforce) {
+      const sk = P.skill[p];
+      P.incEma[p] = P.employer[p] >= 0 ? wage * sk * (1 - INCOME_TAX) : wage * BENEFIT_RATE * Math.min(1, sk);
+    }
+    const dailyWages = s.firms.reduce((t, f) => t + f.eff, 0) * wage;
     s.taxEma = dailyWages * INCOME_TAX;
+    s.profitTaxDaily = profitDaily;
+    let openingSpend = 0;
+    for (const p of workforce) openingSpend += P.cY[p] * thrift0 * P.incEma[p] + 0.001 * L.balS(P.slot[p], DEP);
+    const coupon0 = (L.issued.get(BOND) ?? 0) * s.policyRate / 360;
+    const benefitProv = NATURAL_UNEMP * workforce.length * wage * BENEFIT_RATE;
+    const govBase = s.taxEma + s.profitTaxDaily - coupon0 - benefitProv;
+    const hiredSkill = dailyWages / wage;
+    const targetFinal = plannedFinal * (hiredSkill / Math.max(1e-9, eSkill));
+    s.fiscal = Math.max(-0.08, Math.min(0.20, (targetFinal - openingSpend - govBase) / (workforce.length * wage)));
+    // Remembered income starts a little high and the memory fades within a month, which keeps the second month
+    // from cutting staff. It is not counted in the fiscal sum above.
+    for (const p of workforce) P.incEma[p] *= 1.05;
+    const employedN = s.firms.reduce((t, f) => t + f.staff.length, 0);
+    s.unemployment = Math.max(0, 1 - employedN / Math.max(1, workforce.length));
+    s.uEma = s.unemployment;
     s.cpiBase = cpiLevel(s); s.cpiHist.push(1);
   },
 
