@@ -40,6 +40,7 @@ export function parseCommand(line: string, employer: string): Command | { error:
   if (!t.length) return { error: 'empty' };
   const head = t[0].toLowerCase();
   if (head === 'help') return { kind: 'help', command: t.slice(1).join(' ') };
+  if (head === 'sheet') return { kind: 'sheet' };
   if (head === 'story' || head === 'chronicle') return { kind: 'story' };
   if (head === 'sell' && t.length === 2 && /^\d+$/.test(t[1])) return { kind: 'homesell', id: Number(t[1]) };
   if (head === 'buy' || head === 'sell' || head === 'short') {
@@ -368,9 +369,32 @@ function over(w: World): boolean {
   return v.over || !v.alive;
 }
 
-function show(w: World): void {
+function narrate(w: World, seen: { story: number; step: string; hint: string }, stories: boolean): void {
+  const v = view(w);
+  if (stories) {
+    for (const s of v.story.slice(seen.story)) console.log(`story [day ${s.day}] ${s.text}`);
+    seen.story = v.story.length;
+  }
+  const t = v.tutorial;
+  if (!t) return;
+  if (t.step === seen.step && t.hint === seen.hint) return;
+  if (!t.done && t.hint) console.log(`  lesson: ${t.goal}. ${t.hint}`);
+  else if (t.goal && t.step !== seen.step) console.log(`  lesson: ${t.goal}`);
+  seen.step = t.step;
+  seen.hint = t.hint;
+}
+
+function dumpStory(w: World): void {
+  const lines = view(w).story;
+  console.log('\nStory');
+  if (!lines.length) console.log('(no story yet)');
+  for (const s of lines) console.log(`story [day ${s.day}] ${s.text}`);
+}
+
+function show(w: World, seen: { story: number; step: string; hint: string }): void {
   for (const line of blurb(w)) console.log(line);
   for (const line of summary(view(w))) console.log(line);
+  narrate(w, seen, true);
   const hint = hintLine(w);
   if (hint) console.log(`  hint: ${hint}`);
 }
@@ -412,12 +436,14 @@ async function main(): Promise<void> {
   if (open.length) { console.error(`BOOKS DO NOT BALANCE:\n  ${open.slice(0, 8).join('\n  ')}`); process.exit(1); }
   let failed: string | undefined;
   let stepped = false;
+  const seen = { story: 0, step: '', hint: '' };
   const runLine = (line: string): boolean => {
     const employer = view(w).firm;
     const cmd = parseCommand(line, employer);
     if ('error' in cmd) { console.log(cmd.error); return true; }
     const res = act(w, cmd);
     printResult(res);
+    narrate(w, seen, false);
     if (res.books) { failed = res.books; console.error(`BOOKS DO NOT BALANCE: ${res.books}`); return false; }
     if (res.status === 'accepted' && res.days) {
       stepped = true;
@@ -429,13 +455,14 @@ async function main(): Promise<void> {
           if (v.final) console.log(v.final);
           console.log('The game is over.');
         }
+        narrate(w, seen, true);
         return false;
       }
-      show(w);
+      show(w, seen);
     }
     return !over(w);
   };
-  show(w);
+  show(w, seen);
   console.log('type help');
   if (script) {
     const text = fs.readFileSync(script, 'utf8');
@@ -454,7 +481,6 @@ async function main(): Promise<void> {
       const line = raw.trim();
       if (!line) { console.log(END); continue; }
       if (line === 'quit') break;
-      if (line === 'sheet') { for (const s of sheet(view(w))) console.log(s); console.log(END); continue; }
       const goOn = runLine(line);
       if (!goOn || over(w) || failed) break;
       console.log(END);
@@ -465,16 +491,15 @@ async function main(): Promise<void> {
     while (!over(w) && !failed) {
       const line = (await rl.question('> ')).trim();
       if (!line) continue;
-      if (line === 'quit' || line === 'sheet') {
-        if (line === 'sheet') for (const s of sheet(view(w))) console.log(s);
-        if (line === 'quit') break;
-        continue;
-      }
+      if (line === 'quit') break;
       if (line === 'view') { console.log(JSON.stringify(view(w))); continue; }
       if (!runLine(line)) break;
     }
     rl.close();
   }
+  dumpStory(w);
+  const lesson = view(w).tutorial;
+  console.log(`lesson ${lesson.step} done=${lesson.done}`);
   for (const s of sheet(view(w))) console.log(s);
   if (failed) process.exit(1);
   if (save) writeSnapshot(save, w);

@@ -15,7 +15,9 @@ import { matchOption, optionChain, tradeOption, type OptRow } from '../options/i
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
-import { choiceSpec, coolLeft, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
+import { choiceSpec, coolLeft, dollars, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
+import { storyLines, tellWeek, type StoryLine } from './story.ts';
+import { noteAct, skipTutorial, tutorialOf, type TutorialState, type TutorialView } from './tutorial.ts';
 
 export const PLAYER = 8;
 
@@ -53,6 +55,8 @@ export interface PlayerSeat {
   trend: Partial<Record<StatId, -1 | 0 | 1>>;
   words: Partial<Record<StatId, string>>;
   cool: Partial<Record<ChoiceId, number>>;
+  story: StoryLine[];
+  tutor: TutorialState | null;
 }
 
 /** One entry in the command log. The day is the day the command was issued, before a wait advances the clock. */
@@ -133,7 +137,8 @@ export type Command =
   | { kind: 'tip'; fact: number }
   | { kind: 'report'; slot: number; text: string }
   | { kind: 'hints'; on: boolean }
-  | { kind: 'story' };
+  | { kind: 'story' }
+  | { kind: 'sheet' };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -198,6 +203,10 @@ export interface PlayerView {
   };
   homes: HomeRow[];
   chain: OptRow[];
+  /** The last 200 weekly lines that reached this player, each with its cause. */
+  story: { day: number; text: string; eventId: number; weight: number }[];
+  /** The first-paycheck lesson. `done` is true when it is finished, skipped, or this is not that scenario. */
+  tutorial: TutorialView;
 }
 
 const COMMANDS: { topic: string; name: string; use: string; about: string }[] = [
@@ -249,8 +258,9 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'life', name: 'clinic', use: 'clinic', about: 'See a doctor. Health rises.\nIt costs money, and the clinic will not see you again for a season.' },
   { topic: 'life', name: 'overtime', use: 'overtime', about: 'Work extra days. Cash rises.\nStress rises with it, and the firm will not pay it again for a month.' },
   { topic: 'time', name: 'wait', use: 'wait 1m', about: 'Let the city run for 1d, 1w, 1m or 1y.\nThe books are checked as the days pass.' },
-  { topic: 'help', name: 'help', use: 'help call', about: 'Explain one command in a few lines.\nhelp alone lists every command by topic.' },
-  { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nThey show for the first months of a taught scenario.' },
+  { topic: 'help', name: 'help', use: 'help bank', about: 'Explain one topic, using your own numbers.\nhelp alone lists every command by topic, with one example each.' },
+  { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nhints off also skips the first-paycheck lesson.' },
+  { topic: 'help', name: 'sheet', use: 'sheet', about: 'Read your balance sheet: cash, what you own, and what you owe.\nIt is the first thing the lesson asks you to do.' },
   { topic: 'help', name: 'story', use: 'story', about: 'Write the chronicle of this life: what mattered, the family, the firms, and the city.\nThe same account is written at the end of a game.' },
 ];
 
@@ -282,23 +292,114 @@ export function suggestCommand(head: string): string {
   return `did you mean ${best}?`;
 }
 
-export function helpLines(which: string): string[] {
+function sheetLines(v: PlayerView): string[] {
+  const lines = ['Balance sheet', `  cash ${dollars(v.cash)}`, `  net worth ${dollars(v.netWorth)}`];
+  for (const d of v.deposits) lines.push(`  deposit ${d.bank} ${dollars(d.cents)}`);
+  for (const s of v.shares) lines.push(`  ${s.instr} ${s.qty} @ ${dollars(s.px)} = ${dollars(s.qty * s.px)}`);
+  for (const l of v.loans) lines.push(`  loan ${l.kind} ${dollars(l.owed)} @ ${(l.rate * 100).toFixed(2)}%`);
+  if (!v.deposits.length && !v.shares.length && !v.loans.length) lines.push('  nothing on deposit, no shares, no loan');
+  return lines;
+}
+
+function helpSymbol(v: PlayerView): string {
+  const held = v.shares[0];
+  if (held) return held.instr.startsWith('eq:') ? held.instr.slice(3) : held.instr;
+  const priced = v.prices.filter((p) => p.instr.startsWith('eq:') && p.px >= 100 && p.px <= v.cash);
+  priced.sort((a, b) => b.px - a.px);
+  if (priced[0]) return priced[0].instr.startsWith('eq:') ? priced[0].instr.slice(3) : priced[0].instr;
+  return v.firm || 'silicrest';
+}
+
+function helpSituation(v: PlayerView, topic: string): string {
+  const cash = dollars(v.cash);
+  switch (topic) {
+    case 'markets': {
+      const held = v.shares.map((s) => `${s.qty} ${s.instr} at ${dollars(s.px)}`).join(', ');
+      return held ? `You have ${cash} in cash and ${held}.` : `You have ${cash} in cash and no shares.`;
+    }
+    case 'bonds': {
+      const face = v.bonds.reduce((a, b) => a + b.face, 0);
+      return face ? `You have ${cash} in cash and ${dollars(face)} face of bonds.` : `You have ${cash} in cash and no bonds.`;
+    }
+    case 'futures':
+      return v.futures.length
+        ? `You have ${v.futures.length} futures open and ${dollars(v.marginPosted)} posted as margin.`
+        : `You have no futures. Cash is ${cash}.`;
+    case 'options': {
+      const open = v.chain.filter((c) => c.net);
+      return open.length ? `You have ${open.length} option contracts open. Cash is ${cash}.` : `You have no options open. Cash is ${cash}.`;
+    }
+    case 'coins':
+      return v.coins.length
+        ? `You hold ${v.coins.map((c) => `${c.qty} ${c.name}`).join(', ')}. Cash is ${cash}.`
+        : `You hold no coins. Cash is ${cash}.`;
+    case 'bank': {
+      const dep = v.deposits.reduce((a, d) => a + d.cents, 0);
+      const owed = v.loans.reduce((a, l) => a + l.owed, 0);
+      const bits = [`You have ${cash} in cash`];
+      bits.push(dep ? `${dollars(dep)} on time deposit` : 'no time deposit');
+      bits.push(owed ? `and you owe ${dollars(owed)}` : 'and you owe nothing');
+      return bits.join(', ') + '.';
+    }
+    case 'property': {
+      const mine = v.homes.filter((h) => h.mine || h.live);
+      return mine.length
+        ? `You have ${mine.map((h) => `#${h.id} ${h.neighbourhood} at ${dollars(h.price)}`).join(', ')}. Cash is ${cash}.`
+        : `You own no home. Cash is ${cash}.`;
+    }
+    case 'people': {
+      const c = v.contacts[0];
+      return c ? `Contact 0 is ${c.name}. ${c.line}.` : 'You have no contacts yet.';
+    }
+    case 'company':
+      return v.employer
+        ? `You work at ${v.employer} (${v.firm}). Cash is ${cash}. Net worth is ${dollars(v.netWorth)}.`
+        : `You have no employer. Cash is ${cash}. Net worth is ${dollars(v.netWorth)}.`;
+    case 'news': {
+      const n = v.news[v.news.length - 1];
+      const s = v.story[v.story.length - 1];
+      return s ? `The latest line in your story is: ${s.text}` : n ? `The latest paper line is: ${n.text}` : 'Nothing has reached you yet.';
+    }
+    case 'life': {
+      const stress = v.stats.find((s) => s.id === 'stress');
+      const health = v.stats.find((s) => s.id === 'health');
+      return `You are ${health?.word ?? 'unknown'} in health and ${stress?.word ?? 'unknown'} in stress. Cash is ${cash}.`;
+    }
+    case 'time':
+      return `It is year ${v.date.year}, month ${v.date.month}, day ${v.date.day}. Cash is ${cash}.`;
+    case 'help':
+      return v.tutorial && !v.tutorial.done ? `The lesson is on “${v.tutorial.goal}”. ${v.tutorial.hint}` : 'help names a topic. hints off skips the lesson.';
+    default:
+      return '';
+  }
+}
+
+export function helpLines(which: string, w?: World, playerId?: string): string[] {
   const q = which.trim().toLowerCase();
+  const v = w ? view(w, playerId) : undefined;
+  const sym = v ? helpSymbol(v) : 'silicrest';
+  const use = (raw: string): string => raw.replace(/silicrest/gi, sym).replace(/frm_north\b/g, sym);
   if (!q) {
     const lines = ['commands'];
     let topic = '';
     for (const c of COMMANDS) {
       if (c.topic !== topic) { topic = c.topic; lines.push(topic); }
-      lines.push(`  ${c.use}`);
+      lines.push(`  ${use(c.use)}`);
     }
-    lines.push('sheet prints the balance sheet. quit leaves.');
+    lines.push('quit leaves.');
     return lines;
   }
-  const hits = COMMANDS.filter((c) => c.name === q);
+  const topicHits = COMMANDS.filter((c) => c.topic === q);
+  const nameHits = COMMANDS.filter((c) => c.name === q);
+  const hits = topicHits.length ? topicHits : nameHits;
   if (!hits.length) return [`no command ${q}. ${suggestCommand(q)}`];
   const lines: string[] = [];
+  if (v) {
+    const situation = helpSituation(v, hits[0].topic);
+    if (situation) lines.push(situation);
+  }
   for (const c of hits) {
-    lines.push(c.use);
+    lines.push(use(c.use));
     for (const part of c.about.split('\n')) lines.push(part);
   }
   return lines;
@@ -338,6 +439,7 @@ const blankSeat = (): PlayerSeat => ({
   line: [], generation: 1, founded: 0, controlled: 0, offices: 0, convictions: 0,
   officeWas: '', seenLaw: [], will: null, chair: -1, handed: -1, final: '', passed: -1,
   counsel: 0, statEv: {}, mark: null, trend: {}, words: {}, cool: {},
+  story: [], tutor: null,
 });
 const blankRoster = (): PlayerState => {
   const heard: Heard[] = [];
@@ -377,6 +479,8 @@ function fillSeat(seat: PlayerSeat): PlayerSeat {
   if (!seat.trend) seat.trend = {};
   if (!seat.words) seat.words = {};
   if (!seat.cool) seat.cool = {};
+  if (!seat.story) seat.story = [];
+  if (seat.tutor === undefined) seat.tutor = null;
   return seat;
 }
 const roster = (w: World): PlayerState => {
@@ -1006,7 +1110,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
   const dead = st.over || !P.alive(i);
   if (dead) {
     st.over = true;
-    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help' && cmd.kind !== 'hints' && cmd.kind !== 'story') return rejected(st.final || 'you have died');
+    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help' && cmd.kind !== 'hints' && cmd.kind !== 'story' && cmd.kind !== 'sheet') return rejected(st.final || 'you have died');
   }
   switch (cmd.kind) {
     case 'order': {
@@ -1130,6 +1234,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
         for (const x of screen.coins) take(x.eventId);
         for (const x of screen.bonds) take(x.eventId);
         for (const x of screen.stats) take(x.eventId);
+        for (const x of screen.story) take(x.eventId);
         take(st.arrived);
         if (!ids.has(id)) return rejected('you have not seen that');
       }
@@ -1344,8 +1449,10 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const heirEv = continueAs(w, i, heir, ev, st);
       return { status: 'accepted', eventId: heirEv, lines: w.events.explain(heirEv, 6), text: `${P.name(heir)} continues the house` };
     }
+    case 'sheet':
+      return { status: 'accepted', lines: sheetLines(view(w, playerId)) };
     case 'help':
-      return { status: 'accepted', lines: helpLines(cmd.command) };
+      return { status: 'accepted', lines: helpLines(cmd.command, w, playerId) };
     case 'opt':
       return { status: 'accepted', lines: optionLines(w, id, cmd.instr) };
     case 'optbuy':
@@ -1433,6 +1540,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const scene = w.state.scenario as { hintsOn?: boolean } | undefined;
       if (!scene) return rejected('this is not a taught scenario');
       scene.hintsOn = cmd.on;
+      if (!cmd.on) skipTutorial(w, st);
       return { status: 'accepted', text: cmd.on ? 'hints on' : 'hints off' };
     }
     case 'story': {
@@ -1455,6 +1563,11 @@ export function act(w: World, playerIdOrCmd: string | Command, cmd?: Command): A
   const row: CommandRecord = { day, playerId, cmd: command, status: result.status };
   if (result.why) row.why = result.why;
   roster(w).log.push(row);
+  if (result.status === 'accepted') {
+    const seat = roster(w).seat[playerId];
+    const i = playerIndex(w, playerId);
+    if (seat && i >= 0) noteAct(w, seat, i, command);
+  }
   return result;
 }
 
@@ -1593,6 +1706,8 @@ export function view(w: World, playerId?: string): PlayerView {
     dynasty: dynastyOf(w, st),
     homes: homeBoard(w, i),
     chain: (process.argv[1] ?? '').includes('worker') ? [] : optionChain(w, id),
+    story: storyLines(st),
+    tutorial: tutorialOf(w, st, i),
   };
 }
 
@@ -1624,6 +1739,7 @@ export const player: Module = {
       }
       noticeBoard(w, st, i);
       noteBoard(w, i, st, Math.round(worth(w, i)));
+      if ((w.day + 1) % 7 === 0) tellWeek(w, st, i);
       if (w.day > 0 && w.day % DAYS_PER_YEAR === 0 && (st.score.length === 0 || st.score[st.score.length - 1].day !== w.day)) {
         ageYear(w, i, st);
         const nw = Math.round(worth(w, i));

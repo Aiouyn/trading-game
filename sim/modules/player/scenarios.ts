@@ -75,6 +75,10 @@ export interface ScenarioRun {
   shockIn: number;
   shockUntil?: number;
   fired: boolean;
+  /** Written from the world at the start: names, firms and numbers, not the catalog line. */
+  opening: string;
+  /** Written when the outcome is set, from the world at that moment. */
+  closing?: string;
 }
 
 export interface ScenarioCard {
@@ -111,6 +115,8 @@ export interface ScenarioLive {
   score?: ScenarioScore;
   code?: string;
   chronicle?: string;
+  opening: string;
+  closing: string;
 }
 
 const contentDir = fileURLToPath(new URL('../../content/', import.meta.url));
@@ -310,6 +316,165 @@ function setCash(w: World, id: string, target: number, cause: number): void {
   }
 }
 
+function named(w: World, i: number): string {
+  const P = econ(w).P;
+  return i >= 0 && i < P.n ? P.name(i) : 'nobody';
+}
+
+function kinLine(w: World, person: number): string {
+  const P = econ(w).P;
+  const bits: string[] = [];
+  const sp = P.spouse[person];
+  if (sp >= 0 && P.alive(sp)) bits.push(`married to ${P.name(sp)}`);
+  const kids = P.kids(person).filter((k) => P.alive(k)).map((k) => P.name(k));
+  if (kids.length === 1) bits.push(`with a child, ${kids[0]}`);
+  else if (kids.length) bits.push(`with children ${kids.join(' and ')}`);
+  return bits.length ? bits.join(', ') : 'with no family in the city';
+}
+
+function jobLine(w: World, person: number): string {
+  const P = econ(w).P;
+  const e = P.employer[person];
+  if (e < 0) return 'holds no job';
+  const f = econ(w).firms[e];
+  return f ? `works at ${f.name}` : 'holds no job';
+}
+
+function familyFirm(w: World, person: number): Firm | undefined {
+  const s = econ(w);
+  return s.firms.find((f) => f.family && !f.closed && f.ceo === person);
+}
+
+/** One paragraph from the city as it stands when the scenario opens. */
+function openingOf(w: World, def: ScenarioDef, person: number, worthCents: number, difficulty: number): string {
+  const P = econ(w).P;
+  const name = P.name(person);
+  const age = P.age(w, person);
+  const cash = money(Math.floor(w.ledger.balance(P.id(person), DEP)));
+  const worth = money(worthCents);
+  const job = jobLine(w, person);
+  const kin = kinLine(w, person);
+  const goal = goalText(def.goal);
+  const clock = def.limit > 0 ? `The clock is ${limitText(def.limit)}.` : 'There is no clock.';
+  switch (def.id) {
+    case 'first-paycheck':
+      return `${name} is ${age} and ${job}, with ${cash} just cleared and nobody in the city who owes a favour. ${clock} The goal is ${goal}.`;
+    case 'the-savings': {
+      const n = contactsOf(w, person).length;
+      return `${name} is ${age} and ${job}. ${cash} already sits in the book, and ${n} people know the name. ${clock} The goal is ${goal}.`;
+    }
+    case 'hostile-takeover': {
+      const id = def.goal.kind === 'firm' ? def.goal.firm : '';
+      const f = id ? firmBy(w, id) : undefined;
+      const firm = f ? `${f.name} (${f.id})` : id || 'the firm';
+      return `${name} arrives at ${age} with ${cash} and no job, meaning to take ${firm}. ${clock} The goal is ${goal}.`;
+    }
+    case 'the-crash': {
+      const shock = SHOCKS.find((s) => s.id === def.shock);
+      const what = shock?.text ?? 'a shock hits the city';
+      return `${name} is ${age}, ${job}, ${kin}, holding ${cash}. The papers are calm. In ${def.shockIn} days, ${what}. ${clock} The goal is ${goal}.`;
+    }
+    case 'family-business': {
+      const f = familyFirm(w, person);
+      const box = f ? money(Math.floor(w.ledger.balance(f.id, DEP))) : cash;
+      const fname = f ? `${f.name} (${f.id})` : 'the family firm';
+      return `${name}, ${age}, inherits ${fname}, ${kin}. The firm's cash box holds ${box}, and the household book shows ${cash}. ${clock} The goal is ${goal}.`;
+    }
+    case 'dynasty':
+      return `${name} is ${age}, ${job}, ${kin}. The point is the name, and the book shows ${worth}. ${clock} The goal is ${goal}.`;
+    case 'the-ministry': {
+      const pol = w.state.politics as { leader?: number; finance?: number; governor?: number; regulator?: number } | undefined;
+      const seats = `${named(w, pol?.leader ?? -1)} holds the leadership, ${named(w, pol?.finance ?? -1)} the finance ministry, ${named(w, pol?.governor ?? -1)} the central bank, and ${named(w, pol?.regulator ?? -1)} the regulator.`;
+      return `${name} is ${age}, holds no office, and keeps ${cash} aside. ${seats} ${clock} The goal is ${goal}.`;
+    }
+    case 'sector-stake': {
+      const sector = def.goal.kind === 'sector' ? def.goal.sector : 'a sector';
+      return `${name} is ${age} with ${cash} and no job, treating ${sector} as a sector rather than one gate. ${clock} The goal is ${goal}.`;
+    }
+    case 'sandbox': {
+      const loan = def.loan / difficulty;
+      const regulator = def.regulator * difficulty;
+      const rivals = def.rivals * difficulty;
+      return `${name} is ${age}, ${job}, with ${cash} to spend and ${worth} of net worth. There is no goal and no clock. Loans are ${loan.toFixed(2)}×, the regulator ${regulator.toFixed(2)}×, and rivals ${rivals.toFixed(2)}×.`;
+    }
+    default:
+      return `${name}, ${age}, ${job}, ${kin}. The book shows ${cash} in cash and ${worth} of net worth. ${clock} The goal is ${goal}.`;
+  }
+}
+
+/** One paragraph from the city as it stands when the scenario ends. */
+function closingOf(w: World, sc: ScenarioRun, result: 'win' | 'loss'): string {
+  const v = view(w);
+  const name = v.name || 'The player';
+  const worth = money(v.netWorth);
+  const start = money(sc.worthAtStart);
+  const where = v.employer ? `${name} is at ${v.employer}` : `${name} holds no job`;
+  const life = v.alive ? where : `${name} has died`;
+  const book = `${life}. The book began at ${start} and stands at ${worth}.`;
+  const goal = sc.goal.kind === 'worth' ? money(sc.goal.cents) : goalText(sc.goal);
+  switch (sc.id) {
+    case 'first-paycheck':
+      return result === 'win'
+        ? `${name} made the ninety days count and the book reached ${goal}. ${book}`
+        : `${name} did not get the book to ${goal} before the ninety days ran out. ${book}`;
+    case 'the-savings':
+      return result === 'win'
+        ? `${name} filled the savings book to ${goal}. ${book}`
+        : `${name} left the savings book short of ${goal}. ${book}`;
+    case 'hostile-takeover': {
+      const id = sc.goal.kind === 'firm' ? sc.goal.firm : '';
+      const f = id ? firmBy(w, id) : undefined;
+      const firm = f ? f.name : id || 'the firm';
+      return result === 'win'
+        ? `${name} took control of ${firm}. ${book}`
+        : `${name} never took control of ${firm}. ${book}`;
+    }
+    case 'the-crash': {
+      const shock = SHOCKS.find((s) => s.id === sc.shock);
+      const what = shock?.text ?? 'the shock';
+      return result === 'win'
+        ? `${name} was still solvent when it lifted: ${what}. ${book}`
+        : `${name} did not stay solvent through it: ${what}. ${book}`;
+    }
+    case 'family-business': {
+      const i = playerIndex(w);
+      const f = i >= 0 ? familyFirm(w, i) : undefined;
+      const fname = f ? f.name : 'the family firm';
+      const box = f ? money(Math.floor(w.ledger.balance(f.id, DEP))) : 'nothing';
+      return result === 'win'
+        ? `${name} kept ${fname} and made the house worth ${goal}. The cash box holds ${box}. ${book}`
+        : `${name} did not make ${fname} worth ${goal}. The cash box holds ${box}. ${book}`;
+    }
+    case 'dynasty': {
+      const gen = soleSeat(w)?.generation ?? 1;
+      return result === 'win'
+        ? `The house of ${name} reached generation ${gen}. ${book}`
+        : `The house of ${name} ended at generation ${gen}, short of ${goal}. ${book}`;
+    }
+    case 'the-ministry': {
+      const pol = w.state.politics as { leader?: number; finance?: number; governor?: number; regulator?: number } | undefined;
+      const i = playerIndex(w);
+      const held = i >= 0 && (pol?.leader === i || pol?.finance === i || pol?.governor === i || pol?.regulator === i);
+      const who = `${named(w, pol?.leader ?? -1)} leads, ${named(w, pol?.finance ?? -1)} keeps the finance ministry, ${named(w, pol?.governor ?? -1)} the central bank, and ${named(w, pol?.regulator ?? -1)} the regulator.`;
+      return result === 'win' || held
+        ? `${name} holds office. ${who} ${book}`
+        : `${name} never held office. ${who} ${book}`;
+    }
+    case 'sector-stake': {
+      const sector = sc.goal.kind === 'sector' ? sc.goal.sector : 'the sector';
+      return result === 'win'
+        ? `${name} controls a ${sector} firm. ${book}`
+        : `${name} never controlled a ${sector} firm. ${book}`;
+    }
+    case 'sandbox':
+      return `${name} set the book down at ${worth}, from ${start}, with no goal to miss. ${where}.`;
+    default:
+      return result === 'win'
+        ? `${name} met the goal, ${goal}. ${book}`
+        : `${name} did not meet the goal, ${goal}. ${book}`;
+  }
+}
+
 function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficulty?: number }): void {
   const s = econ(w), P = s.P;
   let i = ensurePlayer(w);
@@ -372,6 +537,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     shock: def.shock,
     shockIn: def.shockIn,
     fired: false,
+    opening: openingOf(w, def, i, opened, d),
   };
   w.state.scenario = run;
 }
@@ -529,6 +695,7 @@ export function scoreOf(w: World, sc: ScenarioRun): ScenarioScore {
 function finish(w: World, sc: ScenarioRun, result: 'win' | 'loss', reason: string): void {
   sc.outcome = result;
   sc.reason = reason;
+  sc.closing = closingOf(w, sc, result);
   const st = soleSeat(w);
   if (!st) return;
   st.over = true;
@@ -584,16 +751,19 @@ export function liveCard(w: World): ScenarioLive | null {
   const sc = runOf(w);
   if (!sc) return null;
   const show = sc.beginner && sc.hintsOn && !sc.outcome && w.day < sc.begun + 90;
+  const opening = sc.opening || sc.story.join(' ');
   const card: ScenarioLive = {
     id: sc.id,
     name: sc.name,
-    story: sc.story.join(' '),
+    story: sc.outcome && sc.closing ? sc.closing : opening,
     goal: goalText(sc.goal),
     outcome: sc.outcome,
     reason: sc.reason,
     hintsOn: sc.hintsOn,
     showHints: show,
     hints: show ? sc.hints : {},
+    opening,
+    closing: sc.closing ?? '',
   };
   if (sc.outcome) {
     const score = scoreOf(w, sc);
@@ -608,7 +778,7 @@ export function liveCard(w: World): ScenarioLive | null {
 export function blurb(w: World): string[] {
   const sc = runOf(w);
   if (!sc) return [];
-  return [sc.name, ...sc.story, `goal: ${goalText(sc.goal)}`, `limit: ${limitText(sc.limit)}`, `difficulty: ${diffText(sc.loan, sc.regulator, sc.rivals)}`];
+  return [sc.name, sc.opening || sc.story.join(' '), `goal: ${goalText(sc.goal)}`, `limit: ${limitText(sc.limit)}`, `difficulty: ${diffText(sc.loan, sc.regulator, sc.rivals)}`];
 }
 
 export function hintLine(w: World): string | undefined {
@@ -629,6 +799,7 @@ export function endScreen(w: World): string[] | null {
   return [
     `${sc.name} — ${sc.outcome}`,
     sc.reason ?? '',
+    sc.closing ?? '',
     '',
     'Score',
     `  net worth ${money(s.worth)} against the index ${s.indexX.toFixed(2)}× (you ${s.worthX.toFixed(2)}×)`,

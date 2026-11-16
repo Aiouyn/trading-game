@@ -1,2 +1,23 @@
-# First paycheck, played out. Three months, no orders. The goal is the savings book.
-wait 3m
+# First paycheck: the lesson, then three months of the city.
+# Day 1 is the first morning a share you can afford has a real bid.
+sheet
+deposit 50
+wait 1d
+buy frm_northgrid 1
+wait 1w
+why price frm_northgrid
+wait 15d
+ask 10 frm_caperefine
+borrow 100
+repay 200
+wait 1w
+wait 1w
+wait 1w
+wait 1w
+wait 1w
+wait 1w
+wait 1w
+wait 1w
+wait 1w
+wait 1w
+
