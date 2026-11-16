@@ -10,7 +10,7 @@ import { CEO_POSITION } from '../economy/content.ts';
 import { BANK, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
-import { borrowShares, cancelOrder, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
+import { borrowShares, cancelOrder, markHolding, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
 import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, publish, seatPerson, talk } from '../social/index.ts';
@@ -397,7 +397,13 @@ function markPrice(w: World): (instr: string) => number {
 }
 
 function worth(w: World, i: number): number {
-  return w.ledger.netWorth(econ(w).P.id(i), markPrice(w));
+  const id = econ(w).P.id(i);
+  const tape = markPrice(w);
+  return w.ledger.netWorth(id, (instr) => {
+    const qty = Math.floor(w.ledger.balance(id, instr));
+    const marked = markHolding(w, id, instr, qty);
+    return marked >= 0 ? marked : tape(instr);
+  });
 }
 
 function chronicle(w: World, i: number, text: string, cause: number): void {

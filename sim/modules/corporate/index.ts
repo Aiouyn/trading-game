@@ -10,6 +10,7 @@ import { type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { borrowMargin } from '../banking/index.ts';
+import { blockPrice } from '../markets/index.ts';
 import { addFirm, closeFirm, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
 import { joinFirm, leaveJob } from '../economy/people.ts';
 
@@ -984,8 +985,9 @@ export function tenderOffer(w: World, person: number, key: string, cents: number
   const cause = w.events.emit('firm.bid', `${s.P.name(person)} bids ${dollars(price)} a share for ${target.name}`, rootOf(s, target), pid);
   if (paper) {
     if (!run) return { why: 'a share bid has to come from a listed firm you run' };
-    const bpx = quote(w, run)?.last ?? run.ipoPx;
-    if (!(bpx > 0)) return { why: `${run.name} has no share price to pay with` };
+    const printed = Math.max(1, Math.floor(sharesOf(w, run) * 0.2));
+    const bpx = blockPrice(w, 'eq:' + run.id, printed);
+    if (!(bpx > 0)) return { why: `${run.name} has no bid for the shares you would print` };
     for (const [id, n] of yes) {
       const give = Math.max(1, Math.round(n * price / bpx));
       L.issue('eq:' + run.id, id, give, 'tender.paper', cause);

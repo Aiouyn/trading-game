@@ -93,7 +93,7 @@ function render(rows: RunResult[], meta: { worlds: number; years: number; pop: n
   const lines: string[] = [];
   lines.push('# Bot balance report');
   lines.push('');
-  lines.push(`${meta.worlds} worlds (seeds 1–${meta.worlds}), ${meta.years} years, ${meta.pop.toLocaleString('en-US')} people. Each strategy played each world in its own process, acting once a week through the player. The stock index is the exchange's capitalisation-weighted price index (market value of listed shares over their value at the open). Books were checked every 30 days and on the last day.`);
+  lines.push(`${meta.worlds} worlds (seeds 1–${meta.worlds}), ${meta.years} years, ${meta.pop.toLocaleString('en-US')} people. Each strategy played each world in its own process, acting once a week through the player. The stock index is the exchange's capitalisation-weighted total return (price change plus dividends reinvested, after the dividend tax a person pays). Books were checked every 30 days and on the last day.`);
   lines.push('');
   lines.push('## Flags');
   lines.push('');

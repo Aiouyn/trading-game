@@ -58,6 +58,9 @@ interface MktState {
   nextId: number;
   seq: number;
   index: number;
+  tr: number;
+  /** Capitalisation at the previous total-return point, so the index includes the price move. */
+  trCap: number;
   baseCap: number;
   yTurn: number;
   root: number;
@@ -115,6 +118,136 @@ function compactOrders(m: MktState): void {
   for (let i = 0; i < w; i++) indexOrder(a[i]);
 }
 function sharesOut(w: World, instr: string): number { return w.ledger.issued.get(instr) ?? SHARES; }
+
+const BLOCK_SHARE = 0.15;
+/** A founder already holds about 40%. Fading that stake pulls every family firm and the city with it. */
+const FADE_SHARE = 0.5;
+
+function advOf(st: Stock): number {
+  const h = st.hist;
+  const n = Math.min(20, h.length);
+  if (n < 1) return Math.max(1, st.vol);
+  let s = 0;
+  for (let i = h.length - n; i < h.length; i++) s += h[i].v;
+  return Math.max(1, s / n);
+}
+
+/** A stake big enough that the holder is the market: the last print is their own. */
+function corner(qty: number, out: number): boolean {
+  return out > 0 && qty > out * BLOCK_SHARE;
+}
+
+function bidLevels(w: World, instr: string, skip: string): { qty: number; limit: number }[] {
+  const out: { qty: number; limit: number }[] = [];
+  const orders = book(w).orders;
+  for (let i = 0; i < orders.length; i++) {
+    const o = orders[i];
+    if (!o.open || o.skip || o.instr !== instr || o.side !== 'buy' || o.qty < 1 || o.limit === null || o.actor === skip) continue;
+    const afford = Math.floor(cash(w, o.actor) / o.limit);
+    const q = Math.min(o.qty, afford);
+    if (q >= 1) out.push({ qty: q, limit: o.limit });
+  }
+  out.sort((a, b) => b.limit - a.limit);
+  return out;
+}
+
+/** Cents a sale of `qty` would raise by walking the resting bids. Shares the book does not want fetch nothing. */
+export function saleProceeds(w: World, instr: string, qty: number, skipActor: string): number {
+  if (qty < 1) return 0;
+  let left = qty, got = 0;
+  for (const b of bidLevels(w, instr, skipActor)) {
+    if (left < 1) break;
+    const q = Math.min(left, b.qty);
+    got += q * b.limit;
+    left -= q;
+  }
+  return got;
+}
+
+/** What the holder's whole listed book would fetch if it were sold into the bids now. */
+export function saleValue(w: World, actor: string): number {
+  let n = 0;
+  for (const st of book(w).stocks) {
+    const qty = Math.floor(w.ledger.balance(actor, st.instr));
+    if (qty > 0) n += saleProceeds(w, st.instr, qty, actor);
+  }
+  return n;
+}
+
+/**
+ * Collateral a margin lender will count. The loan is against the book's bids, and the
+ * fraction lent falls as the block grows against recent daily volume. A liquid handful
+ * still borrows about half of what the bid would pay.
+ */
+export function pledgeValue(w: World, actor: string): number {
+  let col = 0;
+  for (const st of book(w).stocks) {
+    const qty = Math.floor(w.ledger.balance(actor, st.instr));
+    if (qty < 1) continue;
+    const days = qty / advOf(st);
+    const ltv = 0.5 / (1 + Math.max(0, days - 1));
+    col += Math.floor(saleProceeds(w, st.instr, qty, actor) * ltv);
+  }
+  return col;
+}
+
+function bestBid(w: World, instr: string, skip: string): number {
+  let px = 0;
+  for (const b of bidLevels(w, instr, skip)) if (b.limit > px) px = b.limit;
+  return px;
+}
+
+/**
+ * Price per share for marking a holding. A small lot is the last trade. A large block is
+ * worth the worse of the last trade and what the shares earn, less a haircut that grows
+ * with how many days of volume the block is. A print nobody is bidding is not a mark.
+ * Returns -1 when `instr` is not a listed stock.
+ */
+export function markHolding(w: World, actor: string, instr: string, qty: number): number {
+  const st = book(w).stocks.find((s) => s.instr === instr);
+  if (!st) return -1;
+  if (qty < 1 || !corner(qty, sharesOut(w, instr))) return st.last;
+  const fair = Math.max(1, fairValue(w, st, 0.04));
+  const bid = bestBid(w, instr, actor);
+  const days = qty / advOf(st);
+  const haircut = Math.min(0.5, Math.max(0, days - 5) * 0.012);
+  // The displayed bid is only the top of the book. Past it, a large sale clears toward
+  // what the firm earns, not toward the last print the block itself set.
+  const ceiling = Math.min(st.last, Math.round(fair * 1.15), bid > 0 ? Math.max(bid, Math.round(fair)) : Math.round(fair));
+  return Math.max(1, Math.round(ceiling * (1 - haircut)));
+}
+
+/** What one share of a block of `qty` would fetch. Paper bids pay this, not a last trade the bidder walked up. */
+export function blockPrice(w: World, instr: string, qty: number): number {
+  const px = markHolding(w, '', instr, qty);
+  return px > 0 ? px : 0;
+}
+
+/** Hit the resting bids. Cash and shares move through the ledger. Returns shares sold. */
+export function sellToBook(w: World, actor: string, instr: string, qty: number, cause: number): number {
+  const st = book(w).stocks.find((s) => s.instr === instr);
+  if (!st || qty < 1) return 0;
+  const m = book(w);
+  const orders = m.orders.filter((o) => o.open && !o.skip && o.instr === instr && o.side === 'buy' && o.qty >= 1 && o.limit !== null && o.actor !== actor);
+  orders.sort((a, b) => (b.limit ?? 0) - (a.limit ?? 0) || a.seq - b.seq);
+  let left = Math.min(qty, Math.floor(w.ledger.balance(actor, instr)));
+  let sold = 0;
+  for (const o of orders) {
+    if (left < 1 || o.limit === null) break;
+    const afford = Math.floor(cash(w, o.actor) / o.limit);
+    const q = Math.min(left, o.qty, afford, Math.floor(w.ledger.balance(actor, instr)));
+    if (q < 1) continue;
+    if (!pay(w, o.actor, actor, q * o.limit, 'mkt.trade', cause)) continue;
+    if (!w.ledger.move(instr, actor, o.actor, q, 'mkt.trade', cause)) throw new Error(`share delivery failed on ${instr}`);
+    o.qty -= q;
+    if (o.qty < 1) o.open = false;
+    note(st, o.limit, q);
+    m.yTurn += q * o.limit;
+    sold += q;
+    left -= q;
+  }
+  return sold;
+}
 
 function goodPrice(s: EconState, good: string): number {
   let n = 0, p = 0;
@@ -572,6 +705,42 @@ function seedInventory(w: World, mm: string): void {
   }
 }
 
+function topHolding(w: World, instr: string): number {
+  let qty = 0;
+  for (const [, n] of w.ledger.holdersS(instr)) if (n > qty) qty = n;
+  return qty;
+}
+
+/** Bids near the last price, other than the market maker's own quote. The maker's quote is around the last print, so it cannot be what holds that print up. */
+function bidSupport(w: World, st: Stock): number {
+  let q = 0;
+  for (const o of book(w).orders) {
+    if (!o.open || o.src === 'mm' || o.instr !== st.instr || o.side !== 'buy' || o.qty < 1 || o.limit === null) continue;
+    if (o.limit < st.last * 0.98) continue;
+    q += o.qty;
+  }
+  return q;
+}
+
+/**
+ * A cornered name whose last print sits above what the firm earns, with nobody else bidding,
+ * gives that premium back. One day's band at a time, so a real buyer still moves the tape
+ * and the close falls once they stop.
+ */
+function fadeCorner(w: World, st: Stock): void {
+  const adv = advOf(st);
+  const out = sharesOut(w, st.instr);
+  const top = topHolding(w, st.instr);
+  if (!(out > 0 && top > out * FADE_SHARE)) return;
+  const fair = fairValue(w, st, 0.04);
+  if (!(fair > 0) || !(st.last > fair * 1.25)) return;
+  // A few round lots near the print do not make a price that a corner could sell.
+  if (bidSupport(w, st) >= Math.max(adv * 5, top * 0.05)) return;
+  const lo = Math.max(1, Math.ceil(st.prev * (1 - band(st))));
+  const floorPx = Math.max(lo, Math.round(fair));
+  if (st.last > floorPx) st.last = floorPx;
+}
+
 function impliedEma(last: number, policy: number, premium: number, sh: number): number {
   const r = discount(policy, premium);
   const annual = last * r * sh;
@@ -591,7 +760,7 @@ export const markets: Module = {
       { id: 'fund_mm', style: 'mm', premium: 0 },
     ];
     const state: MktState = {
-      stocks: [], funds, orders: [], nextId: 1, seq: 1, index: 100, baseCap: 1, yTurn: 0, root: 0,
+      stocks: [], funds, orders: [], nextId: 1, seq: 1, index: 100, tr: 100, trCap: 1, baseCap: 1, yTurn: 0, root: 0,
       playerLive: false, fadeDay: -1, fadeIds: [],
       price: () => 0,
     };
@@ -656,6 +825,7 @@ export const markets: Module = {
     let cap = 0;
     for (const st of state.stocks) cap += st.last * sharesOut(w, st.instr);
     state.baseCap = Math.max(1, cap);
+    state.trCap = state.baseCap;
     state.index = 100;
     state.root = w.events.emit('mkt.open', 'stock exchange open for firm and bank shares', [w.genesis]);
     const bad = w.ledger.check();
@@ -716,6 +886,7 @@ export const markets: Module = {
       if (q.bid > st.last && q.ask > q.bid) st.last = Math.max(st.last, Math.min(q.bid, hi, Number.isFinite(q.ask) ? q.ask - 1 : Infinity));
       else if (q.ask < st.last && q.bid < q.ask) st.last = Math.min(st.last, Math.max(q.ask, lo, q.bid + 1));
     }
+    for (const st of m.stocks) fadeCorner(w, st);
     for (const st of m.stocks) {
       const ch = st.prev > 0 ? st.last / st.prev - 1 : 0;
       if (Math.abs(ch) > 0.03) {
@@ -746,6 +917,23 @@ export const markets: Module = {
   // Funds pay out cash they cannot use: anything above the value of the shares they hold goes to their owners.
   monthEnd(w) {
     const m = book(w);
+    // Total return: price change plus the recurring dividend reinvested after the tax a person pays.
+    // lastDividend is a cash sweep of everything above a month of wages, including treasury that was
+    // already in the opening book value, so a single month can dwarf the firm. The smoothed dividend
+    // is the run-rate the exchange capitalises, and it is what a holder who reinvests can keep.
+    {
+      const s = econ(w);
+      const tax = s.divRate ?? 0.35;
+      let cap = 0, div = 0;
+      for (const st of m.stocks) {
+        cap += st.last * sharesOut(w, st.instr);
+        div += Math.max(0, st.divEma);
+      }
+      const net = div * (1 - tax);
+      const prev = m.trCap > 0 ? m.trCap : cap;
+      if (prev > 0) m.tr *= (cap + net) / prev;
+      m.trCap = Math.max(1, cap);
+    }
     for (const f of m.funds) {
       const held = m.stocks.reduce((t, st) => t + w.ledger.balance(f.id, st.instr) * st.last, 0);
       const spare = Math.floor(cash(w, f.id) - Math.max(held, 1));
@@ -776,6 +964,7 @@ export const markets: Module = {
     }
     const out = {
       index: +m.index.toFixed(1),
+      tr: +m.tr.toFixed(1),
       turnover_M: +(m.yTurn / 1e8).toFixed(2),
       pe: +(n ? peSum / n : 0).toFixed(1),
     };
