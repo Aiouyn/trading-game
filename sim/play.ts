@@ -445,6 +445,21 @@ async function main(): Promise<void> {
       console.log(`\n> ${line}`);
       if (!runLine(line)) break;
     }
+  } else if (process.argv.includes('--pipe')) {
+    // Driven by another program (the AI playtest): one command per input line, and a marker after each screen.
+    const END = '<<<PLAYTEST-END>>>';
+    console.log(END);
+    const rl = readline.createInterface({ input: process.stdin, terminal: false });
+    for await (const raw of rl) {
+      const line = raw.trim();
+      if (!line) { console.log(END); continue; }
+      if (line === 'quit') break;
+      if (line === 'sheet') { for (const s of sheet(view(w))) console.log(s); console.log(END); continue; }
+      const goOn = runLine(line);
+      if (!goOn || over(w) || failed) break;
+      console.log(END);
+    }
+    rl.close();
   } else if (process.stdin.isTTY) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     while (!over(w) && !failed) {

@@ -1,6 +1,7 @@
 // AI playtesters. node sim/playtest/run.ts --sessions 6 --turns 100 [--model claude-haiku-5-5]
 // Each session starts sim/play.ts on a fresh saved world. The model sees the terminal and types one command.
-// ANTHROPIC_API_KEY is required. --fake types random valid commands when there is no key.
+// Key: ANTHROPIC_API_KEY, or XAI_API_KEY with --provider xai --model <grok model id>. --fake types random valid commands with no key.
+// Runs on Windows, macOS and Linux: play.ts is driven through its --pipe mode, no terminal needed.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -310,7 +311,34 @@ function callCost(model: string, input: number, output: number): number {
   return (input * 0.10 + output * 0.50) / 1e6;
 }
 
+interface ChatReply { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }
+
+/** xAI (Grok) through its OpenAI-compatible chat completions endpoint. */
+async function askXai(model: string, key: string, persona: Persona, screen: string): Promise<Turn> {
+  const body = { model, max_tokens: 256, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: userText(persona, screen) }] };
+  let last = 'model call failed';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const raw = await res.text();
+    if (!res.ok) {
+      last = `HTTP ${res.status} ${raw.slice(0, 400)}`;
+      if (attempt === 0 && [429, 500, 502, 503].includes(res.status)) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+      throw new Error(last);
+    }
+    const data = JSON.parse(raw) as ChatReply;
+    const parsed = parseReply(data.choices?.[0]?.message?.content ?? '');
+    return { ...parsed, input: data.usage?.prompt_tokens ?? 0, output: data.usage?.completion_tokens ?? 0, cost: 0 };
+  }
+  throw new Error(last);
+}
+
 async function askApi(model: string, key: string, persona: Persona, screen: string): Promise<Turn> {
+  if (provider === 'xai') return askXai(model, key, persona, screen);
   const modern = /claude-(haiku|sonnet|opus|fable|mythos)-5/.test(model);
   const body: Record<string, unknown> = {
     model,
@@ -394,6 +422,31 @@ function openFrames(stream: Readable): { frame(): Promise<Frame> } {
   };
 }
 
+/** Screens from play.ts --pipe: lines up to the marker; the game has ended when its output closes. */
+function pipeFrames(stream: Readable): { frame(): Promise<Frame> } {
+  let buf = '';
+  let ended = false;
+  const waiters: ((f: Frame) => void)[] = [];
+  const kick = (): void => {
+    while (waiters.length) {
+      const i = buf.indexOf(SENTINEL);
+      if (i >= 0) {
+        const screen = buf.slice(0, i).replace(/\r/g, '').replace(/\n+$/, '');
+        buf = buf.slice(i + SENTINEL.length).replace(/^\r?\n/, '');
+        waiters.shift()?.({ dead: false, screen });
+      } else if (ended) {
+        const screen = buf.replace(/\r/g, ''); buf = '';
+        waiters.shift()?.({ dead: true, screen });
+      } else return;
+    }
+  };
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk: string) => { buf += chunk; kick(); });
+  stream.on('end', () => { ended = true; kick(); });
+  stream.on('error', () => { ended = true; kick(); });
+  return { frame: () => new Promise<Frame>((resolve) => { waiters.push(resolve); kick(); }) };
+}
+
 function deadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(label)), ms);
@@ -425,16 +478,17 @@ async function runSession(opts: {
 }): Promise<SessionLog> {
   const dir = path.join(opts.tmp, `s${opts.index}`);
   freshWorld(opts.seed, dir);
-  const child = spawn('python3', ['-u', bridge, process.execPath, play, '--load', dir, '--save', dir], {
+  // play.ts --pipe reads one command per line and prints a marker after each screen: no terminal needed, so
+  // this runs the same on Windows, macOS and Linux.
+  const child = spawn(process.execPath, [play, '--load', dir, '--save', dir, '--pipe'], {
     cwd: root,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
   });
   let errText = '';
   child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', (chunk: string) => { errText += chunk; });
-  if (!child.stdout) throw new Error('bridge has no stdout');
-  const frames = openFrames(child.stdout);
+  if (!child.stdout) throw new Error('the game has no stdout');
+  const frames = pipeFrames(child.stdout);
   const rng = mulberry32(opts.index * 100003 + 17);
   const seen: Seen = { firm: '', net: '', date: '' };
   const moments: Moment[] = [];
@@ -638,15 +692,22 @@ function emptyOutcome(): Outcome {
   return { netWorth: 'unknown', cash: 'unknown', when: 'unknown', firms: 'none', prison: 'no', death: 'no' };
 }
 
+const provider = arg('provider', 'anthropic');
+
 async function main(): Promise<void> {
   const personas = loadPersonas(path.join(here, 'personas.txt'));
   const sessions = num('sessions', personas.length);
   const turns = num('turns', 100);
-  const model = arg('model', 'claude-haiku-5-5');
+  const model = arg('model', provider === 'xai' ? '' : 'claude-haiku-5-5');
   const fake = process.argv.includes('--fake');
-  const key = (process.env.ANTHROPIC_API_KEY ?? '').trim();
+  const keyName = provider === 'xai' ? 'XAI_API_KEY' : 'ANTHROPIC_API_KEY';
+  const key = (process.env[keyName] ?? '').trim();
   if (!fake && !key) {
-    console.error('ANTHROPIC_API_KEY is not set, so there is no model to call.');
+    console.error(`${keyName} is not set, so there is no model to call.`);
+    process.exit(1);
+  }
+  if (!fake && !model) {
+    console.error('Name the model with --model (see https://docs.x.ai/docs/models or your xAI console for the ids your key can use).');
     process.exit(1);
   }
   const tmp = mkdtempSync(path.join(tmpdir(), 'playtest-'));
