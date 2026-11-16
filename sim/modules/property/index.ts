@@ -1406,6 +1406,71 @@ export function mortgageHome(w: World, person: number, parcel: number, cents: nu
   return { text: `borrowed ${(got / 100).toFixed(0)} against #${parcel}` };
 }
 
+/** Neighbourhoods in file order: name, distance from the port, desirability, and the index price. */
+export function districts(w: World): { name: string; distance: number; desirability: number; price: number }[] {
+  const st = w.state.property as Book | undefined;
+  return NBHDS.map((nb, i) => ({
+    name: nb.name,
+    distance: nb.dist,
+    desirability: nb.desir,
+    price: Math.round(st?.px[i] ?? 0),
+  }));
+}
+
+export interface ParcelView {
+  id: number;
+  neighbourhood: string;
+  price: number;
+  rent: number;
+  size: number;
+  condition: number;
+  vacant: boolean;
+  owner: number;
+  tenant: number;
+  missed: number;
+  mortgage: number;
+  eventId: number;
+}
+
+/** One home: who owns it, who lives there, rent missed, and the mortgage still outstanding. */
+export function parcelView(w: World, parcel: number): ParcelView | undefined {
+  const st = w.state.property as Book | undefined;
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return;
+  const nb = st.nb[parcel] ?? 0;
+  let mortgage = 0;
+  const k = st.mtg[parcel];
+  if (k >= 0 && k < st.ln && st.lnOpen[k]) mortgage = Math.round(w.ledger.issued.get('pm_' + k) ?? 0);
+  return {
+    id: parcel,
+    neighbourhood: NBHDS[nb]?.name ?? '',
+    price: askOf(st, parcel),
+    rent: Math.round(st.rent[parcel]),
+    size: st.size[parcel],
+    condition: st.cond[parcel],
+    vacant: st.tenK[parcel] === 0,
+    owner: st.ownK[parcel] === PERSON ? st.own[parcel] : -1,
+    tenant: st.tenK[parcel] === PERSON ? st.ten[parcel] : -1,
+    missed: st.missR[parcel],
+    mortgage,
+    eventId: st.lastSaleEv || st.priceEv,
+  };
+}
+
+/** Homes this person owns where the tenant has missed at least one rent. */
+export function lateRent(w: World, person: number): { id: number; tenant: number; missed: number; eventId: number }[] {
+  const st = w.state.property as Book | undefined;
+  const out: { id: number; tenant: number; missed: number; eventId: number }[] = [];
+  if (!st || person < 0) return out;
+  const eventId = st.lastSaleEv || st.priceEv;
+  for (let p = 0; p < st.n; p++) {
+    if (st.kind[p] !== HOME || st.ownK[p] !== PERSON || st.own[p] !== person || st.missR[p] < 1) continue;
+    const tenant = st.tenK[p] === PERSON ? st.ten[p] : -1;
+    if (tenant < 0 || tenant === person) continue;
+    out.push({ id: p, tenant, missed: st.missR[p], eventId });
+  }
+  return out;
+}
+
 export const property: Module = {
   id: 'property',
 

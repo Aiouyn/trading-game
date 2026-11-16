@@ -8,9 +8,13 @@ import type { World } from './kernel/index.ts';
 import { openWorld } from './run.ts';
 import { applySnapshot, snapshotSeed } from './modules/history/save.ts';
 import { knows } from './modules/social/index.ts';
+import { companyPosts } from './modules/corporate/index.ts';
 import { DEP, type EconState, type Firm } from './modules/economy/index.ts';
 import { GOODS } from './modules/economy/content.ts';
+import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
+import { optionChain } from './modules/options/index.ts';
 import { act, ensurePlayer, playerIndex, view, type Command, type PlayerState } from './modules/player/index.ts';
+import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
 
 type Speed = 'pause' | 'day' | 'week' | 'month';
 
@@ -685,6 +689,392 @@ function firmNews(w: World, firmIdx: number): { eventId: number; day: number; te
   return out.reverse();
 }
 
+interface Alert {
+  kind: 'margin' | 'bid' | 'strike' | 'letter' | 'child' | 'rent';
+  text: string;
+  page: string;
+  arg: string;
+  eventId: number;
+}
+interface Pin { alert: Alert; day: number }
+const pins: Pin[] = [];
+let notedThrough = -1;
+
+function pin(alert: Alert, day: number): void {
+  if (pins.some((p) => p.alert.kind === alert.kind && p.alert.eventId === alert.eventId)) return;
+  pins.push({ alert, day });
+  if (pins.length > 32) pins.shift();
+}
+
+function playerFirms(w: World, person: number): { id: string; name: string; idx: number }[] {
+  const firms = econ(w).firms;
+  const employer = econ(w).P.employer[person];
+  const out: { id: string; name: string; idx: number }[] = [];
+  for (const f of firms) {
+    if (f.closed) continue;
+    if (f.ceo === person || f.idx === employer) out.push({ id: f.id, name: f.name, idx: f.idx });
+  }
+  return out;
+}
+
+function ingest(w: World): void {
+  const count = w.events.count;
+  if (notedThrough >= count - 1) return;
+  const P = econ(w).P;
+  const i = playerIndex(w);
+  const id = i >= 0 ? P.id(i) : '';
+  const mine = i >= 0 ? playerFirms(w, i) : [];
+  const from = notedThrough < 0 ? Math.max(0, count - 3000) : notedThrough + 1;
+  const start = Math.max(from, count - 20000);
+  for (let ev = start; ev < count; ev++) {
+    const e = w.events.get(ev);
+    if (!e) continue;
+    if ((e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall') && e.actor === id) {
+      pin({ kind: 'margin', text: 'a margin call closed the position out', page: 'desk', arg: '', eventId: e.id }, e.day);
+    } else if (e.kind === 'firm.bid' && e.actor !== id) {
+      const hit = mine.find((f) => e.msg.includes('for ' + f.name));
+      if (hit) pin({ kind: 'bid', text: e.msg, page: 'boards', arg: hit.id, eventId: e.id }, e.day);
+    } else if ((e.kind === 'law.investigation' || e.kind === 'law.charge' || e.kind === 'law.trial') && e.actor === id) {
+      pin({ kind: 'letter', text: e.msg, page: 'person', arg: String(i), eventId: e.id }, e.day);
+    } else if ((e.kind === 'labour.strike' || e.kind === 'labour.lockout') && mine.some((f) => e.msg.includes(f.name))) {
+      const hit = mine.find((f) => e.msg.includes(f.name));
+      pin({ kind: 'strike', text: e.msg, page: 'firms', arg: hit?.id ?? '', eventId: e.id }, e.day);
+    }
+  }
+  notedThrough = count - 1;
+  const keep = w.day - 30;
+  while (pins.length && pins[0].day < keep) pins.shift();
+}
+
+function alertsOf(w: World): Alert[] {
+  ingest(w);
+  const out: Alert[] = [];
+  const seen = new Set<string>();
+  const push = (a: Alert): void => {
+    const k = a.kind + ':' + a.eventId + ':' + a.arg;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(a);
+  };
+  for (const p of pins) if (w.day - p.day <= 30) push(p.alert);
+  const P = econ(w).P;
+  const i = playerIndex(w);
+  if (i < 0) return out;
+  const id = P.id(i);
+  const pst = w.state.player as PlayerState;
+  const cash = Math.floor(w.ledger.balance(id, DEP));
+  let face = 0;
+  for (const loan of pst.loans ?? []) face += loan.face;
+  const posted = Math.round(w.ledger.balance(id, 'cmdty:margin'));
+  if ((face > 0 && cash < face * 0.25) || (posted > 0 && cash < posted)) {
+    const ev = w.events.last('futures.marginCall') ?? w.events.last('opt.marginCall') ?? (pst.arrived >= 0 ? pst.arrived : w.genesis);
+    push({ kind: 'margin', text: 'margin is short of what the position needs', page: 'desk', arg: '', eventId: ev });
+  }
+  const firms = econ(w).firms;
+  const mine = new Set<number>();
+  if (P.employer[i] >= 0) mine.add(P.employer[i]);
+  for (const f of firms) if (!f.closed && f.ceo === i) mine.add(f.idx);
+  const labour = w.state.labour as { unions?: { strikeUntil: number; strikeEv: number; struck: number[]; lock: boolean }[] } | undefined;
+  for (const u of labour?.unions ?? []) {
+    if (!(u.strikeUntil > w.day)) continue;
+    for (const idx of u.struck) {
+      if (!mine.has(idx)) continue;
+      const f = firms[idx];
+      if (!f) continue;
+      push({
+        kind: 'strike',
+        text: `${u.lock ? 'a lockout' : 'a strike'} at ${f.name}`,
+        page: 'firms',
+        arg: f.id,
+        eventId: u.strikeEv || w.genesis,
+      });
+    }
+  }
+  const law = w.state.law as { cases?: { phase: number; off: number; invEvent: number; chargeEvent: number }[]; offences?: { person: number; firm: number }[] } | undefined;
+  for (const c of law?.cases ?? []) {
+    if (c.phase >= 3) continue;
+    const o = law?.offences?.[c.off];
+    if (!o) continue;
+    const aboutFirm = o.firm >= 0 && mine.has(o.firm);
+    if (o.person !== i && !aboutFirm) continue;
+    push({
+      kind: 'letter',
+      text: o.person === i ? 'a letter from the regulator' : `the regulator has a file on ${firms[o.firm]?.name ?? 'a firm'}`,
+      page: o.person === i ? 'person' : 'firms',
+      arg: o.person === i ? String(i) : (firms[o.firm]?.id ?? ''),
+      eventId: c.chargeEvent >= 0 ? c.chargeEvent : c.invEvent,
+    });
+  }
+  const epi = epidemicNow(w);
+  for (const k of P.kids(i)) {
+    if (!P.alive(k) || P.ill[k] <= 0) continue;
+    push({
+      kind: 'child',
+      text: `${P.name(k)} is sick with ${illnessName(P.ill[k])}`,
+      page: 'health',
+      arg: '',
+      eventId: P.lastEv[k] >= 0 ? P.lastEv[k] : (epi?.eventId ?? w.genesis),
+    });
+  }
+  for (const late of lateRent(w, i)) {
+    const who = late.tenant >= 0 && late.tenant < P.n ? P.name(late.tenant) : 'a tenant';
+    push({
+      kind: 'rent',
+      text: `${who} has missed ${late.missed} rent${late.missed === 1 ? '' : 's'} on #${late.id}`,
+      page: 'parcel',
+      arg: String(late.id),
+      eventId: late.eventId,
+    });
+  }
+  return out;
+}
+
+function personName(w: World, i: number): { index: number; name: string } | null {
+  const P = econ(w).P;
+  if (i < 0 || i >= P.n) return null;
+  return { index: i, name: P.name(i) };
+}
+
+function decorateHomes(w: World, rows: { id: number; live?: boolean }[]): Record<string, unknown>[] {
+  const me = playerIndex(w);
+  return rows.map((h) => {
+    const p = parcelView(w, h.id);
+    const tenant = p && p.tenant >= 0 && p.tenant !== me ? personName(w, p.tenant) : null;
+    return {
+      ...h,
+      size: p?.size ?? 0,
+      condition: p?.condition ?? 0,
+      missed: p?.missed ?? 0,
+      mortgage: p?.mortgage ?? 0,
+      owner: p ? personName(w, p.owner) : null,
+      tenant,
+      eventId: p?.eventId ?? w.genesis,
+    };
+  });
+}
+
+function heirOf(w: World): { index: number; name: string; eventId: number } | null {
+  const will = (w.state.player as PlayerState | undefined)?.will;
+  const P = econ(w).P;
+  if (!will || will.heir < 0 || will.heir >= P.n) return null;
+  return { index: will.heir, name: P.name(will.heir), eventId: will.eventId };
+}
+
+function houseIds(w: World): { index: number; role: string }[] {
+  const P = econ(w).P;
+  const pst = w.state.player as PlayerState | undefined;
+  const me = playerIndex(w);
+  const order: number[] = [];
+  const roles = new Map<number, string>();
+  const add = (i: number, role: string): void => {
+    if (i < 0 || i >= P.n) return;
+    if (!roles.has(i)) order.push(i);
+    if (!roles.has(i) || (roles.get(i) === 'kin' && role !== 'kin')) roles.set(i, role);
+  };
+  if (pst) for (const i of pst.line ?? []) add(i, 'kin');
+  add(me, 'you');
+  if (me >= 0) {
+    add(P.spouse[me], 'spouse');
+    for (const k of P.kids(me)) add(k, 'child');
+    add(P.parent[me], 'parent');
+  }
+  return order.map((index) => ({ index, role: roles.get(index) ?? 'kin' }));
+}
+
+function healthPanel(w: World): Record<string, unknown> {
+  const P = econ(w).P;
+  const me = playerIndex(w);
+  const epi = epidemicNow(w);
+  const house = houseIds(w).map(({ index, role }) => ({
+    index,
+    name: P.name(index),
+    role,
+    alive: P.alive(index),
+    age: P.age(w, index),
+    health: P.health[index],
+    illness: illnessName(P.ill[index]),
+    cover: P.cover[index] === 1 ? 'insured' : 'uninsured',
+    owed: careBill(w, index),
+    eventId: P.lastEv[index] >= 0 ? P.lastEv[index] : (epi?.eventId ?? w.genesis),
+  }));
+  const self = house.find((h) => h.index === me);
+  return {
+    health: self?.health ?? 0,
+    illness: self?.illness ?? '',
+    cover: self?.cover ?? 'uninsured',
+    owed: self?.owed ?? 0,
+    eventId: self?.eventId ?? w.genesis,
+    epidemic: epi,
+    house,
+  };
+}
+
+function desks(w: World): Record<string, unknown>[] {
+  const i = playerIndex(w);
+  if (i < 0) return [];
+  return companyPosts(w, i).map((c) => {
+    const f = findFirm(w, c.id);
+    return { ...c, family: !!f?.family, goodName: f ? (GOODS[f.good]?.name ?? f.good) : c.good };
+  });
+}
+
+function recentBids(w: World): { eventId: number; day: number; kind: string; text: string; firm: string; name: string }[] {
+  const firms = econ(w).firms;
+  const out: { eventId: number; day: number; kind: string; text: string; firm: string; name: string }[] = [];
+  const from = Math.max(0, w.events.count - 5000);
+  for (let id = w.events.count - 1; id >= from && out.length < 16; id--) {
+    const e = w.events.get(id);
+    if (!e || (e.kind !== 'firm.bid' && e.kind !== 'firm.resist' && e.kind !== 'firm.takeover' && e.kind !== 'firm.whiteKnight')) continue;
+    const firm = firms.find((f) => e.msg.includes(f.name));
+    out.push({ eventId: e.id, day: e.day, kind: e.kind, text: e.msg, firm: firm?.id ?? '', name: firm?.name ?? '' });
+  }
+  return out.reverse();
+}
+
+function markOf(w: World): (instr: string) => number {
+  const map = new Map(stocksOf(w).map((s) => [s.instr, s.last]));
+  const crypto = w.state.crypto as { majors?: { id: string; last: number }[]; memes?: { id: string; pool: string; rugged: boolean }[] } | undefined;
+  return (instr: string): number => {
+    const hit = map.get(instr);
+    if (hit !== undefined) return hit;
+    const major = crypto?.majors?.find((m) => m.id === instr);
+    if (major) return major.last;
+    const meme = crypto?.memes?.find((m) => m.id === instr);
+    if (meme && !meme.rugged) {
+      const tok = w.ledger.balance(meme.pool, meme.id);
+      if (tok > 0) return w.ledger.balance(meme.pool, DEP) / tok;
+    }
+    return 0;
+  };
+}
+
+function lightDynasty(w: World): Record<string, unknown> {
+  const P = econ(w).P;
+  const pst = w.state.player as PlayerState;
+  const price = markOf(w);
+  const people = houseIds(w).map(({ index, role }) => ({
+    index, name: P.name(index), role, alive: P.alive(index), age: P.age(w, index),
+    worth: P.alive(index) ? Math.round(w.ledger.netWorth(P.id(index), price)) : 0,
+  }));
+  return {
+    generation: pst.generation ?? 1,
+    worth: people.reduce((t, p) => t + p.worth, 0),
+    founded: pst.founded ?? 0,
+    controlled: pst.controlled ?? 0,
+    offices: pst.offices ?? 0,
+    convictions: pst.convictions ?? 0,
+    people,
+  };
+}
+
+function headlines(w: World): { eventId: number; day: number; text: string; firms: { id: string; name: string }[] }[] {
+  const i = playerIndex(w);
+  const facts = (w.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
+  const firms = econ(w).firms;
+  const news: { eventId: number; day: number; text: string; firms: { id: string; name: string }[] }[] = [];
+  if (i < 0) return news;
+  for (let f = facts.length - 1; f >= 0 && news.length < 24; f--) {
+    const fact = facts[f];
+    if (!fact || fact.drop || !fact.pub || !knows(w, i, fact.id)) continue;
+    const named = (fact.firms ?? []).flatMap((idx) => {
+      const firm = firms[idx];
+      return firm ? [{ id: firm.id, name: firm.name }] : [];
+    });
+    news.push({ eventId: fact.eventId, day: fact.day, text: fact.msg, firms: named });
+  }
+  news.reverse();
+  return news;
+}
+
+function playerBook(w: World): { shares: { instr: string; qty: number; px: number; eventId: number }[]; orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }[] } {
+  const i = playerIndex(w);
+  const id = i >= 0 ? econ(w).P.id(i) : '';
+  const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
+  const coinRoot = (w.state.crypto as { root?: number } | undefined)?.root ?? w.genesis;
+  const shares: { instr: string; qty: number; px: number; eventId: number }[] = [];
+  if (i >= 0) for (const st of stocksOf(w)) {
+    const qty = Math.floor(w.ledger.balance(id, st.instr));
+    if (qty > 0) shares.push({ instr: st.instr, qty, px: session(st).px, eventId: root });
+  }
+  const orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }[] = [];
+  const mOrders = (w.state.markets as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
+  for (const o of mOrders) if (o.open && o.actor === id) orders.push({ id: o.id, book: 'shares', instr: o.instr, side: o.side, qty: o.qty, limit: o.limit, eventId: root });
+  const bOrders = (w.state.bonds as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
+  for (const o of bOrders) if (o.open && o.actor === id) orders.push({ id: o.id, book: 'bonds', instr: o.instr, side: o.side, qty: o.qty, limit: o.limit, eventId: root });
+  const cOrders = (w.state.crypto as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number; open: boolean }[] } | undefined)?.orders ?? [];
+  for (const o of cOrders) if (o.open && o.actor === id) orders.push({ id: o.id, book: 'crypto', instr: o.instr, side: o.side, qty: o.qty, limit: o.limit, eventId: coinRoot });
+  return { shares, orders };
+}
+
+function tickFrame(w: World): Record<string, unknown> {
+  const P = econ(w).P;
+  const i = playerIndex(w);
+  const pst = w.state.player as PlayerState;
+  const id = i >= 0 ? P.id(i) : '';
+  const abs = w.day;
+  const doy = abs % 360;
+  const price = markOf(w);
+  const idx = indexPair(w);
+  const book = playerBook(w);
+  const alive = i >= 0 && P.alive(i);
+  return {
+    date: { year: Math.floor(abs / 360) + 1, month: Math.floor(doy / 30) + 1, day: (doy % 30) + 1, abs },
+    name: i >= 0 ? P.name(i) : '',
+    age: i >= 0 ? P.age(w, i) : 0,
+    health: i >= 0 ? P.health[i] : 0,
+    alive,
+    over: pst.over || !alive,
+    final: pst.final,
+    cash: i >= 0 ? Math.floor(w.ledger.balance(id, DEP)) : 0,
+    netWorth: i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0,
+    dynasty: lightDynasty(w),
+    heir: heirOf(w),
+    healthPanel: healthPanel(w),
+    alerts: alertsOf(w),
+    companies: desks(w),
+    index: idx.index,
+    indexChg: idx.prev > 0 ? idx.index / idx.prev - 1 : 0,
+    quotes: quotesOf(w).map((q) => ({ instr: q.instr, px: q.px, prev: q.prev, chg: q.chg, vol: q.vol })),
+    shares: book.shares,
+    orders: book.orders,
+    news: headlines(w),
+  };
+}
+
+function parcelPage(w: World, id: number): Record<string, unknown> | undefined {
+  const p = parcelView(w, id);
+  if (!p) return;
+  const me = playerIndex(w);
+  const live = me >= 0 && (w.state.property as { live?: Int32Array } | undefined)?.live?.[me] === id;
+  return {
+    ...p,
+    mine: p.owner === me,
+    live,
+    owner: personName(w, p.owner),
+    tenant: personName(w, p.tenant),
+  };
+}
+
+function panelSlice(w: World, name: string): Record<string, unknown> {
+  const i = playerIndex(w);
+  switch (name) {
+    case 'options':
+      return { chain: optionChain(w, i >= 0 ? econ(w).P.id(i) : '') };
+    case 'homes':
+      return { homes: decorateHomes(w, homeBoard(w, i)), districts: districts(w) };
+    case 'firms':
+      return { companies: desks(w) };
+    case 'boards':
+      return {
+        companies: desks(w),
+        bids: recentBids(w),
+        firms: econ(w).firms.filter((f) => !f.closed).map((f) => ({ id: f.id, name: f.name })),
+      };
+    default:
+      return {};
+  }
+}
+
 function screen(w: World): Record<string, unknown> {
   const v = view(w);
   const P = econ(w).P;
@@ -750,6 +1140,13 @@ function screen(w: World): Record<string, unknown> {
   const firmsDir = firms.map((f) => ({ id: f.id, name: f.name }));
   return {
     ...v,
+    homes: decorateHomes(w, v.homes),
+    districts: districts(w),
+    alerts: alertsOf(w),
+    healthPanel: healthPanel(w),
+    heir: heirOf(w),
+    bids: recentBids(w),
+    companies: desks(w),
     player: me,
     contacts,
     news,
@@ -930,33 +1327,6 @@ function broadcast(event: string, data: unknown): void {
   }
 }
 
-function compact(snap: Record<string, unknown>): Record<string, unknown> {
-  const tape = snap.tape as { index: number; indexChg: number };
-  return {
-    date: snap.date,
-    netWorth: snap.netWorth,
-    nwChange: snap.nwChange,
-    sinceOpen: snap.sinceOpen,
-    cash: snap.cash,
-    alive: snap.alive,
-    over: snap.over,
-    name: snap.name,
-    age: snap.age,
-    health: snap.health,
-    final: snap.final,
-    family: snap.family,
-    dynasty: snap.dynasty,
-    index: tape.index,
-    indexChg: tape.indexChg,
-    quotes: (snap.quotes as { instr: string; px: number; prev: number; chg: number; vol: number }[]).map((q) => ({
-      instr: q.instr, px: q.px, prev: q.prev, chg: q.chg, vol: q.vol,
-    })),
-    shares: snap.shares,
-    orders: snap.orders,
-    news: snap.news,
-  };
-}
-
 function stepDay(): string | undefined {
   try { w.step(); }
   catch (err) {
@@ -975,22 +1345,22 @@ function stepDay(): string | undefined {
     broadcast('books', { ok: false, lines: booksBad });
     return bad[0];
   }
-  let snap: Record<string, unknown>;
-  try { snap = screen(w); }
+  let frame: Record<string, unknown>;
+  try { frame = tickFrame(w); }
   catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     speed = 'pause';
     broadcast('books', { ok: false, lines: [why] });
     return why;
   }
-  const now = snap.netWorth as number;
+  const now = frame.netWorth as number;
   nwChange = now - closeWorth;
   closeWorth = now;
-  snap.nwChange = nwChange;
-  snap.sinceOpen = now - openWorth;
+  frame.nwChange = nwChange;
+  frame.sinceOpen = now - openWorth;
   if (w.day % 30 === 0) sampleMacro(w);
-  if (snap.over) { speed = 'pause'; over = true; }
-  broadcast('day', compact(snap));
+  if (frame.over) { speed = 'pause'; over = true; }
+  broadcast('day', frame);
   return undefined;
 }
 
@@ -1050,6 +1420,14 @@ const server = http.createServer(async (req, res) => {
   const pathname = url.pathname;
   try {
     if (req.method === 'GET' && pathname === '/view') { send(res, 200, screen(w)); return; }
+    if (req.method === 'GET' && pathname === '/panel') { send(res, 200, panelSlice(w, url.searchParams.get('name') || '')); return; }
+    if (req.method === 'GET' && pathname.startsWith('/parcel/')) {
+      const id = Number(pathname.slice('/parcel/'.length));
+      const page = parcelPage(w, id);
+      if (!page) { send(res, 404, { error: 'no such home' }); return; }
+      send(res, 200, page);
+      return;
+    }
     if (req.method === 'GET' && pathname === '/history') { send(res, 200, historyPage(w)); return; }
     if (req.method === 'GET' && pathname.startsWith('/explain/')) {
       const id = Number(pathname.slice('/explain/'.length));
@@ -1136,7 +1514,14 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 server.listen(port, '127.0.0.1', () => {
   const v = view(w);
   const who = v.alive ? `${v.name}, ${v.age}, ${v.employer || 'unemployed'}` : `${v.name} has died`;
+  const tFull = Date.now();
+  const full = JSON.stringify(screen(w));
+  const fullMs = Date.now() - tFull;
+  const tDay = Date.now();
+  const day = JSON.stringify(tickFrame(w));
+  const dayMs = Date.now() - tDay;
   console.log(`http://localhost:${port}`);
   console.log(`Year ${v.date.year} month ${v.date.month} day ${v.date.day}. ${who}.`);
   console.log('Books balanced every day.');
+  console.log(`screen ${full.length} bytes in ${fullMs} ms; day frame ${day.length} bytes in ${dayMs} ms`);
 });

@@ -556,4 +556,32 @@ function stats(w: World): Record<string, number> {
   return row;
 }
 
+/** `code` is the person's illness mark: 0 is well, otherwise one past the disease index. */
+export function illnessName(code: number): string {
+  if (code <= 0) return '';
+  return DISEASES[code - 1]?.name ?? 'an illness';
+}
+
+/** The disease moving through the city, if one is still running. */
+export function epidemicNow(w: World): { name: string; eventId: number; quarantine: boolean; cases: number; until: number } | null {
+  const st = w.state.health as Book | undefined;
+  if (!st || st.epi < 0 || w.day >= st.epiUntil) return null;
+  return {
+    name: DISEASES[st.epi]?.name ?? 'a disease',
+    eventId: st.epiEv || st.openEv,
+    quarantine: w.day < st.portUntil,
+    cases: st.nCase,
+    until: st.epiUntil,
+  };
+}
+
+/** Unpaid hospital claims this person still owes. */
+export function careBill(w: World, person: number): number {
+  const st = w.state.health as Book | undefined;
+  if (!st || person < 0) return 0;
+  let n = 0;
+  for (let k = 0; k < st.dueN; k++) if (st.dueWho[k] === person && st.dueAmt[k] > 0) n += st.dueAmt[k];
+  return Math.round(n);
+}
+
 export const health: Module = { id: 'health', init, dayClose, stats };

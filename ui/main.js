@@ -8,11 +8,13 @@ const PAGES = [
   ['fx', 'FX', '7'],
   ['economy', 'MACRO', '8'],
   ['log', 'LOG', '9'],
+  ['firms', 'FIRMS', '0'],
+  ['boards', 'BIDS', 'T'],
   ['family', 'FAMILY', 'F'],
   ['options', 'OPTS', 'O'],
   ['homes', 'HOMES', 'P'],
+  ['health', 'HEALTH', 'G'],
   ['help', 'HELP', '?'],
-  ['run', 'RUN', '0'],
 ];
 const SPEEDS = [['pause', 'PAUSE'], ['day', '1D'], ['week', '1W'], ['month', '1M']];
 const SPEED_ORDER = ['pause', 'day', 'week', 'month'];
@@ -26,6 +28,9 @@ const S = {
   sortDir: -1,
   side: 'buy',
   orderType: 'mkt',
+  optRight: 'C',
+  optMonths: 2,
+  nb: '',
   chart: null,
   chartSpan: 'year',
   explain: null,
@@ -76,6 +81,15 @@ function firmLink(id, name) {
   if (!id) return esc(name);
   return `<a href="#firm/${encodeURIComponent(id)}" data-firm="${esc(id)}">${esc(name)}</a>`;
 }
+function parcelLink(id, name) {
+  if (id === undefined || id === null || id < 0) return esc(name);
+  return `<a href="#parcel/${id}" data-parcel="${id}">${esc(name)}</a>`;
+}
+function stockLink(instr, label) {
+  const q = S.view?.quotes?.find((x) => x.instr === instr);
+  if (q) return firmLink(q.issuer, label || q.symbol);
+  return esc(label || instr);
+}
 function personLink(index, name) {
   if (index === undefined || index === null || index < 0) return esc(name);
   return `<a href="#person/${index}" data-person="${index}">${esc(name)}</a>`;
@@ -108,8 +122,9 @@ function bar(kind, value, max) {
 function route() {
   const raw = (location.hash || '#desk').replace(/^#/, '');
   const cut = raw.indexOf('/');
-  const page = (cut < 0 ? raw : raw.slice(0, cut)) || 'desk';
+  let page = (cut < 0 ? raw : raw.slice(0, cut)) || 'desk';
   const arg = cut < 0 ? '' : decodeURIComponent(raw.slice(cut + 1));
+  if (page === 'run') page = 'firms';
   return { page, arg };
 }
 
@@ -127,11 +142,12 @@ function shell() {
       <div class="speeds">${speeds}</div>
     </header>
     <nav>${nav}</nav>
+    <div id="alerts"></div>
     <div id="body"><main id="main"></main><aside id="chain" hidden></aside></div>
     <footer>
       <span id="books">books …</span>
       <span id="flash"></span>
-      <span class="dim">j/k quote · b buy · s sell · h short · space pause · [ ] speed · esc close</span>
+      <span class="dim">1-9 screens · 0 firms · g health · t bids · f family · o options · p homes · j/k · space pause · [ ] speed</span>
     </footer>`;
   document.getElementById('app').addEventListener('click', onClick);
   document.getElementById('app').addEventListener('submit', onSubmit);
@@ -174,6 +190,8 @@ function paintChrome() {
   }
   books.textContent = v.books?.ok ? 'books balanced' : 'BOOKS DO NOT BALANCE';
   books.className = v.books?.ok ? '' : 'bad';
+  const alerts = document.getElementById('alerts');
+  if (alerts) alerts.innerHTML = alertsHtml();
   flash.textContent = S.flash;
   flash.className = S.flashBad ? 'bad' : 'ok';
   const ticket = document.getElementById('ticketmsg');
@@ -187,6 +205,15 @@ function paintChrome() {
     if (el) el.classList.toggle('on', id === (v.speed || 'pause'));
   }
   renderChain();
+}
+const ALERT_WORD = { margin: 'MARGIN', bid: 'BID', strike: 'STRIKE', letter: 'LETTER', child: 'CHILD', rent: 'RENT' };
+function alertsHtml() {
+  const rows = S.view?.alerts ?? [];
+  if (!rows.length) return '<span class="dim">nothing needs you</span>';
+  return rows.map((a) => `<span class="alert ${esc(a.kind)}">
+      <a href="#${esc(a.page)}${a.arg ? '/' + encodeURIComponent(a.arg) : ''}">${ALERT_WORD[a.kind] || esc(a.kind)}</a>
+      <button type="button" data-explain="${a.eventId}" data-title="${esc(a.text)}">${esc(a.text)}</button>
+    </span>`).join('');
 }
 function pctSignedMoney(cents) {
   const n = Number(cents) || 0;
@@ -204,7 +231,7 @@ function go(page, arg) {
 
 function onClick(ev) {
   if (ev.target.closest('a[href]')) return;
-  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home]');
+  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home],[data-nb],[data-co],[data-parcel],[data-optmonth],[data-optright]');
   if (!t || !document.getElementById('app').contains(t)) return;
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.speed) { setSpeed(t.dataset.speed); return; }
@@ -237,6 +264,17 @@ function onClick(ev) {
   if (t.dataset.macro) { openExplain(Number(t.dataset.macro), t.dataset.title || ''); return; }
   if (t.dataset.opt) { dealOption(t.dataset.opt, t.dataset.id, t.dataset.right); return; }
   if (t.dataset.home) { dealHome(t.dataset.home, Number(t.dataset.id)); return; }
+  if (t.dataset.nb !== undefined) { S.nb = S.nb === t.dataset.nb ? '' : t.dataset.nb; patchHomes(); return; }
+  if (t.dataset.parcel) { go('parcel', t.dataset.parcel); return; }
+  if (t.dataset.co) { runCompany(t.dataset.co, t.dataset.cofirm || ''); return; }
+  if (t.dataset.optmonth !== undefined) {
+    S.optMonths = Number(t.dataset.optmonth);
+    const box = document.getElementById('optmonths');
+    if (box) box.value = String(S.optMonths);
+    patchOptions();
+    return;
+  }
+  if (t.dataset.optright) { S.optRight = t.dataset.optright; paintOptRight(); return; }
 }
 
 function onSubmit(ev) {
@@ -244,14 +282,16 @@ function onSubmit(ev) {
   if (!(form instanceof HTMLFormElement)) return;
   ev.preventDefault();
   if (form.id === 'ticket') submitTicket();
+  else if (form.id === 'opt-ticket') submitOption(form);
   else if (form.id === 'found-form') submitFound(form);
+  else if (form.id === 'bid-ticket') submitBid(form);
   else if (form.id === 'ceo-form') submitCeo(form);
   else if (form.id === 'ipo-form') submitIpo(form);
   else if (form.id === 'bid-form') submitBid(form);
   else if (form.id === 'board-form') submitBoard(form);
 }
 function onChange(ev) {
-  if (ev.target?.id === 'optname') { S.optInstr = ev.target.value; renderMain(); }
+  if (ev.target?.id === 'optname') { S.optInstr = ev.target.value; patchOptions(); }
 }
 
 async function setSpeed(speed) {
@@ -318,7 +358,7 @@ function quotesHtml() {
   const head = `<div class="qhead"><button type="button" data-sort="symbol">SYMBOL</button><span></span><button type="button" class="num" data-sort="px">LAST</button><button type="button" class="num" data-sort="chg">CHG</button><button type="button" class="num" data-sort="vol">VOL</button></div>`;
   const rows = sortedQuotes().map((q) => `
     <div class="qrow${q.instr === S.selected ? ' on' : ''}" data-pick="${esc(q.instr)}">
-      <span>${esc(q.symbol)}</span>
+      <span>${firmLink(q.issuer, q.symbol)}</span>
       <span class="name">${firmLink(q.issuer, q.name)}</span>
       <span class="num" data-cell="px">${px(q.px)}</span>
       <span class="num ${cls(q.chg)}" data-cell="chg">${pct(q.chg)}</span>
@@ -334,11 +374,11 @@ function positionsHtml() {
     const prev = q?.prev ?? s.px;
     const day = (s.px - prev) * s.qty;
     const sym = q?.symbol ?? s.instr;
-    const name = q ? firmLink(q.issuer, q.name) : esc(s.instr);
-    return `<tr><td>${esc(sym)} ${name}</td><td class="num">${s.qty}</td><td class="num">${px(s.px)}</td><td class="num">${money(s.qty * s.px)}</td><td class="num ${cls(day)}">${pctSignedMoney(day)}</td></tr>`;
+    const name = q ? firmLink(q.issuer, q.name) : stockLink(s.instr);
+    return `<tr><td>${stockLink(s.instr, sym)} ${name}</td><td class="num">${s.qty}</td><td class="num">${px(s.px)}</td><td class="num">${money(s.qty * s.px)}</td><td class="num ${cls(day)}">${pctSignedMoney(day)}</td></tr>`;
   }).join('');
   const orders = (v?.orders ?? []).filter((o) => o.book === 'shares').map((o) => `
-    <tr><td>${o.id}</td><td>${esc(o.side)}</td><td>${esc(quotes.get(o.instr)?.symbol ?? o.instr)}</td><td class="num">${o.qty}</td><td class="num">${o.limit ? px(o.limit) : 'MKT'}</td>
+    <tr><td>${o.id}</td><td>${esc(o.side)}</td><td>${stockLink(o.instr, quotes.get(o.instr)?.symbol ?? o.instr)}</td><td class="num">${o.qty}</td><td class="num">${o.limit ? px(o.limit) : 'MKT'}</td>
     <td><button type="button" data-cancel="${o.id}">cancel</button></td></tr>`).join('');
   return `
     <div class="panel scroll"><h2>POSITIONS</h2>
@@ -401,36 +441,49 @@ function renderFamily() {
   if (!v) return '<div class="dim">loading the books…</div>';
   const d = v.dynasty || {};
   const fam = v.family || { children: [], will: '' };
-  const people = (d.people || []).map((p) => `<tr>
+  const hp = new Map((v.healthPanel?.house ?? []).map((h) => [h.index, h]));
+  const people = (d.people || []).map((p) => {
+    const h = hp.get(p.index);
+    return `<tr>
     <td>${personLink(p.index, p.name)}</td><td>${esc(p.role)}</td><td class="num">${p.age}</td>
-    <td>${p.alive ? 'living' : '<span class="dead">dead</span>'}</td><td class="num">${money(p.worth)}</td></tr>`).join('');
-  const kids = (fam.children || []).map((k, n) => `<button type="button" data-life="school:${n}">SCHOOL ${esc(k.name)} (${k.school})</button>`).join(' ');
+    <td class="num">${h ? h.health : ''}</td>
+    <td>${p.alive ? 'living' : '<span class="dead">dead</span>'}</td><td class="num">${money(p.worth)}</td></tr>`;
+  }).join('');
+  const spouse = fam.spouse ? personLink(fam.spouse.index, fam.spouse.name) : '<span class="dim">none</span>';
+  const kids = (fam.children || []).map((k, n) => {
+    const h = hp.get(k.index);
+    const ill = h?.illness ? ` <span class="down">${esc(h.illness)}</span>` : '';
+    return `<div>${personLink(k.index, k.name)}, ${k.age}${ill} <button type="button" data-life="school:${n}">school ${k.school}</button></div>`;
+  }).join('') || '<div class="dim">no children</div>';
+  const heir = v.heir ? `${personLink(v.heir.index, v.heir.name)} <button type="button" data-explain="${v.heir.eventId}">the will</button>` : '<span class="dim">the city rule</span>';
   const chronicle = (S.history?.entries ?? []).filter((e) => e.kind === 'player').slice().reverse().map((e) => `
-    <div class="log-item"><span class="dim">Y${e.year} · ${dateOf(e.day)}</span><br>${esc(e.text)}</div>`).join('')
+    <div class="log-item"><span class="dim">${dateOf(e.day)}</span><br>${esc(e.text)}</div>`).join('')
     || '<div class="dim" style="padding:8px">the family page of the chronicle is still blank</div>';
   const acts = v.over ? '' : `<div style="padding:8px">
     <button type="button" data-court>COURT</button>
     <button type="button" data-marry>MARRY</button>
     <button type="button" data-life="child">CHILD</button>
-    ${kids}
     <button type="button" data-life="will:spouse">WILL SPOUSE</button>
     <button type="button" data-life="will:child">WILL CHILD</button>
     <button type="button" data-life="retire">RETIRE</button>
     <button type="button" data-life="hand">HAND THE FIRM</button>
     <button type="button" data-life="die">DIE</button>
-    <div class="dim" style="margin-top:6px">${esc(fam.will || '')}</div>
   </div>`;
   return `${finalBanner()}<div class="split">
     <div class="panel"><h2>DYNASTY <span>generation ${d.generation ?? 1}</span></h2>
+      <div class="score">${money(d.worth || 0)} <span class="dim">dynasty score</span></div>
       <div class="facts">
-        <span class="k">family worth</span><span>${money(d.worth || 0)}</span>
+        <span class="k">spouse</span><span>${spouse}</span>
+        <span class="k">heir</span><span>${heir}</span>
+        <span class="k">will</span><span>${esc(fam.will || 'no will')}</span>
         <span class="k">firms founded</span><span>${d.founded ?? 0}</span>
         <span class="k">firms controlled</span><span>${d.controlled ?? 0}</span>
         <span class="k">offices held</span><span>${d.offices ?? 0}</span>
         <span class="k">convictions</span><span>${d.convictions ?? 0}</span>
-        <span class="k">health</span><span>${v.health ?? ''}</span>
       </div>
-      <table><tbody>${people || '<tr><td class="dim">no one in the house</td></tr>'}</tbody></table>
+      <div style="padding:0 8px 8px"><div class="dim">children</div>${kids}</div>
+      <table><thead><tr><th>NAME</th><th>ROLE</th><th class="num">AGE</th><th class="num">HEALTH</th><th></th><th class="num">WORTH</th></tr></thead>
+      <tbody>${people || '<tr><td class="dim">no one in the house</td></tr>'}</tbody></table>
       ${acts}
     </div>
     <div class="panel"><h2>CHRONICLE <span>the family</span></h2>${chronicle}</div>
@@ -612,56 +665,169 @@ function coin(side) {
   postAct({ kind: 'coin', side, coin: document.getElementById('coin')?.value, qty: Number(document.getElementById('cqty')?.value) });
 }
 
-function renderOptions() {
-  const chain = S.view?.chain ?? [];
+function optionNames() {
   const names = [];
-  for (const c of chain) if (!names.includes(c.instr)) names.push(c.instr);
+  for (const c of S.view?.chain ?? []) if (!names.includes(c.instr)) names.push(c.instr);
+  return names;
+}
+function shownMonth(chain) {
+  const months = [];
+  for (const c of chain) if (!months.includes(c.months)) months.push(c.months);
+  months.sort((a, b) => a - b);
+  if (months.includes(S.optMonths)) return S.optMonths;
+  const held = chain.find((c) => c.net);
+  if (held) return held.months;
+  let best = months[0] ?? 0;
+  for (const m of months) if (Math.abs(m - S.optMonths) < Math.abs(best - S.optMonths)) best = m;
+  return best;
+}
+function chainTable() {
+  const chain = (S.view?.chain ?? []).filter((c) => c.instr === S.optInstr);
+  const months = [];
+  for (const c of chain) if (!months.includes(c.months)) months.push(c.months);
+  months.sort((a, b) => a - b);
+  const show = shownMonth(chain);
+  const strikes = [];
+  for (const c of chain) if (c.months === show && !strikes.includes(c.strike)) strikes.push(c.strike);
+  strikes.sort((a, b) => a - b);
+  const at = (right, strike) => chain.find((c) => c.months === show && c.right === right && c.strike === strike);
+  const side = (row) => row ? `<button type="button" data-opt="buy" data-id="${esc(row.id)}" data-right="${row.right}">${px(row.ask)}</button> <button type="button" data-opt="write" data-id="${esc(row.id)}" data-right="${row.right}">write</button>${row.net ? ` <span class="${cls(row.net)}">${row.net}</span>` : ''}` : '';
+  const rows = strikes.map((k) => {
+    const call = at('C', k);
+    const put = at('P', k);
+    return `<tr>
+      <td class="num">${side(call)}</td>
+      <td class="num dim">${call ? px(call.bid) : ''}</td>
+      <td class="num">${px(k)}</td>
+      <td class="num dim">${put ? px(put.bid) : ''}</td>
+      <td class="num">${side(put)}</td>
+      <td class="num dim">${(call?.oi ?? 0) + (put?.oi ?? 0) || ''}</td>
+    </tr>`;
+  }).join('');
+  const tabs = months.map((m) => `<button type="button" data-optmonth="${m}" class="${m === show ? 'on' : ''}">M+${m}</button>`).join(' ');
+  return `<h2>CHAIN <span>${stockLink(S.optInstr)} · ${tabs}</span></h2>
+    <table><thead><tr><th class="num">CALL ASK</th><th class="num">CALL BID</th><th class="num">STRIKE</th><th class="num">PUT BID</th><th class="num">PUT ASK</th><th class="num">OI</th></tr></thead>
+    <tbody>${rows || '<tr><td class="dim" colspan="6">no contracts this month</td></tr>'}</tbody></table>`;
+}
+function renderOptions() {
+  const names = optionNames();
   if (!S.optInstr || !names.includes(S.optInstr)) S.optInstr = names[0] || '';
-  const rows = chain.filter((c) => c.instr === S.optInstr).map((c) => `<tr>
-    <td>${c.right === 'C' ? 'call' : 'put'}</td>
-    <td class="num">${px(c.strike)}</td>
-    <td class="num">M+${c.months}</td>
-    <td class="num">${px(c.bid)}</td>
-    <td class="num">${px(c.ask)}</td>
-    <td class="num">${c.oi}</td>
-    <td class="num">${c.net || ''}</td>
-    <td>
-      <button type="button" data-opt="buy" data-id="${esc(c.id)}" data-right="${c.right}">buy</button>
-      <button type="button" data-opt="write" data-id="${esc(c.id)}" data-right="${c.right}">write</button>
-      ${c.net ? `<button type="button" data-opt="close" data-id="${esc(c.id)}">close</button>` : ''}
-    </td></tr>`).join('');
-  const pick = names.map((n) => `<option value="${esc(n)}"${n === S.optInstr ? ' selected' : ''}>${esc(n)}</option>`).join('');
-  return `<div class="panel ticket"><h2>OPTIONS</h2>
-    <div class="row"><select id="optname">${pick}</select><label>QTY <input id="optqty" value="1"></label></div>
-    <div class="dim" style="padding:4px 8px">buy pays the ask. write posts margin. an in-the-money contract exercises at expiry.</div></div>
-    <div class="panel" style="margin-top:8px"><table><thead><tr><th>RIGHT</th><th class="num">STRIKE</th><th class="num">EXP</th><th class="num">BID</th><th class="num">ASK</th><th class="num">OI</th><th class="num">NET</th><th></th></tr></thead>
-    <tbody>${rows || '<tr><td class="dim" colspan="8">no chain</td></tr>'}</tbody></table></div>`;
+  const pick = names.map((n) => `<option value="${esc(n)}"${n === S.optInstr ? ' selected' : ''}>${esc(stockSymbol(n))}</option>`).join('');
+  return `<div class="optdesk">
+    <div class="panel" id="opt-chain">${chainTable()}</div>
+    <div class="panel ticket"><h2>OPTION TICKET</h2>
+      <form id="opt-ticket">
+        <div class="row">
+          <select id="optname" name="instr">${pick}</select>
+          <button type="button" data-optright="C" class="${S.optRight === 'C' ? 'on' : ''}">CALL</button>
+          <button type="button" data-optright="P" class="${S.optRight === 'P' ? 'on' : ''}">PUT</button>
+        </div>
+        <div class="row">
+          <label>STRIKE $ <input id="optstrike" name="strike" value="0"></label>
+          <label>M+ <input id="optmonths" name="months" value="${S.optMonths}"></label>
+          <label>QTY <input id="optqty" name="qty" value="1"></label>
+        </div>
+        <div class="row">
+          <button type="submit" name="op" value="buy" class="buy">BUY</button>
+          <button type="submit" name="op" value="write" class="sell">WRITE</button>
+          <button type="submit" name="op" value="close">CLOSE</button>
+        </div>
+      </form>
+      <div class="dim">a strike of 0 is at the money. buy pays the ask. write posts margin. in the money, it exercises at expiry.</div>
+    </div>
+  </div>`;
+}
+function stockSymbol(instr) {
+  return S.view?.quotes?.find((q) => q.instr === instr)?.symbol || instr;
 }
 function dealOption(op, id, right) {
   const qty = Number(document.getElementById('optqty')?.value);
   if (op === 'close') { postAct({ kind: 'optclose', id, instr: '', qty: Number.isFinite(qty) && qty > 0 ? qty : 0 }); return; }
   const row = (S.view?.chain ?? []).find((c) => c.id === id);
   if (!row) { note('no such contract', true); return; }
+  S.optRight = right || row.right;
+  S.optMonths = row.months;
+  S.optInstr = row.instr;
+  const strike = document.getElementById('optstrike');
+  const months = document.getElementById('optmonths');
+  if (strike) strike.value = (row.strike / 100).toFixed(2);
+  if (months) months.value = String(row.months);
   const kind = op === 'write' ? 'write' : 'optbuy';
-  postAct({ kind, right: right || row.right, instr: row.instr, qty: Number.isFinite(qty) && qty > 0 ? qty : 1, months: row.months, strike: row.strike });
+  postAct({ kind, right: S.optRight, instr: row.instr, qty: Number.isFinite(qty) && qty > 0 ? qty : 1, months: row.months, strike: row.strike });
 }
-function renderHomes() {
-  const rows = (S.view?.homes ?? []).map((h) => `<tr>
-    <td>#${h.id} ${esc(h.neighbourhood)}</td>
+function submitOption(form, submitter) {
+  const op = submitter?.value || 'buy';
+  const qty = Number(document.getElementById('optqty')?.value);
+  const months = Number(document.getElementById('optmonths')?.value);
+  const strikeDollars = Number(document.getElementById('optstrike')?.value);
+  const instr = document.getElementById('optname')?.value || S.optInstr;
+  if (op === 'close') {
+    postAct({ kind: 'optclose', id: '', instr, qty: Number.isFinite(qty) && qty > 0 ? qty : 0 });
+    return;
+  }
+  const kind = op === 'write' ? 'write' : 'optbuy';
+  postAct({
+    kind,
+    right: S.optRight === 'P' ? 'P' : 'C',
+    instr,
+    qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
+    months: Number.isFinite(months) && months >= 0 ? months : 2,
+    strike: strikeDollars > 0 ? Math.round(strikeDollars * 100) : 0,
+  });
+}
+function patchOptions() {
+  const box = document.getElementById('opt-chain');
+  if (!box) return;
+  const names = optionNames();
+  if (!S.optInstr || !names.includes(S.optInstr)) S.optInstr = names[0] || '';
+  box.innerHTML = chainTable();
+}
+function paintOptRight() {
+  document.querySelectorAll('[data-optright]').forEach((el) => el.classList.toggle('on', el.dataset.optright === S.optRight));
+}
+function homeActs(h) {
+  return [
+    h.mine ? '' : `<button type="button" data-home="bid" data-id="${h.id}">bid</button>`,
+    h.mine && !h.live ? `<button type="button" data-home="sell" data-id="${h.id}">sell</button>` : '',
+    h.mine && !h.live ? `<button type="button" data-home="let" data-id="${h.id}">let</button>` : '',
+    h.mine || h.live ? `<button type="button" data-home="move" data-id="${h.id}">move</button>` : '',
+    h.mine ? `<button type="button" data-home="loan" data-id="${h.id}">mortgage</button>` : '',
+  ].filter(Boolean).join(' ');
+}
+function homeBody() {
+  const districts = [...(S.view?.districts ?? [])].sort((a, b) => a.distance - b.distance);
+  const map = districts.map((d) => `<button type="button" class="plot${S.nb === d.name ? ' on' : ''}" data-nb="${esc(d.name)}">
+      <b>${esc(d.name)}</b>
+      <span>${money(d.price)}</span>
+      <span class="dim">${d.distance} km from the port</span>
+    </button>`).join('');
+  const mine = (S.view?.homes ?? []).filter((h) => h.mine || h.live);
+  const listed = (S.view?.homes ?? []).filter((h) => !h.mine && !h.live && (!S.nb || h.neighbourhood === S.nb));
+  const row = (h) => `<tr>
+    <td>${parcelLink(h.id, '#' + h.id)} ${esc(h.neighbourhood)}</td>
     <td class="num">${money(h.price)}</td>
     <td class="num">${money(h.rent)}</td>
-    <td>${h.mine ? 'yours' : ''}${h.live ? ' home' : ''}${h.vacant ? ' vacant' : ''}</td>
-    <td>
-      ${h.mine ? '' : `<button type="button" data-home="bid" data-id="${h.id}">bid</button>`}
-      ${h.mine && !h.live ? `<button type="button" data-home="sell" data-id="${h.id}">sell</button>` : ''}
-      ${h.mine && !h.live ? `<button type="button" data-home="let" data-id="${h.id}">let</button>` : ''}
-      ${h.mine || h.live ? `<button type="button" data-home="move" data-id="${h.id}">move</button>` : ''}
-      ${h.mine ? `<button type="button" data-home="loan" data-id="${h.id}">mortgage</button>` : ''}
-    </td></tr>`).join('');
+    <td>${h.tenant ? personLink(h.tenant.index, h.tenant.name) : ''}${h.missed ? ` <span class="down">${h.missed} missed</span>` : ''}${h.vacant ? ' <span class="dim">vacant</span>' : ''}${h.live ? ' <span class="dim">you live here</span>' : ''}</td>
+    <td class="num">${h.mortgage ? money(h.mortgage) : ''}</td>
+    <td>${homeActs(h)}</td>
+  </tr>`;
+  return `<div class="map">${map}</div>
+    <h2 style="margin-top:8px">YOUR HOMES</h2>
+    <table><thead><tr><th>PARCEL</th><th class="num">PRICE</th><th class="num">RENT</th><th>TENANT</th><th class="num">MORTGAGE</th><th></th></tr></thead>
+    <tbody>${mine.map(row).join('') || '<tr><td class="dim" colspan="6">you own no home yet</td></tr>'}</tbody></table>
+    <h2 style="margin-top:8px">LISTINGS ${S.nb ? esc(S.nb) : ''}</h2>
+    <table><thead><tr><th>PARCEL</th><th class="num">PRICE</th><th class="num">RENT</th><th></th><th class="num">MORTGAGE</th><th></th></tr></thead>
+    <tbody>${listed.map(row).join('') || '<tr><td class="dim" colspan="6">nothing listed here</td></tr>'}</tbody></table>`;
+}
+function renderHomes() {
   return `<div class="panel ticket"><h2>HOMES</h2>
-    <div class="row"><label>RENT $ <input id="homerent" value="900"></label><label>LOAN $ <input id="homeloan" value=""></label></div></div>
-    <div class="panel" style="margin-top:8px"><table><thead><tr><th>HOME</th><th class="num">PRICE</th><th class="num">RENT</th><th></th><th></th></tr></thead>
-    <tbody>${rows || '<tr><td class="dim" colspan="5">no listings</td></tr>'}</tbody></table></div>`;
+    <div class="row"><label>RENT $ <input id="homerent" value="900"></label><label>LOAN $ <input id="homeloan" value=""></label>
+    <span class="dim">click a neighbourhood to list only that ground. a parcel opens its own page.</span></div></div>
+    <div class="panel" id="home-body" style="margin-top:8px;padding-bottom:8px">${homeBody()}</div>`;
+}
+function patchHomes() {
+  const box = document.getElementById('home-body');
+  if (box) box.innerHTML = homeBody();
 }
 function dealHome(op, id) {
   if (op === 'bid') { postAct({ kind: 'homebid', id, cents: 0 }); return; }
@@ -736,7 +902,7 @@ function renderFirm(f) {
   const ceo = f.ceo ? personLink(f.ceo.index, f.ceo.name) : '<span class="dim">vacant</span>';
   const news = (f.news ?? []).map((n) => `
     <div class="wire-item${n.private ? ' priv' : ''}" data-explain="${n.eventId}" data-title="${esc(n.text)}">
-      <span class="dim">${dateOf(n.day)}</span> ${n.private && n.from ? `<span class="tag">told by ${personLink(n.fromIndex, n.from)}</span>` : ''}${esc(n.text)}
+      <span class="dim">${dateOf(n.day)}</span> ${n.private && n.from ? `<span class="tag">told by ${personLink(n.fromIndex, n.from)}</span>` : ''}${rich(n.text, [{ id: f.id, name: f.name }])}
     </div>`).join('') || '<div class="dim" style="padding:8px">nothing on the wire about this firm</div>';
   return `<div class="stack">
     <div class="panel"><h2>${esc(f.name)} <span>${esc(f.share?.symbol || '')} · ${esc(f.sector)}</span></h2>
@@ -895,7 +1061,7 @@ function renderChain() {
     const lines = (ex.lines ?? []).map((ln) => {
       if (ln.missing) return `<div class="chain-line gone" style="padding-left:${ln.depth * 14}px">${esc(ln.msg)}</div>`;
       const who = ln.person !== undefined ? personLink(ln.person, ln.name) : ln.firm ? firmLink(ln.firm, ln.name) : '';
-      return `<div class="chain-line" style="padding-left:${ln.depth * 14}px"><span class="dim">${ln.day >= 0 ? dateOf(ln.day) : ''}</span> <span class="kind">${esc(ln.kind)}</span>${who ? ' ' + who : ''} <span class="msg">${esc(ln.msg)}</span>${ln.exo ? ' <span class="dim">outside</span>' : ''}${ln.again ? ' <span class="dim">see above</span>' : ''}</div>`;
+      return `<div class="chain-line" data-explain="${ln.id}" data-title="${esc(ln.kind)}" style="padding-left:${ln.depth * 14}px"><span class="dim">${ln.day >= 0 ? dateOf(ln.day) : ''}</span> <span class="kind">${esc(ln.kind)}</span>${who ? ' ' + who : ''} <span class="msg">${esc(ln.msg)}</span>${ln.exo ? ' <span class="dim">outside</span>' : ''}${ln.again ? ' <span class="dim">see above</span>' : ''}</div>`;
     }).join('');
     aside.innerHTML = `<div class="top"><h2>${esc(ex.title || ('event ' + ex.id))}</h2><button type="button" id="chain-close">close</button></div>${lines || '<div class="dim">no chain</div>'}`;
   }
@@ -927,57 +1093,166 @@ async function ensureHistory() {
 
 const SECTORS = ['ENERGY', 'AGRICULTURE', 'MINING', 'METALS', 'CHEMICALS', 'CONSTRUCTION', 'MANUFACTURING', 'TECHNOLOGY', 'TRANSPORT', 'RETAIL', 'HEALTHCARE', 'FINANCE', 'MEDIA'];
 
-function renderRun() {
-  const rows = (S.view?.companies ?? []).map((c) => `<tr>
-    <td><a href="#firm/${encodeURIComponent(c.id)}">${esc(c.name)}</a> <span class="dim">${esc(c.id)}</span></td>
-    <td>${esc(c.role)}</td>
-    <td class="num">${c.workers}</td>
-    <td class="num">${money(c.cash)}</td>
-    <td class="num">${money(c.sales)}</td>
-    <td class="num">${money(c.cost)}</td>
-    <td class="num">${money(c.profit)}</td>
-    <td>${c.listed ? 'listed' : 'private'}</td>
-    <td class="num">${c.stake}/${c.shares}</td>
-    <td class="dim">${esc(c.quote)} · hire ${esc(c.hire)} · div ${esc(c.dividend)}</td>
-  </tr>`).join('');
+function firmCard(c) {
+  const chief = c.role === 'chief executive';
+  const controls = chief ? `<div class="row">
+      <label>PRICE $ <input class="co-price" value="${(c.price / 100).toFixed(2)}"></label>
+      <button type="button" data-co="price" data-cofirm="${esc(c.id)}">set</button>
+      <button type="button" data-co="price-auto" data-cofirm="${esc(c.id)}">usual</button>
+      <label>STAFF <input class="co-hires" value="${c.workers}"></label>
+      <button type="button" data-co="hires" data-cofirm="${esc(c.id)}">set</button>
+      <button type="button" data-co="hires-auto" data-cofirm="${esc(c.id)}">usual</button>
+    </div>
+    <div class="row">
+      <label>DIVIDEND <input class="co-div" placeholder="0.25"></label>
+      <button type="button" data-co="dividend" data-cofirm="${esc(c.id)}">set</button>
+      <button type="button" data-co="dividend-auto" data-cofirm="${esc(c.id)}">usual</button>
+      <label>MACHINES <input class="co-invest" value="1"></label>
+      <button type="button" data-co="invest" data-cofirm="${esc(c.id)}">buy</button>
+      ${c.listed ? '' : `<label>IPO <input class="co-ipo" value="0.4"></label><button type="button" data-co="ipo" data-cofirm="${esc(c.id)}">list</button>`}
+      ${c.family ? `<button type="button" data-co="hand" data-cofirm="${esc(c.id)}">hand down</button>` : ''}
+    </div>` : '<div class="dim">the chief executive runs the day. the board is on BIDS.</div>';
+  return `<div class="panel firmcard" data-card="${esc(c.id)}">
+    <h2>${firmLink(c.id, c.name)} <span>${esc(c.role)} · ${esc(c.goodName || c.good)} · ${c.listed ? 'listed' : 'private'}</span></h2>
+    <div class="facts">
+      <span class="k">sales</span><span data-stat="sales">${money(c.sales)}</span>
+      <span class="k">costs</span><span data-stat="cost">${money(c.cost)}</span>
+      <span class="k">last profit</span><span data-stat="profit" class="${cls(c.profit)}">${money(c.profit)}</span>
+      <span class="k">staff</span><span data-stat="workers">${c.workers}</span>
+      <span class="k">price</span><span data-stat="price">${px(c.price)}</span>
+      <span class="k">cash</span><span data-stat="cash">${money(c.cash)}</span>
+      <span class="k">your stake</span><span>${c.stake} / ${c.shares}</span>
+      <span class="k">policy</span><span class="dim">price ${esc(c.quote)} · hires ${esc(c.hire)} · dividend ${esc(c.dividend)}</span>
+    </div>
+    <div class="ticket">${controls}</div>
+  </div>`;
+}
+function renderFirms() {
+  const cards = (S.view?.companies ?? []).filter((c) => c.role === 'chief executive').map(firmCard).join('');
   const sectors = SECTORS.map((s) => `<option>${s}</option>`).join('');
-  return `<div class="ticket">
-    <h2>Companies</h2>
-    <table class="grid">
-      <thead><tr><th>Firm</th><th>Seat</th><th>Staff</th><th>Cash</th><th>Sales</th><th>Costs</th><th>Profit</th><th></th><th>Stake</th><th>Policy</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="10" class="dim">you run nothing yet</td></tr>'}</tbody>
-    </table>
-    <form id="found-form"><b>Found</b>
-      <input name="name" placeholder="name" required>
-      <select name="sector">${sectors}</select>
-      <input name="cash" type="number" min="0" step="1" placeholder="dollars">
-      <label><input name="loan" type="checkbox"> loan</label>
-      <button type="submit">found</button>
+  return `<div class="stack" id="firm-cards">
+    ${cards || '<div class="panel"><div class="dim" style="padding:8px">you do not run a firm yet</div></div>'}
+    <form id="found-form" class="panel ticket"><h2>FOUND</h2>
+      <div class="row">
+        <input name="name" placeholder="name" required>
+        <select name="sector">${sectors}</select>
+        <input name="cash" type="number" min="0" step="1" placeholder="dollars">
+        <label><input name="loan" type="checkbox"> loan</label>
+        <button type="submit">found</button>
+      </div>
     </form>
-    <form id="ceo-form"><b>Run</b>
-      <input name="firm" placeholder="firm" required>
-      <select name="op"><option>report</option><option>price</option><option>hires</option><option>dividend</option><option>invest</option></select>
-      <input name="value" placeholder="value">
-      <label><input name="auto" type="checkbox"> usual rule</label>
-      <button type="submit">set</button>
+  </div>`;
+}
+function cardInput(id, cls) {
+  return document.querySelector(`[data-card="${CSS.escape(id)}"] .${cls}`);
+}
+function runCompany(op, firm) {
+  if (!firm) { note('name the firm', true); return; }
+  if (op === 'hand') { postAct({ kind: 'hand', firm }); return; }
+  if (op === 'ipo') {
+    const fraction = Number(cardInput(firm, 'co-ipo')?.value);
+    postAct({ kind: 'ipo', firm, fraction });
+    return;
+  }
+  const auto = op.endsWith('-auto');
+  const which = auto ? op.slice(0, -5) : op;
+  const cmd = { kind: 'ceo', firm, op: which, auto };
+  if (!auto) {
+    if (which === 'price') cmd.value = Math.round(Number(cardInput(firm, 'co-price')?.value) * 100);
+    else if (which === 'hires') cmd.value = Math.round(Number(cardInput(firm, 'co-hires')?.value));
+    else if (which === 'dividend') cmd.value = Number(cardInput(firm, 'co-div')?.value);
+    else if (which === 'invest') cmd.value = Math.round(Number(cardInput(firm, 'co-invest')?.value));
+  }
+  postAct(cmd);
+}
+function renderBoards() {
+  const firms = [...(S.view?.firms ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const opts = firms.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
+  const seats = (S.view?.companies ?? []).map((c) => `<tr>
+    <td>${firmLink(c.id, c.name)}</td><td>${esc(c.role)}</td><td class="num">${c.stake}/${c.shares}</td>
+    <td>${c.listed ? 'listed' : 'private'}</td></tr>`).join('');
+  const bids = (S.view?.bids ?? []).slice().reverse().map((b) => `<div class="wire-item" data-explain="${b.eventId}" data-title="${esc(b.text)}">
+      <span class="dim">${dateOf(b.day)} · ${esc(b.kind)}</span><br>${b.firm ? firmLink(b.firm, b.name) + ' — ' : ''}${esc(b.text)}
+    </div>`).join('') || '<div class="dim" style="padding:8px">no bids in the book you can still read</div>';
+  return `<div class="stack">
+    <form id="bid-ticket" class="panel ticket"><h2>TAKEOVER BID</h2>
+      <div class="row">
+        <select name="firm">${opts}</select>
+        <input name="price" placeholder="12.50 or 2x" required>
+        <select name="how"><option>cash</option><option>shares</option></select>
+        <button type="submit">bid</button>
+      </div>
+      <div class="dim">a number like 2x is a multiple of the last price. cash or shares, the same tender everyone else uses.</div>
     </form>
-    <form id="ipo-form"><b>List</b>
-      <input name="firm" placeholder="firm" required>
-      <input name="fraction" type="number" min="0.01" max="0.9" step="0.01" value="0.4" required>
-      <button type="submit">ipo</button>
+    <form id="board-form" class="panel ticket"><h2>BOARD</h2>
+      <div class="row">
+        <select name="op"><option>list</option><option>chief</option><option>merge</option><option>sell</option></select>
+        <input name="firm" placeholder="firm">
+        <input name="into" placeholder="slot, or the firm it joins">
+        <button type="submit">do</button>
+      </div>
+      <div class="dim">chief needs a contact slot. merge names the firm it joins. sell names the buyer.</div>
     </form>
-    <form id="bid-form"><b>Bid</b>
-      <input name="firm" placeholder="firm" required>
-      <input name="price" placeholder="12.50 or 2x" required>
-      <select name="how"><option>cash</option><option>shares</option></select>
-      <button type="submit">bid</button>
-    </form>
-    <form id="board-form"><b>Board</b>
-      <select name="op"><option>list</option><option>chief</option><option>merge</option><option>sell</option></select>
-      <input name="firm" placeholder="firm">
-      <input name="into" placeholder="buyer / into / slot">
-      <button type="submit">do</button>
-    </form>
+    <div class="panel"><h2>SEATS YOU HOLD</h2>
+      <table><thead><tr><th>FIRM</th><th>SEAT</th><th class="num">STAKE</th><th></th></tr></thead>
+      <tbody>${seats || '<tr><td class="dim" colspan="4">no seat yet</td></tr>'}</tbody></table>
+    </div>
+    <div class="panel"><h2>BIDS</h2>${bids}</div>
+  </div>`;
+}
+function healthBar(n) {
+  const p = Math.max(0, Math.min(100, Number(n) || 0));
+  const tone = p < 40 ? 'down' : p < 70 ? 'mid' : 'up';
+  return `<span class="hbar ${tone}"><span style="width:${p.toFixed(1)}%"></span></span>`;
+}
+function renderHealth() {
+  const v = S.view;
+  const h = v?.healthPanel || {};
+  const epi = h.epidemic;
+  const banner = epi ? `<div class="panel"><h2>IN THE CITY</h2><div style="padding:8px">${esc(epi.name)} · ${epi.cases} sick${epi.quarantine ? ' · the port is shut' : ''}
+    <button type="button" data-explain="${epi.eventId}">why</button></div></div>` : '';
+  const rows = (h.house || []).map((p) => `<tr>
+    <td>${personLink(p.index, p.name)}</td><td>${esc(p.role)}</td>
+    <td class="num">${p.health} ${healthBar(p.health)}</td>
+    <td>${p.illness ? esc(p.illness) : '<span class="dim">well</span>'}</td>
+    <td>${esc(p.cover)}</td>
+    <td class="num">${p.owed ? money(p.owed) : ''}</td>
+    <td><button type="button" data-explain="${p.eventId}">why</button></td>
+  </tr>`).join('');
+  return `<div class="stack">
+    <div class="panel"><h2>HEALTH</h2>
+      <div class="score">${h.health ?? v?.health ?? ''} ${healthBar(h.health ?? v?.health)} <span class="dim">${esc(h.illness || 'well')} · ${esc(h.cover || '')}</span></div>
+      <div class="facts">
+        <span class="k">unpaid care</span><span>${money(h.owed || 0)}</span>
+        <span class="k">last note</span><span><button type="button" data-explain="${h.eventId || 0}">why</button></span>
+      </div>
+    </div>
+    ${banner}
+    <div class="panel"><h2>THE HOUSE</h2>
+      <table><thead><tr><th>NAME</th><th>ROLE</th><th class="num">HEALTH</th><th>ILLNESS</th><th>COVER</th><th class="num">BILL</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td class="dim">no one</td></tr>'}</tbody></table>
+    </div>
+  </div>`;
+}
+function renderParcel(p) {
+  if (!p) return '<div class="dim">no such home</div>';
+  const owner = p.owner ? personLink(p.owner.index, p.owner.name) : '<span class="dim">a bank or a fund</span>';
+  const tenant = p.tenant ? personLink(p.tenant.index, p.tenant.name) : (p.vacant ? '<span class="dim">vacant</span>' : '<span class="dim">empty</span>');
+  const acts = homeActs({ id: p.id, mine: p.mine, live: p.live });
+  return `<div class="panel"><h2>${parcelLink(p.id, 'PARCEL #' + p.id)} <span>${esc(p.neighbourhood)}</span></h2>
+    <div class="facts">
+      <span class="k">price</span><span>${money(p.price)}</span>
+      <span class="k">rent</span><span>${money(p.rent)}</span>
+      <span class="k">size</span><span>${p.size}</span>
+      <span class="k">condition</span><span>${p.condition}</span>
+      <span class="k">owner</span><span>${owner}</span>
+      <span class="k">tenant</span><span>${tenant}${p.live ? ' · you live here' : ''}${p.missed ? ` · <span class="down">${p.missed} missed</span>` : ''}</span>
+      <span class="k">mortgage</span><span>${p.mortgage ? money(p.mortgage) : 'none'}</span>
+      <span class="k">why this price</span><span><button type="button" data-explain="${p.eventId}">the chain</button></span>
+    </div>
+    <div class="ticket"><div class="row">${acts}</div>
+      <div class="row"><label>RENT $ <input id="homerent" value="${Math.round((p.rent || 0) / 100)}"></label><label>LOAN $ <input id="homeloan" value=""></label></div>
+    </div>
   </div>`;
 }
 
@@ -1023,7 +1298,7 @@ async function renderMain() {
   if (!main) return;
   main.dataset.page = S.page;
   main.dataset.arg = S.arg || '';
-  if (!S.view && S.page !== 'firm' && S.page !== 'person') {
+  if (!S.view && S.page !== 'firm' && S.page !== 'person' && S.page !== 'parcel') {
     main.innerHTML = '<div class="dim">loading the books…</div>';
     return;
   }
@@ -1062,6 +1337,17 @@ async function renderMain() {
   }
   if (S.page === 'options') { main.innerHTML = renderOptions(); return; }
   if (S.page === 'homes') { main.innerHTML = renderHomes(); return; }
+  if (S.page === 'firms') { main.innerHTML = renderFirms(); return; }
+  if (S.page === 'boards') { main.innerHTML = renderBoards(); return; }
+  if (S.page === 'health') { main.innerHTML = renderHealth(); return; }
+  if (S.page === 'parcel') {
+    main.innerHTML = '<div class="dim">opening the parcel…</div>';
+    const res = await fetch('/parcel/' + encodeURIComponent(S.arg));
+    const parcel = res.ok ? await res.json() : null;
+    if (S.page !== 'parcel' || main.dataset.arg !== S.arg) return;
+    main.innerHTML = renderParcel(parcel);
+    return;
+  }
   if (S.page === 'help') {
     main.innerHTML = '<div class="dim">reading the commands…</div>';
     const res = await fetch('/act', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'help', command: '' }) });
@@ -1071,7 +1357,6 @@ async function renderMain() {
     main.innerHTML = renderHelp(data.lines);
     return;
   }
-  if (S.page === 'run') { main.innerHTML = renderRun(); return; }
   if (S.page === 'family') {
     main.innerHTML = renderFamily();
     ensureHistory().then(() => {
@@ -1128,13 +1413,54 @@ function nearestPoint(canvas, pts, ev, title) {
   if (hit?.eventId !== undefined) openExplain(hit.eventId, `${title} ${dateOf(hit.day)}`);
 }
 
+function patchFirmStats() {
+  const by = new Map((S.view?.companies ?? []).map((c) => [c.id, c]));
+  document.querySelectorAll('[data-card]').forEach((card) => {
+    const c = by.get(card.dataset.card);
+    if (!c) return;
+    const set = (k, text, tone) => {
+      const el = card.querySelector(`[data-stat="${k}"]`);
+      if (!el) return;
+      el.textContent = text;
+      if (tone !== undefined) el.className = tone;
+    };
+    set('sales', money(c.sales));
+    set('cost', money(c.cost));
+    set('profit', money(c.profit), cls(c.profit));
+    set('workers', String(c.workers));
+    set('price', px(c.price));
+    set('cash', money(c.cash));
+  });
+}
+const PANEL_PAGES = new Set(['options', 'homes', 'boards']);
+let panelTimer = 0;
+function wantPanel() {
+  if (!PANEL_PAGES.has(S.page) || panelTimer) return;
+  panelTimer = setTimeout(async () => {
+    panelTimer = 0;
+    const page = S.page;
+    const res = await fetch('/panel?name=' + encodeURIComponent(page));
+    if (!res.ok || S.page !== page || !S.view) return;
+    const data = await res.json();
+    Object.assign(S.view, data);
+    if (page === 'options') patchOptions();
+    else if (page === 'homes') patchHomes();
+  }, 600);
+}
 function paint() {
   paintChrome();
   const main = document.getElementById('main');
   const same = main && main.dataset.page === S.page && (main.dataset.arg || '') === (S.arg || '');
   if (!same) renderMain();
   else if (S.page === 'desk') patchDesk();
-  else if (S.page === 'family') renderMain();
+  else if (S.page === 'family' || S.page === 'health') {
+    const top = main.scrollTop;
+    main.innerHTML = S.page === 'family' ? renderFamily() : renderHealth();
+    main.scrollTop = top;
+  }
+  else if (S.page === 'options') { patchOptions(); wantPanel(); }
+  else if (S.page === 'homes') { patchHomes(); wantPanel(); }
+  else if (S.page === 'firms') patchFirmStats();
   else if (S.page === 'wire') {
     const top = main.scrollTop;
     main.innerHTML = renderWire();
@@ -1157,6 +1483,10 @@ function applyDay(msg) {
   if (msg.final !== undefined) S.view.final = msg.final;
   if (msg.family) S.view.family = msg.family;
   if (msg.dynasty) S.view.dynasty = msg.dynasty;
+  if (msg.heir !== undefined) S.view.heir = msg.heir;
+  if (msg.healthPanel) S.view.healthPanel = msg.healthPanel;
+  if (msg.alerts) S.view.alerts = msg.alerts;
+  if (msg.companies) S.view.companies = msg.companies;
   if (S.view.tape) {
     S.view.tape.index = msg.index;
     S.view.tape.indexChg = msg.indexChg;
@@ -1234,7 +1564,7 @@ document.addEventListener('keydown', (ev) => {
     return;
   }
   if (typing) return;
-  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'run', 'f': 'family', 'F': 'family', 'o': 'options', 'O': 'options', 'p': 'homes', 'P': 'homes', '?': 'help' };
+  const goKey = { '1': 'desk', '2': 'wire', '3': 'contacts', '4': 'bonds', '5': 'futures', '6': 'crypto', '7': 'fx', '8': 'economy', '9': 'log', '0': 'firms', 'f': 'family', 'F': 'family', 'o': 'options', 'O': 'options', 'p': 'homes', 'P': 'homes', 'g': 'health', 'G': 'health', 't': 'boards', 'T': 'boards', '?': 'help' };
   if (goKey[ev.key]) { go(goKey[ev.key]); return; }
   if (ev.key === 'j' || ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
   else if (ev.key === 'k' || ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }
