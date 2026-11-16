@@ -305,6 +305,7 @@ function commandOf(body: unknown): Command | string {
       if (b.on !== true && b.on !== false) return 'hints needs on true or false';
       return { kind: 'hints', on: b.on };
     }
+    case 'story': return { kind: 'story' };
     default: return 'unknown command';
   }
 }

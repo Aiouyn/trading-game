@@ -11,6 +11,8 @@ import { joinFirm, leaveJob } from '../economy/people.ts';
 import { simulate } from '../history/boot.ts';
 import { applySnapshot, snapshotSeed } from '../history/save.ts';
 import { contactsOf, seatPerson } from '../social/index.ts';
+import { challengeOf } from '../history/commands.ts';
+import { playerChronicle } from '../history/story.ts';
 import { openWorld } from '../../run.ts';
 import { PLAYER, ensurePlayer, noteScript, onPlayerDay, playerIndex, soleSeat, view, type ScriptNote } from './index.ts';
 
@@ -65,6 +67,7 @@ export interface ScenarioRun {
   hintsOn: boolean;
   hints: Record<string, string>;
   who: number;
+  difficulty: number;
   outcome?: 'win' | 'loss';
   reason?: string;
   shock: string;
@@ -105,6 +108,8 @@ export interface ScenarioLive {
   showHints: boolean;
   hints: Record<string, string>;
   score?: ScenarioScore;
+  code?: string;
+  chronicle?: string;
 }
 
 const contentDir = fileURLToPath(new URL('../../content/', import.meta.url));
@@ -362,6 +367,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     hintsOn: def.beginner,
     hints: def.hints,
     who: i,
+    difficulty: d,
     shock: def.shock,
     shockIn: def.shockIn,
     fired: false,
@@ -378,10 +384,12 @@ export function openScenario(id: string, opts?: { cash?: number; difficulty?: nu
   if (saved) applySnapshot(w, saved);
   else if (def.years > 0) simulate(w, def.years, 1, false);
   applyStart(w, def, opts);
-  const note: ScriptNote = { id: def.id };
+  const note: ScriptNote = {
+    id: def.id,
+    seed,
+    difficulty: opts?.difficulty && opts.difficulty > 0 ? opts.difficulty : 1,
+  };
   if (opts?.cash !== undefined) note.cash = opts.cash;
-  if (opts?.difficulty !== undefined) note.difficulty = opts.difficulty;
-  if (opts?.seed !== undefined) note.seed = opts.seed;
   noteScript(w, note);
   const bad = w.ledger.check();
   if (bad.length) throw new Error(`books failed at the start: ${bad.slice(0, 5).join('; ')}`);
@@ -537,6 +545,19 @@ function armShock(w: World, sc: ScenarioRun): void {
   sc.shockUntil = until;
 }
 
+/** Step the city the way play does. `over` means the life or the scenario has ended. */
+export function runDays(w: World, days: number): string | undefined {
+  for (let d = 0; d < days; d++) {
+    w.step();
+    reviewScenario(w);
+    const bad = w.ledger.check();
+    if (bad.length) return bad.slice(0, 8).join('; ');
+    const v = view(w);
+    if (v.over || !v.alive) return 'over';
+  }
+  return undefined;
+}
+
 /** Called once a day from play and from the server. Idle runs never set a scenario, so this returns. */
 export function reviewScenario(w: World): void {
   const sc = runOf(w);
@@ -573,7 +594,13 @@ export function liveCard(w: World): ScenarioLive | null {
     showHints: show,
     hints: show ? sc.hints : {},
   };
-  if (sc.outcome) card.score = scoreOf(w, sc);
+  if (sc.outcome) {
+    const score = scoreOf(w, sc);
+    const end = ending(w, score.worth);
+    card.score = score;
+    card.code = end.code;
+    card.chronicle = end.text;
+  }
   return card;
 }
 
@@ -589,10 +616,15 @@ export function hintLine(w: World): string | undefined {
   return sc.hints.desk || sc.hints['*'] || Object.values(sc.hints)[0];
 }
 
+function ending(w: World, worth: number): { code: string; text: string } {
+  return { code: challengeOf(w, worth), text: playerChronicle(w, worth).text };
+}
+
 export function endScreen(w: World): string[] | null {
   const sc = runOf(w);
   if (!sc?.outcome) return null;
   const s = scoreOf(w, sc);
+  const end = ending(w, s.worth);
   return [
     `${sc.name} — ${sc.outcome}`,
     sc.reason ?? '',
@@ -603,9 +635,10 @@ export function endScreen(w: World): string[] | null {
     `  reputation ${s.reputation}`,
     `  convictions ${s.convictions}`,
     '',
-    'What mattered',
-    ...s.events.map((e) => `  ${e}`),
+    'Challenge',
+    `  ${end.code}`,
     '',
+    end.text,
     'The game is over.',
   ];
 }

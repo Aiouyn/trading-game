@@ -13,6 +13,7 @@ import { reportOffence } from '../law/index.ts';
 import { borrowShares, cancelOrder, markHolding, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
 import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
+import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, publish, seatPerson, talk } from '../social/index.ts';
 
 export const PLAYER = 8;
@@ -119,7 +120,8 @@ export type Command =
   | { kind: 'mortgage'; id: number; cents: number }
   | { kind: 'tip'; fact: number }
   | { kind: 'report'; slot: number; text: string }
-  | { kind: 'hints'; on: boolean };
+  | { kind: 'hints'; on: boolean }
+  | { kind: 'story' };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -229,6 +231,7 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'time', name: 'wait', use: 'wait 1m', about: 'Let the city run for 1d, 1w, 1m or 1y.\nThe books are checked as the days pass.' },
   { topic: 'help', name: 'help', use: 'help call', about: 'Explain one command in a few lines.\nhelp alone lists every command by topic.' },
   { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nThey show for the first months of a taught scenario.' },
+  { topic: 'help', name: 'story', use: 'story', about: 'Write the chronicle of this life: what mattered, the family, the firms, and the city.\nThe same account is written at the end of a game.' },
 ];
 
 function editDistance(a: string, b: string): number {
@@ -906,7 +909,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
   const dead = st.over || !P.alive(i);
   if (dead) {
     st.over = true;
-    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help' && cmd.kind !== 'hints') return rejected(st.final || 'you have died');
+    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help' && cmd.kind !== 'hints' && cmd.kind !== 'story') return rejected(st.final || 'you have died');
   }
   switch (cmd.kind) {
     case 'order': {
@@ -1317,6 +1320,10 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!scene) return rejected('this is not a taught scenario');
       scene.hintsOn = cmd.on;
       return { status: 'accepted', text: cmd.on ? 'hints on' : 'hints off' };
+    }
+    case 'story': {
+      const lines = playerChronicle(w, i >= 0 ? Math.round(worth(w, i)) : 0).text.split('\n');
+      return { status: 'accepted', lines, text: 'the chronicle' };
     }
     default: {
       const never: never = cmd;

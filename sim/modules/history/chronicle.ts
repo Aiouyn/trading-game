@@ -4,15 +4,120 @@ import path from 'node:path';
 import { DAYS_PER_YEAR, type World } from '../../kernel/index.ts';
 import type { EconState } from '../economy/index.ts';
 import { type Entry, historyOf } from './index.ts';
+import { causeParagraph, dollarsMentioned, joinAnd } from './prose.ts';
 
 const econ = (w: World): EconState => w.state.economy as EconState;
 
-function because(cause: string): string {
-  const line = cause.split('\n')[1];
-  if (!line) return '';
-  const msg = line.split(': ').slice(1).join(': ').replace(/\s+\(outside shock\)\s*$/, '').replace(/\s+\(see above\)\s*$/, '');
-  if (!msg) return '';
-  return ` This followed: ${msg.length > 180 ? msg.slice(0, 177) + '...' : msg}`;
+const KIND_WEIGHT: Record<string, number> = {
+  shock: 80_000_000,
+  recession: 60_000_000,
+  'bank.fail': 50_000_000,
+  'bank.run': 40_000_000,
+  failure: 30_000_000,
+  takeover: 25_000_000,
+  inflation: 15_000_000,
+  recovery: 12_000_000,
+  inheritance: 8_000_000,
+  dynasty: 7_000_000,
+  removal: 7_000_000,
+  death: 6_000_000,
+  fortune: 5_000_000,
+  disinflation: 4_000_000,
+  listing: 2_000_000,
+  succession: 1_000_000,
+  record: 500_000,
+  founding: 100_000,
+  player: 50_000,
+};
+
+function storyWeight(e: Entry): number {
+  let w = (KIND_WEIGHT[e.kind] ?? 1_000) + dollarsMentioned(e.text);
+  if (e.kind === 'founding' && e.text.startsWith('Port Avalon is founded')) w += 500_000_000;
+  return w;
+}
+
+/** The biggest stories in a decade. The opening of the city stands in for the list of every house. */
+export function biggestStories(list: Entry[], n = 3): Entry[] {
+  const ranked = [...list].sort((a, b) => storyWeight(b) - storyWeight(a) || a.day - b.day || a.text.localeCompare(b.text));
+  const picked: Entry[] = [];
+  for (const e of ranked) {
+    if (e.kind === 'founding' && !e.text.startsWith('Port Avalon is founded') && ranked.some((x) => x.text.startsWith('Port Avalon is founded'))) continue;
+    picked.push(e);
+    if (picked.length === n) break;
+  }
+  return picked.sort((a, b) => a.day - b.day || a.year - b.year || a.text.localeCompare(b.text));
+}
+
+function headline(e: Entry): string {
+  switch (e.kind) {
+    case 'shock': return 'A shock';
+    case 'recession': return 'Recession';
+    case 'recovery': return 'Recovery';
+    case 'inflation': return 'Prices';
+    case 'disinflation': return 'Prices ease';
+    case 'failure': return 'A failure';
+    case 'takeover': return 'A takeover';
+    case 'fortune': return 'Fortunes';
+    case 'founding': return 'The founding';
+    case 'inheritance': return 'An inheritance';
+    case 'death': return 'A death';
+    case 'dynasty': return 'A dynasty';
+    case 'removal': return 'A removal';
+    case 'listing': return 'A listing';
+    case 'succession': return 'A succession';
+    case 'record': return 'The record';
+    case 'bank.fail': return 'A bank fails';
+    case 'bank.run': return 'A run on a bank';
+    default: return 'A story';
+  }
+}
+
+function expand(e: Entry, all: Entry[]): { text: string; people: string[]; firms: string[] } {
+  if (e.kind !== 'founding' || !e.text.startsWith('Port Avalon is founded')) {
+    return { text: e.text, people: e.people.filter(Boolean), firms: e.firms.filter(Boolean) };
+  }
+  const houses = all.filter((x) => x.kind === 'founding' && x !== e);
+  const firms = [...new Set(houses.map((h) => h.firms[0]).filter(Boolean))];
+  const people = [...new Set(houses.map((h) => h.people[0]).filter(Boolean))];
+  const shownF = firms.slice(0, 6);
+  const more = firms.length > shownF.length ? ` and ${firms.length - shownF.length} more` : '';
+  const named = shownF.length ? `, among them ${shownF.join(', ')}${more}` : '';
+  const text = `${e.text} ${houses.length} houses opened with the city${named}.`;
+  return {
+    text,
+    people: (people.length ? people : e.people).filter(Boolean).slice(0, 8),
+    firms: (shownF.length ? shownF : e.firms).filter(Boolean),
+  };
+}
+
+function tell(text: string): string {
+  return text
+    .replace(/\bbank_(\d+)\b/g, 'Bank $1')
+    .replace(/([a-z]):([a-z])/g, '$1: $2');
+}
+
+/** Markdown for the chosen stories: the tale, the people, and the cause in sentences. */
+export function storyLines(chosen: Entry[], context: Entry[]): string[] {
+  const lines: string[] = [];
+  if (!chosen.length) return lines;
+  const names = ['', 'one', 'two', 'three', 'four', 'five'];
+  const word = chosen.length === 1 ? 'The biggest story.' : `The ${names[chosen.length] ?? String(chosen.length)} biggest stories.`;
+  lines.push(word, '');
+  chosen.forEach((e, n) => {
+    const told = expand(e, context);
+    const citywide = e.kind === 'shock' || e.kind === 'recession' || e.kind === 'recovery' || e.kind === 'inflation' || e.kind === 'disinflation';
+    const people = citywide ? told.people.filter((name) => told.text.includes(name)) : told.people;
+    const firms = citywide ? told.firms.filter((name) => told.text.includes(name)) : told.firms;
+    lines.push(`### ${n + 1}. ${headline(e)}`, '');
+    lines.push(`Year ${e.year}. ${tell(told.text)}`, '');
+    if (people.length) lines.push(`People: ${joinAnd([...new Set(people)])}.`);
+    if (firms.length) lines.push(`Firms: ${joinAnd([...new Set(firms)])}.`);
+    if (people.length || firms.length) lines.push('');
+    const cause = causeParagraph(e.cause, told.text);
+    lines.push(cause || 'Nothing earlier than this is in the book.');
+    lines.push('');
+  });
+  return lines;
 }
 
 function chapters(w: World): string {
@@ -37,24 +142,9 @@ function chapters(w: World): string {
   for (const d of decades) {
     const a = d * 10 + 1;
     const b = Math.min(a + 9, end);
-    lines.push(`## Years ${a}–${b}`, '');
     const list = byDecade.get(d) ?? [];
-    let i = 0;
-    while (i < list.length) {
-      const e = list[i];
-      if (e.kind !== 'founding') {
-        lines.push(`Year ${e.year}. ${e.text}${because(e.cause)}`, '');
-        i++;
-        continue;
-      }
-      const year = e.year;
-      lines.push(`Year ${year}. These are the houses and firms that opened the city.`, '');
-      while (i < list.length && list[i].kind === 'founding' && list[i].year === year) {
-        lines.push(`- ${list[i].text}`);
-        i++;
-      }
-      lines.push('');
-    }
+    lines.push(`## Years ${a}–${b}`, '');
+    lines.push(...storyLines(biggestStories(list, 3), list));
   }
   return lines.join('\n');
 }

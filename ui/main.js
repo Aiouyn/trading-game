@@ -239,7 +239,7 @@ function go(page, arg) {
 
 function onClick(ev) {
   if (ev.target.closest('a[href]')) return;
-  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home],[data-nb],[data-co],[data-parcel],[data-optmonth],[data-optright],[data-start],[data-hints]');
+  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home],[data-nb],[data-co],[data-parcel],[data-optmonth],[data-optright],[data-start],[data-hints],[data-story]');
   if (!t || !document.getElementById('app').contains(t)) return;
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.speed) { setSpeed(t.dataset.speed); return; }
@@ -285,6 +285,7 @@ function onClick(ev) {
   if (t.dataset.optright) { S.optRight = t.dataset.optright; paintOptRight(); return; }
   if (t.dataset.start) { startScenario(t.dataset.start); return; }
   if (t.dataset.hints) { postAct({ kind: 'hints', on: t.dataset.hints !== 'off' }); return; }
+  if (t.dataset.story !== undefined) { showStory(); return; }
 }
 
 function onSubmit(ev) {
@@ -500,7 +501,7 @@ function renderFamily() {
       <tbody>${people || '<tr><td class="dim">no one in the house</td></tr>'}</tbody></table>
       ${acts}
     </div>
-    <div class="panel"><h2>CHRONICLE <span>the family</span></h2>${chronicle}</div>
+    <div class="panel"><h2>CHRONICLE <span>the family</span> <button type="button" data-story>your story</button></h2>${chronicle}</div>
   </div>`;
 }
 function renderDesk() {
@@ -901,7 +902,7 @@ function renderLog() {
       <span class="dim">Y${e.year} · ${dateOf(e.day)} · ${esc(e.kind)}</span><br>
       ${rich(e.text, e.firms, e.people)}
     </div>`).join('');
-  return `<div class="panel"><h2>CHRONICLE <span>${h.total} entries, latest ${h.entries?.length ?? 0}</span></h2>${rows}</div>`;
+  return `<div class="panel"><h2>CHRONICLE <span>${h.total} entries, latest ${h.entries?.length ?? 0}</span> <button type="button" data-story>your story</button></h2>${rows}</div>`;
 }
 
 function renderFirm(f) {
@@ -1339,8 +1340,9 @@ function renderGate(list) {
 
 function renderEnd(sc) {
   const s = sc.score || {};
-  const events = (s.events || []).map((e) => `<div>${esc(e)}</div>`).join('');
   const word = sc.outcome === 'win' ? 'win' : 'loss';
+  const code = sc.code ? `<h2>Challenge</h2><pre class="cause">${esc(sc.code)}</pre>` : '';
+  const chronicle = sc.chronicle ? `<h2>Chronicle</h2><pre class="cause">${esc(sc.chronicle)}</pre>` : '';
   return `<div class="end ${word}">
     <h1>${esc(sc.name)} — ${esc(word)}</h1>
     <p>${esc(sc.reason || '')}</p>
@@ -1349,10 +1351,22 @@ function renderEnd(sc) {
     <div>firms controlled ${s.firms ?? 0}</div>
     <div>reputation ${s.reputation ?? 0}</div>
     <div>convictions ${s.convictions ?? 0}</div>
-    <h2>What mattered</h2>
-    ${events || '<div class="dim">the chain is short</div>'}
+    ${code}
+    ${chronicle}
     <p class="dim">The game is over.</p>
   </div>`;
+}
+
+async function showStory() {
+  const main = document.getElementById('main');
+  if (main) main.innerHTML = '<div class="dim">writing the chronicle…</div>';
+  const res = await fetch('/act', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'story' }) });
+  const data = await res.json();
+  if (data.view) S.view = data.view;
+  if (!main || !res.ok || data.status === 'rejected') { note(data.why || data.error || 'could not write the chronicle', true); return; }
+  const body = Array.isArray(data.lines) ? data.lines.join('\n') : (data.text || '');
+  main.innerHTML = `<div class="panel"><h2>YOUR STORY</h2><pre class="cause">${esc(body)}</pre></div>`;
+  paintChrome();
 }
 
 async function startScenario(id, cash, difficulty) {

@@ -1,12 +1,17 @@
 // Terminal play: node sim/play.ts --scenario first-paycheck [--script sim/modules/player/first-paycheck.txt]
 //               node sim/play.ts --load worlds/7 [--script sim/modules/player/demo.txt] [--save worlds/mine]
+//               node sim/play.ts --challenge PA1.scenario.seed.difficulty.score.hash
 import fs from 'node:fs';
+import path from 'node:path';
 import readline from 'node:readline/promises';
 import { World } from './kernel/index.ts';
 import { openWorld } from './run.ts';
+import { challengeOf, parseCode } from './modules/history/commands.ts';
 import { applySnapshot, snapshotSeed, writeSnapshot } from './modules/history/save.ts';
+import { writePlayerChronicle } from './modules/history/story.ts';
 import { act, ensurePlayer, playerIndex, suggestCommand, view, type Command, type PlayerView } from './modules/player/index.ts';
-import { blurb, endScreen, hintLine, openScenario } from './modules/player/scenarios.ts';
+import { writePlayerLog } from './modules/player/log.ts';
+import { blurb, endScreen, hintLine, openScenario, runOf } from './modules/player/scenarios.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const dollars = (cents: number): string => `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`;
@@ -35,6 +40,7 @@ export function parseCommand(line: string, employer: string): Command | { error:
   if (!t.length) return { error: 'empty' };
   const head = t[0].toLowerCase();
   if (head === 'help') return { kind: 'help', command: t.slice(1).join(' ') };
+  if (head === 'story' || head === 'chronicle') return { kind: 'story' };
   if (head === 'sell' && t.length === 2 && /^\d+$/.test(t[1])) return { kind: 'homesell', id: Number(t[1]) };
   if (head === 'buy' || head === 'sell' || head === 'short') {
     if (t.length < 3) return { error: `usage: ${head} SYMBOL QTY [@ PRICE]` };
@@ -362,10 +368,15 @@ function printResult(res: ReturnType<typeof act>): void {
 async function main(): Promise<void> {
   const load = arg('load', ''), seed = arg('seed', '1'), script = arg('script', ''), save = arg('save', '');
   const scenario = arg('scenario', '');
+  const challenge = arg('challenge', '');
+  const exportDir = arg('export', '');
   const cashArg = arg('cash', ''), diffArg = arg('difficulty', '');
   let w: World;
   try {
-    if (scenario) {
+    if (challenge) {
+      const code = parseCode(challenge);
+      w = openScenario(code.scenario, { seed: code.seed, difficulty: code.difficulty });
+    } else if (scenario) {
       w = openScenario(scenario, {
         cash: cashArg ? Number(cashArg) : undefined,
         difficulty: diffArg ? Number(diffArg) : undefined,
@@ -435,6 +446,17 @@ async function main(): Promise<void> {
   for (const s of sheet(view(w))) console.log(s);
   if (failed) process.exit(1);
   if (save) writeSnapshot(save, w);
+  const sc = runOf(w);
+  if (exportDir || script || sc?.outcome) {
+    const dir = exportDir || save || path.join('worlds', 'play', sc?.id || 'life');
+    const worth = view(w).netWorth;
+    writePlayerChronicle(w, worth, dir);
+    writePlayerLog(dir, w);
+    const code = sc ? challengeOf(w, worth) : '';
+    if (code) fs.writeFileSync(path.join(dir, 'challenge.txt'), `${code}\n`);
+    console.log(`\nChronicle written to ${dir}`);
+    if (code) console.log(`Challenge ${code}`);
+  }
   const who = playerIndex(w);
   console.log(`\n${stepped ? 'Books balanced every day' : 'Books balance'}. State hash ${w.ledger.hash()}${who >= 0 ? `. Player ${who}` : ''}`);
 }
