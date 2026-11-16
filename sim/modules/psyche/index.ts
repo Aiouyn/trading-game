@@ -90,6 +90,42 @@ function habitName(h: number): string {
   return 'nothing';
 }
 
+function facetWord(n: number, lo: string, mid: string, hi: string): string {
+  if (n >= 67) return hi;
+  if (n >= 34) return mid;
+  return lo;
+}
+
+export interface InnerLine { word: string; line: string }
+
+/** Personality, memory and habit as words. The bytes stay on the person. */
+export function innerOf(w: World, i: number): { facets: InnerLine[]; memory: InnerLine; habit: InnerLine | null } {
+  const P = econ(w).P;
+  const empty: InnerLine = { word: 'Quiet', line: 'Nothing sharp has stuck' };
+  if (i < 0 || i >= P.n) return { facets: [], memory: empty, habit: null };
+  const facets: InnerLine[] = [
+    { word: facetWord(P.greed[i], 'Content', 'Wanting', 'Grasping'), line: P.greed[i] >= 67 ? 'A gain is what moves them' : P.greed[i] >= 34 ? 'Money is on their mind' : 'A gain is not what moves them' },
+    { word: facetWord(P.diligence[i], 'Loose', 'Steady', 'Exact'), line: P.diligence[i] >= 67 ? 'They check the work' : P.diligence[i] >= 34 ? 'They keep at it' : 'They let details slide' },
+    { word: facetWord(P.anxiety[i], 'Easy', 'Watchful', 'Anxious'), line: P.anxDone[i] ? 'A bad year will keep them off risk' : P.anxiety[i] >= 67 ? 'A loss stays with them' : 'A setback fades' },
+    { word: facetWord(P.kin[i], 'Aloof', 'Warm', 'Devoted'), line: P.kin[i] >= 67 ? 'Family comes first' : P.kin[i] >= 34 ? 'They keep people close' : 'They keep to themselves' },
+  ];
+  const last = P.lastEv[i] >= 0 ? w.events.get(P.lastEv[i]) : undefined;
+  const memory: InnerLine = last ? { word: 'Remembers', line: last.msg } : empty;
+  if (!P.habit[i]) return { facets, memory, habit: null };
+  const st = w.state.psyche as Psyche | undefined;
+  const ev = st && i < (st.habitEv?.length ?? 0) ? st.habitEv[i] : -1;
+  const told = ev >= 0 ? w.events.get(ev)?.msg : undefined;
+  const fading = P.habitLeft[i] <= 16;
+  return {
+    facets,
+    memory,
+    habit: {
+      word: fading ? 'The habit is fading' : 'In the habit',
+      line: told || `They cope by ${habitName(P.habit[i])}`,
+    },
+  };
+}
+
 function riskiest(w: World): StockPeek | undefined {
   const stocks = (w.state.markets as { stocks?: StockPeek[] } | undefined)?.stocks;
   if (!stocks || !stocks.length) return undefined;

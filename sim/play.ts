@@ -117,10 +117,19 @@ export function parseCommand(line: string, employer: string): Command | { error:
   }
   if (head === 'news') return { kind: 'news' };
   if (head === 'why') {
-    const id = Number(t[1]);
-    if (!Number.isSafeInteger(id) || id < 0) return { error: 'usage: why EVENT' };
-    return { kind: 'why', id };
+    if (!t[1]) return { error: 'usage: why <thing>' };
+    if (t.length === 2 && /^\d+$/.test(t[1])) {
+      const id = Number(t[1]);
+      if (!Number.isSafeInteger(id) || id < 0) return { error: 'usage: why <thing>' };
+      return { kind: 'why', id };
+    }
+    return { kind: 'why', thing: t.slice(1).join(' ') };
   }
+  if (head === 'holiday') return { kind: 'holiday' };
+  if (head === 'donate') return { kind: 'donate' };
+  if (head === 'lawyer') return { kind: 'lawyer' };
+  if (head === 'clinic') return { kind: 'clinic' };
+  if (head === 'overtime') return { kind: 'overtime' };
   if (head === 'wait') {
     const days = t[1] ? waitOf(t[1]) : undefined;
     if (!days) return { error: 'usage: wait 1d|1w|1m|1y' };
@@ -302,12 +311,19 @@ function optOrder(t: string[], right: 'C' | 'P'): Command | { error: string } {
   return { kind: 'optbuy', right, instr: t[1], qty, months, strike };
 }
 
+function arrow(n: number): string {
+  if (n > 0) return '↑';
+  if (n < 0) return '↓';
+  return '→';
+}
+
 function summary(v: PlayerView): string[] {
   const when = `Year ${v.date.year}, month ${v.date.month}, day ${v.date.day}`;
   const who = v.alive
-    ? `${v.name}, ${v.age}, health ${v.health}, ${v.employer || 'unemployed'} (${v.firm})`
+    ? `${v.name}, ${v.age}, ${v.employer || 'unemployed'} (${v.firm})`
     : (v.final || `${v.name} has died`);
-  const lines = [`${when}  ${who}  net worth ${dollars(v.netWorth)}  cash ${dollars(v.cash)}`];
+  const stats = (v.stats ?? []).map((s) => `${s.word}${s.note ? ' ' + s.note : ''} ${arrow(s.trend)}`).join('  ');
+  const lines = [`${when}  ${who}`, `  ${stats}`];
   const spouse = v.family?.spouse;
   const kids = v.family?.children ?? [];
   lines.push(`  family: ${spouse ? `spouse ${spouse.name} (${spouse.age})` : 'no spouse'}; children ${kids.length ? kids.map((k) => `${k.name} ${k.age} school ${k.school}`).join(', ') : 'none'}; ${v.family?.will ?? ''}`);
@@ -324,7 +340,8 @@ function summary(v: PlayerView): string[] {
   if (news.length) lines.push('  news: ' + news.map((n) => `[${n.eventId}] ${n.text}`).join(' | '));
   if (v.private.length) lines.push('  private: ' + v.private.map((p) => `[${p.eventId}] ${p.from} day ${p.day}: ${p.text}`).join(' | '));
   if (v.companies.length) lines.push('  companies: ' + v.companies.map((c) => `${c.role} ${c.name} (${c.id}) ${c.workers} workers cash ${dollars(c.cash)} sales ${dollars(c.sales)} profit ${dollars(c.profit)} ${c.listed ? 'listed' : 'private'}`).join(' | '));
-  if (v.contacts.length) lines.push('  contacts: ' + v.contacts.map((c) => `${c.slot} ${c.name.split(' ')[0]} ${c.kind} ${c.trust}`).join(', '));
+  if (v.contacts.length) lines.push('  contacts: ' + v.contacts.map((c) => `${c.slot} ${c.name.split(' ')[0]} ${c.line}`).join(' | '));
+  if (v.choices?.length) lines.push('  choices: ' + v.choices.map((c) => `${c.id}${c.left ? ` (${c.left}d)` : ''}`).join(', '));
   const owned = (v.homes ?? []).filter((h) => h.mine || h.live);
   if (owned.length) lines.push('  homes: ' + owned.map((h) => `#${h.id} ${h.neighbourhood} ${dollars(h.price)}${h.live ? ' home' : ''}${h.vacant ? ' vacant' : ''}`).join(', '));
   const held = (v.chain ?? []).filter((c) => c.net);

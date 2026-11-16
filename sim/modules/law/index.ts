@@ -900,6 +900,36 @@ function blank(n: number, firms: number): Law {
   };
 }
 
+export interface Attention { score: number; open: number; flagged: number; eventId: number; line: string }
+
+/** Regulator attention from open files and trades flagged against this person. */
+export function attentionOf(w: World, person: number): Attention {
+  const st = w.state.law as Law | undefined;
+  const root = st?.root || w.genesis;
+  if (!st || person < 0) return { score: 0, open: 0, flagged: 0, eventId: root, line: 'The regulator has no file' };
+  let open = 0, flagged = 0, eventId = root, latest = -1;
+  for (const c of st.cases) {
+    const o = st.offences[c.off];
+    if (!o || o.person !== person || c.phase >= 3) continue;
+    open++;
+    if (c.invEvent > latest) { latest = c.invEvent; eventId = c.invEvent; }
+  }
+  for (const o of st.offences) {
+    if (o.person !== person || o.kind === 'street') continue;
+    if (o.used && o.kind !== 'insider' && o.kind !== 'manipulation' && o.kind !== 'fraud') continue;
+    if (!o.used) {
+      flagged++;
+      if (o.event > latest) { latest = o.event; eventId = o.event; }
+    }
+  }
+  for (const p of st.pends) if (p.person === person) flagged++;
+  let heat = 0;
+  if (person < st.heat.length && st.heat[person] >= 0 && w.day - st.heat[person] < 500) heat = 20;
+  const score = Math.max(0, Math.min(100, open * 35 + Math.min(45, flagged * 15) + heat));
+  const line = open ? 'An investigator has a file open' : flagged ? 'A trade is flagged and not yet charged' : heat ? 'The desk still remembers a case' : 'No open file';
+  return { score, open, flagged, eventId, line };
+}
+
 /** File a street or white-collar offence. The police make the arrest; this desk only keeps the record. */
 export function reportOffence(w: World, spec: {
   person: number; firm: number; gain: number; text: string; cause: number;

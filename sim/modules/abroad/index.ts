@@ -31,7 +31,7 @@ interface Book {
   mid: number; mMid0: number; plevel: number; policy: number; announced: number; activity: number; depth: number;
   crisis: boolean; hikeUntil: number; pressure: number;
   mImp: number; mExp: number; mCarry: number; yImp: number; yExp: number; yCarry: number;
-  cycleEv: number; policyEv: number; priceEv: number; tradeEv: number; carryEv: number; rateEv: number;
+  cycleEv: number; policyEv: number; priceEv: number; tradeEv: number; carryEv: number; rateEv: number; fxWho?: number;
   recessionEv?: number; hikeEv?: number;
 }
 
@@ -362,6 +362,12 @@ function monthStory(w: World, st: Book): void {
     ? `the exchange rate held at ${st.mid.toFixed(4)} home per ${st.cfg.currency}, the price that cleared this month's orders`
     : `the home currency ${dir} ${(Math.abs(ch) * 100).toFixed(2)}% to ${st.mid.toFixed(4)} per ${st.cfg.currency}, the price that cleared this month's orders`;
   st.rateEv = w.events.emit('fx.rate', msg, [st.tradeEv, st.carryEv]);
+  const pol = w.state.politics as { finance?: number } | undefined;
+  const P = econ(w).P;
+  const reader = pol?.finance ?? -1;
+  if (reader >= 0 && reader < P.n && P.alive(reader)) {
+    st.fxWho = w.events.emit('fx.desk', `${P.name(reader)} marks the exchange rate at ${st.mid.toFixed(4)} home per ${st.cfg.currency}`, [st.rateEv], P.id(reader));
+  }
   st.mMid0 = st.mid; st.mImp = 0; st.mExp = 0; st.mCarry = 0;
 }
 

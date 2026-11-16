@@ -42,6 +42,7 @@ interface Stock {
   wide: boolean;
   hist: Bar[];
   rets: number[];
+  moveEv?: number;
   divEma: number;
   profitEma: number;
   seenProfit: number;
@@ -891,7 +892,13 @@ export const markets: Module = {
       const ch = st.prev > 0 ? st.last / st.prev - 1 : 0;
       if (Math.abs(ch) > 0.03) {
         const pct = (ch * 100).toFixed(1);
-        w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%)`, causesFor(w, st), st.issuer);
+        const id = w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%)`, causesFor(w, st), st.issuer);
+        const s = econ(w);
+        const f = firmOf(s, st.issuer);
+        const ceo = f && f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo) ? f.ceo : -1;
+        st.moveEv = f && ceo >= 0
+          ? w.events.emit('mkt.who', `${s.P.name(ceo)} marks ${f.name} at ${st.last}`, [id], s.P.id(ceo))
+          : id;
       }
       st.hist.push({
         o: st.traded ? st.open : st.last,

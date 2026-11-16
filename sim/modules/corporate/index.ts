@@ -712,6 +712,7 @@ export interface CompanyPost {
   id: string; name: string; good: string; sector: string; role: string;
   listed: boolean; workers: number; price: number; cash: number;
   sales: number; cost: number; profit: number; stake: number; shares: number;
+  workerEv: number; priceEv: number; profitEv: number; cashEv: number; salesEv: number;
   dividend: string; hire: string; quote: string;
 }
 
@@ -731,6 +732,11 @@ export function companyPosts(w: World, person: number): CompanyPost[] {
       listed: f.listed, workers: f.workers, price: Math.round(f.price),
       cash: Math.floor(w.ledger.balance(f.id, DEP)), sales: Math.round(f.mRev),
       cost: Math.round(f.mCost), profit: Math.round(f.lastProfit), stake: mine, shares,
+      workerEv: f.staffEv ?? f.layoffEv ?? f.ceoEv ?? s.jobsWho ?? s.macroEv,
+      priceEv: f.priceWho ?? f.priceEv ?? s.macroEv,
+      profitEv: f.profitEv ?? f.priceWho ?? f.priceEv ?? s.macroEv,
+      cashEv: f.profitEv ?? s.wageWho ?? s.wageEv ?? s.macroEv,
+      salesEv: f.priceWho ?? f.priceEv ?? s.macroEv,
       dividend: st && st.dividend !== null ? `${Math.round(st.dividend * 100)}%` : 'the usual rule',
       hire: st && st.hires !== null ? String(st.hires) : 'the usual rule',
       quote: st && st.price !== null ? dollars(st.price) : 'the usual rule',

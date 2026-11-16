@@ -14,7 +14,8 @@ import { borrowShares, cancelOrder, markHolding, markPlayerTrading, returnShares
 import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
-import { B_FRIEND, askFirm, contactsOf, knows, publish, seatPerson, talk } from '../social/index.ts';
+import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
+import { choiceSpec, coolLeft, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
 
 export const PLAYER = 8;
 
@@ -46,6 +47,12 @@ export interface PlayerSeat {
   handed: number;
   final: string;
   passed: number;
+  counsel: number;
+  statEv: Partial<Record<StatId, number>>;
+  mark: Record<StatId, number> | null;
+  trend: Partial<Record<StatId, -1 | 0 | 1>>;
+  words: Partial<Record<StatId, string>>;
+  cool: Partial<Record<ChoiceId, number>>;
 }
 
 /** One entry in the command log. The day is the day the command was issued, before a wait advances the clock. */
@@ -92,7 +99,12 @@ export type Command =
   | { kind: 'talk'; slot: number }
   | { kind: 'ask'; slot: number; firm: string }
   | { kind: 'news' }
-  | { kind: 'why'; id: number }
+  | { kind: 'why'; id?: number; thing?: string }
+  | { kind: 'holiday' }
+  | { kind: 'donate' }
+  | { kind: 'lawyer' }
+  | { kind: 'clinic' }
+  | { kind: 'overtime' }
   | { kind: 'wait'; days: number }
   | { kind: 'found'; name: string; sector: string; cents: number; loan: boolean }
   | { kind: 'ceo'; firm: string; op: 'report' | 'price' | 'hires' | 'dividend' | 'invest'; value?: number; auto?: boolean }
@@ -159,7 +171,9 @@ export interface PlayerView {
   marginPosted: number;
   stockLoans: { instr: string; qty: number; face: number; eventId: number }[];
   orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }[];
-  contacts: { slot: number; name: string; trust: number; kind: string }[];
+  contacts: { slot: number; name: string; kind: string; word: string; line: string }[];
+  stats: StatView[];
+  choices: ChoiceView[];
   prices: Quote[];
   news: Line[];
   private: Priv[];
@@ -179,7 +193,8 @@ export interface PlayerView {
     controlled: number;
     offices: number;
     convictions: number;
-    people: { index: number; name: string; role: string; alive: boolean; age: number; worth: number }[];
+    eventId: number;
+    people: { index: number; name: string; role: string; alive: boolean; age: number; worth: number; eventId: number }[];
   };
   homes: HomeRow[];
   chain: OptRow[];
@@ -225,9 +240,14 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'company', name: 'bid', use: 'bid frm_north 2x cash', about: 'Offer cash or shares for a firm.\nA number like 2x is a multiple of the last price. bid HOME is a house, not a firm.' },
   { topic: 'company', name: 'board', use: 'board list', about: 'List the firms you can direct.\nboard chief, merge and sell move a firm you control.' },
   { topic: 'news', name: 'news', use: 'news', about: 'Show the stories you can read.\nPrivate lines are facts not yet in the paper.' },
-  { topic: 'news', name: 'why', use: 'why 41', about: 'Show the cause of an event.\nThe number is the one in brackets.' },
+  { topic: 'news', name: 'why', use: 'why cash', about: 'Show the cause of a number on the status line.\nwhy price NAME, why staff, why wage and why rate work too. why 41 still takes an event number.' },
   { topic: 'news', name: 'tip', use: 'tip 4', about: 'Give a paper a fact you know. The number is the fact on a private line.\nThat is the source a journalist prints.' },
   { topic: 'news', name: 'report', use: 'report 0 a theft', about: 'Report a crime by a contact. The words are the complaint.\nA street report is filed and is not itself a trial.' },
+  { topic: 'life', name: 'holiday', use: 'holiday', about: 'Take a month away. Stress falls.\nIt costs money, and you cannot take another for a year.' },
+  { topic: 'life', name: 'donate', use: 'donate', about: 'Give money to the city. Reputation rises.\nYou cannot give again for a season.' },
+  { topic: 'life', name: 'lawyer', use: 'lawyer', about: 'Pay a lawyer. Regulator attention falls.\nThe fee is high, and the lawyer needs half a year before taking you again.' },
+  { topic: 'life', name: 'clinic', use: 'clinic', about: 'See a doctor. Health rises.\nIt costs money, and the clinic will not see you again for a season.' },
+  { topic: 'life', name: 'overtime', use: 'overtime', about: 'Work extra days. Cash rises.\nStress rises with it, and the firm will not pay it again for a month.' },
   { topic: 'time', name: 'wait', use: 'wait 1m', about: 'Let the city run for 1d, 1w, 1m or 1y.\nThe books are checked as the days pass.' },
   { topic: 'help', name: 'help', use: 'help call', about: 'Explain one command in a few lines.\nhelp alone lists every command by topic.' },
   { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nThey show for the first months of a taught scenario.' },
@@ -317,6 +337,7 @@ const blankSeat = (): PlayerSeat => ({
   who: -1, over: false, margin: false, arrived: -1, heard: [], score: [], loans: [],
   line: [], generation: 1, founded: 0, controlled: 0, offices: 0, convictions: 0,
   officeWas: '', seenLaw: [], will: null, chair: -1, handed: -1, final: '', passed: -1,
+  counsel: 0, statEv: {}, mark: null, trend: {}, words: {}, cool: {},
 });
 const blankRoster = (): PlayerState => {
   const heard: Heard[] = [];
@@ -350,6 +371,12 @@ function fillSeat(seat: PlayerSeat): PlayerSeat {
   if (seat.margin === undefined) seat.margin = false;
   if (seat.arrived === undefined) seat.arrived = -1;
   if (seat.who === undefined) seat.who = -1;
+  if (seat.counsel === undefined) seat.counsel = 0;
+  if (!seat.statEv) seat.statEv = {};
+  if (seat.mark === undefined) seat.mark = null;
+  if (!seat.trend) seat.trend = {};
+  if (!seat.words) seat.words = {};
+  if (!seat.cool) seat.cool = {};
   return seat;
 }
 const roster = (w: World): PlayerState => {
@@ -628,6 +655,74 @@ function causeOf(w: World, st: PlayerSeat): number {
   return st.arrived >= 0 ? st.arrived : econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis;
 }
 
+function rememberWords(w: World, st: PlayerSeat, i: number): void {
+  const board = lifeBoard(w, i, st, Math.round(worth(w, i)));
+  for (const s of board.stats) st.words[s.id] = s.word;
+}
+
+function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: ChoiceId): ActResult {
+  const P = econ(w).P;
+  const spec = choiceSpec(kind);
+  const left = coolLeft(st, kind, w.day);
+  if (left > 0) return rejected(`not for another ${left} days`);
+  const cause = causeOf(w, st);
+  if (kind === 'overtime') {
+    const emp = P.employer[i];
+    const firm = emp >= 0 ? econ(w).firms[emp] : undefined;
+    if (!firm || firm.closed) return rejected('you have no employer to pay overtime');
+    const bonus = Math.round(econ(w).wage * Math.max(0.5, P.skill[i]) * 5);
+    if (Math.floor(w.ledger.balance(firm.id, DEP)) < bonus) return rejected('the firm cannot pay overtime');
+    const ev = w.events.emit('player.overtime', `${P.name(i)} works extra days at ${firm.name} for ${(bonus / 100).toFixed(0)}`, [cause], id);
+    if (!pay(w, firm.id, id, bonus, 'wages', ev)) return rejected('the firm cannot pay overtime');
+    P.stress[i] += 28;
+    st.cool.overtime = w.day + spec.cool;
+    st.statEv.cash = ev;
+    st.statEv.worth = ev;
+    st.statEv.stress = ev;
+    rememberWords(w, st, i);
+    return { status: 'accepted', eventId: ev, text: `${firm.name} pays ${(bonus / 100).toFixed(0)} for the extra days` };
+  }
+  if (kind === 'clinic' && P.health[i] >= 100) return rejected('you are already well');
+  const cost = feeOf(w, spec.days);
+  if (Math.floor(w.ledger.balance(id, DEP)) < cost) return rejected('not enough cash');
+  if (kind === 'lawyer') {
+    const staff = (w.state.law as { staff?: number[] } | undefined)?.staff ?? [];
+    const lawyer = staff.find((p) => p !== i && p >= 0 && p < P.n && P.alive(p));
+    const named = lawyer !== undefined ? P.name(lawyer) : 'the city';
+    const ev = w.events.emit('player.lawyer', `${P.name(i)} pays ${named} ${(cost / 100).toFixed(0)} to speak to the regulator`, [cause], id);
+    const paid = lawyer !== undefined ? pay(w, id, P.id(lawyer), cost, 'player.lawyer', ev) : payGov(w, id, cost, 'player.lawyer', ev);
+    if (!paid) return rejected('not enough cash');
+    st.counsel = Math.min(80, (st.counsel || 0) + 30);
+    st.cool.lawyer = w.day + spec.cool;
+    st.statEv.attention = ev;
+    st.statEv.cash = ev;
+    rememberWords(w, st, i);
+    return { status: 'accepted', eventId: ev, text: `${named} takes the brief` };
+  }
+  const verb = kind === 'holiday' ? 'takes a month away' : kind === 'donate' ? 'gives to the city' : 'sees a doctor';
+  const ev = w.events.emit(`player.${kind}`, `${P.name(i)} ${verb} and pays ${(cost / 100).toFixed(0)}`, [cause], id);
+  if (!payGov(w, id, cost, `player.${kind}`, ev)) return rejected('not enough cash');
+  st.cool[kind] = w.day + spec.cool;
+  st.statEv.cash = ev;
+  st.statEv.worth = ev;
+  if (kind === 'holiday') {
+    P.stress[i] = Math.max(0, P.stress[i] - 80);
+    st.statEv.stress = ev;
+    rememberWords(w, st, i);
+    return { status: 'accepted', eventId: ev, days: 30, text: 'a month away' };
+  }
+  if (kind === 'donate') {
+    const n = nudgeStanding(w, i, 6);
+    st.statEv.reputation = ev;
+    rememberWords(w, st, i);
+    return { status: 'accepted', eventId: ev, text: n ? `${n} people think better of you` : 'you give' };
+  }
+  P.health[i] = Math.min(100, P.health[i] + 12);
+  st.statEv.health = ev;
+  rememberWords(w, st, i);
+  return { status: 'accepted', eventId: ev, text: 'the doctor sees you' };
+}
+
 function firmByKey(w: World, key: string): Firm | undefined {
   const k = key.toLowerCase();
   for (const f of econ(w).firms) {
@@ -737,11 +832,13 @@ function dynastyOf(w: World, st: PlayerSeat): PlayerView['dynasty'] {
     return {
       index: i, name: P.name(i), role, alive: P.alive(i), age: P.age(w, i),
       worth: P.alive(i) ? Math.round(w.ledger.netWorth(P.id(i), price)) : 0,
+      eventId: P.lastEv[i] >= 0 ? P.lastEv[i] : (st.arrived >= 0 ? st.arrived : w.genesis),
     };
   });
   return {
     generation: st.generation,
     worth: houseWorth(w, ids),
+    eventId: st.statEv?.worth ?? (st.arrived >= 0 ? st.arrived : w.genesis),
     founded: st.founded,
     controlled: st.controlled,
     offices: st.offices,
@@ -1010,25 +1107,42 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', lines, text: lines.length ? `${lines.length} stories` : 'no news' };
     }
     case 'why': {
-      const screen = view(w, playerId);
-      const ids = new Set<number>();
-      const take = (id: number | undefined): void => { if (id !== undefined && id >= 0) ids.add(id); };
-      for (const x of screen.news) take(x.eventId);
-      for (const x of screen.private) take(x.eventId);
-      for (const x of screen.prices) take(x.eventId);
-      for (const x of screen.orders) take(x.eventId);
-      for (const x of screen.shares) take(x.eventId);
-      for (const x of screen.loans) take(x.eventId);
-      for (const x of screen.deposits) take(x.eventId);
-      for (const x of screen.futures) take(x.eventId);
-      for (const x of screen.coins) take(x.eventId);
-      for (const x of screen.bonds) take(x.eventId);
-      take(st.arrived);
-      if (!ids.has(cmd.id)) return rejected('you have not seen that');
-      const lines = w.events.explain(cmd.id, 8);
+      const nw = Math.round(worth(w, i));
+      let id = cmd.id;
+      if (cmd.thing) {
+        const hit = explainThing(w, cmd.thing, st, nw);
+        if ('error' in hit) return rejected(hit.error);
+        id = hit.id;
+      }
+      if (id === undefined || id < 0) return rejected('usage: why <thing>');
+      if (!cmd.thing) {
+        const screen = view(w, playerId);
+        const ids = new Set<number>();
+        const take = (n: number | undefined): void => { if (n !== undefined && n >= 0) ids.add(n); };
+        for (const x of screen.news) take(x.eventId);
+        for (const x of screen.private) take(x.eventId);
+        for (const x of screen.prices) take(x.eventId);
+        for (const x of screen.orders) take(x.eventId);
+        for (const x of screen.shares) take(x.eventId);
+        for (const x of screen.loans) take(x.eventId);
+        for (const x of screen.deposits) take(x.eventId);
+        for (const x of screen.futures) take(x.eventId);
+        for (const x of screen.coins) take(x.eventId);
+        for (const x of screen.bonds) take(x.eventId);
+        for (const x of screen.stats) take(x.eventId);
+        take(st.arrived);
+        if (!ids.has(id)) return rejected('you have not seen that');
+      }
+      const lines = w.events.explain(id, 8);
       if (!lines.length) return rejected('that event is gone from the log');
-      return { status: 'accepted', lines, eventId: cmd.id };
+      return { status: 'accepted', lines, eventId: id };
     }
+    case 'holiday':
+    case 'donate':
+    case 'lawyer':
+    case 'clinic':
+    case 'overtime':
+      return liveChoice(w, st, i, id, cmd.kind);
     case 'wait': {
       if (!Number.isSafeInteger(cmd.days) || cmd.days < 1) return rejected('wait needs a length of time');
       const people = econ(w).P;
@@ -1407,9 +1521,10 @@ export function view(w: World, playerId?: string): PlayerView {
   for (const o of bOrders) if (o.open && o.actor === id) orders.push({ id: o.id, book: 'bonds', instr: o.instr, side: o.side, qty: o.qty, limit: o.limit, eventId: arrived });
   const cOrders = (w.state.crypto as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number; open: boolean }[] } | undefined)?.orders ?? [];
   for (const o of cOrders) if (o.open && o.actor === id) orders.push({ id: o.id, book: 'crypto', instr: o.instr, side: o.side, qty: o.qty, limit: o.limit, eventId: coinRoot });
-  const contacts = i < 0 ? [] : contactsOf(w, i).map((c) => ({
-    slot: c.slot, name: P.name(c.who), trust: c.trust, kind: c.kind === 1 ? 'family' : 'work',
-  }));
+  const contacts = i < 0 ? [] : contactsOf(w, i).map((c) => {
+    const g = regardOf(w, i, c.slot);
+    return { slot: c.slot, name: P.name(c.who), kind: c.kind === 1 ? 'family' : 'work', word: g.word, line: g.line };
+  });
   const prices: Quote[] = stocks.map((stc) => ({ instr: stc.instr, px: stc.last, eventId: mktRoot }));
   const bondBook = (w.state.bonds as { bonds?: { id: string; tenor: string; onRun: boolean; faceLeft: number; last: number; issueEv: number }[] } | undefined)?.bonds ?? [];
   const bonds: PlayerView['bonds'] = [];
@@ -1460,6 +1575,10 @@ export function view(w: World, playerId?: string): PlayerView {
     marginPosted: i >= 0 ? Math.round(w.ledger.balance(id, 'cmdty:margin')) : 0,
     stockLoans: st.loans.map((l) => ({ instr: l.instr, qty: l.qty, face: l.face, eventId: arrived })),
     orders, contacts, prices, news, private: priv, bonds, score: st.score,
+    ...(() => {
+      const board = lifeBoard(w, i, st, i >= 0 ? Math.round(worth(w, i)) : 0);
+      return { stats: board.stats, choices: board.choices };
+    })(),
     companies: i >= 0 ? companyPosts(w, i) : [],
     health: i >= 0 ? P.health[i] : 0,
     final: st.final,
@@ -1504,6 +1623,7 @@ export const player: Module = {
         continue;
       }
       noticeBoard(w, st, i);
+      noteBoard(w, i, st, Math.round(worth(w, i)));
       if (w.day > 0 && w.day % DAYS_PER_YEAR === 0 && (st.score.length === 0 || st.score[st.score.length - 1].day !== w.day)) {
         ageYear(w, i, st);
         const nw = Math.round(worth(w, i));

@@ -944,6 +944,88 @@ function contactCount(st: Social, i: number): number {
   return n;
 }
 
+export interface Standing { score: number; eventId: number; line: string }
+
+function regardScore(st: Social, holder: number, person: number): { score: number; slot: number } | undefined {
+  const b = holder * DEG;
+  for (let k = 0; k < DEG; k++) {
+    if (st.contact[b + k] !== person) continue;
+    const q = (b + k) * 4;
+    const score = (st.trust[b + k] + st.bond[q + B_RESPECT] + st.bond[q + B_FRIEND]) / 3;
+    return { score, slot: k };
+  }
+  return undefined;
+}
+
+/** How the people in this person's circle regard them: trust, respect and friendship, averaged. */
+export function standingOf(w: World, person: number): Standing {
+  const st = soc(w), P = econ(w).P;
+  const root = w.events.last('player.arrive') ?? w.genesis;
+  if (!st?.contact || person < 0 || person >= P.n) return { score: 0, eventId: root, line: 'Nobody has a word for you yet' };
+  let sum = 0, n = 0, best = -1, bestScore = -1;
+  const mine = person * DEG;
+  for (let k = 0; k < DEG; k++) {
+    const who = st.contact[mine + k];
+    if (who < 0 || who >= P.n || who === person) continue;
+    const hit = regardScore(st, who, person);
+    if (!hit) continue;
+    sum += hit.score;
+    n++;
+    if (hit.score > bestScore) { bestScore = hit.score; best = who; }
+  }
+  const score = Math.max(0, Math.min(100, Math.round(n ? sum / n : 40)));
+  const eventId = P.lastEv[person] >= 0 ? P.lastEv[person] : root;
+  const line = n && best >= 0 ? `${P.name(best)} keeps you in mind` : 'Few people have taken your measure';
+  return { score, eventId, line };
+}
+
+/** Move how the circle regards this person. Returns how many people were nudged. */
+export function nudgeStanding(w: World, person: number, delta: number): number {
+  const st = soc(w), P = econ(w).P;
+  if (!st?.contact || person < 0 || person >= P.n || delta === 0) return 0;
+  let n = 0;
+  const mine = person * DEG;
+  for (let k = 0; k < DEG; k++) {
+    const who = st.contact[mine + k];
+    if (who < 0 || who >= P.n || !P.alive(who)) continue;
+    const hit = regardScore(st, who, person);
+    if (!hit) continue;
+    const t = who * DEG + hit.slot;
+    st.trust[t] = Math.max(0, Math.min(100, st.trust[t] + delta));
+    const q = t * 4;
+    st.bond[q + B_RESPECT] = Math.max(0, Math.min(100, st.bond[q + B_RESPECT] + delta));
+    st.bond[q + B_FRIEND] = Math.max(0, Math.min(100, st.bond[q + B_FRIEND] + delta));
+    n++;
+  }
+  return n;
+}
+
+/** A relationship as a word and one sentence. The bytes stay in the graph. */
+export function regardOf(w: World, holder: number, slot: number): { word: string; line: string } {
+  const st = soc(w), P = econ(w).P;
+  if (!st || holder < 0 || slot < 0 || slot >= DEG) return { word: 'Unknown', line: 'You have not met' };
+  const at = holder * DEG + slot;
+  const who = st.contact[at];
+  if (who < 0 || who >= P.n) return { word: 'Empty', line: 'Nobody in that seat' };
+  const trust = st.trust[at];
+  const word = trust >= 70 ? 'Confides' : trust >= 45 ? 'Trusts you' : trust >= 25 ? 'Unsure' : 'Wary';
+  const name = P.name(who);
+  const heard = (w.state.player as { heard?: { from: number; factId: number }[] } | undefined)?.heard;
+  if (heard) {
+    for (let h = heard.length - 1; h >= 0; h--) {
+      const row = heard[h];
+      if (row.from !== who) continue;
+      const fact = st.facts[row.factId];
+      if (!fact?.msg) continue;
+      const bit = fact.msg.length > 96 ? fact.msg.slice(0, 93) + '…' : fact.msg;
+      return { word, line: `${word}: ${name} told you ${bit}` };
+    }
+  }
+  const kind = st.kind[at] === 1 ? 'family' : 'work';
+  const line = kind === 'family' ? `${word}: ${name} is family` : `${word}: you and ${name} work together`;
+  return { word, line };
+}
+
 export function contactsOf(w: World, person: number): { slot: number; who: number; trust: number; kind: number }[] {
   const st = w.state.social as Social | undefined;
   if (!st || person < 0) return [];

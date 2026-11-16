@@ -115,9 +115,28 @@ function rich(text, firms, people) {
   }
   return html;
 }
-function bar(kind, value, max) {
-  const p = Math.max(0, Math.min(100, (Number(value) || 0) / max * 100));
-  return `<div class="barline"><span class="dim">${kind}</span><span class="bar ${kind}"><span style="width:${p.toFixed(1)}%"></span></span><span class="num">${Math.round(value)}</span></div>`;
+function whyNum(text, eventId, title) {
+  if (eventId === undefined || eventId === null || eventId === '') return String(text);
+  return `<button type="button" class="why" data-explain="${eventId}" data-title="${esc(title || text)}" title="${esc(title || text)}">${text}</button>`;
+}
+function trendArrow(n) {
+  if (n > 0) return '<span class="arr up">↑</span>';
+  if (n < 0) return '<span class="arr down">↓</span>';
+  return '<span class="arr dim">→</span>';
+}
+function statsHtml() {
+  const stats = S.view?.stats ?? [];
+  if (!stats.length) return '';
+  const chips = stats.map((s) => `<button type="button" class="stat" data-explain="${s.eventId}" data-title="${esc(s.label)}" title="${esc(s.hover)}">
+      <span class="k">${esc(s.label)}</span><b>${esc(s.word)}</b>${s.note ? `<span class="dim">${esc(s.note)}</span>` : ''}${trendArrow(s.trend)}
+    </button>`).join('');
+  const dead = S.view && (!S.view.alive || S.view.over);
+  const choices = (S.view?.choices ?? []).map((c) => {
+    const wait = c.left > 0 ? ` · ${c.left}d` : '';
+    const fee = c.id === 'overtime' ? '' : ` · ${money(c.cost)}`;
+    return `<button type="button" data-life="${esc(c.id)}" title="${esc(c.line + fee)}" ${dead || c.left > 0 ? 'disabled' : ''}>${esc(c.label).toUpperCase()}${wait}</button>`;
+  }).join('');
+  return chips + `<span class="life-row">${choices}</span>`;
 }
 
 function route() {
@@ -137,11 +156,10 @@ function shell() {
       <div class="brand">AVALON</div>
       <div id="when" class="dim"></div>
       <div id="who"></div>
-      <div class="nw"><b id="nw"></b><span id="nwd"></span></div>
-      <div id="cash"></div>
       <div class="tape" id="tape"></div>
       <div class="speeds">${speeds}</div>
     </header>
+    <div id="stats" class="stats"></div>
     <nav>${nav}</nav>
     <div id="alerts"></div>
     <div id="hint" hidden></div>
@@ -160,15 +178,14 @@ function paintChrome() {
   const v = S.view;
   const when = document.getElementById('when');
   const who = document.getElementById('who');
-  const nw = document.getElementById('nw');
-  const nwd = document.getElementById('nwd');
-  const cash = document.getElementById('cash');
   const tape = document.getElementById('tape');
   const books = document.getElementById('books');
   const flash = document.getElementById('flash');
   paintHint();
   if (S.gate) {
     when.textContent = 'choose a life';
+    const stats = document.getElementById('stats');
+    if (stats) stats.innerHTML = '';
     if (books) { books.textContent = 'pick a scenario'; books.className = ''; }
     return;
   }
@@ -180,12 +197,9 @@ function paintChrome() {
   const job = v.firm ? firmLink(v.firm, v.employer) : esc(v.employer || 'unemployed');
   who.innerHTML = v.over
     ? `<span class="dead">${esc(v.name)} · the house ends</span>`
-    : v.alive ? `${esc(v.name)}, ${v.age}${v.health !== undefined ? ` · health ${v.health}` : ''} · ${job}` : `<span class="dead">${esc(v.name)} has died</span>`;
-  nw.textContent = money(v.netWorth);
-  const day = v.nwChange || 0;
-  nwd.textContent = pctSignedMoney(day);
-  nwd.className = cls(day);
-  cash.textContent = 'cash ' + money(v.cash);
+    : v.alive ? `${esc(v.name)}, ${v.age} · ${job}` : `<span class="dead">${esc(v.name)} has died</span>`;
+  const stats = document.getElementById('stats');
+  if (stats) stats.innerHTML = statsHtml();
   const t = v.tape;
   if (t) {
     tape.innerHTML = [
@@ -356,7 +370,7 @@ function pick(instr) {
   const q = S.view?.quotes?.find((x) => x.instr === instr);
   document.querySelectorAll('.qrow').forEach((el) => el.classList.toggle('on', el.dataset.pick === instr));
   const title = document.getElementById('chart-title');
-  if (title && q) title.innerHTML = `${esc(q.symbol)} ${firmLink(q.issuer, q.name)} <span class="${cls(q.chg)}">${px(q.px)} ${pct(q.chg)}</span>`;
+  if (title && q) title.innerHTML = `${esc(q.symbol)} ${firmLink(q.issuer, q.name)} <span class="${cls(q.chg)}">${whyNum(px(q.px), q.eventId, q.symbol + ' price')} ${whyNum(pct(q.chg), q.eventId, q.symbol + ' change')}</span>`;
   loadChart(q?.issuer);
 }
 async function loadChart(issuer) {
@@ -375,9 +389,9 @@ function quotesHtml() {
     <div class="qrow${q.instr === S.selected ? ' on' : ''}" data-pick="${esc(q.instr)}">
       <span>${firmLink(q.issuer, q.symbol)}</span>
       <span class="name">${firmLink(q.issuer, q.name)}</span>
-      <span class="num" data-cell="px">${px(q.px)}</span>
-      <span class="num ${cls(q.chg)}" data-cell="chg">${pct(q.chg)}</span>
-      <span class="num dim" data-cell="vol">${vol(q.vol)}</span>
+      <span class="num" data-cell="px">${whyNum(px(q.px), q.eventId, q.symbol + ' price')}</span>
+      <span class="num ${cls(q.chg)}" data-cell="chg">${whyNum(pct(q.chg), q.eventId, q.symbol + ' change')}</span>
+      <span class="num dim" data-cell="vol">${whyNum(vol(q.vol), q.eventId, q.symbol + ' volume')}</span>
     </div>`).join('');
   return head + rows;
 }
@@ -390,10 +404,11 @@ function positionsHtml() {
     const day = (s.px - prev) * s.qty;
     const sym = q?.symbol ?? s.instr;
     const name = q ? firmLink(q.issuer, q.name) : stockLink(s.instr);
-    return `<tr><td>${stockLink(s.instr, sym)} ${name}</td><td class="num">${s.qty}</td><td class="num">${px(s.px)}</td><td class="num">${money(s.qty * s.px)}</td><td class="num ${cls(day)}">${pctSignedMoney(day)}</td></tr>`;
+    const ev = s.eventId;
+    return `<tr><td>${stockLink(s.instr, sym)} ${name}</td><td class="num">${whyNum(s.qty, ev, sym + ' qty')}</td><td class="num">${whyNum(px(s.px), ev, sym + ' price')}</td><td class="num">${whyNum(money(s.qty * s.px), ev, sym + ' value')}</td><td class="num ${cls(day)}">${whyNum(pctSignedMoney(day), ev, sym + ' day')}</td></tr>`;
   }).join('');
   const orders = (v?.orders ?? []).filter((o) => o.book === 'shares').map((o) => `
-    <tr><td>${o.id}</td><td>${esc(o.side)}</td><td>${stockLink(o.instr, quotes.get(o.instr)?.symbol ?? o.instr)}</td><td class="num">${o.qty}</td><td class="num">${o.limit ? px(o.limit) : 'MKT'}</td>
+    <tr><td>${o.id}</td><td>${esc(o.side)}</td><td>${stockLink(o.instr, quotes.get(o.instr)?.symbol ?? o.instr)}</td><td class="num">${whyNum(o.qty, o.eventId, 'qty')}</td><td class="num">${o.limit ? whyNum(px(o.limit), o.eventId, 'limit') : 'MKT'}</td>
     <td><button type="button" data-cancel="${o.id}">cancel</button></td></tr>`).join('');
   return `
     <div class="panel scroll"><h2>POSITIONS</h2>
@@ -434,10 +449,14 @@ function finalBanner() {
   if (!v?.final) return '';
   const d = v.dynasty;
   return `<div class="panel"><h2>THE HOUSE ENDS</h2><div style="padding:8px">${esc(v.final)}</div>
-    ${d ? `<div class="facts"><span class="k">generation</span><span>${d.generation}</span><span class="k">family worth</span><span>${money(d.worth)}</span><span class="k">founded</span><span>${d.founded}</span><span class="k">controlled</span><span>${d.controlled}</span><span class="k">offices</span><span>${d.offices}</span><span class="k">convictions</span><span>${d.convictions}</span></div>` : ''}
+    ${d ? `<div class="facts"><span class="k">generation</span><span>${whyNum(d.generation, d.eventId, 'generation')}</span><span class="k">family worth</span><span>${whyNum(money(d.worth), d.eventId, 'family worth')}</span><span class="k">founded</span><span>${whyNum(d.founded, d.eventId, 'founded')}</span><span class="k">controlled</span><span>${whyNum(d.controlled, d.eventId, 'controlled')}</span><span class="k">offices</span><span>${whyNum(d.offices, d.eventId, 'offices')}</span><span class="k">convictions</span><span>${whyNum(d.convictions, d.eventId, 'convictions')}</span></div>` : ''}
   </div>`;
 }
 function lifeAct(raw) {
+  if (raw === 'holiday' || raw === 'donate' || raw === 'lawyer' || raw === 'clinic' || raw === 'overtime') {
+    postAct({ kind: raw });
+    return;
+  }
   if (raw === 'child') { postAct({ kind: 'child' }); return; }
   if (raw === 'retire') { postAct({ kind: 'retire' }); return; }
   if (raw === 'die') { postAct({ kind: 'die' }); return; }
@@ -460,9 +479,9 @@ function renderFamily() {
   const people = (d.people || []).map((p) => {
     const h = hp.get(p.index);
     return `<tr>
-    <td>${personLink(p.index, p.name)}</td><td>${esc(p.role)}</td><td class="num">${p.age}</td>
-    <td class="num">${h ? h.health : ''}</td>
-    <td>${p.alive ? 'living' : '<span class="dead">dead</span>'}</td><td class="num">${money(p.worth)}</td></tr>`;
+    <td>${personLink(p.index, p.name)}</td><td>${esc(p.role)}</td><td class="num">${whyNum(p.age, p.eventId, p.name + ' age')}</td>
+    <td class="num">${h ? whyNum(h.health >= 75 ? 'Sound' : h.health >= 45 ? 'Worn' : 'Failing', h.eventId || p.eventId, p.name + ' ' + h.health) : ''}</td>
+    <td>${p.alive ? 'living' : '<span class="dead">dead</span>'}</td><td class="num">${whyNum(money(p.worth), p.eventId, p.name + ' worth')}</td></tr>`;
   }).join('');
   const spouse = fam.spouse ? personLink(fam.spouse.index, fam.spouse.name) : '<span class="dim">none</span>';
   const kids = (fam.children || []).map((k, n) => {
@@ -486,15 +505,15 @@ function renderFamily() {
   </div>`;
   return `${finalBanner()}<div class="split">
     <div class="panel"><h2>DYNASTY <span>generation ${d.generation ?? 1}</span></h2>
-      <div class="score">${money(d.worth || 0)} <span class="dim">dynasty score</span></div>
+      <div class="score">${whyNum(money(d.worth || 0), d.eventId, 'family worth')} <span class="dim">dynasty score</span></div>
       <div class="facts">
         <span class="k">spouse</span><span>${spouse}</span>
         <span class="k">heir</span><span>${heir}</span>
         <span class="k">will</span><span>${esc(fam.will || 'no will')}</span>
-        <span class="k">firms founded</span><span>${d.founded ?? 0}</span>
-        <span class="k">firms controlled</span><span>${d.controlled ?? 0}</span>
-        <span class="k">offices held</span><span>${d.offices ?? 0}</span>
-        <span class="k">convictions</span><span>${d.convictions ?? 0}</span>
+        <span class="k">firms founded</span><span>${whyNum(d.founded ?? 0, d.eventId, 'firms founded')}</span>
+        <span class="k">firms controlled</span><span>${whyNum(d.controlled ?? 0, d.eventId, 'firms controlled')}</span>
+        <span class="k">offices held</span><span>${whyNum(d.offices ?? 0, d.eventId, 'offices')}</span>
+        <span class="k">convictions</span><span>${whyNum(d.convictions ?? 0, d.eventId, 'convictions')}</span>
       </div>
       <div style="padding:0 8px 8px"><div class="dim">children</div>${kids}</div>
       <table><thead><tr><th>NAME</th><th>ROLE</th><th class="num">AGE</th><th class="num">HEALTH</th><th></th><th class="num">WORTH</th></tr></thead>
@@ -508,7 +527,7 @@ function renderDesk() {
   const q = S.view?.quotes?.find((x) => x.instr === S.selected) ?? sortedQuotes()[0];
   if (q && !S.selected) S.selected = q.instr;
   const cur = S.view?.quotes?.find((x) => x.instr === S.selected);
-  const title = cur ? `${esc(cur.symbol)} ${firmLink(cur.issuer, cur.name)} <span class="${cls(cur.chg)}">${px(cur.px)} ${pct(cur.chg)}</span>` : 'no listings';
+  const title = cur ? `${esc(cur.symbol)} ${firmLink(cur.issuer, cur.name)} <span class="${cls(cur.chg)}">${whyNum(px(cur.px), cur.eventId, cur.symbol + ' price')} ${whyNum(pct(cur.chg), cur.eventId, cur.symbol + ' change')}</span>` : 'no listings';
   return `${finalBanner()}
     <div class="desk">
       <div class="panel quotes" id="quotes">${quotesHtml()}</div>
@@ -533,7 +552,7 @@ function patchDesk() {
   if (book) book.innerHTML = positionsHtml();
   const cur = S.view?.quotes?.find((x) => x.instr === S.selected);
   const title = document.getElementById('chart-title');
-  if (title && cur) title.innerHTML = `${esc(cur.symbol)} ${firmLink(cur.issuer, cur.name)} <span class="${cls(cur.chg)}">${px(cur.px)} ${pct(cur.chg)}</span>`;
+  if (title && cur) title.innerHTML = `${esc(cur.symbol)} ${firmLink(cur.issuer, cur.name)} <span class="${cls(cur.chg)}">${whyNum(px(cur.px), cur.eventId, cur.symbol + ' price')} ${whyNum(pct(cur.chg), cur.eventId, cur.symbol + ' change')}</span>`;
   paintSides();
   drawChart();
 }
@@ -586,7 +605,7 @@ function renderContacts() {
       <span class="dim">${c.slot}</span>
       <span>${personLink(c.who, c.name)}</span>
       <span class="dim">${esc(c.kind)}</span>
-      <div class="bars">${bar('fam', c.familiarity, 480)}${bar('trust', c.trust, 100)}${bar('friend', c.friendship, 100)}</div>
+      <div class="rel-line">${esc(c.line || c.word || '')}</div>
       <span><button type="button" data-talk="${c.slot}">TALK</button> <button type="button" data-ask="${c.slot}">ASK</button> <button type="button" data-court="${c.slot}">COURT</button> <button type="button" data-marry="${c.slot}">MARRY</button></span>
     </div>`).join('') || '<div class="dim">no contacts</div>';
   return `<div class="panel"><h2>CONTACTS <span>${v?.contacts?.length ?? 0} / 16</span></h2>
@@ -596,10 +615,10 @@ function renderContacts() {
 function renderBonds() {
   const v = S.view;
   const cards = (v?.curve ?? []).map((c) => `
-    <div class="panel"><div class="tenor">${esc(c.tenor)}</div><div class="y">${(c.yield * 100).toFixed(2)}%</div>
-    <div class="dim">${c.id ? esc(c.id) : 'model'} · ${c.px ? px(c.px) : ''}</div>
+    <div class="panel"><div class="tenor">${esc(c.tenor)}</div><div class="y">${whyNum((c.yield * 100).toFixed(2) + '%', c.eventId, c.tenor + ' yield')}</div>
+    <div class="dim">${c.id ? esc(c.id) : 'model'} · ${c.px ? whyNum(px(c.px), c.eventId, c.tenor + ' price') : ''}</div>
     <button type="button" data-explain="${c.eventId}">why</button></div>`).join('');
-  const held = (v?.bonds ?? []).map((b) => `<tr><td>${esc(b.instr)}</td><td class="num">${money(b.face)}</td><td><button type="button" data-explain="${b.eventId}">why</button></td></tr>`).join('');
+  const held = (v?.bonds ?? []).map((b) => `<tr><td>${esc(b.instr)}</td><td class="num">${whyNum(money(b.face), b.eventId, 'face')}</td><td><button type="button" data-explain="${b.eventId}">why</button></td></tr>`).join('');
   return `<div class="yield">${cards}</div>
     <div class="panel ticket"><h2>BOND TICKET</h2>
       <div class="row">
@@ -628,12 +647,13 @@ function renderFutures() {
     const cells = b.tenors.map((t) => {
       const held = pos.get(b.good + ':' + t.monthsAhead);
       const chg = t.prev > 0 ? t.px / t.prev - 1 : 0;
-      return `<td class="num">${px(t.px)} <span class="${cls(chg)}">${pct(chg)}</span>${held ? `<br><span class="${cls(held.net)}">${held.net > 0 ? 'L' : 'S'}${Math.abs(held.net)}</span>` : ''}</td>`;
+      return `<td class="num">${whyNum(px(t.px), b.eventId, b.name + ' price')} <span class="${cls(chg)}">${whyNum(pct(chg), b.eventId, b.name + ' change')}</span>${held ? `<br><span class="${cls(held.net)}">${whyNum((held.net > 0 ? 'L' : 'S') + Math.abs(held.net), held.eventId, 'position')}</span>` : ''}</td>`;
     }).join('');
     return `<tr><td>${esc(b.name)} <span class="dim">${esc(b.good)}</span></td>${cells}<td><button type="button" data-explain="${b.eventId}">why</button></td></tr>`;
   }).join('');
   const goods = (v?.futuresBoard ?? []).map((b) => `<option value="${esc(b.good)}">${esc(b.name)}</option>`).join('');
-  return `<div class="panel ticket"><h2>FUTURES <span>margin ${money(v?.marginPosted || 0)}</span></h2>
+  const marginEv = v?.futures?.[0]?.eventId ?? v?.tape?.events?.rate;
+  return `<div class="panel ticket"><h2>FUTURES <span>margin ${whyNum(money(v?.marginPosted || 0), marginEv, 'margin')}</span></h2>
     <div class="row">
       <select id="fgood">${goods}</select>
       <label>M+ <input id="fmonth" value="1"></label>
@@ -661,8 +681,8 @@ function renderCrypto() {
     const h = held.get(c.id);
     const chg = c.prev > 0 ? c.px / c.prev - 1 : 0;
     return `<tr><td>${esc(c.name)} <span class="dim">${esc(c.id)}</span>${c.live ? '' : ' <span class="dead">dead</span>'}</td>
-      <td class="num">${px(c.px)} <span class="${cls(chg)}">${pct(chg)}</span></td>
-      <td class="num">${h ? h.qty : ''}</td>
+      <td class="num">${whyNum(px(c.px), c.eventId, c.name + ' price')} <span class="${cls(chg)}">${whyNum(pct(chg), c.eventId, c.name + ' change')}</span></td>
+      <td class="num">${h ? whyNum(h.qty, h.eventId || c.eventId, 'held') : ''}</td>
       <td><button type="button" data-explain="${c.eventId}">why</button></td></tr>`;
   }).join('');
   const opts = (v?.coinBoard ?? []).filter((c) => c.live).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
@@ -706,17 +726,17 @@ function chainTable() {
   for (const c of chain) if (c.months === show && !strikes.includes(c.strike)) strikes.push(c.strike);
   strikes.sort((a, b) => a - b);
   const at = (right, strike) => chain.find((c) => c.months === show && c.right === right && c.strike === strike);
-  const side = (row) => row ? `<button type="button" data-opt="buy" data-id="${esc(row.id)}" data-right="${row.right}">${px(row.ask)}</button> <button type="button" data-opt="write" data-id="${esc(row.id)}" data-right="${row.right}">write</button>${row.net ? ` <span class="${cls(row.net)}">${row.net}</span>` : ''}` : '';
+  const side = (row) => row ? `${whyNum(px(row.ask), row.eventId, 'ask')} <button type="button" data-opt="buy" data-id="${esc(row.id)}" data-right="${row.right}">buy</button> <button type="button" data-opt="write" data-id="${esc(row.id)}" data-right="${row.right}">write</button>${row.net ? ` <span class="${cls(row.net)}">${whyNum(row.net, row.eventId, 'net')}</span>` : ''}` : '';
   const rows = strikes.map((k) => {
     const call = at('C', k);
     const put = at('P', k);
     return `<tr>
       <td class="num">${side(call)}</td>
-      <td class="num dim">${call ? px(call.bid) : ''}</td>
-      <td class="num">${px(k)}</td>
-      <td class="num dim">${put ? px(put.bid) : ''}</td>
+      <td class="num dim">${call ? whyNum(px(call.bid), call.eventId, 'call bid') : ''}</td>
+      <td class="num">${whyNum(px(k), (call || put)?.eventId, 'strike')}</td>
+      <td class="num dim">${put ? whyNum(px(put.bid), put.eventId, 'put bid') : ''}</td>
       <td class="num">${side(put)}</td>
-      <td class="num dim">${(call?.oi ?? 0) + (put?.oi ?? 0) || ''}</td>
+      <td class="num dim">${whyNum((call?.oi ?? 0) + (put?.oi ?? 0) || '', (call || put)?.eventId, 'open interest')}</td>
     </tr>`;
   }).join('');
   const tabs = months.map((m) => `<button type="button" data-optmonth="${m}" class="${m === show ? 'on' : ''}">M+${m}</button>`).join(' ');
@@ -813,17 +833,17 @@ function homeBody() {
   const districts = [...(S.view?.districts ?? [])].sort((a, b) => a.distance - b.distance);
   const map = districts.map((d) => `<button type="button" class="plot${S.nb === d.name ? ' on' : ''}" data-nb="${esc(d.name)}">
       <b>${esc(d.name)}</b>
-      <span>${money(d.price)}</span>
+      <span>${whyNum(money(d.price), d.eventId, d.name + ' price')}</span>
       <span class="dim">${d.distance} km from the port</span>
     </button>`).join('');
   const mine = (S.view?.homes ?? []).filter((h) => h.mine || h.live);
   const listed = (S.view?.homes ?? []).filter((h) => !h.mine && !h.live && (!S.nb || h.neighbourhood === S.nb));
   const row = (h) => `<tr>
     <td>${parcelLink(h.id, '#' + h.id)} ${esc(h.neighbourhood)}</td>
-    <td class="num">${money(h.price)}</td>
-    <td class="num">${money(h.rent)}</td>
+    <td class="num">${whyNum(money(h.price), h.eventId, 'price')}</td>
+    <td class="num">${whyNum(money(h.rent), h.eventId, 'rent')}</td>
     <td>${h.tenant ? personLink(h.tenant.index, h.tenant.name) : ''}${h.missed ? ` <span class="down">${h.missed} missed</span>` : ''}${h.vacant ? ' <span class="dim">vacant</span>' : ''}${h.live ? ' <span class="dim">you live here</span>' : ''}</td>
-    <td class="num">${h.mortgage ? money(h.mortgage) : ''}</td>
+      <td class="num">${h.mortgage ? whyNum(money(h.mortgage), h.eventId, 'mortgage') : ''}</td>
     <td>${homeActs(h)}</td>
   </tr>`;
   return `<div class="map">${map}</div>
@@ -870,8 +890,8 @@ function renderFx() {
   const series = S.history?.macro?.fx ?? [];
   return `<div class="panel" style="padding:8px">
     <div class="dim">${esc(t.fxName)} · ${esc(t.currency)}</div>
-    <div style="font-size:28px;color:var(--amber)">${Number(t.fx).toFixed(4)} <span class="dim" style="font-size:13px">home per ${esc(t.currency)}</span></div>
-    <div class="dim">home rate ${(t.policy * 100).toFixed(2)}% · foreign ${(t.foreignRate * 100).toFixed(2)}%</div>
+    <div style="font-size:28px;color:var(--amber)">${whyNum(Number(t.fx).toFixed(4), t.events.fx, 'exchange rate')} <span class="dim" style="font-size:13px">home per ${esc(t.currency)}</span></div>
+    <div class="dim">home rate ${whyNum((t.policy * 100).toFixed(2) + '%', t.events.rate, 'policy rate')} · foreign ${whyNum((t.foreignRate * 100).toFixed(2) + '%', t.events.fx, 'foreign rate')}</div>
     <div style="margin-top:8px"><button type="button" data-explain="${t.events.fx}">why this rate</button></div>
     <canvas id="fxchart" style="width:100%;height:220px;margin-top:8px"></canvas>
   </div>`;
@@ -890,7 +910,8 @@ function renderEconomy() {
   return blocks.map(([key, label, , fmt]) => {
     const pts = m[key] ?? [];
     const last = pts[pts.length - 1];
-    return `<div class="series"><header><span>${label}</span><b>${last ? fmt(last.v) : '—'}</b></header><canvas data-series="${key}"></canvas></div>`;
+    const shown = last ? whyNum(fmt(last.v), last.eventId, label) : '—';
+    return `<div class="series"><header><span>${label}</span><b>${shown}</b></header><canvas data-series="${key}"></canvas></div>`;
   }).join('');
 }
 
@@ -910,8 +931,8 @@ function renderFirm(f) {
   if (f.kind === 'bank') {
     return `<div class="stack">
       <div class="panel"><h2>${esc(f.name)}</h2>
-        <div class="facts"><span class="k">deposits</span><span>${money(f.deposits)}</span><span class="k">equity</span><span>${money(f.equity)}</span>
-        <span class="k">last</span><span>${f.share ? px(f.share.px) : ''}</span></div></div>
+        <div class="facts"><span class="k">deposits</span><span>${whyNum(money(f.deposits), f.eventId, 'deposits')}</span><span class="k">equity</span><span>${whyNum(money(f.equity), f.eventId, 'equity')}</span>
+        <span class="k">last</span><span>${f.share ? whyNum(px(f.share.px), f.eventId, 'last') : ''}</span></div></div>
       <div class="panel chartbox" style="height:280px"><h2>SHARE PRICE</h2><canvas id="chart"></canvas></div></div>`;
   }
   const ceo = f.ceo ? personLink(f.ceo.index, f.ceo.name) : '<span class="dim">vacant</span>';
@@ -923,14 +944,14 @@ function renderFirm(f) {
     <div class="panel"><h2>${esc(f.name)} <span>${esc(f.share?.symbol || '')} · ${esc(f.sector)}</span></h2>
       <div class="facts">
         <span class="k">chief executive</span><span>${ceo}</span>
-        <span class="k">staff</span><span>${f.staff}</span>
+        <span class="k">staff</span><span>${whyNum(f.staff, f.events?.staff, 'staff')}</span>
         <span class="k">makes</span><span>${esc(f.goodName)}</span>
-        <span class="k">price</span><span>${px(f.price)}</span>
-        <span class="k">sales / day</span><span>${Number(f.sales).toFixed(1)}</span>
-        <span class="k">revenue this month</span><span>${money(f.revenue)}</span>
-        <span class="k">last month profit</span><span class="${cls(f.profit)}">${money(f.profit)}</span>
-        <span class="k">debt</span><span>${money(f.debt)}</span>
-        <span class="k">share</span><span>${f.share ? `${px(f.share.px)} <span class="${cls((f.share.prev ? f.share.px / f.share.prev - 1 : 0))}">${pct(f.share.prev ? f.share.px / f.share.prev - 1 : 0)}</span>` : 'unlisted'}</span>
+        <span class="k">price</span><span>${whyNum(px(f.price), f.events?.price, 'price')}</span>
+        <span class="k">sales / day</span><span>${whyNum(Number(f.sales).toFixed(1), f.events?.sales, 'sales')}</span>
+        <span class="k">revenue this month</span><span>${whyNum(money(f.revenue), f.events?.revenue, 'revenue')}</span>
+        <span class="k">last month profit</span><span class="${cls(f.profit)}">${whyNum(money(f.profit), f.events?.profit, 'profit')}</span>
+        <span class="k">debt</span><span>${whyNum(money(f.debt), f.events?.debt, 'debt')}</span>
+        <span class="k">share</span><span>${f.share ? `${whyNum(px(f.share.px), f.events?.share, 'share')} <span class="${cls((f.share.prev ? f.share.px / f.share.prev - 1 : 0))}">${whyNum(pct(f.share.prev ? f.share.px / f.share.prev - 1 : 0), f.events?.share, 'share change')}</span>` : 'unlisted'}</span>
       </div></div>
     <div class="panel chartbox" style="height:260px"><h2>SHARE PRICE <span><button type="button" data-span="year" class="${S.chartSpan === 'year' ? 'on' : ''}">1Y</button> <button type="button" data-span="all" class="${S.chartSpan === 'all' ? 'on' : ''}">ALL</button></span></h2><canvas id="chart"></canvas></div>
     <div class="panel"><h2>NEWS</h2>${news}</div></div>`;
@@ -941,16 +962,21 @@ function renderPerson(p) {
   const fam = p.family ?? {};
   const line = (label, node) => node ? `<div>${label} ${personLink(node.index, node.name)}${node.alive ? '' : ' <span class="dead">dead</span>'}</div>` : '';
   const list = (nodes) => (nodes ?? []).map((n) => personLink(n.index, n.name) + (n.alive ? '' : ' <span class="dead">†</span>')).join(', ') || '<span class="dim">none</span>';
-  const rel = p.contact ? `<div class="bars">${bar('fam', p.contact.familiarity, 480)}${bar('trust', p.contact.trust, 100)}${bar('friend', p.contact.friendship, 100)}</div>
+  const rel = p.contact ? `<div class="rel-line">${esc(p.contact.line || p.contact.word || '')}</div>
     <div style="margin-top:8px"><button type="button" data-talk="${p.contact.slot}">TALK</button> <button type="button" data-ask="${p.contact.slot}">ASK</button> <button type="button" data-court="${p.contact.slot}">COURT</button> <button type="button" data-marry="${p.contact.slot}">MARRY</button></div>
     <div class="dim" style="margin-top:6px">${esc(p.contact.kind)} · slot ${p.contact.slot}</div>` : '<div class="dim">not a contact</div>';
+  const inner = p.inner ? `<div class="panel"><h2>INNER LIFE</h2><div style="padding:8px">
+      ${(p.inner.facets || []).map((f) => `<div><b>${esc(f.word)}</b> <span class="dim">${esc(f.line)}</span></div>`).join('')}
+      <div><b>${esc(p.inner.memory?.word || '')}</b> <span class="dim">${esc(p.inner.memory?.line || '')}</span></div>
+      ${p.inner.habit ? `<div><b>${esc(p.inner.habit.word)}</b> <span class="dim">${esc(p.inner.habit.line)}</span></div>` : ''}
+    </div></div>` : '';
   const job = p.employer ? `${esc(p.title)} of ${firmLink(p.employer.id, p.employer.name)}${p.good ? ` <span class="dim">${esc(p.good)}</span>` : ''}` : esc(p.title);
   return `<div class="split">
     <div class="panel"><h2>${esc(p.name)} ${p.self ? '<span class="dim">you</span>' : ''}</h2>
       <div class="facts">
-        <span class="k">age</span><span>${p.age}</span>
+        <span class="k">age</span><span>${whyNum(p.age, p.lastEvent, p.name + ' age')}</span>
         <span class="k">job</span><span>${job}</span>
-        <span class="k">mood</span><span>${esc(p.moodWord)} <span class="dim">${p.mood}</span></span>
+        <span class="k">mood</span><span>${esc(p.moodWord)}</span>
         <span class="k">wealth</span><span>${esc(p.wealthBand)}</span>
         <span class="k">living</span><span>${p.alive ? 'yes' : '<span class="dead">no</span>'}</span>
       </div>
@@ -966,6 +992,7 @@ function renderPerson(p) {
       <div class="panel"><h2>RELATIONSHIP</h2><div style="padding:8px">${p.self ? '<div class="dim">this is you</div>' : rel}
         ${p.contact ? '' : ''}<div style="margin-top:8px">Ask about <select id="askfirm">${(S.view?.firms ?? []).map((f) => `<option value="${esc(f.id)}"${f.id === S.view?.firm ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select></div>
       </div></div>
+      ${inner}
     </div></div>`;
 }
 
@@ -1130,13 +1157,13 @@ function firmCard(c) {
   return `<div class="panel firmcard" data-card="${esc(c.id)}">
     <h2>${firmLink(c.id, c.name)} <span>${esc(c.role)} · ${esc(c.goodName || c.good)} · ${c.listed ? 'listed' : 'private'}</span></h2>
     <div class="facts">
-      <span class="k">sales</span><span data-stat="sales">${money(c.sales)}</span>
-      <span class="k">costs</span><span data-stat="cost">${money(c.cost)}</span>
-      <span class="k">last profit</span><span data-stat="profit" class="${cls(c.profit)}">${money(c.profit)}</span>
-      <span class="k">staff</span><span data-stat="workers">${c.workers}</span>
-      <span class="k">price</span><span data-stat="price">${px(c.price)}</span>
-      <span class="k">cash</span><span data-stat="cash">${money(c.cash)}</span>
-      <span class="k">your stake</span><span>${c.stake} / ${c.shares}</span>
+      <span class="k">sales</span><span data-stat="sales">${whyNum(money(c.sales), c.salesEv, 'sales')}</span>
+      <span class="k">costs</span><span data-stat="cost">${whyNum(money(c.cost), c.profitEv, 'costs')}</span>
+      <span class="k">last profit</span><span data-stat="profit" class="${cls(c.profit)}">${whyNum(money(c.profit), c.profitEv, 'profit')}</span>
+      <span class="k">staff</span><span data-stat="workers">${whyNum(c.workers, c.workerEv, 'staff')}</span>
+      <span class="k">price</span><span data-stat="price">${whyNum(px(c.price), c.priceEv, 'price')}</span>
+      <span class="k">cash</span><span data-stat="cash">${whyNum(money(c.cash), c.cashEv, 'cash')}</span>
+      <span class="k">your stake</span><span>${whyNum(c.stake, c.priceEv, 'stake')} / ${whyNum(c.shares, c.priceEv, 'shares')}</span>
       <span class="k">policy</span><span class="dim">price ${esc(c.quote)} · hires ${esc(c.hire)} · dividend ${esc(c.dividend)}</span>
     </div>
     <div class="ticket">${controls}</div>
@@ -1184,7 +1211,7 @@ function renderBoards() {
   const firms = [...(S.view?.firms ?? [])].sort((a, b) => a.name.localeCompare(b.name));
   const opts = firms.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
   const seats = (S.view?.companies ?? []).map((c) => `<tr>
-    <td>${firmLink(c.id, c.name)}</td><td>${esc(c.role)}</td><td class="num">${c.stake}/${c.shares}</td>
+    <td>${firmLink(c.id, c.name)}</td><td>${esc(c.role)}</td><td class="num">${whyNum(c.stake, c.priceEv, 'stake')}/${whyNum(c.shares, c.priceEv, 'shares')}</td>
     <td>${c.listed ? 'listed' : 'private'}</td></tr>`).join('');
   const bids = (S.view?.bids ?? []).slice().reverse().map((b) => `<div class="wire-item" data-explain="${b.eventId}" data-title="${esc(b.text)}">
       <span class="dim">${dateOf(b.day)} · ${esc(b.kind)}</span><br>${b.firm ? firmLink(b.firm, b.name) + ' — ' : ''}${esc(b.text)}
@@ -1224,21 +1251,23 @@ function renderHealth() {
   const v = S.view;
   const h = v?.healthPanel || {};
   const epi = h.epidemic;
-  const banner = epi ? `<div class="panel"><h2>IN THE CITY</h2><div style="padding:8px">${esc(epi.name)} · ${epi.cases} sick${epi.quarantine ? ' · the port is shut' : ''}
+  const banner = epi ? `<div class="panel"><h2>IN THE CITY</h2><div style="padding:8px">${esc(epi.name)} · ${whyNum(epi.cases + ' sick', epi.eventId, 'cases')}${epi.quarantine ? ' · the port is shut' : ''}
     <button type="button" data-explain="${epi.eventId}">why</button></div></div>` : '';
+  const wordOf = (n) => n >= 75 ? 'Sound' : n >= 45 ? 'Worn' : 'Failing';
   const rows = (h.house || []).map((p) => `<tr>
     <td>${personLink(p.index, p.name)}</td><td>${esc(p.role)}</td>
-    <td class="num">${p.health} ${healthBar(p.health)}</td>
+    <td class="num">${whyNum(wordOf(p.health), p.eventId, p.name + ' ' + p.health)} ${healthBar(p.health)}</td>
     <td>${p.illness ? esc(p.illness) : '<span class="dim">well</span>'}</td>
     <td>${esc(p.cover)}</td>
-    <td class="num">${p.owed ? money(p.owed) : ''}</td>
+    <td class="num">${p.owed ? whyNum(money(p.owed), p.eventId, 'bill') : ''}</td>
     <td><button type="button" data-explain="${p.eventId}">why</button></td>
   </tr>`).join('');
+  const selfWord = (v?.stats || []).find((s) => s.id === 'health')?.word || wordOf(h.health ?? v?.health ?? 0);
   return `<div class="stack">
     <div class="panel"><h2>HEALTH</h2>
-      <div class="score">${h.health ?? v?.health ?? ''} ${healthBar(h.health ?? v?.health)} <span class="dim">${esc(h.illness || 'well')} · ${esc(h.cover || '')}</span></div>
+      <div class="score" title="${esc(String(h.health ?? v?.health ?? ''))}">${esc(selfWord)} ${healthBar(h.health ?? v?.health)} <span class="dim">${esc(h.illness || 'well')} · ${esc(h.cover || '')}</span></div>
       <div class="facts">
-        <span class="k">unpaid care</span><span>${money(h.owed || 0)}</span>
+        <span class="k">unpaid care</span><span>${whyNum(money(h.owed || 0), h.eventId, 'unpaid care')}</span>
         <span class="k">last note</span><span><button type="button" data-explain="${h.eventId || 0}">why</button></span>
       </div>
     </div>
@@ -1256,13 +1285,13 @@ function renderParcel(p) {
   const acts = homeActs({ id: p.id, mine: p.mine, live: p.live });
   return `<div class="panel"><h2>${parcelLink(p.id, 'PARCEL #' + p.id)} <span>${esc(p.neighbourhood)}</span></h2>
     <div class="facts">
-      <span class="k">price</span><span>${money(p.price)}</span>
-      <span class="k">rent</span><span>${money(p.rent)}</span>
-      <span class="k">size</span><span>${p.size}</span>
-      <span class="k">condition</span><span>${p.condition}</span>
+      <span class="k">price</span><span>${whyNum(money(p.price), p.eventId, 'price')}</span>
+      <span class="k">rent</span><span>${whyNum(money(p.rent), p.eventId, 'rent')}</span>
+      <span class="k">size</span><span>${whyNum(p.size, p.eventId, 'size')}</span>
+      <span class="k">condition</span><span>${whyNum(p.condition, p.eventId, 'condition')}</span>
       <span class="k">owner</span><span>${owner}</span>
       <span class="k">tenant</span><span>${tenant}${p.live ? ' · you live here' : ''}${p.missed ? ` · <span class="down">${p.missed} missed</span>` : ''}</span>
-      <span class="k">mortgage</span><span>${p.mortgage ? money(p.mortgage) : 'none'}</span>
+      <span class="k">mortgage</span><span>${p.mortgage ? whyNum(money(p.mortgage), p.eventId, 'mortgage') : 'none'}</span>
       <span class="k">why this price</span><span><button type="button" data-explain="${p.eventId}">the chain</button></span>
     </div>
     <div class="ticket"><div class="row">${acts}</div>
@@ -1347,10 +1376,10 @@ function renderEnd(sc) {
     <h1>${esc(sc.name)} — ${esc(word)}</h1>
     <p>${esc(sc.reason || '')}</p>
     <h2>Score</h2>
-    <div>net worth ${money(s.worth)} against the index ${(Number(s.indexX) || 0).toFixed(2)}× (you ${(Number(s.worthX) || 0).toFixed(2)}×)</div>
-    <div>firms controlled ${s.firms ?? 0}</div>
-    <div>reputation ${s.reputation ?? 0}</div>
-    <div>convictions ${s.convictions ?? 0}</div>
+    <div>net worth ${whyNum(money(s.worth), (S.view?.stats || []).find((x) => x.id === 'worth')?.eventId, 'worth')} against the index ${whyNum(((Number(s.indexX) || 0).toFixed(2) + '×'), S.view?.tape?.events?.index, 'index')} (you ${whyNum(((Number(s.worthX) || 0).toFixed(2) + '×'), (S.view?.stats || []).find((x) => x.id === 'worth')?.eventId, 'your multiple')})</div>
+    <div>firms controlled ${whyNum(s.firms ?? 0, S.view?.dynasty?.eventId, 'firms')}</div>
+    <div>reputation ${esc((S.view?.stats || []).find((x) => x.id === 'reputation')?.word || 'Known')}</div>
+    <div>convictions ${whyNum(s.convictions ?? 0, S.view?.dynasty?.eventId, 'convictions')}</div>
     ${code}
     ${chronicle}
     <p class="dim">The game is over.</p>

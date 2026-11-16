@@ -14,6 +14,7 @@ import { contactsOf, seatPerson } from '../social/index.ts';
 import { challengeOf } from '../history/commands.ts';
 import { playerChronicle } from '../history/story.ts';
 import { openWorld } from '../../run.ts';
+import { repWord } from './life.ts';
 import { PLAYER, ensurePlayer, noteScript, onPlayerDay, playerIndex, soleSeat, view, type ScriptNote } from './index.ts';
 
 type Goal =
@@ -632,7 +633,7 @@ export function endScreen(w: World): string[] | null {
     'Score',
     `  net worth ${money(s.worth)} against the index ${s.indexX.toFixed(2)}× (you ${s.worthX.toFixed(2)}×)`,
     `  firms controlled ${s.firms}`,
-    `  reputation ${s.reputation}`,
+    `  reputation ${repWord(s.reputation)}`,
     `  convictions ${s.convictions}`,
     '',
     'Challenge',

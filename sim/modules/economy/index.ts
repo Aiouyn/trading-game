@@ -35,14 +35,15 @@ export interface Firm {
   slot: number; staff: number[]; eff: number; ceo: number; family: boolean; badMonths: number; ceoEv?: number; // staff: person indexes into s.P; eff = sum of staff skill
   sold: number; lost: number; unitCost: number; markup: number; made: number; soldEma: number; lostEma: number; madeEma: number;
   mRev: number; mCost: number; mStockDays: number; mPrice0: number; mUnitCost0: number; layoffEv?: number;
-  stockoutEv?: number; inputShortEv?: number; priceEv?: number;
+  stockoutEv?: number; inputShortEv?: number; priceEv?: number; priceWho?: number;
+  staffEv?: number; staffNoted?: number; staffMonth?: number; profitEv?: number;
   lastProfit: number; lastDividend: number; // last month's figures, for valuation
   closed: boolean; listed: boolean; founder: number; bornDay: number; bornWorkers: number; listOn: number; ipoEv: number; ipoPx: number;
 }
 export interface EconState {
   firms: Firm[]; P: People; shareIds: string[]; govSlot: number; bankSlot: number; clearSlot: number; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
   wage: number; policyRate: number; cpi: number; cpiBase: number; cpiHist: number[];
-  unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number;
+  unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number; wageWho?: number; rateWho?: number; jobsWho?: number; cpiWho?: number;
   yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force
   taxAim?: number; profitTax?: number; divRate?: number; benefitRate?: number; inflTarget?: number;
   spendPri?: Record<string, number>; spendScale?: number;
@@ -51,6 +52,15 @@ export interface EconState {
 const inv = (w: World, f: Firm): number => w.ledger.balS(f.slot, GOOD_INSTR[f.good]);
 const cash = (w: World, a: string): number => w.ledger.balance(a, DEP);
 const loanOf = (w: World, f: Firm): number => w.ledger.issued.get('loan:' + f.id) ?? 0;
+
+/** A named office-holder, or else a living chief, so a wage, a rate or a profit has a person in its chain. */
+function deskPerson(w: World, s: EconState, role: 'governor' | 'finance' | 'leader'): number {
+  const pol = w.state.politics as { governor?: number; finance?: number; leader?: number } | undefined;
+  const i = pol?.[role];
+  if (i !== undefined && i >= 0 && i < s.P.n && s.P.alive(i)) return i;
+  for (const f of s.firms) if (!f.closed && f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo)) return f.ceo;
+  return -1;
+}
 
 /** Pay deposits. The bank pays by creating deposits and is paid by extinguishing them. */
 export function pay(w: World, from: string, to: string, cents: number, reason: string, cause: number): boolean {
@@ -276,7 +286,7 @@ export const economy: Module = {
       firms: [], P, shareIds: ['eq:' + BANK], govSlot: L.slot(GOV), bankSlot: L.slot(BANK), clearSlot: L.slot(CLEAR),
       investors: [], laborForce: 0, hirePtr: 0, breakdowns: 0, successions: 0,
       wage, policyRate: 0.03, cpi: 1, cpiBase: 1, cpiHist: [], unemployment: 0.1, shockUntil: -1, shocks: [],
-      macroEv: g, wageEv: g, rateEv: g, yGdp: 0, yGdpEma: 1, yReal: 0, mSpend: 0, defaults: 0, taxEma: 0, taxToday: 0, profitTaxDaily: 0, dayGdp: 0, taxRate: INCOME_TAX, pensionEma: 0, pensionToday: 0, divTax: 0, fiscal: 0, uEma: 0.08,
+      macroEv: g, wageEv: g, rateEv: g, wageWho: g, rateWho: g, jobsWho: g, cpiWho: g, yGdp: 0, yGdpEma: 1, yReal: 0, mSpend: 0, defaults: 0, taxEma: 0, taxToday: 0, profitTaxDaily: 0, dayGdp: 0, taxRate: INCOME_TAX, pensionEma: 0, pensionToday: 0, divTax: 0, fiscal: 0, uEma: 0.08,
     };
     w.state.economy = s;
 
@@ -573,6 +583,14 @@ export const economy: Module = {
           leaveJob(s, p); P.lastEv[p] = f.layoffEv;
         }
       }
+      // One staff event a month, naming the chief, so a headcount has a cause.
+      if (f.workers !== (f.staffNoted ?? -1) && f.staffMonth !== w.month) {
+        const ceo = f.ceo >= 0 && f.ceo < P.n ? f.ceo : -1;
+        const named = ceo >= 0 ? P.name(ceo) : f.name;
+        f.staffEv = w.events.emit('firm.staff', `${named} has ${f.workers} people at ${f.name}`, [f.layoffEv ?? f.priceWho ?? f.priceEv ?? cause], ceo >= 0 ? P.id(ceo) : f.id);
+        f.staffNoted = f.workers;
+        f.staffMonth = w.month;
+      }
     });
 
     // 2. Production: buy inputs, make goods. Wages accrue daily and are paid weekly.
@@ -827,11 +845,19 @@ export const economy: Module = {
         const id = E.emit('firm.price', `${GOODS[f.good].name} price ${ch > 0 ? '+' : ''}${(ch * 100).toFixed(1)}% this month (unit cost ${(costCh * 100).toFixed(1)}%, ${f.mStockDays} tight days)`, c.slice(0, 4), f.id);
         priceEvs.push({ id, mag: Math.abs(ch) * (GOODS[f.good].share + 0.01) });
         f.priceEv = id;
+        const ceo = f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo) ? f.ceo : -1;
+        f.priceWho = ceo >= 0
+          ? E.emit('firm.ask', `${s.P.name(ceo)} sets the ${GOODS[f.good].name} price at ${f.name}`, [id], s.P.id(ceo))
+          : id;
       } else f.priceEv = undefined;
     }
     priceEvs.sort((a, b) => b.mag - a.mag);
     const cpiEv = E.emit('macro.cpi', `CPI ${(mInfl * 100).toFixed(2)}% on the month, ${(yoy * 100).toFixed(1)}% on the year`, priceEvs.length ? priceEvs.slice(0, 3).map((x) => x.id) : [s.macroEv]);
+    const reader = deskPerson(w, s, 'finance');
+    if (reader >= 0) s.cpiWho = E.emit('macro.cpi.who', `${s.P.name(reader)} reads prices ${(Math.abs(yoy) * 100).toFixed(1)}% ${yoy < 0 ? 'lower' : 'higher'} on the year`, [cpiEv], s.P.id(reader));
     const uEv = E.emit('macro.jobs', `unemployment ${(s.unemployment * 100).toFixed(1)}%`, [s.macroEv]);
+    const hirer = deskPerson(w, s, 'leader');
+    if (hirer >= 0) s.jobsWho = E.emit('macro.jobs.who', `${s.P.name(hirer)} is hiring while unemployment is ${(s.unemployment * 100).toFixed(1)}%`, [uEv], s.P.id(hirer));
     s.macroEv = E.emit('macro.demand', `household spending ${(s.mSpend / 30 / 1e8).toFixed(2)}M per day`, [cpiEv, uEv, s.rateEv]);
     s.mSpend = 0;
 
@@ -867,6 +893,8 @@ export const economy: Module = {
     const wCh = Math.max(s.unemployment > 0.15 ? -0.001 : 0, Math.min(0.012, wRaw));
     s.wage = Math.round(s.wage * (1 + wCh));
     if (Math.abs(wCh) > 0.002) s.wageEv = E.emit('macro.wage', `wages ${(wCh * 100).toFixed(2)}% this month`, [uEv, cpiEv]);
+    const payer = deskPerson(w, s, 'finance');
+    if (payer >= 0) s.wageWho = E.emit('macro.pay', `${s.P.name(payer)} settles the city's wage at ${(s.wage / 100).toFixed(0)} a day`, [s.wageEv], s.P.id(payer));
 
     // Central bank: Taylor rule with smoothing. It reads inflation as half the year-on-year rate and half the last three
     // months annualised: it reacts sooner to a burst and stops tightening sooner once the burst is over.
@@ -878,6 +906,8 @@ export const economy: Module = {
     const next = Math.round(((1 - speed) * s.policyRate + speed * target) * 400) / 400; // quarter-point grid
     if (next !== s.policyRate) {
       s.rateEv = E.emit('cb.rate', `policy rate ${(s.policyRate * 100).toFixed(2)}% -> ${(next * 100).toFixed(2)}%`, [cpiEv, uEv], CB);
+      const gov = deskPerson(w, s, 'governor');
+      if (gov >= 0) s.rateWho = E.emit('cb.desk', `${s.P.name(gov)} moves the policy rate to ${(next * 100).toFixed(2)}%`, [s.rateEv], s.P.id(gov));
       s.policyRate = next;
     }
     const loanRate = s.policyRate + 0.03, depRate = Math.max(0, s.policyRate - 0.01);
@@ -898,6 +928,9 @@ export const economy: Module = {
         excess -= r;
       }
       f.lastProfit = profit; f.lastDividend = Math.max(0, Math.round(excess));
+      const teller = f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo) ? f.ceo : deskPerson(w, s, 'leader');
+      const tellName = teller >= 0 ? s.P.name(teller) : f.name;
+      f.profitEv = E.emit('firm.profit', `${tellName} counts a profit of ${(Math.round(profit) / 100).toFixed(0)} dollars at ${f.name}`, [f.priceWho ?? f.priceEv ?? s.wageWho ?? s.wageEv ?? s.macroEv], teller >= 0 ? s.P.id(teller) : f.id);
       if (excess > 0) payDividends(w, s, f.id, excess, s.macroEv);
       if (loan > 0 && loanOf(w, f) > 140 * (f.eff * s.wage + 1) && profit < 0) {
         const off = Math.round(loanOf(w, f) * 0.5);

@@ -975,6 +975,7 @@ export interface OptRow {
   ask: number;
   oi: number;
   net: number;
+  eventId: number;
 }
 
 function rowOf(w: World, c: Contract, actor: string): OptRow {
@@ -982,6 +983,7 @@ function rowOf(w: World, c: Contract, actor: string): OptRow {
     id: c.longId, instr: c.instr, right: c.right, strike: c.strike,
     months: c.expMonth - w.month, bid: c.bid, ask: c.ask,
     oi: issued(w, c.longId), net: actor ? netOf(w, actor, c) : 0,
+    eventId: (w.state.options as { root?: number } | undefined)?.root ?? w.genesis,
   };
 }
 

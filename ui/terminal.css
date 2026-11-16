@@ -59,6 +59,25 @@ header {
 #who { flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; max-width: 440px; }
 .nw { display: flex; gap: 8px; align-items: baseline; }
 .nw b { font-size: 16px; font-weight: 650; }
+.stats {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  padding: 4px 8px; border-bottom: 1px solid var(--line); background: #10141a;
+}
+.stat {
+  display: inline-flex; gap: 6px; align-items: baseline;
+  background: var(--bg-3); border: 1px solid var(--line); padding: 2px 8px;
+}
+.stat b { color: var(--amber); font-weight: 650; }
+.stat .k { color: var(--dim); font-size: 11px; letter-spacing: 0.04em; }
+.stat .arr { font-size: 12px; }
+button.why {
+  background: transparent; border-color: transparent; padding: 0 2px; color: inherit;
+  text-align: inherit; font: inherit;
+}
+button.why:hover { color: var(--amber); }
+.life-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 0 0 8px; }
+.life-row button[disabled] { opacity: 0.45; cursor: default; }
+.rel-line { padding: 2px 0; }
 .tape { flex: 1 1 auto; min-width: 0; display: flex; gap: 10px; color: var(--dim); overflow: hidden; }
 .tape button {
   background: none; border: 0; padding: 0; color: var(--text); cursor: pointer;

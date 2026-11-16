@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import type { World } from './kernel/index.ts';
 import { openWorld } from './run.ts';
 import { applySnapshot, snapshotSeed } from './modules/history/save.ts';
-import { knows } from './modules/social/index.ts';
+import { knows, regardOf } from './modules/social/index.ts';
+import { innerOf } from './modules/psyche/index.ts';
 import { companyPosts } from './modules/corporate/index.ts';
 import { DEP, type EconState, type Firm } from './modules/economy/index.ts';
 import { GOODS } from './modules/economy/content.ts';
@@ -22,7 +23,7 @@ type Speed = 'pause' | 'day' | 'week' | 'month';
 
 interface Bar { o: number; h: number; l: number; c: number; v: number }
 interface Stock {
-  instr: string; issuer: string; last: number; prev: number; vol: number; hist: Bar[];
+  instr: string; issuer: string; last: number; prev: number; vol: number; hist: Bar[]; moveEv?: number;
 }
 interface FactRow {
   id: number; eventId: number; day: number; msg: string; pub: boolean; drop: boolean; firms: number[];
@@ -154,10 +155,16 @@ function commandOf(body: unknown): Command | string {
     }
     case 'news': return { kind: 'news' };
     case 'why': {
+      if (typeof b.thing === 'string' && b.thing.trim()) return { kind: 'why', thing: b.thing.trim() };
       const id = whole(b.id, 0);
-      if (id === undefined) return 'why needs an event id';
+      if (id === undefined) return 'why needs a thing or an event id';
       return { kind: 'why', id };
     }
+    case 'holiday': return { kind: 'holiday' };
+    case 'donate': return { kind: 'donate' };
+    case 'lawyer': return { kind: 'lawyer' };
+    case 'clinic': return { kind: 'clinic' };
+    case 'overtime': return { kind: 'overtime' };
     case 'wait': {
       const days = whole(b.days, 1);
       if (days === undefined) return 'wait needs a length of time';
@@ -537,13 +544,13 @@ function buildMacro(w: World): void {
 
 function sampleMacro(w: World): void {
   const s = econ(w);
-  const abroad = w.state.abroad as { mid?: number; rateEv?: number } | undefined;
+  const abroad = w.state.abroad as { mid?: number; rateEv?: number; fxWho?: number } | undefined;
   const mkt = w.state.markets as { index?: number; root?: number } | undefined;
-  const jobs = w.events.last('macro.jobs') ?? s.macroEv ?? w.genesis;
-  const cpi = w.events.last('macro.cpi') ?? s.macroEv ?? w.genesis;
-  const rate = w.events.last('cb.rate') ?? s.rateEv ?? w.genesis;
-  const fxEv = abroad?.rateEv ?? w.genesis;
-  const idxEv = w.events.last('mkt.move') ?? mkt?.root ?? w.genesis;
+  const jobs = s.jobsWho ?? w.events.last('macro.jobs.who') ?? w.events.last('macro.jobs') ?? s.macroEv ?? w.genesis;
+  const cpi = s.cpiWho ?? w.events.last('macro.cpi.who') ?? w.events.last('macro.cpi') ?? s.macroEv ?? w.genesis;
+  const rate = s.rateWho ?? w.events.last('cb.desk') ?? w.events.last('cb.rate') ?? s.rateEv ?? w.genesis;
+  const fxEv = abroad?.fxWho ?? abroad?.rateEv ?? w.genesis;
+  const idxEv = w.events.last('mkt.who') ?? w.events.last('mkt.move') ?? s.cpiWho ?? mkt?.root ?? w.genesis;
   const day = Math.max(0, w.day - 1);
   pushPt(macro.unemployment, { day, v: s.unemployment * 100, eventId: jobs });
   pushPt(macro.inflation, { day, v: yoyOf(s) * 100, eventId: cpi });
@@ -633,7 +640,11 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
       prev: ses.prev,
       chg: ses.prev > 0 ? ses.px / ses.prev - 1 : 0,
       vol: ses.vol,
-      eventId: root,
+      eventId: (() => {
+        const f = econ(w).firms.find((x) => x.id === st.issuer);
+        if (st.issuer === 'bank_1') return st.moveEv ?? econ(w).rateWho ?? econ(w).cpiWho ?? root;
+        return st.moveEv ?? f?.priceWho ?? f?.profitEv ?? f?.staffEv ?? root;
+      })(),
     };
   });
 }
@@ -652,7 +663,7 @@ function indexPair(w: World): { index: number; prev: number; eventId: number } {
   return {
     index: list.length ? 100 * now / base : (mkt?.index ?? 0),
     prev: list.length ? 100 * prev / base : (mkt?.index ?? 0),
-    eventId: w.events.last('mkt.move') ?? mkt?.root ?? w.genesis,
+    eventId: w.events.last('mkt.who') ?? w.events.last('mkt.move') ?? econ(w).cpiWho ?? mkt?.root ?? w.genesis,
   };
 }
 
@@ -840,6 +851,12 @@ function personName(w: World, i: number): { index: number; name: string } | null
   const P = econ(w).P;
   if (i < 0 || i >= P.n) return null;
   return { index: i, name: P.name(i) };
+}
+
+function districtsOf(w: World): Record<string, unknown>[] {
+  const prop = w.state.property as { lastSaleEv?: number; priceEv?: number } | undefined;
+  const eventId = prop?.lastSaleEv !== undefined && prop.lastSaleEv >= 0 ? prop.lastSaleEv : prop?.priceEv ?? w.genesis;
+  return districts(w).map((d) => ({ ...d, eventId }));
 }
 
 function decorateHomes(w: World, rows: { id: number; live?: boolean }[]): Record<string, unknown>[] {
@@ -1069,7 +1086,7 @@ function panelSlice(w: World, name: string): Record<string, unknown> {
     case 'options':
       return { chain: optionChain(w, i >= 0 ? econ(w).P.id(i) : '') };
     case 'homes':
-      return { homes: decorateHomes(w, homeBoard(w, i)), districts: districts(w) };
+      return { homes: decorateHomes(w, homeBoard(w, i)), districts: districtsOf(w) };
     case 'firms':
       return { companies: desks(w) };
     case 'boards':
@@ -1088,15 +1105,17 @@ function screen(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const me = playerIndex(w);
   const rels = me >= 0 ? relations(w, me) : [];
-  const contacts = rels.map((r) => ({
-    slot: r.slot,
-    who: r.who,
-    name: r.who >= 0 && r.who < P.n ? P.name(r.who) : '',
-    trust: r.trust,
-    familiarity: r.familiarity,
-    friendship: r.friendship,
-    kind: r.kind,
-  }));
+  const contacts = rels.map((r) => {
+    const g = regardOf(w, me, r.slot);
+    return {
+      slot: r.slot,
+      who: r.who,
+      name: r.who >= 0 && r.who < P.n ? P.name(r.who) : '',
+      kind: r.kind,
+      word: g.word,
+      line: g.line,
+    };
+  });
   const facts = (w.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
   const firms = econ(w).firms;
   const news = v.news.map((n) => {
@@ -1113,7 +1132,7 @@ function screen(w: World): Record<string, unknown> {
     return { ...p, fromIndex: h?.from ?? -1 };
   });
   const s = econ(w);
-  const abroad = w.state.abroad as { mid?: number; rateEv?: number; policy?: number; cfg?: { currency?: string; name?: string } } | undefined;
+  const abroad = w.state.abroad as { mid?: number; rateEv?: number; fxWho?: number; policy?: number; cfg?: { currency?: string; name?: string } } | undefined;
   const bonds = w.state.bonds as { y?: Record<string, number>; bonds?: { id: string; tenor: string; onRun: boolean; faceLeft: number; last: number; issueEv: number; coupon: number }[] } | undefined;
   const curve = ['3m', '2y', '10y', '30y'].map((tenor) => {
     const y = bonds?.y?.[tenor];
@@ -1149,7 +1168,7 @@ function screen(w: World): Record<string, unknown> {
   return {
     ...v,
     homes: decorateHomes(w, v.homes),
-    districts: districts(w),
+    districts: districtsOf(w),
     alerts: alertsOf(w),
     healthPanel: healthPanel(w),
     heir: heirOf(w),
@@ -1174,11 +1193,12 @@ function screen(w: World): Record<string, unknown> {
       index: idx.index,
       indexChg: idx.prev > 0 ? idx.index / idx.prev - 1 : 0,
       events: {
-        jobs: w.events.last('macro.jobs') ?? s.macroEv,
-        cpi: w.events.last('macro.cpi') ?? s.macroEv,
-        rate: w.events.last('cb.rate') ?? s.rateEv,
-        fx: abroad?.rateEv ?? w.genesis,
+        jobs: s.jobsWho ?? w.events.last('macro.jobs') ?? s.macroEv,
+        cpi: s.cpiWho ?? w.events.last('macro.cpi') ?? s.macroEv,
+        rate: s.rateWho ?? w.events.last('cb.rate') ?? s.rateEv,
+        fx: abroad?.fxWho ?? abroad?.rateEv ?? w.genesis,
         index: idx.eventId,
+        wage: s.wageWho ?? s.wageEv,
       },
     },
     curve,
@@ -1200,6 +1220,7 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
       kind: 'bank',
       deposits: Math.round(w.ledger.issued.get(DEP) ?? 0),
       equity: Math.round(w.ledger.netWorth('bank_1')),
+      eventId: econ(w).rateWho ?? st?.moveEv ?? econ(w).macroEv,
       share: st ? { instr: st.instr, ...session(st) } : undefined,
       daily: st ? closes(st, w.day, false) : [],
       span: st ? closes(st, w.day, true) : [],
@@ -1226,6 +1247,15 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
     revenue: f.mRev,
     profit: f.lastProfit,
     debt: Math.round(w.ledger.issued.get('loan:' + f.id) ?? 0),
+    events: {
+      staff: f.staffEv ?? f.layoffEv ?? f.ceoEv ?? econ(w).jobsWho ?? econ(w).macroEv,
+      price: f.priceWho ?? f.priceEv ?? econ(w).macroEv,
+      sales: f.priceWho ?? f.priceEv ?? econ(w).macroEv,
+      revenue: f.profitEv ?? f.priceWho ?? econ(w).macroEv,
+      profit: f.profitEv ?? f.priceWho ?? f.priceEv ?? econ(w).macroEv,
+      debt: econ(w).rateWho ?? econ(w).rateEv,
+      share: stocksOf(w).find((s) => s.issuer === f.id)?.moveEv ?? f.priceWho ?? econ(w).macroEv,
+    },
     share: st ? { instr: st.instr, symbol: symbolOf(st.instr), ...session(st) } : undefined,
     daily: st ? closes(st, w.day, false) : [],
     span: st ? closes(st, w.day, true) : [],
@@ -1269,9 +1299,9 @@ function personPage(w: World, index: number): Record<string, unknown> | undefine
       siblings: sibs,
     },
     wealthBand: bandOf(cents, wealthEdges(w)),
-    mood,
     moodWord: moodWord(mood),
-    contact: rel ? { slot: rel.slot, familiarity: rel.familiarity, trust: rel.trust, friendship: rel.friendship, kind: rel.kind } : null,
+    contact: rel ? { slot: rel.slot, kind: rel.kind, ...regardOf(w, me, rel.slot) } : null,
+    inner: innerOf(w, index),
     lastEvent: P.lastEv[index] >= 0 ? P.lastEv[index] : undefined,
   };
 }
