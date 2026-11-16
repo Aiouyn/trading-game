@@ -44,9 +44,3 @@ export class World {
     this.day++;
   }
 }
-
-/** Day the player's calendar starts. A settled world opens on day 360; the hidden years are not counted. */
-export function openingDay(w: World): number {
-  const n = (w.state.calendar as { origin?: number } | undefined)?.origin;
-  return typeof n === 'number' && n > 0 ? n : 0;
-}

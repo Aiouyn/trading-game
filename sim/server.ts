@@ -899,7 +899,7 @@ if (!load) {
   process.exit(1);
 }
 const port = +arg('port', '4173');
-const w = openWorld(snapshotSeed(load), new Set(), false);
+const w = openWorld(snapshotSeed(load), new Set());
 applySnapshot(w, load);
 ensurePlayer(w);
 const opening = w.ledger.check();

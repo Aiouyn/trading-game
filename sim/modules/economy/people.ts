@@ -391,7 +391,10 @@ export function succession(w: World, s: EconState, f: Firm, old: number, why: st
   // No heir: skill, plus a small weight for how much the staff respects the candidate.
   const bestStaff = (xs: number[]): number => xs.reduce((a, b) => (a < 0 || staffScore(w, f, b) > staffScore(w, f, a) ? b : a), -1);
   // Nobody within a year of retirement, and nobody under 23, takes the seat.
-  const can = (c: number): boolean => P.adult(w, c) && P.age(w, c) >= 23 && P.age(w, c) < RETIRE_AGE - 1;
+  // A sitting chief executive elsewhere is not pulled away: two spouses who each run a family firm would
+  // otherwise swap seats forever.
+  const runsOther = (c: number): boolean => { const e = P.employer[c]; return e >= 0 && e !== f.idx && s.firms[e]?.ceo === c; };
+  const can = (c: number): boolean => P.adult(w, c) && P.age(w, c) >= 23 && P.age(w, c) < RETIRE_AGE - 1 && !runsOther(c);
   if (f.family && old >= 0) {
     let gen = P.kids(old);
     for (let depth = 0; depth < 3 && gen.length && pick < 0; depth++) {
