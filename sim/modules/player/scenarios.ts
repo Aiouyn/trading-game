@@ -12,7 +12,7 @@ import { simulate } from '../history/boot.ts';
 import { applySnapshot, snapshotSeed } from '../history/save.ts';
 import { contactsOf, seatPerson } from '../social/index.ts';
 import { openWorld } from '../../run.ts';
-import { PLAYER, ensurePlayer, playerIndex, view, type PlayerState } from './index.ts';
+import { PLAYER, ensurePlayer, noteScript, onPlayerDay, playerIndex, soleSeat, view, type ScriptNote } from './index.ts';
 
 type Goal =
   | { kind: 'worth'; cents: number }
@@ -307,7 +307,8 @@ function setCash(w: World, id: string, target: number, cause: number): void {
 function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficulty?: number }): void {
   const s = econ(w), P = s.P;
   let i = ensurePlayer(w);
-  const st = w.state.player as PlayerState;
+  const st = soleSeat(w);
+  if (!st) throw new Error('the player was not seated');
   if (!P.alive(i)) {
     P.flags[i] &= ~PLAYER;
     st.who = -1;
@@ -377,6 +378,11 @@ export function openScenario(id: string, opts?: { cash?: number; difficulty?: nu
   if (saved) applySnapshot(w, saved);
   else if (def.years > 0) simulate(w, def.years, 1, false);
   applyStart(w, def, opts);
+  const note: ScriptNote = { id: def.id };
+  if (opts?.cash !== undefined) note.cash = opts.cash;
+  if (opts?.difficulty !== undefined) note.difficulty = opts.difficulty;
+  if (opts?.seed !== undefined) note.seed = opts.seed;
+  noteScript(w, note);
   const bad = w.ledger.check();
   if (bad.length) throw new Error(`books failed at the start: ${bad.slice(0, 5).join('; ')}`);
   return w;
@@ -424,7 +430,7 @@ function met(w: World, sc: ScenarioRun, person: number): boolean {
     case 'firm': return firmControlled(w, person, g.firm, true);
     case 'sector': return sectorControlled(w, person, g.sector);
     case 'office': return holdsOffice(w, person);
-    case 'dynasty': return ((w.state.player as PlayerState | undefined)?.generation ?? 1) >= g.generations;
+    case 'dynasty': return (soleSeat(w)?.generation ?? 1) >= g.generations;
     case 'crash': return crashSurvived(w, sc);
     default: {
       const never: never = g;
@@ -498,7 +504,7 @@ export function scoreOf(w: World, sc: ScenarioRun): ScenarioScore {
   const reputation = contacts.length ? Math.round(contacts.reduce((a, c) => a + c.trust, 0) / contacts.length) : 0;
   const firms = i >= 0 ? econ(w).firms.filter((f) => controls(w, i, f)).length : 0;
   const employer = i >= 0 && econ(w).P.employer[i] >= 0 ? econ(w).firms[econ(w).P.employer[i]]?.id ?? '' : '';
-  const st = w.state.player as PlayerState | undefined;
+  const st = soleSeat(w);
   const start = sc.worthAtStart > 0 ? sc.worthAtStart : 1;
   return {
     worth: v.netWorth,
@@ -514,7 +520,7 @@ export function scoreOf(w: World, sc: ScenarioRun): ScenarioScore {
 function finish(w: World, sc: ScenarioRun, result: 'win' | 'loss', reason: string): void {
   sc.outcome = result;
   sc.reason = reason;
-  const st = w.state.player as PlayerState | undefined;
+  const st = soleSeat(w);
   if (!st) return;
   st.over = true;
   if (!st.final) st.final = `${sc.name}: ${reason}`;
@@ -536,7 +542,7 @@ export function reviewScenario(w: World): void {
   const sc = runOf(w);
   if (!sc || sc.outcome) return;
   armShock(w, sc);
-  const st = w.state.player as PlayerState | undefined;
+  const st = soleSeat(w);
   if (!st || st.who < 0) return;
   sc.who = st.who;
   const P = econ(w).P;
@@ -603,3 +609,5 @@ export function endScreen(w: World): string[] | null {
     'The game is over.',
   ];
 }
+
+onPlayerDay(reviewScenario);

@@ -24,7 +24,7 @@ interface Share { who: number; bps: number }
 
 export interface Will { heir: number; shares: Share[]; eventId: number }
 
-export interface PlayerState {
+export interface PlayerSeat {
   who: number;
   over: boolean;
   margin: boolean;
@@ -46,6 +46,39 @@ export interface PlayerState {
   final: string;
   passed: number;
 }
+
+/** One entry in the command log. The day is the day the command was issued, before a wait advances the clock. */
+export interface CommandRecord {
+  day: number;
+  playerId: string;
+  cmd: Command;
+  status: 'accepted' | 'rejected';
+  why?: string;
+}
+
+/** Ledger hash after the close of `day` (the world has already moved on to the next morning). */
+export interface DayMark { day: number; hash: string }
+
+/** Enough to open the same scenario again. Absent fields mean "the scenario's own default". */
+export interface ScriptNote {
+  id: string;
+  cash?: number;
+  difficulty?: number;
+  seed?: string;
+}
+
+/** Every player, keyed by id. `who` and `heard` mirror the first seat so modules that still read them see the one player V1 runs. */
+export interface PlayerState {
+  ids: string[];
+  seat: Record<string, PlayerSeat>;
+  log: CommandRecord[];
+  days: DayMark[];
+  script: ScriptNote | null;
+  who: number;
+  heard: Heard[];
+}
+
+export const DEFAULT_PLAYER = '1';
 
 export type Command =
   | { kind: 'order'; side: 'buy' | 'sell' | 'short'; instr: string; qty: number; limit?: number }
@@ -97,6 +130,8 @@ export interface ActResult {
   text?: string;
   days?: number;
   lines?: string[];
+  /** Set when a wait stepped into a day whose books do not balance. */
+  books?: string;
 }
 
 interface Quote { instr: string; px: number; eventId: number }
@@ -275,38 +310,104 @@ const FUTURES: Record<string, string> = {
 
 const DEG = 16;
 const econ = (w: World): EconState => w.state.economy as EconState;
-const blank = (): PlayerState => ({
+const blankSeat = (): PlayerSeat => ({
   who: -1, over: false, margin: false, arrived: -1, heard: [], score: [], loans: [],
   line: [], generation: 1, founded: 0, controlled: 0, offices: 0, convictions: 0,
   officeWas: '', seenLaw: [], will: null, chair: -1, handed: -1, final: '', passed: -1,
 });
-const stOf = (w: World): PlayerState => {
-  let st = w.state.player as PlayerState | undefined;
-  if (!st) { st = blank(); w.state.player = st; }
-  if (!st.line) st.line = [];
-  if (st.generation === undefined) st.generation = 1;
-  if (st.founded === undefined) st.founded = 0;
-  if (st.controlled === undefined) st.controlled = 0;
-  if (st.offices === undefined) st.offices = 0;
-  if (st.convictions === undefined) st.convictions = 0;
-  if (st.officeWas === undefined) st.officeWas = '';
-  if (!st.seenLaw) st.seenLaw = [];
-  if (st.will === undefined) st.will = null;
-  if (st.chair === undefined) st.chair = -1;
-  if (st.handed === undefined) st.handed = -1;
-  if (st.final === undefined) st.final = '';
-  if (st.passed === undefined) st.passed = -1;
-  return st;
+const blankRoster = (): PlayerState => {
+  const heard: Heard[] = [];
+  return { ids: [], seat: {}, log: [], days: [], script: null, who: -1, heard };
 };
+/** `who` and `heard` stay pointed at the first seat. `heard` is that seat's array, not a copy. */
+function sync(st: PlayerState): void {
+  const seat = st.ids.length ? st.seat[st.ids[0]] : undefined;
+  if (!seat) { st.who = -1; return; }
+  st.who = seat.who;
+  st.heard = seat.heard;
+}
+function fillSeat(seat: PlayerSeat): PlayerSeat {
+  if (!seat.line) seat.line = [];
+  if (!seat.heard) seat.heard = [];
+  if (!seat.score) seat.score = [];
+  if (!seat.loans) seat.loans = [];
+  if (seat.generation === undefined) seat.generation = 1;
+  if (seat.founded === undefined) seat.founded = 0;
+  if (seat.controlled === undefined) seat.controlled = 0;
+  if (seat.offices === undefined) seat.offices = 0;
+  if (seat.convictions === undefined) seat.convictions = 0;
+  if (seat.officeWas === undefined) seat.officeWas = '';
+  if (!seat.seenLaw) seat.seenLaw = [];
+  if (seat.will === undefined) seat.will = null;
+  if (seat.chair === undefined) seat.chair = -1;
+  if (seat.handed === undefined) seat.handed = -1;
+  if (seat.final === undefined) seat.final = '';
+  if (seat.passed === undefined) seat.passed = -1;
+  if (seat.over === undefined) seat.over = false;
+  if (seat.margin === undefined) seat.margin = false;
+  if (seat.arrived === undefined) seat.arrived = -1;
+  if (seat.who === undefined) seat.who = -1;
+  return seat;
+}
+const roster = (w: World): PlayerState => {
+  const raw = w.state.player as PlayerState | PlayerSeat | undefined;
+  if (!raw) {
+    const st = blankRoster();
+    w.state.player = st;
+    return st;
+  }
+  const modern = raw as PlayerState;
+  if (!modern.seat || !Array.isArray(modern.ids)) {
+    const old = fillSeat(raw as PlayerSeat);
+    const st = blankRoster();
+    st.ids = [DEFAULT_PLAYER];
+    st.seat[DEFAULT_PLAYER] = old;
+    sync(st);
+    w.state.player = st;
+    return st;
+  }
+  if (!modern.log) modern.log = [];
+  if (!modern.days) modern.days = [];
+  if (modern.script === undefined) modern.script = null;
+  for (const id of modern.ids) if (modern.seat[id]) fillSeat(modern.seat[id]);
+  sync(modern);
+  return modern;
+};
+export function soleSeat(w: World): PlayerSeat | undefined {
+  const st = roster(w);
+  const id = st.ids[0];
+  return id ? st.seat[id] : undefined;
+}
+export function noteScript(w: World, script: ScriptNote | null): void {
+  roster(w).script = script;
+}
+let afterDay: ((w: World) => void) | undefined;
+/** Scenarios register the once-a-day review here so a wait can advance the clock inside act. */
+export function onPlayerDay(fn: (w: World) => void): void { afterDay = fn; }
+function noteClosedDay(w: World): void {
+  const st = roster(w);
+  const day = w.day - 1;
+  if (day < 0) return;
+  const hash = w.ledger.hash();
+  const prev = st.days.length ? st.days[st.days.length - 1] : undefined;
+  if (prev && prev.day === day) prev.hash = hash;
+  else st.days.push({ day, hash });
+}
 const rejected = (why: string): ActResult => ({ status: 'rejected', why });
 const whyOf = (e: unknown): string => e instanceof Error ? e.message : String(e);
 
-export function playerIndex(w: World): number {
+export function playerIndex(w: World, playerId?: string): number {
+  const st = roster(w);
+  const id = playerId ?? st.ids[0];
+  if (!id) return -1;
+  const seat = st.seat[id];
   const P = econ(w).P;
-  const st = w.state.player as PlayerState | undefined;
-  if (st && st.who >= 0 && st.who < P.n && (P.flags[st.who] & PLAYER) !== 0) return st.who;
+  if (seat && seat.who >= 0 && seat.who < P.n && (P.flags[seat.who] & PLAYER) !== 0) return seat.who;
+  // A named player who is not the first one is absent until ensurePlayer creates them.
+  if (playerId && playerId !== st.ids[0]) return -1;
   for (let i = 0; i < P.n; i++) if ((P.flags[i] & PLAYER) !== 0) {
-    if (st) st.who = i;
+    if (seat) seat.who = i;
+    sync(st);
     return i;
   }
   return -1;
@@ -338,8 +439,14 @@ function parentsOf(P: EconState['P'], born: number): [number, number] {
   return [-1, -1];
 }
 
-function spawn(w: World): number {
-  const s = econ(w), P = s.P, st = stOf(w);
+function spawn(w: World, playerId = DEFAULT_PLAYER): number {
+  const s = econ(w), P = s.P, players = roster(w);
+  let st = players.seat[playerId];
+  if (!st) {
+    st = blankSeat();
+    players.seat[playerId] = st;
+    players.ids.push(playerId);
+  }
   const born = w.day - 30 * DAYS_PER_YEAR;
   const [mom, dad] = parentsOf(P, born);
   const i = P.add(w, born, mom, dad);
@@ -366,13 +473,14 @@ function spawn(w: World): number {
   st.arrived = ev;
   if (!st.line.includes(i)) st.line.push(i);
   st.score.push({ day: w.day, worth: Math.round(worth(w, i)) });
+  sync(players);
   return i;
 }
 
-export function ensurePlayer(w: World): number {
-  const have = playerIndex(w);
+export function ensurePlayer(w: World, playerId = DEFAULT_PLAYER): number {
+  const have = playerIndex(w, playerId);
   if (have >= 0) return have;
-  return spawn(w);
+  return spawn(w, playerId);
 }
 
 function markPrice(w: World): (instr: string) => number {
@@ -445,17 +553,18 @@ function onRun(w: World, tenor: string): { id: string; last: number; issueEv: nu
   return hit;
 }
 
-function me(w: World): { st: PlayerState; i: number; id: string } | ActResult {
-  const st = stOf(w);
-  const i = playerIndex(w);
+function me(w: World, playerId: string): { st: PlayerSeat; i: number; id: string } | ActResult {
+  const st = roster(w).seat[playerId];
+  if (!st) return rejected('no player');
+  const i = playerIndex(w, playerId);
   if (i < 0) return rejected('no player');
   return { st, i, id: econ(w).P.id(i) };
 }
-function isMe(x: { st: PlayerState; i: number; id: string } | ActResult): x is { st: PlayerState; i: number; id: string } {
+function isMe(x: { st: PlayerSeat; i: number; id: string } | ActResult): x is { st: PlayerSeat; i: number; id: string } {
   return 'id' in x;
 }
 
-function remember(st: PlayerState, i: number): void {
+function remember(st: PlayerSeat, i: number): void {
   if (i >= 0 && !st.line.includes(i)) st.line.push(i);
 }
 
@@ -512,7 +621,7 @@ function pairSlot(w: World, i: number, slot: number): { slot: number; who: numbe
   return { why: 'no contact passes the pairing rules' };
 }
 
-function causeOf(w: World, st: PlayerState): number {
+function causeOf(w: World, st: PlayerSeat): number {
   return st.arrived >= 0 ? st.arrived : econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis;
 }
 
@@ -526,7 +635,7 @@ function firmByKey(w: World, key: string): Firm | undefined {
   return undefined;
 }
 
-function household(w: World, st: PlayerState): number[] {
+function household(w: World, st: PlayerSeat): number[] {
   const P = econ(w).P;
   const seen = new Set<number>();
   const out: number[] = [];
@@ -554,7 +663,7 @@ function houseWorth(w: World, ids: number[]): number {
   return Math.round(n);
 }
 
-function refreshFirms(w: World, st: PlayerState): void {
+function refreshFirms(w: World, st: PlayerSeat): void {
   const members = new Set(household(w, st));
   let founded = 0, controlled = 0;
   for (const f of econ(w).firms) {
@@ -565,7 +674,7 @@ function refreshFirms(w: World, st: PlayerState): void {
   st.controlled = controlled;
 }
 
-function refreshLife(w: World, st: PlayerState): void {
+function refreshLife(w: World, st: PlayerSeat): void {
   const P = econ(w).P;
   const members = new Set(household(w, st));
   const pol = w.state.politics as { leader?: number; finance?: number; governor?: number; regulator?: number } | undefined;
@@ -601,7 +710,7 @@ function personBit(w: World, i: number): { index: number; name: string; alive: b
   return { index: i, name: P.name(i), alive: P.alive(i), age: P.age(w, i) };
 }
 
-function willText(w: World, st: PlayerState): string {
+function willText(w: World, st: PlayerSeat): string {
   const will = st.will;
   if (!will) return 'no will';
   const P = econ(w).P;
@@ -611,7 +720,7 @@ function willText(w: World, st: PlayerState): string {
   return `${heir} continues the house; ${bits.join(', ')}`;
 }
 
-function dynastyOf(w: World, st: PlayerState): PlayerView['dynasty'] {
+function dynastyOf(w: World, st: PlayerSeat): PlayerView['dynasty'] {
   const P = econ(w).P;
   const ids = household(w, st);
   const price = markPrice(w);
@@ -638,13 +747,13 @@ function dynastyOf(w: World, st: PlayerState): PlayerView['dynasty'] {
   };
 }
 
-function epitaph(w: World, st: PlayerState, dead: number): string {
+function epitaph(w: World, st: PlayerSeat, dead: number): string {
   const P = econ(w).P;
   const d = dynastyOf(w, st);
   return `${P.name(dead)} has died, and nobody is left to take the name. The house ends. Generation ${d.generation}. Family net worth ${(d.worth / 100).toFixed(0)} dollars. Firms founded ${d.founded}, controlled ${d.controlled}. Offices held ${d.offices}. Convictions ${d.convictions}.`;
 }
 
-function livingHeir(w: World, dead: number, st: PlayerState): number {
+function livingHeir(w: World, dead: number, st: PlayerSeat): number {
   const P = econ(w).P;
   const ok = (h: number): boolean => h >= 0 && h < P.n && h !== dead && P.alive(h);
   const will = st.will;
@@ -665,8 +774,8 @@ function livingHeir(w: World, dead: number, st: PlayerState): number {
   return -1;
 }
 
-function continueAs(w: World, dead: number, heir: number, cause: number): number {
-  const P = econ(w).P, st = stOf(w);
+function continueAs(w: World, dead: number, heir: number, cause: number, st: PlayerSeat): number {
+  const P = econ(w).P;
   P.flags[dead] &= ~PLAYER;
   P.flags[heir] |= PLAYER;
   st.who = heir;
@@ -685,16 +794,18 @@ function continueAs(w: World, dead: number, heir: number, cause: number): number
   P.lastEv[heir] = ev;
   chronicle(w, heir, `${P.name(heir)} continues the house after ${P.name(dead)}`, ev);
   refreshFirms(w, st);
+  sync(roster(w));
   return ev;
 }
 
-function endHouse(w: World, dead: number, cause: number): void {
-  const st = stOf(w), P = econ(w).P;
+function endHouse(w: World, dead: number, cause: number, st: PlayerSeat): void {
+  const P = econ(w).P;
   st.over = true;
   st.passed = dead;
   st.final = epitaph(w, st, dead);
   chronicle(w, dead, st.final, cause);
   P.lastEv[dead] = cause;
+  sync(roster(w));
 }
 
 function moveEstate(w: World, i: number, shares: Share[], ev: number): void {
@@ -734,7 +845,7 @@ function cityShares(w: World, i: number): Share[] {
   return heirs.map((who, k) => ({ who, bps: k === heirs.length - 1 ? 10000 - bps * (heirs.length - 1) : bps }));
 }
 
-function noticeBoard(w: World, st: PlayerState, i: number): void {
+function noticeBoard(w: World, st: PlayerSeat, i: number): void {
   const s = econ(w), P = s.P;
   const chair = st.chair;
   if (chair >= 0 && chair < s.firms.length && s.firms[chair].ceo !== i) {
@@ -752,7 +863,7 @@ function noticeBoard(w: World, st: PlayerState, i: number): void {
   if (e >= 0 && s.firms[e].ceo === i) st.chair = e;
 }
 
-function ageYear(w: World, i: number): void {
+function ageYear(w: World, i: number, st: PlayerSeat): void {
   const s = econ(w), P = s.P;
   if (P.age(w, i) < 40 || P.health[i] <= 40) return;
   const before = labourOf(P, i, w.day);
@@ -760,13 +871,12 @@ function ageYear(w: World, i: number): void {
   const after = labourOf(P, i, w.day);
   retargetLabour(s, i, before, after);
   if (P.health[i] === 60 || P.health[i] === 45 || P.health[i] === 30) {
-    const st = stOf(w);
     const ev = w.events.emit('player.health', `${P.name(i)} is ${P.age(w, i)} and health has fallen to ${P.health[i]}`, [causeOf(w, st)], P.id(i));
     chronicle(w, i, `${P.name(i)} feels the years; health ${P.health[i]}`, ev);
   }
 }
 
-function shortSell(w: World, st: PlayerState, id: string, instr: string, qty: number, limit: number | undefined): ActResult {
+function shortSell(w: World, st: PlayerSeat, id: string, instr: string, qty: number, limit: number | undefined): ActResult {
   if (!st.margin) return rejected('short selling needs a margin account at a bank');
   const stock = (w.state.markets as { stocks: { instr: string; last: number }[] }).stocks.find((s) => s.instr === instr);
   if (!stock) return rejected(`not listed ${instr}`);
@@ -788,8 +898,8 @@ function shortSell(w: World, st: PlayerState, id: string, instr: string, qty: nu
   }
 }
 
-export function act(w: World, cmd: Command): ActResult {
-  const who = me(w);
+function actSeat(w: World, playerId: string, cmd: Command): ActResult {
+  const who = me(w, playerId);
   if (!isMe(who)) return who;
   const { st, i, id } = who;
   const P = econ(w).P;
@@ -893,11 +1003,11 @@ export function act(w: World, cmd: Command): ActResult {
       return { status: 'accepted', eventId: r.facts[0].eventId, fill: r.facts.length, text: `${who} told you: ${told}` };
     }
     case 'news': {
-      const lines = view(w).news.map((n) => `[${n.eventId}] day ${n.day}: ${n.text}`);
+      const lines = view(w, playerId).news.map((n) => `[${n.eventId}] day ${n.day}: ${n.text}`);
       return { status: 'accepted', lines, text: lines.length ? `${lines.length} stories` : 'no news' };
     }
     case 'why': {
-      const screen = view(w);
+      const screen = view(w, playerId);
       const ids = new Set<number>();
       const take = (id: number | undefined): void => { if (id !== undefined && id >= 0) ids.add(id); };
       for (const x of screen.news) take(x.eventId);
@@ -916,9 +1026,23 @@ export function act(w: World, cmd: Command): ActResult {
       if (!lines.length) return rejected('that event is gone from the log');
       return { status: 'accepted', lines, eventId: cmd.id };
     }
-    case 'wait':
+    case 'wait': {
       if (!Number.isSafeInteger(cmd.days) || cmd.days < 1) return rejected('wait needs a length of time');
+      const people = econ(w).P;
+      for (let d = 0; d < cmd.days; d++) {
+        w.step();
+        afterDay?.(w);
+        noteClosedDay(w);
+        const bad = w.ledger.check();
+        if (bad.length) {
+          const why = bad.slice(0, 8).join('; ');
+          return { status: 'rejected', why, books: why };
+        }
+        const person = st.who;
+        if (st.over || person < 0 || person >= people.n || !people.alive(person)) break;
+      }
       return { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
+    }
     case 'found': {
       const r = foundCompany(w, i, cmd.name, cmd.sector.toUpperCase(), cmd.cents, cmd.loan);
       if ('why' in r) return rejected(r.why);
@@ -1097,10 +1221,10 @@ export function act(w: World, cmd: Command): ActResult {
       if (f && wasCeo) succession(w, econ(w), f, i, 'died', ev);
       const heir = livingHeir(w, i, st);
       if (heir < 0) {
-        endHouse(w, i, ev);
+        endHouse(w, i, ev, st);
         return { status: 'accepted', eventId: ev, lines: w.events.explain(ev, 6), text: st.final };
       }
-      const heirEv = continueAs(w, i, heir, ev);
+      const heirEv = continueAs(w, i, heir, ev, st);
       return { status: 'accepted', eventId: heirEv, lines: w.events.explain(heirEv, 6), text: `${P.name(heir)} continues the house` };
     }
     case 'help':
@@ -1201,11 +1325,26 @@ export function act(w: World, cmd: Command): ActResult {
   }
 }
 
+export function act(w: World, playerIdOrCmd: string | Command, cmd?: Command): ActResult {
+  const playerId = typeof playerIdOrCmd === 'string' ? playerIdOrCmd : (roster(w).ids[0] ?? DEFAULT_PLAYER);
+  const command = typeof playerIdOrCmd === 'string' ? cmd : playerIdOrCmd;
+  if (!command) return rejected('missing command');
+  const day = w.day;
+  const result = actSeat(w, playerId, command);
+  const row: CommandRecord = { day, playerId, cmd: command, status: result.status };
+  if (result.why) row.why = result.why;
+  roster(w).log.push(row);
+  return result;
+}
+
 interface Fact { id: number; eventId: number; day: number; msg: string; pub: boolean; drop: boolean; firms: number[]; tag?: string }
 
-export function view(w: World): PlayerView {
-  const s = econ(w), P = s.P, st = stOf(w);
-  const i = playerIndex(w);
+export function view(w: World, playerId?: string): PlayerView {
+  const players = roster(w);
+  const key = playerId ?? players.ids[0];
+  const st = (key && players.seat[key]) ? players.seat[key] : blankSeat();
+  const s = econ(w), P = s.P;
+  const i = playerIndex(w, playerId);
   const id = i >= 0 ? P.id(i) : '';
   const price = markPrice(w);
   const abs = w.day;
@@ -1334,42 +1473,47 @@ export function view(w: World): PlayerView {
 export const player: Module = {
   id: 'player',
   init(w) {
-    if (!w.state.player) w.state.player = blank();
+    roster(w);
     if (w.state.deferPlayer) return;
     if (process.argv.includes('--load')) return;
-    if (playerIndex(w) < 0) spawn(w);
+    if (playerIndex(w) < 0) spawn(w, DEFAULT_PLAYER);
   },
   dayClose(w) {
-    const st = stOf(w);
-    if (st.who < 0) return;
+    const players = roster(w);
     const P = econ(w).P;
-    const i = st.who;
-    if (i >= P.n) return;
-    if (!P.alive(i)) {
-      if (st.over || st.passed === i) return;
-      const died = w.events.last('person.died');
-      const ev = died !== undefined ? w.events.get(died) : undefined;
-      const cause = ev?.actor === P.id(i) ? ev.id : causeOf(w, st);
-      const heir = livingHeir(w, i, st);
-      if (heir < 0) endHouse(w, i, cause);
-      else continueAs(w, i, heir, cause);
-      return;
+    for (const id of players.ids) {
+      const st = players.seat[id];
+      if (!st || st.who < 0) continue;
+      const i = st.who;
+      if (i >= P.n) continue;
+      if (!P.alive(i)) {
+        if (st.over || st.passed === i) continue;
+        const died = w.events.last('person.died');
+        const ev = died !== undefined ? w.events.get(died) : undefined;
+        const cause = ev?.actor === P.id(i) ? ev.id : causeOf(w, st);
+        const heir = livingHeir(w, i, st);
+        if (heir < 0) endHouse(w, i, cause, st);
+        else continueAs(w, i, heir, cause, st);
+        continue;
+      }
+      noticeBoard(w, st, i);
+      if (w.day > 0 && w.day % DAYS_PER_YEAR === 0 && (st.score.length === 0 || st.score[st.score.length - 1].day !== w.day)) {
+        ageYear(w, i, st);
+        const nw = Math.round(worth(w, i));
+        st.score.push({ day: w.day, worth: nw });
+        const cause = econ(w).macroEv || st.arrived;
+        chronicle(w, i, `${P.name(i)} marks the year with a net worth of ${(nw / 100).toFixed(0)} dollars`, cause);
+        refreshFirms(w, st);
+        refreshLife(w, st);
+      }
     }
-    noticeBoard(w, st, i);
-    if (w.day > 0 && w.day % DAYS_PER_YEAR === 0 && (st.score.length === 0 || st.score[st.score.length - 1].day !== w.day)) {
-      ageYear(w, i);
-      const nw = Math.round(worth(w, i));
-      st.score.push({ day: w.day, worth: nw });
-      const cause = econ(w).macroEv || st.arrived;
-      chronicle(w, i, `${P.name(i)} marks the year with a net worth of ${(nw / 100).toFixed(0)} dollars`, cause);
-      refreshFirms(w, st);
-      refreshLife(w, st);
-    }
+    sync(players);
   },
   stats(w) {
     const i = playerIndex(w);
     if (i < 0) return { player: 0 };
-    const P = econ(w).P, st = stOf(w);
+    const P = econ(w).P, st = soleSeat(w);
+    if (!st) return { player: 0 };
     return {
       player: Math.round(worth(w, i) / 100),
       playerAlive: P.alive(i) ? 1 : 0,

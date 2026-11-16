@@ -69,6 +69,57 @@ export function openWorld(seed: string, without: Set<string>, deferPlayer = fals
   return w;
 }
 
+const SIM_FRAME = /\/sim\/(modules|kernel)\//;
+
+/** The first frame outside this file. A module that calls the clock fails the run; a module that calls console does not. */
+function callerIsModule(stack: string): boolean {
+  for (const line of stack.split('\n')) {
+    if (!line.includes(' at ')) continue;
+    if (line.includes('/sim/run.ts') || line.includes('\\sim\\run.ts')) continue;
+    return SIM_FRAME.test(line);
+  }
+  return false;
+}
+
+/** Fails the run if a module reads the wall clock or an unnamed random source while the world is stepping. */
+function guardClock(run: () => void): void {
+  const random = Math.random;
+  const now = Date.now;
+  const perf = performance.now.bind(performance);
+  const hrtime = process.hrtime.bind(process);
+  const hrBig = process.hrtime.bigint.bind(process.hrtime);
+  const RealDate = Date;
+  const fail = (what: string): void => {
+    const stack = new Error().stack ?? '';
+    if (callerIsModule(stack)) throw new Error(`${what} called during the run`);
+  };
+  Math.random = () => { fail('Math.random'); return random(); };
+  Date.now = () => { fail('Date.now'); return now(); };
+  performance.now = () => { fail('performance.now'); return perf(); };
+  const guardedHr = ((...args: Parameters<typeof process.hrtime>) => { fail('process.hrtime'); return hrtime(...args); }) as typeof process.hrtime;
+  guardedHr.bigint = () => { fail('process.hrtime.bigint'); return hrBig(); };
+  process.hrtime = guardedHr;
+  const Guarded = function DateGuard(this: Date, ...args: ConstructorParameters<typeof Date>) {
+    if (args.length === 0) fail('new Date()');
+    return new RealDate(...args);
+  };
+  Guarded.now = Date.now;
+  Guarded.parse = RealDate.parse;
+  Guarded.UTC = RealDate.UTC;
+  Guarded.prototype = RealDate.prototype;
+  // The modules look Date up when they call it. Node's own timers keep the original.
+  globalThis.Date = Guarded as unknown as DateConstructor;
+  try { run(); }
+  finally {
+    Math.random = random;
+    Date.now = now;
+    performance.now = perf;
+    process.hrtime = hrtime as typeof process.hrtime;
+    (process.hrtime as typeof process.hrtime).bigint = hrBig;
+    globalThis.Date = RealDate;
+  }
+}
+
 function main(): void {
   const years = +arg('years', '10'), seed = arg('seed', '1'), explain = arg('explain', 'cb.rate'), load = arg('load', '');
   const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 20000 ? 7 : 1));
@@ -76,7 +127,7 @@ function main(): void {
   const t0 = Date.now();
   const w = openWorld(load ? snapshotSeed(load) : seed, without);
   if (load) applySnapshot(w, load);
-  simulate(w, years, checkEvery, true);
+  guardClock(() => simulate(w, years, checkEvery, true));
   console.log(`\nmemory ${(process.memoryUsage().rss / 1e6).toFixed(0)} MB`);
   console.log(`\n${years} years, ${w.day} days, ${w.events.count} events, ${Date.now() - t0} ms. Books balanced ${checkEvery === 1 ? 'every day' : `at every check (every ${checkEvery} days)`}. State hash ${w.ledger.hash()}`);
   if (process.argv.includes('--chronicle')) {

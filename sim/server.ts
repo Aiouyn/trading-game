@@ -14,9 +14,9 @@ import { DEP, type EconState, type Firm } from './modules/economy/index.ts';
 import { GOODS } from './modules/economy/content.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
-import { act, ensurePlayer, playerIndex, view, type Command, type PlayerState } from './modules/player/index.ts';
+import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
-import { listScenarios, liveCard, openScenario, reviewScenario } from './modules/player/scenarios.ts';
+import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
 
 type Speed = 'pause' | 'day' | 'week' | 'month';
 
@@ -678,7 +678,7 @@ function firmNews(w: World, firmIdx: number): { eventId: number; day: number; te
   const facts = (w.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
   const P = econ(w).P;
   const me = playerIndex(w);
-  const heard = (w.state.player as PlayerState | undefined)?.heard ?? [];
+  const heard = soleSeat(w)?.heard ?? [];
   const out: { eventId: number; day: number; text: string; private: boolean; from?: string; fromIndex?: number }[] = [];
   for (let i = facts.length - 1; i >= 0 && out.length < 40; i--) {
     const f = facts[i];
@@ -767,13 +767,13 @@ function alertsOf(w: World): Alert[] {
   const i = playerIndex(w);
   if (i < 0) return out;
   const id = P.id(i);
-  const pst = w.state.player as PlayerState;
+  const pst = soleSeat(w);
   const cash = Math.floor(w.ledger.balance(id, DEP));
   let face = 0;
-  for (const loan of pst.loans ?? []) face += loan.face;
+  for (const loan of pst?.loans ?? []) face += loan.face;
   const posted = Math.round(w.ledger.balance(id, 'cmdty:margin'));
   if ((face > 0 && cash < face * 0.25) || (posted > 0 && cash < posted)) {
-    const ev = w.events.last('futures.marginCall') ?? w.events.last('opt.marginCall') ?? (pst.arrived >= 0 ? pst.arrived : w.genesis);
+    const ev = w.events.last('futures.marginCall') ?? w.events.last('opt.marginCall') ?? (pst && pst.arrived >= 0 ? pst.arrived : w.genesis);
     push({ kind: 'margin', text: 'margin is short of what the position needs', page: 'desk', arg: '', eventId: ev });
   }
   const firms = econ(w).firms;
@@ -860,7 +860,7 @@ function decorateHomes(w: World, rows: { id: number; live?: boolean }[]): Record
 }
 
 function heirOf(w: World): { index: number; name: string; eventId: number } | null {
-  const will = (w.state.player as PlayerState | undefined)?.will;
+  const will = soleSeat(w)?.will;
   const P = econ(w).P;
   if (!will || will.heir < 0 || will.heir >= P.n) return null;
   return { index: will.heir, name: P.name(will.heir), eventId: will.eventId };
@@ -868,7 +868,7 @@ function heirOf(w: World): { index: number; name: string; eventId: number } | nu
 
 function houseIds(w: World): { index: number; role: string }[] {
   const P = econ(w).P;
-  const pst = w.state.player as PlayerState | undefined;
+  const pst = soleSeat(w);
   const me = playerIndex(w);
   const order: number[] = [];
   const roles = new Map<number, string>();
@@ -956,19 +956,19 @@ function markOf(w: World): (instr: string) => number {
 
 function lightDynasty(w: World): Record<string, unknown> {
   const P = econ(w).P;
-  const pst = w.state.player as PlayerState;
+  const pst = soleSeat(w);
   const price = markOf(w);
   const people = houseIds(w).map(({ index, role }) => ({
     index, name: P.name(index), role, alive: P.alive(index), age: P.age(w, index),
     worth: P.alive(index) ? Math.round(w.ledger.netWorth(P.id(index), price)) : 0,
   }));
   return {
-    generation: pst.generation ?? 1,
+    generation: pst?.generation ?? 1,
     worth: people.reduce((t, p) => t + p.worth, 0),
-    founded: pst.founded ?? 0,
-    controlled: pst.controlled ?? 0,
-    offices: pst.offices ?? 0,
-    convictions: pst.convictions ?? 0,
+    founded: pst?.founded ?? 0,
+    controlled: pst?.controlled ?? 0,
+    offices: pst?.offices ?? 0,
+    convictions: pst?.convictions ?? 0,
     people,
   };
 }
@@ -1015,7 +1015,7 @@ function playerBook(w: World): { shares: { instr: string; qty: number; px: numbe
 function tickFrame(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const i = playerIndex(w);
-  const pst = w.state.player as PlayerState;
+  const pst = soleSeat(w);
   const id = i >= 0 ? P.id(i) : '';
   const abs = w.day;
   const doy = abs % 360;
@@ -1029,8 +1029,8 @@ function tickFrame(w: World): Record<string, unknown> {
     age: i >= 0 ? P.age(w, i) : 0,
     health: i >= 0 ? P.health[i] : 0,
     alive,
-    over: pst.over || !alive,
-    final: pst.final,
+    over: (pst?.over ?? false) || !alive,
+    final: pst?.final ?? '',
     cash: i >= 0 ? Math.floor(w.ledger.balance(id, DEP)) : 0,
     netWorth: i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0,
     dynasty: lightDynasty(w),
@@ -1106,7 +1106,7 @@ function screen(w: World): Record<string, unknown> {
     });
     return { ...n, firms: named };
   });
-  const heard = (w.state.player as PlayerState | undefined)?.heard ?? [];
+  const heard = soleSeat(w)?.heard ?? [];
   const priv = v.private.map((p) => {
     const h = heard.find((x) => x.factId === p.factId);
     return { ...p, fromIndex: h?.from ?? -1 };
@@ -1356,7 +1356,8 @@ function broadcast(event: string, data: unknown): void {
 }
 
 function stepDay(): string | undefined {
-  try { w.step(); }
+  let stepped: ReturnType<typeof act>;
+  try { stepped = act(w, { kind: 'wait', days: 1 }); }
   catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     booksOk = false;
@@ -1365,15 +1366,13 @@ function stepDay(): string | undefined {
     broadcast('books', { ok: false, lines: booksBad });
     return why;
   }
-  const bad = w.ledger.check();
-  if (bad.length) {
+  if (stepped.books) {
     booksOk = false;
-    booksBad = bad.slice(0, 8);
+    booksBad = stepped.books.split('; ');
     speed = 'pause';
     broadcast('books', { ok: false, lines: booksBad });
-    return bad[0];
+    return booksBad[0];
   }
-  reviewScenario(w);
   let frame: Record<string, unknown>;
   try { frame = tickFrame(w); }
   catch (err) {
@@ -1415,15 +1414,6 @@ function pump(): void {
     setImmediate(next);
   };
   next();
-}
-
-function runDays(days: number): string | undefined {
-  for (let i = 0; i < days; i++) {
-    const bad = stepDay();
-    if (bad) return bad;
-    if (over) return undefined;
-  }
-  return undefined;
 }
 
 function send(res: http.ServerResponse, code: number, body: unknown): void {
@@ -1550,12 +1540,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && pathname === '/act') {
-      const cmd = commandOf(await readBody(req));
+      const body = await readBody(req);
+      const cmd = commandOf(body);
       if (typeof cmd === 'string') { send(res, 400, { status: 'rejected', why: cmd }); return; }
       if (!booksOk) { send(res, 409, { status: 'rejected', why: 'the books do not balance' }); return; }
-      const result = act(w, cmd);
-      let books: string | undefined;
-      if (result.status === 'accepted' && result.days) books = runDays(result.days);
+      const playerId = body && typeof body === 'object' && typeof (body as { playerId?: unknown }).playerId === 'string'
+        ? (body as { playerId: string }).playerId
+        : undefined;
+      const result = playerId ? act(w, playerId, cmd) : act(w, cmd);
+      const books = result.books;
       const snap = screen(w);
       if (books) send(res, 409, { ...result, status: 'rejected', why: `BOOKS DO NOT BALANCE: ${books}`, view: snap });
       else send(res, 200, { ...result, view: snap });

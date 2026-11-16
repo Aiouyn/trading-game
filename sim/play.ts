@@ -6,7 +6,7 @@ import { World } from './kernel/index.ts';
 import { openWorld } from './run.ts';
 import { applySnapshot, snapshotSeed, writeSnapshot } from './modules/history/save.ts';
 import { act, ensurePlayer, playerIndex, suggestCommand, view, type Command, type PlayerView } from './modules/player/index.ts';
-import { blurb, endScreen, hintLine, openScenario, reviewScenario } from './modules/player/scenarios.ts';
+import { blurb, endScreen, hintLine, openScenario } from './modules/player/scenarios.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const dollars = (cents: number): string => `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`;
@@ -345,17 +345,6 @@ function over(w: World): boolean {
   return v.over || !v.alive;
 }
 
-function advance(w: World, days: number): string | undefined {
-  for (let d = 0; d < days; d++) {
-    w.step();
-    reviewScenario(w);
-    const bad = w.ledger.check();
-    if (bad.length) return bad.slice(0, 8).join('; ');
-    if (over(w)) return 'over';
-  }
-  return undefined;
-}
-
 function show(w: World): void {
   for (const line of blurb(w)) console.log(line);
   for (const line of summary(view(w))) console.log(line);
@@ -401,10 +390,10 @@ async function main(): Promise<void> {
     if ('error' in cmd) { console.log(cmd.error); return true; }
     const res = act(w, cmd);
     printResult(res);
+    if (res.books) { failed = res.books; console.error(`BOOKS DO NOT BALANCE: ${res.books}`); return false; }
     if (res.status === 'accepted' && res.days) {
-      const bad = advance(w, res.days);
       stepped = true;
-      if (bad === 'over') {
+      if (over(w)) {
         const ending = endScreen(w);
         if (ending) for (const line of ending) console.log(line);
         else {
@@ -414,7 +403,6 @@ async function main(): Promise<void> {
         }
         return false;
       }
-      if (bad) { failed = bad; console.error(`BOOKS DO NOT BALANCE: ${bad}`); return false; }
       show(w);
     }
     return !over(w);

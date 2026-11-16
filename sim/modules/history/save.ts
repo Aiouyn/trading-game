@@ -8,6 +8,7 @@ import type { World } from '../../kernel/index.ts';
 import { SHOCKS } from '../economy/content.ts';
 import { People, clearFirmScales, setEffScaled, setFirmScale, setSimDay } from '../economy/people.ts';
 import { dumpRng, restoreRng } from './rngbox.ts';
+import { writePlayerLog } from '../player/log.ts';
 
 const MAGIC = 0x314c5641;
 const SKIP = Symbol('skip');
@@ -255,6 +256,7 @@ export function writeSnapshot(dir: string, w: World): void {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'world.json'), packed.text);
   fs.writeFileSync(path.join(dir, 'world.bin'), packed.bin);
+  writePlayerLog(dir, w);
 }
 
 export function applySnapshot(w: World, dir: string): void {
