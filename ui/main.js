@@ -38,6 +38,7 @@ const S = {
   flash: '',
   flashBad: false,
   loading: '',
+  gate: false,
 };
 
 const escMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -143,6 +144,7 @@ function shell() {
     </header>
     <nav>${nav}</nav>
     <div id="alerts"></div>
+    <div id="hint" hidden></div>
     <div id="body"><main id="main"></main><aside id="chain" hidden></aside></div>
     <footer>
       <span id="books">books …</span>
@@ -164,6 +166,12 @@ function paintChrome() {
   const tape = document.getElementById('tape');
   const books = document.getElementById('books');
   const flash = document.getElementById('flash');
+  paintHint();
+  if (S.gate) {
+    when.textContent = 'choose a life';
+    if (books) { books.textContent = 'pick a scenario'; books.className = ''; }
+    return;
+  }
   if (!v) {
     when.textContent = 'loading the books';
     return;
@@ -231,7 +239,7 @@ function go(page, arg) {
 
 function onClick(ev) {
   if (ev.target.closest('a[href]')) return;
-  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home],[data-nb],[data-co],[data-parcel],[data-optmonth],[data-optright]');
+  const t = ev.target.closest('[data-go],[data-speed],[data-pick],[data-firm],[data-person],[data-explain],[data-cancel],[data-side],[data-otype],[data-sort],[data-talk],[data-ask],[data-court],[data-marry],[data-life],[data-span],[data-bond],[data-fut],[data-coin],[data-launch],[data-cash],[data-macro],[data-opt],[data-home],[data-nb],[data-co],[data-parcel],[data-optmonth],[data-optright],[data-start],[data-hints]');
   if (!t || !document.getElementById('app').contains(t)) return;
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.speed) { setSpeed(t.dataset.speed); return; }
@@ -275,6 +283,8 @@ function onClick(ev) {
     return;
   }
   if (t.dataset.optright) { S.optRight = t.dataset.optright; paintOptRight(); return; }
+  if (t.dataset.start) { startScenario(t.dataset.start); return; }
+  if (t.dataset.hints) { postAct({ kind: 'hints', on: t.dataset.hints !== 'off' }); return; }
 }
 
 function onSubmit(ev) {
@@ -283,6 +293,10 @@ function onSubmit(ev) {
   ev.preventDefault();
   if (form.id === 'ticket') submitTicket();
   else if (form.id === 'opt-ticket') submitOption(form);
+  else if (form.id === 'sandbox') {
+    const data = new FormData(form);
+    startScenario('sandbox', Number(data.get('cash')), Number(data.get('difficulty')));
+  }
   else if (form.id === 'found-form') submitFound(form);
   else if (form.id === 'bid-ticket') submitBid(form);
   else if (form.id === 'ceo-form') submitCeo(form);
@@ -1293,9 +1307,96 @@ function submitBoard(form) {
   postAct(cmd);
 }
 
+function paintHint() {
+  const bar = document.getElementById('hint');
+  if (!bar) return;
+  const sc = S.view?.scenario;
+  const text = sc?.showHints ? (sc.hints?.[S.page] || '') : '';
+  bar.hidden = !text;
+  bar.innerHTML = text ? `${esc(text)} <button type="button" data-hints="off">hide hints</button>` : '';
+}
+
+function renderGate(list) {
+  const lives = (list || []).filter((s) => !s.sandbox);
+  const cards = lives.map((s) => `
+    <button type="button" class="gate-card" data-start="${esc(s.id)}">
+      <b>${esc(s.name)}</b>
+      <span class="dim">${esc(s.goal)} · ${esc(s.limit)} · ${esc(s.difficulty)}</span>
+      <span>${esc(s.story)}</span>
+    </button>`).join('');
+  return `<div class="gate">
+    <h1>Choose a life</h1>
+    <div class="gate-list">${cards}</div>
+    <form id="sandbox" class="sandbox">
+      <b>Sandbox</b>
+      <span class="dim">no goal · open-ended · you choose the cash and the difficulty</span>
+      <label>start money <input name="cash" value="100000" inputmode="decimal"></label>
+      <label>difficulty <input name="difficulty" value="1" inputmode="decimal"></label>
+      <button type="submit">begin</button>
+    </form>
+  </div>`;
+}
+
+function renderEnd(sc) {
+  const s = sc.score || {};
+  const events = (s.events || []).map((e) => `<div>${esc(e)}</div>`).join('');
+  const word = sc.outcome === 'win' ? 'win' : 'loss';
+  return `<div class="end ${word}">
+    <h1>${esc(sc.name)} — ${esc(word)}</h1>
+    <p>${esc(sc.reason || '')}</p>
+    <h2>Score</h2>
+    <div>net worth ${money(s.worth)} against the index ${(Number(s.indexX) || 0).toFixed(2)}× (you ${(Number(s.worthX) || 0).toFixed(2)}×)</div>
+    <div>firms controlled ${s.firms ?? 0}</div>
+    <div>reputation ${s.reputation ?? 0}</div>
+    <div>convictions ${s.convictions ?? 0}</div>
+    <h2>What mattered</h2>
+    ${events || '<div class="dim">the chain is short</div>'}
+    <p class="dim">The game is over.</p>
+  </div>`;
+}
+
+async function startScenario(id, cash, difficulty) {
+  const body = { id };
+  if (cash !== undefined && Number.isFinite(cash)) body.cash = cash;
+  if (difficulty !== undefined && Number.isFinite(difficulty)) body.difficulty = difficulty;
+  note('opening the city…', false);
+  const res = await fetch('/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) { note(data.error || 'could not start', true); return; }
+  S.gate = false;
+  S.view = data.view;
+  S.page = 'desk';
+  S.arg = '';
+  location.hash = 'desk';
+  note(data.view?.scenario?.name || id, false);
+  paint();
+  renderMain();
+}
+
+async function showGate(list) {
+  S.gate = true;
+  S.view = null;
+  const main = document.getElementById('main');
+  if (!list?.length) {
+    const res = await fetch('/scenarios');
+    const data = res.ok ? await res.json() : {};
+    list = data.scenarios || [];
+  }
+  if (main) {
+    main.dataset.page = 'gate';
+    main.innerHTML = renderGate(list);
+  }
+  paintChrome();
+}
+
 async function renderMain() {
   const main = document.getElementById('main');
-  if (!main) return;
+  if (!main || S.gate) return;
+  if (S.view?.scenario?.outcome) {
+    main.dataset.page = 'end';
+    main.innerHTML = renderEnd(S.view.scenario);
+    return;
+  }
   main.dataset.page = S.page;
   main.dataset.arg = S.arg || '';
   if (!S.view && S.page !== 'firm' && S.page !== 'person' && S.page !== 'parcel') {
@@ -1449,6 +1550,8 @@ function wantPanel() {
 }
 function paint() {
   paintChrome();
+  if (S.gate) return;
+  if (S.view?.scenario?.outcome) { renderMain(); return; }
   const main = document.getElementById('main');
   const same = main && main.dataset.page === S.page && (main.dataset.arg || '') === (S.arg || '');
   if (!same) renderMain();
@@ -1481,6 +1584,7 @@ function applyDay(msg) {
   if (msg.age !== undefined) S.view.age = msg.age;
   if (msg.health !== undefined) S.view.health = msg.health;
   if (msg.final !== undefined) S.view.final = msg.final;
+  if (msg.scenario) S.view.scenario = msg.scenario;
   if (msg.family) S.view.family = msg.family;
   if (msg.dynasty) S.view.dynasty = msg.dynasty;
   if (msg.heir !== undefined) S.view.heir = msg.heir;
@@ -1527,7 +1631,12 @@ function scheduleDay(msg) {
 
 async function refresh() {
   const res = await fetch('/view');
+  if (res.status === 409) {
+    const data = await res.json().catch(() => ({}));
+    if (data.need === 'scenario') { await showGate(data.scenarios); return; }
+  }
   if (!res.ok) return;
+  S.gate = false;
   S.view = await res.json();
   if (!S.selected) {
     const mine = S.view.quotes?.find((q) => q.issuer === S.view.firm);

@@ -61,8 +61,9 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('history')) w.use(history);
 }
 
-export function openWorld(seed: string, without: Set<string>): World {
+export function openWorld(seed: string, without: Set<string>, deferPlayer = false): World {
   const w = new World(seed, 8);
+  if (deferPlayer) w.state.deferPlayer = true;
   installRng(w);
   useModules(w, without);
   return w;

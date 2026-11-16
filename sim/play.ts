@@ -1,10 +1,12 @@
-// Terminal play: node sim/play.ts --load worlds/7 [--script sim/modules/player/demo.txt] [--save worlds/mine]
+// Terminal play: node sim/play.ts --scenario first-paycheck [--script sim/modules/player/first-paycheck.txt]
+//               node sim/play.ts --load worlds/7 [--script sim/modules/player/demo.txt] [--save worlds/mine]
 import fs from 'node:fs';
 import readline from 'node:readline/promises';
 import { World } from './kernel/index.ts';
 import { openWorld } from './run.ts';
 import { applySnapshot, snapshotSeed, writeSnapshot } from './modules/history/save.ts';
 import { act, ensurePlayer, playerIndex, suggestCommand, view, type Command, type PlayerView } from './modules/player/index.ts';
+import { blurb, endScreen, hintLine, openScenario, reviewScenario } from './modules/player/scenarios.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const dollars = (cents: number): string => `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`;
@@ -270,6 +272,11 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!Number.isSafeInteger(slot) || slot < 0 || !text) return { error: 'usage: report SLOT TEXT' };
     return { kind: 'report', slot, text };
   }
+  if (head === 'hints') {
+    const on = t[1]?.toLowerCase();
+    if (on !== 'on' && on !== 'off') return { error: 'usage: hints on|off' };
+    return { kind: 'hints', on: on === 'on' };
+  }
   return { error: `unknown command ${head}. ${suggestCommand(head)}` };
 }
 
@@ -341,11 +348,19 @@ function over(w: World): boolean {
 function advance(w: World, days: number): string | undefined {
   for (let d = 0; d < days; d++) {
     w.step();
+    reviewScenario(w);
     const bad = w.ledger.check();
     if (bad.length) return bad.slice(0, 8).join('; ');
     if (over(w)) return 'over';
   }
   return undefined;
+}
+
+function show(w: World): void {
+  for (const line of blurb(w)) console.log(line);
+  for (const line of summary(view(w))) console.log(line);
+  const hint = hintLine(w);
+  if (hint) console.log(`  hint: ${hint}`);
 }
 
 function printResult(res: ReturnType<typeof act>): void {
@@ -357,9 +372,25 @@ function printResult(res: ReturnType<typeof act>): void {
 
 async function main(): Promise<void> {
   const load = arg('load', ''), seed = arg('seed', '1'), script = arg('script', ''), save = arg('save', '');
-  const w: World = openWorld(load ? snapshotSeed(load) : seed, new Set());
-  if (load) applySnapshot(w, load);
-  ensurePlayer(w);
+  const scenario = arg('scenario', '');
+  const cashArg = arg('cash', ''), diffArg = arg('difficulty', '');
+  let w: World;
+  try {
+    if (scenario) {
+      w = openScenario(scenario, {
+        cash: cashArg ? Number(cashArg) : undefined,
+        difficulty: diffArg ? Number(diffArg) : undefined,
+        seed: process.argv.includes('--seed') ? seed : undefined,
+      });
+    } else {
+      w = openWorld(load ? snapshotSeed(load) : seed, new Set());
+      if (load) applySnapshot(w, load);
+      ensurePlayer(w);
+    }
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
   const open = w.ledger.check();
   if (open.length) { console.error(`BOOKS DO NOT BALANCE:\n  ${open.slice(0, 8).join('\n  ')}`); process.exit(1); }
   let failed: string | undefined;
@@ -374,17 +405,21 @@ async function main(): Promise<void> {
       const bad = advance(w, res.days);
       stepped = true;
       if (bad === 'over') {
-        const v = view(w);
-        if (v.final) console.log(v.final);
-        console.log('The game is over.');
+        const ending = endScreen(w);
+        if (ending) for (const line of ending) console.log(line);
+        else {
+          const v = view(w);
+          if (v.final) console.log(v.final);
+          console.log('The game is over.');
+        }
         return false;
       }
       if (bad) { failed = bad; console.error(`BOOKS DO NOT BALANCE: ${bad}`); return false; }
-      for (const line of summary(view(w))) console.log(line);
+      show(w);
     }
     return !over(w);
   };
-  for (const line of summary(view(w))) console.log(line);
+  show(w);
   console.log('type help');
   if (script) {
     const text = fs.readFileSync(script, 'utf8');

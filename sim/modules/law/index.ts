@@ -865,6 +865,10 @@ function openOne(w: World): void {
   if (st.paid <= 0) return;
   const o = choose(w);
   if (!o) return;
+  const scene = w.state.scenario as { who?: number; regulator?: number; outcome?: string } | undefined;
+  if (scene && !scene.outcome && scene.regulator !== undefined && scene.regulator < 1 && o.person === scene.who) {
+    if (!w.rng('law:player').chance(scene.regulator)) return;
+  }
   const P = econ(w).P;
   let inv = -1, load = 99;
   for (let k = 0; k < st.staff.length && k < st.paid; k++) {
@@ -948,6 +952,13 @@ export const law: Module = {
     advance(w);
     scapegoat(w);
     openOne(w);
+    const scene = w.state.scenario as { regulator?: number; outcome?: string } | undefined;
+    if (scene && !scene.outcome && scene.regulator !== undefined && scene.regulator > 1) {
+      const extra = Math.floor(scene.regulator - 1);
+      for (let n = 0; n < extra; n++) openOne(w);
+      const frac = scene.regulator - 1 - extra;
+      if (frac > 0 && w.rng('law:player').chance(frac)) openOne(w);
+    }
   },
   stats(w) {
     const st = lawOf(w);

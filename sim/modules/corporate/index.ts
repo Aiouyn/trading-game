@@ -969,7 +969,10 @@ export function tenderOffer(w: World, person: number, key: string, cents: number
   let owned = 0;
   for (const [id, n] of holders) {
     if (mine.has(id)) { owned += n; continue; }
-    if (price < hurdle(s, id, last, board.has(id))) continue;
+    let bar = hurdle(s, id, last, board.has(id));
+    const scene = w.state.scenario as { who?: number; rivals?: number; outcome?: string } | undefined;
+    if (scene && !scene.outcome && scene.who === person && scene.rivals !== undefined && scene.rivals !== 1) bar = Math.max(1, Math.ceil(bar * scene.rivals));
+    if (price < bar) continue;
     if (paper && id.startsWith('p_')) {
       const i = Number(id.slice(2));
       if (!(i >= 0 && i < s.P.n && s.P.greed[i] >= 40)) continue;

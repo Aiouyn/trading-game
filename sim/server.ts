@@ -1,5 +1,6 @@
-// Screens: node sim/server.ts --load worlds/7
+// Screens: node sim/server.ts [--load worlds/7 | --scenario first-paycheck]
 // One process, the world, and the static files in ui/. No install and no build.
+// With neither flag the page opens on the scenario list.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -15,6 +16,7 @@ import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
 import { act, ensurePlayer, playerIndex, view, type Command, type PlayerState } from './modules/player/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
+import { listScenarios, liveCard, openScenario, reviewScenario } from './modules/player/scenarios.ts';
 
 type Speed = 'pause' | 'day' | 'week' | 'month';
 
@@ -298,6 +300,10 @@ function commandOf(body: unknown): Command | string {
       if (slot === undefined) return 'report needs a contact';
       if (typeof b.text !== 'string' || !b.text.trim()) return 'report needs a few words';
       return { kind: 'report', slot, text: b.text.trim() };
+    }
+    case 'hints': {
+      if (b.on !== true && b.on !== false) return 'hints needs on true or false';
+      return { kind: 'hints', on: b.on };
     }
     default: return 'unknown command';
   }
@@ -1038,6 +1044,7 @@ function tickFrame(w: World): Record<string, unknown> {
     shares: book.shares,
     orders: book.orders,
     news: headlines(w),
+    scenario: liveCard(w),
   };
 }
 
@@ -1179,6 +1186,7 @@ function screen(w: World): Record<string, unknown> {
     speed,
     books: booksOk ? { ok: true } : { ok: false, lines: booksBad },
     over: v.over || !v.alive,
+    scenario: liveCard(w),
   };
 }
 
@@ -1291,33 +1299,53 @@ function historyPage(w: World): Record<string, unknown> {
 }
 
 const load = arg('load', '');
-if (!load) {
-  console.error('usage: node sim/server.ts --load worlds/7');
-  process.exit(1);
-}
+const scenarioId = arg('scenario', '');
 const port = +arg('port', '4173');
-const w = openWorld(snapshotSeed(load), new Set());
-applySnapshot(w, load);
-ensurePlayer(w);
-const opening = w.ledger.check();
-if (opening.length) {
-  console.error(`BOOKS DO NOT BALANCE:\n  ${opening.slice(0, 8).join('\n  ')}`);
-  process.exit(1);
-}
+let w!: World;
+let started = false;
 let speed: Speed = 'pause';
 let booksOk = true;
 let booksBad: string[] = [];
-const arrived = view(w);
-let over = arrived.over || !arrived.alive;
-let openWorth = arrived.netWorth;
-let closeWorth = openWorth;
+let over = false;
+let openWorth = 0;
+let closeWorth = 0;
 let nwChange = 0;
 const clients = new Set<http.ServerResponse>();
 
-console.log('reading the event log for the macro lines…');
-const tMacro = Date.now();
-buildMacro(w);
-console.log(`macro lines ready in ${Date.now() - tMacro} ms`);
+function boot(world: World): void {
+  w = world;
+  const opening = w.ledger.check();
+  if (opening.length) {
+    console.error(`BOOKS DO NOT BALANCE:\n  ${opening.slice(0, 8).join('\n  ')}`);
+    process.exit(1);
+  }
+  started = true;
+  booksOk = true;
+  booksBad = [];
+  speed = 'pause';
+  const arrived = view(w);
+  over = arrived.over || !arrived.alive;
+  openWorth = arrived.netWorth;
+  closeWorth = openWorth;
+  nwChange = 0;
+  console.log('reading the event log for the macro lines…');
+  const tMacro = Date.now();
+  buildMacro(w);
+  console.log(`macro lines ready in ${Date.now() - tMacro} ms`);
+}
+
+if (load) {
+  const world = openWorld(snapshotSeed(load), new Set());
+  applySnapshot(world, load);
+  ensurePlayer(world);
+  boot(world);
+} else if (scenarioId) {
+  const cash = arg('cash', ''), difficulty = arg('difficulty', '');
+  boot(openScenario(scenarioId, {
+    cash: cash ? Number(cash) : undefined,
+    difficulty: difficulty ? Number(difficulty) : undefined,
+  }));
+}
 
 function broadcast(event: string, data: unknown): void {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -1345,6 +1373,7 @@ function stepDay(): string | undefined {
     broadcast('books', { ok: false, lines: booksBad });
     return bad[0];
   }
+  reviewScenario(w);
   let frame: Record<string, unknown>;
   try { frame = tickFrame(w); }
   catch (err) {
@@ -1415,10 +1444,55 @@ function staticPath(pathname: string): string | undefined {
   return full;
 }
 
+function startOpts(body: unknown): { id: string; cash?: number; difficulty?: number } | string {
+  if (!body || typeof body !== 'object') return 'missing scenario';
+  const b = body as Record<string, unknown>;
+  if (typeof b.id !== 'string' || !b.id) return 'missing scenario';
+  const out: { id: string; cash?: number; difficulty?: number } = { id: b.id };
+  if (b.cash !== undefined) {
+    const n = Number(b.cash);
+    if (!Number.isFinite(n) || n < 0) return 'cash must be a number of dollars';
+    out.cash = n;
+  }
+  if (b.difficulty !== undefined) {
+    const n = Number(b.difficulty);
+    if (!Number.isFinite(n) || n <= 0) return 'difficulty must be a positive number';
+    out.difficulty = n;
+  }
+  return out;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname;
   try {
+    if (req.method === 'GET' && pathname === '/scenarios') { send(res, 200, { scenarios: listScenarios() }); return; }
+    if (req.method === 'POST' && pathname === '/start') {
+      if (started) { send(res, 409, { error: 'a game is already open' }); return; }
+      const opts = startOpts(await readBody(req));
+      if (typeof opts === 'string') { send(res, 400, { error: opts }); return; }
+      try { boot(openScenario(opts.id, opts)); }
+      catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        send(res, 400, { error: why });
+        return;
+      }
+      send(res, 200, { view: screen(w) });
+      return;
+    }
+    if (!started) {
+      if (req.method === 'GET' && pathname === '/view') { send(res, 409, { need: 'scenario', scenarios: listScenarios() }); return; }
+      if (req.method === 'GET') {
+        const file = staticPath(pathname);
+        if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) { send(res, 404, { error: 'not found' }); return; }
+        const ext = path.extname(file);
+        res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+        fs.createReadStream(file).pipe(res);
+        return;
+      }
+      send(res, 409, { error: 'choose a scenario' });
+      return;
+    }
     if (req.method === 'GET' && pathname === '/view') { send(res, 200, screen(w)); return; }
     if (req.method === 'GET' && pathname === '/panel') { send(res, 200, panelSlice(w, url.searchParams.get('name') || '')); return; }
     if (req.method === 'GET' && pathname.startsWith('/parcel/')) {
@@ -1503,7 +1577,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 setInterval(() => {
-  if (clients.size) broadcast('ping', { day: w.day });
+  if (started && clients.size) broadcast('ping', { day: w.day });
 }, 15000);
 
 server.on('error', (err: NodeJS.ErrnoException) => {
@@ -1512,6 +1586,11 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 server.listen(port, '127.0.0.1', () => {
+  console.log(`http://localhost:${port}`);
+  if (!started) {
+    console.log('choose a scenario');
+    return;
+  }
   const v = view(w);
   const who = v.alive ? `${v.name}, ${v.age}, ${v.employer || 'unemployed'}` : `${v.name} has died`;
   const tFull = Date.now();
@@ -1520,7 +1599,6 @@ server.listen(port, '127.0.0.1', () => {
   const tDay = Date.now();
   const day = JSON.stringify(tickFrame(w));
   const dayMs = Date.now() - tDay;
-  console.log(`http://localhost:${port}`);
   console.log(`Year ${v.date.year} month ${v.date.month} day ${v.date.day}. ${who}.`);
   console.log('Books balanced every day.');
   console.log(`screen ${full.length} bytes in ${fullMs} ms; day frame ${day.length} bytes in ${dayMs} ms`);

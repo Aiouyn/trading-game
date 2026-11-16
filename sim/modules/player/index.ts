@@ -85,7 +85,8 @@ export type Command =
   | { kind: 'move'; id: number }
   | { kind: 'mortgage'; id: number; cents: number }
   | { kind: 'tip'; fact: number }
-  | { kind: 'report'; slot: number; text: string };
+  | { kind: 'report'; slot: number; text: string }
+  | { kind: 'hints'; on: boolean };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -192,6 +193,7 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'news', name: 'report', use: 'report 0 a theft', about: 'Report a crime by a contact. The words are the complaint.\nA street report is filed and is not itself a trial.' },
   { topic: 'time', name: 'wait', use: 'wait 1m', about: 'Let the city run for 1d, 1w, 1m or 1y.\nThe books are checked as the days pass.' },
   { topic: 'help', name: 'help', use: 'help call', about: 'Explain one command in a few lines.\nhelp alone lists every command by topic.' },
+  { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nThey show for the first months of a taught scenario.' },
 ];
 
 function editDistance(a: string, b: string): number {
@@ -788,7 +790,7 @@ export function act(w: World, cmd: Command): ActResult {
   const dead = st.over || !P.alive(i);
   if (dead) {
     st.over = true;
-    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help') return rejected(st.final || 'you have died');
+    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help' && cmd.kind !== 'hints') return rejected(st.final || 'you have died');
   }
   switch (cmd.kind) {
     case 'order': {
@@ -847,7 +849,13 @@ export function act(w: World, cmd: Command): ActResult {
           return { status: 'accepted', fill: n, text: `withdrew ${(n / 100).toFixed(2)}` };
         }
         case 'borrow': {
-          const r = borrowMargin(w, i, cmd.cents, cause);
+          let cents = cmd.cents;
+          const scene = w.state.scenario as { who?: number; loan?: number; outcome?: string } | undefined;
+          if (scene && !scene.outcome && scene.who === i && scene.loan !== undefined && scene.loan !== 1) {
+            if (scene.loan <= 0) return rejected('this scenario does not lend');
+            cents = Math.max(1, Math.floor(cmd.cents * scene.loan));
+          }
+          const r = borrowMargin(w, i, cents, cause);
           if (r.taken < 1) return rejected(r.why ?? 'the bank refused the loan');
           st.margin = true;
           return { status: 'accepted', fill: r.taken, eventId: w.events.last('loan.grant'), text: `borrowed ${(r.taken / 100).toFixed(2)} at ${(r.rate * 100).toFixed(2)}%. Margin account open` };
@@ -1174,6 +1182,12 @@ export function act(w: World, cmd: Command): ActResult {
       reportOffence(w, { person: who, firm: -1, gain: 0, text: cmd.text, cause: ev });
       return { status: 'accepted', eventId: ev, text: 'reported' };
     }
+    case 'hints': {
+      const scene = w.state.scenario as { hintsOn?: boolean } | undefined;
+      if (!scene) return rejected('this is not a taught scenario');
+      scene.hintsOn = cmd.on;
+      return { status: 'accepted', text: cmd.on ? 'hints on' : 'hints off' };
+    }
     default: {
       const never: never = cmd;
       return never;
@@ -1315,6 +1329,7 @@ export const player: Module = {
   id: 'player',
   init(w) {
     if (!w.state.player) w.state.player = blank();
+    if (w.state.deferPlayer) return;
     if (process.argv.includes('--load')) return;
     if (playerIndex(w) < 0) spawn(w);
   },
