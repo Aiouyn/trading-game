@@ -1,35 +1,29 @@
-// Maximum leverage: borrow against shares, buy more, hold a few futures, short one name,
-// and from time to time buy a call or write a put.
+// Borrow against listed shares, buy the names the book actually prices in dollars,
+// hold a few futures, short one name, and from time to time buy a call or write a put.
 import type { World } from '../kernel/index.ts';
 import type { Command, PlayerView } from '../modules/player/index.ts';
-import { live, spendable, stocks } from './lib.ts';
+import { live, stocks } from './lib.ts';
 
 export const name = 'gambler';
 
-const NAMES = ['eq:frm_deepwell', 'eq:frm_quanta', 'eq:frm_silicrest', 'eq:frm_ampere'];
+const RESERVE = 150_000;
 
 export function bot(v: PlayerView, _w: World): Command[] {
   if (!live(v)) return [];
-  const book = stocks(v);
-  const px = new Map(book.map((s) => [s.instr, s.px]));
   const cmds: Command[] = [];
   const shareVal = v.shares.reduce((a, s) => a + s.qty * s.px, 0);
-  const owed = v.loans.reduce((a, l) => a + l.owed, 0);
-  if (shareVal > 20_000 && owed < shareVal * 0.45) {
-    cmds.push({ kind: 'cash', op: 'borrow', cents: Math.max(1, Math.floor(shareVal * 0.5)) });
-  }
-  let left = spendable(v) + (shareVal > 20_000 && owed < shareVal * 0.45 ? Math.floor(shareVal * 0.5) : 0);
-  const picks = NAMES.filter((id) => px.has(id));
-  const use = picks.length ? picks : book.slice(0, 3).map((s) => s.instr);
+  cmds.push({ kind: 'cash', op: 'borrow', cents: 100_000_000 });
+  const book = stocks(v).slice().sort((a, b) => b.px - a.px);
+  const priced = book.filter((s) => s.px >= 100);
+  const use = (priced.length ? priced : book).slice(0, 3);
+  let left = Math.max(0, v.cash - RESERVE) + (shareVal > 0 ? Math.floor(shareVal * 0.9) : 0);
   if (use.length && left > 5_000) {
     const slice = left / use.length;
-    for (const instr of use) {
-      const p = px.get(instr);
-      if (!p) continue;
-      const qty = Math.floor(slice / p);
+    for (const s of use) {
+      const qty = Math.min(20_000, Math.floor(slice / s.px));
       if (qty < 1) continue;
-      cmds.push({ kind: 'order', side: 'buy', instr, qty });
-      left -= qty * p;
+      cmds.push({ kind: 'order', side: 'buy', instr: s.instr, qty });
+      left -= qty * s.px;
     }
   }
   const open = new Set(v.futures.filter((f) => f.net !== 0).map((f) => f.good));
@@ -39,15 +33,16 @@ export function bot(v: PlayerView, _w: World): Command[] {
   }
   if ((v.loans.some((l) => l.kind === 'margin') || shareVal > 20_000) && v.stockLoans.length === 0) {
     const held = new Set(v.shares.map((s) => s.instr));
-    const victim = book.find((s) => !held.has(s.instr) && !use.includes(s.instr));
+    const victim = book.find((s) => !held.has(s.instr) && s.px >= 100);
     if (victim) cmds.push({ kind: 'order', side: 'short', instr: victim.instr, qty: 8 });
   }
-  const name = use[0] ?? NAMES[0];
-  if (v.date.month % 2 === 1 && v.date.day <= 7 && spendable(v) > 500_000) {
+  const name = use[0]?.instr;
+  if (name && v.date.month % 2 === 1 && v.date.day <= 7 && v.cash > 500_000) {
     cmds.push({ kind: 'optbuy', right: 'C', instr: name, qty: 1, months: 2, strike: 0 });
   }
-  if (v.date.month % 3 === 0 && v.date.day <= 7 && spendable(v) > 2_000_000) {
-    cmds.push({ kind: 'write', right: 'P', instr: name, qty: 1, months: 2, strike: 0 });
+  if (name && v.date.month % 3 === 0 && v.date.day <= 7 && v.cash > 2_000_000) {
+    const qty = Math.max(1, Math.min(40, Math.floor(v.cash / (name ? (use[0].px * 15) : 1))));
+    cmds.push({ kind: 'write', right: 'P', instr: name, qty, months: 2, strike: 0 });
   }
   return cmds;
 }

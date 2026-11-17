@@ -24,7 +24,7 @@ export function bot(v: PlayerView, w: World): Command[] {
         name: `Booth ${sector.slice(0, 3)} ${v.date.year}.${v.date.month}`,
         sector,
         cents: put,
-        loan: false,
+        loan: true,
       });
       const left = v.cash - put - 800_000;
       if (left >= 50_000) cmds.push({ kind: 'cash', op: 'deposit', cents: left });
@@ -39,7 +39,13 @@ export function bot(v: PlayerView, w: World): Command[] {
       cmds.push({ kind: 'ipo', firm: c.id, fraction: 0.5 });
     }
   }
-  if (ran.length && v.cash - 800_000 >= 50_000) cmds.push({ kind: 'cash', op: 'deposit', cents: v.cash - 800_000 });
+  if (v.shares.length || v.cash > 1_500_000) cmds.push({ kind: 'cash', op: 'borrow', cents: 100_000_000 });
+  const priced = stocks(v).slice().sort((a, b) => b.px - a.px).find((s) => s.px >= 100);
+  const purse = Math.max(0, v.cash - 300_000);
+  if (priced && purse > 50_000) {
+    const qty = Math.min(20_000, Math.floor(purse / priced.px));
+    if (qty >= 1) cmds.push({ kind: 'order', side: 'buy', instr: priced.instr, qty });
+  }
   if (v.date.month % 3 === 2 && v.date.day <= 7) {
     const book = stocks(v).slice().sort((a, b) => a.px - b.px);
     const target = book[0];

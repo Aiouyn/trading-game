@@ -12,6 +12,7 @@
 // The market maker hedges its delta in the stock through the order book.
 // Direction is never drawn. w.rng('opt:...') only jitters who acts today and how many.
 import { DAYS_PER_MONTH, type Module, type World } from '../../kernel/index.ts';
+import { oweUnsecured, pressInsolvency, repayUnsecured } from '../banking/index.ts';
 import { DEP, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, cancelOrder, returnShares, submitOrder } from '../markets/index.ts';
 
@@ -69,6 +70,7 @@ interface OptState {
   yIv: number;
   yIvN: number;
   iv: number;
+  callDay: Record<string, number>;
 }
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -844,8 +846,45 @@ function closeActor(w: World, actor: string, cause: number, marginCall: boolean)
   releaseMargin(w, actor, marginOf(w, actor), cause);
 }
 
+function personNo(w: World, actor: string): number {
+  if (!actor.startsWith('p_')) return -1;
+  const i = +actor.slice(2);
+  const P = econ(w).P;
+  return Number.isInteger(i) && i >= 0 && i < P.n ? i : -1;
+}
+
+/** Release posted margin, buy the written contracts back, and book whatever the writer cannot pay. */
+function closeWriter(w: World, actor: string, cause: number): void {
+  const st = stOf(w);
+  const who = personNo(w, actor);
+  releaseMargin(w, actor, marginOf(w, actor), cause);
+  for (const c of st.contracts) {
+    if (!c.live) continue;
+    const net = netOf(w, actor, c);
+    if (net === 0) continue;
+    if (net > 0) {
+      const px = Math.max(1, Math.round(c.bid) || Math.round(c.mid) || Math.round(c.last) || 1);
+      if (!trade(w, MM, actor, c, net, px, cause) && netOf(w, actor, c) !== 0) wipePair(w, actor, c, cause);
+      continue;
+    }
+    const qty = -net;
+    const px = Math.max(1, Math.round(c.ask) || Math.round(c.mid) || Math.round(c.last) || 1);
+    const bill = px * MULT * qty;
+    const have = cashOf(w, actor);
+    const borrowed = have < bill && who >= 0 ? oweUnsecured(w, who, bill - have, cause) : 0;
+    const ok = trade(w, actor, MM, c, qty, px, cause);
+    if (!ok) {
+      if (borrowed > 0 && who >= 0) repayUnsecured(w, who, borrowed, cause);
+      if (netOf(w, actor, c) !== 0) wipePair(w, actor, c, cause);
+    }
+  }
+  releaseMargin(w, actor, marginOf(w, actor), cause);
+  if (who >= 0) pressInsolvency(w, who, cause);
+}
+
 function settleMargins(w: World, cause: number): void {
   const st = stOf(w);
+  if (!st.callDay) st.callDay = {};
   const gone: string[] = [];
   for (const id of st.roster) {
     if (id === MM) {
@@ -855,16 +894,37 @@ function settleMargins(w: World, cause: number): void {
       else cover(w, MM, cause);
       continue;
     }
-    if (dead(w, id)) { closeActor(w, id, cause, false); gone.push(id); continue; }
+    if (dead(w, id)) { closeActor(w, id, cause, false); delete st.callDay[id]; gone.push(id); continue; }
     const need = requirement(w, id);
     const have = marginOf(w, id);
     if (need <= 0) {
       if (have > 0) releaseMargin(w, id, have, cause);
+      delete st.callDay[id];
       continue;
     }
     if (have > need) releaseMargin(w, id, have - need, cause);
     const maint = Math.round(need * 0.72);
-    if (!cover(w, id, cause) || marginOf(w, id) < maint) closeActor(w, id, cause, true);
+    const short = !cover(w, id, cause) || marginOf(w, id) < maint;
+    if (!short) { delete st.callDay[id]; continue; }
+    if (!id.startsWith('p_')) {
+      closeActor(w, id, cause, true);
+      delete st.callDay[id];
+      continue;
+    }
+    if (st.callDay[id] === undefined) {
+      const moves = w.events.recent(['mkt.move'], 30);
+      const why = moves.length ? moves[moves.length - 1].id : cause;
+      w.events.emit('opt.marginCall', `${id} is called on written options and has three trading days to post margin`, [why], id);
+      st.callDay[id] = w.day;
+      st.yCalls++;
+    }
+    if (w.day >= st.callDay[id] + 3) {
+      const prior = w.events.recent(['opt.marginCall'], 40);
+      let call = cause;
+      for (let i = prior.length - 1; i >= 0; i--) if (prior[i].actor === id) { call = prior[i].id; break; }
+      closeWriter(w, id, call);
+      delete st.callDay[id];
+    }
   }
   if (gone.length) st.roster = st.roster.filter((id) => !gone.includes(id));
 }
@@ -1049,7 +1109,7 @@ export function tradeOption(w: World, actor: string, contractId: string, side: '
 function blank(): OptState {
   return {
     off: true, contracts: [], roster: [], borrowed: {}, hedgeOrders: [], insiderAt: {},
-    root: 0, mm0: 0, yVol: 0, yCalls: 0, yIv: 0, yIvN: 0, iv: 0.22,
+    root: 0, mm0: 0, yVol: 0, yCalls: 0, yIv: 0, yIvN: 0, iv: 0.22, callDay: {},
   };
 }
 
@@ -1085,7 +1145,7 @@ export const options: Module = {
     }
     const st: OptState = {
       off: false, contracts, roster: [MM], borrowed: {}, hedgeOrders: [], insiderAt: {},
-      root: 0, mm0: 0, yVol: 0, yCalls: 0, yIv: 0, yIvN: 0, iv: 0.22,
+      root: 0, mm0: 0, yVol: 0, yCalls: 0, yIv: 0, yIvN: 0, iv: 0.22, callDay: {},
     };
     w.state.options = st;
     st.root = w.events.emit('opt.open', `Calls and puts are listed on the ${names.length} most traded stocks, one to six months out.`, [w.genesis], EX);

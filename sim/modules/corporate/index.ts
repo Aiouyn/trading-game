@@ -1005,7 +1005,7 @@ export function tenderOffer(w: World, person: number, key: string, cents: number
       if (!L.move('eq:' + target.id, id, run.id, n, 'tender.shares', cause)) return { why: 'the shares did not come across' };
     }
   } else {
-    const from = fundBid(w, person, run, gaining * price, root);
+    const from = fundBid(w, person, run, gaining * price, root.find((n) => n >= 0) ?? (s.macroEv >= 0 ? s.macroEv : w.genesis));
     if (!from) return { why: `${dollars(gaining * price)} is more than you can raise` };
     cause = w.events.emit('firm.bid', `${s.P.name(person)} bids ${dollars(price)} a share for ${target.name}`, root, pid);
     for (const [id, n] of yes) {

@@ -1,7 +1,7 @@
 // The player is one person in the same arrays as everyone else. They see only what they
 // know, and every order, loan and futures fill goes through the modules that already book it.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
-import { borrowMargin, depositSight, marginLimit, repayPerson, withdrawSight } from '../banking/index.ts';
+import { borrowBar, borrowMargin, depositSight, marginLimit, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
 import { appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
@@ -65,6 +65,7 @@ export interface PlayerSeat {
   cool: Partial<Record<ChoiceId, number>>;
   story: StoryLine[];
   tutor: TutorialState | null;
+  seenNote: number;
 }
 
 /** One entry in the command log. The day is the day the command was issued, before a wait advances the clock. */
@@ -499,7 +500,7 @@ const blankSeat = (): PlayerSeat => ({
   line: [], generation: 1, founded: 0, controlled: 0, offices: 0, convictions: 0,
   officeWas: '', seenLaw: [], will: null, chair: -1, handed: -1, final: '', passed: -1,
   counsel: 0, statEv: {}, mark: null, trend: {}, words: {}, cool: {},
-  story: [], tutor: null,
+  story: [], tutor: null, seenNote: -1,
 });
 const blankRoster = (): PlayerState => {
   const heard: Heard[] = [];
@@ -548,6 +549,7 @@ function fillSeat(seat: PlayerSeat): PlayerSeat {
   if (!seat.cool) seat.cool = {};
   if (!seat.story) seat.story = [];
   if (seat.tutor === undefined) seat.tutor = null;
+  if (seat.seenNote === undefined) seat.seenNote = -1;
   return seat;
 }
 const roster = (w: World): PlayerState => {
@@ -1238,6 +1240,34 @@ function cityShares(w: World, i: number): Share[] {
   return heirs.map((who, k) => ({ who, bps: k === heirs.length - 1 ? 10000 - bps * (heirs.length - 1) : bps }));
 }
 
+function scenarioEndsOnRuin(w: World): boolean {
+  const sc = w.state.scenario as { goal?: { kind?: string }; continueAfter?: boolean; outcome?: string } | undefined;
+  if (!sc || sc.outcome || sc.continueAfter) return false;
+  const k = sc.goal?.kind;
+  return !!k && k !== 'none';
+}
+
+function mirrorMargin(w: World, st: PlayerSeat, i: number): void {
+  const id = econ(w).P.id(i);
+  if (st.seenNote < 0) st.seenNote = w.events.count;
+  const from = st.seenNote;
+  const n = w.events.count;
+  st.seenNote = n;
+  for (let e = from; e < n; e++) {
+    const ev = w.events.get(e);
+    if (!ev || ev.actor !== id) continue;
+    if (ev.kind === 'loan.margin' || ev.kind === 'opt.marginCall') {
+      w.events.emit('player.margin', 'The bank calls your margin. You have three trading days to pay it down, or the bank sells the shares for whatever the book will pay.', [ev.id], id);
+    } else if (ev.kind === 'court.bankruptcy') {
+      w.events.emit('player.bankrupt', 'The court declares you bankrupt. Your assets are sold, creditors are paid, and you cannot borrow for six years.', [ev.id], id);
+      if (scenarioEndsOnRuin(w)) {
+        st.over = true;
+        st.final = 'You are bankrupt. The court sold what you had and wrote off the rest.';
+      }
+    }
+  }
+}
+
 function noticeBoard(w: World, st: PlayerSeat, i: number): void {
   const s = econ(w), P = s.P;
   const chair = st.chair;
@@ -1905,6 +1935,8 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', eventId: ev, text: articles(got.text) };
     }
     case 'mortgage': {
+      const barred = borrowBar(w, i);
+      if (barred) return rejected(barred);
       const cause = causeOf(w, st);
       const got = mortgageHome(w, i, cmd.id, cmd.cents, cause);
       if (got.why) return rejected(got.why);
@@ -2019,7 +2051,7 @@ export function view(w: World, playerId?: string): PlayerView {
     if (!book.lnOpen[k] || book.lnPerson[k] !== i) continue;
     const owed = Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
     if (owed <= 0) continue;
-    const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : 'consumer';
+    const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : book.lnKind[k] === 4 ? 'unsecured' : 'consumer';
     loans.push({ kind, owed, rate: book.lnRate[k], eventId: w.events.last('loan.grant') ?? arrived });
   }
   const cmd = w.state.commodities as { books?: { good: string; tenors: { month: number; longId: string; shortId: string; px: number }[] }[] } | undefined;
@@ -2153,6 +2185,7 @@ export const player: Module = {
         else continueAs(w, i, heir, cause, st);
         continue;
       }
+      mirrorMargin(w, st, i);
       noticeBoard(w, st, i);
       noteMoney(w, st, i);
       noteBoard(w, i, st, Math.round(worth(w, i)));

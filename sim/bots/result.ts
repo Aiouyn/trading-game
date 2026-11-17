@@ -20,6 +20,7 @@ export interface RunResult {
   days: number;
   years: number;
   bankrupt: boolean;
+  calls: number;
   dead: boolean;
   prison: boolean;
   caught: number;

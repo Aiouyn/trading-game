@@ -62,6 +62,7 @@ interface ScenarioDef {
   debt: number;
   /** Personal claim as a fraction of the family stake. Zero means use `debt`. */
   debtPct: number;
+  keepPlaying: boolean;
 }
 
 export interface ScenarioRun {
@@ -102,6 +103,7 @@ export interface ScenarioRun {
   opening: string;
   /** Written when the outcome is set, from the world at that moment. */
   closing?: string;
+  continueAfter: boolean;
 }
 
 export interface ScenarioCard {
@@ -249,6 +251,7 @@ function loadOne(r: RawReader): ScenarioDef {
     twistIn: r.num('TWIST_IN', 0),
     debt: Math.round(r.num('DEBT', 0) * 100),
     debtPct: r.num('DEBT_PCT', 0) / 100,
+    keepPlaying: r.has('CONTINUE'),
   };
 }
 
@@ -822,6 +825,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     seat: seated && (def.job === 'inherit' || def.job === 'chief' || def.inherit) ? seated.id : '',
     mark,
     opening: openingOf(w, def, i, opened, d, goal, seed),
+    continueAfter: def.keepPlaying,
   };
   w.state.scenario = run;
 }
@@ -1181,6 +1185,7 @@ export function reviewScenario(w: World): void {
   const due = sc.deadline > 0 && w.day >= sc.deadline;
   const shockDone = sc.goal.kind === 'crash' && sc.shockUntil !== undefined && w.day >= sc.shockUntil;
   if (!dead && !month && !due && !shockDone) return;
+  if (dead && (sc.goal.kind === 'none' || sc.continueAfter)) return;
   const won = !dead && met(w, sc, st.who);
   if (won) { finish(w, sc, 'win', reasonOf(sc, 'win')); return; }
   const broke = sc.goal.kind === 'crash' && sc.fired && worthNow(w) <= 0;

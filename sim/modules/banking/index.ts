@@ -7,7 +7,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { GOODS } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, type EconState, type Firm, pay } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
-import { markHolding, sellToBook } from '../markets/index.ts';
+import { markHolding, saleProceeds, saleValue, sellToBook } from '../markets/index.ts';
 import { noteBuiltHome } from '../property/index.ts';
 
 const BUFFER = 2.4;         // spare machines so a firm can hire through a supply shock without capital binding
@@ -23,7 +23,9 @@ const MTG_DAYS = 360;
 const CON_DAYS = 45;
 const MTG_TERM = 120;
 const CON_TERM = 36;
-const MTG = 1, CON = 2;
+const MTG = 1, CON = 2, MARGIN = 3, DEFIC = 4;
+const CURE_DAYS = 3;
+const BAR_YEARS = 6;
 const BOTTLENECK = new Set(['CRUDE_OIL', 'GRAIN', 'LIVESTOCK', 'FREIGHT', 'COAL', 'IRON_ORE', 'CHIPS', 'ELECTRICITY']);
 
 interface Bank { id: string; slot: number; depo: string; failed: boolean; ranDay: number; runEv: number }
@@ -46,9 +48,11 @@ interface Book {
   lnOpen: Uint8Array;
   lnOpened: Int32Array;
   lnTerm: Uint16Array;
+  lnCall: Int32Array; // day the margin call opened, or -1
   owed: Float64Array;
   mtg: Uint8Array;
   lock: Int32Array;
+  bust: Int32Array; // day the court last declared, or -1
   yInvest: number;
   yWriteoff: number;
   finDay: number;
@@ -141,11 +145,12 @@ function holdersOf(w: World, instr: string): [string, number][] {
 }
 
 function growPeople(b: Book, n: number): void {
-  if (n <= b.owed.length) return;
-  const m = Math.max(n, b.owed.length * 2);
+  if (n <= b.owed.length && b.bust && n <= b.bust.length) return;
+  const m = Math.max(n, b.owed.length * 2, 16);
   const owed = new Float64Array(m); owed.set(b.owed); b.owed = owed;
   const mtg = new Uint8Array(m); mtg.set(b.mtg); b.mtg = mtg;
   const lock = new Int32Array(m); lock.set(b.lock); b.lock = lock;
+  const bust = new Int32Array(m); bust.fill(-1); if (b.bust) bust.set(b.bust); b.bust = bust;
 }
 function addOwed(b: Book, person: number, d: number): void {
   growPeople(b, person + 1);
@@ -255,6 +260,8 @@ function growLoans(b: Book): number {
     b.lnOpen = copy(b.lnOpen, new Uint8Array(n));
     b.lnOpened = copy(b.lnOpened, new Int32Array(n));
     b.lnTerm = copy(b.lnTerm, new Uint16Array(n));
+    b.lnCall = copy(b.lnCall, new Int32Array(n));
+    for (let i = b.lnCap; i < n; i++) b.lnCall[i] = -1;
     b.lnCap = n;
   }
   return b.ln++;
@@ -271,9 +278,10 @@ function openPersonal(w: World, s: EconState, i: number, kind: number, cents: nu
   if (!grant(w, bank, instr, P.id(i), pick.take, cause)) { b.lnOpen[k] = 0; return 0; }
   b.lnPerson[k] = i; b.lnBank[k] = pick.idx; b.lnKind[k] = kind; b.lnRate[k] = pick.rate;
   b.lnMiss[k] = 0; b.lnOpen[k] = 1; b.lnOpened[k] = w.day; b.lnTerm[k] = kind === MTG ? MTG_TERM : CON_TERM;
+  b.lnCall[k] = -1;
   addOwed(b, i, pick.take);
   if (kind === MTG) { growPeople(b, i + 1); b.mtg[i] = 1; }
-  const what = kind === MTG ? 'mortgage' : kind === 3 ? 'margin loan' : 'consumer loan';
+  const what = kind === MTG ? 'mortgage' : kind === MARGIN ? 'margin loan' : kind === DEFIC ? 'unsecured loan' : 'consumer loan';
   w.events.emit('loan.grant', `${P.name(i)} takes a ${what} of ${(pick.take / 100).toFixed(0)} from ${bank.id} at ${(pick.rate * 100).toFixed(1)}%`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv]), P.id(i));
   return pick.take;
 }
@@ -583,6 +591,7 @@ function housingOrders(w: World, s: EconState, b: Book): void {
   for (let i = 0; i < P.n && n < cap; i++) {
     if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if (!P.alive(i) || P.employer[i] < 0 || P.incEma[i] < s.wage * 0.6) continue;
+    if (isPlayer(w, i)) continue;
     const age = Math.floor((w.day - P.born[i]) / DAYS_PER_YEAR);
     if (age < 21 || age > 70) continue;
     if (i < b.mtg.length && b.mtg[i]) continue;
@@ -624,6 +633,7 @@ function consumerCredit(w: World, s: EconState, b: Book): void {
     const i = (start + step) % P.n;
     if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if (!P.alive(i) || P.employer[i] < 0 || P.incEma[i] < s.wage * 0.8) continue;
+    if (isPlayer(w, i)) continue;
     const age = Math.floor((w.day - P.born[i]) / DAYS_PER_YEAR);
     if (age < 21 || age > 65) continue;
     if (i < b.lock.length && b.lock[i] > w.day) continue;
@@ -694,6 +704,308 @@ function callMargin(w: World, s: EconState, b: Book, k: number, i: number): bool
   return false;
 }
 
+function isPlayer(w: World, i: number): boolean {
+  const p = w.state.player as { who?: number; ids?: string[]; seat?: Record<string, { who: number }> } | undefined;
+  if (!p) return false;
+  if (p.who === i) return true;
+  if (p.seat) for (const id of p.ids ?? []) if (p.seat[id]?.who === i) return true;
+  return false;
+}
+
+function listed(w: World): { instr: string; moveEv?: number }[] {
+  return (w.state.markets as { stocks?: { instr: string; moveEv?: number }[] } | undefined)?.stocks ?? [];
+}
+
+function moveOf(w: World, id: number): { id: number; msg: string; actor?: string } | undefined {
+  const e = w.events.get(id);
+  if (!e) return;
+  if (e.kind === 'mkt.move') return e;
+  // A chief's mark cites the print. The print is the price fall.
+  if (e.kind === 'mkt.who' && e.causes.length) return moveOf(w, e.causes[0]);
+  return;
+}
+
+/** Recent down prints in names this person still holds. A rally is not why the bank called. */
+function priceFalls(w: World, id: string): number[] {
+  const held: string[] = [];
+  for (const st of listed(w)) if (w.ledger.balance(id, st.instr) > 0) held.push(st.instr);
+  const down: number[] = [];
+  const any: number[] = [];
+  const take = (e: { id: number; msg: string; actor?: string } | undefined): void => {
+    if (!e) return;
+    const name = e.msg.split(' ')[0];
+    if (!held.includes(name) && !(e.actor !== undefined && held.includes('eq:' + e.actor))) return;
+    const bucket = e.msg.includes('(-') ? down : any;
+    if (!bucket.includes(e.id)) bucket.push(e.id);
+  };
+  const evs = w.events.recent(['mkt.move'], 400);
+  for (let i = evs.length - 1; i >= 0 && down.length < 3; i--) take(evs[i]);
+  if (down.length < 3) for (const st of listed(w)) {
+    if (st.moveEv === undefined || st.moveEv < 0) continue;
+    take(moveOf(w, st.moveEv));
+  }
+  return (down.length ? down : any).slice(0, 3);
+}
+
+function tie(s: EconState, extra: number[]): number[] {
+  const out: number[] = [];
+  for (const e of extra) if (e >= 0 && !out.includes(e)) out.push(e);
+  if (!out.length) out.push(s.macroEv);
+  return out;
+}
+
+function depCash(w: World, id: string): number {
+  return Math.floor(w.ledger.balance(id, DEP));
+}
+
+function liquidCash(w: World, id: string): number {
+  let c = depCash(w, id);
+  for (const bank of book(w).banks) c += Math.floor(w.ledger.balance(id, bank.depo));
+  return c;
+}
+
+/** Margin loans plus deficiency judgments. Mortgages and ordinary consumer credit are left out. */
+function riskyDebt(w: World, i: number): number {
+  const b = book(w);
+  let n = 0;
+  for (let k = 0; k < b.ln; k++) {
+    if (!b.lnOpen[k] || b.lnPerson[k] !== i) continue;
+    if (b.lnKind[k] !== MARGIN && b.lnKind[k] !== DEFIC) continue;
+    n += Math.floor(w.ledger.issued.get(plInstr(k)) ?? 0);
+  }
+  return n;
+}
+
+function liquidAssets(w: World, id: string): number {
+  return liquidCash(w, id) + saleValue(w, id);
+}
+
+function loanIndexes(b: Book, i: number, kind: number): number[] {
+  const out: number[] = [];
+  for (let k = 0; k < b.ln; k++) if (b.lnOpen[k] && b.lnPerson[k] === i && b.lnKind[k] === kind) out.push(k);
+  return out;
+}
+
+function clearCalls(b: Book, ks: number[]): void {
+  for (const k of ks) b.lnCall[k] = -1;
+}
+
+/** Sell the worst bids first until `need` cents have come in, or the book will take no more. */
+function sellCollateral(w: World, id: string, need: number, cause: number): number {
+  const before = depCash(w, id);
+  for (let pass = 0; pass < 12 && depCash(w, id) - before < need; pass++) {
+    let worst = '', qty = 0, per = Infinity;
+    for (const st of listed(w)) {
+      const q = Math.floor(w.ledger.balance(id, st.instr));
+      if (q < 1) continue;
+      const liq = saleProceeds(w, st.instr, q, id);
+      if (liq < 1) continue;
+      const p = liq / q;
+      if (p < per) { per = p; worst = st.instr; qty = q; }
+    }
+    if (!worst || sellToBook(w, id, worst, qty, cause) < 1) break;
+  }
+  return Math.max(0, depCash(w, id) - before);
+}
+
+function repayKind(w: World, s: EconState, b: Book, i: number, kind: number, budget: number, cause: number): number {
+  const P = s.P;
+  let left = budget;
+  for (const k of loanIndexes(b, i, kind)) {
+    if (left <= 0) break;
+    const bank = b.banks[b.lnBank[k]];
+    if (!bank) continue;
+    const instr = plInstr(k);
+    const got = repayHolder(w, bank, instr, P.id(i), left, cause);
+    if (got <= 0) continue;
+    addOwed(b, i, -got);
+    left -= got;
+    const dust = Math.floor(w.ledger.issued.get(instr) ?? 0);
+    if (dust <= 1) {
+      if (dust > 0) { writeoffLoan(w, instr, cause); addOwed(b, i, -dust); }
+      closePersonal(w, s, b, k, i);
+      b.lnCall[k] = -1;
+    }
+  }
+  return budget - left;
+}
+
+/**
+ * Creditors in order: secured margin, then tax, then unsecured. Whatever the sale and the
+ * cash cannot cover is redeemed on the lender's books. The borrower cannot borrow for six years.
+ */
+function declareBankruptcy(w: World, i: number, cause: number): boolean {
+  const s = econ(w), b = book(w), P = s.P;
+  if (i < 0 || i >= P.n || !P.alive(i)) return false;
+  growPeople(b, i + 1);
+  if (b.bust[i] === w.day) return false;
+  const id = P.id(i);
+  const risky = riskyDebt(w, i);
+  if (risky <= 0) return false;
+  const ev = w.events.emit('court.bankruptcy', `${P.name(i)} is declared bankrupt`, tie(s, [cause, ...priceFalls(w, id)]), id);
+  b.bust[i] = w.day;
+  for (const bank of b.banks) {
+    const bal = Math.floor(w.ledger.balance(id, bank.depo));
+    if (bal > 0) withdraw(w, bank, id, bal, ev);
+  }
+  let due = 0;
+  for (let k = 0; k < b.ln; k++) {
+    if (!b.lnOpen[k] || b.lnPerson[k] !== i) continue;
+    if (b.lnKind[k] !== MARGIN && b.lnKind[k] !== DEFIC && b.lnKind[k] !== CON) continue;
+    due += Math.floor(w.ledger.issued.get(plInstr(k)) ?? 0);
+  }
+  const gov: { instr: string; amt: number }[] = [];
+  for (const [instr, inst] of w.ledger.instruments) {
+    if (inst.issuer !== id || inst.kind !== 'claim' || instr.startsWith('pm_') || instr.startsWith('pl_')) continue;
+    const amt = Math.floor(w.ledger.balance(GOV, instr));
+    if (amt > 0) { gov.push({ instr, amt }); due += amt; }
+  }
+  const sale = w.events.emit('court.sale', `${P.name(i)}'s assets are sold for the creditors`, tie(s, [ev]), id);
+  if (due > depCash(w, id)) sellCollateral(w, id, due - depCash(w, id), sale);
+  const pay = w.events.emit('court.pay', `creditors of ${P.name(i)} are paid in order`, tie(s, [sale]), id);
+  let pool = depCash(w, id);
+  pool -= repayKind(w, s, b, i, MARGIN, pool, pay);
+  for (const g of gov) {
+    if (pool <= 0) break;
+    const a = Math.min(pool, g.amt, depCash(w, id));
+    if (a > 0 && w.ledger.redeem(g.instr, GOV, a, 'tax.pay', pay)) {
+      if (pay(w, id, GOV, a, 'tax.pay', pay)) pool -= a;
+      else w.ledger.issue(g.instr, GOV, a, 'tax.pay', pay);
+    }
+  }
+  pool = depCash(w, id);
+  repayKind(w, s, b, i, DEFIC, pool, pay);
+  pool = depCash(w, id);
+  repayKind(w, s, b, i, CON, pool, pay);
+  const losses: { bank: Bank; amt: number }[] = [];
+  let wrote = 0;
+  for (let k = 0; k < b.ln; k++) {
+    if (!b.lnOpen[k] || b.lnPerson[k] !== i) continue;
+    if (b.lnKind[k] !== MARGIN && b.lnKind[k] !== DEFIC && b.lnKind[k] !== CON) continue;
+    const instr = plInstr(k);
+    const left = Math.floor(w.ledger.issued.get(instr) ?? 0);
+    if (left <= 0) { closePersonal(w, s, b, k, i); continue; }
+    const rows = holdersOf(w, instr);
+    for (const [holder, bal] of rows) {
+      const bank = bankById(b, holder);
+      if (bank) losses.push({ bank, amt: Math.floor(Math.min(bal, left)) });
+    }
+    const lost = writeoffLoan(w, instr, pay);
+    b.yWriteoff += lost; wrote += lost; addOwed(b, i, -lost);
+    closePersonal(w, s, b, k, i);
+    b.lnCall[k] = -1;
+  }
+  if (wrote > 0) {
+    s.defaults++;
+    const lender = losses.find((x) => x.bank)?.bank ?? b.banks.find((x) => x.id === BANK);
+    if (lender) {
+      for (const st of listed(w)) {
+        const q = Math.floor(w.ledger.balance(id, st.instr));
+        // The bids would not take these shares, so the secured creditor takes them in kind.
+        if (q > 0) w.ledger.move(st.instr, id, lender.id, q, 'court.surrender', pay);
+      }
+    }
+    w.events.emit('loan.writeoff', `${(wrote / 100).toFixed(0)} of ${P.name(i)}'s debt is written off`, tie(s, [pay]), id);
+    afterLoss(w, s, losses, pay);
+  }
+  b.lock[i] = Math.max(b.lock[i], w.day + BAR_YEARS * DAYS_PER_YEAR);
+  return true;
+}
+
+/** Called when new unsecured debt has just been booked. Declares if it is already more than the estate. */
+export function pressInsolvency(w: World, person: number, cause: number): void {
+  if (!w.state.banking) return;
+  const s = econ(w);
+  if (person < 0 || person >= s.P.n || !s.P.alive(person)) return;
+  const id = s.P.id(person);
+  if (riskyDebt(w, person) > liquidAssets(w, id)) declareBankruptcy(w, person, cause);
+}
+
+/**
+ * Book an unsecured deficiency at the main bank without asking whether the bank wants the risk.
+ * The cash is issued to the borrower so a margin close can pay the counterparty. Returns cents booked.
+ */
+/** Pay down deficiency judgments only, newest cash first. Returns cents of principal repaid. */
+export function repayUnsecured(w: World, person: number, cents: number, cause: number): number {
+  if (!w.state.banking || person < 0) return 0;
+  return repayKind(w, econ(w), book(w), person, DEFIC, Math.round(cents), cause);
+}
+
+export function oweUnsecured(w: World, person: number, cents: number, cause: number): number {
+  const s = econ(w), P = s.P;
+  if (!w.state.banking || person < 0 || person >= P.n || !P.alive(person)) return 0;
+  const a = Math.round(cents);
+  if (a < 1) return 0;
+  const b = book(w);
+  let idx = b.banks.findIndex((bank) => bank.id === BANK);
+  if (idx < 0) return 0;
+  const bank = b.banks[idx];
+  const k = growLoans(b);
+  const instr = plInstr(k);
+  w.ledger.define({ id: instr, kind: 'claim', issuer: P.id(person) });
+  if (!grant(w, bank, instr, P.id(person), a, cause)) { b.lnOpen[k] = 0; b.lnCall[k] = -1; return 0; }
+  b.lnPerson[k] = person; b.lnBank[k] = idx; b.lnKind[k] = DEFIC; b.lnRate[k] = s.policyRate + personSpread(w, s, person) + 0.02;
+  b.lnMiss[k] = 0; b.lnOpen[k] = 1; b.lnOpened[k] = w.day; b.lnTerm[k] = CON_TERM; b.lnCall[k] = -1;
+  addOwed(b, person, a);
+  w.events.emit('loan.shortfall', `${P.name(person)} owes ${(a / 100).toFixed(0)} that the collateral did not cover`, tie(s, [cause]), P.id(person));
+  return a;
+}
+
+/** Daily maintenance. A call waits three trading days, then the book is hit and any gap is still owed. */
+function maintainMargins(w: World, s: EconState, b: Book): void {
+  const P = s.P;
+  const seen: number[] = [];
+  for (let k = 0; k < b.ln; k++) {
+    if (!b.lnOpen[k] || b.lnKind[k] !== MARGIN) continue;
+    const i = b.lnPerson[k];
+    if (seen.includes(i)) continue;
+    seen.push(i);
+    if (i < 0 || i >= P.n || !P.alive(i)) continue;
+    const ks = loanIndexes(b, i, MARGIN);
+    let owed = 0;
+    for (const n of ks) owed += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
+    const id = P.id(i);
+    if (owed <= 0) { clearCalls(b, ks); continue; }
+    // The bank's own advance: half of what the shares would fetch. A loan past that is a call.
+    const cover = marginLimit(w, i);
+    if (owed <= cover) { clearCalls(b, ks); continue; }
+    let opened = -1;
+    for (const n of ks) if (b.lnCall[n] >= 0 && (opened < 0 || b.lnCall[n] < opened)) opened = b.lnCall[n];
+    const falls = priceFalls(w, id);
+    let call = -1;
+    if (opened < 0) {
+      const worst = worstName(w, id);
+      call = w.events.emit('loan.margin', `${P.name(i)} is called on ${worst} for ${(owed / 100).toFixed(0)}; three trading days to pay it down`, tie(s, falls), id);
+      for (const n of ks) b.lnCall[n] = w.day;
+      opened = w.day;
+    }
+    const sunk = owed > liquidAssets(w, id);
+    if (!sunk && w.day < opened + CURE_DAYS) continue;
+    const why = call >= 0 ? call : (falls[0] ?? (P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv));
+    const sell = w.events.emit('loan.sell', `the bank sells ${P.name(i)}'s shares into the book`, tie(s, [why]), id);
+    const proceeds = sellCollateral(w, id, owed, sell);
+    repayKind(w, s, b, i, MARGIN, proceeds, sell);
+    let left = 0;
+    for (const n of loanIndexes(b, i, MARGIN)) left += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
+    if (left <= 0) { clearCalls(b, ks); continue; }
+    for (const n of loanIndexes(b, i, MARGIN)) { b.lnKind[n] = DEFIC; b.lnCall[n] = -1; }
+    const gap = w.events.emit('loan.shortfall', `${P.name(i)} still owes ${(left / 100).toFixed(0)} after the sale`, tie(s, [sell]), id);
+    if (riskyDebt(w, i) > liquidAssets(w, id)) declareBankruptcy(w, i, gap);
+  }
+}
+
+function worstName(w: World, id: string): string {
+  let name = 'the position';
+  let per = Infinity;
+  for (const st of listed(w)) {
+    const qty = Math.floor(w.ledger.balance(id, st.instr));
+    if (qty < 1) continue;
+    const p = saleProceeds(w, st.instr, qty, id) / qty;
+    if (p < per) { per = p; name = st.instr; }
+  }
+  return name;
+}
+
 function servicePeople(w: World, s: EconState, b: Book): void {
   const P = s.P;
   const hit: { bank: Bank; amt: number; ev: number }[] = [];
@@ -716,7 +1028,6 @@ function servicePeople(w: World, s: EconState, b: Book): void {
       closePersonal(w, s, b, k, i);
       continue;
     }
-    if (b.lnKind[k] === 3 && callMargin(w, s, b, k, i)) continue;
     const leftTerm = Math.max(1, b.lnTerm[k] - Math.max(0, Math.floor((w.day - b.lnOpened[k]) / 30)));
     const interest = Math.round(owed * b.lnRate[k] / 12);
     const paidI = payInterest(w, bank, P.id(i), interest, s.rateEv);
@@ -731,11 +1042,15 @@ function servicePeople(w: World, s: EconState, b: Book): void {
       continue;
     }
     if (b.lnMiss[k] < 3) continue;
+    if (b.lnKind[k] === MARGIN || b.lnKind[k] === DEFIC) {
+      declareBankruptcy(w, i, P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv);
+      continue;
+    }
     const ev = w.events.emit('loan.default', `${P.name(i)} missed three payments on ${(left / 100).toFixed(0)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), P.id(i));
     const losses = rows.map(([holder, bal]) => ({ bank: bankById(b, holder), amt: Math.floor(Math.min(bal, left)) })).filter((x): x is { bank: Bank; amt: number } => !!x.bank && x.amt > 0);
     const lost = writeoffLoan(w, instr, ev);
     b.yWriteoff += lost; addOwed(b, i, -lost); b.lnMiss[k] = 0;
-    growPeople(b, i + 1); b.lock[i] = w.day + DAYS_PER_YEAR;
+    growPeople(b, i + 1); b.lock[i] = w.day + BAR_YEARS * DAYS_PER_YEAR;
     if (b.lnKind[k] === MTG) {
       b.mtg[i] = 0;
       const home = w.ledger.balance(P.id(i), 'dwelling');
@@ -914,23 +1229,44 @@ export function marginLimit(w: World, person: number): number {
   return Math.floor(fetch * (1 - LEND_HAIRCUT));
 }
 
+/** Why a new loan is refused, or undefined when the court has not barred this person. */
+export function borrowBar(w: World, person: number): string | undefined {
+  const b = w.state.banking as Book | undefined;
+  if (!b || person < 0 || person >= b.lock.length) return undefined;
+  if (b.lock[person] > w.day) return 'the court barred you from borrowing for six years';
+  return undefined;
+}
+
 /** A margin loan against shares, at the bank's quoted rate. Kind 3 is serviced with the other personal loans. */
 export function borrowMargin(w: World, person: number, cents: number, cause: number): { taken: number; rate: number; why?: string } {
   const s = econ(w), P = s.P;
   if (person < 0 || person >= P.n || !P.alive(person)) return { taken: 0, rate: 0, why: 'the borrower is dead' };
+  const barred = borrowBar(w, person);
+  if (barred) return { taken: 0, rate: 0, why: barred };
   const b = book(w);
   let owed = 0;
+  let called = false;
   for (let k = 0; k < b.ln; k++) {
-    if (!b.lnOpen[k] || b.lnPerson[k] !== person || b.lnKind[k] !== 3) continue;
+    if (!b.lnOpen[k] || b.lnPerson[k] !== person || b.lnKind[k] !== MARGIN) continue;
     owed += Math.floor(w.ledger.issued.get(plInstr(k)) ?? 0);
+    if (b.lnCall[k] >= 0) called = true;
   }
+  if (called) return { taken: 0, rate: 0, why: 'a margin call is open' };
   const room = Math.max(0, marginLimit(w, person) - owed);
   const ask = Math.min(Math.round(cents), room);
   if (ask < 1) return { taken: 0, rate: 0, why: 'the bank lends against what the shares would fetch, and less when the block is large against daily volume' };
   const q = quote(w, s, personSpread(w, s, person), ask);
   if (!q) return { taken: 0, rate: 0, why: 'the bank refused the loan' };
+  // A bidder passes the firm's cause list. A posting needs one event id.
+  let posted = cause as unknown;
+  if (typeof posted !== 'number' || !(posted >= 0)) {
+    const list = Array.isArray(posted) ? posted : [];
+    posted = -1;
+    for (const c of list) if (typeof c === 'number' && c >= 0) { posted = c; break; }
+    if (typeof posted !== 'number' || posted < 0) posted = s.macroEv >= 0 ? s.macroEv : w.genesis;
+  }
   const slot = book(w).ln;
-  const taken = openPersonal(w, s, person, 3, ask, cause);
+  const taken = openPersonal(w, s, person, 3, ask, posted as number);
   if (taken <= 0) return { taken: 0, rate: 0, why: 'the bank refused the loan' };
   return { taken, rate: book(w).lnRate[slot] || q.rate };
 }
@@ -1020,7 +1356,8 @@ export const banking: Module = {
       hot: new Uint8Array(nF), need: new Float64Array(nF), firmMiss: new Uint8Array(nF), firmRate: new Float64Array(nF), firmRefuse: new Int32Array(nF),
       ln: 0, lnCap: cap, lnPerson: new Int32Array(cap), lnBank: new Uint8Array(cap), lnKind: new Uint8Array(cap), lnRate: new Float64Array(cap),
       lnMiss: new Uint8Array(cap), lnOpen: new Uint8Array(cap), lnOpened: new Int32Array(cap), lnTerm: new Uint16Array(cap),
-      owed: new Float64Array(nP), mtg: new Uint8Array(nP), lock: new Int32Array(nP),
+      lnCall: new Int32Array(cap).fill(-1),
+      owed: new Float64Array(nP), mtg: new Uint8Array(nP), lock: new Int32Array(nP), bust: new Int32Array(nP).fill(-1),
       yInvest: 0, yWriteoff: 0, finDay: -1, finCache: [], payroll: false, machPerDay: 0, housePerDay: 0, houseHot: 0,
       lendFirm: (world, st, f, cents, cause) => { book(world).payroll = true; return lendFirm(world, st, f, cents, cause); },
     };
@@ -1032,6 +1369,7 @@ export const banking: Module = {
     growFirms(b, s.firms.length);
     deliver(w, s, b);
     pinSales(s, b);
+    maintainMargins(w, s, b);
     if ((w.day + 1) % 30 !== 0) return;
     serviceFirms(w, s, b);
     planInvestment(w, s, b);

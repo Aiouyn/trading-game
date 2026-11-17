@@ -72,7 +72,7 @@ function caughtOf(w: World, ids: Set<string>): number {
 function blank(bot: string, seed: number, years: number, error: string): RunResult {
   return {
     bot, seed, start: 0, end: 0, rel: 0, indexRel: 1, days: 0, years,
-    bankrupt: false, dead: false, prison: false, caught: 0,
+    bankrupt: false, calls: 0, dead: false, prison: false, caught: 0,
     threw: [], books: [], jumps: [], path: [], missing: '', ms: 0, error,
   };
 }
@@ -87,6 +87,8 @@ export function runJob(job: Job): RunResult {
   const jumps: Jump[] = [];
   const path: { day: number; worth: number }[] = [];
   const ids = new Set<string>();
+  let bankrupt = false;
+  let calls = 0;
   const v0 = view(w);
   const start = v0.netWorth;
   let prev = start;
@@ -132,6 +134,12 @@ export function runJob(job: Job): RunResult {
       books.push(msg);
       break;
     }
+    for (let id = c0; id < w.events.count; id++) {
+      const e = w.events.get(id);
+      if (!e?.actor || !ids.has(e.actor)) continue;
+      if (e.kind === 'court.bankruptcy') bankrupt = true;
+      else if (e.kind === 'loan.margin' || e.kind === 'opt.marginCall') calls++;
+    }
     const v = view(w);
     const worth = v.netWorth;
     const gain = worth - prev;
@@ -169,7 +177,8 @@ export function runJob(job: Job): RunResult {
     indexRel: indexRel(w),
     days: w.day,
     years: job.years,
-    bankrupt: !dead && end.netWorth <= 0,
+    bankrupt,
+    calls,
     dead,
     prison: !dead && prison,
     caught: caughtOf(w, ids),

@@ -101,8 +101,8 @@ function render(rows: RunResult[], meta: { worlds: number; years: number; pop: n
   lines.push('');
   lines.push('## Strategies');
   lines.push('');
-  lines.push('| Strategy | p10 | median | p90 | bankrupt | dead | prison | caught | ann. return | index ann. | excess |');
-  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
+  lines.push('| Strategy | p10 | median | p90 | bankrupt | calls | dead | prison | caught | ann. return | index ann. | excess |');
+  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
   for (const name of NAMES) {
     const rs = byBot(name);
     const n = rs.length;
@@ -112,10 +112,11 @@ function render(rows: RunResult[], meta: { worlds: number; years: number; pop: n
     const anns = rs.map((r) => ann(r.rel, yearsOf(r)));
     const idx = rs.map((r) => ann(r.indexRel, yearsOf(r)));
     const caught = rs.reduce((a, r) => a + r.caught, 0);
-    lines.push(`| ${LABEL[name]} | ${n ? mul(pct(rels, 0.1)) : '–'} | ${n ? mul(pct(rels, 0.5)) : '–'} | ${n ? mul(pct(rels, 0.9)) : '–'} | ${share((r) => r.bankrupt)} | ${share((r) => r.dead)} | ${share((r) => r.prison)} | ${caught} | ${n ? pp(pct(anns, 0.5)) : '–'} | ${n ? pp(pct(idx, 0.5)) : '–'} | ${n ? pp(pct(excess, 0.5)) : '–'} |`);
+    const calls = rs.reduce((a, r) => a + (r.calls ?? 0), 0);
+    lines.push(`| ${LABEL[name]} | ${n ? mul(pct(rels, 0.1)) : '–'} | ${n ? mul(pct(rels, 0.5)) : '–'} | ${n ? mul(pct(rels, 0.9)) : '–'} | ${share((r) => r.bankrupt)} | ${calls} | ${share((r) => r.dead)} | ${share((r) => r.prison)} | ${caught} | ${n ? pp(pct(anns, 0.5)) : '–'} | ${n ? pp(pct(idx, 0.5)) : '–'} | ${n ? pp(pct(excess, 0.5)) : '–'} |`);
   }
   lines.push('');
-  lines.push('Final net worth is the multiple of the player’s worth on day 0. Annualised return uses the days the run actually lived. Excess is that return minus the same world’s index. Caught is charges and convictions of anyone who was the player, counting a case once.');
+  lines.push('Final net worth is the multiple of the player’s worth on day 0. Annualised return uses the days the run actually lived. Excess is that return minus the same world’s index. Bankrupt is a court declaration against anyone who was the player. Calls counts margin calls, on stock loans and on written options, for those same people. Caught is charges and convictions of anyone who was the player, counting a case once.');
   lines.push('');
   lines.push('## Exploits');
   lines.push('');
@@ -152,7 +153,7 @@ function render(rows: RunResult[], meta: { worlds: number; years: number; pop: n
 function fail(job: Job, error: string): RunResult {
   return {
     bot: job.bot, seed: job.seed, start: 0, end: 0, rel: 0, indexRel: 1,
-    days: 0, years: job.years, bankrupt: false, dead: false, prison: false, caught: 0,
+    days: 0, years: job.years, bankrupt: false, calls: 0, dead: false, prison: false, caught: 0,
     threw: [], books: [], jumps: [], path: [], missing: '', ms: 0, error,
   };
 }
@@ -161,7 +162,7 @@ function main(): void {
   const worlds = Math.max(1, Math.floor(+arg('worlds', '20')));
   const years = Math.max(1, Math.floor(+arg('years', '20')));
   const pop = arg('pop', '5000');
-  const cores = Math.max(1, Math.min(availableParallelism(), worlds * NAMES.length));
+  const cores = Math.max(1, Math.min(availableParallelism(), worlds * NAMES.length, Math.floor(+arg('workers', String(availableParallelism())))));
   const jobs: Job[] = [];
   for (const bot of NAMES) for (let seed = 1; seed <= worlds; seed++) jobs.push({ bot, seed, years });
   const results: RunResult[] = [];
@@ -201,7 +202,7 @@ function main(): void {
       s.timer = setTimeout(() => {
         process.stderr.write(`timeout ${job.bot} seed ${job.seed}\n`);
         s.child.kill();
-      }, 12 * 60 * 1000);
+      }, 30 * 60 * 1000);
       s.child.send(job);
     }
     finish();

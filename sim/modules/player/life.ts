@@ -421,8 +421,8 @@ export function explainThing(w: World, thing: string, mem: LifeMemory, worth?: n
     return arrived;
   };
   if (q === 'age') return { id: i >= 0 && econ(w).P.lastEv[i] >= 0 ? econ(w).P.lastEv[i] : arrived };
-  if (q === 'margin' || q === 'futures') return { id: lastOf('cmdty.fill', 'cmdty.mark', 'player.fut') };
-  if (q === 'loan' || q === 'loans' || q === 'mortgage') return { id: lastOf('bank.loan', 'bank.draw', 'player.home') };
+  if (q === 'margin' || q === 'futures') return { id: lastOf('loan.margin', 'player.margin', 'opt.marginCall', 'court.bankruptcy', 'cmdty.fill', 'cmdty.mark', 'player.fut') };
+  if (q === 'loan' || q === 'loans' || q === 'mortgage') return { id: lastOf('court.bankruptcy', 'loan.shortfall', 'loan.margin', 'player.bankrupt', 'bank.loan', 'bank.draw', 'player.home') };
   if (q === 'bond' || q === 'bonds') return { id: lastOf('bond.fill', 'bond.trade', 'bond.issue') };
   if (q === 'share' || q === 'shares' || q === 'stake') return { id: lastOf('mkt.who', 'mkt.move', 'mkt.fill') };
   if (q === 'order' || q === 'orders') return { id: lastOf('mkt.fill', 'mkt.who', 'player.order') };
