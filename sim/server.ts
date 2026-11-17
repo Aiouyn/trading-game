@@ -2840,85 +2840,152 @@ function legalPanel(w: World): Record<string, unknown> {
   };
 }
 
+interface PressOutlet { id: string; name: string; serious: boolean }
+interface PressAsk {
+  day: number; until: number; player: number; journalist: number; outlet: number;
+  about: string; cause: number; open: boolean;
+}
+interface PressPaper {
+  eventId: number; day: number; outlet: string; voice: string; journalist: string; beat: string;
+  text: string; rumour: boolean; correction: boolean; corrects: number; correctsText: string;
+  roundup: boolean; tags: string[];
+}
+
+function pressOutlets(w: World): PressOutlet[] {
+  return (w.state.media as { outlets?: PressOutlet[] } | undefined)?.outlets ?? [];
+}
+function pressVoice(o: PressOutlet | undefined): string {
+  if (!o) return '';
+  if (o.id === 'HERALD') return 'sober daily';
+  if (o.id === 'MERCURY') return 'tabloid';
+  if (o.id === 'LEDGER') return 'business weekly';
+  if (o.id === 'GAZETTE') return 'gossip column';
+  return o.serious ? 'sober daily' : 'tabloid';
+}
+function pressSplit(msg: string, outs: PressOutlet[]): { outlet?: PressOutlet; body: string; journalist: string; beat: string } {
+  const sorted = outs.slice().sort((a, b) => b.name.length - a.name.length);
+  let rest = msg;
+  let outlet: PressOutlet | undefined;
+  for (const o of sorted) {
+    if (msg.startsWith(o.name + ': ')) { outlet = o; rest = msg.slice(o.name.length + 2); break; }
+    if (msg.startsWith(o.name + ' ')) { outlet = o; rest = msg.slice(o.name.length + 1); break; }
+  }
+  const cut = rest.lastIndexOf(' — ');
+  if (cut < 0) return { outlet, body: rest.trim(), journalist: '', beat: '' };
+  const byline = rest.slice(cut + 3).trim();
+  const comma = byline.lastIndexOf(', ');
+  return {
+    outlet,
+    body: rest.slice(0, cut).trim(),
+    journalist: comma >= 0 ? byline.slice(0, comma).trim() : byline,
+    beat: comma >= 0 ? byline.slice(comma + 2).trim() : '',
+  };
+}
+function pressComment(w: World, since: number): string {
+  const log = (w.state.player as { log?: { day: number; cmd?: { kind?: string; text?: string } }[] } | undefined)?.log ?? [];
+  for (let n = log.length - 1; n >= Math.max(0, log.length - 40); n--) {
+    const row = log[n];
+    if (row.day < since) break;
+    const kind = row.cmd?.kind;
+    const text = row.cmd?.text?.trim() ?? '';
+    if (kind === 'reply' && text && text.toLowerCase() !== 'yes' && text.toLowerCase() !== 'no') return text.slice(0, 180);
+    if (kind === 'tip') return 'You handed the paper a fact.';
+    if (kind === 'talk') return 'You spoke, and asked that it stay off the record.';
+  }
+  return '';
+}
+function pressAsks(w: World): Record<string, unknown>[] {
+  const i = playerIndex(w);
+  if (i < 0) return [];
+  const P = econ(w).P;
+  const outs = pressOutlets(w);
+  const rows = (w.state.media as { wire?: { asks?: PressAsk[] } } | undefined)?.wire?.asks ?? [];
+  const out: Record<string, unknown>[] = [];
+  for (const ask of rows) {
+    if (ask.player !== i) continue;
+    if (!ask.open && w.day - ask.day > 12) continue;
+    const o = outs[ask.outlet];
+    const journalist = ask.journalist >= 0 && ask.journalist < P.n ? P.name(ask.journalist) : 'A journalist';
+    out.push({
+      eventId: ask.cause,
+      day: ask.day,
+      until: ask.until,
+      open: ask.open && w.day <= ask.until,
+      journalist,
+      journalistIndex: ask.journalist,
+      outlet: o?.name ?? 'The paper',
+      voice: pressVoice(o),
+      about: ask.about,
+      said: pressComment(w, ask.day),
+    });
+  }
+  return out;
+}
+function paperTags(text: string, beat: string, playerName: string, contactNames: string[], heldNames: string[]): string[] {
+  const tags: string[] = [];
+  const low = text.toLowerCase();
+  if (beat === 'player' || (playerName && low.includes(playerName.toLowerCase()))) tags.push('you');
+  if (contactNames.some((n) => n && low.includes(n.toLowerCase()))) tags.push('contacts');
+  if (heldNames.some((n) => n && text.includes(n))) tags.push('holdings');
+  if (beat === 'rates' || beat === 'markets' || beat === 'companies' || beat === 'business' || beat === 'credit' || beat === 'rumours') tags.push('markets');
+  if (!tags.includes('markets') || beat === 'society' || beat === 'politics' || beat === 'labour' || beat === 'people' || beat === 'scandal') tags.push('city');
+  if (!tags.length) tags.push('city');
+  return tags;
+}
 function wirePanel(w: World): Record<string, unknown> {
   const i = playerIndex(w);
   const P = econ(w).P;
   const id = i >= 0 ? P.id(i) : '';
-  const contacts = new Set<string>();
-  if (i >= 0) for (const r of relations(w, i)) if (r.who >= 0) contacts.add(P.id(r.who));
-  const held = new Set<string>();
-  for (const st of stocksOf(w)) if (id && w.ledger.balance(id, st.instr) > 0) held.add(st.issuer);
+  const playerName = i >= 0 ? P.name(i) : '';
+  const contactNames: string[] = [];
+  if (i >= 0) for (const r of relations(w, i)) if (r.who >= 0 && r.who < P.n) contactNames.push(P.name(r.who));
   const heldNames: string[] = [];
-  for (const fid of held) {
-    const f = econ(w).firms.find((x) => x.id === fid);
+  for (const st of stocksOf(w)) {
+    if (!id || w.ledger.balance(id, st.instr) <= 0) continue;
+    const f = econ(w).firms.find((x) => x.id === st.issuer);
     if (f?.name) heldNames.push(f.name);
   }
-  const employer = i >= 0 && P.employer[i] >= 0 ? econ(w).firms[P.employer[i]] : undefined;
-  const items = new Map<number, { eventId: number; day: number; text: string; tags: string[] }>();
-  const add = (eventId: number, day: number, text: string, tags: string[]): void => {
-    if (!tags.length || eventId < 0) return;
-    const prev = items.get(eventId);
-    if (prev) {
-      for (const t of tags) if (!prev.tags.includes(t)) prev.tags.push(t);
-      return;
+  const outs = pressOutlets(w);
+  const kinds = ['media.column', 'media.story', 'media.scoop', 'media.retraction', 'news.story'];
+  const papers: PressPaper[] = [];
+  for (const e of w.events.recent(kinds, 80).slice().reverse()) {
+    const split = pressSplit(e.msg, outs);
+    const body = split.body.replace(/\s+/g, ' ').trim();
+    if (!body || /world created from seed/i.test(body) || /^held off the page\.?$/i.test(body)) continue;
+    const correction = e.kind === 'media.retraction' || /^correction\b/i.test(body) || /withdraws its report/i.test(body);
+    const rumour = !correction && (split.beat === 'rumours' || /^rumour\b/i.test(body) || /^sources say\b/i.test(body) || /\bunchecked\b/i.test(body));
+    const roundup = /\bfirms (cut jobs|report)\b/i.test(body) || /week in review/i.test(body);
+    let corrects = -1;
+    let correctsText = '';
+    if (correction) {
+      for (const c of e.causes) {
+        const src = w.events.get(c);
+        if (!src) continue;
+        if (src.kind !== 'media.column' && src.kind !== 'media.story' && src.kind !== 'news.story') continue;
+        corrects = src.id;
+        correctsText = pressSplit(src.msg, outs).body.slice(0, 140);
+        break;
+      }
+      if (corrects < 0 && e.causes[0] !== undefined) corrects = e.causes[0];
     }
-    items.set(eventId, { eventId, day, text: text.length > 280 ? text.slice(0, 277) + '…' : text, tags });
-  };
-  const tagOf = (e: { kind: string; actor?: string; msg: string }): string[] => {
-    const tags: string[] = [];
-    const you = !!id && e.actor === id;
-    const contact = !!e.actor && contacts.has(e.actor);
-    let firmHit = !!e.actor && held.has(e.actor);
-    if (!firmHit) for (const name of heldNames) if (e.msg.includes(name)) { firmHit = true; break; }
-    if (you || e.kind.startsWith('player.')) tags.push('you');
-    if (contact) tags.push('contacts');
-    if (firmHit) tags.push('holdings');
-    if (e.kind.startsWith('shock.') || e.kind.startsWith('politics.') || e.kind.startsWith('port.') || e.kind.startsWith('energy.') || e.kind.startsWith('macro.') || e.kind.startsWith('health.') || e.kind === 'property.open' || e.kind.startsWith('labour.')) tags.push('city');
-    if (e.kind === 'society.rise' || e.kind === 'society.fall' || e.kind === 'society.paper' || e.kind === 'society.gala' || e.kind === 'society.meet' || e.kind === 'society.festival' || e.kind === 'firm.succession' || e.kind === 'firm.ceoFired') tags.push('city');
-    if (e.kind.startsWith('mkt.') || e.kind === 'firm.price' || e.kind === 'firm.profit' || e.kind.startsWith('cb.') || e.kind.startsWith('fx.') || e.kind.startsWith('opt.') || e.kind === 'news.story' || e.kind === 'media.story') tags.push('markets');
-    return tags;
-  };
-  const from = Math.max(0, w.events.count - 4000);
-  for (let n = w.events.count - 1; n >= from; n--) {
-    const e = w.events.get(n);
-    if (!e) continue;
-    add(e.id, e.day, e.msg, tagOf(e));
+    const beat = split.beat || (e.kind === 'media.retraction' ? 'correction' : e.kind === 'media.scoop' ? 'markets' : 'city');
+    papers.push({
+      eventId: e.id,
+      day: e.day,
+      outlet: split.outlet?.name ?? '',
+      voice: pressVoice(split.outlet),
+      journalist: split.journalist,
+      beat,
+      text: body.length > 280 ? body.slice(0, 277) + '…' : body,
+      rumour,
+      correction,
+      corrects,
+      correctsText,
+      roundup,
+      tags: paperTags(`${split.outlet?.name ?? ''} ${body} ${split.journalist}`, beat, playerName, contactNames, heldNames),
+    });
   }
-  if (i >= 0) for (const r of relations(w, i)) {
-    const ev = P.lastEv[r.who];
-    const e = ev >= 0 ? w.events.get(ev) : undefined;
-    if (e) add(e.id, e.day, e.msg, ['contacts']);
-  }
-  for (const line of headlines(w)) {
-    const aboutHeld = line.firms.some((f) => held.has(f.id));
-    add(line.eventId, line.day, line.text, aboutHeld ? ['holdings', 'markets'] : ['city']);
-  }
-  const heard = soleSeat(w)?.heard ?? [];
-  for (const h of heard) {
-    const e = w.events.get(h.eventId);
-    if (!e) continue;
-    const tags = ['you'];
-    if (h.from >= 0) tags.push('contacts');
-    add(e.id, e.day, e.msg, tags);
-  }
-  if (employer) {
-    const ev = employer.profitEv ?? employer.priceEv ?? employer.priceWho;
-    if (ev !== undefined && ev >= 0) {
-      const e = w.events.get(ev);
-      if (e) add(e.id, e.day, e.msg, ['you', 'holdings']);
-    }
-  }
-  const list = [...items.values()].sort((a, b) => b.day - a.day || b.eventId - a.eventId);
-  const kept: typeof list = [];
-  const seen: Record<string, number> = { you: 0, contacts: 0, holdings: 0, city: 0, markets: 0 };
-  for (const item of list) {
-    const room = item.tags.some((t) => (seen[t] ?? 0) < 24);
-    if (!room) continue;
-    kept.push(item);
-    for (const t of item.tags) seen[t] = (seen[t] ?? 0) + 1;
-    if (kept.length >= 80) break;
-  }
-  return { items: kept };
+  return { papers, asks: pressAsks(w) };
 }
 
 function panelSlice(w: World, name: string, url: URL): Record<string, unknown> {
@@ -3550,6 +3617,7 @@ function screen(w: World): Record<string, unknown> {
     calendar: calendarOf(w),
     society: societyTick(w),
     plans: plansOf(w),
+    press: pressAsks(w),
     pause: pauseNote,
   };
 }
@@ -4973,13 +5041,17 @@ const server = http.createServer(async (req, res) => {
         const said = inviteSentence(body, cmd, fitted);
         const text = said && result.status === 'accepted' ? said : result.text;
         const books = result.books;
+        const press = body && typeof body === 'object' && (body as { press?: unknown }).press === true && cmd.kind === 'reply';
+        const deskTook = press && !books && result.status === 'rejected' && /no such/i.test(String(result.why ?? ''));
         const why = books
           ? 'The books do not balance, so pause and reload the last save.'
           : (result.status === 'rejected' && typeof result.why === 'string' ? playerLine(result.why) : result.why);
         const code = books ? 409 : 200;
         const payload = books
           ? { ...result, status: 'rejected' as const, why, text, view: fitted }
-          : { ...result, why, text, view: fitted };
+          : deskTook
+            ? { status: 'accepted' as const, text: 'The paper has your comment.', view: fitted }
+            : { ...result, why, text, view: fitted };
         const json = JSON.stringify(payload);
         lastActCode = code;
         lastActJson = json;

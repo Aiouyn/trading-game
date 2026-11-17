@@ -62,10 +62,17 @@
 .qy-why-btn {
   min-height: 28px;
   padding: 0 var(--sp-8);
-  color: var(--info);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--acc);
+  text-underline-offset: 3px;
   background: transparent;
   border: 0;
+  cursor: pointer;
 }
+.qy-why-btn:hover { color: var(--acc-hi); }
 .qy-why-chain {
   display: flex;
   flex-direction: column;

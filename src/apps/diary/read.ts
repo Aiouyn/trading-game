@@ -44,6 +44,21 @@ function flag(v: unknown): boolean {
   return v === true;
 }
 
+const SHORT_MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Quiet days as one line: "Jan 2–5: nothing planned". */
+export function quietLabel(start: number, end: number): string {
+  const md = (abs: number) => {
+    const day = Math.floor(abs);
+    const doy = ((day % 360) + 360) % 360;
+    return { m: SHORT_MONTH[Math.floor(doy / 30)] ?? "Jan", d: (doy % 30) + 1 };
+  };
+  const a = md(start);
+  const b = md(end);
+  const when = start === end ? `${a.m} ${a.d}` : a.m === b.m ? `${a.m} ${a.d}\u2013${b.d}` : `${a.m} ${a.d}\u2013${b.m} ${b.d}`;
+  return `${when}: nothing planned`;
+}
+
 export function kindWord(kind: string): string {
   return KIND[kind] ?? (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : "A plan");
 }

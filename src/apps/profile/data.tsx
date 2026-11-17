@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { Button } from "@/components/ui/Button";
 import { act, explain, useSimSnap, type ActNote, type ExplainLine } from "@/shell/simSession";
-import { gameDate, moneyFromCents, presentNote, scrubIds } from "@/components/ui/format";
+import { gameDate, moneyFromCents, presentNote, scrubIds, seedDebug } from "@/components/ui/format";
 
 export interface LifeStat {
   id: string;
@@ -271,6 +271,26 @@ export function sentenceOf(c: LifeContact): string {
   return c.line || `You know ${who}`;
 }
 
+export function CauseLines({ lines }: { lines: ExplainLine[] }) {
+  const shown = lines.flatMap((line) => {
+    if (seedDebug(line.msg)) return [];
+    const body = line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`.trim();
+    if (!body) return [];
+    return [{ ...line, body }];
+  });
+  if (!shown.length) return <p>The city was already here.</p>;
+  return (
+    <>
+      {shown.map((line) => (
+        <p key={`${line.id}-${line.depth}`} style={{ paddingLeft: line.depth * 12 }}>
+          <span className="label">{gameDate(line.day)}</span>{" "}
+          {line.body}
+        </p>
+      ))}
+    </>
+  );
+}
+
 export function Why({ id }: { id: number }) {
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<ExplainLine[] | null>(null);
@@ -284,12 +304,7 @@ export function Why({ id }: { id: number }) {
       <button type="button" className="qy-why-btn" onClick={on} data-testid="why">Why?</button>
       {open ? (
         <span className="qy-why-chain" data-testid="why-chain">
-          {lines ? lines.map((line) => (
-            <p key={`${line.id}-${line.depth}`} style={{ paddingLeft: line.depth * 12 }}>
-              <span className="label">{gameDate(line.day)}</span>{" "}
-              {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
-            </p>
-          )) : <p>Reading the cause…</p>}
+          {lines ? <CauseLines lines={lines} /> : <p>Reading the cause…</p>}
         </span>
       ) : null}
     </span>

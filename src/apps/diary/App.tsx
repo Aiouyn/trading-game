@@ -1,5 +1,6 @@
 "use client";
 // This week and the next four, day by day, with an open invitation you can answer.
+import type { ReactNode } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { gameDate, presentNote } from "@/components/ui/format";
 import { Result, useAct, Why } from "@/apps/profile/data";
@@ -8,7 +9,7 @@ import { useSimSnap } from "@/shell/simSession";
 import "@/apps/profile/life.css";
 import "@/components/ui/named.css";
 import { InviteActions } from "./Invite";
-import { cleanTitle, costOnce, diaryWindow, kindWord, namedWho, parsePlans, showPlace, showReason, showWho, type DiaryPlan } from "./read";
+import { cleanTitle, costOnce, diaryWindow, kindWord, namedWho, parsePlans, quietLabel, showPlace, showReason, showWho, type DiaryPlan } from "./read";
 import "./diary.css";
 
 function WhoLine({ who }: { who: DiaryPlan["who"] }) {
@@ -40,6 +41,48 @@ function Aftermath({ plan }: { plan: DiaryPlan }) {
       {plan.skipped ? <p>Skipped.</p> : null}
     </div>
   );
+}
+
+function dayRows(plans: DiaryPlan[], day: number): DiaryPlan[] {
+  return plans.filter((p) => p.day === day).sort((a, b) => Number(b.open) - Number(a.open) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
+}
+
+function WeekDays({ plans, start, busy, onGo }: {
+  plans: DiaryPlan[];
+  start: number;
+  busy: boolean;
+  onGo: (cmd: Record<string, unknown>) => void;
+}) {
+  const chunks: { key: string; node: ReactNode }[] = [];
+  let quietStart = -1;
+  let quietEnd = -1;
+  const flush = () => {
+    if (quietStart < 0) return;
+    const from = quietStart;
+    const to = quietEnd;
+    chunks.push({
+      key: `quiet-${from}`,
+      node: (
+        <div className="dia-quiet" data-testid="diary-quiet" data-kind="quiet">
+          <span>{quietLabel(from, to)}</span>
+        </div>
+      ),
+    });
+    quietStart = -1;
+  };
+  for (let i = 0; i < 7; i++) {
+    const day = start + i;
+    const rows = dayRows(plans, day);
+    if (!rows.length) {
+      if (quietStart < 0) quietStart = day;
+      quietEnd = day;
+      continue;
+    }
+    flush();
+    for (const p of rows) chunks.push({ key: p.key, node: <Entry plan={p} busy={busy} onGo={onGo} /> });
+  }
+  flush();
+  return <>{chunks.map((c) => <span className="dia-slot" key={c.key}>{c.node}</span>)}</>;
 }
 
 function Entry({ plan, primary, busy, onGo }: {
@@ -107,19 +150,7 @@ export default function DiaryApp() {
       {weeks.map((week) => (
         <section className="dia-week" key={week.start} aria-label={week.label}>
           <h3>{week.label}</h3>
-          {Array.from({ length: 7 }, (_, i) => {
-            const day = week.start + i;
-            const rows = plans.filter((p) => p.day === day).sort((a, b) => Number(b.open) - Number(a.open) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
-            if (!rows.length) {
-              return (
-                <div className="dia-quiet" key={day} data-testid="diary-entry" data-kind="quiet">
-                  <span className="num">{gameDate(day)}</span>
-                  <span>Quiet</span>
-                </div>
-              );
-            }
-            return rows.map((p) => <Entry key={p.key} plan={p} busy={busy} onGo={onGo} />);
-          })}
+          <WeekDays plans={plans} start={week.start} busy={busy} onGo={onGo} />
         </section>
       ))}
     </div>

@@ -8,6 +8,8 @@ export interface CircleMsg {
   eventId: number;
   source: number;
   requestId: number;
+  /** A journalist's request for comment. A reply is the comment, not a yes or no. */
+  press?: boolean;
 }
 export interface CircleThread {
   who: number;
@@ -184,6 +186,84 @@ export function readCircle(life: unknown): CircleSnap | null {
     firms,
     homes,
   };
+}
+
+export interface PressAsk {
+  eventId: number;
+  day: number;
+  until: number;
+  open: boolean;
+  journalist: string;
+  journalistIndex: number;
+  outlet: string;
+  voice: string;
+  about: string;
+  said: string;
+}
+
+export function readPress(raw: unknown): PressAsk[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const a = row as Record<string, unknown>;
+    const journalist = str(a.journalist);
+    if (!journalist) return [];
+    return [{
+      eventId: num(a.eventId, -1),
+      day: num(a.day),
+      until: num(a.until),
+      open: a.open === true,
+      journalist,
+      journalistIndex: num(a.journalistIndex, -1),
+      outlet: str(a.outlet) || "The paper",
+      voice: str(a.voice),
+      about: str(a.about),
+      said: str(a.said),
+    }];
+  });
+}
+
+function pressMessage(ask: PressAsk): CircleMsg {
+  const text = ask.said
+    ? `${ask.journalist} of ${ask.outlet} asked for comment on ${ask.about}`
+    : `${ask.journalist} of ${ask.outlet} asks for comment on ${ask.about}. A sentence is the comment.`;
+  return {
+    id: -(ask.eventId + 1),
+    day: ask.day,
+    text,
+    eventId: ask.eventId,
+    source: ask.eventId,
+    requestId: -1,
+    press: ask.open && !ask.said,
+  };
+}
+
+/** Threads plus any journalist who has asked for comment. */
+export function withPress(threads: CircleThread[], asks: PressAsk[]): CircleThread[] {
+  const seen = new Set(threads.map((t) => t.who));
+  const extra: CircleThread[] = [];
+  for (const ask of asks) {
+    if (ask.journalistIndex < 0 || seen.has(ask.journalistIndex)) continue;
+    seen.add(ask.journalistIndex);
+    extra.push({
+      who: ask.journalistIndex,
+      name: ask.journalist,
+      role: "journalist",
+      stance: ask.outlet,
+      messages: [pressMessage(ask)],
+    });
+  }
+  const merged = threads.map((t) => {
+    const ask = asks.find((a) => a.journalistIndex === t.who);
+    if (!ask || t.messages.some((m) => m.id === -(ask.eventId + 1))) return t;
+    return {
+      ...t,
+      role: t.role === "family" ? t.role : "journalist",
+      stance: t.stance || ask.outlet,
+      messages: [...t.messages, pressMessage(ask)],
+    };
+  });
+  return [...extra, ...merged];
 }
 
 export function roleWord(role: string, stance = ""): string {

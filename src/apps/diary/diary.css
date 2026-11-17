@@ -25,6 +25,7 @@
 .dia-kicker { color: var(--fg-muted); font-size: var(--fs-12_5); }
 .dia-week { display: flex; flex-direction: column; gap: var(--sp-8); margin-bottom: var(--sp-16); }
 .dia-week > h3 { font-size: var(--fs-16); }
+.dia-slot { display: contents; }
 .dia-quiet {
   display: flex;
   align-items: baseline;
@@ -34,7 +35,9 @@
   border-bottom: 1px solid var(--line);
   color: var(--fg-muted);
   font-size: var(--fs-12_5);
+  overflow-wrap: anywhere;
 }
+.dia-entry h3 { overflow-wrap: anywhere; }
 .dia-entry, .dia-card {
   display: flex;
   flex-direction: column;
@@ -61,6 +64,7 @@
 .dia-after { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 .dia-acts { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
 .dia-acts .btn { flex: 1 1 120px; min-height: var(--hit-touch); white-space: normal; text-align: center; }
+.dia-who { column-gap: 0; }
 .dia-who-bit { white-space: nowrap; }
 .dia .name-link {
   color: var(--fg);

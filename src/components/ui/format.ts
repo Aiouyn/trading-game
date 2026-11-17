@@ -64,9 +64,17 @@ function dollarsIn(n: string): string {
   return v.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+/** The genesis line is a debug stamp. The player should never read it. */
+export function seedDebug(text: string): boolean {
+  return /world (?:was |being )?created from seed/i.test(text);
+}
+
 /** A server note, in the same voice as the rest of the desk. */
 export function presentNote(text: string): string {
+  if (seedDebug(text)) return "";
   let s = text
+    .replace(/\s*This followed from the world (?:was |being )?created from seed[^.]*\.?/gi, "")
+    .trim()
     .replace(/^wait (\d+)d$/i, (_, n: string) => {
       const d = Number(n);
       if (d === 1) return "A day passed.";

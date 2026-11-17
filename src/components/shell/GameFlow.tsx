@@ -6,7 +6,7 @@ import {
   actLine, clearNote, dollars, explain, leaveGame, setSpeed, startScenario, useSimSnap,
   type ActNote, type ExplainLine, type PauseAction,
 } from "@/shell/simSession";
-import { presentNote } from "@/components/ui/format";
+import { presentNote, seedDebug } from "@/components/ui/format";
 import { closeNotes, useNotesOpen } from "./flowState";
 import { CircleChrome, RequestInterrupt } from "@/apps/messages/notices";
 
@@ -64,11 +64,16 @@ function WhyChain({ eventId }: { eventId: number }) {
       <p className="label">Why</p>
       {lines === null ? <p className="muted">Reading the book…</p> : null}
       {lines && lines.length === 0 ? <p className="muted">The book has no earlier cause.</p> : null}
-      {lines?.map((l, i) => (
-        <p key={`${l.id}-${l.depth}-${i}`} style={{ paddingLeft: l.depth * 14 }}>
-          {l.name ? <span className="why-name">{l.name}. </span> : null}{l.msg}
-        </p>
-      ))}
+      {lines?.map((l, i) => {
+        if (seedDebug(l.msg)) return null;
+        const body = presentNote(l.msg);
+        if (!body) return null;
+        return (
+          <p key={`${l.id}-${l.depth}-${i}`} style={{ paddingLeft: l.depth * 14 }}>
+            {l.name ? <span className="why-name">{l.name}. </span> : null}{body}
+          </p>
+        );
+      })}
     </div>
   );
 }

@@ -1,25 +1,47 @@
 "use client";
-// Wire on the simulation. Filters: you, contacts, holdings, city, markets.
-// Each item opens its cause chain.
+// The city's papers: outlet, voice, byline and beat. Rumours are marked. A correction names the story it corrects.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
-import { gameDate, presentNote } from "@/components/ui/format";
-import { EntityText } from "@/components/ui/Named";
+import { gameDate, presentNote, seedDebug } from "@/components/ui/format";
+import { Button } from "@/components/ui/Button";
+import { CauseLines, useAct } from "@/apps/profile/data";
 import { CityTicker } from "@/apps/society/ticker";
 import "./wire.css";
 
-interface Item { eventId: number; day: number; text: string; tags: string[] }
-
-const FILTERS = ["you", "contacts", "holdings", "city", "markets"] as const;
-type Filter = (typeof FILTERS)[number];
-
-function titleOf(tag: string): string {
-  return tag.charAt(0).toUpperCase() + tag.slice(1);
+interface Paper {
+  eventId: number;
+  day: number;
+  outlet: string;
+  voice: string;
+  journalist: string;
+  beat: string;
+  text: string;
+  rumour: boolean;
+  correction: boolean;
+  corrects: number;
+  correctsText: string;
+  roundup: boolean;
+  tags: string[];
+}
+interface Ask {
+  eventId: number;
+  day: number;
+  until: number;
+  open: boolean;
+  journalist: string;
+  journalistIndex: number;
+  outlet: string;
+  voice: string;
+  about: string;
+  said: string;
 }
 
+const FILTERS = ["papers", "you", "contacts", "holdings", "city", "markets"] as const;
+type Filter = (typeof FILTERS)[number];
 const LABEL: Record<Filter, string> = {
+  papers: "Papers",
   you: "You",
   contacts: "Contacts",
   holdings: "Holdings",
@@ -27,11 +49,35 @@ const LABEL: Record<Filter, string> = {
   markets: "Markets",
 };
 
+function beatWord(beat: string): string {
+  if (!beat) return "";
+  if (beat === "rumours") return "Rumours";
+  return beat.charAt(0).toUpperCase() + beat.slice(1);
+}
+
+function CommentBox({ ask, busy, onSend }: { ask: Ask; busy: boolean; onSend: (text: string) => void }) {
+  const [text, setText] = useState("");
+  return (
+    <form className="paper-ask" data-testid="press-ask" onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSend(text.trim()); }}>
+      <p className="paper-kicker">{ask.outlet}{ask.voice ? ` · ${ask.voice}` : ""}</p>
+      <p>{ask.journalist} asks for comment on {presentNote(ask.about)}</p>
+      <label>
+        Your comment
+        <textarea value={text} data-testid="press-comment" rows={3} onChange={(e) => setText(e.target.value)} />
+      </label>
+      <Button variant="primary" type="submit" disabled={busy || !text.trim()} data-testid="press-send">{busy ? "Sending…" : "Send to the paper"}</Button>
+    </form>
+  );
+}
+
 export default function WireApp() {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const tick = useSimSnap().view?.date.abs;
-  const [filter, setFilter] = useState<Filter>("you");
-  const [items, setItems] = useState<Item[]>([]);
+  const { note, busy, go } = useAct();
+  const [filter, setFilter] = useState<Filter>("papers");
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [asks, setAsks] = useState<Ask[]>([]);
+  const [saidLocal, setSaidLocal] = useState<Record<number, string>>({});
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -42,9 +88,9 @@ export default function WireApp() {
   useEffect(() => {
     const ac = new AbortController();
     void fetch("/api/sim/panel?name=wire", { cache: "no-store", signal: ac.signal })
-      .then((r) => (r.ok ? r.json() as Promise<{ items?: Item[] }> : null))
+      .then((r) => (r.ok ? r.json() as Promise<{ papers?: Paper[]; asks?: Ask[] }> : null))
       .then((j) => {
-        if (j?.items) { setItems(j.items); setFailed(false); }
+        if (j?.papers) { setPapers(j.papers); setAsks(j.asks ?? []); setFailed(false); }
         else setFailed(true);
         setReady(true);
       })
@@ -53,55 +99,91 @@ export default function WireApp() {
   }, [tick, attempt]);
 
   const shown = useMemo(
-    () => items.filter((item) => item.tags.includes(filter)).slice().sort((a, b) => b.day - a.day || b.eventId - a.eventId),
-    [items, filter],
+    () => papers.filter((p) => filter === "papers" || p.tags.includes(filter)),
+    [papers, filter],
   );
-  const newest = shown[0]?.eventId;
+  const byId = useMemo(() => new Map(papers.map((p) => [p.eventId, p])), [papers]);
 
   const onOpen = (id: number) => {
     const n = ++req.current;
     setOpen(id);
     setWhy([]);
-    void explain(id).then((lines) => { if (req.current === n) setWhy(lines); });
+    void explain(id).then((lines) => { if (req.current === n) setWhy(lines.filter((l) => !seedDebug(l.msg))); });
+  };
+  const send = async (ask: Ask, text: string) => {
+    const result = await go({ kind: "reply", msg: 0, text, press: true });
+    if (result.ok) setSaidLocal((cur) => ({ ...cur, [ask.eventId]: text }));
   };
 
   return (
     <div className={`sim-wire${phone ? " q-phone" : ""}`} data-testid="wire">
       <CityTicker where="wire" />
+      <header className="paper-head">
+        <h2>The papers</h2>
+      </header>
       <div className="sim-wire-filters" role="group" aria-label="Wire">
         {FILTERS.map((f) => (
           <button key={f} type="button" data-on={filter === f ? "1" : "0"} onClick={() => setFilter(f)}>{LABEL[f]}</button>
         ))}
       </div>
-      {!ready ? <p className="quay-state" role="status">Reading the wire…</p> : null}
+      {note ? <p className="paper-note" data-ok={note.ok ? "1" : "0"}>{presentNote(note.text)}</p> : null}
+      {asks.filter((a) => a.open && !(a.said || saidLocal[a.eventId])).map((ask) => (
+        <CommentBox key={ask.eventId} ask={ask} busy={busy} onSend={(text) => { void send(ask, text); }} />
+      ))}
+      {asks.filter((a) => a.said || saidLocal[a.eventId]).map((ask) => (
+        <p className="paper-said" key={`said-${ask.eventId}`} data-testid="press-said">You told {ask.outlet}: {ask.said || saidLocal[ask.eventId]}</p>
+      ))}
+      {!ready ? <p className="quay-state" role="status">Reading the papers…</p> : null}
       {ready && failed && !shown.length ? (
         <p className="quay-state" data-kind="error" role="alert">
           The wire did not answer. <button type="button" className="name-link" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </p>
       ) : null}
-      {shown.length ? shown.map((item) => (
-        <article
-          key={item.eventId}
-          className="sim-wire-item"
-          data-newest={item.eventId === newest ? "1" : "0"}
-          onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; onOpen(item.eventId); }}
-        >
-          <div className="sim-wire-hit" data-testid="wire-item">
-            <span className="sim-wire-meta">{item.tags.map((t) => LABEL[t as Filter] ?? titleOf(t)).join(" · ")} · {gameDate(item.day)}</span>
-            <EntityText text={item.text} />
-          </div>
-          {open === item.eventId ? (
-            <div className="sim-wire-why" data-testid="wire-why">
-              {why.length ? why.map((line, i) => (
-                <p key={`${line.id}-${line.depth}-${i}`} style={{ paddingLeft: line.depth * 12 }}>
-                  <span className="label">{gameDate(line.day)}</span>{" "}
-                  {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
-                </p>
-              )) : <p className="quay-state">Reading the cause…</p>}
-            </div>
-          ) : null}
-        </article>
-      )) : ready && !failed ? <p className="quay-empty">Nothing on {LABEL[filter].toLowerCase()} yet.</p> : null}
+      {shown.length ? shown.map((paper) => {
+        const corrected = paper.corrects >= 0 ? byId.get(paper.corrects) : undefined;
+        return (
+          <article key={paper.eventId} className="paper" data-testid="wire-item" data-rumour={paper.rumour ? "1" : "0"} data-correction={paper.correction ? "1" : "0"} data-roundup={paper.roundup ? "1" : "0"}>
+            {paper.outlet ? (
+              <header className="paper-mast">
+                <span className="paper-outlet">{paper.outlet}</span>
+                {paper.voice ? <span className="paper-voice">{paper.voice}</span> : null}
+              </header>
+            ) : null}
+            <p className="paper-marks">
+              {paper.rumour ? <span className="paper-mark" data-kind="rumour">Rumour</span> : null}
+              {paper.correction ? <span className="paper-mark" data-kind="correction">Correction</span> : null}
+              {paper.roundup ? <span className="paper-mark" data-kind="roundup">Roundup</span> : null}
+              {paper.beat ? <span>{beatWord(paper.beat)}</span> : null}
+              <span className="num">{gameDate(paper.day)}</span>
+            </p>
+            {paper.roundup ? (
+              <details className="paper-fold" data-testid="wire-roundup">
+                <summary>{presentNote(paper.text).slice(0, 80)}{presentNote(paper.text).length > 80 ? "…" : ""}</summary>
+                <p className="paper-body">{presentNote(paper.text)}</p>
+              </details>
+            ) : (
+              <p className="paper-body">{presentNote(paper.text)}</p>
+            )}
+            {paper.journalist ? (
+              <p className="paper-byline">
+                {paper.journalist}
+                {paper.beat ? `, ${paper.beat}` : ""}
+              </p>
+            ) : null}
+            {paper.correction && paper.corrects >= 0 ? (
+              <button type="button" className="name-link" data-testid="corrects" onClick={() => onOpen(paper.corrects)}>
+                Corrects: {presentNote(corrected?.text || paper.correctsText) || "the earlier story"}
+              </button>
+            ) : null}
+            <button type="button" className="name-link" onClick={() => onOpen(paper.eventId)}>Why?</button>
+            {open === paper.eventId || open === paper.corrects ? (
+              <div className="sim-wire-why" data-testid="wire-why">
+                {why.length ? <CauseLines lines={why} /> : <p className="quay-state">Reading the cause…</p>}
+              </div>
+            ) : null}
+          </article>
+        );
+      }) : ready && !failed ? <p className="quay-empty">Nothing in the papers on {LABEL[filter].toLowerCase()} yet.</p> : null}
     </div>
   );
 }

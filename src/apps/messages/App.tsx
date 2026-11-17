@@ -9,7 +9,7 @@ import { Named } from "@/components/ui/Named";
 import { Closed, Result, useAct, useLife, when } from "@/apps/profile/data";
 import "@/apps/profile/life.css";
 import {
-  askButtons, askForMessage, commandFor, contactOf, initial, moneyLabel, readCircle, roleWord, slotOf,
+  askButtons, askForMessage, commandFor, contactOf, initial, moneyLabel, readCircle, readPress, roleWord, slotOf, withPress,
   type CircleAsk, type CircleContact, type CircleMsg, type CircleThread, type LocalReply,
 } from "./circle";
 import { markRead, useRead } from "./notices";
@@ -130,7 +130,8 @@ export default function MessagesApp({ context }: AppBodyProps) {
     const n = whoFrom(context);
     if (n !== null) setWho(n);
   }, [context]);
-  const threads = snap?.threads ?? [];
+  const press = readPress((useSimSnap().view as { press?: unknown } | null)?.press);
+  const threads = snap ? withPress(snap.threads, press) : [];
   const open = threads.find((t) => t.who === who) ?? null;
   const openIds = open ? open.messages.map((m) => m.id).join(",") : "";
   const read = useRead();
@@ -148,7 +149,9 @@ export default function MessagesApp({ context }: AppBodyProps) {
     const reply: LocalReply = { key, who: thread.who, afterId: last.id, text: said, day: snap.abs };
     setMine((cur) => [...cur, reply]);
     setDraft("");
-    const result = await go({ kind: "reply", msg: last.id, text: said });
+    const result = last.press
+      ? await go({ kind: "reply", msg: 0, text: said, press: true })
+      : await go({ kind: "reply", msg: last.id, text: said });
     if (!result.ok) setMine((cur) => cur.filter((r) => r.key !== key));
   };
   const actOn = async (thread: CircleThread, afterId: number, cmd: Record<string, unknown>, said: string) => {
@@ -256,11 +259,11 @@ function Thread({ thread, plans, pending, contact, slot, mine, draft, busy, note
           </div>
         ) : <p className="msg-empty">Pick a person. Their letters, and what each one is about, sit here.</p>}
       </div>
-      {person && last ? (
+      {person && last && (last.id >= 0 || last.press) ? (
         <form className="msg-compose" onSubmit={(e) => { e.preventDefault(); onSend(draft); }}>
           <input
             value={draft}
-            placeholder={`Reply to ${person.name.split(/\s+/)[0] || "them"}`}
+            placeholder={last?.press ? "A sentence for the paper" : `Reply to ${person.name.split(/\s+/)[0] || "them"}`}
             data-testid="reply-text"
             onChange={(e) => onDraft(e.target.value)}
           />
