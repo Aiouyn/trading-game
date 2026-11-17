@@ -1,11 +1,8 @@
-// The first-paycheck lesson: seven small goals, one hint at a time, each finished by doing it.
-// The world has to make a step possible (a wage, a price that moved, a contact who knows something)
-// before the hint tells the player to act. `hints off` skips the rest.
+// The first-paycheck lesson: see the job, save the wage, buy one share, then read why it moved.
+// The world has to make a step possible before the hint tells the player to act. `hints off` skips the rest.
 import type { World } from '../../kernel/index.ts';
 import { DEP, type EconState } from '../economy/index.ts';
-import { marginLimit } from '../banking/index.ts';
 import { saleProceeds } from '../markets/index.ts';
-import { contactsOf, knows } from '../social/index.ts';
 
 export interface TutorialView {
   step: string;
@@ -41,17 +38,14 @@ export interface TutorSeat {
   tutor?: TutorialState | null;
 }
 
-const STEPS = ['sheet', 'bank', 'share', 'why', 'ask', 'loan', 'repay'] as const;
+const STEPS = ['sheet', 'bank', 'share', 'why'] as const;
 type StepId = (typeof STEPS)[number];
 
 const GOAL: Record<StepId, string> = {
-  sheet: 'Check your sheet',
-  bank: 'Open a bank account',
-  share: 'Buy your first share',
-  why: 'Read why it moved',
-  ask: 'Ask a contact',
-  loan: 'Take a loan',
-  repay: 'Pay it back',
+  sheet: 'See the job and the wage',
+  bank: 'Put the paycheck in savings',
+  share: 'Buy one share you can afford',
+  why: 'Read why the price moved',
 };
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -166,54 +160,10 @@ function bare(instr: string): string {
   return instr.startsWith('eq:') ? instr.slice(3) : instr;
 }
 
-interface Ask {
-  slot: number;
-  who: string;
-  firm: string;
-  firmName: string;
-}
-
-function askTarget(w: World, i: number): Ask | null {
-  const soc = w.state.social as {
-    head?: Int32Array; cellFact?: Int32Array; cellNext?: Int32Array; trust?: Uint8Array;
-    facts?: { pub?: boolean; drop?: boolean; firms?: number[]; id?: number }[];
-  } | undefined;
-  if (!soc?.head || !soc.cellFact || !soc.cellNext || !soc.trust || !soc.facts || i < 0) return null;
-  const firms = econ(w).firms;
-  const P = econ(w).P;
-  const DEG = 16;
-  for (const c of contactsOf(w, i)) {
-    if (soc.trust[i * DEG + c.slot] < 40) continue;
-    let cell = soc.head[c.who];
-    while (cell >= 0) {
-      const fact = soc.facts[soc.cellFact[cell]];
-      cell = soc.cellNext[cell];
-      if (!fact || fact.drop || fact.pub || fact.id === undefined || knows(w, i, fact.id)) continue;
-      const fi = fact.firms?.[0];
-      if (fi === undefined || !firms[fi]) continue;
-      return { slot: c.slot, who: P.name(c.who), firm: firms[fi].id, firmName: firms[fi].name };
-    }
-  }
-  return null;
-}
-
 function priceMoved(w: World, t: TutorialState): boolean {
   if (!t.instr || t.px <= 0) return false;
   const st = stockBy(w, t.instr);
   return !!st && st.last !== t.px;
-}
-
-function loanRoom(w: World, i: number): number {
-  if (i < 0 || !w.state.banking) return 0;
-  try { return marginLimit(w, i); } catch { return 0; }
-}
-
-function loanDollars(w: World, room: number): number {
-  const sc = w.state.scenario as { loan?: number } | undefined;
-  const mult = sc?.loan && sc.loan > 0 ? sc.loan : 1;
-  const dollars = Math.floor(room / 100 / mult);
-  if (dollars < 1) return 0;
-  return Math.min(100, dollars);
 }
 
 function hintFor(w: World, i: number, step: StepId, t: TutorialState): string {
@@ -221,39 +171,24 @@ function hintFor(w: World, i: number, step: StepId, t: TutorialState): string {
   const cash = cashOf(w, i);
   const name = i >= 0 ? P.name(i) : 'You';
   const emp = i >= 0 && P.employer[i] >= 0 ? econ(w).firms[P.employer[i]]?.name ?? '' : '';
-  if (step === 'sheet') return `Type sheet. ${name}${emp ? `, at ${emp},` : ''} has ${dollars(cash)} in cash.`;
+  if (step === 'sheet') return `Type sheet. ${name}${emp ? ` works at ${emp}.` : '.'} The wage arrives each week, and the book shows ${dollars(cash)}.`;
   if (step === 'bank') {
-    if (cash < 100) return `The wage has not cleared enough to bank. You have ${dollars(cash)}. Wait, then deposit.`;
-    return `Type deposit 50. That opens a time deposit. You have ${dollars(cash)} in cash.`;
+    if (cash < 200) return `The wage has not cleared enough to bank. You have ${dollars(cash)}. Wait, then deposit.`;
+    const keep = Math.min(cash - 100, Math.max(800, Math.round(cash * 0.7)));
+    return `Type deposit ${Math.max(1, Math.round(keep / 100))}. Cash left in the book gets spent. A deposit still counts. You have ${dollars(cash)}.`;
   }
   if (step === 'share') {
     const held = sharesOf(w, i);
     if (!held.length && t.instr) return `The order for ${firmLabel(w, t.instr)} is in. Wait a day for it to print.`;
     const pick = suggestShare(w, cash, i >= 0 ? P.id(i) : '');
-    if (!pick) return `Wait. No share you can afford has a bid the bank will lend against. You have ${dollars(cash)}.`;
+    if (!pick) return `Wait for the wage, or withdraw a little. No share you can afford is trading. You have ${dollars(cash)}.`;
     const sym = bare(pick.issuer);
-    return `Type buy ${sym} 1. ${firmLabel(w, pick.instr)} is ${dollars(pick.last)}, and you have ${dollars(cash)}.`;
+    return `Type buy ${sym} 1. One share of ${firmLabel(w, pick.instr)} is ${dollars(pick.last)}, and you have ${dollars(cash)}.`;
   }
-  if (step === 'why') {
-    const label = firmLabel(w, t.instr);
-    const now = stockBy(w, t.instr);
-    if (!priceMoved(w, t)) return `You hold ${label} at ${dollars(now?.last ?? t.px)}. Wait for the price to move, then type why price ${bare(t.instr)}.`;
-    return `Type why price ${bare(t.instr)}. ${label} was ${dollars(t.px)} and is now ${dollars(now?.last ?? t.px)}.`;
-  }
-  if (step === 'ask') {
-    const hit = askTarget(w, i);
-    if (!hit) return 'Wait. None of your contacts knows a private fact you have not already heard.';
-    const first = hit.who.split(' ')[0];
-    return `Type ask ${hit.slot} ${hit.firm}. ${first} knows something about ${hit.firmName}.`;
-  }
-  if (step === 'loan') {
-    const room = loanRoom(w, i);
-    const n = loanDollars(w, room);
-    if (n < 1) return `The bank lends against shares. Yours would fetch ${dollars(room)}. Buy more, or wait.`;
-    return `Type borrow ${n}. The bank lends against the shares, which would fetch ${dollars(room)}.`;
-  }
-  const owed = marginOf(w, i);
-  return `Type repay ${Math.max(1, Math.ceil(owed.owed / 100))}. You owe ${dollars(owed.owed)} at ${(owed.rate * 100).toFixed(2)}%.`;
+  const label = firmLabel(w, t.instr);
+  const now = stockBy(w, t.instr);
+  if (!priceMoved(w, t)) return `You hold ${label} at ${dollars(now?.last ?? t.px)}. Wait for the price to move, then type why price ${bare(t.instr)}.`;
+  return `Type why price ${bare(t.instr)}. ${label} was ${dollars(t.px)} and is now ${dollars(now?.last ?? t.px)}.`;
 }
 
 function current(t: TutorialState): StepId | 'done' {
@@ -261,9 +196,6 @@ function current(t: TutorialState): StepId | 'done' {
   if (!t.bank) return 'bank';
   if (!t.share) return 'share';
   if (!t.why) return 'why';
-  if (!t.ask) return 'ask';
-  if (!t.loan) return 'loan';
-  if (!t.repay) return 'repay';
   return 'done';
 }
 

@@ -30,6 +30,7 @@ const econ = (w: World): EconState => w.state.economy as EconState;
 
 const BASE: Record<string, number> = {
   'player.arrive': 40_000,
+  'player.twist': 120_000,
   'player.heir': 200_000,
   'player.died': 400_000,
   'player.wed': 150_000,
