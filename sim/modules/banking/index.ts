@@ -5,7 +5,7 @@
 // housing builders the same way. Four banks compete for those loans. Spendable money stays `dep`.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { GOODS } from '../economy/content.ts';
-import { BANK, CAPITAL, DEP, GOV, type EconState, type Firm, pay } from '../economy/index.ts';
+import { BANK, CAPITAL, DEP, GOV, type EconState, type Firm, noteBankMargin, pay } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
 import { markHolding, saleProceeds, saleValue, sellToBook } from '../markets/index.ts';
 import { noteBuiltHome } from '../property/index.ts';
@@ -209,7 +209,11 @@ function payInterest(w: World, bank: Bank, borrower: string, amount: number, cau
   dirtyFin(w);
   const a = Math.min(Math.round(amount), Math.floor(w.ledger.balance(borrower, DEP)));
   if (a <= 0) return 0;
-  if (bank.id === BANK) return w.ledger.redeem(DEP, borrower, a, 'loan.interest', cause) ? a : 0;
+  if (bank.id === BANK) {
+    if (!w.ledger.redeem(DEP, borrower, a, 'loan.interest', cause)) return 0;
+    noteBankMargin(w, a);
+    return a;
+  }
   return pay(w, borrower, bank.id, a, 'loan.interest', cause) ? a : 0;
 }
 function writeoffLoan(w: World, instr: string, cause: number): number {

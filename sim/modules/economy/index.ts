@@ -45,7 +45,7 @@ export interface EconState {
   firms: Firm[]; P: People; shareIds: string[]; govSlot: number; bankSlot: number; clearSlot: number; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
   wage: number; policyRate: number; cpi: number; cpiBase: number; cpiHist: number[];
   unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number; wageWho?: number; rateWho?: number; jobsWho?: number; cpiWho?: number;
-  yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force
+  yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; marginIn: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force. marginIn: loan interest the main bank redeemed this month, which is what deposit interest can be paid from
   taxAim?: number; profitTax?: number; divRate?: number; benefitRate?: number; inflTarget?: number;
   spendPri?: Record<string, number>; spendScale?: number;
 }
@@ -113,6 +113,30 @@ export function setSpendPriority(w: World, good: string, weight: number): void {
 }
 export function setSpendScale(w: World, scale: number): void {
   (w.state.economy as EconState).spendScale = clipRate(scale, 0.85, 1.15);
+}
+/** Loan interest the main bank redeemed. Deposit interest is paid from this, not printed. */
+export function noteBankMargin(w: World, cents: number): void {
+  const a = Math.round(cents);
+  if (a <= 0) return;
+  const s = w.state.economy as EconState;
+  s.marginIn = (s.marginIn ?? 0) + a;
+}
+function inflYoY(s: EconState): number {
+  const n = s.cpiHist.length;
+  if (n < 2) return 0.02;
+  const prev = s.cpiHist[Math.max(0, n - 13)];
+  return prev > 0 ? s.cpi / prev - 1 : 0;
+}
+/** Share of income a household spends. At the opening 3% rate this matches the old formula, so genesis
+ *  staffing is unchanged. Above that, a high real rate postpones spending: without that channel a rate
+ *  rise never creates the slack that ends a wage burst. */
+function spendingThrift(policy: number, yoy: number, u = NATURAL_UNEMP): number {
+  const real = policy - Math.max(-0.02, Math.min(0.12, yoy));
+  const cut = 0.8 * Math.max(0, policy - 0.02) + 1.4 * Math.max(0, real - 0.012);
+  // A labour market under 4% unemployed is already short of people. Spending eases the same week,
+  // which is what a rate hike is for, before the monthly wage bargain has indexed the shortage.
+  const scarce = Math.max(0, 0.04 - u);
+  return Math.max(0.74, Math.min(1.02, 1 - cut - 5 * scarce));
 }
 const bankEquity = (w: World): number => w.ledger.netWorth(BANK);
 function totalLoans(w: World, s: EconState): number { let t = 0; for (const f of s.firms) t += loanOf(w, f); return t; }
@@ -317,7 +341,7 @@ export const economy: Module = {
       firms: [], P, shareIds: ['eq:' + BANK], govSlot: L.slot(GOV), bankSlot: L.slot(BANK), clearSlot: L.slot(CLEAR),
       investors: [], laborForce: 0, hirePtr: 0, breakdowns: 0, successions: 0,
       wage, policyRate: 0.03, cpi: 1, cpiBase: 1, cpiHist: [], unemployment: 0.1, shockUntil: -1, shocks: [],
-      macroEv: g, wageEv: g, rateEv: g, wageWho: g, rateWho: g, jobsWho: g, cpiWho: g, yGdp: 0, yGdpEma: 1, yReal: 0, mSpend: 0, defaults: 0, taxEma: 0, taxToday: 0, profitTaxDaily: 0, dayGdp: 0, taxRate: INCOME_TAX, pensionEma: 0, pensionToday: 0, divTax: 0, fiscal: 0, uEma: 0.08,
+      macroEv: g, wageEv: g, rateEv: g, wageWho: g, rateWho: g, jobsWho: g, cpiWho: g, yGdp: 0, yGdpEma: 1, yReal: 0, mSpend: 0, defaults: 0, taxEma: 0, taxToday: 0, profitTaxDaily: 0, dayGdp: 0, taxRate: INCOME_TAX, pensionEma: 0, pensionToday: 0, divTax: 0, fiscal: 0, uEma: 0.08, marginIn: 0,
     };
     w.state.economy = s;
 
@@ -359,7 +383,7 @@ export const economy: Module = {
       price0[gd.good] = c * MARKUP;
     }
     const skills = workforce.reduce((t, p) => t + P.skill[p], 0);
-    const thrift0 = Math.max(0.88, 1 - 0.8 * Math.max(0, s.policyRate - 0.02));
+    const thrift0 = spendingThrift(s.policyRate, inflYoY(s));
     let cySum = 0; for (const p of workforce) cySum += P.cY[p];
     const mpc = cySum / Math.max(1, workforce.length) * thrift0;
     // Days of a person's own gross wage at which an average adult spends the whole after-tax wage and no more.
@@ -725,7 +749,7 @@ export const economy: Module = {
       dm[d.good] = demandMult(s, d.good);
       wts[d.good] = priceWeights(sellers[d.good]);
     }
-    const thrift = Math.max(0.88, 1 - 0.8 * Math.max(0, s.policyRate - 0.02)); // higher interest rates make saving more attractive
+    const thrift = spendingThrift(s.policyRate, inflYoY(s), s.unemployment);
     // Today's shoppers are every seventh person. Each one decides a budget from their own income, wealth and state of mind,
     // and pays it into the clearing account; the clearing account buys the basket from the firms in bulk and refunds
     // whatever it could not buy. One ledger posting per shopper, however many goods and sellers there are.
@@ -932,13 +956,29 @@ export const economy: Module = {
     s.taxRate = Math.max(taxLo, Math.min(taxHi, s.taxRate));
     if (Math.round(s.taxRate * 100) !== Math.round(t0 * 100)) E.emit('gov.tax', `income tax now ${(s.taxRate * 100).toFixed(0)}%: public debt is ${debtDays.toFixed(0)} days of GDP`, [s.macroEv], GOV);
 
-    // Wages follow the labour market and part of inflation.
-    s.fiscal = Math.max(-0.08, Math.min(0.25, s.fiscal + 0.05 * (s.uEma - NATURAL_UNEMP)));
+    // A stimulus sized for the opening slack used to still be in place years after unemployment had fallen
+    // through the natural rate. Firms stayed tight, markups widened, and the wage bargain chased that.
+    // Withdraw it while inflation is above target. Stop once prices are calm: an integral that keeps cutting
+    // until unemployment hits the natural rate on the nose turns the landing into a slump. A deep slump
+    // rebuilds the stance within a year, and a supply crash (slack already open) is not met with austerity.
+    const piStarFiscal = s.inflTarget ?? 0.02;
+    const above = yoy - piStarFiscal;
+    const slack = Math.max(s.unemployment, s.uEma) - NATURAL_UNEMP;
+    const tight = NATURAL_UNEMP - Math.min(s.unemployment, s.uEma);
+    let step = 0;
+    if (above > 0.01 && slack < 0.02) step -= 0.08 * Math.min(0.06, above);
+    if (tight > 0.02 && above > 0.01) step -= 0.05 * Math.min(0.04, tight);
+    // Below 3.5% unemployment the wage bargain runs away even if the yearly print has not caught up yet.
+    if (s.unemployment < 0.035 && above > -0.005) step -= 0.05;
+    if (above < -0.005) step += 0.04 * Math.min(0.03, -above);
+    if (slack > 0.02) step += 0.1 * Math.min(0.06, slack);
+    s.fiscal = Math.max(-0.03, Math.min(0.22, s.fiscal + step));
 
-    // Wage settlements: anchored on the 2% inflation target, catching up with part of actual inflation, pushed by the
-    // labour market. Nominal pay is almost never cut: only mass unemployment (over 15%) forces small cuts.
-    const anchor = 0.02 / 12;
-    const wRaw = anchor + 0.5 * (mInfl - anchor) + 0.04 * (NATURAL_UNEMP - s.unemployment);
+    // Wage settlements: anchored on the inflation target. A quarter of last month's miss is caught up, and a
+    // tight labour market adds to it. Catching half of every monthly print indexed each burst into the next
+    // wage, which is what kept inflation at 6–8% for years after the shock itself had ended.
+    const anchor = piStarFiscal / 12;
+    const wRaw = anchor + 0.25 * (mInfl - anchor) + 0.04 * (NATURAL_UNEMP - s.unemployment);
     const wCh = Math.max(s.unemployment > 0.15 ? -0.001 : 0, Math.min(0.012, wRaw));
     s.wage = Math.round(s.wage * (1 + wCh));
     if (Math.abs(wCh) > 0.002) s.wageEv = E.emit('macro.wage', `wages ${(wCh * 100).toFixed(2)}% this month`, [uEv, cpiEv]);
@@ -949,9 +989,16 @@ export const economy: Module = {
     // months annualised: it reacts sooner to a burst and stops tightening sooner once the burst is over.
     const infl = (yoy + Math.max(-0.05, Math.min(0.3, ann3))) / 2;
     const piStar = s.inflTarget ?? 0.02;
-    const target = Math.max(0, Math.min(0.2, 0.02 + infl + 0.5 * (infl - piStar) + 0.5 * (NATURAL_UNEMP - s.unemployment)));
-    // Rates move gradually, except that a central bank cuts hard once unemployment is climbing well above normal.
-    const speed = target < s.policyRate && s.unemployment > NATURAL_UNEMP + 0.03 ? 0.5 : 0.15;
+    const uGap = NATURAL_UNEMP - s.unemployment;
+    // A standard half-weight on unemployment lets the labour market hit 2% before the yearly print moves.
+    // While inflation has not yet caught up, weight the gap more, so the hike arrives in the boom and not the year after.
+    const uCoef = uGap > 0.025 && infl < 0.045 ? 1.1 : 0.5;
+    const target = Math.max(0, Math.min(0.2, 0.02 + infl + 0.5 * (infl - piStar) + uCoef * uGap));
+    // Rates move gradually, except that a central bank cuts hard once unemployment is climbing well above
+    // normal, and hikes without waiting once the labour market is tight and prices have not yet followed.
+    const speed = target < s.policyRate && s.unemployment > NATURAL_UNEMP + 0.03 ? 0.5
+      : s.unemployment < 0.04 && target > s.policyRate && infl < 0.05 ? 0.45
+      : 0.15;
     const next = Math.round(((1 - speed) * s.policyRate + speed * target) * 400) / 400; // quarter-point grid
     if (next !== s.policyRate) {
       s.rateEv = E.emit('cb.rate', `policy rate ${(s.policyRate * 100).toFixed(2)}% -> ${(next * 100).toFixed(2)}%`, [cpiEv, uEv], CB);
@@ -959,7 +1006,7 @@ export const economy: Module = {
       if (gov >= 0) s.rateWho = E.emit('cb.desk', `${s.P.name(gov)} moves the policy rate to ${(next * 100).toFixed(2)}%`, [s.rateEv], s.P.id(gov));
       s.policyRate = next;
     }
-    const loanRate = s.policyRate + 0.03, depRate = Math.max(0, s.policyRate - 0.01);
+    const loanRate = s.policyRate + 0.03;
 
     // The last day's sales, including deliveries booked after this morning, land in this month's profit.
     for (const f of s.firms) {
@@ -972,7 +1019,8 @@ export const economy: Module = {
     for (const f of s.firms) {
       if (f.closed) continue;
       const loan = loanOf(w, f), interest = Math.round(loan * loanRate / 12);
-      if (!pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv)) borrow(w, s, f, interest, s.rateEv) && pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv);
+      if (interest > 0 && pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv)) s.marginIn = (s.marginIn ?? 0) + interest;
+      else if (interest > 0) borrow(w, s, f, interest, s.rateEv) && pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv);
       const profit = f.mRev - f.mCost - interest;
       if (profit > 0) { const t = Math.round(Math.min(cash(w, f.id), profit * (s.profitTax ?? PROFIT_TAX))); if (pay(w, f.id, GOV, t, 'tax.profit', s.macroEv)) profitTax += t; }
       const buffer = f.eff * s.wage * 30;
@@ -1012,7 +1060,7 @@ export const economy: Module = {
     // Bond coupons are paid by the bond market on their own dates. Without that market, the bank is paid the policy rate.
     if (api) api.coupons(w, s.rateEv);
     else govPay(w, BANK, (L.issued.get(BOND) ?? 0) * s.policyRate / 12, 'gov.coupon', s.rateEv);
-    if (depRate > 0) { const P = s.P; for (let k = 0; k < P.n; k++) { if (!P.alive(k)) continue; const i = Math.round(L.balS(P.slot[k], DEP) * depRate / 12); if (i > 0) { L.issueS(DEP, P.slot[k], i, 'deposit.interest', s.rateEv); P.incWeek[k] += i; } } }
+    paySightInterest(w, s);
     const eqTarget = 0.12 * totalLoans(w, s) + 0.04 * (L.issued.get(BOND) ?? 0);
     const bankSpare = bankEquity(w) - eqTarget;
     if (bankSpare > 0) payDividends(w, s, BANK, bankSpare * 0.25, s.rateEv);
@@ -1045,6 +1093,29 @@ export const economy: Module = {
   },
 };
 
+/** Sight-deposit interest, paid only out of loan interest the main bank redeemed this month.
+ *  Issuing the policy rate on every deposit printed money in proportion to the rate, so a tightening
+ *  raised household income and the burst the rate was meant to end kept going. */
+function paySightInterest(w: World, s: EconState): void {
+  const depRate = Math.max(0, s.policyRate - 0.01);
+  const pot = Math.floor(s.marginIn ?? 0);
+  s.marginIn = 0;
+  if (!(depRate > 0) || pot <= 0) return;
+  const P = s.P, L = w.ledger;
+  let deposits = 0;
+  for (let k = 0; k < P.n; k++) if (P.alive(k)) deposits += L.balS(P.slot[k], DEP);
+  if (!(deposits > 0)) return;
+  const rate = Math.min(depRate, pot * 12 / deposits);
+  let left = pot;
+  for (let k = 0; k < P.n && left > 0; k++) {
+    if (!P.alive(k)) continue;
+    const i = Math.min(left, Math.round(L.balS(P.slot[k], DEP) * rate / 12));
+    if (i <= 0) continue;
+    L.issueS(DEP, P.slot[k], i, 'deposit.interest', s.rateEv);
+    P.incWeek[k] += i;
+    left -= i;
+  }
+}
 function payDividends(w: World, s: EconState, issuer: string, cents: number, cause: number): void {
   const L = w.ledger, total = L.issued.get('eq:' + issuer) ?? 0;
   if (!total) return;
