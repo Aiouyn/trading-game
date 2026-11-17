@@ -269,8 +269,53 @@ function findContact(st: Social, i: number, who: number): number {
   if (c[b + 15] === who) return 15;
   return -1;
 }
-function place(st: Social, a: number, b: number, fam: number, trust: number, kind: number): void {
-  if (a < 0 || b < 0 || a >= st.cap || findContact(st, a, b) >= 0) return;
+// Slot on the other side of a contact, so a conversation does not scan sixteen slots.
+// 0..15 is that slot, 254 is known to be absent, 255 is not cached yet.
+const REV_NONE = 254, REV_UNK = 255;
+let revOf: Social | null = null;
+let rev = new Uint8Array(0);
+function revEnsure(st: Social): void {
+  if (revOf !== st) { revOf = st; rev = new Uint8Array(0); }
+  const n = st.contact.length;
+  if (rev.length >= n) return;
+  const a = new Uint8Array(Math.max(n, rev.length * 2, 16));
+  a.fill(REV_UNK);
+  if (rev.length) a.set(rev);
+  rev = a;
+}
+function revForget(st: Social, i: number, k: number, who: number): void {
+  if (revOf !== st) return;
+  const p = i * DEG + k;
+  if (p < rev.length) rev[p] = REV_UNK;
+  if (who < 0) return;
+  const kb = findContact(st, who, i);
+  if (kb < 0) return;
+  const q = who * DEG + kb;
+  if (q < rev.length && rev[q] === k) rev[q] = REV_NONE;
+}
+// Hot path: -2 means the cache has no answer yet. 0..15 and -1 are final.
+function revCached(a: number, ka: number): number {
+  const p = a * DEG + ka;
+  if (p >= rev.length) return -2;
+  const v = rev[p];
+  if (v < DEG) return v;
+  return v === REV_NONE ? -1 : -2;
+}
+function revSlot(st: Social, a: number, ka: number, b: number): number {
+  if (revOf === st) {
+    const v = revCached(a, ka);
+    if (v !== -2) return v;
+  }
+  const kb = findContact(st, b, a);
+  revEnsure(st);
+  const p = a * DEG + ka;
+  if (p < rev.length) rev[p] = kb < 0 ? REV_NONE : kb;
+  return kb;
+}
+function place(st: Social, a: number, b: number, fam: number, trust: number, kind: number): number {
+  if (a < 0 || b < 0 || a >= st.cap) return -1;
+  const have = findContact(st, a, b);
+  if (have >= 0) return have;
   const base = a * DEG;
   const contact = st.contact;
   for (let k = 0; k < DEG; k++) if (contact[base + k] < 0) {
@@ -285,13 +330,18 @@ function place(st: Social, a: number, b: number, fam: number, trust: number, kin
     st.bond[q + B_FEAR] = seeded.fear;
     st.bond[q + B_LOYALTY] = seeded.loyalty;
     st.bond[q + B_FRIEND] = seeded.friend;
-    return;
+    return k;
   }
+  return -1;
 }
 function link(st: Social, a: number, b: number, fam: number, trust: number, kind: number): void {
   if (a === b || a < 0 || b < 0) return;
-  place(st, a, b, fam, trust, kind);
-  place(st, b, a, fam, trust, kind);
+  const ka = place(st, a, b, fam, trust, kind);
+  const kb = place(st, b, a, fam, trust, kind);
+  revEnsure(st);
+  const n = rev.length;
+  if (ka >= 0) { const p = a * DEG + ka; if (p < n) rev[p] = kb < 0 ? REV_NONE : kb; }
+  if (kb >= 0) { const p = b * DEG + kb; if (p < n) rev[p] = ka < 0 ? REV_NONE : ka; }
 }
 function tiePerson(st: Social, w: World, i: number): void {
   const P = econ(w).P;
@@ -326,8 +376,10 @@ function refreshWork(st: Social, w: World, i: number): void {
   const b = i * DEG;
   for (let k = 0; k < DEG; k++) if (st.kind[b + k] === KIND_WORK) {
     const p = b + k;
+    const who = st.contact[p];
     st.contact[p] = -1; st.kind[p] = 0; st.fam[p] = 0; st.trust[p] = 0;
     st.bond.fill(0, p * 4, p * 4 + 4);
+    revForget(st, i, k, who);
   }
   const e = P.employer[i];
   st.emp[i] = e;
@@ -838,15 +890,17 @@ function bumpAt(st: Social, i: number, k: number, chief: boolean): void {
   const f = st.fam[p] + FAM_STEP;
   st.fam[p] = f > 65535 ? 65535 : f;
   const q = p * 4, bd = st.bond;
-  bd[q + B_FRIEND] = clampByte(bd[q + B_FRIEND] + 1);
-  bd[q + B_LOYALTY] = clampByte(bd[q + B_LOYALTY] + 1);
-  bd[q + B_RESPECT] = clampByte(bd[q + B_RESPECT] + (chief ? 0 : 1));
-  bd[q + B_FEAR] = clampByte(bd[q + B_FEAR] + (chief ? 1 : -1));
+  const fr = bd[q + B_FRIEND]; bd[q + B_FRIEND] = fr < 100 ? fr + 1 : 100;
+  const lo = bd[q + B_LOYALTY]; bd[q + B_LOYALTY] = lo < 100 ? lo + 1 : 100;
+  const rs = bd[q + B_RESPECT]; if (!chief && rs < 100) bd[q + B_RESPECT] = rs + 1;
+  const fe = bd[q + B_FEAR];
+  bd[q + B_FEAR] = chief ? (fe < 100 ? fe + 1 : 100) : (fe > 0 ? fe - 1 : 0);
 }
 function bumpWith(st: Social, employer: Int32Array, ceo: Int32Array, a: number, b: number, ka: number): void {
   const ea = employer[a], eb = employer[b];
   bumpAt(st, a, ka, ea >= 0 && ceo[ea] === b);
-  const kb = findContact(st, b, a);
+  let kb = revOf === st ? revCached(a, ka) : -2;
+  if (kb === -2) kb = revSlot(st, a, ka, b);
   if (kb >= 0) bumpAt(st, b, kb, eb >= 0 && ceo[eb] === a);
 }
 function bumpPair(w: World, st: Social, a: number, b: number, ka: number): void {
@@ -856,7 +910,7 @@ function bumpPair(w: World, st: Social, a: number, b: number, ka: number): void 
   const chiefA = ea >= 0 && firms[ea].ceo === b;
   const chiefB = eb >= 0 && firms[eb].ceo === a;
   bumpAt(st, a, ka, chiefA);
-  const kb = findContact(st, b, a);
+  const kb = revSlot(st, a, ka, b);
   if (kb >= 0) bumpAt(st, b, kb, chiefB);
 }
 function conversations(w: World): void {
@@ -865,6 +919,7 @@ function conversations(w: World): void {
   if (ceoBuf.length < firms.length) ceoBuf = new Int32Array(firms.length);
   for (let f = 0; f < firms.length; f++) ceoBuf[f] = firms[f].ceo;
   ceoOn = ceoBuf;
+  revEnsure(st);
   const flags = P.flags, born = P.born, employer = P.employer;
   const day = w.day, line = day - 18 * DAYS_PER_YEAR, slot = day % 7;
   const contact = st.contact, trust = st.trust, head = st.head;

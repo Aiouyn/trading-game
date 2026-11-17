@@ -189,11 +189,12 @@ function setMarked(w: World, p: number, next: number, cause: number): void {
   if (next === prev) return;
   const id = ownerActor(w, p);
   if (!id) { st.marked[p] = next; return; }
+  const L = w.ledger, sl = L.slot(id);
   const d = next - prev;
-  if (d > 0) { w.ledger.issue(PROP, id, d, 'property.revalue', cause); st.marked[p] = next; return; }
-  const have = Math.floor(w.ledger.balance(id, PROP));
+  if (d > 0) { L.issueS(PROP, sl, d, 'property.revalue', cause); st.marked[p] = next; return; }
+  const have = Math.floor(L.balS(sl, PROP));
   const cut = Math.min(have, -d);
-  if (cut > 0) w.ledger.redeem(PROP, id, cut, 'property.revalue', cause);
+  if (cut > 0) L.redeemS(PROP, sl, cut, 'property.revalue', cause);
   st.marked[p] = prev - (cut > 0 ? cut : 0);
 }
 function hand(w: World, p: number, k: number, id: number, cause: number): void {
@@ -201,9 +202,10 @@ function hand(w: World, p: number, k: number, id: number, cause: number): void {
   const from = ownerActor(w, p), to = actorOf(w, k, id);
   const v = Math.round(st.marked[p]);
   if (from && to && from !== to && v > 0) {
-    const have = Math.floor(w.ledger.balance(from, PROP));
+    const L = w.ledger, fs = L.slot(from);
+    const have = Math.floor(L.balS(fs, PROP));
     const m = Math.min(v, have);
-    if (m > 0 && w.ledger.move(PROP, from, to, m, 'property.transfer', cause)) st.marked[p] = m;
+    if (m > 0 && L.moveS(PROP, fs, L.slot(to), m, 'property.transfer', cause)) st.marked[p] = m;
     else if (m > 0) return;
   }
   st.ownK[p] = k; st.own[p] = id;
@@ -445,20 +447,23 @@ let occNext = new Int32Array(0);
 let rankList: Int32Array | null = null;
 let rankLen = 0;
 
-function occEnsure(st: Book, nPeople: number): void {
-  if (occBook !== st) { occOn = false; occBook = st; }
+function occGrow(st: Book, nPeople: number): void {
   if (occHead.length < st.n) {
     const a = new Int32Array(Math.max(st.n, occHead.length * 2, 16));
     a.fill(-1);
-    if (occOn) a.set(occHead);
+    if (occOn && occBook === st) a.set(occHead);
     occHead = a;
   }
   if (occNext.length < nPeople) {
     const a = new Int32Array(Math.max(nPeople, occNext.length * 2, 16));
     a.fill(-1);
-    if (occOn) a.set(occNext);
+    if (occOn && occBook === st) a.set(occNext);
     occNext = a;
   }
+}
+function occEnsure(st: Book, nPeople: number): void {
+  if (occBook !== st) { occOn = false; occBook = st; }
+  occGrow(st, nPeople);
   if (occOn) return;
   occHead.fill(-1, 0, st.n);
   const lim = Math.min(nPeople, st.live.length);
@@ -472,10 +477,31 @@ function occEnsure(st: Book, nPeople: number): void {
   }
   occOn = true;
 }
-function setLive(st: Book, _nPeople: number, i: number, p: number): void {
+function occUnlink(parcel: number, i: number): void {
+  let cur = occHead[parcel], prev = -1;
+  while (cur >= 0) {
+    const next = occNext[cur];
+    if (cur === i) {
+      if (prev < 0) occHead[parcel] = next;
+      else occNext[prev] = next;
+      occNext[i] = -1;
+      return;
+    }
+    prev = cur;
+    cur = next;
+  }
+}
+function setLive(st: Book, nPeople: number, i: number, p: number): void {
+  const prev = i < st.live.length ? st.live[i] : -1;
   st.live[i] = p;
-  // Any direct move drops the household index. The next shiftAll rebuilds it from `live`.
-  occOn = false;
+  if (!occOn || occBook !== st || prev === p) return;
+  const need = Math.max(nPeople, i + 1);
+  if (occHead.length < st.n || occNext.length < need) occGrow(st, need);
+  if (prev >= 0 && prev < st.n && prev < occHead.length) occUnlink(prev, i);
+  if (p >= 0 && p < st.n && p < occHead.length && i < occNext.length) {
+    occNext[i] = occHead[p];
+    occHead[p] = i;
+  }
 }
 function shiftAll(w: World, from: number, dest: number): void {
   if (from === dest || from < 0 || dest < 0) return;
@@ -740,12 +766,12 @@ function serviceLoans(w: World): void {
     const principal = Math.max(0, due - interest);
     let paidI = 0, leftI = interest, leftP = principal;
     for (const i of household(P, who)) {
-      const potI = Math.max(0, Math.floor(w.ledger.balance(P.id(i), DEP) - P.incEma[i] * KEEP));
+      const potI = Math.max(0, Math.floor(w.ledger.balS(P.slot[i], DEP) - P.incEma[i] * KEEP));
       if (leftI > 0 && potI > 0) { const a = Math.min(leftI, potI); paidI += payInterest(w, bankId, P.id(i), a, cause); leftI -= a; }
     }
     if (paidI + 1 >= interest) {
       for (const i of household(P, who)) {
-        const potP = Math.max(0, Math.floor(w.ledger.balance(P.id(i), DEP) - P.incEma[i] * KEEP));
+        const potP = Math.max(0, Math.floor(w.ledger.balS(P.slot[i], DEP) - P.incEma[i] * KEEP));
         if (leftP > 0 && potP > 0) { const a = Math.min(leftP, potP); leftP -= payPrincipal(w, bankId, k, P.id(i), a, cause); }
       }
     }

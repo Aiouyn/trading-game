@@ -163,55 +163,25 @@ function jumpy(rets: number[]): boolean {
   return false;
 }
 
-function daysToReport(w: World, issuer: string, firmIdx: number): number | undefined {
-  const root = w.state.earnings;
-  if (!root || typeof root !== 'object') return undefined;
+function daysToReport(w: World, issuer: string, _firmIdx: number): number | undefined {
+  // Reports are the only earnings records the old walk could read: a parent is never
+  // already about this issuer, and an array longer than 400 was skipped. Days only move
+  // forward, newest report last, so the first match at or after today is the nearest.
+  const reports = (w.state.earnings as { reports?: { issuer?: unknown; day?: unknown }[] } | undefined)?.reports;
+  if (!reports || reports.length > 400) return undefined;
   const today = w.day;
-  let best: number | undefined;
-  const seen = new WeakSet<object>();
-  const take = (day: number): void => {
-    if (!Number.isFinite(day)) return;
+  const tail = issuer.slice(3);
+  for (let i = reports.length - 1; i >= 0; i--) {
+    const r = reports[i];
+    const day = r.day;
+    if (typeof day !== 'number' || !Number.isFinite(day)) continue;
     const d = Math.round(day) - today;
-    if (d < 0 || d > 24) return;
-    if (best === undefined || d < best) best = d;
-  };
-  const walk = (v: unknown, depth: number, about: boolean): void => {
-    if (best === 0 || depth > 3 || v === null || typeof v !== 'object') return;
-    if (seen.has(v)) return;
-    seen.add(v);
-    if (ArrayBuffer.isView(v)) {
-      if (about && firmIdx >= 0) {
-        const a = v as unknown as { length: number; [i: number]: number };
-        if (firmIdx < a.length && typeof a[firmIdx] === 'number') take(a[firmIdx]);
-      }
-      return;
-    }
-    if (Array.isArray(v)) {
-      if (v.length > 400) {
-        if (about && firmIdx >= 0 && firmIdx < v.length) walk(v[firmIdx], depth + 1, true);
-        return;
-      }
-      for (const x of v) walk(x, depth + 1, about);
-      return;
-    }
-    const o = v as Record<string, unknown>;
-    let here = about;
-    for (const key of ['issuer', 'firm', 'firmId', 'id', 'stock']) {
-      const x = o[key];
-      if (typeof x === 'string' && (x === issuer || x === issuer.slice(3) || 'eq:' + x === issuer)) here = true;
-    }
-    if (typeof o[issuer] === 'number') take(o[issuer] as number);
-    const bare = issuer.startsWith('eq:') ? issuer.slice(3) : issuer;
-    if (bare !== issuer && typeof o[bare] === 'number') take(o[bare] as number);
-    if (here) {
-      for (const key of ['day', 'date', 'when', 'next', 'nextDay', 'reportDay', 'due', 'earningsDay', 'report']) {
-        if (typeof o[key] === 'number') take(o[key] as number);
-      }
-    }
-    for (const x of Object.values(o)) walk(x, depth + 1, here);
-  };
-  walk(root, 0, false);
-  return best;
+    if (d < 0) break;
+    if (d > 24) continue;
+    const x = r.issuer;
+    if (typeof x === 'string' && (x === issuer || x === tail || 'eq:' + x === issuer)) return d;
+  }
+  return undefined;
 }
 
 function volOf(w: World, stock: StockPeek, firmIdx: number): number {

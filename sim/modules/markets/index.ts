@@ -735,9 +735,7 @@ function seedInventory(w: World, mm: string): void {
 }
 
 function topHolding(w: World, instr: string): number {
-  let qty = 0;
-  for (const [, n] of w.ledger.holdersS(instr)) if (n > qty) qty = n;
-  return qty;
+  return w.ledger.topQty(instr);
 }
 
 /** Bids near the last price, other than the market maker's own quote. The maker's quote is around the last print, so it cannot be what holds that print up. */

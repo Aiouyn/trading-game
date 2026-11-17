@@ -7,8 +7,8 @@ Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no
 
 | People | Seconds per simulated year | Memory |
 |---|---|---|
-| 20,000 (default) | 9.5 | |
-| 200,000 | 33 (about 4 more for world creation) | 590 MB |
+| 20,000 (default) | 10.5 | |
+| 200,000 | 27.4 | 628 MB |
 
 Measured with all eighteen modules. At 200,000 people about a quarter of the time is social (conversations, news reactions) and a sixth is property (monthly rent, moves). `--without bonds,social` switches modules off to isolate a behaviour.
 

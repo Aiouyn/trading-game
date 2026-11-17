@@ -62,13 +62,17 @@ function marginOf(w: World, actor: string): number { return Math.round(w.ledger.
 function issued(w: World, id: string): number { return Math.round(w.ledger.issued.get(id) ?? 0); }
 
 // While traders plan the day's orders nothing settles, so positions and resources are read once and cached.
-let netCache: Map<string, number> | null = null, resCache: Map<string, number> | null = null, expoCache: Map<string, number> | null = null;
+let netCache: Map<string, Map<Tenor, number>> | null = null, resCache: Map<string, number> | null = null, expoCache: Map<string, number> | null = null;
 function netOf(w: World, actor: string, t: Tenor): number {
-  const k = netCache ? actor + '|' + t.longId : '';
-  if (netCache) { const v = netCache.get(k); if (v !== undefined) return v; }
-  const v = Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
-  if (netCache) netCache.set(k, v);
-  return v;
+  if (netCache) {
+    let row = netCache.get(actor);
+    if (row) { const v = row.get(t); if (v !== undefined) return v; }
+    else { row = new Map(); netCache.set(actor, row); }
+    const v = Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
+    row.set(t, v);
+    return v;
+  }
+  return Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
 }
 
 function spotOf(w: World, s: EconState, good: string): number {
@@ -174,7 +178,7 @@ function releaseMargin(w: World, actor: string, cents: number, cause: number): b
 
 function applyDelta(w: World, actor: string, t: Tenor, delta: number, cause: number): void {
   if (delta === 0) return;
-  netCache?.delete(actor + '|' + t.longId); // the planning pass updates its exposure cache itself
+  netCache?.get(actor)?.delete(t); // the planning pass updates its exposure cache itself
   const L = w.ledger;
   if (delta > 0) {
     const cover = Math.min(delta, Math.round(L.balance(actor, t.shortId)));
