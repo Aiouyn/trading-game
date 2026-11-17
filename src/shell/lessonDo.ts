@@ -50,11 +50,17 @@ export function timeSpeak(timeLeft?: string): string {
   return timeLeft.replace(/\b1 months\b/, "1 month").replace(/\b1 years\b/, "1 year").replace(/\b1 days\b/, "1 day");
 }
 
-/** The hint, without ledger ids. The button still runs the original line. */
+/** The hint, without ledger ids or a command the button already runs. */
 export function hintSpeak(hint: string): string {
   const cleaned = hint
     .replace(/Type ask \d+\s+frm_[A-Za-z0-9_]+\./gi, "Ask them.")
     .replace(/Type buy frm_[A-Za-z0-9_]+ (\d+)\./gi, "Buy $1.")
-    .replace(/Type why price frm_[A-Za-z0-9_]+\./gi, "Read why the price moved.");
+    .replace(/Type why price frm_[A-Za-z0-9_]+\./gi, "Read why the price moved.")
+    .replace(/Type\s+sheet\s*\./gi, "Check the sheet.")
+    .replace(/Type\s+deposit\s+([^.]*)\./gi, (_, rest: string) => `Deposit $${rest.trim()}.`)
+    .replace(/Type\s+([a-z][a-z0-9 ]*)\./gi, (_, rest: string) => {
+      const line = rest.trim();
+      return `${line.charAt(0).toUpperCase()}${line.slice(1)}.`;
+    });
   return presentNote(cleaned);
 }

@@ -151,9 +151,9 @@ function EndScreen({ id, name, outcome, reason, score, code, lines }: {
         {score ? (
           <ul className="end-score">
             <li>Worth <MoneyText amount={dollars(score.worth)} ctx="sentence" /></li>
-            <li title={`you ${score.worthX.toFixed(2)}×, the index ${score.indexX.toFixed(2)}×`}>{ahead ? "Ahead of the index" : "Behind the index"}</li>
+            <li>you {score.worthX.toFixed(2)}×, the index {score.indexX.toFixed(2)}× · {ahead ? "ahead of the index" : "behind the index"}</li>
             <li title={String(score.reputation)}>{repWord(score.reputation)}</li>
-            <li title={firms > 1 ? String(firms) : undefined}>{firms <= 0 ? "No firm under your control" : firms === 1 ? "One firm under your control" : "Firms under your control"}</li>
+            <li>{firms <= 0 ? "No firm under your control" : firms === 1 ? "One firm under your control" : `${firms} firms under your control`}</li>
             <li title={convictions > 1 ? String(convictions) : undefined}>{convictions <= 0 ? "No convictions" : convictions === 1 ? "One conviction" : "Convictions on the book"}</li>
           </ul>
         ) : null}

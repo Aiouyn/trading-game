@@ -95,7 +95,7 @@
 }
 .flow-end { width: min(640px, 100%); }
 .flow-card h2 { margin: 0 0 8px; font: 400 var(--fs-28) / 1.15 var(--font-display); }
-.flow-body { margin: 0 0 12px; }
+.flow-body { margin: 0 0 12px; white-space: pre-wrap; }
 .interrupt-why { margin: 8px 0 14px; color: var(--fg-muted); font-size: var(--fs-13); }
 .interrupt-why p { margin: 2px 0; }
 .why-name { color: var(--fg); }
@@ -107,7 +107,7 @@
 .end-story { margin: 0 0 14px; padding-left: 18px; max-height: 38vh; overflow: auto; }
 .end-story li { margin: 0 0 10px; }
 .end-title { display: block; font: 400 var(--fs-16) / 1.3 var(--font-display); }
-.end-text, .end-cause { display: block; color: var(--fg-muted); font-size: var(--fs-13); }
+.end-text, .end-cause { display: block; color: var(--fg-muted); font-size: var(--fs-13); white-space: pre-wrap; }
 .end-code-label { display: flex; flex-direction: column; gap: 6px; color: var(--fg-muted); font-size: var(--fs-12_5); }
 .end-code-label input {
   width: 100%;

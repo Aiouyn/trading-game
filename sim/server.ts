@@ -503,7 +503,7 @@ function chain(w: World, id: number, maxDepth = 8): ChainLine[] {
       if (f) { firm = f.id; name = f.name; }
     }
     out.push({
-      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name, msg: e.msg, exo: e.exo, again,
+      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name, msg: speakIds(w, e.msg), exo: e.exo, again,
     });
     if (again || d >= maxDepth) return;
     seen.add(i);
@@ -1244,10 +1244,12 @@ interface PauseAction { label: string; line: string }
 interface PauseHit {
   why: string;
   eventId: number;
-  kind: 'margin' | 'bid' | 'arrest' | 'death' | 'strike' | 'milestone' | 'end';
+  kind: 'margin' | 'sale' | 'bankruptcy' | 'bid' | 'arrest' | 'death' | 'strike' | 'milestone' | 'end';
   text: string;
   actions?: PauseAction[];
 }
+interface LotSnap { instr: string; symbol: string; name: string; qty: number; close: number }
+interface TakenLot { symbol: string; name: string; qty: number; close: number; day: number; how: string }
 interface StoryLine { title: string; text: string; cause: string }
 interface SaveMeta {
   id: string; label: string; scenario: string; scenarioId: string;
@@ -1259,6 +1261,11 @@ const feed: FeedLine[] = [];
 const pausedIds = new Set<number>();
 let feedSeen = -1;
 let pauseNote: PauseHit | null = null;
+let pauseQueue: PauseHit[] = [];
+/** Holdings at the last screen, so a later forced sale can name the quantity and the last close. */
+let heldSnap: LotSnap[] = [];
+let lastTaken: TakenLot[] = [];
+let lastRuin: { why: string; brief: string } | null = null;
 /** History scanned at boot must not open an interrupt. A later hit does, even if the clock is already paused. */
 let played = false;
 let sawOutcome = '';
@@ -1273,7 +1280,9 @@ function dateLabel(day: number): string {
 }
 
 function moneyLabel(cents: number): string {
-  return `${cents < 0 ? '-' : ''}$${(Math.abs(Math.round(cents)) / 100).toFixed(2)}`;
+  const neg = cents < 0;
+  const [whole, frac] = (Math.abs(Math.round(cents)) / 100).toFixed(2).split('.');
+  return `${neg ? '-' : ''}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${frac}`;
 }
 
 function progressOf(w: World): { progress: number; meter: string } {
@@ -1364,18 +1373,91 @@ function scenarioCard(w: World): Record<string, unknown> | null {
   }
   const prog = progressOf(w);
   const begun = sc?.begun ?? w.day;
+  const ahead = !live.outcome && prog.progress >= 1 && (live.goal || '').startsWith('net worth');
   return {
     ...live,
+    goal: speakIds(w, live.goal || ''),
     daysLeft: left,
-    timeLeft,
+    timeLeft: live.outcome ? 'The run is over' : timeLeft,
     beat: challengeBeat,
     progress: prog.progress,
     meter: prog.meter,
     first: openingLine(w),
     fresh: begun === w.day && !sc?.outcome,
-    lines: live.outcome ? storyFive(live.chronicle, live.score?.events) : [],
+    ahead,
+    pullback: ahead ? pullbackLine(w) : '',
+    lines: live.outcome ? runStory(w, live) : [],
     begun,
   };
+}
+
+const TWIST_LINE: Record<string, string> = {
+  illness: 'Someone at home can fall ill, and that bill can pull the book back under the aim.',
+  shock: 'A shock can hit the firm. Six losing months and the seat is lost.',
+  redeem: 'The outside money can be asked back, and the fee is worse if the cash is already gone.',
+  repair: 'A repair bill can arrive, and a hard year can cost more than the houses.',
+  bidwar: 'A rival can raise what the holders will accept.',
+  layoff: 'The firm can let you go before the clock ends.',
+};
+
+function pullbackLine(w: World): string {
+  const claims = scenarioClaims(w);
+  const twist = (w.state.scenario as { twist?: string } | undefined)?.twist ?? '';
+  const bits = ['You are already past the aim. It locks at the next review, and it can still be lost.'];
+  if (claims.length) {
+    const n = claims.reduce((a, c) => a + c.owed, 0);
+    bits.push(`The book already owes ${moneyLabel(n)} that is not cash and not a bank loan.`);
+  }
+  if (twist && TWIST_LINE[twist]) bits.push(TWIST_LINE[twist]);
+  return bits.join(' ');
+}
+
+function shortenCause(cause: string): string {
+  if (!cause) return '';
+  const cut = cause.split(/\b(?:CPI|households spending|policy rate|industrial machinery)\b/i)[0].replace(/,\s*$/, '').trim();
+  if (cut.length >= 40 && cut.length < cause.length) return cut.endsWith('.') ? cut : `${cut}.`;
+  if (cause.length > 180) return `${cause.slice(0, 176).replace(/\s+\S*$/, '')}…`;
+  return cause;
+}
+
+function playerDid(w: World): string {
+  const log = (w.state.player as { log?: { status: string; cmd?: Record<string, unknown> }[] } | undefined)?.log ?? [];
+  const bits: string[] = [];
+  for (const row of log) {
+    if (!row || row.status !== 'accepted' || !row.cmd || typeof row.cmd.kind !== 'string') continue;
+    const kind = row.cmd.kind;
+    if (kind === 'wait' || kind === 'sheet' || kind === 'help' || kind === 'hints' || kind === 'story') continue;
+    const t = fillText(row.cmd);
+    if (!t || t === kind) continue;
+    bits.push(t);
+  }
+  const pick = bits.length <= 6 ? bits : [...bits.slice(0, 3), '…', ...bits.slice(-3)];
+  return pick.join('; ');
+}
+
+function runStory(w: World, live: { reason?: string; chronicle?: string; score?: { events?: string[] } }): StoryLine[] {
+  const i = playerIndex(w);
+  const name = i >= 0 ? econ(w).P.name(i) : '';
+  const out: StoryLine[] = [];
+  if (lastRuin && /bankrupt|sold your shares|forced close/i.test(lastRuin.why)) {
+    out.push({ title: lastRuin.why, text: lastRuin.brief, cause: '' });
+  }
+  if (live.reason) out.push({ title: 'How it ended', text: speakIds(w, live.reason), cause: '' });
+  const did = playerDid(w);
+  if (did) out.push({ title: 'What you did', text: did, cause: '' });
+  const beats = storyFive(live.chronicle, live.score?.events);
+  const mine: StoryLine[] = [];
+  const rest: StoryLine[] = [];
+  for (const b of beats) {
+    const blob = `${b.title} ${b.text}`;
+    if (name && blob.includes(name)) mine.push(b);
+    else rest.push(b);
+  }
+  for (const b of [...mine, ...rest]) {
+    if (out.length >= 5) break;
+    out.push({ title: b.title, text: speakIds(w, b.text), cause: shortenCause(b.cause) });
+  }
+  return out.slice(0, 5);
 }
 
 function feedCtx(w: World): { id: string; family: Set<string>; firms: { id: string; name: string }[]; employer: string; employerId: string } {
@@ -1396,7 +1478,7 @@ function mentionsFirm(msg: string, actor: string | undefined, firms: { id: strin
 function classify(e: { id: number; day: number; kind: string; actor?: string; msg: string }, ctx: ReturnType<typeof feedCtx>, news: number): FeedLine | null {
   const you = !!ctx.id && e.actor === ctx.id;
   let tag = '';
-  if (you && (e.kind.startsWith('player.') || e.kind === 'loan.grant' || e.kind === 'loan.margin' || e.kind === 'loan.default' || e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind.startsWith('law.') || e.kind === 'person.breakdown' || e.kind === 'health.injury' || e.kind === 'health.debt' || e.kind === 'person.died')) tag = 'you';
+  if (you && (e.kind.startsWith('player.') || e.kind === 'loan.grant' || e.kind === 'loan.margin' || e.kind === 'loan.default' || e.kind === 'loan.sell' || e.kind === 'loan.shortfall' || e.kind === 'loan.writeoff' || e.kind === 'court.bankruptcy' || e.kind === 'court.sale' || e.kind === 'court.pay' || e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind.startsWith('law.') || e.kind === 'person.breakdown' || e.kind === 'health.injury' || e.kind === 'health.debt' || e.kind === 'person.died')) tag = 'you';
   else if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) tag = 'family';
   else if ((e.kind === 'health.injury' || e.kind === 'health.debt') && e.actor && ctx.family.has(e.actor)) tag = 'family';
   else if ((e.kind === 'firm.bid' || e.kind === 'firm.takeover' || e.kind === 'firm.layoffs' || e.kind === 'firm.failed' || e.kind === 'firm.ceoFired' || e.kind === 'labour.strike' || e.kind === 'labour.lockout') && mentionsFirm(e.msg, e.actor, ctx.firms)) tag = 'firm';
@@ -1407,11 +1489,69 @@ function classify(e: { id: number; day: number; kind: string; actor?: string; ms
   return { eventId: e.id, day: e.day, tag, text };
 }
 
+function speakIds(w: World, msg: string): string {
+  const P = econ(w).P;
+  return msg
+    .replace(/\beq:frm_[a-z0-9_]+|\bfrm_[a-z0-9_]+/gi, (m) => findFirm(w, m.replace(/^eq:/i, ''))?.name ?? m)
+    .replace(/\bp_\d+\b/g, (m) => {
+      const n = Number(m.slice(2));
+      return Number.isInteger(n) && n >= 0 && n < P.n ? P.name(n) : m;
+    });
+}
+
+function holdingsNow(w: World): LotSnap[] {
+  const i = playerIndex(w);
+  if (i < 0) return [];
+  const id = econ(w).P.id(i);
+  const rows: LotSnap[] = [];
+  for (const st of stocksOf(w)) {
+    const qty = Math.floor(w.ledger.balance(id, st.instr));
+    if (qty < 1) continue;
+    rows.push({ instr: st.instr, symbol: symbolOf(st.instr), name: issuerName(w, st.issuer), qty, close: Math.round(st.last) });
+  }
+  return rows;
+}
+
+function lotsSold(before: LotSnap[], after: LotSnap[], day: number, how: string): TakenLot[] {
+  const now = new Map(after.map((r) => [r.instr, r.qty]));
+  const out: TakenLot[] = [];
+  for (const b of before) {
+    const qty = b.qty - (now.get(b.instr) ?? 0);
+    if (qty < 1) continue;
+    out.push({ symbol: b.symbol, name: b.name, qty, close: b.close, day, how });
+  }
+  return out;
+}
+
+function isRuin(hit: PauseHit): boolean {
+  return hit.kind === 'margin' || hit.kind === 'sale' || hit.kind === 'bankruptcy';
+}
+
+function rankPause(hit: PauseHit): number {
+  if (hit.kind === 'bankruptcy') return 80;
+  if (hit.kind === 'sale') return 70;
+  if (hit.kind === 'margin') return 60;
+  if (hit.kind === 'end') return 55;
+  if (hit.kind === 'death') return 40;
+  if (hit.kind === 'arrest') return 30;
+  if (hit.kind === 'bid') return 20;
+  return 10;
+}
+
 function pauseHit(e: { id: number; kind: string; actor?: string; msg: string }, ctx: ReturnType<typeof feedCtx>): PauseHit | null {
   if (!ctx.id) return null;
   const you = e.actor === ctx.id;
+  if (you && (e.kind === 'court.bankruptcy' || e.kind === 'player.bankrupt')) {
+    return { why: 'The court declares you bankrupt', eventId: e.id, kind: 'bankruptcy', text: e.msg };
+  }
+  if (you && (e.kind === 'loan.sell' || e.kind === 'court.sale')) {
+    return { why: 'The bank sold your shares', eventId: e.id, kind: 'sale', text: e.msg };
+  }
+  if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall') && /closed out/i.test(e.msg)) {
+    return { why: 'A forced close', eventId: e.id, kind: 'sale', text: e.msg };
+  }
   if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind === 'loan.margin')) {
-    return { why: 'a margin call', eventId: e.id, kind: 'margin', text: e.msg };
+    return { why: 'A margin call', eventId: e.id, kind: 'margin', text: e.msg };
   }
   if (e.kind === 'firm.bid' && e.actor !== ctx.id && ctx.firms.some((f) => e.msg.includes('for ' + f.name))) {
     return { why: 'a takeover bid', eventId: e.id, kind: 'bid', text: e.msg };
@@ -1451,18 +1591,23 @@ function pauseActions(w: World, hit: PauseHit): PauseAction[] {
   if (hit.kind === 'end') return [];
   const v = view(w);
   switch (hit.kind) {
-    case 'margin': {
-      const owed = v.loans.reduce((a, l) => a + (l.kind === 'margin' ? l.owed : 0), 0);
+    case 'margin':
+    case 'sale':
+    case 'bankruptcy': {
+      const owed = v.loans.reduce((a, l) => a + l.owed, 0);
       const pay = Math.min(v.cash, owed);
       const actions: PauseAction[] = [];
-      if (pay >= 1) actions.push({ label: `Repay ${moneyLabel(pay)}`, line: `repay ${(pay / 100).toFixed(2)}` });
-      const sh = v.shares.find((s) => s.qty >= 2);
-      if (sh) {
-        const sym = tradeSym(sh.instr);
-        const half = Math.max(1, Math.floor(sh.qty / 2));
-        actions.push({ label: `Sell half of ${sym}`, line: `sell ${sym} ${half}` });
+      if (hit.kind === 'margin' && pay >= 1) actions.push({ label: `Repay ${moneyLabel(pay)}`, line: `repay ${(pay / 100).toFixed(2)}` });
+      if (hit.kind === 'margin') {
+        const sh = v.shares.find((s) => s.qty >= 2);
+        if (sh) {
+          const sym = tradeSym(sh.instr);
+          const half = Math.max(1, Math.floor(sh.qty / 2));
+          actions.push({ label: `Sell half of ${sym}`, line: `sell ${sym} ${half}` });
+        }
       }
       actions.push({ label: 'Read the sheet', line: 'sheet' });
+      if (hit.kind !== 'margin') actions.push({ label: 'See who is hiring', line: 'jobs' });
       return actions;
     }
     case 'bid':
@@ -1491,43 +1636,154 @@ function decoratePause(w: World, hit: PauseHit): PauseHit {
     try { text = w.events.get(hit.eventId)?.msg ?? hit.why; }
     catch { text = hit.why; }
   }
+  if (!isRuin(hit)) text = speakIds(w, text);
   let actions: PauseAction[] = [];
   try { actions = pauseActions(w, hit); }
   catch { actions = []; }
   return { ...hit, text, actions };
 }
 
+function composeRuin(w: World, hits: PauseHit[], extra: string[], before: LotSnap[]): PauseHit {
+  const worst = hits.reduce((a, b) => (rankPause(b) > rankPause(a) ? b : a));
+  const kind = worst.kind;
+  const after = holdingsNow(w);
+  const how = kind === 'bankruptcy' ? 'were sold for the creditors' : 'were sold into the book';
+  const sold = kind === 'margin' || before.length === 0 ? [] : lotsSold(before, after, w.day, how);
+  if (sold.length) lastTaken = sold;
+  const i = playerIndex(w);
+  const P = econ(w).P;
+  const id = i >= 0 ? P.id(i) : '';
+  const name = i >= 0 ? P.name(i) : 'You';
+  const book = w.state.banking as { lock?: Int32Array; bust?: Int32Array; ln: number; lnOpen: Uint8Array; lnPerson: Int32Array } | undefined;
+  let owed = 0;
+  if (book && i >= 0) for (let k = 0; k < book.ln; k++) {
+    if (!book.lnOpen[k] || book.lnPerson[k] !== i) continue;
+    owed += Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
+  }
+  const claims = scenarioClaims(w);
+  const claim = claims.reduce((a, c) => a + c.owed, 0);
+  const cash = id ? Math.floor(w.ledger.balance(id, DEP)) : 0;
+  const homes = (view(w).homes ?? []).filter((h) => h.mine).map((h) => h.neighbourhood);
+  const barred = book?.lock && i >= 0 && book.lock[i] > w.day ? book.lock[i] : -1;
+  const lines: string[] = [];
+  for (const h of hits) {
+    const t = speakIds(w, h.text || '');
+    if (t && !lines.includes(t)) lines.push(t);
+  }
+  for (const line of extra) {
+    const t = speakIds(w, line);
+    if (t && !lines.includes(t)) lines.push(t);
+  }
+  const parts: string[] = [lines.join(' ')];
+  let brief = '';
+  if (kind === 'margin') {
+    const held = after.map((r) => `${r.qty} ${r.name} (${r.symbol}), last close ${moneyLabel(r.close)}`).join('; ');
+    const sale = held
+      ? `What the bank would sell: ${held}. The close is not the price the book will pay.`
+      : 'No listed shares are in the account for the bank to sell.';
+    parts.push(sale);
+    brief = sale;
+  } else if (sold.length) {
+    const sale = `What was sold: ${sold.map((l) => {
+      const px = l.close > 0 ? ` The last close on the book before the sale was ${moneyLabel(l.close)}. That is the day's close, not the price each share fetched. The book does not keep the fill.` : '';
+      return `${l.qty} ${l.name} (${l.symbol}) ${l.how}.${px}`;
+    }).join(' ')}`;
+    parts.push(sale);
+    brief = sale;
+  } else {
+    const sale = 'No listed share quantity changed against the last count on this screen. A forced close can still flatten futures or written options. The book does not keep a fill price for those.';
+    parts.push(sale);
+    brief = sale;
+  }
+  const owe = `You owe the bank ${moneyLabel(owed)} on open loans.${claim > 0 ? ` The book also owes ${moneyLabel(claim)} that is not a bank loan.` : ''} Cash in hand is ${moneyLabel(cash)}.`;
+  parts.push(owe);
+  brief = `${brief} ${owe}`;
+  if (kind === 'bankruptcy' || (book?.bust && i >= 0 && book.bust[i] >= 0)) {
+    const until = barred >= 0 ? ` You cannot borrow until ${dateLabel(barred)}, six years from the declaration.` : ' You cannot borrow for six years.';
+    const home = homes.length ? ` You still have a home in ${homes.join(', ')}.` : ' No home is in your name.';
+    const still = `${name} can still work and save, and can sell whatever is left.${until}${home}`;
+    parts.push(still);
+    brief = `${brief} ${still}`;
+  } else if (kind === 'sale') {
+    const still = owed > 0
+      ? 'What you can still do: repay what remains, work, and save. If the court has barred borrowing, a new loan will be refused.'
+      : 'The loan that triggered the sale is paid down. You can still work, save, and buy again.';
+    parts.push(still);
+    brief = `${brief} ${still}`;
+  } else {
+    parts.push('What you can still do: repay the loan, or sell shares yourself, before the three trading days run out. After that the bank sells into the book.');
+  }
+  const why = kind === 'bankruptcy' ? 'The court declares you bankrupt' : kind === 'sale' ? 'The bank sold your shares' : 'A margin call';
+  lastRuin = { why, brief };
+  return { why, eventId: worst.eventId, kind, text: parts.filter(Boolean).join('\n\n') };
+}
+
+function enqueuePause(w: World, hit: PauseHit): void {
+  const decorated = decoratePause(w, hit);
+  if (isRuin(decorated)) {
+    pauseQueue = pauseQueue.filter((p) => !isRuin(p));
+    if (pauseNote && isRuin(pauseNote)) {
+      if (rankPause(decorated) >= rankPause(pauseNote)) {
+        pauseNote = decorated;
+        speed = 'pause';
+      }
+      return;
+    }
+  }
+  if (!pauseNote) {
+    pauseNote = decorated;
+    speed = 'pause';
+    return;
+  }
+  if (pauseNote.eventId === decorated.eventId || pauseQueue.some((p) => p.eventId === decorated.eventId)) return;
+  if (rankPause(decorated) > rankPause(pauseNote)) {
+    pauseQueue.unshift(pauseNote);
+    pauseNote = decorated;
+    speed = 'pause';
+    return;
+  }
+  pauseQueue.push(decorated);
+}
+
 /** New lines since the last call. Pause hits are remembered so a reload of the same event does not stop the clock twice. */
 function collect(w: World, minDay = -1): FeedLine[] {
+  const before = heldSnap;
   const ctx = feedCtx(w);
   const count = w.events.count;
   const start = feedSeen < 0 ? Math.max(0, count - 8000) : feedSeen;
   const lines: FeedLine[] = [];
+  const raw: PauseHit[] = [];
+  const extra: string[] = [];
   let news = 0;
-  let hit: PauseHit | undefined;
   for (let id = start; id < count; id++) {
     const e = w.events.get(id);
     if (!e) continue;
     if (minDay >= 0 && e.day < minDay && !e.kind.startsWith('player.')) continue;
     const line = classify(e, ctx, news);
     if (line) {
+      if (/frm_|p_\d/.test(line.text)) line.text = speakIds(w, line.text);
       if (line.tag === 'wire') news++;
       lines.push(line);
       feed.push(line);
     }
+    if (ctx.id && e.actor === ctx.id && (e.kind === 'loan.shortfall' || e.kind === 'loan.writeoff' || e.kind === 'court.pay' || e.kind === 'player.margin')) extra.push(e.msg);
     const pause = pauseHit(e, ctx);
     if (pause && !pausedIds.has(pause.eventId)) {
       pausedIds.add(pause.eventId);
-      if (!hit) hit = pause;
+      raw.push(pause);
     }
   }
   feedSeen = count;
   if (feed.length > 100) feed.splice(0, feed.length - 100);
-  if (!hit) hit = milestone(w) ?? undefined;
-  if (hit && (speed !== 'pause' || played)) {
-    speed = 'pause';
-    pauseNote = decoratePause(w, hit);
+  const mile = milestone(w);
+  if (played || speed !== 'pause') {
+    const ruin = raw.filter((h) => isRuin(h));
+    const rest = raw.filter((h) => !isRuin(h));
+    if (ruin.length) enqueuePause(w, composeRuin(w, ruin, extra, before));
+    for (const h of rest) enqueuePause(w, h);
+    if (!raw.length && mile) enqueuePause(w, mile);
   }
+  heldSnap = holdingsNow(w);
   return lines;
 }
 
@@ -1537,6 +1793,10 @@ function seedFeed(w: World): void {
   feedSeen = -1;
   pausedIds.clear();
   pauseNote = null;
+  pauseQueue = [];
+  heldSnap = [];
+  lastTaken = [];
+  lastRuin = null;
   collect(w, Math.max(0, w.day - 2));
   played = true;
   const sc = w.state.scenario as { outcome?: string; fired?: boolean } | undefined;
@@ -1661,6 +1921,7 @@ function beginGeneration(job: GenJob): string | null {
     started = false;
     over = false;
     pauseNote = null;
+    pauseQueue = [];
   }
   generating = true;
   challengeBeat = job.beat && job.beat > 0 ? job.beat : 0;
@@ -2017,6 +2278,24 @@ interface BankBook {
   lnRate: Float64Array;
 }
 
+function scenarioClaims(w: World): { owed: number; eventId: number; text: string }[] {
+  const i = playerIndex(w);
+  if (i < 0) return [];
+  const id = econ(w).P.id(i);
+  const out: { owed: number; eventId: number; text: string }[] = [];
+  const ev = w.events.last('player.heir') ?? w.genesis;
+  let text = '';
+  try { text = w.events.get(ev)?.msg ?? ''; } catch { text = ''; }
+  for (const [instr, inst] of w.ledger.instruments) {
+    if (inst.issuer !== id || inst.kind !== 'claim') continue;
+    if (instr.startsWith('pl_') || instr.startsWith('pm_')) continue;
+    const owed = Math.floor(w.ledger.issued.get(instr) ?? 0);
+    if (owed <= 0) continue;
+    out.push({ owed, eventId: ev, text: text || `The book owes ${moneyLabel(owed)} that is not a bank loan.` });
+  }
+  return out;
+}
+
 function bankPanel(w: World): Record<string, unknown> {
   const i = playerIndex(w);
   const P = econ(w).P;
@@ -2058,10 +2337,12 @@ function bankPanel(w: World): Record<string, unknown> {
   }
   const limit = i >= 0 ? pledgeValue(w, id) : 0;
   const room = Math.max(0, limit - marginOwed);
+  const claims = scenarioClaims(w);
   return {
     cash: i >= 0 ? Math.floor(w.ledger.balance(id, DEP)) : 0,
     cashEv: w.genesis,
     deposits,
+    claims,
     loans,
     margin: {
       limit,
@@ -2907,7 +3188,7 @@ function optRequirement(w: World, actor: string): number {
 function riskOf(w: World): Record<string, unknown> {
   const i = playerIndex(w);
   const seat = soleSeat(w);
-  if (i < 0 || !seat) return { open: false, word: 'Closed', eventId: w.genesis, used: 0, limit: 0, distance: 0, sold: [] };
+  if (i < 0 || !seat) return { open: false, word: 'Closed', eventId: w.genesis, used: 0, limit: 0, distance: 0, sold: [], taken: lastTaken };
   const id = econ(w).P.id(i);
   const cash = Math.floor(w.ledger.balance(id, DEP));
   const futPosted = Math.round(w.ledger.balance(id, 'cmdty:margin'));
@@ -2963,7 +3244,7 @@ function riskOf(w: World): Record<string, unknown> {
     futPosted, futInit, futMaint, futNote,
     optPosted, optNeed, optMaint,
     distance: distance.cents, distanceKind: distance.kind,
-    used: loanOwed, sold, eventId,
+    used: loanOwed, sold, taken: lastTaken, eventId,
   };
 }
 
@@ -3431,6 +3712,7 @@ const server = http.createServer(async (req, res) => {
       started = false;
       over = false;
       pauseNote = null;
+      pauseQueue = [];
       send(res, 200, { ok: true });
       return;
     }
@@ -3497,7 +3779,19 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!booksOk) { send(res, 409, { error: 'the books do not balance', lines: booksBad }); return; }
-      if (over && next !== 'pause') { send(res, 409, { error: 'you have died' }); return; }
+      if (over && next !== 'pause') {
+        const who = playerIndex(w);
+        const alive = who >= 0 && econ(w).P.alive(who);
+        send(res, 409, { error: alive ? 'the run is over' : 'you have died' });
+        return;
+      }
+      if (next !== 'pause' && pauseQueue.length) {
+        pauseNote = pauseQueue.shift() ?? null;
+        speed = 'pause';
+        if (pauseNote) broadcast('speed', { speed: 'pause', ...pauseNote });
+        send(res, 200, { speed: 'pause' });
+        return;
+      }
       if (next !== 'pause') pauseNote = null;
       speed = next;
       send(res, 200, { speed });

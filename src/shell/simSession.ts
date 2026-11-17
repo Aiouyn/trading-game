@@ -43,6 +43,8 @@ export interface ScenarioView {
   beat?: number;
   outcome?: "win" | "loss";
   reason?: string;
+  ahead?: boolean;
+  pullback?: string;
   score?: { worth: number; worthX: number; indexX: number; firms: number; reputation: number; convictions: number; events?: string[] };
   code?: string;
   lines?: StoryBeat[];
@@ -94,6 +96,7 @@ export interface SimView {
     optPosted: number; optNeed: number; optMaint: number;
     distance: number; distanceKind: string; used: number; eventId: number;
     sold: { instr: string; symbol: string; name: string; qty: number; proceeds: number; eventId: number }[];
+    taken?: { symbol: string; name: string; qty: number; close: number; day: number; how: string }[];
   };
   fills?: { day: number; kind: string; text: string; eventId: number }[];
   orders: OrderRow[];
@@ -425,10 +428,11 @@ export async function setSpeed(speed: SimView["speed"]): Promise<void> {
     publish({ ...snap, note: { ok: false, text: typeof data.error === "string" ? data.error : "the clock did not change" } });
     return;
   }
+  const next = data.speed === "pause" || data.speed === "day" || data.speed === "week" || data.speed === "month" ? data.speed : speed;
   if (snap.view) {
-    const view = { ...snap.view, speed, pause: speed === "pause" ? snap.view.pause : null };
+    const view = { ...snap.view, speed: next, pause: next === "pause" ? snap.view.pause : null };
     adopt(view);
-    publish({ ...snap, view });
+    publish({ ...snap, view, note: next === "pause" && speed !== "pause" ? null : snap.note });
   }
 }
 

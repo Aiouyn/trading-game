@@ -25,6 +25,9 @@
   padding: var(--sp-8) var(--sp-12);
   border-bottom: 1px solid var(--line);
 }
+@container peo (max-width: 520px) {
+  .peo-filters { flex-wrap: wrap; overflow: visible; }
+}
 .peo-chip {
   flex: none;
   min-height: 44px;

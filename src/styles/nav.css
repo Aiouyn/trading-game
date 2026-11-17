@@ -30,7 +30,7 @@
 .statusbar .clock { font-size: var(--fs-13); }
 .quay-mark { width: 44px; height: 44px; display: grid; place-items: center; -webkit-touch-callout: none; user-select: none; touch-action: none; }
 .sb-nw { margin-left: auto; font-size: var(--fs-12_5); }
-.phone-home { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 16px; }
+.phone-home { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 16px; }
 .widget { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--win); padding: 16px; margin-bottom: 16px; }
 .widget-top { display: flex; justify-content: space-between; align-items: center; }
 .phone-signin-cta { display: flex; width: 100%; margin-top: 10px; justify-content: center; }

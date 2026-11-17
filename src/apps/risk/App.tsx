@@ -44,6 +44,7 @@ export default function RiskApp() {
           <input className="rk-qty" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1,000.00" data-testid="rk-amount" />
         </label>
         <Button variant="primary" data-testid="rk-open" disabled={busy} onClick={() => void openAccount()}>Open a margin account</Button>
+        <Taken taken={risk.taken} />
         {note ? <p className={note.ok ? "muted" : "rk-warn"} data-testid="rk-note">{note.text}</p> : null}
         <Cause cause={cause} onClose={close} />
       </div>
@@ -79,6 +80,7 @@ export default function RiskApp() {
       {(risk.loanRate ?? 0) > 0 ? (
         <p className="muted">Loan rate <NumBtn id={id} title="Margin rate" ask={ask}><span className="num">{((risk.loanRate ?? 0) * 100).toFixed(2)}%</span></NumBtn></p>
       ) : null}
+      <Taken taken={risk.taken} />
       <section>
         <h2 className="label">Sold first</h2>
         <p className="muted">A loan call sells these holdings in this order, every one of them. A futures call closes the futures book. An option call closes the written options.</p>
@@ -93,6 +95,19 @@ export default function RiskApp() {
       </section>
       <Cause cause={cause} onClose={close} />
     </div>
+  );
+}
+
+function Taken({ taken }: { taken?: { symbol: string; name: string; qty: number; close: number; how: string }[] }) {
+  if (!taken?.length) return null;
+  return (
+    <section data-testid="rk-taken">
+      <h2 className="label">What was sold</h2>
+      <p className="muted">The bank or the court sold these. The price is the last close before the sale, not the fill. The book does not keep the fill.</p>
+      {taken.map((s) => (
+        <p key={`${s.symbol}-${s.qty}`} className="rk-row">{s.qty} {s.name} ({s.symbol}) {s.how}. Last close <MoneyText amount={dollars(s.close)} ctx="table" />.</p>
+      ))}
+    </section>
   );
 }
 

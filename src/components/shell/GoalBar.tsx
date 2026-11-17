@@ -38,9 +38,11 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
     return () => { ro.disconnect(); store.getState().setBannerH(0); };
   }, [pin, store, stepKey, gone, sc?.goal, sc?.timeLeft, prose, result?.text]);
   if (!sc) return null;
+  const ended = sc.outcome === "win" || sc.outcome === "loss";
   const progress = Math.max(0, sc.progress ?? 0);
   const width = Math.max(0, Math.min(1, progress));
-  const showProse = !!prose && gone !== stepKey;
+  const showProse = !ended && !!prose && gone !== stepKey;
+  const ahead = !ended && !!sc.pullback;
   const doIt = async () => {
     if (!action || busy) return;
     setBusy(true);
@@ -77,14 +79,15 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
         <span className="goal-meter" data-testid="goal-progress" title={sc.meter || undefined} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(width * 100)} aria-label={sc.goal || "Goal"}>
           <span style={{ width: `${width * 100}%` }} />
         </span>
-        <span className="goal-time" data-testid="goal-time">{timeSpeak(sc.timeLeft)}</span>
+        <span className="goal-time" data-testid="goal-time">{ended ? "The run is over" : timeSpeak(sc.timeLeft)}</span>
         {pin ? null : (
           <button type="button" className="icon-btn" aria-label="Notices" data-testid="notes-bell" onClick={() => toggleNotes()}>
             <Glyph name="bell" size={16} />
           </button>
         )}
       </div>
-      {showProse || action ? (
+      {ahead ? <p className="goal-next" data-testid="goal-ahead">{sc.pullback}</p> : null}
+      {!ended && (showProse || action) ? (
         <div className="goal-next" data-testid="first-line">
           {showProse ? <p>{hintSpeak(prose)}</p> : null}
           {action ? (
