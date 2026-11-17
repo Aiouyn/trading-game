@@ -7,8 +7,7 @@ import { applyDeepLink, useBackStack } from "@/shell/back";
 import { mockLocale } from "@/shell/mockChannels";
 import { simBootChannels } from "@/shell/simChannels";
 import { bindShell, startSim, useSimSnap } from "@/shell/simSession";
-import { StartGate } from "@/shell/StartGate";
-import { isAppId, RANKS } from "@/shell/registry";
+import { isAppId } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
 import { isShrouded } from "@/shell/v1Shroud";
 import { loadLocal, queueSave } from "@/shell/persist";
@@ -19,7 +18,7 @@ import { createShellStore } from "@/shell/store";
 import { viewportOf } from "@/shell/wm";
 import { applyAppearance } from "@/shell/appearance";
 import { isSectionId, settingsNav } from "@/apps/settings/sections";
-import { Glyph } from "./Glyph";
+import { Arrival, FirstStep, TitleScreen, applySound, arrangeScenario, useArrivalPending, useSavedClock } from "./TitleScreen";
 import { KeySheet } from "./KeySheet";
 import { Launcher } from "./Launcher";
 import { PhoneHome } from "./PhoneHome";
@@ -42,8 +41,6 @@ import { ShellErrorBoundary } from "./ShellErrorBoundary";
 import { GoalBar } from "./GoalBar";
 import { GameFlow } from "./GameFlow";
 
-const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
-
 function useHtmlAttributes() {
   const palette = useShell((s) => s.local.palette);
   const prefs = useShell((s) => s.prefs);
@@ -60,14 +57,18 @@ function Surface({ query }: { query: string }) {
   const recentOpen = useShell((s) => s.recentOpen);
   const keySheetOpen = useShell((s) => s.keySheetOpen);
   const focusMode = useShell((s) => s.local.focusMode);
-  const rank = useShell((s) => s.channels.rank.rank);
   // M2-05: offline dims the strip clock like reconnecting (pulse.css); nothing shown is live.
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting" || s.channels.system.offline);
-  const booted = useShell((s) => s.booted);
   const sim = useShell((s) => s.channels.me.source === "sim");
   const mode = useSimSnap().mode;
+  const pending = useArrivalPending();
   const store = useShellStore();
   useHtmlAttributes();
+  useSavedClock(mode === "play" && !pending);
+  useLayoutEffect(() => {
+    if (!store.getState().booted) store.getState().setBooted();
+    applySound();
+  }, [store]);
   // The old banner feed stays mounted so its hook order does not move. The simulation does not show it.
   const feedSource = useMemo(() => mockFeedSource(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)), []);
   const feed = useFeed(feedSource);
@@ -86,18 +87,7 @@ function Surface({ query }: { query: string }) {
     if (FEED_HOOKS && new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
   }, []);
 
-  useEffect(() => {
-    if (store.getState().booted) return; // once per page load (module-scope store)
-    const t = window.setTimeout(() => store.getState().setBooted(), BOOT_MS[RANKS.indexOf(rank)]);
-    return () => window.clearTimeout(t);
-    // Boot runs once per load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (!booted) {
-    return <div className="boot" data-testid="boot"><span className="fg"><Glyph name="quay" size={48} /></span></div>;
-  }
-  if (mode !== "play") return <StartGate />;
+  if (mode !== "play") return <TitleScreen />;
   const phone = viewportOf(vw) === "phone";
   return (
     <AuthAccountBoundary query={query}>
@@ -124,6 +114,7 @@ function Surface({ query }: { query: string }) {
         </Sheet>
       )}
       <FirstMinute />
+      {pending ? <Arrival /> : <FirstStep />}
       <GameFlow />
     </div>
     </AuthAccountBoundary>
@@ -131,20 +122,18 @@ function Surface({ query }: { query: string }) {
 }
 
 
-/** Lays out Portfolio, Wire and Academy once, when a new scenario opens. */
+/** Lays out the scenario's apps once, when a new game opens. */
 function FirstMinute() {
   const store = useShellStore();
-  const { mode, layoutNonce } = useSimSnap();
+  const { mode, layoutNonce, view } = useSimSnap();
   const seen = useRef<number | null>(null);
   useEffect(() => {
     if (mode !== "play") return;
     if (seen.current === layoutNonce) return;
     seen.current = layoutNonce;
     if (layoutNonce === 0) return;
-    const s = store.getState();
-    if (viewportOf(s.vw) === "phone") return;
-    s.arrangeFirst();
-  }, [mode, layoutNonce, store]);
+    arrangeScenario(store, view?.scenario?.id);
+  }, [mode, layoutNonce, store, view?.scenario?.id]);
   return null;
 }
 

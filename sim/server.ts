@@ -11,7 +11,7 @@ import { openWorld } from './run.ts';
 import { applySnapshot, snapshotSeed, writeSnapshot } from './modules/history/save.ts';
 import { parseCode } from './modules/history/commands.ts';
 import { lifeBoard } from './modules/player/life.ts';
-import { knows, regardOf } from './modules/social/index.ts';
+import { contactsOf, knows, regardOf } from './modules/social/index.ts';
 import { innerOf } from './modules/psyche/index.ts';
 import { companyPosts } from './modules/corporate/index.ts';
 import { CAPITAL, DEP, type EconState, type Firm } from './modules/economy/index.ts';
@@ -1256,7 +1256,10 @@ interface SaveMeta {
   id: string; label: string; scenario: string; scenarioId: string;
   player: string; day: number; date: string; netWorth: number; savedAt: number;
 }
-interface GenJob { id: string; cash?: number; difficulty?: number; seed?: string; beat?: number; again?: boolean }
+interface GenJob {
+  id: string; cash?: number; difficulty?: number; seed?: string; beat?: number; again?: boolean;
+  name?: string; age?: number; district?: string;
+}
 
 const feed: FeedLine[] = [];
 const pausedIds = new Set<number>();
@@ -1375,6 +1378,9 @@ function scenarioCard(w: World): Record<string, unknown> | null {
   const prog = progressOf(w);
   const begun = sc?.begun ?? w.day;
   const ahead = !live.outcome && prog.progress >= 1 && (live.goal || '').startsWith('net worth');
+  const seat = soleSeat(w);
+  const who = playerIndex(w);
+  const tutorial = seat && who >= 0 ? tutorialOf(w, seat, who) : { step: '', goal: '', hint: '', done: true };
   return {
     ...live,
     goal: speakIds(w, live.goal || ''),
@@ -1389,6 +1395,7 @@ function scenarioCard(w: World): Record<string, unknown> | null {
     pullback: ahead ? pullbackLine(w) : '',
     lines: live.outcome ? runStory(w, live) : [],
     begun,
+    tutorial,
   };
 }
 
@@ -1875,7 +1882,7 @@ function freshId(base: string): string {
 }
 
 function maybeAutosave(): void {
-  if (!started) return;
+  if (!started || !autosaveOn) return;
   const month = Math.floor(w.day / 30);
   if (month === lastSavedMonth) return;
   lastSavedMonth = month;
@@ -1906,9 +1913,12 @@ function runGenWorker(): void {
   const send = (msg: unknown): void => { try { parentPort?.postMessage(msg); } catch { /* parent gone */ } };
   const unhook = hookHistory((year, text) => send({ type: 'line', year, text }));
   try {
-    send({ type: 'phase', text: 'Writing the city…' });
+    send({ type: 'phase', text: 'Opening the harbour' });
     const world = openScenario(job.id, { cash: job.cash, difficulty: job.difficulty, seed: job.seed });
     unhook();
+    send({ type: 'phase', text: 'The exchange has its prices' });
+    applyIdentity(world, job);
+    send({ type: 'phase', text: welcomeLetter(world) });
     send({ type: 'phase', text: 'Saving the new city…' });
     writeSnapshot(job.dir, world);
     send({ type: 'done', dir: job.dir, seed: world.seed });
@@ -1936,7 +1946,7 @@ function beginGeneration(job: GenJob): string | null {
   const dir = path.join(SAVES, '.boot');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
-  broadcast('gen', { phase: 'open', text: 'Writing the city…' });
+  broadcast('gen', { phase: 'open', text: 'Opening the harbour' });
   const worker = new Worker(new URL('./server.ts', import.meta.url), {
     workerData: { ...job, dir },
     execArgv: process.execArgv.filter((a) => !a.startsWith('--inspect')),
@@ -3153,6 +3163,7 @@ function screen(w: World): Record<string, unknown> {
     books: booksOk ? { ok: true } : { ok: false, lines: booksBad },
     over: v.over || !v.alive,
     scenario: scenarioCard(w),
+    arrival: arrivalLines(w),
     feed,
     calendar: calendarOf(w),
     society: societyView(w),
@@ -3463,6 +3474,8 @@ const scenarioId = arg('scenario', '');
 const port = +arg('port', '4173');
 let w!: World;
 let started = false;
+let worldReady = false;
+let autosaveOn = true;
 let speed: Speed = 'pause';
 let booksOk = true;
 let booksBad: string[] = [];
@@ -3483,6 +3496,8 @@ function boot(world: World): void {
     process.exit(1);
   }
   started = true;
+  worldReady = true;
+  rememberPortrait(world);
   booksOk = true;
   booksBad = [];
   speed = 'pause';
@@ -3634,11 +3649,11 @@ function staticPath(pathname: string): string | undefined {
   return full;
 }
 
-function startOpts(body: unknown): { id: string; cash?: number; difficulty?: number; again?: boolean } | string {
+function startOpts(body: unknown): GenJob | string {
   if (!body || typeof body !== 'object') return 'missing scenario';
   const b = body as Record<string, unknown>;
   if (typeof b.id !== 'string' || !b.id) return 'missing scenario';
-  const out: { id: string; cash?: number; difficulty?: number; again?: boolean } = { id: b.id };
+  const out: GenJob = { id: b.id };
   if (b.again === true) out.again = true;
   if (b.cash !== undefined) {
     const n = Number(b.cash);
@@ -3650,7 +3665,312 @@ function startOpts(body: unknown): { id: string; cash?: number; difficulty?: num
     if (!Number.isFinite(n) || n <= 0) return 'difficulty must be a positive number';
     out.difficulty = n;
   }
+  if (typeof b.name === 'string' && b.name.trim()) out.name = b.name.trim().slice(0, 40);
+  if (b.age !== undefined) {
+    const n = Number(b.age);
+    if (!Number.isInteger(n) || n < 18 || n > 70) return 'age must be a whole number of years from 18 to 70';
+    out.age = n;
+  }
+  if (typeof b.district === 'string' && b.district.trim()) out.district = b.district.trim().slice(0, 80);
   return out;
+}
+
+const GIVEN_SYL = ['an', 'bel', 'cor', 'dan', 'el', 'far', 'gal', 'hal', 'is', 'jor', 'kel', 'lin', 'mar', 'nor', 'or', 'per', 'quin', 'ros', 'sal', 'tor', 'ul', 'ver', 'wen', 'yan', 'zel'];
+const GIVEN_END = ['a', 'e', 'o', 'en', 'is', 'ia', 'us', 'el', 'an', 'in'];
+const GIVEN_NAMES = GIVEN_SYL.flatMap((a) => GIVEN_END.map((b) => a[0].toUpperCase() + a.slice(1) + b));
+const AGE_BANDS = [
+  { years: 22, label: '22, just started' },
+  { years: 30, label: '30, a working age' },
+  { years: 38, label: '38, settled' },
+  { years: 46, label: '46, mid-life' },
+  { years: 58, label: '58, late career' },
+];
+const JOB_LINE: Record<string, string> = {
+  any: 'You start on a wage.',
+  none: 'You start with no job.',
+  inherit: 'A family firm comes with the seat.',
+  chief: 'The board has already given you the seat.',
+};
+
+interface DriftLine { k: string; text: string }
+interface CatalogFace {
+  harbour: string;
+  routes: string[];
+  firms: string[];
+  districts: string[];
+  notes: Map<string, { different: string; age: number }>;
+}
+let faceCache: CatalogFace | null = null;
+
+function catalogFace(): CatalogFace {
+  if (faceCache) return faceCache;
+  const root = fileURLToPath(new URL('./content/', import.meta.url));
+  const read = (name: string): string => {
+    try { return fs.readFileSync(path.join(root, name), 'utf8'); }
+    catch { return ''; }
+  };
+  const portTxt = read('port.txt');
+  const harbour = /\[PORT:[^\]]+\][\s\S]*?\[NAME:([^\]]+)\]/.exec(portTxt)?.[1]?.trim() || 'Port Avalon';
+  const routes = [...portTxt.matchAll(/\[ROUTE:[^\]]+\][\s\S]*?\[NAME:([^\]]+)\]/g)].map((m) => m[1].trim());
+  const firms = [...read('firms.txt').matchAll(/\[FIRM:[^\]]+\][\s\S]*?\[NAME:([^\]]+)\]/g)].map((m) => m[1].trim()).slice(0, 12);
+  const districts = [...read('property.txt').matchAll(/\[NEIGHBOURHOOD:[^\]]+\][\s\S]*?\[NAME:([^\]]+)\]/g)].map((m) => m[1].trim());
+  const notes = new Map<string, { different: string; age: number }>();
+  for (const block of read('scenarios.txt').split('[SCENARIO:').slice(1)) {
+    const id = block.slice(0, block.indexOf(']')).trim();
+    const age = Number(/\[AGE:(\d+)\]/.exec(block)?.[1] ?? 30);
+    const job = /\[JOB:([^\]]+)\]/.exec(block)?.[1]?.trim() ?? 'any';
+    const twist = /\[TWIST:([^\]]+)\]/.exec(block)?.[1]?.trim() ?? '';
+    const bits = [JOB_LINE[job] ?? '', twist && TWIST_LINE[twist] ? TWIST_LINE[twist] : ''].filter(Boolean);
+    notes.set(id, { different: bits.join(' '), age: Number.isFinite(age) ? age : 30 });
+  }
+  faceCache = { harbour, routes, firms, districts, notes };
+  return faceCache;
+}
+
+function prefsPath(): string { return path.join(SAVES, '.prefs.json'); }
+let prefsLoaded = false;
+function loadPrefs(): void {
+  if (prefsLoaded) return;
+  prefsLoaded = true;
+  try {
+    const j = JSON.parse(fs.readFileSync(prefsPath(), 'utf8')) as { autosave?: unknown };
+    if (typeof j.autosave === 'boolean') autosaveOn = j.autosave;
+  } catch { /* autosave stays on */ }
+}
+function storePrefs(): void {
+  try {
+    fs.mkdirSync(SAVES, { recursive: true });
+    fs.writeFileSync(prefsPath(), JSON.stringify({ autosave: autosaveOn }));
+  } catch { /* the switch still holds for this process */ }
+}
+
+function portraitLines(world: World | null): DriftLine[] {
+  const face = catalogFace();
+  if (!world) {
+    const saved = savedPortrait();
+    if (saved?.length) return saved;
+    return [
+      { k: 'harbour', text: `${face.harbour}. The berths are dark.` },
+      ...face.routes.slice(0, 4).map((text) => ({ k: 'harbour', text })),
+      { k: 'exchange', text: 'The exchange has not marked a price yet.' },
+      ...face.firms.slice(0, 8).map((text) => ({ k: 'exchange', text })),
+      ...face.districts.map((text) => ({ k: 'city', text })),
+    ];
+  }
+  const port = world.state.port as { name?: string; berths?: number; ships?: { name?: string }[]; closedUntil?: number } | undefined;
+  const shut = (port?.closedUntil ?? 0) > world.day;
+  const lines: DriftLine[] = [{
+    k: 'harbour',
+    text: `${port?.name || face.harbour}. ${port?.ships?.length ?? 0} ships, ${port?.berths ?? 0} berths${shut ? ', and the port is shut' : ''}.`,
+  }];
+  for (const ship of (port?.ships ?? []).slice(0, 3)) if (ship?.name) lines.push({ k: 'harbour', text: ship.name });
+  const idx = indexPair(world);
+  if (Number.isFinite(idx.index)) lines.push({ k: 'exchange', text: `The exchange stands at ${idx.index.toFixed(1)}.` });
+  const firms = econ(world).firms;
+  for (const st of stocksOf(world).slice(0, 4)) {
+    const px = Math.round(session(st).px);
+    if (!Number.isFinite(px)) continue;
+    const name = firms.find((f) => f.id === st.issuer)?.name ?? st.issuer;
+    lines.push({ k: 'exchange', text: `${name} ${moneyLabel(px)}` });
+  }
+  const facts = (world.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
+  let n = 0;
+  for (let f = facts.length - 1; f >= 0 && n < 4; f--) {
+    const fact = facts[f];
+    if (!fact || fact.drop || !fact.pub || !fact.msg) continue;
+    lines.push({ k: 'wire', text: fact.msg });
+    n++;
+  }
+  const P = econ(world).P;
+  for (const inv of (econ(world).investors ?? []).slice(0, 6)) {
+    if (!inv.id.startsWith('p_')) continue;
+    const i = Number(inv.id.slice(2));
+    if (!Number.isInteger(i) || i < 0 || i >= P.n || !P.alive(i)) continue;
+    lines.push({ k: 'rich', text: P.name(i) });
+  }
+  return lines;
+}
+
+function savedPortrait(): DriftLine[] | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(SAVES, '.portrait.json'), 'utf8')) as DriftLine[];
+    if (!Array.isArray(raw) || !raw.length || typeof raw[0]?.text !== 'string') return null;
+    return raw.filter((l) => l && typeof l.text === 'string' && typeof l.k === 'string').slice(0, 24);
+  } catch { return null; }
+}
+
+function rememberPortrait(world: World): void {
+  try {
+    fs.mkdirSync(SAVES, { recursive: true });
+    fs.writeFileSync(path.join(SAVES, '.portrait.json'), JSON.stringify(portraitLines(world)));
+  } catch { /* the title still has the catalog */ }
+}
+
+function livedDistrict(world: World, person: number): string {
+  const dist = districts(world);
+  const st = propBook(world);
+  if (!st?.live || person < 0 || person >= st.live.length) return '';
+  const id = st.live[person];
+  if (id < 0 || id >= st.n) return '';
+  return dist[st.nb[id]]?.name ?? '';
+}
+
+function placeDistrict(world: World, person: number, name: string): string {
+  const want = name.trim();
+  const dist = districts(world);
+  const nb = dist.findIndex((d) => d.name === want);
+  const now = livedDistrict(world, person);
+  if (nb < 0 || now === want) return now || want;
+  const st = propBook(world);
+  if (!st?.live || person < 0 || person >= st.live.length) return now;
+  const cur = st.live[person];
+  const owns = cur >= 0 && cur < st.n && st.ownK[cur] === 1 && st.own[cur] === person;
+  if (owns) return now;
+  let vacant = -1;
+  for (let p = 0; p < st.n; p++) {
+    if (st.kind[p] !== 1 || st.nb[p] !== nb || st.tenK[p] !== 0) continue;
+    vacant = p;
+    break;
+  }
+  if (vacant < 0) return now;
+  if (cur >= 0 && cur < st.n && st.tenK[cur] === 1 && st.ten[cur] === person) {
+    st.tenK[cur] = 0;
+    st.ten[cur] = -1;
+  }
+  st.tenK[vacant] = 1;
+  st.ten[vacant] = person;
+  st.live[person] = vacant;
+  return dist[nb]?.name ?? now;
+}
+
+function applyIdentity(world: World, job: { name?: string; age?: number; district?: string }): void {
+  const i = playerIndex(world);
+  if (i < 0) return;
+  const P = econ(world).P;
+  const oldName = P.name(i);
+  const oldAge = P.age(world, i);
+  if (job.name) {
+    const at = GIVEN_NAMES.indexOf(job.name);
+    if (at >= 0) P.given[i] = at;
+  }
+  if (job.age && Number.isInteger(job.age) && job.age >= 18 && job.age <= 70) {
+    let blocked = false;
+    for (const k of P.kids(i)) {
+      if (k >= 0 && k < P.n && P.alive(k) && P.age(world, k) > job.age - 16) blocked = true;
+    }
+    if (!blocked) P.born[i] = world.day - job.age * 360;
+  }
+  if (job.district) placeDistrict(world, i, job.district);
+  const name = P.name(i);
+  const age = P.age(world, i);
+  const seat = soleSeat(world);
+  if (seat && seat.arrived >= 0) {
+    const ev = world.events.get(seat.arrived);
+    const at = P.employer[i];
+    const firm = at >= 0 ? econ(world).firms[at]?.name ?? '' : '';
+    if (ev) ev.msg = firm ? `${name} arrives, aged ${age}, and takes a job at ${firm}` : `${name} arrives, aged ${age}, and holds no job`;
+  }
+  const sc = world.state.scenario as { opening?: string } | undefined;
+  if (sc && typeof sc.opening === 'string') {
+    let t = sc.opening;
+    if (oldName && oldName !== name) t = t.split(oldName).join(name);
+    if (oldAge !== age) t = t.replaceAll(`is ${oldAge}`, `is ${age}`).replaceAll(`, ${oldAge},`, `, ${age},`).replaceAll(`aged ${oldAge}`, `aged ${age}`);
+    sc.opening = t;
+  }
+}
+
+function writerOf(world: World, i: number): number {
+  const P = econ(world).P;
+  if (i < 0) return -1;
+  for (const c of contactsOf(world, i)) {
+    if (c.who !== i && c.who >= 0 && c.who < P.n && P.alive(c.who)) return c.who;
+  }
+  const sp = P.spouse[i];
+  if (sp >= 0 && sp < P.n && P.alive(sp)) return sp;
+  const emp = P.employer[i];
+  const staff = emp >= 0 ? econ(world).firms[emp]?.staff ?? [] : [];
+  for (const s of staff) if (s !== i && s >= 0 && s < P.n && P.alive(s)) return s;
+  return -1;
+}
+
+function welcomeLetter(world: World): string {
+  const i = playerIndex(world);
+  const who = writerOf(world, i);
+  const P = econ(world).P;
+  if (i < 0 || who < 0) return 'A letter is being addressed…';
+  const st = world.state.circle as {
+    letters?: { id: number; day: number; from: number; role: string; kind: string; text: string; eventId: number; source: number; req: number }[];
+    next?: number;
+  } | undefined;
+  const name = P.name(who);
+  if (!st?.letters) return `${name} writes…`;
+  if (st.letters.some((l) => world.day - l.day >= 0 && world.day - l.day < 7)) return `${name} writes…`;
+  const emp = P.employer[i];
+  const firm = emp >= 0 ? econ(world).firms[emp]?.name ?? '' : '';
+  const u = (econ(world).unemployment * 100).toFixed(1);
+  const seat = soleSeat(world);
+  const cause = seat && seat.arrived >= 0 ? seat.arrived : world.genesis;
+  const family = contactsOf(world, i).some((c) => c.who === who && c.kind === 1);
+  const text = firm
+    ? `You're on the book at ${firm}. Unemployment in the city is ${u}%. I'll write again if the desk moves.`
+    : `You came in with no job on the book. Unemployment in the city is ${u}%. I'll write again if a desk opens.`;
+  const id = st.next && st.next > 0 ? st.next : st.letters.reduce((m, l) => Math.max(m, l.id), 0) + 1;
+  st.letters.push({ id, day: world.day, from: who, role: family ? 'family' : 'colleague', kind: 'note', text, eventId: cause, source: cause, req: -1 });
+  st.next = id + 1;
+  return `${name} writes…`;
+}
+
+function writerNames(world: World, i: number): string[] {
+  const P = econ(world).P;
+  const names: string[] = [];
+  const push = (who: number) => {
+    if (who < 0 || who >= P.n || !P.alive(who) || names.length >= 3) return;
+    const n = P.name(who);
+    if (n && !names.includes(n)) names.push(n);
+  };
+  const st = world.state.circle as { letters?: { from: number }[] } | undefined;
+  for (const l of st?.letters ?? []) push(l.from);
+  for (const c of contactsOf(world, i)) push(c.who);
+  return names;
+}
+
+function arrivalLines(world: World): string[] {
+  const i = playerIndex(world);
+  const P = econ(world).P;
+  const s = econ(world);
+  const port = world.state.port as { name?: string; berths?: number; ships?: unknown[]; closedUntil?: number } | undefined;
+  const shut = (port?.closedUntil ?? 0) > world.day;
+  const harbour = `${port?.name || 'The harbour'} has ${port?.ships?.length ?? 0} ships on ${port?.berths ?? 0} berths${shut ? ', and it is shut' : ''}.`;
+  const city = `You are in Port Avalon. ${harbour} Unemployment is ${(s.unemployment * 100).toFixed(1)}% and the policy rate is ${(s.policyRate * 100).toFixed(2)}%.`;
+  const age = i >= 0 ? P.age(world, i) : 0;
+  const who = i >= 0 ? P.name(i) : 'You';
+  const emp = i >= 0 && P.employer[i] >= 0 ? s.firms[P.employer[i]]?.name ?? '' : '';
+  const dist = i >= 0 ? livedDistrict(world, i) : '';
+  const home = dist ? `, and lives in ${dist}` : '';
+  const job = emp ? `${who}, ${age}, works at ${emp}${home}.` : `${who}, ${age}, has no job on the book${home}.`;
+  const names = i >= 0 ? writerNames(world, i) : [];
+  const letters = names.length ? `The first letters come from ${names.join(', ')}.` : 'No one has your name yet.';
+  return [city, job, letters];
+}
+
+function titleBody(): Record<string, unknown> {
+  loadPrefs();
+  const face = catalogFace();
+  const scenarios = listScenarios().map((s) => {
+    const note = face.notes.get(s.id);
+    return { ...s, different: note?.different ?? '', age: note?.age ?? 30 };
+  });
+  const saves = listSaves();
+  return {
+    scenarios,
+    saves,
+    last: saves[0] ?? null,
+    lines: portraitLines(worldReady ? w : null),
+    names: GIVEN_NAMES,
+    ages: AGE_BANDS,
+    districts: face.districts,
+    autosave: autosaveOn,
+  };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -3659,8 +3979,16 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && pathname === '/scenarios') { send(res, 200, { scenarios: listScenarios() }); return; }
     if (req.method === 'GET' && pathname === '/title') {
-      const saves = listSaves();
-      send(res, 200, { scenarios: listScenarios(), saves, last: saves[0] ?? null });
+      send(res, 200, titleBody());
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/autosave') {
+      const body = await readBody(req) as { on?: unknown };
+      if (typeof body.on === 'boolean') {
+        autosaveOn = body.on;
+        storePrefs();
+      }
+      send(res, 200, { autosave: autosaveOn });
       return;
     }
     if (req.method === 'GET' && pathname === '/saves') { send(res, 200, { saves: listSaves() }); return; }

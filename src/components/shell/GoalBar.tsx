@@ -23,7 +23,9 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
   const opening = sc?.fresh && sc.first && !hint ? sc.first : "";
   const prose = hint || opening;
   const stepKey = hint ? `hint:${hint}` : (sc ? `open:${sc.id}:${sc.begun ?? 0}` : "");
-  const action = lessonDo(prose);
+  // The first paycheck's first step is the card on the desk. Later steps stay on this bar.
+  const cardOwns = !!sc?.tutorial && !sc.tutorial.done && sc.tutorial.step === "sheet";
+  const action = cardOwns ? null : lessonDo(prose);
   useEffect(() => {
     if (!pin) return;
     const el = bar.current;

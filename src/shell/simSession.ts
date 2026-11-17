@@ -49,6 +49,7 @@ export interface ScenarioView {
   code?: string;
   lines?: StoryBeat[];
   chronicle?: string;
+  tutorial?: { step: string; goal: string; hint: string; done: boolean };
 }
 export interface NewsLine { eventId: number; day: number; text: string; firms?: { id: string; name: string }[] }
 export interface PrivLine { eventId: number; day: number; from?: string; text: string }
@@ -110,6 +111,7 @@ export interface SimView {
   stockLoans?: { instr: string; qty: number; face: number; eventId: number }[];
   alive?: boolean;
   over?: boolean;
+  arrival?: string[];
 }
 export interface ScenarioCard {
   id: string;
@@ -120,6 +122,8 @@ export interface ScenarioCard {
   difficulty: string;
   beginner: boolean;
   sandbox: boolean;
+  different?: string;
+  age?: number;
 }
 export interface SaveMeta {
   id: string;
@@ -129,8 +133,20 @@ export interface SaveMeta {
   player: string;
   date: string;
   netWorth: number;
+  savedAt?: number;
 }
-export interface TitleData { scenarios: ScenarioCard[]; saves: SaveMeta[]; last: SaveMeta | null }
+export interface AgeBand { years: number; label: string }
+export interface DriftLine { k: string; text: string }
+export interface TitleData {
+  scenarios: ScenarioCard[];
+  saves: SaveMeta[];
+  last: SaveMeta | null;
+  lines?: DriftLine[];
+  names?: string[];
+  ages?: AgeBand[];
+  districts?: string[];
+  autosave?: boolean;
+}
 export type GateMode = "boot" | "menu" | "new" | "load" | "challenge" | "progress" | "play";
 export interface GenState { text: string; lines: string[]; error: string }
 export interface ActNote { ok: boolean; text: string; lines?: string[] }
@@ -273,15 +289,21 @@ function scheduleRefetch() {
 }
 
 function onGen(msg: { phase?: string; year?: number; text?: string; error?: string }) {
-  const gen = { ...snap.gen };
+  const gen = { ...snap.gen, lines: snap.gen.lines.slice() };
+  const keep = () => {
+    if (gen.text && gen.lines[gen.lines.length - 1] !== gen.text) gen.lines.push(gen.text);
+  };
   if (msg.phase === "line") {
+    keep();
     const line = `Year ${msg.year ?? ""}: ${msg.text ?? ""}`.trim();
     gen.lines = [...gen.lines, line].slice(-40);
     gen.text = line;
   } else if (msg.phase === "error") {
     gen.error = msg.error || "the city could not be written";
   } else if (msg.text) {
+    keep();
     gen.text = msg.text;
+    gen.lines = gen.lines.slice(-40);
   }
   const mode = msg.phase === "ready" ? snap.mode : snap.mode === "play" ? "play" : "progress";
   publish({ ...snap, gen, mode });
@@ -334,11 +356,19 @@ function startStream() {
   };
 }
 
+function takeTitle(raw: TitleData): TitleData {
+  raw.scenarios = raw.scenarios ?? [];
+  raw.saves = raw.saves ?? [];
+  raw.lines = raw.lines ?? [];
+  raw.names = raw.names ?? [];
+  raw.ages = raw.ages ?? [];
+  raw.districts = raw.districts ?? [];
+  return raw;
+}
+
 async function boot() {
   const titleRes = await fetch("/api/sim/title", { cache: "no-store" });
-  const title = titleRes.ok ? await titleRes.json() as TitleData : { scenarios: [], saves: [], last: null };
-  title.scenarios = title.scenarios ?? [];
-  title.saves = title.saves ?? [];
+  const title = titleRes.ok ? takeTitle(await titleRes.json() as TitleData) : takeTitle({ scenarios: [], saves: [], last: null });
   const view = await readView();
   if (view) {
     adopt(view);
@@ -380,18 +410,27 @@ function beginProgress(text: string, opts?: { fresh?: boolean }) {
   });
 }
 
-export async function startScenario(id: string, extra?: { cash?: number; difficulty?: number; again?: boolean }): Promise<void> {
-  beginProgress("Writing the city…", { fresh: true });
+export async function refreshTitle(): Promise<void> {
+  const titleRes = await fetch("/api/sim/title", { cache: "no-store" });
+  if (!titleRes.ok) return;
+  publish({ ...snap, title: takeTitle(await titleRes.json() as TitleData) });
+}
+
+export async function startScenario(id: string, extra?: { cash?: number; difficulty?: number; again?: boolean; name?: string; age?: number; district?: string }): Promise<void> {
+  beginProgress("Opening the harbour", { fresh: true });
   const body: Record<string, unknown> = { id };
   if (extra?.cash !== undefined) body.cash = extra.cash;
   if (extra?.difficulty !== undefined) body.difficulty = extra.difficulty;
   if (extra?.again) body.again = true;
+  if (extra?.name) body.name = extra.name;
+  if (extra?.age !== undefined) body.age = extra.age;
+  if (extra?.district) body.district = extra.district;
   const { ok, data } = await post("start", body);
   if (!ok) publish({ ...snap, gen: { ...snap.gen, error: typeof data.error === "string" ? data.error : "could not start" } });
 }
 
 export async function startChallenge(code: string): Promise<void> {
-  beginProgress("Writing the city…");
+  beginProgress("Opening the harbour");
   const { ok, data } = await post("challenge", { code });
   if (!ok) publish({ ...snap, gen: { ...snap.gen, error: typeof data.error === "string" ? data.error : "could not start" } });
 }
