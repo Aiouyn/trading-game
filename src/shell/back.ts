@@ -38,7 +38,18 @@ const focusedOf = (st: ReturnType<ShellStore["getState"]>) =>
   st.local.windows.filter((w) => w.workspace === st.local.activeWorkspace).at(-1) ?? null;
 
 const write = (e: Entry, url: string, replace = false) => {
-  if (replace) history.replaceState(e, "", url); else history.pushState(e, "", url);
+  // Next.js treats a pushState that is not its own as a navigation and fetches that URL.
+  // A shrouded app (`/company`, `/bank`, …) 404s the fetch and replaces the shell.
+  // `__NA` is the mark Next uses to skip that fetch on its own history writes.
+  const prev = history.state;
+  const data = {
+    ...e,
+    __NA: true as const,
+    ...(prev && typeof prev === "object" && "__PRIVATE_NEXTJS_INTERNALS_TREE" in prev
+      ? { __PRIVATE_NEXTJS_INTERNALS_TREE: (prev as { __PRIVATE_NEXTJS_INTERNALS_TREE?: unknown }).__PRIVATE_NEXTJS_INTERNALS_TREE }
+      : {}),
+  };
+  if (replace) history.replaceState(data, "", url); else history.pushState(data, "", url);
 };
 /** Seeded entries (the load's own entry and its deep-link stack) keep the load's query string, so state the page was loaded with (mock channel
  *  params, e2e hooks such as ?city=fail read later by lazily mounted apps) is not dropped by the rewrite. */

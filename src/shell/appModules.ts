@@ -23,6 +23,12 @@ export const APP_MODULES = {
   boards: { kind: "lazy", load: () => import("@/apps/boards/App") }, // M2-03 net-worth leaderboard
   city: { kind: "lazy", load: () => import("@/apps/city/DistrictView") },
   launchpad: { kind: "lazy", load: () => import("@/apps/launchpad/App") }, // owner-restored meme-coin Launchpad (first loop) // M1-10 static read-only district view
+  businesses: { kind: "lazy", load: () => import("@/apps/businesses/App") },
+  company: { kind: "lazy", load: () => import("@/apps/company/App") },
+  property: { kind: "lazy", load: () => import("@/apps/property/App") },
+  bank: { kind: "lazy", load: () => import("@/apps/bank/App") },
+  funds: { kind: "lazy", load: () => import("@/apps/funds/App") },
+  insurance: { kind: "lazy", load: () => import("@/apps/insurance/App") },
 } as const satisfies Partial<Record<AppId, LazyBody | EagerBody>>;
 
 type Modules = typeof APP_MODULES;

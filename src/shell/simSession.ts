@@ -45,7 +45,15 @@ export interface SimView {
   futures: { good: string; monthsAhead: number; net: number; px: number; eventId: number }[];
   coins: { id: string; name: string; qty: number; px: number; eventId: number }[];
   loans: { kind: string; owed: number; rate: number; eventId: number }[];
-  homes: { id: number; neighbourhood: string; price: number; rent: number; mine: boolean; live: boolean; vacant: boolean }[];
+  homes: {
+    id: number; neighbourhood: string; price: number; rent: number; mine: boolean; live: boolean; vacant: boolean;
+    size?: number; condition?: number; missed?: number; mortgage?: number; eventId?: number;
+    owner?: { index: number; name: string } | null; tenant?: { index: number; name: string } | null;
+  }[];
+  companies?: SimCompany[];
+  bids?: SimBid[];
+  districts?: SimDistrict[];
+  firms?: { id: string; name: string }[];
   chain?: { id: string; instr: string; right: string; strike: number; months: number; net: number; bid: number; ask: number; oi?: number; eventId: number }[];
   score?: { day: number; worth: number }[];
   curve?: { tenor: string; yield: number; id: string; px: number; prev?: number; coupon: number; eventId: number }[];
@@ -93,7 +101,17 @@ export interface SaveMeta {
 export interface TitleData { scenarios: ScenarioCard[]; saves: SaveMeta[]; last: SaveMeta | null }
 export type GateMode = "boot" | "menu" | "new" | "load" | "challenge" | "progress" | "play";
 export interface GenState { text: string; lines: string[]; error: string }
-export interface ActNote { ok: boolean; text: string }
+export interface ActNote { ok: boolean; text: string; lines?: string[] }
+export interface SimCompany {
+  id: string; name: string; good: string; sector: string; role: string;
+  listed: boolean; workers: number; price: number; cash: number;
+  sales: number; cost: number; profit: number; stake: number; shares: number;
+  dividend: string; hire: string; quote: string;
+  family?: boolean; goodName?: string;
+  workerEv?: number; priceEv?: number; profitEv?: number; cashEv?: number; salesEv?: number;
+}
+export interface SimBid { eventId: number; day: number; kind: string; text: string; firm: string; name: string }
+export interface SimDistrict { name: string; distance: number; desirability: number; price: number; eventId?: number }
 
 export interface SimSnap {
   mode: GateMode;
@@ -373,9 +391,14 @@ export async function act(cmd: unknown): Promise<ActNote> {
     adopt(view);
     snap = { ...snap, view };
   }
+  const lines = Array.isArray(data.lines) ? data.lines.filter((x): x is string => typeof x === "string") : undefined;
   const note: ActNote = {
     ok: ok && data.status !== "rejected",
-    text: typeof data.why === "string" ? data.why : typeof data.text === "string" ? data.text : ok ? "done" : "the order was not taken",
+    text: typeof data.why === "string" ? data.why
+      : typeof data.text === "string" && data.text ? data.text
+      : lines && lines.length ? lines.join("\n")
+      : ok ? "done" : "the order was not taken",
+    lines,
   };
   publish({ ...snap, note });
   return note;

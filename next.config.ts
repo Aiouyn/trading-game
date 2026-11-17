@@ -54,7 +54,17 @@ interface Resolver {
 const nextConfig: NextConfig = {
   turbopack: { root, resolveAlias: { "@/city": cityEntry, "@ds/notices-sheet": dsNotices, "@ds/primitives-sheet": dsPrimitives, "@city-e2e-seam": cityE2eSeam } },
   outputFileTracingRoot: root,
-  webpack: (config) => {
+  // Webpack resolves tsconfig paths before resolve.alias, so `next dev --webpack`
+  // would bundle the renderer seam (and its import of three). Swap the request first.
+  // A node_modules junction on another drive makes path.relative return an absolute
+  // path, which Next then prefixes with "./" and webpack cannot resolve.
+  webpack: (config, options) => {
+    if (!cityE2eOn) {
+      config.plugins.push(new options.webpack.NormalModuleReplacementPlugin(
+        /^@city-e2e-seam$/,
+        path.join(root, "src/apps/city/e2eRendererSeam.off.ts"),
+      ));
+    }
     const original = config.entry;
     if (typeof original === "function") {
       config.entry = async () => unwrapEntry(await original()) as Record<string, unknown>;

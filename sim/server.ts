@@ -14,8 +14,10 @@ import { lifeBoard } from './modules/player/life.ts';
 import { knows, regardOf } from './modules/social/index.ts';
 import { innerOf } from './modules/psyche/index.ts';
 import { companyPosts } from './modules/corporate/index.ts';
-import { DEP, type EconState, type Firm } from './modules/economy/index.ts';
-import { GOODS } from './modules/economy/content.ts';
+import { CAPITAL, DEP, type EconState, type Firm } from './modules/economy/index.ts';
+import { GOODS, SECTOR_NAMES } from './modules/economy/content.ts';
+import { pledgeValue } from './modules/markets/index.ts';
+import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
 import { pledgeValue, saleProceeds, saleValue } from './modules/markets/index.ts';
@@ -217,6 +219,7 @@ function commandOf(body: unknown): Command | string {
         cmd.slot = slot;
       }
       if (typeof b.into === 'string') cmd.into = b.into;
+      if (typeof b.person === 'string' && b.person.trim()) cmd.person = b.person.trim();
       return cmd;
     }
     case 'court':
@@ -1469,7 +1472,384 @@ function parcelPage(w: World, id: number): Record<string, unknown> | undefined {
   };
 }
 
-function panelSlice(w: World, name: string): Record<string, unknown> {
+function holderName(w: World, id: string): string {
+  if (id.startsWith('p_')) {
+    const n = Number(id.slice(2));
+    if (!Number.isInteger(n)) return id;
+    return personName(w, n)?.name ?? id;
+  }
+  if (id === 'bank_1') return 'the city bank';
+  if (id === 'bank_2') return 'the second bank';
+  if (id === 'bank_3') return 'the third bank';
+  if (id === 'bank_4') return 'the fourth bank';
+  if (id.startsWith('frm_')) return findFirm(w, id)?.name ?? id;
+  if (id === 'fund_value') return 'Value';
+  if (id === 'fund_value_2') return 'Value (second book)';
+  if (id === 'fund_mom') return 'Momentum';
+  if (id === 'fund_mm') return 'The market maker';
+  if (id.startsWith('hf_')) {
+    const rows = (w.state.funds as { funds?: { id: string; name: string }[] } | undefined)?.funds ?? [];
+    return rows.find((f) => f.id === id)?.name ?? id;
+  }
+  return id;
+}
+
+function rankedHolders(w: World, instr: string, n: number): { id: string; name: string; shares: number }[] {
+  const rows = [...w.ledger.holders(instr).entries()].filter(([, q]) => q > 0.5);
+  rows.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  return rows.slice(0, n).map(([id, shares]) => ({ id, name: holderName(w, id), shares: Math.round(shares) }));
+}
+
+function sizeWord(workers: number): string {
+  if (workers < 12) return 'A shop';
+  if (workers < 60) return 'A works';
+  return 'A large works';
+}
+
+function profitWord(cents: number): string {
+  if (cents > 100) return 'In profit';
+  if (cents < -100) return 'Losing';
+  return 'Even';
+}
+
+function yearWord(bps: number): string {
+  if (bps >= 800) return 'Strong';
+  if (bps > 0) return 'Ahead';
+  if (bps === 0) return 'Unchanged';
+  if (bps > -800) return 'Behind';
+  return 'Down';
+}
+
+function plantWord(units: number): string {
+  if (units < 1) return 'Bare';
+  if (units < 20) return 'A small plant';
+  return 'A working plant';
+}
+
+function bankHealthWord(failed: boolean, ratio: number): string {
+  if (failed) return 'Failed';
+  if (ratio >= 0.12) return 'Sound';
+  if (ratio >= 0.08) return 'Thin';
+  if (ratio >= 0) return 'Strained';
+  return 'Insolvent';
+}
+
+function coverWord(live: number): string {
+  if (live === 1) return 'Covered';
+  if (live === 2) return 'Behind';
+  return 'Bare';
+}
+
+function rateWord(rate: number): string {
+  if (rate < 0.012) return 'Quiet';
+  if (rate < 0.02) return 'Ordinary';
+  if (rate < 0.03) return 'Dear';
+  return 'Severe';
+}
+
+function staffPeople(w: World, f: Firm): { index: number; name: string }[] {
+  const out: { index: number; name: string }[] = [];
+  const push = (i: number): void => {
+    if (out.length >= 8 || out.some((p) => p.index === i)) return;
+    const n = personName(w, i);
+    if (n) out.push(n);
+  };
+  push(f.ceo);
+  for (const i of f.staff) push(i);
+  return out;
+}
+
+function suppliersOf(w: World, f: Firm): { id: string; name: string; good: string; goodName: string }[] {
+  const out: { id: string; name: string; good: string; goodName: string }[] = [];
+  for (const good of Object.keys(GOODS[f.good]?.inputs ?? {})) {
+    for (const o of econ(w).firms) {
+      if (o.closed || o.good !== good) continue;
+      out.push({ id: o.id, name: o.name, good, goodName: GOODS[good]?.name ?? good });
+      if (out.length >= 4) return out;
+    }
+  }
+  return out;
+}
+
+function boardOf(w: World, f: Firm): { id: string; name: string; role: string }[] {
+  const P = econ(w).P;
+  const out: { id: string; name: string; role: string }[] = [];
+  if (f.ceo >= 0 && f.ceo < P.n) out.push({ id: P.id(f.ceo), name: P.name(f.ceo), role: 'chief' });
+  const top = rankedHolders(w, 'eq:' + f.id, 1)[0];
+  if (top && !out.some((r) => r.id === top.id)) out.push({ id: top.id, name: top.name, role: 'largest holder' });
+  return out;
+}
+
+function directoryPanel(w: World): Record<string, unknown> {
+  const P = econ(w).P;
+  const firms = econ(w).firms.filter((f) => !f.closed).map((f) => {
+    const top = rankedHolders(w, 'eq:' + f.id, 1)[0];
+    return {
+      id: f.id,
+      name: f.name,
+      sector: f.sector,
+      good: f.good,
+      goodName: GOODS[f.good]?.name ?? f.good,
+      size: f.workers,
+      sizeWord: sizeWord(f.workers),
+      owner: top?.name ?? 'No holder',
+      chief: f.ceo >= 0 ? P.name(f.ceo) : 'Vacant',
+      profit: Math.round(f.lastProfit),
+      profitWord: profitWord(f.lastProfit),
+      profitEv: f.profitEv ?? f.priceWho ?? f.priceEv ?? econ(w).macroEv,
+      listed: f.listed,
+      family: f.family,
+    };
+  });
+  return { firms, sectors: [...SECTOR_NAMES] };
+}
+
+interface BankRow { id: string; depo: string; failed: boolean; runEv: number }
+interface BankBook {
+  banks?: BankRow[];
+  ln: number;
+  lnOpen: Uint8Array;
+  lnPerson: Int32Array;
+  lnKind: Uint8Array;
+  lnRate: Float64Array;
+}
+
+function bankPanel(w: World): Record<string, unknown> {
+  const i = playerIndex(w);
+  const P = econ(w).P;
+  const id = i >= 0 ? P.id(i) : '';
+  const book = w.state.banking as BankBook | undefined;
+  const banks = (book?.banks ?? []).map((b) => {
+    const equity = Math.round(w.ledger.netWorth(b.id));
+    const depo = Math.round(w.ledger.issued.get(b.depo) ?? 0);
+    const sight = b.id === 'bank_1' ? Math.round(w.ledger.issued.get(DEP) ?? 0) : 0;
+    const deposits = depo + sight;
+    const assets = equity + deposits;
+    const ratio = assets > 1 ? equity / assets : (equity >= 0 ? 1 : -1);
+    return {
+      id: b.id,
+      name: holderName(w, b.id),
+      equity,
+      deposits,
+      ratio,
+      word: bankHealthWord(b.failed, ratio),
+      failed: b.failed,
+      eventId: b.runEv >= 0 ? b.runEv : (econ(w).rateWho ?? econ(w).rateEv ?? w.genesis),
+    };
+  });
+  const deposits = !book?.banks || i < 0 ? [] : book.banks.flatMap((b) => {
+    const cents = Math.floor(w.ledger.balance(id, b.depo));
+    return cents > 0 ? [{ bank: b.id, name: holderName(w, b.id), cents, eventId: econ(w).rateWho ?? w.genesis }] : [];
+  });
+  const loans: { kind: string; owed: number; rate: number; eventId: number }[] = [];
+  let marginOwed = 0;
+  let marginRate = 0;
+  const grant = w.events.last('loan.grant') ?? w.genesis;
+  if (book && i >= 0) for (let k = 0; k < book.ln; k++) {
+    if (!book.lnOpen[k] || book.lnPerson[k] !== i) continue;
+    const owed = Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
+    if (owed <= 0) continue;
+    const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : 'consumer';
+    loans.push({ kind, owed, rate: book.lnRate[k], eventId: grant });
+    if (kind === 'margin') { marginOwed += owed; marginRate = book.lnRate[k]; }
+  }
+  const limit = i >= 0 ? pledgeValue(w, id) : 0;
+  const room = Math.max(0, limit - marginOwed);
+  return {
+    cash: i >= 0 ? Math.floor(w.ledger.balance(id, DEP)) : 0,
+    cashEv: w.genesis,
+    deposits,
+    loans,
+    margin: {
+      limit,
+      owed: marginOwed,
+      room,
+      rate: marginRate,
+      word: room > 0 ? 'Open' : marginOwed > 0 ? 'Full' : 'No collateral',
+      eventId: grant,
+    },
+    banks,
+  };
+}
+
+interface FundBook {
+  id: string; name: string; style: string; kind: 'market' | 'hedge';
+  nav: number; shares: number; px: number; yours: number; yBps: number; word: string; open: string;
+  manager: string; managerEv: number; flowEv: number; wind: number; lever: number;
+  holdings: { instr: string; name: string; qty: number; value: number }[];
+  eventId: number;
+}
+
+const MKT_NAME: Record<string, string> = {
+  fund_value: 'Value', fund_value_2: 'Value (second book)', fund_mom: 'Momentum', fund_mm: 'The market maker',
+};
+
+function fundHoldings(w: World, actor: string): FundBook['holdings'] {
+  const rows: FundBook['holdings'] = [];
+  for (const st of stocksOf(w)) {
+    const qty = Math.floor(w.ledger.balance(actor, st.instr));
+    if (qty < 1) continue;
+    rows.push({ instr: st.instr, name: issuerName(w, st.issuer), qty, value: Math.round(qty * st.last) });
+  }
+  rows.sort((a, b) => b.value - a.value || (a.instr < b.instr ? -1 : 1));
+  return rows.slice(0, 5);
+}
+
+function cashNav(w: World, id: string): number {
+  let v = Math.floor(w.ledger.balance(id, DEP));
+  for (const st of stocksOf(w)) {
+    const q = w.ledger.balance(id, st.instr);
+    if (q) v += Math.round(q * st.last);
+  }
+  return v;
+}
+
+function fundsPanel(w: World, url: URL): Record<string, unknown> {
+  const i = playerIndex(w);
+  const pid = i >= 0 ? econ(w).P.id(i) : '';
+  const mkt = (w.state.markets as { funds?: { id: string; style: string }[]; root?: number } | undefined);
+  const hedge = (w.state.funds as { funds?: Fund[] } | undefined)?.funds ?? [];
+  const books: FundBook[] = [];
+  for (const f of mkt?.funds ?? []) {
+    const nav = cashNav(w, f.id);
+    const shares = Math.round(w.ledger.issued.get('eq:' + f.id) ?? 0);
+    books.push({
+      id: f.id, name: MKT_NAME[f.id] ?? f.id, style: f.style, kind: 'market',
+      nav, shares, px: shares > 0 ? Math.round(nav / shares) : 0,
+      yours: pid ? Math.floor(w.ledger.balance(pid, 'eq:' + f.id)) : 0,
+      yBps: 0, word: 'Unchanged', open: 'Trades for its own account',
+      manager: '', managerEv: -1, flowEv: -1, wind: 0, lever: 0,
+      holdings: fundHoldings(w, f.id), eventId: mkt?.root ?? w.genesis,
+    });
+  }
+  const P = econ(w).P;
+  for (const f of hedge) {
+    const nav = navOf(w, f);
+    const shares = Math.round(w.ledger.issued.get('eq:' + f.id) ?? 0);
+    books.push({
+      id: f.id, name: f.name, style: f.strat, kind: 'hedge',
+      nav, shares, px: shares > 0 ? Math.round(nav / shares) : 0,
+      yours: pid ? Math.floor(w.ledger.balance(pid, 'eq:' + f.id)) : 0,
+      yBps: f.yBps, word: yearWord(f.yBps), open: f.wind > 0 ? 'Winding down' : 'Open',
+      manager: f.manager >= 0 && f.manager < P.n ? P.name(f.manager) : 'No manager',
+      managerEv: f.hiredEv, flowEv: f.flowEv, wind: f.wind, lever: f.lever,
+      holdings: fundHoldings(w, f.id),
+      eventId: f.flowEv >= 0 ? f.flowEv : (f.hiredEv >= 0 ? f.hiredEv : w.genesis),
+    });
+  }
+  const cents = whole(Number(url.searchParams.get('cents')), 1);
+  const fund = url.searchParams.get('fund') ?? '';
+  let quote: Record<string, unknown> | undefined;
+  if (cents !== undefined && fund) {
+    const book = books.find((b) => b.id === fund);
+    if (!book) quote = { fund, why: 'no such fund' };
+    else if (book.shares < 1 || book.nav < 1) quote = { fund, why: 'The fund takes new money from its own investors. This book is not selling shares.', nav: book.nav, yours: book.yours };
+    else {
+      const shares = Math.floor(cents * book.shares / book.nav);
+      const cost = shares > 0 ? Math.round(shares * book.nav / book.shares) : 0;
+      quote = {
+        fund, shares, px: book.px, cost, nav: book.nav, yours: book.yours,
+        line: shares < 1
+          ? 'That cash would not buy a share. The fund takes new money from its own investors; your holding is what the book shows.'
+          : `At this value, that cash would buy ${shares} shares. The fund takes new money from its own investors; your holding is what the book shows.`,
+      };
+    }
+  }
+  return { books, quote };
+}
+
+interface InsBook {
+  insId: string[];
+  rate: number;
+  premiums: number;
+  claims: number;
+  n: number;
+  live: Uint8Array;
+  polKind: Uint8Array;
+  ref: Int32Array;
+  ins: Uint8Array;
+  cover: Float64Array;
+  prem: Float64Array;
+  firmPol: Int32Array;
+  homePol: Int32Array;
+  root: number;
+  lastLoss: number;
+}
+
+function firmQuoteCover(w: World, f: Firm): number {
+  const good = GOODS[f.good];
+  const units = w.ledger.balance(f.id, CAPITAL);
+  const plant = units * 360 * econ(w).wage / Math.max(0.01, good?.prod ?? 1);
+  let stock = 0;
+  if (good && !good.perishable) stock = Math.round(w.ledger.balance(f.id, 'good:' + f.good) * Math.max(0, f.price));
+  return Math.max(0, Math.round(plant * 0.9 + Math.min(stock, plant * 0.45)));
+}
+
+function insurancePanel(w: World): Record<string, unknown> {
+  const st = w.state.insurance as InsBook | undefined;
+  const i = playerIndex(w);
+  const rate = st?.rate ?? 0;
+  const eventId = st && st.lastLoss >= 0 ? st.lastLoss : (st?.root ?? w.genesis);
+  const insurers = (st?.insId ?? []).map((id) => {
+    const f = findFirm(w, id);
+    const equity = Math.round(w.ledger.netWorth(id));
+    const word = !f || f.closed ? 'Wound up' : equity <= 0 ? 'Thin' : 'Open';
+    return { id, name: f?.name ?? id, word, equity, eventId };
+  });
+  const policies: Record<string, unknown>[] = [];
+  const quotes: Record<string, unknown>[] = [];
+  if (st && i >= 0) {
+    for (const h of homeBoard(w, i)) {
+      if (!h.mine) continue;
+      const k = h.id < st.homePol.length ? st.homePol[h.id] : -1;
+      const live = k >= 0 && k < st.n ? st.live[k] : 0;
+      const parcel = parcelView(w, h.id);
+      if (k >= 0 && live) {
+        const ins = st.insId[st.ins[k]] ?? '';
+        policies.push({
+          kind: 'home', id: h.id, name: h.neighbourhood, insurer: findFirm(w, ins)?.name ?? ins,
+          cover: Math.round(st.cover[k]), prem: Math.round(st.prem[k]), word: coverWord(live), eventId,
+        });
+      } else {
+        const cover = Math.round(h.price * 0.85);
+        quotes.push({
+          kind: 'home', id: h.id, name: h.neighbourhood, cover,
+          prem: Math.max(1, Math.round(cover * rate * 0.12)),
+          word: 'Bare', mortgaged: (parcel?.mortgage ?? 0) > 0, eventId: parcel?.eventId ?? eventId,
+        });
+      }
+    }
+    for (const post of companyPosts(w, i)) {
+      const f = findFirm(w, post.id);
+      if (!f) continue;
+      const k = f.idx < st.firmPol.length ? st.firmPol[f.idx] : -1;
+      const live = k >= 0 && k < st.n ? st.live[k] : 0;
+      if (k >= 0 && live) {
+        const ins = st.insId[st.ins[k]] ?? '';
+        policies.push({
+          kind: 'firm', id: f.id, name: f.name, insurer: findFirm(w, ins)?.name ?? ins,
+          cover: Math.round(st.cover[k]), prem: Math.round(st.prem[k]), word: coverWord(live), eventId,
+        });
+      } else {
+        const cover = firmQuoteCover(w, f);
+        quotes.push({
+          kind: 'firm', id: f.id, name: f.name, cover,
+          prem: Math.max(1, Math.round(cover * rate)),
+          word: 'Bare', eventId: f.profitEv ?? econ(w).macroEv,
+        });
+      }
+    }
+  }
+  const claims = w.events.recent(['hazard.loss', 'ins.rate', 'ins.open', 'hazard.fire', 'hazard.flood', 'hazard.storm', 'hazard.collision'], 8)
+    .map((e) => ({ eventId: e.id, day: e.day, kind: e.kind, text: e.msg }));
+  return {
+    rate, rateWord: rateWord(rate), rateEv: eventId,
+    premiums: Math.round(st?.premiums ?? 0), claimsTotal: Math.round(st?.claims ?? 0),
+    insurers, policies, quotes, claims,
+  };
+}
+
+function panelSlice(w: World, name: string, url: URL): Record<string, unknown> {
   const i = playerIndex(w);
   switch (name) {
     case 'options':
@@ -1484,6 +1864,14 @@ function panelSlice(w: World, name: string): Record<string, unknown> {
         bids: recentBids(w),
         firms: econ(w).firms.filter((f) => !f.closed).map((f) => ({ id: f.id, name: f.name })),
       };
+    case 'directory':
+      return directoryPanel(w);
+    case 'bank':
+      return bankPanel(w);
+    case 'funds':
+      return fundsPanel(w, url);
+    case 'insurance':
+      return insurancePanel(w);
     default:
       return {};
   }
@@ -1797,6 +2185,7 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
     goodName: good?.name ?? f.good,
     sector: f.sector,
     family: f.family,
+    listed: f.listed,
     ceo: f.ceo >= 0 ? { index: f.ceo, name: P.name(f.ceo) } : null,
     staff: f.staff.length,
     price: f.price,
@@ -1819,6 +2208,22 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
     holders: st ? topHolders(w, st.instr) : topHolders(w, 'eq:' + f.id),
     move: moveLine(w, st?.moveEv ?? f.priceWho ?? f.profitEv ?? econ(w).macroEv),
     news: firmNews(w, f.idx),
+    accounts: {
+      revenue: Math.round(f.mRev),
+      cost: Math.round(f.mCost),
+      profit: Math.round(f.lastProfit),
+      cash: Math.floor(w.ledger.balance(f.id, DEP)),
+      debt: Math.round(w.ledger.issued.get('loan:' + f.id) ?? 0),
+    },
+    people: staffPeople(w, f),
+    plant: {
+      units: w.ledger.balance(f.id, CAPITAL),
+      word: plantWord(w.ledger.balance(f.id, CAPITAL)),
+      eventId: f.profitEv ?? f.priceWho ?? econ(w).macroEv,
+    },
+    suppliers: suppliersOf(w, f),
+    holders: rankedHolders(w, 'eq:' + f.id, 8),
+    board: boardOf(w, f),
   };
 }
 
@@ -2162,7 +2567,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && pathname === '/view') { send(res, 200, screen(w)); return; }
-    if (req.method === 'GET' && pathname === '/panel') { send(res, 200, panelSlice(w, url.searchParams.get('name') || '')); return; }
+    if (req.method === 'GET' && pathname === '/panel') { send(res, 200, panelSlice(w, url.searchParams.get('name') || '', url)); return; }
     if (req.method === 'GET' && pathname.startsWith('/parcel/')) {
       const id = Number(pathname.slice('/parcel/'.length));
       const page = parcelPage(w, id);

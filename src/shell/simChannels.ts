@@ -32,7 +32,7 @@ export function simBootChannels(): Channels {
       todayChg: "0.00",
       license: "LIC0",
       charters: [],
-      flags: [],
+      flags: ["v1.businesses", "v1.property", "v1.banks"],
       onboardingMin: 0,
       onboardingDone: true,
       guest: false,
