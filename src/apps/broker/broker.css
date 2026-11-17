@@ -171,3 +171,24 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .sim-book { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-16); min-width: 0; }
 .sim-book-row { display: flex; justify-content: space-between; gap: var(--sp-8); font-family: var(--font-num); }
 .sim-book-row button { color: var(--fg-muted); }
+
+.br-desks { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.br-desks button, .br-tenor > button, .br-chain button {
+  min-height: var(--hit-pointer);
+  padding: 0 var(--sp-12);
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  color: var(--fg-muted);
+}
+.br-desks button[aria-pressed="true"] { color: var(--fg); background: var(--win2); }
+.br-tenors { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.br-tenor { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-input); padding: var(--sp-8); }
+.br-tenor[data-on="1"] { background: var(--win2); }
+.br-scroll { overflow: auto; min-width: 0; }
+.br-chain { width: 100%; min-width: 480px; border-collapse: collapse; }
+.br-chain th, .br-chain td { padding: var(--sp-8); border-bottom: 1px solid var(--line); text-align: right; }
+.br-chain th:nth-child(2), .br-chain td:nth-child(2) { text-align: center; }
+.br-chain-cell { display: flex; gap: var(--sp-8); justify-content: flex-end; align-items: center; }
+@media (pointer: coarse) {
+  .br-desks button, .br-tenor > button, .br-chain button { min-height: 44px; }
+}

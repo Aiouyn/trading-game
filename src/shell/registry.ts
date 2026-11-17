@@ -70,7 +70,7 @@ const ROWS: Row[] = [
   { id: "messages", group: "trade" },
   { id: "markets", group: "trade" },
   { id: "launchpad", group: "trade" },
-  { id: "risk", group: "trade", unlock: { kind: "license", min: "LIC2" }, teaser: { kind: "fromRank", rank: "R1" }, lockLabel: "LIC2", lockHint: "Opens with license LIC2" },
+  { id: "risk", group: "trade", minW: 480, minH: 360 },
   { id: "quantlab", group: "trade", unlock: { kind: "rank", min: "R2" }, teaser: { kind: "fromRank", rank: "R1" }, lockLabel: "R2", lockHint: "Opens at rank R2 · Owner" },
   { id: "research", group: "trade", unlock: { kind: "rank", min: "R3" }, teaser: { kind: "fromRank", rank: "R2" }, lockLabel: "R3", lockHint: "Opens at rank R3 · Mogul" },
   { id: "businesses", group: "build" },

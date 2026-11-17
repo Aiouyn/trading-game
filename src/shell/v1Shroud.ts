@@ -20,7 +20,7 @@ export const SHROUD = [
   { id: "politics", flag: "v1.politics", apps: ["civic"], paths: ["civic"] },
   { id: "businesses", flag: "v1.businesses", apps: ["businesses", "company"], paths: ["businesses", "company"] },
   { id: "property", flag: "v1.property", apps: ["property", "estate"], paths: ["property", "estate"] },
-  { id: "terminal", flag: "v1.terminal", apps: ["quantlab", "research", "risk"], paths: ["quantlab", "research", "risk"] },
+  { id: "terminal", flag: "v1.terminal", apps: ["quantlab", "research"], paths: ["quantlab", "research"] },
   { id: "whale", flag: "v1.whale", apps: [], paths: ["whale", "whale-watch"] },
   { id: "adversarial", flag: "v1.adversarial", apps: ["security", "legal"], paths: ["security", "legal"] },
   { id: "monetization", flag: "v1.monetization", apps: ["atelier"], paths: ["atelier"] },
@@ -44,7 +44,7 @@ export const SHROUDED_API: readonly { path: string; flag: string }[] = [
   { path: "/api/estate", flag: "v1.property" },
   { path: "/api/quantlab", flag: "v1.terminal" },
   { path: "/api/research", flag: "v1.terminal" },
-  { path: "/api/risk", flag: "v1.terminal" },
+
   { path: "/api/whale", flag: "v1.whale" },
   { path: "/api/security", flag: "v1.adversarial" },
   { path: "/api/legal", flag: "v1.adversarial" },

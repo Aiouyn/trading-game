@@ -18,6 +18,7 @@ import { DEP, type EconState, type Firm } from './modules/economy/index.ts';
 import { GOODS } from './modules/economy/content.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
+import { pledgeValue, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
@@ -671,27 +672,39 @@ function booksOf(w: World): Map<string, BookSide> {
   return out;
 }
 
-function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; px: number; prev: number; chg: number; vol: number; eventId: number; spark: number[]; bid: number; ask: number; book: BookSide }[] {
+function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; sector: string; px: number; prev: number; chg: number; vol: number; pe: number | null; pos: number; eventId: number; spark: number[]; bid: number; ask: number; book: BookSide }[] {
   const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
   const books = booksOf(w);
+  const who = playerIndex(w);
+  const id = who >= 0 ? econ(w).P.id(who) : '';
+  const firms = econ(w).firms;
   return stocksOf(w).map((st) => {
     const ses = session(st);
     const book = books.get(st.instr) ?? { bids: [], asks: [] };
+    const f = firms.find((x) => x.id === st.issuer);
+    const shares = Math.floor(w.ledger.issued.get(st.instr) ?? 0);
+    let pe: number | null = null;
+    if (f && !f.closed && shares >= 1) {
+      const eps = f.lastProfit * 12 / shares;
+      if (eps > 1) pe = Math.round((ses.px / eps) * 10) / 10;
+    }
     return {
       instr: st.instr,
       symbol: symbolOf(st.instr),
       name: issuerName(w, st.issuer),
       issuer: st.issuer,
+      sector: st.issuer === 'bank_1' ? 'Bank' : (f?.sector ?? ''),
       px: ses.px,
       prev: ses.prev,
       chg: ses.prev > 0 ? ses.px / ses.prev - 1 : 0,
       vol: ses.vol,
+      pe,
+      pos: id ? Math.floor(w.ledger.balance(id, st.instr)) : 0,
       spark: sparkOf(st),
       bid: book.bids[0]?.px ?? 0,
       ask: book.asks[0]?.px ?? 0,
       book,
       eventId: (() => {
-        const f = econ(w).firms.find((x) => x.id === st.issuer);
         if (st.issuer === 'bank_1') return st.moveEv ?? econ(w).rateWho ?? econ(w).cpiWho ?? root;
         return st.moveEv ?? f?.priceWho ?? f?.profitEv ?? f?.staffEv ?? root;
       })(),
@@ -1509,7 +1522,7 @@ function screen(w: World): Record<string, unknown> {
   });
   const s = econ(w);
   const abroad = w.state.abroad as { mid?: number; rateEv?: number; fxWho?: number; policy?: number; cfg?: { currency?: string; name?: string } } | undefined;
-  const bonds = w.state.bonds as { y?: Record<string, number>; bonds?: { id: string; tenor: string; onRun: boolean; faceLeft: number; last: number; issueEv: number; coupon: number }[] } | undefined;
+  const bonds = w.state.bonds as { y?: Record<string, number>; bonds?: { id: string; tenor: string; onRun: boolean; faceLeft: number; last: number; prev: number; issueEv: number; coupon: number }[] } | undefined;
   const curve = ['3m', '2y', '10y', '30y'].map((tenor) => {
     const y = bonds?.y?.[tenor];
     const on = bonds?.bonds?.find((b) => b.onRun && b.faceLeft > 0 && b.tenor === tenor);
@@ -1518,6 +1531,7 @@ function screen(w: World): Record<string, unknown> {
       yield: finite(y) ? y : 0,
       id: on?.id ?? '',
       px: on?.last ?? 0,
+      prev: on?.prev ?? on?.last ?? 0,
       coupon: on?.coupon ?? 0,
       eventId: on?.issueEv ?? w.genesis,
     };
@@ -1543,6 +1557,7 @@ function screen(w: World): Record<string, unknown> {
   const firmsDir = firms.map((f) => ({ id: f.id, name: f.name }));
   return {
     ...v,
+    bonds: markedBonds(w, v.bonds),
     homes: decorateHomes(w, v.homes),
     districts: districtsOf(w),
     alerts: alertsOf(w),
@@ -1578,8 +1593,12 @@ function screen(w: World): Record<string, unknown> {
       },
     },
     curve,
+    chain: optionChain(w, me >= 0 ? P.id(me) : ''),
     futuresBoard: futures,
     coinBoard: coins,
+    fx: fxOf(w),
+    risk: riskOf(w),
+    fills: fillsOf(w),
     speed,
     books: booksOk ? { ok: true } : { ok: false, lines: booksBad },
     over: v.over || !v.alive,
@@ -1587,6 +1606,164 @@ function screen(w: World): Record<string, unknown> {
     feed,
     pause: pauseNote,
   };
+}
+
+function topHolders(w: World, instr: string): { id: string; name: string; index?: number; qty: number }[] {
+  let rows: [string, number][];
+  try { rows = [...w.ledger.holders(instr)].filter(([, n]) => n > 0); }
+  catch { return []; }
+  rows.sort((a, b) => b[1] - a[1]);
+  const P = econ(w).P;
+  return rows.slice(0, 5).map(([hid, n]) => {
+    if (hid.startsWith('p_')) {
+      const k = Number(hid.slice(2));
+      if (Number.isInteger(k) && k >= 0 && k < P.n) return { id: hid, name: P.name(k), index: k, qty: Math.floor(n) };
+    }
+    return { id: hid, name: hid, qty: Math.floor(n) };
+  });
+}
+
+function moveLine(w: World, eventId: number | undefined): { eventId: number; day: number; text: string } | undefined {
+  if (eventId === undefined || eventId < 0) return;
+  const e = w.events.get(eventId);
+  if (!e) return { eventId, day: w.day, text: '' };
+  return { eventId: e.id, day: e.day, text: e.msg };
+}
+
+function optRequirement(w: World, actor: string): number {
+  const contracts = (w.state.options as { contracts?: { live: boolean; shortId: string; mid: number; right: string; strike: number; instr: string }[] } | undefined)?.contracts ?? [];
+  const last = new Map(stocksOf(w).map((st) => [st.instr, st.last]));
+  let n = 0;
+  for (const c of contracts) {
+    if (!c.live) continue;
+    const q = Math.floor(w.ledger.balance(actor, c.shortId));
+    if (q < 1) continue;
+    const spot = last.get(c.instr) ?? 0;
+    const otm = c.right === 'C' ? Math.max(0, c.strike - spot) : Math.max(0, spot - c.strike);
+    const cushion = Math.max(0, spot * 100 * 0.1 - otm * 100 * 0.5);
+    n += q * Math.max(100, Math.round(c.mid * 100 + cushion));
+  }
+  return n;
+}
+
+function riskOf(w: World): Record<string, unknown> {
+  const i = playerIndex(w);
+  const seat = soleSeat(w);
+  if (i < 0 || !seat) return { open: false, word: 'Closed', eventId: w.genesis, used: 0, limit: 0, distance: 0, sold: [] };
+  const id = econ(w).P.id(i);
+  const cash = Math.floor(w.ledger.balance(id, DEP));
+  const futPosted = Math.round(w.ledger.balance(id, 'cmdty:margin'));
+  const optPosted = Math.round(w.ledger.balance(id, 'opt:margin'));
+  let loanOwed = 0;
+  let loanRate = 0;
+  const book = w.state.banking as { ln: number; lnOpen: Uint8Array; lnPerson: Int32Array; lnKind: Uint8Array; lnRate: Float64Array } | undefined;
+  if (book) for (let k = 0; k < book.ln; k++) {
+    if (!book.lnOpen[k] || book.lnPerson[k] !== i || book.lnKind[k] !== 3) continue;
+    loanOwed += Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
+    if (book.lnRate[k] > 0) loanRate = book.lnRate[k];
+  }
+  const limit = pledgeValue(w, id);
+  const sale = saleValue(w, id);
+  let futNote = 0;
+  const cmd = w.state.commodities as { books?: { lot: number; tenors: { longId: string; shortId: string; px: number }[] }[] } | undefined;
+  for (const b of cmd?.books ?? []) for (const t of b.tenors) {
+    const net = Math.round(w.ledger.balance(id, t.longId) - w.ledger.balance(id, t.shortId));
+    if (net) futNote += Math.abs(net) * t.px * b.lot;
+  }
+  const futInit = Math.round(futNote * 0.12);
+  const futMaint = Math.round(futNote * 0.08);
+  const optNeed = optRequirement(w, id);
+  const optMaint = Math.round(optNeed * 0.72);
+  const open = seat.margin || loanOwed > 0 || futPosted > 0 || optPosted > 0 || seat.loans.length > 0;
+  const cushions: { kind: string; cents: number }[] = [];
+  if (loanOwed > 0 || seat.margin) cushions.push({ kind: 'loan', cents: sale - loanOwed });
+  if (futNote > 0) cushions.push({ kind: 'futures', cents: futPosted - futMaint });
+  if (optNeed > 0) cushions.push({ kind: 'options', cents: Math.min(optPosted - optMaint, optPosted + cash - optNeed) });
+  let distance = cushions[0] ?? { kind: 'loan', cents: sale };
+  for (const c of cushions) if (c.cents < distance.cents) distance = c;
+  const called = (loanOwed > 0 && loanOwed > sale) || (futNote > 0 && futPosted < futMaint) || (optNeed > 0 && (optPosted < optMaint || optPosted + cash < optNeed));
+  const thin = !called && ((limit > 0 && loanOwed > limit * 0.85) || (futInit > 0 && futPosted < futInit) || (optNeed > 0 && optPosted < optNeed));
+  const close = !called && !thin && limit > 0 && loanOwed > limit * 0.5;
+  const word = !open ? 'Closed' : called ? 'Called' : thin ? 'Thin' : close ? 'Close' : 'Room';
+  const sold: { instr: string; symbol: string; name: string; qty: number; proceeds: number; eventId: number }[] = [];
+  for (const st of stocksOf(w)) {
+    const qty = Math.floor(w.ledger.balance(id, st.instr));
+    if (qty < 1) continue;
+    const f = econ(w).firms.find((x) => x.id === st.issuer);
+    sold.push({
+      instr: st.instr,
+      symbol: symbolOf(st.instr),
+      name: issuerName(w, st.issuer),
+      qty,
+      proceeds: saleProceeds(w, st.instr, qty, id),
+      eventId: st.moveEv ?? f?.priceWho ?? f?.profitEv ?? w.genesis,
+    });
+  }
+  const eventId = w.events.last('loan.margin') ?? w.events.last('loan.grant') ?? w.events.last('futures.marginCall') ?? w.events.last('opt.marginCall') ?? (seat.arrived >= 0 ? seat.arrived : w.genesis);
+  return {
+    open, word, cash, limit, loanOwed, loanRate, sale,
+    futPosted, futInit, futMaint, futNote,
+    optPosted, optNeed, optMaint,
+    distance: distance.cents, distanceKind: distance.kind,
+    used: loanOwed, sold, eventId,
+  };
+}
+
+function fxOf(w: World): Record<string, unknown> {
+  const abroad = w.state.abroad as { mid?: number; policy?: number; fx?: string; rateEv?: number; fxWho?: number; cfg?: { name?: string; currency?: string; spread?: number } } | undefined;
+  const i = playerIndex(w);
+  const id = i >= 0 ? econ(w).P.id(i) : '';
+  const mid = abroad?.mid ?? 0;
+  const spread = abroad?.cfg?.spread ?? 0;
+  const half = spread / 2;
+  const fx = abroad?.fx ?? '';
+  return {
+    name: abroad?.cfg?.name ?? '',
+    currency: abroad?.cfg?.currency ?? '',
+    mid,
+    bid: mid * (1 - half),
+    ask: mid * (1 + half),
+    held: id && fx ? Math.floor(w.ledger.balance(id, fx)) : 0,
+    bonds: id ? Math.floor(w.ledger.balance(id, 'bond:fx')) : 0,
+    eventId: abroad?.fxWho ?? abroad?.rateEv ?? w.genesis,
+    homeRate: econ(w).policyRate,
+    foreignRate: abroad?.policy ?? 0,
+  };
+}
+
+function fillText(cmd: Record<string, unknown>): string {
+  const k = cmd.kind;
+  if (k === 'order') return `${cmd.side} ${cmd.qty} ${cmd.instr}${cmd.limit ? ` @ ${(Number(cmd.limit) / 100).toFixed(2)}` : ''}`;
+  if (k === 'bond') return `bond ${cmd.side} ${cmd.bonds} ${cmd.tenor}`;
+  if (k === 'fut') return `fut ${cmd.side} ${cmd.side === 'flat' ? '' : cmd.qty + ' '}${cmd.good} m+${cmd.months}`;
+  if (k === 'coin') return `coin ${cmd.side} ${cmd.qty} ${cmd.coin}`;
+  if (k === 'launch') return 'launch a coin';
+  if (k === 'optbuy' || k === 'write') return `${k === 'write' ? 'write' : 'buy'} ${cmd.right === 'P' ? 'put' : 'call'} ${cmd.qty} ${cmd.instr} m+${cmd.months}`;
+  if (k === 'optclose') return `close ${cmd.id || cmd.instr}${cmd.qty ? ' ' + cmd.qty : ''}`;
+  if (k === 'cash') return `${cmd.op} ${(Number(cmd.cents) / 100).toFixed(2)}`;
+  return String(k ?? '');
+}
+
+function fillsOf(w: World): { day: number; kind: string; text: string; eventId: number }[] {
+  const log = (w.state.player as { log?: { day: number; status: string; cmd?: Record<string, unknown> }[] } | undefined)?.log ?? [];
+  const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
+  const keep = new Set(['order', 'bond', 'fut', 'coin', 'launch', 'optbuy', 'write', 'optclose', 'cash']);
+  const out: { day: number; kind: string; text: string; eventId: number }[] = [];
+  for (let i = log.length - 1; i >= 0 && out.length < 40; i--) {
+    const row = log[i];
+    const kind = row?.cmd && typeof row.cmd.kind === 'string' ? row.cmd.kind : '';
+    if (!row || row.status !== 'accepted' || !keep.has(kind)) continue;
+    out.push({ day: row.day, kind, text: fillText(row.cmd as Record<string, unknown>), eventId: root });
+  }
+  return out.reverse();
+}
+
+function markedBonds(w: World, rows: { instr: string; face: number; eventId: number }[]): { instr: string; face: number; eventId: number; px: number; prev: number; tenor: string }[] {
+  const list = (w.state.bonds as { bonds?: { id: string; tenor: string; last: number; prev: number }[] } | undefined)?.bonds ?? [];
+  return rows.map((b) => {
+    const row = list.find((x) => x.id === b.instr);
+    return { ...b, px: row?.last ?? 0, prev: row?.prev ?? row?.last ?? 0, tenor: row?.tenor ?? '' };
+  });
 }
 
 function firmPage(w: World, key: string): Record<string, unknown> | undefined {
@@ -1602,6 +1779,8 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
       share: st ? { instr: st.instr, ...session(st) } : undefined,
       daily: st ? closes(st, w.day, false) : [],
       span: st ? closes(st, w.day, true) : [],
+      holders: topHolders(w, 'eq:bank_1'),
+      move: moveLine(w, st?.moveEv ?? econ(w).rateWho ?? econ(w).macroEv),
       news: [],
     };
   }
@@ -1637,6 +1816,8 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
     share: st ? { instr: st.instr, symbol: symbolOf(st.instr), ...session(st) } : undefined,
     daily: st ? closes(st, w.day, false) : [],
     span: st ? closes(st, w.day, true) : [],
+    holders: st ? topHolders(w, st.instr) : topHolders(w, 'eq:' + f.id),
+    move: moveLine(w, st?.moveEv ?? f.priceWho ?? f.profitEv ?? econ(w).macroEv),
     news: firmNews(w, f.idx),
   };
 }

@@ -70,5 +70,11 @@
 
 .sim-pf { padding: var(--sp-16); gap: var(--sp-16); }
 .sim-pf section { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
-.sim-pf-row { display: flex; justify-content: space-between; gap: var(--sp-12); min-width: 0; }
-.sim-pf-row span:first-child { overflow-wrap: anywhere; }
+.sim-pf-row { display: flex; justify-content: space-between; gap: var(--sp-12); min-width: 0; align-items: baseline; }
+.sim-pf-row span:first-child, .pf-link { overflow-wrap: anywhere; text-align: left; }
+.pf-nums { display: flex; gap: var(--sp-8); justify-content: flex-end; align-items: baseline; }
+.sim-life { list-style: none; display: flex; flex-wrap: wrap; gap: var(--sp-12); margin: 0; padding: 0; }
+.sim-life li { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 88px; }
+@media (pointer: coarse) {
+  .pf-link { min-height: 44px; }
+}

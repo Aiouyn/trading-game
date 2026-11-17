@@ -29,9 +29,59 @@ const dsPrimitives = dsOn ? "./src/app/%5F_ds/DesignSystemSheet.tsx" : "./src/ap
 const cityE2eOn = process.env.NEXT_PUBLIC_CITY_E2E === "1";
 const cityE2eSeam = cityE2eOn ? "./src/apps/city/e2eRendererSeam.ts" : "./src/apps/city/e2eRendererSeam.off.ts";
 
+// A junctioned node_modules on another drive makes path.relative return an absolute path.
+// Next prefixes "./", and webpack then looks for that file inside this worktree.
+function unwrapEntry(value: unknown): unknown {
+  if (typeof value === "string" && value.startsWith("./") && /^[A-Za-z]:/.test(value.slice(2))) return value.slice(2);
+  if (Array.isArray(value)) return value.map(unwrapEntry);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>)) out[key] = unwrapEntry((value as Record<string, unknown>)[key]);
+    return out;
+  }
+  return value;
+}
+
+// JsConfigPathsPlugin resolves @city-e2e-seam from tsconfig before a normal alias runs, and that file imports three.
+// This plugin is unshifted so it wins and follows the same on/off file as turbopack.resolveAlias.
+interface ResolveStep { request?: string }
+interface Resolver {
+  ensureHook(name: string): unknown;
+  getHook(name: string): { tapAsync(name: string, fn: (request: ResolveStep, ctx: unknown, cb: (err?: Error | null, result?: unknown) => void) => void): void };
+  doResolve(hook: unknown, request: ResolveStep, message: string, ctx: unknown, cb: (err?: Error | null, result?: unknown) => void): void;
+}
+
 const nextConfig: NextConfig = {
   turbopack: { root, resolveAlias: { "@/city": cityEntry, "@ds/notices-sheet": dsNotices, "@ds/primitives-sheet": dsPrimitives, "@city-e2e-seam": cityE2eSeam } },
   outputFileTracingRoot: root,
+  webpack: (config) => {
+    const original = config.entry;
+    if (typeof original === "function") {
+      config.entry = async () => unwrapEntry(await original()) as Record<string, unknown>;
+    }
+    // Same seams as turbopack.resolveAlias. The `$` is an exact match so `@/city/renderer/*` stays on tsconfig paths.
+    const alias = (config.resolve.alias ?? {}) as Record<string, string | string[] | false>;
+    config.resolve.alias = {
+      ...alias,
+      "@city-e2e-seam$": path.resolve(root, cityE2eSeam),
+      "@ds/notices-sheet$": path.resolve(root, dsNotices),
+      "@ds/primitives-sheet$": path.resolve(root, dsPrimitives),
+      "@/city$": path.resolve(root, cityEntry),
+    };
+    const seamFile = path.resolve(root, cityE2eSeam);
+    const resolvePlugins = config.resolve.plugins ?? [];
+    resolvePlugins.unshift({
+      apply(resolver: Resolver) {
+        const target = resolver.ensureHook("resolve");
+        resolver.getHook("described-resolve").tapAsync("QuayCitySeam", (request, ctx, callback) => {
+          if (request.request !== "@city-e2e-seam") { callback(); return; }
+          resolver.doResolve(target, { ...request, request: seamFile }, "quay city seam", ctx, callback);
+        });
+      },
+    });
+    config.resolve.plugins = resolvePlugins;
+    return config;
+  },
   // Test-only gates and hook flags are ALWAYS defined (as "1" or "0") so the bundler inlines a literal and folds
   // the gate: an unset var would stay a runtime `process.env` read and the hook / dev-only /__ds code would ship.
   // Only the e2e build (playwright.config webServer env) sets them to "1".

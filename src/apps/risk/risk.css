@@ -1,0 +1,21 @@
+.rk { container-type: inline-size; display: flex; flex-direction: column; gap: var(--sp-12); min-width: 0; padding: var(--sp-16); }
+.rk-word { margin: 0; font: 400 var(--fs-30) / 1.1 var(--font-display); }
+.rk-called { color: var(--loss); }
+.rk-thin, .rk-close { color: var(--warn); }
+.rk-room { color: var(--gain); }
+.rk-field { display: flex; flex-direction: column; gap: var(--sp-4); }
+.rk-qty { min-height: var(--hit-pointer); width: 100%; padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); font-family: var(--font-num); }
+.rk-bar { height: 8px; border: 1px solid var(--line); background: var(--win2); }
+.rk-bar span { display: block; height: 100%; background: var(--fg); }
+.rk-bar span[data-word="called"] { background: var(--loss); }
+.rk-bar span[data-word="thin"], .rk-bar span[data-word="close"] { background: var(--warn); }
+.rk-bar span[data-word="room"] { background: var(--gain); }
+.rk-rows { display: flex; flex-direction: column; gap: var(--sp-4); margin: 0; }
+.rk-row { display: flex; justify-content: space-between; gap: var(--sp-12); align-items: baseline; }
+.rk-row dt { color: var(--fg-muted); }
+.rk-row dd { margin: 0; text-align: right; }
+.rk-warn { margin: 0; color: var(--warn); }
+.rk-link { text-align: left; }
+@media (pointer: coarse) {
+  .rk-qty, .rk-link { min-height: 44px; }
+}
