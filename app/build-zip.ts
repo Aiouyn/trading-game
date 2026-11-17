@@ -1,9 +1,8 @@
 // node app/build-zip.ts
-// Writes dist/PortAvalon-win64.zip with sim, ui, app, a 10-line README, and the official Windows Node.
+// Writes dist/PortAvalon-win64.zip: standalone Quay, sim, ui, the launcher, a 10-line README, and the official Windows Node.
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,12 +13,12 @@ const zipPath = path.join(dist, 'PortAvalon-win64.zip');
 const README = [
   'Port Avalon is a life in a city. This folder is the Windows game.',
   'Double-click app/Play Port Avalon.cmd.',
-  'The game opens in your browser. You do not need to install Node.js.',
+  'Quay opens in your browser. You do not need to install Node.js.',
   'Close the Port Avalon window when you want to stop.',
   'The first launch writes the six cities in that window.',
   'A line there shows the year each city has reached.',
-  'The title screen asks you to choose a life while they are written.',
-  'Your net worth, job, household and the markets are all one city.',
+  'The title screen is Quay. Choose First paycheck to begin.',
+  'The plain terminal stays at the second address printed in the window.',
   'Click a number to see why it happened, down to the person who caused it.',
   'Play.',
 ];
@@ -37,6 +36,18 @@ function copyTree(src: string, dest: string): void {
   });
 }
 
+// Quay's node_modules is the traced subset, already real files. Do not follow a junction.
+function copyPacked(src: string, dest: string): void {
+  const st = fs.lstatSync(src);
+  if (st.isSymbolicLink()) throw new Error(`refusing to pack a link: ${src}`);
+  if (st.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const name of fs.readdirSync(src)) copyPacked(path.join(src, name), path.join(dest, name));
+    return;
+  }
+  if (st.isFile()) fs.copyFileSync(src, dest);
+}
+
 async function officialNode(dir: string): Promise<void> {
   const sumsRes = await fetch('https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt');
   if (!sumsRes.ok) throw new Error(`nodejs.org sums ${sumsRes.status}`);
@@ -51,7 +62,7 @@ async function officialNode(dir: string): Promise<void> {
   const bytes = Buffer.from(await zipRes.arrayBuffer());
   const got = crypto.createHash('sha256').update(bytes).digest('hex');
   if (got !== hash) throw new Error(`node zip hash ${got} != ${hash}`);
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pa-node-'));
+  const tmp = fs.mkdtempSync(path.join(dist, 'node-'));
   const z = path.join(tmp, name);
   fs.writeFileSync(z, bytes);
   const tar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
@@ -67,11 +78,20 @@ async function officialNode(dir: string): Promise<void> {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
-const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'pa-zip-'));
+const quay = path.join(dist, 'quay');
+if (!fs.existsSync(path.join(quay, 'server.js')) || !fs.existsSync(path.join(quay, 'node_modules', 'next', 'package.json'))) {
+  throw new Error('dist/quay is missing. Run: node app/build-quay.ts');
+}
+
+const stage = fs.mkdtempSync(path.join(dist, 'stage-'));
 try {
   copyTree(path.join(root, 'sim'), path.join(stage, 'sim'));
   copyTree(path.join(root, 'ui'), path.join(stage, 'ui'));
-  copyTree(here, path.join(stage, 'app'));
+  fs.mkdirSync(path.join(stage, 'app'));
+  for (const name of ['launch.ts', 'make-worlds.ts', 'build-quay.ts', 'build-zip.ts', 'play.sh', 'Play Port Avalon.cmd', '.gitignore', '.gitattributes']) {
+    fs.copyFileSync(path.join(here, name), path.join(stage, 'app', name));
+  }
+  copyPacked(quay, path.join(stage, 'quay'));
   fs.writeFileSync(path.join(stage, 'README.txt'), README.join('\n') + '\n');
   const lines = fs.readFileSync(path.join(stage, 'README.txt'), 'utf8').split(/\n/).filter((l) => l.length > 0);
   if (lines.length !== 10) throw new Error(`README.txt has ${lines.length} lines`);

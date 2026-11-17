@@ -1,4 +1,4 @@
-// Finds nothing itself: the shell picked Node. Builds missing worlds, starts the server, opens the browser.
+// Finds nothing itself: the shell picked Node. Builds Quay once if it is missing, starts the simulation and Quay, opens the browser.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -58,6 +58,8 @@ function yearsOf(seed: number): number | undefined {
 }
 
 let worldsJob: ChildProcess | undefined;
+let simProc: ChildProcess | undefined;
+let quayProc: ChildProcess | undefined;
 let stopping = false;
 
 function beginWorlds(): void {
@@ -96,25 +98,47 @@ function get(url: string): Promise<{ status: number; body: string }> {
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
     });
-    req.setTimeout(2000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('timeout')); });
     req.on('error', reject);
   });
 }
 
-async function waitForTitle(port: number, child: ChildProcess): Promise<void> {
+function quayDir(): string | null {
+  const dirs = [path.join(root, 'quay'), path.join(root, 'dist', 'quay'), path.join(root, '.next', 'standalone')];
+  for (const dir of dirs) {
+    if (fs.existsSync(path.join(dir, 'server.js')) && fs.existsSync(path.join(dir, 'node_modules', 'next', 'package.json'))) return dir;
+  }
+  return null;
+}
+
+function runScript(script: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, nodeArgs(script, []), { cwd: root, env: gameEnv(), stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('exit', (code) => resolve(code ?? 1));
+  });
+}
+
+async function ensureQuay(): Promise<string> {
+  const have = quayDir();
+  if (have) return have;
+  console.log('Building Quay.');
+  const code = await runScript(path.join(appDir, 'build-quay.ts'));
+  if (code !== 0) throw new Error('Quay did not build');
+  const built = quayDir();
+  if (!built) throw new Error('Quay did not build');
+  return built;
+}
+
+async function waitUntil(child: ChildProcess, label: string, ready: () => Promise<boolean>): Promise<void> {
   let exited: number | null = null;
   child.on('exit', (code) => { exited = code ?? 1; });
-  const deadline = Date.now() + 60000;
+  const deadline = Date.now() + 60_000;
   for (;;) {
-    if (exited !== null) throw new Error(`the server stopped (${exited})`);
-    try {
-      const page = await get(`http://127.0.0.1:${port}/`);
-      const view = await get(`http://127.0.0.1:${port}/view`);
-      const title = page.status === 200 && /<title>\s*Avalon\s*<\/title>/i.test(page.body);
-      const gate = view.status === 409 && view.body.includes('"scenario"');
-      if (title && gate) return;
-    } catch { /* the server is still opening */ }
-    if (Date.now() > deadline) throw new Error('the title screen did not come up');
+    if (exited !== null) throw new Error(`${label} stopped (${exited})`);
+    try { if (await ready()) return; }
+    catch { /* still opening */ }
+    if (Date.now() > deadline) throw new Error(`${label} did not come up`);
     await new Promise((r) => setTimeout(r, 100));
   }
 }
@@ -137,19 +161,11 @@ function stop(child: ChildProcess | undefined): void {
   child.kill('SIGTERM');
 }
 
-beginWorlds();
-const port = await freePort(4173);
-const env = gameEnv();
-const server = spawn(process.execPath, nodeArgs(path.join(root, 'sim', 'server.ts'), ['--port', String(port)]), {
-  cwd: root,
-  env,
-  stdio: 'inherit',
-});
-
 const shutdown = (): void => {
   if (stopping) return;
   stopping = true;
-  stop(server);
+  stop(quayProc);
+  stop(simProc);
   stop(worldsJob);
 };
 process.on('SIGINT', () => { shutdown(); process.exit(0); });
@@ -157,8 +173,32 @@ process.on('SIGTERM', () => { shutdown(); process.exit(0); });
 process.on('SIGHUP', () => { shutdown(); process.exit(0); });
 process.on('exit', shutdown);
 
+let quayHome = '';
 try {
-  await waitForTitle(port, server);
+  quayHome = await ensureQuay();
+} catch (err) {
+  const why = err instanceof Error ? err.message : String(err);
+  console.error(why);
+  process.exit(1);
+}
+
+const simPort = await freePort(4173);
+const quayPort = await freePort(simPort + 1);
+const env = gameEnv();
+console.log('Opening the simulation and Quay.');
+simProc = spawn(process.execPath, nodeArgs(path.join(root, 'sim', 'server.ts'), ['--port', String(simPort)]), {
+  cwd: root,
+  env,
+  stdio: 'inherit',
+});
+
+try {
+  await waitUntil(simProc, 'the simulation', async () => {
+    const page = await get(`http://127.0.0.1:${simPort}/`);
+    const scenarios = await get(`http://127.0.0.1:${simPort}/scenarios`);
+    const title = page.status === 200 && /<title>\s*Avalon\s*<\/title>/i.test(page.body);
+    return title && scenarios.status === 200 && scenarios.body.includes('first-paycheck');
+  });
 } catch (err) {
   const why = err instanceof Error ? err.message : String(err);
   console.error(why);
@@ -166,15 +206,40 @@ try {
   process.exit(1);
 }
 
-const url = `http://localhost:${port}/`;
+quayProc = spawn(process.execPath, [path.join(quayHome, 'server.js')], {
+  cwd: quayHome,
+  env: { ...env, PORT: String(quayPort), HOSTNAME: '127.0.0.1', SIM_PORT: String(simPort), NODE_ENV: 'production' },
+  stdio: 'inherit',
+});
+
+try {
+  await waitUntil(quayProc, 'Quay', async () => {
+    const page = await get(`http://127.0.0.1:${quayPort}/`);
+    const title = page.status === 200 && /<title>[^<]*Quay/i.test(page.body);
+    const api = await get(`http://127.0.0.1:${quayPort}/api/sim/title`);
+    return title && api.status === 200 && api.body.includes('first-paycheck');
+  });
+} catch (err) {
+  const why = err instanceof Error ? err.message : String(err);
+  console.error(why);
+  shutdown();
+  process.exit(1);
+}
+
+const url = `http://127.0.0.1:${quayPort}/`;
+const terminal = `http://127.0.0.1:${simPort}/`;
 const upMark = path.join(process.env.TEMP || process.env.TMPDIR || appDir, 'pa-port-avalon-up');
-fs.writeFileSync(upMark, String(process.pid));
-console.log(`title screen ready in ${Date.now() - started} ms`);
-console.log(url);
-console.log('Close this window to stop Port Avalon.');
+const ms = Date.now() - started;
+const readyLine = `Quay ${url}  ·  terminal ${terminal}  ·  ready in ${ms} ms  ·  close this window to stop`;
+fs.writeFileSync(upMark, readyLine);
+console.log(readyLine);
 openBrowser(url);
+beginWorlds();
 
 await new Promise<void>((resolve) => {
-  server.on('exit', () => resolve());
+  const done = (): void => resolve();
+  simProc.on('exit', done);
+  quayProc.on('exit', done);
 });
+shutdown();
 process.exit(0);
