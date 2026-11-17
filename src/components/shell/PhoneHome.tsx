@@ -22,6 +22,7 @@ import { isAuthPending, isSignedIn, openAccountSettings, useAuthChrome } from "@
 import { HOME_EXAMPLE } from "./homeExample";
 import { TimeControls } from "@/shell/TimeControls";
 import { GoalBar } from "./GoalBar";
+import { DockBadge } from "@/apps/messages/notices";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 /** Dock apps stay in the bottom row, not the home grid. */
@@ -147,6 +148,7 @@ function AppIcon({ app, dock = false }: { app: AppId; dock?: boolean }) {
     >
       <span className="icon">
         <Glyph name={app} size={24} />
+        <DockBadge app={app} />
         {fresh && <span className="fresh-dot" />}
         {locked && <span className="lock-tag" aria-hidden="true">{APPS[app].lockLabel}</span>}
       </span>

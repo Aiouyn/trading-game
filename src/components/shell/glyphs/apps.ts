@@ -27,6 +27,7 @@ export const institutions = ["M10 4h4v4h-4z", "M12 8v3.5M6 11.5h12M6 11.5V14M18 
 export const estate = ["M7.5 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", "M11 12h9.5M17.5 12v3M20.5 12v2.5", "M7.5 12h.01"] as const;
 export const boards = ["M4 11h16", "M6 11v6M18 11v6", "M8 7.5h.01M12 7.5h.01M16 7.5h.01"] as const;
 export const profile = ["M12 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", "M5 19.5c1-3.5 3.8-5.5 7-5.5s6 2 7 5.5"] as const;
+export const people = ["M7.5 9a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5z", "M3.5 18.5c.7-2.6 2.2-4 4-4s3.3 1.4 4 4", "M16.5 8.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", "M13.2 18.5c.6-2.2 1.8-3.4 3.3-3.4 1.5 0 2.7 1.2 3.3 3.4"] as const;
 export const health = ["M3.5 12h4.2l1.8-4.5 3.2 9 1.8-4.5H20.5"] as const;
 export const alliance = ["M9 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z", "M15 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z"] as const;
 export const contracts = ["M6 3.5h8.5L18 7v13.5H6z", "M14.5 3.5V7H18", "M8.5 11h7M8.5 14h4", "M8.5 17.5c1-1 1.8-1 2.5 0s1.5 1 2.5 0"] as const;
@@ -39,5 +40,5 @@ export const replay = ["M4.5 12a7.5 7.5 0 1 0 2.2-5.3", "M4.5 4.5V8H8", "M10.5 9
 export const launchpad = ["M12 4v12M8.5 7.5 12 4l3.5 3.5M4 20.5h16"] as const;
 export const api = ["M8.5 7 4 12l4.5 5", "M15.5 7 20 12l-4.5 5", "M13.25 6.5l-2.5 11"] as const;
 
-export const APP_GLYPHS: Record<AppId, readonly string[]> = { broker, portfolio, wire, businesses, ailab, research, bank, legal, security, messages, settings, company, markets, risk, quantlab, property, city, funds, insurance, institutions, estate, boards, profile, health, alliance, contracts, auctions, civic, academy, help, atelier, replay, api, launchpad };
+export const APP_GLYPHS: Record<AppId, readonly string[]> = { broker, portfolio, wire, businesses, ailab, research, bank, legal, security, messages, settings, company, markets, risk, quantlab, property, city, funds, insurance, institutions, estate, boards, profile, people, health, alliance, contracts, auctions, civic, academy, help, atelier, replay, api, launchpad };
 

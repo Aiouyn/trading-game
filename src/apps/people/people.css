@@ -1,0 +1,123 @@
+/* The circle: a list, a map of who knows whom, and one person. Phone width stacks. */
+.win-body:has(> .peo),
+.phone-appbody:has(> .peo) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.peo {
+  container-type: inline-size;
+  container-name: peo;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  color: var(--fg);
+  background: var(--win);
+}
+.peo-filters {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  flex: none;
+  padding: var(--sp-8) var(--sp-12);
+  border-bottom: 1px solid var(--line);
+}
+.peo-chip {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.peo-chip[data-on="1"] { border-color: var(--acc); }
+.peo-chip[data-role="friend"][data-on="1"] { border-color: var(--gain); }
+.peo-chip[data-role="family"][data-on="1"] { border-color: var(--acc); }
+.peo-chip[data-role="rival"][data-on="1"] { border-color: var(--loss); }
+.peo-chip[data-role="mentor"][data-on="1"] { border-color: var(--info); }
+.peo-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.peo-side, .peo-person {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.peo-side { flex: 1; }
+.peo-person { flex: 1; }
+.peo[data-pane="list"] .peo-person { display: none; }
+.peo[data-pane="person"] .peo-side { display: none; }
+.peo-scroll { flex: 1; min-height: 0; overflow: auto; }
+.peo-map-wrap { flex: none; padding: var(--sp-8) var(--sp-12) 0; }
+.peo-map { width: 100%; height: 200px; display: block; }
+.peo-map-note { margin: 4px 0 0; color: var(--fg-muted); font-size: var(--fs-12_5); }
+.peo-row {
+  width: 100%;
+  min-height: 64px;
+  padding: var(--sp-8) var(--sp-12);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  text-align: left;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+.peo-row[data-on="1"] { background: var(--win2); }
+.peo-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.peo-row strong { font: 400 var(--fs-16) / 1.3 var(--font-display); }
+.peo-row span, .peo-muted { color: var(--fg-muted); font-size: var(--fs-12_5); }
+.peo-head, .peo-block { padding: var(--sp-12); }
+.peo-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.peo-head h2 { margin: 0; font: 400 var(--fs-16) / 1.3 var(--font-display); }
+.peo-back {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 var(--sp-8);
+  color: var(--info);
+  background: transparent;
+  border: 0;
+}
+.peo-block { display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line); }
+.peo-block h3 { margin: 0; font: 400 var(--fs-14) / 1.3 var(--font-display); }
+.peo-block p { margin: 0; }
+.bond {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bond > span { display: block; height: 100%; background: var(--acc); }
+.peo-why { margin: 0; color: var(--fg-muted); font-size: var(--fs-12_5); overflow-wrap: anywhere; }
+.peo-field { display: flex; flex-direction: column; gap: 4px; color: var(--fg-muted); font-size: var(--fs-12_5); }
+.peo-field input, .peo-field select {
+  min-height: 44px;
+  width: 100%;
+  padding: 0 var(--sp-12);
+  color: var(--fg);
+  background: var(--win);
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+}
+.peo-acts { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-12); }
+.peo-act-row { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.peo-act-row .btn { flex: 1 1 120px; }
+.peo .btn { min-height: 44px; white-space: normal; text-align: center; }
+.peo-empty { margin: 0; padding: var(--sp-16); color: var(--fg-muted); }
+@container peo (min-width: 720px) {
+  .peo[data-pane="list"] .peo-person, .peo[data-pane="person"] .peo-side { display: flex; }
+  .peo-body { flex-direction: row; }
+  .peo-side { flex: 0 0 42%; max-width: 320px; border-right: 1px solid var(--line); }
+  .peo-back { display: none; }
+}

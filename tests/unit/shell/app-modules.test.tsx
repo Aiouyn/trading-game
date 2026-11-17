@@ -27,12 +27,12 @@ const html = (app: AppId) => renderToStaticMarkup(createElement(AppBody, { app, 
 describe("built apps: one source of truth (APP_MODULES)", () => {
   it("registry built === has an APP_MODULES entry, for all 34 apps", () => {
     for (const a of REGISTRY) expect([a.id, a.built]).toEqual([a.id, Object.hasOwn(APP_MODULES, a.id)]);
-    expect(Object.keys(APP_MODULES).sort()).toEqual(["academy", "bank", "boards", "broker", "businesses", "city", "company", "estate", "funds", "health", "insurance", "launchpad", "markets", "messages", "portfolio", "profile", "property", "risk", "settings", "wire"]);
+    expect(Object.keys(APP_MODULES).sort()).toEqual(["academy", "bank", "boards", "broker", "businesses", "city", "civic", "company", "estate", "funds", "health", "institutions", "insurance", "launchpad", "legal", "markets", "messages", "people", "portfolio", "profile", "property", "risk", "settings", "wire"]);
   });
 
   it("type level: Broker is built by its lazy module (UI card 4, BRK-A); an id without a module fails typecheck", () => {
-    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "launchpad" | "businesses" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "estate" | "messages" | "health" | "academy">();
-    expectTypeOf<LazyAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "launchpad" | "businesses" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "estate" | "messages" | "health" | "academy">();
+    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "civic" | "legal" | "institutions" | "launchpad" | "businesses" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "people" | "estate" | "messages" | "health" | "academy">();
+    expectTypeOf<LazyAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "civic" | "legal" | "institutions" | "launchpad" | "businesses" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "people" | "estate" | "messages" | "health" | "academy">();
     expectTypeOf<EagerAppId>().toEqualTypeOf<never>();
   });
 

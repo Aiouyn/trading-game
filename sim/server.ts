@@ -16,7 +16,6 @@ import { innerOf } from './modules/psyche/index.ts';
 import { companyPosts } from './modules/corporate/index.ts';
 import { CAPITAL, DEP, type EconState, type Firm } from './modules/economy/index.ts';
 import { GOODS, SECTOR_NAMES } from './modules/economy/content.ts';
-import { pledgeValue } from './modules/markets/index.ts';
 import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';

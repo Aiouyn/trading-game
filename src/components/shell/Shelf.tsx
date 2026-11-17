@@ -9,6 +9,7 @@ import { workspacesFor } from "@/shell/store";
 import { APP_NAMES, S } from "@/shell/strings";
 import { viewportOf, workArea } from "@/shell/wm";
 import { Glyph } from "./Glyph";
+import { DockBadge } from "@/apps/messages/notices";
 import { useShell, useShellStore } from "./ShellContext";
 
 export function Shelf() {
@@ -67,6 +68,7 @@ export function Shelf() {
               onClick={() => !locked && store.getState().open(a)}
             >
               <Glyph name={a} size={20} />
+              <DockBadge app={a} />
               {locked && <span className="lock-tag">{APPS[a].lockLabel}</span>}
               {fresh.has(a) && <span className="fresh-dot" data-testid={`fresh-${a}`} />}
               {running && <span className="run-dot" />}

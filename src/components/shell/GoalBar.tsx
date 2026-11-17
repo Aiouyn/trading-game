@@ -4,6 +4,7 @@ import { useSimSnap } from "@/shell/simSession";
 import { Glyph } from "./Glyph";
 import { useShellStore } from "./ShellContext";
 import { toggleNotes } from "./flowState";
+import { FamilyInterrupt } from "@/apps/messages/notices";
 
 /** Scenario goal, progress and time left. Desktop pins its height into the window work area. */
 export function GoalBar({ pin = false }: { pin?: boolean }) {
@@ -53,6 +54,7 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
           <button type="button" className="goal-dismiss" onClick={() => setGone(freshKey)}>Dismiss</button>
         </div>
       ) : null}
+      <FamilyInterrupt />
     </div>
   );
 }

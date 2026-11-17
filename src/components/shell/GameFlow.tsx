@@ -7,6 +7,7 @@ import {
   type ActNote, type ExplainLine, type PauseAction,
 } from "@/shell/simSession";
 import { closeNotes, useNotesOpen } from "./flowState";
+import { CircleChrome } from "@/apps/messages/notices";
 
 const QUARTER = ["", "A quarter of the way", "Halfway", "Three quarters of the way", "The goal is met"];
 
@@ -229,6 +230,7 @@ export function GameFlow() {
   return (
     <>
       <QuarterToasts />
+      <CircleChrome />
       <Notes />
       <NoteToast />
       {ended && sc ? (

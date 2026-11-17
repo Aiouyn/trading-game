@@ -4,7 +4,7 @@ import { isBuiltApp } from "./appModules";
 export const APP_IDS = [
   "broker", "portfolio", "wire", "messages", "markets", "launchpad", "risk", "quantlab", "research",
   "businesses", "company", "property", "city", "bank", "funds", "insurance", "institutions",
-  "ailab", "security", "legal", "estate", "boards", "profile", "health", "alliance", "contracts",
+  "ailab", "security", "legal", "estate", "boards", "profile", "people", "health", "alliance", "contracts",
   "auctions", "civic", "academy", "help", "atelier", "settings", "replay", "api",
 ] as const;
 
@@ -12,7 +12,7 @@ export const APP_IDS = [
 export type AppId =
   | "broker" | "portfolio" | "wire" | "messages" | "markets" | "launchpad" | "risk" | "quantlab" | "research"
   | "businesses" | "company" | "property" | "city" | "bank" | "funds" | "institutions" | "insurance"
-  | "ailab" | "security" | "legal" | "estate" | "boards" | "profile" | "health" | "alliance" | "contracts"
+  | "ailab" | "security" | "legal" | "estate" | "boards" | "profile" | "people" | "health" | "alliance" | "contracts"
   | "auctions" | "civic" | "academy" | "help" | "atelier" | "settings" | "replay" | "api";
 
 export type AppGroup = "trade" | "build" | "shadow" | "world" | "me";
@@ -87,6 +87,7 @@ const ROWS: Row[] = [
   { id: "estate", group: "me" },
   { id: "boards", group: "world" },
   { id: "profile", group: "me" },
+  { id: "people", group: "me", minW: 360, minH: 520 },
   { id: "health", group: "me" },
   {
     id: "alliance", group: "world",
