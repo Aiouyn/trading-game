@@ -5,10 +5,11 @@ import { assertBootEnv } from "@/server/spend/guard";
  * cannot, and only rethrows; `next start` is the Node server.
  */
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME === "edge") {
-    assertBootEnv(process.env);
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { failClosed, startSimulation } = await import("./instrumentation-node");
+    failClosed();
+    await startSimulation();
     return;
   }
-  const { failClosed } = await import("./instrumentation-node");
-  failClosed();
+  assertBootEnv(process.env);
 }

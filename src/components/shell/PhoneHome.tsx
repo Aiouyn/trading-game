@@ -20,6 +20,7 @@ import { nwStateLabel, useNwReading } from "./useNw";
 import { Button } from "@/components/ui/Button";
 import { isAuthPending, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { HOME_EXAMPLE } from "./homeExample";
+import { TimeControls } from "@/shell/TimeControls";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
 /** Messages is not a V1 dock app and must not migrate into the Home grid (deep link /messages still works). */
@@ -175,8 +176,10 @@ function StatusBar() {
   };
 
   useEffect(() => () => clearPull(), []);
+  const locale = useShell((s) => s.prefs.locale);
+  const simDate = clock.sim;
   const { day, hhmm } = clockLabel(clock);
-  const clockText = clockStrings(useShell((s) => s.prefs.locale)).phone(day, hhmm);
+  const clockText = simDate ? `Y${simDate.year} M${simDate.month} D${simDate.day}` : clockStrings(locale).phone(day, hhmm);
   const down = () => { timer.current = window.setTimeout(() => { timer.current = null; store.getState().setRecent(true); }, LONG_PRESS_MS); };
   const up = () => {
     if (timer.current !== null) { window.clearTimeout(timer.current); timer.current = null; store.getState().phoneBack(); }
@@ -213,9 +216,9 @@ function StatusBar() {
       <button className="quay-mark fg" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
         <Glyph name="quay" size={20} />
       </button>
-      <FeedbackButton compact />
+      {simDate ? null : <FeedbackButton compact />}
       <span className="num clock">{clockText}</span>
-      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />
+      {simDate ? null : <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} variant="dot" />}
       <HaltChip halted={halted} />
       {signedIn ? (
         <button type="button" className="chip chip-acc sb-account" data-testid="account-chip" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>
@@ -247,6 +250,7 @@ export function PhoneHome() {
   // signed-in bar is invented before /api/auth/me answers.
   const next = pending ? null : nextRankTarget(rank);
   const guestCopy = guestHome(useShell((s) => s.prefs.locale));
+  const sim = me.source === "sim";
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -282,6 +286,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
+      {me.source === "sim" ? <div className="sim-time-phone"><TimeControls /></div> : null}
       <FillAckHost variant="phone" />
       <PhoneBannerStack />
       {phoneApp ? (
@@ -299,7 +304,9 @@ export function PhoneHome() {
         <section className="widget" data-testid="widget">
           <div className="widget-top">
             <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : S.netWorth}</span>
-            {pending ? (
+            {sim ? (
+              <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
+            ) : pending ? (
               <span className="auth-skel-chrome" data-testid="auth-skel-chrome" aria-hidden="true" />
             ) : signedIn ? (
               <button type="button" className="chip chip-acc" data-testid="account-chip-home" aria-label={`${S.account}: ${auth.account.handle}`} onClick={() => openAccountSettings(store)}>{auth.account.handle}</button>
@@ -311,7 +318,7 @@ export function PhoneHome() {
               (label, Sign in and the example caption are card 36's on main). Card 23: while the session is unknown,
               a neutral skeleton holds the CTA's place and no guest pitch is shown.
               Full-width CTA: prior 68×44 chip beside rank failed coarse hit-testing; navigation was fine. */}
-          {pending ? (
+          {sim ? null : pending ? (
             <span className="auth-skel-chrome auth-skel-chrome-cta" data-testid="auth-skel-cta" aria-hidden="true" />
           ) : !signedIn ? (
             <>
@@ -322,10 +329,17 @@ export function PhoneHome() {
           <div className="hero-nw" data-testid="hero-nw" data-nw-state={reading.state}>
             {reading.nw === null ? <span className="num muted" role="img" aria-label={nwStateLabel(reading.state)}>{S.nwUnknown}</span> : <MoneyText value={reading.nw} ctx="hero" />}
           </div>
-          {auth.status === "loading" ? (
+          {sim ? null : auth.status === "loading" ? (
             <div className="home-example-skel" data-testid="home-example-skel" aria-hidden="true" />
           ) : !signedIn ? (
             <p className="muted home-example-caption" data-testid="home-example-caption">{HOME_EXAMPLE.en.caption}</p>
+          ) : null}
+          {sim && me.life && me.life.length > 0 ? (
+            <ul className="sim-life" data-testid="sim-life">
+              {me.life.map((s) => (
+                <li key={s.id} title={s.hover}><span className="label">{s.label}</span><span>{s.word}</span></li>
+              ))}
+            </ul>
           ) : null}
           <div className="widget-row">
             {reading.nw === null ? null : (

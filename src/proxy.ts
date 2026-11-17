@@ -15,6 +15,10 @@ export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const segments = path.split("/").filter(Boolean);
   if (refuseShroudedApi(path, flags) || routeShrouded(segments, flags)) return new NextResponse(null, { status: 404 });
+  // V1 is the simulation. The old engine, accounts, telemetry and demo routes stay on disk and are not called.
+  if (/^\/api\/(auth|broker|telemetry|market|world|wire|launchpad|leaderboard)(\/|$)/.test(path)) {
+    return NextResponse.json({ error: "not used in this version" }, { status: 410 });
+  }
   if (isApiPath(path)) {
     const block = readOnlyBlock(process.env, request.method);
     if (block) {

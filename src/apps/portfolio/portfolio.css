@@ -67,3 +67,8 @@
 .pf-guest-example{margin:0 0 8px;font-size:12px;}
 .pf-goal-guest{margin:0 0 8px;font-size:12px;}
 .pf-goal-guest.pf-phone{margin:var(--sp-16) var(--sp-16) 0;}
+
+.sim-pf { padding: var(--sp-16); gap: var(--sp-16); }
+.sim-pf section { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.sim-pf-row { display: flex; justify-content: space-between; gap: var(--sp-12); min-width: 0; }
+.sim-pf-row span:first-child { overflow-wrap: anywhere; }

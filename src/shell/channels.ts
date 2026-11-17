@@ -6,7 +6,30 @@ export type { ShellId };
 
 export type MarketPhase = "pre" | "open_auction" | "continuous" | "close_auction" | "after" | "weekend";
 
-export interface ClockChannel { tick: number; gameDay: number; tickOfDay: number; phase: MarketPhase }
+export type SimSpeed = "pause" | "day" | "week" | "month";
+
+/** The simulation's clock, when Quay is running on sim/server.ts. */
+export interface SimClock {
+  year: number;
+  month: number;
+  day: number;
+  abs: number;
+  speed: SimSpeed;
+  pauseWhy?: string;
+  pauseEvent?: number;
+}
+
+export interface ClockChannel { tick: number; gameDay: number; tickOfDay: number; phase: MarketPhase; sim?: SimClock }
+
+/** One of the six life stats. `hover` is the figure (dollars, where the sim has dollars). */
+export interface LifeStat {
+  id: string;
+  label: string;
+  word: string;
+  hover: string;
+  trend: -1 | 0 | 1;
+  eventId: number;
+}
 /**
  * `rank` channel (17 §2.6). thresholds[i] is the NW needed for rank R(i+1) (R1..R6; R6 $20B per E-21).
  * shellsEarned (17 §2.6) lists the rank shells the player has earned. Owned cosmetic shells come from
@@ -25,6 +48,9 @@ export interface MeChannel {
   guest: boolean;
   protectionEndsRealMs: number | null;
   myPlaces: string[];           // entity ids of the player's own places (client-only, never uploaded)
+  /** Set when these figures come from the simulation rather than the old demo feed. */
+  source?: "sim";
+  life?: LifeStat[];
 }
 /** Connection and world state for the §5 shell states (stubbed; owners 02/13/19). */
 export interface SystemState {

@@ -66,6 +66,7 @@ export const IN_SCOPE_API_ROUTES = [
   "api/broker/orders/cancel",
   "api/broker/preview",
   "api/health",
+  "api/sim/[...path]",
   "api/launchpad",
   "api/launchpad/history",
   "api/launchpad/launch",

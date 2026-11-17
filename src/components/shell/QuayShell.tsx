@@ -1,13 +1,13 @@
 "use client";
 // Quay OS shell root: picks phone / compact / desktop, applies html attributes, wires keys and channels.
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { applyDeepLink, useBackStack } from "@/shell/back";
-import { useAuthSession } from "@/shell/authSession";
-import { isSignedIn } from "@/shell/authChrome";
-import { clockAt, mockChannels, mockLocale, phaseOverride, TICK_MS } from "@/shell/mockChannels";
-import { useChannel } from "@/shell/contracts/useChannel";
+import { mockLocale } from "@/shell/mockChannels";
+import { simBootChannels } from "@/shell/simChannels";
+import { bindShell, startSim, useSimSnap } from "@/shell/simSession";
+import { StartGate } from "@/shell/StartGate";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
 import { isShrouded } from "@/shell/v1Shroud";
@@ -62,16 +62,18 @@ function Surface({ query }: { query: string }) {
   // M2-05: offline dims the strip clock like reconnecting (pulse.css); nothing shown is live.
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting" || s.channels.system.offline);
   const booted = useShell((s) => s.booted);
+  const sim = useShell((s) => s.channels.me.source === "sim");
+  const mode = useSimSnap().mode;
   const store = useShellStore();
   useHtmlAttributes();
-  // Mock feed until Engine wires the real one (see TODO in shell/feed.ts). Read once per load, like mockChannels.
+  // The old banner feed stays mounted so its hook order does not move. The simulation does not show it.
   const feedSource = useMemo(() => mockFeedSource(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)), []);
   const feed = useFeed(feedSource);
   const sheet = useSheetRequest();
   const navigate = useDeepLinkNavigate();
   const storeApi = useShellStore();
   const vwNow = useShell((s) => s.vw);
-  const deskBannerH = viewportOf(vwNow) === "phone" ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0);
+  const deskBannerH = sim || viewportOf(vwNow) === "phone" ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0);
   // Desktop banners shrink the work area; windows refit to it (wm.fitRect).
   useEffect(() => { storeApi.getState().setBannerH(deskBannerH); }, [storeApi, deskBannerH]);
   useEffect(() => {
@@ -90,6 +92,7 @@ function Surface({ query }: { query: string }) {
   if (!booted) {
     return <div className="boot" data-testid="boot"><span className="fg"><Glyph name="quay" size={48} /></span></div>;
   }
+  if (mode !== "play") return <StartGate />;
   const phone = viewportOf(vw) === "phone";
   return (
     <AuthAccountBoundary query={query}>
@@ -97,15 +100,14 @@ function Surface({ query }: { query: string }) {
       {phone ? <PhoneHome /> : (
         <>
           <StatusStrip />
-          <Banner alerts={feed.alerts} onNavigate={navigate} />
-          <WorldEventBanner event={feed.world} />
+          {!sim && <Banner alerts={feed.alerts} onNavigate={navigate} />}
+          {!sim && <WorldEventBanner event={feed.world} />}
           <Desktop />
           {!focusMode && <Shelf />}
           <FillAckHost variant="desktop" />
         </>
       )}
       {!phone && <LoadState />}
-      <ConsentBoot />
       <SystemOverlays />
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}
@@ -121,78 +123,13 @@ function Surface({ query }: { query: string }) {
 }
 
 
-/** Loads the first-launch analytics prompt only after a user gesture, so /broker first-load stays in budget. */
-function ConsentBoot() {
-  const [Host, setHost] = useState<ComponentType | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    const start = () => {
-      try {
-        const q = new URLSearchParams(window.location.search);
-        const force = q.get("telemetry_consent") === "1";
-        // Official e2e (playwright.config webServer) builds with NEXT_PUBLIC_QUAY_E2E=1 and
-        // QUAY_OFFICIAL_E2E_BUILD=1 so the prompt cannot intercept taps or land in baselines.
-        // next.config inlines "1" only when both are set, and fails the build if the flag is
-        // set without the marker. A normal production build inlines "0"; `next start` cannot
-        // turn consent off. check-hooks forbids the flag name in a no-flag .next tree.
-        if (!force && process.env.NEXT_PUBLIC_QUAY_E2E === "1") return;
-        const store = window.localStorage;
-        if (store.getItem("quay.telemetry.consent") || store.getItem("quay.telemetry.optout")) return;
-        const nav = navigator as Navigator & { globalPrivacyControl?: boolean; doNotTrack?: string | null };
-        if (nav.doNotTrack === "1" || nav.doNotTrack === "yes" || nav.globalPrivacyControl === true) return;
-      } catch {
-        return;
-      }
-      void import("./ConsentHost").then((m) => {
-        if (!cancelled) setHost(() => m.ConsentHost);
-      });
-    };
-    window.addEventListener("pointerdown", start, { once: true });
-    window.addEventListener("keydown", start, { once: true });
-    return () => {
-      cancelled = true;
-      window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
-    };
-  }, []);
-  return Host ? <Host /> : null;
-}
-
-/** Guest mock clock: one local step per tick (5 s). The TickRing follows the channel; it never runs its own timer.
- *  First child of the provider: effects run children-first, so this interval is the page's first timer, before
- *  the `me` feed the top bar subscribes (useNw) (17A T3-01 keys on that). */
-function GuestClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
-  useEffect(() => {
-    const pinned = phaseOverride(new URLSearchParams(query));
-    const t = window.setInterval(() => {
-      const c = store.getState().channels;
-      const next = clockAt(c.clock.tick + 1);
-      store.getState().setChannels({ ...c, clock: pinned ? { ...next, phase: pinned } : next });
-    }, TICK_MS);
-    return () => window.clearInterval(t);
-  }, [store, query]);
+/** Binds the shell before the account boundary's layout effect, then opens the simulation stream. */
+function SimLink({ store }: { store: ReturnType<typeof createShellStore> }) {
+  useLayoutEffect(() => {
+    bindShell(store);
+    return startSim();
+  }, [store]);
   return null;
-}
-
-/** Signed-in clock: the shell day follows the server quote tick. No local interval, so a second account cannot drift. */
-function ServerClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
-  const ticker = useChannel("ticker:wl_default");
-  useEffect(() => {
-    if (ticker.tick === null) return;
-    const pinned = phaseOverride(new URLSearchParams(query));
-    const next = clockAt(ticker.tick);
-    const clock = pinned ? { ...next, phase: pinned } : next;
-    const c = store.getState().channels;
-    if (c.clock.tick === clock.tick && c.clock.phase === clock.phase && c.clock.gameDay === clock.gameDay && c.clock.tickOfDay === clock.tickOfDay) return;
-    store.getState().setChannels({ ...c, clock });
-  }, [ticker.tick, store, query]);
-  return null;
-}
-
-function ShellClock({ store, query }: { store: ReturnType<typeof createShellStore>; query: string }) {
-  const auth = useAuthSession();
-  if (isSignedIn(auth)) return <ServerClock store={store} query={query} />;
-  return <GuestClock store={store} query={query} />;
 }
 
 let docStore: ReturnType<typeof createShellStore> | null = null;
@@ -211,7 +148,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
   // One store per document. The App Router remounts the catch-all page when the route param changes (a client-side
   // deep link such as /settings → /settings/SET-08), so the store lives at module scope: windows and focus survive
   // and the deep-link effect below focuses the existing instance (17B S1-02, Audit A-8).
-  const [store] = useState(() => (docStore ??= seedLocale(createShellStore(mockChannels(new URLSearchParams(query))), new URLSearchParams(query))));
+  const [store] = useState(() => (docStore ??= seedLocale(createShellStore(simBootChannels()), new URLSearchParams(query))));
   useShellKeys(store);
   useBackStack(store);
 
@@ -252,7 +189,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
   return (
     <ShellCtx.Provider value={store}>
       <ShellErrorBoundary>
-        <ShellClock store={store} query={query} />
+        <SimLink store={store} />
         <LiveNwUnlock />
         <Surface query={query} />
       </ShellErrorBoundary>

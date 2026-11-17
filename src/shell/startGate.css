@@ -1,0 +1,80 @@
+.sim-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow: auto;
+  background: var(--bg0);
+  color: var(--fg);
+}
+.sim-gate-wrap {
+  width: min(720px, calc(100% - 32px));
+  margin: 48px auto 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sim-brand { font: 400 40px/1 var(--font-display); margin: 0; color: var(--acc); }
+.sim-acts, .sim-cards { display: flex; flex-direction: column; gap: 10px; }
+.sim-card, .sim-acts button, .sim-back {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--win);
+  padding: 14px 16px;
+  min-height: 44px;
+}
+.sim-card { display: flex; flex-direction: column; gap: 4px; }
+.sim-card b, .sim-acts button { font: 400 22px/1.2 var(--font-display); }
+.sim-card:hover, .sim-acts button:hover { border-color: var(--acc); }
+.sim-card .label { color: var(--fg-faint); }
+.sim-sandbox, .sim-code {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--win);
+}
+.sim-sandbox label, .sim-code label { display: flex; flex-direction: column; gap: 4px; color: var(--fg-muted); }
+.sim-sandbox input, .sim-code input {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--win2);
+  color: var(--fg);
+  padding: 0 10px;
+  font-family: var(--font-num);
+}
+.sim-lines {
+  font-family: var(--font-num);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--win);
+  padding: 12px 14px;
+  max-height: 320px;
+  overflow: auto;
+}
+.sim-bar { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.sim-bar span { display: block; height: 100%; background: var(--acc); }
+.sim-time { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.sim-time button {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.sim-time button[data-on="1"] { color: var(--on-acc); background: var(--acc); border-color: var(--acc); }
+.strip .sim-pause { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.sim-pause { color: var(--warn); font-size: 12px; white-space: nowrap; }
+.sim-time-phone { display: flex; justify-content: center; padding: 6px 12px 0; }
+.sim-life { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sim-life li { display: flex; gap: 8px; align-items: baseline; }
+.sim-life .label { width: 88px; }
+.sim-err { color: var(--loss); margin: 0; }

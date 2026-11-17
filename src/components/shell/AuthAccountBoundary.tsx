@@ -8,6 +8,7 @@ import { setPlacedAcksAccount } from "@/apps/broker/placedAcks";
 import { applyGuestDemo, applySignedInDemo } from "@/shell/accountDemoBoundary";
 import { isSignedIn, useAuthChrome } from "@/shell/authChrome";
 import { clearTicketSubmitting, resetTicketPrefill } from "@/apps/broker/ticketPrefill";
+import { simOwnsShell } from "@/shell/simSession";
 import { useShellStore } from "./ShellContext";
 
 export function AuthAccountBoundary({ query, children }: { query: string; children: ReactNode }) {
@@ -22,6 +23,7 @@ export function AuthAccountBoundary({ query, children }: { query: string; childr
   // Layout (before useChannel's passive retain): install the account feed before subscribers
   // rebind. useChannel also tolerates setFeed mid-flight; this keeps the first paint coherent.
   useLayoutEffect(() => {
+    if (simOwnsShell()) return;
     if (auth.status === "loading") return;
     if (applied.current === authBoundaryKey) return;
     if (applied.current !== null) { resetTicketPrefill(); clearTicketSubmitting(); }

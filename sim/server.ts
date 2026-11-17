@@ -644,10 +644,39 @@ function sparkOf(st: Stock): number[] {
   return out;
 }
 
-function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; px: number; prev: number; chg: number; vol: number; eventId: number; spark: number[] }[] {
+interface BookLevel { px: number; qty: number }
+interface BookSide { bids: BookLevel[]; asks: BookLevel[] }
+
+/** Resting limit orders, collapsed to price levels. The book already lives on the market. */
+function booksOf(w: World): Map<string, BookSide> {
+  const orders = (w.state.markets as { orders?: { open: boolean; skip?: boolean; instr: string; side: string; qty: number; limit: number | null }[] } | undefined)?.orders ?? [];
+  const bid = new Map<string, Map<number, number>>();
+  const ask = new Map<string, Map<number, number>>();
+  for (const o of orders) {
+    if (!o.open || o.skip || o.limit === null || o.qty < 1) continue;
+    const side = o.side === 'buy' ? bid : o.side === 'sell' ? ask : undefined;
+    if (!side) continue;
+    let levels = side.get(o.instr);
+    if (!levels) { levels = new Map(); side.set(o.instr, levels); }
+    levels.set(o.limit, (levels.get(o.limit) ?? 0) + o.qty);
+  }
+  const top = (m: Map<number, number> | undefined, desc: boolean): BookLevel[] => {
+    if (!m) return [];
+    return [...m.entries()].sort((a, b) => desc ? b[0] - a[0] : a[0] - b[0]).slice(0, 8).map(([px, qty]) => ({ px, qty }));
+  };
+  const out = new Map<string, BookSide>();
+  for (const instr of new Set([...bid.keys(), ...ask.keys()])) {
+    out.set(instr, { bids: top(bid.get(instr), true), asks: top(ask.get(instr), false) });
+  }
+  return out;
+}
+
+function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; px: number; prev: number; chg: number; vol: number; eventId: number; spark: number[]; bid: number; ask: number; book: BookSide }[] {
   const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
+  const books = booksOf(w);
   return stocksOf(w).map((st) => {
     const ses = session(st);
+    const book = books.get(st.instr) ?? { bids: [], asks: [] };
     return {
       instr: st.instr,
       symbol: symbolOf(st.instr),
@@ -658,6 +687,9 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
       chg: ses.prev > 0 ? ses.px / ses.prev - 1 : 0,
       vol: ses.vol,
       spark: sparkOf(st),
+      bid: book.bids[0]?.px ?? 0,
+      ask: book.asks[0]?.px ?? 0,
+      book,
       eventId: (() => {
         const f = econ(w).firms.find((x) => x.id === st.issuer);
         if (st.issuer === 'bank_1') return st.moveEv ?? econ(w).rateWho ?? econ(w).cpiWho ?? root;
@@ -1398,7 +1430,7 @@ function tickFrame(w: World): Record<string, unknown> {
     companies: desks(w),
     index: idx.index,
     indexChg: idx.prev > 0 ? idx.index / idx.prev - 1 : 0,
-    quotes: quotesOf(w).map((q) => ({ instr: q.instr, px: q.px, prev: q.prev, chg: q.chg, vol: q.vol, spark: q.spark })),
+    quotes: quotesOf(w).map((q) => ({ instr: q.instr, px: q.px, prev: q.prev, chg: q.chg, vol: q.vol, spark: q.spark, bid: q.bid, ask: q.ask, book: q.book })),
     shares: book.shares,
     orders: book.orders,
     news: headlines(w),

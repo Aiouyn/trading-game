@@ -167,3 +167,7 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 /* High contrast: data-hc raises --line, so the segment, input, select, review and ack borders above stay visible. */
 
 .br-disclaimer { margin: var(--sp-8) 0 0; font-size: var(--fs-12_5, 0.8125rem); text-align: center; }
+
+.sim-book { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-16); min-width: 0; }
+.sim-book-row { display: flex; justify-content: space-between; gap: var(--sp-8); font-family: var(--font-num); }
+.sim-book-row button { color: var(--fg-muted); }

@@ -13,7 +13,10 @@ import { useShell, useShellStore } from "./ShellContext";
 
 export function useNw(): string {
   const boot = useShell((s) => s.channels.me.nw);
-  return useChannel("me").body?.nw ?? boot;
+  const sim = useShell((s) => s.channels.me.source === "sim");
+  const me = useChannel("me");
+  if (sim) return boot;
+  return me.body?.nw ?? boot;
 }
 
 /** What the visible NW chips print (M1-08). Signed-in, the boot value is the sign-in cash with holdings left out, so
@@ -26,8 +29,11 @@ export type NwReading = { readonly state: "live"; readonly nw: string } | { read
 export const nwStateLabel = (state: NwReading["state"]) => (state === "loading" ? S.nwLoading : S.nwUnavailable);
 export function useNwReading(): NwReading {
   const boot = useShell((s) => s.channels.me.nw);
+  const sim = useShell((s) => s.channels.me.source === "sim");
   const auth = useAuthSession();
   const me = useChannel("me");
+  // The simulation writes net worth onto the shell. The old account feed is not this player's book.
+  if (sim) return { state: "live", nw: boot };
   // Session not known yet: the shell still holds the guest channels and feed, which may not be this player's.
   if (auth.status === "loading") return { state: "loading", nw: null };
   if (me.body) return { state: "live", nw: me.body.nw };
