@@ -25,7 +25,9 @@ interface Paper {
   roundup: boolean;
   tags: string[];
 }
+interface Stance { id: string; label: string }
 interface Ask {
+  request: number;
   eventId: number;
   day: number;
   until: number;
@@ -35,8 +37,11 @@ interface Ask {
   outlet: string;
   voice: string;
   about: string;
+  stance: string;
   said: string;
+  stances: Stance[];
 }
+interface Answer { stance: string; text: string }
 
 const FILTERS = ["papers", "you", "contacts", "holdings", "city", "markets"] as const;
 type Filter = (typeof FILTERS)[number];
@@ -55,19 +60,39 @@ function beatWord(beat: string): string {
   return beat.charAt(0).toUpperCase() + beat.slice(1);
 }
 
-function CommentBox({ ask, busy, onSend }: { ask: Ask; busy: boolean; onSend: (text: string) => void }) {
+function CommentBox({ ask, busy, onSend }: { ask: Ask; busy: boolean; onSend: (stance: string, text: string) => void }) {
+  const stances = ask.stances.length ? ask.stances : [{ id: "explain", label: "Explain" }];
+  const [stance, setStance] = useState(stances[0].id);
   const [text, setText] = useState("");
+  const words = stance === "nocomment" || text.trim().length > 0;
   return (
-    <form className="paper-ask" data-testid="press-ask" onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSend(text.trim()); }}>
+    <form className="paper-ask" data-testid="press-ask" onSubmit={(e) => { e.preventDefault(); if (words) onSend(stance, text.trim()); }}>
       <p className="paper-kicker">{ask.outlet}{ask.voice ? ` · ${ask.voice}` : ""}</p>
       <p>{ask.journalist} asks for comment on {presentNote(ask.about)}</p>
-      <label>
-        Your comment
-        <textarea value={text} data-testid="press-comment" rows={3} onChange={(e) => setText(e.target.value)} />
-      </label>
-      <Button variant="primary" type="submit" disabled={busy || !text.trim()} data-testid="press-send">{busy ? "Sending…" : "Send to the paper"}</Button>
+      <div className="sim-wire-filters" role="group" aria-label="Your stance">
+        {stances.map((s) => (
+          <button key={s.id} type="button" data-testid={`press-stance-${s.id}`} data-on={stance === s.id ? "1" : "0"} onClick={() => setStance(s.id)}>{s.label}</button>
+        ))}
+      </div>
+      {stance !== "nocomment" ? (
+        <label>
+          Your comment
+          <textarea value={text} data-testid="press-comment" rows={3} onChange={(e) => setText(e.target.value)} />
+        </label>
+      ) : null}
+      <Button variant="primary" type="submit" disabled={busy || !words} data-testid="press-send">{busy ? "Sending…" : "Send to the paper"}</Button>
     </form>
   );
+}
+
+/** What the player said to the paper: the words, or the stance when there were no words. */
+function saidLine(ask: Ask, local: Answer | undefined): string {
+  const stance = local?.stance ?? ask.stance;
+  const words = local?.text ?? ask.said;
+  if (!stance) return "";
+  if (stance === "nocomment") return `You gave ${ask.outlet} no comment.`;
+  if (stance === "declined") return `You did not answer ${ask.outlet} in time.`;
+  return `You told ${ask.outlet}: ${words}`;
 }
 
 export default function WireApp() {
@@ -77,7 +102,7 @@ export default function WireApp() {
   const [filter, setFilter] = useState<Filter>("papers");
   const [papers, setPapers] = useState<Paper[]>([]);
   const [asks, setAsks] = useState<Ask[]>([]);
-  const [saidLocal, setSaidLocal] = useState<Record<number, string>>({});
+  const [saidLocal, setSaidLocal] = useState<Record<number, Answer>>({});
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -110,9 +135,9 @@ export default function WireApp() {
     setWhy([]);
     void explain(id).then((lines) => { if (req.current === n) setWhy(lines.filter((l) => !seedDebug(l.msg))); });
   };
-  const send = async (ask: Ask, text: string) => {
-    const result = await go({ kind: "reply", msg: 0, text, press: true });
-    if (result.ok) setSaidLocal((cur) => ({ ...cur, [ask.eventId]: text }));
+  const send = async (ask: Ask, stance: string, text: string) => {
+    const result = await go({ kind: "press", request: ask.request, stance, text });
+    if (result.ok) setSaidLocal((cur) => ({ ...cur, [ask.eventId]: { stance, text } }));
   };
 
   return (
@@ -127,12 +152,13 @@ export default function WireApp() {
         ))}
       </div>
       {note ? <p className="paper-note" data-ok={note.ok ? "1" : "0"}>{presentNote(note.text)}</p> : null}
-      {asks.filter((a) => a.open && !(a.said || saidLocal[a.eventId])).map((ask) => (
-        <CommentBox key={ask.eventId} ask={ask} busy={busy} onSend={(text) => { void send(ask, text); }} />
+      {asks.filter((a) => a.open && !saidLocal[a.eventId]).map((ask) => (
+        <CommentBox key={ask.eventId} ask={ask} busy={busy} onSend={(stance, text) => { void send(ask, stance, text); }} />
       ))}
-      {asks.filter((a) => a.said || saidLocal[a.eventId]).map((ask) => (
-        <p className="paper-said" key={`said-${ask.eventId}`} data-testid="press-said">You told {ask.outlet}: {ask.said || saidLocal[ask.eventId]}</p>
-      ))}
+      {asks.filter((a) => !a.open || saidLocal[a.eventId]).map((ask) => {
+        const line = saidLine(ask, saidLocal[ask.eventId]);
+        return line ? <p className="paper-said" key={`said-${ask.eventId}`} data-testid="press-said">{line}</p> : null;
+      })}
       {!ready ? <p className="quay-state" role="status">Reading the papers…</p> : null}
       {ready && failed && !shown.length ? (
         <p className="quay-state" data-kind="error" role="alert">

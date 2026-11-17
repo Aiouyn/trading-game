@@ -10,6 +10,8 @@ export interface CircleMsg {
   requestId: number;
   /** A journalist's request for comment. A reply is the comment, not a yes or no. */
   press?: boolean;
+  /** The request a press reply answers. */
+  pressId?: number;
 }
 export interface CircleThread {
   who: number;
@@ -189,6 +191,7 @@ export function readCircle(life: unknown): CircleSnap | null {
 }
 
 export interface PressAsk {
+  request: number;
   eventId: number;
   day: number;
   until: number;
@@ -198,6 +201,7 @@ export interface PressAsk {
   outlet: string;
   voice: string;
   about: string;
+  stance: string;
   said: string;
 }
 
@@ -209,6 +213,7 @@ export function readPress(raw: unknown): PressAsk[] {
     const journalist = str(a.journalist);
     if (!journalist) return [];
     return [{
+      request: num(a.request, -1),
       eventId: num(a.eventId, -1),
       day: num(a.day),
       until: num(a.until),
@@ -218,15 +223,16 @@ export function readPress(raw: unknown): PressAsk[] {
       outlet: str(a.outlet) || "The paper",
       voice: str(a.voice),
       about: str(a.about),
+      stance: str(a.stance),
       said: str(a.said),
     }];
   });
 }
 
 function pressMessage(ask: PressAsk): CircleMsg {
-  const text = ask.said
-    ? `${ask.journalist} of ${ask.outlet} asked for comment on ${ask.about}`
-    : `${ask.journalist} of ${ask.outlet} asks for comment on ${ask.about}. A sentence is the comment.`;
+  const text = ask.open
+    ? `${ask.journalist} of ${ask.outlet} asks for comment on ${ask.about}. A sentence is the comment.`
+    : `${ask.journalist} of ${ask.outlet} asked for comment on ${ask.about}`;
   return {
     id: -(ask.eventId + 1),
     day: ask.day,
@@ -234,7 +240,8 @@ function pressMessage(ask: PressAsk): CircleMsg {
     eventId: ask.eventId,
     source: ask.eventId,
     requestId: -1,
-    press: ask.open && !ask.said,
+    press: ask.open,
+    pressId: ask.request,
   };
 }
 

@@ -20,10 +20,21 @@ interface Rumour {
   day: number; story: number; fromRate: number; issuer: string; firm: string;
   outlet: number; claim: string; judged: boolean; discounted: boolean;
 }
-interface Ask {
-  day: number; until: number; player: number; journalist: number; outlet: number;
+/** A journalist's request for comment. Open until the player answers it or the paper runs out of patience. */
+export interface Ask {
+  id: number; day: number; until: number; player: number; journalist: number; outlet: number;
   about: string; cause: number; open: boolean;
+  stance: string; quote: string; answer: number; followed: boolean;
 }
+/** The ways a player can answer a request. The stance sets the follow-up story and the player's standing. */
+export const STANCES: { id: string; label: string }[] = [
+  { id: 'explain', label: 'Explain' },
+  { id: 'deny', label: 'Deny' },
+  { id: 'nocomment', label: 'No comment' },
+  { id: 'attack', label: 'Attack the story' },
+];
+/** A trade worth this many national wages is worth a question from the business desk. */
+const BIG_TRADE = 150;
 interface Item {
   key: string; gap: number; score: number; cause: number; beat: string;
   subject: string; detail: string; heat: string; gossip: string; weekly: string;
@@ -36,6 +47,7 @@ interface Wire {
   rumours: Rumour[]; asks: Ask[]; pending: Item | null; released: boolean; playerDay: number;
   pricedDay: number; lastOutlet: number; yHead: number; yCorrect: number; yPlayer: number; yAsk: number;
   clusters: Cluster[]; capDay: number; outN: number[]; wrote: number[]; skim: number;
+  askSeq: number; logSeen: number;
 }
 interface Ev { id: number; day: number; kind: string; actor?: string; msg: string; causes: number[] }
 interface Firm {
@@ -91,6 +103,7 @@ function blank(): Wire {
     rumours: [], asks: [], pending: null, released: false, playerDay: -1, pricedDay: -1, lastOutlet: -1,
     yHead: 0, yCorrect: 0, yPlayer: 0, yAsk: 0,
     clusters: [], capDay: -1, outN: [], wrote: [], skim: -1,
+    askSeq: 0, logSeen: -1,
   };
 }
 function wireOf(w: World): Wire {
@@ -333,7 +346,6 @@ function emitItem(w: World, wire: Wire, it: Item, fan: Fan): number {
     wire.playerDay = w.day;
     if (it.person >= 0 && it.standing) nudgeStanding(w, it.person, it.standing);
     if (it.link >= 0 && it.linkDelta) nudgeLink(w, it.person, it.link, it.linkDelta);
-    if (!it.key.startsWith('comment:')) fileAsk(w, wire, it, outlet, desk.person, ev);
   } else if (it.person >= 0 && it.standing) {
     nudgeStanding(w, it.person, it.standing);
   }
@@ -344,73 +356,92 @@ function emitItem(w: World, wire: Wire, it: Item, fan: Fan): number {
   if (it.issuer && it.side && it.weight) fan(it.issuer, it.side, o.trust, outlet, it.weight);
   return ev;
 }
-function fileAsk(w: World, wire: Wire, it: Item, outlet: number, journalist: number, cause: number): void {
+/** A journalist asks the player for comment on a story that names them. One open request at a time. */
+function askFor(w: World, wire: Wire, it: Item): void {
+  if (!it.player || it.person < 0 || it.key.startsWith('comment:')) return;
   if (wire.asks.some((a) => a.open)) return;
+  if (!fresh(wire, 'ask:' + it.key, w.day, 45)) return;
   const P = people(w);
-  const o = outlets(w)[outlet];
-  if (!o || journalist < 0 || it.person < 0) return;
+  const outs = outlets(w);
+  let outlet = -1;
+  let desk: Desk | undefined;
+  for (const id of deskOrder(it)) {
+    const i = outs.findIndex((o) => o.id === id);
+    if (i < 0 || !outs[i].journalists.length) continue;
+    const picked = journalist(wire, i, it.beat, true);
+    if (!picked) continue;
+    outlet = i;
+    desk = picked;
+    break;
+  }
+  if (outlet < 0 || !desk) return;
+  markSeen(wire, 'ask:' + it.key, w.day);
+  const o = outs[outlet];
   const about = clip(it.subject, 120);
   const ev = w.events.emit('media.ask',
-    `${P.name(journalist)} of ${o.name} asks ${P.name(it.person)} for comment on ${about}. A reply, a tip, or a talk is the comment.`,
-    [cause], P.id(journalist));
+    `${P.name(desk.person)} of ${o.name} asks ${P.name(it.person)} for comment on ${about}.`,
+    [it.cause >= 0 ? it.cause : rootOf(w)], P.id(desk.person));
+  wire.askSeq++;
   wire.asks.push({
-    day: w.day, until: w.day + 5, player: it.person, journalist, outlet,
-    about, cause: ev, open: true,
+    id: wire.askSeq, day: w.day, until: w.day + 5, player: it.person, journalist: desk.person, outlet,
+    about, cause: ev, open: true, stance: '', quote: '', answer: -1, followed: false,
   });
   wire.yAsk++;
 }
-function quoteOf(w: World, ask: Ask): string {
+/** The player's answer to an open request. It closes the request; the follow-up runs in the next day's close. */
+export function answerAsk(w: World, person: number, id: number, stance: string, text: string): { status: 'accepted' | 'rejected'; why?: string; eventId?: number; text?: string } {
+  if (!w.state.media) return { status: 'rejected', why: 'no such request' };
+  const wire = wireOf(w);
+  const ask = wire.asks.find((a) => a.id === id);
+  if (!ask || ask.player !== person) return { status: 'rejected', why: 'no such request' };
+  if (!ask.open) return { status: 'rejected', why: 'that request is closed' };
+  if (w.day > ask.until) return { status: 'rejected', why: 'that request has run out' };
+  if (!STANCES.some((s) => s.id === stance)) return { status: 'rejected', why: 'pick deny, explain, no comment or attack' };
+  const words = clip(text.replace(/\s+/g, ' ').trim(), 240);
+  if (stance !== 'nocomment' && !words) return { status: 'rejected', why: 'say a few words for the paper' };
   const P = people(w);
-  const pid = P.id(ask.player);
-  const log = (w.state.player as { log?: { day: number; cmd: { kind?: string; text?: string }; status: string }[] } | undefined)?.log ?? [];
-  let quote = '';
-  const from = Math.max(0, log.length - 40);
-  for (let i = log.length - 1; i >= from; i--) {
-    const row = log[i];
-    if (row.day < ask.day) break;
-    const kind = row.cmd?.kind;
-    if (kind === 'reply' && row.cmd.text) { quote = row.cmd.text; break; }
-    if (kind === 'tip') { quote = 'handed the paper a fact'; break; }
-    if (kind === 'talk') { quote = 'spoke, and asked that it stay off the record'; break; }
-  }
-  if (quote) return clip(quote, 160);
-  const n = w.events.count;
-  for (let id = n - 1; id >= 0; id--) {
-    const e = w.events.get(id);
-    if (!e) continue;
-    if (e.day < ask.day) break;
-    if (e.actor !== pid) continue;
-    if (e.kind === 'circle.reply') {
-      const i = e.msg.indexOf('replies:');
-      return clip(i >= 0 ? e.msg.slice(i + 8) : e.msg, 160);
-    }
-    if (e.kind === 'player.tip') return 'handed the paper a fact';
-  }
-  return '';
+  const o = outlets(w)[ask.outlet];
+  const paper = o?.name ?? 'the paper';
+  ask.open = false;
+  ask.stance = stance;
+  ask.quote = stance === 'nocomment' ? '' : words;
+  const said = ask.quote ? `"${ask.quote}"` : 'no comment';
+  ask.answer = w.events.emit('media.answer', `${P.name(person)} answers ${paper} (${stance}): ${said}`, [ask.cause], P.id(person));
+  return { status: 'accepted', eventId: ask.answer, text: 'the paper has your comment' };
 }
+/** What a stance says in the paper, and what it does to the player's standing and the paper's trust. */
+function followUp(ask: Ask, name: string): { subject: string; heat: string; standing: number; trust: number } {
+  const q = ask.quote;
+  switch (ask.stance) {
+    case 'explain': return { subject: `${name} tells the paper: "${q}"`, heat: 'Comment', standing: 2, trust: 1 };
+    case 'deny': return { subject: `${name} denies it: "${q}"`, heat: 'Denial', standing: 1, trust: 0 };
+    case 'attack': return { subject: `${name} hits back at the story: "${q}"`, heat: 'Attack', standing: -1, trust: -3 };
+    case 'nocomment': return { subject: `${name} gives no comment`, heat: 'No comment', standing: -2, trust: 0 };
+    default: return { subject: `${name} declined to comment`, heat: 'No comment', standing: -3, trust: 0 };
+  }
+}
+/** Runs the follow-up for each answered request, and marks a request that ran out of days as declined. */
 function resolveAsks(w: World, wire: Wire, fan: Fan): void {
+  const P = people(w);
   for (const ask of wire.asks) {
-    if (!ask.open) continue;
-    const quote = quoteOf(w, ask);
-    const late = w.day > ask.until;
-    if (!quote && !late) continue;
-    ask.open = false;
-    const P = people(w);
+    if (ask.followed) continue;
+    if (ask.open) {
+      if (w.day <= ask.until) continue;
+      ask.open = false;
+      ask.stance = 'declined';
+    }
+    ask.followed = true;
     const o = outlets(w)[ask.outlet];
-    const journo = P.name(ask.journalist);
-    const name = P.name(ask.player);
-    const paper = o?.name ?? 'The paper';
-    const subject = quote
-      ? `${name} tells ${paper}: "${quote}"`
-      : `${name} declined to comment`;
-    const it = item({
-      key: 'comment:' + ask.cause, gap: 1, score: 70, cause: ask.cause, beat: 'player',
-      subject, detail: ask.about, heat: quote ? 'Comment' : 'No comment',
+    const f = followUp(ask, P.name(ask.player));
+    if (o && f.trust) o.trust = Math.max(20, Math.min(o.serious ? 90 : 70, o.trust + f.trust));
+    const subject = f.subject;
+    emitItem(w, wire, item({
+      key: 'comment:' + ask.cause, gap: 1, score: 70, cause: ask.answer >= 0 ? ask.answer : ask.cause, beat: 'player',
+      subject, detail: ask.about, heat: f.heat,
       gossip: subject, weekly: `${subject} The question was ${ask.about}`,
-      player: true, person: ask.player, standing: quote ? 2 : -3, force: true,
+      player: true, person: ask.player, standing: f.standing, force: true,
       outletId: o?.id ?? 'GAZETTE',
-    });
-    emitItem(w, wire, it, fan);
+    }), fan);
   }
   if (wire.asks.length > 12) wire.asks = wire.asks.filter((a) => a.open || w.day - a.day < 20);
 }
@@ -991,15 +1022,8 @@ function playerPiece(w: World): Item | null {
       player: true, person: me, standing: 3, link: friend, linkDelta: 4, force: true, outletId: 'GAZETTE',
     });
   }
-  const soc = w.state.society as { rank?: number; worth?: number; households?: number; rankEvent?: number } | undefined;
-  if (soc?.rank && soc.rank > 0 && soc.rank <= 150) {
-    const subject = `${name} ranks ${soc.rank} of ${soc.households ?? 0} households, worth ${money(soc.worth ?? 0)}`;
-    return item({
-      key: 'player:rank', gap: 40, score: 78, cause: soc.rankEvent && soc.rankEvent >= 0 ? soc.rankEvent : rootOf(w),
-      beat: 'player', subject, detail: '', heat: 'The list', gossip: subject,
-      weekly: subject, player: true, person: me, standing: 2, force: true, outletId: 'HERALD',
-    });
-  }
+  const rank = rankItem(w);
+  if (rank) return rank;
   const stocks = (w.state.markets as { stocks?: { instr: string; issuer: string; last: number }[] } | undefined)?.stocks ?? [];
   let stake = 0, hold = '', qty = 0;
   for (const st of stocks) {
@@ -1020,6 +1044,50 @@ function playerPiece(w: World): Item | null {
     });
   }
   return null;
+}
+/** The player on the household rich list: a rank in the top 150. */
+function rankItem(w: World): Item | null {
+  const me = playerIndex(w);
+  const soc = w.state.society as { rank?: number; worth?: number; households?: number; rankEvent?: number } | undefined;
+  if (me < 0 || !soc?.rank || soc.rank <= 0 || soc.rank > 150) return null;
+  const subject = `${people(w).name(me)} ranks ${soc.rank} of ${soc.households ?? 0} households, worth ${money(soc.worth ?? 0)}`;
+  return item({
+    key: 'player:rank', gap: 40, score: 78, cause: soc.rankEvent && soc.rankEvent >= 0 ? soc.rankEvent : rootOf(w),
+    beat: 'player', subject, detail: '', heat: 'The list', gossip: subject,
+    weekly: subject, player: true, person: me, standing: 2, force: true, outletId: 'HERALD',
+  });
+}
+/** A large order by the player, read from their own log since the last day it was looked at. */
+function tradeItem(w: World, wire: Wire): Item | null {
+  const log = (w.state.player as { log?: { day: number; status: string; cmd?: { kind?: string; side?: string; instr?: string; qty?: number } }[] } | undefined)?.log ?? [];
+  if (wire.logSeen < 0) { wire.logSeen = log.length; return null; }
+  const me = playerIndex(w);
+  const from = wire.logSeen;
+  wire.logSeen = log.length;
+  if (me < 0) return null;
+  const stocks = (w.state.markets as { stocks?: { instr: string; issuer: string; last: number }[] } | undefined)?.stocks ?? [];
+  const big = econ(w).wage * BIG_TRADE;
+  let best: Item | null = null, bestValue = 0;
+  for (let i = from; i < log.length; i++) {
+    const row = log[i];
+    const cmd = row.cmd;
+    if (row.status !== 'accepted' || !cmd || cmd.kind !== 'order') continue;
+    const qty = cmd.qty ?? 0;
+    const st = stocks.find((s) => s.instr === cmd.instr);
+    if (!st || qty < 1 || st.last < 1) continue;
+    const value = qty * st.last;
+    if (value < big || value <= bestValue) continue;
+    bestValue = value;
+    const firm = firmById(w, st.issuer)?.name ?? (st.issuer === 'bank_1' ? 'the bank' : st.issuer);
+    const verb = cmd.side === 'sell' ? 'sells' : cmd.side === 'short' ? 'shorts' : 'buys';
+    const subject = `${people(w).name(me)} ${verb} ${qty} shares of ${firm}, ${money(value)} at the close`;
+    best = item({
+      key: 'player:trade:' + i, gap: 40, score: 80, cause: rootOf(w),
+      beat: 'markets', subject, detail: 'A large order on the tape', heat: 'A big trade',
+      gossip: subject, weekly: subject, player: true, person: me, force: true, outletId: 'LEDGER',
+    });
+  }
+  return best;
 }
 function judge(w: World, wire: Wire, fan: Fan): void {
   const rate = econ(w).policyRate;
@@ -1131,6 +1199,12 @@ export function wireDay(w: World, fan: Fan): void {
   for (const it of weddings(w, wire, notable)) items.push(it);
   const rum = rumourItem(w, wire);
   if (rum) items.push(rum);
+  // A journalist asks for comment as soon as a story names the player, whether or not the paper runs it.
+  for (const it of items) askFor(w, wire, it);
+  const rich = rankItem(w);
+  if (rich) askFor(w, wire, rich);
+  const big = tradeItem(w, wire);
+  if (big) askFor(w, wire, big);
   const cap = (w.day + 1) % 30 === 0 ? 2 : 3;
   publish(w, wire, thin(foldDay(absorbLayoffs(w, wire, items))), fan, cap);
 }
@@ -1149,7 +1223,7 @@ export function wireMonth(w: World, fan: Fan): void {
 export function wireStats(w: World): Record<string, number> {
   const wire = (w.state.media as { wire?: Wire } | undefined)?.wire;
   if (!wire) return { headlines: 0, corrections: 0, playerNews: 0 };
-  const out = { headlines: wire.yHead, corrections: wire.yCorrect, playerNews: wire.yPlayer };
+  const out = { headlines: wire.yHead, corrections: wire.yCorrect, playerNews: wire.yPlayer, asks: wire.yAsk };
   wire.yHead = 0; wire.yCorrect = 0; wire.yPlayer = 0; wire.yAsk = 0;
   return out;
 }

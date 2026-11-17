@@ -149,8 +149,8 @@ export default function MessagesApp({ context }: AppBodyProps) {
     const reply: LocalReply = { key, who: thread.who, afterId: last.id, text: said, day: snap.abs };
     setMine((cur) => [...cur, reply]);
     setDraft("");
-    const result = last.press
-      ? await go({ kind: "reply", msg: 0, text: said, press: true })
+    const result = last.press && last.pressId !== undefined && last.pressId >= 0
+      ? await go({ kind: "press", request: last.pressId, stance: "explain", text: said })
       : await go({ kind: "reply", msg: last.id, text: said });
     if (!result.ok) setMine((cur) => cur.filter((r) => r.key !== key));
   };

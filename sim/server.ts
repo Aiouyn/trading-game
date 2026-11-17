@@ -22,6 +22,7 @@ import { optionChain } from './modules/options/index.ts';
 import { careerCard } from './modules/careers/index.ts';
 import { pledgeValue, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
+import { answerAsk, STANCES } from './modules/media/index.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
 import { attentionOf } from './modules/law/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
@@ -2842,8 +2843,8 @@ function legalPanel(w: World): Record<string, unknown> {
 
 interface PressOutlet { id: string; name: string; serious: boolean }
 interface PressAsk {
-  day: number; until: number; player: number; journalist: number; outlet: number;
-  about: string; cause: number; open: boolean;
+  id: number; day: number; until: number; player: number; journalist: number; outlet: number;
+  about: string; cause: number; open: boolean; stance: string; quote: string;
 }
 interface PressPaper {
   eventId: number; day: number; outlet: string; voice: string; journalist: string; beat: string;
@@ -2881,18 +2882,16 @@ function pressSplit(msg: string, outs: PressOutlet[]): { outlet?: PressOutlet; b
     beat: comma >= 0 ? byline.slice(comma + 2).trim() : '',
   };
 }
-function pressComment(w: World, since: number): string {
-  const log = (w.state.player as { log?: { day: number; cmd?: { kind?: string; text?: string } }[] } | undefined)?.log ?? [];
-  for (let n = log.length - 1; n >= Math.max(0, log.length - 40); n--) {
-    const row = log[n];
-    if (row.day < since) break;
-    const kind = row.cmd?.kind;
-    const text = row.cmd?.text?.trim() ?? '';
-    if (kind === 'reply' && text && text.toLowerCase() !== 'yes' && text.toLowerCase() !== 'no') return text.slice(0, 180);
-    if (kind === 'tip') return 'You handed the paper a fact.';
-    if (kind === 'talk') return 'You spoke, and asked that it stay off the record.';
-  }
-  return '';
+/** A press answer from the Wire or Messages: { kind: 'press', request, stance, text }. Not a letter reply. */
+function pressBody(body: unknown): { request: number; stance: string; text: string } | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  if (b.kind !== 'press') return null;
+  return {
+    request: whole(b.request, 0) ?? -1,
+    stance: typeof b.stance === 'string' ? b.stance : '',
+    text: typeof b.text === 'string' ? b.text : '',
+  };
 }
 function pressAsks(w: World): Record<string, unknown>[] {
   const i = playerIndex(w);
@@ -2907,6 +2906,7 @@ function pressAsks(w: World): Record<string, unknown>[] {
     const o = outs[ask.outlet];
     const journalist = ask.journalist >= 0 && ask.journalist < P.n ? P.name(ask.journalist) : 'A journalist';
     out.push({
+      request: ask.id,
       eventId: ask.cause,
       day: ask.day,
       until: ask.until,
@@ -2916,7 +2916,9 @@ function pressAsks(w: World): Record<string, unknown>[] {
       outlet: o?.name ?? 'The paper',
       voice: pressVoice(o),
       about: ask.about,
-      said: pressComment(w, ask.day),
+      stance: ask.stance,
+      said: ask.quote,
+      stances: STANCES,
     });
   }
   return out;
@@ -5018,6 +5020,21 @@ const server = http.createServer(async (req, res) => {
         const line = body && typeof body === 'object' && typeof (body as { line?: unknown }).line === 'string'
           ? (body as { line: string }).line.trim()
           : '';
+        const comment = pressBody(body);
+        if (comment) {
+          if (!booksOk) { send(res, 409, { status: 'rejected', why: 'the books do not balance' }); return; }
+          const answer = answerAsk(w, playerIndex(w), comment.request, comment.stance, comment.text);
+          collect(w);
+          maybeAutosave();
+          touchView();
+          const fitted = JSON.parse(await viewJson()) as Record<string, unknown>;
+          const why = answer.status === 'rejected' && answer.why ? playerLine(answer.why) : undefined;
+          const json = JSON.stringify({ ...answer, why, view: fitted });
+          lastActCode = 200;
+          lastActJson = json;
+          sendRaw(res, 200, json);
+          return;
+        }
         let cmd: Command | string;
         if (line) {
           const parsed = parseCommand(line, view(w).firm || '');
@@ -5041,17 +5058,13 @@ const server = http.createServer(async (req, res) => {
         const said = inviteSentence(body, cmd, fitted);
         const text = said && result.status === 'accepted' ? said : result.text;
         const books = result.books;
-        const press = body && typeof body === 'object' && (body as { press?: unknown }).press === true && cmd.kind === 'reply';
-        const deskTook = press && !books && result.status === 'rejected' && /no such/i.test(String(result.why ?? ''));
         const why = books
           ? 'The books do not balance, so pause and reload the last save.'
           : (result.status === 'rejected' && typeof result.why === 'string' ? playerLine(result.why) : result.why);
         const code = books ? 409 : 200;
         const payload = books
           ? { ...result, status: 'rejected' as const, why, text, view: fitted }
-          : deskTook
-            ? { status: 'accepted' as const, text: 'The paper has your comment.', view: fitted }
-            : { ...result, why, text, view: fitted };
+          : { ...result, why, text, view: fitted };
         const json = JSON.stringify(payload);
         lastActCode = code;
         lastActJson = json;

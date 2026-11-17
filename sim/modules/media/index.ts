@@ -12,6 +12,7 @@ import { askFirm, contactsOf, knows, publish, seatPerson } from '../social/index
 import { CITY, money, sectorWord, signedPct } from '../social/words.ts';
 import { cancelOrder, submitOrder } from '../markets/index.ts';
 import { wireDay, wireMonth, wireStats } from './wire.ts';
+export { answerAsk, STANCES } from './wire.ts';
 
 interface Outlet {
   id: string; name: string; readership: number; leaning: number; serious: boolean;
