@@ -91,6 +91,13 @@ const book = (w: World): Book => w.state.property as Book;
 const econ = (w: World): EconState => w.state.economy as EconState;
 const clamp = (x: number, a: number, b: number): number => Math.max(a, Math.min(b, x));
 const yieldOf = (policy: number): number => Math.max(0.035, policy + 0.012);
+/** The rate a buyer values a home or a building with: the policy rate less most of the inflation it is fighting.
+ *  Bricks hold their value through inflation; only mortgages pay the nominal rate. */
+function valueRate(s: EconState): number {
+  const h = s.cpiHist, n = h.length;
+  const yoy = n > 13 && h[n - 13] > 0 ? s.cpi / h[n - 13] - 1 : 0;
+  return Math.max(0.005, s.policyRate - 0.8 * Math.max(0, Math.min(0.12, yoy)));
+}
 
 function mix(a: number, b: number): number {
   let x = Math.imul(a + 1, 0x9e3779b1) ^ Math.imul(b + 1, 0x85ebca6b);
@@ -1068,7 +1075,7 @@ function market(w: World): void {
       if (bid.live && st.tenK[L.p] !== 0) continue;
       if (!bid.live && st.tenK[L.p] === 0) {
         const yld = st.rent[L.p] * 12 / L.ask;
-        if (yld < s.policyRate + 0.005 && st.ownK[L.p] !== BANKK) continue;
+        if (yld < valueRate(s) + 0.005 && st.ownK[L.p] !== BANKK) continue;
       }
       if (best < 0 || L.ask < listings[best].ask) best = i;
     }
@@ -1108,14 +1115,14 @@ function build(w: World, cause: number): void {
     const p = addParcel(st, nb, HOME, size, cond, buyer.k, buyer.id, 0, -1);
     setMarked(w, p, price, cause);
     st.lastPx[p] = price;
-    st.rent[p] = Math.max(1, Math.round(price * yieldOf(s.policyRate) / 12));
+    st.rent[p] = Math.max(1, Math.round(price * yieldOf(valueRate(s)) / 12));
     st.rentY[p] = st.rent[p];
   }
 }
 function pullPrices(w: World): void {
   const st = book(w), s = econ(w);
   const inc = Math.max(0.25, meanIncome(w) / Math.max(1, st.inc0));
-  const u0 = st.rate0 + 0.04, u = Math.max(0.01, s.policyRate + 0.04);
+  const u0 = st.rate0 + 0.04, u = Math.max(0.01, valueRate(s) + 0.04);
   for (let nb = 0; nb < NBHDS.length; nb++) {
     const start = st.px[nb];
     let fair = st.basePx[nb] * inc * (u0 / u);
@@ -1129,7 +1136,7 @@ function pullPrices(w: World): void {
   }
 }
 function revalue(w: World, cause: number): void {
-  const st = book(w), yld = yieldOf(econ(w).policyRate);
+  const st = book(w), yld = yieldOf(valueRate(econ(w)));
   const rIdx = rentIndex(st) / 100;
   for (let p = 0; p < st.n; p++) {
     if (st.kind[p] === COMM) {
@@ -1240,7 +1247,7 @@ export function noteBuiltHome(w: World, person: number, paid: number, cause: num
   st.flag[p] |= FROM_BANK;
   setMarked(w, p, price, cause);
   st.lastPx[p] = price;
-  st.rent[p] = Math.max(1, Math.round(price * yieldOf(econ(w).policyRate) / 12));
+  st.rent[p] = Math.max(1, Math.round(price * yieldOf(valueRate(econ(w))) / 12));
   st.rentY[p] = st.rent[p];
   const cur = st.live[person];
   const renting = cur >= 0 && st.tenK[cur] === PERSON && st.ten[cur] === person && !ownerOccupies(w, cur);
