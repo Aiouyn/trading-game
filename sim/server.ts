@@ -15,7 +15,7 @@ import { contactsOf, knows, regardOf } from './modules/social/index.ts';
 import { innerOf } from './modules/psyche/index.ts';
 import { companyPosts } from './modules/corporate/index.ts';
 import { CAPITAL, DEP, type EconState, type Firm } from './modules/economy/index.ts';
-import { GOODS, SECTOR_NAMES } from './modules/economy/content.ts';
+import { GOODS, SECTOR_GROWTH, SECTOR_NAMES } from './modules/economy/content.ts';
 import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
@@ -50,6 +50,11 @@ interface Macro {
   index: Pt[];
   gdp: Pt[];
   power: Pt[];
+  // The city's long story (City app). Sampled monthly from this session's world: real GDP a year, productivity (opening = 100), real wage a day, and the total-return index.
+  realGdp: Pt[];
+  prod: Pt[];
+  realWage: Pt[];
+  tr: Pt[];
 }
 interface DayHit { jobs?: number; cpi?: number; rate?: number; fx?: number; mkt?: number }
 
@@ -536,7 +541,7 @@ function grab(re: RegExp, msg: string): number | undefined {
 }
 
 let byDay = new Map<number, DayHit>();
-const macro: Macro = { unemployment: [], inflation: [], policy: [], fx: [], index: [], gdp: [], power: [] };
+const macro: Macro = { unemployment: [], inflation: [], policy: [], fx: [], index: [], gdp: [], power: [], realGdp: [], prod: [], realWage: [], tr: [] };
 
 function noteDay(day: number, key: keyof DayHit, id: number): void {
   let hit = byDay.get(day);
@@ -571,6 +576,10 @@ function buildMacro(w: World): void {
   macro.index = [];
   macro.gdp = [];
   macro.power = [];
+  macro.realGdp = [];
+  macro.prod = [];
+  macro.realWage = [];
+  macro.tr = [];
   const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
   for (let id = firstEvent(w); id < w.events.count; id++) {
     const e = w.events.get(id);
@@ -636,7 +645,7 @@ function buildMacro(w: World): void {
 function sampleMacro(w: World): void {
   const s = econ(w);
   const abroad = w.state.abroad as { mid?: number; rateEv?: number; fxWho?: number } | undefined;
-  const mkt = w.state.markets as { index?: number; root?: number } | undefined;
+  const mkt = w.state.markets as { index?: number; tr?: number; root?: number } | undefined;
   const jobs = s.jobsWho ?? w.events.last('macro.jobs.who') ?? w.events.last('macro.jobs') ?? s.macroEv ?? w.genesis;
   const cpi = s.cpiWho ?? w.events.last('macro.cpi.who') ?? w.events.last('macro.cpi') ?? s.macroEv ?? w.genesis;
   const rate = s.rateWho ?? w.events.last('cb.desk') ?? w.events.last('cb.rate') ?? s.rateEv ?? w.genesis;
@@ -653,6 +662,53 @@ function sampleMacro(w: World): void {
   if (finite(grid?.wholesale)) pushPt(macro.power, { day, v: grid.wholesale, eventId: powerEv });
   const gdpEv = s.macroEv || w.genesis;
   if (s.yGdpEma > 1) pushPt(macro.gdp, { day, v: s.yGdpEma * 360 / 100, eventId: gdpEv });
+  const cpiNow = s.cpi > 0 ? s.cpi : 1;
+  if (s.yGdpEma > 1) pushPt(macro.realGdp, { day, v: s.yGdpEma * 360 / 100 / cpiNow, eventId: gdpEv });
+  pushPt(macro.prod, { day, v: (s.tfpIdx ?? 1) * 100, eventId: s.macroEv || w.genesis });
+  pushPt(macro.realWage, { day, v: s.wage / 100 / cpiNow, eventId: s.wageWho ?? s.wageEv ?? w.genesis });
+  if (finite(mkt?.tr)) pushPt(macro.tr, { day, v: mkt.tr, eventId: idxEv });
+}
+
+/** Change over the last year of a sampled series; null until a year is on the record. */
+function yearChange(pts: Pt[]): number | null {
+  const last = pts[pts.length - 1];
+  if (!last) return null;
+  const then = [...pts].reverse().find((p) => p.day <= last.day - 360);
+  return then && then.v > 0 ? last.v / then.v - 1 : null;
+}
+
+/** The city's long story for the City app: the monthly series since the world was opened or loaded in this session, one line each. */
+function cityStory(w: World): Record<string, unknown> {
+  const clip = (pts: Pt[]) => pts.slice(-240).map((p) => ({ day: p.day, v: +p.v.toFixed(4), eventId: p.eventId }));
+  return {
+    unemployment: clip(macro.unemployment),
+    inflation: clip(macro.inflation),
+    policy: clip(macro.policy),
+    realGdp: clip(macro.realGdp),
+    prod: clip(macro.prod),
+    realWage: clip(macro.realWage),
+    recordFrom: macro.prod[0]?.day ?? w.day,
+    today: w.day,
+  };
+}
+
+/** Productivity growth a year by sector: the labour-weighted level of the live firms, compounded from the opening.
+ *  Before a year has passed the content's plan rate stands in. */
+function sectorProductivity(w: World): Map<string, number> {
+  const s = econ(w);
+  const years = w.day / 360;
+  const a = new Map<string, number>(), b = new Map<string, number>();
+  for (const f of s.firms) {
+    if (f.closed || !(f.eff > 0)) continue;
+    a.set(f.sector, (a.get(f.sector) ?? 0) + f.eff * (f.tfp ?? 1));
+    b.set(f.sector, (b.get(f.sector) ?? 0) + f.eff);
+  }
+  const out = new Map<string, number>();
+  for (const [sector, eff] of b) {
+    const level = (a.get(sector) ?? 0) / eff;
+    out.set(sector, years >= 1 && level > 0 ? Math.pow(level, 1 / years) - 1 : (SECTOR_GROWTH[sector] ?? 0));
+  }
+  return out;
 }
 
 let bandDay = -1;
@@ -763,12 +819,13 @@ function booksOf(w: World): Map<string, BookSide> {
   return out;
 }
 
-function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; sector: string; px: number; prev: number; chg: number; vol: number; pe: number | null; pos: number; eventId: number; spark: number[]; bid: number; ask: number; book: BookSide }[] {
+function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; sector: string; px: number; prev: number; chg: number; vol: number; pe: number | null; pos: number; eventId: number; spark: number[]; bid: number; ask: number; book: BookSide; ret1y: number | null; prod: number | null }[] {
   const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
   const books = booksOf(w);
   const who = playerIndex(w);
   const id = who >= 0 ? econ(w).P.id(who) : '';
   const firms = econ(w).firms;
+  const prodBy = sectorProductivity(w);
   return stocksOf(w).map((st) => {
     const ses = session(st);
     const book = books.get(st.instr) ?? { bids: [], asks: [] };
@@ -779,18 +836,24 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
       const eps = f.lastProfit * 12 / shares;
       if (eps > 1) pe = Math.round((ses.px / eps) * 10) / 10;
     }
+    // Return over the last year of trading (or since listing, if younger), from the daily closes.
+    const h = st.hist;
+    const base = h.length ? h[Math.max(0, h.length - 360)].c : 0;
+    const sector = st.issuer === 'bank_1' ? 'Bank' : (f?.sector ?? '');
     return {
       instr: st.instr,
       symbol: symbolOf(st.instr),
       name: issuerName(w, st.issuer),
       issuer: st.issuer,
-      sector: st.issuer === 'bank_1' ? 'Bank' : (f?.sector ?? ''),
+      sector,
       px: ses.px,
       prev: ses.prev,
       chg: ses.prev > 0 ? ses.px / ses.prev - 1 : 0,
       vol: ses.vol,
       pe,
       pos: id ? Math.floor(w.ledger.balance(id, st.instr)) : 0,
+      ret1y: base > 0 && ses.px > 0 ? ses.px / base - 1 : null,
+      prod: prodBy.get(sector) ?? null,
       spark: sparkOf(st),
       bid: book.bids[0]?.px ?? 0,
       ask: book.asks[0]?.px ?? 0,
@@ -2662,6 +2725,7 @@ function cityPanel(w: World, district: string): Record<string, unknown> {
       down: p.out > 0 || p.ready > w.day,
     })),
     power: { wholesale: grid?.wholesale ?? 0, tariff: grid?.tariff ?? 0, marginal: grid?.marginal ?? '', eventId: powerEv },
+    story: cityStory(w),
   };
 }
 
@@ -2844,12 +2908,12 @@ function legalPanel(w: World): Record<string, unknown> {
 interface PressOutlet { id: string; name: string; serious: boolean }
 interface PressAsk {
   id: number; day: number; until: number; player: number; journalist: number; outlet: number;
-  about: string; cause: number; open: boolean; stance: string; quote: string;
+  about: string; cause: number; open: boolean; stance: string; quote: string; answer: number;
 }
 interface PressPaper {
   eventId: number; day: number; outlet: string; voice: string; journalist: string; beat: string;
   text: string; rumour: boolean; correction: boolean; corrects: number; correctsText: string;
-  roundup: boolean; tags: string[];
+  roundup: boolean; tags: string[]; answers: number;
 }
 
 function pressOutlets(w: World): PressOutlet[] {
@@ -2949,6 +3013,11 @@ function wirePanel(w: World): Record<string, unknown> {
   }
   const outs = pressOutlets(w);
   const kinds = ['media.column', 'media.story', 'media.scoop', 'media.retraction', 'news.story'];
+  // The follow-up story is caused by the player's answer; the answer is caused by the request. Map answers back to requests.
+  const requestOf = new Map<number, number>();
+  for (const a of (w.state.media as { wire?: { asks?: PressAsk[] } } | undefined)?.wire?.asks ?? []) {
+    if (a.player === i && a.answer >= 0) requestOf.set(a.answer, a.id);
+  }
   const papers: PressPaper[] = [];
   for (const e of w.events.recent(kinds, 80).slice().reverse()) {
     const split = pressSplit(e.msg, outs);
@@ -2971,7 +3040,13 @@ function wirePanel(w: World): Record<string, unknown> {
       if (corrects < 0 && e.causes[0] !== undefined) corrects = e.causes[0];
     }
     const beat = split.beat || (e.kind === 'media.retraction' ? 'correction' : e.kind === 'media.scoop' ? 'markets' : 'city');
+    let answers = -1;
+    for (const c of e.causes) {
+      const req = requestOf.get(c);
+      if (req !== undefined) { answers = req; break; }
+    }
     papers.push({
+      answers,
       eventId: e.id,
       day: e.day,
       outlet: split.outlet?.name ?? '',
@@ -3590,6 +3665,10 @@ function screen(w: World): Record<string, unknown> {
       foreignRate: abroad?.policy ?? 0,
       index: idx.index,
       indexChg: idx.prev > 0 ? idx.index / idx.prev - 1 : 0,
+      // Total return (price plus the whole payout) and the year-on-year changes of both indexes; read from the monthly series.
+      indexTR: (w.state.markets as { tr?: number } | undefined)?.tr ?? 100,
+      indexYr: yearChange(macro.index),
+      indexTRYr: yearChange(macro.tr),
       events: {
         jobs: s.jobsWho ?? w.events.last('macro.jobs') ?? s.macroEv,
         cpi: s.cpiWho ?? w.events.last('macro.cpi') ?? s.macroEv,

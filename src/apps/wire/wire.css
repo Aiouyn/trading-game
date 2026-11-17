@@ -274,6 +274,19 @@
 .sim-wire-filters button[data-on="1"] { color: var(--fg); background: var(--win2); }
 .sim-wire.q-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
 .sim-wire.q-phone .sim-wire-filters button, .sim-wire.q-phone .name-link, .sim-wire.q-phone .paper-ask .btn { min-height: var(--hit-touch); }
+/* The four answers to a press request: each a clear button with one line on what it risks. */
+.press-stances { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: var(--sp-8); }
+.press-stance {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+  min-height: var(--hit-pointer); padding: var(--sp-8) var(--sp-12); text-align: left;
+  border: 1px solid var(--line); border-radius: var(--r-input); background: transparent; color: var(--fg-muted); font: inherit;
+}
+.press-stance[aria-pressed="true"] { color: var(--fg); background: var(--win2); border-color: var(--fg); }
+.press-stance-label { font-weight: 600; color: var(--fg); }
+.press-stance-risk { font-size: var(--fs-12_5); overflow-wrap: anywhere; }
+.press-stance:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.sim-wire.q-phone .press-stance { min-height: var(--hit-touch); }
+.paper-said:target, .paper-ask:target { outline: 2px solid var(--acc); outline-offset: 2px; }
 .sim-wire-item { cursor: pointer; }
 .sim-wire-meta { color: var(--fg-muted); font-size: var(--fs-11_5); }
 .sim-wire-hit { display: flex; flex-direction: column; gap: 4px; text-align: left; width: 100%; padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }

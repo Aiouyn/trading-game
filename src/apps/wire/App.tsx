@@ -24,8 +24,18 @@ interface Paper {
   correctsText: string;
   roundup: boolean;
   tags: string[];
+  /** The request this story answers (the player's comment), or -1. */
+  answers: number;
 }
 interface Stance { id: string; label: string }
+
+/** What each stance risks, in one line. The stance ids come from the simulation. */
+const RISK: Record<string, string> = {
+  explain: "Your words run in full. A careless line becomes the headline.",
+  deny: "Short and firm. If the facts come out later, the denial becomes the story.",
+  nocomment: "Nothing of yours runs. The paper says you declined, and it counts against you.",
+  attack: "Hits back at the paper. Its trust in you falls furthest of the four.",
+};
 interface Ask {
   request: number;
   eventId: number;
@@ -66,12 +76,15 @@ function CommentBox({ ask, busy, onSend }: { ask: Ask; busy: boolean; onSend: (s
   const [text, setText] = useState("");
   const words = stance === "nocomment" || text.trim().length > 0;
   return (
-    <form className="paper-ask" data-testid="press-ask" onSubmit={(e) => { e.preventDefault(); if (words) onSend(stance, text.trim()); }}>
+    <form className="paper-ask" id={askId(ask.request)} data-testid="press-ask" onSubmit={(e) => { e.preventDefault(); if (words) onSend(stance, text.trim()); }}>
       <p className="paper-kicker">{ask.outlet}{ask.voice ? ` · ${ask.voice}` : ""}</p>
       <p>{ask.journalist} asks for comment on {presentNote(ask.about)}</p>
-      <div className="sim-wire-filters" role="group" aria-label="Your stance">
+      <div className="press-stances" role="group" aria-label="Your stance">
         {stances.map((s) => (
-          <button key={s.id} type="button" data-testid={`press-stance-${s.id}`} data-on={stance === s.id ? "1" : "0"} onClick={() => setStance(s.id)}>{s.label}</button>
+          <button key={s.id} type="button" className="press-stance" aria-pressed={stance === s.id} data-testid={`press-stance-${s.id}`} data-on={stance === s.id ? "1" : "0"} onClick={() => setStance(s.id)}>
+            <span className="press-stance-label">{s.label}</span>
+            <span className="press-stance-risk">{RISK[s.id] ?? ""}</span>
+          </button>
         ))}
       </div>
       {stance !== "nocomment" ? (
@@ -83,6 +96,11 @@ function CommentBox({ ask, busy, onSend }: { ask: Ask; busy: boolean; onSend: (s
       <Button variant="primary" type="submit" disabled={busy || !words} data-testid="press-send">{busy ? "Sending…" : "Send to the paper"}</Button>
     </form>
   );
+}
+
+/** The anchor of a request on the page, so a story can link back to it. */
+function askId(request: number): string {
+  return `press-ask-${request}`;
 }
 
 /** What the player said to the paper: the words, or the stance when there were no words. */
@@ -157,7 +175,7 @@ export default function WireApp() {
       ))}
       {asks.filter((a) => !a.open || saidLocal[a.eventId]).map((ask) => {
         const line = saidLine(ask, saidLocal[ask.eventId]);
-        return line ? <p className="paper-said" key={`said-${ask.eventId}`} data-testid="press-said">{line}</p> : null;
+        return line ? <p className="paper-said" id={askId(ask.request)} key={`said-${ask.eventId}`} data-testid="press-said">{line}</p> : null;
       })}
       {!ready ? <p className="quay-state" role="status">Reading the papers…</p> : null}
       {ready && failed && !shown.length ? (
@@ -195,6 +213,11 @@ export default function WireApp() {
                 {paper.journalist}
                 {paper.beat ? `, ${paper.beat}` : ""}
               </p>
+            ) : null}
+            {paper.answers >= 0 && asks.some((a) => a.request === paper.answers) ? (
+              <button type="button" className="name-link" data-testid="answers-request" onClick={() => document.getElementById(askId(paper.answers))?.scrollIntoView({ behavior: "smooth", block: "center" })}>
+                In answer to {asks.find((a) => a.request === paper.answers)?.journalist ?? "the paper"}&apos;s request
+              </button>
             ) : null}
             {paper.correction && paper.corrects >= 0 ? (
               <button type="button" className="name-link" data-testid="corrects" onClick={() => onOpen(paper.corrects)}>

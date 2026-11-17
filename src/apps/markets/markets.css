@@ -23,6 +23,16 @@
 .mk-book { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-16); }
 .mk-book-row { display: flex; justify-content: space-between; gap: var(--sp-8); font-family: var(--font-num); }
 .mk-move { margin: 0; }
+.mk-index { display: flex; flex-wrap: wrap; gap: var(--sp-16); align-items: flex-end; padding-bottom: var(--sp-8); border-bottom: 1px solid var(--line); }
+.mk-index > div { min-width: 0; }
+.mk-index p { margin: 0; }
+.mk-index-fig { font-family: var(--font-num); font-size: var(--fs-30); color: var(--fg); }
+.mk-index-note { flex-basis: 100%; }
+.mk-sectors { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.mk-sectors h3 { margin: 0; }
+.mk-sector-table th, .mk-sector-table td { text-align: right; }
+.mk-sector-table th:first-child, .mk-sector-table td:first-child { text-align: left; }
+.mk-sector-note { margin: 0; font-size: var(--fs-12_5); }
 @container (max-width: 680px) {
   .mk-table { min-width: 0; }
   .mk-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

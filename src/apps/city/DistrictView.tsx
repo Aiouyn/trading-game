@@ -11,6 +11,7 @@ import { gameDate, presentNote } from "@/components/ui/format";
 import { EntityText } from "@/components/ui/Named";
 import { BAY, DISTRICTS, FIRST_DISTRICT } from "./districts";
 import { DV } from "./districtStrings";
+import { CityStoryPanel, type CityStory } from "./CityStory";
 import "./district.css";
 
 const VIEW = { x: -400, z: -360, w: 800, h: 680 } as const;
@@ -72,6 +73,7 @@ interface CityPanel {
   };
   plants: { name: string; fuel: string; utility: string; down: boolean }[];
   power: { wholesale: number; tariff: number; marginal: string; eventId: number };
+  story?: CityStory;
 }
 
 function nearWord(km: number): string {
@@ -289,6 +291,7 @@ export default function DistrictView() {
           </div>
         ) : null}
       </div>
+      <CityStoryPanel story={panel?.story} />
     </div>
   );
 }

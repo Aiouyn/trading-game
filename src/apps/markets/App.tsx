@@ -10,6 +10,7 @@ import { gameDate, moneyFromCents, signedQty, titleWord } from "@/components/ui/
 import { Named } from "@/components/ui/Named";
 import { holidayReason, parseCalendar } from "@/apps/society/read";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "./why";
+import { IndexStrip, SectorTable, type QuoteX, type TapeX } from "./Sectors";
 import "./markets.css";
 
 type SortKey = "name" | "px" | "chg" | "vol" | "pe" | "pos";
@@ -77,6 +78,8 @@ export default function MarketsApp({ context }: { context?: string }) {
 
   return (
     <div className="mk" data-testid="markets">
+      <IndexStrip tape={view.tape as TapeX | undefined} />
+      {sector === "All" ? <SectorTable quotes={quotes as QuoteX[]} onPick={setSector} /> : null}
       <div className="mk-chips" role="group" aria-label="Sector">
         {sectors.map((s) => (
           <button key={s} type="button" aria-pressed={sector === s} onClick={() => setSector(s)}>{s === "All" ? "All" : titleWord(s)}</button>
