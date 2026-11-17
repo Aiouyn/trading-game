@@ -222,7 +222,7 @@ function markDetailed(w: World): void {
   if (!facts) return;
   const since = w.day - 30;
   for (const fact of facts) {
-    if (!fact.pub || fact.drop || fact.pubDay < since) continue;
+    if (!fact || !fact.pub || fact.drop || fact.pubDay < since) continue;
     for (const fi of fact.firms) {
       const staff = s.firms[fi]?.staff;
       if (!staff) continue;

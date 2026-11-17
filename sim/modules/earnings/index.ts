@@ -44,6 +44,7 @@ interface Book {
   bankEq: number; bankProfit: number; bankMonths: number; bankPrev: number; bankHasPrev: number;
   bankGuide: number; bankHasGuide: number; bankLocked: Call[]; bankCauses: number[];
   reports: Report[]; waves: Wave[]; resting: Resting[];
+  filed: number;
   yReports: number; ySurprise: number; yBeats: number; root: number;
 }
 
@@ -417,6 +418,8 @@ function finishReport(w: World, issuer: string, name: string, firm: number, reve
     issuer, name, firm, day: w.day, text, revenue: Math.round(revenue), costs: Math.round(costs), profit: actual,
     eps, cash, debt, consensus, surprise, beat, event, px, pxAfter: 0,
   });
+  b.filed = (b.filed ?? 0) + 1;
+  if (b.reports.length > 80) b.reports.splice(0, b.reports.length - 80);
   b.yReports++; b.ySurprise += surprise; if (beat) b.yBeats++;
   // The price moves on the print, the same day the number is public. Insider trades
   // placed before this, from the desk's preview, still stand on the old quote.
@@ -557,7 +560,7 @@ function blank(n: number, root: number): Book {
     previewFact: preview, causes: Array.from({ length: n }, () => []), openEv: Array.from({ length: n }, () => []),
     knowers: Array.from({ length: n }, () => []), locked: Array.from({ length: n }, () => []),
     analysts: [], bankEq: 0, bankProfit: 0, bankMonths: 0, bankPrev: 0, bankHasPrev: 0, bankGuide: 0, bankHasGuide: 0,
-    bankLocked: [], bankCauses: [], reports: [], waves: [], resting: [], yReports: 0, ySurprise: 0, yBeats: 0, root,
+    bankLocked: [], bankCauses: [], reports: [], waves: [], resting: [], filed: 0, yReports: 0, ySurprise: 0, yBeats: 0, root,
   };
 }
 
@@ -605,6 +608,12 @@ export const earnings: Module = {
     }
     b.waves = keep;
     if ((w.day + 1) % 30 === 0) {
+      const cut = w.day - 40;
+      for (let i = 0; i < b.reports.length; i++) {
+        const r = b.reports[i];
+        if (r.day > cut) break;
+        if (r.text) r.text = '';
+      }
       for (const f of econ(w).firms) {
         if (f.closed || f.idx >= n) continue;
         b.snapRev[f.idx] = f.mRev; b.snapCost[f.idx] = f.mCost; b.snapDay[f.idx] = w.day;

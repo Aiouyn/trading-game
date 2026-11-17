@@ -2,6 +2,8 @@
 // JSON keeps the shape: maps in insertion order, people as people, shock defs by id.
 import fs from 'node:fs';
 import path from 'node:path';
+import { rebindHist } from '../../kernel/bars.ts';
+import { bindStoryFold } from './fold.ts';
 import { EventLog } from '../../kernel/events.ts';
 import { Ledger } from '../../kernel/ledger.ts';
 import type { World } from '../../kernel/index.ts';
@@ -210,8 +212,9 @@ function loadBin(bin: Buffer): Float64Array {
 
 /** The price closure has to close over the restored book, not the one init threw away. */
 function rebindMarkets(w: World): void {
-  const state = w.state.markets as { stocks: { instr: string; last: number }[]; price: (instr: string) => number } | undefined;
+  const state = w.state.markets as { stocks: { instr: string; last: number; hist?: unknown }[]; price: (instr: string) => number } | undefined;
   if (!state) return;
+  for (const st of state.stocks) st.hist = rebindHist(st.hist);
   let pricing = false;
   let byInstr: Map<string, { last: number }> | null = null;
   state.price = (instr: string): number => {
@@ -280,6 +283,7 @@ export function applySnapshot(w: World, dir: string): void {
   if (banking && lend) banking.lendFirm = lend;
   if (bonds && api) bonds.api = api;
   rebindMarkets(w);
+  bindStoryFold(w);
   restoreRng(w, data.rng);
   resyncScales(w);
 }

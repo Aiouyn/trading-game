@@ -887,7 +887,7 @@ function fillPrice(bid: Order, ask: Order, last: number): number {
   return last;
 }
 
-function quote(w: World, b: Bond): void {
+function quote(w: World, b: Bond, bankAssets: Map<string, number>): void {
   const st = book(w);
   const fair = pricePerLot(b, modelYield(w, b.tenor), w.day);
   for (const f of st.funds) {
@@ -910,7 +910,11 @@ function quote(w: World, b: Bond): void {
     if (bank.failed) continue;
     cancelSrc(w, bank.id, b.id, 'bank');
     const h = heldTenors(w, bank.id);
-    const assets = Math.max(1, w.ledger.netWorth(bank.id) + depositsOf(w, bank));
+    let assets = bankAssets.get(bank.id);
+    if (assets === undefined) {
+      assets = Math.max(1, w.ledger.netWorth(bank.id) + depositsOf(w, bank));
+      bankAssets.set(bank.id, assets);
+    }
     const target = b.tenor === '3m' ? assets * (0.05 + 0.08 * hot) : assets * 0.08 / 4;
     const gap = target - h[b.tenor];
     const size = noise(w, 'bond:' + bank.id, Math.min(Math.abs(gap), b.faceLeft * 0.005, Math.max(LOT, (w.ledger.issued.get(DEP) ?? 0) * 0.0002)));
@@ -957,12 +961,15 @@ function session(w: World): void {
   st.bank1Left = lotDown((w.ledger.issued.get(DEP) ?? 0) * 0.0003);
   if (st.orders.length > 240) st.orders = st.orders.filter((o) => o.open && o.src === 'player');
   for (const o of st.orders) if (o.src !== 'player') o.open = false;
+  // A bank's face net worth does not move until a bond actually trades. Reuse it across the book.
+  const bankAssets = new Map<string, number>();
   for (const b of st.bonds) {
     if (!b.onRun || b.faceLeft <= 0 || b.matureDay <= w.day) continue;
     b.traded = false;
-    quote(w, b);
+    quote(w, b, bankAssets);
     const mine = st.orders.filter((o) => o.open && o.instr === b.id);
     if (mine.length) matchBond(w, b, mine);
+    if (b.traded) bankAssets.clear();
     if (!b.traded) b.last = pricePerLot(b, modelYield(w, b.tenor), w.day);
     b.prev = b.last;
   }

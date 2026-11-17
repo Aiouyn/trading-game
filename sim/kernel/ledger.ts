@@ -37,9 +37,12 @@ export class Ledger {
   private stores = new Map<string, Store>();
   private denseIds: string[] = [];
   private issuedBy = new Map<string, string[]>();     // issuer -> instruments it issued
-  private heldBy = new Map<number, Set<string>>();    // slot -> sparse instruments ever held, in first-touch order
+  private heldBy = new Map<number, Set<string>>();    // slot -> sparse instruments currently held, in first-touch order
+  // Claims with thousands of holders (time deposits) live in a dense array. The map was the heap slope.
+  private claimDense: string[] = [];
   // Face and liability totals for the unpriced net-worth path. Money and claims are integers,
-  // so the sums match a walk. Sparse maps still keep zero balances, because hash() reads them.
+  // so the sums match a walk. A sparse balance that returns to exactly zero is dropped: hash()
+  // only fingerprints live holdings, and a save reloads the same map.
   private face = new Float64Array(this.cap);
   private liab = new Float64Array(this.cap);
   private depIssuer = -1;
@@ -101,10 +104,24 @@ export class Ledger {
   }
   balance(actor: string, instr: string): number { const sl = this.slotOf.get(actor); return sl === undefined || !this.stores.has(instr) ? 0 : this.balS(sl, instr); }
   /** Holders of a sparse instrument (shares, loans, goods) by slot: the live map, do not modify. */
-  holdersS(instr: string): ReadonlyMap<number, number> { const s = this.st(instr); if (!s.sparse) throw new Error(`${instr} is dense; use holders()`); return s.sparse; }
+  holdersS(instr: string): ReadonlyMap<number, number> {
+    const s = this.st(instr);
+    if (s.sparse) return s.sparse;
+    if (s.dense) return denseHolders(s.dense, this.ids.length);
+    throw new Error(`${instr} has no holdings`);
+  }
   /** Largest sparse balance. The same number a scan of holdersS returns. */
   topQty(instr: string): number {
     const s = this.st(instr);
+    if (s.dense) {
+      if (s.maxSlot === -2) {
+        let best = 0, who = -1;
+        const n = this.ids.length;
+        for (let k = 0; k < n; k++) if (s.dense[k] > best) { best = s.dense[k]; who = k; }
+        s.maxQty = best; s.maxSlot = who;
+      }
+      return s.maxQty;
+    }
     if (!s.sparse) throw new Error(`${instr} is dense; use holders()`);
     // maxSlot -2 means the previous maximum fell and the scan was deferred off the trading path.
     if (s.maxSlot === -2) {
@@ -131,15 +148,47 @@ export class Ledger {
     return s;
   }
   private owe(slot: number, d: number): void { if (slot >= 0) this.liab[slot] += d; }
+  private dropHeld(slot: number, instr: string): void {
+    const h = this.heldBy.get(slot);
+    if (!h) return;
+    h.delete(instr);
+    if (h.size === 0) this.heldBy.delete(slot);
+  }
+  private promote(s: Store, instr: string): void {
+    if (s.dense || !s.sparse || s.kind !== 'claim' || s.sparse.size < 1024) return;
+    const dense = new Float64Array(this.cap);
+    for (const [slot, n] of s.sparse) {
+      dense[slot] = n;
+      this.dropHeld(slot, instr);
+    }
+    s.dense = dense;
+    s.sparse = undefined;
+    if (!this.claimDense.includes(instr)) this.claimDense.push(instr);
+  }
   private add(s: Store, instr: string, slot: number, d: number): void {
-    if (s.dense) { s.dense[slot] += d; return; }
+    if (s.dense) {
+      const next = s.dense[slot] + d;
+      s.dense[slot] = next;
+      if (s.kind === 'claim') this.face[slot] += d;
+      if (next > s.maxQty) { s.maxQty = next; s.maxSlot = slot; }
+      else if (slot === s.maxSlot && next < s.maxQty) s.maxSlot = -2;
+      return;
+    }
     const m = s.sparse!, was = m.get(slot);
     const next = (was ?? 0) + d;
+    if (s.kind === 'money' || s.kind === 'claim') this.face[slot] += d;
+    // Exact zero only. A float crumb on a real good still hashes, so it stays.
+    if (next === 0) {
+      if (was !== undefined) m.delete(slot);
+      this.dropHeld(slot, instr);
+      if (slot === s.maxSlot) s.maxSlot = -2;
+      return;
+    }
     if (was === undefined) { let h = this.heldBy.get(slot); if (!h) { h = new Set(); this.heldBy.set(slot, h); } h.add(instr); }
     m.set(slot, next);
-    if (s.kind === 'money' || s.kind === 'claim') this.face[slot] += d;
     if (next > s.maxQty) { s.maxQty = next; s.maxSlot = slot; }
     else if (slot === s.maxSlot && next < s.maxQty) s.maxSlot = -2;
+    if (s.kind === 'claim' && m.size >= 1024) this.promote(s, instr);
   }
   private jot(op: Posting['op'], instr: string, from: number, to: number, amount: number, reason: string, cause: number): void {
     this.journal.push({ day: this.day, op, instr, from: from >= 0 ? this.ids[from] : undefined, to: to >= 0 ? this.ids[to] : undefined, amount, reason, cause });
@@ -252,6 +301,11 @@ export class Ledger {
     }
     let nw = 0;
     for (let i = 0; i < this.denseIds.length; i++) nw += this.stores.get(this.denseIds[i])!.dense![sl];
+    const claims = this.claimDense;
+    if (claims) for (let i = 0; i < claims.length; i++) {
+      const d = this.stores.get(claims[i])?.dense;
+      if (d) nw += d[sl];
+    }
     const held = this.heldBy.get(sl);
     if (held) for (const id of held) {
       const s = this.stores.get(id)!, h = s.sparse!.get(sl) ?? 0;
@@ -286,4 +340,28 @@ export class Ledger {
     }
     return h.toString(16).padStart(8, '0');
   }
+}
+
+/** Iterable view of non-zero dense balances. Not retained. */
+function denseHolders(a: Float64Array, n: number): ReadonlyMap<number, number> {
+  const iter = function* (): IterableIterator<[number, number]> {
+    for (let i = 0; i < n; i++) if (a[i] !== 0) yield [i, a[i]];
+  };
+  return {
+    get size() {
+      let c = 0;
+      for (let i = 0; i < n; i++) if (a[i] !== 0) c++;
+      return c;
+    },
+    get(slot: number) {
+      const v = slot >= 0 && slot < n ? a[slot] : 0;
+      return v === 0 ? undefined : v;
+    },
+    has(slot: number) { return slot >= 0 && slot < n && a[slot] !== 0; },
+    keys() { return (function* () { for (const [k] of iter()) yield k; })(); },
+    values() { return (function* () { for (const [, v] of iter()) yield v; })(); },
+    entries() { return iter(); },
+    [Symbol.iterator]() { return iter(); },
+    forEach(fn) { for (const [k, v] of iter()) fn(v, k, this); },
+  };
 }

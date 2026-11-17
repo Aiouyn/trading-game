@@ -253,7 +253,7 @@ function ownMoneyId(w: World, i: number, mem: LifeMemory): number {
   const fromDay = w.events.get(arrived)?.day ?? 0;
   for (let id = w.events.count - 1; id >= 0; id--) {
     const e = w.events.get(id);
-    if (!e) break;
+    if (!e) continue;
     if (e.day < fromDay) break;
     if (e.kind.startsWith('life.') || (e.actor === pid && OWN_MONEY.has(e.kind))) return e.id;
   }
@@ -288,7 +288,7 @@ export function explainNumber(w: World, n: number, mem: LifeMemory, person?: num
   const fromDay = w.events.get(arrived)?.day ?? 0;
   for (let id = w.events.count - 1; id >= 0; id--) {
     const e = w.events.get(id);
-    if (!e) break;
+    if (!e) continue;
     if (e.day < fromDay) break;
     const own = e.kind.startsWith('life.') || e.actor === pid;
     if (own && mentions(e.msg, n)) return { id: e.id };

@@ -1,3 +1,4 @@
+import { packListedHist } from './bars.ts';
 import { EventLog } from './events.ts';
 import { Ledger } from './ledger.ts';
 import { makeRng, type Rng } from './rng.ts';
@@ -40,7 +41,11 @@ export class World {
     this.ledger.day = this.events.day = this.day;
     for (let t = 0; t < this.ticksPerDay; t++) for (const m of this.modules) m.tick?.(this, t);
     for (const m of this.modules) m.dayClose?.(this);
-    if ((this.day + 1) % DAYS_PER_MONTH === 0) for (const m of this.modules) m.monthEnd?.(this);
+    if ((this.day + 1) % DAYS_PER_MONTH === 0) {
+      for (const m of this.modules) m.monthEnd?.(this);
+      this.events.compact(this.day);
+    }
+    packListedHist(this);
     this.day++;
   }
 }

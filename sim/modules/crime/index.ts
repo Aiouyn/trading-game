@@ -174,6 +174,14 @@ function because(root: number, ...ids: number[]): number[] {
   if (!out.length && root >= 0) out.push(root);
   return out;
 }
+function trimLog(w: World): void {
+  const st = book(w);
+  const cut = w.day - 720;
+  if (cut < 0 || st.log.length === 0) return;
+  let n = 0;
+  while (n < st.log.length && st.log[n].day < cut) n++;
+  if (n > 0) st.log.splice(0, n);
+}
 function cash(w: World, id: string): number { return Math.floor(w.ledger.balance(id, DEP)); }
 // The cash moves, then moves back before the next morning. A dollar left in the wrong pocket
 // changes who is hired and what prices do, and thirty years of that leaves the city outside
@@ -773,7 +781,7 @@ export const crime: Module = {
     if (d % 17 === 5) bribe(w);
     if (d % 30 === 14) launder(w);
   },
-  monthEnd(w) { refresh(w); dues(w); },
+  monthEnd(w) { refresh(w); dues(w); trimLog(w); },
   stats(w) {
     const st = book(w);
     const row = {

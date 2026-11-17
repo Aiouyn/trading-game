@@ -286,8 +286,10 @@ function file(w: World, spec: {
   }
   let recent = 0;
   for (let i = st.offences.length - 1, seen = 0; i >= 0 && seen < 40; i--) {
-    if (w.day - st.offences[i].day > 30) break;
-    if (st.offences[i].kind === 'street') continue;
+    const o = st.offences[i];
+    if (!o) continue;
+    if (w.day - o.day > 30) break;
+    if (o.kind === 'street') continue;
     seen++;
     recent++;
   }
@@ -814,10 +816,24 @@ function advance(w: World): void {
   }
 }
 
+function dropOldFiles(w: World): void {
+  const st = lawOf(w);
+  const live = new Set<number>();
+  const open: Case[] = [];
+  for (const c of st.cases) if (c.phase < 3) { open.push(c); live.add(c.off); }
+  if (open.length !== st.cases.length) st.cases = open;
+  const cut = w.day - 420;
+  const offs = st.offences;
+  for (let i = 0; i < offs.length; i++) {
+    const o = offs[i];
+    if (!o || live.has(i)) continue;
+    if (o.used && o.day < cut) offs[i] = undefined as unknown as Offence;
+  }
+}
 function waiting(w: World): Offence[] {
   const st = lawOf(w), out: Offence[] = [];
   for (const o of st.offences) {
-    if (o.used) continue;
+    if (!o || o.used) continue;
     const age = w.day - o.day;
     if (age > 420 || !alive(w, o.person)) { o.used = true; continue; }
     if (o.solid && age < 30) continue;
@@ -839,7 +855,7 @@ function choose(w: World): Offence | undefined {
 function scapegoat(w: World): void {
   if (w.month % 12 !== 5) return;
   const st = lawOf(w), s = econ(w), P = s.P;
-  if (st.offences.some((o) => !o.used && !o.solid)) return;
+  if (st.offences.some((o) => o && !o.used && !o.solid)) return;
   let person = -1, score = -1, firm = -1;
   for (const h of s.investors) {
     if (!h.id.startsWith('p_')) continue;
@@ -915,7 +931,7 @@ export function attentionOf(w: World, person: number): Attention {
     if (c.invEvent > latest) { latest = c.invEvent; eventId = c.invEvent; }
   }
   for (const o of st.offences) {
-    if (o.person !== person || o.kind === 'street') continue;
+    if (!o || o.person !== person || o.kind === 'street') continue;
     if (o.used && o.kind !== 'insider' && o.kind !== 'manipulation' && o.kind !== 'fraud') continue;
     if (!o.used) {
       flagged++;
@@ -980,6 +996,7 @@ export const law: Module = {
     bankFraud(w);
     fund(w);
     advance(w);
+    dropOldFiles(w);
     scapegoat(w);
     openOne(w);
     const scene = w.state.scenario as { regulator?: number; outcome?: string } | undefined;

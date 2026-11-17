@@ -263,7 +263,7 @@ function indexCauses(w: World): { hits: Map<number, Hit>; moves: Map<string, num
   let n = 0;
   for (let id = w.events.count - 1; id >= 0 && n < 250000; id--, n++) {
     const e = w.events.get(id);
-    if (!e) continue;
+    if (!e) break;
     if (e.day < floor) break;
     if (e.kind === 'mkt.move' && e.actor && !moves.has(e.actor)) moves.set(e.actor, e.id);
     const p = personActor(e.actor);
@@ -978,7 +978,7 @@ function latestMove(w: World, firmId: string): number | undefined {
   let n = 0;
   for (let id = w.events.count - 1; id >= 0 && n < 8000; id--, n++) {
     const e = w.events.get(id);
-    if (!e) continue;
+    if (!e) break;
     if (e.day < floor) break;
     if (e.kind === 'mkt.move' && e.actor === firmId) return e.id;
   }

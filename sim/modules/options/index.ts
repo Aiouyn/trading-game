@@ -169,8 +169,10 @@ function daysToReport(w: World, issuer: string, _firmIdx: number): number | unde
   // Reports are the only earnings records the old walk could read: a parent is never
   // already about this issuer, and an array longer than 400 was skipped. Days only move
   // forward, newest report last, so the first match at or after today is the nearest.
-  const reports = (w.state.earnings as { reports?: { issuer?: unknown; day?: unknown }[] } | undefined)?.reports;
-  if (!reports || reports.length > 400) return undefined;
+  const book = w.state.earnings as { reports?: { issuer?: unknown; day?: unknown }[]; filed?: number } | undefined;
+  const reports = book?.reports;
+  const filed = book?.filed ?? reports?.length ?? 0;
+  if (!reports || filed > 400) return undefined;
   const today = w.day;
   const tail = issuer.slice(3);
   for (let i = reports.length - 1; i >= 0; i--) {

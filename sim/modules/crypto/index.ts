@@ -315,6 +315,12 @@ function takeProfit(w: World, m: Meme, cause: number): number {
   return sold;
 }
 
+function releaseDead(m: Meme): void {
+  if (m.live) return;
+  if (m.bits.length) m.bits = new Uint32Array(0);
+  if (m.cost.size) m.cost.clear();
+  if (m.tells.length) m.tells = [];
+}
 function maniaCauses(m: Meme): number[] {
   const c = [m.launchEv, ...m.tells];
   return c.slice(0, 5);
@@ -325,7 +331,7 @@ function weekOf(w: World, m: Meme): void {
   const P = econ(w).P;
   const open = w.day - m.born >= 7 ? spot(w, m) : m.bornPx;
   if (w.day - m.born >= 7) m.weekBuys = 0;
-  if (!(open > 0)) { m.live = false; return; }
+  if (!(open > 0)) { m.live = false; releaseDead(m); return; }
   m.weekPx = open;
   const holders = [...w.ledger.holdersS(m.id)];
   let speakers = 0;
@@ -352,7 +358,7 @@ function weekOf(w: World, m: Meme): void {
     const profitEv = w.events.emit('crypto.profit', `holders of ${m.name} sold $${(sold / 100).toFixed(0)} and the price fell`, [cause], P.id(m.creator));
     w.events.emit('crypto.crash', `${m.name} fell ${((1 - after / open) * 100).toFixed(0)}% this week as people took money out`, [m.launchEv, profitEv], P.id(m.creator));
   }
-  if (w.day - m.born > 90 && poolCash(w, m) < m.seed * 1.2) m.live = false;
+  if (w.day - m.born > 90 && poolCash(w, m) < m.seed * 1.2) { m.live = false; releaseDead(m); }
 }
 
 function rug(w: World, m: Meme): void {
@@ -364,6 +370,7 @@ function rug(w: World, m: Meme): void {
   if (left > 0 && !L.redeem(m.id, m.pool, left, 'crypto.rug', ev)) throw new Error(`rug tokens ${m.id}`);
   m.rugged = true;
   m.live = false;
+  releaseDead(m);
   book(w).rugLoss += cash;
   dropTrust(w, m.creator);
   for (const [slot, v] of [...L.holdersS(m.id)]) {
@@ -603,6 +610,7 @@ export const crypto: Module = {
     for (const m of book(w).majors) m.week = m.last;
     considerLaunch(w);
     for (const m of book(w).memes) weekOf(w, m);
+    for (const m of book(w).memes) if (!m.live) releaseDead(m);
   },
 
   stats(w) {

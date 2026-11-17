@@ -81,6 +81,8 @@ interface Social {
   paper: number;
   insiderFact: Int32Array;
   facts: Fact[];
+  /** First fact not yet folded. Facts are appended in day order. */
+  factFrom: number;
   seen: number;
   pop: number;
   need: number;
@@ -218,7 +220,7 @@ function blank(cap: number): Social {
     kind: new Uint8Array(cap * DEG),
     emp, head, stamp: new Uint16Array(cap), gen: 1, holdDay: new Int32Array(cap),
     cellFact: new Int32Array(cells), cellNext, cellN: 0, free: -1, personOf: new Int32Array(0),
-    firmById: new Map(), paper: -1, insiderFact: new Int32Array(0), facts: [], seen: 0, pop: 1, need: 1,
+    firmById: new Map(), paper: -1, insiderFact: new Int32Array(0), facts: [], factFrom: 0, seen: 0, pop: 1, need: 1,
     yCreated: 0, yHit: 0, yPub: 0, yDelay: 0,
     deskWeek: -1, deskDay: -1, deskNamed: [], deskToday: [], deskDraft: new Map(),
     deskLeak: -1, deskLeakDay: -1,
@@ -242,6 +244,7 @@ function ensure(st: Social, n: number): void {
   st.cap = cap;
   st.words = Math.ceil(cap / 32);
   for (const f of st.facts) {
+    if (!f) continue;
     const bits = f.know?.bits;
     if (bits && bits.length < st.words) {
       const b = new Uint32Array(st.words);
@@ -790,13 +793,17 @@ function dropOld(w: World): void {
   const cut = w.day - DAYS_PER_YEAR;
   if (cut < 0) return;
   const facts = st.facts;
-  for (let i = 0; i < facts.length; i++) {
+  // Facts are appended in day order. The prefix before factFrom is already folded.
+  let i = st.factFrom ?? 0;
+  for (; i < facts.length; i++) {
     const f = facts[i];
-    if (f.drop || f.day >= cut) continue;
-    f.drop = true;
-    f.know = null;
+    if (!f) continue;
+    if (f.day >= cut) break;
     if (f.tag === 'insider.profit' && f.firms.length && st.insiderFact[f.firms[0]] === f.id) st.insiderFact[f.firms[0]] = -1;
+    // The id stays the index. A hole is a folded fact: readers already skip a missing one.
+    facts[i] = null as unknown as typeof f;
   }
+  st.factFrom = i;
 }
 function liveIds(st: Social, person: number): number {
   let n = 0;

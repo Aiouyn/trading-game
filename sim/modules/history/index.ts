@@ -1,6 +1,7 @@
 // What is worth remembering. The event log drops old events; these entries keep their own
 // text and the cause chain as it read on the day they were written.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
+import { bindStoryFold } from './fold.ts';
 import type { Ev } from '../../kernel/events.ts';
 import { GOODS } from '../economy/content.ts';
 import { DEP, type EconState, type Firm } from '../economy/index.ts';
@@ -407,6 +408,7 @@ export const history: Module = {
       recessions: 0, spikes: 0,
     };
     w.state.history = h;
+    bindStoryFold(w);
     openBooks(w);
   },
   dayClose(w) {

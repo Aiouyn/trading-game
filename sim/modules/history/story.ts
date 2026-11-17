@@ -9,6 +9,7 @@ import { DEP, type EconState, type Firm } from '../economy/index.ts';
 import { PRISON } from '../economy/people.ts';
 import { biggestStories, storyLines } from './chronicle.ts';
 import { historyOf, type Entry } from './index.ts';
+import { foldedFor, layoffFold } from './fold.ts';
 import { causeParagraph, dollarsMentioned, joinAnd, money, plainText, softenIds, when } from './prose.ts';
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -364,10 +365,35 @@ function lifeBeats(w: World, who: number, ids: number[], worthNow: number): Beat
   const beats: Beat[] = [];
   for (let id = w.events.count - 1; id >= 0; id--) {
     const e = w.events.get(id);
-    if (!e) break;
+    if (!e) continue;
     if (e.day < fromDay) break;
     const b = beatFromEvent(w, e, idSet, firmIds, names, who >= 0 ? P.id(who) : '');
     if (b && b.weight > 0) beats.push(b);
+  }
+  const actors = new Set(idSet);
+  for (const id of firmIds) actors.add(id);
+  const selfId = who >= 0 ? P.id(who) : '';
+  for (const rec of foldedFor(w, actors)) {
+    if (rec.day < fromDay) continue;
+    const e: Ev = { id: -1, day: rec.day, kind: rec.kind, actor: rec.actor || undefined, msg: rec.msg, causes: [], exo: false };
+    const b = beatFromEvent(w, e, idSet, firmIds, names, selfId);
+    if (!b || b.weight <= 0) continue;
+    if (!b.cause) b.cause = 'This followed from an earlier cause has fallen out of the book.';
+    beats.push(b);
+  }
+  for (const firmId of firmIds) {
+    const lay = layoffFold(w, firmId);
+    if (!lay.days.length) continue;
+    const firmName = nameOf(w)(firmId) ?? firmId;
+    for (const day of lay.days) {
+      if (day < fromDay) continue;
+      const text = `${when(day)}. ${firmName} laid off staff because sales were below plan.`;
+      beats.push({
+        day, kind: 'firm.layoffs', axis: 'freedom', weight: lay.weight, title: 'Layoffs', text,
+        cause: 'This followed from an earlier cause has fallen out of the book.', people: names.filter((n) => text.includes(n)).slice(0, 6),
+        group: `firm.layoffs|${firmName}`, days: [day],
+      });
+    }
   }
   const h = w.state.history ? historyOf(w) : undefined;
   if (h) {
