@@ -1,0 +1,7 @@
+/* Careers. Tokens only. One brass action, chosen in the component. */
+.cr-acts { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.cr-chance { display: block; color: var(--fg-muted); }
+.cr .qy-choice p { display: flex; flex-direction: column; gap: 2px; }
+@container (max-width: 480px) {
+  .cr .btn { min-height: 44px; }
+}

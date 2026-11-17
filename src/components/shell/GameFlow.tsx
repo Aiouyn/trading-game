@@ -8,7 +8,7 @@ import {
 } from "@/shell/simSession";
 import { presentNote } from "@/components/ui/format";
 import { closeNotes, useNotesOpen } from "./flowState";
-import { CircleChrome } from "@/apps/messages/notices";
+import { CircleChrome, RequestInterrupt } from "@/apps/messages/notices";
 
 const QUARTER = ["", "A quarter of the way", "Halfway", "Three quarters of the way", "The goal is met"];
 
@@ -265,7 +265,9 @@ export function GameFlow() {
         />
       ) : pause ? (
         <Interrupt key={pause.eventId} why={pause.why} text={pause.text} eventId={pause.eventId} actions={pause.actions} />
-      ) : null}
+      ) : (
+        <RequestInterrupt />
+      )}
     </>
   );
 }

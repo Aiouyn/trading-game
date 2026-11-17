@@ -32,6 +32,8 @@ export interface CircleAsk {
   eventId: number;
   note: string;
   actions: string[];
+  /** Day the ask lapses. Absent on an older view; invite is 21 days, a loan 90. */
+  due: number;
 }
 export interface CircleContact {
   slot: number;
@@ -133,6 +135,7 @@ export function readCircle(life: unknown): CircleSnap | null {
       eventId: num(a.eventId, -1),
       note: str(a.note),
       actions: Array.isArray(a.actions) ? a.actions.filter((x): x is string => typeof x === "string") : [],
+      due: num(a.due, num(a.day) + (str(a.kind) === "invite" ? 21 : 90)),
     }];
   }) : [];
   const contacts = Array.isArray(v.contacts) ? v.contacts.flatMap((row) => {
@@ -218,13 +221,46 @@ export function isRivalMove(role: string, text: string): boolean {
   return /short|your name is the one falling|bid for a /i.test(text);
 }
 
-/** A family loan is someone in trouble with a clock on it. Other asks stay in the thread. */
+/** A family loan is someone in trouble with a clock on it. The bar also lists invitations. */
 export function familyTrouble(snap: CircleSnap): CircleAsk | null {
   for (const ask of snap.pending) {
     if (ask.role !== "family" || ask.kind !== "loan") continue;
     return ask;
   }
   return null;
+}
+
+/** An invitation or a loan still waiting, soonest deadline first. */
+export function waitingOn(snap: CircleSnap): CircleAsk[] {
+  return snap.pending
+    .filter((a) => a.kind === "invite" || a.kind === "loan")
+    .slice()
+    .sort((a, b) => a.due - b.due || a.id - b.id);
+}
+
+/** Family, or a friend the bond already calls close, stops the clock. */
+export function pausesClock(ask: CircleAsk, snap: CircleSnap): boolean {
+  if (ask.kind !== "invite" && ask.kind !== "loan") return false;
+  if (ask.role === "family") return true;
+  if (ask.role !== "friend") return false;
+  const person = snap.contacts.find((c) => c.who === ask.from);
+  return isClose(ask.role, person?.bond.word || person?.word || "");
+}
+
+export function deadlineWord(abs: number, due: number): string {
+  const left = due - abs;
+  if (left <= 0) return "The deadline has passed";
+  if (left === 1) return "Due tomorrow";
+  if (left < 14) return `${left} days left`;
+  if (left < 40) return "A few weeks left";
+  if (left < 100) return "Due this season";
+  return "Due this half year";
+}
+
+export function askTitle(ask: CircleAsk): string {
+  if (ask.kind === "loan") return "A loan";
+  if (ask.kind === "invite") return ask.place ? `A ${ask.place}` : "An invitation";
+  return "A request";
 }
 
 export function placeWord(place: string): string {

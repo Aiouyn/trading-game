@@ -5,9 +5,10 @@ import { useShellStore } from "@/components/shell/ShellContext";
 import { useLife } from "@/apps/profile/data";
 import { Button } from "@/components/ui/Button";
 import {
-  familyTrouble, isClose, isRivalMove, moneyLabel, readCircle, slotOf,
+  askButtons, askTitle, commandFor, deadlineWord, familyTrouble, isClose, isRivalMove, moneyLabel, pausesClock, readCircle, slotOf, waitingOn,
   type CircleAsk, type CircleSnap,
 } from "./circle";
+import { setSpeed, useSimSnap } from "@/shell/simSession";
 import "./messages.css";
 
 interface Toast { id: number; who: number; text: string }
@@ -171,28 +172,124 @@ export function CircleChrome() {
   );
 }
 
-/** Family in trouble, on the top bar. Other requests stay in the thread. */
-export function FamilyInterrupt() {
-  const trouble = useTrouble();
-  const { run } = useLife();
+const released = new Set<number>();
+let wePaused = 0;
+let sawAbs = -1;
+
+function noteDay(abs: number) {
+  if (sawAbs >= 0 && abs + 1 < sawAbs) {
+    released.clear();
+    wePaused = 0;
+  }
+  sawAbs = abs;
+}
+
+function lineOf(snap: CircleSnap, ask: CircleAsk): string {
+  const letter = snap.threads.flatMap((t) => t.messages).find((m) => m.id === ask.msg);
+  const line = (letter?.text || ask.note || `${ask.name} is waiting on an answer`).replace(/\s+/g, " ");
+  return line.length > 160 ? `${line.slice(0, 157)}…` : line;
+}
+
+/** Invitations and loan requests, with the day they lapse, on the top bar. */
+export function WaitingRequests() {
+  const { life, run } = useLife();
   const store = useShellStore();
-  const [busy, setBusy] = useState(false);
-  if (!trouble) return null;
-  const go = (text: "yes" | "no") => {
+  const [busy, setBusy] = useState<string | null>(null);
+  const snap = readCircle(life);
+  if (!snap) return null;
+  const asks = waitingOn(snap);
+  if (!asks.length) return null;
+  const go = (ask: CircleAsk, yes: boolean) => {
     if (busy) return;
-    setBusy(true);
-    void run({ kind: "reply", msg: trouble.msg, text }).finally(() => setBusy(false));
+    const key = `${ask.id}:${yes ? "yes" : "no"}`;
+    setBusy(key);
+    const buttons = askButtons(ask);
+    const button = buttons.find((b) => (yes ? b.kind !== "decline" : b.kind === "decline")) ?? buttons[buttons.length - 1];
+    const slot = slotOf(snap.contacts, ask.from);
+    void run(commandFor(ask, button, slot, ask.cents)).finally(() => setBusy(null));
   };
   return (
-    <div className="goal-interrupt" data-testid="family-interrupt">
-      <button type="button" className="goal-interrupt-text" onClick={() => store.getState().open("messages", `who:${trouble.from}`)}>
-        <span className="label">Family</span>
-        <span>{trouble.name} is in trouble. {trouble.line}</span>
-      </button>
-      <span className="goal-interrupt-acts">
-        <Button variant="primary" disabled={busy} data-testid="interrupt-lend" onClick={() => go("yes")}>Lend {moneyLabel(trouble.cents)}</Button>
-        <Button variant="secondary" disabled={busy} data-testid="interrupt-decline" onClick={() => go("no")}>Decline</Button>
-      </span>
+    <div className="waiting" data-testid="waiting-requests">
+      {asks.map((ask) => {
+        const loan = ask.kind === "loan";
+        return (
+          <div className="goal-interrupt" key={ask.id} data-testid={loan && ask.role === "family" ? "family-interrupt" : "waiting-request"}>
+            <button type="button" className="goal-interrupt-text" onClick={() => store.getState().open("messages", `who:${ask.from}`)}>
+              <span className="label">{askTitle(ask)} · {deadlineWord(snap.abs, ask.due)}</span>
+              <span>{ask.name ? `${ask.name}. ` : ""}{lineOf(snap, ask)}</span>
+            </button>
+            <span className="goal-interrupt-acts">
+              <Button variant="secondary" disabled={!!busy} data-testid={loan ? "interrupt-lend" : "interrupt-accept"} onClick={() => go(ask, true)}>
+                {loan ? `Lend ${moneyLabel(ask.cents)}` : "Accept"}
+              </Button>
+              <Button variant="secondary" disabled={!!busy} data-testid="interrupt-decline" onClick={() => go(ask, false)}>Decline</Button>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** FamilyInterrupt was the family-loan bar. The bar now lists every invitation and loan. */
+export const FamilyInterrupt = WaitingRequests;
+
+/**
+ * A family or close-friend request pauses the clock the way a margin call does.
+ * Carry on resumes. Answering the request does too.
+ */
+export function RequestInterrupt() {
+  const { life, run } = useLife();
+  const mode = useSimSnap().mode;
+  const view = useSimSnap().view;
+  const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
+  const snap = readCircle(life);
+  const asks = snap ? waitingOn(snap) : [];
+  if (snap) noteDay(snap.abs);
+  const hot = snap ? asks.find((a) => pausesClock(a, snap) && !released.has(a.id)) ?? null : null;
+  const hotId = hot?.id ?? 0;
+  const openIds = asks.map((a) => a.id).join(",");
+  useEffect(() => {
+    if (mode !== "play" || !hotId || view?.pause) return;
+    if (view?.speed === "pause") return;
+    wePaused = hotId;
+    void setSpeed("pause");
+  }, [hotId, mode, view?.pause, view?.speed]);
+  useEffect(() => {
+    if (!wePaused || openIds.split(",").includes(String(wePaused))) return;
+    const id = wePaused;
+    wePaused = 0;
+    released.add(id);
+    if (view?.speed === "pause" && !view.pause) void setSpeed("day");
+  }, [openIds, view?.pause, view?.speed]);
+  if (mode !== "play" || view?.pause || !snap || !hot) return null;
+  const answer = (yes: boolean) => {
+    if (busy) return;
+    setBusy(true);
+    const buttons = askButtons(hot);
+    const button = buttons.find((b) => (yes ? b.kind !== "decline" : b.kind === "decline")) ?? buttons[buttons.length - 1];
+    const slot = slotOf(snap.contacts, hot.from);
+    void run(commandFor(hot, button, slot, hot.cents)).finally(() => setBusy(false));
+  };
+  const carry = () => {
+    released.add(hot.id);
+    if (wePaused === hot.id) wePaused = 0;
+    setTick((n) => n + 1);
+    void setSpeed("day");
+  };
+  return (
+    <div className="flow-modal" role="presentation">
+      <div className="flow-card" role="dialog" aria-modal="true" aria-labelledby="request-title" data-testid="request-interrupt" data-rev={tick}>
+        <p className="label">{askTitle(hot)} · {deadlineWord(snap.abs, hot.due)}</p>
+        <h2 id="request-title">{hot.name || "Someone"} is waiting</h2>
+        <p className="flow-body">{lineOf(snap, hot)}</p>
+        <div className="flow-actions">
+          <Button variant="primary" disabled={busy} onClick={() => answer(true)}>{hot.kind === "loan" ? `Lend ${moneyLabel(hot.cents)}` : "Accept"}</Button>
+          <Button variant="secondary" disabled={busy} onClick={() => answer(false)}>Decline</Button>
+          <Button variant="secondary" disabled={busy} onClick={carry}>Carry on</Button>
+        </div>
+      </div>
     </div>
   );
 }

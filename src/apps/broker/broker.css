@@ -189,6 +189,18 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-chain th, .br-chain td { padding: var(--sp-8); border-bottom: 1px solid var(--line); text-align: right; }
 .br-chain th:nth-child(2), .br-chain td:nth-child(2) { text-align: center; }
 .br-chain-cell { display: flex; gap: var(--sp-8); justify-content: flex-end; align-items: center; }
+.br-chain button[aria-pressed="true"] { color: var(--fg); background: var(--win2); }
+.br-payoff svg { width: 100%; height: auto; display: block; }
+.br-pay-zero { stroke: var(--fg-muted); stroke-width: 1; }
+.br-pay-line { fill: none; stroke: var(--gain); stroke-width: 2; }
+.br-pay-spot { stroke: var(--info); stroke-width: 1; stroke-dasharray: 3 3; }
+@container (max-width: 520px) {
+  .br-chain { min-width: 0; }
+  .br-desks button, .br-chain button { min-height: 44px; }
+}
+.br-phone .br-grid, .br-phone .br-col, .br-phone .br-scroll { min-width: 0; max-width: 100%; }
+.br-phone .br-scroll { overflow-x: auto; }
+.br-phone .br-chain { min-width: 28rem; width: max-content; }
 @media (pointer: coarse) {
   .br-desks button, .br-tenor > button, .br-chain button { min-height: 44px; }
 }

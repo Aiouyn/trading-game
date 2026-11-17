@@ -2634,6 +2634,88 @@ function panelSlice(w: World, name: string, url: URL): Record<string, unknown> {
   }
 }
 
+interface OccQuote { id: string; name: string; rank: number }
+
+let occQuotes: OccQuote[] | null = null;
+
+/** Names and ranks from occupations.txt, index-aligned with the careers book. Index 0 is unused. */
+function occTable(): OccQuote[] {
+  if (occQuotes) return occQuotes;
+  const file = process.env.SIM_CONTENT
+    ? path.join(process.env.SIM_CONTENT, 'occupations.txt')
+    : fileURLToPath(new URL('./content/occupations.txt', import.meta.url));
+  const rows: OccQuote[] = [{ id: '', name: '', rank: 0 }];
+  try {
+    const text = fs.readFileSync(file, 'utf8');
+    for (const block of text.split('[OCCUPATION:').slice(1)) {
+      const id = block.slice(0, block.indexOf(']')).trim().toLowerCase();
+      const name = /\[NAME:([^\]]+)\]/.exec(block)?.[1]?.trim() || id;
+      const rank = Number(/\[RANK:(\d+)\]/.exec(block)?.[1] ?? 1);
+      if (id) rows.push({ id, name, rank: Number.isFinite(rank) ? rank : 1 });
+    }
+  } catch { /* the card still works without a study menu */ }
+  occQuotes = rows;
+  return rows;
+}
+
+function careerView(w: World, person: number, eventId: number): Record<string, unknown> {
+  const card = careerCard(w, person);
+  const occ = occTable();
+  const firms = w.state.economy ? econ(w).firms : [];
+  const wage = w.state.economy ? econ(w).wage : 0;
+  const st = w.state.careers as {
+    apps?: { person: number; firm: number; occ: number; due: number; n: number }[];
+    study?: { person: number; occ: number; due: number }[];
+    notices?: { person: number; day: number; text: string }[];
+  } | undefined;
+  const study = occ.filter((o) => o.id).map((o) => ({
+    field: o.name,
+    name: o.name,
+    days: 12 + 6 * o.rank,
+    cost: Math.round(wage * (8 + 6 * o.rank)),
+  }));
+  const pending = (st?.apps ?? []).filter((a) => a.person === person).map((a) => ({
+    n: a.n,
+    firm: firms[a.firm]?.name ?? 'a firm',
+    role: occ[a.occ]?.name ?? 'a seat',
+    due: a.due,
+    daysLeft: Math.max(0, a.due - w.day),
+  }));
+  const course = (st?.study ?? []).find((row) => row.person === person);
+  const letters = (st?.notices ?? []).filter((n) => n.person === person && w.day - n.day <= 40).map((n) => ({
+    day: n.day,
+    text: n.text,
+  }));
+  return {
+    ...card,
+    eventId,
+    study,
+    pending,
+    course: course ? {
+      name: occ[course.occ]?.name ?? 'a trade',
+      due: course.due,
+      daysLeft: Math.max(0, course.due - w.day),
+    } : null,
+    letters,
+  };
+}
+
+function withDue(w: World, inbox: { threads: unknown; pending: { id?: number; day?: number; kind?: string }[] }): { threads: unknown; pending: Record<string, unknown>[] } {
+  const asks = (w.state.circle as { asks?: { id: number; due: number }[] } | undefined)?.asks ?? [];
+  const due = new Map<number, number>();
+  for (const a of asks) if (a.due > 0) due.set(a.id, a.due);
+  return {
+    threads: inbox.threads,
+    pending: inbox.pending.map((p) => {
+      const id = typeof p.id === 'number' ? p.id : -1;
+      const day = typeof p.day === 'number' ? p.day : w.day;
+      const known = due.get(id);
+      const fallback = day + (p.kind === 'invite' ? 21 : 90);
+      return { ...p, due: known ?? fallback };
+    }),
+  };
+}
+
 function screen(w: World): Record<string, unknown> {
   const v = view(w);
   const P = econ(w).P;
@@ -2741,7 +2823,7 @@ function screen(w: World): Record<string, unknown> {
     ageEvent: me >= 0 && P.lastEv[me] >= 0 ? P.lastEv[me] : w.genesis,
     jobEvent: job ? (job.staffEv ?? job.ceoEv ?? econ(w).jobsWho ?? w.genesis) : w.genesis,
     contacts,
-    inbox: board.inbox,
+    inbox: withDue(w, board.inbox),
     news,
     private: priv,
     nwChange,
@@ -2769,7 +2851,7 @@ function screen(w: World): Record<string, unknown> {
     },
     curve,
     chain: optionChain(w, me >= 0 ? P.id(me) : ''),
-    career: careerCard(w, me),
+    career: careerView(w, me, job ? (job.staffEv ?? job.ceoEv ?? econ(w).jobsWho ?? w.genesis) : w.genesis),
     futuresBoard: futures,
     coinBoard: coins,
     fx: fxOf(w),

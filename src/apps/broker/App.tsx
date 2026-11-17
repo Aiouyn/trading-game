@@ -170,7 +170,7 @@ export default function BrokerApp({ context }: { context?: string }) {
       </div>
       <div className="br-grid">
         <div className="br-col br-col-head">
-          <Market desk={desk} view={view} picked={key} onPick={setKey} months={months} right={right} onRight={setRight} onStrike={(k) => { setStrike(k); }} onMonths={setMonths} ask={ask} />
+          <Market desk={desk} view={view} picked={key} onPick={setKey} months={months} right={right} strike={strike} onRight={setRight} onStrike={(k) => { setStrike(k); }} onMonths={setMonths} ask={ask} />
         </div>
         <div className="br-col br-col-ticket">
           {desk !== "fx" ? (
@@ -217,7 +217,8 @@ export default function BrokerApp({ context }: { context?: string }) {
             }}>{busy ? "Sending…" : "Launch a coin"}</Button>
           ) : null}
           {desk === "stocks" ? <p className="br-note">A market order rests until the next day, then the market matches it.</p> : null}
-          {desk === "options" ? <p className="br-note">Pick a price in the chain. A strike of 0 is at the money. If none are listed, let a day pass.</p> : null}
+          {desk === "options" ? <Payoff view={view} picked={key} right={right} months={months} strike={strike} /> : null}
+          {desk === "options" ? <p className="br-note">The diagram is one contract, bought at the ask, held to expiry. A strike of 0 is at the money.</p> : null}
           {desk === "coins" ? <p className="br-note">A major rests on the book. A memecoin fills against its pool now. A launch needs the day, eight contacts, the nerve, and spare cash. The reply says why if it refuses.</p> : null}
           {state ? (
             <p className={state.word === "Rejected" ? "br-msg warn" : "br-note"} data-testid="br-note">
@@ -301,13 +302,14 @@ function contract(view: SimView, instr: string, right: "C" | "P", months: number
   return [...rows].sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot))[0];
 }
 
-function Market({ desk, view, picked: key, onPick, months, right, onRight, onStrike, onMonths, ask }: {
+function Market({ desk, view, picked: key, onPick, months, right, strike, onRight, onStrike, onMonths, ask }: {
   desk: Desk;
   view: SimView;
   picked: string;
   onPick: (id: string) => void;
   months: number;
   right: "C" | "P";
+  strike: number;
   onRight: (r: "C" | "P") => void;
   onStrike: (cents: number) => void;
   onMonths: (n: number) => void;
@@ -316,7 +318,7 @@ function Market({ desk, view, picked: key, onPick, months, right, onRight, onStr
   if (desk === "stocks") return <StockMarket view={view} picked={key} onPick={onPick} ask={ask} />;
   if (desk === "bonds") return <BondMarket view={view} picked={key} onPick={onPick} ask={ask} />;
   if (desk === "futures") return <FuturesMarket view={view} picked={key} months={months} onPick={onPick} onMonths={onMonths} ask={ask} />;
-  if (desk === "options") return <OptionMarket view={view} picked={key} months={months} right={right} onPick={onPick} onMonths={onMonths} onRight={onRight} onStrike={onStrike} ask={ask} />;
+  if (desk === "options") return <OptionMarket view={view} picked={key} months={months} right={right} strike={strike} onPick={onPick} onMonths={onMonths} onRight={onRight} onStrike={onStrike} ask={ask} />;
   if (desk === "coins") return <CoinMarket view={view} picked={key} onPick={onPick} ask={ask} />;
   return <FxMarket view={view} ask={ask} />;
 }
@@ -415,8 +417,20 @@ function FuturesMarket({ view, picked: key, months, onPick, onMonths, ask }: {
   );
 }
 
-function OptionMarket({ view, picked: key, months, right, onPick, onMonths, onRight, onStrike, ask }: {
-  view: SimView; picked: string; months: number; right: "C" | "P";
+type OptRow = NonNullable<SimView["chain"]>[number];
+
+function expiryWord(months: number): string {
+  if (months <= 0) return "This month";
+  if (months === 1) return "1 month";
+  return `${months} months`;
+}
+
+function daysLeft(months: number, day: number): number {
+  return Math.max(0, months * 30 - Math.max(0, day - 1));
+}
+
+function OptionMarket({ view, picked: key, months, right, strike, onPick, onMonths, onRight, onStrike, ask }: {
+  view: SimView; picked: string; months: number; right: "C" | "P"; strike: number;
   onPick: (id: string) => void; onMonths: (n: number) => void; onRight: (r: "C" | "P") => void; onStrike: (cents: number) => void;
   ask: (id: number, title: string) => void;
 }) {
@@ -426,6 +440,8 @@ function OptionMarket({ view, picked: key, months, right, onPick, onMonths, onRi
   const month = monthList.includes(months) ? months : monthList[0] ?? months;
   const at = chain.filter((c) => c.months === month);
   const strikes = [...new Set(at.map((c) => c.strike))].sort((a, b) => a - b);
+  const chosen = contract(view, instr, right, month, strike);
+  const choose = (side: "C" | "P", k: number) => { onRight(side); onStrike(k); onMonths(month); };
   return (
     <>
       <label className="br-pick"><span className="label">Underlying</span>
@@ -433,23 +449,23 @@ function OptionMarket({ view, picked: key, months, right, onPick, onMonths, onRi
           {view.quotes.map((q) => <option key={q.instr} value={q.instr}>{symbolOf(q.instr)}</option>)}
         </select>
       </label>
-      <div className="br-desks">
+      <div className="br-desks" role="tablist" aria-label="Expiry">
         {monthList.map((m) => (
-          <button key={m} type="button" aria-pressed={month === m} onClick={() => onMonths(m)}>{m}m</button>
+          <button key={m} type="button" role="tab" aria-selected={month === m} aria-pressed={month === m} onClick={() => onMonths(m)}>{expiryWord(m)}</button>
         ))}
       </div>
       <div className="br-scroll">
-        <table className="br-chain">
-          <thead><tr><th>Call</th><th>Strike</th><th>Put</th></tr></thead>
+        <table className="br-chain" data-testid="opt-chain">
+          <thead><tr><th>Call bid / ask</th><th>Strike</th><th>Put bid / ask</th></tr></thead>
           <tbody>
             {strikes.map((k) => {
               const call = at.find((c) => c.strike === k && c.right === "C");
               const put = at.find((c) => c.strike === k && c.right === "P");
               return (
                 <tr key={k}>
-                  <td>{call ? <ChainCell row={call} onPick={() => { onRight("C"); onStrike(k); onMonths(month); }} ask={ask} /> : "—"}</td>
+                  <td>{call ? <ChainCell row={call} on={chosen?.id === call.id} onPick={() => choose("C", k)} ask={ask} /> : "—"}</td>
                   <td className="num">{dollars(k)}</td>
-                  <td>{put ? <ChainCell row={put} onPick={() => { onRight("P"); onStrike(k); onMonths(month); }} ask={ask} /> : "—"}</td>
+                  <td>{put ? <ChainCell row={put} on={chosen?.id === put.id} onPick={() => choose("P", k)} ask={ask} /> : "—"}</td>
                 </tr>
               );
             })}
@@ -457,17 +473,100 @@ function OptionMarket({ view, picked: key, months, right, onPick, onMonths, onRi
         </table>
         {strikes.length ? null : <p className="muted">No listed contracts.</p>}
       </div>
-      <p className="muted">Ticket is the {right === "C" ? "call" : "put"}.</p>
+      <OpenContracts view={view} ask={ask} />
     </>
   );
 }
 
-function ChainCell({ row, onPick, ask }: { row: NonNullable<SimView["chain"]>[number]; onPick: () => void; ask: (id: number, title: string) => void }) {
+function ChainCell({ row, on, onPick, ask }: { row: OptRow; on: boolean; onPick: () => void; ask: (id: number, title: string) => void }) {
+  const name = row.right === "C" ? "Call" : "Put";
   return (
     <span className="br-chain-cell">
-      <button type="button" onClick={onPick}><span className="num">{dollars(row.bid)} / {dollars(row.ask)}</span>{row.net ? <span className={tone(row.net)}> {row.net}</span> : null}</button>
-      <NumBtn id={row.eventId} title={`${row.right} ${dollars(row.strike)}`} ask={ask}><span>Why</span></NumBtn>
+      <button type="button" aria-pressed={on} onClick={onPick}>
+        <span className="num">{dollars(row.bid)}</span>
+        <span className="br-chain-gap">/</span>
+        <span className="num">{dollars(row.ask)}</span>
+        {row.net ? <span className={tone(row.net)}> {row.net > 0 ? `long ${row.net}` : `short ${Math.abs(row.net)}`}</span> : null}
+      </button>
+      <NumBtn id={row.eventId} title={`${name} ${dollars(row.strike)}`} ask={ask}>{null}</NumBtn>
     </span>
+  );
+}
+
+function OpenContracts({ view, ask }: { view: SimView; ask: (id: number, title: string) => void }) {
+  const open = (view.chain ?? []).filter((c) => c.net !== 0);
+  const day = view.date?.day ?? 1;
+  return (
+    <div data-testid="opt-open">
+      <p className="label">Open contracts</p>
+      {open.length ? open.map((row) => {
+        const long = row.net > 0;
+        const qty = Math.abs(row.net);
+        const mark = (long ? row.bid : row.ask) * qty * 100;
+        const left = daysLeft(row.months, day);
+        const name = `${row.right === "C" ? "Call" : "Put"} ${symbolOf(row.instr)} ${dollars(row.strike)}`;
+        return (
+          <div key={row.id} className="sim-book-row" data-testid="opt-position">
+            <NumBtn id={row.eventId} title={name} ask={ask}>
+              <span>{long ? "Long" : "Short"} {qty} {name}</span>
+            </NumBtn>
+            <span className="num">{long ? dollars(mark) : `−${dollars(mark)}`}</span>
+            <span className="muted">{left <= 0 ? "Expires today" : left === 1 ? "1 day left" : `${left} days left`}</span>
+            <button type="button" data-testid="opt-close" onClick={() => void act({ kind: "optclose", id: row.id, instr: "", qty })}>Close</button>
+          </div>
+        );
+      }) : <p className="muted">No open contracts.</p>}
+    </div>
+  );
+}
+
+function Payoff({ view, picked: key, right, months, strike }: {
+  view: SimView; picked: string; right: "C" | "P"; months: number; strike: number;
+}) {
+  const instr = optInstr(view, key);
+  const quote = view.quotes.find((q) => q.instr === instr);
+  const listed = listedMonths(view, instr);
+  const useMonths = listed.includes(months) ? months : listed[0];
+  const row = useMonths === undefined ? undefined : contract(view, instr, right, useMonths, strike);
+  if (!quote || !row || row.ask < 1) return <p className="muted" data-testid="opt-payoff">No listed contract to draw.</p>;
+  const premium = row.ask;
+  const spot = quote.px;
+  const k = row.strike;
+  const lo = Math.max(1, k * 0.55);
+  const hi = k * 1.45;
+  const n = 33;
+  const ys: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const s = lo + (hi - lo) * (i / (n - 1));
+    const intrinsic = right === "C" ? Math.max(0, s - k) : Math.max(0, k - s);
+    ys.push((intrinsic - premium) * 100);
+  }
+  const minY = Math.min(0, ...ys);
+  const maxY = Math.max(0, ...ys);
+  const span = maxY - minY || 1;
+  const w = 320;
+  const h = 120;
+  const pad = 8;
+  const xOf = (i: number) => pad + (i / (n - 1)) * (w - pad * 2);
+  const yOf = (v: number) => pad + (1 - (v - minY) / span) * (h - pad * 2);
+  const d = ys.map((v, i) => `${i === 0 ? "M" : "L"}${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(" ");
+  const zero = yOf(0);
+  const spotX = xOf(Math.max(0, Math.min(n - 1, ((spot - lo) / (hi - lo)) * (n - 1))));
+  const be = right === "C" ? k + premium : k - premium;
+  const above = right === "C";
+  return (
+    <div className="br-payoff" data-testid="opt-payoff">
+      <p className="label">Payoff at expiry</p>
+      <p className="br-note">
+        {above ? "The call is ahead if the share finishes above" : "The put is ahead if the share finishes below"} {dollars(be)}. One contract, premium {dollars(premium * 100)} at the ask.
+      </p>
+      <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label="Payoff diagram">
+        <line x1={pad} x2={w - pad} y1={zero} y2={zero} className="br-pay-zero" />
+        <path d={d} className="br-pay-line" />
+        <line x1={spotX} x2={spotX} y1={pad} y2={h - pad} className="br-pay-spot" />
+      </svg>
+      <p className="muted">The upright line is the share now, {dollars(spot)}. The flat line is no gain and no loss.</p>
+    </div>
   );
 }
 
