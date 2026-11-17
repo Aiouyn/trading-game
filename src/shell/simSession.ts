@@ -137,7 +137,15 @@ export interface SaveMeta {
 }
 export interface AgeBand { years: number; label: string }
 export interface DriftLine { k: string; text: string }
+export interface SceneData {
+  index: number | null;
+  firms: { name: string; cap: number; staff: number; sector: string }[];
+  berthed: number;
+  waiting: number;
+  sailing: number;
+}
 export interface TitleData {
+  scene?: SceneData;
   scenarios: ScenarioCard[];
   saves: SaveMeta[];
   last: SaveMeta | null;

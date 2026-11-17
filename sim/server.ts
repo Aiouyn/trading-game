@@ -3749,14 +3749,19 @@ function portraitLines(world: World | null): DriftLine[] {
   if (!world) {
     const saved = savedPortrait();
     if (saved?.length) return saved;
-    return [
-      { k: 'harbour', text: `${face.harbour}. The berths are dark.` },
-      ...face.routes.slice(0, 4).map((text) => ({ k: 'harbour', text })),
-      { k: 'exchange', text: 'The exchange has not marked a price yet.' },
-      ...face.firms.slice(0, 8).map((text) => ({ k: 'exchange', text })),
-      ...face.districts.map((text) => ({ k: 'city', text })),
-    ];
+    const f = face.firms;
+    const d = face.districts;
+    const r = face.routes;
+    const out: DriftLine[] = [{ k: 'harbour', text: `${face.harbour} sleeps. The exchange opens at first light.` }];
+    if (f.length >= 3) out.push({ k: 'exchange', text: `${f[0]}, ${f[1]} and ${f[2]} keep the city's lights on and its shares moving.` });
+    if (r.length >= 2) out.push({ k: 'harbour', text: `Ships come in on ${r[0]} and ${r[1]}, and every cargo moves a price.` });
+    if (d.length >= 3) out.push({ k: 'city', text: `Dock hands live in ${d[0]}; the money lives in ${d[d.length - 1]}. You start somewhere between.` });
+    if (f.length >= 6) out.push({ k: 'exchange', text: `${f[3]}, ${f[4]} and ${f[5]} hire, cut, borrow and fail like real firms.` });
+    out.push({ k: 'city', text: 'Thousands of people here keep a job, a family, a bank account and a memory of you.' });
+    return out;
   }
+  const told = sceneLines(world);
+  if (told.length >= 4) return told;
   const port = world.state.port as { name?: string; berths?: number; ships?: { name?: string }[]; closedUntil?: number } | undefined;
   const shut = (port?.closedUntil ?? 0) > world.day;
   const lines: DriftLine[] = [{
@@ -3791,6 +3796,90 @@ function portraitLines(world: World | null): DriftLine[] {
   return lines;
 }
 
+interface SceneData {
+  index: number | null;
+  firms: { name: string; cap: number; staff: number; sector: string }[];
+  berthed: number;
+  waiting: number;
+  sailing: number;
+}
+
+function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+  return `${n}${n % 10 > 3 ? 'th' : s}`;
+}
+
+/** The skyline and the harbour for the title: one building per listed firm, the ships by where they are. */
+function titleScene(world: World | null): SceneData {
+  if (!world) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(SAVES, '.scene.json'), 'utf8')) as SceneData;
+      if (Array.isArray(raw?.firms) && raw.firms.length) return raw;
+    } catch { /* fall back to the catalogue */ }
+    const face = catalogFace();
+    return { index: null, firms: face.firms.map((name, i) => ({ name, cap: 1 + ((i * 7) % 5), staff: 0, sector: '' })), berthed: 0, waiting: 0, sailing: 0 };
+  }
+  const s = econ(world);
+  const firms: SceneData['firms'] = [];
+  for (const st of stocksOf(world)) {
+    const f = s.firms.find((x) => x.id === st.issuer);
+    if (!f || f.closed) continue;
+    const px = session(st).px;
+    const shares = world.ledger.issued.get(st.instr) ?? 0;
+    firms.push({ name: f.name, cap: Math.max(0, Math.round(px * shares)), staff: f.staff.length, sector: f.sector ?? '' });
+  }
+  const port = world.state.port as { ships?: { way?: string; eta?: number; sailDay?: number }[] } | undefined;
+  let berthed = 0, waiting = 0, sailing = 0;
+  for (const sh of port?.ships ?? []) {
+    if (sh.way === 'idle') berthed++;
+    else if (sh.way === 'in' && (sh.eta ?? 0) <= world.day + 2) waiting++;
+    else sailing++;
+  }
+  const idx = indexPair(world).index;
+  return { index: Number.isFinite(idx) ? Math.round(idx * 10) / 10 : null, firms, berthed, waiting, sailing };
+}
+
+/** Lines that explain themselves to someone who has never played. */
+function sceneLines(world: World): DriftLine[] {
+  const s = econ(world);
+  const P = s.P;
+  const out: DriftLine[] = [];
+  const stocks = stocksOf(world)
+    .map((st) => ({ st, px: session(st).px, prev: session(st).prev }))
+    .filter((x) => Number.isFinite(x.px) && x.px > 0);
+  stocks.sort((a, b) => Math.abs(b.px / (b.prev || b.px) - 1) - Math.abs(a.px / (a.prev || a.px) - 1));
+  for (const x of stocks.slice(0, 3)) {
+    const name = s.firms.find((f) => f.id === x.st.issuer)?.name ?? '';
+    if (!name) continue;
+    const ch = x.prev > 0 ? (x.px / x.prev - 1) * 100 : 0;
+    const move = Math.abs(ch) < 0.05 ? 'trades at' : ch > 0 ? `is up ${ch.toFixed(1)}% at` : `is down ${Math.abs(ch).toFixed(1)}% at`;
+    out.push({ k: 'exchange', text: `${name} ${move} ${moneyLabel(Math.round(x.px))} a share.` });
+  }
+  const soc = world.state.society as { rich?: { person: number; worth: number; why: string }[] } | undefined;
+  for (const [r, row] of (soc?.rich ?? []).slice(0, 3).entries()) {
+    if (row.person < 0 || row.person >= P.n || !P.alive(row.person)) continue;
+    const emp = P.employer[row.person];
+    const firm = emp >= 0 ? s.firms[emp] : undefined;
+    const role = firm && firm.ceo === row.person ? `, chief executive of ${firm.name},` : '';
+    const rank = r === 0 ? 'richest' : `${ordinal(r + 1)}-richest`;
+    const worth = row.worth >= 100_000_000 ? `$${(row.worth / 100 / 1e6).toFixed(1)} million` : moneyLabel(Math.round(row.worth));
+    out.push({ k: 'rich', text: `${P.name(row.person)}${role} is the city's ${rank}, worth ${worth}.` });
+  }
+  const sc = titleScene(world);
+  const ships = sc.berthed + sc.waiting + sc.sailing;
+  if (ships) out.push({ k: 'harbour', text: `${sc.berthed} ${sc.berthed === 1 ? 'ship is' : 'ships are'} at berth, ${sc.waiting} waiting at the mouth, ${sc.sailing} at sea.` });
+  out.push({ k: 'city', text: `Unemployment is ${(s.unemployment * 100).toFixed(1)}% and the policy rate is ${(s.policyRate * 100).toFixed(2)}%.` });
+  const facts = (world.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
+  let n = 0;
+  for (let f = facts.length - 1; f >= 0 && n < 3; f--) {
+    const fact = facts[f];
+    if (!fact || fact.drop || !fact.pub || !fact.msg) continue;
+    out.push({ k: 'wire', text: fact.msg });
+    n++;
+  }
+  return out;
+}
+
 function savedPortrait(): DriftLine[] | null {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(SAVES, '.portrait.json'), 'utf8')) as DriftLine[];
@@ -3803,6 +3892,7 @@ function rememberPortrait(world: World): void {
   try {
     fs.mkdirSync(SAVES, { recursive: true });
     fs.writeFileSync(path.join(SAVES, '.portrait.json'), JSON.stringify(portraitLines(world)));
+    fs.writeFileSync(path.join(SAVES, '.scene.json'), JSON.stringify(titleScene(world)));
   } catch { /* the title still has the catalog */ }
 }
 
@@ -3966,6 +4056,7 @@ function titleBody(): Record<string, unknown> {
     saves,
     last: saves[0] ?? null,
     lines: portraitLines(worldReady ? w : null),
+    scene: titleScene(worldReady ? w : null),
     names: GIVEN_NAMES,
     ages: AGE_BANDS,
     districts: face.districts,

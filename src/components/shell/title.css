@@ -128,3 +128,32 @@ html[data-motion="reduce"] .qy-drift li { animation: none; }
   .qy-arrive { padding: var(--sp-24); }
   .qy-first { bottom: calc(var(--edge-bar-h) + 72px); }
 }
+
+/* Port Avalon at night: the drawn scene beside the title menu. */
+.ns { margin: 0; display: flex; flex-direction: column; gap: var(--sp-16); align-self: center; width: 100%; }
+.ns svg { width: 100%; height: auto; display: block; }
+.ns-stars circle { fill: var(--fg-faint); opacity: .5; }
+.ns-tower { fill: var(--win2); stroke: var(--line); stroke-width: 1; }
+.ns-win { fill: var(--acc); opacity: .78; }
+.ns-exchange path { fill: var(--win); stroke: var(--acc-lo); stroke-width: 1; }
+.ns-exchange .ns-pediment { fill: var(--win2); }
+.ns-column { fill: var(--acc-lo); opacity: .55; }
+.ns-index { font: 500 13px var(--font-num); fill: var(--acc-hi); }
+.ns-quay { stroke: var(--acc-lo); stroke-width: 1; }
+.ns-reflect line { stroke: var(--acc); stroke-width: 2; opacity: .14; }
+.ns-ship { fill: var(--steel); }
+.ns-far { opacity: .6; }
+.ns-light { fill: var(--acc-hi); }
+.ns-drift { animation: ns-drift 14s ease-in-out infinite alternate; }
+@keyframes ns-drift { from { transform: translateX(0); } to { transform: translateX(-22px); } }
+.ns figcaption { display: flex; flex-direction: column; gap: var(--sp-8); min-height: 4.5em; }
+.ns-line { margin: 0; font: 400 var(--fs-16) / 1.45 var(--font-ui); color: var(--fg); animation: ns-in var(--dur-slow) var(--ease-out) both; }
+.ns-line.num { font-family: var(--font-num); }
+.ns-legend { margin: 0; font: 400 var(--fs-12, 12px) / 1.4 var(--font-ui); }
+@keyframes ns-in { from { opacity: 0; } to { opacity: 1; } }
+html[data-motion="reduce"] .ns-drift, html[data-motion="reduce"] .ns-line { animation: none; }
+@media (prefers-reduced-motion: reduce) { .ns-drift, .ns-line { animation: none; } }
+@media (max-width: 720px) {
+  .ns { order: -1; }
+  .ns svg { max-height: 180px; }
+}

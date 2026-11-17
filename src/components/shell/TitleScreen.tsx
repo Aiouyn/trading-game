@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { useShell, useShellStore } from "./ShellContext";
+import NightScene from "./NightScene";
 import { actLine, continueGame, loadGame, openGate, refreshTitle, startChallenge, startScenario, setSpeed, useSimSnap, type AgeBand, type DriftLine, type GenState, type SaveMeta, type ScenarioCard, type TitleData } from "@/shell/simSession";
 import { lessonDo } from "@/shell/lessonDo";
 import { PALETTE_IDS, type PaletteId } from "@/styles/tokens";
@@ -152,7 +153,7 @@ function Night({ title, onPage }: { title: TitleData | null; onPage: (p: Page) =
           <button type="button" data-testid="sim-challenge" onClick={() => onPage("code")}>Challenge</button>
         </p>
       </div>
-      <Lines lines={title?.lines ?? []} />
+      {title?.scene ? <NightScene scene={title.scene} lines={title.lines ?? []} /> : <Lines lines={title?.lines ?? []} />}
     </div>
   );
 }
