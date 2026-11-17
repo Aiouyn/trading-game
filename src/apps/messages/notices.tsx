@@ -9,6 +9,7 @@ import {
   type CircleAsk, type CircleSnap,
 } from "./circle";
 import { setSpeed, useSimSnap } from "@/shell/simSession";
+import { clipWords } from "@/apps/diary/read";
 import "./messages.css";
 
 interface Toast { id: number; who: number; text: string }
@@ -60,7 +61,7 @@ function troubleOf(snap: CircleSnap, ask: CircleAsk | null): Trouble | null {
     msg: ask.msg,
     from: ask.from,
     name: ask.name,
-    line: line.length > 180 ? `${line.slice(0, 177)}…` : line,
+    line: clipWords(line, 180),
     cents: ask.cents,
     slot: slotOf(snap.contacts, ask.from),
     eventId: ask.eventId,
@@ -104,7 +105,7 @@ export function ingestCircle(life: unknown) {
     const id = ++toastSeq;
     const title = item.role === "rival" ? `${item.name} made a move` : `${item.name} wrote`;
     const line = item.text.replace(/\s+/g, " ");
-    const text = `${title}. ${line.length > 140 ? `${line.slice(0, 137)}…` : line}`;
+    const text = `${title}. ${clipWords(line, 140)}`;
     toasts = [...toasts, { id, who: item.who, text }].slice(-3);
     const timer = window.setTimeout(() => {
       timers.delete(timer);
@@ -187,7 +188,7 @@ function noteDay(abs: number) {
 function lineOf(snap: CircleSnap, ask: CircleAsk): string {
   const letter = snap.threads.flatMap((t) => t.messages).find((m) => m.id === ask.msg);
   const line = (letter?.text || ask.note || `${ask.name} is waiting on an answer`).replace(/\s+/g, " ");
-  return line.length > 160 ? `${line.slice(0, 157)}…` : line;
+  return clipWords(line, 160);
 }
 
 /** Invitations and loan requests, with the day they lapse, on the top bar. */

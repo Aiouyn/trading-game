@@ -49,7 +49,57 @@ export function kindWord(kind: string): string {
 }
 
 export function cleanTitle(title: string): string {
-  return title.replace(/\s*You are invited\.?/g, "").replace(/\s*You went\.?/g, "").replace(/\s*You stayed away\.?/g, "").trim();
+  return title
+    .replace(/\s*You are invited\.?/g, "")
+    .replace(/\s*You went\.?/g, "")
+    .replace(/\s*You stayed away\.?/g, "")
+    .replace(/\s*I'll get this one\.?/g, "")
+    .trim();
+}
+
+const HANG = new Set(["a", "an", "the", "and", "or", "to", "of", "for", "at", "in", "on", "with", "who", "by", "from"]);
+
+/** Cut at a word, never mid-name. */
+export function clipWords(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  let cut = flat.slice(0, Math.max(1, max - 1));
+  const sp = cut.lastIndexOf(" ");
+  if (sp > 8) cut = cut.slice(0, sp);
+  cut = cut.replace(/[\s,;:.–—-]+$/g, "");
+  const parts = cut.split(" ");
+  while (parts.length > 2 && HANG.has(parts[parts.length - 1].toLowerCase())) parts.pop();
+  const out = parts.join(" ").replace(/[\s,;:.–—-]+$/g, "");
+  return out ? `${out}…` : `${flat.slice(0, Math.max(1, max - 1))}…`;
+}
+
+const QUIET_COST = /^(nothing|nothing to attend|nothing for you|nothing more to pay|it costs nothing|it cost nothing|it cost you nothing)\.?$/i;
+const CIVIC = new Set(["earnings", "meeting", "job", "loan", "course", "application"]);
+
+export function showWho(plan: DiaryPlan): boolean {
+  return plan.who.some((w) => w.person >= 0 && !w.self);
+}
+
+export function namedWho(plan: DiaryPlan): PlanWho[] {
+  return plan.who.filter((w) => w.person >= 0);
+}
+
+export function showPlace(plan: DiaryPlan): boolean {
+  return !!plan.place && !CIVIC.has(plan.kind);
+}
+
+export function showReason(plan: DiaryPlan): boolean {
+  const r = plan.reason.trim();
+  return !!r && r !== "It is on the books.";
+}
+
+export function costOnce(plan: DiaryPlan): string {
+  const blob = `${plan.title} ${plan.cost} ${plan.said}`;
+  if (/I'll get this one/i.test(blob)) return "I'll get this one.";
+  if (plan.kind === "earnings" || plan.kind === "meeting" || plan.kind === "course" || plan.kind === "application" || plan.kind === "fallout" || plan.kind === "interview") return "";
+  const cost = plan.cost.trim();
+  if (!cost || QUIET_COST.test(cost)) return "";
+  return cost;
 }
 
 export function parsePlans(raw: unknown): DiaryPlan[] {

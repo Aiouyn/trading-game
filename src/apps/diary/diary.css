@@ -61,7 +61,22 @@
 .dia-after { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 .dia-acts { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
 .dia-acts .btn { flex: 1 1 120px; min-height: var(--hit-touch); white-space: normal; text-align: center; }
-.dia .name-link { overflow-wrap: anywhere; }
+.dia-who-bit { white-space: nowrap; }
+.dia .name-link {
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--acc);
+  text-underline-offset: 3px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.dia .name-link:hover { color: var(--acc-hi); }
 @container (max-width: 640px) {
   .dia { padding: var(--sp-12); }
   .dia-acts .btn, .dia .name-link { min-height: var(--hit-touch); }

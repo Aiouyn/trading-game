@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Result, useAct, when, Why } from "@/apps/profile/data";
 import { InviteActions } from "@/apps/diary/Invite";
 import { gameDate, presentNote } from "@/components/ui/format";
-import { kindWord, parsePlans, plansFor } from "@/apps/diary/read";
+import { costOnce, kindWord, parsePlans, plansFor } from "@/apps/diary/read";
 import { initial, moneyLabel, roleWord, type CircleContact } from "@/apps/messages/circle";
 import { useSimSnap } from "@/shell/simSession";
 import { acceptLine, barFor, parseSociety } from "@/apps/society/read";
@@ -163,7 +163,7 @@ export function Person({ index, contact, firms, homes, onBack }: {
                 <p>{kindWord(p.kind)} · {gameDate(p.day)}</p>
                 {p.place ? <p>{p.place}</p> : null}
                 {p.reason ? <p className="peo-muted">{p.reason}</p> : null}
-                {p.cost ? <p className="peo-muted">{p.cost}</p> : null}
+                {costOnce(p) ? <p className="peo-muted">{costOnce(p)}</p> : null}
                 {p.past ? (
                   <div data-testid="aftermath">
                     {p.answer ? <p data-testid="invite-answer">{p.answer}</p> : null}

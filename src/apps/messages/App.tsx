@@ -103,7 +103,6 @@ function InviteCard({ plan, busy, onGo }: { plan: DiaryPlan; busy: boolean; onGo
       <p className="label">{kindWord(plan.kind)} · {gameDate(plan.day)}</p>
       {plan.place ? <p>{plan.place}</p> : null}
       {plan.reason ? <p className="dia-reason">{plan.reason}</p> : null}
-      <p className="dia-cost">{plan.cost}</p>
       {plan.past ? (
         <div data-testid="aftermath">
           {plan.answer ? <p data-testid="invite-answer">{plan.answer}</p> : null}

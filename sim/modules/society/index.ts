@@ -5,7 +5,7 @@
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import type { Ev } from '../../kernel/events.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
-import { circlePlansOn } from '../circle/plans.ts';
+import { circlePlansOn, settleSocietyAsks } from '../circle/plans.ts';
 import { PRISON } from '../economy/people.ts';
 import { contactsOf } from '../social/index.ts';
 import { money } from '../social/words.ts';
@@ -776,7 +776,7 @@ function resolveDate(w: World, st: Soc, d: SocDate): void {
   let went = false;
   const cause = d.eventId >= 0 ? d.eventId : (st.root || w.genesis);
   if (d.invite && me >= 0 && d.status === 'yes') {
-    if (societyPay(w, me, d.cents, cause, false)) {
+    if (d.cents < 1 || societyPay(w, me, d.cents, cause, false)) {
       went = true;
       st.snubs = Math.max(0, st.snubs - 1);
       bump(w, st, me, 6, 'party', 'You went to the party', cause);
@@ -810,6 +810,7 @@ function tendDates(w: World, st: Soc): void {
   if (w.day % 30 !== 4) return;
   if (datesOf(st).some((d) => d.status !== 'gone' && d.day >= w.day && d.day < w.day + 30)) return;
   scheduleDate(w, st);
+  settleSocietyAsks(w);
 }
 function datedItems(w: World, st: Soc | undefined, day: number): { kind: string; title: string; eventId: number }[] {
   const out: { kind: string; title: string; eventId: number }[] = [];

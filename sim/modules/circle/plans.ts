@@ -5,8 +5,9 @@
 import { type World } from '../../kernel/index.ts';
 import { DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, PRISON, RETIRED, joinFirm, setSimDay } from '../economy/people.ts';
+import { GOODS } from '../economy/content.ts';
 import { bidHome, homeBoard, parcelView } from '../property/index.ts';
-import { nudgeLink, quietFact } from '../social/index.ts';
+import { contactsOf, nudgeLink, quietFact } from '../social/index.ts';
 import { chooseShape, money, renderLetter, type Voice } from '../social/words.ts';
 
 const SKIP_STOP = 3;
@@ -73,6 +74,8 @@ export interface LifePlan {
   parcel: number;
   firm: number;
   other: number;
+  /** What the host pays the city when they say they'll get this one. */
+  cover?: number;
 }
 interface SocDate {
   id: number;
@@ -180,10 +183,6 @@ function names(w: World, ids: number[], n: number): string {
   if (list.length === 1) return list[0];
   return list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
 }
-function spot(who: number, day: number, places: string[], nb: string): string {
-  const s = places[mix(who, day, places.length) % places.length] ?? places[0];
-  return nb ? `${s} in ${nb}` : s;
-}
 function voiceOf(w: World, who: number, role: string): Voice {
   if (role === 'rival') return 'cold';
   const P = econ(w).P;
@@ -202,14 +201,128 @@ function say(w: World, who: number, role: string, fact: string, you: string, min
   });
 }
 function wage(w: World): number { return Math.max(1, Math.round(econ(w).wage)); }
-function bill(w: World, kind: string): number {
-  const g = wage(w);
-  if (kind === 'gala') return Math.max(100, g * 40);
-  if (kind === 'party') return Math.max(100, g * 18);
-  if (kind === 'deal') return Math.max(100, g * 8);
-  if (kind === 'drinks' || kind === 'leaving') return Math.max(100, g * 4);
-  if (kind === 'birthday' || kind === 'funeral') return Math.max(100, g * 3);
-  return Math.max(100, g * 6);
+function cashOf(w: World, person: number): number {
+  const P = econ(w).P;
+  if (person < 0 || person >= P.n) return 0;
+  return Math.floor(w.ledger.balance(P.id(person), DEP));
+}
+/** A serving, from the cheapest open firm that sells the good. The opening price if none is open. */
+function serving(w: World, good: string): number {
+  let best = 0;
+  for (const f of econ(w).firms) {
+    if (!f || f.closed || f.good !== good || f.price < 1) continue;
+    if (best < 1 || f.price < best) best = f.price;
+  }
+  if (best >= 1) return Math.max(100, Math.round(best));
+  const gd = GOODS[good];
+  if (!gd || gd.prod < 1) return Math.max(100, wage(w));
+  return Math.max(100, Math.round(wage(w) / gd.prod * 1.2));
+}
+type Dish = 'pint' | 'meal' | 'table' | 'club' | 'ticket';
+function dishPrice(w: World, dish: Dish): number {
+  const pint = serving(w, 'TRANSIT');
+  const food = serving(w, 'GROCERIES');
+  const night = serving(w, 'ENTERTAINMENT');
+  if (dish === 'pint') return pint;
+  if (dish === 'meal') return food;
+  if (dish === 'table') return Math.max(100, food + night);
+  if (dish === 'club') return Math.max(100, night * 3);
+  return Math.max(wage(w) * 10, food * 8);
+}
+/** What a player-asked night costs. A pint is a pint. A gala ticket is dear. */
+export function circleBill(w: World, place: string): number {
+  const raw = place.trim().toLowerCase();
+  if (raw === 'gala') return dishPrice(w, 'ticket');
+  if (raw === 'club') return dishPrice(w, 'club');
+  if (raw === 'festival' || raw === 'party') return dishPrice(w, 'table');
+  if (raw === 'drinks' || raw === 'leaving') return dishPrice(w, 'pint');
+  return dishPrice(w, 'meal');
+}
+function hostTier(w: World, who: number): number {
+  const days = cashOf(w, who) / wage(w);
+  if (days >= 80) return 2;
+  if (days >= 20) return 1;
+  return 0;
+}
+function canPay(w: World, person: number, price: number): boolean {
+  return cashOf(w, person) >= price + wage(w) * 3;
+}
+function canTreat(w: World, host: number, price: number): boolean {
+  return alive(w, host) && cashOf(w, host) >= price + wage(w) * 15;
+}
+function closeRole(role: string): boolean {
+  return role === 'friend' || role === 'family' || role === 'mentor';
+}
+interface Venue { name: string; dish: Dish; tier: number }
+interface Quote { place: string; head: string; cents: number; cover: number; pay: string }
+const DRINK_ROOMS: Venue[] = [
+  { name: 'the office tap', dish: 'pint', tier: 0 },
+  { name: 'the late bar', dish: 'meal', tier: 1 },
+  { name: 'a club on the quay', dish: 'club', tier: 2 },
+];
+const LEAVING_ROOMS: Venue[] = [
+  { name: 'the office tap', dish: 'pint', tier: 0 },
+  { name: 'a bar near the firm', dish: 'pint', tier: 0 },
+  { name: 'a club on the quay', dish: 'club', tier: 2 },
+];
+const DINNER_ROOMS: Venue[] = [
+  { name: 'a corner table', dish: 'meal', tier: 0 },
+  { name: 'the harbour bar', dish: 'table', tier: 1 },
+  { name: 'the dining room', dish: 'club', tier: 2 },
+];
+const DEAL_ROOMS: Venue[] = [
+  { name: 'a quiet table', dish: 'meal', tier: 0 },
+  { name: 'the bank lobby', dish: 'meal', tier: 1 },
+  { name: 'a back room', dish: 'table', tier: 2 },
+];
+const BIRTH_ROOMS: Venue[] = [
+  { name: 'a corner table', dish: 'meal', tier: 0 },
+  { name: 'the dining room', dish: 'table', tier: 2 },
+];
+const WED_ROOMS: Venue[] = [
+  { name: 'the registry', dish: 'meal', tier: 0 },
+  { name: 'a room above the quay', dish: 'table', tier: 1 },
+];
+function roomRows(w: World, rooms: Venue[]): { v: Venue; cents: number }[] {
+  return rooms.map((v) => ({ v, cents: dishPrice(w, v.dish) }));
+}
+function roomAt(rows: { v: Venue; cents: number }[], tier: number, salt: number): { v: Venue; cents: number } {
+  let best = -1;
+  for (const row of rows) if (row.v.tier <= tier && row.v.tier > best) best = row.v.tier;
+  const at = rows.filter((row) => row.v.tier === (best < 0 ? 0 : best));
+  return at[salt % at.length] ?? rows[0];
+}
+function whereOf(name: string, nb: string): string {
+  return nb ? `${name} in ${nb}` : name;
+}
+/** The dearest room this host would pick, stepped down until the player can pay, or a treat. */
+function priceOf(w: World, me: number, host: number, role: string, rooms: Venue[], nb: string, salt: number, payTo: string): Quote | undefined {
+  const rows = roomRows(w, rooms);
+  if (!rows.length) return;
+  const preferred = roomAt(rows, hostTier(w, host), salt);
+  const cheaper = rows.filter((row) => row.cents < preferred.cents).sort((a, b) => b.cents - a.cents);
+  for (const row of [preferred, ...cheaper]) {
+    if (!canPay(w, me, row.cents)) continue;
+    return { place: whereOf(row.v.name, nb), head: row.v.name, cents: row.cents, cover: 0, pay: payTo };
+  }
+  if (closeRole(role)) {
+    for (const row of [preferred, ...cheaper]) {
+      if (!canTreat(w, host, row.cents)) continue;
+      return { place: whereOf(row.v.name, nb), head: row.v.name, cents: 0, cover: row.cents, pay: 'treat' };
+    }
+  }
+  return;
+}
+function roomName(w: World, host: number, rooms: Venue[], nb: string, salt: number): { head: string; place: string } {
+  const row = roomAt(roomRows(w, rooms), hostTier(w, host), salt);
+  return { head: row.v.name, place: whereOf(row.v.name, nb) };
+}
+function dress(head: string, rest: string, invite: number, treat: boolean): string {
+  const bits = [head.endsWith('.') ? head : `${head}.`];
+  if (rest) bits.push(rest.endsWith('.') ? rest : `${rest}.`);
+  if (invite) bits.push('You are invited.');
+  if (treat) bits.push("I'll get this one.");
+  return bits.join(' ');
 }
 
 function postLetter(w: World, st: Box, from: number, role: string, kind: string, text: string, cause: number): Letter {
@@ -360,14 +473,76 @@ function pickFrom(list: Bond[], salt: number): Bond | undefined {
   if (!list.length) return;
   return list[salt % list.length];
 }
-function company(list: Bond[], host: number, n: number, salt: number): number[] {
-  const out = [host];
-  for (const b of list) {
-    if (out.length >= n) break;
-    if (b.who === host) continue;
-    if ((salt + b.who) % 2 === 0) out.push(b.who);
+const GAPS = ['friend', 'family', 'work', 'city'];
+function recentFaces(st: Box, day: number): Set<number> {
+  const seenIds = new Set<number>();
+  for (const p of st.plans) {
+    if (p.status === 'gone') continue;
+    if (p.kind !== 'dinner' && p.kind !== 'drinks' && p.kind !== 'leaving' && p.kind !== 'birthday') continue;
+    if (p.day < day - 21 || p.day > day + 21) continue;
+    seenIds.add(p.host);
+    for (const id of p.who) seenIds.add(id);
   }
-  if (out.length < 2) for (const b of list) if (b.who !== host) { out.push(b.who); break; }
+  return seenIds;
+}
+function fitsBias(role: string, bias: string): boolean {
+  if (bias === 'friend') return role === 'friend' || role === 'mentor';
+  if (bias === 'family') return role === 'family';
+  if (bias === 'work') return role === 'colleague' || role === 'mentor';
+  if (bias === 'city') return role === 'friend' || role === 'colleague' || role === 'mentor' || role === 'family';
+  return true;
+}
+function outsiderOf(w: World, st: Box, me: number, host: number, salt: number): number {
+  const known = new Set<number>();
+  for (const b of st.bonds) known.add(b.who);
+  known.add(me);
+  known.add(host);
+  const out: number[] = [];
+  for (const c of contactsOf(w, host)) {
+    if (c.who === me || c.who === host || known.has(c.who) || !adult(w, c.who)) continue;
+    out.push(c.who);
+  }
+  out.sort((a, b) => a - b);
+  if (!out.length) return -1;
+  return out[salt % out.length];
+}
+function pickHost(w: World, st: Box, me: number, hosts: Bond[], salt: number, bias: string): Bond | undefined {
+  const list = bias ? hosts.filter((b) => fitsBias(b.role, bias)) : hosts;
+  if (!list.length) return;
+  const recent = recentFaces(st, w.day);
+  const fresh = list.filter((b) => !recent.has(b.who));
+  const pool = fresh.length ? fresh : list;
+  const city = bias === 'city' ? pool.filter((b) => outsiderOf(w, st, me, b.who, salt) >= 0) : [];
+  if (bias === 'city') {
+    if (!city.length) return;
+    return city[salt % city.length];
+  }
+  return pool[salt % pool.length];
+}
+function party(w: World, st: Box, me: number, host: number, salt: number, bias: string): number[] {
+  if (bias === 'city') {
+    const guest = outsiderOf(w, st, me, host, salt);
+    if (guest < 0) return [];
+    return [host, guest];
+  }
+  const recent = recentFaces(st, w.day);
+  const bonds = st.bonds.filter((b) => adult(w, b.who) && b.who !== me && b.who !== host);
+  const ranked = bonds.slice().sort((a, b) => {
+    const ar = recent.has(a.who) ? 1 : 0;
+    const br = recent.has(b.who) ? 1 : 0;
+    if (ar !== br) return ar - br;
+    const aw = fitsBias(a.role, bias) ? 0 : 1;
+    const bw = fitsBias(b.role, bias) ? 0 : 1;
+    if (aw !== bw) return aw - bw;
+    return a.who - b.who;
+  });
+  const out = [host];
+  const start = ranked.length ? salt % ranked.length : 0;
+  for (let i = 0; i < ranked.length && out.length < 3; i++) {
+    const b = ranked[(start + i) % ranked.length];
+    if (out.indexOf(b.who) >= 0) continue;
+    out.push(b.who);
+  }
   return out;
 }
 function openFirm(w: World, salt: number, not: number): Firm | undefined {
@@ -401,13 +576,15 @@ function pushPlan(w: World, st: Box, spec: Omit<LifePlan, 'id' | 'ask' | 'status
     id: st.next++, kind: spec.kind, day, place: spec.place, who: spec.who, host,
     title: spec.title, invite: spec.invite, ask: -1, status: 'set', cents: spec.cents, pay: spec.pay,
     change: spec.change, eventId: cause, made: w.day, parcel: spec.parcel, firm: spec.firm, other: spec.other,
+    cover: spec.cover,
   };
   if (spec.invite && alive(w, host)) {
     const role = bondOf(st, host)?.role ?? 'colleague';
     const due = day;
     const clock = `Say yes or no by day ${due}. If I hear nothing, I'll take it as a no.`;
-    const cost = plan.cents > 0 ? `You pay ${usd(plan.cents)}. ${clock}` : clock;
-    const text = say(w, host, role, plan.title, cost, `I'll be there either way.`, );
+    const cost = plan.pay === 'treat' ? `I'll get this one. ${clock}` : plan.cents > 0 ? `You pay ${usd(plan.cents)}. ${clock}` : clock;
+    const fact = plan.title.replace(/\s*You are invited\.?/g, '').replace(/\s*I'll get this one\.?/g, '').trim();
+    const text = say(w, host, role, fact, cost, `I'll be there either way.`, );
     const row = askInvite(w, st, host, role, text, cause, plan.kind, plan.cents, due, plan.id, -1);
     plan.ask = row.id;
     plan.eventId = row.eventId;
@@ -419,36 +596,40 @@ function pushPlan(w: World, st: Box, spec: Omit<LifePlan, 'id' | 'ask' | 'status
   return plan;
 }
 
-function tryDinner(w: World, st: Box, me: number, drinks: boolean, asInvite: boolean): boolean {
+function tryDinner(w: World, st: Box, me: number, drinks: boolean, asInvite: boolean, bias: string): boolean {
   const kind = drinks ? 'drinks' : 'dinner';
   const hosts = pool(w, st, me, (b) => (!asInvite || willInvite(b)) && b.role !== 'rival' && (drinks || b.role === 'friend' || b.role === 'family' || b.role === 'mentor' || b.role === 'colleague'));
-  const host = pickFrom(hosts, mix(w.day, drinks ? 2 : 1, me));
+  const salt = mix(w.day, drinks ? 2 : 1, me);
+  const host = pickHost(w, st, me, hosts, salt, bias);
   if (!host) return false;
-  const who = company(hosts, host.who, 3, w.day);
+  const who = party(w, st, me, host.who, mix(w.day, host.who, 3), bias);
+  if (bias === 'city' && who.length < 2) return false;
   const nb = neighbourhood(w, host.who) || neighbourhood(w, me);
-  const place = spot(host.who, w.day, drinks ? ['the office tap', 'a club on the quay', 'the late bar'] : ['the harbour bar', 'a corner table', 'the dining room'], nb);
-  const whoLine = names(w, who, 3);
-  const invite = asInvite ? 1 : 0;
-  const title = drinks
-    ? `Drinks with ${whoLine} at ${place}.${invite ? ' You are invited.' : ''}`
-    : `Dinner with ${whoLine} at ${place}.${invite ? ' You are invited.' : ''}`;
+  const role = host.role;
+  const q = asInvite ? priceOf(w, me, host.who, role, drinks ? DRINK_ROOMS : DINNER_ROOMS, nb, salt, 'host') : undefined;
+  if (asInvite && !q) return false;
+  const room = q ?? roomName(w, host.who, drinks ? DRINK_ROOMS : DINNER_ROOMS, nb, salt);
+  const head = drinks ? `Drinks at ${room.head}` : `Dinner at ${room.head}`;
+  const title = dress(head, `With ${names(w, who, 3)}`, q ? 1 : 0, q?.pay === 'treat');
   return !!pushPlan(w, st, {
-    kind, day: w.day + 8 + (mix(w.day, host.who, 4) % 14), place, who, host: host.who, title,
-    invite, cents: invite ? bill(w, kind) : 0, pay: invite ? 'host' : '', change: 'warm', parcel: -1, firm: -1, other: who.find((i) => i !== host.who) ?? -1,
+    kind, day: w.day + 8 + (mix(w.day, host.who, 4) % 14), place: room.place, who, host: host.who, title,
+    invite: q ? 1 : 0, cents: q?.cents ?? 0, pay: q?.pay ?? '', cover: q?.cover, change: 'warm', parcel: -1, firm: -1, other: who.find((i) => i !== host.who) ?? -1,
     cause: host.why[host.why.length - 1]?.eventId ?? root(w),
   });
 }
 function tryDeal(w: World, st: Box, me: number): boolean {
   const hosts = pool(w, st, me, (b) => willInvite(b) && b.role !== 'rival' && (b.stance === 'banker' || b.role === 'colleague' || b.role === 'friend'));
-  const host = pickFrom(hosts, mix(w.day, 5, me));
+  const salt = mix(w.day, 5, me);
+  const host = pickHost(w, st, me, hosts, salt, 'work');
   if (!host) return false;
   const nb = neighbourhood(w, host.who) || 'the city';
-  const place = spot(host.who, w.day, ['a quiet table', 'the bank lobby', 'a back room'], nb);
+  const q = priceOf(w, me, host.who, host.role, DEAL_ROOMS, nb, salt, 'host');
+  if (!q) return false;
   const P = econ(w).P;
-  const title = `${P.name(host.who)} asks to meet about a deal at ${place}. You are invited.`;
+  const title = dress(`A deal at ${q.head}`, `${P.name(host.who)} wants to talk`, 1, q.pay === 'treat');
   return !!pushPlan(w, st, {
-    kind: 'deal', day: w.day + 7 + (mix(w.day, host.who, 6) % 12), place, who: [host.who], host: host.who, title,
-    invite: 1, cents: bill(w, 'deal'), pay: 'host', change: 'deal', parcel: -1, firm: employer(w, host.who), other: -1,
+    kind: 'deal', day: w.day + 7 + (mix(w.day, host.who, 6) % 12), place: q.place, who: [host.who], host: host.who, title,
+    invite: 1, cents: q.cents, pay: q.pay, cover: q.cover, change: 'deal', parcel: -1, firm: employer(w, host.who), other: -1,
     cause: host.why[host.why.length - 1]?.eventId ?? root(w),
   });
 }
@@ -477,12 +658,13 @@ function tryBirthday(w: World, st: Box, me: number, asInvite: boolean): boolean 
   mark(st, `bday:${best.who}:${year}`);
   mark(st, `bday:${best.who}:${Math.floor(w.day / 360)}`);
   const nb = neighbourhood(w, best.who) || neighbourhood(w, me);
-  const place = spot(best.who, w.day, ['the dining room', 'a corner table'], nb);
-  const invite = asInvite && willInvite(best) ? 1 : 0;
-  const title = `${P.name(best.who)} turns ${P.age(w, best.who) + 1} at ${place}.${invite ? ' You are invited.' : ''}`;
+  const salt = mix(w.day, best.who, 19);
+  const q = asInvite && willInvite(best) ? priceOf(w, me, best.who, best.role, BIRTH_ROOMS, nb, salt, 'host') : undefined;
+  const room = q ?? roomName(w, best.who, BIRTH_ROOMS, nb, salt);
+  const title = dress(`${P.name(best.who)} turns ${P.age(w, best.who) + 1}`, `At ${room.head}`, q ? 1 : 0, q?.pay === 'treat');
   return !!pushPlan(w, st, {
-    kind: 'birthday', day: w.day + ahead, place, who: [best.who], host: best.who, title,
-    invite, cents: invite ? bill(w, 'birthday') : 0, pay: 'host', change: 'warm', parcel: -1, firm: -1, other: -1,
+    kind: 'birthday', day: w.day + ahead, place: room.place, who: [best.who], host: best.who, title,
+    invite: q ? 1 : 0, cents: q?.cents ?? 0, pay: q?.pay ?? '', cover: q?.cover, change: 'warm', parcel: -1, firm: -1, other: -1,
     cause: best.why[best.why.length - 1]?.eventId ?? root(w),
   });
 }
@@ -497,17 +679,20 @@ function tryLeaving(w: World, st: Box, me: number, asInvite: boolean): boolean {
     if (asInvite && !willInvite(b)) return false;
     return b.role === 'colleague' || b.role === 'friend' || b.stance === 'ally';
   });
-  const host = pickFrom(hosts, mix(w.day, 7, me));
+  const salt = mix(w.day, 7, me);
+  const host = pickHost(w, st, me, hosts, salt, 'work') ?? pickFrom(hosts, salt);
   if (!host) return false;
   const from = employer(w, host.who);
   const dest = openFirm(w, host.who + w.day, from);
   if (!dest) return false;
-  const invite = asInvite && willInvite(host) ? 1 : 0;
-  const place = spot(host.who, w.day, ['the office tap', 'a bar near the firm'], neighbourhood(w, host.who));
-  const title = `Leaving drinks for ${P.name(host.who)}, who is leaving ${firmName(w, from)} for ${dest.name}, at ${place}.${invite ? ' You are invited.' : ''}`;
+  const nb = neighbourhood(w, host.who);
+  const q = asInvite && willInvite(host) ? priceOf(w, me, host.who, host.role, LEAVING_ROOMS, nb, salt, 'host') : undefined;
+  const room = q ?? roomName(w, host.who, LEAVING_ROOMS, nb, salt);
+  const who = party(w, st, me, host.who, mix(w.day, host.who, 8), 'work');
+  const title = dress(`Leaving drinks at ${room.head}`, `${P.name(host.who)} is leaving ${firmName(w, from)} for ${dest.name}`, q ? 1 : 0, q?.pay === 'treat');
   return !!pushPlan(w, st, {
-    kind: 'leaving', day: w.day + 10 + (mix(w.day, host.who, 8) % 10), place, who: company(st.bonds.filter((b) => adult(w, b.who)), host.who, 3, w.day),
-    host: host.who, title, invite, cents: invite ? bill(w, 'leaving') : 0, pay: 'host', change: 'job',
+    kind: 'leaving', day: w.day + 10 + (mix(w.day, host.who, 8) % 10), place: room.place, who,
+    host: host.who, title, invite: q ? 1 : 0, cents: q?.cents ?? 0, pay: q?.pay ?? '', cover: q?.cover, change: 'job',
     parcel: -1, firm: dest.idx, other: from, cause: host.why[host.why.length - 1]?.eventId ?? root(w),
   });
 }
@@ -521,7 +706,7 @@ function tryInterview(w: World, st: Box, me: number, asInvite: boolean): boolean
   if (!dest) return false;
   const invite = asInvite && willInvite(host) ? 1 : 0;
   const place = `the lobby at ${dest.name}`;
-  const title = `${P.name(host.who)} has a job interview at ${dest.name}.${invite ? ' You are invited to wait with them.' : ''}`;
+  const title = dress(`A job interview at ${dest.name}`, `${P.name(host.who)} is interviewing`, invite, false);
   return !!pushPlan(w, st, {
     kind: 'interview', day: w.day + 8 + (mix(w.day, host.who, 10) % 10), place, who: [host.who], host: host.who, title,
     invite, cents: 0, pay: '', change: 'job', parcel: -1, firm: dest.idx, other: -1,
@@ -541,13 +726,15 @@ function tryWedding(w: World, st: Box, me: number, asInvite: boolean): boolean {
     break;
   }
   if (!b) return false;
-  const invite = asInvite && (willInvite(a) || willInvite(b)) ? 1 : 0;
   const host = willInvite(a) ? a : b;
-  const place = spot(a.who, w.day, ['the registry', 'a room above the quay'], neighbourhood(w, a.who) || neighbourhood(w, me));
-  const title = `${P.name(a.who)} and ${P.name(b.who)} marry at ${place}.${invite ? ' You are invited.' : ''}`;
+  const nb = neighbourhood(w, a.who) || neighbourhood(w, me);
+  const salt = mix(w.day, a.who, 12);
+  const q = asInvite && (willInvite(a) || willInvite(b)) ? priceOf(w, me, host.who, host.role, WED_ROOMS, nb, salt, 'host') : undefined;
+  const room = q ?? roomName(w, host.who, WED_ROOMS, nb, salt);
+  const title = dress(`A wedding at ${room.head}`, `${P.name(a.who)} and ${P.name(b.who)} marry`, q ? 1 : 0, q?.pay === 'treat');
   return !!pushPlan(w, st, {
-    kind: 'wedding', day: w.day + 14 + (mix(w.day, a.who, 12) % 12), place, who: [a.who, b.who], host: host.who, title,
-    invite, cents: invite ? bill(w, 'dinner') : 0, pay: 'host', change: 'life', parcel: -1, firm: -1, other: a.who === host.who ? b.who : a.who,
+    kind: 'wedding', day: w.day + 14 + (mix(w.day, a.who, 12) % 12), place: room.place, who: [a.who, b.who], host: host.who, title,
+    invite: q ? 1 : 0, cents: q?.cents ?? 0, pay: q?.pay ?? '', cover: q?.cover, change: 'life', parcel: -1, firm: -1, other: a.who === host.who ? b.who : a.who,
     cause: root(w),
   });
 }
@@ -561,7 +748,7 @@ function tryFallout(w: World, st: Box, me: number): boolean {
   for (const o of people) if (o.who !== a.who) { b = o; break; }
   if (!b) return false;
   const place = neighbourhood(w, a.who) || 'the city';
-  const title = `${P.name(a.who)} and ${P.name(b.who)} fall out in ${place}.`;
+  const title = dress('A falling out', `${P.name(a.who)} and ${P.name(b.who)} fall out in ${place}`, 0, false);
   return !!pushPlan(w, st, {
     kind: 'fallout', day: w.day + 9 + (mix(w.day, a.who, 14) % 12), place, who: [a.who, b.who], host: a.who, title,
     invite: 0, cents: 0, pay: '', change: 'life', parcel: -1, firm: -1, other: b.who, cause: root(w),
@@ -584,12 +771,13 @@ function tryMove(w: World, st: Box, me: number, asInvite: boolean): boolean {
   }
   if (parcel < 0) { mark(st, `move-miss:${Math.floor(w.day / 30)}`); return false; }
   const P = econ(w).P;
-  const invite = asInvite && willInvite(host) ? 1 : 0;
   const place = nb ? `a house in ${nb}` : 'a new house';
-  const title = `${P.name(host.who)} is moving to ${place}.${invite ? ' You are invited to the housewarming.' : ''}`;
+  const salt = mix(w.day, host.who, 16);
+  const q = asInvite && willInvite(host) ? priceOf(w, me, host.who, host.role, [{ name: 'the new house', dish: 'meal', tier: 0 }], nb, salt, 'host') : undefined;
+  const title = dress('A housewarming', `${P.name(host.who)} is moving to ${place}`, q ? 1 : 0, q?.pay === 'treat');
   return !!pushPlan(w, st, {
     kind: 'move', day: w.day + 12 + (mix(w.day, host.who, 16) % 10), place, who: [host.who], host: host.who, title,
-    invite, cents: invite ? bill(w, 'dinner') : 0, pay: 'host', change: 'life', parcel, firm: -1, other: -1,
+    invite: q ? 1 : 0, cents: q?.cents ?? 0, pay: q?.pay ?? '', cover: q?.cover, change: 'life', parcel, firm: -1, other: -1,
     cause: host.why[host.why.length - 1]?.eventId ?? root(w),
   });
 }
@@ -608,12 +796,15 @@ function tryFuneral(w: World, st: Box, me: number): boolean {
       if (!writer || o.score > writer.score) writer = o;
     }
     if (!writer) continue;
-    const place = spot(writer.who, w.day, ['the chapel', 'the city cemetery'], neighbourhood(w, writer.who) || 'the city');
-    const invite = willInvite(writer) ? 1 : 0;
-    const title = `Funeral for ${P.name(dead.who)} at ${place}.${invite ? ' You are invited.' : ''}`;
+    const nb = neighbourhood(w, writer.who) || 'the city';
+    const salt = mix(w.day, dead.who, 17);
+    const rooms: Venue[] = [{ name: 'the chapel', dish: 'meal', tier: 0 }, { name: 'the city cemetery', dish: 'pint', tier: 0 }];
+    const q = willInvite(writer) ? priceOf(w, me, writer.who, writer.role, rooms, nb, salt, 'gov') : undefined;
+    const room = q ?? roomName(w, writer.who, rooms, nb, salt);
+    const title = dress(`Funeral at ${room.head}`, `For ${P.name(dead.who)}`, q ? 1 : 0, q?.pay === 'treat');
     const plan = pushPlan(w, st, {
-      kind: 'funeral', day: w.day + 6 + (mix(w.day, dead.who, 17) % 6), place, who: [dead.who, writer.who], host: writer.who, title,
-      invite, cents: invite ? bill(w, 'funeral') : 0, pay: 'gov', change: 'warm', parcel: -1, firm: -1, other: dead.who,
+      kind: 'funeral', day: w.day + 6 + (mix(w.day, dead.who, 17) % 6), place: room.place, who: [dead.who, writer.who], host: writer.who, title,
+      invite: q ? 1 : 0, cents: q?.cents ?? 0, pay: q?.pay ?? '', cover: q?.cover, change: 'warm', parcel: -1, firm: -1, other: dead.who,
       cause: ev.id,
     });
     if (plan) mark(st, `funeral:${dead.who}`);
@@ -622,9 +813,9 @@ function tryFuneral(w: World, st: Box, me: number): boolean {
   return false;
 }
 
-function schedule(w: World, st: Box, me: number, kind: string, asInvite: boolean): boolean {
-  if (kind === 'dinner') return tryDinner(w, st, me, false, asInvite);
-  if (kind === 'drinks') return tryDinner(w, st, me, true, asInvite);
+function schedule(w: World, st: Box, me: number, kind: string, asInvite: boolean, bias = ''): boolean {
+  if (kind === 'dinner') return tryDinner(w, st, me, false, asInvite, bias);
+  if (kind === 'drinks') return tryDinner(w, st, me, true, asInvite, bias);
   if (kind === 'deal') return tryDeal(w, st, me);
   if (kind === 'birthday') return tryBirthday(w, st, me, asInvite);
   if (kind === 'leaving') return tryLeaving(w, st, me, asInvite);
@@ -701,8 +892,12 @@ function resolveOne(w: World, st: Box, me: number, p: LifePlan): void {
   let missed = false;
   const role = bondOf(st, p.host)?.role ?? 'colleague';
   if (p.invite && p.status === 'yes' && me >= 0) {
+    const treated = p.pay === 'treat';
     const to = p.pay === 'gov' ? GOV : (alive(w, p.host) ? P.id(p.host) : GOV);
-    if (playerPay(w, me, to, p.cents, p.eventId)) {
+    const paid = treated
+      ? Math.round(p.cover ?? 0) >= 1 && sparePay(w, p.host, GOV, p.cover ?? 0, p.eventId)
+      : playerPay(w, me, to, p.cents, p.eventId);
+    if (paid) {
       went = true;
       touch(w, st, me, p.host, 7, `You went to the ${p.kind} in ${p.place}`, p.eventId);
       forgive(bondOf(st, p.host));
@@ -738,10 +933,10 @@ function resolveOne(w: World, st: Box, me: number, p: LifePlan): void {
     const text = say(w, p.host, role, `${P.name(p.other)} and I have fallen out.`, `Don't ask us to the same table.`, `I'll be slower to write for a while.`, );
     postLetter(w, st, p.host, role, 'life', text, p.eventId);
   }
-  if (p.kind === 'dinner' || p.kind === 'drinks' || p.kind === 'leaving' || p.kind === 'birthday') {
+  if (p.pay !== 'treat' && (p.kind === 'dinner' || p.kind === 'drinks' || p.kind === 'leaving' || p.kind === 'birthday')) {
     sparePay(w, p.host, GOV, Math.max(100, Math.round(wage(w) * 2)), p.eventId);
   }
-  if (p.kind === 'wedding') sparePay(w, p.host, GOV, Math.max(100, Math.round(wage(w) * 8)), p.eventId);
+  if (p.pay !== 'treat' && p.kind === 'wedding') sparePay(w, p.host, GOV, Math.max(100, Math.round(wage(w) * 8)), p.eventId);
   let extra = effect;
   if (went && (p.kind === 'dinner' || p.kind === 'drinks' || p.kind === 'deal' || p.kind === 'leaving' || p.kind === 'interview')) {
     const bit = tipLine(w, st, me, p.host, role, p.eventId);
@@ -754,7 +949,7 @@ function resolveOne(w: World, st: Box, me: number, p: LifePlan): void {
   const ev = w.events.emit(missed && !went ? 'circle.skip' : 'circle.held', msg, [p.eventId >= 0 ? p.eventId : root(w)], actor);
   p.eventId = ev;
   p.status = 'held';
-  if (you) p.title = `${p.title.replace(/ You are invited\.$/, '')} ${you}`;
+  if (you) p.title = `${p.title.replace(/ You are invited\./g, '')} ${you}`.replace(/\s+/g, ' ').trim();
   st.yPlans++;
 }
 
@@ -762,15 +957,55 @@ function societyDates(w: World): SocDate[] {
   const st = w.state.society as { dates?: SocDate[] } | undefined;
   return st?.dates ?? [];
 }
+function treatKey(id: number): string { return `treat:soc:${id}:`; }
+function treatCents(st: Box, id: number): number {
+  const prefix = treatKey(id);
+  for (const key of st.sent) {
+    if (!key.startsWith(prefix)) continue;
+    return Math.round(Number(key.slice(prefix.length)) || 0);
+  }
+  return 0;
+}
+function withTreat(title: string): string {
+  if (/I'll get this one/.test(title)) return title;
+  const base = title.replace(/\s+$/, '');
+  return `${base.endsWith('.') ? base : `${base}.`} I'll get this one.`;
+}
+function payDueTreats(w: World, st: Box): void {
+  for (const d of societyDates(w)) {
+    if (d.day !== w.day || d.status !== 'yes' || seen(st, `treat-paid:${d.id}`)) continue;
+    const cents = treatCents(st, d.id);
+    if (cents < 1) { mark(st, `treat-paid:${d.id}`); continue; }
+    const cause = d.eventId >= 0 ? d.eventId : root(w);
+    if (!sparePay(w, d.host, GOV, cents, cause)) {
+      d.invite = 0;
+      d.status = 'set';
+    }
+    mark(st, `treat-paid:${d.id}`);
+  }
+}
 function linkSociety(w: World, st: Box, me: number): void {
   if (me < 0) return;
   for (const d of societyDates(w)) {
     if (d.invite !== 1 || d.ask >= 0 || d.day <= w.day || d.status !== 'set') continue;
     if (d.day > w.day + 40) continue;
     const role = bondOf(st, d.host)?.role ?? 'colleague';
+    if (d.cents > 0 && !canPay(w, me, d.cents)) {
+      if (closeRole(role) && canTreat(w, d.host, d.cents)) {
+        mark(st, `${treatKey(d.id)}${Math.round(d.cents)}`);
+        d.cents = 0;
+        d.title = withTreat(d.title);
+      } else {
+        d.invite = 0;
+        d.title = d.title.replace(/\s*You are invited\.?/g, '').trim();
+        continue;
+      }
+    }
     const clock = `Say yes or no by day ${d.day}. If I hear nothing, I'll take it as a no.`;
-    const cost = d.cents > 0 ? `You pay the city ${usd(d.cents)}. ${clock}` : clock;
-    const text = say(w, d.host, role, d.title, cost, `The evening goes on if you don't come.`, );
+    const treated = d.cents < 1 && treatCents(st, d.id) > 0;
+    const cost = treated ? `I'll get this one. ${clock}` : d.cents > 0 ? `You pay the city ${usd(d.cents)}. ${clock}` : clock;
+    const fact = d.title.replace(/\s*You are invited\.?/g, '').replace(/\s*I'll get this one\.?/g, '').trim();
+    const text = say(w, d.host, role, fact, cost, `The evening goes on if you don't come.`, );
     const row = askInvite(w, st, d.host, role, text, d.eventId >= 0 ? d.eventId : root(w), d.kind, d.cents, d.day, -1, d.id);
     d.ask = row.id;
   }
@@ -817,10 +1052,19 @@ export function circlePlansOn(w: World, day: number): { kind: string; title: str
   return out;
 }
 
+/** Society schedules a date after the circle has already closed that day. Settle the ask the same day. */
+export function settleSocietyAsks(w: World): void {
+  const st = box(w);
+  const me = playerOf(w);
+  if (!st || me < 0) return;
+  linkSociety(w, st, me);
+}
+
 export function tendCirclePlans(w: World): void {
   const st = box(w);
   const me = playerOf(w);
   if (!st || me < 0 || !st.cast) return;
+  payDueTreats(w, st);
   for (const p of st.plans) {
     if (p.day > w.day) continue;
     if (p.status === 'held' || p.status === 'gone') continue;
@@ -832,10 +1076,39 @@ export function tendCirclePlans(w: World): void {
   tryFuneral(w, st, me);
   const need = quota(bandOf(w, st, me));
   const got = have(st, w.day);
+  const gap = (): string => {
+    const got: Record<string, boolean> = { friend: false, family: false, work: false, city: false };
+    const known = new Set<number>();
+    for (const b of st.bonds) known.add(b.who);
+    for (const p of st.plans) {
+      if (p.status === 'gone' || p.day < w.day || p.day >= w.day + 30) continue;
+      if (p.kind !== 'dinner' && p.kind !== 'drinks' && p.kind !== 'leaving' && p.kind !== 'birthday') continue;
+      const role = bondOf(st, p.host)?.role ?? '';
+      if (role === 'friend') got.friend = true;
+      else if (role === 'family') got.family = true;
+      else if (role === 'colleague' || role === 'mentor') got.work = true;
+      if (p.who.some((id) => !known.has(id))) got.city = true;
+    }
+    const start = w.day % GAPS.length;
+    for (let i = 0; i < GAPS.length; i++) {
+      const g = GAPS[(start + i) % GAPS.length];
+      if (!got[g]) return g;
+    }
+    return GAPS[start];
+  };
   const fill = (kinds: string[], asInvite: boolean): boolean => {
     const start = (st.plans.length + w.day) % kinds.length;
+    const bias = gap();
     for (let i = 0; i < kinds.length; i++) {
-      if (schedule(w, st, me, kinds[(start + i) % kinds.length], asInvite)) return true;
+      const kind = kinds[(start + i) % kinds.length];
+      if (kind === 'dinner' || kind === 'drinks') {
+        const from = GAPS.indexOf(bias);
+        for (let g = 0; g < GAPS.length; g++) {
+          if (schedule(w, st, me, kind, asInvite, GAPS[(from + g) % GAPS.length])) return true;
+        }
+        continue;
+      }
+      if (schedule(w, st, me, kind, asInvite, '')) return true;
     }
     return false;
   };

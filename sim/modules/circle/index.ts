@@ -7,7 +7,7 @@ import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, returnShares, submitOrder } from '../markets/index.ts';
 import { bidHome, homeBoard, parcelView } from '../property/index.ts';
 import { societyGate } from '../society/index.ts';
-import { acceptFuturePlan, declineFuturePlan, tendCirclePlans } from './plans.ts';
+import { acceptFuturePlan, circleBill, declineFuturePlan, tendCirclePlans } from './plans.ts';
 import { contactsOf, knows, nudgeStanding, settlePaper } from '../social/index.ts';
 import { chooseShape, jobs, money, renderLetter, signedPct } from '../social/words.ts';
 
@@ -784,11 +784,7 @@ function closePromise(st: Circle, who: number): void {
   for (const a of st.asks) if (a.from === who && a.kind === 'favour' && a.status === 'yes') a.status = 'done';
 }
 function billOf(w: World, place: string): number {
-  const wage = econ(w).wage;
-  if (place === 'gala') return Math.max(100, Math.round(wage * 40));
-  if (place === 'festival') return Math.max(100, Math.round(wage * 12));
-  if (place === 'club') return Math.max(100, Math.round(wage * 15));
-  return Math.max(100, Math.round(wage * 6));
+  return circleBill(w, place);
 }
 function invite(w: World, st: Circle, me: number, actor: string, slot: number, place: string): CircleResult {
   const raw = place.trim().toLowerCase();

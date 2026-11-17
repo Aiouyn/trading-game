@@ -1,14 +1,14 @@
 "use client";
 // This week and the next four, day by day, with an open invitation you can answer.
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
-import { gameDate, moneyFromCents, presentNote } from "@/components/ui/format";
+import { gameDate, presentNote } from "@/components/ui/format";
 import { Result, useAct, Why } from "@/apps/profile/data";
 import { viewportOf } from "@/shell/wm";
 import { useSimSnap } from "@/shell/simSession";
 import "@/apps/profile/life.css";
 import "@/components/ui/named.css";
 import { InviteActions } from "./Invite";
-import { cleanTitle, diaryWindow, kindWord, parsePlans, type DiaryPlan } from "./read";
+import { cleanTitle, costOnce, diaryWindow, kindWord, namedWho, parsePlans, showPlace, showReason, showWho, type DiaryPlan } from "./read";
 import "./diary.css";
 
 function WhoLine({ who }: { who: DiaryPlan["who"] }) {
@@ -17,7 +17,7 @@ function WhoLine({ who }: { who: DiaryPlan["who"] }) {
   return (
     <span className="dia-who">
       {who.map((w, i) => (
-        <span key={`${w.person}-${i}`}>
+        <span className="dia-who-bit" key={`${w.person}-${i}`}>
           {i ? ", " : ""}
           {w.self || w.person < 0 ? (w.self ? "You" : w.name) : (
             <button type="button" className="name-link" onClick={() => store.getState().open("people", `who:${w.person}`)}>
@@ -55,13 +55,10 @@ function Entry({ plan, primary, busy, onGo }: {
         <span className="num">{gameDate(plan.day)}</span>
       </header>
       <h3>{cleanTitle(plan.title) || kindWord(plan.kind)}</h3>
-      <p>Who comes: <WhoLine who={plan.who} /></p>
-      {plan.place ? <p>Where: {plan.place}</p> : null}
-      <p>
-        {plan.cents ? <span className="num">{moneyFromCents(plan.cents)} </span> : null}
-        <span className="dia-cost">{plan.cost}</span>
-      </p>
-      {plan.reason ? <p className="dia-reason">{plan.reason}</p> : null}
+      {showWho(plan) ? <p>Who comes: <WhoLine who={namedWho(plan)} /></p> : null}
+      {showPlace(plan) ? <p>Where: {plan.place}</p> : null}
+      {costOnce(plan) ? <p className="dia-cost">{costOnce(plan)}</p> : null}
+      {showReason(plan) ? <p className="dia-reason">{plan.reason}</p> : null}
       {plan.past ? <Aftermath plan={plan} /> : <InviteActions plan={plan} primary={primary} busy={busy} onGo={onGo} />}
       {plan.eventId >= 0 ? <p><Why id={plan.eventId} /></p> : null}
     </article>
@@ -112,7 +109,7 @@ export default function DiaryApp() {
           <h3>{week.label}</h3>
           {Array.from({ length: 7 }, (_, i) => {
             const day = week.start + i;
-            const rows = plans.filter((p) => p.day === day).sort((a, b) => Number(b.open) - Number(a.open) || a.kind.localeCompare(b.kind));
+            const rows = plans.filter((p) => p.day === day).sort((a, b) => Number(b.open) - Number(a.open) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
             if (!rows.length) {
               return (
                 <div className="dia-quiet" key={day} data-testid="diary-entry" data-kind="quiet">
