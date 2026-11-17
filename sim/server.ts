@@ -367,6 +367,9 @@ function commandOf(body: unknown): Command | string {
       if (typeof b.field !== 'string' || !b.field.trim()) return 'study needs a field';
       return { kind: 'study', field: b.field.trim() };
     }
+    case 'accept':
+    case 'decline':
+      return inviteAsk(b);
     default: return 'unknown command';
   }
 }
@@ -2046,6 +2049,7 @@ function tickFrame(w: World): Record<string, unknown> {
     scenario: scenarioCard(w),
     society: societyView(w),
     calendar: calendarOf(w),
+    plans: plansOf(w),
     feed,
     speed,
     pause: pauseNote,
@@ -3018,6 +3022,351 @@ function withDue(w: World, inbox: { threads: unknown; pending: { id?: number; da
   };
 }
 
+interface AskLite { id: number; msg: number; kind: string; status: string; planId?: number; socId?: number }
+interface PlanWho { person: number; name: string; self: boolean }
+interface PlanCard {
+  key: string; ask: number; msg: number; day: number; kind: string; title: string; place: string;
+  who: PlanWho[]; host: number; hostName: string; invite: boolean; open: boolean; status: string;
+  cents: number; reason: string; said: string; fallout: string; came: string; cost: string;
+  past: boolean; skipped: boolean; eventId: number; answer: string;
+}
+interface LifeLite {
+  id: number; kind: string; day: number; place: string; who: number[]; host: number; title: string;
+  invite: number; ask: number; status: string; cents: number; eventId: number; firm: number; other: number;
+}
+interface SocLite {
+  id: number; day: number; kind: string; place: string; who: number[]; title: string;
+  invite: number; ask: number; status: string; cents: number; eventId: number; host: number;
+}
+interface LetterLite { day: number; from: number; kind: string; text: string }
+interface BondLite { who: number; skips?: number }
+
+function firstName(name: string): string {
+  const p = name.trim().split(/\s+/)[0];
+  return p || '';
+}
+function whose(name: string): string {
+  const f = firstName(name);
+  if (!f) return 'the';
+  return /s$/i.test(f) ? `${f}'` : `${f}'s`;
+}
+function joinNames(names: string[]): string {
+  const list = names.filter(Boolean).slice(0, 6);
+  if (!list.length) return 'The circle';
+  if (list.length === 1) return list[0];
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+}
+function kindNoun(kind: string): string {
+  if (kind === 'leaving') return 'leaving drinks';
+  if (kind === 'move') return 'housewarming';
+  if (kind === 'fallout') return 'falling out';
+  return kind || 'plan';
+}
+function oneSentence(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (!flat) return '';
+  const sentence = flat.split(/(?<=[.!?])\s/)[0] ?? flat;
+  return sentence.length > 180 ? `${sentence.slice(0, 177)}…` : sentence;
+}
+function eventBits(w: World, id: number): { kind: string; msg: string } {
+  if (id < 0) return { kind: '', msg: '' };
+  const ev = w.events.get(id);
+  return ev ? { kind: ev.kind, msg: ev.msg } : { kind: '', msg: '' };
+}
+function falloutOf(title: string, msg: string): string {
+  if (!msg) return '';
+  const bare = title.replace(/\s*You are invited\.?/g, '').replace(/\s*You went\.?/g, '').replace(/\s*You stayed away\.?/g, '').trim();
+  let s = bare && msg.startsWith(bare) ? msg.slice(bare.length) : msg;
+  s = s.replace(/You are invited\./g, '').replace(/You went\./g, '').replace(/You stayed away\./g, '').replace(/\s+/g, ' ').trim();
+  if (!s || s === bare) return '';
+  return s.length > 220 ? `${s.slice(0, 217)}…` : s;
+}
+function saidOf(letters: LetterLite[], host: number, day: number): string {
+  const rank = (k: string): number => {
+    const i = ['favour', 'hint', 'life', 'dinner', 'memory'].indexOf(k);
+    return i < 0 ? 9 : i;
+  };
+  const rows = letters.filter((l) => l.from === host && l.day === day && l.kind !== 'invite' && l.text);
+  rows.sort((a, b) => rank(a.kind) - rank(b.kind));
+  return oneSentence(rows[0]?.text ?? '');
+}
+function missSentence(past: number, skips: number): string {
+  if (past >= 2) return `You missed the last ${past === 2 ? 'two' : past === 3 ? 'three' : String(past)} dinners.`;
+  if (past === 1) return 'You missed the last one.';
+  if (skips > 0) return 'You have said no before.';
+  return '';
+}
+function costLine(kind: string, cents: number, past: boolean, went: boolean, skipped: boolean, invite: boolean): string {
+  const money = moneyLabel(cents);
+  if (kind === 'job') return past ? `About ${money} came in.` : `About ${money} comes in.`;
+  if (kind === 'loan') return past ? `It cost about ${money} in interest.` : `It costs about ${money} in interest.`;
+  if (kind === 'earnings') return 'Nothing to attend.';
+  if (kind === 'meeting') return 'Nothing.';
+  if (kind === 'course' || kind === 'application') return 'Nothing more to pay.';
+  if (!invite) return past ? 'It cost you nothing.' : 'Nothing for you.';
+  if (!past) return cents > 0 ? `It costs ${money}.` : 'It costs nothing.';
+  if (went) return cents > 0 ? `It cost ${money}.` : 'It cost nothing.';
+  if (skipped) return 'It cost you nothing.';
+  return cents > 0 ? `It cost ${money}.` : 'It cost nothing.';
+}
+function cameLine(who: PlanWho[], past: boolean, went: boolean, skipped: boolean, invite: boolean, civic: boolean): string {
+  if (!past || civic) return '';
+  const names = joinNames(who.filter((x) => !x.self).map((x) => x.name));
+  if (went) return `${names} came. You went.`;
+  if (skipped) return `${names} came. You stayed away.`;
+  if (!invite) return `${names} came. You were not invited.`;
+  return `${names} came.`;
+}
+function answerLine(kind: string, place: string, hostName: string, status: string, past: boolean, went: boolean, skipped: boolean, invite: boolean): string {
+  if (!invite) return '';
+  const noun = kindNoun(kind);
+  const where = place ? ` at ${place}` : '';
+  const who = whose(hostName);
+  if (!past && status === 'yes') return `You accepted ${who} ${noun}${where}.`;
+  if (!past && status === 'no') return `You declined ${who} ${noun}${where}.`;
+  if (past && went) return `You went to the ${noun}${where}.`;
+  if (past && skipped) return `You stayed away from the ${noun}${where}.`;
+  return '';
+}
+
+function plansOf(w: World): PlanCard[] {
+  const today = w.day;
+  const weekStart = today - (today % 7);
+  const diaryEnd = weekStart + 35;
+  const far = today + 60;
+  const recent = today - 7;
+  const me = playerIndex(w);
+  const P = econ(w).P;
+  const firms = econ(w).firms;
+  const circle = w.state.circle as { plans?: LifeLite[]; asks?: AskLite[]; letters?: LetterLite[]; bonds?: BondLite[] } | undefined;
+  const soc = w.state.society as { rich?: { person: number }[]; dates?: SocLite[] } | undefined;
+  const asks = circle?.asks ?? [];
+  const letters = circle?.letters ?? [];
+  const bonds = circle?.bonds ?? [];
+  const onList = me >= 0 && (soc?.rich ?? []).some((r) => r.person === me);
+  const nameOf = (i: number): string => (i >= 0 && i < P.n ? P.name(i) : '');
+  const whoRows = (ids: number[]): PlanWho[] => {
+    const out: PlanWho[] = [];
+    const seen = new Set<number>();
+    for (const i of ids) {
+      if (seen.has(i) || out.length >= 8) continue;
+      seen.add(i);
+      const self = i === me;
+      const name = nameOf(i);
+      if (!name && !self) continue;
+      out.push({ person: i, name: name || 'You', self });
+    }
+    return out;
+  };
+  const askRow = (id: number): AskLite | undefined => (id >= 0 ? asks.find((a) => a.id === id) : undefined);
+  const misses = (host: number): { past: number; skips: number } => {
+    let past = 0;
+    for (const p of circle?.plans ?? []) {
+      if (p.host !== host) continue;
+      if (p.kind !== 'dinner' && p.kind !== 'drinks' && p.kind !== 'birthday') continue;
+      if (/stayed away/i.test(p.title)) past++;
+    }
+    return { past, skips: bonds.find((b) => b.who === host)?.skips ?? 0 };
+  };
+  const out: PlanCard[] = [];
+  const push = (row: Omit<PlanCard, 'ask' | 'open' | 'past' | 'skipped' | 'said' | 'fallout' | 'came' | 'cost' | 'answer' | 'msg'> & { askId: number; said?: string; fallout?: string }): void => {
+    const ask = askRow(row.askId);
+    const open = row.invite && row.status === 'set' && row.day >= today && !!ask && ask.kind === 'invite' && ask.status === 'pending' && ask.msg >= 0;
+    const ev = eventBits(w, row.eventId);
+    const past = row.day < today || row.status === 'held';
+    const went = /You went/.test(row.title) || /You went/.test(ev.msg);
+    const stayed = /stayed away/.test(row.title) || /stayed away/.test(ev.msg) || ev.kind === 'circle.skip';
+    const skipped = past && row.invite && (stayed || row.status === 'no' || (!went && row.status === 'held'));
+    const civic = row.kind === 'job' || row.kind === 'loan' || row.kind === 'earnings' || row.kind === 'meeting' || row.kind === 'course' || row.kind === 'application';
+    out.push({
+      key: row.key, ask: row.askId, msg: ask?.msg ?? -1, day: row.day, kind: row.kind, title: row.title, place: row.place,
+      who: row.who, host: row.host, hostName: row.hostName, invite: row.invite, open, status: row.status, cents: row.cents,
+      reason: row.reason, said: past ? (row.said ?? '') : '', fallout: past ? (row.fallout || falloutOf(row.title, ev.msg)) : '',
+      came: cameLine(row.who, past, went, skipped, row.invite, civic),
+      cost: costLine(row.kind, row.cents, past, went, skipped, row.invite),
+      past, skipped, eventId: row.eventId,
+      answer: answerLine(row.kind, row.place, row.hostName, row.status, past, went, skipped, row.invite),
+    });
+  };
+  const seenSoc = new Set<number>();
+  for (const p of circle?.plans ?? []) {
+    if (p.status === 'gone' || p.day < recent || p.day >= far) continue;
+    const hostName = nameOf(p.host);
+    const otherName = nameOf(p.other);
+    const firm = p.firm >= 0 && p.firm < firms.length ? firms[p.firm].name : '';
+    const age = p.host >= 0 && p.host < P.n ? Math.floor((p.day - P.born[p.host]) / 360) : 0;
+    const miss = misses(p.host);
+    const invite = p.invite === 1;
+    let reason = 'It is on the books.';
+    if (p.kind === 'birthday') {
+      const head = hostName && age > 0 ? `${whose(hostName)} ${ordinal(age)}.` : hostName ? `${whose(hostName)} birthday.` : 'A birthday.';
+      reason = `${head} ${missSentence(miss.past, miss.skips) || 'A birthday in the circle.'}`.replace(/\s+/g, ' ').trim();
+    } else if (p.kind === 'dinner') {
+      reason = invite ? (missSentence(miss.past, miss.skips) ? `${whose(hostName)} dinner. ${missSentence(miss.past, miss.skips)}` : `${firstName(hostName) || 'Someone'} asked you to dinner.`) : `${firstName(hostName) || 'Someone'} is going. You were not invited.`;
+    } else if (p.kind === 'drinks') {
+      reason = invite ? (missSentence(miss.past, miss.skips) ? `${whose(hostName)} drinks. ${missSentence(miss.past, miss.skips)}` : `${firstName(hostName) || 'Someone'} asked you for a drink.`) : `${firstName(hostName) || 'Someone'} is going. You were not invited.`;
+    } else if (p.kind === 'deal') {
+      reason = invite ? `${firstName(hostName) || 'Someone'} wants to talk about a deal. A seat at the table can change what you hear.` : `${firstName(hostName) || 'Someone'} is going. You were not invited.`;
+    } else if (p.kind === 'wedding') {
+      const pair = otherName ? `${firstName(hostName) || 'Someone'} and ${firstName(otherName)} marry.` : `${firstName(hostName) || 'Someone'} is marrying.`;
+      reason = invite ? `${pair} You are asked to come.` : `${pair} The circle will be there.`;
+    } else if (p.kind === 'funeral') {
+      reason = invite ? 'A funeral in the circle. They asked you to come.' : 'A funeral in the circle. You were not asked.';
+    } else if (p.kind === 'leaving') {
+      reason = invite ? `${firstName(hostName) || 'Someone'} is leaving. They asked you for a drink.` : `${firstName(hostName) || 'Someone'} is leaving. The circle will see them off.`;
+    } else if (p.kind === 'interview') {
+      reason = `${firm ? `A seat may open at ${firm}.` : 'A seat may open.'} ${invite ? 'They asked you to come.' : 'You were not asked.'}`;
+    } else if (p.kind === 'move') {
+      reason = invite ? `${firstName(hostName) || 'Someone'} is moving. They asked you to the housewarming.` : `${firstName(hostName) || 'Someone'} is moving. The circle will see the house.`;
+    } else if (p.kind === 'fallout') {
+      reason = otherName ? `${firstName(hostName) || 'Someone'} and ${firstName(otherName)} are falling out. It will change who sits together.` : `${firstName(hostName) || 'Someone'} is falling out with someone in the circle.`;
+    }
+    push({
+      key: `circle:${p.id}`, askId: p.ask, day: p.day, kind: p.kind, title: p.title, place: p.place,
+      who: whoRows((p.who ?? []).length ? p.who : [p.host]), host: p.host, hostName, invite, status: p.status,
+      cents: p.cents, reason, eventId: p.eventId, said: saidOf(letters, p.host, p.day),
+    });
+  }
+  for (const d of soc?.dates ?? []) {
+    if (d.status === 'gone' || d.day < recent || d.day >= far) continue;
+    seenSoc.add(d.day);
+    const hostName = nameOf(d.host);
+    const invite = d.invite === 1;
+    const reason = !invite
+      ? 'The rich list will be there. You were not invited.'
+      : onList ? 'The rich list will be there. Your name is on the list.' : 'Your name is on the list.';
+    push({
+      key: `soc:${d.id}`, askId: d.ask, day: d.day, kind: d.kind, title: d.title, place: d.place,
+      who: whoRows((d.who ?? []).length ? d.who : [d.host]), host: d.host, hostName, invite, status: d.status,
+      cents: d.cents, reason, eventId: d.eventId, said: saidOf(letters, d.host, d.day),
+    });
+  }
+  const inDiary = (day: number): boolean => day >= weekStart && day < diaryEnd;
+  for (let day = weekStart; day < diaryEnd; day++) {
+    const doy = ((day % 360) + 360) % 360;
+    const dom = doy % 30;
+    const moy = Math.floor(doy / 30);
+    if (moy % 3 === 0 && dom === 0) {
+      push({
+        key: `earn:${day}`, askId: -1, day, kind: 'earnings', title: 'Earnings season opens', place: 'the exchange',
+        who: [{ person: -1, name: 'The listed firms', self: false }], host: -1, hostName: '', invite: false, status: 'set',
+        cents: 0, reason: 'The firms post their books. Prices move on the day.',
+        eventId: econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis,
+      });
+    }
+    if (dom === 29) {
+      push({
+        key: `meet:${day}`, askId: -1, day, kind: 'meeting', title: 'The central bank meets', place: 'the bank',
+        who: [{ person: -1, name: 'The central bank', self: false }], host: -1, hostName: '', invite: false, status: 'set',
+        cents: 0, reason: 'The central bank meets. The rate moves borrowing and the shares.',
+        eventId: w.events.last('cb.rate') ?? econ(w).rateWho ?? econ(w).rateEv ?? w.genesis,
+      });
+    }
+    if (moy === 11 && dom === 18 && !seenSoc.has(day)) {
+      push({
+        key: `gala:${day}`, askId: -1, day, kind: 'gala', title: 'The charity gala', place: 'the charity rooms',
+        who: [{ person: -1, name: 'The rich list', self: false }], host: -1, hostName: '', invite: false, status: 'set',
+        cents: 0, reason: onList ? 'The rich list will be there. Your name is on the list.' : 'The rich list will be there. You were not invited.',
+        eventId: w.genesis,
+      });
+    }
+  }
+  if (me >= 0 && P.employer[me] >= 0) {
+    const firm = firms[P.employer[me]];
+    const gross = Math.round(P.skill[me] * econ(w).wage * 7);
+    const firmName = firm?.name || 'your firm';
+    for (let day = weekStart; day < diaryEnd; day++) {
+      if (day % 7 !== 6) continue;
+      push({
+        key: `job:${day}`, askId: -1, day, kind: 'job', title: `Payday at ${firmName}`, place: firmName,
+        who: [{ person: me, name: nameOf(me) || 'You', self: true }], host: me, hostName: nameOf(me), invite: false, status: 'set',
+        cents: gross, reason: `Your wage from ${firmName} lands.`,
+        eventId: firm?.staffEv ?? econ(w).jobsWho ?? econ(w).wageWho ?? w.genesis,
+      });
+    }
+  }
+  const book = w.state.banking as BankBook | undefined;
+  if (book?.lnOpen && book.lnPerson && book.lnRate && me >= 0) {
+    const grant = w.events.last('loan.grant') ?? w.genesis;
+    for (let k = 0; k < book.ln; k++) {
+      if (!book.lnOpen[k] || book.lnPerson[k] !== me) continue;
+      const owed = Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
+      if (owed <= 0) continue;
+      const interest = Math.round(owed * book.lnRate[k] / 12);
+      const word = book.lnKind[k] === 1 ? 'Mortgage payment' : book.lnKind[k] === 3 ? 'Margin payment' : 'Loan payment';
+      for (let day = weekStart; day < diaryEnd; day++) {
+        if (day % 30 !== 29) continue;
+        push({
+          key: `loan:${day}:${k}`, askId: -1, day, kind: 'loan', title: word, place: 'the bank',
+          who: [{ person: me, name: nameOf(me) || 'You', self: true }, { person: -1, name: 'the bank', self: false }],
+          host: me, hostName: '', invite: false, status: 'set', cents: interest,
+          reason: "The bank takes this month's payment. Miss three and the loan sours.",
+          eventId: grant,
+        });
+      }
+    }
+  }
+  const careers = w.state.careers as {
+    apps?: { person: number; firm: number; occ: number; due: number; n: number }[];
+    study?: { person: number; occ: number; due: number }[];
+  } | undefined;
+  if (me >= 0 && careers && ((careers.apps ?? []).some((a) => a.person === me) || (careers.study ?? []).some((s) => s.person === me))) {
+    const occ = occTable();
+    for (const a of careers.apps ?? []) {
+      if (a.person !== me || !inDiary(a.due)) continue;
+      const firmName = firms[a.firm]?.name ?? 'a firm';
+      const role = occ[a.occ]?.name ?? 'a seat';
+      push({
+        key: `app:${a.n}:${a.due}`, askId: -1, day: a.due, kind: 'application', title: `${firmName} answers on the ${role}`,
+        place: firmName, who: [{ person: me, name: nameOf(me) || 'You', self: true }], host: me, hostName: nameOf(me),
+        invite: false, status: 'set', cents: 0, reason: 'You asked for the seat. The answer is due.',
+        eventId: econ(w).jobsWho ?? w.genesis,
+      });
+    }
+    for (const s of careers.study ?? []) {
+      if (s.person !== me || !inDiary(s.due)) continue;
+      const course = occ[s.occ]?.name ?? 'a trade';
+      push({
+        key: `study:${s.due}`, askId: -1, day: s.due, kind: 'course', title: `Your course in ${course} ends`,
+        place: 'the academy', who: [{ person: me, name: nameOf(me) || 'You', self: true }], host: me, hostName: nameOf(me),
+        invite: false, status: 'set', cents: 0, reason: 'The course ends. The seat may open after.',
+        eventId: econ(w).jobsWho ?? w.genesis,
+      });
+    }
+  }
+  out.sort((a, b) => a.day - b.day || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return out;
+}
+
+function inviteSentence(body: unknown, cmd: Command, snap: Record<string, unknown>): string {
+  if (!body || typeof body !== 'object') return '';
+  const b = body as Record<string, unknown>;
+  const yesNo = cmd.kind === 'reply' && (cmd.text === 'yes' || cmd.text === 'no');
+  if (b.kind !== 'accept' && b.kind !== 'decline' && !yesNo) return '';
+  if (!Array.isArray(snap.plans)) return '';
+  const id = whole(b.id, 0);
+  const msg = cmd.kind === 'reply' ? cmd.msg : whole(b.msg, 0);
+  const answerAt = (row: unknown, field: 'ask' | 'msg', n: number): string => {
+    if (!row || typeof row !== 'object') return '';
+    const p = row as { ask?: unknown; msg?: unknown; answer?: unknown };
+    if (p[field] !== n) return '';
+    return typeof p.answer === 'string' ? p.answer : '';
+  };
+  if (id !== undefined) {
+    for (const row of snap.plans) {
+      const answer = answerAt(row, 'ask', id);
+      if (answer) return answer;
+    }
+  }
+  if (msg !== undefined) {
+    for (const row of snap.plans) {
+      const answer = answerAt(row, 'msg', msg);
+      if (answer) return answer;
+    }
+  }
+  return '';
+}
+
 function screen(w: World): Record<string, unknown> {
   const v = view(w);
   const P = econ(w).P;
@@ -3167,6 +3516,7 @@ function screen(w: World): Record<string, unknown> {
     feed,
     calendar: calendarOf(w),
     society: societyView(w),
+    plans: plansOf(w),
     pause: pauseNote,
   };
 }
@@ -3473,6 +3823,26 @@ const load = arg('load', '');
 const scenarioId = arg('scenario', '');
 const port = +arg('port', '4173');
 let w!: World;
+
+/** Accept and decline are the same reply the circle already settles, so a future plan, an immediate invite, and a snub stay one path. */
+function inviteAsk(b: Record<string, unknown>): Command | string {
+  const asks = (w?.state?.circle as { asks?: AskLite[] } | undefined)?.asks ?? [];
+  const id = whole(b.id, 0);
+  const msg = whole(b.msg, 0);
+  const planId = whole(b.plan, 0);
+  const socId = whole(b.soc, 0);
+  let row: AskLite | undefined;
+  if (id !== undefined) row = asks.find((a) => a.id === id);
+  else if (msg !== undefined) row = asks.find((a) => a.msg === msg && a.kind === 'invite' && a.status === 'pending');
+  else if (planId !== undefined) row = asks.find((a) => a.planId === planId && a.kind === 'invite' && a.status === 'pending');
+  else if (socId !== undefined) row = asks.find((a) => a.socId === socId && a.kind === 'invite' && a.status === 'pending');
+  else return 'accept needs an invitation';
+  if (!row) return 'no such invitation';
+  if (row.kind !== 'invite') return 'that is not an invitation';
+  if (row.status !== 'pending') return 'that invitation is already answered';
+  if (!(row.msg >= 0)) return 'that invitation has no letter';
+  return { kind: 'reply', msg: row.msg, text: b.kind === 'accept' ? 'yes' : 'no' };
+}
 let started = false;
 let worldReady = false;
 let autosaveOn = true;
@@ -4255,8 +4625,10 @@ const server = http.createServer(async (req, res) => {
       maybeAutosave();
       const books = result.books;
       const snap = screen(w);
+      const said = inviteSentence(body, cmd, snap);
+      const text = said && result.status === 'accepted' ? said : result.text;
       if (books) send(res, 409, { ...result, status: 'rejected', why: `BOOKS DO NOT BALANCE: ${books}`, view: snap });
-      else send(res, 200, { ...result, view: snap });
+      else send(res, 200, { ...result, text, view: snap });
       return;
     }
     if (req.method === 'GET') {

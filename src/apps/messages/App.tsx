@@ -2,9 +2,9 @@
 // A phone messenger: one thread a person, the event under the letter, the ask as buttons.
 import { useEffect, useState } from "react";
 import type { AppBodyProps } from "@/shell/appModules";
-import { explain, type ExplainLine } from "@/shell/simSession";
+import { explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
 import { Button } from "@/components/ui/Button";
-import { presentNote } from "@/components/ui/format";
+import { gameDate, presentNote } from "@/components/ui/format";
 import { Named } from "@/components/ui/Named";
 import { Closed, Result, useAct, useLife, when } from "@/apps/profile/data";
 import "@/apps/profile/life.css";
@@ -13,6 +13,8 @@ import {
   type CircleAsk, type CircleContact, type CircleMsg, type CircleThread, type LocalReply,
 } from "./circle";
 import { markRead, useRead } from "./notices";
+import { InviteActions } from "@/apps/diary/Invite";
+import { kindWord, parsePlans, planForMessage, type DiaryPlan } from "@/apps/diary/read";
 import "./messages.css";
 
 function whoFrom(context?: string): number | null {
@@ -95,8 +97,31 @@ function AskBox({ ask, slot, busy, onGo }: {
   );
 }
 
+function InviteCard({ plan, busy, onGo }: { plan: DiaryPlan; busy: boolean; onGo: (cmd: Record<string, unknown>) => void }) {
+  return (
+    <div className="dia-card" data-testid="invite-card">
+      <p className="label">{kindWord(plan.kind)} · {gameDate(plan.day)}</p>
+      {plan.place ? <p>{plan.place}</p> : null}
+      {plan.reason ? <p className="dia-reason">{plan.reason}</p> : null}
+      <p className="dia-cost">{plan.cost}</p>
+      {plan.past ? (
+        <div data-testid="aftermath">
+          {plan.answer ? <p data-testid="invite-answer">{plan.answer}</p> : null}
+          {plan.came ? <p>{plan.came}</p> : null}
+          {plan.said ? <p className="dia-said">{presentNote(plan.said)}</p> : null}
+          {plan.fallout ? <p>{presentNote(plan.fallout)}</p> : null}
+          {plan.skipped ? <p>Skipped.</p> : null}
+        </div>
+      ) : (
+        <InviteActions plan={plan} busy={busy} onGo={onGo} />
+      )}
+    </div>
+  );
+}
+
 export default function MessagesApp({ context }: AppBodyProps) {
   const { life } = useLife();
+  const plans = parsePlans(useSimSnap().view?.plans);
   const { note, busy, go } = useAct();
   const snap = readCircle(life);
   const [who, setWho] = useState<number | null>(whoFrom(context));
@@ -128,6 +153,10 @@ export default function MessagesApp({ context }: AppBodyProps) {
     if (!result.ok) setMine((cur) => cur.filter((r) => r.key !== key));
   };
   const actOn = async (thread: CircleThread, afterId: number, cmd: Record<string, unknown>, said: string) => {
+    if (cmd.kind === "accept" || cmd.kind === "decline") {
+      await go(cmd);
+      return;
+    }
     const key = `${thread.who}:${afterId}:${said}:${mine.length}`;
     setMine((cur) => [...cur, { key, who: thread.who, afterId, text: said, day: snap.abs }]);
     const result = await go(cmd);
@@ -171,6 +200,7 @@ export default function MessagesApp({ context }: AppBodyProps) {
         </section>
         <Thread
           thread={open}
+          plans={plans}
           pending={snap.pending}
           contact={open ? contactOf(snap.contacts, open.who) : undefined}
           slot={open ? slotOf(snap.contacts, open.who) : -1}
@@ -188,8 +218,9 @@ export default function MessagesApp({ context }: AppBodyProps) {
   );
 }
 
-function Thread({ thread, pending, contact, slot, mine, draft, busy, note, onDraft, onBack, onSend, onAsk }: {
+function Thread({ thread, plans, pending, contact, slot, mine, draft, busy, note, onDraft, onBack, onSend, onAsk }: {
   thread: CircleThread | null;
+  plans: DiaryPlan[];
   pending: CircleAsk[];
   contact?: CircleContact;
   slot: number;
@@ -221,7 +252,7 @@ function Thread({ thread, pending, contact, slot, mine, draft, busy, note, onDra
         {person ? (
           <div className="msg-log" data-testid="transcript">
             {person.messages.slice(-30).map((m) => (
-              <Letter key={m.id} message={m} ask={askForMessage(pending, m)} slot={slot} busy={busy} mine={mine.filter((r) => r.afterId === m.id)} onAsk={onAsk} />
+              <Letter key={m.id} message={m} ask={askForMessage(pending, m)} plan={planForMessage(plans, m)} slot={slot} busy={busy} mine={mine.filter((r) => r.afterId === m.id)} onAsk={onAsk} />
             ))}
           </div>
         ) : <p className="msg-empty">Pick a person. Their letters, and what each one is about, sit here.</p>}
@@ -241,9 +272,10 @@ function Thread({ thread, pending, contact, slot, mine, draft, busy, note, onDra
   );
 }
 
-function Letter({ message, ask, slot, busy, mine, onAsk }: {
+function Letter({ message, ask, plan, slot, busy, mine, onAsk }: {
   message: CircleMsg;
   ask?: CircleAsk;
+  plan?: DiaryPlan;
   slot: number;
   busy: boolean;
   mine: LocalReply[];
@@ -255,7 +287,9 @@ function Letter({ message, ask, slot, busy, mine, onAsk }: {
         <p className="msg-role">{when(message.day)}</p>
         <p className="msg-bubble">{presentNote(message.text)}</p>
         <EventCard eventId={message.eventId} source={message.source} />
-        {ask ? (
+        {plan ? (
+          <InviteCard plan={plan} busy={busy} onGo={(cmd) => onAsk(message.id, cmd, plan.answer || "")} />
+        ) : ask ? (
           <AskBox ask={ask} slot={slot} busy={busy} onGo={(cmd, said) => onAsk(message.id, cmd, said)} />
         ) : null}
       </article>

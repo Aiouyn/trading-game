@@ -4,7 +4,7 @@ import { isBuiltApp } from "./appModules";
 export const APP_IDS = [
   "broker", "portfolio", "wire", "messages", "markets", "launchpad", "risk", "quantlab", "research",
   "businesses", "company", "property", "city", "bank", "funds", "insurance", "institutions",
-  "ailab", "security", "legal", "estate", "boards", "profile", "people", "health", "alliance", "contracts",
+  "ailab", "security", "legal", "estate", "boards", "profile", "people", "diary", "health", "alliance", "contracts",
   "auctions", "civic", "society", "academy", "careers", "help", "atelier", "settings", "replay", "api",
 ] as const;
 
@@ -12,7 +12,7 @@ export const APP_IDS = [
 export type AppId =
   | "broker" | "portfolio" | "wire" | "messages" | "markets" | "launchpad" | "risk" | "quantlab" | "research"
   | "businesses" | "company" | "property" | "city" | "bank" | "funds" | "institutions" | "insurance"
-  | "ailab" | "security" | "legal" | "estate" | "boards" | "profile" | "people" | "health" | "alliance" | "contracts"
+  | "ailab" | "security" | "legal" | "estate" | "boards" | "profile" | "people" | "diary" | "health" | "alliance" | "contracts"
   | "auctions" | "civic" | "society" | "academy" | "careers" | "help" | "atelier" | "settings" | "replay" | "api";
 
 export type AppGroup = "trade" | "build" | "shadow" | "world" | "me";
@@ -67,7 +67,7 @@ const ROWS: Row[] = [
   { id: "broker", group: "trade", minW: 520, minH: 420, narrowMinW: 480, maxInstances: 4 },
   { id: "portfolio", group: "trade", minW: 520, minH: 220 },
   { id: "wire", group: "trade", minW: 360, minH: 280 },
-  { id: "messages", group: "trade" },
+  { id: "messages", group: "trade", minW: 480, minH: 560 },
   { id: "markets", group: "trade" },
   { id: "launchpad", group: "trade" },
   { id: "risk", group: "trade", minW: 480, minH: 360 },
@@ -88,6 +88,7 @@ const ROWS: Row[] = [
   { id: "boards", group: "world" },
   { id: "profile", group: "me" },
   { id: "people", group: "me", minW: 360, minH: 520 },
+  { id: "diary", group: "me", minW: 520, minH: 480, narrowMinW: 360 },
   { id: "health", group: "me" },
   {
     id: "alliance", group: "world",

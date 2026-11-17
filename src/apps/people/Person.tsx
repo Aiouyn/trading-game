@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useShellStore } from "@/components/shell/ShellContext";
 import { Button } from "@/components/ui/Button";
 import { Result, useAct, when, Why } from "@/apps/profile/data";
+import { InviteActions } from "@/apps/diary/Invite";
+import { gameDate, presentNote } from "@/components/ui/format";
+import { kindWord, parsePlans, plansFor } from "@/apps/diary/read";
 import { initial, moneyLabel, roleWord, type CircleContact } from "@/apps/messages/circle";
 import { useSimSnap } from "@/shell/simSession";
 import { acceptLine, barFor, parseSociety } from "@/apps/society/read";
@@ -97,6 +100,7 @@ export function Person({ index, contact, firms, homes, onBack }: {
   onBack: () => void;
 }) {
   const store = useShellStore();
+  const invites = plansFor(parsePlans(useSimSnap().view?.plans), index);
   const { note, busy, go } = useAct();
   const [page, setPage] = useState<PersonPage | null>(null);
   const [miss, setMiss] = useState(false);
@@ -151,6 +155,30 @@ export function Person({ index, contact, firms, homes, onBack }: {
       <div className="peo-scroll">
         <StandingLine index={index} family={contact?.kind === "family"} />
         <Result note={note} />
+        {invites.length ? (
+          <div className="peo-block" data-testid="person-invites">
+            <h3>Invitations</h3>
+            {invites.map((p) => (
+              <div key={p.key} data-testid="person-invite-card">
+                <p>{kindWord(p.kind)} · {gameDate(p.day)}</p>
+                {p.place ? <p>{p.place}</p> : null}
+                {p.reason ? <p className="peo-muted">{p.reason}</p> : null}
+                {p.cost ? <p className="peo-muted">{p.cost}</p> : null}
+                {p.past ? (
+                  <div data-testid="aftermath">
+                    {p.answer ? <p data-testid="invite-answer">{p.answer}</p> : null}
+                    {p.came ? <p>{p.came}</p> : null}
+                    {p.said ? <p className="peo-muted">{presentNote(p.said)}</p> : null}
+                    {p.fallout ? <p>{presentNote(p.fallout)}</p> : null}
+                    {p.skipped ? <p>Skipped.</p> : null}
+                  </div>
+                ) : (
+                  <InviteActions plan={p} busy={busy} onGo={(cmd) => void go(cmd)} />
+                )}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {miss && !page ? <p className="peo-empty">The books did not answer.</p> : null}
         <div className="peo-block">
           <h3>The bond</h3>

@@ -1,0 +1,70 @@
+/* The week's plans. Tokens only. One brass Accept, on the soonest open invitation. */
+.win-body:has(> .dia),
+.phone-appbody:has(> .dia) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.dia {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  padding: var(--sp-16);
+  color: var(--fg);
+  background: var(--win);
+}
+.dia h2, .dia h3 { margin: 0; font: 400 var(--fs-20) / 1.2 var(--font-display); }
+.dia h3 { font-size: var(--fs-16); }
+.dia p { margin: 0; }
+.dia-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--sp-12); }
+.dia-kicker { color: var(--fg-muted); font-size: var(--fs-12_5); }
+.dia-week { display: flex; flex-direction: column; gap: var(--sp-8); margin-bottom: var(--sp-16); }
+.dia-week > h3 { font-size: var(--fs-16); }
+.dia-quiet {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-8);
+  min-width: 0;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-muted);
+  font-size: var(--fs-12_5);
+}
+.dia-entry, .dia-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--sp-12);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--win);
+}
+.dia-card { margin-top: var(--sp-8); background: var(--win2); }
+.dia-entry[data-past="1"] { background: var(--win2); }
+.dia-entry header, .dia-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.dia-entry header { justify-content: space-between; }
+.dia-reason, .dia-said, .dia-answer { overflow-wrap: anywhere; }
+.dia-reason, .dia-said { color: var(--fg-muted); }
+.dia-cost { color: var(--fg-muted); font-size: var(--fs-12_5); }
+.dia-after { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.dia-acts { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.dia-acts .btn { flex: 1 1 120px; min-height: var(--hit-touch); white-space: normal; text-align: center; }
+.dia .name-link { overflow-wrap: anywhere; }
+@container (max-width: 640px) {
+  .dia { padding: var(--sp-12); }
+  .dia-acts .btn, .dia .name-link { min-height: var(--hit-touch); }
+}
+.dia.q-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
+.dia.q-phone .name-link, .dia.q-phone .btn, .dia.q-phone .dia-quiet { min-height: var(--hit-touch); }

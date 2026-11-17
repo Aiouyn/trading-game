@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { useSimSnap } from "@/shell/simSession";
-import { moneyFromCents, MONTHS } from "@/components/ui/format";
+import { gameDate, moneyFromCents, MONTHS } from "@/components/ui/format";
+import { kindWord, parsePlans } from "@/apps/diary/read";
 import { Why } from "@/apps/profile/data";
 import "@/apps/profile/life.css";
 import "@/components/ui/named.css";
@@ -83,10 +84,26 @@ export default function SocietyApp() {
   const chosen = days.find((d) => d.day === (pick ?? abs)) ?? days.find((d) => d.day === abs);
   const groups = powerGroups(soc.powerful);
   const monthName = MONTHS[(view.date.month - 1 + 12) % 12] ?? "";
+  const parties = parsePlans(view.plans).filter((p) => (p.kind === "gala" || p.kind === "party") && p.day >= abs).slice(0, 6);
 
   return (
     <div className={`soc${phone ? " q-phone" : ""}`} data-testid="society">
       <div className="soc-grid">
+      <section className="soc-card soc-parties" data-testid="soc-parties" aria-label="The season">
+        <h2>The season</h2>
+        <p className="soc-kicker">Parties and galas the rich list attends.</p>
+        {parties.length ? parties.map((p) => (
+            <article className="soc-party" key={p.key}>
+              <p><span className="label">{kindWord(p.kind)}</span> · <span className="num">{gameDate(p.day)}</span></p>
+              {p.place ? <p>{p.place}</p> : null}
+              <p>{p.who.map((w, i) => (
+                <span key={`${w.person}-${i}`}>{i ? ", " : ""}{w.self ? "You" : <PersonLink person={w.person} name={w.name} />}</span>
+              ))}</p>
+              <p>{p.answer || (p.invite ? "You are invited." : "You were not invited.")}</p>
+              {p.reason ? <p className="soc-why">{p.reason}</p> : null}
+            </article>
+          )) : <p>No party is set in the next month.</p>}
+      </section>
       <section className="soc-card soc-month" data-testid="soc-month" aria-label="The month">
         <h2>{monthName} · Year {view.date.year}</h2>
         <p className="soc-kicker">{chipText(abs, calendar)}</p>

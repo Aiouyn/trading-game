@@ -8,12 +8,15 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-areas:
+    "parties parties"
     "month rich"
     "standing rank"
     "power stories";
   gap: var(--sp-12);
   align-items: start;
 }
+.soc-parties { grid-area: parties; }
+.soc-party { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); min-width: 0; }
 .soc-month { grid-area: month; }
 .soc-richcard { grid-area: rich; }
 .soc-standing { grid-area: standing; }
@@ -24,6 +27,7 @@
   .soc-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
+      "parties"
       "month"
       "standing"
       "rank"

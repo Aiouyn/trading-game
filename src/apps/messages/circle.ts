@@ -287,7 +287,7 @@ export function askButtons(ask: CircleAsk): AskButton[] {
     buttons.push({ id: "lend", label: "Lend", testId: "lend-send", kind: "lend", cents, place: "" });
   } else if (ask.kind === "invite" || invite) {
     const place = placeWord(invite ? invite.slice(7).trim() : ask.place);
-    buttons.push({ id: "accept", label: `Accept the ${place}`, testId: "accept-invite", kind: "accept", cents: ask.cents, place });
+    buttons.push({ id: "accept", label: "Accept", testId: "accept-invite", kind: "accept", cents: ask.cents, place });
   } else if (ask.kind === "intro") {
     buttons.push({
       id: "meet",
@@ -304,13 +304,21 @@ export function askButtons(ask: CircleAsk): AskButton[] {
   return buttons;
 }
 
+function inviteAsk(ask: CircleAsk): boolean {
+  return ask.kind === "invite" || ask.actions.some((a) => a.startsWith("invite "));
+}
+
 export function commandFor(ask: CircleAsk, button: AskButton, slot: number, cents: number): Record<string, unknown> {
-  if (button.kind === "decline") return { kind: "reply", msg: ask.msg, text: "no" };
+  if (button.kind === "decline") {
+    if (inviteAsk(ask)) return { kind: "decline", id: ask.id, msg: ask.msg };
+    return { kind: "reply", msg: ask.msg, text: "no" };
+  }
   if (button.kind === "lend") {
     if (ask.kind === "loan" && Math.abs(cents - button.cents) < 2) return { kind: "reply", msg: ask.msg, text: "yes" };
     return { kind: "lend", slot, cents };
   }
-  if (button.kind === "accept" || button.kind === "yes") return { kind: "reply", msg: ask.msg, text: "yes" };
+  if (button.kind === "accept") return { kind: "accept", id: ask.id, msg: ask.msg };
+  if (button.kind === "yes") return { kind: "reply", msg: ask.msg, text: "yes" };
   return { kind: "reply", msg: ask.msg, text: "yes" };
 }
 

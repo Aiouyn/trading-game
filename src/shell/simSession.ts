@@ -67,6 +67,7 @@ export interface SimView {
   contacts?: { slot: number; who?: number; name: string; kind?: string; word?: string; line?: string }[];
   society?: unknown;
   calendar?: unknown;
+  plans?: unknown;
   firms?: { id: string; name: string }[];
   employer?: string;
   firm?: string;
@@ -274,6 +275,7 @@ function mergeDay(frame: SimView) {
     final: frame.final ?? cur.final,
     society: frame.society ?? cur.society,
     calendar: frame.calendar ?? cur.calendar,
+    plans: frame.plans ?? cur.plans,
   };
   adopt(view);
   publish({ ...snap, view });

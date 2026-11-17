@@ -35,6 +35,7 @@ export const APP_MODULES = {
   insurance: { kind: "lazy", load: () => import("@/apps/insurance/App") },
   profile: { kind: "lazy", load: () => import("@/apps/profile/App") },
   people: { kind: "lazy", load: () => import("@/apps/people/App") },
+  diary: { kind: "lazy", load: () => import("@/apps/diary/App") },
   estate: { kind: "lazy", load: () => import("@/apps/estate/App") },
   messages: { kind: "lazy", load: () => import("@/apps/messages/App") },
   health: { kind: "lazy", load: () => import("@/apps/health/App") },
