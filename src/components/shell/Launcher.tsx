@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { search, type LauncherItem } from "@/shell/launcher";
+import { prefersCommand, search, type LauncherItem, type SearchDir } from "@/shell/launcher";
+import { actLine, useSimSnap } from "@/shell/simSession";
 import { S } from "@/shell/strings";
 import { viewportOf } from "@/shell/wm";
+import { openSheet } from "@/shell/sheetHost";
 import { Glyph } from "./Glyph";
 import { useShell, useShellStore } from "./ShellContext";
 
@@ -13,7 +15,26 @@ export function Launcher() {
   const recent = useShell((s) => s.recent);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
-  const items = useMemo(() => search(q, vis, recent), [q, vis, recent]);
+  const view = useSimSnap().view;
+  const dir = useMemo<SearchDir | undefined>(() => {
+    if (!view) return undefined;
+    const quotes = view.quotes ?? [];
+    return {
+      tickers: quotes.filter((x) => x.symbol).slice(0, 80).map((x) => ({ symbol: x.symbol as string, name: x.name || x.symbol as string })),
+      people: (view.contacts ?? []).filter((c) => c.name).map((c) => ({ name: c.name, word: c.word, line: c.line })),
+      firms: (view.firms ?? []).map((f) => ({
+        id: f.id,
+        name: f.name,
+        symbol: quotes.find((x) => x.issuer === f.id)?.symbol,
+      })),
+    };
+  }, [view]);
+  const items = useMemo(() => search(q, vis, recent, dir), [q, vis, recent, dir]);
+  useEffect(() => {
+    if (!prefersCommand(q)) return;
+    const i = items.findIndex((it) => it.command);
+    if (i >= 0) setSel(i);
+  }, [q, items]);
   const groups = [...new Set(items.map((i) => i.group))];
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const close = () => store.getState().setLauncher(false);
@@ -27,7 +48,19 @@ export function Launcher() {
     if (!it) return;
     const s = store.getState();
     s.setLauncher(false);
-    s.open(it.app, it.context);
+    if (it.command) {
+      void actLine(it.command);
+      return;
+    }
+    if (it.app && s.vis[it.app] === "unlocked") {
+      s.open(it.app, it.context);
+      return;
+    }
+    openSheet({
+      label: it.label,
+      testId: "launcher-detail",
+      content: <p>{it.detail || it.label}</p>,
+    });
   };
 
   return (

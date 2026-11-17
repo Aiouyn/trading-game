@@ -7,6 +7,7 @@
 @import "../styles/pulse.css";
 @import "../styles/nav.css";
 @import "../styles/notices.css";
+@import "../styles/gameFlow.css";
 
 /* Tailwind 4 utilities read the Quay tokens (bg-win, text-fg-muted, border-line, ...). */
 @theme inline {

@@ -21,8 +21,9 @@ import { Button } from "@/components/ui/Button";
 import { isAuthPending, isSignedIn, openAccountSettings, useAuthChrome } from "@/shell/authChrome";
 import { HOME_EXAMPLE } from "./homeExample";
 import { TimeControls } from "@/shell/TimeControls";
+import { GoalBar } from "./GoalBar";
 
-const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
+const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 /** Dock apps stay in the bottom row, not the home grid. */
 const GRID_OMIT = new Set<AppId>(BOTTOM);
 const LONG_PRESS_MS = 400;
@@ -286,6 +287,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
+      {me.source === "sim" ? <GoalBar /> : null}
       {me.source === "sim" ? <div className="sim-time-phone"><TimeControls /></div> : null}
       <FillAckHost variant="phone" />
       <PhoneBannerStack />

@@ -1,6 +1,6 @@
 "use client";
 // Quay OS shell root: picks phone / compact / desktop, applies html attributes, wires keys and channels.
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { applyDeepLink, useBackStack } from "@/shell/back";
@@ -39,6 +39,8 @@ import { FEED_HOOKS, mockFeedSource, useFeed } from "@/shell/feed";
 import { closeSheet, openSheet, useSheetRequest } from "@/shell/sheetHost";
 import { S } from "@/shell/strings";
 import { ShellErrorBoundary } from "./ShellErrorBoundary";
+import { GoalBar } from "./GoalBar";
+import { GameFlow } from "./GameFlow";
 
 const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 
@@ -73,9 +75,12 @@ function Surface({ query }: { query: string }) {
   const navigate = useDeepLinkNavigate();
   const storeApi = useShellStore();
   const vwNow = useShell((s) => s.vw);
-  const deskBannerH = sim || viewportOf(vwNow) === "phone" ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0);
-  // Desktop banners shrink the work area; windows refit to it (wm.fitRect).
-  useEffect(() => { storeApi.getState().setBannerH(deskBannerH); }, [storeApi, deskBannerH]);
+  // The simulation's goal bar measures itself. Mock banners still report a fixed height.
+  const deskBannerH = sim || viewportOf(vwNow) === "phone" ? null : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0);
+  useEffect(() => {
+    if (deskBannerH === null) return;
+    storeApi.getState().setBannerH(deskBannerH);
+  }, [storeApi, deskBannerH]);
   useEffect(() => {
     // Mock-only: `?sheet=demo` opens an empty shell sheet so the mount point can be exercised before any consumer.
     if (FEED_HOOKS && new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
@@ -100,6 +105,7 @@ function Surface({ query }: { query: string }) {
       {phone ? <PhoneHome /> : (
         <>
           <StatusStrip />
+          {sim ? <GoalBar pin /> : null}
           {!sim && <Banner alerts={feed.alerts} onNavigate={navigate} />}
           {!sim && <WorldEventBanner event={feed.world} />}
           <Desktop />
@@ -117,11 +123,30 @@ function Surface({ query }: { query: string }) {
           {sheet.content}
         </Sheet>
       )}
+      <FirstMinute />
+      <GameFlow />
     </div>
     </AuthAccountBoundary>
   );
 }
 
+
+/** Lays out Portfolio, Wire and Academy once, when a new scenario opens. */
+function FirstMinute() {
+  const store = useShellStore();
+  const { mode, layoutNonce } = useSimSnap();
+  const seen = useRef<number | null>(null);
+  useEffect(() => {
+    if (mode !== "play") return;
+    if (seen.current === layoutNonce) return;
+    seen.current = layoutNonce;
+    if (layoutNonce === 0) return;
+    const s = store.getState();
+    if (viewportOf(s.vw) === "phone") return;
+    s.arrangeFirst();
+  }, [mode, layoutNonce, store]);
+  return null;
+}
 
 /** Binds the shell before the account boundary's layout effect, then opens the simulation stream. */
 function SimLink({ store }: { store: ReturnType<typeof createShellStore> }) {

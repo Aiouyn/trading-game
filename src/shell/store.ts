@@ -2,7 +2,7 @@
 // Shell store (Zustand). Holds channels, visibility and ShellLocalState; all window math is in wm.ts.
 import { create } from "zustand";
 import type { Channels } from "./channels";
-import { applyLayout, type LayoutId } from "./layouts";
+import { applyLayout, firstMinuteWindows, type LayoutId } from "./layouts";
 import { RANKS, type AppId, type Rank } from "./registry";
 import type { AccountUiPrefs, PaletteId, ShellId, ShellLocalState, SnapSlot, WindowRect } from "./types";
 import { evaluate, withLiveNw, type Visibility } from "./unlock";
@@ -59,6 +59,8 @@ export interface ShellState {
   move(w: WindowRect, x: number, y: number): void;
   toggleCollapse(w: WindowRect): void;
   layout(id: LayoutId): void;
+  /** New-game desktop: Portfolio, Wire and Academy. Skips a phone-width viewport. */
+  arrangeFirst(): void;
   setWorkspace(n: 1 | 2 | 3): void;
   toggleFocusMode(): void;
   setPalette(p: PaletteId): void;
@@ -156,6 +158,14 @@ export const createShellStore = (channels: Channels) =>
         if (windows.length === 0) return;
         setWindows(windows, { activeWorkspace: 1 });
         set((s) => ({ recent: [...new Set([...windows.map((w) => w.app).reverse(), ...s.recent])].slice(0, 6) }));
+      },
+      arrangeFirst() {
+        const s = get();
+        if (s.vw < 100 || wm.viewportOf(s.vw) === "phone") return;
+        const windows = firstMinuteWindows(area(), (a) => s.vis[a] === "unlocked");
+        if (windows.length === 0) return;
+        setWindows(windows, { activeWorkspace: 1 });
+        set((st) => ({ recent: [...new Set([...windows.map((w) => w.app).reverse(), ...st.recent])].slice(0, 6) }));
       },
       setWorkspace(n) {
         if (n <= workspacesFor(get().channels.rank.rank)) set((s) => ({ local: { ...s.local, activeWorkspace: n } }));

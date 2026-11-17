@@ -14,7 +14,7 @@ export const APP_NAMES: Record<AppId, string> = {
 
 export const S = {
   quay: "Quay",
-  launcherPlaceholder: "Find an app, a ticker, a command",
+  launcherPlaceholder: "Apps, people, firms, or a command",
   ctrlK: "Ctrl K",
   ctrlDot: "Ctrl .",
   comingLater: "Coming later",

@@ -26,6 +26,28 @@ export interface Quote {
 export interface Holding { instr: string; qty: number; px: number; eventId: number }
 export interface OrderRow { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }
 export interface FeedLine { eventId: number; day: number; tag: string; text: string }
+export interface PauseAction { label: string; line: string }
+export interface StoryBeat { title: string; text: string; cause: string }
+export interface ScenarioView {
+  id: string;
+  name?: string;
+  goal?: string;
+  story?: string;
+  progress?: number;
+  meter?: string;
+  first?: string;
+  fresh?: boolean;
+  begun?: number;
+  daysLeft?: number;
+  timeLeft?: string;
+  beat?: number;
+  outcome?: "win" | "loss";
+  reason?: string;
+  score?: { worth: number; worthX: number; indexX: number; firms: number; reputation: number; convictions: number; events?: string[] };
+  code?: string;
+  lines?: StoryBeat[];
+  chronicle?: string;
+}
 export interface NewsLine { eventId: number; day: number; text: string; firms?: { id: string; name: string }[] }
 export interface PrivLine { eventId: number; day: number; from?: string; text: string }
 export interface StatRow { id: string; label: string; word: string; hover: string; trend: -1 | 0 | 1; note?: string; eventId: number }
@@ -37,7 +59,13 @@ export interface SimView {
   nwChange?: number;
   sinceOpen?: number;
   speed: "pause" | "day" | "week" | "month";
-  pause: { why: string; eventId: number } | null;
+  pause: { why: string; eventId: number; kind?: string; text?: string; actions?: PauseAction[] } | null;
+  scenario?: ScenarioView | null;
+  contacts?: { slot: number; name: string; kind?: string; word?: string; line?: string }[];
+  firms?: { id: string; name: string }[];
+  employer?: string;
+  firm?: string;
+  final?: string;
   stats: StatRow[];
   quotes: Quote[];
   shares: Holding[];
@@ -53,7 +81,6 @@ export interface SimView {
   companies?: SimCompany[];
   bids?: SimBid[];
   districts?: SimDistrict[];
-  firms?: { id: string; name: string }[];
   chain?: { id: string; instr: string; right: string; strike: number; months: number; net: number; bid: number; ask: number; oi?: number; eventId: number }[];
   score?: { day: number; worth: number }[];
   curve?: { tenor: string; yield: number; id: string; px: number; prev?: number; coupon: number; eventId: number }[];
@@ -119,10 +146,12 @@ export interface SimSnap {
   gen: GenState;
   view: SimView | null;
   note: ActNote | null;
+  /** Bumps only when a new scenario is started, so the first-minute windows replace a saved layout once. */
+  layoutNonce: number;
 }
 
 const EMPTY_GEN: GenState = { text: "", lines: [], error: "" };
-let snap: SimSnap = { mode: "boot", title: null, gen: EMPTY_GEN, view: null, note: null };
+let snap: SimSnap = { mode: "boot", title: null, gen: EMPTY_GEN, view: null, note: null, layoutNonce: 0 };
 const listeners = new Set<() => void>();
 let shell: { getState(): { channels: Channels; setChannels(c: Channels): void } } | null = null;
 let started = false;
@@ -208,6 +237,12 @@ function mergeDay(frame: SimView) {
     quotes,
     alive: frame.alive ?? cur.alive,
     over: frame.over ?? cur.over,
+    scenario: "scenario" in frame ? frame.scenario ?? null : cur.scenario,
+    contacts: frame.contacts ?? cur.contacts,
+    firms: frame.firms ?? cur.firms,
+    employer: frame.employer || cur.employer,
+    firm: frame.firm || cur.firm,
+    final: frame.final ?? cur.final,
   };
   adopt(view);
   publish({ ...snap, view });
@@ -264,12 +299,17 @@ function startStream() {
     if (view) mergeDay(view);
   });
   stream.addEventListener("speed", (ev) => {
-    const msg = JSON.parse((ev as MessageEvent).data) as { speed?: SimView["speed"]; why?: string; eventId?: number; quiet?: boolean };
+    const msg = JSON.parse((ev as MessageEvent).data) as {
+      speed?: SimView["speed"]; why?: string; eventId?: number; quiet?: boolean;
+      kind?: string; text?: string; actions?: PauseAction[];
+    };
     if (!snap.view || !msg.speed) return;
     const view: SimView = {
       ...snap.view,
       speed: msg.speed,
-      pause: msg.why ? { why: msg.why, eventId: msg.eventId ?? 0 } : msg.quiet ? null : snap.view.pause,
+      pause: msg.why
+        ? { why: msg.why, eventId: msg.eventId ?? 0, kind: msg.kind, text: msg.text, actions: msg.actions }
+        : msg.quiet ? null : snap.view.pause,
     };
     adopt(view);
     publish({ ...snap, view });
@@ -324,15 +364,21 @@ async function post(path: string, body: unknown): Promise<{ ok: boolean; status:
   return { ok: res.ok, status: res.status, data };
 }
 
-function beginProgress(text: string) {
-  publish({ ...snap, mode: "progress", gen: { text, lines: [], error: "" } });
+function beginProgress(text: string, opts?: { fresh?: boolean }) {
+  publish({
+    ...snap,
+    mode: "progress",
+    gen: { text, lines: [], error: "" },
+    layoutNonce: opts?.fresh ? snap.layoutNonce + 1 : snap.layoutNonce,
+  });
 }
 
-export async function startScenario(id: string, extra?: { cash?: number; difficulty?: number }): Promise<void> {
-  beginProgress("Writing the city…");
+export async function startScenario(id: string, extra?: { cash?: number; difficulty?: number; again?: boolean }): Promise<void> {
+  beginProgress("Writing the city…", { fresh: true });
   const body: Record<string, unknown> = { id };
   if (extra?.cash !== undefined) body.cash = extra.cash;
   if (extra?.difficulty !== undefined) body.difficulty = extra.difficulty;
+  if (extra?.again) body.again = true;
   const { ok, data } = await post("start", body);
   if (!ok) publish({ ...snap, gen: { ...snap.gen, error: typeof data.error === "string" ? data.error : "could not start" } });
 }
@@ -384,24 +430,43 @@ export async function setSpeed(speed: SimView["speed"]): Promise<void> {
   }
 }
 
-export async function act(cmd: unknown): Promise<ActNote> {
-  const { ok, data } = await post("act", cmd);
+function noteOf(ok: boolean, data: Record<string, unknown>): ActNote {
+  const lines = Array.isArray(data.lines) ? data.lines.filter((x): x is string => typeof x === "string") : undefined;
+  const text = typeof data.why === "string" ? data.why
+    : typeof data.text === "string" && data.text ? data.text
+    : lines && lines.length ? lines.join("\n")
+    : ok ? "done" : "the order was not taken";
+  return { ok: ok && data.status !== "rejected", text, lines };
+}
+
+async function commitAct(body: unknown): Promise<ActNote> {
+  const { ok, data } = await post("act", body);
   const view = asView(data.view);
   if (view) {
     adopt(view);
     snap = { ...snap, view };
   }
-  const lines = Array.isArray(data.lines) ? data.lines.filter((x): x is string => typeof x === "string") : undefined;
-  const note: ActNote = {
-    ok: ok && data.status !== "rejected",
-    text: typeof data.why === "string" ? data.why
-      : typeof data.text === "string" && data.text ? data.text
-      : lines && lines.length ? lines.join("\n")
-      : ok ? "done" : "the order was not taken",
-    lines,
-  };
+  const note = noteOf(ok, data);
   publish({ ...snap, note });
   return note;
+}
+
+export async function act(cmd: unknown): Promise<ActNote> {
+  return commitAct(cmd);
+}
+
+export async function actLine(line: string): Promise<ActNote> {
+  return commitAct({ line });
+}
+
+export function clearNote(): void {
+  if (snap.note) publish({ ...snap, note: null });
+}
+
+/** Drop the open world and return to the scenario list. */
+export async function leaveGame(): Promise<void> {
+  await post("release", {});
+  publish({ ...snap, mode: "menu", view: null, note: null });
 }
 
 export interface ExplainLine { depth: number; id: number; day: number; kind: string; msg: string; name?: string; missing?: boolean }

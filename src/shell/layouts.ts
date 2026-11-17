@@ -60,6 +60,53 @@ export function planLayout(def: LayoutDef, a: Area): Placed[] | null {
 export const layoutFits = (id: LayoutId, a: Area) => planLayout(LAYOUTS.find((l) => l.id === id)!, a) !== null;
 
 /**
+ * A new game opens Portfolio on the left, Wire above Academy on the right.
+ * Portfolio is last so it stays focused, and compact shows it. Not a named layout.
+ */
+export function firstMinuteWindows(a: Area, isUnlocked: (app: AppId) => boolean): WindowRect[] {
+  if (a.w < 100 || a.h < 100) return [];
+  const open = (["portfolio", "wire", "academy"] as const).filter((id) => isUnlocked(id));
+  if (!open.length) return [];
+  const count: Partial<Record<AppId, number>> = {};
+  const win = (app: AppId, rect: Area, snap: SnapSlot): WindowRect => {
+    const instance = (count[app] = (count[app] ?? 0) + 1);
+    return {
+      app, instance, snap, workspace: 1, collapsed: false,
+      x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.w), h: Math.round(rect.h),
+    };
+  };
+  const port = open.includes("portfolio");
+  const rights = (["wire", "academy"] as const).filter((id) => open.includes(id));
+  if (!port || rights.length === 0) {
+    const only = port ? "portfolio" : rights[0];
+    return [win(only, a, "FILL")];
+  }
+  const rightMin = Math.max(...rights.map((id) => minSize(id, a.w).w));
+  const rightW = Math.max(Math.round((a.w - GUTTER) / 3), rightMin);
+  const leftW = a.w - GUTTER - rightW;
+  if (leftW < minSize("portfolio", a.w).w) return [win("portfolio", a, "FILL")];
+  const rx = a.x + leftW + GUTTER;
+  const out: WindowRect[] = [];
+  if (rights.length === 1) {
+    out.push(win(rights[0], { x: rx, y: a.y, w: rightW, h: a.h }, "R1/3"));
+  } else {
+    const [top, bottom] = rights;
+    const topMin = minSize(top, a.w).h;
+    const botMin = minSize(bottom, a.w).h;
+    let topH = Math.max(Math.round((a.h - GUTTER) / 2), topMin);
+    let bottomH = a.h - GUTTER - topH;
+    if (bottomH < botMin) { bottomH = botMin; topH = a.h - GUTTER - bottomH; }
+    if (topH < topMin) out.push(win(top, { x: rx, y: a.y, w: rightW, h: a.h }, "R1/3"));
+    else {
+      out.push(win(top, { x: rx, y: a.y, w: rightW, h: topH }, "TR"));
+      out.push(win(bottom, { x: rx, y: a.y + topH + GUTTER, w: rightW, h: bottomH }, "BR"));
+    }
+  }
+  out.push(win("portfolio", { x: a.x, y: a.y, w: leftW, h: a.h }, "L2/3"));
+  return out;
+}
+
+/**
  * Window rects for a layout. Locked apps are skipped and their slot left empty [P]. The Review layout
  * may create a second Portfolio window with context "Journal" (PR #2 answer 3); normal opening keeps max 1.
  */

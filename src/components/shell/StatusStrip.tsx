@@ -15,6 +15,7 @@ import { HOME_EXAMPLE } from "./homeExample";
 import { TickRing } from "./TickRing";
 import { FeedbackButton } from "./FeedbackButton";
 import { TimeControls } from "@/shell/TimeControls";
+import { toggleNotes } from "./flowState";
 
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
@@ -68,6 +69,7 @@ export function StatusStrip() {
         {sim ? <TimeControls /> : <TickRing tick={clock.tick} />}
         <HaltChip halted={sys.halted} />
         {nwChip}
+        {sim ? <button className="icon-btn" aria-label={S.bell} data-testid="notes-bell" onClick={() => toggleNotes()}><Glyph name="bell" size={17} /></button> : null}
       </header>
     );
   }
@@ -128,7 +130,7 @@ export function StatusStrip() {
           <span className="muted" data-testid="strip-demo-tag">{HOME_EXAMPLE.en.tag}</span>
         ) : null}
         {!sim && <FeedbackButton />}
-        <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>
+        <button className="icon-btn" aria-label={S.bell} data-testid="notes-bell" onClick={sim ? () => toggleNotes() : undefined}><Glyph name="bell" size={17} /></button>
       </div>
     </header>
   );

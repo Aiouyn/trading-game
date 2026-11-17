@@ -24,6 +24,8 @@ import { pledgeValue, saleProceeds, saleValue } from './modules/markets/index.ts
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
+import { tutorialOf } from './modules/player/tutorial.ts';
+import { parseCommand } from './play.ts';
 
 type Speed = 'pause' | 'day' | 'week' | 'month';
 
@@ -1181,17 +1183,27 @@ function playerBook(w: World): { shares: { instr: string; qty: number; px: numbe
 }
 
 interface FeedLine { eventId: number; day: number; tag: string; text: string }
-interface PauseHit { why: string; eventId: number }
+interface PauseAction { label: string; line: string }
+interface PauseHit {
+  why: string;
+  eventId: number;
+  kind: 'margin' | 'bid' | 'arrest' | 'death' | 'strike' | 'milestone' | 'end';
+  text: string;
+  actions?: PauseAction[];
+}
+interface StoryLine { title: string; text: string; cause: string }
 interface SaveMeta {
   id: string; label: string; scenario: string; scenarioId: string;
   player: string; day: number; date: string; netWorth: number; savedAt: number;
 }
-interface GenJob { id: string; cash?: number; difficulty?: number; seed?: string; beat?: number }
+interface GenJob { id: string; cash?: number; difficulty?: number; seed?: string; beat?: number; again?: boolean }
 
 const feed: FeedLine[] = [];
 const pausedIds = new Set<number>();
 let feedSeen = -1;
 let pauseNote: PauseHit | null = null;
+/** History scanned at boot must not open an interrupt. A later hit does, even if the clock is already paused. */
+let played = false;
 let sawOutcome = '';
 let sawShock = false;
 let lastSavedMonth = -1;
@@ -1203,10 +1215,88 @@ function dateLabel(day: number): string {
   return `Y${Math.floor(day / 360) + 1} M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
 }
 
+function moneyLabel(cents: number): string {
+  return `${cents < 0 ? '-' : ''}$${(Math.abs(Math.round(cents)) / 100).toFixed(2)}`;
+}
+
+function progressOf(w: World): { progress: number; meter: string } {
+  const sc = w.state.scenario as {
+    goal?: { kind?: string; cents?: number; generations?: number };
+    fired?: boolean;
+    shockUntil?: number;
+    outcome?: string;
+  } | undefined;
+  const g = sc?.goal;
+  if (!g?.kind || g.kind === 'none') return { progress: 0, meter: 'no goal' };
+  const i = playerIndex(w);
+  const id = i >= 0 ? econ(w).P.id(i) : '';
+  const now = i >= 0 ? Math.round(w.ledger.netWorth(id, markOf(w))) : 0;
+  if (g.kind === 'worth') {
+    const cents = g.cents ?? 0;
+    return { progress: cents > 0 ? now / cents : 0, meter: `${moneyLabel(now)} of ${moneyLabel(cents)}` };
+  }
+  if (g.kind === 'dynasty') {
+    const gen = soleSeat(w)?.generation ?? 1;
+    const need = g.generations && g.generations > 0 ? g.generations : 1;
+    return { progress: gen / need, meter: `generation ${gen} of ${need}` };
+  }
+  if (g.kind === 'crash') {
+    const during = !!sc?.fired && !(sc.shockUntil !== undefined && w.day >= sc.shockUntil);
+    const after = !!sc?.fired && sc.shockUntil !== undefined && w.day >= sc.shockUntil;
+    const progress = after ? (now > 0 ? 1 : 0) : during ? 0.5 : 0;
+    const meter = after ? (now > 0 ? 'solvent after the shock' : 'the shock took the book') : during ? 'the shock is on' : 'before the shock';
+    return { progress, meter };
+  }
+  const won = sc?.outcome === 'win';
+  return { progress: won ? 1 : 0, meter: won ? 'met' : 'not yet' };
+}
+
+function openingLine(w: World): string {
+  const i = playerIndex(w);
+  const seat = soleSeat(w);
+  if (seat && i >= 0) {
+    const t = tutorialOf(w, seat, i);
+    if (!t.done && t.hint) return t.hint;
+  }
+  const hints = (w.state.scenario as { hints?: Record<string, string> } | undefined)?.hints;
+  return hints?.desk || hints?.help || '';
+}
+
+function storyFive(chronicle: string | undefined, events: string[] | undefined): StoryLine[] {
+  const lines: StoryLine[] = [];
+  const raw = (chronicle ?? '').replace(/\r\n/g, '\n');
+  const at = raw.indexOf('What mattered');
+  const body = at >= 0 ? raw.slice(at + 'What mattered'.length) : '';
+  const parts = body.split(/\n(?=\d+\. )/).map((p) => p.trim()).filter((p) => /^\d+\. /.test(p));
+  for (const part of parts) {
+    if (lines.length >= 5) break;
+    const cut = part.split('\n');
+    const stop = cut.findIndex((l, n) => n > 0 && /^(The family|The firms|The city during this life|Years \d)/.test(l.trim()));
+    const kept = (stop >= 0 ? cut.slice(0, stop) : cut).join('\n').trim();
+    const nl = kept.indexOf('\n');
+    const title = (nl >= 0 ? kept.slice(0, nl) : kept).replace(/^\d+\.\s*/, '').trim();
+    const rest = nl >= 0 ? kept.slice(nl + 1).trim() : '';
+    const paras = rest.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+    let cause = '';
+    const textBits: string[] = [];
+    for (const para of paras) {
+      if (para.includes('This followed from') || para.startsWith('This was an outside shock')) cause = para;
+      else if (!para.startsWith('People:')) textBits.push(para.replace(/\s+/g, ' '));
+    }
+    lines.push({ title, text: textBits.join(' '), cause });
+  }
+  for (const e of events ?? []) {
+    if (lines.length >= 5) break;
+    if (!e) continue;
+    lines.push({ title: e, text: '', cause: '' });
+  }
+  return lines;
+}
+
 function scenarioCard(w: World): Record<string, unknown> | null {
   const live = liveCard(w);
   if (!live) return null;
-  const sc = w.state.scenario as { deadline?: number; limit?: number } | undefined;
+  const sc = w.state.scenario as { deadline?: number; limit?: number; begun?: number; outcome?: string } | undefined;
   const left = sc?.deadline && sc.deadline > 0 ? Math.max(0, sc.deadline - w.day) : -1;
   let timeLeft = 'open-ended';
   if (left >= 0) {
@@ -1215,16 +1305,30 @@ function scenarioCard(w: World): Record<string, unknown> | null {
     else if (left === 1) timeLeft = '1 day left';
     else timeLeft = `${left} days left`;
   }
-  return { ...live, daysLeft: left, timeLeft, beat: challengeBeat };
+  const prog = progressOf(w);
+  const begun = sc?.begun ?? w.day;
+  return {
+    ...live,
+    daysLeft: left,
+    timeLeft,
+    beat: challengeBeat,
+    progress: prog.progress,
+    meter: prog.meter,
+    first: openingLine(w),
+    fresh: begun === w.day && !sc?.outcome,
+    lines: live.outcome ? storyFive(live.chronicle, live.score?.events) : [],
+    begun,
+  };
 }
 
-function feedCtx(w: World): { id: string; family: Set<string>; firms: { id: string; name: string }[] } {
+function feedCtx(w: World): { id: string; family: Set<string>; firms: { id: string; name: string }[]; employer: string; employerId: string } {
   const i = playerIndex(w);
   const P = econ(w).P;
   const id = i >= 0 ? P.id(i) : '';
   const family = new Set<string>();
   for (const h of houseIds(w)) if (h.role !== 'you' && h.index >= 0) family.add(P.id(h.index));
-  return { id, family, firms: i >= 0 ? playerFirms(w, i) : [] };
+  const emp = i >= 0 && P.employer[i] >= 0 ? econ(w).firms[P.employer[i]] : undefined;
+  return { id, family, firms: i >= 0 ? playerFirms(w, i) : [], employer: emp?.name ?? '', employerId: emp?.id ?? '' };
 }
 
 function mentionsFirm(msg: string, actor: string | undefined, firms: { id: string; name: string }[]): boolean {
@@ -1250,13 +1354,17 @@ function pauseHit(e: { id: number; kind: string; actor?: string; msg: string }, 
   if (!ctx.id) return null;
   const you = e.actor === ctx.id;
   if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind === 'loan.margin')) {
-    return { why: 'a margin call', eventId: e.id };
+    return { why: 'a margin call', eventId: e.id, kind: 'margin', text: e.msg };
   }
   if (e.kind === 'firm.bid' && e.actor !== ctx.id && ctx.firms.some((f) => e.msg.includes('for ' + f.name))) {
-    return { why: 'a takeover bid', eventId: e.id };
+    return { why: 'a takeover bid', eventId: e.id, kind: 'bid', text: e.msg };
   }
-  if (you && (e.kind === 'law.charge' || e.kind === 'law.trial')) return { why: 'an arrest', eventId: e.id };
-  if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) return { why: 'a death in the family', eventId: e.id };
+  if (you && (e.kind === 'law.charge' || e.kind === 'law.trial')) return { why: 'an arrest', eventId: e.id, kind: 'arrest', text: e.msg };
+  if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) return { why: 'a death in the family', eventId: e.id, kind: 'death', text: e.msg };
+  if ((e.kind === 'labour.strike' || e.kind === 'labour.lockout') && ctx.employer) {
+    const atYou = (ctx.employerId && e.actor === ctx.employerId) || e.msg.includes(ctx.employer);
+    if (atYou) return { why: 'a strike at your employer', eventId: e.id, kind: 'strike', text: e.msg };
+  }
   return null;
 }
 
@@ -1266,14 +1374,70 @@ function milestone(w: World): PauseHit | null {
   if (sc.outcome && sc.outcome !== sawOutcome) {
     sawOutcome = sc.outcome;
     const ev = w.events.last('player.scenario') ?? w.genesis;
-    return { why: sc.reason || (sc.outcome === 'win' ? 'the goal is met' : 'the scenario ends'), eventId: ev };
+    return { why: sc.reason || (sc.outcome === 'win' ? 'the goal is met' : 'the scenario ends'), eventId: ev, kind: 'end', text: sc.reason || '' };
   }
   if (sc.fired && !sawShock) {
     sawShock = true;
     const ev = w.events.last('shock.forced') ?? w.genesis;
-    return { why: 'the scenario shock', eventId: ev };
+    return { why: 'the scenario shock', eventId: ev, kind: 'milestone', text: '' };
   }
   return null;
+}
+
+function tradeSym(instr: string): string {
+  let s = instr.startsWith('eq:') ? instr.slice(3) : instr;
+  if (s.startsWith('frm_')) s = s.slice(4);
+  return s;
+}
+
+function pauseActions(w: World, hit: PauseHit): PauseAction[] {
+  if (hit.kind === 'end') return [];
+  const v = view(w);
+  switch (hit.kind) {
+    case 'margin': {
+      const owed = v.loans.reduce((a, l) => a + (l.kind === 'margin' ? l.owed : 0), 0);
+      const pay = Math.min(v.cash, owed);
+      const actions: PauseAction[] = [];
+      if (pay >= 1) actions.push({ label: `Repay ${moneyLabel(pay)}`, line: `repay ${(pay / 100).toFixed(2)}` });
+      const sh = v.shares.find((s) => s.qty >= 2);
+      if (sh) {
+        const sym = tradeSym(sh.instr);
+        const half = Math.max(1, Math.floor(sh.qty / 2));
+        actions.push({ label: `Sell half of ${sym}`, line: `sell ${sym} ${half}` });
+      }
+      actions.push({ label: 'Read the sheet', line: 'sheet' });
+      return actions;
+    }
+    case 'bid':
+      return [{ label: 'Open the board', line: 'board' }, { label: 'Read the desk', line: 'desk' }];
+    case 'arrest':
+      return [{ label: 'Call a lawyer', line: 'lawyer' }, { label: 'Read the sheet', line: 'sheet' }];
+    case 'death':
+      return [{ label: 'Read the sheet', line: 'sheet' }];
+    case 'strike': {
+      const actions: PauseAction[] = [];
+      const firm = v.firm || v.employer;
+      if (firm) actions.push({ label: `Quote ${v.employer || firm}`, line: `quote ${firm}` });
+      actions.push({ label: 'Read the news', line: 'news' });
+      return actions;
+    }
+    case 'milestone':
+      return [{ label: 'Read the news', line: 'news' }, { label: 'Read the sheet', line: 'sheet' }];
+    default:
+      return [];
+  }
+}
+
+function decoratePause(w: World, hit: PauseHit): PauseHit {
+  let text = hit.text;
+  if (!text) {
+    try { text = w.events.get(hit.eventId)?.msg ?? hit.why; }
+    catch { text = hit.why; }
+  }
+  let actions: PauseAction[] = [];
+  try { actions = pauseActions(w, hit); }
+  catch { actions = []; }
+  return { ...hit, text, actions };
 }
 
 /** New lines since the last call. Pause hits are remembered so a reload of the same event does not stop the clock twice. */
@@ -1303,19 +1467,21 @@ function collect(w: World, minDay = -1): FeedLine[] {
   feedSeen = count;
   if (feed.length > 100) feed.splice(0, feed.length - 100);
   if (!hit) hit = milestone(w) ?? undefined;
-  if (hit && speed !== 'pause') {
+  if (hit && (speed !== 'pause' || played)) {
     speed = 'pause';
-    pauseNote = hit;
+    pauseNote = decoratePause(w, hit);
   }
   return lines;
 }
 
 function seedFeed(w: World): void {
+  played = false;
   feed.length = 0;
   feedSeen = -1;
   pausedIds.clear();
   pauseNote = null;
   collect(w, Math.max(0, w.day - 2));
+  played = true;
   const sc = w.state.scenario as { outcome?: string; fired?: boolean } | undefined;
   sawOutcome = sc?.outcome ?? '';
   sawShock = !!sc?.fired;
@@ -1430,8 +1596,15 @@ function runGenWorker(): void {
 
 function beginGeneration(job: GenJob): string | null {
   if (generating) return 'a city is already being written';
-  if (started) return 'a game is already open';
+  if (started && !job.again) return 'a game is already open';
   if (!listScenarios().some((s) => s.id === job.id)) return `no scenario ${job.id}`;
+  if (started) {
+    speed = 'pause';
+    pumping = false;
+    started = false;
+    over = false;
+    pauseNote = null;
+  }
   generating = true;
   challengeBeat = job.beat && job.beat > 0 ? job.beat : 0;
   const dir = path.join(SAVES, '.boot');
@@ -2485,7 +2658,7 @@ function stepDay(): string | undefined {
   frame.speed = speed;
   if (w.day % 30 === 0) sampleMacro(w);
   maybeAutosave();
-  if (pauseNote && speed === 'pause') broadcast('speed', { speed, why: pauseNote.why, eventId: pauseNote.eventId });
+  if (pauseNote && speed === 'pause') broadcast('speed', { speed, ...pauseNote });
   broadcast('day', frame);
   return undefined;
 }
@@ -2560,11 +2733,12 @@ function staticPath(pathname: string): string | undefined {
   return full;
 }
 
-function startOpts(body: unknown): { id: string; cash?: number; difficulty?: number } | string {
+function startOpts(body: unknown): { id: string; cash?: number; difficulty?: number; again?: boolean } | string {
   if (!body || typeof body !== 'object') return 'missing scenario';
   const b = body as Record<string, unknown>;
   if (typeof b.id !== 'string' || !b.id) return 'missing scenario';
-  const out: { id: string; cash?: number; difficulty?: number } = { id: b.id };
+  const out: { id: string; cash?: number; difficulty?: number; again?: boolean } = { id: b.id };
+  if (b.again === true) out.again = true;
   if (b.cash !== undefined) {
     const n = Number(b.cash);
     if (!Number.isFinite(n) || n < 0) return 'cash must be a number of dollars';
@@ -2644,6 +2818,15 @@ const server = http.createServer(async (req, res) => {
       req.on('close', () => clients.delete(res));
       return;
     }
+    if (req.method === 'POST' && pathname === '/release') {
+      speed = 'pause';
+      pumping = false;
+      started = false;
+      over = false;
+      pauseNote = null;
+      send(res, 200, { ok: true });
+      return;
+    }
     if (!started) {
       if (req.method === 'GET' && pathname === '/view') { send(res, 409, { need: 'scenario', scenarios: listScenarios() }); return; }
       if (req.method === 'GET') {
@@ -2716,14 +2899,23 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && pathname === '/act') {
       const body = await readBody(req);
-      const cmd = commandOf(body);
+      const line = body && typeof body === 'object' && typeof (body as { line?: unknown }).line === 'string'
+        ? (body as { line: string }).line.trim()
+        : '';
+      let cmd: Command | string;
+      if (line) {
+        const parsed = parseCommand(line, view(w).firm || '');
+        cmd = 'error' in parsed ? parsed.error : parsed;
+      } else cmd = commandOf(body);
       if (typeof cmd === 'string') { send(res, 400, { status: 'rejected', why: cmd }); return; }
       if (!booksOk) { send(res, 409, { status: 'rejected', why: 'the books do not balance' }); return; }
       const playerId = body && typeof body === 'object' && typeof (body as { playerId?: unknown }).playerId === 'string'
         ? (body as { playerId: string }).playerId
         : undefined;
       const result = playerId ? act(w, playerId, cmd) : act(w, cmd);
+      const held = pauseNote;
       collect(w);
+      if (pauseNote && pauseNote !== held) broadcast('speed', { speed: 'pause', ...pauseNote });
       const seat = soleSeat(w);
       const who = playerIndex(w);
       if ((seat?.over ?? false) || who < 0 || !econ(w).P.alive(who)) { speed = 'pause'; over = true; }
