@@ -7,6 +7,7 @@ import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, returnShares, submitOrder } from '../markets/index.ts';
 import { bidHome, homeBoard, parcelView } from '../property/index.ts';
 import { societyGate } from '../society/index.ts';
+import { acceptFuturePlan, declineFuturePlan, tendCirclePlans } from './plans.ts';
 import { contactsOf, knows, nudgeStanding, settlePaper } from '../social/index.ts';
 import { chooseShape, jobs, money, renderLetter, signedPct } from '../social/words.ts';
 
@@ -43,6 +44,7 @@ interface Bond {
   kin: number[];
   watched: number;
   kinIll?: string;
+  skips?: number;
 }
 interface Letter {
   id: number;
@@ -70,6 +72,8 @@ interface Ask {
   place: string;
   factId: number;
   note: string;
+  planId?: number;
+  socId?: number;
 }
 interface Mem { who: number; day: number; text: string; eventId: number; kind: string; open: number }
 interface Extra { slot: number; who: number; trust: number; friend: number }
@@ -108,6 +112,7 @@ interface Circle {
   cast: number;
   yMsg: number;
   yReq: number;
+  yPlans: number;
   openWorth: number;
   markWorth: number;
   rivalDone: number;
@@ -152,7 +157,7 @@ function box(w: World): Circle {
 function blank(): Circle {
   return {
     next: 1, letters: [], asks: [], bonds: [], extras: [], mems: [], sent: [], cast: 0,
-    yMsg: 0, yReq: 0, openWorth: -1, markWorth: -1, rivalDone: -1, allyDone: -1, testified: 0,
+    yMsg: 0, yReq: 0, yPlans: 0, openWorth: -1, markWorth: -1, rivalDone: -1, allyDone: -1, testified: 0,
     mileYear: -1, mileHome: 0, mileWorth: 0, nextExtra: DEG, waves: [], said: 0,
   };
 }
@@ -674,6 +679,7 @@ function reply(w: World, st: Circle, me: number, actor: string, msg: number, tex
 }
 function refuse(w: World, st: Circle, me: number, row: Ask, letter: Letter): CircleResult {
   row.status = 'no';
+  declineFuturePlan(w, row.id);
   const P = econ(w).P;
   const ev = w.events.emit('circle.refuse', `${P.name(me)} refuses ${P.name(row.from)}`, [letter.eventId], P.id(me));
   moveBond(w, st, row.from, -10, -12, -8, `You refused ${row.kind} on ${monthName(w.day)}`, ev);
@@ -687,6 +693,11 @@ function refuse(w: World, st: Circle, me: number, row: Ask, letter: Letter): Cir
 function accept(w: World, st: Circle, me: number, actor: string, row: Ask, letter: Letter): CircleResult {
   const P = econ(w).P;
   if (row.kind === 'loan') return lendTo(w, st, me, actor, row.from, row.cents, row);
+  if (row.kind === 'invite' && acceptFuturePlan(w, row.id)) {
+    row.status = 'yes';
+    const when = row.due > w.day ? `on day ${row.due}` : 'today';
+    return { status: 'accepted', eventId: row.eventId, text: `you will go to the ${row.place || 'invitation'} ${when}` };
+  }
   if (row.kind === 'invite') return host(w, st, me, actor, row.from, row.place || 'dinner', row);
   if (row.kind === 'intro') return meet(w, st, me, actor, row.from, row.other, row);
   if (row.kind === 'favour') return favour(w, st, me, actor, row, letter);
@@ -780,9 +791,16 @@ function billOf(w: World, place: string): number {
   return Math.max(100, Math.round(wage * 6));
 }
 function invite(w: World, st: Circle, me: number, actor: string, slot: number, place: string): CircleResult {
-  const where = place === 'club' || place === 'gala' || place === 'festival' ? place : 'dinner';
+  const raw = place.trim().toLowerCase();
+  const named = raw === 'club' || raw === 'gala' || raw === 'festival' || raw === 'drinks' || raw === 'deal' || raw === 'party' || raw === 'birthday' || raw === 'leaving' ? raw : 'dinner';
   const hit = resolve(w, st, me, slot, 'friend');
   if ('why' in hit) return { status: 'rejected', why: hit.why };
+  const pending = st.asks.find((a) => a.kind === 'invite' && a.status === 'pending' && a.from === hit.who && (a.place === raw || a.place === named) && ((a.planId ?? -1) >= 0 || (a.socId ?? -1) >= 0));
+  if (pending && acceptFuturePlan(w, pending.id)) {
+    pending.status = 'yes';
+    return { status: 'accepted', eventId: pending.eventId, text: `you will go to the ${pending.place}` };
+  }
+  const where = raw === 'club' || raw === 'gala' || raw === 'festival' ? raw : 'dinner';
   return host(w, st, me, actor, hit.who, where);
 }
 function host(w: World, st: Circle, me: number, actor: string, who: number, place: string, row?: Ask): CircleResult {
@@ -1684,47 +1702,9 @@ function inviteFrom(w: World, st: Circle, me: number): boolean {
   for (const a of st.asks) {
     if (a.kind === 'invite' && a.status === 'pending' && w.day > a.due) {
       a.status = 'lapsed';
+      if ((a.planId ?? -1) >= 0 || (a.socId ?? -1) >= 0) continue;
       moveBond(w, st, a.from, -2, -1, 0, `You let the ${a.place || 'invitation'} in ${monthName(a.day)} pass`, a.eventId, 0, false);
     }
-  }
-  if (Math.floor(w.day / 7) % 3 !== 2) return false;
-  const hosts = st.bonds.filter((b) => alive(w, b.who) && (b.role === 'friend' || b.role === 'family' || b.role === 'mentor'));
-  hosts.sort((a, b) => a.who - b.who);
-  if (!hosts.length) return false;
-  const places = ['dinner', 'club', 'gala'];
-  const turn = Math.floor(w.day / 21);
-  for (let k = 0; k < hosts.length; k++) {
-    const b = hosts[(turn + k) % hosts.length];
-    if (st.asks.some((a) => a.from === b.who && a.kind === 'invite' && a.status === 'pending')) continue;
-    const key = `inv:${b.who}:${Math.floor(w.day / 90)}`;
-    if (seen(st, key)) continue;
-    const place = places[turn % 3];
-    const cents = billOf(w, place);
-    const nb = neighbourhood(w, b.who) || neighbourhood(w, me) || 'the city';
-    const cause = b.why[b.why.length - 1]?.eventId ?? root(w);
-    const dueDay = w.day + 21;
-    const clock = `Say yes or no by day ${dueDay}. If I hear nothing, I'll take it as a no.`;
-    const host = pickLine(turn + b.who, [`I'll be there either way.`, `I'll keep the evening free if you come.`, `Come or don't. I'll go either way.`]);
-    const where = pickLine(turn * 3 + b.who, [
-      `Come to a ${place} in ${nb}.`,
-      `There's a ${place} in ${nb} if you want it.`,
-      `I'm going to a ${place} in ${nb}.`,
-    ]);
-    const bill = place === 'gala'
-      ? pickLine(turn * 5 + b.who, [
-        `You pay the city ${usd(cents)} for the ticket. ${clock}`,
-        `The ticket is ${usd(cents)}, and you pay it to the city. ${clock}`,
-        `${usd(cents)} goes from you to the city. ${clock}`,
-      ])
-      : pickLine(turn * 5 + b.who, [
-        `You pay ${usd(cents)}. ${clock}`,
-        `The bill is ${usd(cents)}, and it comes from you. ${clock}`,
-        `${usd(cents)} is yours to pay. ${clock}`,
-      ]);
-    const text = say(w, b.who, b.role, where, bill, host, 'invite');
-    askFor(w, st, b.who, b.role, 'invite', text, cause, { cents, place, due: dueDay });
-    mark(st, key);
-    return true;
   }
   return false;
 }
@@ -2165,6 +2145,8 @@ export const circle: Module = {
     const st = box(w);
     noteLayoffs(w, st, me);
     if ((w.day + 1) % 30 === 0) repay(w, st, me);
+    cast(w, st, me);
+    tendCirclePlans(w);
     week(w, st, me);
   },
   monthEnd(w) { settlePaper(w); },
@@ -2172,9 +2154,10 @@ export const circle: Module = {
     const st = box(w);
     const friends = st.bonds.filter((b) => b.role === 'friend' || b.score >= 55).length;
     const rivals = st.bonds.some((b) => b.role === 'rival') ? 1 : 0;
-    const out = { letters: st.yMsg, requests: st.yReq, friends, rivals };
+    const out = { letters: st.yMsg, requests: st.yReq, friends, rivals, plans: st.yPlans };
     st.yMsg = 0;
     st.yReq = 0;
+    st.yPlans = 0;
     return out;
   },
 };

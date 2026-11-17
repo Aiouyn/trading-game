@@ -1020,6 +1020,43 @@ export function standingOf(w: World, person: number): Standing {
   return { score, eventId, line };
 }
 
+/** Move the bond between two people, both ways, when they already know each other. */
+export function nudgeLink(w: World, a: number, b: number, delta: number): void {
+  const st = soc(w);
+  if (!st?.contact || delta === 0 || a < 0 || b < 0 || a === b) return;
+  const apply = (holder: number, who: number): void => {
+    if (holder >= st.cap) return;
+    const base = holder * DEG;
+    for (let k = 0; k < DEG; k++) {
+      if (st.contact[base + k] !== who) continue;
+      st.trust[base + k] = Math.max(0, Math.min(100, st.trust[base + k] + delta));
+      const q = (base + k) * 4;
+      st.bond[q + B_FRIEND] = Math.max(0, Math.min(100, st.bond[q + B_FRIEND] + delta));
+      if (delta < 0) st.bond[q + B_RESPECT] = Math.max(0, Math.min(100, st.bond[q + B_RESPECT] + delta));
+      return;
+    }
+  };
+  apply(a, b);
+  apply(b, a);
+}
+
+/** One private fact this person knows, without spreading it. */
+export function quietFact(w: World, person: number): { id: number; eventId: number; msg: string } | null {
+  const st = soc(w);
+  if (!st || person < 0 || person >= st.head.length) return null;
+  let c = st.head[person];
+  let n = 0;
+  while (c >= 0 && n < 16) {
+    const id = st.cellFact[c];
+    const f = st.facts[id];
+    c = st.cellNext[c];
+    n++;
+    if (!f || f.pub || f.drop || !f.msg || f.tag === 'insider.profit') continue;
+    return { id: f.id, eventId: f.eventId, msg: f.msg };
+  }
+  return null;
+}
+
 /** Move how the circle regards this person. Returns how many people were nudged. */
 export function nudgeStanding(w: World, person: number, delta: number): number {
   const st = soc(w), P = econ(w).P;

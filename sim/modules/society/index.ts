@@ -4,7 +4,8 @@
 // and catches up the player's reputation from new events.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import type { Ev } from '../../kernel/events.ts';
-import { type EconState } from '../economy/index.ts';
+import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
+import { circlePlansOn } from '../circle/plans.ts';
 import { PRISON } from '../economy/people.ts';
 import { contactsOf } from '../social/index.ts';
 import { money } from '../social/words.ts';
@@ -20,6 +21,20 @@ interface Story { day: number; person: number; dir: string; change: number; wort
 interface Hit { bank: number; bankWhy: string; prop: number; propWhy: string; forced: number }
 interface Item { kind: string; title: string; key: string; emit: boolean; cause: string; causeKey: string; meet: boolean }
 interface GateCmd { kind: string; slot?: number; place?: string }
+interface SocDate {
+  id: number;
+  day: number;
+  kind: string;
+  place: string;
+  who: number[];
+  title: string;
+  invite: number;
+  ask: number;
+  status: string;
+  cents: number;
+  eventId: number;
+  host: number;
+}
 
 interface Soc {
   root: number;
@@ -50,6 +65,10 @@ interface Soc {
   yStories: number;
   printed: number;
   marker: Record<string, number>;
+  dates: SocDate[];
+  yDates: number;
+  snubs: number;
+  dateNext: number;
 }
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -67,6 +86,7 @@ function blank(n: number): Soc {
     base: new Float64Array(n), hist, ringAt: 0, ringN: 0, bar: new Int16Array(n),
     rich: [], powerful: [], rank: 0, worth: 0, nextPerson: -1, gap: 0, ahead: false, households: 0, rankEvent: -1,
     stories: [], yStories: 0, printed: 0, marker: {},
+    dates: [], yDates: 0, snubs: 0, dateNext: 1,
   };
 }
 
@@ -650,6 +670,159 @@ export interface CalDay {
   items: { kind: string; title: string; eventId: number }[];
 }
 
+function mix(a: number, b: number, c: number): number {
+  let x = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b ^ 0xc2b2ae35, 0x27d4eb2f) ^ Math.imul(c, 0x165667b1);
+  x ^= x >>> 16;
+  return x >>> 0;
+}
+function datesOf(st: Soc): SocDate[] {
+  if (!st.dates) st.dates = [];
+  if (st.yDates === undefined) st.yDates = 0;
+  if (st.snubs === undefined) st.snubs = 0;
+  if (!st.dateNext) st.dateNext = 1;
+  return st.dates;
+}
+function wageOf(w: World): number { return Math.max(1, Math.round(econ(w).wage)); }
+function attendLine(names: string[]): string {
+  if (names.length <= 1) return `${names[0] ?? 'The rich list'} attends`;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} attend`;
+}
+function dayOk(st: Soc, day: number, today: number): boolean {
+  if (day <= today) return false;
+  const doy = ((day % 360) + 360) % 360;
+  if (HOLIDAY[doy] !== undefined || doy === 348) return false;
+  for (const d of st.dates) if (d.day === day && d.status !== 'gone') return false;
+  return true;
+}
+function societyGuests(w: World, st: Soc, me: number): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  const add = (i: number): void => {
+    if (out.length >= 6 || i < 0 || i === me || seen.has(i) || !usable(w, i)) return;
+    seen.add(i);
+    out.push(i);
+  };
+  for (const row of st.powerful) add(row.person);
+  for (const row of st.rich) add(row.person);
+  return out;
+}
+function playerInvited(w: World, st: Soc, me: number): boolean {
+  if (me < 0 || st.snubs >= 3) return false;
+  const P = econ(w).P;
+  const kin = me < P.n ? P.kin[me] : 0;
+  const onList = st.rich.some((r) => r.person === me);
+  if (st.rep < 20 && kin < 45) return false;
+  return st.rep >= 30 || kin >= 55 || onList;
+}
+function societyPay(w: World, from: number, cents: number, cause: number, spare: boolean): boolean {
+  const P = econ(w).P;
+  if (from < 0 || from >= P.n || !P.alive(from)) return false;
+  const n = Math.round(cents);
+  if (n < 1) return false;
+  const id = P.id(from);
+  const cash = Math.floor(w.ledger.balance(id, DEP));
+  if (spare && cash < n + wageOf(w) * 15) return false;
+  if (!spare && cash < n) return false;
+  return pay(w, id, GOV, n, 'society.pay', cause);
+}
+function closeDateAsk(w: World, id: number, status: string): void {
+  if (id < 0) return;
+  const asks = (w.state.circle as { asks?: { id: number; status: string }[] } | undefined)?.asks;
+  if (!asks) return;
+  for (const a of asks) if (a.id === id && (a.status === 'pending' || a.status === 'yes' || a.status === 'no')) a.status = status;
+}
+function scheduleDate(w: World, st: Soc): void {
+  const dates = datesOf(st);
+  const me = playerOf(w);
+  const guests = societyGuests(w, st, me);
+  if (guests.length < 2) return;
+  const host = guests[0];
+  const lead = 26 + (mix(w.day, host, 4) % 9);
+  let day = -1;
+  for (let i = 0; i < 6; i++) {
+    const d = w.day + lead + i;
+    if (dayOk(st, d, w.day)) { day = d; break; }
+  }
+  if (day < 0) return;
+  const kind = st.dateNext % 2 === 0 ? 'gala' : 'party';
+  const rooms = kind === 'gala' ? ['the charity rooms', 'the quay hall', 'the assembly'] : ['the hill house', 'the society rooms', 'a house on the rich list'];
+  const place = rooms[mix(w.day, host, 9) % rooms.length] ?? rooms[0];
+  const P = econ(w).P;
+  const names: string[] = [];
+  for (const i of guests) if (i >= 0 && i < P.n) names.push(P.name(i));
+  const invite = playerInvited(w, st, me) ? 1 : 0;
+  const who = invite && me >= 0 ? guests.concat(me) : guests.slice();
+  const title = kind === 'gala'
+    ? `Charity gala at ${place}. ${attendLine(names)}.${invite ? ' You are invited.' : ''}`
+    : `A society party at ${place}. ${attendLine(names)}.${invite ? ' You are invited.' : ''}`;
+  const cents = invite ? (kind === 'gala' ? Math.max(100, wageOf(w) * 40) : Math.max(100, wageOf(w) * 18)) : 0;
+  const cause = st.root || w.genesis;
+  const ev = w.events.emit('society.plan', title, [cause], P.id(host));
+  dates.push({
+    id: st.dateNext++, day, kind, place, who, title, invite, ask: -1, status: 'set', cents, eventId: ev, host,
+  });
+  st.marker.dated = w.day;
+}
+function resolveDate(w: World, st: Soc, d: SocDate): void {
+  const P = econ(w).P;
+  const me = playerOf(w);
+  const wage = wageOf(w);
+  const gift = Math.max(100, wage * (d.kind === 'gala' ? 12 : 10));
+  let paid = 0;
+  for (const who of d.who) {
+    if (paid >= 4 || who === me) continue;
+    if (societyPay(w, who, gift, d.eventId >= 0 ? d.eventId : (st.root || w.genesis), true)) paid++;
+  }
+  let went = false;
+  const cause = d.eventId >= 0 ? d.eventId : (st.root || w.genesis);
+  if (d.invite && me >= 0 && d.status === 'yes') {
+    if (societyPay(w, me, d.cents, cause, false)) {
+      went = true;
+      st.snubs = Math.max(0, st.snubs - 1);
+      bump(w, st, me, 6, 'party', 'You went to the party', cause);
+    } else {
+      st.snubs++;
+      bump(w, st, me, -2, 'party', 'You could not pay for the party', cause);
+    }
+  } else if (d.invite && me >= 0) {
+    st.snubs++;
+    bump(w, st, me, -2, 'party', 'You stayed away from the party', cause);
+  }
+  const you = !d.invite ? '' : went ? 'You went.' : 'You stayed away.';
+  const payNote = paid > 0 ? `${paid} from the list pay the city.` : '';
+  const tail = [payNote, you].filter(Boolean).join(' ');
+  const msg = tail ? `${d.title} ${tail}` : d.title;
+  const actor = d.host >= 0 && d.host < P.n ? P.id(d.host) : undefined;
+  const ev = w.events.emit('society.held', msg, [cause], actor);
+  d.eventId = ev;
+  d.status = 'held';
+  if (you) d.title = `${d.title.replace(/ You are invited\.$/, '')} ${you}`;
+  closeDateAsk(w, d.ask, went ? 'yes' : 'lapsed');
+  st.yDates++;
+}
+function tendDates(w: World, st: Soc): void {
+  const dates = datesOf(st);
+  for (const d of dates) {
+    if (d.day > w.day || d.status === 'held' || d.status === 'gone') continue;
+    resolveDate(w, st, d);
+  }
+  if (dates.length > 24) st.dates = dates.filter((d) => d.day >= w.day - 2);
+  if (w.day % 30 !== 4) return;
+  if (datesOf(st).some((d) => d.status !== 'gone' && d.day >= w.day && d.day < w.day + 30)) return;
+  scheduleDate(w, st);
+}
+function datedItems(w: World, st: Soc | undefined, day: number): { kind: string; title: string; eventId: number }[] {
+  const out: { kind: string; title: string; eventId: number }[] = [];
+  if (st?.dates) {
+    for (const d of st.dates) {
+      if (d.day !== day || d.status === 'gone') continue;
+      out.push({ kind: d.kind === 'gala' ? 'society.gala' : 'society.party', title: d.title, eventId: d.eventId >= 0 ? d.eventId : w.genesis });
+    }
+  }
+  for (const item of circlePlansOn(w, day)) out.push(item);
+  return out;
+}
+
 export function calendarOf(w: World): CalDay[] {
   const st = box(w);
   const out: CalDay[] = [];
@@ -657,17 +830,19 @@ export function calendarOf(w: World): CalDay[] {
     const day = w.day + i;
     const plan = planDay(day);
     const doy = ((day % 360) + 360) % 360;
+    const items = plan.items.map((item) => ({
+      kind: item.kind,
+      title: item.title,
+      eventId: st ? (st.marker[item.key] || (item.causeKey ? st.marker[item.causeKey] : 0) || causeNum(w, st, item.cause)) : w.genesis,
+    }));
+    for (const extra of datedItems(w, st, day)) items.push(extra);
     out.push({
       day,
       year: Math.floor(day / 360),
       month: Math.floor(doy / 30) + 1,
       date: (doy % 30) + 1,
       closed: plan.closed,
-      items: plan.items.map((item) => ({
-        kind: item.kind,
-        title: item.title,
-        eventId: st ? (st.marker[item.key] || (item.causeKey ? st.marker[item.causeKey] : 0) || causeNum(w, st, item.cause)) : w.genesis,
-      })),
+      items,
     });
   }
   return out;
@@ -977,6 +1152,7 @@ export const society: Module = {
     if (!st) return;
     postCalendar(w, st);
     refreshRep(w, st);
+    tendDates(w, st);
   },
 
   monthEnd(w) {
@@ -993,7 +1169,9 @@ export const society: Module = {
     if (!st) return {};
     report(w, st);
     const paper = st.yStories;
+    const parties = st.yDates ?? 0;
     st.yStories = 0;
+    st.yDates = 0;
     const top = st.rich[0]?.worth ?? 0;
     return {
       socRich: Math.round(top / 100),
@@ -1001,6 +1179,7 @@ export const society: Module = {
       socGap: Math.round(st.gap / 100),
       socRep: st.rep,
       socPaper: paper,
+      socParty: parties,
     };
   },
 };
