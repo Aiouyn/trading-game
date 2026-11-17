@@ -383,6 +383,30 @@ function yoyOf(s: EconState): number {
 
 interface Rel { slot: number; who: number; familiarity: number; trust: number; friendship: number; kind: string }
 
+/** A relationship as one sentence. The trust byte stays in the graph. */
+function relationSentence(name: string, word: string, kind: string): string {
+  const who = (name.trim().split(/\s+/)[0] || 'Someone');
+  let bond = `${who} is ${word.toLowerCase()}`;
+  if (word === 'Trusts you') bond = `${who} trusts you`;
+  else if (word === 'Confides') bond = `${who} confides in you`;
+  else if (word === 'Unsure') bond = `${who} is unsure of you`;
+  else if (word === 'Wary') bond = `${who} is wary of you`;
+  else if (word === 'Unknown' || word === 'Empty') return `You have not met ${who}`;
+  const tie = kind === 'family' ? 'you are family' : 'you work together';
+  return `${bond}; ${tie}`;
+}
+
+function heardOf(facts: FactRow[], heard: { factId: number; eventId: number; from: number; day: number }[], who: number): { factId: number; eventId: number; day: number; text: string }[] {
+  const out: { factId: number; eventId: number; day: number; text: string }[] = [];
+  for (const h of heard) {
+    if (h.from !== who) continue;
+    const fact = facts[h.factId];
+    if (!fact || fact.drop || !fact.msg) continue;
+    out.push({ factId: h.factId, eventId: fact.eventId ?? h.eventId, day: h.day, text: fact.msg });
+  }
+  return out;
+}
+
 function relations(w: World, person: number): Rel[] {
   const st = w.state.social as { contact?: Int32Array; fam?: Uint16Array; trust?: Uint8Array; bond?: Uint8Array; kind?: Uint8Array } | undefined;
   if (!st?.contact || person < 0) return [];
@@ -988,6 +1012,7 @@ function healthPanel(w: World): Record<string, unknown> {
     eventId: P.lastEv[index] >= 0 ? P.lastEv[index] : (epi?.eventId ?? w.genesis),
   }));
   const self = house.find((h) => h.index === me);
+  const care = careNotes(w, house.map((h) => h.index));
   return {
     health: self?.health ?? 0,
     illness: self?.illness ?? '',
@@ -996,7 +1021,66 @@ function healthPanel(w: World): Record<string, unknown> {
     eventId: self?.eventId ?? w.genesis,
     epidemic: epi,
     house,
+    visits: care.visits,
+    waves: care.waves,
   };
+}
+
+/** Hospital bills, sick leave, and recent care events. Read-only; the health book is unchanged. */
+function careNotes(w: World, people: number[]): { visits: Record<string, unknown>[]; waves: Record<string, unknown>[] } {
+  const P = econ(w).P;
+  const firms = econ(w).firms;
+  const st = w.state.health as {
+    dueWho?: Int32Array; dueAmt?: Int32Array; dueHosp?: Int16Array; dueN?: number; openEv?: number;
+  } | undefined;
+  const openEv = st?.openEv || w.genesis;
+  const ids = new Set<string>();
+  for (const i of people) if (i >= 0 && i < P.n) ids.add(P.id(i));
+  const visits: Record<string, unknown>[] = [];
+  const me = playerIndex(w);
+  if (me >= 0 && me < P.n && P.outUntil[me] > w.day) {
+    visits.push({
+      day: w.day, kind: 'stay', who: me,
+      text: `${P.name(me)} is away from work, under care`,
+      until: P.outUntil[me],
+      eventId: P.lastEv[me] >= 0 ? P.lastEv[me] : openEv,
+    });
+  }
+  const dueN = st?.dueN ?? 0;
+  const house = new Set(people);
+  if (st?.dueWho && st.dueAmt && st.dueHosp) {
+    for (let k = 0; k < dueN; k++) {
+      const who = st.dueWho[k];
+      const owed = st.dueAmt[k];
+      if (!house.has(who) || owed <= 0) continue;
+      const hosp = firms[st.dueHosp[k]];
+      visits.push({
+        day: w.day, kind: 'bill', who, owed,
+        hospital: hosp?.name ?? 'the hospital',
+        text: `${P.name(who)} owes care at ${hosp?.name ?? 'the hospital'}`,
+        eventId: P.lastEv[who] >= 0 ? P.lastEv[who] : openEv,
+      });
+    }
+  }
+  const found: Record<string, unknown>[] = [];
+  const waves: Record<string, unknown>[] = [];
+  const visitKind = new Set(['health.injury', 'health.debt', 'player.clinic', 'player.health']);
+  const waveKind = new Set(['health.arrive', 'health.quarantine']);
+  const count = w.events.count;
+  const start = Math.max(0, count - 16000);
+  for (let id = count - 1; id >= start; id--) {
+    if (found.length >= 12 && waves.length >= 6) break;
+    const e = w.events.get(id);
+    if (!e) continue;
+    if (waveKind.has(e.kind) && waves.length < 6) waves.push({ day: e.day, text: e.msg, eventId: e.id });
+    if (visitKind.has(e.kind) && found.length < 12 && e.actor && ids.has(e.actor)) {
+      const who = e.actor.startsWith('p_') ? Number(e.actor.slice(2)) : -1;
+      found.push({ day: e.day, kind: e.kind, who, text: e.msg, eventId: e.id });
+    }
+  }
+  found.reverse();
+  waves.reverse();
+  return { visits: visits.concat(found), waves };
 }
 
 function desks(w: World): Record<string, unknown>[] {
@@ -1882,18 +1966,23 @@ function screen(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const me = playerIndex(w);
   const rels = me >= 0 ? relations(w, me) : [];
+  const facts = (w.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
+  const heard = soleSeat(w)?.heard ?? [];
   const contacts = rels.map((r) => {
     const g = regardOf(w, me, r.slot);
+    const name = r.who >= 0 && r.who < P.n ? P.name(r.who) : '';
+    const told = heardOf(facts, heard, r.who);
     return {
       slot: r.slot,
       who: r.who,
-      name: r.who >= 0 && r.who < P.n ? P.name(r.who) : '',
+      name,
       kind: r.kind,
       word: g.word,
       line: g.line,
+      sentence: relationSentence(name, g.word, r.kind),
+      told,
     };
   });
-  const facts = (w.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
   const firms = econ(w).firms;
   const news = v.news.map((n) => {
     const fact = facts.find((f) => f && f.eventId === n.eventId && f.msg === n.text);
@@ -1903,7 +1992,6 @@ function screen(w: World): Record<string, unknown> {
     });
     return { ...n, firms: named };
   });
-  const heard = soleSeat(w)?.heard ?? [];
   const priv = v.private.map((p) => {
     const h = heard.find((x) => x.factId === p.factId);
     return { ...p, fromIndex: h?.from ?? -1 };
@@ -1943,6 +2031,7 @@ function screen(w: World): Record<string, unknown> {
   }
   const idx = indexPair(w);
   const firmsDir = firms.map((f) => ({ id: f.id, name: f.name }));
+  const job = me >= 0 && P.employer[me] >= 0 ? firms[P.employer[me]] : undefined;
   return {
     ...v,
     bonds: markedBonds(w, v.bonds),
@@ -1954,6 +2043,8 @@ function screen(w: World): Record<string, unknown> {
     bids: recentBids(w),
     companies: desks(w),
     player: me,
+    ageEvent: me >= 0 && P.lastEv[me] >= 0 ? P.lastEv[me] : w.genesis,
+    jobEvent: job ? (job.staffEv ?? job.ceoEv ?? econ(w).jobsWho ?? w.genesis) : w.genesis,
     contacts,
     news,
     private: priv,

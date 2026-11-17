@@ -23,8 +23,8 @@ import { HOME_EXAMPLE } from "./homeExample";
 import { TimeControls } from "@/shell/TimeControls";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire"];
-/** Messages is not a V1 dock app and must not migrate into the Home grid (deep link /messages still works). */
-const GRID_OMIT = new Set<AppId>([...BOTTOM, "messages"]);
+/** Dock apps stay in the bottom row, not the home grid. */
+const GRID_OMIT = new Set<AppId>(BOTTOM);
 const LONG_PRESS_MS = 400;
 /** Left-edge back swipe must start within this many px of the edge [P]. */
 const EDGE_START = 20;

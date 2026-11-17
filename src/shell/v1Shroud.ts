@@ -19,7 +19,7 @@ export const SHROUD = [
   { id: "ailab", flag: "v1.ailab", apps: ["ailab"], paths: ["ailab"] },
   { id: "politics", flag: "v1.politics", apps: ["civic"], paths: ["civic"] },
   { id: "businesses", flag: "v1.businesses", apps: ["businesses", "company"], paths: ["businesses", "company"] },
-  { id: "property", flag: "v1.property", apps: ["property", "estate"], paths: ["property", "estate"] },
+  { id: "property", flag: "v1.property", apps: ["property"], paths: ["property"] },
   { id: "terminal", flag: "v1.terminal", apps: ["quantlab", "research"], paths: ["quantlab", "research"] },
   { id: "whale", flag: "v1.whale", apps: [], paths: ["whale", "whale-watch"] },
   { id: "adversarial", flag: "v1.adversarial", apps: ["security", "legal"], paths: ["security", "legal"] },

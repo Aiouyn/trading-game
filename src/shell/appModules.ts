@@ -29,6 +29,11 @@ export const APP_MODULES = {
   bank: { kind: "lazy", load: () => import("@/apps/bank/App") },
   funds: { kind: "lazy", load: () => import("@/apps/funds/App") },
   insurance: { kind: "lazy", load: () => import("@/apps/insurance/App") },
+  profile: { kind: "lazy", load: () => import("@/apps/profile/App") },
+  estate: { kind: "lazy", load: () => import("@/apps/estate/App") },
+  messages: { kind: "lazy", load: () => import("@/apps/messages/App") },
+  health: { kind: "lazy", load: () => import("@/apps/health/App") },
+  academy: { kind: "lazy", load: () => import("@/apps/academy/App") },
 } as const satisfies Partial<Record<AppId, LazyBody | EagerBody>>;
 
 type Modules = typeof APP_MODULES;
