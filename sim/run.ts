@@ -26,6 +26,7 @@ import { law } from './modules/law/index.ts';
 import { crime } from './modules/crime/index.ts';
 import { politics } from './modules/politics/index.ts';
 import { player } from './modules/player/index.ts';
+import { circle } from './modules/circle/index.ts';
 import { history } from './modules/history/index.ts';
 import { simulate } from './modules/history/boot.ts';
 import { installRng } from './modules/history/rngbox.ts';
@@ -58,6 +59,7 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('crime')) w.use(crime);
   if (!without.has('politics')) w.use(politics);
   if (!without.has('player')) w.use(player);
+  if (!without.has('circle')) w.use(circle);
   if (!without.has('history')) w.use(history);
 }
 

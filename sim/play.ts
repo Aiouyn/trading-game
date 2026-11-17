@@ -300,6 +300,43 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!t[1]) return { error: 'usage: quote FIRM' };
     return { kind: 'quote', firm: t.slice(1).join(' ') };
   }
+  if (head === 'mail' || head === 'inbox') return { kind: 'mail' };
+  if (head === 'reply') {
+    const msg = Number(t[1]);
+    const text = t.slice(2).join(' ');
+    if (!Number.isSafeInteger(msg) || msg < 0 || !text) return { error: 'usage: reply MSG yes|no|TEXT' };
+    return { kind: 'reply', msg, text };
+  }
+  if (head === 'lend' || head === 'gift') {
+    let slot = -1;
+    let money = t[1];
+    if (t[2]) {
+      slot = Number(t[1]);
+      money = t[2];
+      if (!Number.isSafeInteger(slot) || slot < 0) return { error: `usage: ${head} [SLOT] DOLLARS` };
+    }
+    const cents = money ? centsOf(money) : undefined;
+    if (!cents) return { error: `usage: ${head} [SLOT] DOLLARS` };
+    return head === 'gift' ? { kind: 'gift', slot, cents } : { kind: 'lend', slot, cents };
+  }
+  if (head === 'invite') {
+    const places = new Set(['dinner', 'club', 'gala']);
+    let slot = -1;
+    let place = (t[1] ?? 'dinner').toLowerCase();
+    if (t[2]) {
+      slot = Number(t[1]);
+      place = t[2].toLowerCase();
+      if (!Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: invite [SLOT] dinner|club|gala' };
+    }
+    if (!places.has(place)) return { error: 'usage: invite [SLOT] dinner|club|gala' };
+    return { kind: 'invite', slot, place };
+  }
+  if (head === 'introduce') {
+    if (!t[1]) return { kind: 'introduce', slot: -1 };
+    const slot = Number(t[1]);
+    if (!Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: introduce [SLOT]' };
+    return { kind: 'introduce', slot };
+  }
   return { error: `unknown command ${head}. ${suggestCommand(head)}` };
 }
 

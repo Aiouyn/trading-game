@@ -18,6 +18,7 @@ import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf,
 import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
 import { storyLines, tellWeek, type StoryLine } from './story.ts';
 import { noteAct, skipTutorial, tutorialOf, type TutorialState, type TutorialView } from './tutorial.ts';
+import { circleAct } from '../circle/index.ts';
 
 export const PLAYER = 8;
 
@@ -148,7 +149,13 @@ export type Command =
   | { kind: 'report'; slot: number; text: string }
   | { kind: 'hints'; on: boolean }
   | { kind: 'story' }
-  | { kind: 'sheet' };
+  | { kind: 'sheet' }
+  | { kind: 'reply'; msg: number; text: string }
+  | { kind: 'lend'; slot: number; cents: number }
+  | { kind: 'invite'; slot: number; place: string }
+  | { kind: 'gift'; slot: number; cents: number }
+  | { kind: 'introduce'; slot: number }
+  | { kind: 'mail' };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -275,6 +282,12 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nhints off also skips the first-paycheck lesson.' },
   { topic: 'help', name: 'sheet', use: 'sheet', about: 'Read your balance sheet: cash, what you own, and what you owe.\nIt is the first thing the lesson asks you to do.' },
   { topic: 'help', name: 'story', use: 'story', about: 'Write the chronicle of this life: what mattered, the family, the firms, and the city.\nThe same account is written at the end of a game.' },
+  { topic: 'people', name: 'mail', use: 'mail', about: 'Read letters from the people you know.\nEach one names the event it comes from.' },
+  { topic: 'people', name: 'reply', use: 'reply 3 yes', about: 'Answer letter 3 with yes, no, or a few words.\nA refusal changes the bond.' },
+  { topic: 'people', name: 'lend', use: 'lend 500', about: 'Lend dollars to a friend, or lend 2 500 to contact 2.\nThe money moves, and they pay it back if they can.' },
+  { topic: 'people', name: 'invite', use: 'invite dinner', about: 'Invite someone to dinner, a club or a charity gala.\ninvite 2 gala names the contact. It costs money and can introduce you.' },
+  { topic: 'people', name: 'gift', use: 'gift 200', about: 'Give dollars to a friend, or gift 2 200 to contact 2.\nA gift can settle a promise.' },
+  { topic: 'people', name: 'introduce', use: 'introduce', about: 'Ask a friend to introduce their contact.\nintroduce 2 names the contact. The new person starts with less trust.' },
 ];
 
 function editDistance(a: string, b: string): number {
@@ -1884,6 +1897,13 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!lines) return rejected(`no such firm ${cmd.firm}`);
       return { status: 'accepted', lines };
     }
+    case 'reply':
+    case 'lend':
+    case 'invite':
+    case 'gift':
+    case 'introduce':
+    case 'mail':
+      return circleAct(w, i, id, cmd);
     default: {
       const never: never = cmd;
       return never;

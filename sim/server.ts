@@ -25,6 +25,7 @@ import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './
 import { civicSnapshot } from './modules/politics/index.ts';
 import { attentionOf } from './modules/law/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
+import { circleBoard, circlePerson } from './modules/circle/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
@@ -327,6 +328,32 @@ function commandOf(body: unknown): Command | string {
       return { kind: 'hints', on: b.on };
     }
     case 'story': return { kind: 'story' };
+    case 'reply': {
+      const msg = whole(b.msg, 0);
+      if (msg === undefined) return 'reply needs a message';
+      if (typeof b.text !== 'string' || !b.text.trim()) return 'reply needs yes, no, or a few words';
+      return { kind: 'reply', msg, text: b.text.trim() };
+    }
+    case 'lend':
+    case 'gift': {
+      const cents = whole(b.cents, 1);
+      if (cents === undefined) return 'amount is in cents';
+      const slot = b.slot === undefined ? -1 : whole(b.slot, 0);
+      if (slot === undefined) return 'slot is a contact number';
+      return b.kind === 'gift' ? { kind: 'gift', slot, cents } : { kind: 'lend', slot, cents };
+    }
+    case 'invite': {
+      const place = typeof b.place === 'string' && b.place.trim() ? b.place.trim() : 'dinner';
+      const slot = b.slot === undefined ? -1 : whole(b.slot, 0);
+      if (slot === undefined) return 'slot is a contact number';
+      return { kind: 'invite', slot, place };
+    }
+    case 'introduce': {
+      const slot = b.slot === undefined ? -1 : whole(b.slot, 0);
+      if (slot === undefined) return 'slot is a contact number';
+      return { kind: 'introduce', slot };
+    }
+    case 'mail': return { kind: 'mail' };
     default: return 'unknown command';
   }
 }
@@ -2602,10 +2629,12 @@ function screen(w: World): Record<string, unknown> {
   const rels = me >= 0 ? relations(w, me) : [];
   const facts = (w.state.social as { facts?: FactRow[] } | undefined)?.facts ?? [];
   const heard = soleSeat(w)?.heard ?? [];
+  const board = circleBoard(w);
   const contacts = rels.map((r) => {
     const g = regardOf(w, me, r.slot);
     const name = r.who >= 0 && r.who < P.n ? P.name(r.who) : '';
     const told = heardOf(facts, heard, r.who);
+    const person = board.people[r.who];
     return {
       slot: r.slot,
       who: r.who,
@@ -2615,8 +2644,28 @@ function screen(w: World): Record<string, unknown> {
       line: g.line,
       sentence: relationSentence(name, g.word, r.kind),
       told,
+      role: person?.role ?? (r.kind === 'family' ? 'family' : 'colleague'),
+      stance: person?.stance ?? '',
+      bond: person?.bond ?? { word: g.word, score: 0, why: [] as { day: number; delta: number; text: string; eventId: number }[] },
+      together: person?.together ?? [],
     };
   });
+  for (const extra of board.added) {
+    contacts.push({
+      slot: extra.slot,
+      who: extra.who,
+      name: extra.name,
+      kind: 'work',
+      word: extra.word,
+      line: extra.why[extra.why.length - 1]?.text ?? '',
+      sentence: relationSentence(extra.name, extra.word, 'work'),
+      told: heardOf(facts, heard, extra.who),
+      role: extra.role,
+      stance: extra.stance,
+      bond: { word: extra.word, score: extra.score, why: extra.why },
+      together: extra.together,
+    });
+  }
   const firms = econ(w).firms;
   const news = v.news.map((n) => {
     const fact = facts.find((f) => f && f.eventId === n.eventId && f.msg === n.text);
@@ -2680,6 +2729,7 @@ function screen(w: World): Record<string, unknown> {
     ageEvent: me >= 0 && P.lastEv[me] >= 0 ? P.lastEv[me] : w.genesis,
     jobEvent: job ? (job.staffEv ?? job.ceoEv ?? econ(w).jobsWho ?? w.genesis) : w.genesis,
     contacts,
+    inbox: board.inbox,
     news,
     private: priv,
     nwChange,
@@ -2990,6 +3040,7 @@ function personPage(w: World, index: number): Record<string, unknown> | undefine
     wealthBand: bandOf(cents, wealthEdges(w)),
     moodWord: moodWord(mood),
     contact: rel ? { slot: rel.slot, kind: rel.kind, ...regardOf(w, me, rel.slot) } : null,
+    circle: circlePerson(w, index),
     inner: innerOf(w, index),
     lastEvent: P.lastEv[index] >= 0 ? P.lastEv[index] : undefined,
   };
