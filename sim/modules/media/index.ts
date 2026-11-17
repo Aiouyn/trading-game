@@ -11,6 +11,7 @@ import { addFirm, DEP, pay, type EconState, type Firm } from '../economy/index.t
 import { askFirm, contactsOf, knows, publish, seatPerson } from '../social/index.ts';
 import { CITY, money, sectorWord, signedPct } from '../social/words.ts';
 import { cancelOrder, submitOrder } from '../markets/index.ts';
+import { wireDay, wireMonth, wireStats } from './wire.ts';
 
 interface Outlet {
   id: string; name: string; readership: number; leaning: number; serious: boolean;
@@ -496,6 +497,7 @@ export const media: Module = {
     cancelResting(w);
     desks(w);
     watch(w);
+    wireDay(w, (issuer, side, trust, outlet, weight) => trade(w, issuer, side, trust, outlet, weight));
     consider(w);
     spread(w);
     plant(w);
@@ -506,6 +508,7 @@ export const media: Module = {
     if (!w.state.media || !soc(w)) return;
     subscriptions(w);
     judge(w);
+    wireMonth(w, (issuer, side, trust, outlet, weight) => trade(w, issuer, side, trust, outlet, weight));
   },
   stats(w) {
     const b = book(w);
@@ -514,6 +517,7 @@ export const media: Module = {
       scSerious: b.yScoopSe, reSerious: b.yRetractSe, scSens: b.yScoopSn, reSens: b.yRetractSn,
       rumours: b.yRumours, trusted: trustedName(b),
     };
+    Object.assign(out, wireStats(w));
     b.yStories = 0; b.yScoops = 0; b.yRetract = 0; b.yRumours = 0;
     b.yScoopSe = 0; b.yScoopSn = 0; b.yRetractSe = 0; b.yRetractSn = 0;
     return out;
