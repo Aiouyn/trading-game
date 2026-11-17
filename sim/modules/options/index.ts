@@ -936,6 +936,8 @@ function wealth(w: World): number {
 export interface OptRow {
   id: string;
   instr: string;
+  /** Firm name. Player-facing lines use this, not the instrument id. */
+  name: string;
   right: Right;
   strike: number;
   months: number;
@@ -946,9 +948,14 @@ export interface OptRow {
   eventId: number;
 }
 
+function underlyingName(w: World, issuer: string, instr: string): string {
+  const firm = econ(w).firms.find((f) => f.id === issuer);
+  return firm?.name ?? instr;
+}
+
 function rowOf(w: World, c: Contract, actor: string): OptRow {
   return {
-    id: c.longId, instr: c.instr, right: c.right, strike: c.strike,
+    id: c.longId, instr: c.instr, name: underlyingName(w, c.issuer, c.instr), right: c.right, strike: c.strike,
     months: c.expMonth - w.month, bid: c.bid, ask: c.ask,
     oi: issued(w, c.longId), net: actor ? netOf(w, actor, c) : 0,
     eventId: (w.state.options as { root?: number } | undefined)?.root ?? w.genesis,

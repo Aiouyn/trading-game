@@ -10,7 +10,10 @@ import { playerIndex, type ActResult, type Command } from '../player/index.ts';
 
 export interface OccRow { id: string; name: string; pay: number; school: number; rank: number }
 
-interface App { person: number; firm: number; occ: number; due: number; n: number }
+interface App {
+  person: number; firm: number; occ: number; due: number; n: number;
+  wage: number; day: number; better: number; pool: number; role: string;
+}
 interface Refusal { person: number; firm: number; day: number }
 interface StudyRow { person: number; occ: number; due: number }
 interface Notice { person: number; day: number; text: string }
@@ -30,6 +33,7 @@ interface Opening {
   n: number;
   firm: number;
   name: string;
+  sector: string;
   occ: number;
   role: string;
   gap: number;
@@ -42,7 +46,26 @@ interface Opening {
   youHealth: number;
   taken: boolean;
   note: string;
+  better: number;
+  pool: number;
 }
+
+/** Spoken seat, by the work the firm does. The occupation file's "trade" is not a job title. */
+const ROLES: Record<string, string[]> = {
+  MINING: ['pit hand', 'fitter', 'weigh clerk', 'mine engineer', 'cost clerk', 'shift boss', 'mine superintendent'],
+  CONSTRUCTION: ['site hand', 'carpenter', 'site clerk', 'site engineer', 'quantity surveyor', 'site manager', 'contracts director'],
+  ENERGY: ['plant hand', 'rigger', 'plant clerk', 'plant engineer', 'cost analyst', 'plant manager', 'works director'],
+  METALS: ['mill hand', 'millwright', 'mill clerk', 'metallurgist', 'cost analyst', 'mill manager', 'works director'],
+  CHEMICALS: ['process hand', 'process operator', 'plant clerk', 'process engineer', 'cost analyst', 'plant manager', 'works director'],
+  AGRICULTURE: ['farm hand', 'stock hand', 'farm clerk', 'agronomist', 'bookkeeper', 'farm manager', 'estate director'],
+  MANUFACTURING: ['factory hand', 'machinist', 'factory clerk', 'production engineer', 'cost accountant', 'factory manager', 'works director'],
+  TRANSPORT: ['docker', 'driver', 'dispatch clerk', 'transport engineer', 'rates clerk', 'depot manager', 'operations director'],
+  HEALTHCARE: ['orderly', 'nurse', 'ward clerk', 'clinical engineer', 'billing officer', 'ward manager', 'medical director'],
+  RETAIL: ['shelf hand', 'shop assistant', 'shop clerk', 'maintenance engineer', 'buyer', 'store manager', 'retail director'],
+  TECHNOLOGY: ['bench hand', 'technician', 'office clerk', 'software engineer', 'financial analyst', 'team manager', 'technical director'],
+  FINANCE: ['office hand', 'accounts clerk', 'bookkeeper', 'analyst', 'underwriter', 'branch manager', 'finance director'],
+  MEDIA: ['runner', 'technician', 'copy clerk', 'broadcast engineer', 'accountant', 'desk editor', 'editor'],
+};
 
 let api: CareerApi | undefined;
 
@@ -80,6 +103,22 @@ function usd(cents: number): string {
 
 function counted(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+function roleTitle(sector: string, occ: number): string {
+  const row = occAt(occ);
+  const titles = ROLES[sector] ?? ROLES.MANUFACTURING;
+  const titled = row ? titles[row.rank - 1] : '';
+  return titled || row?.name || 'hand';
+}
+
+/** Plain odds. Most of the queue being stronger is a long shot; few ahead is likely. */
+function chance(better: number, pool: number): string {
+  if (pool <= 0 || better <= 0) return 'likely';
+  const ratio = better / pool;
+  if (ratio >= 0.6) return 'a long shot';
+  if (ratio >= 0.3) return 'a fair chance';
+  return 'likely';
 }
 
 /** The labour module's wage multiple. Zero means the plant is struck and hires nobody. */
@@ -141,11 +180,6 @@ function canWork(w: World, i: number): string {
   return '';
 }
 
-function rootCause(w: World): number {
-  const st = w.state.careers as { openEv?: number } | undefined;
-  return st?.openEv || econ(w).macroEv || w.genesis;
-}
-
 function weekly(w: World, person: number, firmIdx: number, occ: number): number {
   if (!api) return 0;
   const s = econ(w), P = s.P;
@@ -155,15 +189,15 @@ function weekly(w: World, person: number, firmIdx: number, occ: number): number 
   return Math.round(skill * s.wage * 7 * (prem > 0 ? prem : 1));
 }
 
-function compare(w: World, person: number, f: Firm, occ: number, gap: number): { taken: boolean; note: string; askExp: number; askSchool: number; askHealth: number; youExp: number; youSchool: number; youHealth: number } {
+function compare(w: World, person: number, f: Firm, occ: number, gap: number): { taken: boolean; note: string; askExp: number; askSchool: number; askHealth: number; youExp: number; youSchool: number; youHealth: number; better: number; pool: number } {
   const row = occAt(occ);
   const P = econ(w).P;
   const ask = row ? asks(row) : { exp: 0, school: 6, health: 30 };
   const youSchool = schoolOf(P, person);
   const youExp = yearsOf(P, person, occ);
   const youHealth = P.health[person];
-  const blank = { askExp: ask.exp, askSchool: ask.school, askHealth: ask.health, youExp, youSchool, youHealth };
-  if (!api || !row) return { ...blank, taken: false, note: 'that trade is not hired' };
+  const blank = { askExp: ask.exp, askSchool: ask.school, askHealth: ask.health, youExp, youSchool, youHealth, better: 0, pool: 0 };
+  if (!api || !row) return { ...blank, taken: false, note: 'that seat is not hired' };
   if (f.closed) return { ...blank, taken: false, note: 'the firm is closed' };
   if (!(wagePrem(w, f.idx) > 0)) return { ...blank, taken: false, note: 'the plant is struck and is not hiring' };
   if (!(gap > 1)) return { ...blank, taken: false, note: 'the firm is not short of staff' };
@@ -171,7 +205,7 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
   if (block) return { ...blank, taken: false, note: block };
   if (!api.qualifies(youSchool, occ, false)) return { ...blank, taken: false, note: `school ${youSchool} is short of ${ask.school}` };
   if (youHealth < ask.health) return { ...blank, taken: false, note: `health ${youHealth} is short of ${ask.health}` };
-  if (youExp < ask.exp) return { ...blank, taken: false, note: `${youExp} years is short of ${ask.exp}` };
+  if (youExp < ask.exp) return { ...blank, taken: false, note: `${counted(youExp, 'year', 'years')} is short of ${ask.exp}` };
   const mine = labourOf(P, person, w.day);
   let pool = 0, better = 0;
   const adultLine = w.day - 18 * 360;
@@ -184,8 +218,7 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
     pool++;
     if (labourOf(P, i, w.day) > mine) better++;
   }
-  const ahead = pool ? `${better} of ${pool} qualified applicants are stronger, and the seat is still open` : 'no other qualified applicant is in the queue';
-  return { ...blank, taken: true, note: `you qualify. ${ahead}` };
+  return { ...blank, taken: true, better, pool, note: chance(better, pool) };
 }
 
 function openings(w: World, person: number): Opening[] {
@@ -198,14 +231,13 @@ function openings(w: World, person: number): Opening[] {
     const gap = firmGap(w, f);
     if (!(gap > 1)) continue;
     const occ = api.seatFor(w, f, person);
-    const role = occAt(occ)?.name ?? 'labourer';
     const cmp = compare(w, person, f, occ, gap);
     rows.push({
-      n: 0, firm: f.idx, name: f.name, occ, role, gap,
+      n: 0, firm: f.idx, name: f.name, sector: f.sector, occ, role: roleTitle(f.sector, occ), gap,
       wage: weekly(w, person, f.idx, occ),
       askExp: cmp.askExp, askSchool: cmp.askSchool, askHealth: cmp.askHealth,
       youExp: cmp.youExp, youSchool: cmp.youSchool, youHealth: cmp.youHealth,
-      taken: cmp.taken, note: cmp.note,
+      taken: cmp.taken, note: cmp.note, better: cmp.better, pool: cmp.pool,
     });
   }
   rows.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || b.gap - a.gap || a.firm - b.firm);
@@ -213,8 +245,41 @@ function openings(w: World, person: number): Opening[] {
   return rows;
 }
 
-function jobLine(o: Opening): string {
-  return `${o.n}. ${o.name} — ${o.role} — ${usd(o.wage)} a week — asks ${counted(o.askExp, 'year', 'years')}, school ${o.askSchool}, health ${o.askHealth} — you have ${counted(o.youExp, 'year', 'years')}, school ${o.youSchool}, health ${o.youHealth} — ${o.note}`;
+interface RoleGroup { n: number; role: string; firms: Opening[]; lo: number; hi: number }
+
+function boards(w: World, person: number): RoleGroup[] {
+  const rows = openings(w, person);
+  const map = new Map<string, Opening[]>();
+  for (const o of rows) {
+    const list = map.get(o.role);
+    if (list) list.push(o);
+    else map.set(o.role, [o]);
+  }
+  const groups: RoleGroup[] = [];
+  for (const [role, firms] of map) {
+    firms.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || a.better - b.better || b.wage - a.wage || a.name.localeCompare(b.name));
+    let lo = firms[0].wage, hi = firms[0].wage;
+    for (const f of firms) {
+      if (f.wage < lo) lo = f.wage;
+      if (f.wage > hi) hi = f.wage;
+    }
+    groups.push({ n: 0, role, firms, lo, hi });
+  }
+  groups.sort((a, b) => {
+    const A = a.firms[0], B = b.firms[0];
+    return (B.taken ? 1 : 0) - (A.taken ? 1 : 0) || A.better - B.better || b.hi - a.hi || a.role.localeCompare(b.role);
+  });
+  for (let i = 0; i < groups.length; i++) groups[i].n = i + 1;
+  return groups;
+}
+
+function groupLine(g: RoleGroup): string {
+  const best = g.firms[0];
+  const more = g.firms.length - 1;
+  const where = more > 0 ? `${best.name} and ${more} more` : best.name;
+  const wage = g.lo === g.hi ? `${usd(g.lo)} a week` : `${usd(g.lo)} to ${usd(g.hi)} a week`;
+  const role = g.role.charAt(0).toUpperCase() + g.role.slice(1);
+  return `${g.n}. ${role} — ${where} — ${wage} — asks ${counted(best.askExp, 'year', 'years')}, school ${best.askSchool}, health ${best.askHealth} — ${best.note}`;
 }
 
 function currentJob(w: World, person: number): string {
@@ -224,8 +289,8 @@ function currentJob(w: World, person: number): string {
   if (e < 0) return 'no job';
   const f = s.firms[e];
   if (!f) return 'no job';
-  const role = occAt(P.occ[person])?.name;
-  return role ? `${aan(role)} at ${f.name}` : `at ${f.name}, with no trade recorded`;
+  const title = P.occ[person] > 0 ? roleTitle(f.sector, P.occ[person]) : '';
+  return title ? `${aan(title)} at ${f.name}` : `working at ${f.name}`;
 }
 
 function performance(w: World, person: number): number {
@@ -296,25 +361,27 @@ function fieldOcc(field: string): number {
 }
 
 function listJobs(w: World, person: number): ActResult {
-  const rows = openings(w, person);
-  const show = rows.slice(0, 12);
+  const groups = boards(w, person);
+  const show = groups.slice(0, 5);
   const lines = [`You are ${currentJob(w, person) === 'no job' ? 'out of work' : currentJob(w, person)}. ${careerCard(w, person).openings}.`];
   if (!show.length) lines.push('No firm is short of staff.');
-  for (const o of show) lines.push(jobLine(o));
-  if (rows.length > show.length) lines.push(`and ${rows.length - show.length} more.`);
+  for (const g of show) lines.push(groupLine(g));
+  if (groups.length > show.length) lines.push(`and ${counted(groups.length - show.length, 'more role', 'more roles')}.`);
   const pending = book(w).apps.find((a) => a.person === person);
   if (pending) {
     const f = econ(w).firms[pending.firm];
-    lines.push(`Waiting on ${f?.name ?? 'a firm'} for ${occAt(pending.occ)?.name ?? 'a seat'}. They answer on day ${pending.due}.`);
+    const seat = pending.role || roleTitle(f?.sector ?? '', pending.occ);
+    lines.push(`Waiting on ${f?.name ?? 'a firm'} for ${aan(seat)}. They answer on day ${pending.due}.`);
   }
   for (const n of book(w).notices) if (n.person === person && w.day - n.day <= 12) lines.push(n.text);
   return { status: 'accepted', lines };
 }
 
 function applyJob(w: World, person: number, n: number): ActResult {
-  const rows = openings(w, person);
-  const o = rows.find((r) => r.n === n);
-  if (!o) return rejected(rows.length ? `jobs are numbered 1 to ${Math.min(12, rows.length)}` : 'no firm is hiring');
+  const groups = boards(w, person);
+  const g = groups.find((r) => r.n === n);
+  const o = g?.firms[0];
+  if (!g || !o) return rejected(groups.length ? `jobs are numbered 1 to ${Math.min(5, groups.length)}` : 'no firm is hiring');
   const st = book(w);
   const pending = st.apps.find((a) => a.person === person);
   if (pending) {
@@ -323,7 +390,10 @@ function applyJob(w: World, person: number, n: number): ActResult {
   }
   if (!o.taken) return rejected(`${o.name} will not see you for ${aan(o.role)}. ${o.note}`);
   const due = w.day + 3;
-  st.apps.push({ person, firm: o.firm, occ: o.occ, due, n: o.n });
+  st.apps.push({
+    person, firm: o.firm, occ: o.occ, due, n: g.n, wage: o.wage, day: w.day,
+    better: o.better, pool: o.pool, role: o.role,
+  });
   const wait = due - w.day;
   return { status: 'accepted', text: `You apply to ${o.name} for ${aan(o.role)} at ${usd(o.wage)} a week. They answer in ${counted(wait, 'day', 'days')}.` };
 }
@@ -334,8 +404,7 @@ function quitJob(w: World, person: number): ActResult {
   if (e < 0) return rejected('you have no job');
   const f = s.firms[e];
   if (!f) return rejected('you have no job');
-  const cause = rootCause(w);
-  const ev = w.events.emit('career.quit', `${P.name(person)} leaves ${f.name}`, [cause], P.id(person));
+  const ev = w.events.emit('career.quit', `${P.name(person)} leaves ${f.name} || you quit`, [w.genesis], P.id(person));
   setSimDay(w.day);
   if (f.ceo === person) succession(w, s, f, person, 'quit', ev);
   leaveJob(s, person);
@@ -357,11 +426,10 @@ function askRaise(w: World, person: number): ActResult {
   const tenure = P.occ[person] > 0 ? P.occYrs[person] : 0;
   const profit = f.lastProfit;
   const score = perf * 0.55 + Math.min(1, tenure / 4) * 0.3 + (profit > 0 ? 0.2 : profit < 0 ? -0.15 : 0.05);
-  const cause = rootCause(w);
   if (!(score >= 0.72) || profit < 0) {
     st.refused.push({ person, firm: f.idx, day: w.day });
-    const why = profit < 0 ? `${f.name} is losing money` : tenure < 1 ? 'you have not been in the trade a year' : 'the work has not stood out';
-    const ev = w.events.emit('career.raise', `${P.name(person)} is refused a raise at ${f.name}`, [cause, f.ceoEv ?? cause], P.id(person));
+    const why = profit < 0 ? `${f.name} is losing money` : tenure < 1 ? 'you had less than a year of tenure' : 'the work has not stood out';
+    const ev = w.events.emit('career.raise', `${P.name(person)} is refused a raise at ${f.name} || ${why}`, [w.genesis], P.id(person));
     const text = `${f.name} refuses the raise. ${why.charAt(0).toUpperCase()}${why.slice(1)}.`;
     const from = boss(w, f, person);
     if (from >= 0) postLetter(w, from, text, ev);
@@ -373,7 +441,7 @@ function askRaise(w: World, person: number): ActResult {
   P.apt[person] = Math.min(2.6, P.apt[person] * 1.03);
   api.setSkill(w, person, api.paySkill(person, occ, P.occYrs[person], P));
   const payWeek = Math.round(P.skill[person] * s.wage * 7 * (wagePrem(w, f.idx) > 0 ? wagePrem(w, f.idx) : 1));
-  const ev = w.events.emit('career.raise', `${P.name(person)} is paid more at ${f.name}`, [cause, f.ceoEv ?? cause], P.id(person));
+  const ev = w.events.emit('career.raise', `${P.name(person)} is paid more at ${f.name} || the work stood out and the firm can pay`, [w.genesis], P.id(person));
   thought(w, s, person, -40, 'a raise', ev);
   const text = `${f.name} raises your pay. It is now ${usd(payWeek)} a week.`;
   const from = boss(w, f, person);
@@ -394,15 +462,14 @@ function studyField(w: World, person: number, field: string): ActResult {
   const pending = st.study.find((s) => s.person === person);
   if (pending) {
     const left = Math.max(0, pending.due - w.day);
-    return rejected(`you are already studying ${occAt(pending.occ)?.name ?? 'a trade'}, with ${counted(left, 'day', 'days')} left`);
+    return rejected(`you are already studying, with ${counted(left, 'day', 'days')} left`);
   }
   const P = econ(w).P;
   const days = 12 + 6 * row.rank;
   const cost = Math.round(econ(w).wage * (8 + 6 * row.rank));
   const id = P.id(person);
   if (Math.floor(w.ledger.balance(id, 'dep')) < cost) return rejected(`studying ${row.name} costs ${usd(cost)}, and you do not have it`);
-  const cause = rootCause(w);
-  const ev = w.events.emit('career.study', `${P.name(person)} starts studying ${row.name}`, [cause], id);
+  const ev = w.events.emit('career.study', `${P.name(person)} starts studying ${row.name} || you paid the fee`, [w.genesis], id);
   if (!pay(w, id, GOV, cost, 'career.study', ev)) return rejected('the fee did not leave your account');
   st.study.push({ person, occ, due: w.day + days });
   return { status: 'accepted', eventId: ev, text: `You start studying ${row.name}. It costs ${usd(cost)} and takes ${counted(days, 'day', 'days')}.` };
@@ -433,7 +500,7 @@ function finishStudy(w: World, row: StudyRow): void {
   const use = P.occ[row.person] > 0 ? P.occ[row.person] : row.occ;
   api.setSkill(w, row.person, api.paySkill(row.person, use, years, P));
   const text = `You finish studying ${occ.name}. Schooling is ${P.school[row.person]}${P.school[row.person] !== before ? `, up from ${before}` : ''}.`;
-  const ev = w.events.emit('career.study', `${P.name(row.person)} finishes studying ${occ.name}`, [rootCause(w)], P.id(row.person));
+  const ev = w.events.emit('career.study', `${P.name(row.person)} finishes studying ${occ.name} || you finished the course`, [w.genesis], P.id(row.person));
   notice(w, row.person, text);
   const e = P.employer[row.person];
   const f = e >= 0 ? econ(w).firms[e] : undefined;
@@ -441,45 +508,65 @@ function finishStudy(w: World, row: StudyRow): void {
   if (from >= 0) postLetter(w, from, text, ev);
 }
 
+/** Pay the wage that was on the posting. Schooling can rewrite skill before the letter; the offer does not move. */
+function pinOffer(w: World, person: number, firmIdx: number, offer: number): number {
+  const s = econ(w), P = s.P;
+  const prem = wagePrem(w, firmIdx);
+  const m = prem > 0 ? prem : 1;
+  const denom = s.wage * 7 * m;
+  if (api && offer > 0 && denom > 0) api.setSkill(w, person, Math.max(0.5, Math.min(3, offer / denom)));
+  return Math.round(P.skill[person] * s.wage * 7 * m);
+}
+
+function hireBecause(app: App): string {
+  const n = Math.max(1, (app.pool || 0) + 1);
+  const day = app.day ?? 0;
+  if ((app.better || 0) <= 0) return `you applied on day ${day} and were the strongest of ${n}`;
+  return `you applied on day ${day}; it was ${chance(app.better || 0, app.pool || 0)}, and the seat was still open`;
+}
+
 function resolveApp(w: World, app: App): void {
   if (!api) return;
   const s = econ(w), P = s.P;
   const f = s.firms[app.firm];
-  const role = occAt(app.occ)?.name ?? 'labourer';
-  const drop = (text: string): void => {
+  const role = app.role || (f ? roleTitle(f.sector, app.occ) : 'hand');
+  const drop = (text: string, why: string): void => {
     notice(w, app.person, `Letter: ${text}`);
-    if (f) {
-      const from = boss(w, f, app.person);
-      const ev = w.events.emit('career.refused', text, [rootCause(w), f.ceoEv ?? rootCause(w)], f.id);
-      if (from >= 0) postLetter(w, from, text, ev);
-    }
+    if (!f || app.person < 0 || app.person >= P.n) return;
+    const from = boss(w, f, app.person);
+    const ev = w.events.emit('career.refused', `${P.name(app.person)} is refused by ${f.name} || ${why}`, [w.genesis], P.id(app.person));
+    if (from >= 0) postLetter(w, from, text, ev);
   };
   if (!f || app.person < 0 || app.person >= P.n || !P.alive(app.person)) return;
   if (P.retired(app.person) || (P.flags[app.person] & 4) !== 0) {
-    drop(`${f.name} will not take you on as ${aan(role)}. You cannot take the shift.`);
+    drop(`${f.name} will not take you on as ${aan(role)}. You cannot take the shift.`, 'you could not take the shift');
     return;
   }
   const youSchool = schoolOf(P, app.person);
   const ask = asks(occAt(app.occ) ?? { id: '', name: role, pay: 1, school: 6, rank: 1 });
   if (!api.qualifies(youSchool, app.occ, false) || P.health[app.person] < 30 || P.outUntil[app.person] > w.day || yearsOf(P, app.person, app.occ) < ask.exp && (occAt(app.occ)?.rank ?? 1) > 2) {
-    drop(`${f.name} will not take you on as ${aan(role)}. You no longer meet what the seat asks.`);
+    drop(`${f.name} will not take you on as ${aan(role)}. You no longer meet what the seat asks.`, 'you no longer meet what the seat asks');
     return;
   }
   if (f.closed || !(wagePrem(w, f.idx) > 0)) {
-    drop(`${f.name} has stopped hiring.`);
+    drop(`${f.name} has stopped hiring.`, 'the firm stopped hiring');
     return;
   }
   const gap = firmGap(w, f);
   const lab = labourOf(P, app.person, w.day) || P.skill[app.person];
   if (gap - lab < -2) {
-    drop(`${f.name} filled the ${role} seat before your letter arrived.`);
+    drop(`${f.name} filled the ${role} seat before your letter arrived.`, 'the seat was filled before your letter arrived');
     return;
   }
-  const cause = rootCause(w);
-  const ev = w.events.emit('career.hired', `${P.name(app.person)} is hired as ${aan(role)} at ${f.name}`, [cause, f.ceoEv ?? cause], P.id(app.person));
+  const why = hireBecause(app);
+  const ev = w.events.emit('career.hired', `${P.name(app.person)} is hired as ${aan(role)} at ${f.name} || ${why}`, [w.genesis], P.id(app.person));
   api.place(w, app.person, f, app.occ, ev);
-  const payWeek = Math.round(P.skill[app.person] * s.wage * 7 * (wagePrem(w, f.idx) > 0 ? wagePrem(w, f.idx) : 1));
-  const text = `${f.name} takes you on as ${aan(role)} at ${usd(payWeek)} a week.`;
+  const posted = app.wage || 0;
+  const paid = pinOffer(w, app.person, f.idx, posted);
+  const offer = posted > 0 ? posted : paid;
+  const text = paid === offer
+    ? `${f.name} takes you on as ${aan(role)} at ${usd(offer)} a week.`
+    : `${f.name} takes you on as ${aan(role)} at ${usd(paid)} a week. The posting was ${usd(offer)}; the city wage moved before they wrote.`;
   const from = boss(w, f, app.person);
   if (from >= 0) postLetter(w, from, text, ev);
   notice(w, app.person, `Letter: ${text}`);

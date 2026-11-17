@@ -191,7 +191,7 @@ export interface PlayerView {
   cash: number;
   deposits: { bank: string; cents: number; eventId: number }[];
   loans: { kind: string; owed: number; rate: number; eventId: number }[];
-  shares: { instr: string; qty: number; px: number; eventId: number }[];
+  shares: { instr: string; name: string; qty: number; px: number; eventId: number }[];
   futures: { good: string; monthsAhead: number; net: number; px: number; eventId: number }[];
   coins: { id: string; name: string; qty: number; px: number; eventId: number }[];
   bonds: { instr: string; face: number; eventId: number }[];
@@ -447,17 +447,34 @@ export function helpLines(which: string, w?: World, playerId?: string): string[]
   return lines;
 }
 
+function shareName(w: World, instr: string): string {
+  const id = instr.startsWith('eq:') ? instr.slice(3) : instr;
+  const firm = econ(w).firms.find((f) => f.id === id || f.id === instr);
+  return firm?.name ?? '';
+}
+
 function optionLines(w: World, actor: string, instr: string): string[] {
   const all = optionChain(w, actor);
   if (!instr) {
     const names: string[] = [];
-    for (const r of all) if (!names.includes(r.instr)) names.push(r.instr);
-    return names.length ? ['underlyings: ' + names.join(', ')] : [optionWhy(w, '') || 'No options are listed.'];
+    for (const r of all) {
+      const label = r.name || shareName(w, r.instr);
+      if (label && !names.includes(label)) names.push(label);
+    }
+    return names.length ? ['Options are listed on ' + names.join(', ') + '.'] : [optionWhy(w, '') || 'No options are listed.'];
   }
   const key = stockInstr(w, instr) ?? instr;
-  const rows = all.filter((r) => r.instr === key || r.instr.toLowerCase().endsWith(instr.toLowerCase()));
+  const rows = all.filter((r) => r.instr === key || r.name.toLowerCase() === instr.toLowerCase() || r.instr.toLowerCase().endsWith(instr.toLowerCase()));
   if (!rows.length) return [optionWhy(w, key) || `No options are listed on ${instr}.`];
-  return rows.map((r) => `${r.right === 'C' ? 'call' : 'put'} strike ${(r.strike / 100).toFixed(2)} exp ${r.months} bid ${(r.bid / 100).toFixed(2)} ask ${(r.ask / 100).toFixed(2)} oi ${r.oi}${r.net ? ` net ${r.net}` : ''} id ${r.id}`);
+  return rows.map((r) => {
+    const side = r.right === 'C' ? 'call' : 'put';
+    const name = r.name || shareName(w, r.instr) || instr;
+    return `${side} on ${name}, strike ${(r.strike / 100).toFixed(2)}, ${countedMonths(r.months)}, bid ${(r.bid / 100).toFixed(2)}, ask ${(r.ask / 100).toFixed(2)}, open interest ${r.oi}${r.net ? `, you are ${r.net > 0 ? 'long' : 'short'} ${Math.abs(r.net)}` : ''}`;
+  });
+}
+
+function countedMonths(n: number): string {
+  return `${n} ${n === 1 ? 'month' : 'months'}`;
 }
 
 function homeLines(w: World, person: number): string[] {
@@ -1288,7 +1305,8 @@ function shortSell(w: World, st: PlayerSeat, id: string, instr: string, qty: num
   try {
     const orderId = submitOrder(w, id, { instr, side: 'sell', qty: got, limit });
     st.loans.push({ instr, qty: got, claim, face });
-    return { status: 'accepted', orderId, fill: got, eventId: cause, text: `borrowed ${got} ${instr} and offered them` };
+    const label = shareName(w, instr) || 'the shares';
+    return { status: 'accepted', orderId, fill: got, eventId: cause, text: `borrowed ${got} ${label} and offered them` };
   } catch (e) {
     w.ledger.redeem(claim, lender, face, 'mkt.borrow', cause);
     if (lender === 'fund_mm') returnShares(w, id, instr, got, cause);
@@ -1374,7 +1392,7 @@ function deskLines(w: World, actor: string): string[] {
     const name = econ(w).firms.find((x) => x.id === st.issuer)?.name ?? st.issuer;
     const chg = st.last - st.prev;
     const qty = Math.floor(w.ledger.balance(actor, st.instr));
-    lines.push(`${name} (${st.instr})  ${dollars(st.last)}  ${chg > 0 ? '+' : ''}${dollars(chg)}  vol ${st.vol}  P/E ${peOf(w, st)}  pos ${qty}`);
+    lines.push(`${name}  ${dollars(st.last)}  ${chg > 0 ? '+' : ''}${dollars(chg)}  vol ${st.vol}  P/E ${peOf(w, st)}  pos ${qty}`);
   }
   return lines;
 }
@@ -1440,7 +1458,8 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (cmd.side === 'short') return shortSell(w, st, id, instr, cmd.qty, cmd.limit);
       try {
         const orderId = submitOrder(w, id, { instr, side: cmd.side, qty: cmd.qty, limit: cmd.limit });
-        return { status: 'accepted', orderId, text: `${cmd.side} ${cmd.qty} ${instr}${cmd.limit ? ` @ ${(cmd.limit / 100).toFixed(2)}` : ''}` };
+        const label = shareName(w, instr) || 'the shares';
+        return { status: 'accepted', orderId, text: `${cmd.side} ${cmd.qty} ${label}${cmd.limit ? ` at $${(cmd.limit / 100).toFixed(2)}` : ''}` };
       } catch (e) { return rejected(whyOf(e)); }
     }
     case 'cancel': {
@@ -1823,18 +1842,21 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const cause = causeOf(w, st);
       const got = tradeOption(w, id, row.id, cmd.kind === 'write' ? 'write' : 'buy', cmd.qty, cause);
       if (got.qty < 1) return rejected(got.why || 'no fill');
+      const side = cmd.right === 'C' ? 'call' : 'put';
+      const name = row.name || shareName(w, instr) || 'the shares';
       const word = cmd.kind === 'write' ? 'writes' : 'buys';
-      const ev = w.events.emit('player.option', `${P.name(i)} ${word} ${cmd.right === 'C' ? 'a call' : 'a put'} on ${instr}`, [cause], id);
+      const because = cmd.kind === 'write' ? 'you wrote it yourself' : 'you bought it yourself';
+      const ev = w.events.emit('player.option', `${P.name(i)} ${word} a ${side} on ${name} shares || ${because}`, [cause], id);
       const verb = cmd.kind === 'write' ? 'wrote' : 'bought';
-      return { status: 'accepted', eventId: ev, fill: got.qty, text: `${verb} ${got.qty} @ ${(got.px / 100).toFixed(2)} (${row.id})` };
+      return { status: 'accepted', eventId: ev, fill: got.qty, text: `${verb} ${got.qty} ${side} on ${name} at $${(got.px / 100).toFixed(2)}` };
     }
     case 'optclose': {
       const cause = causeOf(w, st);
       if (cmd.id) {
         const got = tradeOption(w, id, cmd.id, 'close', cmd.qty, cause);
         if (got.qty < 1) return rejected(got.why || 'no fill');
-        const ev = w.events.emit('player.option', `${P.name(i)} closes an option`, [cause], id);
-        return { status: 'accepted', eventId: ev, fill: got.qty, text: `closed ${got.qty} @ ${(got.px / 100).toFixed(2)}` };
+        const ev = w.events.emit('player.option', `${P.name(i)} closes an option || you closed it yourself`, [cause], id);
+        return { status: 'accepted', eventId: ev, fill: got.qty, text: `closed ${got.qty} at $${(got.px / 100).toFixed(2)}` };
       }
       const instr = stockInstr(w, cmd.instr);
       if (!instr) return rejected(`not listed ${cmd.instr}`);
@@ -1843,10 +1865,14 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const lines: string[] = [];
       for (const r of open) {
         const got = tradeOption(w, id, r.id, 'close', cmd.qty || Math.abs(r.net), cause);
-        if (got.qty > 0) lines.push(`closed ${got.qty} ${r.id} @ ${(got.px / 100).toFixed(2)}`);
+        if (got.qty > 0) {
+          const side = r.right === 'C' ? 'call' : 'put';
+          const name = r.name || shareName(w, r.instr) || 'the shares';
+          lines.push(`closed ${got.qty} ${side} on ${name} at $${(got.px / 100).toFixed(2)}`);
+        }
       }
       if (!lines.length) return rejected('the close did not print');
-      const ev = w.events.emit('player.option', `${P.name(i)} closes an option`, [cause], id);
+      const ev = w.events.emit('player.option', `${P.name(i)} closes an option || you closed it yourself`, [cause], id);
       return { status: 'accepted', eventId: ev, lines };
     }
     case 'homes':
@@ -1980,7 +2006,7 @@ export function view(w: World, playerId?: string): PlayerView {
   const arrived = st.arrived >= 0 ? st.arrived : w.genesis;
   const stocks = (w.state.markets as { stocks?: { instr: string; last: number; issuer: string }[] } | undefined)?.stocks ?? [];
   const shares = i < 0 ? [] : stocks.filter((stc) => w.ledger.balance(id, stc.instr) > 0).map((stc) => ({
-    instr: stc.instr, qty: w.ledger.balance(id, stc.instr), px: stc.last, eventId: mktRoot,
+    instr: stc.instr, name: s.firms.find((f) => f.id === stc.issuer)?.name ?? '', qty: w.ledger.balance(id, stc.instr), px: stc.last, eventId: mktRoot,
   }));
   const banks = (w.state.banking as { banks?: { id: string; depo: string }[] } | undefined)?.banks ?? [];
   const deposits = i < 0 ? [] : banks.flatMap((b) => {

@@ -378,7 +378,7 @@ function arrow(n: number): string {
 function summary(v: PlayerView): string[] {
   const when = `Year ${v.date.year}, month ${v.date.month}, day ${v.date.day}`;
   const who = v.alive
-    ? `${v.name}, ${v.age}, ${v.employer || 'unemployed'} (${v.firm})`
+    ? `${v.name}, ${v.age}, ${v.employer || 'unemployed'}`
     : (v.final || `${v.name} has died`);
   const stats = (v.stats ?? []).map((s) => `${s.word}${s.note ? ' ' + s.note : ''} ${arrow(s.trend)}`).join('  ');
   const lines = [`${when}  ${who}`, `  ${stats}`];
@@ -387,7 +387,7 @@ function summary(v: PlayerView): string[] {
   lines.push(`  family: ${spouse ? `spouse ${spouse.name} (${spouse.age})` : 'no spouse'}; children ${kids.length ? kids.map((k) => `${k.name} ${k.age} school ${k.school}`).join(', ') : 'none'}; ${v.family?.will ?? ''}`);
   if (v.dynasty) lines.push(`  dynasty gen ${v.dynasty.generation} worth ${dollars(v.dynasty.worth)} founded ${v.dynasty.founded} controlled ${v.dynasty.controlled} offices ${v.dynasty.offices} convictions ${v.dynasty.convictions}`);
   if (v.marginPosted) lines.push(`  futures margin ${dollars(v.marginPosted)}`);
-  if (v.shares.length) lines.push('  shares: ' + v.shares.map((s) => `${s.instr} ${s.qty} @ ${dollars(s.px)}`).join(', '));
+  if (v.shares.length) lines.push('  shares: ' + v.shares.map((s) => `${s.name || 'shares'} ${s.qty} @ ${dollars(s.px)}`).join(', '));
   if (v.loans.length) lines.push('  loans: ' + v.loans.map((l) => `${l.kind} ${dollars(l.owed)} @ ${(l.rate * 100).toFixed(2)}%`).join(', '));
   if (v.futures.length) lines.push('  futures: ' + v.futures.map((f) => `${f.good} m+${f.monthsAhead} ${f.net > 0 ? 'long' : 'short'} ${Math.abs(f.net)} @ ${dollars(f.px)}`).join(', '));
   if (v.coins.length) lines.push('  coins: ' + v.coins.map((c) => `${c.name} ${c.qty}`).join(', '));
@@ -397,13 +397,13 @@ function summary(v: PlayerView): string[] {
   const news = v.news.slice(-3);
   if (news.length) lines.push('  news: ' + news.map((n) => `[${n.eventId}] ${n.text}`).join(' | '));
   if (v.private.length) lines.push('  private: ' + v.private.map((p) => `[${p.eventId}] ${p.from} day ${p.day}: ${p.text}`).join(' | '));
-  if (v.companies.length) lines.push('  companies: ' + v.companies.map((c) => `${c.role} ${c.name} (${c.id}) ${c.workers} workers cash ${dollars(c.cash)} sales ${dollars(c.sales)} profit ${dollars(c.profit)} ${c.listed ? 'listed' : 'private'}`).join(' | '));
+  if (v.companies.length) lines.push('  companies: ' + v.companies.map((c) => `${c.role} ${c.name}, ${c.workers} workers, cash ${dollars(c.cash)}, sales ${dollars(c.sales)}, profit ${dollars(c.profit)}, ${c.listed ? 'listed' : 'private'}`).join(' | '));
   if (v.contacts.length) lines.push('  contacts: ' + v.contacts.map((c) => `${c.slot} ${c.name.split(' ')[0]} ${c.line}`).join(' | '));
   if (v.choices?.length) lines.push('  choices: ' + v.choices.map((c) => `${c.id}${c.left ? ` (${c.left}d)` : ''}`).join(', '));
   const owned = (v.homes ?? []).filter((h) => h.mine || h.live);
   if (owned.length) lines.push('  homes: ' + owned.map((h) => `#${h.id} ${h.neighbourhood} ${dollars(h.price)}${h.live ? ' home' : ''}${h.vacant ? ' vacant' : ''}`).join(', '));
   const held = (v.chain ?? []).filter((c) => c.net);
-  if (held.length) lines.push('  options: ' + held.map((c) => `${c.right} ${c.instr} ${c.net > 0 ? 'long' : 'short'} ${Math.abs(c.net)}`).join(', '));
+  if (held.length) lines.push('  options: ' + held.map((c) => `${c.right === 'C' ? 'call' : 'put'} on ${c.name} ${c.net > 0 ? 'long' : 'short'} ${Math.abs(c.net)}`).join(', '));
   return lines;
 }
 

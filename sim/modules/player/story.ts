@@ -123,6 +123,17 @@ function unperiod(text: string): string {
   return text.replace(/[.]+$/, '').trim();
 }
 
+/** A module may put the real cause after ` || `. The sentence uses that, not an earlier event. */
+function bareMsg(msg: string): string {
+  const i = msg.indexOf(' || ');
+  return i < 0 ? msg : msg.slice(0, i);
+}
+
+function statedCause(msg: string): string {
+  const i = msg.indexOf(' || ');
+  return i < 0 ? '' : msg.slice(i + 4).trim().replace(/\.$/, '');
+}
+
 interface Circle {
   i: number;
   pid: string;
@@ -290,7 +301,7 @@ function markBareDollars(text: string): string {
 }
 
 function clause(s: EconState, ev: Ev): string {
-  const msg = unperiod(soften(s, ev.msg));
+  const msg = unperiod(soften(s, bareMsg(ev.msg)));
   if (ev.kind === 'earnings.report' || ev.kind === 'news.story') {
     const profit = /profit (\$[\d.,]+[kKmMbB]?)/.exec(msg);
     const name = /([A-Za-z][A-Za-z' ]{2,40}) Q\d/.exec(msg);
@@ -369,7 +380,7 @@ function secondPerson(msg: string, name: string): string {
 
 function effectOf(w: World, ev: Ev, c: Circle): string {
   const s = econ(w);
-  const msg = unperiod(soften(s, ev.msg));
+  const msg = unperiod(soften(s, bareMsg(ev.msg)));
   const hit = ev.actor ? c.close.get(ev.actor) : undefined;
   const sub = hit?.phrase ?? '';
   if (ev.actor === c.pid || msg.startsWith(c.name)) {
@@ -440,6 +451,8 @@ function rateReach(ev: Ev, c: Circle): string {
 
 function sentence(w: World, ev: Ev, c: Circle): string {
   const effect = unperiod(effectOf(w, ev, c));
+  const stated = statedCause(ev.msg);
+  if (stated) return markBareDollars(`${effect}, because ${stated}.`);
   if (ev.kind === 'player.arrive') {
     if (/holds no job/.test(ev.msg)) return `${effect}.`;
     const wage = dollars(econ(w).wage);
