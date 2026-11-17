@@ -36,6 +36,7 @@ interface PortState {
   bookDay: number; pendingIn: { good: string; qty: number }[]; pendingOut: { good: string; qty: number }[];
   exportSeen: Record<string, number>; heldGood: string; spoken: boolean;
   journal: { kind: string; msg: string; causes: number[]; actor: string }[];
+  booked: Record<string, number>; bookedLast: Record<string, number>;
 }
 
 type Screen = (w: World, good: string, qty: number, cause: number) => number;
@@ -336,6 +337,7 @@ function landImport(w: World, buyer: string, good: string, qty: number, homePx: 
   // ledger write does not land in the middle of a firm's books.
   openBooks(st, w.day);
   st.pendingIn.push({ good, qty });
+  st.booked[good] = (st.booked[good] ?? 0) + qty;
   st.ema[good] = (st.ema[good] ?? qty) * 0.98 + qty * 0.02;
   const duty = Math.round(homePx * qty * tariffOf(w, st));
   if (duty > 0) { st.yTariff += duty; st.mTariff += duty; }
@@ -520,7 +522,7 @@ export const port: Module = {
       root: 0, freightEv: -1, delayEv: -1, delaySum: 0, delayN: 0, mDelaySum: 0, mDelayN: 0,
       utilSum: 0, utilN: 0, yTariff: 0, mTariff: 0, berthed: 0, shorted: [], inspectGood: '', inspectQty: 0,
       hedged: false, quayIn: 0, quayOut: 0,
-      bookDay: -1, pendingIn: [], pendingOut: [], exportSeen: {}, heldGood: '', spoken: false, journal: [],
+      bookDay: -1, pendingIn: [], pendingOut: [], exportSeen: {}, heldGood: '', spoken: false, journal: [], booked: {}, bookedLast: {},
     };
     w.state.port = st;
     L.addActor(YARD, 'port'); L.addActor(QIN, 'port'); L.addActor(QOUT, 'port');
@@ -575,6 +577,7 @@ export const port: Module = {
     if (st.inspectGood) {
       say(w, 'port.inspect', `customs opened a hold of ${GOODS[st.inspectGood].name}`, causes(w, [st.delayEv]), YARD);
     }
+    st.bookedLast = st.booked; st.booked = {};
     st.mDelaySum = 0; st.mDelayN = 0; st.mTariff = 0; st.inspectGood = ''; st.inspectQty = 0;
   },
 
@@ -598,3 +601,31 @@ export const port: Module = {
     return out;
   },
 };
+
+export interface DockWatch {
+  /** Ships that have reached the port and are still waiting for a berth. */
+  waiting: number; berths: number; berthsOpen: number; berthed: number; shut: boolean;
+  /** Cargo on the quay waiting for a ship, in loads. */
+  quayLoads: number;
+  /** Goods whose bookings this month run above (+) or below (-) their usual pace, as a share. */
+  booking: { good: string; name: string; pace: number }[];
+}
+/** What a hand on the dock can see for himself this morning. */
+export function dockWatch(w: World): DockWatch | undefined {
+  const st = w.state.port as PortState | undefined;
+  if (!st || !st.ships) return undefined;
+  let waiting = 0, cap = 0;
+  for (const s of st.ships) { cap += s.capacity; if (s.way !== 'idle' && s.eta >= 0 && s.eta <= w.day) waiting++; }
+  const avg = st.ships.length ? cap / st.ships.length : 1;
+  const seen = (w.day % 30) + 1;
+  const booking: DockWatch['booking'] = [];
+  for (const good of st.imports) {
+    const usual = (st.ema[good] ?? 0) * seen;
+    if (!(usual > 0)) continue;
+    booking.push({ good, name: GOODS[good].name, pace: (st.booked[good] ?? 0) / usual - 1 });
+  }
+  return {
+    waiting, berths: st.berths, berthsOpen: openBerths(w, st), berthed: st.berthed, shut: w.day < st.closedUntil,
+    quayLoads: avg > 0 ? (st.quayIn + st.quayOut) / avg : 0, booking,
+  };
+}

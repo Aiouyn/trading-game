@@ -44,7 +44,7 @@ interface Book {
   bankEq: number; bankProfit: number; bankMonths: number; bankPrev: number; bankHasPrev: number;
   bankGuide: number; bankHasGuide: number; bankLocked: Call[]; bankCauses: number[];
   reports: Report[]; waves: Wave[]; resting: Resting[];
-  filed: number;
+  filed: number; due: number[];
   yReports: number; ySurprise: number; yBeats: number; root: number;
 }
 
@@ -560,7 +560,7 @@ function blank(n: number, root: number): Book {
     previewFact: preview, causes: Array.from({ length: n }, () => []), openEv: Array.from({ length: n }, () => []),
     knowers: Array.from({ length: n }, () => []), locked: Array.from({ length: n }, () => []),
     analysts: [], bankEq: 0, bankProfit: 0, bankMonths: 0, bankPrev: 0, bankHasPrev: 0, bankGuide: 0, bankHasGuide: 0,
-    bankLocked: [], bankCauses: [], reports: [], waves: [], resting: [], filed: 0, yReports: 0, ySurprise: 0, yBeats: 0, root,
+    bankLocked: [], bankCauses: [], reports: [], waves: [], resting: [], filed: 0, due: [], yReports: 0, ySurprise: 0, yBeats: 0, root,
   };
 }
 
@@ -621,8 +621,9 @@ export const earnings: Module = {
       }
     }
     if (w.day % 30 === 22) {
-      for (const f of econ(w).firms) if (!f.closed && w.month % 3 === f.idx % 3 && listed(w, f.id)) previewFirm(w, f);
-      if (w.month % 3 === 2 && listed(w, BANK)) lockBank(w);
+      b.due = [];
+      for (const f of econ(w).firms) if (!f.closed && w.month % 3 === f.idx % 3 && listed(w, f.id)) { previewFirm(w, f); b.due.push(f.idx); }
+      if (w.month % 3 === 2 && listed(w, BANK)) { lockBank(w); b.due.push(-1); }
     }
   },
 
@@ -666,3 +667,57 @@ export function recentReports(w: World, issuer: string, n: number): Report[] {
   const rows = book(w).reports.filter((r) => r.issuer === issuer);
   return rows.slice(-n);
 }
+
+/** Firms (and -1 for the bank) whose quarter closes this month, as locked on day 22 of the month. */
+export function dueThisMonth(w: World): number[] { return book(w).due.slice(); }
+
+export interface QuarterView {
+  consensus: number; high: number; low: number; analysts: number;
+  /** What the quarter is really on course for, from the firm's own month so far. Not public. */
+  pace: number; scale: number; edge: number; stale: boolean;
+}
+/** The street's number for this quarter next to the one the books are heading for. firm -1 is the bank. */
+export function quarterView(w: World, firm: number): QuarterView | undefined {
+  const b = book(w);
+  if (!b.due.includes(firm)) return undefined;
+  const s = econ(w), seen = (w.day % 30) + 1;
+  let calls: Call[], pace: number, fallback: number;
+  if (firm < 0) {
+    calls = b.bankLocked;
+    const eq = Math.round(w.ledger.netWorth(BANK));
+    pace = b.bankProfit + (eq - b.bankEq) * (30 / seen);
+    fallback = Math.round((b.bankHasPrev ? b.bankPrev : b.bankMonths > 0 ? b.bankProfit / b.bankMonths : 0) * Math.max(1, b.bankMonths));
+  } else {
+    const f = s.firms[firm];
+    if (!f) return undefined;
+    calls = b.locked[firm];
+    const interest = debtOf(w, f) * (s.policyRate + 0.03) / 12;
+    pace = b.profit[firm] + (f.mRev - f.mCost) * (30 / seen) - interest;
+    const months = b.months[firm];
+    const monthly = months > 0 ? b.profit[firm] / months : 0;
+    fallback = Math.round((b.hasPrev[firm] ? b.prevMonthly[firm] : monthly) * Math.max(1, months));
+  }
+  const consensus = consensusOf(calls, fallback);
+  let high = consensus, low = consensus;
+  for (const c of calls) { if (c.forecast > high) high = c.forecast; if (c.forecast < low) low = c.forecast; }
+  const scale = Math.max(s.wage * 30, Math.abs(consensus), Math.abs(pace), 1);
+  return { consensus, high, low, analysts: calls.length, pace, scale, edge: (pace - consensus) / scale, stale: calls.length === 0 };
+}
+/** The people at the firm who hold the quarter before the print: the chief, the desk and the contacts they trust. */
+export function deskOf(w: World, firm: number): number[] { return firm >= 0 ? book(w).knowers[firm] ?? [] : []; }
+/** The preview event written for this firm's quarter, so a signal about it has a cause. */
+export function previewEvent(w: World, firm: number): number {
+  const st = soc(w), b = book(w);
+  if (firm < 0 || !st) return b.root;
+  const id = b.previewFact[firm];
+  const fact = id >= 0 ? st.facts[id] : undefined;
+  return fact ? fact.eventId : b.root;
+}
+/** Reports printed with an event id above `after`, oldest first. */
+export function reportsAfter(w: World, after: number): Report[] {
+  const rows = book(w).reports;
+  const out: Report[] = [];
+  for (let i = rows.length - 1; i >= 0 && rows[i].event > after; i--) out.push(rows[i]);
+  return out.reverse();
+}
+export type { Report };

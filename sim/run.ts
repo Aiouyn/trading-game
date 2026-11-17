@@ -22,6 +22,7 @@ import { careers } from './modules/careers/index.ts';
 import { labour } from './modules/labour/index.ts';
 import { crypto } from './modules/crypto/index.ts';
 import { earnings } from './modules/earnings/index.ts';
+import { signals } from './modules/signals/index.ts';
 import { law } from './modules/law/index.ts';
 import { crime } from './modules/crime/index.ts';
 import { politics } from './modules/politics/index.ts';
@@ -56,6 +57,7 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('labour')) w.use(labour);
   for (const m of [crypto]) if (!without.has(m.id)) w.use(m);
   if (!without.has('earnings')) w.use(earnings);
+  if (!without.has('signals') && !without.has('earnings')) w.use(signals);
   if (!without.has('law')) w.use(law);
   if (!without.has('crime')) w.use(crime);
   if (!without.has('politics')) w.use(politics);
