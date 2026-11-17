@@ -6,6 +6,7 @@ import { borrowMargin } from '../banking/index.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, returnShares, submitOrder } from '../markets/index.ts';
 import { bidHome, homeBoard, parcelView } from '../property/index.ts';
+import { societyGate } from '../society/index.ts';
 import { contactsOf, knows, nudgeStanding, settlePaper } from '../social/index.ts';
 import { chooseShape, jobs, money, renderLetter, signedPct } from '../social/words.ts';
 
@@ -643,6 +644,10 @@ export function circleAct(w: World, person: number, actor: string, cmd: CircleCm
   const P = econ(w).P;
   if (person < 0 || !alive(w, person)) return { status: 'rejected', why: 'you cannot do that now' };
   cast(w, st, person);
+  if (cmd.kind === 'invite' || cmd.kind === 'introduce') {
+    const no = societyGate(w, person, cmd);
+    if (no) return no;
+  }
   if (cmd.kind === 'mail') return { status: 'accepted', lines: mailLines(w, st, person), text: `${st.letters.length} letters` };
   if (cmd.kind === 'reply') return reply(w, st, person, actor, cmd.msg, cmd.text);
   if (cmd.kind === 'lend') return lend(w, st, person, actor, cmd.slot, cmd.cents);
@@ -770,11 +775,12 @@ function closePromise(st: Circle, who: number): void {
 function billOf(w: World, place: string): number {
   const wage = econ(w).wage;
   if (place === 'gala') return Math.max(100, Math.round(wage * 40));
+  if (place === 'festival') return Math.max(100, Math.round(wage * 12));
   if (place === 'club') return Math.max(100, Math.round(wage * 15));
   return Math.max(100, Math.round(wage * 6));
 }
 function invite(w: World, st: Circle, me: number, actor: string, slot: number, place: string): CircleResult {
-  const where = place === 'club' || place === 'gala' ? place : 'dinner';
+  const where = place === 'club' || place === 'gala' || place === 'festival' ? place : 'dinner';
   const hit = resolve(w, st, me, slot, 'friend');
   if ('why' in hit) return { status: 'rejected', why: hit.why };
   return host(w, st, me, actor, hit.who, where);
@@ -783,7 +789,7 @@ function host(w: World, st: Circle, me: number, actor: string, who: number, plac
   const P = econ(w).P;
   const cents = row?.cents || billOf(w, place);
   const cause = row?.eventId ?? root(w);
-  const payee = place === 'gala' ? GOV : P.id(who);
+  const payee = place === 'gala' || place === 'festival' ? GOV : P.id(who);
   if (!payThem(w, actor, payee, cents, cause)) return { status: 'rejected', why: `that ${place} costs ${usd(cents)} and the cash is not there` };
   const ev = w.events.emit('circle.invite', `${P.name(me)} and ${P.name(who)} attend a ${place}, ${usd(cents)}`, [cause], actor);
   if (row) row.status = 'yes';

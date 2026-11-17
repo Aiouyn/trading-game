@@ -26,6 +26,7 @@ import { civicSnapshot } from './modules/politics/index.ts';
 import { attentionOf } from './modules/law/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
 import { circleBoard, circlePerson } from './modules/circle/index.ts';
+import { calendarOf, societyView } from './modules/society/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
@@ -3143,6 +3144,8 @@ function screen(w: World): Record<string, unknown> {
     over: v.over || !v.alive,
     scenario: scenarioCard(w),
     feed,
+    calendar: calendarOf(w),
+    society: societyView(w),
     pause: pauseNote,
   };
 }
