@@ -8,7 +8,8 @@ export function simulate(w: World, years: number, checkEvery: number, log: boole
     for (let d = 0; d < DAYS_PER_YEAR; d++) {
       w.step();
       if (checkEvery > 0 && w.day % checkEvery === 0) {
-        const bad = w.ledger.check();
+        // Each day proves the books that moved; every 30th day sums everything.
+        const bad = w.day % 30 === 0 ? w.ledger.check() : w.ledger.checkChanged();
         if (bad.length) { console.error(`BOOKS DO NOT BALANCE on day ${w.day}:\n  ${bad.slice(0, 10).join('\n  ')}`); process.exit(1); }
       }
     }
@@ -18,5 +19,9 @@ export function simulate(w: World, years: number, checkEvery: number, log: boole
       if (!header) { console.log(Object.keys(row).join('\t')); header = true; }
       console.log(Object.values(row).join('\t'));
     }
+  }
+  if (checkEvery > 0) {
+    const bad = w.ledger.check();
+    if (bad.length) { console.error(`BOOKS DO NOT BALANCE at the end of the run:\n  ${bad.slice(0, 10).join('\n  ')}`); process.exit(1); }
   }
 }

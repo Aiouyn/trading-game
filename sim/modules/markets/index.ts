@@ -299,12 +299,22 @@ function bookEquity(w: World, actor: string, shares?: (instr: string) => number)
 }
 
 /** Listed shares this issuer holds, at the last print. Not its own stock. */
-function stakeValue(w: World, issuer: string): number {
+const stockIndex = new WeakMap<World, { n: number; by: Map<string, Stock> }>();
+function stakeValue(w: World, issuer: string, skipOwn = true): number {
+  const held = w.ledger.heldInstrs(issuer);
+  if (!held) return 0;
+  const stocks = book(w).stocks;
+  let ix = stockIndex.get(w);
+  if (!ix || ix.n !== stocks.length) { ix = { n: stocks.length, by: new Map(stocks.map((x) => [x.instr, x])) }; stockIndex.set(w, ix); }
   let v = 0;
   const mine = 'eq:' + issuer;
-  for (const st of book(w).stocks) {
-    if (st.instr === mine || !(st.last > 0)) continue;
-    const q = Math.floor(w.ledger.balance(issuer, st.instr));
+  for (const instr of held) {
+    // Only shares are listed stocks; skip goods and loans without a map lookup.
+    if (instr.charCodeAt(0) !== 101 || instr.charCodeAt(2) !== 58) continue;
+    if (skipOwn && instr === mine) continue;
+    const st = ix.by.get(instr);
+    if (!st || !(st.last > 0)) continue;
+    const q = Math.floor(w.ledger.balance(issuer, instr));
     if (q > 0) v += q * st.last;
   }
   return v;
@@ -833,14 +843,20 @@ function householdOrders(w: World): void {
   const s = econ(w);
   const m = book(w);
   const self = playerTrading(w) ? playerActor(w) : '';
+  // Placing an order touches neither the ledger nor a firm, so a price read once holds for the whole round.
+  const memo = new Map<string, number>();
+  const px = (instr: string): number => {
+    let v = memo.get(instr);
+    if (v === undefined) { v = m.price(instr); memo.set(instr, v); }
+    return v;
+  };
   for (const h of s.investors) {
     if (self && h.id === self) continue;
     const rng = w.rng('mkt:' + h.id);
     if (!rng.chance(0.2)) continue; // each person rebalances about once a week
-    const wealth = w.ledger.netWorth(h.id, m.price);
+    const wealth = w.ledger.netWorth(h.id, px);
     if (!(wealth > 0)) continue;
-    let eq = 0;
-    for (const st of m.stocks) eq += w.ledger.balance(h.id, st.instr) * st.last;
+    const eq = stakeValue(w, h.id, false);
     const gap = h.target * wealth - eq;
     if (Math.abs(gap) / wealth < 0.02) continue;
     const side: Side = gap > 0 ? 'buy' : 'sell';

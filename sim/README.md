@@ -1,7 +1,7 @@
 # sim: the world simulation
 
 Run it: `node sim/run.ts --years 10 --seed 1 --explain cb.rate` (Node 22.18+, no install, no build).
-`SIM_POP=200000` sets the population (default 20,000). `--chronicle` prints the history; `--check-every N` sets how often the full conservation check runs (daily up to 20,000 people, weekly above).
+`SIM_POP=200000` sets the population (default 20,000). `--chronicle` prints the history; `--check-every N` sets how often the conservation check runs (daily up to 20,000 people, weekly above). Each check proves the books that moved since the last one; every 30th day and the last day sum everything.
 
 ## Scale
 

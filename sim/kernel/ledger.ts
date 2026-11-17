@@ -18,6 +18,8 @@ interface Store {
   issuerSlot: number;
   maxSlot: number;
   maxQty: number;
+  /** Set (non-enumerable) while the store sits in the touched list: some holding changed since the last check. */
+  t?: boolean;
 }
 
 const NO_PRICE = (_instr: string): number => 0;
@@ -49,6 +51,10 @@ export class Ledger {
   // Money lives in one dense array. Non-enumerable, so a snapshot does not copy it; the next call rebinds it from `stores`.
   declare _dep: Float64Array | null;
   declare _ready: boolean;
+  // Sparse stores changed since the last incremental check, and whether a full check has run on this ledger. Not saved.
+  declare _touched: Store[];
+  declare _touchedIds: string[];
+  declare _verified: boolean;
 
   constructor() { this.ready(); }
 
@@ -56,7 +62,16 @@ export class Ledger {
     if (this._ready) return;
     const dep = this.stores.get('dep')?.dense ?? null;
     Object.defineProperty(this, '_dep', { value: dep, writable: true, enumerable: false, configurable: true });
+    Object.defineProperty(this, '_touched', { value: [], writable: true, enumerable: false, configurable: true });
+    Object.defineProperty(this, '_touchedIds', { value: [], writable: true, enumerable: false, configurable: true });
+    Object.defineProperty(this, '_verified', { value: false, writable: true, enumerable: false, configurable: true });
     Object.defineProperty(this, '_ready', { value: true, writable: true, enumerable: false, configurable: true });
+  }
+  private touch(s: Store, instr: string): void {
+    if (!this._ready) this.ready();
+    if (s.t === undefined) Object.defineProperty(s, 't', { value: true, writable: true, enumerable: false, configurable: true });
+    else s.t = true;
+    this._touched.push(s); this._touchedIds.push(instr);
   }
 
   addActor(id: string, kind: string): number {
@@ -102,13 +117,22 @@ export class Ledger {
     }
     const s = this.st(instr); return s.dense ? s.dense[slot] : s.sparse!.get(slot) ?? 0;
   }
-  balance(actor: string, instr: string): number { const sl = this.slotOf.get(actor); return sl === undefined || !this.stores.has(instr) ? 0 : this.balS(sl, instr); }
+  balance(actor: string, instr: string): number {
+    const sl = this.slotOf.get(actor); if (sl === undefined) return 0;
+    const st = this.stores.get(instr); if (!st) return 0;
+    return st.dense ? st.dense[sl] : st.sparse!.get(sl) ?? 0;
+  }
   /** Holders of a sparse instrument (shares, loans, goods) by slot: the live map, do not modify. */
   holdersS(instr: string): ReadonlyMap<number, number> {
     const s = this.st(instr);
     if (s.sparse) return s.sparse;
     if (s.dense) return denseHolders(s.dense, this.ids.length);
     throw new Error(`${instr} has no holdings`);
+  }
+  /** Sparse instruments (shares, loans, goods) an actor holds right now: the live set, do not modify. */
+  heldInstrs(actor: string): ReadonlySet<string> | undefined {
+    const sl = this.slotOf.get(actor);
+    return sl === undefined ? undefined : this.heldBy.get(sl);
   }
   /** Largest sparse balance. The same number a scan of holdersS returns. */
   topQty(instr: string): number {
@@ -175,6 +199,7 @@ export class Ledger {
       return;
     }
     const m = s.sparse!, was = m.get(slot);
+    if (s.t !== true) this.touch(s, instr);
     const next = (was ?? 0) + d;
     if (s.kind === 'money' || s.kind === 'claim') this.face[slot] += d;
     // Exact zero only. A float crumb on a real good still hashes, so it stays.
@@ -299,34 +324,51 @@ export class Ledger {
       for (let i = 0; i < this.denseIds.length; i++) nw += this.stores.get(this.denseIds[i])!.dense![sl];
       return nw - this.liab[sl];
     }
-    let nw = 0;
+    // Money and claims at face are already in the running totals; only shares and goods need a price.
+    let nw = this.face[sl];
     for (let i = 0; i < this.denseIds.length; i++) nw += this.stores.get(this.denseIds[i])!.dense![sl];
-    const claims = this.claimDense;
-    if (claims) for (let i = 0; i < claims.length; i++) {
-      const d = this.stores.get(claims[i])?.dense;
-      if (d) nw += d[sl];
-    }
     const held = this.heldBy.get(sl);
     if (held) for (const id of held) {
-      const s = this.stores.get(id)!, h = s.sparse!.get(sl) ?? 0;
-      if (h) nw += s.kind === 'money' || s.kind === 'claim' ? h : h * price(id);
+      const s = this.stores.get(id)!;
+      if (s.kind === 'money' || s.kind === 'claim') continue;
+      const h = s.sparse!.get(sl) ?? 0;
+      if (h) nw += h * price(id);
     }
-    const issued = this.issuedBy.get(actor);
-    if (issued) for (const id of issued) { const ins = this.instruments.get(id)!; if (ins.kind === 'money' || ins.kind === 'claim') nw -= this.issued.get(id)!; }
-    return nw;
+    return nw - this.liab[sl];
   }
   /** Conservation check. Returns problems; empty means the books balance. */
   check(): string[] {
     const bad: string[] = [];
-    for (const [id, s] of this.stores) {
-      let sum = 0;
-      const neg = s.kind === 'real' ? -1e-6 : 0;
-      if (s.dense) { const a = s.dense; for (let k = 0; k < this.ids.length; k++) { const v = a[k]; sum += v; if (v < neg) bad.push(`${this.ids[k]} holds negative ${id}: ${v}`); } }
-      else for (const [k, v] of s.sparse!) { sum += v; if (v < neg) bad.push(`${this.ids[k]} holds negative ${id}: ${v}`); }
-      const iss = this.issued.get(id)!;
-      if (s.kind === 'real' ? Math.abs(sum - iss) > 1e-3 * Math.max(1, Math.abs(iss)) : sum !== iss) bad.push(`${id}: holdings ${sum} != issued ${iss}`);
-    }
+    for (const [id, s] of this.stores) this.checkStore(id, s, bad);
+    // A full pass settles the touched list: everything is verified as of now.
+    if (!this._ready) this.ready();
+    for (const t of this._touched) t.t = false;
+    this._touched.length = 0; this._touchedIds.length = 0;
+    this._verified = true;
     return bad;
+  }
+  /**
+   * The same proof as check(), for the books that moved since the last check. Every holding changes through add()
+   * or the dense money paths, so a sparse store that was not touched still holds what the last check found and
+   * is skipped; dense stores are always summed. The first call (or the first after a load) is a full check.
+   */
+  checkChanged(): string[] {
+    if (!this._ready) this.ready();
+    if (!this._verified) return this.check();
+    const bad: string[] = [];
+    for (const [id, s] of this.stores) if (s.dense) this.checkStore(id, s, bad);
+    const ts = this._touched, ids = this._touchedIds;
+    for (let i = 0; i < ts.length; i++) { ts[i].t = false; if (!ts[i].dense) this.checkStore(ids[i], ts[i], bad); }
+    ts.length = 0; ids.length = 0;
+    return bad;
+  }
+  private checkStore(id: string, s: Store, bad: string[]): void {
+    let sum = 0;
+    const neg = s.kind === 'real' ? -1e-6 : 0;
+    if (s.dense) { const a = s.dense; for (let k = 0; k < this.ids.length; k++) { const v = a[k]; sum += v; if (v < neg) bad.push(`${this.ids[k]} holds negative ${id}: ${v}`); } }
+    else for (const [k, v] of s.sparse!) { sum += v; if (v < neg) bad.push(`${this.ids[k]} holds negative ${id}: ${v}`); }
+    const iss = this.issued.get(id)!;
+    if (s.kind === 'real' ? Math.abs(sum - iss) > 1e-3 * Math.max(1, Math.abs(iss)) : sum !== iss) bad.push(`${id}: holdings ${sum} != issued ${iss}`);
   }
   /** Stable fingerprint of all holdings, for determinism checks. */
   hash(): string {
