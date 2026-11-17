@@ -10,7 +10,7 @@ import { DAYS_PER_MONTH, DAYS_PER_YEAR, type Module, type World } from '../../ke
 import { SHOCKS, type ShockDef } from '../economy/content.ts';
 import { type EconState } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
-import { money, paperHeadline, rumourLine, sectorWord } from './words.ts';
+import { leakRoundup, money, paperHeadline, parseMoneyCents, relaxFormula, retell, rumourLine, sealNames, sectorWord, stakeCents, surprisePct } from './words.ts';
 
 const DEG = 16;
 const NO_PX = (_instr: string): number => 0;
@@ -88,6 +88,15 @@ interface Social {
   yHit: number;
   yPub: number;
   yDelay: number;
+  /** Which firms a printed line has already described this week. Display only. */
+  deskWeek: number;
+  deskDay: number;
+  deskNamed: string[];
+  deskToday: string[];
+  deskDraft: Map<number, string>;
+  /** Month index of the one insider roundup already printed. Display only. */
+  deskLeak: number;
+  deskLeakDay: number;
 }
 
 let scratch = new Int32Array(16);
@@ -211,6 +220,8 @@ function blank(cap: number): Social {
     cellFact: new Int32Array(cells), cellNext, cellN: 0, free: -1, personOf: new Int32Array(0),
     firmById: new Map(), paper: -1, insiderFact: new Int32Array(0), facts: [], seen: 0, pop: 1, need: 1,
     yCreated: 0, yHit: 0, yPub: 0, yDelay: 0,
+    deskWeek: -1, deskDay: -1, deskNamed: [], deskToday: [], deskDraft: new Map(),
+    deskLeak: -1, deskLeakDay: -1,
   };
 }
 function ensure(st: Social, n: number): void {
@@ -1122,6 +1133,204 @@ export function knows(w: World, personIndex: number, factId: number): boolean {
   if (!fact || fact.drop) return false;
   if (fact.pub) return personIndex < econ(w).P.n;
   return hasKnow(fact.know, personIndex);
+}
+
+const HELD = 'Held off the page.';
+const BIZ = new Set(['news.story', 'media.story', 'media.scoop', 'media.retraction']);
+
+function eventsToday(w: World): { id: number; day: number; kind: string; actor?: string; msg: string; causes: number[] }[] {
+  const out: { id: number; day: number; kind: string; actor?: string; msg: string; causes: number[] }[] = [];
+  for (let id = w.events.count - 1; id >= 0; id--) {
+    const e = w.events.get(id);
+    if (!e) break;
+    if (e.day < w.day) break;
+    if (e.day === w.day) out.push(e);
+  }
+  out.reverse();
+  return out;
+}
+
+function isLeak(w: World, causes: number[]): boolean {
+  for (const c of causes) if (w.events.get(c)?.kind === 'firm.insider') return true;
+  return false;
+}
+
+function leakFirm(w: World, causes: number[]): { name: string; sector: string; profit: number } | undefined {
+  for (const c of causes) {
+    const src = w.events.get(c);
+    if (src?.kind !== 'firm.insider') continue;
+    const row = insiderRow(w, src.msg);
+    if (row) return row;
+  }
+  return undefined;
+}
+
+function insiderRow(w: World, msg: string): { name: string; sector: string; profit: number } | undefined {
+  const m = /^(.*) insiders see a monthly (profit|loss) of (\$[\d,.]+(?:\s*million)?) /.exec(msg);
+  if (!m) return undefined;
+  const cents = parseMoneyCents(m[3]);
+  let sector = '';
+  for (const f of econ(w).firms) if (f.name === m[1]) { sector = sectorWord(f.sector); break; }
+  return { name: m[1], sector, profit: m[2] === 'loss' ? -cents : cents };
+}
+
+/** firm.insider rows emitted on one leak day. Later days only release the rumour. */
+function insiderOn(w: World, day: number): { name: string; sector: string; profit: number }[] {
+  const rows: { name: string; sector: string; profit: number }[] = [];
+  const seen = new Set<string>();
+  for (let id = w.events.count - 1; id >= 0; id--) {
+    const e = w.events.get(id);
+    if (!e) break;
+    if (e.day < day) break;
+    if (e.day !== day || e.kind !== 'firm.insider') continue;
+    const row = insiderRow(w, e.msg);
+    if (!row || seen.has(row.name)) continue;
+    seen.add(row.name);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function leakMonthOf(w: World, causes: number[]): number {
+  for (const c of causes) {
+    const src = w.events.get(c);
+    if (src?.kind === 'firm.insider') return Math.floor(src.day / DAYS_PER_MONTH);
+  }
+  return -1;
+}
+
+function firmOfStory(w: World, e: { msg: string; causes: number[] }): { name: string; sector: string } {
+  const firms = econ(w).firms;
+  for (const c of e.causes) {
+    const actor = w.events.get(c)?.actor;
+    if (!actor) continue;
+    for (const f of firms) if (f.id === actor) return { name: f.name, sector: sectorWord(f.sector) };
+  }
+  let best = '';
+  for (const f of firms) if (f.name && e.msg.includes(f.name) && f.name.length > best.length) best = f.name;
+  let sector = '';
+  if (best) for (const f of firms) if (f.name === best) { sector = sectorWord(f.sector); break; }
+  return { name: best, sector };
+}
+
+function paperOfStory(w: World, msg: string): string {
+  const i = msg.indexOf(': ');
+  if (i > 0 && i < 48) return msg.slice(0, i);
+  const st = soc(w);
+  const f = st.paper >= 0 ? econ(w).firms[st.paper] : undefined;
+  return f?.name || 'The paper';
+}
+
+function rankScore(msg: string): number {
+  return stakeCents(msg) + surprisePct(msg) * 1_000_000;
+}
+
+function claimName(st: Social, name: string): boolean {
+  if (!name) return false;
+  const first = !st.deskNamed.includes(name);
+  if (first) st.deskNamed.push(name);
+  if (!st.deskToday.includes(name)) st.deskToday.push(name);
+  return first;
+}
+
+/**
+ * The paper keeps at most four business stories a day, by size and surprise.
+ * The month's insider leak is one roundup, not a story per firm.
+ * Nothing here emits, touches a bond, or draws a random number. It only rewrites lines already printed.
+ */
+export function settlePaper(w: World): void {
+  const st = soc(w);
+  if (!st?.facts) return;
+  if (!st.deskNamed) { st.deskWeek = -1; st.deskDay = -1; st.deskNamed = []; st.deskToday = []; st.deskDraft = new Map(); }
+  if (st.deskLeak === undefined) st.deskLeak = -1;
+  if (st.deskLeakDay === undefined) st.deskLeakDay = -1;
+  const week = Math.floor(w.day / 7);
+  if (st.deskWeek !== week) {
+    st.deskWeek = week;
+    st.deskNamed = [];
+    st.deskToday = [];
+    st.deskDraft = new Map();
+    st.deskDay = -1;
+  }
+  if (st.deskDay === w.day) {
+    const drop = new Set(st.deskToday);
+    st.deskNamed = st.deskNamed.filter((n) => !drop.has(n));
+    st.deskToday = [];
+  } else {
+    st.deskDraft = new Map();
+    st.deskToday = [];
+  }
+  st.deskDay = w.day;
+  const evs = eventsToday(w);
+  for (const e of evs) {
+    const saved = st.deskDraft.get(e.id);
+    if (saved !== undefined) e.msg = saved;
+    else st.deskDraft.set(e.id, e.msg);
+  }
+  const biz = evs.filter((e) => BIZ.has(e.kind));
+  const leaks = biz.filter((e) => isLeak(w, e.causes));
+  const rest = biz.filter((e) => !isLeak(w, e.causes));
+  rest.sort((a, b) => rankScore(b.msg) - rankScore(a.msg) || a.id - b.id);
+  const keep = new Set<number>();
+  let anchor = -1;
+  let rows: { name: string; sector: string; profit: number }[] = [];
+  let want = -1;
+  for (const e of leaks) {
+    const month = leakMonthOf(w, e.causes);
+    if (month < 0) continue;
+    const fresh = st.deskLeak < month || (st.deskLeak === month && st.deskLeakDay === w.day);
+    if (fresh && month > want) want = month;
+  }
+  if (want >= 0) {
+    const got = insiderOn(w, want * DAYS_PER_MONTH + LEAK_DAY);
+    if (got.length) {
+      let best = leaks[0];
+      let bestAbs = -1;
+      for (const e of leaks) {
+        if (leakMonthOf(w, e.causes) !== want) continue;
+        const row = leakFirm(w, e.causes);
+        const abs = row ? Math.abs(row.profit) : 0;
+        if (abs > bestAbs || (abs === bestAbs && e.id < best.id)) { best = e; bestAbs = abs; }
+      }
+      anchor = best.id;
+      keep.add(anchor);
+      rows = got;
+      st.deskLeak = want;
+      st.deskLeakDay = w.day;
+    }
+  }
+  for (const e of rest) {
+    if (keep.size >= 4) break;
+    keep.add(e.id);
+  }
+  for (const e of biz) {
+    if (!keep.has(e.id)) e.msg = HELD;
+  }
+  const kept = biz.filter((e) => keep.has(e.id)).sort((a, b) => a.id - b.id);
+  let saltN = w.day * 3 + Math.floor(w.day / 7) * 5;
+  for (const e of kept) {
+    if (e.id === anchor) {
+      e.msg = leakRoundup(paperOfStory(w, st.deskDraft.get(e.id) ?? e.msg), rows, want);
+      for (const row of rows) if (e.msg.includes(row.name)) claimName(st, row.name);
+      continue;
+    }
+    const firm = firmOfStory(w, { msg: st.deskDraft.get(e.id) ?? e.msg, causes: e.causes });
+    const first = firm.name ? claimName(st, firm.name) : false;
+    e.msg = sealNames(retell({
+      paper: paperOfStory(w, st.deskDraft.get(e.id) ?? e.msg),
+      kind: e.kind,
+      msg: st.deskDraft.get(e.id) ?? e.msg,
+      name: firm.name,
+      sector: firm.sector,
+      first,
+      salt: saltN++,
+    }));
+  }
+  for (const e of evs) {
+    if (keep.has(e.id) || e.msg === HELD) continue;
+    if (!/, the [a-z]+ firm/i.test(e.msg)) continue;
+    e.msg = relaxFormula(e.msg, (name) => claimName(st, name));
+  }
 }
 
 export const social: Module = {

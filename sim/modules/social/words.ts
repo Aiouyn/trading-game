@@ -80,49 +80,28 @@ function tidy(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
-function stop(s: string): string {
-  const t = tidy(s);
-  if (!t) return '';
-  return /[.!?]$/.test(t) ? t : t + '.';
-}
-
 function low(s: string): string {
   if (!s) return s;
   const first = (s.split(' ')[0] ?? '').replace(/[.!?,:—-]+$/, '');
-  if (first === 'I' || first === "I'm" || first === "I've" || first === "I'll") return s;
-  if (/^(You|It|The|This|A|An|We|My|That|Do|Please|If|None|Come|Here|There|Another|Read|Take|Remember|Cash|Health|Your|Our)$/.test(first)) {
-    return s.charAt(0).toLowerCase() + s.slice(1);
-  }
-  return s;
+  if (/^(I|I'm|I've|I'll|I'd)$/.test(first)) return s;
+  return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
-function beat(voice: Voice, casual: boolean, worry: boolean): string {
-  if (worry) {
-    if (voice === 'formal') return 'I am worried about the family.';
-    if (voice === 'anxious') return 'I keep thinking about the family.';
-    if (voice === 'blunt') return 'The family comes first.';
-    if (voice === 'cold') return 'You should hear this from me.';
-    if (voice === 'proud') return 'I will look after them.';
-    return 'I worry.';
-  }
-  if (casual) {
-    if (voice === 'blunt') return "I'll be brief.";
-    if (voice === 'anxious') return 'I had to tell you.';
-    if (voice === 'proud') return 'I wanted you to hear it from me.';
-    if (voice === 'formal') return 'I will keep this plain.';
-    if (voice === 'cold') return 'That is all.';
-    return 'I am glad I can tell you.';
-  }
-  if (voice === 'blunt') return 'That is the whole of it.';
-  if (voice === 'anxious') return 'I did not want to wait.';
-  if (voice === 'proud') return 'I know the work.';
-  if (voice === 'formal') return 'I will be plain.';
+/** A tic only when the voice would actually say it, and only on a rare letter. */
+function tic(voice: Voice, salt: number): string {
+  if (Math.abs(salt) % 20 !== 0) return '';
   if (voice === 'cold') return 'I will not dress it up.';
-  return 'I wanted you to know.';
+  if (voice === 'formal') return 'I will be plain.';
+  if (voice === 'blunt') return 'The work is ordinary.';
+  return '';
 }
 
-function historyBit(since: string): string {
-  return since ? `That goes back to ${since}.` : '';
+function callback(since: string, salt: number): string {
+  const n = Math.abs(salt) % 4;
+  if (n === 0) return `That goes back to ${since}.`;
+  if (n === 1) return `I've had it in mind since ${since}.`;
+  if (n === 2) return `You remember ${since}.`;
+  return `It's been with me since ${since}.`;
 }
 
 export interface LetterParts {
@@ -131,36 +110,90 @@ export interface LetterParts {
   fact: string;
   you: string;
   mine: string;
-  /** "the dinner in March", or "we first knew each other in March". */
+  /** "the dinner in March". Empty when there is nothing particular to call back. */
   since: string;
   casual: boolean;
   worry: boolean;
+  /** Stable mix of writer and day. Not a random draw. */
+  salt?: number;
 }
 
-/** One letter. The shape decides the grammar. The voice and the bond decide the tone. */
+function sentences(s: string): string[] {
+  const t = tidy(s);
+  if (!t) return [];
+  return t.split(/(?<=[.!?])\s+/).map((p) => p.trim()).filter(Boolean).map((p) => /[.!?]$/.test(p) ? p : p + '.');
+}
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9$% ]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/** A number already said: `16 jobs`, `$600.00`. A later slot that carries it is dropped. */
+function factKeys(s: string): string[] {
+  const out: string[] = [];
+  for (const m of s.matchAll(/[\d,]+ jobs?/gi)) out.push(m[0].toLowerCase().replace(/,/g, ''));
+  for (const m of s.matchAll(/\$[\d,]+(?:\.\d+)?(?: million)?/gi)) out.push(m[0].toLowerCase().replace(/,/g, ''));
+  return out;
+}
+
+/**
+ * At most four sentences: the news, what it means for the reader, what the writer
+ * will do, and sometimes a callback. A slot is dropped rather than said twice.
+ * The old closer ('I will not dress it up', 'I will be plain', 'the work is ordinary')
+ * is a tic: one letter in twenty, and only for a voice that would say it.
+ */
 export function renderLetter(p: LetterParts): string {
-  const fact = stop(p.fact);
-  const you = stop(p.you);
-  const mine = stop(p.mine);
-  const voice = beat(p.voice, p.casual, p.worry);
-  const back = historyBit(p.since);
-  const youLow = low(you.replace(/\.$/, ''));
-  let text = '';
-  if (p.shape === 'dash') {
-    text = you ? `${fact.replace(/\.$/, '')} — ${youLow}.` : fact;
-    text = [text, mine, voice, back].filter(Boolean).join(' ');
-  } else if (p.shape === 'because') {
-    text = you ? `${fact} ${voice.replace(/\.$/, '')}, because ${youLow}.` : `${fact} ${voice}`;
-    text = [text, mine, back].filter(Boolean).join(' ');
-  } else if (p.shape === 'and') {
-    text = you ? `${fact.replace(/\.$/, '')}, and ${youLow}.` : fact;
-    text = [text, mine, voice, back].filter(Boolean).join(' ');
-  } else if (p.shape === 'ask') {
-    text = [fact, you, 'Will you write?', mine, voice, back].filter(Boolean).join(' ');
+  const salt = p.salt ?? (p.fact.length * 13 + p.since.length * 7 + p.voice.charCodeAt(0));
+  const news = sentences(p.fact);
+  const reader = sentences(p.you);
+  const will = sentences(p.mine);
+  const back = p.since && Math.abs(salt) % 2 === 0 ? sentences(callback(p.since, salt)) : [];
+  const aside = tic(p.voice, salt);
+  const usedNorm = new Set<string>();
+  const usedKeys = new Set<string>();
+  const out: string[] = [];
+  const take = (list: string[]): void => {
+    for (const s of list) {
+      if (out.length >= 4 || !s) continue;
+      const n = norm(s);
+      if (!n || usedNorm.has(n)) continue;
+      const ks = factKeys(s);
+      if (ks.some((k) => usedKeys.has(k))) continue;
+      let dup = false;
+      for (const prev of usedNorm) {
+        if (prev.length > 18 && n.length > 18 && (prev.includes(n) || n.includes(prev))) dup = true;
+      }
+      if (dup) continue;
+      usedNorm.add(n);
+      for (const k of ks) usedKeys.add(k);
+      out.push(s);
+    }
+  };
+  const glue = news.length > 0 && reader.length > 0
+    && !/\band\b/i.test(news[0]) && !/\band\b/i.test(reader[0]);
+  if (p.shape === 'dash' && glue) {
+    take([`${news[0].replace(/[.!?]$/, '')} — ${low(reader[0].replace(/[.!?]$/, ''))}.`]);
+    take(news.slice(1));
+    take(reader.slice(1));
+    take(will);
+  } else if (p.shape === 'and' && glue) {
+    take([`${news[0].replace(/[.!?]$/, '')}, and ${low(reader[0].replace(/[.!?]$/, ''))}.`]);
+    take(news.slice(1));
+    take(reader.slice(1));
+    take(will);
+  } else if (p.shape === 'because' && glue && news[0].length < 90 && reader[0].length < 90) {
+    take([`${news[0].replace(/[.!?]$/, '')}: ${low(reader[0].replace(/[.!?]$/, ''))}.`]);
+    take(news.slice(1));
+    take(reader.slice(1));
+    take(will);
   } else {
-    text = [fact, you, mine, voice, back].filter(Boolean).join(' ');
+    take(news);
+    take(reader);
+    take(will);
   }
-  return tidy(text);
+  take(back);
+  if (aside) take([aside]);
+  return tidy(out.join(' '));
 }
 
 export interface HeadlineIn {
@@ -263,6 +296,321 @@ export function paperHeadline(h: HeadlineIn): string {
     default:
       return `${paper}: ${who}. ${h.msg}`;
   }
+}
+
+/** A kept story may name "the energy firm in Port Avalon" only the first time that firm appears in a week. */
+export function firmStyle(name: string, sector: string, first: boolean): string {
+  if (!name) return first ? `a firm in ${CITY}` : 'the firm';
+  if (first && sector) return `${name}, the ${sector} firm in ${CITY}`;
+  return name;
+}
+
+/** A round figure for "near $161,000". Keeps a thousands comma so a later reader does not treat it as a new stake. */
+export function nearMoney(cents: number): string {
+  const dollars = Math.abs(Math.round(cents)) / 100;
+  const step = dollars >= 100_000 ? 1000 : dollars >= 10_000 ? 500 : dollars >= 1000 ? 100 : 1;
+  const rough = Math.max(step, Math.round(dollars / step) * step);
+  return '$' + commas(String(rough));
+}
+
+export function parseMoneyCents(token: string): number {
+  const m = /\$(\d{1,3}(?:,\d{3})*|\d+)(?:\.(\d+))?([kKmM])?(?:\s*(million|thousand))?/.exec(token);
+  if (!m) return 0;
+  const whole = Number(m[1].replace(/,/g, ''));
+  const frac = m[2] ? Number(`0.${m[2]}`) : 0;
+  let n = whole + frac;
+  const suf = (m[3] ?? '').toLowerCase();
+  const unit = (m[4] ?? '').toLowerCase();
+  if (suf === 'k' || unit === 'thousand') n *= 1_000;
+  else if (suf === 'm' || unit === 'million') n *= 1_000_000;
+  return Math.round(n * 100);
+}
+
+/** Largest dollar figure in a line, in cents. Used to rank a story, not to print it. */
+export function stakeCents(msg: string): number {
+  let best = 0;
+  for (const m of msg.matchAll(/\$\d[\d,]*(?:\.\d+)?[kKmM]?(?:\s*(?:million|thousand))?/gi)) {
+    const c = parseMoneyCents(m[0]);
+    if (c > best) best = c;
+  }
+  return best;
+}
+
+export function surprisePct(msg: string): number {
+  let best = 0;
+  for (const m of msg.matchAll(/([+-]?\d+(?:\.\d+)?)%/g)) {
+    const n = Math.abs(Number(m[1]));
+    if (n > best) best = n;
+  }
+  return best;
+}
+
+function capWord(s: string): string {
+  if (!s) return '';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+export interface LeakFirm { name: string; sector: string; profit: number }
+
+/**
+ * One month-end leak story for the whole city. The biggest sector leads.
+ * A second sector is a clause in the same story when it is at least half as large.
+ */
+export function leakRoundup(paper: string, firms: LeakFirm[], salt: number): string {
+  const by = new Map<string, LeakFirm[]>();
+  for (const f of firms) {
+    if (!f.name) continue;
+    const key = f.sector || 'business';
+    const list = by.get(key) ?? [];
+    list.push(f);
+    by.set(key, list);
+  }
+  const sectors = [...by.entries()].map(([sector, list]) => {
+    const total = list.reduce((s, f) => s + Math.abs(f.profit), 0);
+    const signed = list.reduce((s, f) => s + f.profit, 0);
+    const top = [...list].sort((a, b) => Math.abs(b.profit) - Math.abs(a.profit) || a.name.localeCompare(b.name)).slice(0, 3);
+    return { sector, total, signed, top };
+  }).sort((a, b) => b.total - a.total || a.sector.localeCompare(b.sector));
+  if (!sectors.length) return `${paper}: the month's figures stay off the page`;
+  const lead = phraseSector(sectors[0], salt);
+  const second = sectors[1] && sectors[1].total * 2 >= sectors[0].total ? phraseSector(sectors[1], salt + 1) : '';
+  const body = second ? `${lead} ${second}` : lead;
+  return `${paper}: ${body}`;
+}
+
+function closeEnough(list: LeakFirm[]): boolean {
+  if (list.length < 2) return true;
+  const vals = list.map((f) => Math.abs(f.profit)).sort((a, b) => a - b);
+  const lo = vals[0], hi = vals[vals.length - 1];
+  if (hi <= 0) return true;
+  return (hi - lo) / hi <= 0.2;
+}
+
+function midCents(list: LeakFirm[]): number {
+  const vals = list.map((f) => f.profit).sort((a, b) => Math.abs(a) - Math.abs(b));
+  return vals[Math.floor(vals.length / 2)] ?? 0;
+}
+
+function phraseSector(g: { sector: string; signed: number; top: LeakFirm[] }, salt: number): string {
+  const mixed = g.top.some((f) => f.profit < 0) && g.top.some((f) => f.profit >= 0);
+  const strong = !mixed && g.signed >= 0;
+  const many = g.top.length > 1;
+  const word = g.sector === 'business' ? (many ? 'Firms' : 'A firm') : `${capWord(g.sector)} ${many ? 'firms' : 'firm'}`;
+  const names = joinNames(g.top.map((f) => f.name));
+  const each = closeEnough(g.top);
+  const nearBit = (f: LeakFirm): string => f.profit < 0 ? `near a loss of ${nearMoney(f.profit)}` : `near ${nearMoney(f.profit)}`;
+  const listed = g.top.map((f) => `${f.name} ${nearBit(f)}`).join(g.top.length === 2 ? ' and ' : ', ').replace(/, ([^,]+)$/, ' and $1');
+  const mid = nearMoney(midCents(g.top));
+  const tail = mixed || !each
+    ? listed
+    : strong
+      ? `${names} each near ${mid}`
+      : `${names} each near a loss of ${mid}`;
+  const tone = mixed ? 'a mixed month' : strong ? 'a strong month' : 'a weak month';
+  const verb = mixed
+    ? ['head for a mixed month', 'are heading for a mixed month', 'look set for a mixed month', 'are on course for a mixed month'][Math.abs(salt) % 4]
+    : strong
+      ? ['head for a strong month', 'are heading for a strong month', 'look set for a strong month', 'are on course for a strong month'][Math.abs(salt) % 4]
+      : ['head for a weak month', 'are heading for a weak month', 'look set for a weak month', 'are on course for a weak month'][Math.abs(salt) % 4];
+  const shape = Math.abs(salt + 1) % 4;
+  if (!many) {
+    const one = g.top[0];
+    const way = tone;
+    const bit = one.profit < 0 ? `near a loss of ${nearMoney(one.profit)}` : `near ${nearMoney(one.profit)}`;
+    if (shape === 0) return `${one.name} is heading for ${way}, ${bit}.`;
+    if (shape === 1) return `${one.name} looks set for ${way}, ${bit}.`;
+    if (shape === 2) return `A ${mixed ? 'mixed' : strong ? 'strong' : 'weak'} month at ${one.name}, ${bit}.`;
+    return `Heading into ${way}, ${one.name} is ${bit}.`;
+  }
+  if (shape === 0) return `${word} ${verb}: ${tail}.`;
+  if (shape === 1) {
+    const bit = each
+      ? (mixed ? listed : strong ? `${names} are each near ${mid}` : `${names} are each near a loss of ${mid}`)
+      : listed;
+    return `${bit}, as ${g.sector} firms ${verb}.`;
+  }
+  if (shape === 2) return `A ${mixed ? 'mixed' : strong ? 'strong' : 'weak'} month in ${g.sector}: ${tail}.`;
+  const label = mixed ? 'mixed' : strong ? 'strong' : 'weak';
+  return `${tail} — a ${label} month for ${g.sector}.`;
+}
+
+function moneyToken(msg: string): string {
+  let best = '';
+  let cents = -1;
+  for (const m of msg.matchAll(/\$\d[\d,]*(?:\.\d+)?[kKmM]?(?:\s*(?:million|thousand))?/gi)) {
+    const c = parseMoneyCents(m[0]);
+    if (c > cents) { cents = c; best = m[0]; }
+  }
+  return best;
+}
+
+export interface RetellIn {
+  paper: string;
+  kind: string;
+  msg: string;
+  name: string;
+  sector: string;
+  first: boolean;
+  salt: number;
+}
+
+/** A printed headline. Verbs and the order of the clause change with the event. The city formula is optional. */
+export function retell(r: RetellIn): string {
+  const who = firmStyle(r.name, r.sector, r.first);
+  const paper = r.paper || 'The paper';
+  const msg = r.msg;
+  const salt = r.salt;
+  const stake = moneyToken(msg);
+  const earn = / Q(\d):/.exec(msg);
+  const beat = /\((beat|miss|met) ([\d.]+)%\)/.exec(msg);
+  if (earn && /profit /.test(msg)) {
+    const raw = /profit (\$[\d,]+(?:\.\d+)?[kKmM]?|\$[\d.]+\s*million)/.exec(msg)?.[1] ?? stake;
+    const profit = raw ? money(parseMoneyCents(raw)) : stake;
+    const q = earn[1];
+    const way = beat?.[1] ?? '';
+    const lines = way === 'miss'
+      ? [`${who} misses its quarter. Profit is ${profit}.`, `${who} comes up short in Q${q}, with profit of ${profit}.`, `Q${q} at ${who} misses. The profit is ${profit}.`, `${who} falls short for Q${q}. Profit is ${profit}.`]
+      : way === 'beat'
+        ? [`${who} beats the quarter, with profit of ${profit}.`, `${who} clears Q${q} with profit of ${profit}.`, `Profit of ${profit} puts ${who} ahead of the quarter.`, `Q${q} at ${who} comes in ahead, at ${profit}.`]
+        : [`${who} reports profit of ${profit} for Q${q}.`, `${who} turns in profit of ${profit}.`, `Q${q} profit at ${who} is ${profit}.`, `For Q${q}, ${who} made ${profit}.`];
+    return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+  }
+  const move = /shares (fall|drop|slide|rise|climb|gain|hold|sit|stay) ([+-][\d.]+)% to (\$[\d,]+\.\d+|\$[\d.]+ million)/.exec(msg);
+  if (move || r.kind === 'mkt.move' && stake) {
+    const pct = move?.[2] ?? (/([+-][\d.]+)%/.exec(msg)?.[1] ?? '0');
+    const px = move?.[3] ?? stake;
+    const n = Number(pct);
+    const down = ['fall', 'drop', 'slide', 'lose'];
+    const up = ['rise', 'gain', 'climb', 'add'];
+    const verb = n < 0 ? down[Math.abs(salt) % down.length] : n > 0 ? up[Math.abs(salt) % up.length] : 'hold';
+    const abs = String(Math.abs(n) >= 10 ? Math.round(Math.abs(n)) : Math.round(Math.abs(n) * 10) / 10);
+    const where = r.first ? '' : '';
+    const dir = n < 0 ? 'down' : n > 0 ? 'up' : 'flat';
+    const lines = [
+      `${who} shares ${verb} ${abs}% to ${px}${where}.`,
+      `A ${abs}% ${n < 0 ? 'fall' : n > 0 ? 'rise' : 'pause'} takes ${who} shares to ${px}.`,
+      `${who} shares ${verb} to ${px}, ${dir} ${abs}%.`,
+      `${px} is the new price at ${who}, ${dir} ${abs}%.`,
+    ];
+    return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+  }
+  if (/defaults on|fails to repay|misses /.test(msg) && stake) {
+    const lines = [
+      `${who} defaults on ${stake}.`,
+      `${stake} goes unpaid at ${who}.`,
+      `${who} fails to repay ${stake}.`,
+    ];
+    return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+  }
+  if (/chief/.test(msg)) {
+    const span = /after (\d+) losing months/.exec(msg)?.[1];
+    const why = span ? `after ${span} losing months` : 'after a run of losses';
+    const lines = /new chief|successor|names a new|hands the top|installs a new/.test(msg)
+      ? [`${who} names a new chief.`, `${who} hands the top job to a successor.`, `A new chief takes over at ${who}.`]
+      : [`${who} removes its chief ${why}.`, `The chief is out at ${who} ${why}.`, `${who} lets the chief go ${why}.`];
+    return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+  }
+  if (/wage/.test(msg)) {
+    const paid = /pays (\d+)%|meets (\d+)%|covers (\d+)%|paid ([\d.]+)%/.exec(msg);
+    const cut = /payroll moves ([+-]\d+)%|cut ([\d.]+)%/.exec(msg);
+    if (paid) {
+      const pct = paid[1] || paid[2] || paid[3] || paid[4];
+      const moved = cut ? (cut[1] ? `${cut[1]}%` : signedPct(-Number(cut[2]), 0)) : '';
+      const pctN = Number(pct).toFixed(0);
+      const lines = [
+        `${who} meets ${pctN}% of wages${moved ? `, and the payroll moves ${moved}` : ''}.`,
+        `Wages at ${who} are ${pctN}% covered${moved ? `, after a payroll move of ${moved}` : ''}.`,
+        moved ? `${who} covers ${pctN}% of the wage bill. The payroll moves ${moved}.` : `${who} covers ${pctN}% of the wage bill.`,
+      ];
+      return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+    }
+    return `${paper}: ${who} cannot meet the wage bill.`;
+  }
+  if (/policy rate/.test(msg)) {
+    const m = /from ([\d.]+)% to ([\d.]+)%/.exec(msg);
+    if (!m) return `${paper}: the central bank moves the policy rate in ${CITY}.`;
+    const a = Number(m[1]), b = Number(m[2]);
+    const verb = b > a ? ['raises', 'lifts', 'increases'][Math.abs(salt) % 3] : b < a ? ['cuts', 'lowers', 'trims'][Math.abs(salt) % 3] : ['holds', 'leaves', 'keeps'][Math.abs(salt) % 3];
+    const lines = [
+      `The central bank ${verb} the policy rate from ${a.toFixed(2)}% to ${b.toFixed(2)}%.`,
+      `The policy rate in ${CITY} ${b > a ? 'rises' : b < a ? 'falls' : 'stays put'}, from ${a.toFixed(2)}% to ${b.toFixed(2)}%.`,
+      `${CITY}'s policy rate goes from ${a.toFixed(2)}% to ${b.toFixed(2)}%.`,
+    ];
+    return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+  }
+  const ahead = /ahead of last month by|beats last month by|runs ahead of last month by/.test(msg);
+  const behind = /behind last month by|misses last month by|lags last month by/.test(msg);
+  if ((ahead || behind) && stake) {
+    const hows = /One unchecked source/.test(msg)
+      ? ['One source, and it is unchecked.', 'A single source, still unchecked.', 'Only one person is saying it.']
+      : /Two sources/.test(msg)
+        ? ['Two sources agree.', 'Two people inside say the same thing.', 'It comes from two sources.']
+        : ['A source at the firm says so.', 'Someone at the firm has been talking.', 'Word of it is coming from inside the firm.'];
+    const how = hows[Math.abs(Math.floor(salt / 5)) % hows.length];
+    const verb = ahead
+      ? ['pulls ahead of last month by', 'beats last month by', 'is ahead of last month by', 'runs ahead of last month by'][Math.abs(Math.floor(salt / 4)) % 4]
+      : ['falls behind last month by', 'misses last month by', 'lags last month by', 'trails last month by'][Math.abs(Math.floor(salt / 4)) % 4];
+    const lines = [
+      `${who} ${verb} ${stake}. ${how}`,
+      `${stake} is how far ${who} ${ahead ? 'is ahead of' : 'is behind'} last month. ${how}`,
+      `${who} ${ahead ? 'is up' : 'is down'} ${stake} on last month. ${how}`,
+      `${how} ${who} ${verb} ${stake}.`,
+    ];
+    return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+  }
+  if (/shares move from/.test(msg) && stake) {
+    const m = /from (\$[\d,]+\.\d+|\$[\d.]+ million) to (\$[\d,]+\.\d+|\$[\d.]+ million), ([+-][\d.]+)%/.exec(msg);
+    if (m) {
+      const pct = Number(m[3]);
+      const lines = [
+        `${who} shares move from ${m[1]} to ${m[2]} before the figures, ${signedPct(pct, 1)}.`,
+        `Before the figures, ${who} shares go from ${m[1]} to ${m[2]}.`,
+        `${who} shares are ${pct < 0 ? 'down' : 'up'} to ${m[2]} before the figures.`,
+        `${who} shares are at ${m[2]} before the figures, ${pct < 0 ? 'off' : 'up'} from ${m[1]}.`,
+      ];
+      return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
+    }
+  }
+  if (/withdraws its report/.test(msg)) {
+    return `${paper} withdraws its report on ${who}. The month did not come out that way.`;
+  }
+  if (!r.first) {
+    return sealNames(msg
+      .replace(/,\s*the [a-z]+ firm in Port Avalon,?/gi, '')
+      .replace(/,\s*the [a-z]+ firm,/gi, ',')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+,/g, ',')
+      .trim());
+  }
+  return sealNames(msg.replace(/\s+/g, ' ').trim());
+}
+
+/** "Name, the mining firm in Port Avalon pulls" needs the comma that closes the appositive. */
+export function sealNames(msg: string): string {
+  return msg.replace(/, the [a-z]+ firm in Port Avalon(?=\s+[A-Za-z])/g, (m) => m + ',');
+}
+
+/** Keep "the energy firm in Port Avalon" only the first time `claim` says the name is new. */
+export function relaxFormula(msg: string, claim: (name: string) => boolean): string {
+  const swap = (full: string, offset: number, whole: string): string => {
+    const before = whole.slice(0, offset);
+    const bit = (before.split(/[.!?]/).pop() ?? before).trim();
+    const name = /([A-Z][A-Za-z0-9'&-]*(?: [A-Z][A-Za-z0-9'&-]*){0,4})$/.exec(bit)?.[1] ?? '';
+    if (!name) return full;
+    return claim(name) ? full : '';
+  };
+  return msg
+    .replace(/, the [a-z]+ firm in Port Avalon/gi, (full, offset: number, whole: string) => swap(full, offset, whole))
+    .replace(/, the [a-z]+ firm,/gi, (full, offset: number, whole: string) => swap(full, offset, whole))
+    .replace(/\s+/g, ' ')
+    .replace(/\s+,/g, ',')
+    .trim();
 }
 
 /** The short form people repeat before the paper prints it. */
