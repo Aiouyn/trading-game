@@ -15,6 +15,7 @@ import { HOME_EXAMPLE } from "./homeExample";
 import { TickRing } from "./TickRing";
 import { FeedbackButton } from "./FeedbackButton";
 import { TimeControls } from "@/shell/TimeControls";
+import { CalendarChip } from "@/apps/society/chip";
 import { toggleNotes } from "./flowState";
 
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
@@ -66,6 +67,7 @@ export function StatusStrip() {
     return (
       <header className="strip strip-focus" data-testid="strip">
         <span className="num clock" data-tick={clock.tick}>{clockText}</span>
+        {sim ? <CalendarChip /> : null}
         {sim ? <TimeControls /> : <TickRing tick={clock.tick} />}
         <HaltChip halted={sys.halted} />
         {nwChip}
@@ -87,6 +89,7 @@ export function StatusStrip() {
       </button>
       <div className="strip-mid">
         <span className="num clock" data-testid="clock" data-tick={clock.tick}>{clockText}</span>
+        {sim ? <CalendarChip /> : null}
         {sim ? <TimeControls /> : (
           <>
             <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} offline={offline} />

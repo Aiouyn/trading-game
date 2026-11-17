@@ -30,7 +30,7 @@ function runs(list: SimCompany[] | undefined, id: string): boolean {
   return c.role === "chief executive" || c.role === "chairman" || (c.shares > 0 && c.stake * 2 > c.shares);
 }
 
-export default function BusinessesApp() {
+export default function BusinessesApp({ context }: { context?: string }) {
   const phone = usePhone();
   const { view } = useSimSnap();
   const why = useWhy();
@@ -48,6 +48,13 @@ export default function BusinessesApp() {
   const [bidPx, setBidPx] = useState("");
   const [paper, setPaper] = useState(false);
   const [buyer, setBuyer] = useState("");
+
+  useEffect(() => {
+    if (!context) return;
+    setFirmId(context);
+    setPage(null);
+    setMode("firm");
+  }, [context]);
 
   useEffect(() => {
     if (mode !== "firm" || !firmId) return;

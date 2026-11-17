@@ -63,7 +63,9 @@ export interface SimView {
   speed: "pause" | "day" | "week" | "month";
   pause: { why: string; eventId: number; kind?: string; text?: string; actions?: PauseAction[] } | null;
   scenario?: ScenarioView | null;
-  contacts?: { slot: number; name: string; kind?: string; word?: string; line?: string }[];
+  contacts?: { slot: number; who?: number; name: string; kind?: string; word?: string; line?: string }[];
+  society?: unknown;
+  calendar?: unknown;
   firms?: { id: string; name: string }[];
   employer?: string;
   firm?: string;
@@ -246,6 +248,8 @@ function mergeDay(frame: SimView) {
     employer: frame.employer || cur.employer,
     firm: frame.firm || cur.firm,
     final: frame.final ?? cur.final,
+    society: frame.society ?? cur.society,
+    calendar: frame.calendar ?? cur.calendar,
   };
   adopt(view);
   publish({ ...snap, view });

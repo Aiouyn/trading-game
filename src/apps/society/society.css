@@ -1,0 +1,129 @@
+.soc {
+  container-type: inline-size;
+  padding: var(--sp-16);
+  min-width: 0;
+  color: var(--fg);
+}
+.soc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "month rich"
+    "standing rank"
+    "power stories";
+  gap: var(--sp-12);
+  align-items: start;
+}
+.soc-month { grid-area: month; }
+.soc-richcard { grid-area: rich; }
+.soc-standing { grid-area: standing; }
+.soc-rank { grid-area: rank; }
+.soc-seats { grid-area: power; }
+.soc-stories { grid-area: stories; }
+@container (max-width: 640px) {
+  .soc-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "month"
+      "standing"
+      "rank"
+      "rich"
+      "power"
+      "stories";
+  }
+}
+.soc h2, .soc h3 { margin: 0; font: 400 var(--fs-20) / 1.2 var(--font-display); }
+.soc h3 { font-size: var(--fs-16); }
+.soc p { margin: 0; }
+.soc-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  padding: var(--sp-12);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--win);
+  min-width: 0;
+}
+.soc-kicker { color: var(--fg-muted); font-size: var(--fs-12_5); }
+.soc-word { font: 400 var(--fs-22) / 1.2 var(--font-display); }
+.soc-rich { max-height: 196px; overflow: auto; display: flex; flex-direction: column; gap: 0; }
+@container (max-width: 640px) {
+  .soc-rich { max-height: 280px; }
+}
+.soc-row, .soc-power, .soc-story {
+  display: grid;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.soc-row { grid-template-columns: 28px 1fr auto; align-items: baseline; }
+.soc-row[data-me="1"] { box-shadow: inset 2px 0 0 var(--fg); }
+.soc-why { grid-column: 2 / -1; color: var(--fg-muted); font-size: var(--fs-12_5); overflow-wrap: anywhere; }
+.soc-power { grid-template-columns: 1fr auto; }
+.soc-story { grid-template-columns: 1fr; }
+.soc-doors { display: flex; flex-direction: column; gap: 4px; }
+.soc-door { color: var(--fg-muted); font-size: var(--fs-12_5); }
+.soc-cal { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.soc-day {
+  min-height: 28px;
+  line-height: 1.15;
+  padding: 2px 4px;
+  text-align: left;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+  font-size: var(--fs-11_5);
+}
+.soc-day[data-today="1"] { border-color: var(--fg); }
+.soc-day[data-closed="1"] { color: var(--fg-disabled); background: var(--win2); }
+.soc-day[data-on="1"] { border-color: var(--info); }
+.soc-day small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
+.soc-pick { display: flex; flex-direction: column; gap: 4px; color: var(--fg-muted); font-size: var(--fs-12_5); }
+.soc.q-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
+.soc.q-phone .soc-day { min-height: 44px; }
+.soc.q-phone .name-link { display: inline-flex; align-items: center; min-height: 44px; }
+.soc-chip {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  font: inherit;
+  background: transparent;
+}
+.phone-cal {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.phone-cal .soc-chip { max-width: 100%; }
+.city-ticker {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg-muted);
+  padding: 6px 12px;
+  font: inherit;
+  font-size: var(--fs-12_5);
+  cursor: pointer;
+}
+.city-ticker-track { display: inline-block; white-space: nowrap; }
+.city-ticker[data-run="0"] .city-ticker-track { display: block; overflow: hidden; text-overflow: ellipsis; }
+.city-ticker[data-run="1"] .city-ticker-track { animation: soc-marquee 42s linear infinite; }
+@keyframes soc-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .city-ticker[data-run="1"] .city-ticker-track { animation: none; }
+}

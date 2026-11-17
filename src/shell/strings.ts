@@ -8,7 +8,7 @@ export const APP_NAMES: Record<AppId, string> = {
   property: "Property", city: "City", bank: "Bank & Credit", funds: "Funds", insurance: "Insurance",
   institutions: "Institutions", ailab: "AI Lab", security: "Security", legal: "Legal & Court", estate: "Estate",
   boards: "Boards", profile: "Profile", people: "People", health: "Health", alliance: "Alliance", contracts: "Contracts", auctions: "Auctions",
-  civic: "Civic", academy: "Academy", careers: "Careers", help: "Help", atelier: "Atelier", settings: "Settings", replay: "Replay", api: "API",
+  civic: "Civic", society: "Society", academy: "Academy", careers: "Careers", help: "Help", atelier: "Atelier", settings: "Settings", replay: "Replay", api: "API",
   launchpad: "Launchpad",
 };
 

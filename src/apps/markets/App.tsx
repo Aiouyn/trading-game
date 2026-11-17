@@ -8,6 +8,7 @@ import { useShellStore } from "@/components/shell/ShellContext";
 import { dollars, symbolOf, useSimSnap, type NewsLine, type Quote } from "@/shell/simSession";
 import { gameDate, moneyFromCents, signedQty, titleWord } from "@/components/ui/format";
 import { Named } from "@/components/ui/Named";
+import { holidayReason, parseCalendar } from "@/apps/society/read";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "./why";
 import "./markets.css";
 
@@ -58,7 +59,7 @@ export default function MarketsApp({ context }: { context?: string }) {
   if (quote) {
     return (
       <div className="mk" data-testid="markets">
-        <Stock quote={quote} day={view.date.abs} news={view.news} ask={ask} onBack={() => setSel(null)} />
+        <Stock quote={quote} day={view.date.abs} news={view.news} ask={ask} closed={holidayReason(view.date.abs, parseCalendar(view.calendar))} onBack={() => setSel(null)} />
         <Cause cause={cause} onClose={close} />
       </div>
     );
@@ -131,11 +132,12 @@ function cmp(a: Quote, b: Quote, key: SortKey): number {
   return (a.pos ?? 0) - (b.pos ?? 0);
 }
 
-function Stock({ quote, day, news, ask, onBack }: {
+function Stock({ quote, day, news, ask, closed, onBack }: {
   quote: Quote;
   day: number;
   news: NewsLine[];
   ask: (id: number, title: string) => void;
+  closed: string;
   onBack: () => void;
 }) {
   const store = useShellStore();
@@ -178,7 +180,10 @@ function Stock({ quote, day, news, ask, onBack }: {
           <h2 className="section-title">{sym} · {firm?.name || quote.name}</h2>
           <p className="muted">{firm?.sector ? titleWord(firm.sector) : quote.sector ? titleWord(quote.sector) : ""}{firm?.goodName ? ` · ${firm.goodName}` : ""}{firm?.ceo?.name ? <> · <Named name={firm.ceo.name} /></> : null}</p>
         </div>
-        <Button variant="primary" data-testid="mk-trade" onClick={() => store.getState().open("broker", quote.instr)}>Trade</Button>
+        <div>
+          <Button variant="primary" data-testid="mk-trade" disabled={!!closed} onClick={() => { if (!closed) store.getState().open("broker", quote.instr); }}>Trade</Button>
+          {closed ? <p className="muted" data-testid="mk-closed">{closed}</p> : null}
+        </div>
       </div>
       <div className="mk-quote">
         <NumBtn id={quote.eventId} title={`${sym} last`} ask={ask}><span className="mk-last"><MoneyText amount={dollars(quote.px)} ctx="wealth" /></span></NumBtn>

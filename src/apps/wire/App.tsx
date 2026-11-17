@@ -7,6 +7,7 @@ import { viewportOf } from "@/shell/wm";
 import { explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
 import { gameDate, presentNote } from "@/components/ui/format";
 import { EntityText } from "@/components/ui/Named";
+import { CityTicker } from "@/apps/society/ticker";
 import "./wire.css";
 
 interface Item { eventId: number; day: number; text: string; tags: string[] }
@@ -66,6 +67,7 @@ export default function WireApp() {
 
   return (
     <div className={`sim-wire${phone ? " q-phone" : ""}`} data-testid="wire">
+      <CityTicker where="wire" />
       <div className="sim-wire-filters" role="group" aria-label="Wire">
         {FILTERS.map((f) => (
           <button key={f} type="button" data-on={filter === f ? "1" : "0"} onClick={() => setFilter(f)}>{LABEL[f]}</button>

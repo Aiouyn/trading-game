@@ -23,6 +23,8 @@ import { HOME_EXAMPLE } from "./homeExample";
 import { TimeControls } from "@/shell/TimeControls";
 import { GoalBar } from "./GoalBar";
 import { Cause, useCause } from "@/apps/markets/why";
+import { CalendarChip } from "@/apps/society/chip";
+import { CityTicker } from "@/apps/society/ticker";
 import "@/apps/markets/why.css";
 import { DockBadge } from "@/apps/messages/notices";
 
@@ -292,6 +294,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
+      {me.source === "sim" ? <div className="phone-cal"><CalendarChip /></div> : null}
       {me.source === "sim" ? <GoalBar /> : null}
       {me.source === "sim" ? <div className="sim-time-phone"><TimeControls /></div> : null}
       <FillAckHost variant="phone" />
@@ -308,6 +311,7 @@ export function PhoneHome() {
         </section>
       ) : (
       <main className="phone-home">
+        {sim ? <CityTicker where="home" /> : null}
         <section className="widget" data-testid="widget">
           <div className="widget-top">
             <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : S.netWorth}</span>

@@ -2027,6 +2027,8 @@ function tickFrame(w: World): Record<string, unknown> {
     orders: book.orders,
     news: headlines(w),
     scenario: scenarioCard(w),
+    society: societyView(w),
+    calendar: calendarOf(w),
     feed,
     speed,
     pause: pauseNote,
@@ -2832,6 +2834,7 @@ function wirePanel(w: World): Record<string, unknown> {
     if (contact) tags.push('contacts');
     if (firmHit) tags.push('holdings');
     if (e.kind.startsWith('shock.') || e.kind.startsWith('politics.') || e.kind.startsWith('port.') || e.kind.startsWith('energy.') || e.kind.startsWith('macro.') || e.kind.startsWith('health.') || e.kind === 'property.open' || e.kind.startsWith('labour.')) tags.push('city');
+    if (e.kind === 'society.rise' || e.kind === 'society.fall' || e.kind === 'society.paper' || e.kind === 'society.gala' || e.kind === 'society.meet' || e.kind === 'society.festival' || e.kind === 'firm.succession' || e.kind === 'firm.ceoFired') tags.push('city');
     if (e.kind.startsWith('mkt.') || e.kind === 'firm.price' || e.kind === 'firm.profit' || e.kind.startsWith('cb.') || e.kind.startsWith('fx.') || e.kind.startsWith('opt.') || e.kind === 'news.story' || e.kind === 'media.story') tags.push('markets');
     return tags;
   };

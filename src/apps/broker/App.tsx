@@ -6,6 +6,7 @@ import { MoneyText } from "@/components/shell/MoneyText";
 import { act, dollars, symbolOf, useSimSnap, type ActNote, type Quote, type SimView } from "@/shell/simSession";
 import { levelPct, moneyFromCents, presentNote } from "@/components/ui/format";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "@/apps/markets/why";
+import { holidayReason, parseCalendar } from "@/apps/society/read";
 import "./broker.css";
 
 type Desk = "stocks" | "bonds" | "futures" | "options" | "coins" | "fx";
@@ -110,6 +111,8 @@ export default function BrokerApp({ context }: { context?: string }) {
 
   const place = async () => {
     if (busy || desk === "fx" || !view) return;
+    const exchange = desk === "stocks" || desk === "bonds" || desk === "futures" || desk === "options";
+    if (exchange && holidayReason(view.date.abs, parseCalendar(view.calendar))) return;
     const n = whole(qty);
     const lim = limitCents(limit);
     if (lim === null) { setLocal({ ok: false, text: "Name a limit in dollars, or leave it empty for the market." }); return; }
@@ -160,6 +163,8 @@ export default function BrokerApp({ context }: { context?: string }) {
   };
 
   const state = orderWord(local ?? note);
+  const exchange = desk === "stocks" || desk === "bonds" || desk === "futures" || desk === "options";
+  const closed = exchange ? holidayReason(view.date.abs, parseCalendar(view.calendar)) : "";
 
   return (
     <div className="br" data-testid="broker">
@@ -207,8 +212,9 @@ export default function BrokerApp({ context }: { context?: string }) {
           ) : null}
           <Preview desk={desk} view={view} picked={key} side={side} qty={qty} right={right} months={months} strike={strike} ask={ask} />
           {desk === "fx" ? <p className="br-note">The city dealer does not take a player order in foreign currency.</p> : (
-            <Button variant="primary" data-testid="br-buy" disabled={busy} onClick={() => void place()}>{busy ? "Sending…" : "Place"}</Button>
+            <Button variant="primary" data-testid="br-buy" disabled={busy || !!closed} onClick={() => void place()}>{busy ? "Sending…" : "Place"}</Button>
           )}
+          {closed ? <p className="br-note" data-testid="br-closed">{closed}</p> : null}
           {desk === "coins" ? (
             <Button variant="secondary" data-testid="br-launch" disabled={busy} onClick={() => {
               setBusy(true);

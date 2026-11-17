@@ -5,6 +5,8 @@ import { useShellStore } from "@/components/shell/ShellContext";
 import { Button } from "@/components/ui/Button";
 import { Result, useAct, when, Why } from "@/apps/profile/data";
 import { initial, moneyLabel, roleWord, type CircleContact } from "@/apps/messages/circle";
+import { useSimSnap } from "@/shell/simSession";
+import { acceptLine, barFor, parseSociety } from "@/apps/society/read";
 
 export interface HomeNote { neighbourhood?: string; owner?: { index: number; name: string } | null }
 interface Line { day: number; text: string; eventId: number }
@@ -70,6 +72,23 @@ function bandWord(band: string): string {
   return band.charAt(0).toUpperCase() + band.slice(1);
 }
 
+function StandingLine({ index, family }: { index: number; family: boolean }) {
+  const view = useSimSnap().view;
+  const soc = parseSociety(view?.society);
+  if (!soc?.standing) return null;
+  const mine = soc.rank?.person === index;
+  const power = soc.powerful.find((p) => p.person === index);
+  const door = mine ? null : acceptLine(soc.standing.score, family, barFor(index, soc.rich, soc.powerful));
+  return (
+    <p className="peo-standing" data-testid="person-standing">
+      You are <span title={String(soc.standing.score)}>{soc.standing.word}</span>.
+      {mine ? " This is you." : door ? ` ${door.line}` : ""}
+      {power ? ` They are ${power.word}: ${power.role}.` : ""}
+      {soc.standing.eventId >= 0 ? <> <Why id={soc.standing.eventId} /></> : null}
+    </p>
+  );
+}
+
 export function Person({ index, contact, firms, homes, onBack }: {
   index: number;
   contact?: CircleContact;
@@ -130,6 +149,7 @@ export function Person({ index, contact, firms, homes, onBack }: {
         </div>
       </header>
       <div className="peo-scroll">
+        <StandingLine index={index} family={contact?.kind === "family"} />
         <Result note={note} />
         {miss && !page ? <p className="peo-empty">The books did not answer.</p> : null}
         <div className="peo-block">

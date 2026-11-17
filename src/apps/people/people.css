@@ -118,6 +118,7 @@
 .peo-act-row .btn { flex: 1 1 120px; }
 .peo .btn { min-height: 44px; white-space: normal; text-align: center; }
 .peo-empty { margin: 0; padding: var(--sp-16); color: var(--fg-muted); }
+.peo-standing { margin: 0; padding: var(--sp-12) var(--sp-12) 0; overflow-wrap: anywhere; }
 @container peo (min-width: 720px) {
   .peo[data-pane="list"] .peo-person, .peo[data-pane="person"] .peo-side { display: flex; }
   .peo-body { flex-direction: row; }

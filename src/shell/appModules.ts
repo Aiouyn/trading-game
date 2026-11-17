@@ -23,6 +23,7 @@ export const APP_MODULES = {
   boards: { kind: "lazy", load: () => import("@/apps/boards/App") }, // M2-03 net-worth leaderboard
   city: { kind: "lazy", load: () => import("@/apps/city/DistrictView") },
   civic: { kind: "lazy", load: () => import("@/apps/civic/App") },
+  society: { kind: "lazy", load: () => import("@/apps/society/App") },
   legal: { kind: "lazy", load: () => import("@/apps/legal/App") },
   institutions: { kind: "lazy", load: () => import("@/apps/institutions/App") },
   launchpad: { kind: "lazy", load: () => import("@/apps/launchpad/App") }, // owner-restored meme-coin Launchpad (first loop) // M1-10 static read-only district view

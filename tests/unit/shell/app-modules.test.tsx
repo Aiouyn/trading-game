@@ -31,8 +31,8 @@ describe("built apps: one source of truth (APP_MODULES)", () => {
   });
 
   it("type level: Broker is built by its lazy module (UI card 4, BRK-A); an id without a module fails typecheck", () => {
-    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "civic" | "legal" | "institutions" | "launchpad" | "businesses" | "careers" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "people" | "estate" | "messages" | "health" | "academy">();
-    expectTypeOf<LazyAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "civic" | "legal" | "institutions" | "launchpad" | "businesses" | "careers" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "people" | "estate" | "messages" | "health" | "academy">();
+    expectTypeOf<BuiltAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "civic" | "society" | "legal" | "institutions" | "launchpad" | "businesses" | "careers" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "people" | "estate" | "messages" | "health" | "academy">();
+    expectTypeOf<LazyAppId>().toEqualTypeOf<"settings" | "broker" | "portfolio" | "markets" | "risk" | "wire" | "boards" | "city" | "civic" | "society" | "legal" | "institutions" | "launchpad" | "businesses" | "careers" | "company" | "property" | "bank" | "funds" | "insurance" | "profile" | "people" | "estate" | "messages" | "health" | "academy">();
     expectTypeOf<EagerAppId>().toEqualTypeOf<never>();
   });
 
