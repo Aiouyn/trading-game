@@ -38,6 +38,7 @@ export interface Firm {
   stockoutEv?: number; inputShortEv?: number; priceEv?: number; priceWho?: number;
   staffEv?: number; staffNoted?: number; staffMonth?: number; profitEv?: number;
   lastProfit: number; lastDividend: number; // last month's figures, for valuation
+  basisQty?: number; basisUnit?: number; basisSkip?: number; basisMade?: number; basisDone?: boolean; // genesis stock still to expense
   closed: boolean; listed: boolean; founder: number; bornDay: number; bornWorkers: number; listOn: number; ipoEv: number; ipoPx: number;
 }
 export interface EconState {
@@ -264,6 +265,36 @@ function unitCost(w: World, s: EconState, f: Firm, prodEff: number, wageK = 1): 
     c += k * use;
   }
   return c;
+}
+
+/** Inputs only. The daily wage memo already pays the people who made today's ordinary output. */
+function materialsPerUnit(w: World, s: EconState, f: Firm): number {
+  const prodEff = Math.max(0.01, GOODS[f.good].prod * prodMult(s, f.good));
+  const wageK = wageMul(w, f.idx);
+  const labour = s.wage * (wageK > 0 ? wageK : 1) / prodEff;
+  return Math.max(0, f.unitCost - labour);
+}
+
+/** A build outside the daily loop: the maker is paid, but the steel was never bought. Memo cost, so the ledger is untouched. */
+export function noteCommission(w: World, s: EconState, m: Firm, q: number): void {
+  if (!(q > 0)) return;
+  m.mCost += q * materialsPerUnit(w, s, m);
+  m.basisSkip = (m.basisSkip ?? 0) + q;
+}
+
+/** Genesis stock was produced with no inputs and no wages. Expense the draw-down only:
+ *  units made today are already in the wage and input memos, and commissioned units carry their own. */
+function chargeOpening(f: Firm): void {
+  const skip = f.basisSkip ?? 0;
+  const made = f.basisMade ?? 0;
+  f.basisSkip = 0;
+  f.basisMade = 0;
+  const left = f.basisQty ?? 0;
+  if (!(left > 0)) return;
+  const q = Math.min(left, Math.max(0, f.sold - skip - made));
+  if (!(q > 0)) return;
+  f.mCost += q * (f.basisUnit ?? 0);
+  f.basisQty = left - q;
 }
 
 export const economy: Module = {
@@ -505,7 +536,18 @@ export const economy: Module = {
     firmLists = new Map();
     setSimDay(w.day);
     const s: EconState = w.state.economy, L = w.ledger;
-    for (const f of s.firms) { f.sold = 0; f.lost = 0; }
+    if (w.day === 0) {
+      for (const f of s.firms) {
+        // Shelf stock and the machinery buffer are already on the ledger, created by genesis with nothing paid for them.
+        f.basisQty = Math.max(0, inv(w, f));
+        f.basisUnit = f.unitCost;
+      }
+    }
+    for (const f of s.firms) {
+      if (f.basisDone) f.basisDone = false;
+      else chargeOpening(f);
+      f.sold = 0; f.lost = 0;
+    }
     s.taxToday = 0; s.pensionToday = 0;
 
     if (w.day > 0 && w.day % DAYS_PER_YEAR === 0) yearlyLifePass(w, s);
@@ -627,13 +669,20 @@ export const economy: Module = {
       }
       // Without an input a firm improvises at a heavy cost: it can still make 30% of capacity. This keeps supply loops
       // (power needs coal, coal mines need power) from locking at zero forever after a bust.
+      const bought = out;
       out = Math.max(out, 0.3 * full);
       if (powerHook && w.state.energy) {
         const capped = powerHook(w, f, out);
         if (capped < out) out = Math.max(0, capped);
       }
+      const extra = out - bought;
+      if (extra > 0) {
+        const labour = s.wage * wageK / Math.max(0.01, prodEff);
+        f.mCost += extra * Math.max(0, f.unitCost - labour);
+      }
       f.mCost += wageK === 1 ? f.eff * s.wage : f.eff * s.wage * wageK;
       out = Math.max(0, out); f.made = out;
+      if ((f.basisQty ?? 0) > 0) f.basisMade = (f.basisMade ?? 0) + out;
       L.produce(GOOD_INSTR[f.good], f.id, out, 'production', cause);
       s.yReal += out;
 
@@ -912,6 +961,12 @@ export const economy: Module = {
     }
     const loanRate = s.policyRate + 0.03, depRate = Math.max(0, s.policyRate - 0.01);
 
+    // The last day's sales, including deliveries booked after this morning, land in this month's profit.
+    for (const f of s.firms) {
+      chargeOpening(f);
+      f.basisDone = true;
+    }
+
     // Firms: interest, profit tax, loan repayment, dividends, defaults.
     let profitTax = 0;
     for (const f of s.firms) {
@@ -1045,7 +1100,7 @@ export function addFirm(w: World, spec: NewFirm): Firm | null {
   };
   s.firms.push(f);
   if (cashIn > 0 && !pay(w, P.id(spec.founder), id, cashIn, 'equity.found', spec.cause)) { closeFirm(w, f, spec.cause); return null; }
-  L.issue(eq, P.id(spec.founder), 1000, 'equity.found', spec.cause);
+  L.issue(eq, P.id(spec.founder), 10_000, 'equity.found', spec.cause);
   joinFirm(s, spec.founder, f);
   f.ceo = spec.founder;
   let hired = 1;
@@ -1097,6 +1152,7 @@ function installCapital(w: World, s: EconState, f: Firm, want: number, cause: nu
     }
     L.consume('good:MACHINERY', f.id, q, 'invest.install', cause);
     m.mRev += c; m.sold += q; s.yGdp += c; s.mSpend += c;
+    if (!fromShelf) noteCommission(w, s, m, q);
     spent += c;
     return true;
   };

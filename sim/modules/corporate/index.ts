@@ -11,7 +11,7 @@ import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { borrowMargin } from '../banking/index.ts';
 import { blockPrice } from '../markets/index.ts';
-import { addFirm, closeFirm, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
+import { addFirm, closeFirm, DEP, noteCommission, pay, type EconState, type Firm } from '../economy/index.ts';
 import { joinFirm, leaveJob } from '../economy/people.ts';
 
 interface Style { prefix: string[]; suffix: string[] }
@@ -858,6 +858,7 @@ function buyMachines(w: World, f: Firm, units: number): number {
   L.consume('good:MACHINERY', f.id, q, 'invest.install', cause);
   L.produce('capital', f.id, spent / cpu, 'invest.install', cause);
   maker.mRev += spent; maker.sold += q; s.yGdp += spent; s.mSpend += spent;
+  noteCommission(w, s, maker, q);
   return spent / cpu;
 }
 

@@ -444,7 +444,13 @@ function reportFirm(w: World, f: Firm): void {
     b.openEv[fi] = [];
   }
   if (w.month % 3 !== fi % 3) return;
-  if (!listed(w, f.id)) return;
+  if (!listed(w, f.id)) {
+    // A private quarter is not a report. Leaving the buckets would print every year since founding as the IPO quarter.
+    const months = b.months[fi];
+    if (months > 0) { b.prevMonthly[fi] = b.profit[fi] / months; b.hasPrev[fi] = 1; }
+    b.rev[fi] = 0; b.cost[fi] = 0; b.profit[fi] = 0; b.months[fi] = 0; b.causes[fi] = []; b.locked[fi] = [];
+    return;
+  }
   const months = b.months[fi];
   const actual = b.profit[fi];
   const monthly = months > 0 ? actual / months : 0;
