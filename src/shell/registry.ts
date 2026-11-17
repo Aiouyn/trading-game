@@ -80,11 +80,7 @@ const ROWS: Row[] = [
   { id: "bank", group: "build" },
   { id: "funds", group: "build" },
   { id: "insurance", group: "build" },
-  {
-    id: "institutions", group: "build",
-    unlock: { kind: "anyOf", rules: [{ kind: "flag", flag: "charter.anyAvailable" }, { kind: "charter", charter: "*" }] },
-    teaser: { kind: "fromRank", rank: "R3" }, lockLabel: "Charter", lockHint: "Opens when a charter is available",
-  },
+  { id: "institutions", group: "build", minW: 560, minH: 420 },
   { id: "ailab", group: "shadow", unlock: { kind: "nw", minNw: "100000" }, teaser: { kind: "fromOnboarding", atMin: 7.5 }, lockLabel: "$100k", lockHint: "The Lab opens at $100k" },
   { id: "security", group: "shadow" },
   { id: "legal", group: "shadow" },

@@ -206,8 +206,10 @@
 
 .sim-wire { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-16); min-width: 0; }
 .sim-wire-filters { display: flex; flex-wrap: wrap; gap: 4px; }
-.sim-wire-filters button { min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg-muted); background: transparent; }
+.sim-wire-filters button { min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg-muted); background: transparent; font: inherit; }
 .sim-wire-filters button[data-on="1"] { color: var(--fg); background: var(--win2); }
+.sim-wire.q-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
+.sim-wire.q-phone .sim-wire-filters button, .sim-wire.q-phone .sim-wire-item button { min-height: var(--hit-touch); }
 .sim-wire-item button { display: flex; flex-direction: column; gap: 4px; text-align: left; width: 100%; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .sim-wire-why { display: flex; flex-direction: column; gap: 4px; padding: 8px 0 12px; color: var(--fg-muted); }
 .sim-wire-why p { margin: 0; }

@@ -1,0 +1,16 @@
+.leg { display: flex; flex-direction: column; gap: var(--sp-16); padding: var(--sp-16); min-width: 0; }
+.leg h2, .leg h3 { margin: 0; font: 400 var(--fs-20) / 1.2 var(--font-display); color: var(--fg); }
+.leg h3 { font-size: var(--fs-16); }
+.leg section { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-12); border: 1px solid var(--line); border-radius: var(--r-card); background: var(--win); }
+.leg p { margin: 0; }
+.leg-word { font: 400 var(--fs-20) / 1.2 var(--font-display); }
+.leg-cases, .leg-staff { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-8); }
+.leg-cases li, .leg-staff li { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; padding-bottom: var(--sp-8); border-bottom: 1px solid var(--line); }
+.q-why {
+  min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-btn);
+  background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--fs-12_5);
+}
+.q-why-body { display: flex; flex-direction: column; gap: 4px; width: 100%; color: var(--fg-muted); }
+.q-why-body p { margin: 0; }
+.leg.q-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
+.leg.q-phone .q-why, .leg.q-phone .btn { min-height: var(--hit-touch); }

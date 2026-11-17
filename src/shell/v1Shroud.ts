@@ -15,14 +15,13 @@ export interface ShroudEntry {
 }
 
 export const SHROUD = [
-  { id: "banks", flag: "v1.banks", apps: ["bank", "funds", "insurance", "institutions"], paths: ["bank", "funds", "insurance", "institutions"] },
+  { id: "banks", flag: "v1.banks", apps: ["bank", "funds", "insurance"], paths: ["bank", "funds", "insurance"] },
   { id: "ailab", flag: "v1.ailab", apps: ["ailab"], paths: ["ailab"] },
-  { id: "politics", flag: "v1.politics", apps: ["civic"], paths: ["civic"] },
   { id: "businesses", flag: "v1.businesses", apps: ["businesses", "company"], paths: ["businesses", "company"] },
   { id: "property", flag: "v1.property", apps: ["property"], paths: ["property"] },
   { id: "terminal", flag: "v1.terminal", apps: ["quantlab", "research"], paths: ["quantlab", "research"] },
   { id: "whale", flag: "v1.whale", apps: [], paths: ["whale", "whale-watch"] },
-  { id: "adversarial", flag: "v1.adversarial", apps: ["security", "legal"], paths: ["security", "legal"] },
+  { id: "adversarial", flag: "v1.adversarial", apps: ["security"], paths: ["security"] },
   { id: "monetization", flag: "v1.monetization", apps: ["atelier"], paths: ["atelier"] },
 ] as const satisfies readonly ShroudEntry[];
 

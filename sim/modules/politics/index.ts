@@ -563,6 +563,109 @@ function blank(n: number, gov: number): Pol {
   };
 }
 
+const pollCache = new WeakMap<World, { day: number; poll: Poll }>();
+
+/** A month's vote, counted and not written. The election itself still casts the ballots. */
+function pollOf(w: World): Poll {
+  const hit = pollCache.get(w);
+  if (hit && hit.day === w.day) return hit.poll;
+  const poll = tally(w, false);
+  pollCache.set(w, { day: w.day, poll });
+  return poll;
+}
+
+/** The party this person would be counted for, using the same rule as the election. */
+function ballotOf(w: World, person: number): number {
+  const s = econ(w), st = pol(w), P = s.P;
+  if (person < 0 || person >= P.n || !canVote(P, w, person)) return -1;
+  const infl = yoyOf(s);
+  const soc = w.state.social as Soc | undefined;
+  const cpi = Math.max(0.2, s.cpi);
+  const retired = (P.flags[person] & 2) !== 0;
+  const job = P.employer[person] >= 0 && !retired;
+  const base = person < st.incSnap.length ? st.incSnap[person] : 0;
+  const ratio = base > 1 ? P.incEma[person] / cpi / base - 1 : 0;
+  const wealth = w.ledger.balS(P.slot[person], DEP);
+  const ch = base > 1 ? clip(ratio, -0.4, 0.4) : 0;
+  const bloc = mix(person, 3, 11) % 100;
+  const home = bloc < 34 ? 0 : bloc < 67 ? 1 : 2;
+  leanOf(st, soc, person);
+  let best = 0, bs = -1e18;
+  for (let p = 0; p < PARTIES.length; p++) {
+    const sc = utility(s, st, p, infl, wealth, retired, job, ch, home);
+    if (sc > bs) { bs = sc; best = p; }
+  }
+  return best;
+}
+
+export interface CivicSnapshot {
+  parties: {
+    id: string; name: string; tax: number; profit: number; dividend: number; benefit: number;
+    regulation: number; votes: number; share: number; governing: boolean;
+  }[];
+  turned: number;
+  eligible: number;
+  approval: number;
+  margin: number;
+  lastVote: string;
+  elections: string[];
+  terms: number;
+  leader: number;
+  finance: number;
+  governor: number;
+  regulator: number;
+  electEv: number;
+  govEv: number;
+  platformEv: number;
+  /** Party index the city would count for this person today, or -1. */
+  ballot: number;
+  /** Party index recorded at the last election, or -1. */
+  voted: number;
+  monthsToElection: number;
+  electionNow: boolean;
+}
+
+/** Parties, the standing poll and this person's ballot. Reads only. */
+export function civicSnapshot(w: World, person: number): CivicSnapshot {
+  const st = pol(w);
+  const poll = pollOf(w);
+  const into = w.month % TERM;
+  const electionNow = w.month >= TERM - 1 && into === TERM - 1;
+  const voted = person >= 0 && person < st.partyOf.length ? st.partyOf[person] : -1;
+  return {
+    parties: PARTIES.map((p, i) => ({
+      id: p.id,
+      name: p.name,
+      tax: p.tax,
+      profit: p.profit,
+      dividend: p.dividend,
+      benefit: p.benefit,
+      regulation: p.regulation,
+      votes: poll.votes[i] ?? 0,
+      share: poll.turned > 0 ? (poll.votes[i] ?? 0) / poll.turned : 0,
+      governing: i === st.gov,
+    })),
+    turned: poll.turned,
+    eligible: poll.eligible,
+    approval: st.approval,
+    margin: st.margin,
+    lastVote: st.lastVote,
+    elections: st.elections.slice(-6),
+    terms: st.terms,
+    leader: st.leader,
+    finance: st.finance,
+    governor: st.governor,
+    regulator: st.regulator,
+    electEv: st.electEv,
+    govEv: st.govEv,
+    platformEv: st.platformEv,
+    ballot: ballotOf(w, person),
+    voted: voted >= 0 && voted < PARTIES.length ? voted : -1,
+    monthsToElection: electionNow ? 0 : TERM - 1 - into,
+    electionNow,
+  };
+}
+
 export const politics: Module = {
   id: 'politics',
 

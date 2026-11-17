@@ -109,6 +109,38 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL: process.env.NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL === "1" ? "1" : "0",
     NEXT_PUBLIC_QUAY_MOCK_LOAD_FAIL: process.env.NEXT_PUBLIC_QUAY_MOCK_LOAD_FAIL === "1" ? "1" : "0",
   },
+  // node_modules is a junction onto another drive. Next prefixes path.relative() with "./",
+  // and path.relative across drives is absolute, so webpack looks for "./C:/.../next-dev.js".
+  webpack: (config, ctx) => {
+    const { dev, webpack } = ctx;
+    config.resolve ??= {};
+    const seamFile = path.resolve(root, cityE2eSeam);
+    const alias = config.resolve.alias;
+    if (alias && !Array.isArray(alias)) alias["@city-e2e-seam"] = seamFile;
+    config.plugins ??= [];
+    config.plugins.push(new webpack.NormalModuleReplacementPlugin(/[/\\]e2eRendererSeam\.ts$/, seamFile));
+    if (!dev || typeof config.entry !== "function") return config;
+    const orig = config.entry as (...args: unknown[]) => Promise<Record<string, unknown>>;
+    config.entry = async (...args: unknown[]) => {
+      const result = await orig(...args);
+      const fix = (val: unknown): unknown => {
+        if (typeof val === "string") {
+          const abs = /^\.\/([A-Za-z]:[\\/].*)$/.exec(val);
+          return abs ? abs[1] : val;
+        }
+        if (Array.isArray(val)) return val.map(fix);
+        if (val && typeof val === "object" && "import" in val) {
+          const rec = val as { import: unknown };
+          rec.import = fix(rec.import);
+          return rec;
+        }
+        return val;
+      };
+      for (const key of Object.keys(result)) result[key] = fix(result[key]);
+      return result;
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

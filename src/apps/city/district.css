@@ -21,3 +21,24 @@
 .dv-back { align-self: flex-start; }
 .dv.dv-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
 .dv-list .dv-on { border-color: var(--fg); color: var(--fg); }
+.dv-facts { display: flex; flex-direction: column; gap: 4px; }
+.dv-facts p, .dv-card p { margin: 0; }
+.dv-word { font: 400 var(--fs-20) / 1.2 var(--font-display); color: var(--fg); }
+.dv-card { display: flex; flex-direction: column; gap: 4px; padding: var(--sp-12); border: 1px solid var(--line); border-radius: var(--r-card); background: var(--win); }
+.dv-card h3, .dv-panel > h3 { margin: 0; font-size: var(--fs-16); }
+.dv-parcels { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow: auto; }
+.dv-parcels button, .dv-more {
+  display: flex; justify-content: space-between; gap: 8px; text-align: left; width: 100%;
+  min-height: 36px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-input);
+  background: transparent; color: var(--fg); font: inherit;
+}
+.dv-parcels button[data-on="1"], .dv-detail { border-color: var(--fg); }
+.dv-detail { padding: var(--sp-12); border: 1px solid var(--line); border-radius: var(--r-card); }
+.q-why {
+  margin-left: 8px; min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-btn);
+  background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--fs-12_5);
+}
+.q-why-body { display: flex; flex-direction: column; gap: 4px; color: var(--fg-muted); }
+.q-why-body p { margin: 0; }
+.dv-phone .dv-parcels button, .dv-phone .dv-more, .dv-phone .q-why { min-height: var(--hit-touch); }
+.dv-list li { display: flex; justify-content: space-between; gap: 8px; width: 100%; }
