@@ -1,0 +1,21 @@
+Productivity growth by sector, per year, at a firm with an average chief executive and average investment.
+Each firm's own rate is this times a factor between about 0.2 and 1.8: skilled chiefs and firms that keep
+installing machinery improve faster, weak ones barely improve. Wages follow the labour-weighted average
+(see the wage settlement in modules/economy), so real wages rise with it; firms that fall behind carry a
+higher unit cost, charge more and lose share to rivals.
+
+[OBJECT:SECTOR_GROWTH]
+
+[SECTOR_GROWTH:TECHNOLOGY] [RATE:0.024]
+[SECTOR_GROWTH:MANUFACTURING] [RATE:0.0144]
+[SECTOR_GROWTH:CHEMICALS] [RATE:0.012]
+[SECTOR_GROWTH:FINANCE] [RATE:0.012]
+[SECTOR_GROWTH:MEDIA] [RATE:0.012]
+[SECTOR_GROWTH:AGRICULTURE] [RATE:0.0108]
+[SECTOR_GROWTH:RETAIL] [RATE:0.0108]
+[SECTOR_GROWTH:METALS] [RATE:0.0096]
+[SECTOR_GROWTH:TRANSPORT] [RATE:0.0096]
+[SECTOR_GROWTH:MINING] [RATE:0.0084]
+[SECTOR_GROWTH:ENERGY] [RATE:0.006]
+[SECTOR_GROWTH:HEALTHCARE] [RATE:0.006]
+[SECTOR_GROWTH:CONSTRUCTION] [RATE:0.006]

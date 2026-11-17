@@ -2,6 +2,7 @@
 // Prices come from a price-time order book, not from a random walk. Funds and households are ledger
 // actors; a fill moves shares one way and deposits the other, through pay(). Microstructure noise
 // (timing, size) is the only use of w.rng('mkt:...'). Fair values and trade direction are not random.
+import { SECTOR_GROWTH } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
 import { GOODS } from '../economy/content.ts';
 import { type Module, type World } from '../../kernel/index.ts';
@@ -311,6 +312,12 @@ function stakeValue(w: World, issuer: string): number {
 
 function discount(policy: number, premium: number): number { return Math.max(0.04, policy + premium); }
 
+const MEAN_GROWTH = (() => { const v = Object.values(SECTOR_GROWTH); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; })();
+/** What buyers expect earnings to grow: the inflation target plus most of the average sector productivity rate in the content files. */
+function growthBelief(s: EconState): number { return (s.inflTarget ?? 0.02) + 0.8 * MEAN_GROWTH; }
+/** Discount rate less expected growth, never under 3.5%: the divisor for a growing stream of earnings. */
+function capRate(s: EconState, policy: number, premium: number): number { return Math.max(0.035, discount(policy, premium) - growthBelief(s)); }
+
 function annualCash(divEma: number, profitEma: number): number {
   const div = Math.max(0, divEma);
   const earn = Math.max(0, profitEma);
@@ -324,6 +331,7 @@ function annualCash(divEma: number, profitEma: number): number {
 function fairValue(w: World, st: Stock, premium: number): number {
   const s = econ(w);
   const r = discount(s.policyRate, premium);
+  const rg = capRate(s, s.policyRate, premium);
   const sh = sharesOut(w, st.instr);
   if (st.issuer === BANK) {
     const per = Math.max(1, Math.round(bookEquity(w, st.issuer) / sh));
@@ -338,7 +346,7 @@ function fairValue(w: World, st: Stock, premium: number): number {
   }
   // A paper bid leaves the target inside the buyer. Earnings alone would walk that value back out.
   const hold = stakeValue(w, st.issuer);
-  return Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / r / sh + hold / sh));
+  return Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / rg / sh + hold / sh));
 }
 
 function blend(ema: number, obs: number): number {
@@ -918,8 +926,8 @@ function fadeCorner(w: World, st: Stock): void {
   if (st.last > floorPx) st.last = floorPx;
 }
 
-function impliedEma(last: number, policy: number, premium: number, sh: number): number {
-  const r = discount(policy, premium);
+function impliedEma(s: EconState, last: number, policy: number, premium: number, sh: number): number {
+  const r = capRate(s, policy, premium);
   const annual = last * r * sh;
   return annual / (12 * (W_DIV + W_EARN * PAYOUT));
 }
@@ -999,11 +1007,11 @@ export const markets: Module = {
         const monthly = daily * 30 - interest;
         const after = monthly > 0 ? monthly * (1 - tax) : 0;
         const sh = sharesOut(w, st.instr);
-        const r = discount(s.policyRate, 0.04);
+        const r = capRate(s, s.policyRate, 0.04);
         if (sh > 0 && r > 0) last = Math.max(last, Math.round(after * 12 / r / sh));
       }
       st.last = last; st.prev = last; st.open = last; st.high = last; st.low = last;
-      const x = impliedEma(last, s.policyRate, 0.04, sharesOut(w, st.instr));
+      const x = impliedEma(s, last, s.policyRate, 0.04, sharesOut(w, st.instr));
       st.divEma = x;
       st.profitEma = x;
     }
@@ -1121,20 +1129,17 @@ export const markets: Module = {
   // Funds pay out cash they cannot use: anything above the value of the shares they hold goes to their owners.
   monthEnd(w) {
     const m = book(w);
-    // Price change plus part of the cash dividend after the tax a person pays. The whole payout
-    // includes a treasury sweep and cash the household spends, which put the index ahead of the
-    // holder. Leaving the payout out left a beat ahead of the index. Thirty-five hundredths
-    // of the after-tax payout leaves the holder within two points of this index.
+    // Total return: the price change plus the whole payout (dividends and cash sweeps, before the holder's tax),
+    // the way a published total-return index is built. A holder who pays tax earns less than this series.
     {
       const s = econ(w);
-      const tax = s.divRate ?? 0.35;
       let cap = 0, div = 0;
       for (const st of m.stocks) {
         cap += st.last * sharesOut(w, st.instr);
         const f = firmOf(s, st.issuer);
         div += f ? Math.max(0, f.lastDividend) : 0;
       }
-      const net = div * (1 - tax) * 0.35;
+      const net = div;
       const prev = m.trCap > 0 ? m.trCap : cap;
       if (prev > 0) m.tr *= (cap + net) / prev;
       m.trCap = Math.max(1, cap);

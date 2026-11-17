@@ -68,3 +68,10 @@ export const OPEN_TRADE = openingTrade();
 const ceo = of('POSITION').find((r) => r.raw.id === 'CHIEF_EXECUTIVE');
 if (!ceo) throw new Error('positions: CHIEF_EXECUTIVE is required');
 export const CEO_POSITION: PositionDef = { id: 'CHIEF_EXECUTIVE', name: ceo.str('NAME'), removeAfter: ceo.num('REMOVE_AFTER_LOSING_MONTHS'), retireAge: ceo.num('RETIRE_AGE') };
+
+/** Yearly productivity growth by sector (content/productivity.txt). */
+export const SECTOR_GROWTH: Record<string, number> = {};
+for (const r of of('SECTOR_GROWTH')) {
+  if (!SECTOR_NAMES.includes(r.raw.id)) throw new Error(`${r.where()}: unknown sector ${r.raw.id}`);
+  SECTOR_GROWTH[r.raw.id] = r.num('RATE');
+}

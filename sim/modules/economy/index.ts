@@ -10,7 +10,7 @@
 // Later modules replace parts of this (markets, firm detail, banking); the pattern to copy is:
 // state in w.state.economy, money only through the ledger, every event with a cause.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
-import { CEO_POSITION, FIRM_DEFS, GOODS, OPEN_TRADE, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
+import { CEO_POSITION, FIRM_DEFS, GOODS, OPEN_TRADE, SECTOR_GROWTH, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
 import { People, PRISON, joinFirm, leaveJob, seekCopy, seekCount, seekLive, seekPromote, seekRebuild, seekReset, setSimDay, succession, thought, yearlyLifePass } from './people.ts';
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
@@ -41,6 +41,7 @@ export interface Firm {
   stockoutEv?: number; inputShortEv?: number; priceEv?: number; priceWho?: number;
   staffEv?: number; staffNoted?: number; staffMonth?: number; profitEv?: number;
   lastProfit: number; lastDividend: number; // last month's figures, for valuation
+  tfp?: number; capSeen?: number; // output per worker-day relative to the content file's recipe (1 at the opening); capSeen: machinery at last month's count
   basisQty?: number; basisUnit?: number; basisSkip?: number; basisMade?: number; basisDone?: boolean; // genesis stock still to expense
   closed: boolean; listed: boolean; founder: number; bornDay: number; bornWorkers: number; listOn: number; ipoEv: number; ipoPx: number;
 }
@@ -48,7 +49,7 @@ export interface EconState {
   firms: Firm[]; P: People; shareIds: string[]; govSlot: number; bankSlot: number; clearSlot: number; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
   wage: number; policyRate: number; cpi: number; cpiBase: number; cpiHist: number[];
   unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number; wageWho?: number; rateWho?: number; jobsWho?: number; cpiWho?: number;
-  yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; marginIn: number; // fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force. marginIn: loan interest the main bank redeemed this month, which is what deposit interest can be paid from
+  yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; marginIn: number; prodTrend?: number; tfpIdx?: number; // prodTrend: labour-weighted monthly productivity growth, smoothed. fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force. marginIn: loan interest the main bank redeemed this month, which is what deposit interest can be paid from
   taxAim?: number; profitTax?: number; divRate?: number; benefitRate?: number; inflTarget?: number;
   spendPri?: Record<string, number>; spendScale?: number;
 }
@@ -272,6 +273,13 @@ function buy(w: World, s: EconState, buyer: string, good: string, qty: number, r
 }
 
 /** Output-per-worker multiplier from active shocks, and the shock event to blame. */
+/** Labour-weighted productivity level of the live firms in a sector: where a new firm starts. */
+function sectorTfp(s: EconState, sector: string): number {
+  let a = 0, b = 0;
+  for (const x of s.firms) if (!x.closed && x.sector === sector && x.eff > 0) { a += x.eff * (x.tfp ?? 1); b += x.eff; }
+  return b > 0 ? a / b : 1;
+}
+export const tfpOf = (f: Firm): number => f.tfp ?? 1;
 function prodMult(s: EconState, good: string): number { let m = 1; for (const x of s.shocks) m *= (x.def.prod[good] ?? 1) * (x.def.prod.ALL ?? 1); return m; }
 function demandMult(s: EconState, good: string): number { let m = 1; for (const x of s.shocks) m *= x.def.demand[good] ?? 1; return m; }
 function shockCause(s: EconState, good: string): number | undefined {
@@ -296,7 +304,7 @@ function unitCost(w: World, s: EconState, f: Firm, prodEff: number, wageK = 1): 
 
 /** Inputs only. The daily wage memo already pays the people who made today's ordinary output. */
 function materialsPerUnit(w: World, s: EconState, f: Firm): number {
-  const prodEff = Math.max(0.01, GOODS[f.good].prod * prodMult(s, f.good));
+  const prodEff = Math.max(0.01, GOODS[f.good].prod * prodMult(s, f.good) * tfpOf(f));
   const wageK = wageMul(w, f.idx);
   const labour = s.wage * (wageK > 0 ? wageK : 1) / prodEff;
   return Math.max(0, f.unitCost - labour);
@@ -634,7 +642,7 @@ export const economy: Module = {
     let poachLeft = Math.ceil(employedAtDawn * POACH_RATE);
     const gaps = s.firms.map((f) => {
       if (f.closed) return 0;
-      const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
+      const d = GOODS[f.good], mult = prodMult(s, f.good) * tfpOf(f), prodEff = d.prod * mult;
       // Stock above the plan slows the line, and a short shelf rebuilds it, but only by a quarter.
       // An unbound correction treats a few weeks of unsold goods as a closed plant: the firm fires
       // most of its staff in a month and hires them back when the pile finally sells.
@@ -689,7 +697,7 @@ export const economy: Module = {
     const payday = w.day % PAY_EVERY === PAY_EVERY - 1;
     for (const f of s.firms) {
       if (f.closed) continue;
-      const d = GOODS[f.good], mult = prodMult(s, f.good), prodEff = d.prod * mult;
+      const d = GOODS[f.good], mult = prodMult(s, f.good) * tfpOf(f), prodEff = d.prod * mult;
       const cause = shockCause(s, f.good) ?? s.macroEv;
       const wageK = wageMul(w, f.idx);
       if (!(wageK > 0)) { f.made = 0; continue; }
@@ -1010,11 +1018,32 @@ export const economy: Module = {
     if (slack > 0.02) step += 0.1 * Math.min(0.06, slack);
     s.fiscal = Math.max(-0.03, Math.min(0.22, s.fiscal + step));
 
+    // Productivity. Each firm's output per worker-day grows at its sector's rate times a factor for how well it is run
+    // (its chief's skill) and whether it is putting in machinery per worker. Prices follow unit costs, so a firm that
+    // improves slowly charges more and loses share. The wage bargain below adds the labour-weighted average, so
+    // real wages rise with output per worker.
+    {
+      let g = 0, e = 0, lvl = 0;
+      for (const f of s.firms) {
+        if (f.closed || !(f.eff > 0)) continue;
+        const rate = SECTOR_GROWTH[f.sector] ?? 0.015;
+        const chief = f.ceo >= 0 && f.ceo < s.P.n ? Math.max(0.5, Math.min(2, s.P.skill[f.ceo])) : 0.8;
+        const k = (L.instruments.has(CAPITAL) ? L.balance(f.id, CAPITAL) : 0) / f.eff;
+        const dk = f.capSeen && f.capSeen > 0 && k > 0 ? k / f.capSeen - 1 : 0;
+        f.capSeen = k > 0 ? k : f.capSeen;
+        const factor = Math.max(0.2, Math.min(1.8, 0.4 + 0.6 * chief + Math.max(-0.3, Math.min(0.5, 10 * dk))));
+        const m = rate * factor / 12;
+        f.tfp = (f.tfp ?? 1) * (1 + m);
+        g += f.eff * m; e += f.eff; lvl += f.eff * f.tfp;
+      }
+      if (e > 0) { s.prodTrend = (s.prodTrend ?? 0) + 0.3 * (g / e - (s.prodTrend ?? 0)); s.tfpIdx = lvl / e; }
+    }
+
     // Wage settlements: anchored on the inflation target. A quarter of last month's miss is caught up, and a
     // tight labour market adds to it. Catching half of every monthly print indexed each burst into the next
     // wage, which is what kept inflation at 6–8% for years after the shock itself had ended.
     const anchor = piStarFiscal / 12;
-    const wRaw = anchor + 0.25 * (mInfl - anchor) + 0.04 * (NATURAL_UNEMP - s.unemployment);
+    const wRaw = anchor + (s.prodTrend ?? 0) + 0.25 * (mInfl - anchor) + 0.04 * (NATURAL_UNEMP - s.unemployment);
     const wCh = Math.max(s.unemployment > 0.15 ? -0.001 : 0, Math.min(0.012, wRaw));
     s.wage = Math.round(s.wage * (1 + wCh));
     if (Math.abs(wCh) > 0.002) s.wageEv = E.emit('macro.wage', `wages ${(wCh * 100).toFixed(2)}% this month`, [uEv, cpiEv]);
@@ -1121,6 +1150,9 @@ export const economy: Module = {
       unemp_pct: +(s.unemployment * 100).toFixed(1),
       rate_pct: +(s.policyRate * 100).toFixed(2),
       wage: +(s.wage / 100).toFixed(2),
+      realGdp_M: +(s.yGdp / DAYS_PER_YEAR / 1e8 / (s.cpiHist.slice(-12).reduce((a, b) => a + b, 0) / Math.max(1, Math.min(12, n)) || 1)).toFixed(3),
+      prod_idx: +(s.tfpIdx ?? 1).toFixed(3),
+      realWage: +(s.wage / 100 / s.cpi).toFixed(2),
       money_M: +((L.issued.get(DEP) ?? 0) / 1e8).toFixed(0),
       loans_M: +(totalLoans(w, s) / 1e8).toFixed(0),
       govDebt_M: +((L.issued.get(BOND) ?? 0) / 1e8).toFixed(0),
@@ -1214,6 +1246,7 @@ export function addFirm(w: World, spec: NewFirm): Firm | null {
     closed: false, listed: false, founder: spec.founder, bornDay: w.day, bornWorkers: 0, listOn: 0, ipoEv: -1, ipoPx: 0,
   };
   s.firms.push(f);
+  f.tfp = 0.95 * sectorTfp(s, d.sector);
   if (cashIn > 0 && !pay(w, P.id(spec.founder), id, cashIn, 'equity.found', spec.cause)) { closeFirm(w, f, spec.cause); return null; }
   L.issue(eq, P.id(spec.founder), 10_000, 'equity.found', spec.cause);
   joinFirm(s, spec.founder, f);
