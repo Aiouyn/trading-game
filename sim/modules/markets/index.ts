@@ -58,6 +58,10 @@ interface Stock {
   printEv?: number;
   /** +1 a beat, -1 a miss, 0 nothing to chase. */
   printDir?: number;
+  /** Shares lender-forced sales dumped on the book lately, in days of volume. It decays and the price recovers. */
+  forced?: number;
+  /** Capitalisation at the last total-return point, so the index follows the same names month to month. */
+  trPrev?: number;
 }
 
 interface Fund { id: string; style: Style; premium: number }
@@ -76,6 +80,10 @@ interface MktState {
   yTurn: number;
   root: number;
   playerLive: boolean;
+  /** The growth buyers capitalise: the inflation target at first, then what listed earnings actually delivered. */
+  gHat?: number;
+  /** Listed profit summed over each of the last 24 months. */
+  profRing?: number[];
   fadeDay: number;
   fadeIds: number[];
   price: (instr: string) => number;
@@ -131,6 +139,9 @@ function compactOrders(m: MktState): void {
 function sharesOut(w: World, instr: string): number { return w.ledger.issued.get(instr) ?? SHARES; }
 
 const BLOCK_SHARE = 0.01;
+const FORCED_IMPACT = 0.02; // price discount per day of volume dumped by forced sellers
+const FORCED_CAP = 0.35;
+const FORCED_DECAY = 0.94;  // per day: the half-life is about eleven days
 /** A founder already holds about 40%. Fading that stake pulls every family firm and the city with it. */
 const FADE_SHARE = 0.5;
 
@@ -246,9 +257,10 @@ export function blockPrice(w: World, instr: string, qty: number): number {
 }
 
 /** Hit the resting bids. Cash and shares move through the ledger. Returns shares sold. */
-export function sellToBook(w: World, actor: string, instr: string, qty: number, cause: number): number {
+export function sellToBook(w: World, actor: string, instr: string, qty: number, cause: number, forced = false): number {
   const st = book(w).stocks.find((s) => s.instr === instr);
   if (!st || qty < 1) return 0;
+  if (forced) st.forced = (st.forced ?? 0) + Math.min(qty, Math.floor(w.ledger.balance(actor, instr))) / advOf(st);
   const m = book(w);
   const orders = m.orders.filter((o) => o.open && !o.skip && o.instr === instr && o.side === 'buy' && o.qty >= 1 && o.limit !== null && o.actor !== actor);
   orders.sort((a, b) => (b.limit ?? 0) - (a.limit ?? 0) || a.seq - b.seq);
@@ -323,10 +335,14 @@ function stakeValue(w: World, issuer: string, skipOwn = true): number {
 function discount(policy: number, premium: number): number { return Math.max(0.04, policy + premium); }
 
 const MEAN_GROWTH = (() => { const v = Object.values(SECTOR_GROWTH); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; })();
-/** What buyers expect earnings to grow: the inflation target plus most of the average sector productivity rate in the content files. */
-function growthBelief(s: EconState): number { return (s.inflTarget ?? 0.02) + 0.8 * MEAN_GROWTH; }
+/**
+ * What buyers expect earnings to grow. They start with the inflation target and then learn from the record:
+ * assuming the content files' productivity rate on top of inflation overpaid for growth the listed firms never
+ * delivered, so the index earned less than the discount rate that priced it.
+ */
+function growthBelief(s: EconState, g?: number): number { return g ?? (s.inflTarget ?? 0.02); }
 /** Discount rate less expected growth, never under 3.5%: the divisor for a growing stream of earnings. */
-function capRate(s: EconState, policy: number, premium: number): number { return Math.max(0.035, discount(policy, premium) - growthBelief(s)); }
+function capRate(s: EconState, policy: number, premium: number, g?: number): number { return Math.max(0.035, discount(policy, premium) - growthBelief(s, g)); }
 
 function annualCash(divEma: number, profitEma: number): number {
   const div = Math.max(0, divEma);
@@ -341,7 +357,7 @@ function annualCash(divEma: number, profitEma: number): number {
 function fairValue(w: World, st: Stock, premium: number): number {
   const s = econ(w);
   const r = discount(s.policyRate, premium);
-  const rg = capRate(s, s.policyRate, premium);
+  const rg = capRate(s, s.policyRate, premium, book(w).gHat);
   const sh = sharesOut(w, st.instr);
   if (st.issuer === BANK) {
     const per = Math.max(1, Math.round(bookEquity(w, st.issuer) / sh));
@@ -417,7 +433,10 @@ function lookback(st: Stock): number {
  * which is the loss for anyone who bought the beat and held it.
  */
 function destination(w: World, st: Stock): number {
-  const fair = Math.max(1, fairValue(w, st, 0.04));
+  // Lenders dumping collateral push the price below what the news justifies. The pressure decays
+  // a few percent a day and the price walks back, which is the rebound a patient cash buyer collects.
+  const squeeze = Math.min(FORCED_CAP, FORCED_IMPACT * (st.forced ?? 0));
+  const fair = Math.max(1, Math.round(fairValue(w, st, 0.04) * (1 - squeeze)));
   if ((st.chaseUntil ?? 0) < w.day || (st.printDir ?? 0) <= 0) return fair;
   return Math.max(fair + 1, Math.round(fair * 1.04));
 }
@@ -1023,7 +1042,7 @@ export const markets: Module = {
         const monthly = daily * 30 - interest;
         const after = monthly > 0 ? monthly * (1 - tax) : 0;
         const sh = sharesOut(w, st.instr);
-        const r = capRate(s, s.policyRate, 0.04);
+        const r = capRate(s, s.policyRate, 0.04, state.gHat);
         if (sh > 0 && r > 0) last = Math.max(last, Math.round(after * 12 / r / sh));
       }
       st.last = last; st.prev = last; st.open = last; st.high = last; st.low = last;
@@ -1102,6 +1121,7 @@ export const markets: Module = {
     // and then sit there, so a cheap earnings yield survived for months.
     for (const st of m.stocks) {
       const { hi, lo } = collar(w, st);
+      if (st.forced) st.forced = st.forced < 0.01 ? 0 : st.forced * FORCED_DECAY;
       st.last = Math.max(lo, Math.min(hi, destination(w, st)));
     }
     for (const st of m.stocks) fadeCorner(w, st);
@@ -1149,16 +1169,33 @@ export const markets: Module = {
     // the way a published total-return index is built. A holder who pays tax earns less than this series.
     {
       const s = econ(w);
-      let cap = 0, div = 0;
+      // Chain-linked over the names that were listed at both dates, so a new listing does not
+      // count its whole capitalisation as a return, and a split changes nothing.
+      let cap = 0, num = 0, den = 0;
       for (const st of m.stocks) {
-        cap += st.last * sharesOut(w, st.instr);
+        const c = st.last * sharesOut(w, st.instr);
+        cap += c;
         const f = firmOf(s, st.issuer);
-        div += f ? Math.max(0, f.lastDividend) : 0;
+        const div = f ? Math.max(0, f.lastDividend) : 0;
+        if (st.trPrev && st.trPrev > 0) { num += c + div; den += st.trPrev; }
+        st.trPrev = c;
       }
-      const net = div;
-      const prev = m.trCap > 0 ? m.trCap : cap;
-      if (prev > 0) m.tr *= (cap + net) / prev;
+      if (den > 0) m.tr *= num / den;
       m.trCap = Math.max(1, cap);
+      // Learn the growth rate once a year from the trailing twelve months of listed profit against the twelve before.
+      let prof = 0;
+      for (const st of m.stocks) { const f = firmOf(s, st.issuer); if (f && f.lastProfit > 0) prof += f.lastProfit; }
+      const ring = m.profRing ?? (m.profRing = []);
+      ring.push(prof); if (ring.length > 24) ring.shift();
+      if (ring.length === 24 && w.month % 12 === 0) {
+        let a = 0, b = 0;
+        for (let i = 0; i < 12; i++) { a += ring[i]; b += ring[i + 12]; }
+        if (a > 0) {
+          const seen = Math.max(0, Math.min(0.06, b / a - 1));
+          const was = m.gHat ?? (s.inflTarget ?? 0.02);
+          m.gHat = was + 0.35 * (seen - was);
+        }
+      }
     }
     for (const f of m.funds) {
       const held = m.stocks.reduce((t, st) => t + w.ledger.balance(f.id, st.instr) * st.last, 0);

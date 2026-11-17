@@ -111,7 +111,7 @@ export type Command =
   | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number }
   | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number }
   | { kind: 'launch' }
-  | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number }
+  | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number; product?: 'margin' | 'line' | 'term' }
   | { kind: 'talk'; slot: number }
   | { kind: 'ask'; slot: number; firm: string }
   | { kind: 'news' }
@@ -1650,12 +1650,12 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
             cents = Math.max(1, Math.floor(cmd.cents * scene.loan));
           }
           const limit = marginLimit(w, i);
-          const r = borrowMargin(w, i, cents, cause);
+          const r = borrowMargin(w, i, cents, cause, cmd.product ?? 'margin');
           st.margin = true;
           const rate = r.rate > 0 ? r.rate : marginRate(w, i);
           const pct = (rate * 100).toFixed(2);
           const cap = '$' + (limit / 100).toFixed(2);
-          if (r.taken < 1) return { status: 'accepted', text: `margin account open. The bank will lend up to ${cap} at ${pct}%` };
+          if (r.taken < 1) return { status: 'accepted', text: r.why ? `the bank will not lend: ${r.why}. Margin limit ${cap}` : `margin account open. The bank will lend up to ${cap} at ${pct}%` };
           const grant = w.events.last('loan.grant');
           if (grant !== undefined && grant >= 0) rememberMove(st, grant, r.taken, w.day, 'pay');
           return { status: 'accepted', fill: r.taken, eventId: grant, text: `borrowed ${(r.taken / 100).toFixed(2)} at ${pct}%. Limit ${cap}. Margin account open` };
@@ -2152,7 +2152,7 @@ export function view(w: World, playerId?: string): PlayerView {
     if (!book.lnOpen[k] || book.lnPerson[k] !== i) continue;
     const owed = Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
     if (owed <= 0) continue;
-    const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : book.lnKind[k] === 4 ? 'unsecured' : 'consumer';
+    const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : book.lnKind[k] === 5 ? 'credit line' : book.lnKind[k] === 6 ? 'term loan' : book.lnKind[k] === 4 ? 'unsecured' : 'consumer';
     loans.push({ kind, owed, rate: book.lnRate[k], eventId: w.events.last('loan.grant') ?? arrived });
   }
   const cmd = w.state.commodities as { books?: { good: string; tenors: { month: number; longId: string; shortId: string; px: number }[] }[] } | undefined;
