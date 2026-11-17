@@ -1,7 +1,11 @@
 // node sim/worldgen.ts --years 100 --seed 7 --out worlds/7
+// node sim/worldgen.ts --world 1
 // Runs the years, proves that saving and loading continues with the same ledger hash, and writes the chronicle.
+// --world <name> uses seed <name> and writes <PA_WORLDS or app/worlds>/<name>. A snapshot already there is read.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DAYS_PER_YEAR } from './kernel/index.ts';
 import { openWorld } from './run.ts';
 import { simulate } from './modules/history/boot.ts';
 import { finishHistory } from './modules/history/index.ts';
@@ -9,9 +13,50 @@ import { writeHistory } from './modules/history/chronicle.ts';
 import { applySnapshot, snapshotSeed, writeSnapshot } from './modules/history/save.ts';
 
 const arg = (k: string, d: string): string => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
-const years = +arg('years', '100'), seed = arg('seed', '7'), out = arg('out', 'worlds/7');
+const worldName = arg('world', '');
+const years = +arg('years', '100'), seed = arg('seed', worldName || '7');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const cacheRoot = process.env.PA_WORLDS || path.join(repoRoot, 'app', 'worlds');
+const out = arg('out', worldName ? path.join(cacheRoot, worldName) : 'worlds/7');
 const checkEvery = +arg('check-every', String(+(process.env.SIM_POP ?? 20000) > 20000 ? 7 : 1));
 const without = new Set<string>();
+
+function cacheHead(dir: string): { seed: string; years: number } | undefined {
+  const json = path.join(dir, 'world.json');
+  if (!fs.existsSync(json) || !fs.existsSync(path.join(dir, 'world.bin'))) return;
+  const fd = fs.openSync(json, 'r');
+  const buf = Buffer.alloc(256);
+  const n = fs.readSync(fd, buf, 0, 256, 0);
+  fs.closeSync(fd);
+  const text = buf.toString('utf8', 0, n);
+  const seedM = text.match(/"seed":"([^"]*)"/);
+  const dayM = text.match(/"day":(\d+)/);
+  if (!seedM || !dayM) return;
+  return { seed: seedM[1], years: Math.floor(+dayM[1] / DAYS_PER_YEAR) };
+}
+
+function readCache(dir: string): boolean {
+  if (!worldName) return false;
+  const head = cacheHead(dir);
+  if (!head || head.seed !== seed || head.years !== years) return false;
+  const t0 = Date.now();
+  const w = openWorld(seed, without);
+  try { applySnapshot(w, dir); }
+  catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    console.error(`cache ${dir} unreadable (${why}); building it`);
+    return false;
+  }
+  const bad = w.ledger.check();
+  if (bad.length) {
+    console.error(`cached world ${dir} does not balance:\n  ${bad.slice(0, 8).join('\n  ')}`);
+    process.exit(1);
+  }
+  console.log(`cache ${dir} read in ${Date.now() - t0} ms. ${years} years, ${w.day} days. Books balanced. State hash ${w.ledger.hash()}`);
+  return true;
+}
+
+if (readCache(out)) process.exit(0);
 
 const t0 = Date.now();
 const w = openWorld(seed, without);
