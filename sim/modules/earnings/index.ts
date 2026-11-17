@@ -6,7 +6,7 @@ import { type Module, type World } from '../../kernel/index.ts';
 import { CEO_POSITION } from '../economy/content.ts';
 import { BANK, DEP, type EconState, type Firm } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
-import { cancelOrder, submitOrder } from '../markets/index.ts';
+import { cancelOrder, repriceOnReport, submitOrder } from '../markets/index.ts';
 import { askFirm, contactsOf } from '../social/index.ts';
 
 const REMOVE_AFTER = CEO_POSITION.removeAfter;
@@ -379,7 +379,7 @@ function causesNow(w: World, f: Firm): number[] {
   return uniq(ev);
 }
 
-function finishReport(w: World, issuer: string, name: string, firm: number, revenue: number, costs: number, profit: number, cash: number, debt: number, calls: Call[], fallback: number, causes: number[], prevGuide: number | undefined, nextGuide: number, ceo: number): void {
+function finishReport(w: World, issuer: string, name: string, firm: number, revenue: number, costs: number, profit: number, cash: number, debt: number, calls: Call[], fallback: number, causes: number[], prevGuide: number | undefined, nextGuide: number, ceo: number, monthly: number): void {
   const b = book(w), s = econ(w);
   const actual = Math.round(profit);
   const consensus = consensusOf(calls, fallback);
@@ -389,7 +389,9 @@ function finishReport(w: World, issuer: string, name: string, firm: number, reve
   const sh = sharesOf(w, issuer);
   const eps = actual / sh;
   const q = Math.floor((w.month % 12) / 3) + 1;
-  let text = `${name} Q${q}: revenue ${usd(revenue)}, costs ${usd(costs)}, profit ${usd(actual)}, EPS $${(eps / 100).toFixed(2)}, cash ${usd(cash)}, debt ${usd(debt)}; consensus ${usd(consensus)} (${beat ? 'beat' : actual < consensus ? 'miss' : 'met'} ${(surprise * 100).toFixed(1)}%)`;
+  // The id, not the display name, is what a reader matches to a share. "Daily" is in
+  // more than one name, and the cheaper share was then valued on the other firm's EPS.
+  let text = `${issuer} Q${q}: ${name} revenue ${usd(revenue)}, costs ${usd(costs)}, profit ${usd(actual)}, EPS $${(eps / 100).toFixed(2)}, cash ${usd(cash)}, debt ${usd(debt)}; consensus ${usd(consensus)} (${beat ? 'beat' : actual < consensus ? 'miss' : 'met'} ${(surprise * 100).toFixed(1)}%)`;
   if (prevGuide !== undefined) text += `; guidance was ${usd(prevGuide)}`;
   text += `; guides ${usd(nextGuide)} next quarter`;
   const why = pickCauses(w, issuer, causes, b.root || w.genesis);
@@ -416,6 +418,9 @@ function finishReport(w: World, issuer: string, name: string, firm: number, reve
     eps, cash, debt, consensus, surprise, beat, event, px, pxAfter: 0,
   });
   b.yReports++; b.ySurprise += surprise; if (beat) b.yBeats++;
+  // The price moves on the print, the same day the number is public. Insider trades
+  // placed before this, from the desk's preview, still stand on the old quote.
+  repriceOnReport(w, issuer, monthly, event);
   queueReact(w, issuer, surprise);
   if (prevGuide !== undefined && ceo >= 0 && s.P.alive(ceo)) {
     const gap = prevGuide - actual;
@@ -459,7 +464,7 @@ function reportFirm(w: World, f: Firm): void {
   const fallback = Math.round((b.hasPrev[fi] ? b.prevMonthly[fi] : monthly) * Math.max(1, months));
   const next = Math.round(monthly * 3 * shadeOf(w, f.ceo));
   const cash = Math.round(w.ledger.balance(f.id, DEP));
-  finishReport(w, f.id, f.name, fi, b.rev[fi], b.cost[fi], actual, cash, debtOf(w, f), calls, fallback, b.causes[fi], prevGuide, next, f.ceo);
+  finishReport(w, f.id, f.name, fi, b.rev[fi], b.cost[fi], actual, cash, debtOf(w, f), calls, fallback, b.causes[fi], prevGuide, next, f.ceo, monthly);
   b.rev[fi] = 0; b.cost[fi] = 0; b.profit[fi] = 0; b.months[fi] = 0; b.causes[fi] = []; b.locked[fi] = [];
   b.prevMonthly[fi] = monthly; b.hasPrev[fi] = 1; b.guide[fi] = next; b.hasGuide[fi] = 1;
   b.knowers[fi] = [];
@@ -481,7 +486,7 @@ function reportBank(w: World): void {
   const next = Math.round(monthly * 3);
   const revenue = actual >= 0 ? actual : 0;
   const costs = actual >= 0 ? 0 : -actual;
-  finishReport(w, BANK, 'the bank', -1, revenue, costs, actual, Math.round(w.ledger.balance(BANK, DEP)), Math.round(w.ledger.issued.get(DEP) ?? 0), b.bankLocked, fallback, b.bankCauses, prevGuide, next, -1);
+  finishReport(w, BANK, 'the bank', -1, revenue, costs, actual, Math.round(w.ledger.balance(BANK, DEP)), Math.round(w.ledger.issued.get(DEP) ?? 0), b.bankLocked, fallback, b.bankCauses, prevGuide, next, -1, monthly);
   b.bankProfit = 0; b.bankMonths = 0; b.bankCauses = []; b.bankLocked = [];
   b.bankPrev = monthly; b.bankHasPrev = 1; b.bankGuide = next; b.bankHasGuide = 1;
 }

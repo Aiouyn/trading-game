@@ -20,8 +20,8 @@ const SHARES = 1_000_000;
 
 interface Spec { id: string; strat: Strat; slice: number; lever: number }
 const SPECS: Spec[] = [
-  { id: 'hf_mom', strat: 'momentum', slice: 0.016, lever: 0 },
-  { id: 'hf_value', strat: 'value', slice: 0.014, lever: 0 },
+  { id: 'hf_mom', strat: 'momentum', slice: 0.03, lever: 0 },
+  { id: 'hf_value', strat: 'value', slice: 0.028, lever: 0 },
   { id: 'hf_macro', strat: 'macro', slice: 0.012, lever: 1 },
   { id: 'hf_quant', strat: 'quant', slice: 0.012, lever: 0 },
   { id: 'hf_short', strat: 'short', slice: 0.011, lever: 1 },

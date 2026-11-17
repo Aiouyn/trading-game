@@ -49,6 +49,14 @@ interface Stock {
   seenProfit: number;
   seenDiv: number;
   targetInv: number;
+  /** Day through which a report may reprice this name in one move. */
+  printUntil?: number;
+  /** Day through which a beat still trades above the earnings value. */
+  chaseUntil?: number;
+  /** The earnings report that opened the window. */
+  printEv?: number;
+  /** +1 a beat, -1 a miss, 0 nothing to chase. */
+  printDir?: number;
 }
 
 interface Fund { id: string; style: Style; premium: number }
@@ -282,7 +290,12 @@ function bookEquity(w: World, actor: string): number {
 function discount(policy: number, premium: number): number { return Math.max(0.04, policy + premium); }
 
 function annualCash(divEma: number, profitEma: number): number {
-  return 12 * (W_DIV * Math.max(0, divEma) + W_EARN * PAYOUT * Math.max(0, profitEma));
+  const div = Math.max(0, divEma);
+  const earn = Math.max(0, profitEma);
+  // A cash sweep is not earnings power. Capitalising it made a one-time payout look like a higher
+  // multiple, and the value rule bought whatever had not swept. Earnings set the price once reported.
+  const base = earn > 0 ? earn : div;
+  return 12 * (W_DIV * base + W_EARN * PAYOUT * earn);
 }
 
 /** Discounted dividends. Profits stand in when the firm is retaining cash. The equity premium differs by fund. */
@@ -292,15 +305,25 @@ function fairValue(w: World, st: Stock, premium: number): number {
   const sh = sharesOut(w, st.instr);
   if (st.issuer === BANK) {
     const per = Math.max(1, Math.round(bookEquity(w, st.issuer) / sh));
-    return Math.max(1, Math.round(per * (0.03 + premium) / r));
+    const bookPx = Math.max(1, Math.round(per * (0.03 + premium) / r));
+    // Book ignores a reported profit, so the bank's P/E sat below every firm and the
+    // value rule held it for free. Once a profit is public, price that profit too.
+    if (st.profitEma > 0) {
+      const earnPx = Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / r / sh));
+      return Math.max(bookPx, earnPx);
+    }
+    return bookPx;
   }
   return Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / r / sh));
 }
 
 function blend(ema: number, obs: number): number {
-  const span = Math.abs(ema) * 0.5 + 1;
-  const cap = Math.min(ema + span, Math.max(ema - span, obs));
-  return ema * 0.85 + cap * 0.15;
+  // Half the gap each month. A single month cannot more than double the anchor,
+  // so a one-off cash sweep does not become the firm's value overnight.
+  const gap = obs - ema;
+  const cap = Math.abs(ema) + 1;
+  const step = Math.max(-cap, Math.min(cap, gap * 0.5));
+  return ema + step;
 }
 
 function firmOf(s: EconState, issuer: string): Firm | undefined {
@@ -319,7 +342,8 @@ function updateEmas(w: World): void {
   for (const st of book(w).stocks) {
     const f = firmOf(s, st.issuer);
     if (!f || (f.lastProfit === st.seenProfit && f.lastDividend === st.seenDiv)) continue;
-    st.profitEma = blend(st.profitEma, f.lastProfit);
+    // The quarterly report sets the earnings anchor. A monthly blend moved the price on noise the
+    // published EPS does not include, and a stale P/E then picked the names that had a weak month.
     // A firm paying down a charter loan pays no dividend. That is a delay, not a cut:
     // folding the zero into the estimate marks a sound firm at a cent and the cash, when it
     // finally comes, is an unpriced yield.
@@ -336,6 +360,71 @@ function markWide(w: World): void {
     const gap = Math.abs(fairValue(w, st, 0.04) / st.last - 1);
     st.wide = shockLinked(w) && gap > 0.08;
   }
+}
+
+function lookback(st: Stock): number {
+  let look = 0;
+  const from = Math.max(0, st.rets.length - 5);
+  for (let i = from; i < st.rets.length; i++) look += st.rets[i];
+  return look;
+}
+
+/**
+ * Where the quote should sit. On a report the destination is the new earnings value.
+ * A beat is chased through that value for a few weeks. The premium then comes out,
+ * which is the loss for anyone who bought the beat and held it.
+ */
+function destination(w: World, st: Stock): number {
+  const fair = Math.max(1, fairValue(w, st, 0.04));
+  if ((st.chaseUntil ?? 0) < w.day || (st.printDir ?? 0) <= 0) return fair;
+  return Math.max(fair + 1, Math.round(fair * 1.04));
+}
+
+/** Cents the print may travel today. A report can close the gap; an ordinary day cannot. */
+function collar(w: World, st: Stock): { hi: number; lo: number } {
+  const prev = Math.max(1, st.prev || st.last);
+  const dest = destination(w, st);
+  const printing = (st.printUntil ?? 0) >= w.day;
+  if (printing) return { hi: Math.max(prev, dest), lo: Math.max(1, Math.min(prev, dest)) };
+  const gap = Math.abs(dest - prev);
+  // A price stuck at a cent never clears a 2% band. A large fundamental gap moves
+  // in cents, half of it a day, so it cannot sit there for months.
+  if (gap > prev * 0.4) {
+    const step = Math.max(1, Math.round(gap * 0.5));
+    return { hi: prev + step, lo: Math.max(1, prev - step) };
+  }
+  const wide = st.wide || gap > prev * 0.08;
+  const step = wide
+    ? Math.max(1, Math.min(gap, Math.round(Math.max(prev, dest) * (st.wide ? 0.1 : 0.08))))
+    : Math.max(1, Math.round(prev * 0.02));
+  return { hi: prev + step, lo: Math.max(1, prev - step) };
+}
+
+/**
+ * The quarterly number is public. The earnings anchor moves to it now, not over
+ * the following months, and the book's quote is allowed to print that price.
+ */
+export function repriceOnReport(w: World, issuer: string, monthly: number, cause: number): void {
+  const st = book(w).stocks.find((s) => s.issuer === issuer);
+  if (!st || !Number.isFinite(monthly)) return;
+  const prev = st.profitEma;
+  // A loss does not cut the anchor. The value rule keeps its last positive EPS
+  // and would treat the cut as a cheap stock. A profit below half the last
+  // anchor cuts it in half rather than marking a live firm at a cent: that
+  // cent became a jump when the next profit arrived, and a bid at 1.3 times
+  // the cheapest name collected it. Anything above half replaces the anchor now.
+  if (!(prev > 0)) st.profitEma = monthly > 0 ? monthly : 0;
+  else if (!(monthly > 0)) st.profitEma = prev;
+  else if (monthly > prev * 0.5) st.profitEma = monthly;
+  else st.profitEma = prev * 0.5;
+  const f = firmOf(econ(w), st.issuer);
+  if (f) { st.seenProfit = f.lastProfit; st.seenDiv = f.lastDividend; }
+  st.printUntil = w.day + 6;
+  st.printEv = cause;
+  st.printDir = monthly > prev * 1.03 ? 1 : monthly < prev * 0.97 ? -1 : 0;
+  // A beat stays rich for about six weeks, long enough for the buyers to get filled, then fades.
+  st.chaseUntil = st.printDir > 0 ? w.day + 45 : w.day;
+  w.events.emit('mkt.rerate', `${st.instr} is marked to the earnings just reported`, [cause], issuer);
 }
 
 function band(st: Stock): number { return st.wide ? 0.10 : 0.02; }
@@ -463,7 +552,7 @@ function note(st: Stock, px: number, qty: number): void {
 
 function matchBook(w: World, st: Stock, mine: Order[]): void {
   const m = book(w);
-  const { hi, lo } = circuit(st);
+  const { hi, lo } = collar(w, st);
   // Sort this stock's live orders once per pass instead of rescanning the whole book for every fill.
   const live = (side: Side): Order[] => mine.filter((o) => o.open && !o.skip && o.side === side && o.qty >= 1);
   const bids = live('buy').sort((x, y) => bidRank(y) - bidRank(x) || x.seq - y.seq);
@@ -560,7 +649,14 @@ function mmQuotes(w: World, fund: Fund): void {
     const vol = volOf(st);
     const half = Math.min(0.008, 0.0025 * (1 + Math.min(3, Math.abs(invGap)) + Math.min(3, vol * 40)));
     const skew = Math.max(-0.008, Math.min(0.008, invGap * 0.004));
-    const mid = Math.max(1, Math.round(st.last * (1 - skew)));
+    const dest = destination(w, st);
+    const printing = (st.printUntil ?? 0) >= w.day;
+    const gap = dest / Math.max(1, st.last) - 1;
+    // On a report the quote IS the new value, so the close can print it the same day.
+    // Otherwise a wide fundamental gap walks in, instead of sitting for months.
+    const pull = printing ? 1 : Math.abs(gap) > 0.06 ? 0.45 : 0;
+    const midPx = pull > 0 ? st.last * (1 - pull) + dest * pull : st.last;
+    const mid = Math.max(1, Math.round(midPx * (1 - skew)));
     const width = Math.max(1, Math.round(st.last * half));
     const bid = Math.max(1, mid - width);
     const ask = mid + width;
@@ -626,19 +722,24 @@ function valueOrders(w: World, fund: Fund, tick: number): void {
   for (const st of book(w).stocks) {
     cancelSrc(w, fund.id, st.instr, 'value');
     const fair = fairValue(w, st, fund.premium);
-    const gap = fair / st.last - 1;
+    const dest = destination(w, st);
+    const gap = dest / st.last - 1;
+    // A beat that the crowd is chasing sits a little above earnings. Selling it
+    // straight back would erase the crash that follows when the chase ends.
+    const chasing = dest > fair * 1.015 && (st.printUntil ?? 0) >= w.day;
+    if (chasing && gap > -0.012 && gap < 0.02) continue;
     if (Math.abs(gap) < 0.012) continue;
-    const aggro = st.wide && tick === 0 && Math.abs(gap) > 0.08;
+    const printing = (st.printUntil ?? 0) >= w.day;
+    const aggro = printing || (st.wide && tick === 0 && Math.abs(gap) > 0.08) || Math.abs(gap) > 0.1;
     if (!aggro && !rng.chance(0.65)) continue;
-    // A large mispricing prints a slice of the gap, inside the day's circuit. Small gaps only lean on the quote.
-    const step = aggro ? Math.min(0.09, Math.max(0.04, Math.abs(gap) * 0.4)) : Math.min(Math.abs(gap), 0.015);
-    const anchor = aggro ? st.prev : st.last;
-    const limit = Math.max(1, Math.round(anchor * (gap > 0 ? 1 + step : 1 - step)));
-    const side: Side = gap > 0 ? 'buy' : 'sell';
+    const room = collar(w, st);
+    const raw = aggro ? dest : Math.round(st.last * (gap > 0 ? 1 + Math.min(Math.abs(gap), 0.015) : 1 - Math.min(Math.abs(gap), 0.015)));
+    const limit = Math.max(room.lo, Math.min(room.hi, Math.max(1, raw)));
+    const side: Side = st.last < dest ? 'buy' : 'sell';
     let qty = side === 'buy'
-      ? Math.floor(cash(w, fund.id) * (aggro ? 0.04 : 0.015) / limit)
-      : Math.floor(w.ledger.balance(fund.id, st.instr) * (aggro ? 0.2 : 0.04));
-    qty = Math.min(qty, aggro ? 4000 : 250);
+      ? Math.floor(cash(w, fund.id) * (aggro ? 0.06 : 0.015) / Math.max(1, limit))
+      : Math.floor(w.ledger.balance(fund.id, st.instr) * (aggro ? 0.35 : 0.04));
+    qty = Math.min(qty, aggro ? 800 : 250);
     qty = noiseQty(w, stream, qty);
     if (qty >= 1) place(w, fund.id, st.instr, side, qty, limit, 'value');
   }
@@ -649,18 +750,42 @@ function momentumOrders(w: World, fund: Fund): void {
   const rng = w.rng(stream);
   for (const st of book(w).stocks) {
     cancelSrc(w, fund.id, st.instr, 'momentum');
-    if (st.rets.length < 3) continue;
-    let look = 0;
-    const from = Math.max(0, st.rets.length - 5);
-    for (let i = from; i < st.rets.length; i++) look += st.rets[i];
-    if (Math.abs(look) < 0.006) continue;
-    if (!rng.chance(0.7)) continue;
-    const side: Side = look > 0 ? 'buy' : 'sell';
-    let qty = Math.round(50 * Math.min(3, Math.abs(look) / 0.01));
-    if (side === 'buy') qty = Math.min(qty, Math.floor(cash(w, fund.id) * 0.01 / Math.max(1, st.last)));
+    const printing = (st.printUntil ?? 0) >= w.day;
+    const look = lookback(st);
+    const dir = st.printDir ?? 0;
+    // A miss after a run is the crash: sell the line, do not wait for the drift to die.
+    if (printing && dir < 0) {
+      const held = w.ledger.balance(fund.id, st.instr);
+      const qty = noiseQty(w, stream, Math.floor(held * 0.6));
+      if (qty >= 1) {
+        const room = collar(w, st);
+        place(w, fund.id, st.instr, 'sell', qty, room.lo, 'momentum');
+        if (w.day === (st.printUntil ?? 0) - 5 && (st.printEv ?? -1) >= 0) {
+          w.events.emit('mkt.crash', `${fund.id} sells ${st.instr} as the run breaks`, [st.printEv ?? w.genesis], fund.id);
+        }
+      }
+      continue;
+    }
+    const chase = printing && dir > 0 && look >= 0.04;
+    if (!chase && st.rets.length < 3) continue;
+    if (!chase && Math.abs(look) < 0.006) continue;
+    if (!chase && !rng.chance(0.7)) continue;
+    const side: Side = chase || look > 0 ? 'buy' : 'sell';
+    const dest = destination(w, st);
+    let qty = chase
+      ? Math.floor(cash(w, fund.id) * 0.08 / Math.max(1, dest))
+      : Math.round(50 * Math.min(3, Math.abs(look) / 0.01));
+    if (side === 'buy') qty = Math.min(qty, Math.floor(cash(w, fund.id) * (chase ? 0.08 : 0.02) / Math.max(1, st.last)));
     else qty = Math.min(qty, w.ledger.balance(fund.id, st.instr));
+    qty = Math.min(qty, chase ? 600 : 200);
     qty = noiseQty(w, stream, qty);
-    if (qty >= 1) place(w, fund.id, st.instr, side, qty, null, 'momentum');
+    if (qty < 1) continue;
+    const room = collar(w, st);
+    const limit = side === 'buy' ? Math.min(room.hi, dest) : Math.max(room.lo, Math.round(st.last * 0.99));
+    place(w, fund.id, st.instr, side, qty, limit, 'momentum');
+    if (chase && w.day === (st.printUntil ?? 0) - 5 && (st.printEv ?? -1) >= 0) {
+      w.events.emit('mkt.chase', `${fund.id} bids ${st.instr} through fair value after the beat`, [st.printEv ?? w.genesis], fund.id);
+    }
   }
 }
 
@@ -705,6 +830,7 @@ function householdOrders(w: World): void {
 function causesFor(w: World, st: Stock): number[] {
   const s = econ(w);
   const out: number[] = [];
+  if ((st.printEv ?? -1) >= 0 && (st.printUntil ?? 0) >= w.day - 1) out.push(st.printEv ?? 0);
   if (shockLinked(w) && s.shockEv !== undefined) out.push(s.shockEv);
   const f = firmOf(s, st.issuer);
   if (f?.priceEv !== undefined) out.push(f.priceEv);
@@ -763,7 +889,7 @@ function fadeCorner(w: World, st: Stock): void {
   if (!(fair > 0) || !(st.last > fair * 1.25)) return;
   // A few round lots near the print do not make a price that a corner could sell.
   if (bidSupport(w, st) >= Math.max(adv * 5, top * 0.05)) return;
-  const lo = circuit(st).lo;
+  const lo = collar(w, st).lo;
   const floorPx = Math.max(lo, Math.round(fair));
   if (st.last > floorPx) st.last = floorPx;
 }
@@ -914,26 +1040,20 @@ export const markets: Module = {
       if (self && o.open && o.limit === null && o.actor === self) o.open = false;
     }
     let cap = 0;
-    // Closing mark: a stock that did not trade is marked to the side of the book that is there, within the daily band.
-    // Without this, a stock nobody offers can never reprice, however much it earns.
-    const quotes = new Map<string, { bid: number; ask: number }>();
-    for (const o of m.orders) {
-      if (!o.open || o.limit === null || o.qty < 1) continue;
-      const q = quotes.get(o.instr) ?? { bid: 0, ask: Infinity };
-      if (o.side === 'buy') q.bid = Math.max(q.bid, o.limit); else q.ask = Math.min(q.ask, o.limit);
-      quotes.set(o.instr, q);
-    }
+    // The close is the earnings quote, inside the day's band. A thin print used to set the mark
+    // and then sit there, so a cheap earnings yield survived for months.
     for (const st of m.stocks) {
-      const q = quotes.get(st.instr);
-      if (st.traded || !q) continue;
-      const { hi, lo } = circuit(st);
-      if (q.bid > st.last && q.ask > q.bid) st.last = Math.max(st.last, Math.min(q.bid, hi, Number.isFinite(q.ask) ? q.ask - 1 : Infinity));
-      else if (q.ask < st.last && q.bid < q.ask) st.last = Math.min(st.last, Math.max(q.ask, lo, q.bid + 1));
+      const { hi, lo } = collar(w, st);
+      st.last = Math.max(lo, Math.min(hi, destination(w, st)));
     }
     for (const st of m.stocks) fadeCorner(w, st);
     for (const st of m.stocks) {
       const ch = st.prev > 0 ? st.last / st.prev - 1 : 0;
-      if (Math.abs(ch) > 0.03) {
+      // A small print already has its earnings story. A move line for every name
+      // fills the page and the EPS scrolls off before a reader acts. A large
+      // print still makes the paper: that is the crash people spend less after.
+      const onPrint = (st.printUntil ?? 0) >= w.day && (st.printEv ?? -1) >= 0;
+      if (Math.abs(ch) > 0.03 && (!onPrint || Math.abs(ch) >= 0.10)) {
         const pct = (ch * 100).toFixed(1);
         const id = w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%)`, causesFor(w, st), st.issuer);
         const s = econ(w);
@@ -967,16 +1087,20 @@ export const markets: Module = {
   // Funds pay out cash they cannot use: anything above the value of the shares they hold goes to their owners.
   monthEnd(w) {
     const m = book(w);
-    // Total return: price change plus the smoothed dividend reinvested after the tax a person pays.
+    // Price change plus part of the cash dividend after the tax a person pays. The whole payout
+    // includes a treasury sweep and cash the household spends, which put the index ahead of the
+    // holder. Leaving the payout out left a beat ahead of the index. Thirty-five hundredths
+    // of the after-tax payout leaves the holder within two points of this index.
     {
       const s = econ(w);
       const tax = s.divRate ?? 0.35;
       let cap = 0, div = 0;
       for (const st of m.stocks) {
         cap += st.last * sharesOut(w, st.instr);
-        div += Math.max(0, st.divEma);
+        const f = firmOf(s, st.issuer);
+        div += f ? Math.max(0, f.lastDividend) : 0;
       }
-      const net = div * (1 - tax);
+      const net = div * (1 - tax) * 0.35;
       const prev = m.trCap > 0 ? m.trCap : cap;
       if (prev > 0) m.tr *= (cap + net) / prev;
       m.trCap = Math.max(1, cap);

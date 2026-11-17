@@ -32,6 +32,8 @@ export interface FundsState {
 export interface Stock {
   instr: string; issuer: string; last: number; prev: number; rets: number[];
   profitEma: number; divEma: number;
+  /** Set by the market when a report is public. Absent on a name that has not printed. */
+  printUntil?: number; printEv?: number; printDir?: number;
 }
 interface BondRow { id: string; tenor: string; last: number; faceLeft: number }
 interface BondOrder { actor: string; instr: string; open: boolean; side: string }
