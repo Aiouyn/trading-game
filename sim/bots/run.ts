@@ -116,7 +116,7 @@ function render(rows: RunResult[], meta: { worlds: number; years: number; pop: n
     lines.push(`| ${LABEL[name]} | ${n ? mul(pct(rels, 0.1)) : '–'} | ${n ? mul(pct(rels, 0.5)) : '–'} | ${n ? mul(pct(rels, 0.9)) : '–'} | ${share((r) => r.bankrupt)} | ${calls} | ${share((r) => r.dead)} | ${share((r) => r.prison)} | ${caught} | ${n ? pp(pct(anns, 0.5)) : '–'} | ${n ? pp(pct(idx, 0.5)) : '–'} | ${n ? pp(pct(excess, 0.5)) : '–'} |`);
   }
   lines.push('');
-  lines.push('Final net worth is the multiple of the player’s worth on day 0. Annualised return uses the days the run actually lived. Excess is that return minus the same world’s index. Bankrupt is a court declaration against anyone who was the player. Calls counts margin calls, on stock loans and on written options, for those same people. Caught is charges and convictions of anyone who was the player, counting a case once.');
+  lines.push('Final net worth is the multiple of the player’s worth on day 0. Annualised return uses the days the run actually lived. Excess is that return minus the same world’s index. Bankrupt is a court declaration against anyone who was the player, and an ending worth below the day-0 worth. A recovery after a declaration is not both rich and bankrupt. Calls counts margin calls, on stock loans and on written options, for those same people. Caught is charges and convictions of anyone who was the player, counting a case once.');
   lines.push('');
   lines.push('## Exploits');
   lines.push('');

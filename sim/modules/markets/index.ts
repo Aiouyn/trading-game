@@ -276,15 +276,37 @@ function goodPrice(s: EconState, good: string): number {
   return n ? p / n : 0;
 }
 
-/** Mark goods at the producing firms' prices. Claims and money are already at face inside netWorth. */
-function bookEquity(w: World, actor: string): number {
+/** Mark goods at the producing firms' prices. Claims and money are already at face inside netWorth.
+ *  `shares`, when passed, also marks listed stakes the firm holds, so a cash bid is not hidden inside the book. */
+function bookEquity(w: World, actor: string, shares?: (instr: string) => number): number {
   const s = econ(w);
   // Installed machinery is worth what it costs to replace (the price corporate pays per unit in buyMachines);
   // left at zero, every firm financed by a plant loan opens with negative equity and a one-cent share.
   const f = s.firms.find((x) => x.id === actor);
   const def = f ? GOODS[f.good] : undefined;
   const capPx = def ? 360 * s.wage / Math.max(0.01, def.prod) : 0;
-  return Math.round(w.ledger.netWorth(actor, (instr) => instr.startsWith('good:') ? goodPrice(s, instr.slice(5)) : instr === CAPITAL ? capPx : 0));
+  const own = 'eq:' + actor;
+  return Math.round(w.ledger.netWorth(actor, (instr) => {
+    if (instr.startsWith('good:')) return goodPrice(s, instr.slice(5));
+    if (instr === CAPITAL) return capPx;
+    if (shares && instr.startsWith('eq:') && instr !== own) {
+      const px = shares(instr);
+      return px > 0 ? px : 0;
+    }
+    return 0;
+  }));
+}
+
+/** Listed shares this issuer holds, at the last print. Not its own stock. */
+function stakeValue(w: World, issuer: string): number {
+  let v = 0;
+  const mine = 'eq:' + issuer;
+  for (const st of book(w).stocks) {
+    if (st.instr === mine || !(st.last > 0)) continue;
+    const q = Math.floor(w.ledger.balance(issuer, st.instr));
+    if (q > 0) v += q * st.last;
+  }
+  return v;
 }
 
 function discount(policy: number, premium: number): number { return Math.max(0.04, policy + premium); }
@@ -314,7 +336,9 @@ function fairValue(w: World, st: Stock, premium: number): number {
     }
     return bookPx;
   }
-  return Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / r / sh));
+  // A paper bid leaves the target inside the buyer. Earnings alone would walk that value back out.
+  const hold = stakeValue(w, st.issuer);
+  return Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / r / sh + hold / sh));
 }
 
 function blend(ema: number, obs: number): number {
@@ -923,14 +947,24 @@ export const markets: Module = {
       if (!byInstr || byInstr.size !== state.stocks.length) byInstr = new Map(state.stocks.map((x) => [x.instr, x]));
       const hit = byInstr.get(instr);
       if (hit) return hit.last;
-      if (!instr.startsWith('eq:fund_') || pricing) return 0;
+      if (pricing || !instr.startsWith('eq:')) return 0;
       const issued = w.ledger.issued.get(instr) ?? 0;
-      if (issued <= 0) return 0;
+      if (!(issued > 0)) return 0;
+      if (instr.startsWith('eq:fund_')) {
+        pricing = true;
+        let nw = 0;
+        try { nw = w.ledger.netWorth(instr.slice(3), state.price); }
+        finally { pricing = false; }
+        return Math.max(0, Math.round(nw / issued));
+      }
+      // A private share is the firm's book, including listed stakes. A negative book is a cent:
+      // the holder is not liable for the firm's unpaid loan.
       pricing = true;
-      let nw = 0;
-      try { nw = w.ledger.netWorth(instr.slice(3), state.price); }
+      let book = 0;
+      try { book = bookEquity(w, instr.slice(3), state.price); }
       finally { pricing = false; }
-      return Math.max(0, Math.round(nw / issued));
+      if (!(book > 0)) return 1;
+      return Math.max(1, Math.round(book / issued));
     };
     w.state.markets = state;
 

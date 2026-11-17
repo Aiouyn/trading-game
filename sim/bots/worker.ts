@@ -87,7 +87,7 @@ export function runJob(job: Job): RunResult {
   const jumps: Jump[] = [];
   const path: { day: number; worth: number }[] = [];
   const ids = new Set<string>();
-  let bankrupt = false;
+  let declared = false;
   let calls = 0;
   const v0 = view(w);
   const start = v0.netWorth;
@@ -137,7 +137,7 @@ export function runJob(job: Job): RunResult {
     for (let id = c0; id < w.events.count; id++) {
       const e = w.events.get(id);
       if (!e?.actor || !ids.has(e.actor)) continue;
-      if (e.kind === 'court.bankruptcy') bankrupt = true;
+      if (e.kind === 'court.bankruptcy') declared = true;
       else if (e.kind === 'loan.margin' || e.kind === 'opt.marginCall') calls++;
     }
     const v = view(w);
@@ -177,7 +177,7 @@ export function runJob(job: Job): RunResult {
     indexRel: indexRel(w),
     days: w.day,
     years: job.years,
-    bankrupt,
+    bankrupt: declared && end.netWorth < start,
     calls,
     dead,
     prison: !dead && prison,

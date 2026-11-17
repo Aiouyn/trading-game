@@ -12,7 +12,7 @@ import { GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { borrowMargin } from '../banking/index.ts';
 import { blockPrice } from '../markets/index.ts';
 import { addFirm, closeFirm, DEP, noteCommission, pay, type EconState, type Firm } from '../economy/index.ts';
-import { joinFirm, leaveJob } from '../economy/people.ts';
+import { joinFirm, leaveJob, succession } from '../economy/people.ts';
 
 interface Style { prefix: string[]; suffix: string[] }
 interface Steer { idx: number; by: number; price: number | null; hires: number | null; dividend: number | null; capex: number }
@@ -423,6 +423,15 @@ function wouldPass(s: EconState, f: Firm, holders: [string, number][], offer: nu
   return total > 0 && yes * 2 > total;
 }
 
+/** A paper bid must not mint the premium. Cap rises only by the target's market value. */
+function dilutePaper(w: World, buyer: Firm, before: number, oldPx: number, asset: number): void {
+  const q = quote(w, buyer);
+  if (!q || !(oldPx > 0)) return;
+  const after = Math.floor(w.ledger.issued.get('eq:' + buyer.id) ?? 0);
+  if (after <= before) return;
+  q.last = Math.max(1, Math.round((before * oldPx + Math.max(0, asset)) / after));
+}
+
 function payFor(w: World, s: EconState, buyer: Firm, target: Firm, offer: number, paper: boolean, cause: number): boolean {
   const holders = holdersOf(w, target).filter(([id]) => id !== buyer.id);
   if (!holders.length) return true;
@@ -430,11 +439,16 @@ function payFor(w: World, s: EconState, buyer: Firm, target: Firm, offer: number
   if (paper) {
     if (!(bpx > 0)) return false;
     const eq = 'eq:' + buyer.id;
+    const before = Math.floor(w.ledger.issued.get(eq) ?? 0);
+    const tLast = quote(w, target)?.last ?? offer;
+    let asset = 0;
     for (const [id, n] of holders) {
       const sh = Math.max(1, Math.round(n * offer / bpx));
       w.ledger.issue(eq, id, sh, 'takeover.paper', cause);
       if (!w.ledger.move('eq:' + target.id, id, buyer.id, n, 'takeover.shares', cause)) return false;
+      asset += n * tLast;
     }
+    dilutePaper(w, buyer, before, bpx, asset);
     return true;
   }
   const cost = holders.reduce((t, [, n]) => t + n * offer, 0);
@@ -447,13 +461,51 @@ function payFor(w: World, s: EconState, buyer: Firm, target: Firm, offer: number
   return true;
 }
 
+function creditorOf(w: World): string {
+  const rows = banks(w);
+  if (rows.some((b) => !b.failed && b.id === 'bank_1')) return 'bank_1';
+  return rows.find((b) => !b.failed)?.id ?? 'bank_1';
+}
+
+/**
+ * Banking writes the debt off and surrenders listed shares only. The private book
+ * that secured the loan stayed with the debtor, so a bankrupt founder was still marked rich.
+ * The creditor takes the equity that is left. Homes stay; a wage can still be earned.
+ */
+function seizeEstate(w: World, personId: string, cause: number): void {
+  if (!personId.startsWith('p_')) return;
+  const i = +personId.slice(2);
+  const s = econ(w);
+  if (!(i >= 0 && i < s.P.n)) return;
+  const to = creditorOf(w);
+  if (!to || to === personId) return;
+  const L = w.ledger;
+  const take = (instr: string): void => {
+    const q = Math.floor(L.balance(personId, instr));
+    if (q < 1) return;
+    L.move(instr, personId, to, q, 'court.surrender', cause);
+  };
+  for (const f of s.firms) take('eq:' + f.id);
+  for (const b of banks(w)) take('eq:' + b.id);
+  const funds = (w.state.markets as { funds?: { id: string }[] } | undefined)?.funds;
+  if (funds) for (const f of funds) take('eq:' + f.id);
+  const c = ready(w);
+  for (const f of s.firms) {
+    if (f.closed) continue;
+    if (seat(c, f) === i) setChair(c, f, -1);
+    if (f.ceo === i) succession(w, s, f, i, 'was declared bankrupt', cause);
+  }
+}
+
 function noteStruck(w: World): void {
   const c = corp(w), s = econ(w);
   growStruck(c, s.firms.length);
   const n = w.events.count;
   for (let id = c.seen; id < n; id++) {
     const e = w.events.get(id);
-    if (!e || (e.kind !== 'firm.default' && e.kind !== 'firm.cashCrunch') || !e.actor) continue;
+    if (!e || !e.actor) continue;
+    if (e.kind === 'court.bankruptcy') seizeEstate(w, e.actor, id);
+    if (e.kind !== 'firm.default' && e.kind !== 'firm.cashCrunch') continue;
     const f = s.firms.find((x) => x.id === e.actor);
     if (!f || f.closed || f.idx >= c.struck.length) continue;
     c.struck[f.idx] = Math.min(250, c.struck[f.idx] + 1);
@@ -1109,11 +1161,17 @@ export function tenderOffer(w: World, person: number, key: string, cents: number
     const bpx = blockPrice(w, 'eq:' + run.id, printed);
     if (!(bpx > 0)) return { why: `${run.name} has no bid for the shares you would print` };
     cause = w.events.emit('firm.bid', `${s.P.name(person)} bids ${dollars(price)} a share for ${target.name}`, root, pid);
+    const instr = 'eq:' + run.id;
+    const before = Math.floor(L.issued.get(instr) ?? 0);
+    const oldPx = quote(w, run)?.last ?? bpx;
+    let asset = 0;
     for (const [id, n] of yes) {
       const give = Math.max(1, Math.round(n * price / bpx));
-      L.issue('eq:' + run.id, id, give, 'tender.paper', cause);
+      L.issue(instr, id, give, 'tender.paper', cause);
       if (!L.move('eq:' + target.id, id, run.id, n, 'tender.shares', cause)) return { why: 'the shares did not come across' };
+      asset += n * last;
     }
+    dilutePaper(w, run, before, oldPx, asset);
   } else {
     const from = fundBid(w, person, run, gaining * price, root.find((n) => n >= 0) ?? (s.macroEv >= 0 ? s.macroEv : w.genesis));
     if (!from) return { why: `${dollars(gaining * price)} is more than you can raise` };

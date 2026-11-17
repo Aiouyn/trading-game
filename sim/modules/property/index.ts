@@ -20,6 +20,8 @@ const YEARS = 1.4;       // opening price, in years of that household's income
 const TERM = 240;
 const KEEP = 8;          // days of income left in the account when paying for a house or a loan
 const MISS_REPO = 4;
+const DEEP_LTV = 1.15;
+const DEEP_MONTHS = 3;
 const MISS_EVICT = 2;
 
 interface Nb { id: string; name: string; size: number; desir: number; dist: number }
@@ -759,9 +761,23 @@ function repo(w: World, k: number, cause: number): void {
   const floor = st.basePx[st.nb[p]] * 0.35;
   st.px[st.nb[p]] = Math.max(floor, st.px[st.nb[p]] * 0.988);
 }
+const deepMonths = new WeakMap<World, Uint8Array>();
+function deepOf(w: World): Uint8Array {
+  const st = book(w);
+  let a = deepMonths.get(w);
+  if (!a || a.length < st.lnCap) {
+    const n = new Uint8Array(st.lnCap);
+    if (a) n.set(a);
+    deepMonths.set(w, n);
+    a = n;
+  }
+  return a;
+}
+
 function serviceLoans(w: World): void {
   const st = book(w), s = econ(w), P = s.P;
   const cause = s.rateEv || st.priceEv;
+  const deep = deepOf(w);
   for (let k = 0; k < st.ln; k++) {
     if (!st.lnOpen[k]) continue;
     const who = st.lnPay[k];
@@ -789,8 +805,13 @@ function serviceLoans(w: World): void {
     else { st.lnMiss[k] = 0; st.lnAge[k] = Math.min(65535, st.lnAge[k] + 1); }
     if (owed(w, k) <= 1) { if (owed(w, k) > 0) writeoff(w, k, bankId, cause); closeLoan(st, k); continue; }
     const p = st.lnParcel[k];
-    const neg = p >= 0 && p < st.n && owed(w, k) > st.marked[p] * 1.01;
-    if (st.lnMiss[k] >= (neg ? 2 : MISS_REPO)) repo(w, k, cause);
+    const balNow = owed(w, k);
+    const deepUnder = p >= 0 && p < st.n && balNow > st.marked[p] * DEEP_LTV;
+    if (deepUnder) deep[k] = Math.min(24, deep[k] + 1);
+    else deep[k] = 0;
+    const neg = p >= 0 && p < st.n && balNow > st.marked[p] * 1.01;
+    // A borrower who keeps paying a loan far above the house is still called. A modest loan is not.
+    if (st.lnMiss[k] >= (neg ? 2 : MISS_REPO) || deep[k] >= DEEP_MONTHS) repo(w, k, cause);
   }
 }
 function checkBankRepos(w: World): void {
@@ -999,11 +1020,14 @@ function collectListings(w: World, heat: number, cap: number): Listing[] {
   for (let p = 0; p < st.n; p++) if (st.kind[p] === HOME && st.ownK[p] === BANKK) push(p, 0.9);
   const vac: number[] = [], letOut: number[] = [];
   const start = st.pScan % Math.max(1, st.n);
+  const player = playerTrading(w) ? ((w.state.player as { who?: number } | undefined)?.who ?? -1) : -1;
   for (let step = 0; step < st.n; step++) {
     const p = (start + step) % st.n;
     if (st.kind[p] !== HOME) continue;
     if ((st.flag[p] & FROM_BANK) !== 0 && st.ownK[p] === PERSON) continue;
     if (st.ownK[p] === BANKK) continue;
+    // A player who is trading keeps the homes they bought. The open market was selling them on the next month.
+    if (player >= 0 && st.ownK[p] === PERSON && st.own[p] === player) continue;
     if (st.tenK[p] === 0) vac.push(p);
     else if (st.tenK[p] === PERSON && !ownerOccupies(w, p)) letOut.push(p);
   }
@@ -1122,16 +1146,22 @@ function build(w: World, cause: number): void {
 function pullPrices(w: World): void {
   const st = book(w), s = econ(w);
   const inc = Math.max(0.25, meanIncome(w) / Math.max(1, st.inc0));
+  // Bricks hold the price level. A rate spike, or wages that lag the CPI for a few years, does not mark the city down.
+  const level = Math.max(0.25, s.cpi);
   const u0 = st.rate0 + 0.04, u = Math.max(0.01, valueRate(s) + 0.04);
   for (let nb = 0; nb < NBHDS.length; nb++) {
     const start = st.px[nb];
+    const floor = st.basePx[nb] * level;
     let fair = st.basePx[nb] * inc * (u0 / u);
     if (st.mRepo > 0) fair *= Math.max(0.9, 1 - 0.012 * st.mRepo);
+    fair = Math.max(fair, floor);
     let target = fair;
     if (st.saleN[nb] > 0) target = fair * 0.6 + (st.saleSum[nb] / st.saleN[nb]) * 0.4;
+    target = Math.max(target, floor);
     let next = start * 0.88 + target * 0.12;
     next = Math.min(start * 1.05, Math.max(start * 0.93, next));
     next = Math.min(st.basePx[nb] * 4, Math.max(st.basePx[nb] * 0.35, next));
+    next = Math.max(next, floor);
     st.px[nb] = next; st.saleSum[nb] = 0; st.saleN[nb] = 0;
   }
 }

@@ -7,9 +7,19 @@ import { live, stocks } from './lib.ts';
 export const name = 'gambler';
 
 const RESERVE = 150_000;
+const opened = new WeakMap<World, number>();
+const ruined = new WeakMap<World, boolean>();
 
-export function bot(v: PlayerView, _w: World): Command[] {
+export function bot(v: PlayerView, w: World): Command[] {
   if (!live(v)) return [];
+  if (ruined.get(w)) return [];
+  const start = opened.get(w) ?? v.netWorth;
+  if (!opened.has(w)) opened.set(w, v.netWorth);
+  // A wipe is the end of the strategy. Borrowing again on the discharge is how a ruined gambler looked solvent.
+  if (start > 0 && v.netWorth < start * 0.15) {
+    ruined.set(w, true);
+    return [];
+  }
   const cmds: Command[] = [];
   const shareVal = v.shares.reduce((a, s) => a + s.qty * s.px, 0);
   cmds.push({ kind: 'cash', op: 'borrow', cents: 100_000_000 });
