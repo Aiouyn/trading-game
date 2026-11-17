@@ -177,10 +177,15 @@ export function useAct() {
   const [busy, setBusy] = useState(false);
   const go = useCallback(async (cmd: unknown) => {
     setBusy(true);
+    setNote({ ok: true, text: "Sending…" });
     try {
       const next = await run(cmd);
       setNote(next);
       return next;
+    } catch {
+      const fail: ActNote = { ok: false, text: "That did not go through." };
+      setNote(fail);
+      return fail;
     } finally {
       setBusy(false);
     }

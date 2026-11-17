@@ -1,6 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useSimSnap } from "@/shell/simSession";
+import { setSpeed, useSimSnap, type ActNote } from "@/shell/simSession";
+import { goalSpeak, hintSpeak, lessonDo, timeSpeak } from "@/shell/lessonDo";
+import { presentNote } from "@/components/ui/format";
+import { useLife } from "@/apps/profile/data";
+import { Button } from "@/components/ui/Button";
 import { Glyph } from "./Glyph";
 import { useShellStore } from "./ShellContext";
 import { toggleNotes } from "./flowState";
@@ -10,9 +14,16 @@ import { FamilyInterrupt } from "@/apps/messages/notices";
 export function GoalBar({ pin = false }: { pin?: boolean }) {
   const store = useShellStore();
   const sc = useSimSnap().view?.scenario;
+  const { life, run } = useLife();
   const [gone, setGone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ActNote | null>(null);
   const bar = useRef<HTMLDivElement>(null);
-  const freshKey = sc ? `${sc.id}:${sc.begun ?? 0}` : "";
+  const hint = life?.tutorial && !life.tutorial.done ? life.tutorial.hint : "";
+  const opening = sc?.fresh && sc.first && !hint ? sc.first : "";
+  const prose = hint || opening;
+  const stepKey = hint ? `hint:${hint}` : (sc ? `open:${sc.id}:${sc.begun ?? 0}` : "");
+  const action = lessonDo(prose);
   useEffect(() => {
     if (!pin) return;
     const el = bar.current;
@@ -25,11 +36,36 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
     const ro = new ResizeObserver(apply);
     ro.observe(el);
     return () => { ro.disconnect(); store.getState().setBannerH(0); };
-  }, [pin, store, freshKey, gone, sc?.goal, sc?.timeLeft]);
+  }, [pin, store, stepKey, gone, sc?.goal, sc?.timeLeft, prose, result?.text]);
   if (!sc) return null;
   const progress = Math.max(0, sc.progress ?? 0);
   const width = Math.max(0, Math.min(1, progress));
-  const showFirst = !!sc.fresh && !!sc.first && gone !== freshKey;
+  const showProse = !!prose && gone !== stepKey;
+  const doIt = async () => {
+    if (!action || busy) return;
+    setBusy(true);
+    setResult({ ok: true, text: "Sending…" });
+    try {
+      setResult(await run({ line: action.line }));
+    } catch {
+      setResult({ ok: false, text: "That did not go through." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const passMonth = async () => {
+    if (busy) return;
+    setBusy(true);
+    setResult({ ok: true, text: "Sending…" });
+    try {
+      await setSpeed("month");
+      setResult({ ok: true, text: "A month is passing." });
+    } catch {
+      setResult({ ok: false, text: "That did not go through." });
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div
       className={`goal-bar${pin ? " goal-bar-pin" : ""}`}
@@ -37,23 +73,34 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
       ref={bar}
     >
       <div className="goal-row">
-        <p className="goal-text" title={sc.meter || undefined}>{sc.goal || sc.name}</p>
+        <p className="goal-text" title={sc.meter || undefined}>{goalSpeak(sc.goal) || sc.name}</p>
         <span className="goal-meter" data-testid="goal-progress" title={sc.meter || undefined} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(width * 100)} aria-label={sc.goal || "Goal"}>
           <span style={{ width: `${width * 100}%` }} />
         </span>
-        <span className="goal-time" data-testid="goal-time">{sc.timeLeft || ""}</span>
+        <span className="goal-time" data-testid="goal-time">{timeSpeak(sc.timeLeft)}</span>
         {pin ? null : (
           <button type="button" className="icon-btn" aria-label="Notices" data-testid="notes-bell" onClick={() => toggleNotes()}>
             <Glyph name="bell" size={16} />
           </button>
         )}
       </div>
-      {showFirst ? (
-        <div className="goal-first" data-testid="first-line">
-          <p>{sc.first}</p>
-          <button type="button" className="goal-dismiss" onClick={() => setGone(freshKey)}>Dismiss</button>
+      {showProse || action ? (
+        <div className="goal-next" data-testid="first-line">
+          {showProse ? <p>{hintSpeak(prose)}</p> : null}
+          {action ? (
+            <Button variant="primary" size="sm" disabled={busy} data-testid="lesson-do" onClick={() => void doIt()}>
+              {busy ? "Sending…" : action.label}
+            </Button>
+          ) : null}
+          {action?.line === "wait 1d" ? (
+            <Button variant="secondary" size="sm" disabled={busy} data-testid="lesson-month" onClick={() => void passMonth()}>
+              {busy ? "Sending…" : "Let a month pass"}
+            </Button>
+          ) : null}
+          {showProse ? <button type="button" className="goal-dismiss" onClick={() => setGone(stepKey)}>Dismiss</button> : null}
         </div>
       ) : null}
+      {result ? <p className="goal-result" data-ok={result.ok ? "1" : "0"} data-testid="lesson-result">{presentNote(result.text)}</p> : null}
       <FamilyInterrupt />
     </div>
   );

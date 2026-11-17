@@ -35,6 +35,7 @@ const VERBS = new Set([
   "clinic", "overtime", "wait", "found", "ceo", "ipo", "bid", "board", "court", "marry", "child", "school",
   "will", "retire", "hand", "die", "opt", "call", "put", "write", "close", "homes", "let", "move", "mortgage",
   "tip", "report", "hints", "desk", "quote",
+  "mail", "reply", "lend", "invite", "gift", "introduce",
 ]);
 
 export function prefersCommand(query: string): boolean {

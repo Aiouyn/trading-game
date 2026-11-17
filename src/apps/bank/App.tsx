@@ -33,7 +33,12 @@ export default function BankApp() {
     const cents = centsOf(amount);
     if (cents === null || cents < 1) { setNote({ ok: false, text: "Name an amount in dollars." }); return; }
     setBusy(true);
-    setNote(await act({ kind: "cash", op, cents }));
+    setNote({ ok: true, text: "Sending…" });
+    try {
+      setNote(await act({ kind: "cash", op, cents }));
+    } catch {
+      setNote({ ok: false, text: "That did not go through." });
+    }
     setBusy(false);
   };
 
@@ -63,11 +68,12 @@ export default function BankApp() {
         ))}
       </div>
       <Field label="Amount, in dollars"><input className="qa-input" inputMode="decimal" placeholder="1,000.00" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="bank-amount" /></Field>
+      <p className="qa-muted">Name an amount, then borrow on margin, deposit, withdraw, or repay. The reply says what the bank did.</p>
       <div className="qa-actions">
-        <Button variant="primary" disabled={busy} data-testid="bank-borrow" onClick={() => void go("borrow")}>Borrow</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void go("deposit")}>Deposit</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void go("withdraw")}>Withdraw</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void go("repay")}>Repay</Button>
+        <Button variant="primary" disabled={busy} data-testid="bank-borrow" onClick={() => void go("borrow")}>{busy ? "Sending…" : "Borrow on margin"}</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => void go("deposit")}>{busy ? "Sending…" : "Deposit"}</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => void go("withdraw")}>{busy ? "Sending…" : "Withdraw"}</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => void go("repay")}>{busy ? "Sending…" : "Repay"}</Button>
       </div>
       <div className="qa-block">
         <h2 className="qa-title">The banks</h2>

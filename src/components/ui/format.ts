@@ -51,6 +51,7 @@ export function scrubIds(text: string): string {
       const slug = id.slice(5).replace(/^me:/, "");
       return slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : "a coin";
     })
+    .replace(/\bbank_\d+\b/g, "the bank")
     .replace(/\bp_\d+\b/g, "someone")
     .replace(/\s{2,}/g, " ")
     .replace(/\s+([,.;])/g, "$1")
@@ -65,7 +66,19 @@ function dollarsIn(n: string): string {
 
 /** A server note, in the same voice as the rest of the desk. */
 export function presentNote(text: string): string {
-  let s = scrubIds(text);
+  let s = text
+    .replace(/^wait (\d+)d$/i, (_, n: string) => {
+      const d = Number(n);
+      if (d === 1) return "A day passed.";
+      if (d === 7) return "A week passed.";
+      if (d === 30) return "A month passed.";
+      return `${d} days passed.`;
+    })
+    .replace(/^(buy|sell|short) (\d+) eq:frm_[A-Za-z0-9_]+/i, (_, side: string, n: string) => {
+      const word = side.toLowerCase() === "buy" ? "Buy order in" : side.toLowerCase() === "sell" ? "Sell order in" : "Short order in";
+      return `${word} for ${n}. It prints after the next day.`;
+    });
+  s = scrubIds(s);
   s = s.replace(/\bY(\d+) M(\d+) D(\d+)\b/g, (_, y: string, m: string, d: string) => {
     const abs = (Number(y) - 1) * 360 + (Number(m) - 1) * 30 + (Number(d) - 1);
     return gameDate(abs);

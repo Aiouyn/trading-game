@@ -2,6 +2,8 @@
 // The lesson, one hint at a time, and the help topics.
 import { useMemo, useState } from "react";
 import { HELP, LESSON, Result, useAct, useLife } from "@/apps/profile/data";
+import { lessonDo } from "@/shell/lessonDo";
+import { Button } from "@/components/ui/Button";
 import "@/apps/profile/life.css";
 
 export default function AcademyApp() {
@@ -23,6 +25,10 @@ export default function AcademyApp() {
     setOpen(id);
     void go({ kind: "help", command: id });
   };
+  const action = tutorial && !tutorial.done ? lessonDo(tutorial.hint) : null;
+  const doLesson = () => {
+    if (action) void go({ line: action.line });
+  };
 
   return (
     <div className="qy-life" data-testid="academy">
@@ -33,7 +39,7 @@ export default function AcademyApp() {
       <section className="qy-block" data-testid="lesson">
         <h3>The lesson</h3>
         {!tutorial || (tutorial.done && !step) ? (
-          <p className="qy-muted">This life has no lesson running.</p>
+          <p className="qy-muted">No lesson in this life. Open the broker, the bank, or someone you know. The clock runs the years.</p>
         ) : (
           <ol className="qy-check">
             {LESSON.map((s, i) => {
@@ -43,6 +49,11 @@ export default function AcademyApp() {
                 <li key={s.id} data-done={done ? "1" : "0"} data-on={current ? "1" : "0"}>
                   <span>{done ? "Done · " : current ? "Now · " : ""}{current && tutorial.goal ? tutorial.goal : s.goal}</span>
                   {current && tutorial.hint ? <p className="qy-hint" data-testid="lesson-hint">{tutorial.hint}</p> : null}
+                  {current && action ? (
+                    <Button variant="primary" size="sm" disabled={busy} data-testid="academy-lesson-do" onClick={doLesson}>
+                      {busy ? "Sending…" : action.label}
+                    </Button>
+                  ) : null}
                 </li>
               );
             })}
@@ -50,6 +61,7 @@ export default function AcademyApp() {
         )}
         {tutorial?.done && step === "done" ? <p className="qy-muted">You have finished the first hour.</p> : null}
         {tutorial?.step === "skip" ? <p className="qy-muted">{tutorial.goal}</p> : null}
+        <Result note={note} />
       </section>
       <section className="qy-block">
         <h3>Help</h3>
@@ -66,7 +78,6 @@ export default function AcademyApp() {
           ))}
           {!topics.length ? <p className="qy-muted">Nothing matches.</p> : null}
         </div>
-        <Result note={note} />
       </section>
     </div>
   );

@@ -40,6 +40,7 @@ export default function PropertyApp() {
   const [id, setId] = useState<number | null>(null);
   const [offer, setOffer] = useState("");
   const [rent, setRent] = useState("");
+  const [draw, setDraw] = useState("");
   const [note, setNote] = useState<ActNote | null>(null);
   const [busy, setBusy] = useState(false);
   const homes = panel.data?.homes ?? [];
@@ -52,8 +53,12 @@ export default function PropertyApp() {
 
   const go = async (cmd: unknown) => {
     setBusy(true);
-    const n = await act(cmd);
-    setNote(n);
+    setNote({ ok: true, text: "Sending…" });
+    try {
+      setNote(await act(cmd));
+    } catch {
+      setNote({ ok: false, text: "That did not go through." });
+    }
     setBusy(false);
   };
 
@@ -76,34 +81,45 @@ export default function PropertyApp() {
           </div>
         ))}
       </div>
-      <HomeList title="For sale" rows={forSale} id={id} setId={setId} onWhy={why.open} />
-      <HomeList title="To let" rows={toLet} id={id} setId={setId} onWhy={why.open} />
-      <HomeList title="Your homes" rows={mine} id={id} setId={setId} onWhy={why.open} empty="You own no home yet. Bid on one." />
+      {homes.length ? (
+        <>
+          <HomeList title="For sale" rows={forSale} id={id} setId={setId} onWhy={why.open} empty="Nothing is for sale. Bid on a home to let, or let a month pass." />
+          <HomeList title="To let" rows={toLet} id={id} setId={setId} onWhy={why.open} />
+          <HomeList title="Your homes" rows={mine} id={id} setId={setId} onWhy={why.open} empty="You own no home yet. Bid on one that is listed." />
+        </>
+      ) : <p className="qa-empty">No homes on the board yet. Let a month pass, then look again.</p>}
       {listing ? (
         <div className="qa-block">
           <Field label="Your price, or blank for the asking price">
             <input className="qa-input" inputMode="decimal" value={offer} onChange={(e) => setOffer(e.target.value)} data-testid="property-offer" />
           </Field>
-          <Button variant="primary" disabled={busy} data-testid="property-bid" onClick={bid}>Bid</Button>
+          <Button variant="primary" disabled={busy} data-testid="property-bid" onClick={bid}>{busy ? "Sending…" : "Bid"}</Button>
         </div>
       ) : null}
       {home?.mine ? (
         <div className="qa-block">
-          <p>{home.live ? "You live here." : "You do not live here."} {fabric(home)}. {home.mortgage ? "Mortgaged." : "No mortgage."}</p>
+          <p>{home.live ? "You live here." : "You do not live here."} {fabric(home)}. {home.mortgage ? "Mortgaged." : "No mortgage. Name an amount, or leave it blank and the bank lends all it will."}</p>
           <Field label="Monthly rent"><input className="qa-input" inputMode="decimal" value={rent} onChange={(e) => setRent(e.target.value)} data-testid="property-rent" /></Field>
+          <Field label="Mortgage, in dollars. Blank takes all the bank will lend.">
+            <input className="qa-input" inputMode="decimal" value={draw} onChange={(e) => setDraw(e.target.value)} data-testid="property-mortgage" />
+          </Field>
           <div className="qa-actions">
-            <Button variant="secondary" disabled={busy} onClick={() => void go({ kind: "move", id: home.id })}>Move</Button>
+            <Button variant="secondary" disabled={busy} onClick={() => void go({ kind: "move", id: home.id })}>{busy ? "Sending…" : "Move in"}</Button>
             <Button variant="secondary" disabled={busy} onClick={() => {
               const cents = centsOf(rent);
               if (cents === null || cents < 1) { setNote({ ok: false, text: "Name a monthly rent." }); return; }
               void go({ kind: "let", id: home.id, cents });
-            }}>Let</Button>
-            <Button variant="secondary" disabled={busy} onClick={() => void go({ kind: "homesell", id: home.id })}>Sell</Button>
-            <Button variant="secondary" disabled={busy} onClick={() => void go({ kind: "mortgage", id: home.id, cents: 0 })}>Mortgage</Button>
+            }}>{busy ? "Sending…" : "Let it"}</Button>
+            <Button variant="secondary" disabled={busy} onClick={() => void go({ kind: "homesell", id: home.id })}>{busy ? "Sending…" : "Sell"}</Button>
+            <Button variant="secondary" disabled={busy} data-testid="property-mortgage-go" onClick={() => {
+              const raw = draw.trim();
+              const cents = raw ? centsOf(raw) : 0;
+              if (cents === null || (raw && cents < 1)) { setNote({ ok: false, text: "Name an amount in dollars, or leave it blank." }); return; }
+              void go({ kind: "mortgage", id: home.id, cents });
+            }}>{busy ? "Sending…" : "Take the mortgage"}</Button>
           </div>
         </div>
       ) : null}
-      {!homes.length && !panel.error ? <p className="qa-empty">No homes on the board yet.</p> : null}
       {panel.error ? <p className="qa-muted">{panel.error}</p> : null}
       <Because id={why.id} lines={why.lines} />
     </div>

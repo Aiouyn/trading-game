@@ -418,6 +418,8 @@ export function openGate(mode: GateMode) {
 }
 
 export async function setSpeed(speed: SimView["speed"]): Promise<void> {
+  const word = speed === "pause" ? "Paused." : speed === "day" ? "A day is passing." : speed === "week" ? "A week is passing." : "A month is passing.";
+  publish({ ...snap, note: { ok: true, text: word } });
   const { ok, data } = await post("speed", { speed });
   if (!ok) {
     publish({ ...snap, note: { ok: false, text: typeof data.error === "string" ? data.error : "the clock did not change" } });

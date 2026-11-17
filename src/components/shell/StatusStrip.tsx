@@ -52,7 +52,7 @@ export function StatusStrip() {
         // NW not known yet (session loading / ledger unavailable): say which, never a number. Card 29: no Demo balance tag.
         <span className="muted strip-demo-tag" data-testid="strip-nw-state"><span aria-hidden="true">{" · "}</span>{nwStateLabel(nw.state)}</span>
       ) : sim ? (
-        <> <MoneyText amount={me.todayChg} ctx="delta" /> <PctText value={me.todayPct} /></>
+        <> <span className="muted">Today</span> <MoneyText amount={me.todayChg} ctx="delta" /> <PctText value={me.todayPct} /></>
       ) : signedIn ? (
         // Signed-in: the server-saved NW is labelled as such (M1-08) and today's % shows too (card 29); never "Demo balance".
         <><span className="muted strip-demo-tag" data-testid="strip-nw-label"><span aria-hidden="true">{" · "}</span>{S.demoBalance}</span> <PctText value={me.todayPct} /></>

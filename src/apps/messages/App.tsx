@@ -87,7 +87,7 @@ function AskBox({ ask, slot, busy, onGo }: {
             data-testid={b.testId}
             onClick={() => onGo(commandFor(ask, b, slot, cents), b.kind === "lend" ? `Lent ${moneyLabel(cents)}` : b.label)}
           >
-            {b.kind === "lend" ? `Lend ${amountOk ? moneyLabel(cents) : ""}`.trim() : b.label}
+            {busy ? "Sending…" : b.kind === "lend" ? `Lend ${amountOk ? moneyLabel(cents) : ""}`.trim() : b.label}
           </Button>
         ))}
       </div>
@@ -234,7 +234,7 @@ function Thread({ thread, pending, contact, slot, mine, draft, busy, note, onDra
             data-testid="reply-text"
             onChange={(e) => onDraft(e.target.value)}
           />
-          <Button variant="primary" type="submit" disabled={busy || !draft.trim()} data-testid="reply-send">Send</Button>
+          <Button variant="primary" type="submit" disabled={busy || !draft.trim()} data-testid="reply-send">{busy ? "Sending…" : "Send"}</Button>
         </form>
       ) : null}
     </section>

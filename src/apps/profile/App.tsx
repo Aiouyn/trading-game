@@ -48,7 +48,7 @@ export default function ProfileApp() {
           {choices.map((c) => (
             <div className="qy-choice" key={c.id}>
               <div>
-                <strong>{c.label}</strong>
+                <strong>{c.label.charAt(0).toUpperCase() + c.label.slice(1)}</strong>
                 <p>{c.line}</p>
                 <p>
                   <WordNum word={coolWord(c.left)} hover={c.left > 0 ? `${c.left} days` : ""} />
@@ -62,7 +62,7 @@ export default function ProfileApp() {
                 testId={`choice-${c.id}`}
                 onClick={() => void go({ kind: c.id })}
               >
-                {c.label}
+                {busy ? "Sending…" : c.label.charAt(0).toUpperCase() + c.label.slice(1)}
               </ChoiceButton>
             </div>
           ))}
@@ -77,7 +77,7 @@ export default function ProfileApp() {
           </article>
         )) : <p className="qy-muted">Nothing has been written down yet.</p>}
         <ChoiceButton primary={!primary} disabled={busy} testId="chronicle" onClick={chronicle}>
-          Write the chronicle
+          {busy ? "Sending…" : "Write the chronicle"}
         </ChoiceButton>
         {lines ? <pre className="qy-lines" data-testid="chronicle-text">{lines.map(presentNote).join("\n")}</pre> : null}
       </section>

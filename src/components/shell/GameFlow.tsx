@@ -6,6 +6,7 @@ import {
   actLine, clearNote, dollars, explain, leaveGame, setSpeed, startScenario, useSimSnap,
   type ActNote, type ExplainLine, type PauseAction,
 } from "@/shell/simSession";
+import { presentNote } from "@/components/ui/format";
 import { closeNotes, useNotesOpen } from "./flowState";
 import { CircleChrome } from "@/apps/messages/notices";
 
@@ -75,16 +76,27 @@ function WhyChain({ eventId }: { eventId: number }) {
 function Interrupt({ why, text, eventId, actions }: { why: string; text?: string; eventId: number; actions?: PauseAction[] }) {
   const [result, setResult] = useState<ActNote | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const list = actions ?? [];
   const run = async (line: string) => {
     setBusy(true);
-    const note = await actLine(line);
-    setResult(note);
+    setPending(line);
+    setResult({ ok: true, text: "Sending…" });
+    try {
+      setResult(await actLine(line));
+    } catch {
+      setResult({ ok: false, text: "That did not go through." });
+    }
     setBusy(false);
+    setPending(null);
   };
   const carry = async () => {
+    setBusy(true);
+    setPending("carry");
     clearNote();
     await setSpeed("day");
+    setBusy(false);
+    setPending(null);
   };
   return (
     <div className="flow-modal" role="presentation">
@@ -102,9 +114,9 @@ function Interrupt({ why, text, eventId, actions }: { why: string; text?: string
         ) : null}
         <div className="flow-actions">
           {list.map((a, i) => (
-            <Button key={a.line} variant={i === 0 ? "primary" : "secondary"} disabled={busy} onClick={() => void run(a.line)}>{a.label}</Button>
+            <Button key={a.line} variant={i === 0 ? "primary" : "secondary"} disabled={busy} onClick={() => void run(a.line)}>{busy && pending === a.line ? "Sending…" : a.label}</Button>
           ))}
-          <Button variant={list.length === 0 ? "primary" : "secondary"} disabled={busy} onClick={() => void carry()}>Carry on</Button>
+          <Button variant={list.length === 0 ? "primary" : "secondary"} disabled={busy} onClick={() => void carry()}>{busy && pending === "carry" ? "Sending…" : "Carry on"}</Button>
         </div>
       </div>
     </div>
@@ -210,15 +222,23 @@ function Notes() {
 function NoteToast() {
   const note = useSimSnap().note;
   const paused = !!useSimSnap().view?.pause;
-  const [text, setText] = useState<string | null>(null);
+  const [shown, setShown] = useState<ActNote | null>(null);
   useEffect(() => {
     if (!note || paused) return;
-    setText(note.text);
-    const t = window.setTimeout(() => setText(null), 5000);
+    setShown(note);
+    const stay = note.text.includes("\n") || (note.lines?.length ?? 0) > 1;
+    if (stay) return;
+    const t = window.setTimeout(() => setShown((cur) => (cur === note ? null : cur)), 5000);
     return () => window.clearTimeout(t);
   }, [note, paused]);
-  if (!text || paused) return null;
-  return <p className="goal-toast note-toast" role="status">{text}</p>;
+  if (!shown || paused) return null;
+  const stay = shown.text.includes("\n") || (shown.lines?.length ?? 0) > 1;
+  return (
+    <div className="goal-toast note-toast" role="status">
+      <p className="note-toast-text">{presentNote(shown.text)}</p>
+      {stay ? <button type="button" className="goal-dismiss" onClick={() => setShown(null)}>Dismiss</button> : null}
+    </div>
+  );
 }
 
 /** Interrupts, the end of a run, quarter toasts, and the notices list. */

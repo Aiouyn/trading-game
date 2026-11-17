@@ -173,10 +173,10 @@ export function Person({ index, contact, firms, homes, onBack }: {
           </label>
           <div className="peo-act-row">
             <Button variant="secondary" disabled={busy || !reach} data-testid="person-invite" onClick={() => void go({ kind: "invite", slot, place })}>
-              Invite
+              {busy ? "Sending…" : "Invite"}
             </Button>
             <Button variant="secondary" disabled={busy || !reach} data-testid="person-introduce" onClick={() => void go({ kind: "introduce", slot })}>
-              Ask for an introduction
+              {busy ? "Sending…" : "Ask for an introduction"}
             </Button>
           </div>
           <label className="peo-field">
@@ -185,10 +185,10 @@ export function Person({ index, contact, firms, homes, onBack }: {
           </label>
           <div className="peo-act-row">
             <Button variant="secondary" disabled={busy || !reach || !amountOk} data-testid="person-gift" onClick={() => void go({ kind: "gift", slot, cents })}>
-              Gift {amountOk ? moneyLabel(cents) : ""}
+              {busy ? "Sending…" : `Gift ${amountOk ? moneyLabel(cents) : ""}`.trim()}
             </Button>
             <Button variant="secondary" disabled={busy || !reach || !amountOk} data-testid="person-lend" onClick={() => void go({ kind: "lend", slot, cents })}>
-              Lend {amountOk ? moneyLabel(cents) : ""}
+              {busy ? "Sending…" : `Lend ${amountOk ? moneyLabel(cents) : ""}`.trim()}
             </Button>
           </div>
           {firms.length ? (
@@ -200,7 +200,7 @@ export function Person({ index, contact, firms, homes, onBack }: {
                 </select>
               </label>
               <Button variant="secondary" disabled={busy || !reach || !firm} data-testid="person-ask" onClick={() => void go({ kind: "ask", slot, firm })}>
-                Ask about the firm
+                {busy ? "Sending…" : "Ask about the firm"}
               </Button>
             </>
           ) : null}

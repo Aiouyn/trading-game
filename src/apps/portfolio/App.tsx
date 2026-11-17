@@ -29,7 +29,7 @@ export default function PortfolioApp() {
         <div className="pf-hero-nw">
           <NumBtn id={book} title="Net worth" ask={ask}><LiveNum value={view.netWorth}><MoneyText amount={dollars(view.netWorth)} ctx="hero" /></LiveNum></NumBtn>
         </div>
-        <span className="today"><NumBtn id={book} title="Change today" ask={ask}><MoneyText amount={dollars(view.nwChange ?? 0)} ctx="delta" /></NumBtn></span>
+        <span className="today">Today <NumBtn id={book} title="Change today" ask={ask}><MoneyText amount={dollars(view.nwChange ?? 0)} ctx="delta" /></NumBtn></span>
       </div>
       {view.stats?.length ? (
         <ul className="sim-life" data-testid="pf-life">
@@ -46,7 +46,11 @@ export default function PortfolioApp() {
       ) : null}
       <section>
         <h2 className="label">Net worth</h2>
-        <LineChart points={points.map((p) => p.worth)} days={points.map((p) => p.day)} up={up} label="Net worth over time" format={moneyFromCents} />
+        {points.length < 2 ? (
+          <p className="muted">The line starts after the next day. Let a day pass, and it will draw.</p>
+        ) : (
+          <LineChart points={points.map((p) => p.worth)} days={points.map((p) => p.day)} up={up} label="Net worth over time" format={moneyFromCents} />
+        )}
       </section>
       <section>
         <h2 className="label">Shares</h2>
@@ -65,7 +69,7 @@ export default function PortfolioApp() {
                 value={(q.pos ?? 0) * q.px} day={(q.pos ?? 0) * (q.px - q.prev)} id={q.eventId} ask={ask} />
             ))}
           </>
-        ) : <p className="muted">No shares.</p>}
+        ) : <p className="muted">No shares yet. <button type="button" className="pf-link" onClick={() => open("")}>Open the broker</button> and buy one.</p>}
       </section>
       <Block title="Bonds" empty="No bonds." show={view.bonds.length > 0}>
         {view.bonds.map((b) => {

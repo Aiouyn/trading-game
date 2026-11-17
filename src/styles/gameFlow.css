@@ -29,8 +29,20 @@
 }
 .goal-meter > span { display: block; height: 100%; background: var(--acc); }
 .goal-time { flex: none; color: var(--fg-muted); font: var(--fs-12_5) / 1 var(--font-ui); white-space: nowrap; }
-.goal-first { display: flex; align-items: baseline; gap: 12px; }
-.goal-first p { margin: 0; flex: 1; color: var(--fg-muted); font-size: var(--fs-13); }
+@media (max-width: 767px) {
+  .goal-text { white-space: normal; }
+  .goal-meter { flex: 1 1 72px; }
+}
+.goal-first, .goal-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.goal-first p, .goal-next p { margin: 0; flex: 1 1 180px; color: var(--fg-muted); font-size: var(--fs-13); }
+.goal-result {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--fg);
+  font-size: var(--fs-13);
+}
 .goal-dismiss {
   flex: none;
   background: none;
@@ -60,7 +72,8 @@
   border-radius: var(--r-card);
   font: 400 var(--fs-16) / 1.3 var(--font-display);
 }
-.note-toast { position: fixed; left: 16px; bottom: 72px; z-index: 170; width: min(420px, calc(100vw - 32px)); }
+.note-toast { position: fixed; left: 16px; bottom: 72px; z-index: 170; width: min(420px, calc(100vw - 32px)); max-height: 40vh; overflow: auto; }
+.note-toast-text { margin: 0 0 8px; white-space: pre-wrap; }
 .flow-modal {
   position: fixed;
   inset: 0;

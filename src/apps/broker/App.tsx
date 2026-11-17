@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { act, dollars, symbolOf, useSimSnap, type ActNote, type Quote, type SimView } from "@/shell/simSession";
-import { levelPct, moneyFromCents } from "@/components/ui/format";
+import { levelPct, moneyFromCents, presentNote } from "@/components/ui/format";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "@/apps/markets/why";
 import "./broker.css";
 
@@ -75,6 +75,7 @@ function writeMargin(spot: number, strike: number, right: "C" | "P", bid: number
 
 function orderWord(note: ActNote | null): { word: string; text: string } | null {
   if (!note) return null;
+  if (note.text === "Sending…") return { word: "Sending", text: "The desk has it." };
   if (!note.ok) return { word: "Rejected", text: note.text };
   if (/cancel/i.test(note.text)) return { word: "Cancelled", text: note.text };
   return { word: "Taken", text: note.text };
@@ -93,6 +94,7 @@ export default function BrokerApp({ context }: { context?: string }) {
   const [right, setRight] = useState<"C" | "P">("C");
   const [strike, setStrike] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [local, setLocal] = useState<ActNote | null>(null);
 
   useEffect(() => {
     const next = readContext(context);
@@ -107,42 +109,57 @@ export default function BrokerApp({ context }: { context?: string }) {
   if (!view) return <div className="br" data-testid="broker"><p className="muted">The desk is not open.</p></div>;
 
   const place = async () => {
-    if (busy || desk === "fx") return;
+    if (busy || desk === "fx" || !view) return;
     const n = whole(qty);
     const lim = limitCents(limit);
-    if (lim === null) return;
+    if (lim === null) { setLocal({ ok: false, text: "Name a limit in dollars, or leave it empty for the market." }); return; }
+    const flat = desk === "futures" && side === "flat";
+    if (!flat && !n) { setLocal({ ok: false, text: "Name how many. Use a whole number." }); return; }
     setBusy(true);
-    if (desk === "stocks") {
-      const instr = picked(view, key);
-      const stockSide = side === "sell" || side === "short" ? side : "buy";
-      if (instr && n) await act({ kind: "order", side: stockSide, instr, qty: n, ...(lim ? { limit: lim } : {}) });
-    } else if (desk === "bonds") {
-      const tenor = bondTenor(view, key);
-      if (tenor && n) await act({ kind: "bond", side: side === "sell" ? "sell" : "buy", tenor, bonds: n, ...(lim ? { limit: lim } : {}) });
-    } else if (desk === "futures") {
-      const good = futGood(view, key);
-      const futSide = side === "short" || side === "flat" ? side : "long";
-      if (good && (futSide === "flat" || n)) await act({ kind: "fut", side: futSide, good, qty: futSide === "flat" ? 0 : n ?? 0, months });
-    } else if (desk === "options") {
-      const instr = optInstr(view, key);
-      if (instr && n) {
-        if (side === "close") {
-          const row = contract(view, instr, right, months, strike);
-          await act(row ? { kind: "optclose", id: row.id, instr: "", qty: n } : { kind: "optclose", id: "", instr, qty: n });
-        } else if (side === "write") {
-          await act({ kind: "write", right, instr, qty: n, months, strike });
-        } else {
-          await act({ kind: "optbuy", right, instr, qty: n, months, strike });
+    setLocal({ ok: true, text: "Sending…" });
+    let sent = false;
+    try {
+      if (desk === "stocks") {
+        const instr = picked(view, key);
+        const stockSide = side === "sell" || side === "short" ? side : "buy";
+        if (instr && n) { sent = true; setLocal(await act({ kind: "order", side: stockSide, instr, qty: n, ...(lim ? { limit: lim } : {}) })); }
+      } else if (desk === "bonds") {
+        const tenor = bondTenor(view, key);
+        if (tenor && n) { sent = true; setLocal(await act({ kind: "bond", side: side === "sell" ? "sell" : "buy", tenor, bonds: n, ...(lim ? { limit: lim } : {}) })); }
+      } else if (desk === "futures") {
+        const good = futGood(view, key);
+        const futSide = side === "short" || side === "flat" ? side : "long";
+        if (good && (futSide === "flat" || n)) { sent = true; setLocal(await act({ kind: "fut", side: futSide, good, qty: futSide === "flat" ? 0 : n ?? 0, months })); }
+      } else if (desk === "options") {
+        const instr = optInstr(view, key);
+        const listed = listedMonths(view, instr);
+        const useMonths = listed.includes(months) ? months : listed[0];
+        if (!instr || useMonths === undefined) {
+          setLocal({ ok: false, text: "No listed contract for this name. Pick another, or let a day pass." });
+          sent = true;
+        } else if (n) {
+          sent = true;
+          if (side === "close") {
+            const row = contract(view, instr, right, useMonths, strike);
+            setLocal(await act(row ? { kind: "optclose", id: row.id, instr: "", qty: n } : { kind: "optclose", id: "", instr, qty: n }));
+          } else if (side === "write") {
+            setLocal(await act({ kind: "write", right, instr, qty: n, months: useMonths, strike }));
+          } else {
+            setLocal(await act({ kind: "optbuy", right, instr, qty: n, months: useMonths, strike }));
+          }
         }
+      } else if (desk === "coins") {
+        const coin = coinId(view, key);
+        if (coin && n) { sent = true; setLocal(await act({ kind: "coin", side: side === "sell" ? "sell" : "buy", coin, qty: n, ...(lim && MAJORS.has(coin) ? { limit: lim } : {}) })); }
       }
-    } else if (desk === "coins") {
-      const coin = coinId(view, key);
-      if (coin && n) await act({ kind: "coin", side: side === "sell" ? "sell" : "buy", coin, qty: n, ...(lim && MAJORS.has(coin) ? { limit: lim } : {}) });
+      if (!sent) setLocal({ ok: false, text: "Nothing on this desk matches. Pick a name on the left." });
+    } catch {
+      setLocal({ ok: false, text: "That did not go through." });
     }
     setBusy(false);
   };
 
-  const state = orderWord(note);
+  const state = orderWord(local ?? note);
 
   return (
     <div className="br" data-testid="broker">
@@ -190,16 +207,21 @@ export default function BrokerApp({ context }: { context?: string }) {
           ) : null}
           <Preview desk={desk} view={view} picked={key} side={side} qty={qty} right={right} months={months} strike={strike} ask={ask} />
           {desk === "fx" ? <p className="br-note">The city dealer does not take a player order in foreign currency.</p> : (
-            <Button variant="primary" data-testid="br-buy" disabled={busy} onClick={() => void place()}>Place</Button>
+            <Button variant="primary" data-testid="br-buy" disabled={busy} onClick={() => void place()}>{busy ? "Sending…" : "Place"}</Button>
           )}
           {desk === "coins" ? (
-            <Button variant="secondary" data-testid="br-launch" disabled={busy} onClick={() => void act({ kind: "launch" })}>Launch a coin</Button>
+            <Button variant="secondary" data-testid="br-launch" disabled={busy} onClick={() => {
+              setBusy(true);
+              setLocal({ ok: true, text: "Sending…" });
+              void act({ kind: "launch" }).then((n) => setLocal(n)).catch(() => setLocal({ ok: false, text: "That did not go through." })).finally(() => setBusy(false));
+            }}>{busy ? "Sending…" : "Launch a coin"}</Button>
           ) : null}
           {desk === "stocks" ? <p className="br-note">A market order rests until the next day, then the market matches it.</p> : null}
+          {desk === "options" ? <p className="br-note">Pick a price in the chain. A strike of 0 is at the money. If none are listed, let a day pass.</p> : null}
           {desk === "coins" ? <p className="br-note">A major rests on the book. A memecoin fills against its pool now. A launch needs the day, eight contacts, the nerve, and spare cash. The reply says why if it refuses.</p> : null}
           {state ? (
             <p className={state.word === "Rejected" ? "br-msg warn" : "br-note"} data-testid="br-note">
-              <strong>{state.word}.</strong> {state.text}
+              <strong>{state.word}.</strong> {presentNote(state.text)}
             </p>
           ) : <p className="br-note" data-testid="br-note"> </p>}
           <Orders view={view} ask={ask} />
@@ -260,6 +282,10 @@ function futGood(view: SimView, key: string): string {
 function optInstr(view: SimView, key: string): string {
   if (view.quotes.some((q) => q.instr === key)) return key;
   return view.quotes[0]?.instr ?? "";
+}
+
+function listedMonths(view: SimView, instr: string): number[] {
+  return [...new Set((view.chain ?? []).filter((c) => c.instr === instr).map((c) => c.months))].sort((a, b) => a - b);
 }
 
 function coinId(view: SimView, key: string): string {

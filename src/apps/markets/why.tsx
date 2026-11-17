@@ -42,6 +42,7 @@ export function NumBtn({ id, title, ask, children }: { id?: number; title: strin
   return (
     <button type="button" className="num-btn" title="Why?" onClick={() => ask(id, title)}>
       {children}
+      <span className="num-why"> Why?</span>
     </button>
   );
 }

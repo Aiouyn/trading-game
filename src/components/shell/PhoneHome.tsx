@@ -22,6 +22,8 @@ import { isAuthPending, isSignedIn, openAccountSettings, useAuthChrome } from "@
 import { HOME_EXAMPLE } from "./homeExample";
 import { TimeControls } from "@/shell/TimeControls";
 import { GoalBar } from "./GoalBar";
+import { Cause, useCause } from "@/apps/markets/why";
+import "@/apps/markets/why.css";
 import { DockBadge } from "@/apps/messages/notices";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
@@ -254,6 +256,7 @@ export function PhoneHome() {
   const next = pending ? null : nextRankTarget(rank);
   const guestCopy = guestHome(useShell((s) => s.prefs.locale));
   const sim = me.source === "sim";
+  const { cause, ask, close } = useCause();
   const scale = useTextScale();
   const cols = gridColsFor(scale);
   const dock = scale >= DOCK_ICON_ONLY_AT;
@@ -341,16 +344,25 @@ export function PhoneHome() {
           {sim && me.life && me.life.length > 0 ? (
             <ul className="sim-life" data-testid="sim-life">
               {me.life.map((s) => (
-                <li key={s.id} title={s.hover}><span className="label">{s.label}</span><span>{s.word}</span></li>
+                <li key={s.id} title={s.hover}>
+                  <span className="label">{s.label}</span>
+                  <button type="button" className="num-btn" onClick={() => ask(s.eventId, s.hover || s.label)}>
+                    <span>{s.word}</span>
+                    <span className="num-why"> Why?</span>
+                  </button>
+                </li>
               ))}
             </ul>
           ) : null}
+          {sim ? <Cause cause={cause} onClose={close} /> : null}
           <div className="widget-row">
             {reading.nw === null ? null : (
-              <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
+              <span className="today" data-testid="today">{sim ? "Today " : null}<MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
             )}
             {/* Honest no-data stub until an NW series exists; never invented points. */}
-            {reading.nw !== null && <Sparkline />}
+            {reading.nw !== null && (sim
+              ? <span title="The line starts after the next day. Portfolio draws it."><Sparkline /></span>
+              : <Sparkline />)}
           </div>
           {signedIn ? (
             <>

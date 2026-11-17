@@ -3,10 +3,12 @@ import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import pkg from "./package.json";
+import { preferSrcApp } from "./src/server/devAppDir";
 import { resolveQuayE2eFlag } from "./tools/quay-e2e-flag";
 
 // Pin the project root: a stray package-lock.json in the home folder otherwise makes Next guess the wrong root.
 const root = path.resolve(__dirname);
+preferSrcApp(root);
 
 // `@/city` is the single seam with Spec 2 (City Dev owns src/city/**). Until src/city/index.ts lands,
 // resolve it to the type-only stub so the shell builds; the real module wins as soon as it exists.

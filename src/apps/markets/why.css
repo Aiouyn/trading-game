@@ -2,9 +2,8 @@
   color: inherit;
   font: inherit;
   text-align: inherit;
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
 }
+.num-why { margin-left: 4px; color: var(--fg-muted); font-size: 0.75em; text-decoration: none; }
 @media (pointer: coarse) {
   .num-btn { min-height: 44px; min-width: 44px; }
 }
