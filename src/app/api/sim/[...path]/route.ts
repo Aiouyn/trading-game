@@ -5,12 +5,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+const STOPPED = "The simulation stopped, so wait a moment and try again.";
+
 async function forward(req: Request, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
   let origin: string;
   try { origin = await ensureSim(); }
-  catch (err) {
-    const message = err instanceof Error ? err.message : "simulation is not running";
-    return Response.json({ error: message }, { status: 503 });
+  catch {
+    return Response.json({ error: STOPPED }, { status: 503 });
   }
   const { path } = await ctx.params;
   const incoming = new URL(req.url);
@@ -18,13 +19,14 @@ async function forward(req: Request, ctx: { params: Promise<{ path: string[] }> 
   const headers = new Headers();
   const type = req.headers.get("content-type");
   if (type) headers.set("content-type", type);
+  const tab = req.headers.get("x-quay-tab");
+  if (tab) headers.set("x-quay-tab", tab.slice(0, 40));
   const init: RequestInit = { method: req.method, headers, cache: "no-store" };
   if (req.method !== "GET" && req.method !== "HEAD") init.body = await req.arrayBuffer();
   let res: Response;
   try { res = await fetch(target, init); }
-  catch (err) {
-    const message = err instanceof Error ? err.message : "simulation did not answer";
-    return Response.json({ error: message }, { status: 502 });
+  catch {
+    return Response.json({ error: STOPPED }, { status: 502 });
   }
   const out = new Headers();
   const resType = res.headers.get("content-type");

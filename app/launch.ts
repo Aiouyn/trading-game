@@ -26,7 +26,8 @@ if (major < 22 || (major === 22 && minor < 6)) {
 
 function nodeArgs(script: string, args: string[]): string[] {
   const below = major < 22 || (major === 22 && minor < 18);
-  const flags = below ? ['--experimental-strip-types'] : [];
+  const flags = ['--disable-warning=ExperimentalWarning'];
+  if (below) flags.unshift('--experimental-strip-types');
   return [...flags, script, ...args];
 }
 
@@ -61,6 +62,8 @@ let worldsJob: ChildProcess | undefined;
 let simProc: ChildProcess | undefined;
 let quayProc: ChildProcess | undefined;
 let stopping = false;
+let simRestarts = 0;
+let simPort = 0;
 
 function beginWorlds(): void {
   const missing = SEEDS.filter((s) => yearsOf(s) !== YEARS);
@@ -182,15 +185,38 @@ try {
   process.exit(1);
 }
 
-const simPort = await freePort(4173);
+simPort = await freePort(4173);
 const quayPort = await freePort(simPort + 1);
 const env = gameEnv();
 console.log('Opening the simulation and Quay.');
-simProc = spawn(process.execPath, nodeArgs(path.join(root, 'sim', 'server.ts'), ['--port', String(simPort)]), {
-  cwd: root,
-  env,
-  stdio: 'inherit',
-});
+
+function spawnSim(): ChildProcess {
+  return spawn(process.execPath, nodeArgs(path.join(root, 'sim', 'server.ts'), ['--port', String(simPort)]), {
+    cwd: root,
+    env,
+    stdio: 'inherit',
+  });
+}
+
+function watchSim(child: ChildProcess): void {
+  child.on('exit', () => {
+    if (stopping || simProc !== child) return;
+    if (simRestarts >= 5) {
+      console.error('The simulation stopped, so close this window and open Port Avalon again.');
+      return;
+    }
+    simRestarts += 1;
+    console.log('The simulation stopped. Starting it again.');
+    setTimeout(() => {
+      if (stopping) return;
+      simProc = spawnSim();
+      watchSim(simProc);
+    }, 250);
+  });
+}
+
+simProc = spawnSim();
+watchSim(simProc);
 
 try {
   await waitUntil(simProc, 'the simulation', async () => {
@@ -208,7 +234,7 @@ try {
 
 quayProc = spawn(process.execPath, [path.join(quayHome, 'server.js')], {
   cwd: quayHome,
-  env: { ...env, PORT: String(quayPort), HOSTNAME: '127.0.0.1', SIM_PORT: String(simPort), NODE_ENV: 'production' },
+  env: { ...env, PORT: String(quayPort), HOSTNAME: '127.0.0.1', SIM_PORT: String(simPort), SIM_OWNED: '1', NODE_ENV: 'production' },
   stdio: 'inherit',
 });
 
@@ -237,9 +263,7 @@ openBrowser(url);
 beginWorlds();
 
 await new Promise<void>((resolve) => {
-  const done = (): void => resolve();
-  simProc.on('exit', done);
-  quayProc.on('exit', done);
+  quayProc.on('exit', () => resolve());
 });
 shutdown();
 process.exit(0);

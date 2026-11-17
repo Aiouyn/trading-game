@@ -88,6 +88,9 @@ export interface SimView {
   bids?: SimBid[];
   districts?: SimDistrict[];
   chain?: { id: string; instr: string; right: string; strike: number; months: number; net: number; bid: number; ask: number; oi?: number; eventId: number }[];
+  chainPartial?: boolean;
+  booksPartial?: boolean;
+  epoch?: string;
   score?: { day: number; worth: number }[];
   curve?: { tenor: string; yield: number; id: string; px: number; prev?: number; coupon: number; eventId: number }[];
   futuresBoard?: { good: string; name: string; lot: number; eventId: number; tenors: { monthsAhead: number; px: number; prev: number }[] }[];
@@ -187,13 +190,41 @@ let shell: { getState(): { channels: Channels; setChannels(c: Channels): void } 
 let started = false;
 let es: EventSource | null = null;
 let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+let chainTimer: ReturnType<typeof setTimeout> | null = null;
+let paintQueued = false;
+let pending = snap;
+let epoch = "";
+let recovering = false;
+let quietUntil = 0;
+let acting = false;
+
+const STOPPED = "The simulation stopped, so wait a moment and try again.";
+const BUSY_NOTE = "That is already in, so wait a moment and try once more.";
 
 function emit() {
   for (const fn of listeners) fn();
 }
-function publish(next: SimSnap) {
-  snap = next;
+function flush() {
+  snap = pending;
+  if (snap.view) pushChannels(snap.view);
   emit();
+}
+function publish(next: SimSnap, coalesce = false) {
+  pending = next;
+  if (!coalesce) {
+    paintQueued = false;
+    flush();
+    return;
+  }
+  if (paintQueued) return;
+  paintQueued = true;
+  const schedule = typeof requestAnimationFrame === "function"
+    ? (fn: () => void) => requestAnimationFrame(fn)
+    : (fn: () => void) => setTimeout(fn, 16);
+  schedule(() => {
+    paintQueued = false;
+    flush();
+  });
 }
 
 export function simOwnsShell(): boolean {
@@ -202,7 +233,7 @@ export function simOwnsShell(): boolean {
 
 export function bindShell(s: { getState(): { channels: Channels; setChannels(c: Channels): void } }): void {
   shell = s;
-  if (snap.view) pushChannels(snap.view);
+  if (pending.view) pushChannels(pending.view);
 }
 
 function pushChannels(view: SimView) {
@@ -231,25 +262,83 @@ function asView(raw: unknown): SimView | null {
   return v;
 }
 
-function adopt(view: SimView) {
-  pushChannels(view);
-  snap = { ...snap, view, mode: snap.mode === "boot" ? snap.mode : snap.mode };
+function tabId(): string {
+  try {
+    const key = "quay.tab";
+    let id = sessionStorage.getItem(key);
+    if (!id) {
+      id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      sessionStorage.setItem(key, id);
+    }
+    return id.replace(/[^\w.-]/g, "").slice(0, 40) || "tab";
+  } catch {
+    return "tab";
+  }
+}
+
+function simHeaders(extra?: Record<string, string>): HeadersInit {
+  return { "x-quay-tab": tabId(), ...extra };
+}
+
+function holdLists(view: SimView): SimView {
+  const cur = pending.view;
+  if (!cur) return view;
+  let next = view;
+  if (view.chainPartial && cur.chain && cur.chain.length > (view.chain?.length ?? 0)) {
+    next = { ...next, chain: cur.chain };
+  }
+  if (view.booksPartial && cur.quotes?.length) {
+    const old = new Map(cur.quotes.map((q) => [q.instr, q]));
+    next = {
+      ...next,
+      quotes: next.quotes.map((q) => {
+        const prev = old.get(q.instr);
+        return prev ? { ...q, book: q.book ?? prev.book, spark: q.spark ?? prev.spark } : q;
+      }),
+    };
+  }
+  return next;
+}
+
+function adopt(view: SimView): SimView {
+  const next = holdLists(view);
+  if (next.epoch) epoch = next.epoch;
+  return next;
+}
+
+function newerFeed(cur: FeedLine[], frame: FeedLine[] | undefined): FeedLine[] {
+  if (!frame?.length) return cur;
+  const ids = new Set(cur.map((l) => l.eventId));
+  const extra = frame.filter((l) => !ids.has(l.eventId));
+  const merged = extra.length ? [...cur, ...extra] : cur;
+  return merged.length > 100 ? merged.slice(-100) : merged;
 }
 
 function mergeDay(frame: SimView) {
-  const cur = snap.view;
+  const cur = pending.view;
   if (!cur) {
-    adopt(frame);
-    publish({ ...snap, view: frame });
+    const view = adopt(frame);
+    publish({ ...pending, view }, true);
+    return;
+  }
+  if (frame.epoch && epoch && frame.epoch !== epoch) {
+    void recoverFromStream();
+    return;
+  }
+  if (frame.date && cur.date && frame.date.abs + 1 < cur.date.abs) {
+    void recoverFromStream();
     return;
   }
   const by = new Map((frame.quotes ?? []).map((q) => [q.instr, q]));
   const quotes = cur.quotes.map((q) => {
     const u = by.get(q.instr);
     if (!u) return q;
-    return { ...q, px: u.px, prev: u.prev, chg: u.chg, vol: u.vol, spark: u.spark ?? q.spark, bid: u.bid ?? q.bid, ask: u.ask ?? q.ask, book: u.book ?? q.book };
+    return { ...q, px: u.px, prev: u.prev, chg: u.chg, vol: u.vol, pos: u.pos ?? q.pos, spark: u.spark ?? q.spark, bid: u.bid ?? q.bid, ask: u.ask ?? q.ask, book: u.book ?? q.book };
   });
-  const view: SimView = {
+  for (const u of frame.quotes ?? []) if (!by.has(u.instr) || !cur.quotes.some((q) => q.instr === u.instr)) {
+    if (!quotes.some((q) => q.instr === u.instr)) quotes.push(u);
+  }
+  const view = adopt({
     ...cur,
     date: frame.date ?? cur.date,
     name: frame.name || cur.name,
@@ -263,7 +352,7 @@ function mergeDay(frame: SimView) {
     shares: frame.shares ?? cur.shares,
     orders: frame.orders ?? cur.orders,
     news: frame.news ?? cur.news,
-    feed: frame.feed ?? cur.feed,
+    feed: newerFeed(cur.feed, frame.feed),
     quotes,
     alive: frame.alive ?? cur.alive,
     over: frame.over ?? cur.over,
@@ -276,15 +365,23 @@ function mergeDay(frame: SimView) {
     society: frame.society ?? cur.society,
     calendar: frame.calendar ?? cur.calendar,
     plans: frame.plans ?? cur.plans,
-  };
-  adopt(view);
-  publish({ ...snap, view });
+    epoch: frame.epoch ?? cur.epoch,
+  });
+  publish({ ...pending, view }, true);
 }
 
 async function readView(): Promise<SimView | null> {
-  const res = await fetch("/api/sim/view", { cache: "no-store" });
-  if (!res.ok) return null;
-  return asView(await res.json());
+  try {
+    const res = await fetch("/api/sim/view", { cache: "no-store", headers: simHeaders() });
+    if (res.status === 409 && pending.mode === "play") {
+      void recoverFromStream();
+      return null;
+    }
+    if (!res.ok) return null;
+    return asView(await res.json());
+  } catch {
+    return null;
+  }
 }
 
 function scheduleRefetch() {
@@ -292,14 +389,76 @@ function scheduleRefetch() {
   refetchTimer = setTimeout(() => {
     void readView().then((view) => {
       if (!view) return;
-      adopt(view);
-      publish({ ...snap, view, mode: "play" });
-    });
+      const next = adopt(view);
+      publish({ ...pending, view: next, mode: "play" });
+    }).catch(() => {});
   }, 60);
 }
 
+function markLink(up: boolean) {
+  if (!shell) return;
+  const state = shell.getState();
+  state.setChannels({
+    ...state.channels,
+    system: { ...state.channels.system, connection: up ? "live" : "reconnecting" },
+  });
+}
+
+function sameWorld(view: SimView, heldDay: number, heldEpoch: string): boolean {
+  if (view.date.abs < heldDay) return false;
+  if (heldEpoch && view.epoch && view.epoch !== heldEpoch) return false;
+  return true;
+}
+
+function sayOnPause(view: SimView, sentence: string): SimView {
+  if (!view.pause) return view;
+  const line = sentence.replace(/\s+$/, "");
+  const text = view.pause.text ? `${line} ${view.pause.text}` : line;
+  return { ...view, pause: { ...view.pause, text } };
+}
+
+async function recoverFromStream() {
+  if (recovering || pending.mode !== "play") return;
+  recovering = true;
+  const heldDay = pending.view?.date.abs ?? 0;
+  const heldEpoch = epoch;
+  const first = await readView();
+  if (first && sameWorld(first, heldDay, heldEpoch)) {
+    quietUntil = Date.now() + 1500;
+    recovering = false;
+    return;
+  }
+  markLink(false);
+  publish({ ...pending, note: { ok: false, text: "The simulation stopped, so the last autosave is opening.\n" } });
+  for (let i = 0; i < 8; i++) {
+    const probed = await readView();
+    if (probed && sameWorld(probed, heldDay, heldEpoch)) {
+      markLink(true);
+      const view = sayOnPause(adopt(probed), "The simulation is back, so carry on.");
+      publish({ ...pending, view, mode: "play", note: { ok: true, text: "The simulation is back, so carry on.\n" } });
+      quietUntil = Date.now() + 2500;
+      recovering = false;
+      return;
+    }
+    const { ok, data } = await post("continue", {});
+    const loaded = asView(data.view);
+    if (ok && loaded) {
+      markLink(true);
+      const view = sayOnPause(adopt(loaded), "Opened the last autosave, so carry on from the last month.");
+      publish({ ...pending, view, mode: "play", note: { ok: true, text: "Opened the last autosave, so carry on from the last month.\n" } });
+      quietUntil = Date.now() + 2500;
+      recovering = false;
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 350 + i * 200));
+  }
+  recovering = false;
+  markLink(true);
+  publish({ ...pending, mode: "menu", view: null, note: { ok: false, text: "The simulation stopped, so wait a moment and try Continue.\n" } });
+}
+
 function onGen(msg: { phase?: string; year?: number; text?: string; error?: string }) {
-  const gen = { ...snap.gen, lines: snap.gen.lines.slice() };
+  const gen = { ...pending.gen, lines: pending.gen.lines.slice() };
   const keep = () => {
     if (gen.text && gen.lines[gen.lines.length - 1] !== gen.text) gen.lines.push(gen.text);
   };
@@ -309,61 +468,88 @@ function onGen(msg: { phase?: string; year?: number; text?: string; error?: stri
     gen.lines = [...gen.lines, line].slice(-40);
     gen.text = line;
   } else if (msg.phase === "error") {
-    gen.error = msg.error || "the city could not be written";
+    gen.error = msg.error || "The city could not be written, so try again.";
   } else if (msg.text) {
     keep();
     gen.text = msg.text;
     gen.lines = gen.lines.slice(-40);
   }
-  const mode = msg.phase === "ready" ? snap.mode : snap.mode === "play" ? "play" : "progress";
-  publish({ ...snap, gen, mode });
+  const mode = msg.phase === "ready" ? pending.mode : pending.mode === "play" ? "play" : "progress";
+  publish({ ...pending, gen, mode });
   if (msg.phase === "ready") {
     void readView().then((view) => {
       if (!view) {
-        publish({ ...snap, gen: { ...snap.gen, error: "the city was written but could not be read" } });
+        publish({ ...pending, gen: { ...pending.gen, error: "The city was written but could not be read, so try again." } });
         return;
       }
-      adopt(view);
-      publish({ ...snap, view, mode: "play", gen: { ...snap.gen, text: "The city is open.", error: "" } });
-    });
+      const next = adopt(view);
+      publish({ ...pending, view: next, mode: "play", gen: { ...pending.gen, text: "The city is open.", error: "" } });
+    }).catch(() => {});
   }
 }
 
 function startStream() {
   if (es) return;
-  const stream = new EventSource("/api/sim/events");
+  const stream = new EventSource("/api/sim/events?tab=" + encodeURIComponent(tabId()));
   es = stream;
   stream.addEventListener("day", (ev) => {
-    const view = asView(JSON.parse((ev as MessageEvent).data));
-    if (view) mergeDay(view);
+    try {
+      const view = asView(JSON.parse((ev as MessageEvent).data));
+      if (view) mergeDay(view);
+    } catch { /* a bad frame is not a crash */ }
   });
   stream.addEventListener("speed", (ev) => {
-    const msg = JSON.parse((ev as MessageEvent).data) as {
+    let msg: {
       speed?: SimView["speed"]; why?: string; eventId?: number; quiet?: boolean;
       kind?: string; text?: string; actions?: PauseAction[];
     };
-    if (!snap.view || !msg.speed) return;
-    const view: SimView = {
-      ...snap.view,
+    try { msg = JSON.parse((ev as MessageEvent).data); }
+    catch { return; }
+    if (!pending.view || !msg.speed) return;
+    const view = adopt({
+      ...pending.view,
       speed: msg.speed,
       pause: msg.why
         ? { why: msg.why, eventId: msg.eventId ?? 0, kind: msg.kind, text: msg.text, actions: msg.actions }
-        : msg.quiet ? null : snap.view.pause,
-    };
-    adopt(view);
-    publish({ ...snap, view });
+        : msg.quiet ? null : pending.view.pause,
+    });
+    publish({ ...pending, view });
     if (msg.speed === "pause") scheduleRefetch();
   });
   stream.addEventListener("gen", (ev) => {
-    onGen(JSON.parse((ev as MessageEvent).data) as { phase?: string; year?: number; text?: string; error?: string });
+    try { onGen(JSON.parse((ev as MessageEvent).data) as { phase?: string; year?: number; text?: string; error?: string }); }
+    catch { /* ignore a bad progress frame */ }
   });
   stream.onerror = () => {
-    if (snap.mode === "progress") void readView().then((view) => {
-      if (!view) return;
-      adopt(view);
-      publish({ ...snap, view, mode: "play" });
-    });
+    if (recovering || Date.now() < quietUntil) return;
+    if (pending.mode === "progress") {
+      void readView().then((view) => {
+        if (!view) return;
+        const next = adopt(view);
+        publish({ ...pending, view: next, mode: "play" });
+      }).catch(() => {});
+      return;
+    }
+    if (pending.mode === "play") void recoverFromStream();
   };
+}
+
+function armChain() {
+  if (chainTimer) return;
+  chainTimer = setTimeout(() => {
+    chainTimer = null;
+    if (pending.mode === "play" && pending.view) {
+      void fetch("/api/sim/panel?name=options", { cache: "no-store", headers: simHeaders() })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data: { chain?: SimView["chain"] } | null) => {
+          if (!data?.chain || !pending.view || pending.mode !== "play") return;
+          const view = adopt({ ...pending.view, chain: data.chain, chainPartial: false });
+          publish({ ...pending, view });
+        })
+        .catch(() => {});
+    }
+    armChain();
+  }, 15000);
 }
 
 function takeTitle(raw: TitleData): TitleData {
@@ -377,15 +563,19 @@ function takeTitle(raw: TitleData): TitleData {
 }
 
 async function boot() {
-  const titleRes = await fetch("/api/sim/title", { cache: "no-store" });
-  const title = titleRes.ok ? takeTitle(await titleRes.json() as TitleData) : takeTitle({ scenarios: [], saves: [], last: null });
-  const view = await readView();
-  if (view) {
-    adopt(view);
-    publish({ ...snap, title, view, mode: "play" });
-    return;
+  try {
+    const titleRes = await fetch("/api/sim/title", { cache: "no-store", headers: simHeaders() });
+    const title = titleRes.ok ? takeTitle(await titleRes.json() as TitleData) : takeTitle({ scenarios: [], saves: [], last: null });
+    const view = await readView();
+    if (view) {
+      const next = adopt(view);
+      publish({ ...pending, title, view: next, mode: "play" });
+      return;
+    }
+    publish({ ...pending, title, mode: pending.mode === "progress" ? "progress" : "menu" });
+  } catch {
+    publish({ ...pending, title: takeTitle({ scenarios: [], saves: [], last: null }), mode: "menu", note: { ok: false, text: STOPPED + "\n" } });
   }
-  publish({ ...snap, title, mode: snap.mode === "progress" ? "progress" : "menu" });
 }
 
 /** Connect the event stream and read whatever world is already open. Safe to call once. */
@@ -393,6 +583,7 @@ export function startSim(): () => void {
   if (started) return () => {};
   started = true;
   startStream();
+  armChain();
   void boot();
   return () => {};
 }
@@ -402,91 +593,134 @@ export function useSimSnap(): SimSnap {
 }
 
 async function post(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
-  const res = await fetch("/api/sim/" + path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({})) as Record<string, unknown>;
-  return { ok: res.ok, status: res.status, data };
+  try {
+    const res = await fetch("/api/sim/" + path, {
+      method: "POST",
+      headers: simHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+    if ((res.status === 502 || res.status === 503) && typeof data.error !== "string") data.error = STOPPED;
+    if (typeof data.error === "string" && /failed to fetch|fetch failed/i.test(data.error)) data.error = STOPPED;
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: { error: STOPPED } };
+  }
+}
+
+function takeLock(): boolean {
+  if (acting) return false;
+  acting = true;
+  return true;
+}
+function dropLock() {
+  acting = false;
 }
 
 function beginProgress(text: string, opts?: { fresh?: boolean }) {
   publish({
-    ...snap,
+    ...pending,
     mode: "progress",
     gen: { text, lines: [], error: "" },
-    layoutNonce: opts?.fresh ? snap.layoutNonce + 1 : snap.layoutNonce,
+    layoutNonce: opts?.fresh ? pending.layoutNonce + 1 : pending.layoutNonce,
   });
 }
 
 export async function refreshTitle(): Promise<void> {
-  const titleRes = await fetch("/api/sim/title", { cache: "no-store" });
-  if (!titleRes.ok) return;
-  publish({ ...snap, title: takeTitle(await titleRes.json() as TitleData) });
+  try {
+    const titleRes = await fetch("/api/sim/title", { cache: "no-store", headers: simHeaders() });
+    if (!titleRes.ok) return;
+    publish({ ...pending, title: takeTitle(await titleRes.json() as TitleData) });
+  } catch { /* the menu keeps the list it has */ }
 }
 
 export async function startScenario(id: string, extra?: { cash?: number; difficulty?: number; again?: boolean; name?: string; age?: number; district?: string }): Promise<void> {
-  beginProgress("Opening the harbour", { fresh: true });
-  const body: Record<string, unknown> = { id };
-  if (extra?.cash !== undefined) body.cash = extra.cash;
-  if (extra?.difficulty !== undefined) body.difficulty = extra.difficulty;
-  if (extra?.again) body.again = true;
-  if (extra?.name) body.name = extra.name;
-  if (extra?.age !== undefined) body.age = extra.age;
-  if (extra?.district) body.district = extra.district;
-  const { ok, data } = await post("start", body);
-  if (!ok) publish({ ...snap, gen: { ...snap.gen, error: typeof data.error === "string" ? data.error : "could not start" } });
+  if (!takeLock()) {
+    publish({ ...pending, note: { ok: false, text: BUSY_NOTE } });
+    return;
+  }
+  try {
+    beginProgress("Opening the harbour", { fresh: true });
+    const body: Record<string, unknown> = { id };
+    if (extra?.cash !== undefined) body.cash = extra.cash;
+    if (extra?.difficulty !== undefined) body.difficulty = extra.difficulty;
+    if (extra?.again) body.again = true;
+    if (extra?.name) body.name = extra.name;
+    if (extra?.age !== undefined) body.age = extra.age;
+    if (extra?.district) body.district = extra.district;
+    const { ok, data } = await post("start", body);
+    if (!ok) publish({ ...pending, gen: { ...pending.gen, error: typeof data.error === "string" ? data.error : "The city could not be opened, so try again." } });
+  } finally { dropLock(); }
 }
 
 export async function startChallenge(code: string): Promise<void> {
-  beginProgress("Opening the harbour");
-  const { ok, data } = await post("challenge", { code });
-  if (!ok) publish({ ...snap, gen: { ...snap.gen, error: typeof data.error === "string" ? data.error : "could not start" } });
+  if (!takeLock()) {
+    publish({ ...pending, note: { ok: false, text: BUSY_NOTE } });
+    return;
+  }
+  try {
+    beginProgress("Opening the harbour");
+    const { ok, data } = await post("challenge", { code });
+    if (!ok) publish({ ...pending, gen: { ...pending.gen, error: typeof data.error === "string" ? data.error : "The city could not be opened, so try again." } });
+  } finally { dropLock(); }
 }
 
 export async function continueGame(): Promise<void> {
-  beginProgress("Reading the save…");
-  const { ok, data } = await post("continue", {});
-  const view = asView(data.view);
-  if (!ok || !view) {
-    publish({ ...snap, gen: { ...snap.gen, error: typeof data.error === "string" ? data.error : "no save to continue" } });
+  if (!takeLock()) {
+    publish({ ...pending, note: { ok: false, text: BUSY_NOTE } });
     return;
   }
-  adopt(view);
-  publish({ ...snap, view, mode: "play" });
+  try {
+    beginProgress("Reading the save…");
+    const { ok, data } = await post("continue", {});
+    const view = asView(data.view);
+    if (!ok || !view) {
+      publish({ ...pending, gen: { ...pending.gen, error: typeof data.error === "string" ? data.error : "There is no save to continue, so start a new city." } });
+      return;
+    }
+    const next = adopt(view);
+    publish({ ...pending, view: next, mode: "play" });
+  } finally { dropLock(); }
 }
 
 export async function loadGame(id: string): Promise<void> {
-  beginProgress("Reading the save…");
-  const { ok, data } = await post("load", { id });
-  const view = asView(data.view);
-  if (!ok || !view) {
-    publish({ ...snap, gen: { ...snap.gen, error: typeof data.error === "string" ? data.error : "could not load" } });
+  if (!takeLock()) {
+    publish({ ...pending, note: { ok: false, text: BUSY_NOTE } });
     return;
   }
-  adopt(view);
-  publish({ ...snap, view, mode: "play" });
+  try {
+    beginProgress("Reading the save…");
+    const { ok, data } = await post("load", { id });
+    const view = asView(data.view);
+    if (!ok || !view) {
+      publish({ ...pending, gen: { ...pending.gen, error: typeof data.error === "string" ? data.error : "That save could not be opened, so pick another or start a new city." } });
+      return;
+    }
+    const next = adopt(view);
+    publish({ ...pending, view: next, mode: "play" });
+  } finally { dropLock(); }
 }
 
 export function openGate(mode: GateMode) {
-  publish({ ...snap, mode, gen: mode === "progress" ? snap.gen : { ...snap.gen, error: "" } });
+  publish({ ...pending, mode, gen: mode === "progress" ? pending.gen : { ...pending.gen, error: "" } });
 }
 
 export async function setSpeed(speed: SimView["speed"]): Promise<void> {
-  const word = speed === "pause" ? "Paused." : speed === "day" ? "A day is passing." : speed === "week" ? "A week is passing." : "A month is passing.";
-  publish({ ...snap, note: { ok: true, text: word } });
-  const { ok, data } = await post("speed", { speed });
-  if (!ok) {
-    publish({ ...snap, note: { ok: false, text: typeof data.error === "string" ? data.error : "the clock did not change" } });
-    return;
-  }
-  const next = data.speed === "pause" || data.speed === "day" || data.speed === "week" || data.speed === "month" ? data.speed : speed;
-  if (snap.view) {
-    const view = { ...snap.view, speed: next, pause: next === "pause" ? snap.view.pause : null };
-    adopt(view);
-    publish({ ...snap, view, note: next === "pause" && speed !== "pause" ? null : snap.note });
-  }
+  if (!takeLock()) return;
+  try {
+    const word = speed === "pause" ? "Paused." : speed === "day" ? "A day is passing." : speed === "week" ? "A week is passing." : "A month is passing.";
+    publish({ ...pending, note: { ok: true, text: word } });
+    const { ok, data } = await post("speed", { speed });
+    if (!ok) {
+      publish({ ...pending, note: { ok: false, text: typeof data.error === "string" ? data.error : "The clock did not change, so try again." } });
+      return;
+    }
+    const next = data.speed === "pause" || data.speed === "day" || data.speed === "week" || data.speed === "month" ? data.speed : speed;
+    if (pending.view) {
+      const view = adopt({ ...pending.view, speed: next, pause: next === "pause" ? pending.view.pause : null });
+      publish({ ...pending, view, note: next === "pause" && speed !== "pause" ? null : pending.note });
+    }
+  } finally { dropLock(); }
 }
 
 function noteOf(ok: boolean, data: Record<string, unknown>): ActNote {
@@ -500,41 +734,52 @@ function noteOf(ok: boolean, data: Record<string, unknown>): ActNote {
 
 async function commitAct(body: unknown): Promise<ActNote> {
   const { ok, data } = await post("act", body);
-  const view = asView(data.view);
-  if (view) {
-    adopt(view);
-    snap = { ...snap, view };
+  const loaded = asView(data.view);
+  if (loaded) {
+    const view = adopt(loaded);
+    pending = { ...pending, view };
   }
   const note = noteOf(ok, data);
-  publish({ ...snap, note });
+  publish({ ...pending, note });
   return note;
 }
 
 export async function act(cmd: unknown): Promise<ActNote> {
-  return commitAct(cmd);
+  if (!takeLock()) return { ok: false, text: BUSY_NOTE };
+  try { return await commitAct(cmd); }
+  finally { dropLock(); }
 }
 
 export async function actLine(line: string): Promise<ActNote> {
-  return commitAct({ line });
+  if (!takeLock()) return { ok: false, text: BUSY_NOTE };
+  try { return await commitAct({ line }); }
+  finally { dropLock(); }
 }
 
 export function clearNote(): void {
-  if (snap.note) publish({ ...snap, note: null });
+  if (pending.note) publish({ ...pending, note: null });
 }
 
 /** Drop the open world and return to the scenario list. */
 export async function leaveGame(): Promise<void> {
-  await post("release", {});
-  publish({ ...snap, mode: "menu", view: null, note: null });
+  if (!takeLock()) return;
+  try {
+    await post("release", {});
+    publish({ ...pending, mode: "menu", view: null, note: null });
+  } finally { dropLock(); }
 }
 
 export interface ExplainLine { depth: number; id: number; day: number; kind: string; msg: string; name?: string; missing?: boolean }
 
 export async function explain(id: number): Promise<ExplainLine[]> {
-  const res = await fetch(`/api/sim/explain/${id}`, { cache: "no-store" });
-  if (!res.ok) return [];
-  const data = await res.json() as { lines?: ExplainLine[] };
-  return data.lines ?? [];
+  try {
+    const res = await fetch(`/api/sim/explain/${id}`, { cache: "no-store", headers: simHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json() as { lines?: ExplainLine[] };
+    return data.lines ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export function dollars(cents: number): string {

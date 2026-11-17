@@ -1793,6 +1793,7 @@ function collect(w: World, minDay = -1): FeedLine[] {
   }
   feedSeen = count;
   if (feed.length > 100) feed.splice(0, feed.length - 100);
+  if (pausedIds.size > 4000) pausedIds.clear();
   const mile = milestone(w);
   if (played || speed !== 'pause') {
     const ruin = raw.filter((h) => isRuin(h));
@@ -1892,7 +1893,7 @@ function maybeAutosave(): void {
   try { broadcast('saved', writeSave('autosave', 'Autosave')); }
   catch (err) {
     const why = err instanceof Error ? err.message : String(err);
-    broadcast('saved', { error: why });
+    broadcast('saved', { error: playerLine(why) });
   }
 }
 
@@ -1959,7 +1960,7 @@ function beginGeneration(job: GenJob): string | null {
     if (settled) return;
     settled = true;
     generating = false;
-    broadcast('gen', { phase: 'error', error });
+    broadcast('gen', { phase: 'error', error: playerLine(error) });
   };
   worker.on('message', (msg: { type?: string; year?: number; text?: string; error?: string; dir?: string }) => {
     if (msg.type === 'line') broadcast('gen', { phase: 'line', year: msg.year, text: msg.text });
@@ -1995,13 +1996,13 @@ function beginGeneration(job: GenJob): string | null {
           broadcast('gen', { phase: 'ready' });
         } catch (err) {
           const why = err instanceof Error ? err.message : String(err);
-          broadcast('gen', { phase: 'error', error: why });
+          broadcast('gen', { phase: 'error', error: playerLine(why) });
         }
         generating = false;
       });
     }
   });
-  worker.on('error', (err) => fail(err.message));
+  worker.on('error', (err) => fail(playerLine(err.message)));
   worker.on('exit', (code) => { if (!settled && code !== 0) fail('the city could not be written'); });
   return null;
 }
@@ -2014,6 +2015,29 @@ function openSave(dir: string): void {
   boot(world);
 }
 
+function quoteTick(w: World): { instr: string; px: number; prev: number; chg: number; vol: number; pos: number }[] {
+  const who = playerIndex(w);
+  const id = who >= 0 ? econ(w).P.id(who) : '';
+  return stocksOf(w).map((st) => {
+    const ses = session(st);
+    return {
+      instr: st.instr,
+      px: ses.px,
+      prev: ses.prev,
+      chg: ses.prev > 0 ? ses.px / ses.prev - 1 : 0,
+      vol: ses.vol,
+      pos: id ? Math.floor(w.ledger.balance(id, st.instr)) : 0,
+    };
+  });
+}
+
+function societyTick(w: World): Record<string, unknown> {
+  const view = societyView(w);
+  const stories = view.stories;
+  if (Array.isArray(stories) && stories.length > 16) view.stories = stories.slice(-16);
+  return view;
+}
+
 function tickFrame(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const i = playerIndex(w);
@@ -2022,38 +2046,30 @@ function tickFrame(w: World): Record<string, unknown> {
   const abs = w.day;
   const doy = abs % 360;
   const price = markOf(w);
-  const idx = indexPair(w);
+  const worth = i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0;
   const book = playerBook(w);
   const alive = i >= 0 && P.alive(i);
   return {
     date: { year: Math.floor(abs / 360) + 1, month: Math.floor(doy / 30) + 1, day: (doy % 30) + 1, abs },
     name: i >= 0 ? P.name(i) : '',
-    age: i >= 0 ? P.age(w, i) : 0,
-    health: i >= 0 ? P.health[i] : 0,
     alive,
     over: (pst?.over ?? false) || !alive,
     final: pst?.final ?? '',
     cash: i >= 0 ? Math.floor(w.ledger.balance(id, DEP)) : 0,
-    netWorth: i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0,
-    dynasty: lightDynasty(w),
-    heir: heirOf(w),
-    healthPanel: healthPanel(w),
-    alerts: alertsOf(w),
-    companies: desks(w),
-    index: idx.index,
-    indexChg: idx.prev > 0 ? idx.index / idx.prev - 1 : 0,
-    quotes: quotesOf(w).map((q) => ({ instr: q.instr, px: q.px, prev: q.prev, chg: q.chg, vol: q.vol, spark: q.spark, bid: q.bid, ask: q.ask, book: q.book })),
+    netWorth: worth,
+    epoch: `${bootPid}:${worldEpoch}`,
+    quotes: quoteTick(w),
     shares: book.shares,
     orders: book.orders,
     news: headlines(w),
     scenario: scenarioCard(w),
-    society: societyView(w),
+    society: societyTick(w),
     calendar: calendarOf(w),
     plans: plansOf(w),
-    feed,
+    feed: feed.length > 40 ? feed.slice(-40) : feed,
     speed,
     pause: pauseNote,
-    stats: pst ? lifeBoard(w, i, pst, i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0).stats : [],
+    stats: pst ? lifeBoard(w, i, pst, worth).stats : [],
   };
 }
 
@@ -2832,6 +2848,11 @@ function wirePanel(w: World): Record<string, unknown> {
   if (i >= 0) for (const r of relations(w, i)) if (r.who >= 0) contacts.add(P.id(r.who));
   const held = new Set<string>();
   for (const st of stocksOf(w)) if (id && w.ledger.balance(id, st.instr) > 0) held.add(st.issuer);
+  const heldNames: string[] = [];
+  for (const fid of held) {
+    const f = econ(w).firms.find((x) => x.id === fid);
+    if (f?.name) heldNames.push(f.name);
+  }
   const employer = i >= 0 && P.employer[i] >= 0 ? econ(w).firms[P.employer[i]] : undefined;
   const items = new Map<number, { eventId: number; day: number; text: string; tags: string[] }>();
   const add = (eventId: number, day: number, text: string, tags: string[]): void => {
@@ -2847,10 +2868,8 @@ function wirePanel(w: World): Record<string, unknown> {
     const tags: string[] = [];
     const you = !!id && e.actor === id;
     const contact = !!e.actor && contacts.has(e.actor);
-    const firmHit = !!e.actor && held.has(e.actor) || [...held].some((fid) => {
-      const f = econ(w).firms.find((x) => x.id === fid);
-      return !!f && e.msg.includes(f.name);
-    });
+    let firmHit = !!e.actor && held.has(e.actor);
+    if (!firmHit) for (const name of heldNames) if (e.msg.includes(name)) { firmHit = true; break; }
     if (you || e.kind.startsWith('player.')) tags.push('you');
     if (contact) tags.push('contacts');
     if (firmHit) tags.push('holdings');
@@ -3006,12 +3025,22 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
   };
 }
 
+function trimThreads(threads: unknown): unknown {
+  if (!Array.isArray(threads)) return threads;
+  return threads.slice(0, 40).map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const t = row as { messages?: unknown[] };
+    if (!Array.isArray(t.messages) || t.messages.length <= 30) return row;
+    return { ...t, messages: t.messages.slice(-30) };
+  });
+}
+
 function withDue(w: World, inbox: { threads: unknown; pending: { id?: number; day?: number; kind?: string }[] }): { threads: unknown; pending: Record<string, unknown>[] } {
   const asks = (w.state.circle as { asks?: { id: number; due: number }[] } | undefined)?.asks ?? [];
   const due = new Map<number, number>();
   for (const a of asks) if (a.due > 0) due.set(a.id, a.due);
   return {
-    threads: inbox.threads,
+    threads: trimThreads(inbox.threads),
     pending: inbox.pending.map((p) => {
       const id = typeof p.id === 'number' ? p.id : -1;
       const day = typeof p.day === 'number' ? p.day : w.day;
@@ -3460,6 +3489,7 @@ function screen(w: World): Record<string, unknown> {
   const idx = indexPair(w);
   const firmsDir = firms.map((f) => ({ id: f.id, name: f.name }));
   const job = me >= 0 && P.employer[me] >= 0 ? firms[P.employer[me]] : undefined;
+  if (contacts.length > 48) contacts.length = 48;
   return {
     ...v,
     bonds: markedBonds(w, v.bonds),
@@ -3501,7 +3531,9 @@ function screen(w: World): Record<string, unknown> {
       },
     },
     curve,
-    chain: optionChain(w, me >= 0 ? P.id(me) : ''),
+    chain: heldChain(w),
+    chainPartial: true,
+    epoch: `${bootPid}:${worldEpoch}`,
     career: careerView(w, me, job ? (job.staffEv ?? job.ceoEv ?? econ(w).jobsWho ?? w.genesis) : w.genesis),
     futuresBoard: futures,
     coinBoard: coins,
@@ -3513,9 +3545,10 @@ function screen(w: World): Record<string, unknown> {
     over: v.over || !v.alive,
     scenario: scenarioCard(w),
     arrival: arrivalLines(w),
+    story: Array.isArray(v.story) ? v.story.slice(-16) : [],
     feed,
     calendar: calendarOf(w),
-    society: societyView(w),
+    society: societyTick(w),
     plans: plansOf(w),
     pause: pauseNote,
   };
@@ -3846,6 +3879,21 @@ function inviteAsk(b: Record<string, unknown>): Command | string {
 let started = false;
 let worldReady = false;
 let autosaveOn = true;
+let worldEpoch = 0;
+let viewRev = 0;
+let viewCache: { day: number; rev: number; json: string } | null = null;
+let viewInflight: Promise<string> | null = null;
+const panelCache = new Map<string, { day: number; rev: number; json: string }>();
+const bootPid = String(process.pid);
+let writer: { id: string; seen: number } | null = null;
+const sockets = new Map<string, number>();
+let lastTick: Record<string, unknown> | null = null;
+let viewFull = false;
+let lastActSig = '';
+let lastActAt = 0;
+let lastActCode = 200;
+let lastActJson = '';
+let actPending = false;
 let speed: Speed = 'pause';
 let booksOk = true;
 let booksBad: string[] = [];
@@ -3857,6 +3905,14 @@ const clients = new Set<http.ServerResponse>();
 
 function boot(world: World): void {
   w = world;
+  worldEpoch++;
+  viewRev++;
+  viewCache = null;
+  viewFull = false;
+  lastTick = null;
+  panelCache.clear();
+  writer = null;
+  sockets.clear();
   pins.length = 0;
   notedThrough = -1;
   bandDay = -1;
@@ -3910,14 +3966,14 @@ function stepDay(): string | undefined {
   catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     booksOk = false;
-    booksBad = [why];
+    booksBad = [playerLine(why)];
     speed = 'pause';
     broadcast('books', { ok: false, lines: booksBad });
-    return why;
+    return booksBad[0];
   }
   if (stepped.books) {
     booksOk = false;
-    booksBad = stepped.books.split('; ');
+    booksBad = stepped.books.split('; ').map((line) => playerLine(line));
     speed = 'pause';
     broadcast('books', { ok: false, lines: booksBad });
     return booksBad[0];
@@ -3933,7 +3989,7 @@ function stepDay(): string | undefined {
   catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     speed = 'pause';
-    broadcast('books', { ok: false, lines: [why] });
+    broadcast('books', { ok: false, lines: [playerLine(why)] });
     return why;
   }
   const now = frame.netWorth as number;
@@ -3945,6 +4001,7 @@ function stepDay(): string | undefined {
   if (w.day % 30 === 0) sampleMacro(w);
   maybeAutosave();
   if (pauseNote && speed === 'pause') broadcast('speed', { speed, ...pauseNote });
+  lastTick = frame;
   broadcast('day', frame);
   return undefined;
 }
@@ -4001,10 +4058,265 @@ function pump(): void {
   next();
 }
 
-function send(res: http.ServerResponse, code: number, body: unknown): void {
-  const json = JSON.stringify(body);
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+function playerLine(raw: string): string {
+  const text = raw.replace(/\s+/g, ' ').trim();
+  if (/, so /.test(text) && text.length < 200 && !/failed to fetch|fetch failed|ECONN|\.ts:\d+|at \S+\(/i.test(text)) {
+    return text.endsWith('.') ? text : `${text}.`;
+  }
+  if (/older version|cannot be opened/i.test(text)) return 'This save is from an older version of Port Avalon, so start a new city.';
+  if (/no save to continue/i.test(text)) return 'There is no save to continue, so start a new city.';
+  if (/no such save/i.test(text)) return 'That save is not here, so pick another or start a new city.';
+  if (/already being written/i.test(text)) return 'A city is already being written, so wait for it to finish.';
+  if (/already open/i.test(text)) return 'A game is already open, so close the other window or carry on in this one.';
+  if (/another window/i.test(text)) return 'This game is open in another window, so close that window and use this one.';
+  if (/do not balance|BOOKS DO NOT/i.test(text)) return 'The books do not balance, so pause and reload the last save.';
+  if (/you have died/i.test(text)) return 'You have died, so load a save or let the heir carry on.';
+  if (/run is over/i.test(text)) return 'This run is over, so load a save or start a new city.';
+  if (/choose a scenario/i.test(text)) return 'Choose a scenario, so a city can open.';
+  if (/not found|no such/i.test(text)) return 'That is not in the game, so go back and pick another.';
+  if (/method not allowed/i.test(text)) return 'That action is not available, so go back and try the button again.';
+  if (/failed to fetch|fetch failed|ECONN|EPIPE|ETIMEDOUT|socket hang up/i.test(text)) return 'The simulation stopped, so wait a moment and try again.';
+  if (!text || text.length > 160 || /\.ts:\d+|at \S+\(|Cannot read propert|node_modules|world\.bin|snapshot seed/i.test(text)) {
+    return 'Something went wrong, so wait a moment and try again.';
+  }
+  return `${text.replace(/[.]+$/, '')}, so try again.`;
+}
+
+function heldChain(w: World): Record<string, unknown>[] {
+  const i = playerIndex(w);
+  if (i < 0) return [];
+  const id = econ(w).P.id(i);
+  const st = w.state.options as {
+    off?: boolean; root?: number;
+    contracts?: { live: boolean; longId: string; shortId: string; instr: string; right: string; strike: number; expMonth: number; bid: number; ask: number; issuer: string }[];
+  } | undefined;
+  if (!st || st.off || !st.contracts) return [];
+  const eventId = st.root ?? w.genesis;
+  const firms = econ(w).firms;
+  const out: Record<string, unknown>[] = [];
+  for (const c of st.contracts) {
+    if (!c.live) continue;
+    const net = Math.floor(w.ledger.balance(id, c.longId) - w.ledger.balance(id, c.shortId));
+    if (!net) continue;
+    const firm = firms.find((f) => c.instr.endsWith(f.id));
+    out.push({
+      id: c.longId, instr: c.instr, name: firm?.name ?? c.instr, right: c.right, strike: c.strike,
+      months: c.expMonth - w.month, bid: c.bid, ask: c.ask, net, oi: 0, eventId,
+    });
+  }
+  return out;
+}
+
+function jsonBytes(v: unknown): number {
+  return Buffer.byteLength(JSON.stringify(v));
+}
+
+/** Keep /view under 200 KB. The four open windows keep their fields; depth and old letters go first. */
+function fitView(raw: Record<string, unknown>): Record<string, unknown> {
+  const budget = 190_000;
+  if (jsonBytes(raw) <= budget) return raw;
+  const quotes = raw.quotes;
+  if (Array.isArray(quotes)) {
+    for (const q of quotes) {
+      if (!q || typeof q !== 'object') continue;
+      const row = q as Record<string, unknown>;
+      delete row.book;
+      delete row.spark;
+    }
+    raw.booksPartial = true;
+  }
+  delete raw.prices;
+  delete raw.healthPanel;
+  delete raw.alerts;
+  if (Array.isArray(raw.story) && raw.story.length > 8) raw.story = raw.story.slice(-8);
+  const inbox = raw.inbox as { threads?: { messages?: unknown[]; why?: unknown[] }[] } | undefined;
+  if (inbox?.threads) {
+    inbox.threads = inbox.threads.slice(0, 24);
+    for (const t of inbox.threads) {
+      if (t.messages && t.messages.length > 8) t.messages = t.messages.slice(-8);
+      if (t.why && t.why.length > 4) t.why = t.why.slice(-4);
+    }
+  }
+  if (jsonBytes(raw) <= budget) return raw;
+  const contacts = raw.contacts;
+  if (Array.isArray(contacts)) {
+    raw.contacts = contacts.slice(0, 24).map((c) => {
+      if (!c || typeof c !== 'object') return c;
+      const row = { ...(c as Record<string, unknown>) };
+      const bond = row.bond;
+      if (bond && typeof bond === 'object') row.bond = { word: (bond as { word?: string }).word ?? '', score: (bond as { score?: number }).score ?? 0, why: [] };
+      row.together = [];
+      return row;
+    });
+  }
+  const society = raw.society as { stories?: unknown[]; rich?: unknown[] } | undefined;
+  if (society?.stories && society.stories.length > 12) society.stories = society.stories.slice(-12);
+  if (Array.isArray(raw.feed) && raw.feed.length > 30) raw.feed = raw.feed.slice(-30);
+  if (Array.isArray(raw.calendar) && raw.calendar.length > 30) raw.calendar = raw.calendar.slice(0, 30);
+  const career = raw.career as { study?: unknown } | undefined;
+  if (career) delete career.study;
+  if (Array.isArray(raw.homes)) raw.homes = raw.homes.filter((h) => h && typeof h === 'object' && ((h as { mine?: boolean }).mine || (h as { live?: boolean }).live));
+  if (jsonBytes(raw) <= budget) return raw;
+  delete raw.companies;
+  delete raw.bids;
+  delete raw.districts;
+  delete raw.tape;
+  if (inbox?.threads) {
+    inbox.threads = inbox.threads.slice(0, 16);
+    for (const t of inbox.threads) if (t.messages && t.messages.length > 4) t.messages = t.messages.slice(-4);
+  }
+  if (Array.isArray(raw.story)) raw.story = raw.story.slice(-4);
+  if (Array.isArray(raw.contacts)) raw.contacts = raw.contacts.slice(0, 12);
+  return raw;
+}
+
+function touchView(): void {
+  viewRev++;
+  viewCache = null;
+  viewFull = false;
+}
+
+function patchCached(): string {
+  const base = JSON.parse(viewCache?.json || '{}') as Record<string, unknown>;
+  const frame = lastTick && (lastTick.date as { abs?: number } | undefined)?.abs === w.day ? lastTick : null;
+  if (frame) {
+    base.date = frame.date;
+    base.cash = frame.cash;
+    base.netWorth = frame.netWorth;
+    base.nwChange = frame.nwChange;
+    base.sinceOpen = frame.sinceOpen;
+    base.speed = frame.speed;
+    base.pause = frame.pause;
+    base.alive = frame.alive;
+    base.over = frame.over;
+    base.final = frame.final;
+    base.epoch = frame.epoch;
+    base.shares = frame.shares;
+    base.orders = frame.orders;
+    base.scenario = frame.scenario;
+    base.stats = frame.stats;
+    const ticks = frame.quotes as { instr: string; px: number; prev: number; chg: number; vol: number; pos: number }[] | undefined;
+    if (ticks && Array.isArray(base.quotes)) {
+      const by = new Map(ticks.map((q) => [q.instr, q]));
+      for (const q of base.quotes) {
+        if (!q || typeof q !== 'object') continue;
+        const row = q as Record<string, unknown>;
+        const u = by.get(String(row.instr));
+        if (!u) continue;
+        row.px = u.px;
+        row.prev = u.prev;
+        row.chg = u.chg;
+        row.vol = u.vol;
+        row.pos = u.pos;
+      }
+    }
+  } else {
+    base.speed = speed;
+    base.epoch = `${bootPid}:${worldEpoch}`;
+  }
+  const json = JSON.stringify(base);
+  viewCache = { day: w.day, rev: viewRev, json };
+  viewFull = false;
+  return json;
+}
+
+function viewJson(): Promise<string> {
+  if (viewCache && viewCache.day === w.day && viewCache.rev === viewRev && (viewFull || pumping)) {
+    return Promise.resolve(viewCache.json);
+  }
+  if (pumping && viewCache && viewCache.rev === viewRev) return Promise.resolve(patchCached());
+  if (viewInflight) return viewInflight;
+  const day = w.day;
+  const rev = viewRev;
+  viewInflight = Promise.resolve().then(() => {
+    const raw = screen(w);
+    let json = JSON.stringify(raw);
+    if (Buffer.byteLength(json) > 190_000) json = JSON.stringify(fitView(raw));
+    if (w.day === day && viewRev === rev) {
+      viewCache = { day, rev, json };
+      viewFull = true;
+    }
+    viewInflight = null;
+    return json;
+  });
+  return viewInflight;
+}
+
+function panelJson(name: string, url: URL): string {
+  const key = name + url.search;
+  const hit = panelCache.get(key);
+  if (hit && hit.day === w.day && hit.rev === viewRev) return hit.json;
+  const json = JSON.stringify(panelSlice(w, name, url));
+  panelCache.delete(key);
+  panelCache.set(key, { day: w.day, rev: viewRev, json });
+  if (panelCache.size > 24) {
+    const oldest = panelCache.keys().next().value;
+    if (oldest) panelCache.delete(oldest);
+  }
+  return json;
+}
+
+function tabOf(req: http.IncomingMessage, url: URL): string {
+  const h = req.headers['x-quay-tab'];
+  const header = Array.isArray(h) ? h[0] : h;
+  const id = (header || url.searchParams.get('tab') || '').replace(/[^\w.-]/g, '').slice(0, 40);
+  return id || 'local';
+}
+
+function noteSocket(id: string, open: boolean): void {
+  if (!id || id === 'local') return;
+  const n = (sockets.get(id) ?? 0) + (open ? 1 : -1);
+  if (n <= 0) sockets.delete(id);
+  else sockets.set(id, n);
+  if (open && (!writer || writer.id === id || !sockets.has(writer.id))) writer = { id, seen: Date.now() };
+  if (!open && writer?.id === id && !sockets.has(id)) {
+    const next = sockets.keys().next().value;
+    writer = next ? { id: next, seen: Date.now() } : null;
+  }
+}
+
+function claimWrite(id: string): string | null {
+  if (writer && writer.id !== id && sockets.has(writer.id)) {
+    return 'This game is open in another window, so close that window and use this one.';
+  }
+  writer = { id, seen: Date.now() };
+  return null;
+}
+
+function saveTooOld(dir: string): string | null {
+  let text = '';
+  try { text = fs.readFileSync(path.join(dir, 'world.json'), 'utf8'); }
+  catch { return 'This save could not be read, so pick another or start a new city.'; }
+  if (!text.includes('"circle":') || !text.includes('"society":') || !text.includes('"careers":')) {
+    return 'This save is from an older version of Port Avalon, so start a new city.';
+  }
+  return null;
+}
+
+function sendRaw(res: http.ServerResponse, code: number, json: string): void {
+  res.writeHead(code, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(json),
+  });
   res.end(json);
+}
+
+function send(res: http.ServerResponse, code: number, body: unknown): void {
+  if (code >= 400 && body && typeof body === 'object') {
+    const b = body as Record<string, unknown>;
+    if (typeof b.error === 'string') b.error = playerLine(b.error);
+    if (typeof b.why === 'string') b.why = playerLine(b.why);
+    if (Array.isArray(b.lines)) b.lines = b.lines.filter((x) => typeof x === 'string').map((x) => playerLine(x));
+  }
+  sendRaw(res, code, JSON.stringify(body));
+}
+
+function guard(req: http.IncomingMessage, url: URL, res: http.ServerResponse): boolean {
+  const why = claimWrite(tabOf(req, url));
+  if (!why) return false;
+  send(res, 409, { error: why });
+  return true;
 }
 
 function staticPath(pathname: string): string | undefined {
@@ -4444,6 +4756,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && pathname === '/autosave') {
+      if (guard(req, url, res)) return;
       const body = await readBody(req) as { on?: unknown };
       if (typeof body.on === 'boolean') {
         autosaveOn = body.on;
@@ -4454,6 +4767,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && pathname === '/saves') { send(res, 200, { saves: listSaves() }); return; }
     if (req.method === 'POST' && pathname === '/start') {
+      if (guard(req, url, res)) return;
       const opts = startOpts(await readBody(req));
       if (typeof opts === 'string') { send(res, 400, { error: opts }); return; }
       const why = beginGeneration(opts);
@@ -4462,6 +4776,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && pathname === '/challenge') {
+      if (guard(req, url, res)) return;
       const body = await readBody(req) as { code?: unknown };
       let parsed: ReturnType<typeof parseCode>;
       try { parsed = parseCode(typeof body.code === 'string' ? body.code : ''); }
@@ -4476,11 +4791,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && (pathname === '/load' || pathname === '/continue')) {
+      if (guard(req, url, res)) return;
       if (generating) { send(res, 409, { error: 'a city is already being written' }); return; }
       const saves = listSaves();
       let id = '';
       if (pathname === '/continue') {
         if (!saves.length) { send(res, 404, { error: 'no save to continue' }); return; }
+        if (started && w.day >= (saves[0].day ?? 0)) {
+          sendRaw(res, 200, `{"view":${await viewJson()}}`);
+          return;
+        }
         id = saves[0].id;
       } else {
         const body = await readBody(req) as { id?: unknown };
@@ -4488,16 +4808,18 @@ const server = http.createServer(async (req, res) => {
       }
       const dir = saveDir(id);
       if (!dir) { send(res, 404, { error: 'no such save' }); return; }
+      const old = saveTooOld(dir);
+      if (old) { send(res, 400, { error: old }); return; }
       try { openSave(dir); }
-      catch (err) {
-        const why = err instanceof Error ? err.message : String(err);
-        send(res, 400, { error: why });
+      catch {
+        send(res, 400, { error: 'This save could not be read, so pick another or start a new city.' });
         return;
       }
-      send(res, 200, { view: screen(w) });
+      sendRaw(res, 200, `{"view":${await viewJson()}}`);
       return;
     }
     if (req.method === 'GET' && pathname === '/events') {
+      const tab = tabOf(req, url);
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -4505,10 +4827,15 @@ const server = http.createServer(async (req, res) => {
       });
       res.write('retry: 2000\n\n');
       clients.add(res);
-      req.on('close', () => clients.delete(res));
+      noteSocket(tab, true);
+      req.on('close', () => {
+        clients.delete(res);
+        noteSocket(tab, false);
+      });
       return;
     }
     if (req.method === 'POST' && pathname === '/release') {
+      if (guard(req, url, res)) return;
       speed = 'pause';
       pumping = false;
       started = false;
@@ -4531,8 +4858,8 @@ const server = http.createServer(async (req, res) => {
       send(res, 409, { error: 'choose a scenario' });
       return;
     }
-    if (req.method === 'GET' && pathname === '/view') { send(res, 200, screen(w)); return; }
-    if (req.method === 'GET' && pathname === '/panel') { send(res, 200, panelSlice(w, url.searchParams.get('name') || '', url)); return; }
+    if (req.method === 'GET' && pathname === '/view') { sendRaw(res, 200, await viewJson()); return; }
+    if (req.method === 'GET' && pathname === '/panel') { sendRaw(res, 200, panelJson(url.searchParams.get('name') || '', url)); return; }
     if (req.method === 'GET' && pathname.startsWith('/parcel/')) {
       const id = Number(pathname.slice('/parcel/'.length));
       const page = parcelPage(w, id);
@@ -4563,6 +4890,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && pathname === '/save') {
+      if (guard(req, url, res)) return;
       const body = await readBody(req) as { label?: unknown };
       const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 60) : `Save ${dateLabel(w.day)}`;
       const id = freshId(slug(label) === 'autosave' ? 'save' : slug(label));
@@ -4574,6 +4902,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && pathname === '/speed') {
+      if (guard(req, url, res)) return;
       const body = await readBody(req) as { speed?: string };
       const next = body.speed;
       if (next !== 'pause' && next !== 'day' && next !== 'week' && next !== 'month') {
@@ -4596,39 +4925,68 @@ const server = http.createServer(async (req, res) => {
       }
       if (next !== 'pause') pauseNote = null;
       speed = next;
+      touchView();
       send(res, 200, { speed });
       pump();
       return;
     }
     if (req.method === 'POST' && pathname === '/act') {
+      if (guard(req, url, res)) return;
       const body = await readBody(req);
-      const line = body && typeof body === 'object' && typeof (body as { line?: unknown }).line === 'string'
-        ? (body as { line: string }).line.trim()
-        : '';
-      let cmd: Command | string;
-      if (line) {
-        const parsed = parseCommand(line, view(w).firm || '');
-        cmd = 'error' in parsed ? parsed.error : parsed;
-      } else cmd = commandOf(body);
-      if (typeof cmd === 'string') { send(res, 400, { status: 'rejected', why: cmd }); return; }
-      if (!booksOk) { send(res, 409, { status: 'rejected', why: 'the books do not balance' }); return; }
-      const playerId = body && typeof body === 'object' && typeof (body as { playerId?: unknown }).playerId === 'string'
-        ? (body as { playerId: string }).playerId
-        : undefined;
-      const result = playerId ? act(w, playerId, cmd) : act(w, cmd);
-      const held = pauseNote;
-      collect(w);
-      if (pauseNote && pauseNote !== held) broadcast('speed', { speed: 'pause', ...pauseNote });
-      const seat = soleSeat(w);
-      const who = playerIndex(w);
-      if ((seat?.over ?? false) || who < 0 || !econ(w).P.alive(who)) { speed = 'pause'; over = true; }
-      maybeAutosave();
-      const books = result.books;
-      const snap = screen(w);
-      const said = inviteSentence(body, cmd, snap);
-      const text = said && result.status === 'accepted' ? said : result.text;
-      if (books) send(res, 409, { ...result, status: 'rejected', why: `BOOKS DO NOT BALANCE: ${books}`, view: snap });
-      else send(res, 200, { ...result, text, view: snap });
+      let sig = '';
+      try { sig = JSON.stringify(body); } catch { sig = ''; }
+      if (sig && sig === lastActSig && actPending) {
+        send(res, 409, { status: 'rejected', why: 'That is already in, so wait a moment and try once more.' });
+        return;
+      }
+      if (sig && sig === lastActSig && lastActJson && Date.now() - lastActAt < 400) {
+        sendRaw(res, lastActCode, lastActJson);
+        return;
+      }
+      lastActSig = sig;
+      lastActAt = Date.now();
+      actPending = true;
+      try {
+        const line = body && typeof body === 'object' && typeof (body as { line?: unknown }).line === 'string'
+          ? (body as { line: string }).line.trim()
+          : '';
+        let cmd: Command | string;
+        if (line) {
+          const parsed = parseCommand(line, view(w).firm || '');
+          cmd = 'error' in parsed ? parsed.error : parsed;
+        } else cmd = commandOf(body);
+        if (typeof cmd === 'string') { send(res, 400, { status: 'rejected', why: cmd }); return; }
+        if (!booksOk) { send(res, 409, { status: 'rejected', why: 'the books do not balance' }); return; }
+        const playerId = body && typeof body === 'object' && typeof (body as { playerId?: unknown }).playerId === 'string'
+          ? (body as { playerId: string }).playerId
+          : undefined;
+        const result = playerId ? act(w, playerId, cmd) : act(w, cmd);
+        const held = pauseNote;
+        collect(w);
+        if (pauseNote && pauseNote !== held) broadcast('speed', { speed: 'pause', ...pauseNote });
+        const seat = soleSeat(w);
+        const who = playerIndex(w);
+        if ((seat?.over ?? false) || who < 0 || !econ(w).P.alive(who)) { speed = 'pause'; over = true; }
+        maybeAutosave();
+        touchView();
+        const fitted = JSON.parse(await viewJson()) as Record<string, unknown>;
+        const said = inviteSentence(body, cmd, fitted);
+        const text = said && result.status === 'accepted' ? said : result.text;
+        const books = result.books;
+        const why = books
+          ? 'The books do not balance, so pause and reload the last save.'
+          : (result.status === 'rejected' && typeof result.why === 'string' ? playerLine(result.why) : result.why);
+        const code = books ? 409 : 200;
+        const payload = books
+          ? { ...result, status: 'rejected' as const, why, text, view: fitted }
+          : { ...result, why, text, view: fitted };
+        const json = JSON.stringify(payload);
+        lastActCode = code;
+        lastActJson = json;
+        sendRaw(res, code, json);
+      } finally {
+        actPending = false;
+      }
       return;
     }
     if (req.method === 'GET') {
