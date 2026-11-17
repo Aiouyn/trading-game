@@ -26,6 +26,9 @@ for (const g of Object.values(GOODS)) { GOOD_INSTR[g.good] = 'good:' + g.good; I
 export const POPULATION = +(process.env.SIM_POP ?? 20_000);
 const PAY_EVERY = 7; // wages, benefits and shopping run weekly per person
 const MARKUP = 1.2, INV_DAYS = 5;
+// Share of a firm's after-tax profit, net of loan interest, paid to its owners every week. The rest goes against the founding loan. Without it the whole profit went to the bank for two years and the owners' spending, which the opening plan counts, was missing; later the loans ran out and the dividends arrived all at once.
+const DIV_PAYOUT = 0.7;
+const DIV_REAL = 0.9; // profit the books show against the opening plan: stock builds a little before sales catch up
 const INCOME_TAX = 0.12, PROFIT_TAX = 0.2, DIVIDEND_TAX = 0.35, BENEFIT_RATE = 0.4;
 const NATURAL_UNEMP = 0.07;
 const MATCH_RATE = 0.035, POACH_RATE = 0.001; // share of job seekers who can be hired today; share of the employed who can be poached today
@@ -34,7 +37,7 @@ export interface Firm {
   id: string; idx: number; name: string; sector: string; good: string; price: number; workers: number; expSales: number;
   slot: number; staff: number[]; eff: number; ceo: number; family: boolean; badMonths: number; ceoEv?: number; // staff: person indexes into s.P; eff = sum of staff skill
   sold: number; lost: number; unitCost: number; markup: number; made: number; soldEma: number; lostEma: number; madeEma: number;
-  mRev: number; mCost: number; mStockDays: number; mPrice0: number; mUnitCost0: number; layoffEv?: number;
+  mRev: number; mCost: number; mStockDays: number; mPrice0: number; mUnitCost0: number; layoffEv?: number; divMtd?: number; divRate?: number;
   stockoutEv?: number; inputShortEv?: number; priceEv?: number; priceWho?: number;
   staffEv?: number; staffNoted?: number; staffMonth?: number; profitEv?: number;
   lastProfit: number; lastDividend: number; // last month's figures, for valuation
@@ -383,11 +386,20 @@ export const economy: Module = {
       price0[gd.good] = c * MARKUP;
     }
     const skills = workforce.reduce((t, p) => t + P.skill[p], 0);
+    // The city opens at about 5.5% unemployment and the target rate of inflation, and the central bank opens at the rate its own rule gives there.
+    // Opening at 3% meant a rate rise in the first quarter, which the plan below had not counted.
+    const eFrac = 0.95;
+    {
+      const infl = (Math.pow(1.02, 11 / 12) - 1 + Math.pow(1.02, 2 / 3) - 1) / 2, uGap = NATURAL_UNEMP - (1 - eFrac);
+      const target = 0.02 + infl + 0.5 * (infl - 0.02) + (uGap > 0.025 && infl < 0.045 ? 1.1 : 0.5) * uGap;
+      s.policyRate = Math.round(Math.max(0, Math.min(0.2, target)) * 400) / 400;
+    }
     const thrift0 = spendingThrift(s.policyRate, inflYoY(s));
     let cySum = 0; for (const p of workforce) cySum += P.cY[p];
     const mpc = cySum / Math.max(1, workforce.length) * thrift0;
     // Days of a person's own gross wage at which an average adult spends the whole after-tax wage and no more.
-    const saveDays = (1 - INCOME_TAX) * (1 - mpc) / 0.001;
+    let saveDays = (1 - INCOME_TAX) * (1 - mpc) / 0.001;
+    const saveDays0 = saveDays, DEBT_DAYS = 175;
     const owners = [...workforce].sort((a, b) => P.skill[b] - P.skill[a] || a - b).slice(0, Math.max(10, Math.round(workforce.length * 0.05)));
     const wsum = owners.reduce((t, p) => t + P.skill[p] ** 3, 0);
     let eSkill = (1 - NATURAL_UNEMP) * skills;
@@ -404,10 +416,10 @@ export const economy: Module = {
       for (const gd of Object.values(GOODS)) { labour += gross[gd.good] / gd.prod; revenue += gross[gd.good] * price0[gd.good]; finalV += fin[gd.good] * price0[gd.good]; }
       return { labour, revenue, finalV, gross };
     };
-    let hhW = 1, govW = 0.2, scale = 1, plannedFinal = 0;
+    const ownerSet0 = new Set(owners);
+    let hhW = 1, govW = 0.2, scale = 1, plannedFinal = 0, Gplan = 0;
     let gross: Record<string, number> = {};
-    let eFrac = 1 - NATURAL_UNEMP;
-    for (let it = 0; it < 12; it++) {
+    for (let it = 0; it < 80; it++) {
       eSkill = eFrac * skills;
       const onPayroll = new Set<number>();
       { let acc = 0; for (const p of workforce) { if (acc >= eSkill) break; onPayroll.add(p); acc += P.skill[p]; } }
@@ -416,23 +428,38 @@ export const economy: Module = {
       gross = ch.gross;
       const Wplan = eSkill * wage;
       const pi = scale * ch.revenue * (1 - 1 / MARKUP);
+      const divPlan = DIV_PAYOUT * 0.88 * DIV_REAL * pi * (1 - PROFIT_TAX); // 0.88: the founding loan's interest takes about an eighth of profit
       let Cw = 0;
       for (const p of workforce) {
         const sk = P.skill[p];
-        const inc = onPayroll.has(p) ? wage * sk * (1 - INCOME_TAX) : wage * BENEFIT_RATE * Math.min(1, sk);
+        const inc = (onPayroll.has(p) ? wage * sk * (1 - INCOME_TAX) : wage * BENEFIT_RATE * Math.min(1, sk)) + (ownerSet0.has(p) ? divPlan * (1 - DIVIDEND_TAX) * sk ** 3 / wsum : 0);
         Cw += P.cY[p] * thrift0 * inc + 0.001 * wage * sk * saveDays;
       }
       const liquidPlan = Wplan * 30 * 0.6;
-      const C = Cw + 0.001 * liquidPlan;
+      // The banks take 70% of the richest 5%'s deposits above 90 days of income as their own capital (banking genesis), and that money does not shop.
+      let staked = 0;
+      for (const p of owners) {
+        const sk = P.skill[p], inc = (onPayroll.has(p) ? wage * sk * (1 - INCOME_TAX) : wage * BENEFIT_RATE * Math.min(1, sk)) + divPlan * (1 - DIVIDEND_TAX) * sk ** 3 / wsum;
+        staked += 0.7 * Math.max(0, wage * sk * saveDays + liquidPlan * sk ** 3 / wsum - 90 * inc);
+      }
+      const C = Cw + 0.001 * (liquidPlan - staked);
       const householdPlan = saveDays * skills * wage;
       const endowPlan = householdPlan + Wplan * 30 + Wplan * 8 + liquidPlan + Wplan * 10;
-      const Gbase = Wplan * INCOME_TAX + pi * PROFIT_TAX - endowPlan * s.policyRate / 360 - NATURAL_UNEMP * workforce.length * wage * BENEFIT_RATE;
+      const Gbase = Wplan * INCOME_TAX + pi * PROFIT_TAX + divPlan * DIVIDEND_TAX - endowPlan * s.policyRate / 360 - NATURAL_UNEMP * workforce.length * wage * BENEFIT_RATE;
       const room = workforce.length * wage;
       const V = scale * ch.finalV;
       const need = (V - C - Gbase) / room;
-      const fiscalPlan = Math.max(-0.08, Math.min(0.20, need));
+      const fiscalPlan = Math.max(-0.08, Math.min(0.22, need));
+      // Household savings carry the demand the fiscal stance does not: raise them until the plan funds its own staffing.
+      // Public debt opens inside the fiscal rule's band (160 to 200 days of output). Below it the rule cuts the income tax every month
+      // and the first year's public purchases shrink with it. The households hold what the debt does not fund elsewhere.
+      if (it < 70) {
+        const loansPlan = pi * (1 - PROFIT_TAX) * 30 * 24, rest = Math.max(0, (DEBT_DAYS * (V + 0.035 * room) - 0.125 * loansPlan) / (1 + 0.04 / 0.96));
+        const target = Math.max(saveDays0, (rest - Wplan * 30 - liquidPlan - Wplan * 10) / (skills * wage));
+        saveDays += 0.5 * (target - saveDays);
+      }
       const G = Gbase + fiscalPlan * room;
-      plannedFinal = V;
+      plannedFinal = V; Gplan = G;
       hhW = C / Math.max(1e-9, scale); govW = Math.max(0, G) / Math.max(1e-9, scale);
     }
     let next = 0;
@@ -457,6 +484,7 @@ export const economy: Module = {
     s.hirePtr = 0;
     for (const f of s.firms) {
       f.mPrice0 = f.price; f.mUnitCost0 = f.unitCost;
+      f.divRate = 0.88 * DIV_REAL * f.expSales * f.price * (1 - 1 / MARKUP) * (1 - PROFIT_TAX);
       if (GOODS[f.good].perishable) continue;
       // The same shelf a chief will aim at on day one. A flat five days sits above a prudent chief's target,
       // and the firm then cuts staff to work the pile down.
@@ -525,8 +553,9 @@ export const economy: Module = {
     for (const p of owners) payS(w, s, s.govSlot, P.slot[p], Math.floor(liquid * P.skill[p] ** 3 / wsum), 'genesis.endowment', g);
     for (const f of s.firms) if (f.family) { const lead = leadOf(f); if (P.employer[lead] !== f.idx) joinFirm(s, lead, f); f.ceo = lead; }
     s.investors = owners.slice(0, 300).map((p, k) => ({ id: P.id(p), target: 0.6 - 0.3 * k / 300 }));
-    let profitDaily = 0, charter = 0;
+    let profitDaily = 0, charter = 0, divOpen = 0;
     for (const f of s.firms) {
+      divOpen += DIV_PAYOUT * 0.88 * DIV_REAL * f.expSales * f.price * (1 - 1 / MARKUP) * (1 - PROFIT_TAX);
       profitDaily += f.expSales * f.price * (1 - 1 / MARKUP) * PROFIT_TAX;
       const principal = loanFor(f);
       if (principal > 0) { L.issue('loan:' + f.id, BANK, principal, 'genesis', g); charter += principal; }
@@ -534,26 +563,23 @@ export const economy: Module = {
     if (charter > 0) { L.addActor('vault', 'vault'); L.issue(DEP, 'vault', charter, 'genesis', g); }
     for (const p of workforce) {
       const sk = P.skill[p];
-      P.incEma[p] = P.employer[p] >= 0 ? wage * sk * (1 - INCOME_TAX) : wage * BENEFIT_RATE * Math.min(1, sk);
+      P.incEma[p] = (P.employer[p] >= 0 ? wage * sk * (1 - INCOME_TAX) : wage * BENEFIT_RATE * Math.min(1, sk)) + (ownerSet.has(p) ? divOpen * (1 - DIVIDEND_TAX) * sk ** 3 / wsum : 0);
     }
     const dailyWages = s.firms.reduce((t, f) => t + f.eff, 0) * wage;
-    s.taxEma = dailyWages * INCOME_TAX;
-    s.profitTaxDaily = profitDaily;
+    s.taxEma = dailyWages * INCOME_TAX; s.taxTrend = s.taxEma;
+    s.profitTaxDaily = profitDaily + divOpen * DIVIDEND_TAX;
     let openingSpend = 0;
     for (const p of workforce) openingSpend += P.cY[p] * thrift0 * P.incEma[p] + 0.001 * L.balS(P.slot[p], DEP);
     const coupon0 = (L.issued.get(BOND) ?? 0) * s.policyRate / 360;
     const benefitProv = NATURAL_UNEMP * workforce.length * wage * BENEFIT_RATE;
     const govBase = s.taxEma + s.profitTaxDaily - coupon0 - benefitProv;
-    const hiredSkill = dailyWages / wage;
-    const targetFinal = plannedFinal * (hiredSkill / Math.max(1e-9, eSkill));
-    s.fiscal = Math.max(-0.08, Math.min(0.20, (targetFinal - openingSpend - govBase) / (workforce.length * wage)));
-    // Remembered income starts a little high and the memory fades within a month, which keeps the second month
-    // from cutting staff. It is not counted in the fiscal sum above.
-    for (const p of workforce) P.incEma[p] *= 1.05;
+    s.fiscal = Math.max(-0.08, Math.min(0.22, (Gplan - govBase) / (workforce.length * wage)));
     const employedN = s.firms.reduce((t, f) => t + f.staff.length, 0);
     s.unemployment = Math.max(0, 1 - employedN / Math.max(1, workforce.length));
     s.uEma = s.unemployment;
-    s.cpiBase = cpiLevel(s); s.cpiHist.push(1);
+    s.cpiBase = cpiLevel(s);
+    // A city that has had a year of the target rate of inflation: the first prints read 2%, not zero, and the policy rule and thriftiness start where they will settle.
+    for (let k = 0; k < 12; k++) s.cpiHist.push(Math.pow(1.02, (k - 11) / 12));
   },
 
   dayClose(w) {
@@ -723,6 +749,16 @@ export const economy: Module = {
           if (L.moveS(DEP, f.slot, P.slot[x], gross - t, 'wages', cause)) { P.incWeek[x] += gross - t; tax += t; }
         }
         if (pay(w, f.id, GOV, tax, 'tax.income', cause)) s.taxToday += tax;
+        // Owners are paid a week at a time at the running rate of the firm's after-tax profit (the last month's, as it was booked),
+        // so their spending does not pulse at month-end. Month-end tops up whatever the month's profit still owes.
+        if (frac >= 1 && (f.divRate ?? 0) > 0) {
+          // Keep back what month-end will take: the profit tax on the month so far and the interest accrued.
+          const owing = (s.profitTax ?? PROFIT_TAX) * Math.max(0, f.mRev - f.mCost) + loanOf(w, f) * (s.policyRate + 0.03) / 12 * ((w.day % 30 + 1) / 30);
+          // The till is lowest just after the weekly wages go out, so the week of wages is not counted against the 30-day buffer here.
+          const room = Math.floor(L.balS(f.slot, DEP) - f.eff * s.wage * (30 - PAY_EVERY - 1) - owing);
+          const d = Math.min(Math.round(DIV_PAYOUT * f.divRate! * PAY_EVERY), room);
+          if (d > 0) { payDividends(w, s, f.id, d, s.macroEv); f.divMtd = (f.divMtd ?? 0) + d; }
+        }
         if (frac < 1) {
           // A till that is a few percent short used to shed a sixth of the staff anyway, so a
           // payroll that almost cleared still produced a mass layoff and a rehire within the year.
@@ -829,7 +865,7 @@ export const economy: Module = {
     const coupon = (L.issued.get(BOND) ?? 0) * s.policyRate / 360;
     // The budget follows the year's trend in tax receipts, not last month's, so a slump does not cut public purchases
     // just when private demand falls (and a boom does not add to them).
-    s.taxTrend = s.taxTrend === undefined || w.day < 90 ? s.taxEma : s.taxTrend + (s.taxEma - s.taxTrend) / 360;
+    s.taxTrend = s.taxTrend === undefined ? s.taxEma : s.taxTrend + (s.taxEma - s.taxTrend) / 360;
     const govBudget = Math.max(0, s.taxTrend + s.profitTaxDaily - coupon - s.pensionEma - NATURAL_UNEMP * s.laborForce * s.wage * benefitRate);
     // Fiscal stance (set monthly): extra purchases that build up while unemployment stays above the natural rate
     // and unwind while it is below, so the gap does not persist.
@@ -1022,15 +1058,22 @@ export const economy: Module = {
       if (interest > 0 && pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv)) s.marginIn = (s.marginIn ?? 0) + interest;
       else if (interest > 0) borrow(w, s, f, interest, s.rateEv) && pay(w, f.id, BANK, interest, 'loan.interest', s.rateEv);
       const profit = f.mRev - f.mCost - interest;
-      if (profit > 0) { const t = Math.round(Math.min(cash(w, f.id), profit * (s.profitTax ?? PROFIT_TAX))); if (pay(w, f.id, GOV, t, 'tax.profit', s.macroEv)) profitTax += t; }
+      let taxPaid = 0;
+      if (profit > 0) { const t = Math.round(Math.min(cash(w, f.id), profit * (s.profitTax ?? PROFIT_TAX))); if (pay(w, f.id, GOV, t, 'tax.profit', s.macroEv)) { profitTax += t; taxPaid = t; } }
       const buffer = f.eff * s.wage * 30;
       let excess = Math.floor(cash(w, f.id) - buffer);
+      let paid = 0;
+      if (excess > 0 && profit > 0) {
+        const owed = Math.min(excess, Math.max(0, Math.round(DIV_PAYOUT * (profit - taxPaid)) - (f.divMtd ?? 0)));
+        if (owed > 0) { payDividends(w, s, f.id, owed, s.macroEv); paid = owed; excess -= owed; }
+      }
       if (excess > 0 && loan > 0) {
         const r = Math.min(excess, loan);
         L.redeem(DEP, f.id, r, 'loan.repay', s.macroEv); L.redeem('loan:' + f.id, BANK, r, 'loan.repay', s.macroEv);
         excess -= r;
       }
-      f.lastProfit = profit; f.lastDividend = Math.max(0, Math.round(excess));
+      { const now = Math.max(0, (profit - taxPaid) / 30), was = f.divRate ?? 0; f.divRate = now < was ? now : was + 0.5 * (now - was); } // cut at once when profit falls, raised by half the gain
+      f.lastProfit = profit; f.lastDividend = paid + (f.divMtd ?? 0) + Math.max(0, Math.round(excess)); f.divMtd = 0;
       const teller = f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo) ? f.ceo : deskPerson(w, s, 'leader');
       const tellName = teller >= 0 ? s.P.name(teller) : f.name;
       f.profitEv = E.emit('firm.profit', `${tellName} counts a profit of ${(Math.round(profit) / 100).toFixed(0)} dollars at ${f.name}`, [f.priceWho ?? f.priceEv ?? s.wageWho ?? s.wageEv ?? s.macroEv], teller >= 0 ? s.P.id(teller) : f.id);
@@ -1055,7 +1098,8 @@ export const economy: Module = {
       f.stockoutEv = undefined; f.inputShortEv = undefined;
     }
 
-    s.profitTaxDaily = (profitTax + s.divTax) / 30; s.divTax = 0;
+    // Receipts swing with which weekday the month closes on; the budget follows a smoothed figure so public purchases do not.
+    s.profitTaxDaily += ((profitTax + s.divTax) / 30 - s.profitTaxDaily) * 0.08; s.divTax = 0;
 
     // Bond coupons are paid by the bond market on their own dates. Without that market, the bank is paid the policy rate.
     if (api) api.coupons(w, s.rateEv);

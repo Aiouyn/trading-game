@@ -1389,13 +1389,9 @@ export const banking: Module = {
       const units = f.eff * GOODS[f.good].prod * BUFFER;
       if (units > 0) L.produce(CAPITAL, f.id, units, 'genesis', w.genesis);
     }
-    const makers = firmsMaking(s, 'MACHINERY');
-    if (makers.length) {
-      const price = Math.max(1, makers.reduce((t, m) => t + m.price, 0) / makers.length);
-      let qty = 0;
-      for (const f of s.firms) qty += f.eff * GOODS[f.good].prod * BUFFER * WEAR * 4 * centsPerUnit(s, f) / price;
-      L.produce('good:MACHINERY', makers[0].id, qty, 'genesis', w.genesis);
-    }
+    // No machinery is made for free at genesis. A shelf of four months' worth of wear, sold to the firms that order it,
+    // was an investment boom the opening staffing never counted, a windfall dividend to the machinery maker's owners,
+    // and then a bust when it ran out in month six.
     L.define({ id: 'depo:' + BANK, kind: 'claim', issuer: BANK });
     const people: number[] = [];
     for (let i = 0; i < P.n; i++) if (P.alive(i) && P.incEma[i] > 0) people.push(i);
