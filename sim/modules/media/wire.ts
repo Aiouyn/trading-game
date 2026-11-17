@@ -1,4 +1,5 @@
 // The city desk. A few ranked headlines a day, each in one outlet's voice, from events that already happened.
+// Same-kind notes from one day or week fold into one roundup. Each paper and each journalist files once or twice, then stops.
 // A sensational paper sometimes prints a rumour. A sober paper corrects it when the figures disagree.
 // Once the player is large enough, the gossip column names them, and a journalist asks for comment.
 import { type World } from '../../kernel/index.ts';
@@ -28,18 +29,21 @@ interface Item {
   subject: string; detail: string; heat: string; gossip: string; weekly: string;
   player: boolean; person: number; standing: number; link: number; linkDelta: number;
   issuer: string; side: number; weight: number; discount: boolean;
-  outletId: string; force: boolean;
+  outletId: string; force: boolean; tabloid: boolean; causes: number[];
 }
 interface Wire {
   cursor: number; seen: Seen[]; spouse: Int32Array; desk: Desk[];
   rumours: Rumour[]; asks: Ask[]; pending: Item | null; released: boolean; playerDay: number;
   pricedDay: number; lastOutlet: number; yHead: number; yCorrect: number; yPlayer: number; yAsk: number;
+  clusters: Cluster[]; capDay: number; outN: number[]; wrote: number[]; skim: number;
 }
 interface Ev { id: number; day: number; kind: string; actor?: string; msg: string; causes: number[] }
 interface Firm {
-  id: string; idx: number; name: string; sector: string; workers: number; ceo: number;
+  id: string; idx: number; name: string; sector: string; workers: number; bornWorkers: number; ceo: number;
   closed: boolean; listed: boolean; lastProfit: number;
 }
+interface Cut { id: string; name: string; cut: number }
+interface Cluster { week: number; kind: string; cuts: Cut[]; cause: number; published: boolean }
 interface People {
   n: number; spouse: Int32Array; employer: Int32Array; slot: Int32Array;
   alive(i: number): boolean; name(i: number): string; id(i: number): string;
@@ -50,9 +54,9 @@ interface DateRow {
 }
 
 const BEATS: Record<string, string[]> = {
-  HERALD: ['rates', 'markets', 'courts', 'companies'],
-  MERCURY: ['scandal', 'politics', 'layoffs', 'rumours'],
-  LEDGER: ['companies', 'rates', 'markets', 'credit'],
+  HERALD: ['rates', 'markets', 'labour', 'companies'],
+  MERCURY: ['politics', 'scandal', 'rumours', 'people'],
+  LEDGER: ['companies', 'labour', 'markets', 'credit'],
   GAZETTE: ['society', 'people', 'player', 'parties'],
 };
 const DESK: Record<string, string[]> = {
@@ -63,11 +67,14 @@ const DESK: Record<string, string[]> = {
   courts: ['HERALD', 'MERCURY', 'GAZETTE'],
   scandal: ['MERCURY', 'HERALD', 'GAZETTE'],
   politics: ['MERCURY', 'HERALD', 'LEDGER'],
-  layoffs: ['MERCURY', 'HERALD', 'LEDGER'],
+  labour: ['HERALD', 'LEDGER'],
   society: ['GAZETTE', 'MERCURY', 'HERALD'],
   player: ['GAZETTE', 'MERCURY', 'HERALD'],
   rumours: ['MERCURY', 'GAZETTE', 'HERALD'],
 };
+const OUTLET_CAP = 2;
+const JOURNO_CAP = 1;
+const NUM = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty'];
 
 function econ(w: World): EconState { return w.state.economy as EconState; }
 function people(w: World): People { return econ(w).P as unknown as People; }
@@ -83,6 +90,7 @@ function blank(): Wire {
     cursor: -1, seen: [], spouse: new Int32Array(0), desk: [],
     rumours: [], asks: [], pending: null, released: false, playerDay: -1, pricedDay: -1, lastOutlet: -1,
     yHead: 0, yCorrect: 0, yPlayer: 0, yAsk: 0,
+    clusters: [], capDay: -1, outN: [], wrote: [], skim: -1,
   };
 }
 function wireOf(w: World): Wire {
@@ -194,9 +202,36 @@ function item(part: Partial<Item> & { key: string; cause: number; beat: string; 
   return {
     gap: 20, score: 50, detail: '', heat: '', gossip: '', weekly: '',
     player: false, person: -1, standing: 0, link: -1, linkDelta: 0,
-    issuer: '', side: 0, weight: 0, discount: false, outletId: '', force: false,
+    issuer: '', side: 0, weight: 0, discount: false, outletId: '', force: false, tabloid: false, causes: [],
     ...part,
   };
+}
+function countWord(n: number): string {
+  return n >= 0 && n < NUM.length ? NUM[n] : String(n);
+}
+function shortName(name: string): string {
+  const t = name.trim();
+  const parts = t.split(/\s+/);
+  if (/^the$/i.test(parts[0]) && parts.length > 1) return parts[parts.length - 1];
+  if (parts.length > 1 && parts[0].length <= 3) return `${parts[0]} ${parts[1]}`;
+  return parts[0] || name;
+}
+function beatWord(beat: string): string {
+  if (beat === 'companies') return 'business';
+  return beat;
+}
+function caps(wire: Wire, day: number): void {
+  if (wire.capDay === day && wire.outN) return;
+  wire.capDay = day;
+  wire.outN = [0, 0, 0, 0, 0, 0, 0, 0];
+  wire.wrote = [];
+}
+function deskOrder(it: Item): string[] {
+  if (it.outletId) return [it.outletId];
+  const base = DESK[it.beat] ?? DESK.companies;
+  if (it.beat !== 'labour') return base;
+  const rest = base.filter((id) => id !== 'MERCURY');
+  return it.tabloid ? ['MERCURY', ...rest] : rest;
 }
 function voice(style: string, it: Item): string {
   if (style === 'tabloid') {
@@ -205,7 +240,8 @@ function voice(style: string, it: Item): string {
   }
   if (style === 'gossip') return clip(it.gossip || it.subject, 220);
   if (style === 'weekly') return clip(it.weekly || (it.detail ? `${it.subject} ${it.detail}` : `${it.subject} The week in review.`), 240);
-  return clip(it.detail ? `${it.subject}. ${it.detail}` : it.subject, 240);
+  const join = it.subject.endsWith('.') || it.subject.endsWith('...') ? ' ' : '. ';
+  return clip(it.detail ? `${it.subject}${join}${it.detail}` : it.subject, 240);
 }
 function seat(w: World, wire: Wire): void {
   const outs = outlets(w);
@@ -226,40 +262,70 @@ function seat(w: World, wire: Wire): void {
   }
   wire.desk = next;
 }
-function journalist(wire: Wire, outlet: number, beat: string): Desk | undefined {
+function journalist(wire: Wire, outlet: number, beat: string, force: boolean): Desk | undefined {
   const rows = wire.desk.filter((d) => d.outlet === outlet);
+  if (!rows.length) return undefined;
+  const nOf = (person: number): number => {
+    let n = 0;
+    for (const id of wire.wrote) if (id === person) n++;
+    return n;
+  };
+  const free = (d: Desk): boolean => nOf(d.person) < JOURNO_CAP;
+  if (beat === 'rumours') {
+    const sens = rows.find((d) => d.beat === 'scandal' && free(d));
+    if (sens) return sens;
+  }
+  const match = rows.find((d) => d.beat === beat && free(d));
+  if (match) return match;
+  const other = rows.find((d) => free(d) && (beat === 'scandal' || beat === 'rumours' || d.beat !== 'scandal'));
+  if (other) return other;
+  if (!force) return undefined;
   return rows.find((d) => d.beat === beat) ?? rows[0];
 }
 function emitItem(w: World, wire: Wire, it: Item, fan: Fan): number {
   const outs = outlets(w);
   if (!outs.length) return -1;
-  const want = it.outletId ? outs.findIndex((o) => o.id === it.outletId) : -1;
-  const order = want >= 0 ? [outs[want].id] : (DESK[it.beat] ?? DESK.companies);
+  caps(wire, w.day);
+  const order = deskOrder(it);
   const ledgerDay = w.day % 7 === 2;
   let outlet = -1;
+  let desk: Desk | undefined;
   for (const id of order) {
     const i = outs.findIndex((o) => o.id === id);
     if (i < 0 || !outs[i].journalists.length) continue;
     if (id === 'LEDGER' && !ledgerDay && it.score < 82 && !it.force && it.outletId !== 'LEDGER') continue;
+    if ((wire.outN[i] ?? 0) >= OUTLET_CAP && !it.force) continue;
+    const picked = journalist(wire, i, it.beat, it.force);
+    if (!picked) continue;
     outlet = i;
+    desk = picked;
     break;
   }
-  if (outlet < 0) {
-    for (let i = 0; i < outs.length; i++) if (outs[i].journalists.length) { outlet = i; break; }
+  if (outlet < 0 || !desk) {
+    if (!it.force) return -1;
+    for (let i = 0; i < outs.length; i++) {
+      if (!outs[i].journalists.length) continue;
+      const picked = journalist(wire, i, it.beat, true);
+      if (!picked) continue;
+      outlet = i;
+      desk = picked;
+      break;
+    }
   }
-  if (outlet < 0) return -1;
-  const desk = journalist(wire, outlet, it.beat);
-  if (!desk) return -1;
+  if (outlet < 0 || !desk) return -1;
   const o = outs[outlet];
   const P = people(w);
   const style = styleOf(o.id, o.serious);
   const body = voice(style, it);
-  const byline = `${P.name(desk.person)}, ${desk.beat}`;
+  const byline = `${P.name(desk.person)}, ${beatWord(it.beat)}`;
   const text = `${o.name}: ${body} — ${byline}`;
   const firms = econ(w).firms;
   const actor = o.firm >= 0 && o.firm < firms.length ? firms[o.firm].id : P.id(desk.person);
   wire.lastOutlet = outlet;
-  const ev = w.events.emit('media.column', text, [it.cause >= 0 ? it.cause : rootOf(w)], actor);
+  wire.wrote.push(desk.person);
+  wire.outN[outlet] = (wire.outN[outlet] ?? 0) + 1;
+  const causes = it.causes.length ? it.causes.slice(0, 6) : [it.cause >= 0 ? it.cause : rootOf(w)];
+  const ev = w.events.emit('media.column', text, causes, actor);
   markSeen(wire, it.key, w.day);
   wire.yHead++;
   if (it.player) {
@@ -399,19 +465,34 @@ function earnItem(w: World, e: Ev): Item | null {
   const miss = /\bmiss\b/i.test(e.msg);
   const beat = /\bbeat\b/i.test(e.msg);
   const pct = /([+-]?[\d.]+)%\)/.exec(e.msg);
-  const gap = pct ? `${pct[1]}% from consensus` : 'the street\'s number';
+  const gap = pct ? `${Math.abs(Number(pct[1])).toFixed(1)}%` : '';
   const word = beat ? 'beat' : miss ? 'missed' : 'met';
   const P = people(w);
   const ceo = f.ceo >= 0 && f.ceo < P.n ? P.name(f.ceo) : '';
   const trade = sectorWord(f.sector);
   return item({
     key: 'earn:' + f.id, gap: 40, score: beat || miss ? 76 : 62, cause: e.id, beat: 'companies',
-    subject: `${f.name} ${word} the quarter, ${gap}`,
+    subject: gap ? `${f.name} ${word} the quarter by ${gap}` : `${f.name} ${word} the quarter`,
     detail: ceo ? `${ceo} is chief of the ${trade} firm` : '',
     heat: beat ? 'Beat' : miss ? 'Miss' : 'In line',
     gossip: ceo ? `${ceo} at ${f.name} ${word} the number` : `${f.name} ${word} the number`,
-    weekly: `${f.name} ${word} consensus by ${gap}. ${ceo ? ceo + ' keeps the seat.' : ''}`.trim(),
+    weekly: gap ? `${f.name} ${word} consensus by ${gap}. ${ceo ? ceo + ' keeps the seat.' : ''}`.trim() : `${f.name} ${word} the quarter.`,
   });
+}
+function cutOf(f: Firm | undefined): number {
+  if (!f) return 0;
+  const born = f.bornWorkers > 0 ? f.bornWorkers : f.workers;
+  return Math.max(0, born - f.workers);
+}
+function humanOf(w: World, f: Firm | undefined, ev: number): string {
+  if (!f) return '';
+  const P = people(w);
+  const last = (econ(w).P as { lastEv?: Int32Array }).lastEv;
+  if (!last) return '';
+  const me = playerIndex(w);
+  if (me >= 0 && me < P.n && last[me] === ev) return P.name(me);
+  for (const i of notables(w)) if (i >= 0 && i < P.n && last[i] === ev) return P.name(i);
+  return '';
 }
 function firmNews(w: World, e: Ev): Item | null {
   const f = firmById(w, e.actor ?? '');
@@ -420,13 +501,18 @@ function firmNews(w: World, e: Ev): Item | null {
   const where = trade ? `${name}, the ${trade} firm in ${CITY}` : `${name} in ${CITY}`;
   if (e.kind === 'firm.layoffs' || e.kind === 'firm.failed') {
     const closed = e.kind === 'firm.failed' || /lays off its staff/i.test(e.msg);
+    const cut = cutOf(f);
+    const human = humanOf(w, f, e.id);
+    // A slow trim is the weekly roundup. The tabloid only gets a shutdown or a named person.
+    const tabloid = closed || !!human;
+    const who = human ? `${human} is out at ${name}` : closed ? `${name} shuts and sends the staff home` : `${name} is cutting staff`;
     return item({
       key: (closed ? 'shut:' : 'layoff:') + (f?.id ?? e.id), gap: 36,
-      score: closed ? 86 : 60 + Math.min(16, Math.floor((f?.workers ?? 0) / 20)),
-      cause: e.id, beat: 'layoffs',
-      subject: closed ? `${name} lays off its staff` : `${name} is cutting staff`,
+      score: closed ? 86 : 54 + Math.min(18, Math.floor(cut / 4)) + (human ? 12 : 0),
+      cause: e.id, beat: 'labour', tabloid,
+      subject: closed ? `${name} lays off its staff` : human ? who : `${name} is cutting staff`,
       detail: where, heat: closed ? 'Shutdown' : 'Layoffs',
-      gossip: `${name} is letting people go`,
+      gossip: who,
       weekly: `${where} cuts the payroll.`,
     });
   }
@@ -578,27 +664,57 @@ function shockItem(e: Ev): Item | null {
     weekly: `${CITY}. ${clip(body, 160)}`,
   });
 }
+function listedName(w: World, e: Ev): string {
+  const f = firmById(w, e.actor ?? '');
+  if (f) return f.name;
+  const instr = /^eq:(\S+)/.exec(e.msg)?.[1] ?? '';
+  const g = instr ? firmById(w, instr) : undefined;
+  if (g) return g.name;
+  if (e.actor === 'bank_1' || instr === 'bank_1') return 'the bank';
+  return '';
+}
 function moveItem(w: World, e: Ev): Item | null {
   const m = /close (\d+) -> (\d+) \(([+-]?[\d.]+)%\)/.exec(e.msg);
   if (!m) return null;
   const pct = Number(m[3]);
   if (Math.abs(pct) < 4) return null;
-  const f = firmById(w, e.actor ?? '');
-  const name = f?.name ?? 'A listed name';
+  const name = listedName(w, e);
+  if (!name) return null;
+  const label = name === 'the bank' ? 'Bank' : name;
   const verb = pct < 0 ? 'fall' : 'rise';
   const abs = Math.abs(pct).toFixed(1);
   return item({
-    key: 'mkt:' + (f?.id ?? e.actor ?? e.id), gap: 8,
+    key: 'mkt:' + (e.actor || e.id), gap: 8,
     score: 40 + Math.min(24, Math.abs(pct)), cause: e.id, beat: 'markets',
-    subject: `${name} shares ${verb} ${abs}% to ${money(Number(m[2]))}`,
+    subject: `${label} shares ${verb} ${abs}% to ${money(Number(m[2]))}`,
     detail: `The close in ${CITY}`, heat: pct < 0 ? 'Slide' : 'Jump',
-    gossip: `${name} ${verb}s hard`,
-    weekly: `${name} ${verb}s ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% on the week of the print.`,
+    gossip: `${label} shares ${verb} hard`,
+    weekly: `${label} shares ${verb} ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% on the week of the print.`,
   });
 }
 function fromEvent(w: World, e: Ev, notable: Set<number>): Item | null {
   if (e.kind.startsWith('media.') || e.kind === 'news.story' || e.kind === 'mkt.news') return null;
   if (e.kind === 'society.standing' || e.kind === 'society.rank' || e.kind === 'society.paper') return null;
+  if (e.kind === 'society.holiday') {
+    return item({
+      key: 'holiday:' + e.id, gap: 300, score: 50, cause: e.id, beat: 'society',
+      subject: e.msg, detail: '', heat: 'The city', gossip: e.msg, weekly: e.msg,
+    });
+  }
+  if (e.kind === 'society.earnings') {
+    return item({
+      key: 'earnseason', gap: 80, score: 62, cause: e.id, beat: 'companies',
+      subject: e.msg, detail: `Listed names in ${CITY} report this week`,
+      heat: 'Earnings', gossip: e.msg, weekly: e.msg,
+    });
+  }
+  if (e.kind === 'society.meeting') {
+    return item({
+      key: 'cbmeet', gap: 25, score: 58, cause: e.id, beat: 'rates',
+      subject: 'The central bank meets', detail: curveFull(w), heat: 'The bank meets',
+      gossip: `The bank meets. ${curveShort(w)}`, weekly: `The central bank meets. ${curveFull(w)}`,
+    });
+  }
   if (e.kind === 'cb.rate') return rateItem(w, e);
   if (e.kind === 'bond.yield') return yieldItem(w, e);
   if (e.kind === 'bond.spread') return spreadItem(w, e);
@@ -621,6 +737,94 @@ function fromEvent(w: World, e: Ev, notable: Set<number>): Item | null {
   }
   return null;
 }
+function clusterOf(wire: Wire, week: number, kind: string, cause: number): Cluster {
+  if (!wire.clusters) wire.clusters = [];
+  let c: Cluster | undefined;
+  for (const row of wire.clusters) if (row.week === week && row.kind === kind) c = row;
+  if (!c) {
+    c = { week, kind, cuts: [], cause, published: false };
+    wire.clusters.push(c);
+  }
+  if (cause >= 0 && c.cause > cause) c.cause = cause;
+  return c;
+}
+function noteCut(w: World, wire: Wire, it: Item): void {
+  const id = it.key.slice(it.key.indexOf(':') + 1);
+  const f = firmById(w, id);
+  const week = Math.floor(w.day / 7);
+  const c = clusterOf(wire, week, 'layoff', it.cause);
+  if (c.cuts.some((x) => x.id === id)) return;
+  c.cuts.push({ id, name: shortName(f?.name ?? 'A firm'), cut: cutOf(f) });
+}
+function roundup(w: World, c: Cluster, first: boolean): Item {
+  const cuts = c.cuts.slice().sort((a, b) => b.cut - a.cut || (a.id < b.id ? -1 : 1));
+  const show: string[] = [];
+  for (const x of cuts) {
+    if (show.length >= 6 || !x.name || show.includes(x.name)) continue;
+    show.push(x.name);
+  }
+  const tail = cuts.length > show.length ? ', ...' : '';
+  const lead = first
+    ? `${countWord(cuts.length)} firms cut jobs as the year opens: ${show.join(', ')}${tail}`
+    : `${countWord(cuts.length)} firms cut jobs: ${show.join(', ')}${tail}`;
+  return item({
+    key: 'layoffweek:' + c.week, gap: 6, score: first ? 72 : 56, cause: c.cause, causes: [c.cause],
+    beat: 'labour', subject: lead, detail: 'Sales are below plan.',
+    heat: 'Layoffs', gossip: lead, weekly: `${lead} Sales are below plan.`,
+  });
+}
+function dueRoundups(w: World, wire: Wire): Item[] {
+  if (!wire.clusters) return [];
+  const week = Math.floor(w.day / 7);
+  const out: Item[] = [];
+  const prior = wire.clusters.some((c) => c.kind === 'layoff' && c.published);
+  for (const c of wire.clusters) {
+    if (c.published || c.kind !== 'layoff') continue;
+    if (c.week > week || (c.week === week && w.day % 7 !== 6)) continue;
+    c.published = true;
+    const bar = c.week === 0 ? 3 : 8;
+    if (c.cuts.length >= bar) out.push(roundup(w, c, !prior && c.week === 0));
+  }
+  if (wire.clusters.length > 10) wire.clusters = wire.clusters.filter((c) => !c.published || c.week >= week - 1);
+  return out;
+}
+function absorbLayoffs(w: World, wire: Wire, items: Item[]): Item[] {
+  const rest: Item[] = [];
+  for (const it of items) {
+    if (it.key.startsWith('layoff:')) noteCut(w, wire, it);
+    if (it.key.startsWith('layoff:') && !it.tabloid) continue;
+    rest.push(it);
+  }
+  for (const it of dueRoundups(w, wire)) rest.push(it);
+  return rest;
+}
+function earnLabel(subject: string): string {
+  const i = subject.search(/ (beat|missed|met) /);
+  return shortName(i > 0 ? subject.slice(0, i) : subject);
+}
+function foldDay(items: Item[]): Item[] {
+  const earn: Item[] = [];
+  const rest: Item[] = [];
+  for (const it of items) (it.key.startsWith('earn:') ? earn : rest).push(it);
+  if (!earn.length) return rest;
+  if (earn.length === 1) { rest.push(earn[0]); return rest; }
+  earn.sort((a, b) => b.score - a.score || a.cause - b.cause);
+  const best = earn[0];
+  const names: string[] = [];
+  for (const it of earn) {
+    const n = earnLabel(it.subject);
+    if (!names.includes(n)) names.push(n);
+  }
+  const show = names.slice(0, 6);
+  const tail = names.length > show.length ? ', ...' : '';
+  rest.push(item({
+    ...best, key: 'earnweek:' + best.cause, score: best.score + 4,
+    subject: `${countWord(earn.length)} firms report: ${show.join(', ')}${tail}`,
+    detail: best.subject, weekly: `${countWord(earn.length)} firms report: ${show.join(', ')}${tail} ${best.subject}`,
+    causes: earn.slice(0, 6).map((it) => it.cause),
+  }));
+  return rest;
+}
 function thin(items: Item[]): Item[] {
   let bestMkt: Item | null = null;
   let bestRich: Item | null = null;
@@ -634,7 +838,7 @@ function thin(items: Item[]): Item[] {
   for (const it of items) {
     if (it.key.startsWith('mkt:') && it !== bestMkt) continue;
     if (it.key.startsWith('rich:') && it !== bestRich) continue;
-    if (it.beat === 'layoffs' && !it.key.startsWith('shut:')) {
+    if ((it.beat === 'labour' || it.beat === 'layoffs') && !it.key.startsWith('shut:') && !it.key.startsWith('layoffweek:')) {
       if (layoffs >= 1) continue;
       layoffs++;
     }
@@ -859,20 +1063,31 @@ function judge(w: World, wire: Wire, fan: Fan): void {
     }
   }
 }
+function held(wire: Wire, it: Item): boolean {
+  if (it.player && !it.force && !wire.released && it.score < 90) {
+    if (!wire.pending || it.score > wire.pending.score) wire.pending = it;
+    return true;
+  }
+  return false;
+}
 function publish(w: World, wire: Wire, items: Item[], fan: Fan, cap: number): void {
   const ranked = items.filter((it) => fresh(wire, it.key, w.day, it.gap));
   ranked.sort((a, b) => b.score - a.score || a.cause - b.cause || (a.key < b.key ? -1 : 1));
   const rumour = ranked.find((it) => it.key.startsWith('rumour:'));
   const page: Item[] = [];
+  const seen = new Set<string>();
   for (const it of ranked) {
     if (page.length >= cap) break;
-    if (it.player && !it.force && !wire.released && it.score < 90) {
-      if (!wire.pending || it.score > wire.pending.score) wire.pending = it;
-      continue;
-    }
+    if (held(wire, it) || seen.has(it.beat)) continue;
+    seen.add(it.beat);
     page.push(it);
   }
-  if (rumour && !page.includes(rumour)) {
+  for (const it of ranked) {
+    if (page.length >= cap) break;
+    if (page.includes(it) || held(wire, it)) continue;
+    page.push(it);
+  }
+  if (rumour && !page.includes(rumour) && !held(wire, rumour)) {
     if (page.length >= cap) page.pop();
     page.push(rumour);
   }
@@ -889,6 +1104,7 @@ export function wireDay(w: World, fan: Fan): void {
   seat(w, wire);
   if (wire.cursor < 0) {
     wire.cursor = w.events.count - 1;
+    wire.skim = wire.cursor;
     growSpouse(wire, people(w).n);
     const P = people(w);
     for (let i = 0; i < P.n; i++) wire.spouse[i] = P.alive(i) ? P.spouse[i] : -1;
@@ -897,6 +1113,17 @@ export function wireDay(w: World, fan: Fan): void {
   resolveAsks(w, wire, fan);
   const notable = notables(w);
   const items: Item[] = [];
+  if (wire.skim >= 0) {
+    const stop = wire.skim;
+    wire.skim = -1;
+    for (let id = 0; id <= stop; id++) {
+      const e = w.events.get(id);
+      if (!e) continue;
+      if (e.kind !== 'firm.layoffs' && e.kind !== 'firm.failed' && e.kind !== 'politics.government' && e.kind !== 'society.holiday' && e.kind !== 'society.earnings') continue;
+      const it = fromEvent(w, e, notable);
+      if (it) items.push(it);
+    }
+  }
   for (const e of pull(w, wire)) {
     const it = fromEvent(w, e, notable);
     if (it) items.push(it);
@@ -905,7 +1132,7 @@ export function wireDay(w: World, fan: Fan): void {
   const rum = rumourItem(w, wire);
   if (rum) items.push(rum);
   const cap = (w.day + 1) % 30 === 0 ? 2 : 3;
-  publish(w, wire, thin(items), fan, cap);
+  publish(w, wire, thin(foldDay(absorbLayoffs(w, wire, items))), fan, cap);
 }
 export function wireMonth(w: World, fan: Fan): void {
   if (!w.state.media) return;
