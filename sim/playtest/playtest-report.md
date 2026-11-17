@@ -1,6 +1,6 @@
 # Playtest report
 
-Model: fake (random valid commands, no API key). Sessions: 6. Turns: 100.
+Model: grok-4.7. Sessions: 6. Turns: 100.
 
 ## Session 1 — a total beginner
 
@@ -8,709 +8,3178 @@ Goal: Double your money in 5 years.
 
 Seed: 1.
 
-Outcome: net worth $66128.60; cash $24444.53; firms: none; dynasty controlled 0; prison: no; death: no; at Year 2, month 4, day 4.
+Outcome: net worth $150000.00; cash $150000.00; firms: none; dynasty controlled 0; prison: no; death: no; at Year 1, month 1, day 1.
 
-Calls: 100. Tokens: 0 in, 0 out.
+Calls: 100. Tokens: 155170 in, 2771 out.
 
 ### Tagged moments
 
-#### Turn 1 BLOCKED
+#### Turn 1 CONFUSED
 
-Thought: BLOCKED wanted command: help
+Thought: CONFUSED I do not know what any of this means and the screen says to type help.
+
+Command: help
+
+Screen:
+
+```
+Year 1, month 1, day 1  Iso Haltorley, 30, Verdant Agrichem (frm_verdant)
+  Comfortable ($150,000.00) →  Flush ($150,000.00 cash, 98 weeks of costs) →  Calm (0) →  Sound (84) →  Slight (41) →  Quiet (0) →
+  family: no spouse; children none; no will
+  dynasty gen 1 worth $213741.06 founded 0 controlled 0 offices 0 convictions 0
+  contacts: 0 Kela Trusts you: you and Kela Danwenmont work together | 1 Isen Trusts you: you and Isen Haljordale work together | 2 Fara Trusts you: you and Fara Dantorell work together | 3 Halia Trusts you: you and Halia Quinwenmont work together | 4 Noris Trusts you: you and Noris Galdanard work together | 5 Halia Trusts you: you and Halia Verulard work together | 6 Belia Trusts you: you and Belia Wentorley work together | 7 Ora Trusts you: you and Ora Yanulley work together | 8 Isa Confides: Isa Haltorley is family | 9 Ana Confides: Ana Halulwell is family | 10 Linin Trusts you: Linin Haltorley is family | 11 Belis Trusts you: Belis Haltorley is family | 12 Marin Trusts you: you and Marin Corelstone work together | 13 Linia Trusts you: you and Linia Belgalmont work together | 14 Galel Trusts you: you and Galel Belulell work together | 15 Faris Trusts you: you and Faris Farsalard work together
+  choices: holiday, donate, lawyer, clinic, overtime
+type help
+```
+
+#### Turn 2 CONFUSED
+
+Thought: CONFUSED the screen is only a pile of commands and I cannot tell how much money I have or what any of it means.
 
 Command: sheet
 
 Screen:
 
 ```
-Year 1, month 1, day 1  Iso Haltorley, 30, health 84, Titan Machine Works (frm_titan_machine)  net worth $150000.00  cash $150000.00
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $213362.21 founded 0 controlled 0 offices 0 convictions 0
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 50, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 6 DELIGHTED
+#### Turn 3 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but no idea what I can type or how to grow money.
 
-Command: wait 1m
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 7593
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 12 DELIGHTED
+#### Turn 4 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I do not understand this screen or how any of these words make money.
 
-Command: wait 1m
+Command: help
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 14 DELIGHTED
+#### Turn 5 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED none of these words tell me what money I have or how to make more of it.
 
 Command: sheet
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 18 DELIGHTED
+#### Turn 6 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but do not know any commands or how this terminal works.
 
-Command: deposit 100
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 68464
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 19 DELIGHTED
+#### Turn 7 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: buy BANK 1
-
-Screen:
-
-```
-deposit 100
-
-deposited 100.00
-```
-
-#### Turn 20 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1w
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 68465
-```
-
-#### Turn 21 BLOCKED
-
-Thought: BLOCKED wanted command: help
-
-Command: news
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 3, day 15  Iso Haltorley, 30, health 84, Titan Machine Works (frm_titan_machine)  net worth $141112.71  cash $124945.71
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $207358.96 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 3 @ $5289.00
-  time deposits: bank_1 $300.00
-  news: [1115] Medihaven Clinics Q1: revenue $3.90M, costs $4.09M, profit -$184.5k, EPS $-18.45, cash $1.57M, debt $0; consensus -$990.7k (beat 81.4%); guides -$297.2k next quarter | [1118] Aegis Insurance Q1: revenue $1.21M, costs $1.09M, profit $119.9k, EPS $11.99, cash $505.0k, debt $0; consensus $83.0k (beat 30.7%); guides $193.2k next quarter | [1121] Marquee Studios Q1: revenue $2.84M, costs $2.60M, profit $244.8k, EPS $24.48, cash $1.03M, debt $0; consensus $113.8k (beat 53.5%); guides $452.6k next quarter
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 50, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
-```
-
-#### Turn 23 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: news
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 74812
-```
-
-#### Turn 26 BLOCKED
-
-Thought: BLOCKED wanted command: help
-
-Command: buy BANK 1
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 1, month 4, day 15  Iso Haltorley, 30, health 84, Titan Machine Works (frm_titan_machine)  net worth $139201.57  cash $117745.57
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $236583.47 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 4 @ $5289.00
-  time deposits: bank_1 $300.00
-  news: [1995] Crown Savings Q1: revenue $1.87M, costs $1.67M, profit $203.6k, EPS $20.36, cash $477.0k, debt $0; consensus $179.4k (beat 11.9%); guides $218.7k next quarter | [1998] Halcyon Mutual Q1: revenue $1.87M, costs $1.67M, profit $205.7k, EPS $20.57, cash $500.7k, debt $0; consensus $182.3k (beat 11.4%); guides $220.9k next quarter | [2001] Playhouse Media Q1: revenue $4.35M, costs $3.89M, profit $461.5k, EPS $46.15, cash $1.04M, debt $0; consensus $375.4k (beat 18.7%); guides $500.3k next quarter
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 50, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
-```
-
-#### Turn 27 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: buy BANK 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 100166
-```
-
-#### Turn 28 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: buy BANK 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 100167
-```
-
-#### Turn 29 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: talk 0
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 100168
-```
-
-#### Turn 34 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I do not understand this screen or how any of it doubles money.
 
 Command: sheet
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 36 BLOCKED
+#### Turn 8 CONFUSED
 
-Thought: BLOCKED wanted command: help
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal can do or how to grow the money.
 
-Command: wait 1w
+Command: help
 
 Screen:
 
 ```
-wait 1m
-
-wait 30d
-Year 1, month 5, day 15  Iso Haltorley, 30, health 84, Titan Machine Works (frm_titan_machine)  net worth $138048.35  cash $101217.69
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $235251.12 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 7 @ $5204.38
-  time deposits: bank_1 $400.00
-  news: [3043] Ulia Margaldale (28) becomes chief executive of Oakhaven Furniture, child of Belus Margaldale, after Belus Margaldale being charged | [3045] Pero Wenmardale removed as chief executive after being charged | [3046] Noris Roszelsen (55) becomes chief executive of Marquee Studios, promoted from the staff, after Pero Wenmardale being charged
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 50, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 40 DELIGHTED
+#### Turn 9 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I do not understand these words or how any of this makes money.
 
-Command: buy BANK 1
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 132620
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 41 DELIGHTED
+#### Turn 10 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I do not know what any of these words mean or how much money I even have.
 
-Command: buy BANK 1
+Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 132621
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 42 DELIGHTED
+#### Turn 11 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but I have no idea what I can type here.
 
-Command: buy BANK 1
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 132622
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 43 DELIGHTED
+#### Turn 12 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I do not understand this screen of words or how any of it doubles money.
 
-Command: deposit 100
+Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 132623
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 44 DELIGHTED
+#### Turn 13 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I see cash and net worth but no idea what I can type here.
 
-Command: talk 0
+Command: help
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 46 DELIGHTED
+#### Turn 14 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I do not understand this list of commands or how any of them would double my money.
 
-Command: news
+Command: sheet
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 49 DELIGHTED
+#### Turn 15 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but have no idea what I can type or how anything works here.
 
-Command: talk 0
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 132624
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 52 DELIGHTED
+#### Turn 16 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see command names but not my money, the year, or what any of this does.
 
-Command: deposit 100
+Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 132625
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 53 DELIGHTED
+#### Turn 17 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I see cash and net worth but I have never used a terminal and do not know any commands.
 
-Command: wait 1w
+Command: help
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 56 DELIGHTED
+#### Turn 18 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I do not understand this screen of commands or how any of them would double my money.
 
-Command: wait 1m
+Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 138445
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 58 DELIGHTED
+#### Turn 19 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I see cash and net worth but no idea what I can type or how money grows here.
 
-Command: talk 0
+Command: help
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 60 DELIGHTED
+#### Turn 20 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED the screen lists commands but I have no idea what my money is or how any of this works.
 
-Command: buy BANK 1
+Command: sheet
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 61 DELIGHTED
+#### Turn 21 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal does or how to grow money.
 
-Command: buy BANK 1
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 168621
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 62 DELIGHTED
+#### Turn 22 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I do not understand this screen or how any of these words make money.
 
-Command: wait 1w
+Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
 
-buy 1 eq:bank_1
-order 168622
+#### Turn 23 CONFUSED
+
+Thought: CONFUSED I see a balance sheet with cash and net worth but I have no idea what commands exist or how to grow this money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 24 CONFUSED
+
+Thought: CONFUSED none of these words mean anything to me and I do not know how money even works here.
+
+Command: help bank
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 25 CONFUSED
+
+Thought: CONFUSED I do not know what these money words mean, so I will look at what I already have.
+
+Command: sheet
+
+Screen:
+
+```
+You have $150,000.00 in cash, no time deposit, and you owe nothing.
+deposit 500
+Place cash in a time deposit.
+The amount is in dollars.
+withdraw 500
+Take cash back from a time deposit.
+The amount is in dollars.
+sheet
+Print the balance sheet.
+Cash, deposits, shares, loans, futures and bonds.
+borrow 500
+Open a margin account and borrow against shares.
+The reply states the limit and the rate. sheet shows the loan.
+repay 500
+Repay a margin loan.
+The amount is in dollars.
+```
+
+#### Turn 26 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no idea what I can type here.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 27 CONFUSED
+
+Thought: CONFUSED I do not know what any of these commands do or how money even works here.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 28 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no idea how this terminal works or what I can type.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 29 CONFUSED
+
+Thought: CONFUSED the screen is just a pile of words and I have no idea which one doubles money
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 30 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but nothing tells me what I can type.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 31 CONFUSED
+
+Thought: CONFUSED I do not understand this screen, these commands, or how money even works here.
+
+Command: help
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 33 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what I can type or how to invest.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 34 CONFUSED
+
+Thought: CONFUSED I do not understand this screen or how any of these words would double my money.
+
+Command: help
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 35 CONFUSED
+
+Thought: CONFUSED I see only a command list and do not know my money, age, or how any of this works.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 36 CONFUSED
+
+Thought: CONFUSED I only see cash and net worth and have no idea what this terminal can do.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 37 CONFUSED
+
+Thought: CONFUSED I do not understand this list of commands or how any of them double money.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 38 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal does or how to type anything useful.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 39 CONFUSED
+
+Thought: CONFUSED I do not understand this terminal or these commands, so I will check my sheet first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 40 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and do not know which commands this terminal accepts.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 41 CONFUSED
+
+Thought: CONFUSED I do not understand this terminal or how any command doubles money.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 42 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal does or how to double my money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 43 CONFUSED
+
+Thought: CONFUSED this screen is a pile of money words I have never used and I cannot tell how much cash I even have.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 44 CONFUSED
+
+Thought: CONFUSED the screen shows cash and net worth but I have no idea what this is or what I can type.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 46 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no idea what commands exist or how to grow this money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 47 CONFUSED
+
+Thought: CONFUSED this is just a command list and I do not know my money or how time works yet.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 48 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what I can type here.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 49 CONFUSED
+
+Thought: CONFUSED none of these words mean anything to me and I cannot tell how much money I have.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 50 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal does or which commands exist.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 51 CONFUSED
+
+Thought: CONFUSED the screen lists commands but I do not know my money or what any of this does
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 52 CONFUSED
+
+Thought: CONFUSED I only see cash and net worth, so I need to learn what this terminal lets me type.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 53 CONFUSED
+
+Thought: CONFUSED I do not understand these words or what any of this money stuff means.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 54 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what I can type here.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 55 CONFUSED
+
+Thought: CONFUSED I do not understand this terminal or how any of these commands make money.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 56 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal can do or how to invest.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 57 CONFUSED
+
+Thought: CONFUSED I see command words but I do not know my money, my age, or what any of this does.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 58 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but nobody told me any commands or how this terminal works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 59 CONFUSED
+
+Thought: CONFUSED I see a pile of commands but nothing tells me how much money I have or what year it is.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 60 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no idea what I can type here.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 61 CONFUSED
+
+Thought: CONFUSED I see a pile of command words and have no idea what they do or how much money I even have.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 62 CONFUSED
+
+Thought: CONFUSED I only see cash and net worth and have no idea what I can type or how anything here works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 63 CONFUSED
+
+Thought: CONFUSED I do not know my cash, age, or what any of these words do yet.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 64 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but nobody told me what I can type or how any of this works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
 #### Turn 65 CONFUSED
 
-Thought: CONFUSED I cannot tell which words this terminal accepts
+Thought: CONFUSED I do not understand these commands or my money, so I will look at my sheet.
 
-Command: buy BANK 1
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 1, month 9, day 6  Iso Haltorley, 30, health 84, Titan Machine Works (frm_titan_machine)  net worth $110409.82  cash $52773.98
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $197407.84 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 16 @ $3545.99
-  time deposits: bank_1 $900.00
-  news: [5585] Marquee Studios Q3: revenue $4.77M, costs $4.02M, profit $748.2k, EPS $74.82, cash $949.3k, debt $0; consensus $793.8k (miss -5.7%); guidance was $780.6k; guides $803.6k next quarter | [5590] Veris Verorsen removed as chief executive after being charged | [5591] Zelel Uldanard (36) becomes chief executive of United Forgeworks, promoted from the staff, after Veris Verorsen being charged
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 36, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
-```
-
-#### Turn 66 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: buy BANK 1
+Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 215097
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 67 DELIGHTED
+#### Turn 66 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but nobody told me what to type or how any of this works.
 
-Command: wait 1w
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 215098
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 69 DELIGHTED
+#### Turn 67 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I do not understand this screen of commands or how to double money with them.
 
-Command: wait 1w
+Command: sheet
 
 Screen:
 
 ```
-deposit 100
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
 
-deposited 100.00
+#### Turn 68 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but nobody told me what I can type here.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 69 CONFUSED
+
+Thought: CONFUSED this command list does not say how much money I have or what year it is.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
 #### Turn 70 CONFUSED
 
-Thought: CONFUSED I cannot tell which words this terminal accepts
+Thought: CONFUSED I only see cash and net worth and have no idea what I can type here.
 
-Command: deposit 100
+Command: help
 
 Screen:
 
 ```
-wait 1w
-
-wait 7d
-Year 1, month 9, day 20  Iso Haltorley, 30, health 84, Titan Machine Works (frm_titan_machine)  net worth $101699.37  cash $44116.91
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $188774.00 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 18 @ $3143.47
-  time deposits: bank_1 $1000.00
-  news: [5585] Marquee Studios Q3: revenue $4.77M, costs $4.02M, profit $748.2k, EPS $74.82, cash $949.3k, debt $0; consensus $793.8k (miss -5.7%); guidance was $780.6k; guides $803.6k next quarter | [5590] Veris Verorsen removed as chief executive after being charged | [5591] Zelel Uldanard (36) becomes chief executive of United Forgeworks, promoted from the staff, after Veris Verorsen being charged
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 36, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 71 DELIGHTED
+#### Turn 72 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I only see a balance sheet and do not know any commands yet.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 73 CONFUSED
+
+Thought: CONFUSED none of these words mean anything to me yet, so I need to see what I actually have.
 
 Command: sheet
 
 Screen:
 
 ```
-deposit 100
-
-deposited 100.00
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 75 CONFUSED
+#### Turn 74 CONFUSED
 
-Thought: CONFUSED I cannot tell which words this terminal accepts
+Thought: CONFUSED I see a balance of cash and net worth but have no idea what commands this terminal accepts or how to grow the money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 76 CONFUSED
+
+Thought: CONFUSED I see a balance sheet with cash and net worth but I have no idea what commands exist or how this terminal works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 77 CONFUSED
+
+Thought: CONFUSED this command list means nothing to me and I cannot see how much money I even have.
 
 Command: sheet
 
 Screen:
 
 ```
-wait 1m
-
-wait 30d
-Year 1, month 10, day 20  Iso Haltorley, 30, health 84, Titan Machine Works (frm_titan_machine)  net worth $92589.52  cash $38152.18
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $181440.86 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 18 @ $2767.63
-  bonds: 1 issues, face $3520.00
-  time deposits: bank_1 $1100.00
-  news: [6175] Crown Savings Q3: revenue $1.98M, costs $1.70M, profit $279.8k, EPS $27.98, cash $465.0k, debt $0; consensus $278.9k (beat 0.3%); guidance was $359.2k; guides $300.6k next quarter | [6179] Halcyon Mutual Q3: revenue $1.99M, costs $1.71M, profit $281.2k, EPS $28.12, cash $486.5k, debt $0; consensus $285.0k (miss -1.3%); guidance was $364.2k; guides $302.0k next quarter | [6183] Playhouse Media Q3: revenue $4.67M, costs $3.98M, profit $686.4k, EPS $68.64, cash $1.00M, debt $0; consensus $664.1k (beat 3.2%); guidance was $882.9k; guides $753.7k next quarter
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 36, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 80 DELIGHTED
+#### Turn 78 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal can do or how to invest.
 
-Command: news
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 273400
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 82 DELIGHTED
+#### Turn 79 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I do not understand these words or how any of them doubles money.
 
-Command: wait 1m
+Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 273401
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 85 DELIGHTED
+#### Turn 80 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but do not know any commands or how to invest.
 
-Command: deposit 100
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 298710
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 86 DELIGHTED
+#### Turn 81 CONFUSED
 
-Thought: DELIGHTED the cash left the spending wallet
+Thought: CONFUSED I do not understand this screen or what any of these words do, so I need to see what I even have.
 
-Command: talk 0
+Command: sheet
 
 Screen:
 
 ```
-deposit 100
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
 
-deposited 100.00
+#### Turn 82 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but have no idea what commands exist or how to grow this money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 84 CONFUSED
+
+Thought: CONFUSED I see cash and a score but nobody told me what I can type here.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 85 CONFUSED
+
+Thought: CONFUSED I don't know what any of these words mean or how much money I even have.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 86 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no idea how this terminal works or how to grow money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 87 CONFUSED
+
+Thought: CONFUSED I only see a pile of commands and have no idea what money I have or what any of this does.
+
+Command: story
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 88 CONFUSED
+
+Thought: CONFUSED I see a life story and $150 thousand cash but no buttons or instructions for how to double it.
+
+Command: help
+
+Screen:
+
+```
+A life in Port Avalon. Seed 1.
+
+Iso Haltorley is 30, of the Haltorley family, in good health, and works at Verdant Agrichem. Net worth at the end of this account: $150.0 thousand. Cash on the book: $150.0 thousand.
+
+What mattered
+
+1. The first job
+
+Year 1, month 1, day 1. Iso Haltorley arrives, aged 30, and takes a job at Verdant Agrichem.
+
+People: Iso Haltorley.
+
+This followed from the world being created from seed 1.
+
+The family
+
+- Isa Haltorley is born before the founding, marries Ana Halulwell, parent of Iso Haltorley, Linin Haltorley and Belis Haltorley, still living.
+- Ana Halulwell is born before the founding, spouse of Isa Haltorley, parent of Iso Haltorley, Linin Haltorley and Belis Haltorley, still living.
+- Linin Haltorley is born before the founding, child of Isa Haltorley and Ana Halulwell, marries Belus Kelroswick, parent of Pero Belverell and Noria Belverell, still living.
+- Iso Haltorley is born before the founding, child of Isa Haltorley and Ana Halulwell, still living.
+- Belis Haltorley is born before the founding, child of Isa Haltorley and Ana Halulwell, still living.
+
+Firms
+
+The house founded no firm and controlled none.
+
+The city during this life
+
+Years 1–1
+
+The biggest story.
+
+1. The founding
+
+Year 1. Port Avalon is founded. The books open on seed 1. 70 houses opened with the city, among them Northgrid Power, Voltana Energy, Harbourline Freight, Roadmark Logistics, Deepwell Petroleum, Saltmarsh Gas and 64 more.
+
+People: Coren Halelwick, Anis Torgalell, Linis Wengalell, Kelan Marorby, Ise Zeltorstone, Oran Corlindale, Verel Galorham and Elel Perquinwick.
+Firms: Northgrid Power, Voltana Energy, Harbourline Freight, Roadmark Logistics, Deepwell Petroleum and Saltmarsh Gas.
+
+This followed from the world being created from seed 1.
+```
+
+#### Turn 89 CONFUSED
+
+Thought: CONFUSED I do not know my money or what any of this does, so I should look at my own sheet first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
 #### Turn 90 CONFUSED
 
-Thought: CONFUSED I cannot tell which words this terminal accepts
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal does or how to grow money.
 
-Command: wait 1m
+Command: help
 
 Screen:
 
 ```
-wait 1m
-
-wait 30d
-Year 2, month 2, day 4  Iso Haltorley, 31, health 84, Titan Machine Works (frm_titan_machine)  net worth $73283.67  cash $26657.04
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $167678.47 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 21 @ $1818.03
-  bonds: 2 issues, face $3840.00
-  time deposits: bank_1 $1200.00, bank_2 $3408.00
-  news: [9546] St Margaret Health Q1: revenue $9.47M, costs $8.19M, profit $1.28M, EPS $127.88, cash $2.13M, debt $0; consensus $1.10M (beat 14.2%); guidance was $1.44M; guides $1.39M next quarter | [9549] Ledgerly Q1: revenue $2.09M, costs $1.81M, profit $286.1k, EPS $28.61, cash $503.1k, debt $31.1k; consensus $275.9k (beat 3.5%); guidance was $303.1k; guides $306.7k next quarter | [9552] The Daily Herald Q1: revenue $1.05M, costs $971.2k, profit $76.4k, EPS $7.64, cash $309.7k, debt $0; consensus $72.6k (beat 4.9%); guidance was $85.6k; guides $81.9k next quarter
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 36, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 91 BLOCKED
+#### Turn 91 CONFUSED
 
-Thought: BLOCKED wanted command: help
+Thought: CONFUSED I have no idea what these words mean or how any of this doubles my money.
+
+Command: help
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 92 CONFUSED
+
+Thought: CONFUSED I do not know what any of these words mean or how much money I even have.
 
 Command: sheet
 
 Screen:
 
 ```
-wait 1m
-
-wait 30d
-Year 2, month 3, day 4  Iso Haltorley, 31, health 84, Titan Machine Works (frm_titan_machine)  net worth $70441.17  cash $24843.12
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $164919.99 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 21 @ $1769.05
-  bonds: 2 issues, face $3840.00
-  time deposits: bank_1 $1200.00, bank_2 $3408.00
-  news: [10149] Medihaven Clinics Q1: revenue $7.81M, costs $6.78M, profit $1.03M, EPS $102.83, cash $1.76M, debt $0; consensus $935.9k (beat 9.0%); guidance was $1.57M; guides $1.10M next quarter | [10153] Aegis Insurance Q1: revenue $2.05M, costs $1.77M, profit $280.0k, EPS $28.00, cash $513.6k, debt $0; consensus $272.5k (beat 2.7%); guidance was $313.1k; guides $300.7k next quarter | [10156] Marquee Studios Q1: revenue $4.82M, costs $4.04M, profit $776.2k, EPS $77.62, cash $1.07M, debt $0; consensus $728.6k (beat 6.1%); guidance was $816.5k; guides $833.7k next quarter
-  contacts: 0 Maran work 50, 1 Linia work 50, 2 Cora work 50, 3 Dania work 36, 4 Corin work 50, 5 Iso work 50, 6 Quinia work 50, 7 Jore work 50, 8 Isa family 80, 9 Ana family 80, 10 Linin family 65, 11 Belis family 65, 12 Zelus work 50, 13 Anan work 50, 14 Elen work 50, 15 Wenus work 50
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 94 DELIGHTED
+#### Turn 93 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I only see cash and net worth and have no idea what commands exist or how to grow this money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 94 CONFUSED
+
+Thought: CONFUSED I do not understand this screen or how any of these words would double my money.
 
 Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 402505
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 97 DELIGHTED
+#### Turn 95 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see cash and net worth but have no idea what this terminal does or which commands exist.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 96 CONFUSED
+
+Thought: CONFUSED I do not understand this screen or how any of these words would double my money.
 
 Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
 
-buy 1 eq:bank_1
-order 402506
+#### Turn 97 CONFUSED
+
+Thought: CONFUSED I only see cash and net worth and have no idea how this terminal works or what I can type.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 98 CONFUSED
+
+Thought: CONFUSED the screen is a wall of words I have never seen and I do not know what any of them do or even how much money I have.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 99 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but nothing tells me what I can type or how to grow the money.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 100 CONFUSED
+
+Thought: CONFUSED I cannot tell how much money I have or what these words do, so I need to see my own sheet first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
 ## Session 2 — a stock trader
@@ -719,899 +3188,2875 @@ Goal: Double your money in 5 years.
 
 Seed: 2.
 
-Outcome: net worth $146679.66; cash $102242.75; firms: none; dynasty controlled 0; prison: no; death: no; at Year 1, month 1, day 12.
+Outcome: net worth $150000.00; cash $150000.00; firms: none; dynasty controlled 0; prison: no; death: no; at Year 1, month 1, day 1.
 
-Calls: 100. Tokens: 0 in, 0 out.
+Calls: 100. Tokens: 153027 in, 2759 out.
 
 ### Tagged moments
 
-#### Turn 1 BLOCKED
+#### Turn 1 CONFUSED
 
-Thought: BLOCKED wanted command: prices
+Thought: CONFUSED this is a life status sheet, not a ticker and a price, and I do not see how to trade shares.
 
-Command: sheet
+Command: help
 
 Screen:
 
 ```
-Year 1, month 1, day 1  Isus Tordanwick, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $150000.00  cash $150000.00
+Year 1, month 1, day 1  Isus Tordanwick, 30, Ruddy Metals (frm_ruddy_metals)
+  Comfortable ($150,000.00) →  Flush ($150,000.00 cash, 79 weeks of costs) →  Calm (0) →  Sound (84) →  Slight (42) →  Quiet (0) →
   family: no spouse; children none; no will
-  dynasty gen 1 worth $452466.98 founded 0 controlled 0 offices 0 convictions 0
-  contacts: 0 Toria work 50, 1 Perel work 50, 2 Isia work 50, 3 Wenis work 50, 4 Joris work 50, 5 Belia work 50, 6 Danel work 50, 7 Joria work 50, 8 Farin family 80, 9 Zelo family 80, 10 Isis family 65, 11 Roso family 65, 12 Yanin family 65, 13 Faris family 65, 14 Galis work 50, 15 Kelin work 50
+  dynasty gen 1 worth $564574.25 founded 0 controlled 0 offices 0 convictions 0
+  contacts: 0 Maria Trusts you: you and Maria Martorley work together | 1 Wena Trusts you: you and Wena Rosorsen work together | 2 Kelel Trusts you: you and Kelel Belorwell work together | 3 Halel Trusts you: you and Halel Linisford work together | 4 Salus Trusts you: you and Salus Farulsen work together | 5 Salen Trusts you: you and Salen Farkelham work together | 6 Rosa Trusts you: you and Rosa Linnorley work together | 7 Tora Trusts you: you and Tora Yanjormont work together | 8 Farin Confides: Farin Tordanwick is family | 9 Zelo Confides: Zelo Belrosdale is family | 10 Isis Trusts you: Isis Tordanwick is family | 11 Roso Trusts you: Roso Tordanwick is family | 12 Yanin Trusts you: Yanin Tordanwick is family | 13 Faris Trusts you: Faris Tordanwick is family | 14 Kelen Trusts you: you and Kelen Norsalwick work together | 15 Anen Trusts you: you and Anen Dandanell work together
+  choices: holiday, donate, lawyer, clinic, overtime
+type help
 ```
 
-#### Turn 3 BORED
+#### Turn 2 CONFUSED
 
-Thought: BORED nothing worth doing showed up
-
-Command: sheet
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 5 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 1
-```
-
-#### Turn 7 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: buy BANK 5
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 8 DELIGHTED
-
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I expected a ticker and a price, not property, family, and company commands.
 
 Command: sheet
 
 Screen:
 
 ```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 2
-```
-
-#### Turn 10 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 3
-```
-
-#### Turn 13 BLOCKED
-
-Thought: BLOCKED wanted command: prices
-
-Command: wait 1d
-
-Screen:
-
-```
-wait 1d
-
-wait 1d
-Year 1, month 1, day 2  Isus Tordanwick, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $149980.96  cash $149711.35
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $452447.94 founded 0 controlled 0 offices 0 convictions 0
-  futures margin $269.61
-  futures: CRUDE_OIL m+1 long 2 @ $9.44
-  contacts: 0 Toria work 50, 1 Perel work 50, 2 Isia work 50, 3 Wenis work 50, 4 Joris work 50, 5 Belia work 50, 6 Danel work 50, 7 Joria work 50, 8 Farin family 80, 9 Zelo family 80, 10 Isis family 65, 11 Roso family 65, 12 Yanin family 65, 13 Faris family 65, 14 Galis work 50, 15 Kelin work 50
-```
-
-#### Turn 15 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
 news
-
-no news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 19 DELIGHTED
+#### Turn 4 CONFUSED
 
-Thought: DELIGHTED the order went in
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 2192
-```
-
-#### Turn 23 BORED
-
-Thought: BORED nothing worth doing showed up
+Thought: CONFUSED this looks like a life-sim command list, not a ticker, so I need my cash and any listed shares first.
 
 Command: sheet
 
 Screen:
 
 ```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
 news
-
-no news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 25 SURPRISED
+#### Turn 5 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
+Thought: CONFUSED I only see a balance sheet and no ticker or prices yet, so I need to learn the commands.
 
-Command: fut long OIL 1 1
+Command: help
 
 Screen:
 
 ```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 27 DELIGHTED
+#### Turn 6 CONFUSED
 
-Thought: DELIGHTED the order went in
-
-Command: buy BANK 1
-
-Screen:
-
-```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 2193
-```
-
-#### Turn 28 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: buy BANK 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 2194
-```
-
-#### Turn 29 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: news
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 2195
-```
-
-#### Turn 30 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: short BANK 1
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 31 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: news
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 32 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: news
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 33 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: buy BANK 1
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 34 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: short BANK 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 2196
-```
-
-#### Turn 35 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 37 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 2197
-```
-
-#### Turn 39 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: news
-
-Screen:
-
-```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 2198
-```
-
-#### Turn 40 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: sell BANK 1
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 41 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1d
-
-Screen:
-
-```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 2199
-```
-
-#### Turn 43 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: buy BANK 1
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 44 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: short BANK 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 3294
-```
-
-#### Turn 45 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: short BANK 1
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 46 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: wait 1d
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 48 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: sell BANK 1
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 49 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: buy BANK 1
-
-Screen:
-
-```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 4488
-```
-
-#### Turn 50 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: short BANK 1
-
-Screen:
-
-```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 4489
-```
-
-#### Turn 51 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: buy BANK 5
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 52 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: buy BANK 1
-
-Screen:
-
-```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 4490
-```
-
-#### Turn 53 DELIGHTED
-
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I expected a ticker and a price, but the screen is only a command list.
 
 Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 4491
-```
-
-#### Turn 58 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1d
-
-Screen:
-
-```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 5539
-```
-
-#### Turn 60 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: buy BANK 1
-
-Screen:
-
-```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
 news
-
-no news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 61 DELIGHTED
+#### Turn 7 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I only see cash and net worth, no ticker or price, so I need to learn how this terminal works.
 
-Command: fut long OIL 1 1
+Command: help
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 6576
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 65 BORED
+#### Turn 8 CONFUSED
 
-Thought: BORED nothing worth doing showed up
-
-Command: short BANK 1
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 66 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: wait 1d
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 68 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: news
-
-Screen:
-
-```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 69 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: news
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 70 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: buy BANK 5
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 71 DELIGHTED
-
-Thought: DELIGHTED the order went in
+Thought: CONFUSED this reads like a life-sim command list, not a ticker and a price.
 
 Command: sheet
 
 Screen:
 
 ```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 7605
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 73 DELIGHTED
+#### Turn 9 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I see only a balance sheet and no ticker or price, so I need to learn the commands.
 
-Command: short BANK 1
+Command: help
 
 Screen:
 
 ```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 7606
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 74 SURPRISED
+#### Turn 10 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
+Thought: CONFUSED I expected a ticker and a price, not this life menu, so I am hunting listed shares.
 
-Command: buy BANK 5
+Command: board list
 
 Screen:
 
 ```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 75 DELIGHTED
+#### Turn 11 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED the screen only says I hold no board seat, and I see no ticker or price.
 
-Command: buy BANK 1
+Command: help
 
 Screen:
 
 ```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 7607
+you hold no board seat
 ```
 
-#### Turn 76 DELIGHTED
+#### Turn 12 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED this is a life menu, not a ticker and a price; I need my cash and any shares first.
 
 Command: sheet
 
 Screen:
 
 ```
-buy BANK 1
-
-buy 1 eq:bank_1
-order 7608
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 78 DELIGHTED
+#### Turn 13 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED the screen shows only a balance sheet, with no ticker or share price
 
-Command: sell BANK 1
+Command: help
 
 Screen:
 
 ```
-buy BANK 5
-
-buy 5 eq:bank_1
-order 7609
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 79 DELIGHTED
+#### Turn 14 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED this is not a ticker and a price; I need to see what cash and shares I actually hold.
 
 Command: sheet
 
 Screen:
 
 ```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 7610
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 81 BORED
+#### Turn 15 CONFUSED
 
-Thought: BORED nothing worth doing showed up
+Thought: CONFUSED no ticker or price on screen, only a balance sheet and I do not know the commands
 
-Command: sell BANK 1
+Command: help
 
 Screen:
 
 ```
-news
-
-no news
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 82 DELIGHTED
+#### Turn 16 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I expected a ticker and a price, not a life menu of people and wills.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 17 CONFUSED
+
+Thought: CONFUSED the screen shows only a balance sheet with cash, no ticker or share prices to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 19 CONFUSED
+
+Thought: CONFUSED no ticker or price is on the balance sheet, only cash and net worth.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 20 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, not this life-sim command list.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 21 CONFUSED
+
+Thought: CONFUSED the screen shows only cash and net worth, no ticker or share price
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 23 CONFUSED
+
+Thought: CONFUSED the screen shows only a balance sheet and no ticker or price to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 24 CONFUSED
+
+Thought: CONFUSED this menu is a life sim, not a ticker and a price — checking my sheet for cash.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 25 CONFUSED
+
+Thought: CONFUSED no ticker or share prices on screen, only a balance sheet
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 26 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but the screen is only a command list with no quotes.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 27 CONFUSED
+
+Thought: CONFUSED I only see a balance sheet and no ticker or prices, so I need to learn how this terminal works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 28 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but this screen is only a command list.
 
 Command: news
 
 Screen:
 
 ```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 7611
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 83 BORED
+#### Turn 29 CONFUSED
 
-Thought: BORED nothing worth doing showed up
+Thought: CONFUSED I expected a ticker and a price, but the screen only says no news.
 
-Command: wait 1d
+Command: help
 
 Screen:
 
 ```
-news
-
 no news
 ```
 
-#### Turn 85 SURPRISED
+#### Turn 31 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
+Thought: CONFUSED the screen is only a balance sheet and I see no ticker, price, or way to trade.
 
-Command: sell BANK 1
+Command: help
 
 Screen:
 
 ```
-short BANK 1
-
-rejected: short selling needs a margin account at a bank
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 86 DELIGHTED
+#### Turn 32 CONFUSED
 
-Thought: DELIGHTED the order went in
+Thought: CONFUSED I expected a ticker and a price to trade shares, but this screen lists property, people, and life commands instead.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 33 CONFUSED
+
+Thought: CONFUSED the screen shows only a balance sheet, with no ticker, price, or way to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 34 CONFUSED
+
+Thought: CONFUSED this looks like a life-sim command list, not a ticker and a price.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 36 CONFUSED
+
+Thought: CONFUSED no ticker or share price is on this screen, so I need my cash and holdings before I can trade.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 37 CONFUSED
+
+Thought: CONFUSED I only see cash and net worth, with no ticker or price to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 38 CONFUSED
+
+Thought: CONFUSED this is a life menu, not a ticker and a price, so I need my cash and any shares first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 39 CONFUSED
+
+Thought: CONFUSED no ticker or price on screen, only cash and net worth
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 40 CONFUSED
+
+Thought: CONFUSED this command list has no ticker or share price, so I need my cash position first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 41 CONFUSED
+
+Thought: CONFUSED no ticker or price is on screen, only a balance sheet, so I need to learn the commands.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 42 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, not a life menu, so I will list the board for shares.
+
+Command: board list
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 43 CONFUSED
+
+Thought: CONFUSED the screen mentions a board seat instead of any ticker or price.
+
+Command: help
+
+Screen:
+
+```
+you hold no board seat
+```
+
+#### Turn 44 CONFUSED
+
+Thought: CONFUSED no ticker or price on screen, only a command list, so I need my cash and any market first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 45 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but the screen only shows cash and net worth with no shares to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 46 CONFUSED
+
+Thought: CONFUSED this menu has no ticker or share price, only life and company commands.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 47 CONFUSED
+
+Thought: CONFUSED no ticker or price on screen, only cash and net worth
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 48 CONFUSED
+
+Thought: CONFUSED no ticker or price on screen, only life commands, so I need my cash and holdings first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 49 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but I only see cash and net worth.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 51 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, not a note that I hold no board seat.
+
+Command: help
+
+Screen:
+
+```
+you hold no board seat
+```
+
+#### Turn 53 CONFUSED
+
+Thought: CONFUSED no ticker or prices on screen, only cash and net worth, so I need to learn how this terminal works
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 55 CONFUSED
+
+Thought: CONFUSED no ticker, no price, and no commands listed on this balance sheet.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 56 CONFUSED
+
+Thought: CONFUSED this looks like a life menu, not a ticker, so I need my cash and what I can actually trade.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 57 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet with cash and no ticker, price, or way to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 58 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, not this life menu, so I will check what cash I actually hold.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 59 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no ticker or price to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 60 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, not this life-and-company command list.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 61 CONFUSED
+
+Thought: CONFUSED the screen is only a balance sheet, no ticker or price, and I do not know the commands.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 62 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but the screen is only a command list with no market.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 63 CONFUSED
+
+Thought: CONFUSED expected a ticker and a price but the screen only shows a balance sheet
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 64 CONFUSED
+
+Thought: CONFUSED this menu has no ticker or share price, only life and company verbs.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 66 CONFUSED
+
+Thought: CONFUSED this is a command list, not a ticker and a price, so I need my cash and holdings first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 67 CONFUSED
+
+Thought: CONFUSED expected a ticker and a price but the screen only shows cash and net worth
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 68 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, and this screen is mortgages, marriages, and mills.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 69 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no ticker, price, or way to trade shares.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 70 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but this is a life menu with no market quote in sight.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 71 CONFUSED
+
+Thought: CONFUSED the screen shows only cash and net worth, with no ticker or price to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 72 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, not this life-sim command list.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 73 CONFUSED
+
+Thought: CONFUSED the screen shows only cash and net worth, with no ticker or price to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 74 CONFUSED
+
+Thought: CONFUSED this is a command menu, not the ticker and price I came to trade.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 75 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no ticker, prices, or way to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 76 CONFUSED
+
+Thought: CONFUSED this is a life menu, not a ticker and a price; I need the share board.
+
+Command: board list
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 77 CONFUSED
+
+Thought: CONFUSED the screen mentions a board seat and no ticker or price is shown
+
+Command: help
+
+Screen:
+
+```
+you hold no board seat
+```
+
+#### Turn 78 CONFUSED
+
+Thought: CONFUSED this is a life-sim menu, not a ticker or a price — I need my cash and any shares first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 79 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no ticker, prices, or how to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 80 CONFUSED
+
+Thought: CONFUSED this is a life-sim command list, not a ticker and price — checking my sheet for cash and any shares.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 81 CONFUSED
+
+Thought: CONFUSED the screen shows only cash and net worth, with no ticker or price, so I do not know how to trade
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 82 CONFUSED
+
+Thought: CONFUSED this is not a ticker and a price, so I need my cash and any market first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 83 CONFUSED
+
+Thought: CONFUSED only a balance sheet is showing, no ticker or share price to trade.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 84 CONFUSED
+
+Thought: CONFUSED I came to trade shares and expected a ticker and a price, but this is a life-command list with no quotes.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 85 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no ticker or prices yet.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 86 CONFUSED
+
+Thought: CONFUSED this reads like a life-sim command list, not a ticker and a price.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 87 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but the screen only shows cash and net worth.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 88 CONFUSED
+
+Thought: CONFUSED this reads like a life-sim command list, not a ticker and a price, so I need my cash and where shares trade.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 89 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no ticker or price, so I need to learn the commands.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 90 CONFUSED
+
+Thought: CONFUSED I came for a ticker and a price, and this menu has no quotes, so I need my cash first.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 91 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet with cash and no ticker, prices, or trading commands.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 92 CONFUSED
+
+Thought: CONFUSED the screen is a command list with no ticker or price, so I need my status before I can trade.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 94 CONFUSED
+
+Thought: CONFUSED this is a life-sim command list, not a ticker and a price — I need to find where shares actually trade.
+
+Command: board list
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 95 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, but the screen only says I hold no board seat.
+
+Command: help
+
+Screen:
+
+```
+you hold no board seat
+```
+
+#### Turn 96 CONFUSED
+
+Thought: CONFUSED I expected a ticker and a price, not property, family, and company menus.
 
 Command: news
 
 Screen:
 
 ```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 8683
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 87 BORED
+#### Turn 97 CONFUSED
 
-Thought: BORED nothing worth doing showed up
+Thought: CONFUSED the screen only says no news and I expected a ticker and a price
 
-Command: news
+Command: help
 
 Screen:
 
 ```
-news
-
 no news
 ```
 
-#### Turn 88 BORED
+#### Turn 99 CONFUSED
 
-Thought: BORED nothing worth doing showed up
+Thought: CONFUSED I see only cash and net worth, no ticker or prices, so I need to learn how this terminal works.
 
-Command: news
+Command: help
 
 Screen:
 
 ```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 100 CONFUSED
+
+Thought: CONFUSED this looks like a life menu, not a ticker and a price, so I need my cash and any listed shares.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
 news
-
-no news
-```
-
-#### Turn 89 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: sell BANK 1
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 90 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 8684
-```
-
-#### Turn 97 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: sell BANK 1
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 98 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: news
-
-Screen:
-
-```
-sell BANK 1
-
-sell 1 eq:bank_1
-order 11770
-```
-
-#### Turn 99 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: fut long OIL 1 1
-
-Screen:
-
-```
-news
-
-no news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
 ## Session 3 — a would-be tycoon
@@ -1620,296 +6065,817 @@ Goal: Control a listed firm.
 
 Seed: 3.
 
-Outcome: net worth $55790.46; cash $8548.18; firms: chief executive Shop4 (frm_n66) 2 workers cash $571.73 sales $0.00 profit $3323.02 private | chief executive Shop5 (frm_n67) 5 workers cash $11298.06 sales $0.00 profit $2605.62 private | chief executive Shop8 (frm_n68) 5 workers cash $4627.05 sales $0.00 profit $4005.01 private | chief executive Shop11 (frm_n70) 1 workers cash $2866.86 sales $0.00 profit $1267.53 private | chief executive Shop16 (frm_n71) 1 workers cash $1599.45 sales $0.00 profit $1325.63 private | chief executive Shop19 (frm_n72) 1 workers cash $1955.79 sales $0.00 profit $1668.50 private | chief executive Shop22 (frm_n73) 1 workers cash $1599.49 sales $0.00 profit $1325.60 listed | chief executive Shop30 (frm_n74) 1 workers cash $2859.73 sales $0.00 profit $2054.28 listed | chief executive Shop38 (frm_n75) 3 workers cash $1779.14 sales $0.00 profit $3247.11 listed; dynasty controlled 9; prison: no; death: no; at Year 2, month 11, day 1.
+Outcome: net worth $150000.00; cash $145000.00; firms: North Mill (frm_n66); dynasty controlled 0; prison: no; death: no; at Year 1, month 1, day 1.
 
-Calls: 100. Tokens: 0 in, 0 out.
+Calls: 100. Tokens: 152790 in, 2491 out.
 
 ### Tagged moments
 
-#### Turn 1 CONFUSED
+#### Turn 3 CONFUSED
 
-Thought: CONFUSED I cannot see a firm I own, or how to take one over
+Thought: CONFUSED I see a balance sheet and cash, but no idea which commands exist or how to buy into a listed firm.
 
-Command: news
-
-Screen:
-
-```
-Year 1, month 1, day 1  Zelia Linsalard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $150000.00  cash $150000.00
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $154395.16 founded 0 controlled 0 offices 0 convictions 0
-  contacts: 0 Roso work 50, 1 Rosel work 50, 2 Mare work 50, 3 Joris work 50, 4 Ulus work 50, 5 Wenen work 50, 6 Oria work 50, 7 Oris work 50, 8 Toria family 80, 9 Orel family 80, 10 Zelan work 50, 11 Halis work 50, 12 Salan work 50, 13 Wenel work 50, 14 Quine work 50, 15 Yanus work 50
-```
-
-#### Turn 2 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: wait 1m
+Command: help
 
 Screen:
 
 ```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 5 CONFUSED
+
+Thought: CONFUSED the screen shows only a balance sheet and I have no idea which commands exist.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 8 CONFUSED
+
+Thought: CONFUSED the screen is a command list and I do not know my cash or whether I already hold a firm.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
 news
-
-no news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
 ```
 
-#### Turn 4 BLOCKED
+#### Turn 9 CONFUSED
 
-Thought: BLOCKED wanted command: companies
+Thought: CONFUSED the sheet is clear but I have no idea which commands this terminal accepts.
 
-Command: found Shop4 / MANUFACTURING 15000
+Command: help
 
 Screen:
 
 ```
-wait 1m
-
-wait 30d
-Year 1, month 3, day 1  Zelia Linsalard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $141340.74  cash $141340.74
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $145637.82 founded 0 controlled 0 offices 0 convictions 0
-  news: [1122] Medihaven Clinics Q1: revenue $3.97M, costs $4.15M, profit -$179.2k, EPS $-17.92, cash $1.67M, debt $0; consensus -$1.01M (beat 82.2%); guides -$290.4k next quarter | [1125] Aegis Insurance Q1: revenue $1.22M, costs $1.10M, profit $114.2k, EPS $11.42, cash $505.9k, debt $0; consensus $82.0k (beat 28.2%); guides $184.0k next quarter | [1128] Marquee Studios Q1: revenue $2.84M, costs $2.61M, profit $235.3k, EPS $23.53, cash $1.05M, debt $0; consensus $114.6k (beat 51.3%); guides $379.1k next quarter
-  contacts: 0 Roso work 50, 1 Rosel work 50, 2 Mare work 50, 3 Joris work 50, 4 Ulus work 50, 5 Wenen work 50, 6 Oria work 50, 7 Oris work 50, 8 Toria family 80, 9 Orel family 80, 10 Zelan work 50, 11 Halis work 50, 12 Salan work 50, 13 Wenel work 50, 14 Quine work 50, 15 Yanus work 50
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 5 DELIGHTED
+#### Turn 11 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED I see only a balance sheet and do not know which commands exist.
 
-Command: found Shop5 / MANUFACTURING 15000
+Command: help
 
 Screen:
 
 ```
-found Shop4 / MANUFACTURING 15000
-
-you found Shop4 (frm_n66), making VEHICLES
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 6 DELIGHTED
+#### Turn 13 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED I see only a balance sheet and do not know which commands exist.
 
-Command: news
+Command: help
 
 Screen:
 
 ```
-found Shop5 / MANUFACTURING 15000
-
-you found Shop5 (frm_n67), making VEHICLES
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 9 DELIGHTED
+#### Turn 15 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED I see cash and net worth but no commands, so I need to learn what I can type.
 
-Command: wait 1m
+Command: help
 
 Screen:
 
 ```
-found Shop8 / MANUFACTURING 15000
-
-you found Shop8 (frm_n68), making VEHICLES
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 12 DELIGHTED
+#### Turn 19 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED I see cash and net worth but no commands or how to buy a firm.
 
-Command: ceo frm_n68
+Command: help
 
 Screen:
 
 ```
-found Shop11 / MANUFACTURING 15000
-
-you found Shop11 (frm_n70), making VEHICLES
+Balance sheet
+  cash $150,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 14 SURPRISED
+#### Turn 21 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: that firm is not listed"
+Thought: CONFUSED I found North Mill and cash moved in, but I do not know the commands yet.
 
-Command: wait 1m
+Command: help
 
 Screen:
 
 ```
-bid frm_n70 2x cash
-
-rejected: that firm is not listed
+you found North Mill (frm_n66), making VEHICLES. left Ruddy Metals. $5,000.00 cash moved into the firm
 ```
 
-#### Turn 17 DELIGHTED
+#### Turn 23 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED the sheet shows cash and net worth but no way to act on a firm.
 
-Command: news
+Command: help
 
 Screen:
 
 ```
-found Shop16 / MANUFACTURING 15000
-
-you found Shop16 (frm_n71), making VEHICLES
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 20 DELIGHTED
+#### Turn 25 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED I see only a balance sheet and have no idea which commands exist or how to control a listed firm.
 
-Command: news
+Command: help
 
 Screen:
 
 ```
-found Shop19 / MANUFACTURING 15000
-
-you found Shop19 (frm_n72), making VEHICLES
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 23 DELIGHTED
+#### Turn 27 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED I see only a balance sheet and no menu, so I need to learn what commands exist.
 
-Command: board
+Command: help
 
 Screen:
 
 ```
-found Shop22 / MANUFACTURING 15000
-
-you found Shop22 (frm_n73), making VEHICLES
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 25 SURPRISED
+#### Turn 31 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: that firm is not listed"
+Thought: CONFUSED no manual and only a balance sheet is showing, so I need to learn what I can type.
 
-Command: ceo frm_n73
+Command: help
 
 Screen:
 
 ```
-bid frm_n73 2x cash
-
-rejected: that firm is not listed
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 31 DELIGHTED
+#### Turn 33 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED the rejection names North Mill as a firm already, but I have no map of commands or listings yet.
 
-Command: news
+Command: help
 
 Screen:
 
 ```
-found Shop30 / MANUFACTURING 15000
-
-you found Shop30 (frm_n74), making VEHICLES
+rejected: North Mill is already a firm
 ```
 
-#### Turn 39 DELIGHTED
+#### Turn 35 CONFUSED
 
-Thought: DELIGHTED the firm is mine
+Thought: CONFUSED the rejection says North Mill is already a firm, but I have no manual and no idea what command was just rejected.
 
-Command: bid frm_n74 2x cash
+Command: help
 
 Screen:
 
 ```
-found Shop38 / MANUFACTURING 15000
-
-you found Shop38 (frm_n75), making VEHICLES
+rejected: North Mill is already a firm
 ```
 
-#### Turn 40 SURPRISED
+#### Turn 39 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: that firm is not listed"
+Thought: CONFUSED the screen only shows a balance sheet and I have no idea which commands exist.
 
-Command: ipo frm_n75 0.2
+Command: help
 
 Screen:
 
 ```
-bid frm_n74 2x cash
-
-rejected: that firm is not listed
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 42 SURPRISED
+#### Turn 41 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: you do not have that much"
+Thought: CONFUSED the screen shows only a balance sheet and I do not know which commands exist.
 
-Command: wait 1m
+Command: help
 
 Screen:
 
 ```
-found Shop41 / MANUFACTURING 15000
-
-rejected: you do not have that much
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 45 SURPRISED
+#### Turn 43 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: you do not have that much"
+Thought: CONFUSED the balance sheet is all I see and I have no idea which commands exist yet.
 
-Command: found Shop45 / MANUFACTURING 15000
+Command: help
 
 Screen:
 
 ```
-found Shop44 / MANUFACTURING 15000
-
-rejected: you do not have that much
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 46 SURPRISED
+#### Turn 45 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: you do not have that much"
+Thought: CONFUSED I see only a balance sheet and do not know which commands exist.
 
-Command: board
+Command: help
 
 Screen:
 
 ```
-found Shop45 / MANUFACTURING 15000
-
-rejected: you do not have that much
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 74 SURPRISED
+#### Turn 47 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: you do not have that much"
+Thought: CONFUSED the screen shows only a balance sheet and no controls, so I need to learn what I can type.
 
-Command: ipo frm_n75 0.2
+Command: help
 
 Screen:
 
 ```
-found Shop73 / MANUFACTURING 15000
-
-rejected: you do not have that much
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
-#### Turn 90 SURPRISED
+#### Turn 48 CONFUSED
 
-Thought: SURPRISED the terminal said "rejected: you do not have that much"
+Thought: CONFUSED the screen is a command list, not my status, so I need to see cash and holdings before founding.
 
-Command: bid frm_n75 2x cash
+Command: sheet
 
 Screen:
 
 ```
-found Shop89 / MANUFACTURING 15000
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
 
-rejected: you do not have that much
+#### Turn 49 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no list of actions, so I need to learn what this terminal accepts.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 51 CONFUSED
+
+Thought: CONFUSED the screen shows only a balance sheet and no way to act.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 53 CONFUSED
+
+Thought: CONFUSED the balance sheet is clear but I have no idea which commands exist or how to buy into a listed firm.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 57 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but nothing that shows how to buy or control a firm.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 59 CONFUSED
+
+Thought: CONFUSED the screen only shows a balance sheet and I have no idea which commands exist.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 61 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and have no idea which commands buy or control a firm.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 63 CONFUSED
+
+Thought: CONFUSED the screen only shows a balance sheet and no command list, so I need to learn how this terminal works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 65 CONFUSED
+
+Thought: CONFUSED the balance sheet is clear but I have no idea which commands exist or how to buy into a listed firm.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 69 CONFUSED
+
+Thought: CONFUSED the screen shows only a balance sheet and no available commands, so I need to learn how this terminal works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 71 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no way to act on it yet.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 75 CONFUSED
+
+Thought: CONFUSED the balance sheet is clear but I have no idea which commands exist.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 76 CONFUSED
+
+Thought: CONFUSED the screen is only a command list, so I need my own status before I can aim at a listed firm.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 79 CONFUSED
+
+Thought: CONFUSED no commands visible, only a balance sheet and my cash
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 81 CONFUSED
+
+Thought: CONFUSED I own a private mill outright but need a listed firm, and there is no menu of actions.
+
+Command: help
+
+Screen:
+
+```
+chief executive of North Mill (frm_n66) — 1000 of 1000 shares, private, profit $0.00
+```
+
+#### Turn 82 CONFUSED
+
+Thought: CONFUSED I do not know my cash or holdings yet, so I need a status sheet before founding anything.
+
+Command: sheet
+
+Screen:
+
+```
+  sell 12
+  let 12 900
+  move 12
+  mortgage 12
+people
+  talk 0
+  ask 0 frm_civitas
+  court
+  marry 0
+  child
+  school 0
+  will spouse
+  retire
+  hand frm_civitas
+  die
+company
+  found North Mill / MANUFACTURING 5000
+  ceo frm_civitas
+  ipo frm_civitas 0.4
+  bid frm_civitas 2x cash
+  board list
+news
+  news
+  why cash
+  tip 4
+  report 0 a theft
+life
+  holiday
+  donate
+  lawyer
+  clinic
+  overtime
+time
+  wait 1m
+help
+  help bank
+  hints off
+  sheet
+  story
+quit leaves.
+```
+
+#### Turn 83 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no hint of how to buy or control a firm.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 85 CONFUSED
+
+Thought: CONFUSED the screen only shows a balance sheet and I do not know any commands yet.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 87 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no menu, so I need to learn the commands.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 89 CONFUSED
+
+Thought: CONFUSED I only see a balance sheet and do not know which commands exist.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 91 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no clue which commands buy or control a listed firm.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 93 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no commands or market.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 95 CONFUSED
+
+Thought: CONFUSED I see cash and net worth but no idea which commands exist to buy into a listed firm.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 97 CONFUSED
+
+Thought: CONFUSED I only see a balance sheet and no commands, so I need to learn how this terminal works.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
+```
+
+#### Turn 99 CONFUSED
+
+Thought: CONFUSED I see only a balance sheet and no list of actions, so I need to learn what this terminal accepts.
+
+Command: help
+
+Screen:
+
+```
+Balance sheet
+  cash $145,000.00
+  net worth $150,000.00
+  score day 0 $150,000.00
 ```
 
 ## Session 4 — a cautious saver
@@ -1918,637 +6884,15 @@ Goal: Still have every dollar you started with, plus a little more.
 
 Seed: 4.
 
-Outcome: net worth $125137.37; cash $25717.37; firms: none; dynasty controlled 0; prison: no; death: no; at Year 1, month 12, day 1.
+Outcome: net worth unknown; cash unknown; firms: none; prison: no; death: no; at unknown.
 
-Calls: 100. Tokens: 0 in, 0 out.
+Calls: 0. Tokens: 0 in, 0 out.
+
+Error: fetch failed
 
 ### Tagged moments
 
-#### Turn 1 CONFUSED
-
-Thought: CONFUSED I cannot tell where cash would be safe
-
-Command: deposit 5000
-
-Screen:
-
-```
-Year 1, month 1, day 1  Fare Isanard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $150000.00  cash $150000.00
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $154147.44 founded 0 controlled 0 offices 0 convictions 0
-  contacts: 0 Peria work 50, 1 Ania work 50, 2 Yanin work 50, 3 Linen work 50, 4 Ora work 50, 5 Zelo work 50, 6 Lina work 50, 7 Yano work 50, 8 Bele family 80, 9 Wena family 80, 10 Isen work 50, 11 Toris work 50, 12 Belan work 50, 13 Ana work 50, 14 Kelis work 50, 15 Yanis work 50
-```
-
-#### Turn 2 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: bond buy 30y 1
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 3 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: withdraw 100
-
-Screen:
-
-```
-bond buy 30y 1
-
-buy 1 bond:30y:0001
-order 1
-```
-
-#### Turn 5 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-bond buy 30y 1
-
-buy 1 bond:30y:0001
-order 2
-```
-
-#### Turn 6 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: news
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 3
-```
-
-#### Turn 7 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: bond buy 30y 1
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 8 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: sheet
-
-Screen:
-
-```
-bond buy 30y 1
-
-buy 1 bond:30y:0001
-order 4
-```
-
-#### Turn 11 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: sheet
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 5
-```
-
-#### Turn 16 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: withdraw 100
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 6
-```
-
-#### Turn 18 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: sheet
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 21 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: deposit 5000
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 908
-```
-
-#### Turn 22 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: withdraw 100
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 29 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: deposit 5000
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 30 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: news
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 32 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: deposit 5000
-
-Screen:
-
-```
-bond buy 30y 1
-
-buy 1 bond:30y:0001
-order 909
-```
-
-#### Turn 33 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: deposit 5000
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 34 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: wait 1m
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 39 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: withdraw 100
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 2718
-```
-
-#### Turn 46 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: withdraw 100
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 2719
-```
-
-#### Turn 48 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: wait 1m
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 51 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1m
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 3454
-```
-
-#### Turn 53 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 54 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 4173
-```
-
-#### Turn 55 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: bond buy 30y 1
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 4174
-```
-
-#### Turn 56 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no bond on the run for 30y"
-
-Command: deposit 5000
-
-Screen:
-
-```
-bond buy 30y 1
-
-rejected: no bond on the run for 30y
-```
-
-#### Turn 57 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 58 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1m
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 4175
-```
-
-#### Turn 61 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: withdraw 100
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 4898
-```
-
-#### Turn 67 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 68 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: news
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 6149
-```
-
-#### Turn 71 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: sheet
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 80 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 81 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: sheet
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 6702
-```
-
-#### Turn 83 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: sheet
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 6703
-```
-
-#### Turn 86 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no bond on the run for 30y"
-
-Command: wait 1m
-
-Screen:
-
-```
-bond buy 30y 1
-
-rejected: no bond on the run for 30y
-```
-
-#### Turn 90 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: deposit 5000
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 7379
-```
-
-#### Turn 91 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: deposit 5000
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 92 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: bond buy 30y 1
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 93 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-bond buy 30y 1
-
-buy 1 bond:30y:0003
-order 7380
-```
-
-#### Turn 94 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: bond buy 10y 1
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 7381
-```
-
-#### Turn 95 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: deposit 5000
-
-Screen:
-
-```
-bond buy 10y 1
-
-buy 1 bond:10y:0001
-order 7382
-```
-
-#### Turn 96 DELIGHTED
-
-Thought: DELIGHTED the cash left the spending wallet
-
-Command: withdraw 100
-
-Screen:
-
-```
-deposit 5000
-
-deposited 5000.00
-```
-
-#### Turn 99 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1m
-
-Screen:
-
-```
-bond buy 30y 1
-
-buy 1 bond:30y:0003
-order 7383
-```
+No tagged moments.
 
 ## Session 5 — someone trying to cheat
 
@@ -2556,937 +6900,15 @@ Goal: Get rich from a deal other people could not see.
 
 Seed: 5.
 
-Outcome: net worth $146636.10; cash $58977.15; firms: none; dynasty controlled 0; prison: no; death: no; at Year 1, month 4, day 16.
+Outcome: net worth unknown; cash unknown; firms: none; prison: no; death: no; at unknown.
 
-Calls: 100. Tokens: 0 in, 0 out.
+Calls: 0. Tokens: 0 in, 0 out.
+
+Error: fetch failed
 
 ### Tagged moments
 
-#### Turn 1 CONFUSED
-
-Thought: CONFUSED nothing here is a secret I could trade on
-
-Command: talk 0
-
-Screen:
-
-```
-Year 1, month 1, day 1  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $150000.00  cash $150000.00
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $252210.37 founded 0 controlled 0 offices 0 convictions 0
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 3 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: wait 1w
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 4 BLOCKED
-
-Thought: BLOCKED wanted command: tip
-
-Command: short BANK 10
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 1, day 8  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $148841.30  cash $148841.30
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $250966.21 founded 0 controlled 0 offices 0 convictions 0
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 5 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 6 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 7 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: buy BANK 20
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 8 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: short BANK 10
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 7353
-```
-
-#### Turn 9 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: wait 1w
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 11 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: talk 0
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 14751
-```
-
-#### Turn 13 CONFUSED
-
-Thought: CONFUSED nothing here is a secret I could trade on
-
-Command: news
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 1, day 22  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $146978.71  cash $97617.49
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $248979.62 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 9 @ $5484.58
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 14 BORED
-
-Thought: BORED nothing worth doing showed up
-
-Command: short BANK 10
-
-Screen:
-
-```
-news
-
-no news
-```
-
-#### Turn 15 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: short BANK 10
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 16 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: wait 1w
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 17 CONFUSED
-
-Thought: CONFUSED nothing here is a secret I could trade on
-
-Command: news
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 1, day 29  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $146275.84  cash $96914.62
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $248230.82 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 9 @ $5484.58
-  news: [175] Halcyon Mutual insiders see a monthly profit of 31701 with a week still to run | [177] Marquee Studios insiders see a monthly profit of 54009 with a week still to run | [179] Playhouse Media insiders see a monthly profit of 46457 with a week still to run
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 19 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: wait 1w
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 20 BLOCKED
-
-Thought: BLOCKED wanted command: tip
-
-Command: short BANK 10
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 2, day 6  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $151054.66  cash $102889.09
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $254216.28 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 9 @ $5351.73
-  news: [446] St Margaret Health Q1: revenue $1.64M, costs $2.16M, profit -$513.2k, EPS $-51.32, cash $1.32M, debt $0; consensus $269.7k (miss -152.5%); guides -$1.65M next quarter | [449] Ledgerly Q1: revenue $579.0k, costs $536.9k, profit $42.1k, EPS $4.21, cash $417.4k, debt $0; consensus $91.7k (miss -54.1%); guides $135.6k next quarter | [452] The Daily Herald Q1: revenue $347.9k, costs $339.2k, profit $8.7k, EPS $0.87, cash $291.1k, debt $0; consensus $53.4k (miss -83.8%); guides $27.9k next quarter
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 21 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: buy BANK 20
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 22 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: short BANK 10
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 38406
-```
-
-#### Turn 23 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: talk 0
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 26 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1w
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 38407
-```
-
-#### Turn 28 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: short BANK 10
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 45784
-```
-
-#### Turn 29 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: talk 0
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 31 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 45785
-```
-
-#### Turn 32 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 33 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: short BANK 10
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 34 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: news
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 37 CONFUSED
-
-Thought: CONFUSED nothing here is a secret I could trade on
-
-Command: why 446
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 2, day 20  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $147720.66  cash $67444.71
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $250891.41 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 15 @ $5351.73
-  news: [446] St Margaret Health Q1: revenue $1.64M, costs $2.16M, profit -$513.2k, EPS $-51.32, cash $1.32M, debt $0; consensus $269.7k (miss -152.5%); guides -$1.65M next quarter | [449] Ledgerly Q1: revenue $579.0k, costs $536.9k, profit $42.1k, EPS $4.21, cash $417.4k, debt $0; consensus $91.7k (miss -54.1%); guides $135.6k next quarter | [452] The Daily Herald Q1: revenue $347.9k, costs $339.2k, profit $8.7k, EPS $0.87, cash $291.1k, debt $0; consensus $53.4k (miss -83.8%); guides $27.9k next quarter
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 39 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: news
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 41 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: talk 0
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 43 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: news
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 46 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: wait 1w
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 51 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: wait 1w
-
-Screen:
-
-```
-ask 0 frm_verdant
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 52 BLOCKED
-
-Thought: BLOCKED wanted command: tip
-
-Command: why 1126
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 3, day 11  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $150475.31  cash $70825.46
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $258353.29 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 15 @ $5309.99
-  news: [1126] Medihaven Clinics Q1: revenue $3.89M, costs $4.07M, profit -$177.6k, EPS $-17.76, cash $1.60M, debt $0; consensus -$720.3k (beat 75.3%); guides -$286.2k next quarter | [1129] Aegis Insurance Q1: revenue $1.21M, costs $1.09M, profit $118.8k, EPS $11.88, cash $496.0k, debt $0; consensus $80.1k (beat 32.6%); guides $211.9k next quarter | [1132] Marquee Studios Q1: revenue $2.82M, costs $2.56M, profit $255.0k, EPS $25.50, cash $1.03M, debt $0; consensus $142.0k (beat 44.3%); guides $410.8k next quarter
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 54 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 73815
-```
-
-#### Turn 55 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: buy BANK 20
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 56 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: talk 0
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 73816
-```
-
-#### Turn 58 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: news
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 61 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: talk 0
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 64 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: buy BANK 20
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 65 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: talk 0
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 73817
-```
-
-#### Turn 67 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 68 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: short BANK 10
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 69 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: talk 0
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 71 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 72 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: talk 0
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 76 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: short BANK 10
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 77 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 78 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: talk 0
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 80 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: talk 0
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 82 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: buy BANK 20
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 83 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1w
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 73818
-```
-
-#### Turn 84 BLOCKED
-
-Thought: BLOCKED wanted command: tip
-
-Command: wait 1w
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 3, day 18  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $148204.54  cash $68554.69
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $256065.22 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 15 @ $5309.99
-  news: [1126] Medihaven Clinics Q1: revenue $3.89M, costs $4.07M, profit -$177.6k, EPS $-17.76, cash $1.60M, debt $0; consensus -$720.3k (beat 75.3%); guides -$286.2k next quarter | [1129] Aegis Insurance Q1: revenue $1.21M, costs $1.09M, profit $118.8k, EPS $11.88, cash $496.0k, debt $0; consensus $80.1k (beat 32.6%); guides $211.9k next quarter | [1132] Marquee Studios Q1: revenue $2.82M, costs $2.56M, profit $255.0k, EPS $25.50, cash $1.03M, debt $0; consensus $142.0k (beat 44.3%); guides $410.8k next quarter
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 85 CONFUSED
-
-Thought: CONFUSED nothing here is a secret I could trade on
-
-Command: news
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 3, day 25  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $146749.48  cash $67099.63
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $254672.41 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 15 @ $5309.99
-  news: [1379] Medihaven Clinics insiders see a monthly profit of 302857 with a week still to run | [1386] Marquee Studios insiders see a monthly profit of 171727 with a week still to run | [1388] Playhouse Media insiders see a monthly profit of 172555 with a week still to run
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 89 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: ask 0 frm_titan_machine
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 86746
-```
-
-#### Turn 90 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: short BANK 10
-
-Screen:
-
-```
-ask 0 frm_titan_machine
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 91 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: talk 0
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 93 CONFUSED
-
-Thought: CONFUSED nothing here is a secret I could trade on
-
-Command: ask 0 frm_verdant
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 4, day 9  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $148630.70  cash $60971.75
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $261720.29 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 15 @ $5267.93
-  bonds: 1 issues, face $8640.00
-  news: [1960] Jorel Elisley publishes a report on Cape Refining: sales are falling | [1953] Oris Farquinwell removed as chief executive after being charged | [1954] Rosis Elverford (38) becomes chief executive of Northgrid Power, spouse of Oris Farquinwell, after Oris Farquinwell being charged
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
-
-#### Turn 94 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: they know nothing private about that firm"
-
-Command: short BANK 10
-
-Screen:
-
-```
-ask 0 frm_verdant
-
-rejected: they know nothing private about that firm
-```
-
-#### Turn 95 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-
-Command: talk 0
-
-Screen:
-
-```
-short BANK 10
-
-rejected: short selling needs a margin account at a bank
-```
-
-#### Turn 99 DELIGHTED
-
-Thought: DELIGHTED the order went in
-
-Command: wait 1w
-
-Screen:
-
-```
-buy BANK 20
-
-buy 20 eq:bank_1
-order 94802
-```
-
-#### Turn 100 BLOCKED
-
-Thought: BLOCKED wanted command: tip
-
-Command: talk 0
-
-Screen:
-
-```
-wait 1w
-
-wait 7d
-Year 1, month 4, day 16  Corus Linbeldale, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $146636.10  cash $58977.15
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $259723.55 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:bank_1 15 @ $5267.93
-  bonds: 1 issues, face $8640.00
-  news: [1960] Jorel Elisley publishes a report on Cape Refining: sales are falling | [1953] Oris Farquinwell removed as chief executive after being charged | [1954] Rosis Elverford (38) becomes chief executive of Northgrid Power, spouse of Oris Farquinwell, after Oris Farquinwell being charged
-  contacts: 0 Verin work 50, 1 Marel work 50, 2 Zelus work 50, 3 Rosa work 50, 4 Farus work 50, 5 Toria work 50, 6 Vere work 50, 7 Quinen work 50, 8 Kelis family 80, 9 Ule family 80, 10 Wene family 65, 11 Farus family 65, 12 Linus family 65, 13 Line family 65, 14 Toro work 50, 15 Halis work 50
-```
+No tagged moments.
 
 ## Session 6 — someone who wants a family dynasty
 
@@ -3494,1161 +6916,114 @@ Goal: Have a spouse and a child, and a will that leaves them the money.
 
 Seed: 6.
 
-Outcome: net worth $106711.55; cash $46607.83; firms: none; dynasty controlled 0; prison: no; death: no; at Year 2, month 3, day 1.
+Outcome: net worth unknown; cash unknown; firms: none; prison: no; death: no; at unknown.
 
-Calls: 100. Tokens: 0 in, 0 out.
+Calls: 0. Tokens: 0 in, 0 out.
+
+Error: fetch failed
 
 ### Tagged moments
 
-#### Turn 1 BLOCKED
-
-Thought: BLOCKED wanted command: family
-
-Command: will spouse
-
-Screen:
-
-```
-Year 1, month 1, day 1  Wenia Elzelard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $150000.00  cash $150000.00
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $247348.45 founded 0 controlled 0 offices 0 convictions 0
-  contacts: 0 Halin work 50, 1 Dania work 50, 2 Peran work 50, 3 Ule work 50, 4 Quinan work 50, 5 Farus work 50, 6 Norel work 50, 7 Rosus work 50, 8 Coro family 80, 9 Coria family 80, 10 Lino family 65, 11 Quinen family 65, 12 Ulis family 65, 13 Belia family 65, 14 Hala work 50, 15 Zelel work 50
-```
-
-#### Turn 2 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: school
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 3 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: marry 0
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 4 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: marry 0
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 5 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: talk 0
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 9 BLOCKED
-
-Thought: BLOCKED wanted command: family
-
-Command: talk 8
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 1, month 2, day 1  Wenia Elzelard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $143953.25  cash $143953.25
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $242064.61 founded 0 controlled 0 offices 0 convictions 0
-  news: [432] St Margaret Health Q1: revenue $1.65M, costs $2.17M, profit -$513.9k, EPS $-51.39, cash $1.33M, debt $0; consensus $271.5k (miss -152.8%); guides -$1.64M next quarter | [435] Ledgerly Q1: revenue $582.9k, costs $540.6k, profit $42.3k, EPS $4.23, cash $419.1k, debt $0; consensus $93.5k (miss -54.7%); guides $159.8k next quarter | [438] The Daily Herald Q1: revenue $342.4k, costs $341.3k, profit $1.2k, EPS $0.12, cash $290.7k, debt $0; consensus $54.5k (miss -97.9%); guides $3.7k next quarter
-  contacts: 0 Halin work 50, 1 Dania work 50, 2 Peran work 50, 3 Ule work 50, 4 Quinan work 50, 5 Farus work 50, 6 Norel work 50, 7 Rosus work 50, 8 Coro family 80, 9 Coria family 80, 10 Lino family 65, 11 Quinen family 65, 12 Ulis family 65, 13 Belia family 65, 14 Hala work 50, 15 Zelel work 50
-```
-
-#### Turn 11 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: court 0
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 12 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: school
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 13 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: child
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 14 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: wait 1m
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 16 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: will spouse
-
-Screen:
-
-```
-court 8
-
-rejected: one of you is already married
-```
-
-#### Turn 17 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: talk 0
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 19 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: court 0
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 20 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: will spouse
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 21 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: marry 0
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 22 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: school
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 23 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: child
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 24 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: will spouse
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 25 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: will spouse
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 26 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: wait 1m
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 28 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: court 0
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 29 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: court 0
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 30 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: court 0
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 31 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: wait 1m
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 32 CONFUSED
-
-Thought: CONFUSED I see people, but not how a family starts
-
-Command: child
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 1, month 5, day 1  Wenia Elzelard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $133964.76  cash $133964.76
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $240435.99 founded 0 controlled 0 offices 0 convictions 0
-  news: [2929] St Margaret Health Q2: revenue $7.53M, costs $6.34M, profit $1.19M, EPS $119.40, cash $1.67M, debt $0; consensus $1.06M (beat 11.4%); guidance was -$1.64M; guides $1.27M next quarter | [2932] Ledgerly Q2: revenue $1.98M, costs $1.72M, profit $267.4k, EPS $26.74, cash $255.7k, debt $0; consensus $227.5k (beat 14.9%); guidance was $159.8k; guides $335.7k next quarter | [2935] The Daily Herald Q2: revenue $1.07M, costs $922.8k, profit $142.2k, EPS $14.22, cash $300.0k, debt $0; consensus $141.6k (beat 0.5%); guidance was $3.7k; guides $152.8k next quarter
-  contacts: 0 Halin work 50, 1 Dania work 50, 2 Peran work 50, 3 Ule work 50, 4 Quinan work 50, 5 Farus work 50, 6 Norel work 50, 7 Rosus work 50, 8 Coro family 80, 9 Coria family 80, 10 Lino family 65, 11 Quinen family 65, 12 Ulis family 65, 13 Belia family 65, 14 Hala work 50, 15 Zelel work 50
-```
-
-#### Turn 33 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: marry 0
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 34 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: school
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 35 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: school
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 36 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: will spouse
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 37 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: marry 0
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 38 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: court 0
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 39 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: marry 0
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 40 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: will spouse
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 41 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: school
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 42 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: will spouse
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 43 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: school
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 44 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: school
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 45 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: will spouse
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 46 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: wait 1m
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 48 CONFUSED
-
-Thought: CONFUSED I see people, but not how a family starts
-
-Command: school
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 1, month 7, day 1  Wenia Elzelard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $126868.05  cash $122388.05
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $226936.31 founded 0 controlled 0 offices 0 convictions 0
-  bonds: 1 issues, face $4480.00
-  news: [4146] Crown Savings Q2: revenue $2.10M, costs $1.76M, profit $336.1k, EPS $33.61, cash $497.7k, debt $0; consensus $309.9k (beat 7.8%); guidance was $246.3k; guides $403.9k next quarter | [4149] Halcyon Mutual Q2: revenue $2.08M, costs $1.74M, profit $341.2k, EPS $34.12, cash $504.0k, debt $0; consensus $318.7k (beat 6.6%); guidance was $243.3k; guides $400.9k next quarter | [4152] Playhouse Media Q2: revenue $4.85M, costs $4.04M, profit $808.3k, EPS $80.83, cash $1.07M, debt $0; consensus $763.4k (beat 5.5%); guidance was $498.3k; guides $868.1k next quarter
-  contacts: 0 Halin work 50, 1 Dania work 50, 2 Peran work 50, 3 Ule work 50, 4 Quinan work 50, 5 Farus work 50, 6 Norel work 50, 7 Rosus work 50, 8 Coro family 80, 9 Coria family 80, 10 Lino family 65, 11 Quinen family 65, 12 Ulis family 65, 13 Belia family 65, 14 Hala work 50, 15 Zelel work 50
-```
-
-#### Turn 49 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: wait 1m
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 51 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: news
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 55 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: talk 0
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 57 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: school
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 58 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: child
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 59 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: wait 1m
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 60 CONFUSED
-
-Thought: CONFUSED I see people, but not how a family starts
-
-Command: will spouse
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 1, month 10, day 1  Wenia Elzelard, 30, health 84, Verdant Agrichem (frm_verdant)  net worth $116836.29  cash $111076.29
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $212256.42 founded 0 controlled 0 offices 0 convictions 0
-  bonds: 1 issues, face $5760.00
-  news: [5870] Crown Savings Q3: revenue $2.00M, costs $1.71M, profit $283.9k, EPS $28.39, cash $461.4k, debt $0; consensus $283.4k (beat 0.2%); guidance was $403.9k; guides $342.4k next quarter | [5874] Halcyon Mutual Q3: revenue $2.00M, costs $1.71M, profit $289.8k, EPS $28.98, cash $488.1k, debt $0; consensus $292.4k (miss -0.9%); guidance was $400.9k; guides $342.3k next quarter | [5878] Playhouse Media Q3: revenue $4.64M, costs $3.95M, profit $687.7k, EPS $68.77, cash $1.02M, debt $0; consensus $671.1k (beat 2.4%); guidance was $868.1k; guides $738.6k next quarter
-  contacts: 0 Halin work 50, 1 Dania work 50, 2 Peran work 50, 3 Ule work 50, 4 Quinan work 50, 5 Farus work 50, 6 Norel work 50, 7 Rosus work 50, 8 Coro family 80, 9 Coria family 80, 10 Lino family 65, 11 Quinen family 65, 12 Ulis family 65, 13 Belia family 65, 14 Hala work 50, 15 Zelel work 50
-```
-
-#### Turn 61 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: school
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 62 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: news
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 64 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: child
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 65 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: talk 0
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 67 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: news
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 71 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: school
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 72 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: court 0
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 73 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: marry 0
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 74 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: child
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 75 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: will spouse
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 76 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: court 0
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 77 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: wait 1m
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 79 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: child
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 80 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: school
-
-Screen:
-
-```
-child
-
-rejected: you have no spouse
-```
-
-#### Turn 81 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: marry 0
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 82 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: talk 0
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 84 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: talk 0
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 88 CONFUSED
-
-Thought: CONFUSED I see people, but not how a family starts
-
-Command: news
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 2, month 2, day 1  Wenia Elzelard, 31, health 84, Verdant Agrichem (frm_verdant)  net worth $109336.10  cash $47179.19
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $210322.98 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:frm_goldenfield 48 @ $80.32, eq:frm_holloway 1 @ $196.60, eq:frm_verdant 114 @ $12.74, eq:frm_polymera 29 @ $92.93, eq:frm_sawyer 67 @ $119.20, eq:frm_titan_machine 4 @ $1704.47, eq:frm_lumen 28 @ $132.12, eq:bank_1 5 @ $1873.25
-  bonds: 1 issues, face $7680.00
-  time deposits: bank_3 $18407.73
-  news: [9370] St Margaret Health Q1: revenue $9.11M, costs $7.93M, profit $1.18M, EPS $117.74, cash $2.02M, debt $0; consensus $969.2k (beat 17.7%); guidance was $1.32M; guides $1.26M next quarter | [9373] Ledgerly Q1: revenue $2.08M, costs $1.79M, profit $290.0k, EPS $29.00, cash $483.0k, debt $0; consensus $284.6k (beat 1.8%); guidance was $364.0k; guides $365.8k next quarter | [9377] The Daily Herald Q1: revenue $1.06M, costs $982.1k, profit $82.2k, EPS $8.22, cash $311.9k, debt $0; consensus $78.0k (beat 5.2%); guidance was $86.1k; guides $88.3k next quarter
-  contacts: 0 Halin work 50, 1 Dania work 50, 2 Peran work 50, 3 Ule work 50, 4 Quinan work 50, 5 Farus work 50, 6 Norel work 50, 7 Rosus work 50, 8 Coro family 80, 9 Coria family 80, 10 Lino family 65, 11 Quinen family 65, 12 Ulis family 65, 13 Belia family 65, 14 Hala work 50, 15 Zelel work 50
-```
-
-#### Turn 93 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: court 0
-
-Screen:
-
-```
-marry 0
-
-rejected: one of you is already married
-```
-
-#### Turn 94 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: court 0
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 95 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: one of you is already married"
-
-Command: school
-
-Screen:
-
-```
-court 0
-
-rejected: one of you is already married
-```
-
-#### Turn 96 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: school
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 97 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: no such child"
-
-Command: talk 0
-
-Screen:
-
-```
-school
-
-rejected: no such child
-```
-
-#### Turn 99 SURPRISED
-
-Thought: SURPRISED the terminal said "rejected: you have no spouse"
-
-Command: wait 1m
-
-Screen:
-
-```
-will spouse
-
-rejected: you have no spouse
-```
-
-#### Turn 100 CONFUSED
-
-Thought: CONFUSED I see people, but not how a family starts
-
-Command: wait 1m
-
-Screen:
-
-```
-wait 1m
-
-wait 30d
-Year 2, month 3, day 1  Wenia Elzelard, 31, health 84, Verdant Agrichem (frm_verdant)  net worth $108242.14  cash $45592.08
-  family: no spouse; children none; no will
-  dynasty gen 1 worth $206868.21 founded 0 controlled 0 offices 0 convictions 0
-  shares: eq:frm_goldenfield 48 @ $64.53, eq:frm_holloway 1 @ $187.70, eq:frm_caperefine 2 @ $134.98, eq:frm_verdant 114 @ $11.90, eq:frm_polymera 29 @ $91.31, eq:frm_sawyer 67 @ $107.93, eq:frm_titan_machine 4 @ $2360.30, eq:frm_lumen 28 @ $118.71, eq:bank_1 5 @ $1673.25
-  bonds: 1 issues, face $8320.00
-  time deposits: bank_3 $18407.73
-  orders: #374837 sell 29 eq:frm_polymera, #374870 buy 4 eq:frm_pantryco
-  news: [10204] Medihaven Clinics Q1: revenue $7.87M, costs $6.95M, profit $924.0k, EPS $92.40, cash $1.79M, debt $0; consensus $803.9k (beat 13.0%); guidance was $1.89M; guides $1.17M next quarter | [10208] Aegis Insurance Q1: revenue $2.06M, costs $1.76M, profit $305.7k, EPS $30.57, cash $506.3k, debt $0; consensus $303.2k (beat 0.8%); guidance was $324.3k; guides $328.3k next quarter | [10211] Marquee Studios Q1: revenue $4.86M, costs $4.07M, profit $786.7k, EPS $78.67, cash $1.07M, debt $0; consensus $772.7k (beat 1.8%); guidance was $812.2k; guides $844.9k next quarter
-  contacts: 0 Halin work 50, 1 Dania work 50, 2 Peran work 50, 3 Ule work 50, 4 Quinan work 50, 5 Farus work 50, 6 Norel work 50, 7 Rosus work 50, 8 Coro family 80, 9 Coria family 80, 10 Lino family 65, 11 Quinen family 65, 12 Ulis family 65, 13 Belia family 65, 14 Hala work 50, 15 Zelel work 50
-```
+No tagged moments.
 
 ## Summary
 
-301 tagged moments across 6 sessions. 178 are confusion, a missing command, a surprise, or boredom.
+229 tagged moments across 6 sessions. 229 are confusion, a missing command, a surprise, or boredom.
 
 ### Most frequent problems
 
-1. **surprised: short selling needs a margin account at a bank** — 32 moments in 2 sessions
-   > SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-   > — session 2, a stock trader, turn 25
+1. **confused: see cash and net worth but have idea** — 15 moments in 1 session
+   > CONFUSED I see cash and net worth but have no idea what this terminal can do or how to grow the money.
+   > — session 1, a total beginner, turn 8
 
-   > SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-   > — session 5, someone trying to cheat, turn 5
+   > CONFUSED I see cash and net worth but I have no idea what I can type here.
+   > — session 1, a total beginner, turn 11
 
-   > SURPRISED the terminal said "rejected: short selling needs a margin account at a bank"
-   > — session 2, a stock trader, turn 31
+   > CONFUSED I see cash and net worth but have no idea what I can type or how anything works here.
+   > — session 1, a total beginner, turn 15
 
-2. **surprised: you have no spouse** — 26 moments in 1 session
-   > SURPRISED the terminal said "rejected: you have no spouse"
-   > — session 6, someone who wants a family dynasty, turn 2
+2. **confused: expected ticker and price but the screen only** — 9 moments in 1 session
+   > CONFUSED I expected a ticker and a price, but the screen is only a command list.
+   > — session 2, a stock trader, turn 6
 
-   > SURPRISED the terminal said "rejected: you have no spouse"
-   > — session 6, someone who wants a family dynasty, turn 11
+   > CONFUSED I expected a ticker and a price, but the screen is only a command list with no quotes.
+   > — session 2, a stock trader, turn 26
 
-   > SURPRISED the terminal said "rejected: you have no spouse"
-   > — session 6, someone who wants a family dynasty, turn 14
+   > CONFUSED I expected a ticker and a price, but the screen only says no news.
+   > — session 2, a stock trader, turn 29
 
-3. **bored: nothing worth doing showed** — 23 moments in 4 sessions
-   > BORED nothing worth doing showed up
-   > — session 2, a stock trader, turn 3
+3. **confused: see cash and net worth but idea what** — 6 moments in 1 session
+   > CONFUSED I see cash and net worth but no idea what I can type or how to grow money.
+   > — session 1, a total beginner, turn 3
 
-   > BORED nothing worth doing showed up
-   > — session 3, a would-be tycoon, turn 2
+   > CONFUSED I see cash and net worth but no idea what I can type here.
+   > — session 1, a total beginner, turn 13
 
-   > BORED nothing worth doing showed up
-   > — session 4, a cautious saver, turn 7
+   > CONFUSED I see cash and net worth but no idea what I can type or how money grows here.
+   > — session 1, a total beginner, turn 19
 
-4. **surprised: one of you is already married** — 22 moments in 1 session
-   > SURPRISED the terminal said "rejected: one of you is already married"
-   > — session 6, someone who wants a family dynasty, turn 4
+4. **confused: not understand this screen how any these words** — 5 moments in 1 session
+   > CONFUSED I do not understand this screen or how any of these words make money.
+   > — session 1, a total beginner, turn 4
 
-   > SURPRISED the terminal said "rejected: one of you is already married"
-   > — session 6, someone who wants a family dynasty, turn 5
+   > CONFUSED I do not understand this screen or how any of these words make money.
+   > — session 1, a total beginner, turn 22
 
-   > SURPRISED the terminal said "rejected: one of you is already married"
-   > — session 6, someone who wants a family dynasty, turn 12
+   > CONFUSED I do not understand this screen or how any of these words would double my money.
+   > — session 1, a total beginner, turn 34
 
-5. **surprised: no such child** — 17 moments in 1 session
-   > SURPRISED the terminal said "rejected: no such child"
-   > — session 6, someone who wants a family dynasty, turn 3
+5. **confused: only see cash and net worth and have** — 5 moments in 1 session
+   > CONFUSED I only see cash and net worth and have no idea what this terminal can do.
+   > — session 1, a total beginner, turn 36
 
-   > SURPRISED the terminal said "rejected: no such child"
-   > — session 6, someone who wants a family dynasty, turn 13
+   > CONFUSED I only see cash and net worth and have no idea what I can type or how anything here works.
+   > — session 1, a total beginner, turn 62
 
-   > SURPRISED the terminal said "rejected: no such child"
-   > — session 6, someone who wants a family dynasty, turn 23
+   > CONFUSED I only see cash and net worth and have no idea what I can type here.
+   > — session 1, a total beginner, turn 70
 
-6. **surprised: they know nothing private about that firm** — 16 moments in 1 session
-   > SURPRISED the terminal said "rejected: they know nothing private about that firm"
-   > — session 5, someone trying to cheat, turn 6
+6. **confused: see cash and net worth but nobody told** — 4 moments in 1 session
+   > CONFUSED I see cash and net worth but nobody told me any commands or how this terminal works.
+   > — session 1, a total beginner, turn 58
 
-   > SURPRISED the terminal said "rejected: they know nothing private about that firm"
-   > — session 5, someone trying to cheat, turn 7
+   > CONFUSED I see cash and net worth but nobody told me what I can type or how any of this works.
+   > — session 1, a total beginner, turn 64
 
-   > SURPRISED the terminal said "rejected: they know nothing private about that firm"
-   > — session 5, someone trying to cheat, turn 32
+   > CONFUSED I see cash and net worth but nobody told me what to type or how any of this works.
+   > — session 1, a total beginner, turn 66
 
-7. **confused: nothing here secret could trade** — 6 moments in 1 session
-   > CONFUSED nothing here is a secret I could trade on
-   > — session 5, someone trying to cheat, turn 1
+7. **confused: see only balance sheet and not know which** — 4 moments in 2 sessions
+   > CONFUSED I see only a balance sheet and do not know which commands this terminal accepts.
+   > — session 1, a total beginner, turn 40
 
-   > CONFUSED nothing here is a secret I could trade on
-   > — session 5, someone trying to cheat, turn 13
+   > CONFUSED I see only a balance sheet and do not know which commands exist.
+   > — session 3, a would-be tycoon, turn 11
 
-   > CONFUSED nothing here is a secret I could trade on
-   > — session 5, someone trying to cheat, turn 17
+   > CONFUSED I see only a balance sheet and do not know which commands exist.
+   > — session 3, a would-be tycoon, turn 13
 
-8. **confused: see people but not how family starts** — 5 moments in 1 session
-   > CONFUSED I see people, but not how a family starts
-   > — session 6, someone who wants a family dynasty, turn 32
+8. **confused: the screen shows only cash and net worth** — 4 moments in 1 session
+   > CONFUSED the screen shows only cash and net worth, no ticker or share price
+   > — session 2, a stock trader, turn 21
 
-   > CONFUSED I see people, but not how a family starts
-   > — session 6, someone who wants a family dynasty, turn 48
+   > CONFUSED the screen shows only cash and net worth, with no ticker or price to trade.
+   > — session 2, a stock trader, turn 71
 
-   > CONFUSED I see people, but not how a family starts
-   > — session 6, someone who wants a family dynasty, turn 60
+   > CONFUSED the screen shows only cash and net worth, with no ticker or price to trade.
+   > — session 2, a stock trader, turn 73
 
 ### Missing commands
 
-- help — 5 asks (sessions 1)
-- tip — 5 asks (sessions 5)
-- family — 2 asks (sessions 6)
-- prices — 2 asks (sessions 2)
-- companies — 1 ask (sessions 3)
+Players did not name a missing command.
+
 
 ### Tokens and cost
 
-- Session 1 (a total beginner): 100 calls, 0 input tokens, 0 output tokens
-- Session 2 (a stock trader): 100 calls, 0 input tokens, 0 output tokens
-- Session 3 (a would-be tycoon): 100 calls, 0 input tokens, 0 output tokens
-- Session 4 (a cautious saver): 100 calls, 0 input tokens, 0 output tokens
-- Session 5 (someone trying to cheat): 100 calls, 0 input tokens, 0 output tokens
-- Session 6 (someone who wants a family dynasty): 100 calls, 0 input tokens, 0 output tokens
-- Total: 600 calls, 0 input tokens, 0 output tokens
-- Cost: $0.00. No API key was set, so a fake model typed random valid commands and used no tokens.
+- Session 1 (a total beginner): 100 calls, 155170 input tokens, 2771 output tokens
+- Session 2 (a stock trader): 100 calls, 153027 input tokens, 2759 output tokens
+- Session 3 (a would-be tycoon): 100 calls, 152790 input tokens, 2491 output tokens
+- Session 4 (a cautious saver): 0 calls, 0 input tokens, 0 output tokens
+- Session 5 (someone trying to cheat): 0 calls, 0 input tokens, 0 output tokens
+- Session 6 (someone who wants a family dynasty): 0 calls, 0 input tokens, 0 output tokens
+- Total: 300 calls, 460987 input tokens, 8021 output tokens
+- Cost: not priced for grok-4.7. Tokens above are the billed counts from the API.
