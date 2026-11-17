@@ -282,6 +282,7 @@ function rebuildSavers(w: World): void {
   if (st.saverMonth === w.month && st.savers.length) return;
   const ids: number[] = [];
   for (let i = 0; i < P.n; i++) {
+    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if ((P.flags[i] & 1) === 0 || w.day < P.fearUntil[i]) continue;
     const inc = P.incEma[i];
     if (!(inc > 0)) continue;
@@ -380,6 +381,7 @@ function fillPeople(w: World, b: Bond, bucket: number, face: number, px: number,
   for (let step = 0; step < n && left >= LOT && seen < 400; step++) {
     const i = st.savers[(start + step) % n];
     st.saverAt = (start + step + 1) % n;
+    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if ((P.flags[i] & 1) === 0) continue;
     if (bucketOf(appetite(P.cY[i], P.resil[i])) !== bucket) continue;
     seen++;
@@ -874,6 +876,7 @@ function peopleOrders(w: World): void {
   for (let k = 0; k < 8; k++) {
     const i = st.savers[st.saverAt % n];
     st.saverAt = (st.saverAt + 1) % n;
+    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if ((P.flags[i] & 1) === 0) continue;
     const a = appetite(P.cY[i], P.resil[i]);
     const tenor: Tenor = a > 0.66 ? '10y' : a > 0.4 ? '2y' : '3m';

@@ -493,8 +493,13 @@ function tradeBook(w: World, st: CmdState, b: Book, active: Set<string>, halted:
       }
       if (actor === CARRY && t !== near && t !== far) want = 0;
       const cur = netOf(w, actor, t);
+      // The player's future stays open until they close it, or the month expires.
+      const who = (w.state.player as { who?: number } | undefined)?.who ?? -1;
+      const hold = want === 0 && cur !== 0 && who >= 0 && actor === s.P.id(who);
+      if (hold) want = cur;
       if (want === 0 && cur === 0) continue;
       want = clampTarget(w, s, st, actor, b, t, want, plan);
+      if (hold) want = cur;
       let delta = want - cur;
       if (delta !== 0 && active.has(actor)) {
         const step = Math.max(1, Math.round(Math.abs(delta) * 0.45));

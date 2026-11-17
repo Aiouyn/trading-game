@@ -566,6 +566,8 @@ export function openScenario(id: string, opts?: { cash?: number; difficulty?: nu
 function controls(w: World, person: number, f: Firm): boolean {
   if (f.closed) return false;
   if (f.ceo === person) return true;
+  const chair = (w.state.corporate as { chair?: number[] } | undefined)?.chair;
+  if (chair && f.idx < chair.length && chair[f.idx] === person) return true;
   const issued = w.ledger.issued.get('eq:' + f.id) ?? 0;
   if (issued <= 0) return false;
   return w.ledger.balance(econ(w).P.id(person), 'eq:' + f.id) * 2 > issued;

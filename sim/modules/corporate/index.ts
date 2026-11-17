@@ -693,7 +693,9 @@ function pickGood(s: EconState, sector: string): string | undefined {
 }
 
 function controls(w: World, person: number, f: Firm): boolean {
-  return f.ceo === person || seat(ready(w), f) === person;
+  if (f.ceo === person || seat(ready(w), f) === person) return true;
+  const shares = sharesOf(w, f);
+  return shares > 0 && blockOf(w, person, f) * 2 > shares;
 }
 
 /** Shares the person holds, plus shares held by firms they run. */
@@ -988,20 +990,23 @@ export function tenderOffer(w: World, person: number, key: string, cents: number
   }
   const gaining = yes.reduce((a, [, n]) => a + n, 0);
   if (!(total > 0) || (owned + gaining) * 2 <= total) return { why: `shareholders of ${target.name} decline ${dollars(price)}` };
-  const cause = w.events.emit('firm.bid', `${s.P.name(person)} bids ${dollars(price)} a share for ${target.name}`, rootOf(s, target), pid);
+  const root = rootOf(s, target);
+  let cause = root;
   if (paper) {
     if (!run) return { why: 'a share bid has to come from a listed firm you run' };
     const printed = Math.max(1, Math.floor(sharesOf(w, run) * 0.2));
     const bpx = blockPrice(w, 'eq:' + run.id, printed);
     if (!(bpx > 0)) return { why: `${run.name} has no bid for the shares you would print` };
+    cause = w.events.emit('firm.bid', `${s.P.name(person)} bids ${dollars(price)} a share for ${target.name}`, root, pid);
     for (const [id, n] of yes) {
       const give = Math.max(1, Math.round(n * price / bpx));
       L.issue('eq:' + run.id, id, give, 'tender.paper', cause);
       if (!L.move('eq:' + target.id, id, run.id, n, 'tender.shares', cause)) return { why: 'the shares did not come across' };
     }
   } else {
-    const from = fundBid(w, person, run, gaining * price, cause);
+    const from = fundBid(w, person, run, gaining * price, root);
     if (!from) return { why: `${dollars(gaining * price)} is more than you can raise` };
+    cause = w.events.emit('firm.bid', `${s.P.name(person)} bids ${dollars(price)} a share for ${target.name}`, root, pid);
     for (const [id, n] of yes) {
       if (!pay(w, from, id, n * price, 'tender.cash', cause)) return { why: 'the cash did not go out' };
       if (!L.move('eq:' + target.id, id, from, n, 'tender.shares', cause)) return { why: 'the shares did not come across' };

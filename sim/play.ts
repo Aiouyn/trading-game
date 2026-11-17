@@ -206,15 +206,16 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!t[1] || t[1].toLowerCase() === 'list') return { kind: 'board', op: 'list' };
     const op = t[1].toLowerCase();
     if (op === 'chief') {
-      const slot = Number(t[3]);
-      if (!t[2] || !Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: board chief FIRM SLOT' };
-      return { kind: 'board', op: 'chief', firm: t[2], slot };
+      if (!t[2] || !t[3]) return { error: 'usage: board chief FIRM PERSON' };
+      const person = t.slice(3).join(' ');
+      const slot = /^\d+$/.test(person) ? Number(person) : undefined;
+      return { kind: 'board', op: 'chief', firm: t[2], slot, person };
     }
     if (op === 'merge' || op === 'sell') {
       if (!t[2] || !t[3]) return { error: op === 'merge' ? 'usage: board merge FIRM INTO' : 'usage: board sell FIRM BUYER' };
       return { kind: 'board', op, firm: t[2], into: t[3] };
     }
-    return { error: 'usage: board | board chief FIRM SLOT | board merge FIRM INTO | board sell FIRM BUYER' };
+    return { error: 'usage: board | board chief FIRM PERSON | board merge FIRM INTO | board sell FIRM BUYER' };
   }
   if (head === 'court' || head === 'marry') {
     const slot = t[1] === undefined ? -1 : Number(t[1]);
@@ -292,6 +293,12 @@ export function parseCommand(line: string, employer: string): Command | { error:
     const on = t[1]?.toLowerCase();
     if (on !== 'on' && on !== 'off') return { error: 'usage: hints on|off' };
     return { kind: 'hints', on: on === 'on' };
+  }
+  if (head === 'sheet') return { kind: 'sheet' };
+  if (head === 'desk') return { kind: 'desk' };
+  if (head === 'quote') {
+    if (!t[1]) return { error: 'usage: quote FIRM' };
+    return { kind: 'quote', firm: t.slice(1).join(' ') };
   }
   return { error: `unknown command ${head}. ${suggestCommand(head)}` };
 }

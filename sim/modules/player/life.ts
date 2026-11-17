@@ -186,9 +186,22 @@ function hoverOf(id: StatId, raw: Raw): string {
   }
 }
 
+function weeksOf(weeks: number): string {
+  if (weeks >= 99.5) return '99+ weeks of costs';
+  const n = Math.max(0, Math.round(weeks));
+  return `${n} ${n === 1 ? 'week' : 'weeks'} of costs`;
+}
+
 function noteOf(id: StatId, raw: Raw): string {
-  if (id === 'cash') return `${raw.weeks < 100 ? raw.weeks.toFixed(0) : '99+'}w`;
-  return '';
+  switch (id) {
+    case 'worth': return `(${dollars(raw.worth)})`;
+    case 'cash': return `(${dollars(raw.cash)} cash, ${weeksOf(raw.weeks)})`;
+    case 'stress': return `(${Math.round(raw.stress)})`;
+    case 'health': return `(${Math.round(raw.health)})`;
+    case 'reputation': return `(${Math.round(raw.reputation)})`;
+    case 'attention': return `(${Math.round(raw.attention)})`;
+    default: { const n: never = id; return n; }
+  }
 }
 
 function causeFor(w: World, i: number, id: StatId, mem: LifeMemory): number {

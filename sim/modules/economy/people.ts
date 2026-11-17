@@ -460,6 +460,8 @@ export function yearlyLifePass(w: World, s: EconState): void {
   let deaths = 0, births = 0, pairs = 0;
   const n0 = P.n;
   const single: number[] = [];
+  // The player marries only by their own command. Illness and death still happen.
+  const player = (w.state.player as { who?: number } | undefined)?.who ?? -1;
   for (let i = 0; i < n0; i++) {
     if (!P.alive(i)) continue;
     const a = P.age(w, i);
@@ -471,7 +473,7 @@ export function yearlyLifePass(w: World, s: EconState): void {
       P.flags[i] |= RETIRED; leaveJob(s, i);
       if (f && wasCeo) succession(w, s, f, i, 'retired', yearEv);
     }
-    if (P.spouse[i] < 0 && a >= 20 && a <= 50 && r.chance(1 / 3)) single.push(i);
+    if (i !== player && P.spouse[i] < 0 && a >= 20 && a <= 50 && r.chance(1 / 3)) single.push(i);
   }
   single.sort((a, b) => P.born[a] - P.born[b] || a - b);
   const taken = new Uint8Array(n0);
@@ -506,7 +508,7 @@ export function yearlyLifePass(w: World, s: EconState): void {
   s.laborForce = lf;
   // The stock market's household investors are the 300 richest living people.
   const rich: number[] = [];
-  for (let i = 0; i < P.n; i++) if (P.alive(i)) rich.push(i);
+  for (let i = 0; i < P.n; i++) if (P.alive(i) && i !== player) rich.push(i);
   rich.sort((a, b) => L.balS(P.slot[b], DEP) - L.balS(P.slot[a], DEP) || a - b);
   s.investors = rich.slice(0, 300).map((p, k) => {
     const base = 0.6 - 0.3 * k / 300;

@@ -6,11 +6,11 @@ import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
 import { appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { launchCoin, orderCoin } from '../crypto/index.ts';
-import { CEO_POSITION } from '../economy/content.ts';
-import { BANK, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
+import { CEO_POSITION, GOODS } from '../economy/content.ts';
+import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
-import { borrowShares, cancelOrder, markHolding, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
+import { borrowShares, cancelOrder, markHolding, markPlayerTrading, pledgeValue, returnShares, submitOrder } from '../markets/index.ts';
 import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
@@ -114,7 +114,10 @@ export type Command =
   | { kind: 'ceo'; firm: string; op: 'report' | 'price' | 'hires' | 'dividend' | 'invest'; value?: number; auto?: boolean }
   | { kind: 'ipo'; firm: string; fraction: number }
   | { kind: 'bid'; firm: string; cents: number; multiple: number; paper: boolean }
-  | { kind: 'board'; op: 'list' | 'chief' | 'merge' | 'sell'; firm?: string; slot?: number; into?: string }
+  | { kind: 'board'; op: 'list' | 'chief' | 'merge' | 'sell'; firm?: string; slot?: number; into?: string; person?: string }
+  | { kind: 'sheet' }
+  | { kind: 'desk' }
+  | { kind: 'quote'; firm: string }
   | { kind: 'court'; slot: number }
   | { kind: 'marry'; slot: number }
   | { kind: 'child' }
@@ -210,6 +213,8 @@ export interface PlayerView {
 }
 
 const COMMANDS: { topic: string; name: string; use: string; about: string }[] = [
+  { topic: 'markets', name: 'desk', use: 'desk', about: 'A board of every listed stock: last, change, volume, P/E and your position.' },
+  { topic: 'markets', name: 'quote', use: 'quote silicrest', about: 'Price, bid, ask, the last 20 closes, profit, staff, the top holders and the last 3 news lines.' },
   { topic: 'markets', name: 'buy', use: 'buy silicrest 10', about: 'Buy shares of a listed name.\nA trailing @ PRICE is a limit; otherwise it is a market order.' },
   { topic: 'markets', name: 'sell', use: 'sell silicrest 10', about: 'Sell shares you hold.\nA trailing @ PRICE is a limit.' },
   { topic: 'markets', name: 'short', use: 'short silicrest 10', about: 'Borrow shares and sell them.\nYou post the cash the lender requires.' },
@@ -225,7 +230,8 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'coins', name: 'launch', use: 'launch', about: 'Launch a coin of your own.\nThe market decides whether it trades.' },
   { topic: 'bank', name: 'deposit', use: 'deposit 500', about: 'Place cash in a time deposit.\nThe amount is in dollars.' },
   { topic: 'bank', name: 'withdraw', use: 'withdraw 500', about: 'Take cash back from a time deposit.\nThe amount is in dollars.' },
-  { topic: 'bank', name: 'borrow', use: 'borrow 500', about: 'Borrow cash on margin from a bank.\nYou pay it back with repay.' },
+  { topic: 'bank', name: 'sheet', use: 'sheet', about: 'Print the balance sheet.\nCash, deposits, shares, loans, futures and bonds.' },
+  { topic: 'bank', name: 'borrow', use: 'borrow 500', about: 'Open a margin account and borrow against shares.\nThe reply states the limit and the rate. sheet shows the loan.' },
   { topic: 'bank', name: 'repay', use: 'repay 500', about: 'Repay a margin loan.\nThe amount is in dollars.' },
   { topic: 'property', name: 'homes', use: 'homes', about: 'List homes by neighbourhood, with price and rent.\nHomes you own are marked, and so is the one you live in.' },
   { topic: 'property', name: 'bid', use: 'bid 12', about: 'Bid for home 12 at the asking price, or bid 12 150000 to name dollars.\nA bank lends the shortfall on the same terms as for anyone. bid FIRM 2x cash is still a takeover bid.' },
@@ -247,7 +253,7 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'company', name: 'ceo', use: 'ceo frm_north', about: 'Read how your firm is doing, or set price, hires, dividend or invest.\nceo frm_north price auto puts the usual rule back.' },
   { topic: 'company', name: 'ipo', use: 'ipo frm_north 0.4', about: 'Sell part of your stake to the public.\nThe fraction is at most 0.9.' },
   { topic: 'company', name: 'bid', use: 'bid frm_north 2x cash', about: 'Offer cash or shares for a firm.\nA number like 2x is a multiple of the last price. bid HOME is a house, not a firm.' },
-  { topic: 'company', name: 'board', use: 'board list', about: 'List the firms you can direct.\nboard chief, merge and sell move a firm you control.' },
+  { topic: 'company', name: 'board', use: 'board list', about: 'List the firms you can direct.\nboard chief FIRM PERSON names any person. merge and sell move a firm you control.' },
   { topic: 'news', name: 'news', use: 'news', about: 'Show the stories you can read.\nPrivate lines are facts not yet in the paper.' },
   { topic: 'news', name: 'why', use: 'why cash', about: 'Show the cause of a number on the status line.\nwhy price NAME, why staff, why wage and why rate work too. why 41 still takes an event number.' },
   { topic: 'news', name: 'tip', use: 'tip 4', about: 'Give a paper a fact you know. The number is the fact on a private line.\nThat is the source a journalist prints.' },
@@ -290,15 +296,6 @@ export function suggestCommand(head: string): string {
     if (d < dist || (d === dist && name < best)) { dist = d; best = name; }
   }
   return `did you mean ${best}?`;
-}
-
-function sheetLines(v: PlayerView): string[] {
-  const lines = ['Balance sheet', `  cash ${dollars(v.cash)}`, `  net worth ${dollars(v.netWorth)}`];
-  for (const d of v.deposits) lines.push(`  deposit ${d.bank} ${dollars(d.cents)}`);
-  for (const s of v.shares) lines.push(`  ${s.instr} ${s.qty} @ ${dollars(s.px)} = ${dollars(s.qty * s.px)}`);
-  for (const l of v.loans) lines.push(`  loan ${l.kind} ${dollars(l.owed)} @ ${(l.rate * 100).toFixed(2)}%`);
-  if (!v.deposits.length && !v.shares.length && !v.loans.length) lines.push('  nothing on deposit, no shares, no loan');
-  return lines;
 }
 
 function helpSymbol(v: PlayerView): string {
@@ -608,10 +605,12 @@ function spawn(w: World, playerId = DEFAULT_PLAYER): number {
   if (!st.line.includes(i)) st.line.push(i);
   st.score.push({ day: w.day, worth: Math.round(worth(w, i)) });
   sync(players);
+  if (w.state.markets) markPlayerTrading(w);
   return i;
 }
 
 export function ensurePlayer(w: World, playerId = DEFAULT_PLAYER): number {
+  if (w.state.markets) markPlayerTrading(w);
   const have = playerIndex(w, playerId);
   if (have >= 0) return have;
   return spawn(w, playerId);
@@ -638,13 +637,41 @@ function markPrice(w: World): (instr: string) => number {
   };
 }
 
+function goodUnit(s: EconState, good: string): number {
+  let n = 0, p = 0;
+  for (const f of s.firms) if (f.good === good && !f.closed) { p += f.price; n++; }
+  return n ? p / n : 0;
+}
+
+/** One share of a private firm, at book: machinery at what it costs to replace. */
+function bookShare(w: World, firmId: string): number {
+  const s = econ(w);
+  const f = s.firms.find((x) => x.id === firmId && !x.closed);
+  if (!f) return 0;
+  const sh = Math.floor(w.ledger.issued.get('eq:' + f.id) ?? 0);
+  if (sh < 1) return 0;
+  const def = GOODS[f.good];
+  const capPx = def ? 360 * s.wage / Math.max(0.01, def.prod) : 0;
+  const eq = Math.round(w.ledger.netWorth(f.id, (instr) => instr === CAPITAL ? capPx : instr.startsWith('good:') ? goodUnit(s, instr.slice(5)) : 0));
+  return eq / sh;
+}
+
+let pricingBook = false;
 function worth(w: World, i: number): number {
   const id = econ(w).P.id(i);
   const tape = markPrice(w);
   return w.ledger.netWorth(id, (instr) => {
     const qty = Math.floor(w.ledger.balance(id, instr));
     const marked = markHolding(w, id, instr, qty);
-    return marked >= 0 ? marked : tape(instr);
+    if (marked >= 0) return marked;
+    const px = tape(instr);
+    if (px > 0) return px;
+    if (pricingBook || !instr.startsWith('eq:')) return 0;
+    const f = econ(w).firms.find((x) => !x.closed && instr === 'eq:' + x.id);
+    if (!f || f.listed || (f.founder !== i && f.ceo !== i)) return 0;
+    pricingBook = true;
+    try { return bookShare(w, f.id); }
+    finally { pricingBook = false; }
   });
 }
 
@@ -764,6 +791,23 @@ function rememberWords(w: World, st: PlayerSeat, i: number): void {
   for (const s of board.stats) st.words[s.id] = s.word;
 }
 
+function stepDays(w: World, st: PlayerSeat, days: number): ActResult | undefined {
+  const people = econ(w).P;
+  for (let d = 0; d < days; d++) {
+    w.step();
+    afterDay?.(w);
+    noteClosedDay(w);
+    const bad = w.ledger.check();
+    if (bad.length) {
+      const why = bad.slice(0, 8).join('; ');
+      return { status: 'rejected', why, books: why };
+    }
+    const person = st.who;
+    if (st.over || person < 0 || person >= people.n || !people.alive(person)) break;
+  }
+  return undefined;
+}
+
 function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: ChoiceId): ActResult {
   const P = econ(w).P;
   const spec = choiceSpec(kind);
@@ -776,8 +820,8 @@ function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: Choic
     if (!firm || firm.closed) return rejected('you have no employer to pay overtime');
     const bonus = Math.round(econ(w).wage * Math.max(0.5, P.skill[i]) * 5);
     if (Math.floor(w.ledger.balance(firm.id, DEP)) < bonus) return rejected('the firm cannot pay overtime');
+    if (!pay(w, firm.id, id, bonus, 'wages', cause)) return rejected('the firm cannot pay overtime');
     const ev = w.events.emit('player.overtime', `${P.name(i)} works extra days at ${firm.name} for ${(bonus / 100).toFixed(0)}`, [cause], id);
-    if (!pay(w, firm.id, id, bonus, 'wages', ev)) return rejected('the firm cannot pay overtime');
     P.stress[i] += 28;
     st.cool.overtime = w.day + spec.cool;
     st.statEv.cash = ev;
@@ -793,9 +837,9 @@ function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: Choic
     const staff = (w.state.law as { staff?: number[] } | undefined)?.staff ?? [];
     const lawyer = staff.find((p) => p !== i && p >= 0 && p < P.n && P.alive(p));
     const named = lawyer !== undefined ? P.name(lawyer) : 'the city';
-    const ev = w.events.emit('player.lawyer', `${P.name(i)} pays ${named} ${(cost / 100).toFixed(0)} to speak to the regulator`, [cause], id);
-    const paid = lawyer !== undefined ? pay(w, id, P.id(lawyer), cost, 'player.lawyer', ev) : payGov(w, id, cost, 'player.lawyer', ev);
+    const paid = lawyer !== undefined ? pay(w, id, P.id(lawyer), cost, 'player.lawyer', cause) : payGov(w, id, cost, 'player.lawyer', cause);
     if (!paid) return rejected('not enough cash');
+    const ev = w.events.emit('player.lawyer', `${P.name(i)} pays ${named} ${(cost / 100).toFixed(0)} to speak to the regulator`, [cause], id);
     st.counsel = Math.min(80, (st.counsel || 0) + 30);
     st.cool.lawyer = w.day + spec.cool;
     st.statEv.attention = ev;
@@ -804,8 +848,8 @@ function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: Choic
     return { status: 'accepted', eventId: ev, text: `${named} takes the brief` };
   }
   const verb = kind === 'holiday' ? 'takes a month away' : kind === 'donate' ? 'gives to the city' : 'sees a doctor';
+  if (!payGov(w, id, cost, `player.${kind}`, cause)) return rejected('not enough cash');
   const ev = w.events.emit(`player.${kind}`, `${P.name(i)} ${verb} and pays ${(cost / 100).toFixed(0)}`, [cause], id);
-  if (!payGov(w, id, cost, `player.${kind}`, ev)) return rejected('not enough cash');
   st.cool[kind] = w.day + spec.cool;
   st.statEv.cash = ev;
   st.statEv.worth = ev;
@@ -813,6 +857,8 @@ function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: Choic
     P.stress[i] = Math.max(0, P.stress[i] - 80);
     st.statEv.stress = ev;
     rememberWords(w, st, i);
+    const stepped = stepDays(w, st, 30);
+    if (stepped) return stepped;
     return { status: 'accepted', eventId: ev, days: 30, text: 'a month away' };
   }
   if (kind === 'donate') {
@@ -1080,26 +1126,173 @@ function ageYear(w: World, i: number, st: PlayerSeat): void {
   }
 }
 
+/** Same spare a fund leaves a holder: most of the position stays, the rest can be lent. */
+function locateShares(w: World, actor: string, instr: string, qty: number, cause: number): { qty: number; lender: string } | undefined {
+  let lender = '', have = 0;
+  const ids = w.ledger.ids;
+  for (const [slot, n] of w.ledger.holdersS(instr)) {
+    const id = ids[slot];
+    if (!id || id === actor || !id.startsWith('p_') || n < have) continue;
+    const spare = n - Math.max(80, Math.floor(n * 0.55));
+    if (spare > have) { have = spare; lender = id; }
+  }
+  const take = Math.min(qty, Math.floor(have));
+  if (take < 1 || !lender) return undefined;
+  if (!w.ledger.move(instr, lender, actor, take, 'mkt.borrow', cause)) return undefined;
+  return { qty: take, lender };
+}
+
 function shortSell(w: World, st: PlayerSeat, id: string, instr: string, qty: number, limit: number | undefined): ActResult {
   if (!st.margin) return rejected('short selling needs a margin account at a bank');
   const stock = (w.state.markets as { stocks: { instr: string; last: number }[] }).stocks.find((s) => s.instr === instr);
   if (!stock) return rejected(`not listed ${instr}`);
   const cause = st.arrived >= 0 ? st.arrived : econ(w).macroEv;
-  const got = borrowShares(w, id, instr, qty, cause);
-  if (got < 1) return rejected('the market maker cannot lend those shares');
+  let got = borrowShares(w, id, instr, qty, cause);
+  let lender = 'fund_mm';
+  if (got < 1) {
+    const loc = locateShares(w, id, instr, qty, cause);
+    if (!loc) return rejected('the market maker cannot lend those shares');
+    got = loc.qty;
+    lender = loc.lender;
+  }
   const face = got * stock.last;
   const claim = `stkln:${id}:${instr}`;
   if (!w.ledger.instruments.has(claim)) w.ledger.define({ id: claim, kind: 'claim', issuer: id });
-  w.ledger.issue(claim, 'fund_mm', face, 'mkt.borrow', cause);
+  w.ledger.issue(claim, lender, face, 'mkt.borrow', cause);
   try {
     const orderId = submitOrder(w, id, { instr, side: 'sell', qty: got, limit });
     st.loans.push({ instr, qty: got, claim, face });
     return { status: 'accepted', orderId, fill: got, eventId: cause, text: `borrowed ${got} ${instr} and offered them` };
   } catch (e) {
-    w.ledger.redeem(claim, 'fund_mm', face, 'mkt.borrow', cause);
-    returnShares(w, id, instr, got, cause);
+    w.ledger.redeem(claim, lender, face, 'mkt.borrow', cause);
+    if (lender === 'fund_mm') returnShares(w, id, instr, got, cause);
+    else w.ledger.move(instr, id, lender, got, 'mkt.borrow', cause);
     return rejected(whyOf(e));
   }
+}
+
+function marginRate(w: World, i: number): number {
+  const s = econ(w), P = s.P;
+  const book = w.state.banking as { ln: number; lnOpen: Uint8Array; lnPerson: Int32Array; lnKind: Uint8Array; lnRate: Float64Array; owed: Float64Array } | undefined;
+  if (book) {
+    for (let k = book.ln - 1; k >= 0; k--) {
+      if (book.lnOpen[k] && book.lnPerson[k] === i && book.lnKind[k] === 3 && book.lnRate[k] > 0) return book.lnRate[k];
+    }
+  }
+  const income = Math.max(1, P.incEma[i]);
+  const tenure = P.employer[i] >= 0 ? Math.max(0, Math.floor((w.day - P.born[i]) / DAYS_PER_YEAR) - 18) : 0;
+  const owed = book && i < book.owed.length ? book.owed[i] : 0;
+  const load = owed / (income * 360);
+  const spread = 0.025 + Math.min(0.08, 0.06 * load) + (tenure < 2 ? 0.02 : tenure < 5 ? 0.01 : 0);
+  return s.policyRate + spread + 0.012;
+}
+
+function directs(post: CompanyPost | undefined): boolean {
+  if (!post) return false;
+  if (post.role === 'chief executive' || post.role === 'chairman') return true;
+  return post.shares > 0 && post.stake * 2 > post.shares;
+}
+
+function resolvePerson(w: World, i: number, token: string): number | undefined {
+  const P = econ(w).P;
+  const t = token.trim();
+  if (!t) return undefined;
+  const low = t.toLowerCase();
+  if (low === 'me' || low === 'self' || low === 'i') return i;
+  if (/^\d+$/.test(t)) {
+    const n = Number(t);
+    const contact = contactsOf(w, i).find((c) => c.slot === n)?.who;
+    if (contact !== undefined) return contact;
+    if (n >= 0 && n < P.n && P.alive(n)) return n;
+    return undefined;
+  }
+  for (let k = 0; k < P.n; k++) if (P.alive(k) && P.name(k).toLowerCase() === low) return k;
+  return undefined;
+}
+
+interface TapeStock { instr: string; issuer: string; last: number; prev: number; vol: number; hist: { c: number }[] }
+
+function tapeOf(w: World): TapeStock[] {
+  return (w.state.markets as { stocks?: TapeStock[] } | undefined)?.stocks ?? [];
+}
+
+function peOf(w: World, st: TapeStock): string {
+  const f = econ(w).firms.find((x) => x.id === st.issuer && !x.closed);
+  const shares = Math.floor(w.ledger.issued.get(st.instr) ?? 0);
+  if (!f || shares < 1) return 'n/a';
+  const eps = f.lastProfit * 12 / shares;
+  if (!(eps > 1)) return 'n/a';
+  return (st.last / eps).toFixed(1);
+}
+
+function sheetLines(w: World, playerId: string): string[] {
+  const v = view(w, playerId);
+  const lines = ['Balance sheet', `  cash ${dollars(v.cash)}`, `  net worth ${dollars(v.netWorth)}`];
+  for (const d of v.deposits) lines.push(`  deposit ${d.bank} ${dollars(d.cents)}  [${d.eventId}]`);
+  for (const s of v.shares) lines.push(`  ${s.instr} ${s.qty} @ ${dollars(s.px)} = ${dollars(s.qty * s.px)}  [${s.eventId}]`);
+  for (const l of v.loans) lines.push(`  loan ${l.kind} ${dollars(l.owed)} @ ${(l.rate * 100).toFixed(2)}%  [${l.eventId}]`);
+  for (const f of v.futures) lines.push(`  future ${f.good} m+${f.monthsAhead} ${f.net > 0 ? 'long' : 'short'} ${Math.abs(f.net)} @ ${dollars(f.px)}  [${f.eventId}]`);
+  if (v.marginPosted) lines.push(`  futures margin ${dollars(v.marginPosted)}`);
+  for (const c of v.coins) lines.push(`  ${c.name} ${c.qty} @ ${dollars(c.px)}  [${c.eventId}]`);
+  for (const b of v.bonds) lines.push(`  ${b.instr} face ${dollars(b.face)}  [${b.eventId}]`);
+  for (const l of v.stockLoans) lines.push(`  stock loan ${l.instr} ${l.qty} face ${dollars(l.face)}  [${l.eventId}]`);
+  if (v.score.length) lines.push(`  score ${v.score.map((p) => `day ${p.day} ${dollars(p.worth)}`).join(', ')}`);
+  return lines;
+}
+
+function deskLines(w: World, actor: string): string[] {
+  const stocks = tapeOf(w);
+  if (!stocks.length) return ['no stocks listed'];
+  const lines = ['name  last  change  volume  P/E  position'];
+  for (const st of stocks) {
+    const name = econ(w).firms.find((x) => x.id === st.issuer)?.name ?? st.issuer;
+    const chg = st.last - st.prev;
+    const qty = Math.floor(w.ledger.balance(actor, st.instr));
+    lines.push(`${name} (${st.instr})  ${dollars(st.last)}  ${chg > 0 ? '+' : ''}${dollars(chg)}  vol ${st.vol}  P/E ${peOf(w, st)}  pos ${qty}`);
+  }
+  return lines;
+}
+
+function quoteLines(w: World, key: string): string[] | undefined {
+  const firm = firmByKey(w, key);
+  const instr = stockInstr(w, key) ?? (firm ? 'eq:' + firm.id : undefined);
+  if (!firm && !instr) return undefined;
+  const st = tapeOf(w).find((s) => s.instr === instr);
+  const orders = (w.state.markets as { orders?: { instr: string; side: string; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
+  let bid = -1, ask = -1;
+  for (const o of orders) {
+    if (!o.open || o.instr !== instr || o.limit === null) continue;
+    if (o.side === 'buy' && o.limit > bid) bid = o.limit;
+    if (o.side === 'sell' && (ask < 0 || o.limit < ask)) ask = o.limit;
+  }
+  const name = firm?.name ?? key;
+  const lines = [`${name}  last ${dollars(st ? st.last : 0)}  bid ${bid < 0 ? 'none' : dollars(bid)}  ask ${ask < 0 ? 'none' : dollars(ask)}`];
+  const closes = (st?.hist ?? []).slice(-20).map((b) => dollars(b.c));
+  lines.push('closes: ' + (closes.length ? closes.join(' ') : 'none'));
+  if (!firm) return lines;
+  lines.push(`profit ${dollars(firm.lastProfit)}  staff ${firm.workers}`);
+  const P = econ(w).P;
+  const holders = [...w.ledger.holders('eq:' + firm.id)].filter(([, n]) => n > 0);
+  holders.sort((a, b) => b[1] - a[1]);
+  const top = holders.slice(0, 5).map(([hid, n]) => {
+    let who = hid;
+    if (hid.startsWith('p_')) {
+      const k = Number(hid.slice(2));
+      if (k >= 0 && k < P.n) who = P.name(k);
+    }
+    return `${who} ${Math.floor(n)}`;
+  });
+  lines.push('holders: ' + (top.length ? top.join(', ') : 'none'));
+  const facts = (w.state.social as { facts?: { msg: string; pub: boolean; drop: boolean; firms: number[] }[] } | undefined)?.facts ?? [];
+  const news: string[] = [];
+  const needle = firm.name.toLowerCase();
+  for (let k = facts.length - 1; k >= 0 && news.length < 3; k--) {
+    const fact = facts[k];
+    if (!fact || fact.drop || !fact.pub) continue;
+    if (fact.firms.includes(firm.idx) || fact.msg.toLowerCase().includes(needle)) news.push(fact.msg);
+  }
+  lines.push('news: ' + (news.length ? news.join(' | ') : 'none'));
+  return lines;
 }
 
 function actSeat(w: World, playerId: string, cmd: Command): ActResult {
@@ -1175,10 +1368,14 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
             if (scene.loan <= 0) return rejected('this scenario does not lend');
             cents = Math.max(1, Math.floor(cmd.cents * scene.loan));
           }
+          const limit = pledgeValue(w, id);
           const r = borrowMargin(w, i, cents, cause);
-          if (r.taken < 1) return rejected(r.why ?? 'the bank refused the loan');
           st.margin = true;
-          return { status: 'accepted', fill: r.taken, eventId: w.events.last('loan.grant'), text: `borrowed ${(r.taken / 100).toFixed(2)} at ${(r.rate * 100).toFixed(2)}%. Margin account open` };
+          const rate = r.rate > 0 ? r.rate : marginRate(w, i);
+          const pct = (rate * 100).toFixed(2);
+          const cap = (limit / 100).toFixed(2);
+          if (r.taken < 1) return { status: 'accepted', text: `margin account open. The bank will lend up to ${cap} at ${pct}%` };
+          return { status: 'accepted', fill: r.taken, eventId: w.events.last('loan.grant'), text: `borrowed ${(r.taken / 100).toFixed(2)} at ${pct}%. Limit ${cap}. Margin account open` };
         }
         case 'repay': {
           const n = repayPerson(w, i, cmd.cents, cause);
@@ -1250,28 +1447,35 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return liveChoice(w, st, i, id, cmd.kind);
     case 'wait': {
       if (!Number.isSafeInteger(cmd.days) || cmd.days < 1) return rejected('wait needs a length of time');
-      const people = econ(w).P;
-      for (let d = 0; d < cmd.days; d++) {
-        w.step();
-        afterDay?.(w);
-        noteClosedDay(w);
-        const bad = w.ledger.check();
-        if (bad.length) {
-          const why = bad.slice(0, 8).join('; ');
-          return { status: 'rejected', why, books: why };
-        }
-        const person = st.who;
-        if (st.over || person < 0 || person >= people.n || !people.alive(person)) break;
-      }
+      const bad = stepDays(w, st, cmd.days);
+      if (bad) return bad;
       return { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
     }
     case 'found': {
+      const people = econ(w).P;
+      const job = people.employer[i];
+      const jobName = job >= 0 ? econ(w).firms[job]?.name ?? '' : '';
+      const before = Math.floor(w.ledger.balance(id, DEP));
       const r = foundCompany(w, i, cmd.name, cmd.sector.toUpperCase(), cmd.cents, cmd.loan);
       if ('why' in r) return rejected(r.why);
       refreshFirms(w, st);
-      return { status: 'accepted', text: `you found ${r.name} (${r.id}), making ${r.good}` };
+      const after = Math.floor(w.ledger.balance(id, DEP));
+      let text = `you found ${r.name} (${r.id}), making ${r.good}`;
+      if (job >= 0 && people.employer[i] !== job && jobName) text += `. left ${jobName}`;
+      const moved = before - after;
+      if (moved > 0) text += `. ${dollars(moved)} cash moved into the firm`;
+      else if (moved < 0) text += `. ${dollars(-moved)} cash came back`;
+      return { status: 'accepted', text };
     }
     case 'ceo': {
+      const f = firmByKey(w, cmd.firm);
+      if (!f) return rejected('no such firm');
+      const post = companyPosts(w, i).find((c) => c.id === f.id);
+      if (!directs(post)) return rejected(`you do not control ${f.name}`);
+      if (f.ceo !== i) {
+        const named = appointChief(w, i, cmd.firm, i);
+        if ('why' in named) return rejected(named.why);
+      }
       const r = steerCompany(w, i, cmd.firm, cmd.op, cmd.value, cmd.auto === true);
       if ('why' in r) return rejected(r.why);
       return { status: 'accepted', lines: r.lines };
@@ -1282,6 +1486,8 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', text: r.text };
     }
     case 'bid': {
+      const f = firmByKey(w, cmd.firm);
+      if (f && directs(companyPosts(w, i).find((c) => c.id === f.id))) return rejected(`you already control ${f.name}`);
       const r = tenderOffer(w, i, cmd.firm, cmd.cents, cmd.multiple, cmd.paper);
       if ('why' in r) return rejected(r.why);
       return { status: 'accepted', text: r.text };
@@ -1294,9 +1500,9 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       }
       if (!cmd.firm) return rejected('name the firm');
       if (cmd.op === 'chief') {
-        const slot = cmd.slot ?? -1;
-        const who = contactsOf(w, i).find((c) => c.slot === slot)?.who;
-        if (who === undefined) return rejected('no such contact');
+        const token = cmd.person ?? (cmd.slot !== undefined ? String(cmd.slot) : '');
+        const who = resolvePerson(w, i, token);
+        if (who === undefined) return rejected('no such person');
         const r = appointChief(w, i, cmd.firm, who);
         if ('why' in r) return rejected(r.why);
         return { status: 'accepted', text: r.text };
@@ -1358,8 +1564,9 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (P.school[child] >= 18) return rejected('schooling already runs to 18 years');
       const cost = Math.round(econ(w).wage * 100);
       if (Math.floor(w.ledger.balance(id, DEP)) < cost) return rejected('you cannot pay the school');
-      const ev = w.events.emit('player.school', `${P.name(i)} pays for a year of schooling for ${P.name(child)}`, [causeOf(w, st)], id);
-      if (!pay(w, id, GOV, cost, 'player.school', ev)) return rejected('the payment did not clear');
+      const cause = causeOf(w, st);
+      if (!pay(w, id, GOV, cost, 'player.school', cause)) return rejected('the payment did not clear');
+      const ev = w.events.emit('player.school', `${P.name(i)} pays for a year of schooling for ${P.name(child)}`, [cause], id);
       P.school[child] = Math.min(18, P.school[child] + 1);
       chronicle(w, i, `${P.name(child)} now has ${P.school[child]} years of school, paid by ${P.name(i)}`, ev);
       return { status: 'accepted', eventId: ev, fill: cost, text: `paid for ${P.name(child)}; school ${P.school[child]}` };
@@ -1449,8 +1656,6 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const heirEv = continueAs(w, i, heir, ev, st);
       return { status: 'accepted', eventId: heirEv, lines: w.events.explain(heirEv, 6), text: `${P.name(heir)} continues the house` };
     }
-    case 'sheet':
-      return { status: 'accepted', lines: sheetLines(view(w, playerId)) };
     case 'help':
       return { status: 'accepted', lines: helpLines(cmd.command, w, playerId) };
     case 'opt':
@@ -1461,18 +1666,20 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!instr) return rejected(`not listed ${cmd.instr}`);
       const row = matchOption(w, instr, cmd.right, cmd.strike, cmd.months);
       if (!row) return rejected('no listed contract');
-      const word = cmd.kind === 'write' ? 'writes' : 'buys';
-      const ev = w.events.emit('player.option', `${P.name(i)} ${word} ${cmd.right === 'C' ? 'a call' : 'a put'} on ${instr}`, [causeOf(w, st)], id);
-      const got = tradeOption(w, id, row.id, cmd.kind === 'write' ? 'write' : 'buy', cmd.qty, ev);
+      const cause = causeOf(w, st);
+      const got = tradeOption(w, id, row.id, cmd.kind === 'write' ? 'write' : 'buy', cmd.qty, cause);
       if (got.qty < 1) return rejected(got.why || 'no fill');
+      const word = cmd.kind === 'write' ? 'writes' : 'buys';
+      const ev = w.events.emit('player.option', `${P.name(i)} ${word} ${cmd.right === 'C' ? 'a call' : 'a put'} on ${instr}`, [cause], id);
       const verb = cmd.kind === 'write' ? 'wrote' : 'bought';
       return { status: 'accepted', eventId: ev, fill: got.qty, text: `${verb} ${got.qty} @ ${(got.px / 100).toFixed(2)} (${row.id})` };
     }
     case 'optclose': {
-      const ev = w.events.emit('player.option', `${P.name(i)} closes an option`, [causeOf(w, st)], id);
+      const cause = causeOf(w, st);
       if (cmd.id) {
-        const got = tradeOption(w, id, cmd.id, 'close', cmd.qty, ev);
+        const got = tradeOption(w, id, cmd.id, 'close', cmd.qty, cause);
         if (got.qty < 1) return rejected(got.why || 'no fill');
+        const ev = w.events.emit('player.option', `${P.name(i)} closes an option`, [cause], id);
         return { status: 'accepted', eventId: ev, fill: got.qty, text: `closed ${got.qty} @ ${(got.px / 100).toFixed(2)}` };
       }
       const instr = stockInstr(w, cmd.instr);
@@ -1481,30 +1688,34 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!open.length) return rejected('you have no position');
       const lines: string[] = [];
       for (const r of open) {
-        const got = tradeOption(w, id, r.id, 'close', cmd.qty || Math.abs(r.net), ev);
+        const got = tradeOption(w, id, r.id, 'close', cmd.qty || Math.abs(r.net), cause);
         if (got.qty > 0) lines.push(`closed ${got.qty} ${r.id} @ ${(got.px / 100).toFixed(2)}`);
       }
       if (!lines.length) return rejected('the close did not print');
+      const ev = w.events.emit('player.option', `${P.name(i)} closes an option`, [cause], id);
       return { status: 'accepted', eventId: ev, lines };
     }
     case 'homes':
       return { status: 'accepted', lines: homeLines(w, i) };
     case 'homebid': {
-      const ev = w.events.emit('player.home', `${P.name(i)} bids for a home`, [causeOf(w, st)], id);
-      const got = bidHome(w, i, cmd.id, cmd.cents, ev);
+      const cause = causeOf(w, st);
+      const got = bidHome(w, i, cmd.id, cmd.cents, cause);
       if (got.why) return rejected(got.why);
+      const ev = w.events.emit('player.home', `${P.name(i)} bids for a home`, [cause], id);
       return { status: 'accepted', eventId: ev, text: got.text };
     }
     case 'homesell': {
-      const ev = w.events.emit('player.home', `${P.name(i)} sells a home`, [causeOf(w, st)], id);
-      const got = sellHome(w, i, cmd.id, ev);
+      const cause = causeOf(w, st);
+      const got = sellHome(w, i, cmd.id, cause);
       if (got.why) return rejected(got.why);
+      const ev = w.events.emit('player.home', `${P.name(i)} sells a home`, [cause], id);
       return { status: 'accepted', eventId: ev, text: got.text };
     }
     case 'let': {
-      const ev = w.events.emit('player.home', `${P.name(i)} lets a home`, [causeOf(w, st)], id);
-      const got = letHome(w, i, cmd.id, cmd.cents, ev);
+      const cause = causeOf(w, st);
+      const got = letHome(w, i, cmd.id, cmd.cents, cause);
       if (got.why) return rejected(got.why);
+      const ev = w.events.emit('player.home', `${P.name(i)} lets a home`, [cause], id);
       return { status: 'accepted', eventId: ev, text: got.text };
     }
     case 'move': {
@@ -1514,9 +1725,10 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', eventId: ev, text: got.text };
     }
     case 'mortgage': {
-      const ev = w.events.emit('player.home', `${P.name(i)} mortgages a home`, [causeOf(w, st)], id);
-      const got = mortgageHome(w, i, cmd.id, cmd.cents, ev);
+      const cause = causeOf(w, st);
+      const got = mortgageHome(w, i, cmd.id, cmd.cents, cause);
       if (got.why) return rejected(got.why);
+      const ev = w.events.emit('player.home', `${P.name(i)} mortgages a home`, [cause], id);
       return { status: 'accepted', eventId: ev, text: got.text };
     }
     case 'tip': {
@@ -1546,6 +1758,15 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     case 'story': {
       const lines = playerChronicle(w, i >= 0 ? Math.round(worth(w, i)) : 0).text.split('\n');
       return { status: 'accepted', lines, text: 'the chronicle' };
+    }
+    case 'sheet':
+      return { status: 'accepted', lines: sheetLines(w, playerId) };
+    case 'desk':
+      return { status: 'accepted', lines: deskLines(w, id) };
+    case 'quote': {
+      const lines = quoteLines(w, cmd.firm);
+      if (!lines) return rejected(`no such firm ${cmd.firm}`);
+      return { status: 'accepted', lines };
     }
     default: {
       const never: never = cmd;

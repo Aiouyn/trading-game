@@ -581,6 +581,7 @@ function housingOrders(w: World, s: EconState, b: Book): void {
   let spent = 0, n = 0;
   const scale = hs.reduce((t, h) => t + h.eff, 0) || 1;
   for (let i = 0; i < P.n && n < cap; i++) {
+    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if (!P.alive(i) || P.employer[i] < 0 || P.incEma[i] < s.wage * 0.6) continue;
     const age = Math.floor((w.day - P.born[i]) / DAYS_PER_YEAR);
     if (age < 21 || age > 70) continue;
@@ -621,6 +622,7 @@ function consumerCredit(w: World, s: EconState, b: Book): void {
   let n = 0;
   for (let step = 0; step < P.n && n < cap; step++) {
     const i = (start + step) % P.n;
+    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if (!P.alive(i) || P.employer[i] < 0 || P.incEma[i] < s.wage * 0.8) continue;
     const age = Math.floor((w.day - P.born[i]) / DAYS_PER_YEAR);
     if (age < 21 || age > 65) continue;
@@ -770,6 +772,7 @@ function sweep(w: World, s: EconState, b: Book): void {
   const start = (w.month * span) % Math.max(1, P.n);
   for (let step = 0; step < span; step++) {
     const i = (start + step) % P.n;
+    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if (!P.alive(i) || P.incEma[i] <= 0 || w.day < P.fearUntil[i]) continue;
     const keep = P.incEma[i] * KEEP_DAYS;
     const extra = w.ledger.balS(P.slot[i], DEP) - keep;

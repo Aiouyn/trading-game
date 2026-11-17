@@ -985,6 +985,7 @@ function collectBids(w: World, listings: Listing[]): Bid[] {
   const span = Math.min(P.n, Math.max(40, dealCap(w) * 30));
   for (let step = 0; step < span; step++) {
     const i = (start + step) % P.n;
+    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     if (!P.alive(i) || P.age(w, i) < 21 || i >= st.live.length) continue;
     const p = st.live[i];
     if (p < 0 || st.tenK[p] !== PERSON || st.ten[p] !== i || ownerOccupies(w, p)) continue;
@@ -1020,6 +1021,7 @@ function market(w: World): void {
   for (const L of listings) {
     if (L.sold || st.tenK[L.p] !== PERSON) continue;
     const t = st.ten[L.p];
+    if (t === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
     const max = spendable(w, household(s.P, t)) + loanOffer(w, t, L.ask);
     if (max >= L.ask && sell(w, L.p, PERSON, t, L.ask, cause, false)) L.sold = true;
   }
