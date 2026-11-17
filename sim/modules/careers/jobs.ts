@@ -12,7 +12,7 @@ export interface OccRow { id: string; name: string; pay: number; school: number;
 
 interface App {
   person: number; firm: number; occ: number; due: number; n: number;
-  wage: number; day: number; better: number; pool: number; role: string;
+  wage: number; day: number; better: number; pool: number; role: string; note: string;
 }
 interface Refusal { person: number; firm: number; day: number }
 interface StudyRow { person: number; occ: number; due: number }
@@ -48,6 +48,7 @@ interface Opening {
   note: string;
   better: number;
   pool: number;
+  score: number;
 }
 
 /** Spoken seat, by the work the firm does. The occupation file's "trade" is not a job title. */
@@ -112,13 +113,36 @@ function roleTitle(sector: string, occ: number): string {
   return titled || row?.name || 'hand';
 }
 
-/** Plain odds. Most of the queue being stronger is a long shot; few ahead is likely. */
-function chance(better: number, pool: number): string {
-  if (pool <= 0 || better <= 0) return 'likely';
-  const ratio = better / pool;
-  if (ratio >= 0.6) return 'a long shot';
-  if (ratio >= 0.3) return 'a fair chance';
-  return 'likely';
+/** How far the player clears what the seat asks. 0 just meets it, 1 is well clear. */
+function fitOf(youSchool: number, askSchool: number, youExp: number, askExp: number, youHealth: number, askHealth: number): number {
+  const school = askSchool <= 0 ? 1 : Math.max(0, Math.min(1, (youSchool - askSchool) / 4));
+  const exp = askExp <= 0 ? 0.45 : Math.max(0, Math.min(1, (youExp - askExp) / 3));
+  const health = askHealth <= 0 ? 1 : Math.max(0, Math.min(1, (youHealth - askHealth) / 30));
+  return school * 0.45 + exp * 0.3 + health * 0.25;
+}
+
+/**
+ * Odds for this firm, not for the whole city.
+ * A firm that will still be short when the letter is answered is likely for someone who meets the ask.
+ * A seat that can fill first is a long shot unless few of the people who can actually arrive are stronger.
+ */
+function outlook(better: number, pool: number, gap: number, fit: number): { note: string; score: number } {
+  let left = Math.max(0, gap);
+  for (let d = 0; d < 3 && left > 1; d++) left -= Math.max(0.06 * left, 1);
+  const reach = Math.max(1, Math.ceil(Math.max(0, pool) * 0.035 * 3));
+  const ahead = Math.min(Math.max(0, better), reach);
+  let note: string;
+  if (pool <= 0 || better <= 0) note = 'likely';
+  else if (left >= 2) note = 'likely';
+  else if (left >= 0.4) {
+    if (fit >= 0.5 || ahead <= Math.max(2, Math.ceil(left))) note = 'likely';
+    else if (ahead <= reach * 0.55 || fit >= 0.3) note = 'a fair chance';
+    else note = 'a long shot';
+  } else if (ahead <= 1 || (fit >= 0.62 && ahead <= 4)) note = 'likely';
+  else if (ahead <= 6 || fit >= 0.45 || better / pool <= 0.35) note = 'a fair chance';
+  else note = 'a long shot';
+  const rank = note === 'likely' ? 3 : note === 'a fair chance' ? 2 : 1;
+  return { note, score: rank * 1000 + left * 10 - ahead };
 }
 
 /** The labour module's wage multiple. Zero means the plant is struck and hires nobody. */
@@ -164,9 +188,12 @@ function asks(row: OccRow): { exp: number; school: number; health: number } {
   return { exp, school: row.school, health };
 }
 
+/** Years in this trade count in full. Years in another trade count at half: the work is related, not the same seat. */
 function yearsOf(P: EconState['P'], i: number, occ: number): number {
-  if (P.occ[i] === occ && occ > 0) return P.occYrs[i];
-  return 0;
+  const yrs = P.occYrs[i] || 0;
+  if (yrs <= 0) return 0;
+  if (occ > 0 && P.occ[i] === occ) return yrs;
+  return Math.floor(yrs / 2);
 }
 
 function canWork(w: World, i: number): string {
@@ -189,14 +216,14 @@ function weekly(w: World, person: number, firmIdx: number, occ: number): number 
   return Math.round(skill * s.wage * 7 * (prem > 0 ? prem : 1));
 }
 
-function compare(w: World, person: number, f: Firm, occ: number, gap: number): { taken: boolean; note: string; askExp: number; askSchool: number; askHealth: number; youExp: number; youSchool: number; youHealth: number; better: number; pool: number } {
+function compare(w: World, person: number, f: Firm, occ: number, gap: number): { taken: boolean; note: string; askExp: number; askSchool: number; askHealth: number; youExp: number; youSchool: number; youHealth: number; better: number; pool: number; score: number } {
   const row = occAt(occ);
   const P = econ(w).P;
   const ask = row ? asks(row) : { exp: 0, school: 6, health: 30 };
   const youSchool = schoolOf(P, person);
   const youExp = yearsOf(P, person, occ);
   const youHealth = P.health[person];
-  const blank = { askExp: ask.exp, askSchool: ask.school, askHealth: ask.health, youExp, youSchool, youHealth, better: 0, pool: 0 };
+  const blank = { askExp: ask.exp, askSchool: ask.school, askHealth: ask.health, youExp, youSchool, youHealth, better: 0, pool: 0, score: 0 };
   if (!api || !row) return { ...blank, taken: false, note: 'that seat is not hired' };
   if (f.closed) return { ...blank, taken: false, note: 'the firm is closed' };
   if (!(wagePrem(w, f.idx) > 0)) return { ...blank, taken: false, note: 'the plant is struck and is not hiring' };
@@ -207,6 +234,7 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
   if (youHealth < ask.health) return { ...blank, taken: false, note: `health ${youHealth} is short of ${ask.health}` };
   if (youExp < ask.exp) return { ...blank, taken: false, note: `${counted(youExp, 'year', 'years')} is short of ${ask.exp}` };
   const mine = labourOf(P, person, w.day);
+  const fit = fitOf(youSchool, ask.school, youExp, ask.exp, youHealth, ask.health);
   let pool = 0, better = 0;
   const adultLine = w.day - 18 * 360;
   for (let i = 0; i < P.n; i++) {
@@ -216,9 +244,10 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
     if (!api.qualifies(schoolOf(P, i), occ, false)) continue;
     if (yearsOf(P, i, occ) < ask.exp) continue;
     pool++;
-    if (labourOf(P, i, w.day) > mine) better++;
+    if (labourOf(P, i, w.day) > mine + fit * 0.15) better++;
   }
-  return { ...blank, taken: true, better, pool, note: chance(better, pool) };
+  const odds = outlook(better, pool, gap, fit);
+  return { ...blank, taken: true, better, pool, note: odds.note, score: odds.score };
 }
 
 function openings(w: World, person: number): Opening[] {
@@ -237,7 +266,7 @@ function openings(w: World, person: number): Opening[] {
       wage: weekly(w, person, f.idx, occ),
       askExp: cmp.askExp, askSchool: cmp.askSchool, askHealth: cmp.askHealth,
       youExp: cmp.youExp, youSchool: cmp.youSchool, youHealth: cmp.youHealth,
-      taken: cmp.taken, note: cmp.note, better: cmp.better, pool: cmp.pool,
+      taken: cmp.taken, note: cmp.note, better: cmp.better, pool: cmp.pool, score: cmp.score,
     });
   }
   rows.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || b.gap - a.gap || a.firm - b.firm);
@@ -257,7 +286,7 @@ function boards(w: World, person: number): RoleGroup[] {
   }
   const groups: RoleGroup[] = [];
   for (const [role, firms] of map) {
-    firms.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || a.better - b.better || b.wage - a.wage || a.name.localeCompare(b.name));
+    firms.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || b.score - a.score || b.wage - a.wage || a.name.localeCompare(b.name));
     let lo = firms[0].wage, hi = firms[0].wage;
     for (const f of firms) {
       if (f.wage < lo) lo = f.wage;
@@ -267,7 +296,7 @@ function boards(w: World, person: number): RoleGroup[] {
   }
   groups.sort((a, b) => {
     const A = a.firms[0], B = b.firms[0];
-    return (B.taken ? 1 : 0) - (A.taken ? 1 : 0) || A.better - B.better || b.hi - a.hi || a.role.localeCompare(b.role);
+    return (B.taken ? 1 : 0) - (A.taken ? 1 : 0) || B.score - A.score || b.hi - a.hi || a.role.localeCompare(b.role);
   });
   for (let i = 0; i < groups.length; i++) groups[i].n = i + 1;
   return groups;
@@ -392,7 +421,7 @@ function applyJob(w: World, person: number, n: number): ActResult {
   const due = w.day + 3;
   st.apps.push({
     person, firm: o.firm, occ: o.occ, due, n: g.n, wage: o.wage, day: w.day,
-    better: o.better, pool: o.pool, role: o.role,
+    better: o.better, pool: o.pool, role: o.role, note: o.note,
   });
   const wait = due - w.day;
   return { status: 'accepted', text: `You apply to ${o.name} for ${aan(o.role)} at ${usd(o.wage)} a week. They answer in ${counted(wait, 'day', 'days')}.` };
@@ -522,7 +551,7 @@ function hireBecause(app: App): string {
   const n = Math.max(1, (app.pool || 0) + 1);
   const day = app.day ?? 0;
   if ((app.better || 0) <= 0) return `you applied on day ${day} and were the strongest of ${n}`;
-  return `you applied on day ${day}; it was ${chance(app.better || 0, app.pool || 0)}, and the seat was still open`;
+  return `you applied on day ${day}; it was ${app.note || 'a fair chance'}, and the seat was still open`;
 }
 
 function resolveApp(w: World, app: App): void {

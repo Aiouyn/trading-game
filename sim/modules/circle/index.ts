@@ -121,6 +121,8 @@ interface Circle {
   lastFrom?: number;
   /** Last headcount this writer actually put in a letter, per firm. Display only. */
   layTold?: Record<string, number>;
+  /** Letters voiced so far. A stock closer is allowed on every 30th one. */
+  said?: number;
 }
 
 export interface CircleResult {
@@ -150,7 +152,7 @@ function blank(): Circle {
   return {
     next: 1, letters: [], asks: [], bonds: [], extras: [], mems: [], sent: [], cast: 0,
     yMsg: 0, yReq: 0, openWorth: -1, markWorth: -1, rivalDone: -1, allyDone: -1, testified: 0,
-    mileYear: -1, mileHome: 0, mileWorth: 0, nextExtra: DEG, waves: [],
+    mileYear: -1, mileHome: 0, mileWorth: 0, nextExtra: DEG, waves: [], said: 0,
   };
 }
 function clamp(n: number, lo: number, hi: number): number { return n < lo ? lo : n > hi ? hi : n; }
@@ -234,6 +236,8 @@ function say(w: World, who: number, role: string, fact: string, you: string, min
   st.lastShape = shape;
   st.lastFrom = who;
   const score = b?.score ?? 0;
+  const n = (st.said ?? 0) + 1;
+  st.said = n;
   return renderLetter({
     voice: voice as 'warm',
     shape, fact, you, mine,
@@ -241,6 +245,7 @@ function say(w: World, who: number, role: string, fact: string, you: string, min
     casual: role === 'friend' && score >= 50,
     worry: role === 'family',
     salt: who * 17 + w.day * 3 + fact.length,
+    ticOk: n % 30 === 0,
   });
 }
 function firmCalled(w: World, id: string): string {
@@ -255,7 +260,11 @@ function shareName(w: World, instr: string): string {
 }
 function plain(w: World, msg: string): string {
   const m = /^(\S+) close (\d+) -> (\d+) \(([+-]?\d+(?:\.\d+)?)%\)/.exec(msg);
-  if (m) return `${shareName(w, m[1])} closed at ${money(+m[3])}, ${signedPct(+m[4], 2)} on the day. It had been ${money(+m[2])}.`;
+  if (m) {
+    const pct = +m[4];
+    const dir = pct < 0 ? `down ${Math.abs(pct).toFixed(2)}%` : pct > 0 ? `up ${pct.toFixed(2)}%` : 'unchanged';
+    return `${shareName(w, m[1])} closed ${dir} at ${money(+m[3])}. It had been ${money(+m[2])}.`;
+  }
   return msg
     .replace(/\bstkln:[A-Za-z0-9_:-]+/g, 'the stock loan')
     .replace(/\beq:[A-Za-z0-9_]+/g, (s) => shareName(w, s))
@@ -352,6 +361,23 @@ function ensureBond(st: Circle, w: World, who: number, role: string, stance: str
   st.bonds.push(b);
   snap(w, b);
   return b;
+}
+/** Children under 18 who still live with this person. Adults are not "at home". */
+function childrenHome(w: World, who: number): { n: number; eldest: number } {
+  const P = econ(w).P;
+  const home = parcelOf(w, who);
+  let n = 0, eldest = -1;
+  if (who < 0 || who >= P.n) return { n, eldest };
+  for (const c of P.kids(who)) {
+    if (!alive(w, c)) continue;
+    const age = P.age(w, c);
+    if (age >= 18) continue;
+    const cp = parcelOf(w, c);
+    if (home >= 0 && cp >= 0 && cp !== home) continue;
+    n++;
+    if (age > eldest) eldest = age;
+  }
+  return { n, eldest };
 }
 function kinOf(w: World, i: number): number[] {
   const P = econ(w).P;
@@ -953,12 +979,9 @@ function acts(w: World, st: Circle, me: number): number {
     if (sold || house) {
       if (ev < 0) ev = w.events.emit('circle.rival', `${P.name(rival.who)} bids a home against ${P.name(me)}`, [cause], P.id(rival.who));
       const name = h ? shareName(w, h.instr) : 'the shares';
-      const same = employer(w, me) >= 0 && employer(w, me) === employer(w, rival.who);
       const shares = h && h.qty === 1 ? 'one share' : `${h?.qty ?? 0} shares`;
-      const fact = sold ? `I'm short ${name}.` : house;
-      const you = sold
-        ? `You hold ${shares}${same ? `, and we both want the top job at ${firmName(w, employer(w, me))}` : ''}.`
-        : `It's the same neighbourhood as yours.`;
+      const fact = sold ? `I've shorted ${name}.` : house;
+      const you = sold ? `You hold ${shares}.` : `It's the same neighbourhood as yours.`;
       const mine = sold ? (house || `I'll cover when it pays me, not before.`) : 'I wanted the ground you walk.';
       post(w, st, rival.who, 'rival', 'rival', say(w, rival.who, 'rival', fact, you, mine, 'rival'), ev, ev);
       moveBond(w, st, rival.who, -4, -6, -4, sold ? `They shorted ${name} against you` : `They bid for a home in your neighbourhood`, ev);
@@ -1101,8 +1124,7 @@ function requests(w: World, st: Circle, me: number, budget: number): number {
     const cents = Math.min(Math.round(wage * 30), Math.floor(w.ledger.balance(P.id(me), DEP) * 0.2));
     if (cents < 1000) continue;
     const cause = P.lastEv[b.who] >= 0 ? P.lastEv[b.who] : root(w);
-    const last = P.lastEv[b.who] >= 0 ? w.events.get(P.lastEv[b.who]) : undefined;
-    const heard = last?.msg ? plain(w, last.msg) : `I'll take work when it comes.`;
+    const heard = `I'll pay it back once a wage starts.`;
     const text = say(w, b.who, b.role, `I lost the job. I have been out ${P.jobless[b.who]} days.`, `I need ${usd(cents)} to cover the gap.`, heard, 'loan');
     askFor(w, st, b.who, b.role, 'loan', text, cause, { cents, owed: cents, note: 'a loan after the job went' });
     mark(st, key);
@@ -1241,7 +1263,7 @@ function myJob(pos: number, n: number, salt: number): string {
     `I was hired late, so I'm looking before the month closes.`,
     `I'm near the end of the list, so I'm already looking.`,
     `If the cuts go on I expect to be in them, so I'm looking.`,
-    `A late hire doesn't sleep through a cut. I'm looking.`,
+    `I was hired late, so I'm not waiting it out.`,
   ]);
   if (spot === 'early') return atLine(salt, 3, [
     `I was hired early, so I'm staying unless the cuts grow.`,
@@ -1293,9 +1315,9 @@ function cutFeel(deeper: boolean, salt: number): string {
       `The first letter is out of date.`,
     ])
     : pickLine(salt, [
-      `They've taken some people back since I wrote.`,
-      `It's a smaller cut than the one I sent.`,
-      `The first figure overstated it.`,
+      `They've taken people back since I wrote.`,
+      `The headcount is up since the letter I sent.`,
+      `Some of the jobs have come back.`,
     ]);
 }
 function stake(w: World, me: number, writer: number, firm: { idx: number; name: string; staff: number[] }): { you: string; mine: string; n: number; salt: number } {
@@ -1390,11 +1412,13 @@ function worldLetters(w: World, st: Circle, me: number, budget: number): number 
     const s = stake(w, me, speaker.who, firm);
     const prev = toldJobs(st, speaker.who, idx);
     const moved = jobMoved(prev, s.n);
-    const quiet = prev > 0 && !moved;
-    const q = quiet ? quietNote(w, me, speaker.who, s.salt + 4) : undefined;
-    const news = q ? q.fact : moved ? cutAgain(firm.name, prev, s.n, s.salt) : cutNews(firm.name, s.n, s.salt);
-    const you = q ? q.you : moved ? cutFeel(s.n < prev, s.salt + 3) : s.you;
-    const mine = q ? q.mine : s.mine;
+    if (prev > 0 && !moved) {
+      newsTake(st, `lay:${ev}`, ev);
+      continue;
+    }
+    const news = moved ? cutAgain(firm.name, prev, s.n, s.salt) : cutNews(firm.name, s.n, s.salt);
+    const you = moved ? cutFeel(s.n < prev, s.salt + 3) : s.you;
+    const mine = s.mine;
     const text = say(w, speaker.who, speaker.role, news, you, mine, 'hint');
     post(w, st, speaker.who, speaker.role, 'hint', text, ev, ev);
     if (prev <= 0 || moved) rememberJobs(st, speaker.who, idx, s.n);
@@ -1509,9 +1533,10 @@ function lifeBits(w: World, me: number, b: Bond): Bit[] {
     });
   }
   if (P.nkids[i] > b.kids) {
+    const home = childrenHome(w, i);
     out.push({
       key: `born:${i}:${P.nkids[i]}`, cause: yearEv,
-      fact: P.nkids[i] === 1 ? 'We had a child, the first.' : `We had a child, so there are ${P.nkids[i]} at home now.`,
+      fact: home.n > 1 ? `We had a child. There are ${home.n} children at home.` : (P.nkids[i] === 1 ? 'We had a child, the first.' : 'We had a child.'),
       you: `I'll be harder to reach, and shorter on cash.`,
       mine: `I'm staying home more.`,
     });
@@ -1553,8 +1578,6 @@ function lifeBits(w: World, me: number, b: Bond): Bit[] {
       });
     } else {
       const firm = econ(w).firms[job];
-      const n = firm?.staff.length ?? 0;
-      const pos = P.staffPos[i];
       const same = job === employer(w, me);
       out.push({
         key: `job:${i}:${job}:${Math.floor(w.day / 30)}`, cause,
@@ -1564,13 +1587,13 @@ function lifeBits(w: World, me: number, b: Bond): Bit[] {
           `I'm at ${firm?.name ?? 'a new firm'} now.`,
         ]),
         you: same
-          ? youJob(true, P.staffPos[me], n, i + w.day)
+          ? pickLine(i + job, [`We'll be in the same building.`, `You already know the place.`, `I'll see you there.`])
           : pickLine(i + job, [
             `If you need a name inside, I'm there.`,
             `You can use my name there if it helps.`,
             `I'm the person you know on the inside.`,
           ]),
-        mine: pos >= 0 ? myJob(pos, n, i + job) : `I've got work again.`,
+        mine: pickLine(i + job, [`I'll be there tomorrow.`, `The wage starts this week.`, `I've got work again.`]),
       });
     }
   }
@@ -1673,21 +1696,27 @@ function inviteFrom(w: World, st: Circle, me: number): boolean {
     const cents = billOf(w, place);
     const nb = neighbourhood(w, b.who) || neighbourhood(w, me) || 'the city';
     const cause = b.why[b.why.length - 1]?.eventId ?? root(w);
-    const host = place === 'gala'
-      ? pickLine(turn + b.who, [`I'll be there either way. The city takes the bill if you come.`, `Come or don't. The city is paying if you do.`, `I'll go either way, and the city covers you.`])
-      : pickLine(turn + b.who, [`I'll hold the table if you come.`, `I'll keep a seat if you say yes.`, `The table's yours if you want it.`]);
+    const dueDay = w.day + 21;
+    const clock = `Say yes or no by day ${dueDay}. If I hear nothing, I'll take it as a no.`;
+    const host = pickLine(turn + b.who, [`I'll be there either way.`, `I'll keep the evening free if you come.`, `Come or don't. I'll go either way.`]);
     const where = pickLine(turn * 3 + b.who, [
       `Come to a ${place} in ${nb}.`,
       `There's a ${place} in ${nb} if you want it.`,
       `I'm going to a ${place} in ${nb}.`,
     ]);
-    const bill = pickLine(turn * 5 + b.who, [
-      `It costs ${usd(cents)}, and I need a yes or a no.`,
-      `The bill is ${usd(cents)}. Yes or no is enough.`,
-      `${usd(cents)} covers it, if you can say either way.`,
-    ]);
+    const bill = place === 'gala'
+      ? pickLine(turn * 5 + b.who, [
+        `You pay the city ${usd(cents)} for the ticket. ${clock}`,
+        `The ticket is ${usd(cents)}, and you pay it to the city. ${clock}`,
+        `${usd(cents)} goes from you to the city. ${clock}`,
+      ])
+      : pickLine(turn * 5 + b.who, [
+        `You pay ${usd(cents)}. ${clock}`,
+        `The bill is ${usd(cents)}, and it comes from you. ${clock}`,
+        `${usd(cents)} is yours to pay. ${clock}`,
+      ]);
     const text = say(w, b.who, b.role, where, bill, host, 'invite');
-    askFor(w, st, b.who, b.role, 'invite', text, cause, { cents, place, due: w.day + 21 });
+    askFor(w, st, b.who, b.role, 'invite', text, cause, { cents, place, due: dueDay });
     mark(st, key);
     return true;
   }
@@ -1697,56 +1726,6 @@ function jobsIn(text: string): number {
   const m = /([\d,]+) jobs?\b/.exec(text);
   if (!m) return -1;
   return Number(m[1].replace(/,/g, ''));
-}
-/** A letter that is not about the layoff. Used when the same person would otherwise restate a headcount that has not moved by more than 20%. */
-function quietNote(w: World, me: number, who: number, salt: number): { fact: string; you: string; mine: string } {
-  const P = econ(w).P;
-  const nb = neighbourhood(w, who);
-  const health = healthWord(P.health[who]);
-  const job = employer(w, who);
-  const name = job >= 0 ? (econ(w).firms[job]?.name ?? '') : '';
-  const slots: { fact: string; you: string; mine: string }[] = [];
-  slots.push({
-    fact: health === 'sound'
-      ? atLine(salt, 1, [`I've been well.`, `My health is sound.`, `Nothing's wrong with me, health-wise.`, `Health isn't the trouble.`])
-      : atLine(salt, 1, [`My health is ${health}.`, `Health has been ${health}.`, `I'm in ${health} health.`]),
-    you: atLine(salt, 2, [`No favour in this.`, `You don't need to answer.`, `I don't need anything from you.`, `Nothing for you to do.`]),
-    mine: atLine(salt, 3, [`The days have been quiet.`, `I'm alright.`, `I'll keep to the usual hours.`, ``]),
-  });
-  if (nb) slots.push({
-    fact: atLine(salt, 1, [`I'm in ${nb}.`, `The house is in ${nb}.`, `You'll find me in ${nb}.`, `${nb} is where the house is.`]),
-    you: nb === neighbourhood(w, me)
-      ? atLine(salt, 2, [`We're on the same streets.`, `You know the neighbourhood.`, `It's your part of the city too.`, `You could walk here.`])
-      : atLine(salt, 2, [`Come by if you're close.`, `You're welcome if you pass through.`, `It's an easy walk if you're nearby.`, `The door is open if you're in town.`]),
-    mine: '',
-  });
-  if (name) slots.push({
-    fact: atLine(salt, 1, [`I'm on the job at ${name}.`, `Work this week is at ${name}.`, `${name} still has me.`, `I still draw a wage at ${name}.`]),
-    you: atLine(salt, 2, [`Your own week is your business.`, `I won't lean on you for it.`, `Nothing here is a request.`, `Don't rearrange anything for me.`]),
-    mine: atLine(salt, 3, [`The hours are the same.`, `I'll be there tomorrow.`, `Nothing in the day surprised me.`, ``]),
-  });
-  const month = monthName(w.day);
-  slots.push({
-    fact: atLine(salt, 1, [
-      `${month} has been a quiet month at home.`,
-      `Nothing in ${month} needs a long letter.`,
-      `It's ${month}, and the house is as it was.`,
-      `${month} doesn't need a speech from me.`,
-    ]),
-    you: atLine(salt, 2, [
-      `Tell me if your week went sideways.`,
-      `I hope the papers are louder than your week.`,
-      `A line back is welcome, not required.`,
-      `You can leave this one unanswered.`,
-    ]),
-    mine: atLine(salt, 3, [`I'll keep my head down.`, `That's the note.`, `I'm fine.`, `I'll stop there.`, ``]),
-  });
-  if (job < 0 && P.jobless[who] > 0) slots.push({
-    fact: `I've been out of work ${P.jobless[who]} days.`,
-    you: `This isn't about your job.`,
-    mine: `I'll take the next job that will have me.`,
-  });
-  return slots[Math.abs(Math.floor(Math.abs(salt) / 7)) % slots.length];
 }
 function followUp(w: World, st: Circle, me: number): boolean {
   const P = econ(w).P;
@@ -1768,40 +1747,22 @@ function followUp(w: World, st: Circle, me: number): boolean {
         }
         if (other) {
           const s = stake(w, me, other.who, firm);
-          const who = P.name(l.from);
           const prev = ev.kind === 'firm.layoffs' ? toldJobs(st, other.who, firm.idx) : -1;
           const moved = ev.kind === 'firm.layoffs' && jobMoved(prev, s.n);
-          let news: string;
-          let you = s.you;
-          let mine = s.mine;
-          if (ev.kind === 'firm.layoffs' && moved) {
-            news = cutAgain(firm.name, prev, s.n, s.salt);
-            you = cutFeel(s.n < prev, s.salt + 3);
-          } else if (ev.kind === 'firm.layoffs' && prev > 0) {
-            const q = quietNote(w, me, other.who, s.salt + 6);
-            news = q.fact;
-            you = q.you;
-            mine = q.mine;
-          } else if (ev.kind === 'firm.layoffs') {
-            news = pickLine(s.salt, [
+          // A loss or a price with no new figure is not a letter. An unchanged headcount is not one either.
+          if (!(ev.kind === 'firm.layoffs' && (moved || prev <= 0))) {
+            mark(st, srcKey);
+            continue;
+          }
+          const news = moved
+            ? cutAgain(firm.name, prev, s.n, s.salt)
+            : pickLine(s.salt, [
               `I count ${jobs(s.n)} still at ${firm.name}.`,
               `${firm.name} still has ${jobs(s.n)} from where I sit.`,
               `The books at ${firm.name} show ${jobs(s.n)}.`,
             ]);
-          } else if (ev.kind === 'firm.profit') {
-            news = pickLine(s.salt, [
-              `${who} already wrote about the loss at ${firm.name}, and I don't have a new figure.`,
-              `The loss at ${firm.name} is the one ${who} sent. I don't have a fresher number.`,
-              `I saw ${who}'s note on ${firm.name}. The loss is unchanged from here.`,
-            ]);
-          } else {
-            news = pickLine(s.salt, [
-              `${who} already wrote about the move in ${firm.name}, and I don't have a new price.`,
-              `The move at ${firm.name} is still the one in ${who}'s letter.`,
-              `I don't have a price past what ${who} sent on ${firm.name}.`,
-            ]);
-          }
-          const text = say(w, other.who, other.role, news, you, mine, 'follow');
+          const you = moved ? cutFeel(s.n < prev, s.salt + 3) : s.you;
+          const text = say(w, other.who, other.role, news, you, s.mine, 'follow');
           post(w, st, other.who, other.role, 'follow', text, l.source, l.source);
           if (ev.kind === 'firm.layoffs' && (prev <= 0 || moved)) rememberJobs(st, other.who, firm.idx, s.n);
           mark(st, srcKey);
@@ -1827,38 +1788,27 @@ function followUp(w: World, st: Circle, me: number): boolean {
     } else {
       const job = employer(w, l.from);
       const firm = job >= 0 ? econ(w).firms[job] : undefined;
-      if (!firm) continue;
+      if (!firm) {
+        mark(st, `fu:${l.id}`);
+        continue;
+      }
       if (ev?.kind === 'firm.layoffs') {
         const books = ev.actor ? econ(w).firms.find((f) => f.id === ev.actor) ?? firm : firm;
         const told = toldJobs(st, l.from, books.idx);
         const fromLetter = jobsIn(l.text);
         const prev = told > 0 ? told : fromLetter;
         const now = books.staff.length;
-        const s = stake(w, me, l.from, books);
         if (jobMoved(prev, now)) {
+          const s = stake(w, me, l.from, books);
           fact = cutAgain(books.name, prev, now, s.salt);
           you = cutFeel(now < prev, s.salt + 3);
           rememberJobs(st, l.from, books.idx, now);
           mine = s.mine;
-        } else {
-          const q = quietNote(w, me, l.from, s.salt + 8);
-          fact = q.fact;
-          you = q.you;
-          mine = q.mine;
         }
-      } else if (ev?.kind === 'firm.profit') {
-        fact = `I wrote about the loss at ${firm.name}. I don't have a new figure.`;
-        you = `I'll send one if the month turns.`;
-        mine = stake(w, me, l.from, firm).mine;
-      } else if (ev?.kind === 'mkt.move') {
-        fact = `The move I wrote about at ${firm.name} is still the one I mean.`;
-        you = `Nothing since has changed my mind.`;
-        mine = stake(w, me, l.from, firm).mine;
-      } else {
-        const s = stake(w, me, l.from, firm);
-        fact = `I'm writing again about ${firm.name}, and I don't have a new number.`;
-        you = s.you;
-        mine = s.mine;
+      }
+      if (!fact) {
+        mark(st, `fu:${l.id}`);
+        continue;
       }
     }
     post(w, st, l.from, role, 'follow', say(w, l.from, role, fact, you, mine, 'follow'), l.source, l.source);
@@ -1884,7 +1834,7 @@ function birthday(w: World, st: Circle, me: number): boolean {
   let best: Bond | undefined;
   let score = -1;
   for (const b of st.bonds) {
-    if (!alive(w, b.who) || b.who === me) continue;
+    if (!alive(w, b.who) || b.who === me || P.age(w, b.who) < 18) continue;
     const born = ((P.born[b.who] % 360) + 360) % 360;
     let ago = today - born;
     if (ago < 0) ago += 360;
@@ -1892,148 +1842,52 @@ function birthday(w: World, st: Circle, me: number): boolean {
     if (!best || b.score > score || (b.score === score && b.who < best.who)) { best = b; score = b.score; }
   }
   if (!best) return false;
-  const kids = P.kids(best.who);
-  let eldest = -1;
-  for (const c of kids) if (alive(w, c) && (eldest < 0 || P.age(w, c) > P.age(w, eldest))) eldest = c;
   const cause = w.events.last('life.year') ?? (P.lastEv[best.who] >= 0 ? P.lastEv[best.who] : root(w));
-  const age = eldest >= 0 ? P.age(w, eldest) : -1;
   const bsalt = best.who * 13 + year * 7;
-  const mine = age >= 1
-    ? atLine(bsalt, 0, [`The eldest at home is ${age}.`, `At home the eldest is ${age}.`, `The oldest child here is ${age}.`])
-    : age >= 0 ? `The eldest at home isn't a year old yet.` : 'Another year on the same work.';
   const note = atLine(bsalt, 1, [
     `A note is enough, and I'm not asking for a gift.`,
     `Don't send anything. A line back is plenty.`,
     `I'm not collecting presents, just marking the day.`,
     `No present. A line is the whole wish.`,
   ]);
-  post(w, st, best.who, best.role, 'life', say(w, best.who, best.role, `I turned ${P.age(w, best.who)}.`, note, mine, 'life'), cause, cause);
+  post(w, st, best.who, best.role, 'life', say(w, best.who, best.role, `I turned ${P.age(w, best.who)}.`, note, '', 'life'), cause, cause);
   mark(st, `bday:${best.who}:${year}`);
   return true;
 }
-function personFloor(w: World, me: number, who: number, withCount: boolean): { fact: string; you: string; mine: string } {
-  const P = econ(w).P;
-  const job = employer(w, who);
-  if (job < 0) {
-    const days = P.jobless[who];
-    const salt = who + w.day;
-    return {
-      fact: days > 0 ? `I've been out of work ${days} days.` : `I'm out of work.`,
-      you: pickLine(salt, [`This isn't about your job.`, `Your post isn't the subject.`, `I'm not writing about your desk.`]),
-      mine: pickLine(salt + 4, [`I'll take the next job that will have me.`, `I'm looking, and that's the whole of it.`, `The next yes is the one I want.`]),
-    };
-  }
-  const firm = econ(w).firms[job];
-  const same = employer(w, me) === job;
-  const salt = who * 20 + w.day;
-  const nb = neighbourhood(w, who);
-  const fact = atLine(salt, 1, [
-    `I'm still at ${firm.name}.`,
-    `Work is still ${firm.name}.`,
-    `The job at ${firm.name} is the one you know.`,
-    withCount && nb ? `I'm at ${firm.name}, and the house is in ${nb}.` : `${firm.name} is where I am this week.`,
-    `I'm still drawing a wage at ${firm.name}.`,
-  ]);
-  const you = same
-    ? atLine(salt, 2, [`You're in the same building.`, `You know the week as well as I do.`, `Nothing in this is news to you.`, `You've seen the same week.`, `I don't have news you don't already have.`])
-    : atLine(salt, 2, [`Your job isn't in this.`, `I'm not writing about your post.`, `This doesn't reach your desk.`, `Your name isn't in it.`, `Nothing here is about your wage.`]);
-  const mine = atLine(salt, 3, [`I'll be in tomorrow.`, `The hours are the ones you know.`, `I'm not going anywhere this month.`, `I'll leave it at that.`, ``]);
-  return { fact, you, mine };
-}
+/** One letter when the length of a layoff is itself the news. A week with nothing new sends nothing. */
 function checkIn(w: World, st: Circle, me: number): boolean {
+  const P = econ(w).P;
   const wk = Math.floor(w.day / 7);
+  if (seen(st, `outweek:${wk}`)) return false;
   const wrote = new Set<number>();
   for (const l of st.letters) if (l.day === w.day) wrote.add(l.from);
+  const bucket = Math.floor(w.day / 60);
   let best: Bond | undefined;
   let touch = Infinity;
   for (const b of st.bonds) {
-    if (!alive(w, b.who) || wrote.has(b.who) || seen(st, `hi:${b.who}:${wk}`)) continue;
+    if (!alive(w, b.who) || b.who === me || wrote.has(b.who)) continue;
+    if (employer(w, b.who) >= 0 || P.jobless[b.who] < 21) continue;
+    if (seen(st, `out:${b.who}:${bucket}`)) continue;
     if (!best || b.touched < touch || (b.touched === touch && b.who < best.who)) { best = b; touch = b.touched; }
   }
   if (!best) return false;
-  const P = econ(w).P;
-  const topic = (best.who + wk) % 3;
-  let fact = '';
-  let you = '';
-  let mine = '';
-  if (topic === 0) {
-    const line = personFloor(w, me, best.who, (best.who + wk) % 2 === 0);
-    fact = line.fact; you = line.you; mine = line.mine;
-  } else if (topic === 1) {
-    const nb = neighbourhood(w, best.who);
-    const mineNb = neighbourhood(w, me);
-    const health = healthWord(P.health[best.who]);
-    const salt = best.who * 13 + Math.floor(wk / 3);
-    const well = health === 'sound'
-      ? pickLine(salt, [`My health is sound.`, `I've been well.`, `Nothing's wrong with me, health-wise.`])
-      : pickLine(salt, [`My health is ${health}.`, `Health has been ${health}.`, `I'm in ${health} health.`]);
-    const place = nb && nb === mineNb
-      ? pickLine(salt + 1, [`We're both in ${nb}.`, `You and I are both in ${nb}.`, `${nb} is home for both of us.`])
-      : nb
-        ? pickLine(salt + 1, [`I'm in ${nb}.`, `The house is in ${nb}.`, `You'll find me in ${nb}.`])
-        : `I don't have a neighbourhood to name.`;
-    const work = P.ill[best.who] > 0
-      ? `I've got ${sickName(w, P.ill[best.who])}, so the days are slower.`
-      : pickLine(salt * 3 + 2, [
-        `I'll be at work if the job is still mine.`,
-        `I'm still turning up if the job holds.`,
-        `Work has me if they'll keep me.`,
-        `The shift is the usual one.`,
-        `I'll be on the floor tomorrow.`,
-      ]);
-    const pair = (best.who + Math.floor(wk / 3)) % 3;
-    const aside = pickLine(salt * 9 + 6, [`That's all I had.`, `No favour in it.`, `Write if you've got more than I do.`]);
-    if (pair === 0) { fact = well; you = place; mine = ''; }
-    else if (pair === 1) { fact = place; you = (salt % 2 === 0) ? work : aside; mine = ''; }
-    else { fact = well; you = (salt % 2 === 0) ? aside : work; mine = ''; }
-  } else {
-    const sp = P.spouse[best.who];
-    const kids = P.kids(best.who);
-    let eldest = -1;
-    let nKids = 0;
-    for (const c of kids) if (alive(w, c)) {
-      nKids++;
-      if (eldest < 0 || P.age(w, c) > P.age(w, eldest)) eldest = c;
-    }
-    const married = sp >= 0 && alive(w, sp);
-    const kidAge = eldest >= 0 ? P.age(w, eldest) : -1;
-    const kidLine = nKids === 0
-      ? ''
-      : kidAge < 1
-        ? `The eldest isn't a year old yet.`
-        : nKids === 1
-          ? `The child at home is ${kidAge}.`
-          : `The eldest of ${nKids} at home is ${kidAge}.`;
-    const salt = best.who * 13 + Math.floor(wk / 3);
-    const spouse = married ? P.name(sp) : '';
-    const homeChoices = [
-      spouse ? `I'm still married to ${spouse}.` : `It's just me at home.`,
-      spouse ? `${spouse} and I are still in the house.` : `There's no spouse here.`,
-      kidLine || (spouse ? `Home is still with ${spouse}.` : `The house is quiet, which suits me.`),
-      spouse && kidLine ? `${spouse} is here. ${kidLine}` : (kidLine || `Nothing at home needs a report.`),
-    ];
-    const home = pickLine(salt, homeChoices);
-    const nb = neighbourhood(w, best.who);
-    const closer = pickLine(salt * 9 + 4, [
-      `I thought of you, so I wrote.`,
-      `Nothing else this week needs a letter.`,
-      `Write when you can.`,
-      `That's the whole of the news.`,
-      `I don't have a favour to ask.`,
-    ]);
-    if (wk % 2 === 0) {
-      fact = home;
-      you = closer;
-      mine = '';
-    } else {
-      fact = nb ? pickLine(salt * 3 + 2, [`I'm in ${nb}.`, `The house is in ${nb}.`, `You'll find me in ${nb}.`]) : home;
-      you = (nb && salt % 2 === 0) ? closer : home;
-      mine = '';
-    }
-  }
-  const cause = best.why[best.why.length - 1]?.eventId ?? root(w);
+  const days = P.jobless[best.who];
+  const salt = best.who + bucket;
+  const fact = `I've been out of work ${days} days.`;
+  const you = pickLine(salt, [
+    `I'm not asking you to find me a desk.`,
+    `Don't rearrange your week for it.`,
+    `This isn't a request.`,
+  ]);
+  const mine = pickLine(salt + 3, [
+    `I'll take the next job that will have me.`,
+    `I'm still looking.`,
+    `The next yes is the one I want.`,
+  ]);
+  const cause = P.lastEv[best.who] >= 0 ? P.lastEv[best.who] : (best.why[best.why.length - 1]?.eventId ?? root(w));
   post(w, st, best.who, best.role, 'note', say(w, best.who, best.role, fact, you, mine, 'note'), cause, cause);
-  mark(st, `hi:${best.who}:${wk}`);
+  mark(st, `out:${best.who}:${bucket}`);
+  mark(st, `outweek:${wk}`);
   return true;
 }
 function milestones(w: World, st: Circle, me: number, budget: number): number {
@@ -2212,7 +2066,8 @@ function mailLines(w: World, st: Circle, me: number): string[] {
   }
   for (const a of st.asks) {
     if (a.status !== 'pending') continue;
-    lines.push(`pending #${a.msg} ${a.kind} from ${P.name(a.from)}: ${actions(a).join(' | ')}`);
+    const silence = a.kind === 'invite' ? ' silence is a no' : '';
+    lines.push(`pending #${a.msg} ${a.kind} due day ${a.due}${silence} from ${P.name(a.from)}: ${actions(a).join(' | ')}`);
   }
   if (lines.length === 1) lines.push('(no letters yet)');
   return lines;
@@ -2243,7 +2098,7 @@ export function circlePerson(w: World, index: number): CirclePersonView | null {
 export interface CircleBoard {
   inbox: {
     threads: { who: number; name: string; role: string; stance: string; messages: { id: number; day: number; text: string; eventId: number; source: number; requestId: number }[] }[];
-    pending: { id: number; msg: number; from: number; name: string; role: string; kind: string; day: number; status: string; cents: number; place: string; other: number; otherName: string; eventId: number; note: string; actions: string[] }[];
+    pending: { id: number; msg: number; from: number; name: string; role: string; kind: string; day: number; status: string; cents: number; place: string; other: number; otherName: string; eventId: number; note: string; due: number; deadline: number; daysLeft: number; default: string; actions: string[] }[];
   };
   people: Record<number, { role: string; stance: string; bond: { word: string; score: number; why: Why[] }; together: Note[] }>;
   added: { slot: number; who: number; name: string; role: string; stance: string; word: string; score: number; why: Why[]; together: Note[] }[];
@@ -2278,6 +2133,8 @@ export function circleBoard(w: World): CircleBoard {
     role: bondOf(st, a.from)?.role ?? 'colleague', kind: a.kind, day: a.day, status: a.status, cents: a.cents,
     place: a.place, other: a.other, otherName: a.other >= 0 && a.other < P.n ? P.name(a.other) : '',
     eventId: a.eventId, note: a.note, actions: actions(a),
+    due: a.due, deadline: a.due, daysLeft: Math.max(0, a.due - w.day),
+    default: a.kind === 'invite' ? 'no' : '',
   }));
   const known = new Set<number>();
   if (me >= 0) for (const c of contactsOf(w, me)) known.add(c.who);

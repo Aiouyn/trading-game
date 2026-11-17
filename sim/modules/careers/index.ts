@@ -450,10 +450,18 @@ function briefFinance(w: World): void {
 function schoolNew(w: World): void {
   const st = book(w), P = econ(w).P;
   if (P.n === st.seen) return;
-  for (let i = st.seen; i < P.n; i++) {
+  const from = st.seen;
+  for (let i = from; i < P.n; i++) {
     if (P.migrant[i] === 1 || P.school[i] > 0) continue;
     if (P.parent[i] >= 0) educate(w, i);
     else { P.school[i] = schoolFromSkill(P.skill[i]); P.apt[i] = P.skill[i]; }
+  }
+  // Someone who already has a job, and no trade, cannot meet a seat that asks for years.
+  // The player is hired after the opening assignment, so this is the pass that gives them one.
+  for (let i = from; i < P.n; i++) {
+    if (P.occ[i] > 0 || P.employer[i] < 0 || !P.alive(i)) continue;
+    const f = econ(w).firms[P.employer[i]];
+    if (f && !f.closed) onHire(w, i, f);
   }
   st.seen = P.n;
 }

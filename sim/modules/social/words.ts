@@ -30,6 +30,7 @@ export function money(cents: number): string {
     return `${sign}$${body} million`;
   }
   const [whole, frac] = (a / 100).toFixed(2).split('.');
+  if (frac === '00') return `${sign}$${commas(whole)}`;
   return `${sign}$${commas(whole)}.${frac}`;
 }
 
@@ -80,16 +81,25 @@ function tidy(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
+const OPENERS = new Set([
+  'a', 'an', 'the', 'it', "it's", 'its', 'that', 'this', 'you', 'your', 'we', 'my', 'his', 'her', 'our',
+  'there', "there's", 'nothing', 'work', 'health', 'come', "don't", 'dont', 'if', 'last', 'after', 'when',
+  'what', 'no', 'yes', 'tell', 'write', 'another', 'a',
+]);
+
 function low(s: string): string {
   if (!s) return s;
   const first = (s.split(' ')[0] ?? '').replace(/[.!?,:—-]+$/, '');
   if (/^(I|I'm|I've|I'll|I'd)$/.test(first)) return s;
+  // A place or a person keeps its capital. "Riverside Lofts" must not become "riverside Lofts".
+  // "You're" is still the word "you", and it has to follow a colon in lower case.
+  const bare = first.toLowerCase().replace(/'.*/, '');
+  if (/^[A-Z]/.test(first) && !OPENERS.has(first.toLowerCase()) && !OPENERS.has(bare)) return s;
   return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
-/** A tic only when the voice would actually say it, and only on a rare letter. */
-function tic(voice: Voice, salt: number): string {
-  if (Math.abs(salt) % 20 !== 0) return '';
+/** A tic only when the voice would actually say it. The caller allows it on at most one letter in thirty. */
+function tic(voice: Voice): string {
   if (voice === 'cold') return 'I will not dress it up.';
   if (voice === 'formal') return 'I will be plain.';
   if (voice === 'blunt') return 'The work is ordinary.';
@@ -116,6 +126,8 @@ export interface LetterParts {
   worry: boolean;
   /** Stable mix of writer and day. Not a random draw. */
   salt?: number;
+  /** When set, a voice may add its tic. Callers set this on at most one letter in thirty. */
+  ticOk?: boolean;
 }
 
 function sentences(s: string): string[] {
@@ -140,7 +152,7 @@ function factKeys(s: string): string[] {
  * At most four sentences: the news, what it means for the reader, what the writer
  * will do, and sometimes a callback. A slot is dropped rather than said twice.
  * The old closer ('I will not dress it up', 'I will be plain', 'the work is ordinary')
- * is a tic: one letter in twenty, and only for a voice that would say it.
+ * is a tic: the caller allows it on at most one letter in thirty, and only a voice that would say it uses it.
  */
 export function renderLetter(p: LetterParts): string {
   const salt = p.salt ?? (p.fact.length * 13 + p.since.length * 7 + p.voice.charCodeAt(0));
@@ -148,7 +160,7 @@ export function renderLetter(p: LetterParts): string {
   const reader = sentences(p.you);
   const will = sentences(p.mine);
   const back = p.since && Math.abs(salt) % 2 === 0 ? sentences(callback(p.since, salt)) : [];
-  const aside = tic(p.voice, salt);
+  const aside = p.ticOk ? tic(p.voice) : '';
   const usedNorm = new Set<string>();
   const usedKeys = new Set<string>();
   const out: string[] = [];
@@ -249,7 +261,10 @@ export function paperHeadline(h: HeadlineIn): string {
       const m = /paid ([\d.]+)% of wages and cut ([\d.]+)%/.exec(h.msg);
       if (!m) return `${paper}: ${who} cannot meet the wage bill`;
       const verb = pick(['pays', 'meets', 'covers'], salt);
-      return `${paper}: ${who}, ${verb} ${Number(m[1]).toFixed(0)}% of wages and the payroll moves ${signedPct(-Number(m[2]), 0)}`;
+      const cut = Number(m[2]);
+      const tail = cut > 0 ? `, and the payroll is cut ${cut.toFixed(0)}%` : '';
+      if (!(Number(m[1]) > 0)) return `${paper}: ${who}, paid none of the wages${tail}`;
+      return `${paper}: ${who}, ${verb} ${Number(m[1]).toFixed(0)}% of wages${tail}`;
     }
     case 'cb.rate': {
       const m = /policy rate ([\d.]+)% -> ([\d.]+)%/.exec(h.msg);
@@ -521,13 +536,20 @@ export function retell(r: RetellIn): string {
     const cut = /payroll moves ([+-]\d+)%|cut ([\d.]+)%/.exec(msg);
     if (paid) {
       const pct = paid[1] || paid[2] || paid[3] || paid[4];
-      const moved = cut ? (cut[1] ? `${cut[1]}%` : signedPct(-Number(cut[2]), 0)) : '';
+      const n = cut ? Math.abs(Number(cut[1] ?? cut[2])) : 0;
       const pctN = Number(pct).toFixed(0);
-      const lines = [
-        `${who} meets ${pctN}% of wages${moved ? `, and the payroll moves ${moved}` : ''}.`,
-        `Wages at ${who} are ${pctN}% covered${moved ? `, after a payroll move of ${moved}` : ''}.`,
-        moved ? `${who} covers ${pctN}% of the wage bill. The payroll moves ${moved}.` : `${who} covers ${pctN}% of the wage bill.`,
-      ];
+      const cutWord = n > 0 ? `the payroll is cut ${Math.round(n)}%` : '';
+      const lines = Number(pct) <= 0
+        ? [
+          cutWord ? `${who} paid none of the wages, and ${cutWord}.` : `${who} paid none of the wages.`,
+          cutWord ? `No wages were paid at ${who}, and ${cutWord}.` : `No wages were paid at ${who}.`,
+          cutWord ? `${who} covered none of the wage bill. The payroll is cut ${Math.round(n)}%.` : `${who} covered none of the wage bill.`,
+        ]
+        : [
+          cutWord ? `${who} meets ${pctN}% of wages, and ${cutWord}.` : `${who} meets ${pctN}% of wages.`,
+          cutWord ? `Wages at ${who} are ${pctN}% covered, and ${cutWord}.` : `Wages at ${who} are ${pctN}% covered.`,
+          cutWord ? `${who} covers ${pctN}% of the wage bill. The payroll is cut ${Math.round(n)}%.` : `${who} covers ${pctN}% of the wage bill.`,
+        ];
       return `${paper}: ${lines[Math.abs(salt) % lines.length]}`;
     }
     return `${paper}: ${who} cannot meet the wage bill.`;
