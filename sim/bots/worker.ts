@@ -28,7 +28,7 @@ const byName = new Map(strategies.map((s) => [s.name, s]));
 const why = (e: unknown): string => e instanceof Error ? e.message : String(e);
 
 function indexRel(w: World): number {
-  // Capitalisation-weighted total return: the price index plus dividends reinvested after tax.
+  // Capitalisation-weighted total return: price change plus the after-tax dividend reinvested.
   const m = w.state.markets as { tr?: number } | undefined;
   return m?.tr && m.tr > 0 ? m.tr / 100 : 1;
 }

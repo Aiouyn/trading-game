@@ -121,7 +121,7 @@ function compactOrders(m: MktState): void {
 }
 function sharesOut(w: World, instr: string): number { return w.ledger.issued.get(instr) ?? SHARES; }
 
-const BLOCK_SHARE = 0.15;
+const BLOCK_SHARE = 0.01;
 /** A founder already holds about 40%. Fading that stake pulls every family firm and the city with it. */
 const FADE_SHARE = 0.5;
 
@@ -212,11 +212,22 @@ export function markHolding(w: World, actor: string, instr: string, qty: number)
   const fair = Math.max(1, fairValue(w, st, 0.04));
   const bid = bestBid(w, instr, actor);
   const days = qty / advOf(st);
-  const haircut = Math.min(0.5, Math.max(0, days - 5) * 0.012);
+  const out = sharesOut(w, instr);
+  const frac = out > 0 ? qty / out : 0;
+  const dayCut = Math.min(0.5, Math.max(0, days - 5) * 0.012);
+  const sizeCut = Math.min(0.5, Math.max(0, (frac - BLOCK_SHARE) * 12));
+  const haircut = Math.max(dayCut, sizeCut);
   // The displayed bid is only the top of the book. Past it, a large sale clears toward
   // what the firm earns, not toward the last print the block itself set.
   const ceiling = Math.min(st.last, Math.round(fair * 1.15), bid > 0 ? Math.max(bid, Math.round(fair)) : Math.round(fair));
-  return Math.max(1, Math.round(ceiling * (1 - haircut)));
+  const marked = ceiling * (1 - haircut);
+  // A corner the lender already marks at a deep haircut. A smaller block that the book
+  // will not take is not worth the last print either: use the bid, or a quarter of the
+  // haircut price when nobody is bidding.
+  if (frac >= 0.5) return Math.max(1, Math.round(marked));
+  const per = saleProceeds(w, instr, qty, actor) / Math.max(1, qty);
+  const liquid = per > 0 ? (per + marked) / 2 : marked * 0.1;
+  return Math.max(1, Math.round(Math.min(marked, liquid)));
 }
 
 /** What one share of a block of `qty` would fetch. Paper bids pay this, not a last trade the bidder walked up. */
@@ -309,7 +320,12 @@ function updateEmas(w: World): void {
     const f = firmOf(s, st.issuer);
     if (!f || (f.lastProfit === st.seenProfit && f.lastDividend === st.seenDiv)) continue;
     st.profitEma = blend(st.profitEma, f.lastProfit);
-    st.divEma = blend(st.divEma, f.lastDividend);
+    // A firm paying down a charter loan pays no dividend. That is a delay, not a cut:
+    // folding the zero into the estimate marks a sound firm at a cent and the cash, when it
+    // finally comes, is an unpriced yield.
+    const loan = w.ledger.issued.get('loan:' + f.id) ?? 0;
+    const payingDown = loan > Math.max(1, f.lastProfit) * 6 && f.lastDividend <= 0 && f.lastProfit > 0;
+    if (!payingDown) st.divEma = blend(st.divEma, f.lastDividend);
     st.seenProfit = f.lastProfit;
     st.seenDiv = f.lastDividend;
   }
@@ -323,6 +339,13 @@ function markWide(w: World): void {
 }
 
 function band(st: Stock): number { return st.wide ? 0.10 : 0.02; }
+
+/** A one-cent price cannot move by two percent and stay a whole cent, so the band is at least a cent. */
+function circuit(st: Stock): { hi: number; lo: number } {
+  const up = Math.floor(st.prev * (1 + band(st)));
+  const dn = Math.ceil(st.prev * (1 - band(st)));
+  return { hi: Math.max(st.prev + 1, up), lo: Math.max(1, Math.min(Math.max(1, st.prev - 1), dn)) };
+}
 
 function volOf(st: Stock): number {
   const r = st.rets;
@@ -440,8 +463,7 @@ function note(st: Stock, px: number, qty: number): void {
 
 function matchBook(w: World, st: Stock, mine: Order[]): void {
   const m = book(w);
-  const hi = Math.max(1, Math.floor(st.prev * (1 + band(st))));
-  const lo = Math.max(1, Math.ceil(st.prev * (1 - band(st))));
+  const { hi, lo } = circuit(st);
   // Sort this stock's live orders once per pass instead of rescanning the whole book for every fill.
   const live = (side: Side): Order[] => mine.filter((o) => o.open && !o.skip && o.side === side && o.qty >= 1);
   const bids = live('buy').sort((x, y) => bidRank(y) - bidRank(x) || x.seq - y.seq);
@@ -743,7 +765,7 @@ function fadeCorner(w: World, st: Stock): void {
   if (!(fair > 0) || !(st.last > fair * 1.25)) return;
   // A few round lots near the print do not make a price that a corner could sell.
   if (bidSupport(w, st) >= Math.max(adv * 5, top * 0.05)) return;
-  const lo = Math.max(1, Math.ceil(st.prev * (1 - band(st))));
+  const lo = circuit(st).lo;
   const floorPx = Math.max(lo, Math.round(fair));
   if (st.last > floorPx) st.last = floorPx;
 }
@@ -806,7 +828,24 @@ export const markets: Module = {
     }
     for (const st of state.stocks) {
       if (st.issuer === BANK) continue;
-      const x = impliedEma(st.last, s.policyRate, 0.04, sharesOut(w, st.instr));
+      const f = firmOf(s, st.issuer);
+      // Book equity is cash and stock minus the charter loan, and the loan is larger than both,
+      // so the book floors at a cent. The loan is repaid out of profit; the shares are worth the
+      // profit that remains. Price that, or the book when the book is the larger of the two.
+      let last = st.last;
+      if (f && f.markup > 1 && f.expSales > 0 && f.price > 0) {
+        const daily = f.expSales * f.price * (1 - 1 / f.markup);
+        const loan = w.ledger.issued.get('loan:' + f.id) ?? 0;
+        const interest = loan * (s.policyRate + 0.03) / 12;
+        const tax = s.profitTax ?? 0.2;
+        const monthly = daily * 30 - interest;
+        const after = monthly > 0 ? monthly * (1 - tax) : 0;
+        const sh = sharesOut(w, st.instr);
+        const r = discount(s.policyRate, 0.04);
+        if (sh > 0 && r > 0) last = Math.max(last, Math.round(after * 12 / r / sh));
+      }
+      st.last = last; st.prev = last; st.open = last; st.high = last; st.low = last;
+      const x = impliedEma(last, s.policyRate, 0.04, sharesOut(w, st.instr));
       st.divEma = x;
       st.profitEma = x;
     }
@@ -889,7 +928,7 @@ export const markets: Module = {
     for (const st of m.stocks) {
       const q = quotes.get(st.instr);
       if (st.traded || !q) continue;
-      const hi = Math.floor(st.prev * (1 + band(st))), lo = Math.ceil(st.prev * (1 - band(st)));
+      const { hi, lo } = circuit(st);
       if (q.bid > st.last && q.ask > q.bid) st.last = Math.max(st.last, Math.min(q.bid, hi, Number.isFinite(q.ask) ? q.ask - 1 : Infinity));
       else if (q.ask < st.last && q.bid < q.ask) st.last = Math.min(st.last, Math.max(q.ask, lo, q.bid + 1));
     }
@@ -930,10 +969,7 @@ export const markets: Module = {
   // Funds pay out cash they cannot use: anything above the value of the shares they hold goes to their owners.
   monthEnd(w) {
     const m = book(w);
-    // Total return: price change plus the recurring dividend reinvested after the tax a person pays.
-    // lastDividend is a cash sweep of everything above a month of wages, including treasury that was
-    // already in the opening book value, so a single month can dwarf the firm. The smoothed dividend
-    // is the run-rate the exchange capitalises, and it is what a holder who reinvests can keep.
+    // Total return: price change plus the smoothed dividend reinvested after the tax a person pays.
     {
       const s = econ(w);
       const tax = s.divRate ?? 0.35;
