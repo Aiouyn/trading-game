@@ -10,6 +10,7 @@ import { DAYS_PER_MONTH, DAYS_PER_YEAR, type Module, type World } from '../../ke
 import { SHOCKS, type ShockDef } from '../economy/content.ts';
 import { type EconState } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
+import { money, paperHeadline, rumourLine, sectorWord } from './words.ts';
 
 const DEG = 16;
 const NO_PX = (_instr: string): number => 0;
@@ -485,47 +486,22 @@ function label(w: World, fact: Fact): string {
   if (fact.instrs.length) return 'the bank';
   return 'the market';
 }
+function headlineIn(w: World, paper: string, fact: Fact) {
+  const firms = econ(w).firms;
+  const f = fact.firms.length ? firms[fact.firms[0]] : undefined;
+  const named = f?.name ?? label(w, fact);
+  return {
+    paper, tag: fact.tag, msg: fact.msg,
+    name: fact.tag === 'cb.rate' ? '' : named,
+    sector: f ? sectorWord(f.sector) : '',
+    profit: fact.profit, salt: fact.eventId,
+  };
+}
 function headline(paper: string, w: World, fact: Fact): string {
-  const name = label(w, fact);
-  switch (fact.tag) {
-    case 'firm.default': return `${paper}: ${name} defaults`;
-    case 'firm.ceoFired': return `${paper}: ${name} removes its chief executive`;
-    case 'firm.succession': return `${paper}: a new chief executive at ${name}`;
-    case 'firm.cashCrunch': return `${paper}: ${name} cannot meet its wage bill`;
-    case 'cb.rate': return `${paper}: ${fact.msg}`;
-    case 'mkt.move': {
-      const at = fact.msg.indexOf('close');
-      return `${paper}: ${name} shares ${at >= 0 ? fact.msg.slice(at) : fact.msg}`;
-    }
-    case 'shock': return `${paper}: ${fact.msg}`;
-    case 'insider.profit': {
-      const amt = (Math.abs(fact.profit) / 100).toFixed(0);
-      return `${paper}: ${name} ${fact.profit >= 0 ? 'profit' : 'loss'} of ${amt} leaks a week before the figures`;
-    }
-    case 'law.case': return `${paper}: ${fact.msg}`;
-    default: {
-      const never: never = fact.tag;
-      return never;
-    }
-  }
+  return paperHeadline(headlineIn(w, paper, fact));
 }
 function whatOf(w: World, fact: Fact): string {
-  const name = label(w, fact);
-  switch (fact.tag) {
-    case 'firm.default': return `default at ${name}`;
-    case 'firm.ceoFired': return `the chief executive removed at ${name}`;
-    case 'firm.succession': return `succession at ${name}`;
-    case 'firm.cashCrunch': return `wages unpaid at ${name}`;
-    case 'cb.rate': return 'the policy rate moved';
-    case 'mkt.move': return `shares fell at ${name}`;
-    case 'shock': return fact.msg;
-    case 'insider.profit': return `a loss at ${name}`;
-    case 'law.case': return `the case against ${name}`;
-    default: {
-      const never: never = fact.tag;
-      return never;
-    }
-  }
+  return rumourLine(headlineIn(w, '', fact));
 }
 
 function whatCached(w: World, fact: Fact): string {
@@ -789,8 +765,7 @@ function insiderLeak(w: World): void {
     if (f.closed) continue;
     const profit = Math.round(f.mRev - f.mCost);
     const word = profit >= 0 ? 'profit' : 'loss';
-    const amt = (Math.abs(profit) / 100).toFixed(0);
-    const msg = `${f.name} insiders see a monthly ${word} of ${amt} with a week still to run`;
+    const msg = `${f.name} insiders see a monthly ${word} of ${money(Math.abs(profit))} with a week still to run`;
     const cause = f.priceEv ?? f.stockoutEv ?? s.macroEv;
     const ev = w.events.emit('firm.insider', msg, [cause], f.id);
     const fact = openFact(w, 'insider.profit', ev, msg, null, profit);

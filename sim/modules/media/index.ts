@@ -9,6 +9,7 @@ import { DAYS_PER_MONTH, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { addFirm, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
 import { askFirm, contactsOf, knows, publish, seatPerson } from '../social/index.ts';
+import { CITY, money, sectorWord, signedPct } from '../social/words.ts';
 import { cancelOrder, submitOrder } from '../markets/index.ts';
 
 interface Outlet {
@@ -222,9 +223,13 @@ function publishTip(w: World, outlet: number, journalist: number, got: { fact: F
     `${P.name(journalist)} of ${o.name} hears it from ${P.name(heard.who)}${src[1] ? `, and ${P.name(src[1].who)} confirms it` : ''}`,
     [got.fact.eventId], P.id(heard.who));
   if (!wrong) publish(w, got.fact.id);
-  const word = side > 0 ? 'ahead of last month' : 'behind last month';
-  const how = wrong ? 'from one unchecked source' : src.length > 1 ? 'two sources agree' : 'a source on the desk says';
-  const story = w.events.emit('media.story', `${o.name}: ${f.name} is ${word}; ${how}`, [tip], f.id);
+  const gap = Math.abs(got.fact.profit - f.lastProfit);
+  const ahead = side > 0;
+  const verbs = ahead ? ['pulls ahead of last month by', 'beats last month by', 'runs ahead of last month by'] : ['falls behind last month by', 'misses last month by', 'lags last month by'];
+  const verb = verbs[Math.abs(journalist + w.day) % verbs.length];
+  const sector = sectorWord(f.sector);
+  const how = wrong ? 'One unchecked source.' : src.length > 1 ? 'Two sources agree.' : 'A source at the firm says so.';
+  const story = w.events.emit('media.story', `${o.name}: ${f.name}, the ${sector} firm, ${verb} ${money(gap)} in ${CITY}. ${how}`, [tip], f.id);
   const px = stockOf(w, f.id)?.last ?? 0;
   b.stories.push({
     outlet, firm: f.idx, issuer: f.id, day: w.day, side, wrong, base: f.lastProfit,
@@ -278,8 +283,10 @@ function leakRumour(w: World, outlet: number, journalist: number, got: { fact: F
   if (Math.abs(edge) < 0.05) return;
   const sloppy = econ(w).P.diligence[journalist] < 50;
   const side = (edge >= 0 ? 1 : -1) * (sloppy ? -1 : 1);
+  const gap = Math.abs(got.fact.profit - f.lastProfit);
+  const way = side > 0 ? 'ahead' : 'behind';
   const ev = w.events.emit('media.tip',
-    `${econ(w).P.name(journalist)} repeats an unchecked claim about ${f.name}`,
+    `${econ(w).P.name(journalist)} repeats, unchecked, that ${f.name}, the ${sectorWord(f.sector)} firm in ${CITY}, is ${way} by ${money(gap)}`,
     [got.fact.eventId], econ(w).P.id(got.sources[0].who));
   b.rumours.push({
     issuer: f.id, firm: f.idx, side, confidence: 36 + Math.floor(got.sources[0].trust / 4),
@@ -296,8 +303,10 @@ function watch(w: World): void {
     if (moved && !st.wrong && px > 0 && !st.scooped) {
       const o = b.outlets[st.outlet];
       const name = s.firms[st.firm]?.name ?? st.issuer;
+      const sector = sectorWord(s.firms[st.firm]?.sector ?? '');
+      const pct = st.px > 0 ? (px / st.px - 1) * 100 : 0;
       w.events.emit('media.scoop',
-        `${o.name} scoop: ${name} shares ${(st.px / 100).toFixed(2)} -> ${(px / 100).toFixed(2)} before the figures`,
+        `${o.name}: ${name}${sector ? `, the ${sector} firm,` : ''} shares move from ${money(st.px)} to ${money(px)}, ${signedPct(pct, 1)}, in ${CITY} before the figures`,
         [st.story], st.issuer);
       st.scooped = true;
       b.yScoops++;
@@ -373,12 +382,14 @@ function plant(w: World): void {
   const vol = medianVol(st);
   const want = vol > 0 && vol < 35 ? Math.max(10, Math.min(80, vol * 4)) : 14;
   const limit = Math.max(1, Math.round(st.last * (positive ? 1.018 : 0.982)));
+  const sector = sectorWord(firm.sector);
+  const px = money(st.last);
   const verb = positive
-    ? 'plants a rumour that the quarter is strong and buys ahead of it'
+    ? `passes word that ${firm.name}, the ${sector} firm in ${CITY}, is having a strong quarter, and buys near ${px}`
     : held > want
-      ? 'plants a rumour that the quarter is weak and sells into it'
-      : 'plants a rumour against the shares and buys into the selling';
-  const ev = w.events.emit('media.plant', `${P.name(person)} ${verb} at ${firm.name}`, [cause], P.id(person));
+      ? `passes word that ${firm.name}, the ${sector} firm in ${CITY}, is having a weak quarter, and sells near ${px}`
+      : `passes word against ${firm.name}, the ${sector} firm in ${CITY}, and buys into the selling near ${px}`;
+  const ev = w.events.emit('media.plant', `${P.name(person)} ${verb}`, [cause], P.id(person));
   const side = positive ? 1 : held > want ? -1 : 1;
   const rumourSide = positive ? 1 : -1;
   b.rumours.push({
@@ -405,8 +416,9 @@ function judge(w: World): void {
       continue;
     }
     if (miss) {
+      const sector = sectorWord(f.sector);
       w.events.emit('media.retraction',
-        `${o.name} retracts its report on ${f.name}: the month did not come out that way`,
+        `${o.name} withdraws its report on ${f.name}, the ${sector} firm in ${CITY}: the month did not come out that way`,
         [st.story, f.priceEv ?? s.macroEv ?? b.root], o.firm >= 0 ? s.firms[o.firm]?.id : f.id);
       o.trust = o.serious ? Math.max(42, o.trust - 3) : Math.max(24, o.trust - 8);
       b.yRetract++;
