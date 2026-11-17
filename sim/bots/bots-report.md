@@ -1,27 +1,26 @@
 # Bot balance report
 
-10 worlds (seeds 1–10), 10 years, 5,000 people. Each strategy played each world in its own process, acting once a week through the player. The stock index is the exchange's capitalisation-weighted total return: price change plus the after-tax dividend reinvested. Books were checked every 30 days and on the last day.
+3 worlds (seeds 1–3), 10 years, 5,000 people. Each strategy played each world in its own process, acting once a week through the player. The stock index is the exchange's capitalisation-weighted total return: price change plus the after-tax dividend reinvested. Books were checked every 30 days and on the last day.
 
 ## Flags
 
-- **do nothing** 10th percentile 1.04x beats the index median 0.78x (too safe).
-- **bond ladder** 10th percentile 1.24x beats the index median 0.91x (too safe).
+- **raider** 10th percentile 9.81x beats the index median 1.24x (too safe).
 
 ## Strategies
 
 | Strategy | p10 | median | p90 | bankrupt | calls | dead | prison | caught | ann. return | index ann. | excess |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| do nothing | 1.04x | 1.26x | 1.58x | 0/10 | 0 | 0/10 | 1/10 | 2 | 2.2% | -2.4% | 4.7% |
-| index investor | 0.49x | 0.78x | 0.96x | 0/10 | 0 | 0/10 | 1/10 | 2 | -2.5% | 1.1% | -2.7% |
-| bond ladder | 1.24x | 1.48x | 1.89x | 0/10 | 0 | 0/10 | 0/10 | 0 | 3.9% | -1.0% | 5.0% |
-| momentum | 0.65x | 1.14x | 1.28x | 0/10 | 0 | 0/10 | 1/10 | 1 | 1.3% | -1.9% | 0.6% |
-| value | 0.87x | 1.62x | 2.86x | 0/10 | 0 | 0/10 | 1/10 | 1 | 4.9% | -0.1% | 5.0% |
-| gambler | 0.02x | 0.08x | 0.36x | 10/10 | 10 | 0/10 | 0/10 | 0 | -24.7% | -1.7% | -22.3% |
-| memecoin | 0.85x | 0.96x | 1.14x | 0/10 | 0 | 0/10 | 3/10 | 7 | -0.4% | -0.8% | 0.5% |
-| insider | 0.48x | 0.67x | 0.82x | 0/10 | 0 | 0/10 | 2/10 | 2 | -4.0% | -2.6% | -2.6% |
-| raider | 0.02x | 0.14x | 1.49x | 10/10 | 65 | 0/10 | 0/10 | 1 | -17.9% | -1.6% | -17.5% |
-| landlord | 0.39x | 0.49x | 0.57x | 0/10 | 0 | 0/10 | 3/10 | 5 | -6.8% | -2.0% | -5.1% |
-| random | 0.29x | 0.45x | 0.60x | 0/10 | 0 | 0/10 | 1/10 | 6 | -7.6% | 1.0% | -7.7% |
+| do nothing | 0.99x | 1.00x | 1.45x | 0/3 | 0 | 0/3 | 1/3 | 2 | -0.0% | 3.9% | -4.0% |
+| index investor | 1.25x | 1.70x | 2.19x | 0/3 | 0 | 0/3 | 0/3 | 1 | 5.5% | 2.7% | 0.7% |
+| bond ladder | 1.17x | 1.22x | 1.78x | 0/3 | 0 | 0/3 | 0/3 | 0 | 2.0% | 2.8% | -0.8% |
+| momentum | 1.10x | 1.50x | 2.24x | 0/3 | 0 | 0/3 | 1/3 | 1 | 4.2% | 2.8% | 0.2% |
+| value | 1.21x | 1.38x | 2.25x | 0/3 | 0 | 0/3 | 1/3 | 1 | 3.2% | 3.8% | -1.1% |
+| gambler | 0.48x | 0.77x | 1.96x | 3/3 | 3 | 0/3 | 0/3 | 0 | -2.6% | 3.4% | -5.6% |
+| memecoin | 0.85x | 0.89x | 1.16x | 0/3 | 0 | 0/3 | 1/3 | 2 | -1.1% | 2.9% | -4.7% |
+| insider | 1.11x | 1.27x | 1.93x | 0/3 | 0 | 0/3 | 1/3 | 1 | 2.4% | 3.4% | -1.3% |
+| raider | 9.81x | 10.25x | 12.45x | 3/3 | 19 | 0/3 | 0/3 | 0 | 26.2% | 2.2% | 23.3% |
+| landlord | 0.31x | 0.40x | 0.59x | 0/3 | 0 | 0/3 | 0/3 | 0 | -8.8% | 3.6% | -12.7% |
+| random | 0.32x | 0.52x | 0.85x | 0/3 | 0 | 0/3 | 1/3 | 5 | -6.4% | 3.1% | -9.9% |
 
 Final net worth is the multiple of the player’s worth on day 0. Annualised return uses the days the run actually lived. Excess is that return minus the same world’s index. Bankrupt is a court declaration against anyone who was the player. Calls counts margin calls, on stock loans and on written options, for those same people. Caught is charges and convictions of anyone who was the player, counting a case once.
 
@@ -34,4 +33,4 @@ None. Every strategy had the commands it needed.
 
 ## Cost
 
-Wall clock 2603s on 3 cores. Sum of run times 7726s across 110 runs. No paid model API.
+Wall clock 520s on 5 cores. Sum of run times 2463s across 33 runs. No paid model API.
