@@ -360,6 +360,7 @@ function secondPerson(msg: string, name: string): string {
     arrives: 'arrive', takes: 'take', works: 'work', pays: 'pay', gives: 'give', sees: 'see',
     retires: 'retire', dies: 'die', marries: 'marry', courts: 'court', writes: 'write', hands: 'hand',
     reports: 'report', moves: 'move', mortgages: 'mortgage', lets: 'let', sells: 'sell', bids: 'bid',
+    buys: 'buy', leaves: 'leave', starts: 'start', finishes: 'finish',
     is: 'are', has: 'have', counts: 'count',
   };
   const fixed = lead.replace(/^[a-z]+/, (v) => verb[v] ?? v);
@@ -380,7 +381,10 @@ function effectOf(w: World, ev: Ev, c: Circle): string {
     }
     if (ev.kind === 'loan.grant') {
       const m = /takes a (.+) of (\d+) from (\S+) at ([\d.]+)%/.exec(msg);
-      if (m) return `You take a ${m[1]} of $${Number(m[2]).toLocaleString('en-US')} from ${m[3].replace(/_/g, ' ')} at ${m[4]}%`;
+      if (m) {
+        const kind = /^[aeiou]/i.test(m[1]) ? `an ${m[1]}` : `a ${m[1]}`;
+        return `You take ${kind} of $${Number(m[2]).toLocaleString('en-US')} from ${m[3].replace(/_/g, ' ')} at ${m[4]}%`;
+      }
     }
     if (ev.kind === 'loan.margin') return `The bank calls your margin loan`;
     return unperiod(secondPerson(msg, c.name));

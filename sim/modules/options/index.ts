@@ -16,7 +16,7 @@ import { DEP, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, cancelOrder, returnShares, submitOrder } from '../markets/index.ts';
 
 const MULT = 100;
-const N_UNDER = 6;
+const N_UNDER = 10;
 const N_EXP = 6;
 const N_K = 5;
 const MONEYS = [0.86, 0.93, 1, 1.07, 1.14];
@@ -212,10 +212,8 @@ function strikesFor(spot: number): number[] {
   return out;
 }
 
-const MAX_NOTIONAL = 1_200_000; // one contract, in cents. Dearer names would swamp the market maker.
-
 function rank(w: World): StockPeek[] {
-  const rows = mkt(w).stocks.filter((s) => !s.instr.startsWith('eq:fund_') && s.last > 0 && s.last * MULT <= MAX_NOTIONAL);
+  const rows = mkt(w).stocks.filter((s) => !s.instr.startsWith('eq:fund_') && s.last > 0);
   const vol = (s: StockPeek): number => {
     let v = 0;
     const a = Math.max(0, s.hist.length - 20);
@@ -370,7 +368,8 @@ function quoteOne(w: World, c: Contract, sig: number, rate: number): void {
   c.mid = Math.max(1, Math.round(mid));
   c.bid = Math.max(1, Math.round(mid) - half);
   c.ask = Math.max(c.bid + 1, Math.round(mid) + half);
-  if (mid < 0.5) { c.mid = 0; c.bid = 0; c.ask = 0; }
+  const near = Math.abs(c.strike / spot - 1) < 0.08;
+  if (mid < 0.5 && !near) { c.mid = 0; c.bid = 0; c.ask = 0; }
 }
 
 function quotes(w: World): void {
@@ -390,7 +389,6 @@ function quotes(w: World): void {
 }
 
 function roomFor(w: World, c: Contract, buyingFromMm: boolean, qty: number): number {
-  if (spotOf(w, c.instr) * MULT > MAX_NOTIONAL) return 0;
   const net = netOf(w, MM, c);
   if (buyingFromMm) return Math.max(0, Math.min(qty, CAP - -net));
   return Math.max(0, Math.min(qty, CAP - net));
@@ -995,6 +993,21 @@ export function matchOption(w: World, instr: string, right: Right, strike: numbe
   return best ? rowOf(w, best, '') : undefined;
 }
 
+/** One sentence when `instr` has nothing listed. Empty when a live contract is on the board. */
+export function optionWhy(w: World, instr: string): string {
+  const st = w.state.options as OptState | undefined;
+  const name = instr.trim();
+  if (!st || st.off) return 'There is no options market in this world.';
+  if (!name) return 'No options are listed.';
+  if (st.contracts.some((c) => c.live && sameName(c.instr, name))) return '';
+  const stock = mkt(w).stocks.find((s) => sameName(s.instr, name) || sameName(s.issuer, name));
+  if (!stock) return `${name} is not a listed stock, so the market maker writes no options on it.`;
+  const firm = econ(w).firms.find((f) => f.id === stock.issuer);
+  const label = firm?.name ?? name;
+  if (!rank(w).some((s) => s.instr === stock.instr)) return `${label} is not among the 10 most traded stocks, so the market maker does not list options on it.`;
+  return `${label} has no listed contracts this month.`;
+}
+
 /** Hit the market maker. Buy pays the ask, write sells the bid and posts margin, close flattens the net. */
 export function tradeOption(w: World, actor: string, contractId: string, side: 'buy' | 'write' | 'close', qty: number, cause: number): { qty: number; px: number; why?: string } {
   const st = w.state.options as OptState | undefined;
@@ -1048,14 +1061,14 @@ export const options: Module = {
     for (let u = 0; u < names.length; u++) {
       const stock = names[u];
       const ks = strikesFor(Math.max(1, Math.round(spotOf(w, stock.instr))));
-      for (let e = 0; e < N_EXP; e++) {
+      for (let e = 1; e <= N_EXP; e++) {
         for (let k = 0; k < N_K; k++) {
           for (const right of ['C', 'P'] as const) {
             const longId = `optL:${slot}`, shortId = `optS:${slot}`;
             L.define({ id: longId, kind: 'share', issuer: EX });
             L.define({ id: shortId, kind: 'share', issuer: EX });
             contracts.push({
-              u, k, instr: stock.instr, issuer: stock.issuer, right, strike: ks[k], expMonth: e,
+              u, k, instr: stock.instr, issuer: stock.issuer, right, strike: ks[k], expMonth: w.month + e,
               longId, shortId, mid: 0, bid: 0, ask: 0, last: 0, vol: 0, live: true,
             });
             slot++;
@@ -1068,7 +1081,7 @@ export const options: Module = {
       root: 0, mm0: 0, yVol: 0, yCalls: 0, yIv: 0, yIvN: 0, iv: 0.22,
     };
     w.state.options = st;
-    st.root = w.events.emit('opt.open', 'calls and puts listed on the most traded stocks', [w.genesis], EX);
+    st.root = w.events.emit('opt.open', `Calls and puts are listed on the ${names.length} most traded stocks, one to six months out.`, [w.genesis], EX);
     quotes(w);
     st.mm0 = wealth(w);
     const bad = L.check();
@@ -1080,8 +1093,11 @@ export const options: Module = {
     if (st.off) return;
     absorbHaircut(w, st.root);
     const cause = st.root;
-    if ((w.day + 1) % DAYS_PER_MONTH === 0) {
+    // At the start of a month the front expiry has no time left. Tear it up and list a new one six months out,
+    // so the board stays at one to six months instead of showing a contract that dies today.
+    if (w.day > 0 && w.day % DAYS_PER_MONTH === 0) {
       for (const c of st.contracts) if (c.live && c.expMonth === w.month) expireOne(w, c, cause);
+      roll(w);
     }
     quotes(w);
     settleMargins(w, cause);

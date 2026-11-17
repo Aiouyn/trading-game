@@ -111,6 +111,19 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: talk SLOT' };
     return { kind: 'talk', slot };
   }
+  if (head === 'jobs') return { kind: 'jobs' };
+  if (head === 'apply') {
+    const n = Number(t[1]);
+    if (!Number.isSafeInteger(n) || n < 1) return { error: 'usage: apply N' };
+    return { kind: 'apply', n };
+  }
+  if (head === 'study') {
+    const field = t.slice(1).join(' ').trim();
+    if (!field) return { error: 'usage: study FIELD' };
+    return { kind: 'study', field };
+  }
+  if (head === 'quit') return { kind: 'quit' };
+  if (head === 'ask' && (t[1] ?? '').toLowerCase() === 'raise') return { kind: 'raise' };
   if (head === 'ask') {
     const slot = Number(t[1]);
     if (!Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: ask SLOT FIRM' };

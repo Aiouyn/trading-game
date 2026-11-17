@@ -254,16 +254,20 @@ function loadOne(r: RawReader): ScenarioDef {
 
 const catalog: ScenarioDef[] = loadRaws(process.env.SIM_CONTENT ?? contentDir).filter((raw) => raw.type === 'SCENARIO').map((raw) => loadOne(new RawReader(raw)));
 
+function aan(phrase: string): string {
+  return /^[aeiou]/i.test(phrase) ? `an ${phrase}` : `a ${phrase}`;
+}
+
 function goalText(g: Goal): string {
   switch (g.kind) {
     case 'worth': return `net worth ${money(g.cents)}`;
     case 'firm': return g.firm && g.firm !== '*' ? `control ${g.firm}` : 'control a listed firm';
-    case 'sector': return `control a ${g.sector} firm`;
+    case 'sector': return `control ${aan(g.sector)} firm`;
     case 'office': return 'hold a political office';
     case 'dynasty': return `a dynasty of ${g.generations} generations`;
     case 'crash': return 'survive the crash';
     case 'turn': return g.firm ? `keep the seat at ${g.firm} with ${g.days} days of wages in the box` : `keep the seat with ${g.days} days of wages in the box`;
-    case 'homes': return `own ${g.count} homes and stay solvent`;
+    case 'homes': return `own ${g.count} ${g.count === 1 ? 'home' : 'homes'} and stay solvent`;
     case 'none': return 'no goal';
     default: {
       const never: never = g;
@@ -690,8 +694,8 @@ function closingOf(w: World, sc: ScenarioRun, result: 'win' | 'loss'): string {
     case 'sector-stake': {
       const sector = sc.goal.kind === 'sector' ? sc.goal.sector : 'the sector';
       return result === 'win'
-        ? `${name} controls a ${sector} firm. ${book}`
-        : `${name} never controlled a ${sector} firm. ${book}`;
+        ? `${name} controls ${aan(sector)} firm. ${book}`
+        : `${name} never controlled ${aan(sector)} firm. ${book}`;
     }
     case 'sandbox':
       return `${name} set the book down at ${worth}, from ${start}, with no goal to miss. ${where}.`;
@@ -910,11 +914,11 @@ function reasonOf(sc: ScenarioRun, result: 'win' | 'loss'): string {
   switch (g.kind) {
     case 'worth': return result === 'win' ? `You reached ${money(g.cents)}.` : `You did not reach ${money(g.cents)} in time.`;
     case 'firm': return result === 'win' ? `You control ${g.firm}.` : `You never took control of ${g.firm}.`;
-    case 'sector': return result === 'win' ? `You control a ${g.sector} firm.` : `You never controlled a ${g.sector} firm.`;
+    case 'sector': return result === 'win' ? `You control ${aan(g.sector)} firm.` : `You never controlled ${aan(g.sector)} firm.`;
     case 'office': return result === 'win' ? 'You hold office.' : 'You never held office.';
     case 'dynasty': return result === 'win' ? `The house reached generation ${g.generations}.` : `The house ended before generation ${g.generations}.`;
     case 'crash': return result === 'win' ? 'You came through the crisis solvent.' : 'You did not come through the crisis.';
-    case 'homes': return result === 'win' ? `You own ${g.count} homes.` : `You do not own ${g.count} homes.`;
+    case 'homes': return result === 'win' ? `You own ${g.count} ${g.count === 1 ? 'home' : 'homes'}.` : `You do not own ${g.count} ${g.count === 1 ? 'home' : 'homes'}.`;
     case 'turn': return result === 'win' ? `The cash box holds ${g.days} days of wages and you still have the seat.` : `The cash box never held ${g.days} days of wages while you kept the seat.`;
     case 'none': return 'There was no goal.';
     default: {

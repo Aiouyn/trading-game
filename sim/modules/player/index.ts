@@ -11,7 +11,7 @@ import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../econ
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
 import { borrowShares, cancelOrder, markHolding, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
-import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
+import { matchOption, optionChain, optionWhy, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
@@ -155,7 +155,12 @@ export type Command =
   | { kind: 'invite'; slot: number; place: string }
   | { kind: 'gift'; slot: number; cents: number }
   | { kind: 'introduce'; slot: number }
-  | { kind: 'mail' };
+  | { kind: 'mail' }
+  | { kind: 'jobs' }
+  | { kind: 'apply'; n: number }
+  | { kind: 'quit' }
+  | { kind: 'raise' }
+  | { kind: 'study'; field: string };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -237,7 +242,7 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'futures', name: 'fut', use: 'fut long oil 1 2', about: 'Go long or short a commodity future, month 0 to 5.\nfut close oil 2 flattens that month.' },
   { topic: 'options', name: 'opt', use: 'opt silicrest', about: 'List strikes, expiries, bid, ask and open interest.\nopt alone names the underlyings.' },
   { topic: 'options', name: 'call', use: 'call silicrest', about: 'Buy a call from the market maker at the ask.\ncall SYMBOL STRIKE MONTHS QTY; a strike of 0 is at the money.' },
-  { topic: 'options', name: 'put', use: 'put silicrest 0 2 1', about: 'Buy a put from the market maker at the ask.\nThe strike is in dollars. Months run from 0 to 5.' },
+  { topic: 'options', name: 'put', use: 'put silicrest 0 2 1', about: 'Buy a put from the market maker at the ask.\nThe strike is in dollars. Months run from 1 to 6.' },
   { topic: 'options', name: 'write', use: 'write put silicrest', about: 'Sell a call or a put to the market maker and post margin.\nwrite call SYMBOL STRIKE MONTHS QTY is the same shape.' },
   { topic: 'options', name: 'close', use: 'close optL:12', about: 'Close a contract, at the bid if you are long and the ask if you are short.\nclose SYMBOL flattens that name. At expiry an in-the-money contract is exercised for you, as it is for anyone.' },
   { topic: 'coins', name: 'coin', use: 'coin buy NAME 2', about: 'Buy or sell a coin.\nA trailing @ PRICE is a limit. A missing name lists the coins that trade.' },
@@ -277,6 +282,11 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'life', name: 'lawyer', use: 'lawyer', about: 'Pay a lawyer. Regulator attention falls.\nThe fee is high, and the lawyer needs half a year before taking you again.' },
   { topic: 'life', name: 'clinic', use: 'clinic', about: 'See a doctor. Health rises.\nIt costs money, and the clinic will not see you again for a season.' },
   { topic: 'life', name: 'overtime', use: 'overtime', about: 'Work extra days. Cash rises.\nStress rises with it, and the firm will not pay it again for a month.' },
+  { topic: 'work', name: 'jobs', use: 'jobs', about: 'List firms that are short of staff, the role and the wage, and what they ask in experience, schooling and health.\nEach line says how you compare.' },
+  { topic: 'work', name: 'apply', use: 'apply 1', about: 'Apply for job 1. You compete with the other people who could take the shift.\nThe firm answers by letter a few days later.' },
+  { topic: 'work', name: 'quit', use: 'quit', about: 'Leave your job. A layoff still follows seniority, the same rule as for anyone.' },
+  { topic: 'work', name: 'raise', use: 'ask raise', about: 'Ask for a raise. It depends on your performance, how long you have been in the trade, and whether the firm is making money.\nA refusal is remembered.' },
+  { topic: 'work', name: 'study', use: 'study clerk', about: 'Study a trade. It costs money and takes days, and it raises the schooling the jobs ask for.' },
   { topic: 'time', name: 'wait', use: 'wait 1m', about: 'Let the city run for 1d, 1w, 1m or 1y.\nThe books are checked as the days pass.' },
   { topic: 'help', name: 'help', use: 'help bank', about: 'Explain one topic, using your own numbers.\nhelp alone lists every command by topic, with one example each.' },
   { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nhints off also skips the first-paycheck lesson.' },
@@ -305,6 +315,15 @@ function editDistance(a: string, b: string): number {
     }
   }
   return row[n];
+}
+
+type CareerAct = (w: World, playerId: string, cmd: Command) => ActResult;
+let careerAct: CareerAct | undefined;
+/** Careers registers jobs, apply, quit, ask raise and study. The player module does not import it back. */
+export function setCareerCommands(fn: CareerAct): void { careerAct = fn; }
+
+function articles(s: string): string {
+  return s.replace(/\ba ([AaEeIiOoUu])/g, 'an $1');
 }
 
 export function suggestCommand(head: string): string {
@@ -338,14 +357,20 @@ function helpSituation(v: PlayerView, topic: string): string {
       const face = v.bonds.reduce((a, b) => a + b.face, 0);
       return face ? `You have ${cash} in cash and ${dollars(face)} face of bonds.` : `You have ${cash} in cash and no bonds.`;
     }
-    case 'futures':
-      return v.futures.length
-        ? `You have ${v.futures.length} futures open and ${dollars(v.marginPosted)} posted as margin.`
+    case 'futures': {
+      const n = v.futures.length;
+      return n
+        ? `You have ${n} ${n === 1 ? 'future' : 'futures'} open and ${dollars(v.marginPosted)} posted as margin.`
         : `You have no futures. Cash is ${cash}.`;
-    case 'options': {
-      const open = v.chain.filter((c) => c.net);
-      return open.length ? `You have ${open.length} option contracts open. Cash is ${cash}.` : `You have no options open. Cash is ${cash}.`;
     }
+    case 'options': {
+      const n = v.chain.filter((c) => c.net).length;
+      return n
+        ? `You have ${n} ${n === 1 ? 'option contract' : 'option contracts'} open. Cash is ${cash}.`
+        : `You have no options open. Cash is ${cash}.`;
+    }
+    case 'work':
+      return v.employer ? `You work at ${v.employer}. Cash is ${cash}.` : `You have no job. Cash is ${cash}.`;
     case 'coins':
       return v.coins.length
         ? `You hold ${v.coins.map((c) => `${c.qty} ${c.name}`).join(', ')}. Cash is ${cash}.`
@@ -427,11 +452,11 @@ function optionLines(w: World, actor: string, instr: string): string[] {
   if (!instr) {
     const names: string[] = [];
     for (const r of all) if (!names.includes(r.instr)) names.push(r.instr);
-    return names.length ? ['underlyings: ' + names.join(', ')] : ['no options listed'];
+    return names.length ? ['underlyings: ' + names.join(', ')] : [optionWhy(w, '') || 'No options are listed.'];
   }
   const key = stockInstr(w, instr) ?? instr;
   const rows = all.filter((r) => r.instr === key || r.instr.toLowerCase().endsWith(instr.toLowerCase()));
-  if (!rows.length) return [`no chain for ${instr}`];
+  if (!rows.length) return [optionWhy(w, key) || `No options are listed on ${instr}.`];
   return rows.map((r) => `${r.right === 'C' ? 'call' : 'put'} strike ${(r.strike / 100).toFixed(2)} exp ${r.months} bid ${(r.bid / 100).toFixed(2)} ask ${(r.ask / 100).toFixed(2)} oi ${r.oi}${r.net ? ` net ${r.net}` : ''} id ${r.id}`);
 }
 
@@ -1794,7 +1819,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const instr = stockInstr(w, cmd.instr);
       if (!instr) return rejected(`not listed ${cmd.instr}`);
       const row = matchOption(w, instr, cmd.right, cmd.strike, cmd.months);
-      if (!row) return rejected('no listed contract');
+      if (!row) return rejected(optionWhy(w, instr) || 'no listed contract');
       const cause = causeOf(w, st);
       const got = tradeOption(w, id, row.id, cmd.kind === 'write' ? 'write' : 'buy', cmd.qty, cause);
       if (got.qty < 1) return rejected(got.why || 'no fill');
@@ -1831,34 +1856,34 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const got = bidHome(w, i, cmd.id, cmd.cents, cause);
       if (got.why) return rejected(got.why);
       const ev = w.events.emit('player.home', `${P.name(i)} bids for a home`, [cause], id);
-      return { status: 'accepted', eventId: ev, text: got.text };
+      return { status: 'accepted', eventId: ev, text: articles(got.text) };
     }
     case 'homesell': {
       const cause = causeOf(w, st);
       const got = sellHome(w, i, cmd.id, cause);
       if (got.why) return rejected(got.why);
       const ev = w.events.emit('player.home', `${P.name(i)} sells a home`, [cause], id);
-      return { status: 'accepted', eventId: ev, text: got.text };
+      return { status: 'accepted', eventId: ev, text: articles(got.text) };
     }
     case 'let': {
       const cause = causeOf(w, st);
       const got = letHome(w, i, cmd.id, cmd.cents, cause);
       if (got.why) return rejected(got.why);
       const ev = w.events.emit('player.home', `${P.name(i)} lets a home`, [cause], id);
-      return { status: 'accepted', eventId: ev, text: got.text };
+      return { status: 'accepted', eventId: ev, text: articles(got.text) };
     }
     case 'move': {
       const got = moveHome(w, i, cmd.id);
       if (got.why) return rejected(got.why);
       const ev = w.events.emit('player.home', `${P.name(i)} moves house`, [causeOf(w, st)], id);
-      return { status: 'accepted', eventId: ev, text: got.text };
+      return { status: 'accepted', eventId: ev, text: articles(got.text) };
     }
     case 'mortgage': {
       const cause = causeOf(w, st);
       const got = mortgageHome(w, i, cmd.id, cmd.cents, cause);
       if (got.why) return rejected(got.why);
       const ev = w.events.emit('player.home', `${P.name(i)} mortgages a home`, [cause], id);
-      return { status: 'accepted', eventId: ev, text: got.text };
+      return { status: 'accepted', eventId: ev, text: articles(got.text) };
     }
     case 'tip': {
       if (!knows(w, i, cmd.fact)) return rejected('you do not know that');
@@ -1904,6 +1929,14 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     case 'introduce':
     case 'mail':
       return circleAct(w, i, id, cmd);
+    case 'jobs':
+    case 'apply':
+    case 'quit':
+    case 'raise':
+    case 'study': {
+      if (!careerAct) return rejected('the labour market is not open');
+      return careerAct(w, playerId, cmd);
+    }
     default: {
       const never: never = cmd;
       return never;

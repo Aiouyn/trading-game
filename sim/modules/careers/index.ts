@@ -6,14 +6,20 @@ import { fileURLToPath } from 'node:url';
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOV, pay, setHireHook, type EconState, type Firm } from '../economy/index.ts';
-import { ALIVE, labourOf, leaveJob, retargetLabour, seekRefresh, setStaffHook, thought } from '../economy/people.ts';
-import { PLAYER } from '../player/index.ts';
+import { ALIVE, joinFirm, labourOf, leaveJob, retargetLabour, seekRefresh, setSimDay, setStaffHook, succession, thought } from '../economy/people.ts';
+import { PLAYER, setCareerCommands } from '../player/index.ts';
 import { knows } from '../social/index.ts';
+import { bindJobs, handleCareer, resolveJobs } from './jobs.ts';
+export { careerCard } from './jobs.ts';
 
 interface Occ { id: string; name: string; pay: number; school: number; rank: number; share: Record<string, number> }
 interface Book {
   seen: number; poorLine: number; scan: number; openEv: number;
   yPromo: number; yEmigr: number; yImmigr: number; yRetrain: number;
+  apps: { person: number; firm: number; occ: number; due: number; n: number }[];
+  refused: { person: number; firm: number; day: number }[];
+  study: { person: number; occ: number; due: number }[];
+  notices: { person: number; day: number; text: string }[];
 }
 
 const GROUP: Record<string, string> = {
@@ -59,6 +65,16 @@ const DEG = 16;
 const econ = (w: World): EconState => w.state.economy as EconState;
 const book = (w: World): Book => w.state.careers as Book;
 const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
+const counted = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+const aan = (phrase: string): string => /^[aeiou]/i.test(phrase) ? `an ${phrase}` : `a ${phrase}`;
+function occNoun(name: string, n: number): string {
+  if (name === 'finance') return n === 1 ? 'finance worker' : 'finance workers';
+  if (n === 1) return name;
+  const bits = name.split(' ');
+  const last = bits[bits.length - 1];
+  bits[bits.length - 1] = /[^aeiou]y$/i.test(last) ? last.slice(0, -1) + 'ies' : last + 's';
+  return bits.join(' ');
+}
 const expOf = (years: number): number => 1 + 0.012 * Math.min(8, Math.max(0, years));
 const schoolFromSkill = (skill: number): number => clamp(Math.round(8 + (skill - 0.85) * 7), 6, 18);
 
@@ -208,13 +224,14 @@ function haveOcc(f: Firm, P: EconState['P']): number[] {
   cacheF = f.idx; cacheOk = true;
   return h;
 }
-function pickOcc(w: World, f: Firm, person: number): number {
+function pickOcc(w: World, f: Firm, person: number, school?: number): number {
   const P = econ(w).P;
+  const sch = school ?? P.school[person];
   const have = haveOcc(f, P);
   const want = targets(f.sector, f.staff.length);
   let best = LAB, gap = (want[LAB] ?? 0) - (have[LAB] ?? 0);
   for (let k = 1; k < OCC.length; k++) {
-    if (!qualifies(P.school[person], k, person === f.ceo)) continue;
+    if (!qualifies(sch, k, person === f.ceo)) continue;
     const g = (want[k] ?? 0) - (have[k] ?? 0);
     if (g > gap || (g === gap && OCC[k].rank > OCC[best].rank)) { gap = g; best = k; }
   }
@@ -235,6 +252,33 @@ function onHire(w: World, person: number, f: Firm): void {
   }
   P.occ[person] = occ;
   setSkill(w, person, paySkill(person, occ, P.occYrs[person], P));
+}
+
+function seatFor(w: World, f: Firm, person: number): number {
+  const P = econ(w).P;
+  const school = P.school[person] >= 6 ? P.school[person] : schoolFromSkill(P.skill[person]);
+  return pickOcc(w, f, person, school);
+}
+
+/** Move the player onto a firm that is hiring, then give them the seat they applied for. */
+function place(w: World, person: number, f: Firm, occ: number, cause: number): void {
+  const s = econ(w), P = s.P;
+  const oldE = P.employer[person];
+  const old = oldE >= 0 ? s.firms[oldE] : undefined;
+  setSimDay(w.day);
+  if (old && old.idx !== f.idx && old.ceo === person) succession(w, s, old, person, 'left for another firm', cause);
+  joinFirm(s, person, f);
+  onHire(w, person, f);
+  if (P.occ[person] !== occ && qualifies(P.school[person], occ, person === f.ceo)) {
+    const prev = P.occ[person];
+    if (cacheOk && cacheF === f.idx) {
+      if (prev > 0 && prev < cacheHave.length) cacheHave[prev]--;
+      if (occ > 0 && occ < cacheHave.length) cacheHave[occ]++;
+    }
+    P.occYrs[person] = 0;
+    P.occ[person] = occ;
+    setSkill(w, person, paySkill(person, occ, 0, P));
+  }
 }
 
 function liked(w: World, person: number, chief: number): number {
@@ -311,7 +355,9 @@ function retrain(w: World, cause: number): void {
   if (!moved) return;
   bustOcc();
   st.yRetrain += moved;
-  w.events.emit('career.retrain', `${moved} ${OCC[surplus].name}s retrain as ${OCC[short].name}s, where firms are short`, [cause]);
+  const fromName = occNoun(OCC[surplus].name, 1);
+  const toName = moved === 1 ? aan(occNoun(OCC[short].name, 1)) : occNoun(OCC[short].name, moved);
+  w.events.emit('career.retrain', `${counted(moved, fromName, occNoun(OCC[surplus].name, 2))} ${moved === 1 ? 'retrains' : 'retrain'} as ${toName}, where firms are short`, [cause]);
 }
 
 function foreignDaily(w: World): number | undefined {
@@ -353,7 +399,8 @@ function migrate(w: World): void {
       leaving.push(i);
     }
     if (leaving.length) {
-      const ev = w.events.emit('career.emigrate', `${leaving.length} young people leave while unemployment is ${(u * 100).toFixed(1)}%`, [s.macroEv, s.wageEv]);
+      const nLeave = leaving.length;
+      const ev = w.events.emit('career.emigrate', `${counted(nLeave, 'young person', 'young people')} ${nLeave === 1 ? 'leaves' : 'leave'} while unemployment is ${(u * 100).toFixed(1)}%`, [s.macroEv, s.wageEv]);
       let n = 0;
       for (const i of leaving) if (depart(w, i, ev)) n++;
       st.yEmigr += n;
@@ -366,7 +413,7 @@ function migrate(w: World): void {
     const abroad = w.state.abroad as { priceEv?: number } | undefined;
     const causes = [s.macroEv, s.wageEv];
     if (abroad && abroad.priceEv !== undefined && abroad.priceEv >= 0) causes.push(abroad.priceEv);
-    const ev = w.events.emit('career.immigrate', `${cap} adults arrive; wages here beat what they could earn abroad`, causes);
+    const ev = w.events.emit('career.immigrate', `${counted(cap, 'adult', 'adults')} ${cap === 1 ? 'arrives' : 'arrive'}; wages here beat what they could earn abroad`, causes);
     for (let k = 0; k < cap; k++) {
       const age = 22 + ((st.scan + k * 3) % 14);
       const i = P.add(w, w.day - age * DAYS_PER_YEAR, -1, -1);
@@ -423,7 +470,10 @@ export const careers: Module = {
   id: 'careers',
   init(w) {
     const s = econ(w), P = s.P;
-    const st: Book = { seen: 0, poorLine: 1, scan: 0, openEv: 0, yPromo: 0, yEmigr: 0, yImmigr: 0, yRetrain: 0 };
+    const st: Book = {
+      seen: 0, poorLine: 1, scan: 0, openEv: 0, yPromo: 0, yEmigr: 0, yImmigr: 0, yRetrain: 0,
+      apps: [], refused: [], study: [], notices: [],
+    };
     w.state.careers = st;
     cacheOk = false; cacheF = -1;
     setStaffHook(noteStaff);
@@ -448,6 +498,7 @@ export const careers: Module = {
 
   dayClose(w) {
     schoolNew(w);
+    resolveJobs(w);
     if (w.day > 0 && w.day % DAYS_PER_YEAR === 0) {
       book(w).poorLine = cashLine(w);
       grow(w);
@@ -497,3 +548,14 @@ export const careers: Module = {
     return out;
   },
 };
+
+bindJobs({
+  occ: OCC,
+  qualifies,
+  paySkill,
+  schoolFromSkill,
+  setSkill,
+  seatFor,
+  place,
+});
+setCareerCommands(handleCareer);

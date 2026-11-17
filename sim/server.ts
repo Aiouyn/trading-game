@@ -19,6 +19,7 @@ import { GOODS, SECTOR_NAMES } from './modules/economy/content.ts';
 import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
+import { careerCard } from './modules/careers/index.ts';
 import { pledgeValue, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
@@ -353,6 +354,18 @@ function commandOf(body: unknown): Command | string {
       return { kind: 'introduce', slot };
     }
     case 'mail': return { kind: 'mail' };
+    case 'jobs': return { kind: 'jobs' };
+    case 'apply': {
+      const n = whole(b.n, 1);
+      if (n === undefined) return 'apply needs a job number';
+      return { kind: 'apply', n };
+    }
+    case 'quit': return { kind: 'quit' };
+    case 'raise': return { kind: 'raise' };
+    case 'study': {
+      if (typeof b.field !== 'string' || !b.field.trim()) return 'study needs a field';
+      return { kind: 'study', field: b.field.trim() };
+    }
     default: return 'unknown command';
   }
 }
@@ -2756,6 +2769,7 @@ function screen(w: World): Record<string, unknown> {
     },
     curve,
     chain: optionChain(w, me >= 0 ? P.id(me) : ''),
+    career: careerCard(w, me),
     futuresBoard: futures,
     coinBoard: coins,
     fx: fxOf(w),
