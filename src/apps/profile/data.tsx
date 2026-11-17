@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { Button } from "@/components/ui/Button";
-import { act, dateLabel, dollars, explain, useSimSnap, type ActNote, type ExplainLine } from "@/shell/simSession";
+import { act, explain, useSimSnap, type ActNote, type ExplainLine } from "@/shell/simSession";
+import { gameDate, moneyFromCents, presentNote, scrubIds } from "@/components/ui/format";
 
 export interface LifeStat {
   id: string;
@@ -188,7 +189,16 @@ export function useAct() {
 }
 
 export function money(cents: number): string {
-  return dollars(Math.round(cents));
+  return moneyFromCents(cents);
+}
+
+/** A figure beside the word. A bare ledger id is not a figure. */
+function figureOf(word: string, hover: string): string {
+  const fig = scrubIds(hover);
+  if (!fig || fig === word) return "";
+  if (!/\d/.test(fig)) return "";
+  if (/^no\b/i.test(word) && /^0(?:\.0+)?$/.test(fig)) return "";
+  return fig;
 }
 
 export function ageWord(age: number): string {
@@ -266,12 +276,13 @@ export function Why({ id }: { id: number }) {
   };
   return (
     <span className="qy-why">
-      <button type="button" className="qy-why-btn" onClick={on} data-testid="why">why?</button>
+      <button type="button" className="qy-why-btn" onClick={on} data-testid="why">Why?</button>
       {open ? (
         <span className="qy-why-chain" data-testid="why-chain">
           {lines ? lines.map((line) => (
             <p key={`${line.id}-${line.depth}`} style={{ paddingLeft: line.depth * 12 }}>
-              {line.missing ? line.msg : `${line.name ? `${line.name}: ` : ""}${line.msg}`}
+              <span className="label">{gameDate(line.day)}</span>{" "}
+              {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
             </p>
           )) : <p>Reading the cause…</p>}
         </span>
@@ -281,11 +292,12 @@ export function Why({ id }: { id: number }) {
 }
 
 export function WordNum({ word, hover, eventId }: { word: string; hover: string; eventId?: number }) {
+  const fig = figureOf(word, hover);
   return (
     <span className="qy-pair">
       <span className="qy-hover" tabIndex={0} title={hover}>
         {word}
-        <span className="qy-num num">{hover}</span>
+        {fig ? <span className="qy-num num">{fig}</span> : null}
       </span>
       {eventId !== undefined ? <Why id={eventId} /> : null}
     </span>
@@ -296,6 +308,7 @@ export function StatLine({ s }: { s: LifeStat }) {
   const arrow = s.trend > 0 ? "↑" : s.trend < 0 ? "↓" : "→";
   const tone = s.trend > 0 ? "gain" : s.trend < 0 ? "loss" : "flat";
   const trend = s.trend > 0 ? "rising" : s.trend < 0 ? "falling" : "steady";
+  const fig = figureOf(s.word, s.hover);
   return (
     <div className="qy-stat" data-testid={`stat-${s.id}`}>
       <span className="label">{s.label}</span>
@@ -303,7 +316,7 @@ export function StatLine({ s }: { s: LifeStat }) {
         <span className="qy-hover" tabIndex={0} title={s.hover}>
           {s.word}
           <span className={`qy-arrow ${tone}`} aria-label={trend}>{arrow}</span>
-          <span className="qy-num num">{s.hover}</span>
+          {fig ? <span className="qy-num num">{fig}</span> : null}
         </span>
         <Why id={s.eventId} />
       </span>
@@ -316,7 +329,7 @@ export function Result({ note }: { note: ActNote | null }) {
   const body = note.lines?.join("\n");
   return (
     <div className="qy-result" data-ok={note.ok ? "1" : "0"} data-testid="life-result">
-      <p>{note.text}</p>
+      <p>{presentNote(note.text)}</p>
       {body && body !== note.text ? <pre className="qy-lines">{body}</pre> : null}
     </div>
   );
@@ -341,7 +354,7 @@ export function Cost({ cents, eventId }: { cents: number; eventId?: number }) {
 }
 
 export function when(day: number): string {
-  return dateLabel(day);
+  return gameDate(day);
 }
 
 export const LESSON = [

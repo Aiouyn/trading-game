@@ -1,5 +1,6 @@
 "use client";
 // Health, the hospital, the bill, and what is moving through the city.
+import { Named } from "@/components/ui/Named";
 import {
   ChoiceButton, Closed, Result, WordNum, healthWord, money, useAct, useLife, when,
 } from "@/apps/profile/data";
@@ -79,9 +80,9 @@ export default function HealthApp() {
       {panel?.house?.length ? (
         <section className="qy-block">
           <h3>The household</h3>
-          {panel.house.map((h) => (
+          {panel.house.filter((h, i, all) => all.findIndex((x) => x.index === h.index) === i).map((h) => (
             <div className="qy-row" key={h.index}>
-              <span>{h.name}</span>
+              <Named name={h.name} />
               <WordNum
                 word={h.illness ? h.illness : healthWord(h.health)}
                 hover={h.owed > 0 ? money(h.owed) : String(Math.round(h.health))}

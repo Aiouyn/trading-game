@@ -5,6 +5,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
+import { gameDate, levelPct, presentNote } from "@/components/ui/format";
+import { EntityText, Named } from "@/components/ui/Named";
+import { SeriesChart } from "@/components/ui/SeriesChart";
 import "./institutions.css";
 
 interface Pt { day: number; v: number; eventId: number }
@@ -77,45 +80,20 @@ function signOf(word: string): "up" | "down" | "flat" {
 }
 function moneyYear(v: number): string {
   const n = Math.round(v);
-  return (n < 0 ? "-" : "") + "$" + Math.abs(n).toLocaleString("en-US");
+  const body = Math.abs(n).toLocaleString("en-US");
+  if (n < 0) return `\u2212$${body}`;
+  return `$${body}`;
 }
 
-function Chart({ points }: { points: Pt[] }) {
-  if (points.length < 2) {
-    return <svg className="q-chart" viewBox="0 0 120 36" aria-hidden="true"><circle cx="8" cy="18" r="2" /></svg>;
-  }
-  const min = Math.min(...points.map((p) => p.v));
-  const max = Math.max(...points.map((p) => p.v));
-  const span = max - min || 1;
-  const d = points.map((p, i) => {
-    const x = (i / (points.length - 1)) * 118 + 1;
-    const y = 32 - ((p.v - min) / span) * 28;
-    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-  return (
-    <svg className="q-chart" viewBox="0 0 120 36" aria-hidden="true">
-      <path d={d} fill="none" />
-    </svg>
-  );
-}
-
-function Curve({ curve }: { curve: Inst["curve"] }) {
-  const max = Math.max(0.01, ...curve.map((c) => Math.abs(c.v)));
-  return (
-    <svg className="q-chart q-curve" viewBox="0 0 120 36" aria-hidden="true">
-      {curve.map((c, i) => {
-        const h = Math.max(1, (Math.abs(c.v) / max) * 28);
-        const x = 8 + i * 28;
-        return <rect key={c.tenor} x={x} y={32 - h} width="16" height={h} fill="currentColor" stroke="none" />;
-      })}
-    </svg>
-  );
+function seriesOf(points: Pt[], format: (v: number) => string, label: string) {
+  return <SeriesChart points={points.map((p) => ({ v: p.v, day: p.day }))} label={label} format={format} height={72} />;
 }
 
 export default function InstitutionsApp() {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const tick = useSimSnap().view?.date.abs;
   const [data, setData] = useState<Inst | null>(null);
+  const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [why, setWhy] = useState<ExplainLine[]>([]);
   const req = useRef(0);
@@ -124,8 +102,8 @@ export default function InstitutionsApp() {
     const ac = new AbortController();
     void fetch("/api/sim/panel?name=institutions", { cache: "no-store", signal: ac.signal })
       .then((r) => (r.ok ? r.json() as Promise<Inst> : null))
-      .then((j) => { if (j?.unemployment) setData(j); })
-      .catch(() => {});
+      .then((j) => { if (j?.unemployment) { setData(j); setFailed(false); } else if (!ac.signal.aborted) setFailed(true); })
+      .catch(() => { if (!ac.signal.aborted) setFailed(true); });
     return () => ac.abort();
   }, [tick]);
 
@@ -140,24 +118,31 @@ export default function InstitutionsApp() {
     <div className="q-why-body">
       {why.length ? why.map((line, i) => (
         <p key={`${line.id}-${line.depth}-${i}`} style={{ paddingLeft: line.depth * 12 }}>
-          {line.missing ? line.msg : `${line.name ? `${line.name}: ` : ""}${line.msg}`}
+          <span className="label">{gameDate(line.day)}</span>{" "}
+          {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
         </p>
       )) : <p className="muted">Reading the cause…</p>}
     </div>
   ) : null;
 
   if (!data) {
-    return <div className={`inst${phone ? " q-phone" : ""}`} data-testid="institutions"><p className="muted">Reading the books…</p></div>;
+    return (
+      <div className={`inst${phone ? " q-phone" : ""}`} data-testid="institutions">
+        <p className={failed ? "quay-state" : "quay-state"} data-kind={failed ? "error" : undefined} role={failed ? "alert" : "status"}>
+          {failed ? "The books did not answer." : "Reading the books…"}
+        </p>
+      </div>
+    );
   }
 
   const cards: { key: string; label: string; word: string; title: string; eventId: number; chart: ReactNode }[] = [
-    { key: "jobs", label: "Unemployment", word: jobsWord(data.unemployment.v), title: `${data.unemployment.v.toFixed(1)}%`, eventId: data.unemployment.eventId, chart: <Chart points={data.unemployment.points} /> },
-    { key: "cpi", label: "Inflation", word: inflWord(data.inflation.v), title: `${data.inflation.v.toFixed(1)}%`, eventId: data.inflation.eventId, chart: <Chart points={data.inflation.points} /> },
-    { key: "rate", label: "Policy rate", word: rateWord(data.policy.v), title: `${data.policy.v.toFixed(2)}%`, eventId: data.policy.eventId, chart: <Chart points={data.policy.points} /> },
-    { key: "gdp", label: "GDP", word: gdpWord(data.gdp), title: data.gdp.counted ? `${moneyYear(data.gdp.v)} a year` : "not counted", eventId: data.gdp.eventId, chart: <Chart points={data.gdp.points} /> },
-    { key: "fx", label: data.fx.name || "Exchange rate", word: fxWord(data.fx.points), title: `${data.fx.v.toFixed(4)} home per ${data.fx.currency || "foreign"}`, eventId: data.fx.eventId, chart: <Chart points={data.fx.points} /> },
-    { key: "power", label: "Power", word: powerWord(data.power.v, data.power.wholesale), title: `${data.power.v.toFixed(2)} a unit${data.power.marginal ? ` · ${data.power.marginal}` : ""}`, eventId: data.power.eventId, chart: <Chart points={data.power.points} /> },
-    { key: "curve", label: "Yield curve", word: curveWord(data.curve), title: data.curve.map((c) => `${c.tenor} ${c.v.toFixed(2)}%`).join(" · "), eventId: data.curve[0]?.eventId ?? data.policy.eventId, chart: <Curve curve={data.curve} /> },
+    { key: "jobs", label: "Unemployment", word: jobsWord(data.unemployment.v), title: levelPct(data.unemployment.v, 1), eventId: data.unemployment.eventId, chart: seriesOf(data.unemployment.points, (v) => levelPct(v, 1), "Unemployment") },
+    { key: "cpi", label: "Inflation", word: inflWord(data.inflation.v), title: levelPct(data.inflation.v, 1), eventId: data.inflation.eventId, chart: seriesOf(data.inflation.points, (v) => levelPct(v, 1), "Inflation") },
+    { key: "rate", label: "Policy rate", word: rateWord(data.policy.v), title: levelPct(data.policy.v, 2), eventId: data.policy.eventId, chart: seriesOf(data.policy.points, (v) => levelPct(v, 2), "Policy rate") },
+    { key: "gdp", label: "GDP", word: gdpWord(data.gdp), title: data.gdp.counted ? `${moneyYear(data.gdp.v)} a year` : "Not counted", eventId: data.gdp.eventId, chart: seriesOf(data.gdp.points, moneyYear, "GDP") },
+    { key: "fx", label: data.fx.name || "Exchange rate", word: fxWord(data.fx.points), title: `${data.fx.v.toFixed(4)} home per ${data.fx.currency || "foreign"}`, eventId: data.fx.eventId, chart: seriesOf(data.fx.points, (v) => v.toFixed(4), data.fx.name || "Exchange rate") },
+    { key: "power", label: "Power", word: powerWord(data.power.v, data.power.wholesale), title: `${data.power.v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a unit${data.power.marginal ? ` · ${data.power.marginal}` : ""}`, eventId: data.power.eventId, chart: seriesOf(data.power.points, (v) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), "Power") },
+    { key: "curve", label: "Yield curve", word: curveWord(data.curve), title: data.curve.map((c) => `${c.tenor} ${levelPct(c.v, 2)}`).join(" · "), eventId: data.curve[0]?.eventId ?? data.policy.eventId, chart: <SeriesChart neutral points={data.curve.map((c) => ({ v: c.v, label: c.tenor }))} label="Yield curve" format={(v) => levelPct(v, 2)} height={72} /> },
   ];
 
   return (
@@ -168,22 +153,23 @@ export default function InstitutionsApp() {
           <article key={c.key} className="inst-card" data-sign={signOf(c.word)}>
             <span className="label">{c.label}</span>
             <span className="inst-word" title={c.title}>{c.word}</span>
+            <span className="num inst-figure">{c.title}</span>
             {c.chart}
-            <button type="button" className="q-why" data-testid="inst-why" onClick={() => ask(c.key, c.eventId)}>why?</button>
+            <button type="button" className="q-why" data-testid="inst-why" onClick={() => ask(c.key, c.eventId)}>Why?</button>
             {open === c.key ? chain : null}
           </article>
         ))}
       </div>
       <article className="inst-card inst-bank">
         <span className="label">Central bank</span>
-        <p className="inst-decision">{data.bank.text}</p>
-        {data.bank.governor ? <p className="muted">{data.bank.governor.name}, governor</p> : null}
+        <p className="inst-decision"><EntityText text={data.bank.text} /></p>
+        {data.bank.governor ? <p className="muted"><Named name={data.bank.governor.name} />, governor</p> : null}
         {data.bank.reasons.length ? (
           <ul className="inst-reasons">
-            {data.bank.reasons.map((r, i) => <li key={`${r.id}-${i}`}>{r.name ? `${r.name}: ` : ""}{r.msg}</li>)}
+            {data.bank.reasons.slice(0, 4).map((r, i) => <li key={`${r.id}-${i}`}>{r.name ? <><Named name={r.name} />: </> : null}<EntityText text={r.msg} /></li>)}
           </ul>
-        ) : <p className="muted">The desk has not written a reason.</p>}
-        <button type="button" className="q-why" data-testid="inst-why" onClick={() => ask("bank", data.bank.eventId)}>why?</button>
+        ) : <p className="quay-empty">The desk has not written a reason.</p>}
+        <button type="button" className="q-why" data-testid="inst-why" onClick={() => ask("bank", data.bank.eventId)}>Why?</button>
         {open === "bank" ? chain : null}
       </article>
     </div>

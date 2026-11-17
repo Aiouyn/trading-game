@@ -40,8 +40,8 @@ export default function RiskApp() {
       <div className="rk" data-testid="risk">
         <p className="rk-word" title={WORD.Closed}>Closed</p>
         <p className="muted">{WORD.Closed} Borrowing opens it. The bank names the limit in its reply, including when it lends nothing.</p>
-        <label className="rk-field">Borrow, dollars
-          <input className="rk-qty" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="rk-amount" />
+        <label className="rk-field">Amount, in dollars
+          <input className="rk-qty" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1,000.00" data-testid="rk-amount" />
         </label>
         <Button variant="primary" data-testid="rk-open" disabled={busy} onClick={() => void openAccount()}>Open a margin account</Button>
         {note ? <p className={note.ok ? "muted" : "rk-warn"} data-testid="rk-note">{note.text}</p> : null}

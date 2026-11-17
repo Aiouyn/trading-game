@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { explain, type ActNote, type ExplainLine } from "@/shell/simSession";
+import { gameDate, presentNote } from "@/components/ui/format";
+import { LiveNum } from "@/components/ui/LiveNum";
 import { viewportOf } from "@/shell/wm";
 
 export function usePhone(): boolean {
@@ -35,11 +37,11 @@ export function usePanel<T>(query: string, watch: unknown): { data: T | null; er
     let stop = false;
     void fetch("/api/sim/panel?" + query, { cache: "no-store" })
       .then(async (r) => {
-        if (!r.ok) throw new Error("the book did not answer");
+        if (!r.ok) throw new Error("The book did not answer.");
         return r.json() as Promise<T>;
       })
       .then((d) => { if (!stop) { setData(d); setError(""); } })
-      .catch((e: unknown) => { if (!stop) setError(e instanceof Error ? e.message : "the book did not answer"); });
+      .catch((e: unknown) => { if (!stop) setError(e instanceof Error ? e.message : "The book did not answer."); });
     return () => { stop = true; };
   }, [query, watch]);
   return { data, error };
@@ -60,10 +62,18 @@ export function useWhy(): { id: number | null; lines: ExplainLine[] | null; open
 
 export function Fig({ word, title, eventId, onWhy }: { word: string; title: string; eventId?: number; onWhy: (id: number) => void }) {
   const id = eventId ?? -1;
-  if (!(id >= 0)) return <span className="qa-fig" title={title}>{word}</span>;
+  const figure = title && title !== word && title.length <= 72 ? title : "";
+  const body = (
+    <>
+      <span>{word}</span>
+      {figure ? <LiveNum value={figure}><span className="num qa-fig-num">{figure}</span></LiveNum> : null}
+      {id >= 0 ? <span className="qa-why">Why?</span> : null}
+    </>
+  );
+  if (!(id >= 0)) return <span className="qa-fig" title={title}>{body}</span>;
   return (
     <button type="button" className="qa-fig" title={title} onClick={() => onWhy(id)}>
-      {word}<span className="qa-why"> why?</span>
+      {body}
     </button>
   );
 }
@@ -74,7 +84,8 @@ export function Because({ id, lines }: { id: number | null; lines: ExplainLine[]
     <div className="qa-because" data-testid="qa-why">
       {lines && lines.length ? lines.map((line) => (
         <p key={`${line.id}-${line.depth}`} style={{ paddingLeft: line.depth * 12 }}>
-          {line.missing ? line.msg : `${line.name ? `${line.name}: ` : ""}${line.msg}`}
+          <span className="label">{gameDate(line.day)}</span>{" "}
+          {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
         </p>
       )) : <p className="qa-muted">{lines ? "No cause on record." : "Reading the cause…"}</p>}
     </div>
@@ -82,7 +93,7 @@ export function Because({ id, lines }: { id: number | null; lines: ExplainLine[]
 }
 
 export function Note({ note, testId }: { note: ActNote | null; testId: string }) {
-  return <p className="qa-note" data-ok={note ? (note.ok ? "1" : "0") : ""} data-testid={testId}>{note?.text ?? ""}</p>;
+  return <p className="qa-note" data-ok={note ? (note.ok ? "1" : "0") : ""} data-testid={testId}>{note ? presentNote(note.text) : ""}</p>;
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {

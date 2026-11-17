@@ -1,6 +1,7 @@
 "use client";
 // You, as a person: the six stats, the choices, and the chronicle.
 import { useState } from "react";
+import { gameDate, presentNote } from "@/components/ui/format";
 import {
   ChoiceButton, Closed, Result, StatLine, WordNum, ageWord, coolWord, money, useAct, useLife,
 } from "./data";
@@ -50,7 +51,7 @@ export default function ProfileApp() {
                 <strong>{c.label}</strong>
                 <p>{c.line}</p>
                 <p>
-                  <WordNum word={coolWord(c.left)} hover={c.left > 0 ? `${c.left} days` : "no wait"} />
+                  <WordNum word={coolWord(c.left)} hover={c.left > 0 ? `${c.left} days` : ""} />
                   {" · "}
                   <WordNum word="The cost" hover={money(c.cost)} eventId={wage} />
                 </p>
@@ -71,20 +72,16 @@ export default function ProfileApp() {
         <h3>This life so far</h3>
         {story.length ? story.slice(-12).reverse().map((s) => (
           <article key={`${s.eventId}-${s.day}`}>
-            <span className="label">{dateOf(s.day)}</span>
-            <span>{s.text} <WordNum word="" hover="" eventId={s.eventId} /></span>
+            <span className="qy-muted">{gameDate(s.day)}</span>
+            <span>{presentNote(s.text)} <WordNum word="" hover="" eventId={s.eventId} /></span>
           </article>
         )) : <p className="qy-muted">Nothing has been written down yet.</p>}
         <ChoiceButton primary={!primary} disabled={busy} testId="chronicle" onClick={chronicle}>
           Write the chronicle
         </ChoiceButton>
-        {lines ? <pre className="qy-lines" data-testid="chronicle-text">{lines.join("\n")}</pre> : null}
+        {lines ? <pre className="qy-lines" data-testid="chronicle-text">{lines.map(presentNote).join("\n")}</pre> : null}
       </section>
     </div>
   );
 }
 
-function dateOf(day: number): string {
-  const doy = ((day % 360) + 360) % 360;
-  return `Y${Math.floor(day / 360) + 1} M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
-}

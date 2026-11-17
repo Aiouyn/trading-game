@@ -1,7 +1,9 @@
 "use client";
 // Why on a number: the same explain chain the text game prints. Shared by the trading apps.
 import { useRef, useState, type ReactNode } from "react";
-import { dateLabel, explain, type ExplainLine } from "@/shell/simSession";
+import { explain, type ExplainLine } from "@/shell/simSession";
+import { gameDate, presentNote } from "@/components/ui/format";
+import { SeriesChart, type SeriesPoint } from "@/components/ui/SeriesChart";
 import "./why.css";
 
 export function useCause() {
@@ -27,8 +29,8 @@ export function Cause({ cause, onClose }: { cause: { title: string; lines: Expla
       </div>
       {cause.lines === null ? <p className="muted">Reading the cause…</p> : cause.lines.length ? cause.lines.map((line) => (
         <p key={`${line.id}-${line.depth}`} className="cause-line" style={{ paddingLeft: line.depth * 12 }}>
-          <span className="label">{dateLabel(line.day)}</span>{" "}
-          {line.missing ? line.msg : `${line.name ? `${line.name}: ` : ""}${line.msg}`}
+          <span className="label">{gameDate(line.day)}</span>{" "}
+          {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
         </p>
       )) : <p className="muted">No earlier cause is on the log.</p>}
     </aside>
@@ -57,22 +59,16 @@ export function signedPct(chg: number): string {
   return `${n}%`;
 }
 
-export function LineChart({ points, up, label }: { points: number[]; up?: boolean; label: string }) {
-  if (points.length < 2) return <p className="muted">One point so far.</p>;
-  const w = 640;
-  const h = 160;
-  const pad = 6;
-  const min = Math.min(...points);
-  const span = Math.max(...points) - min || 1;
-  const d = points.map((p, i) => {
-    const x = pad + (i / (points.length - 1)) * (w - pad * 2);
-    const y = pad + (1 - (p - min) / span) * (h - pad * 2);
-    return `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(" ");
-  const stroke = up === false ? "var(--loss)" : up === true ? "var(--gain)" : "var(--acc)";
-  return (
-    <svg className="line-chart" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label}>
-      <path d={d} fill="none" stroke={stroke} strokeWidth="2" />
-    </svg>
-  );
+export function LineChart({ points, days, labels, up, label, format, height, neutral }: {
+  points: number[];
+  days?: number[];
+  labels?: string[];
+  up?: boolean;
+  label: string;
+  format?: (v: number) => string;
+  height?: number;
+  neutral?: boolean;
+}) {
+  const series: SeriesPoint[] = points.map((v, i) => ({ v, day: days?.[i], label: labels?.[i] }));
+  return <SeriesChart points={series} up={up} label={label} format={format} height={height} neutral={neutral} />;
 }

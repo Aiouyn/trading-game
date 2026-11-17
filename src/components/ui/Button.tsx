@@ -2,6 +2,9 @@
 // Button (17A T1 §2; 17 §3.1.1, §3.3.3, §3.16). Disabled uses aria-disabled so the button stays focusable;
 // activation is ignored while disabled.
 import { useEffect, useRef, type ButtonHTMLAttributes, type MouseEvent } from "react";
+import { startAlive } from "./alive";
+
+if (typeof window !== "undefined") startAlive();
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "icon";
 export type ButtonSize = "md" | "sm";

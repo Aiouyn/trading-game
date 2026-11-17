@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { useShell } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { act, dollars, explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
+import { gameDate, levelPct, presentNote } from "@/components/ui/format";
+import { Named } from "@/components/ui/Named";
 import "./civic.css";
 
 interface Party {
@@ -57,7 +59,7 @@ function leadWord(parties: Party[]): string {
   return "A narrow lead";
 }
 function pct(n: number): string {
-  return `${(n * 100).toFixed(1)}%`;
+  return levelPct(n * 100, 1);
 }
 
 export default function CivicApp() {
@@ -65,6 +67,7 @@ export default function CivicApp() {
   const tick = useSimSnap().view?.date.abs;
   const noteTick = useSimSnap().note?.text;
   const [data, setData] = useState<Civic | null>(null);
+  const [failed, setFailed] = useState(false);
   const [note, setNote] = useState("");
   const [vote, setVote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -74,8 +77,8 @@ export default function CivicApp() {
     const ac = new AbortController();
     void fetch("/api/sim/panel?name=civic", { cache: "no-store", signal: ac.signal })
       .then((r) => (r.ok ? r.json() as Promise<Civic> : null))
-      .then((j) => { if (j?.parties) setData(j); })
-      .catch(() => {});
+      .then((j) => { if (j?.parties) { setData(j); setFailed(false); } else if (!ac.signal.aborted) setFailed(true); })
+      .catch(() => { if (!ac.signal.aborted) setFailed(true); });
     return () => ac.abort();
   }, [tick, noteTick]);
 
@@ -94,7 +97,7 @@ export default function CivicApp() {
   };
 
   if (!data) {
-    return <div className={`civ${phone ? " q-phone" : ""}`} data-testid="civic"><p className="muted">Reading the poll…</p></div>;
+    return <div className={`civ${phone ? " q-phone" : ""}`} data-testid="civic"><p className="quay-state" data-kind={failed ? "error" : undefined} role={failed ? "alert" : "status"}>{failed ? "The poll did not answer." : "Reading the poll…"}</p></div>;
   }
 
   const maxSpend = Math.max(0.0001, ...data.spend.map((s) => s.share));
@@ -115,9 +118,7 @@ export default function CivicApp() {
             <div className="civ-bar" title={`${p.votes} votes · ${pct(p.share)}`} aria-hidden="true">
               <span style={{ width: `${Math.max(2, Math.round(p.share * 100))}%` }} />
             </div>
-            <p className="muted" title={`tax ${pct(p.tax)} · profit ${pct(p.profit)} · dividend ${pct(p.dividend)} · benefits ${pct(p.benefit)}`}>
-              Their platform
-            </p>
+            <p className="muted num">Income {pct(p.tax)} · Profit {pct(p.profit)} · Dividend {pct(p.dividend)} · Benefits {pct(p.benefit)}</p>
           </li>
         ))}
       </ul>
@@ -125,22 +126,22 @@ export default function CivicApp() {
       <h3>Offices</h3>
       <ul className="civ-offices">
         {data.offices.map((o) => (
-          <li key={o.role}><b>{o.name}</b> <span className="muted">{o.role}</span></li>
+          <li key={o.role}><b><Named name={o.name} /></b> <span className="muted">{o.role}</span></li>
         ))}
       </ul>
 
       <h3>The government</h3>
       <div className="civ-taxes">
-        <p><span className="civ-word" title={pct(data.tax.income)}>{taxWord(data.tax.income)}</span> <span className="muted">income tax</span></p>
-        <p><span className="civ-word" title={pct(data.tax.profit)}>{taxWord(data.tax.profit)}</span> <span className="muted">profit tax</span></p>
-        <p><span className="civ-word" title={pct(data.tax.dividend)}>{taxWord(data.tax.dividend)}</span> <span className="muted">dividend tax</span></p>
-        <p><span className="civ-word" title={pct(data.tax.benefit)}>{taxWord(data.tax.benefit)}</span> <span className="muted">benefits</span></p>
-        <button type="button" className="q-why" data-testid="civic-why" onClick={() => { setWhy(null); void explain(data.tax.eventId).then(setWhy); }}>why?</button>
+        <p><span className="civ-word">{taxWord(data.tax.income)}</span> <span className="num">{pct(data.tax.income)}</span> <span className="muted">income tax</span></p>
+        <p><span className="civ-word">{taxWord(data.tax.profit)}</span> <span className="num">{pct(data.tax.profit)}</span> <span className="muted">profit tax</span></p>
+        <p><span className="civ-word">{taxWord(data.tax.dividend)}</span> <span className="num">{pct(data.tax.dividend)}</span> <span className="muted">dividend tax</span></p>
+        <p><span className="civ-word">{taxWord(data.tax.benefit)}</span> <span className="num">{pct(data.tax.benefit)}</span> <span className="muted">benefits</span></p>
+        <button type="button" className="q-why" data-testid="civic-why" onClick={() => { setWhy(null); void explain(data.tax.eventId).then(setWhy); }}>Why?</button>
         {why ? (
           <div className="q-why-body">
             {why.length ? why.map((line, i) => (
               <p key={`${line.id}-${line.depth}-${i}`} style={{ paddingLeft: line.depth * 12 }}>
-                {line.missing ? line.msg : `${line.name ? `${line.name}: ` : ""}${line.msg}`}
+                <span className="label">{gameDate(line.day)}</span> {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
               </p>
             )) : <p className="muted">Reading the cause…</p>}
           </div>
@@ -166,7 +167,7 @@ export default function CivicApp() {
         <Button variant="secondary" data-testid="civic-vote" onClick={showVote}>Your vote</Button>
       </div>
       {data.donate?.left ? <p className="muted">{data.donate.line}</p> : null}
-      {note ? <p data-testid="civic-result">{note}</p> : null}
+      {note ? <p data-testid="civic-result">{presentNote(note)}</p> : null}
       {vote ? <p data-testid="civic-vote-line">{vote}</p> : null}
     </div>
   );

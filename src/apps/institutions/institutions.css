@@ -7,6 +7,7 @@
 }
 .inst-bank { flex-basis: 100%; }
 .inst-word { font: 400 var(--fs-20) / 1.2 var(--font-display); color: var(--fg); }
+.inst-figure { color: var(--fg-muted); font-size: var(--fs-12_5); }
 .inst-card[data-sign="up"] .inst-word { color: var(--gain); }
 .inst-card[data-sign="down"] .inst-word { color: var(--loss); }
 .inst-decision { margin: 0; color: var(--fg); }
@@ -19,7 +20,8 @@
   align-self: flex-start; min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-btn);
   background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--fs-12_5);
 }
-.q-why-body { display: flex; flex-direction: column; gap: 4px; color: var(--fg-muted); }
-.q-why-body p { margin: 0; }
+.q-why-body { display: flex; flex-direction: column; gap: 4px; color: var(--fg-muted); max-height: 160px; overflow: auto; }
+.q-why-body p { margin: 0; overflow-wrap: anywhere; }
+.inst-decision, .inst-reasons li { overflow-wrap: anywhere; }
 .inst.q-phone { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
 .inst.q-phone .q-why { min-height: var(--hit-touch); }

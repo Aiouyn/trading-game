@@ -3,7 +3,9 @@
 import type { ReactNode } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { useShellStore } from "@/components/shell/ShellContext";
-import { dateLabel, dollars, symbolOf, useSimSnap, type SimView } from "@/shell/simSession";
+import { dollars, symbolOf, useSimSnap, type SimView } from "@/shell/simSession";
+import { gameDate, moneyFromCents } from "@/components/ui/format";
+import { LiveNum } from "@/components/ui/LiveNum";
 import { Cause, LineChart, NumBtn, tone, useCause } from "@/apps/markets/why";
 import "./portfolio.css";
 
@@ -25,7 +27,7 @@ export default function PortfolioApp() {
       <div className="pf-hero">
         <span className="pf-label">Net worth</span>
         <div className="pf-hero-nw">
-          <NumBtn id={book} title="Net worth" ask={ask}><MoneyText amount={dollars(view.netWorth)} ctx="hero" /></NumBtn>
+          <NumBtn id={book} title="Net worth" ask={ask}><LiveNum value={view.netWorth}><MoneyText amount={dollars(view.netWorth)} ctx="hero" /></LiveNum></NumBtn>
         </div>
         <span className="today"><NumBtn id={book} title="Change today" ask={ask}><MoneyText amount={dollars(view.nwChange ?? 0)} ctx="delta" /></NumBtn></span>
       </div>
@@ -34,14 +36,17 @@ export default function PortfolioApp() {
           {view.stats.map((s) => (
             <li key={s.id} title={s.hover}>
               <span className="label">{s.label}</span>
-              <NumBtn id={s.eventId} title={s.label} ask={ask}><span>{s.word}</span></NumBtn>
+              <NumBtn id={s.eventId} title={s.hover || s.label} ask={ask}>
+                <span>{s.word}</span>
+                {s.hover && s.hover !== s.word ? <span className="num">{s.hover}</span> : null}
+              </NumBtn>
             </li>
           ))}
         </ul>
       ) : null}
       <section>
         <h2 className="label">Net worth</h2>
-        <LineChart points={points.map((p) => p.worth)} up={up} label="Net worth over time" />
+        <LineChart points={points.map((p) => p.worth)} days={points.map((p) => p.day)} up={up} label="Net worth over time" format={moneyFromCents} />
       </section>
       <section>
         <h2 className="label">Shares</h2>
@@ -150,7 +155,7 @@ export default function PortfolioApp() {
         {(view.fills ?? []).length ? [...(view.fills ?? [])].reverse().map((f, i) => (
           <div key={`${f.day}-${i}`} className="sim-pf-row" data-testid="pf-fill">
             <button type="button" className="pf-link" onClick={() => ask(f.eventId, f.text)}>
-              <span className="label">{dateLabel(f.day)} · {f.kind}</span> {f.text}
+              <span className="label">{gameDate(f.day)} · {f.kind}</span> {f.text}
             </button>
           </div>
         )) : <p className="muted">No fills yet.</p>}
@@ -186,7 +191,7 @@ function Pos({ name, value, day, id, ask, onOpen, testid }: {
       {onOpen ? <button type="button" className="pf-link" onClick={onOpen}>{name}</button> : <span>{name}</span>}
       <span className="pf-nums">
         <NumBtn id={id} title={name} ask={ask}><MoneyText amount={dollars(Math.round(value))} ctx="table" /></NumBtn>
-        {day == null ? (day === null ? <span className="muted num"> —</span> : null) : (
+        {day == null ? null : (
           <NumBtn id={id} title={`${name} today`} ask={ask}><span className={tone(day)}> <MoneyText amount={dollars(Math.round(day))} ctx="delta" /></span></NumBtn>
         )}
       </span>

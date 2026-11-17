@@ -2,6 +2,8 @@
 // Spouse, children, the tree, the will, and the house.
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { presentNote } from "@/components/ui/format";
+import { Named } from "@/components/ui/Named";
 import {
   ChoiceButton, Closed, Result, WordNum, ageWord, fortuneWord, generationWord, schoolWord, tallyWord, useAct, useLife,
   type LifePerson,
@@ -31,7 +33,7 @@ export default function EstateApp() {
     <div className="qy-life" data-testid="estate">
       <header className="qy-block">
         <h2>The house</h2>
-        <p className="qy-kicker">{spouse ? `Married to ${spouse.name}` : "No spouse"}</p>
+        {spouse ? <p className="qy-kicker">Married to {spouse.name}</p> : null}
       </header>
       <Result note={note} />
       <section className="qy-block">
@@ -39,14 +41,15 @@ export default function EstateApp() {
         <div className="qy-row">
           <span className="label">Spouse</span>
           {spouse ? (
-            <WordNum word={`${spouse.name}, ${ageWord(spouse.age)}${spouse.alive ? "" : ", gone"}`} hover={`${spouse.age} years`} eventId={personEv(people, spouse.index)} />
+            <span className="qy-pair"><Named name={spouse.name} /><WordNum word={`${ageWord(spouse.age)}${spouse.alive ? "" : ", gone"}`} hover={`${spouse.age} years`} eventId={personEv(people, spouse.index)} /></span>
           ) : <span className="qy-muted">None</span>}
         </div>
         {children.length ? children.map((k, i) => (
           <div className="qy-row" key={k.index}>
             <span className="label">Child</span>
             <span className="qy-pair">
-              <WordNum word={`${k.name}, ${ageWord(k.age)}`} hover={`${k.age} years`} eventId={personEv(people, k.index)} />
+              <Named name={k.name} />
+              <WordNum word={ageWord(k.age)} hover={`${k.age} years`} eventId={personEv(people, k.index)} />
               <WordNum word={schoolWord(k.school)} hover={`${k.school} years of school`} eventId={personEv(people, k.index)} />
               <Button variant="secondary" size="sm" disabled={busy} data-testid={`school-${i}`} onClick={() => void go({ kind: "school", nth: i })}>
                 Another year
@@ -61,8 +64,9 @@ export default function EstateApp() {
           {tree(people).map((p) => (
             <li key={`${p.role}-${p.index}`} style={{ marginLeft: depth(p.role) * 16 }}>
               <span className="label">{p.role}</span>
+              <Named name={p.name} />
               <WordNum
-                word={`${p.name}${p.alive === false ? ", gone" : ""}`}
+                word={p.alive === false ? "Gone" : p.age !== undefined ? ageWord(p.age) : "Kin"}
                 hover={p.age !== undefined ? `${p.age} years` : (p.role ?? "kin")}
                 eventId={p.eventId}
               />
@@ -72,10 +76,10 @@ export default function EstateApp() {
       </section>
       <section className="qy-block">
         <h3>The will</h3>
-        <p>{family?.will || "No will. The city's rule stands."}</p>
+        <p>{family?.will ? presentNote(family.will) : "No will. The city's rule stands."}</p>
         <div className="qy-row">
           <span className="label">Heir</span>
-          {heir ? <WordNum word={heir.name} hover="named in the will" eventId={heir.eventId} /> : <span className="qy-muted">Nobody named</span>}
+          {heir ? <span className="qy-pair"><Named name={heir.name} /><WordNum word="Named in the will" hover="named in the will" eventId={heir.eventId} /></span> : <span className="qy-muted">Nobody named</span>}
         </div>
       </section>
       {d ? (

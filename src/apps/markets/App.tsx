@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/Button";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { Sparkline } from "@/components/shell/Sparkline";
 import { useShellStore } from "@/components/shell/ShellContext";
-import { dateLabel, dollars, symbolOf, useSimSnap, type NewsLine, type Quote } from "@/shell/simSession";
+import { dollars, symbolOf, useSimSnap, type NewsLine, type Quote } from "@/shell/simSession";
+import { gameDate, moneyFromCents, signedQty, titleWord } from "@/components/ui/format";
+import { Named } from "@/components/ui/Named";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "./why";
 import "./markets.css";
 
@@ -76,7 +78,7 @@ export default function MarketsApp({ context }: { context?: string }) {
     <div className="mk" data-testid="markets">
       <div className="mk-chips" role="group" aria-label="Sector">
         {sectors.map((s) => (
-          <button key={s} type="button" aria-pressed={sector === s} onClick={() => setSector(s)}>{s}</button>
+          <button key={s} type="button" aria-pressed={sector === s} onClick={() => setSector(s)}>{s === "All" ? "All" : titleWord(s)}</button>
         ))}
       </div>
       <div className="mk-scroll">
@@ -95,20 +97,20 @@ export default function MarketsApp({ context }: { context?: string }) {
           <tbody>
             {sorted.map((q) => (
               <tr key={q.instr} data-testid="mk-row">
-                <td className="mk-name">
+                <td className="mk-name" data-label="Name">
                   <button type="button" className="mk-open" onClick={() => setSel(q.instr)}>{q.symbol || symbolOf(q.instr)} · {q.name || q.instr}</button>
                 </td>
-                <td><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} last`} ask={ask}><MoneyText amount={dollars(q.px)} ctx="table" /></NumBtn></td>
-                <td><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} change`} ask={ask}><span className={tone(q.chg)}>{signedPct(q.chg)}</span></NumBtn></td>
-                <td><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} volume`} ask={ask}><span className="num">{q.vol.toLocaleString("en-US")}</span></NumBtn></td>
-                <td><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} P/E`} ask={ask}><span className="num">{q.pe == null ? "—" : q.pe.toFixed(1)}</span></NumBtn></td>
-                <td><Sparkline points={q.spark} /></td>
-                <td><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} position`} ask={ask}><span className={`num ${tone(q.pos ?? 0)}`}>{q.pos ?? 0}</span></NumBtn></td>
+                <td data-label="Last"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} last`} ask={ask}><MoneyText amount={dollars(q.px)} ctx="table" /></NumBtn></td>
+                <td data-label="Change"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} change`} ask={ask}><span className={tone(q.chg)}>{signedPct(q.chg)}</span></NumBtn></td>
+                <td data-label="Volume"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} volume`} ask={ask}><span className="num">{q.vol.toLocaleString("en-US")}</span></NumBtn></td>
+                <td data-label="P/E"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} P/E`} ask={ask}><span className="num">{q.pe == null ? "—" : q.pe.toFixed(1)}</span></NumBtn></td>
+                <td data-label=""><Sparkline points={q.spark} /></td>
+                <td data-label="Position"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} position`} ask={ask}><span className={`num ${tone(q.pos ?? 0)}`}>{signedQty(q.pos ?? 0)}</span></NumBtn></td>
               </tr>
             ))}
           </tbody>
         </table>
-        {sorted.length ? null : <p className="muted">Nothing listed in that sector.</p>}
+        {quotes.length === 0 ? <p className="quay-empty">Nothing is listed yet.</p> : sorted.length ? null : <p className="quay-empty">Nothing listed in that sector.</p>}
       </div>
       <Cause cause={cause} onClose={close} />
     </div>
@@ -138,15 +140,22 @@ function Stock({ quote, day, news, ask, onBack }: {
 }) {
   const store = useShellStore();
   const [firm, setFirm] = useState<FirmPage | null>(null);
+  const [firmState, setFirmState] = useState<"load" | "in" | "out">("load");
   const issuer = quote.issuer || "";
   useEffect(() => {
-    if (!issuer) { setFirm(null); return; }
+    if (!issuer) { setFirm(null); setFirmState("out"); return; }
     const ac = new AbortController();
     setFirm(null);
+    setFirmState("load");
     void fetch(`/api/sim/firm/${encodeURIComponent(issuer)}`, { cache: "no-store", signal: ac.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((raw) => { if (!ac.signal.aborted) setFirm(asFirm(raw)); })
-      .catch(() => { if (!ac.signal.aborted) setFirm(null); });
+      .then((raw) => {
+        if (ac.signal.aborted) return;
+        const page = asFirm(raw);
+        setFirm(page);
+        setFirmState(page ? "in" : "out");
+      })
+      .catch(() => { if (!ac.signal.aborted) { setFirm(null); setFirmState("out"); } });
     return () => ac.abort();
   }, [issuer, day]);
 
@@ -167,7 +176,7 @@ function Stock({ quote, day, news, ask, onBack }: {
         <div>
           <button type="button" className="mk-back" onClick={onBack}>Board</button>
           <h2 className="section-title">{sym} · {firm?.name || quote.name}</h2>
-          <p className="muted">{firm?.sector || quote.sector}{firm?.goodName ? ` · ${firm.goodName}` : ""}{firm?.ceo?.name ? ` · ${firm.ceo.name}` : ""}</p>
+          <p className="muted">{firm?.sector ? titleWord(firm.sector) : quote.sector ? titleWord(quote.sector) : ""}{firm?.goodName ? ` · ${firm.goodName}` : ""}{firm?.ceo?.name ? <> · <Named name={firm.ceo.name} /></> : null}</p>
         </div>
         <Button variant="primary" data-testid="mk-trade" onClick={() => store.getState().open("broker", quote.instr)}>Trade</Button>
       </div>
@@ -177,7 +186,7 @@ function Stock({ quote, day, news, ask, onBack }: {
         <span className="muted">Bid <NumBtn id={quote.eventId} title={`${sym} bid`} ask={ask}><MoneyText amount={dollars(quote.bid ?? 0)} ctx="table" /></NumBtn></span>
         <span className="muted">Ask <NumBtn id={quote.eventId} title={`${sym} ask`} ask={ask}><MoneyText amount={dollars(quote.ask ?? 0)} ctx="table" /></NumBtn></span>
       </div>
-      <LineChart points={closes.map((c) => c.px)} up={up} label={`${sym} daily closes`} />
+      <LineChart points={closes.map((c) => c.px)} days={closes.map((c) => c.day)} up={up} label={`${sym} daily closes`} format={moneyFromCents} />
       <div className="mk-facts">
         {firm?.kind === "bank" ? (
           <>
@@ -192,7 +201,7 @@ function Stock({ quote, day, news, ask, onBack }: {
             <Fact label="Debt" id={ev.debt ?? shareId} title={`${sym} debt`} ask={ask}><MoneyText amount={dollars(firm?.debt ?? 0)} ctx="table" /></Fact>
           </>
         )}
-        <Fact label="Your position" id={shareId} title={`${sym} position`} ask={ask}><span className={`num ${tone(quote.pos ?? 0)}`}>{quote.pos ?? 0}</span></Fact>
+        <Fact label="Your position" id={shareId} title={`${sym} position`} ask={ask}><span className={`num ${tone(quote.pos ?? 0)}`}>{signedQty(quote.pos ?? 0)}</span></Fact>
         <Fact label="P/E" id={shareId} title={`${sym} P/E`} ask={ask}><span className="num">{quote.pe == null ? "—" : quote.pe.toFixed(1)}</span></Fact>
       </div>
       <section>
@@ -216,10 +225,10 @@ function Stock({ quote, day, news, ask, onBack }: {
         <h3 className="label">Top holders</h3>
         {firm?.holders?.length ? firm.holders.map((h) => (
           <div key={h.id} className="mk-book-row">
-            <span>{h.name}</span>
+            <Named name={h.name} />
             <NumBtn id={shareId} title={`${h.name} holds ${sym}`} ask={ask}><span className="num">{h.qty.toLocaleString("en-US")}</span></NumBtn>
           </div>
-        )) : <p className="muted">{firm ? "No holders on the book." : "Reading the firm…"}</p>}
+        )) : <p className={firmState === "out" ? "quay-state" : "muted"} data-kind={firmState === "out" ? "error" : undefined}>{firm ? "No holders on the book." : firmState === "out" ? "The firm page did not open." : "Reading the firm…"}</p>}
       </section>
       <section>
         <h3 className="label">Why did it move</h3>
@@ -232,7 +241,7 @@ function Stock({ quote, day, news, ask, onBack }: {
         <h3 className="label">Latest news</h3>
         {lines.length ? lines.map((n) => (
           <button key={n.eventId} type="button" className="mk-open" onClick={() => ask(n.eventId, `${sym} news`)}>
-            <span className="label">{dateLabel(n.day)}</span> {n.text}
+            <span className="label">{gameDate(n.day)}</span> {n.text}
           </button>
         )) : <p className="muted">No news on this name.</p>}
       </section>

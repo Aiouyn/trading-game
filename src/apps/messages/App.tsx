@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type { AppBodyProps } from "@/shell/appModules";
 import { explain, type ExplainLine } from "@/shell/simSession";
 import { Button } from "@/components/ui/Button";
+import { presentNote } from "@/components/ui/format";
+import { Named } from "@/components/ui/Named";
 import { Closed, Result, useAct, useLife, when } from "@/apps/profile/data";
 import "@/apps/profile/life.css";
 import {
@@ -35,14 +37,14 @@ function EventCard({ eventId, source }: { eventId: number; source: number }) {
     <div>
       <button type="button" className="msg-event" data-testid="event-card" onClick={() => setOpen((v) => !v)}>
         <span className="label">The event</span>
-        <span>{cause?.msg || "Reading the book…"}</span>
+        <span>{cause ? presentNote(cause.msg) : "Reading the book…"}</span>
       </button>
       {open ? (
         <div className="msg-chain" data-testid="event-chain">
           {lines && lines.length === 0 ? <p>The book has no earlier cause.</p> : null}
           {lines?.map((l, i) => (
             <p key={`${l.id}-${l.depth}-${i}`} style={{ paddingLeft: l.depth * 12 }}>
-              {l.name ? `${l.name}. ` : ""}{l.msg}
+              {l.name ? `${l.name}. ` : ""}{presentNote(l.msg)}
             </p>
           ))}
         </div>
@@ -159,7 +161,7 @@ export default function MessagesApp({ context }: AppBodyProps) {
                   <span className="msg-row-text">
                     <strong className="msg-who">{t.name || "Someone"}</strong>
                     <span className="msg-role">{roleWord(t.role, t.stance)}</span>
-                    <span className="msg-preview">{last?.text || "No letter yet"}</span>
+                    <span className="msg-preview">{last?.text ? presentNote(last.text) : "No letter yet"}</span>
                   </span>
                   {shownUnread > 0 ? <span className="msg-unread">{shownUnread > 9 ? "9+" : shownUnread}</span> : null}
                 </button>
@@ -210,7 +212,7 @@ function Thread({ thread, pending, contact, slot, mine, draft, busy, note, onDra
           <span className="avatar" data-role={person.role}>{initial(person.name)}</span>
         ) : null}
         <div className="msg-row-text">
-          <h2>{person?.name || "Choose someone"}</h2>
+          <h2>{person?.name ? <Named name={person.name} /> : "Choose someone"}</h2>
           {person ? <p>{roleWord(person.role, person.stance)}{contact?.bond.word ? ` · ${contact.bond.word}` : ""}</p> : <p>A thread opens when they write.</p>}
         </div>
       </header>
@@ -251,7 +253,7 @@ function Letter({ message, ask, slot, busy, mine, onAsk }: {
     <>
       <article className="msg-item" data-testid="letter">
         <p className="msg-role">{when(message.day)}</p>
-        <p className="msg-bubble">{message.text}</p>
+        <p className="msg-bubble">{presentNote(message.text)}</p>
         <EventCard eventId={message.eventId} source={message.source} />
         {ask ? (
           <AskBox ask={ask} slot={slot} busy={busy} onGo={(cmd, said) => onAsk(message.id, cmd, said)} />

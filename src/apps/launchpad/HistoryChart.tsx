@@ -85,7 +85,7 @@ function Chart({ data, stale, onRetry }: { data: HistoryData; stale: boolean; on
           {data.pts.length === 0 && <p className="lpad-sub" data-testid="lp-hist-empty">{LPS.hEmpty}</p>}
           <div className="lpad-hist-grid">
             <div className="lpad-hist-plot" tabIndex={0} role="group" aria-roledescription={LPS.hChart} aria-label={LPS.hKeys} aria-describedby={desc}
-              data-testid="lp-hist-plot" onKeyDown={move} onPointerMove={hover}>
+              data-testid="lp-hist-plot" data-dir={n > 1 && m.steps[n - 1]!.price >= m.steps[0]!.price ? "up" : n > 1 ? "down" : "flat"} onKeyDown={move} onPointerMove={hover}>
               <svg viewBox={`0 0 ${W} ${PH}`} preserveAspectRatio="none" className="lpad-hist-price" aria-hidden="true">
                 <path d={stepPath(m)} className="lpad-hist-line" vectorEffect="non-scaling-stroke" />
                 {n > 1 && <line x1={xOf(i, n)} x2={xOf(i, n)} y1={0} y2={PH} className="lpad-hist-cursor" vectorEffect="non-scaling-stroke" />}

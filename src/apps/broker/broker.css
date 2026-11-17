@@ -169,7 +169,7 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 .br-disclaimer { margin: var(--sp-8) 0 0; font-size: var(--fs-12_5, 0.8125rem); text-align: center; }
 
 .sim-book { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-16); min-width: 0; }
-.sim-book-row { display: flex; justify-content: space-between; gap: var(--sp-8); font-family: var(--font-num); }
+.sim-book-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-8); align-items: baseline; font-family: var(--font-num); min-width: 0; }
 .sim-book-row button { color: var(--fg-muted); }
 
 .br-desks { display: flex; flex-wrap: wrap; gap: var(--sp-8); }

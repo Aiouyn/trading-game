@@ -24,7 +24,7 @@ export default function BankApp() {
   const { view } = useSimSnap();
   const why = useWhy();
   const panel = usePanel<Book>("name=bank", `${view?.date.abs ?? 0}:${view?.cash ?? 0}:${view?.loans?.length ?? 0}`);
-  const [amount, setAmount] = useState("1000");
+  const [amount, setAmount] = useState("");
   const [note, setNote] = useState<ActNote | null>(null);
   const [busy, setBusy] = useState(false);
   const book = panel.data;
@@ -62,7 +62,7 @@ export default function BankApp() {
           <p key={`${l.kind}-${i}`}><Fig word={loanWord(l.kind)} title={`${moneyTitle(l.owed)} at ${(l.rate * 100).toFixed(1)}%`} eventId={l.eventId} onWhy={why.open} /></p>
         ))}
       </div>
-      <Field label="Amount"><input className="qa-input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="bank-amount" /></Field>
+      <Field label="Amount, in dollars"><input className="qa-input" inputMode="decimal" placeholder="1,000.00" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="bank-amount" /></Field>
       <div className="qa-actions">
         <Button variant="primary" disabled={busy} data-testid="bank-borrow" onClick={() => void go("borrow")}>Borrow</Button>
         <Button variant="secondary" disabled={busy} onClick={() => void go("deposit")}>Deposit</Button>

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Named } from "@/components/ui/Named";
 import { act, useSimSnap, type ActNote, type SimCompany } from "@/shell/simSession";
 import { Because, Field, Fig, Note, centsOf, moneyTitle, titleCase, usePanel, usePhone, useWhy } from "./sheet";
 import "./sheet.css";
@@ -37,6 +38,7 @@ export default function BusinessesApp() {
   const [mode, setMode] = useState<"list" | "found" | "firm">("list");
   const [firmId, setFirmId] = useState("");
   const [page, setPage] = useState<FirmPage | null>(null);
+  const [firmErr, setFirmErr] = useState("");
   const [note, setNote] = useState<ActNote | null>(null);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
@@ -50,9 +52,15 @@ export default function BusinessesApp() {
   useEffect(() => {
     if (mode !== "firm" || !firmId) return;
     let stop = false;
+    setFirmErr("");
     void fetch("/api/sim/firm/" + encodeURIComponent(firmId), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() as Promise<FirmPage> : null))
-      .then((d) => { if (!stop) setPage(d); });
+      .then((d) => {
+        if (stop) return;
+        if (!d?.id) setFirmErr("The firm page did not open.");
+        else { setPage(d); setFirmErr(""); }
+      })
+      .catch(() => { if (!stop) setFirmErr("The firm page did not open."); });
     return () => { stop = true; };
   }, [mode, firmId, view?.date.abs, note?.text]);
 
@@ -98,8 +106,9 @@ export default function BusinessesApp() {
             <h2 className="qa-title">Every firm</h2>
             <Button variant="primary" disabled={busy} onClick={() => setMode("found")}>Found a firm</Button>
           </div>
-          {dir.error ? <p className="qa-muted">{dir.error}</p> : null}
-          {!firms.length && !dir.error ? <p className="qa-empty">The directory is still being read.</p> : null}
+          {dir.error ? <p className="quay-state" data-kind="error">{dir.error}</p> : null}
+          {!dir.data && !dir.error ? <p className="quay-state">Reading the directory…</p> : null}
+          {dir.data && !firms.length ? <p className="quay-empty">No firms on the book.</p> : null}
           <div className="qa-list">
             {firms.map((f) => (
               <div key={f.id} className="qa-row">
@@ -130,7 +139,8 @@ export default function BusinessesApp() {
           </div>
         </div>
       ) : null}
-      {mode === "firm" && !page ? <p className="qa-muted">Reading the firm…</p> : null}
+      {mode === "firm" && !page && !firmErr ? <p className="quay-state">Reading the firm…</p> : null}
+      {mode === "firm" && !page && firmErr ? <p className="quay-state" data-kind="error">{firmErr}</p> : null}
       {mode === "firm" && page ? (
         <div className="qa-block">
           <div className="qa-head">
@@ -148,10 +158,10 @@ export default function BusinessesApp() {
             </div>
           ) : null}
           {page.plant ? <p><span className="label">Plant</span> <Fig word={page.plant.word} title={`${page.plant.units.toFixed(1)} units`} eventId={page.plant.eventId} onWhy={why.open} /></p> : null}
-          <p><span className="label">Staff</span> {page.people?.length ? page.people.map((p) => p.name).join(", ") : "No one named"}{page.staff && page.people && page.staff > page.people.length ? ` · ${page.staff} on the books` : ""}</p>
-          <p><span className="label">Suppliers</span> {page.suppliers?.length ? page.suppliers.map((s) => `${s.name} (${s.goodName})`).join(", ") : "None on the book"}</p>
-          <p><span className="label">Holders</span> {page.holders?.length ? page.holders.map((h) => `${h.name} (${h.shares})`).join(", ") : "No holders"}</p>
-          <p><span className="label">Board</span> {page.board?.length ? page.board.map((b) => `${b.name}, ${b.role}`).join(" · ") : "No seat named"}</p>
+          <p><span className="label">Staff</span> {page.people?.length ? page.people.map((p, i) => <span key={p.index}>{i ? ", " : " "}<Named name={p.name} /></span>) : " No one named"}{page.staff && page.people && page.staff > page.people.length ? ` · ${page.staff.toLocaleString("en-US")} on the books` : ""}</p>
+          <p><span className="label">Suppliers</span> {page.suppliers?.length ? page.suppliers.map((s, i) => <span key={s.id}>{i ? ", " : " "}<Named name={s.name} /> ({s.goodName})</span>) : " None on the book"}</p>
+          <p><span className="label">Holders</span> {page.holders?.length ? page.holders.map((h, i) => <span key={h.id}>{i ? ", " : " "}<Named name={h.name} /> ({h.shares.toLocaleString("en-US")})</span>) : " No holders"}</p>
+          <p><span className="label">Board</span> {page.board?.length ? page.board.map((b, i) => <span key={b.id}>{i ? " · " : " "}<Named name={b.name} />, {b.role}</span>) : " No seat named"}</p>
           {page.kind !== "bank" && controlled ? (
             <div className="qa-block">
               <Field label="Buyer of the division">

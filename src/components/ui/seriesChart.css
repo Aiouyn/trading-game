@@ -1,0 +1,13 @@
+.series { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-4); }
+.series-svg { display: block; width: 100%; height: auto; touch-action: none; }
+.series-grid { stroke: var(--grid); stroke-width: 1; }
+.series-line { fill: none; stroke: var(--fg-muted); stroke-width: 2; }
+.series[data-dir="up"] .series-line,
+.series[data-dir="up"] .series-dot { stroke: var(--gain); }
+.series[data-dir="down"] .series-line,
+.series[data-dir="down"] .series-dot { stroke: var(--loss); }
+.series[data-dir="flat"] .series-line,
+.series[data-dir="flat"] .series-dot { stroke: var(--fg-muted); }
+.series-dot { fill: var(--win); stroke: var(--fg-muted); stroke-width: 2; }
+.series-cross { stroke: var(--fg-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.series-read { color: var(--fg-muted); font-size: var(--fs-12_5); }

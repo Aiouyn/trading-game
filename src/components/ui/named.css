@@ -1,0 +1,11 @@
+.name-link {
+  color: var(--info);
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+.name-link:hover { color: var(--fg); }

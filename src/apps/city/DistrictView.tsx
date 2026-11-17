@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { dollars, explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
+import { gameDate, presentNote } from "@/components/ui/format";
+import { EntityText } from "@/components/ui/Named";
 import { BAY, DISTRICTS, FIRST_DISTRICT } from "./districts";
 import { DV } from "./districtStrings";
 import "./district.css";
@@ -107,6 +109,7 @@ export default function DistrictView() {
   const [detailErr, setDetailErr] = useState("");
   const [whyId, setWhyId] = useState<number | null>(null);
   const [why, setWhy] = useState<ExplainLine[]>([]);
+  const [cityErr, setCityErr] = useState("");
   const req = useRef(0);
   const d = DISTRICTS.find((x) => x.distId === sel) ?? DISTRICTS[0]!;
 
@@ -115,8 +118,11 @@ export default function DistrictView() {
     const q = encodeURIComponent(d.name);
     void fetch(`/api/sim/panel?name=city&district=${q}`, { cache: "no-store", signal: ac.signal })
       .then((r) => (r.ok ? r.json() as Promise<CityPanel> : null))
-      .then((j) => { if (j && Array.isArray(j.districts)) setPanel(j); })
-      .catch(() => {});
+      .then((j) => {
+        if (j && Array.isArray(j.districts)) { setPanel(j); setCityErr(""); }
+        else if (!ac.signal.aborted) setCityErr("The district did not answer.");
+      })
+      .catch(() => { if (!ac.signal.aborted) setCityErr("The district did not answer."); });
     return () => ac.abort();
   }, [d.name, tick]);
 
@@ -163,8 +169,8 @@ export default function DistrictView() {
     const names = (p.lives ?? []).map((x) => x.name).filter(Boolean);
     if (names.length) return names.slice(0, 8).join(", ") + (names.length > 8 ? ` and ${names.length - 8} more` : "");
     if (p.tenant?.name) return p.tenant.name;
-    if (p.vacant) return "nobody";
-    return "nobody on the roll";
+    if (p.vacant) return "Nobody";
+    return "Nobody is listed here";
   };
 
   return (
@@ -197,7 +203,7 @@ export default function DistrictView() {
             <p><span className="dv-word" title={`${sim.distance.toFixed(1)} km`}>{nearWord(sim.distance)}</span></p>
             <p>
               <span className="dv-word" title={dollars(sim.price)}>{desireWord(sim.desirability)}</span>
-              <button type="button" className="q-why" data-testid="city-why" onClick={() => ask(sim.eventId)}>why?</button>
+              <button type="button" className="q-why" data-testid="city-why" onClick={() => ask(sim.eventId)}>Why?</button>
             </p>
             <p className="muted">
               <span title={`${sim.homes} homes`}>{countWord(sim.homes)}</span>
@@ -210,13 +216,13 @@ export default function DistrictView() {
               <div className="q-why-body">
                 {why.length ? why.map((line, i) => (
                   <p key={`${line.id}-${line.depth}-${i}`} style={{ paddingLeft: line.depth * 12 }}>
-                    {line.missing ? line.msg : `${line.name ? `${line.name}: ` : ""}${line.msg}`}
+                    <span className="label">{gameDate(line.day)}</span> {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
                   </p>
                 )) : <p className="muted">Reading the cause…</p>}
               </div>
             ) : null}
           </div>
-        ) : <p className="muted">Reading the district…</p>}
+        ) : <p className="quay-state" data-kind={cityErr ? "error" : undefined} role={cityErr ? "alert" : "status"}>{cityErr || "Reading the district…"}</p>}
 
         <h3>Parcels</h3>
         <ul className="dv-parcels" aria-label="Parcels">
@@ -224,7 +230,7 @@ export default function DistrictView() {
             <li key={p.id}>
               <button type="button" data-testid="city-parcel" data-id={p.id} onClick={() => openParcel(p.id)}>
                 <span>{placeWord(p)}</span>
-                <span className="muted" title={dollars(p.price)}>{p.owner || "a bank or a fund"}{p.who ? ` · ${p.who}` : ""}</span>
+                <span className="muted" title={dollars(p.price)}><EntityText text={`${p.owner || "A bank or a fund"}${p.who ? ` · ${p.who}` : ""}`} /></span>
               </button>
             </li>
           ))}
@@ -237,18 +243,18 @@ export default function DistrictView() {
         {detailErr ? <p className="muted">{detailErr}</p> : null}
         {detail ? (
           <div className="dv-detail" data-testid="city-detail" aria-live="polite">
-            <h3>{detail.kind === "plant" ? "Plant" : "Home"} #{detail.id}</h3>
-            <p>Owned by <b title={detail.price !== undefined ? dollars(detail.price) : undefined}>{ownerOf(detail)}</b></p>
-            <p>{detail.live ? "You live here. " : ""}Lives here: {livesOf(detail)}</p>
-            {detail.firm?.name ? <p>The firm {detail.firm.name}</p> : null}
+            <h3>{detail.firm?.name || (detail.kind === "plant" ? "Plant" : "Home")}</h3>
+            <p>Owned by <b title={detail.price !== undefined ? dollars(detail.price) : undefined}><EntityText text={ownerOf(detail)} /></b></p>
+            <p>{detail.live ? "You live here. " : ""}Lives here: <EntityText text={livesOf(detail)} /></p>
+            {detail.firm?.name ? <p>The firm <EntityText text={detail.firm.name} /></p> : null}
             {detail.eventId !== undefined ? (
-              <button type="button" className="q-why" onClick={() => ask(detail.eventId!)}>why?</button>
+              <button type="button" className="q-why" onClick={() => ask(detail.eventId!)}>Why?</button>
             ) : null}
             {detail.eventId !== undefined && whyId === detail.eventId ? (
               <div className="q-why-body">
                 {why.length ? why.map((line, i) => (
                   <p key={`${line.id}-${line.depth}-${i}`} style={{ paddingLeft: line.depth * 12 }}>
-                    {line.missing ? line.msg : `${line.name ? `${line.name}: ` : ""}${line.msg}`}
+                    <span className="label">{gameDate(line.day)}</span> {line.missing ? presentNote(line.msg) : `${line.name ? `${line.name}: ` : ""}${presentNote(line.msg)}`}
                   </p>
                 )) : <p className="muted">Reading the cause…</p>}
               </div>
@@ -263,7 +269,7 @@ export default function DistrictView() {
               <span className="dv-word" title={`${port.berthed} of ${port.berths} berths · ${port.ships.length} ships`}>
                 {port.strike ? "On strike" : port.closed ? "Closed" : "Open"}
               </span>
-              <button type="button" className="q-why" onClick={() => ask(port.eventId)}>why?</button>
+              <button type="button" className="q-why" onClick={() => ask(port.eventId)}>Why?</button>
             </p>
             <p className="muted">{port.cranes} cranes · {port.ships.slice(0, 4).map((s) => s.name).join(", ") || "no ship in sight"}</p>
           </div>

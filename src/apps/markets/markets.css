@@ -23,6 +23,17 @@
 .mk-book { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-16); }
 .mk-book-row { display: flex; justify-content: space-between; gap: var(--sp-8); font-family: var(--font-num); }
 .mk-move { margin: 0; }
+@container (max-width: 680px) {
+  .mk-table { min-width: 0; }
+  .mk-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .mk-table, .mk-table tbody, .mk-table tr, .mk-table td { display: block; white-space: normal; }
+  .mk-table tr { padding: var(--sp-8) 0; border-bottom: 1px solid var(--line); }
+  .mk-table td { display: flex; justify-content: space-between; gap: var(--sp-8); border: 0; text-align: right; padding: 2px 0; }
+  .mk-table td[data-label=""] { display: none; }
+  .mk-table td::before { content: attr(data-label); color: var(--fg-muted); font-family: var(--font-ui); }
+  .mk-table td.mk-name { display: block; text-align: left; }
+  .mk-table td.mk-name::before { content: none; }
+}
 @media (pointer: coarse) {
   .mk-chips button, .mk-back, .mk-table th button, .mk-open { min-height: 44px; }
 }

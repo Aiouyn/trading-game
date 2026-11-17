@@ -8,10 +8,12 @@
 .qa-list { display: flex; flex-direction: column; min-width: 0; }
 .qa-row { display: flex; align-items: center; gap: var(--sp-8); min-width: 0; border-bottom: 1px solid var(--line); }
 .qa-row[data-on="1"] { background: var(--win2); }
-.qa-row-main { flex: 1; min-width: 0; min-height: var(--hit-pointer); text-align: left; background: transparent; color: var(--fg); padding: var(--sp-4) 0; }
+.qa-row-main { flex: 1; min-width: 0; min-height: var(--hit-pointer); text-align: left; background: transparent; color: var(--fg); padding: var(--sp-4) 0; white-space: normal; overflow-wrap: anywhere; }
 .qa-row-main strong { font-weight: 600; }
-.qa-fig { background: transparent; color: var(--fg); min-height: var(--hit-pointer); padding: 0 var(--sp-4); white-space: nowrap; }
-.qa-why { color: var(--fg-faint); font-size: var(--fs-12_5); }
+.qa-fig { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 6px; background: transparent; color: var(--fg); min-height: var(--hit-pointer); padding: 0 var(--sp-4); white-space: normal; text-align: right; max-width: 100%; }
+.qa-fig-num { color: var(--fg); }
+.qa-why { color: var(--info); font-size: var(--fs-12_5); }
+.qa[data-phone="1"] { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
 .qa-field { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
 .qa-input, .qa-select { min-height: var(--hit-pointer); width: 100%; max-width: 100%; padding: 0 var(--sp-8); border: 1px solid var(--line); border-radius: var(--r-input); background: var(--win2); color: var(--fg); }
 .qa-input { font-family: var(--font-num); }

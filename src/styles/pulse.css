@@ -24,3 +24,8 @@ html[data-motion="reduce"] .tickring-sweep { animation-duration: 5000ms; animati
 .tickring[data-state="reconnecting"] .tickring-track { stroke: var(--fg-faint); stroke-dasharray: 2 2; }
 .tickring-pause { fill: none; stroke: var(--steel); stroke-width: 2; stroke-linecap: round; }
 .reconnecting .clock { color: var(--fg-faint); text-decoration: underline dashed var(--fg-faint); }
+/* The day changed and the clock is running. One beat, then it rests. */
+@keyframes clock-pulse { from { color: var(--acc-hi); } to { color: inherit; } }
+.clock.is-pulsing { animation: clock-pulse var(--dur-base) var(--ease-out); }
+@keyframes num-tick { from { background-color: color-mix(in srgb, var(--acc) 22%, transparent); } to { background-color: transparent; } }
+.num-tick { border-radius: 2px; animation: num-tick var(--dur-slow) var(--ease-out); }

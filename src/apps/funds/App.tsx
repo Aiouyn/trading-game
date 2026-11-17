@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useSimSnap } from "@/shell/simSession";
+import { Named } from "@/components/ui/Named";
 import { Because, Field, Fig, moneyTitle, titleCase, usePanel, usePhone, useWhy } from "@/apps/businesses/sheet";
 import "@/apps/businesses/sheet.css";
 
@@ -20,7 +21,7 @@ export default function FundsApp() {
   const { view } = useSimSnap();
   const why = useWhy();
   const [id, setId] = useState("");
-  const [amount, setAmount] = useState("1000");
+  const [amount, setAmount] = useState("");
   const [query, setQuery] = useState("name=funds");
   const panel = usePanel<Funds>(query, `${view?.date.abs ?? 0}:${query}`);
   const books = panel.data?.books ?? [];
@@ -59,12 +60,12 @@ export default function FundsApp() {
           <p className="qa-muted">{book.kind === "market" ? "This book trades for its own account." : book.open}{book.lever ? " · Borrowed." : ""}</p>
           <div className="qa-kv">
             <p><span className="label">Value</span><Fig word={book.nav > 0 ? "The book" : "Empty"} title={moneyTitle(book.nav)} eventId={book.eventId} onWhy={why.open} /></p>
-            <p><span className="label">Your stake</span><Fig word={book.yours > 0 ? "You are in" : "You are out"} title={`${book.yours} shares`} eventId={book.eventId} onWhy={why.open} /></p>
-            {book.manager ? <p><span className="label">Manager</span><Fig word={book.manager} title={book.manager} eventId={book.managerEv} onWhy={why.open} /></p> : null}
+            <p><span className="label">Your stake</span><Fig word={book.yours > 0 ? "You are in" : "You are out"} title={`${book.yours.toLocaleString("en-US")} shares`} eventId={book.eventId} onWhy={why.open} /></p>
+            {book.manager ? <p><span className="label">Manager</span><Named name={book.manager} /></p> : null}
           </div>
-          <p><span className="label">Largest holdings</span> {book.holdings.length ? book.holdings.map((h) => h.name).join(", ") : "Nothing held"}</p>
+          <p><span className="label">Largest holdings</span> {book.holdings.length ? book.holdings.map((h, i) => <span key={h.instr}>{i ? ", " : ""}<Named name={h.name} /></span>) : "Nothing held"}</p>
           <Field label="Cash to price">
-            <input className="qa-input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="funds-amount" />
+            <input className="qa-input" inputMode="decimal" placeholder="1,000.00" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="funds-amount" />
           </Field>
           <Button variant="primary" data-testid="funds-price" onClick={price}>Price a stake</Button>
           {quote ? (

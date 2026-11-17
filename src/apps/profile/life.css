@@ -6,6 +6,10 @@
   gap: var(--sp-16);
   min-width: 0;
   color: var(--fg);
+  padding: var(--sp-16);
+}
+@container (max-width: 480px) {
+  .qy-life { padding-bottom: calc(var(--sp-16) + var(--edge-bar-h) + env(safe-area-inset-bottom)); }
 }
 .qy-life h2 {
   margin: 0;
@@ -43,14 +47,13 @@
 .qy-hover { position: relative; min-width: 0; cursor: default; }
 .qy-hover:focus { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-input); }
 .qy-num {
-  display: none;
+  display: inline;
   margin-left: var(--sp-8);
   font-family: var(--font-num);
   font-feature-settings: "tnum";
   font-size: var(--fs-13);
   color: var(--fg-muted);
 }
-.qy-hover:hover .qy-num, .qy-hover:focus .qy-num, .qy-hover:focus-within .qy-num { display: inline; }
 .qy-arrow { font-family: var(--font-num); margin-left: var(--sp-4); }
 .qy-arrow.gain { color: var(--gain); }
 .qy-arrow.loss { color: var(--loss); }

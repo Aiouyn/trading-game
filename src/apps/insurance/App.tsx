@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { presentNote } from "@/components/ui/format";
 import { act, useSimSnap, type ActNote } from "@/shell/simSession";
 import { Because, Fig, Note, moneyTitle, usePanel, usePhone, useWhy } from "@/apps/businesses/sheet";
 import "@/apps/businesses/sheet.css";
@@ -51,11 +52,10 @@ export default function InsuranceApp() {
         {book ? <Fig word={book.rateWord} title={`${(book.rate * 100).toFixed(2)}% of cover`} eventId={book.rateEv} onWhy={why.open} /> : null}
       </div>
       {book ? (
-        <p className="qa-muted">
+        <div className="qa-kv">
           <Fig word="Premiums in" title={moneyTitle(book.premiums)} eventId={book.rateEv} onWhy={why.open} />
-          {" · "}
           <Fig word="Claims paid" title={moneyTitle(book.claimsTotal)} eventId={book.rateEv} onWhy={why.open} />
-        </p>
+        </div>
       ) : <p className="qa-muted">{panel.error || "Reading the book…"}</p>}
       <div className="qa-list">
         {book?.insurers.map((ins) => (
@@ -84,9 +84,16 @@ export default function InsuranceApp() {
       ) : null}
       <h2 className="qa-title">Claims</h2>
       {book && !book.claims.length ? <p className="qa-empty">No claim on the book.</p> : null}
-      {book?.claims.map((c) => (
-        <p key={c.eventId}><Fig word={c.kind.startsWith("hazard") ? "A loss" : c.kind === "ins.rate" ? "The rate moved" : "The book opened"} title={c.text} eventId={c.eventId} onWhy={why.open} /> <span className="qa-muted">{c.text}</span></p>
-      ))}
+      {book?.claims.map((c) => {
+        const text = presentNote(c.text);
+        const word = c.kind.startsWith("hazard") ? "A loss" : c.kind === "ins.rate" ? "The rate moved" : "The book opened";
+        return (
+          <p key={c.eventId}>
+            <Fig word={word} title={text} eventId={c.eventId} onWhy={why.open} />
+            {text.length > 72 ? <span className="qa-muted">{text}</span> : null}
+          </p>
+        );
+      })}
       <Because id={why.id} lines={why.lines} />
     </div>
   );

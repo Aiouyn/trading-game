@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { act, dollars, symbolOf, useSimSnap, type ActNote, type Quote, type SimView } from "@/shell/simSession";
-import { Cause, NumBtn, signedPct, tone, useCause } from "@/apps/markets/why";
+import { levelPct, moneyFromCents } from "@/components/ui/format";
+import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "@/apps/markets/why";
 import "./broker.css";
 
 type Desk = "stocks" | "bonds" | "futures" | "options" | "coins" | "fx";
@@ -17,6 +18,25 @@ const DESKS: { id: Desk; label: string }[] = [
   { id: "fx", label: "Currency" },
 ];
 const MAJORS = new Set(["coin:ledger", "coin:north", "coin:halo"]);
+
+function bookName(view: SimView, instr: string): string {
+  const quote = view.quotes.find((q) => q.instr === instr);
+  if (quote?.symbol) return quote.symbol;
+  if (quote?.name) return quote.name;
+  const coin = view.coinBoard?.find((c) => c.id === instr || c.id === instr.replace(/^coin:/, ""));
+  if (coin?.name) return coin.name;
+  if (instr.startsWith("coin:")) {
+    const slug = instr.slice(5).replace(/^me:/, "");
+    return slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : "Coin";
+  }
+  return symbolOf(instr);
+}
+
+function holdWord(n: number): string {
+  if (!n) return "You hold none";
+  if (n < 0) return `You are short ${Math.abs(n).toLocaleString("en-US")}`;
+  return `You hold ${n.toLocaleString("en-US")}`;
+}
 const LOT = 16000;
 
 function readContext(context?: string): { desk: Desk; key: string } {
@@ -302,7 +322,7 @@ function QuoteLine({ quote, ask }: { quote: Quote; ask: (id: number, title: stri
     <div className="br-quote">
       <span className="br-last"><NumBtn id={quote.eventId} title={`${sym} last`} ask={ask}><MoneyText amount={dollars(quote.px)} ctx="wealth" /></NumBtn></span>
       <NumBtn id={quote.eventId} title={`${sym} change`} ask={ask}><span className={`br-today ${tone(quote.chg)}`}>{signedPct(quote.chg)}</span></NumBtn>
-      <span className="muted">You {quote.pos ?? 0}</span>
+      <span className="muted">{holdWord(quote.pos ?? 0)}</span>
     </div>
   );
 }
@@ -324,26 +344,15 @@ function BookSide({ title, rows, id, ask }: { title: string; rows: { px: number;
 function BondMarket({ view, picked: key, onPick, ask }: { view: SimView; picked: string; onPick: (id: string) => void; ask: (id: number, title: string) => void }) {
   const curve = view.curve ?? [];
   const tenor = curve.some((c) => c.tenor === key) ? key : curve[0]?.tenor ?? "";
-  const ys = curve.map((c) => c.yield);
-  const min = Math.min(...ys, 0);
-  const span = Math.max(...ys, 0) - min || 0.001;
   return (
     <>
       <p className="label">Yield curve</p>
-      {curve.length > 1 ? (
-        <svg className="line-chart" viewBox="0 0 320 88" role="img" aria-label="Yield curve">
-          <path fill="none" stroke="var(--acc)" strokeWidth="2" d={ys.map((y, i) => {
-            const x = (i / (ys.length - 1)) * 300 + 10;
-            const py = 78 - ((y - min) / span) * 68;
-            return `${i ? "L" : "M"}${x.toFixed(1)} ${py.toFixed(1)}`;
-          }).join(" ")} />
-        </svg>
-      ) : null}
+      <LineChart neutral points={curve.map((c) => c.yield)} labels={curve.map((c) => c.tenor)} label="Yield curve" format={(v) => levelPct(v * 100, 2)} height={88} />
       <div className="br-tenors">
         {curve.map((c) => (
           <div key={c.tenor} className="br-tenor" data-on={tenor === c.tenor ? "1" : "0"}>
             <button type="button" aria-pressed={tenor === c.tenor} onClick={() => onPick(c.tenor)}>{c.tenor}</button>
-            <NumBtn id={c.eventId} title={`${c.tenor} yield`} ask={ask}><span className="num">{(c.yield * 100).toFixed(2)}%</span></NumBtn>
+            <NumBtn id={c.eventId} title={`${c.tenor} yield`} ask={ask}><span className="num">{levelPct(c.yield * 100, 2)}</span></NumBtn>
             <NumBtn id={c.eventId} title={`${c.tenor} price`} ask={ask}><MoneyText amount={dollars(c.px)} ctx="table" /></NumBtn>
           </div>
         ))}
@@ -577,7 +586,7 @@ function Orders({ view, ask }: { view: SimView; ask: (id: number, title: string)
       {orders.length ? orders.map((o) => (
         <div key={o.id} className="sim-book-row">
           <NumBtn id={o.eventId} title={`Order ${o.id}`} ask={ask}>
-            <span>{o.side} {o.qty} {symbolOf(o.instr)}{o.limit ? ` @ ${dollars(o.limit)}` : ""}</span>
+            <span>{o.side.charAt(0).toUpperCase() + o.side.slice(1)} {o.qty.toLocaleString("en-US")} {bookName(view, o.instr)}{o.limit ? ` @ ${moneyFromCents(o.limit)}` : ""}</span>
           </NumBtn>
           {o.book === "shares" ? (
             <button type="button" onClick={() => void act({ kind: "cancel", orderId: o.id })}>Cancel</button>

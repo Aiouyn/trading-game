@@ -89,3 +89,7 @@
 .ds-glyphs { display: flex; flex-wrap: wrap; gap: var(--sp-12); }
 .ds-glyph figcaption { text-align: center; overflow-wrap: normal; word-break: keep-all; hyphens: none; }
 .ds-glyph { margin: 0; min-width: 96px; flex: 0 1 auto; display: flex; flex-direction: column; align-items: center; gap: var(--sp-8); }
+
+.quay-empty { margin: 0; font-family: var(--font-display); font-size: var(--fs-20); font-weight: 400; color: var(--fg); }
+.quay-state { margin: 0; color: var(--fg-muted); }
+.quay-state[data-kind="error"] { color: var(--loss); }

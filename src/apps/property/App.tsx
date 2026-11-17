@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { act, useSimSnap, type ActNote } from "@/shell/simSession";
+import { Named } from "@/components/ui/Named";
 import { Because, Field, Fig, Note, centsOf, moneyTitle, usePanel, usePhone, useWhy } from "@/apps/businesses/sheet";
 import "@/apps/businesses/sheet.css";
 
@@ -121,7 +122,7 @@ function HomeList({ title, rows, id, setId, onWhy, empty }: {
           <div key={h.id} className="qa-row" data-on={id === h.id ? "1" : "0"}>
             <button type="button" className="qa-row-main" onClick={() => setId(h.id)}>
               <strong>{h.neighbourhood}</strong>
-              <span className="qa-muted"> · {h.vacant ? "Empty" : h.tenant ? `Let to ${h.tenant.name}` : "Occupied"}{h.live ? " · You live here" : ""}{h.mine ? " · Yours" : ""}</span>
+              <span className="qa-muted"> · {h.vacant ? "Empty" : h.tenant ? <>Let to <Named name={h.tenant.name} /></> : "Occupied"}{h.live ? " · You live here" : ""}{h.mine ? " · Yours" : ""}{h.owner?.name && !h.mine ? <> · <Named name={h.owner.name} /></> : null}</span>
             </button>
             <Fig word={h.mine ? "Yours" : "Asking"} title={moneyTitle(h.price)} eventId={h.eventId} onWhy={onWhy} />
           </div>
