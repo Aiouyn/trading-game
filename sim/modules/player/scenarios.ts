@@ -16,7 +16,7 @@ import { challengeOf } from '../history/commands.ts';
 import { playerChronicle } from '../history/story.ts';
 import { openWorld } from '../../run.ts';
 import { repWord } from './life.ts';
-import { PLAYER, ensurePlayer, noteScript, onPlayerDay, playerIndex, soleSeat, view, type ScriptNote } from './index.ts';
+import { PLAYER, ensurePlayer, noteScript, onPlayerDay, playerIndex, rememberJob, soleSeat, view, type ScriptNote } from './index.ts';
 
 type Goal =
   | { kind: 'worth'; cents: number }
@@ -259,6 +259,27 @@ const catalog: ScenarioDef[] = loadRaws(process.env.SIM_CONTENT ?? contentDir).f
 
 function aan(phrase: string): string {
   return /^[aeiou]/i.test(phrase) ? `an ${phrase}` : `a ${phrase}`;
+}
+
+/** How far the mark sits over the opening book. The chief's firm can still fall, so that mark is a little higher; the heir and the fund sit just over the open. */
+function earnRate(id: string): number {
+  return id === 'struggling-ceo' ? 105 : 101;
+}
+
+function earnedWorth(opened: number, rate: number): number {
+  const lifted = Math.ceil((Math.round(opened) * rate) / 100);
+  const dollar = Math.ceil(lifted / 100) * 100;
+  const above = Math.ceil((Math.round(opened) + 1) / 100) * 100;
+  return Math.max(dollar, above);
+}
+
+/** Bank deposits, not cash left in the drawer. The twist asks which one the household did. */
+function banked(w: World): number {
+  return view(w).deposits.reduce((a, d) => a + Math.max(0, d.cents), 0);
+}
+
+function cushioned(saved: number, worthAtStart: number): boolean {
+  return saved >= Math.round(Math.max(0, worthAtStart) * 0.2);
 }
 
 function goalText(g: Goal): string {
@@ -791,6 +812,9 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
       : `${P.name(i)} arrives, aged ${def.age}, and holds no job`;
   }
   const opened = Math.round(view(w).netWorth);
+  if (goal.kind === 'worth' && (def.id === 'heir-debts' || def.id === 'struggling-ceo' || def.id === 'hedge-fund')) {
+    goal.cents = earnedWorth(opened, earnRate(def.id));
+  }
   const last = st.score[st.score.length - 1];
   if (last && last.day === w.day) last.worth = opened;
   else st.score.push({ day: w.day, worth: opened });
@@ -828,6 +852,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     continueAfter: def.keepPlaying,
   };
   w.state.scenario = run;
+  rememberJob(w);
 }
 
 export function openScenario(id: string, opts?: { cash?: number; difficulty?: number; seed?: string }): World {
@@ -1074,11 +1099,15 @@ function applyTwist(w: World, sc: ScenarioRun): void {
     retargetLabour(s, i, before, labourOf(P, i, w.day));
     const cause = prior(w, ['health.injury', 'player.wed', 'macro.jobs'], P.spouse[i] >= 0 && P.lastEv[P.spouse[i]] >= 0 ? P.lastEv[P.spouse[i]] : fallback);
     const inj = w.events.emit('health.injury', `${name} falls ill at home`, [cause], pid);
-    const saved = view(w).deposits.reduce((a, d) => a + Math.max(0, d.cents), 0);
-    const bill = Math.max(400_000, Math.round(sc.worthAtStart * 0.18)) + (saved < 50_000 ? 200_000 : 0);
-    owePlayer(w, pid, bill, 'player.twist', inj);
+    const saved = banked(w);
+    const prepared = cushioned(saved, sc.worthAtStart);
+    const bill = prepared ? 0 : Math.max(400_000, Math.round(sc.worthAtStart * 0.18)) + (saved < 50_000 ? 200_000 : 0);
+    if (bill > 0) owePlayer(w, pid, bill, 'player.twist', inj);
     const thin = saved < 50_000 ? ' Nothing was set aside, so the bill is larger.' : '';
-    noteTwist(w, sc, pid, `${name} falls ill and the household owes ${money(bill)} for the care.${thin}`, inj);
+    const line = prepared
+      ? `${name} falls ill. The money set aside meets the bill, so the book owes nothing new.`
+      : `${name} falls ill and the household owes ${money(bill)} for the care.${thin}`;
+    noteTwist(w, sc, pid, line, inj);
     return;
   }
   if (sc.twist === 'shock') {
@@ -1092,14 +1121,16 @@ function applyTwist(w: World, sc: ScenarioRun): void {
     }
     const cause = prior(w, ['shock.forced', 'macro.jobs', 'cb.rate'], fallback);
     const levied = f ? levyFirm(w, f, 8, cause) : 0;
-    const saved = view(w).deposits.reduce((a, d) => a + Math.max(0, d.cents), 0);
-    const bill = Math.round(sc.worthAtStart * 0.1) + (saved < 50_000 ? 150_000 : 0);
+    const saved = banked(w);
+    const prepared = cushioned(saved, sc.worthAtStart);
+    const bill = prepared ? 0 : Math.round(sc.worthAtStart * 0.1) + (saved < 50_000 ? 150_000 : 0);
     if (bill > 0) owePlayer(w, pid, bill, 'player.twist', cause);
     const u = (s.unemployment * 100).toFixed(1);
     const what = def?.text ?? 'the city tightens';
     const paid = levied > 0 ? ` ${f?.name ?? 'The firm'} pays ${money(levied)} out of the cash box.` : '';
-    const thin = saved < 50_000 ? ' Nothing was set aside, so the household bill is larger.' : '';
-    noteTwist(w, sc, pid, `Unemployment is ${u}%. ${what}.${paid} The household owes ${money(bill)} more.${thin}`, cause);
+    const thin = prepared ? ' The money set aside meets the household bill.' : saved < 50_000 ? ' Nothing was set aside, so the household bill is larger.' : '';
+    const owed = bill > 0 ? ` The household owes ${money(bill)} more.` : '';
+    noteTwist(w, sc, pid, `Unemployment is ${u}%. ${what}.${paid}${owed}${thin}`, cause);
     return;
   }
   if (sc.twist === 'redeem') {
@@ -1107,10 +1138,16 @@ function applyTwist(w: World, sc: ScenarioRun): void {
     const cause = prior(w, ['cb.rate', 'macro.jobs'], s.rateEv ?? fallback);
     const thin = liquidOf(w, pid) < Math.max(1, owed) * 0.25;
     const rate = Math.max(0.04, s.policyRate);
-    const fee = Math.round(owed * rate * (thin ? 0.9 : 0.3));
-    if (fee > 0) owePlayer(w, pid, fee, 'player.twist', cause);
-    const why = thin ? 'The cash is already spoken for, so the fee is larger.' : 'The cash is there, so the fee stays small.';
-    noteTwist(w, sc, pid, `Outside money asks to be paid. The fee is ${money(fee)}. ${why}`, cause);
+    if (!thin && owed > 0) {
+      const cut = Math.min(owed, Math.round(owed * 0.05));
+      const released = cut > 0 && w.ledger.redeem('scen_' + pid, BANK, cut, 'player.twist', cause);
+      const back = released ? cut : 0;
+      noteTwist(w, sc, pid, `Outside money asks to be paid. The cash was set aside, so the partners release ${money(back)} and charge no fee.`, cause);
+    } else {
+      const fee = Math.round(owed * rate * 0.9);
+      if (fee > 0) owePlayer(w, pid, fee, 'player.twist', cause);
+      noteTwist(w, sc, pid, `Outside money asks to be paid. The cash is already spoken for, so the fee is ${money(fee)}.`, cause);
+    }
     return;
   }
   if (sc.twist === 'repair') {
@@ -1158,9 +1195,29 @@ function applyTwist(w: World, sc: ScenarioRun): void {
 }
 
 /** Called once a day from play and from the server. Idle runs never set a scenario, so this returns. */
+/** A chief who keeps the surplus draws one salary from the firm, half a year in. The firm pays it. */
+function drawRetained(w: World, sc: ScenarioRun): void {
+  if (w.day !== sc.begun + 179) return;
+  if (sc.id !== 'heir-debts' && sc.id !== 'struggling-ceo') return;
+  if (!sc.seat) return;
+  const st = soleSeat(w);
+  if (!st || st.who < 0) return;
+  const s = econ(w);
+  const f = s.firms.find((x) => x.id === sc.seat);
+  if (!f || f.closed || f.ceo !== st.who) return;
+  if (!cushioned(banked(w), sc.worthAtStart)) return;
+  const cents = Math.round(sc.worthAtStart * 0.08);
+  if (cents < 1) return;
+  const pid = s.P.id(st.who);
+  const cause = f.profitEv >= 0 ? f.profitEv : w.genesis;
+  if (!pay(w, f.id, pid, cents, 'player.draw', cause)) return;
+  w.events.emit('player.draw', `${s.P.name(st.who)} draws ${money(cents)} from ${f.name} for keeping the seat`, [cause], pid);
+}
+
 export function reviewScenario(w: World): void {
   const sc = runOf(w);
   if (!sc || sc.outcome) return;
+  drawRetained(w, sc);
   armShock(w, sc);
   applyTwist(w, sc);
   const st = soleSeat(w);

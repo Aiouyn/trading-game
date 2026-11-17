@@ -1245,7 +1245,7 @@ interface PauseAction { label: string; line: string }
 interface PauseHit {
   why: string;
   eventId: number;
-  kind: 'margin' | 'sale' | 'bankruptcy' | 'bid' | 'arrest' | 'death' | 'strike' | 'milestone' | 'end';
+  kind: 'margin' | 'sale' | 'bankruptcy' | 'bid' | 'arrest' | 'death' | 'job' | 'strike' | 'milestone' | 'end';
   text: string;
   actions?: PauseAction[];
 }
@@ -1534,6 +1534,7 @@ function rankPause(hit: PauseHit): number {
   if (hit.kind === 'margin') return 60;
   if (hit.kind === 'end') return 55;
   if (hit.kind === 'death') return 40;
+  if (hit.kind === 'job') return 35;
   if (hit.kind === 'arrest') return 30;
   if (hit.kind === 'bid') return 20;
   return 10;
@@ -1557,6 +1558,7 @@ function pauseHit(e: { id: number; kind: string; actor?: string; msg: string }, 
   if (e.kind === 'firm.bid' && e.actor !== ctx.id && ctx.firms.some((f) => e.msg.includes('for ' + f.name))) {
     return { why: 'a takeover bid', eventId: e.id, kind: 'bid', text: e.msg };
   }
+  if (you && e.kind === 'player.job') return { why: 'A job change', eventId: e.id, kind: 'job', text: e.msg };
   if (you && (e.kind === 'law.charge' || e.kind === 'law.trial')) return { why: 'an arrest', eventId: e.id, kind: 'arrest', text: e.msg };
   if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) return { why: 'a death in the family', eventId: e.id, kind: 'death', text: e.msg };
   if ((e.kind === 'labour.strike' || e.kind === 'labour.lockout') && ctx.employer) {
@@ -1617,6 +1619,8 @@ function pauseActions(w: World, hit: PauseHit): PauseAction[] {
       return [{ label: 'Call a lawyer', line: 'lawyer' }, { label: 'Read the sheet', line: 'sheet' }];
     case 'death':
       return [{ label: 'Read the sheet', line: 'sheet' }];
+    case 'job':
+      return [{ label: 'See who is hiring', line: 'jobs' }, { label: 'Read the sheet', line: 'sheet' }];
     case 'strike': {
       const actions: PauseAction[] = [];
       const firm = v.firm || v.employer;
@@ -1676,8 +1680,11 @@ function composeRuin(w: World, hits: PauseHit[], extra: string[], before: LotSna
     if (t && !lines.includes(t)) lines.push(t);
   }
   const parts: string[] = [lines.join(' ')];
-  let brief = '';
-  if (kind === 'margin') {
+  let brief = lines.join(' ');
+  const told = lines.some((l) => /sold at \$/.test(l));
+  if (told) {
+    // The sale event already names the price and quantity each lot fetched.
+  } else if (kind === 'margin') {
     const held = after.map((r) => `${r.qty} ${r.name} (${r.symbol}), last close ${moneyLabel(r.close)}`).join('; ');
     const sale = held
       ? `What the bank would sell: ${held}. The close is not the price the book will pay.`

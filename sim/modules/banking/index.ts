@@ -661,6 +661,58 @@ function writeoffPart(w: World, instr: string, gap: number, cause: number): numb
   return lost;
 }
 
+interface Fill { instr: string; qty: number; cents: number }
+interface BidSnap { id: number; instr: string; qty: number; limit: number }
+
+/** Resting bids, copied, so a sale can say what each lot fetched. The book itself keeps no fill. */
+function bidSnap(w: World): BidSnap[] {
+  const orders = (w.state.markets as { orders?: { id: number; instr: string; side: string; qty: number; limit: number | null; open: boolean }[] } | undefined)?.orders;
+  if (!orders) return [];
+  const out: BidSnap[] = [];
+  for (const o of orders) {
+    if (!o.open || o.side !== 'buy' || o.limit === null || !(o.limit > 0) || o.qty < 1) continue;
+    out.push({ id: o.id, instr: o.instr, qty: o.qty, limit: o.limit });
+  }
+  return out;
+}
+
+function takeFills(w: World, before: BidSnap[]): Fill[] {
+  const orders = (w.state.markets as { orders?: { id: number; qty: number; open: boolean }[] } | undefined)?.orders;
+  const now = new Map<number, { qty: number; open: boolean }>();
+  if (orders) for (const o of orders) now.set(o.id, o);
+  const agg = new Map<string, Fill>();
+  for (const b of before) {
+    const o = now.get(b.id);
+    const left = o && o.open ? o.qty : 0;
+    const qty = b.qty - left;
+    if (qty < 1) continue;
+    const key = b.instr + '\n' + b.limit;
+    const row = agg.get(key);
+    if (row) row.qty += qty;
+    else agg.set(key, { instr: b.instr, qty, cents: b.limit });
+  }
+  return [...agg.values()];
+}
+
+function fillSentence(w: World, fills: Fill[]): string {
+  if (!fills.length) return '';
+  const firms = econ(w).firms;
+  const nameOf = (instr: string): string => {
+    const id = instr.startsWith('eq:') ? instr.slice(3) : instr;
+    return firms.find((f) => f.id === id)?.name ?? instr;
+  };
+  return fills.map((f) => `${f.qty} ${nameOf(f.instr)} sold at $${(f.cents / 100).toFixed(2)}`).join('; ');
+}
+
+function stampSale(w: World, eventId: number, fills: Fill[]): void {
+  const sentence = fillSentence(w, fills);
+  if (!sentence) return;
+  const e = w.events.get(eventId);
+  if (!e || /sold at \$/.test(e.msg)) return;
+  const base = e.msg.replace(/\s+$/, '').replace(/\.+$/, '');
+  e.msg = `${base}. ${sentence}.`;
+}
+
 /**
  * A margin loan the collateral no longer covers is called: sell what the book will take, repay that,
  * and write off whatever is still uncovered. Returns true when the loan was closed.
@@ -673,12 +725,14 @@ function callMargin(w: World, s: EconState, b: Book, k: number, i: number): bool
   const owed = Math.floor(w.ledger.issued.get(instr) ?? 0);
   if (owed <= 0) return false;
   if (owed <= marginLimit(w, i)) return false;
+  const snap = bidSnap(w);
   const ev = w.events.emit('loan.margin', `${P.name(i)} is called on a margin loan of ${(owed / 100).toFixed(0)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), id);
   const stocks = (w.state.markets as { stocks?: { instr: string }[] } | undefined)?.stocks ?? [];
   for (const st of stocks) {
     const qty = Math.floor(w.ledger.balance(id, st.instr));
     if (qty > 0) sellToBook(w, id, st.instr, qty, ev);
   }
+  stampSale(w, ev, takeFills(w, snap));
   const rows = holdersOf(w, instr);
   const bank = rows.length ? bankById(b, rows[0][0]) : b.banks[b.lnBank[k]];
   if (bank) {
@@ -791,8 +845,9 @@ function clearCalls(b: Book, ks: number[]): void {
 }
 
 /** Sell the worst bids first until `need` cents have come in, or the book will take no more. */
-function sellCollateral(w: World, id: string, need: number, cause: number): number {
+function sellCollateral(w: World, id: string, need: number, cause: number, fills?: Fill[]): number {
   const before = depCash(w, id);
+  const snap = bidSnap(w);
   for (let pass = 0; pass < 12 && depCash(w, id) - before < need; pass++) {
     let worst = '', qty = 0, per = Infinity;
     for (const st of listed(w)) {
@@ -805,6 +860,7 @@ function sellCollateral(w: World, id: string, need: number, cause: number): numb
     }
     if (!worst || sellToBook(w, id, worst, qty, cause) < 1) break;
   }
+  if (fills) for (const f of takeFills(w, snap)) fills.push(f);
   return Math.max(0, depCash(w, id) - before);
 }
 
@@ -860,8 +916,10 @@ function declareBankruptcy(w: World, i: number, cause: number): boolean {
     const amt = Math.floor(w.ledger.balance(GOV, instr));
     if (amt > 0) { gov.push({ instr, amt }); due += amt; }
   }
+  const saleFills: Fill[] = [];
   const sale = w.events.emit('court.sale', `${P.name(i)}'s assets are sold for the creditors`, tie(s, [ev]), id);
-  if (due > depCash(w, id)) sellCollateral(w, id, due - depCash(w, id), sale);
+  if (due > depCash(w, id)) sellCollateral(w, id, due - depCash(w, id), sale, saleFills);
+  stampSale(w, sale, saleFills);
   const pay = w.events.emit('court.pay', `creditors of ${P.name(i)} are paid in order`, tie(s, [sale]), id);
   let pool = depCash(w, id);
   pool -= repayKind(w, s, b, i, MARGIN, pool, pay);
@@ -982,8 +1040,10 @@ function maintainMargins(w: World, s: EconState, b: Book): void {
     const sunk = owed > liquidAssets(w, id);
     if (!sunk && w.day < opened + CURE_DAYS) continue;
     const why = call >= 0 ? call : (falls[0] ?? (P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv));
+    const saleFills: Fill[] = [];
     const sell = w.events.emit('loan.sell', `the bank sells ${P.name(i)}'s shares into the book`, tie(s, [why]), id);
-    const proceeds = sellCollateral(w, id, owed, sell);
+    const proceeds = sellCollateral(w, id, owed, sell, saleFills);
+    stampSale(w, sell, saleFills);
     repayKind(w, s, b, i, MARGIN, proceeds, sell);
     let left = 0;
     for (const n of loanIndexes(b, i, MARGIN)) left += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);

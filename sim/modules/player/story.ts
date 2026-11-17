@@ -372,7 +372,7 @@ function secondPerson(msg: string, name: string): string {
     retires: 'retire', dies: 'die', marries: 'marry', courts: 'court', writes: 'write', hands: 'hand',
     reports: 'report', moves: 'move', mortgages: 'mortgage', lets: 'let', sells: 'sell', bids: 'bid',
     buys: 'buy', leaves: 'leave', starts: 'start', finishes: 'finish',
-    is: 'are', has: 'have', counts: 'count',
+    is: 'are', has: 'have', counts: 'count', quits: 'quit', loses: 'lose', joins: 'join',
   };
   const fixed = lead.replace(/^[a-z]+/, (v) => verb[v] ?? v);
   return 'You ' + fixed;

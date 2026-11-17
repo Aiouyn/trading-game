@@ -196,16 +196,71 @@ function sentence(text: string): string {
   return /[.!?]$/.test(t) ? t : `${t}.`;
 }
 
+const YOU_OBJECT = /^(let|lets|put|puts|tell|tells|told|ask|asks|asked|give|gives|gave|make|makes|made|see|sees|saw|want|wants|wanted|help|helps|helped|for|to|with|about|of|from|by|at|on|in|into|onto|than|like|unlike|without|within|upon|over|under|between|against)$/i;
+const YOU_ADVERB = /^(still|also|never|already|just|even|only|always|now|not|then|ever|often|soon)$/i;
+const YOU_MODAL = /^(will|can|would|could|should|may|might|must|shall)$/i;
+const YOU_NOT_VERB = /^(a|an|the|this|that|these|those|some|any|no|one|it|his|her|its|our|their)$/i;
+const YOU_IRREG: Record<string, string> = {
+  are: 'is', were: 'was', have: 'has', do: 'does',
+  "don't": "doesn't", "aren't": "isn't", "weren't": "wasn't", "haven't": "hasn't",
+};
+
+function conjugate(verb: string): string {
+  const low = verb.toLowerCase();
+  const mapped = YOU_IRREG[low];
+  if (mapped) return verb[0] === verb[0].toUpperCase() ? mapped[0].toUpperCase() + mapped.slice(1) : mapped;
+  if (YOU_MODAL.test(verb)) return verb;
+  if (/ed$/i.test(verb)) return verb;
+  if (/^(did|held|came|kept|arrived|inherited|went|got|made|took|left|lost|found|paid|sold|bought|brought|thought|said|had|was|been|is|has|does)$/i.test(low)) return verb;
+  if (/(?:s|x|z|ch|sh)$/i.test(low) || /(?:[^aeiou]o)$/i.test(low)) return verb + 'es';
+  if (/[^aeiou]y$/i.test(low)) return verb.slice(0, -1) + 'ies';
+  if (/s$/i.test(low)) return verb;
+  return verb + 's';
+}
+
+function wordBefore(s: string, index: number): string {
+  let i = index - 1;
+  while (i >= 0 && /[\s"'“”]/.test(s[i])) i--;
+  if (i < 0 || /[.!?;,]/.test(s[i])) return '';
+  const end = i + 1;
+  while (i >= 0 && /[A-Za-z']/.test(s[i])) i--;
+  return s.slice(i + 1, end);
+}
+
+/** Second person becomes the player's name, and a subject verb agrees. An object ("lets you go") is not conjugated. */
 function third(reason: string, name: string): string {
-  return reason
-    .replace(/^You are /g, `${name} is `)
-    .replace(/^You have not /g, `${name} did not `)
-    .replace(/^You have /g, `${name} has `)
-    .replace(/^You did not /g, `${name} did not `)
-    .replace(/^You never /g, `${name} never `)
-    .replace(/^You /g, `${name} `)
-    .replace(/\byour\b/g, `${name}'s`)
-    .replace(/\byou\b/g, name);
+  const s = reason
+    .replace(/\b[Yy]ours\b/g, `${name}'s`)
+    .replace(/\b[Yy]our\b/g, `${name}'s`)
+    .replace(/\b[Yy]ou're\b/g, `${name} is`)
+    .replace(/\b[Yy]ou've\b/g, `${name} has`)
+    .replace(/\b[Yy]ou'll\b/g, `${name} will`)
+    .replace(/\b[Yy]ou'd\b/g, `${name} would`);
+  const re = /\b[Yy]ou\b/g;
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    out += s.slice(last, m.index);
+    out += name;
+    last = m.index + m[0].length;
+    if (YOU_OBJECT.test(wordBefore(s, m.index))) continue;
+    let at = last;
+    for (let guard = 0; guard < 4; guard++) {
+      const adv = /^(\s+)([A-Za-z']+)/.exec(s.slice(at));
+      if (!adv || !YOU_ADVERB.test(adv[2])) break;
+      at += adv[0].length;
+    }
+    const verb = /^(\s*)([A-Za-z']+)/.exec(s.slice(at));
+    if (!verb || YOU_NOT_VERB.test(verb[2]) || YOU_ADVERB.test(verb[2])) continue;
+    const next = conjugate(verb[2]);
+    if (next === verb[2]) continue;
+    out += s.slice(last, at + verb[1].length) + next;
+    last = at + verb[0].length;
+    re.lastIndex = last;
+  }
+  out += s.slice(last);
+  return out;
 }
 
 function beatFromEvent(w: World, e: Ev, ids: Set<string>, firms: Set<string>, names: string[], selfId: string): Beat | undefined {

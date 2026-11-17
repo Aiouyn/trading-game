@@ -66,6 +66,9 @@ export interface PlayerSeat {
   story: StoryLine[];
   tutor: TutorialState | null;
   seenNote: number;
+  /** Employer index last observed. -2 means not sampled yet, so a reload does not invent a hire. */
+  jobAt: number;
+  jobNotes: { why: string; text: string; eventId: number; cause: number }[];
 }
 
 /** One entry in the command log. The day is the day the command was issued, before a wait advances the clock. */
@@ -230,6 +233,8 @@ export interface PlayerView {
   story: { day: number; text: string; eventId: number; weight: number }[];
   /** The first-paycheck lesson. `done` is true when it is finished, skipped, or this is not that scenario. */
   tutorial: TutorialView;
+  /** Job changes since this seat was opened. `/view` carries them so the clock can stop. */
+  interrupts: { why: string; text: string; eventId: number; cause: number }[];
 }
 
 const COMMANDS: { topic: string; name: string; use: string; about: string }[] = [
@@ -500,7 +505,7 @@ const blankSeat = (): PlayerSeat => ({
   line: [], generation: 1, founded: 0, controlled: 0, offices: 0, convictions: 0,
   officeWas: '', seenLaw: [], will: null, chair: -1, handed: -1, final: '', passed: -1,
   counsel: 0, statEv: {}, mark: null, trend: {}, words: {}, cool: {},
-  story: [], tutor: null, seenNote: -1,
+  story: [], tutor: null, seenNote: -1, jobAt: -2, jobNotes: [],
 });
 const blankRoster = (): PlayerState => {
   const heard: Heard[] = [];
@@ -550,6 +555,8 @@ function fillSeat(seat: PlayerSeat): PlayerSeat {
   if (!seat.story) seat.story = [];
   if (seat.tutor === undefined) seat.tutor = null;
   if (seat.seenNote === undefined) seat.seenNote = -1;
+  if (seat.jobAt === undefined || seat.jobAt === null) seat.jobAt = -2;
+  if (!seat.jobNotes) seat.jobNotes = [];
   return seat;
 }
 const roster = (w: World): PlayerState => {
@@ -642,6 +649,98 @@ function parentsOf(P: EconState['P'], born: number): [number, number] {
   return [-1, -1];
 }
 
+function causeToday(w: World, kind: string, actor: string): number {
+  const today = w.day;
+  const n = w.events.count;
+  const stop = Math.max(0, n - 12000);
+  for (let id = n - 1; id >= stop; id--) {
+    const e = w.events.get(id);
+    if (!e) continue;
+    if (e.day < today) break;
+    if (e.kind === kind && e.actor === actor) return e.id;
+  }
+  return -1;
+}
+
+function becauseBit(w: World, id: number): string {
+  const e = w.events.get(id);
+  if (!e) return '';
+  const side = e.msg.split('||')[1];
+  if (side) return side.trim().replace(/\.+$/, '');
+  if (e.kind === 'firm.failed') return 'the firm cannot pay what it owes';
+  if (e.kind === 'firm.layoffs') {
+    const cut = e.msg.split(':')[0]?.trim() ?? '';
+    if (cut && !/lays off/i.test(cut)) return cut.replace(/\.$/, '');
+    return 'the firm cut its staff';
+  }
+  return '';
+}
+
+function noteJobSeat(w: World, st: PlayerSeat): void {
+  const i = st.who;
+  const s = econ(w), P = s.P;
+  if (i < 0 || i >= P.n || !P.alive(i)) return;
+  const now = P.employer[i];
+  if (st.jobAt < -1) { st.jobAt = now; return; }
+  if (st.jobAt === now) return;
+  const prev = st.jobAt;
+  st.jobAt = now;
+  const name = P.name(i);
+  const named = (idx: number): string => {
+    const f = idx >= 0 && idx < s.firms.length ? s.firms[idx] : undefined;
+    return f?.name || 'a firm';
+  };
+  let why = 'quit';
+  let cause = -1;
+  let text = '';
+  if (now >= 0 && prev < 0) {
+    why = 'hire';
+    cause = causeToday(w, 'career.hired', P.id(i));
+    text = `${name} is hired at ${named(now)}`;
+  } else if (now >= 0) {
+    why = 'hire';
+    cause = causeToday(w, 'career.hired', P.id(i));
+    text = `${name} leaves ${named(prev)} for ${named(now)}`;
+  } else {
+    const old = prev >= 0 && prev < s.firms.length ? s.firms[prev] : undefined;
+    const retired = causeToday(w, 'player.retire', P.id(i));
+    if (old?.closed) {
+      why = 'bankruptcy';
+      cause = causeToday(w, 'firm.failed', old.id);
+      if (cause < 0) cause = causeToday(w, 'firm.layoffs', old.id);
+      text = `${name} leaves ${old.name}`;
+    } else if (old && old.layoffEv !== undefined && old.layoffEv >= 0 && P.lastEv[i] === old.layoffEv) {
+      why = 'layoff';
+      cause = old.layoffEv;
+      text = `${name} is laid off by ${old.name}`;
+    } else if (retired >= 0) {
+      why = 'retire';
+      cause = retired;
+      text = `${name} retires from ${named(prev)}`;
+    } else {
+      why = 'quit';
+      cause = causeToday(w, 'career.quit', P.id(i));
+      text = `${name} leaves ${named(prev)}`;
+    }
+  }
+  const bit = cause >= 0 ? becauseBit(w, cause) : '';
+  if (bit) text = `${text} because ${bit}`;
+  const fallback = st.arrived >= 0 ? st.arrived : w.genesis;
+  const ev = w.events.emit('player.job', text, [cause >= 0 ? cause : fallback], P.id(i));
+  st.jobNotes.push({ why, text, eventId: ev, cause: cause >= 0 ? cause : ev });
+}
+
+/** The job this person already holds is the baseline, not an interrupt. */
+export function rememberJob(w: World): void {
+  const players = roster(w);
+  const P = econ(w).P;
+  for (const id of players.ids) {
+    const st = players.seat[id];
+    if (!st || st.who < 0 || st.who >= P.n) continue;
+    st.jobAt = P.employer[st.who];
+  }
+}
+
 function spawn(w: World, playerId = DEFAULT_PLAYER): number {
   const s = econ(w), P = s.P, players = roster(w);
   let st = players.seat[playerId];
@@ -682,6 +781,7 @@ function spawn(w: World, playerId = DEFAULT_PLAYER): number {
   st.score.push({ day: w.day, worth: Math.round(worth(w, i)) });
   sync(players);
   if (w.state.markets) markPlayerTrading(w);
+  rememberJob(w);
   return i;
 }
 
@@ -2015,6 +2115,7 @@ export function act(w: World, playerIdOrCmd: string | Command, cmd?: Command): A
     const seat = roster(w).seat[playerId];
     const i = playerIndex(w, playerId);
     if (seat && i >= 0) noteAct(w, seat, i, command);
+    if (seat) noteJobSeat(w, seat);
   }
   return result;
 }
@@ -2156,6 +2257,7 @@ export function view(w: World, playerId?: string): PlayerView {
     chain: (process.argv[1] ?? '').includes('worker') ? [] : optionChain(w, id),
     story: storyLines(st),
     tutorial: tutorialOf(w, st, i),
+    interrupts: st.jobNotes.map((n) => ({ why: n.why, text: n.text, eventId: n.eventId, cause: n.cause })),
   };
 }
 
@@ -2199,8 +2301,16 @@ export const player: Module = {
         refreshFirms(w, st);
         refreshLife(w, st);
       }
+      noteJobSeat(w, st);
     }
     sync(players);
+  },
+  monthEnd(w) {
+    const players = roster(w);
+    for (const id of players.ids) {
+      const st = players.seat[id];
+      if (st) noteJobSeat(w, st);
+    }
   },
   stats(w) {
     const i = playerIndex(w);

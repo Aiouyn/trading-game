@@ -28,6 +28,7 @@ interface CorpState {
   wasOpen?: Uint8Array;
   absorbed?: string[];
   born?: Uint8Array;
+  splitDay?: Int32Array;
 }
 interface Listing {
   instr: string; issuer: string; last: number; prev: number; open: number; high: number; low: number;
@@ -485,6 +486,114 @@ function failures(w: World): void {
   if (closeFirm(w, pick, ev)) { c.failedY++; c.failedN++; }
 }
 
+function growSplit(c: CorpState, n: number): Int32Array {
+  if (c.splitDay && c.splitDay.length >= n) return c.splitDay;
+  const a = new Int32Array(Math.max(n, (c.splitDay?.length ?? 0) * 2, 16));
+  a.fill(-1);
+  if (c.splitDay) a.set(c.splitDay);
+  c.splitDay = a;
+  return a;
+}
+
+function splitRatio(cents: number): number {
+  for (let r = 2; r <= 10; r++) if (Math.round(cents / r) <= 30_000) return r;
+  return 10;
+}
+
+function mintSplit(w: World, instr: string, ratio: number, cause: number): void {
+  for (const [holder, qty] of w.ledger.holders(instr)) {
+    const add = (ratio - 1) * Math.floor(qty);
+    if (add > 0) w.ledger.issue(instr, holder, add, 'corp.split', cause);
+  }
+}
+
+function cutPx(px: number, ratio: number): number {
+  return px > 0 ? Math.max(1, Math.round(px / ratio)) : px;
+}
+
+/** A listed price above $300 is split, at most once a year, so a paycheck can buy a share. */
+function maybeSplits(w: World): void {
+  const s = econ(w), c = corp(w);
+  const m = w.state.markets as { stocks?: Listing[]; orders?: { instr: string; qty: number; limit: number | null }[] } | undefined;
+  if (!m?.stocks) return;
+  const days = growSplit(c, s.firms.length);
+  for (const f of s.firms) {
+    if (f.closed || !f.listed || f.idx < 0) continue;
+    const q = quote(w, f);
+    if (!q || !(q.last > 30_000)) continue;
+    if (f.idx >= days.length) growSplit(c, f.idx + 1);
+    const when = c.splitDay?.[f.idx] ?? -1;
+    if (when >= 0 && w.day - when < 360) continue;
+    const instr = 'eq:' + f.id;
+    if (Math.floor(w.ledger.issued.get(instr) ?? 0) < 1) continue;
+    const ratio = splitRatio(q.last);
+    const old = q.last;
+    const why = (q as { moveEv?: number }).moveEv;
+    const ev = w.events.emit('firm.split', `${f.name} splits ${ratio}-for-1 because the shares last traded at $${(old / 100).toFixed(2)}`, [why !== undefined && why >= 0 ? why : s.macroEv], f.id);
+    mintSplit(w, instr, ratio, ev);
+    const opt = w.state.options as { contracts?: { instr: string; strike: number; mid: number; bid: number; ask: number; last: number; longId: string; shortId: string }[]; borrowed?: Record<string, number> } | undefined;
+    if (opt?.contracts) {
+      for (const contract of opt.contracts) {
+        if (contract.instr !== instr) continue;
+        if (contract.strike > 0) contract.strike = Math.max(1, Math.round(contract.strike / ratio));
+        if (contract.mid > 0) contract.mid = Math.max(1, Math.round(contract.mid / ratio));
+        if (contract.bid > 0) contract.bid = Math.max(1, Math.round(contract.bid / ratio));
+        if (contract.ask > 0) contract.ask = Math.max(1, Math.round(contract.ask / ratio));
+        if (contract.last > 0) contract.last = Math.max(1, Math.round(contract.last / ratio));
+        mintSplit(w, contract.longId, ratio, ev);
+        mintSplit(w, contract.shortId, ratio, ev);
+      }
+    }
+    if (opt?.borrowed && (opt.borrowed[instr] ?? 0) > 0) opt.borrowed[instr] *= ratio;
+    const funds = w.state.funds as { funds?: { borrowed: { instr: string; qty: number; entry: number; goal: number; located: number; fromMm: number }[] }[] } | undefined;
+    if (funds?.funds) {
+      for (const fund of funds.funds) for (const b of fund.borrowed) {
+        if (b.instr !== instr) continue;
+        b.qty *= ratio;
+        b.goal *= ratio;
+        b.located *= ratio;
+        b.fromMm *= ratio;
+        if (b.entry > 0) b.entry = Math.max(1, Math.round(b.entry / ratio));
+      }
+    }
+    const seats = (w.state.player as { seat?: Record<string, { loans?: { instr: string; qty: number }[] }> } | undefined)?.seat;
+    if (seats) for (const seat of Object.values(seats)) {
+      for (const loan of seat.loans ?? []) if (loan.instr === instr) loan.qty *= ratio;
+    }
+    if (m.orders) for (const o of m.orders) {
+      if (o.instr !== instr) continue;
+      o.qty = Math.round(o.qty * ratio);
+      if (o.limit !== null && o.limit > 0) o.limit = Math.max(1, Math.round(o.limit / ratio));
+    }
+    q.last = cutPx(q.last, ratio);
+    q.prev = cutPx(q.prev, ratio);
+    q.open = cutPx(q.open, ratio);
+    q.high = cutPx(q.high, ratio);
+    q.low = cutPx(q.low, ratio);
+    for (const bar of q.hist) {
+      bar.o = cutPx(bar.o, ratio);
+      bar.h = cutPx(bar.h, ratio);
+      bar.l = cutPx(bar.l, ratio);
+      bar.c = cutPx(bar.c, ratio);
+    }
+    let paperName = 'The paper';
+    let paperId = f.id;
+    for (const o of s.firms) if (o.good === 'NEWS' && !o.closed) { paperName = o.name; paperId = o.id; break; }
+    const msg = `${paperName}: ${f.name} splits ${ratio}-for-1. Holders have ${ratio} shares for each one they held, priced at $${(q.last / 100).toFixed(2)} (+${(ratio - 1) * 100}% shares).`;
+    const story = w.events.emit('news.story', msg, [ev], paperId);
+    const social = w.state.social as { facts?: Record<string, unknown>[]; yCreated?: number } | undefined;
+    if (social?.facts) {
+      social.facts.push({
+        id: social.facts.length, eventId: story, day: w.day, year: w.year, tag: 'mkt.move', msg,
+        firms: [f.idx], instrs: [instr], shock: null, profit: 0, bad: false, intensity: 0,
+        what: '', hold: 0, pub: true, drop: false, pubDay: w.day, first: -1, firstDay: w.day, know: null,
+      });
+      if (typeof social.yCreated === 'number') social.yCreated++;
+    }
+    if (c.splitDay && f.idx < c.splitDay.length) c.splitDay[f.idx] = w.day;
+  }
+}
+
 export const corporate: Module = {
   id: 'corporate',
   init(w) {
@@ -520,6 +629,7 @@ export const corporate: Module = {
     if (w.month % 6 === 2) found(w);
     failures(w);
     replenish(w);
+    maybeSplits(w);
   },
   stats(w) {
     const s = econ(w), c = corp(w);

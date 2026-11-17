@@ -35,7 +35,7 @@ in dollars. DEBT_PCT is that claim as a percent of the family stake.
 
 [SCENARIO:heir-debts]
   [NAME:The heir]
-  [STORY:A family firm comes to you with a claim already on the book. Keep the seat, meet the bill when someone at home falls ill, and leave the book above twenty-seven thousand dollars.]
+  [STORY:A family firm comes to you with a claim already on the book. Keep the seat, meet the bill when someone at home falls ill, and leave the book above the mark set from the opening book.]
   [AGE:36] [CASH:18000] [JOB:inherit] [KIN:spouse,child] [CONTACTS:5]
   [SEED:3] [YEARS:0]
   [GOAL:WORTH:27000] [LIMIT:540]
@@ -46,7 +46,7 @@ in dollars. DEBT_PCT is that claim as a percent of the family stake.
 
 [SCENARIO:struggling-ceo]
   [NAME:The struggling chief]
-  [STORY:The board has put you in the seat of a firm that pays its surplus out to the holders. Hold the seat through the shock. Six losing months and you are removed. The household book has to show thirty-two thousand dollars when the clock ends.]
+  [STORY:The board has put you in the seat of a firm that pays its surplus out to the holders. Hold the seat through the shock. Six losing months and you are removed. The household book has to clear the mark set from the opening book when the clock ends.]
   [AGE:44] [CASH:15000] [JOB:chief] [KIN:none,spouse] [CONTACTS:4]
   [SEED:4] [YEARS:0]
   [GOAL:WORTH:32000] [LIMIT:540]
@@ -56,7 +56,7 @@ in dollars. DEBT_PCT is that claim as a percent of the family stake.
 
 [SCENARIO:hedge-fund]
   [NAME:Outside money]
-  [STORY:Most of the book belongs to other people. They will ask for it back. What is yours has to still be worth fourteen thousand seven hundred dollars after their fee, which is worse if the cash is already gone.]
+  [STORY:Most of the book belongs to other people. They will ask for it back. What is yours has to still clear the mark set from the opening book after their fee, which is worse if the cash is already gone.]
   [AGE:41] [CASH:80000] [JOB:none] [KIN:none,spouse] [CONTACTS:5]
   [SEED:5] [YEARS:0]
   [GOAL:WORTH:14700] [LIMIT:540]
