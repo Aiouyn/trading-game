@@ -34,6 +34,12 @@ export interface LifeMemory {
   trend: Partial<Record<StatId, -1 | 0 | 1>>;
   words: Partial<Record<StatId, string>>;
   cool: Partial<Record<ChoiceId, number>>;
+  /** The player's own cash event: a wage, a purchase, or the cash they hold. Never a stranger's. */
+  moneyEv?: number;
+  payEv?: number;
+  payCents?: number;
+  spendEv?: number;
+  spendCents?: number;
 }
 
 export interface LifeBoard {
@@ -140,6 +146,11 @@ export function memoryOf(st: Partial<LifeMemory> | undefined): LifeMemory {
   m.trend = st.trend ?? {};
   m.words = st.words ?? {};
   m.cool = st.cool ?? {};
+  m.moneyEv = st.moneyEv;
+  m.payEv = st.payEv;
+  m.payCents = st.payCents;
+  m.spendEv = st.spendEv;
+  m.spendCents = st.spendCents;
   return m;
 }
 
@@ -220,8 +231,75 @@ function causeFor(w: World, i: number, id: StatId, mem: LifeMemory): number {
     return ev !== undefined && ev >= 0 ? ev : arrived;
   }
   if (id === 'stress' && i >= 0 && P.lastEv[i] >= 0) return P.lastEv[i];
-  if (id === 'cash') return s.wageWho ?? s.wageEv ?? arrived;
+  if (id === 'cash') return ownMoneyId(w, i, mem);
   return arrived;
+}
+
+const OWN_MONEY = new Set(['player.overtime', 'player.holiday', 'player.donate', 'player.lawyer', 'player.clinic', 'loan.grant']);
+
+function personId(w: World, i: number): string {
+  return i >= 0 ? econ(w).P.id(i) : '';
+}
+
+/** A cash event this seat recorded, or the latest one that names the player's own money. */
+function ownMoneyId(w: World, i: number, mem: LifeMemory): number {
+  const arrived = mem.arrived >= 0 ? mem.arrived : econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis;
+  if (mem.moneyEv !== undefined && mem.moneyEv >= 0) {
+    const e = w.events.get(mem.moneyEv);
+    if (e) return e.id;
+  }
+  if (i < 0) return arrived;
+  const pid = personId(w, i);
+  const fromDay = w.events.get(arrived)?.day ?? 0;
+  for (let id = w.events.count - 1; id >= 0; id--) {
+    const e = w.events.get(id);
+    if (!e) break;
+    if (e.day < fromDay) break;
+    if (e.kind.startsWith('life.') || (e.actor === pid && OWN_MONEY.has(e.kind))) return e.id;
+  }
+  return arrived;
+}
+
+function mentions(msg: string, n: number): boolean {
+  const re = /\$?\d[\d,]*(?:\.\d+)?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(msg))) {
+    const v = Number(m[0].replace(/[$,]/g, ''));
+    if (!Number.isFinite(v)) continue;
+    if (v === n || Math.round(v) === n || Math.round(v * 100) === n) return true;
+  }
+  return false;
+}
+
+function centsMatch(cents: number, n: number): boolean {
+  if (!(cents > 0) || !Number.isFinite(n)) return false;
+  return cents === n || Math.round(cents / 100) === n;
+}
+
+/**
+ * A dollar figure the player can see. The head of the chain is their wage, their purchase,
+ * or their own cash. A stranger's event id is not an answer.
+ */
+export function explainNumber(w: World, n: number, mem: LifeMemory, person?: number): { id: number } | { error: string } {
+  const i = person ?? (w.state.player as { who?: number } | undefined)?.who ?? -1;
+  if (!Number.isFinite(n) || n < 0 || i < 0) return { error: 'that number is not yours' };
+  const pid = personId(w, i);
+  const arrived = mem.arrived >= 0 ? mem.arrived : w.genesis;
+  const fromDay = w.events.get(arrived)?.day ?? 0;
+  for (let id = w.events.count - 1; id >= 0; id--) {
+    const e = w.events.get(id);
+    if (!e) break;
+    if (e.day < fromDay) break;
+    const own = e.kind.startsWith('life.') || e.actor === pid;
+    if (own && mentions(e.msg, n)) return { id: e.id };
+  }
+  const cash = Math.floor(w.ledger.balance(pid, DEP));
+  if (centsMatch(cash, n)) return { id: ownMoneyId(w, i, mem) };
+  if (mem.payCents && centsMatch(mem.payCents, n) && mem.payEv !== undefined && mem.payEv >= 0) return { id: mem.payEv };
+  if (mem.spendCents && centsMatch(mem.spendCents, n) && mem.spendEv !== undefined && mem.spendEv >= 0) return { id: mem.spendEv };
+  const ev = w.events.get(n);
+  if (ev && ev.actor === pid && ev.day >= fromDay) return { id: ev.id };
+  return { error: 'that number is not yours' };
 }
 
 export function lifeBoard(w: World, i: number, mem: LifeMemory, worth?: number): LifeBoard {
@@ -302,15 +380,25 @@ const ALIAS: Record<string, StatId> = {
   attention: 'attention', regulator: 'attention', 'regulator attention': 'attention', heat: 'attention',
 };
 
+const WORD: Record<string, StatId> = {
+  ruined: 'worth', thin: 'worth', modest: 'worth', comfortable: 'worth', wealthy: 'worth',
+  broke: 'cash', tight: 'cash', holding: 'cash', flush: 'cash',
+  calm: 'stress', strained: 'stress', breaking: 'stress',
+  failing: 'health', worn: 'health', sound: 'health',
+  unknown: 'reputation', slight: 'reputation', known: 'reputation', admired: 'reputation',
+  quiet: 'attention', noticed: 'attention', watched: 'attention', hunted: 'attention',
+};
+
 /** The event behind a number the status line or a screen can show. */
 export function explainThing(w: World, thing: string, mem: LifeMemory, worth?: number): { id: number } | { error: string } {
   const q = thing.trim().toLowerCase();
   if (!q) return { error: 'usage: why <thing>' };
-  if (/^\d+$/.test(q)) return { id: Number(q) };
   const i = (w.state.player as { who?: number } | undefined)?.who ?? -1;
+  if (/^\d+$/.test(q)) return explainNumber(w, Number(q), mem, i);
   const board = lifeBoard(w, i, mem, worth);
-  const statId = ALIAS[q];
+  const statId = ALIAS[q] ?? WORD[q];
   if (statId) {
+    if (statId === 'cash') return { id: ownMoneyId(w, i, mem) };
     const s = board.stats.find((x) => x.id === statId);
     if (s) return { id: s.eventId };
   }
@@ -350,9 +438,18 @@ export function explainThing(w: World, thing: string, mem: LifeMemory, worth?: n
   if ((head === 'price' || head === 'px' || head === 'staff' || head === 'workers' || head === 'profit' || head === 'wage') && rest) {
     const firm = firmByKey(w, rest);
     const stocks = (w.state.markets as { stocks?: { instr: string; issuer: string; moveEv?: number }[] } | undefined)?.stocks ?? [];
-    const st = stocks.find((x) => x.instr.toLowerCase() === rest || x.instr.toLowerCase() === 'eq:' + rest || x.issuer.toLowerCase() === rest);
+    const st = stocks.find((x) => {
+      if (firm && (x.issuer === firm.id || x.instr === 'eq:' + firm.id)) return true;
+      const bare = x.instr.startsWith('eq:') ? x.instr.slice(3) : x.instr;
+      const key = bare.startsWith('frm_') ? bare.slice(4) : bare;
+      return x.instr.toLowerCase() === rest || x.issuer.toLowerCase() === rest || key === rest;
+    });
     if (head === 'price' || head === 'px') {
       if (st?.moveEv !== undefined && st.moveEv >= 0) return { id: st.moveEv };
+      if (st) {
+        const root = (w.state.markets as { root?: number } | undefined)?.root;
+        if (root !== undefined && root >= 0) return { id: root };
+      }
       if (firm) return { id: firm.priceWho ?? firm.priceEv ?? firm.profitEv ?? s.macroEv };
       return { error: `no price for ${rest}` };
     }

@@ -496,6 +496,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
   }
   if (def.family === 'spouse' || def.family === 'child') {
     const spouse = marry(w, i);
+    if (spouse >= 0) w.events.emit('player.wed', `${P.name(i)} marries ${P.name(spouse)}`, [cause], P.id(i));
     if (def.family === 'child' && spouse >= 0) P.add(w, w.day, i, spouse);
   }
   seatPerson(w, i, Math.max(0, Math.min(16, def.contacts)));
@@ -507,8 +508,18 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
   const d = opts?.difficulty && opts.difficulty > 0 ? opts.difficulty : 1;
   const dollars = opts?.cash !== undefined && Number.isFinite(opts.cash) && opts.cash >= 0 ? opts.cash : def.cash;
   setCash(w, pid, Math.round(dollars * 100), cause);
+  const held = Math.floor(w.ledger.balance(pid, DEP));
+  st.moneyEv = w.events.emit('life.cash', `You hold ${money(held)} in cash`, [cause]);
+  st.cashSeen = held;
+  st.cashDay = w.day;
   const arrived = w.events.get(st.arrived);
-  if (arrived) arrived.msg = arrived.msg.replace('aged 30', `aged ${def.age}`);
+  if (arrived) {
+    const job = P.employer[i];
+    const firm = job >= 0 ? s.firms[job] : undefined;
+    arrived.msg = firm
+      ? `${P.name(i)} arrives, aged ${def.age}, and takes a job at ${firm.name}`
+      : `${P.name(i)} arrives, aged ${def.age}, and holds no job`;
+  }
   const opened = Math.round(view(w).netWorth);
   const last = st.score[st.score.length - 1];
   if (last && last.day === w.day) last.worth = opened;
@@ -702,6 +713,10 @@ function finish(w: World, sc: ScenarioRun, result: 'win' | 'loss', reason: strin
   if (!st) return;
   st.over = true;
   if (!st.final) st.final = `${sc.name}: ${reason}`;
+  const now = Math.round(view(w).netWorth);
+  const last = st.score[st.score.length - 1];
+  if (last && last.day === w.day) last.worth = now;
+  else st.score.push({ day: w.day, worth: now });
 }
 
 function armShock(w: World, sc: ScenarioRun): void {

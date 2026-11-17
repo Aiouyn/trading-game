@@ -3,7 +3,8 @@
 // before the hint tells the player to act. `hints off` skips the rest.
 import type { World } from '../../kernel/index.ts';
 import { DEP, type EconState } from '../economy/index.ts';
-import { pledgeValue, saleProceeds } from '../markets/index.ts';
+import { marginLimit } from '../banking/index.ts';
+import { saleProceeds } from '../markets/index.ts';
 import { contactsOf, knows } from '../social/index.ts';
 
 export interface TutorialView {
@@ -203,8 +204,8 @@ function priceMoved(w: World, t: TutorialState): boolean {
 }
 
 function loanRoom(w: World, i: number): number {
-  if (i < 0 || !w.state.markets) return 0;
-  try { return pledgeValue(w, econ(w).P.id(i)); } catch { return 0; }
+  if (i < 0 || !w.state.banking) return 0;
+  try { return marginLimit(w, i); } catch { return 0; }
 }
 
 function loanDollars(w: World, room: number): number {

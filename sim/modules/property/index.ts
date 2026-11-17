@@ -465,9 +465,12 @@ function occEnsure(st: Book, nPeople: number): void {
   if (occBook !== st) { occOn = false; occBook = st; }
   occGrow(st, nPeople);
   if (occOn) return;
-  occHead.fill(-1, 0, st.n);
+  // The buffers are process-global and stay as long as the biggest book so far. Clearing only
+  // the first st.n slots leaves the tail linked to the previous world's residents, and the next
+  // parcel index built past that point inherits them.
+  occHead.fill(-1);
+  occNext.fill(-1);
   const lim = Math.min(nPeople, st.live.length);
-  occNext.fill(-1, 0, lim);
   const live = st.live;
   for (let i = 0; i < lim; i++) {
     const p = live[i];

@@ -1,21 +1,21 @@
 // The player is one person in the same arrays as everyone else. They see only what they
 // know, and every order, loan and futures fill goes through the modules that already book it.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
-import { borrowMargin, depositSight, repayPerson, withdrawSight } from '../banking/index.ts';
+import { borrowMargin, depositSight, marginLimit, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
 import { appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { launchCoin, orderCoin } from '../crypto/index.ts';
-import { CEO_POSITION, GOODS } from '../economy/content.ts';
+import { CEO_POSITION, GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
-import { borrowShares, cancelOrder, markHolding, markPlayerTrading, pledgeValue, returnShares, submitOrder } from '../markets/index.ts';
+import { borrowShares, cancelOrder, markHolding, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
 import { matchOption, optionChain, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
-import { choiceSpec, coolLeft, dollars, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
+import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
 import { storyLines, tellWeek, type StoryLine } from './story.ts';
 import { noteAct, skipTutorial, tutorialOf, type TutorialState, type TutorialView } from './tutorial.ts';
 
@@ -33,6 +33,13 @@ export interface PlayerSeat {
   over: boolean;
   margin: boolean;
   arrived: number;
+  moneyEv: number;
+  payEv: number;
+  payCents: number;
+  spendEv: number;
+  spendCents: number;
+  cashSeen: number;
+  cashDay: number;
   heard: Heard[];
   score: ScorePoint[];
   loans: StockLoan[];
@@ -226,7 +233,7 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'options', name: 'put', use: 'put silicrest 0 2 1', about: 'Buy a put from the market maker at the ask.\nThe strike is in dollars. Months run from 0 to 5.' },
   { topic: 'options', name: 'write', use: 'write put silicrest', about: 'Sell a call or a put to the market maker and post margin.\nwrite call SYMBOL STRIKE MONTHS QTY is the same shape.' },
   { topic: 'options', name: 'close', use: 'close optL:12', about: 'Close a contract, at the bid if you are long and the ask if you are short.\nclose SYMBOL flattens that name. At expiry an in-the-money contract is exercised for you, as it is for anyone.' },
-  { topic: 'coins', name: 'coin', use: 'coin buy ember 2', about: 'Buy or sell a coin.\nA trailing @ PRICE is a limit.' },
+  { topic: 'coins', name: 'coin', use: 'coin buy NAME 2', about: 'Buy or sell a coin.\nA trailing @ PRICE is a limit. A missing name lists the coins that trade.' },
   { topic: 'coins', name: 'launch', use: 'launch', about: 'Launch a coin of your own.\nThe market decides whether it trades.' },
   { topic: 'bank', name: 'deposit', use: 'deposit 500', about: 'Place cash in a time deposit.\nThe amount is in dollars.' },
   { topic: 'bank', name: 'withdraw', use: 'withdraw 500', about: 'Take cash back from a time deposit.\nThe amount is in dollars.' },
@@ -418,7 +425,7 @@ function optionLines(w: World, actor: string, instr: string): string[] {
 function homeLines(w: World, person: number): string[] {
   const rows = homeBoard(w, person);
   if (!rows.length) return ['no homes listed'];
-  return rows.map((h) => `#${h.id} ${h.neighbourhood} price ${(h.price / 100).toFixed(0)} rent ${(h.rent / 100).toFixed(0)}${h.mine ? ' yours' : ''}${h.live ? ' home' : ''}${h.vacant ? ' vacant' : ''}`);
+  return rows.map((h) => `#${h.id} ${h.neighbourhood} price ${(h.price / 100).toFixed(0)} rent ${(h.rent / 100).toFixed(0)}${h.mine ? ' yours' : ''}${h.live ? (h.mine ? ' home' : ' rented') : ''}${h.vacant ? ' vacant' : ''}`);
 }
 
 const FUTURES: Record<string, string> = {
@@ -433,6 +440,7 @@ const DEG = 16;
 const econ = (w: World): EconState => w.state.economy as EconState;
 const blankSeat = (): PlayerSeat => ({
   who: -1, over: false, margin: false, arrived: -1, heard: [], score: [], loans: [],
+  moneyEv: -1, payEv: -1, payCents: 0, spendEv: -1, spendCents: 0, cashSeen: -1, cashDay: -1,
   line: [], generation: 1, founded: 0, controlled: 0, offices: 0, convictions: 0,
   officeWas: '', seenLaw: [], will: null, chair: -1, handed: -1, final: '', passed: -1,
   counsel: 0, statEv: {}, mark: null, trend: {}, words: {}, cool: {},
@@ -469,6 +477,13 @@ function fillSeat(seat: PlayerSeat): PlayerSeat {
   if (seat.over === undefined) seat.over = false;
   if (seat.margin === undefined) seat.margin = false;
   if (seat.arrived === undefined) seat.arrived = -1;
+  if (seat.moneyEv === undefined) seat.moneyEv = -1;
+  if (seat.payEv === undefined) seat.payEv = -1;
+  if (seat.payCents === undefined) seat.payCents = 0;
+  if (seat.spendEv === undefined) seat.spendEv = -1;
+  if (seat.spendCents === undefined) seat.spendCents = 0;
+  if (seat.cashSeen === undefined) seat.cashSeen = -1;
+  if (seat.cashDay === undefined) seat.cashDay = -1;
   if (seat.who === undefined) seat.who = -1;
   if (seat.counsel === undefined) seat.counsel = 0;
   if (!seat.statEv) seat.statEv = {};
@@ -602,6 +617,10 @@ function spawn(w: World, playerId = DEFAULT_PLAYER): number {
   st.who = i;
   st.over = false;
   st.arrived = ev;
+  const held = Math.floor(w.ledger.balance(P.id(i), DEP));
+  st.moneyEv = w.events.emit('life.cash', `You hold ${dollars(held)} in cash`, [ev]);
+  st.cashSeen = held;
+  st.cashDay = w.day;
   if (!st.line.includes(i)) st.line.push(i);
   st.score.push({ day: w.day, worth: Math.round(worth(w, i)) });
   sync(players);
@@ -786,6 +805,67 @@ function causeOf(w: World, st: PlayerSeat): number {
   return st.arrived >= 0 ? st.arrived : econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis;
 }
 
+/** Point why-cash at a move the player just made, so the day's close does not tell it twice. */
+function rememberMove(st: PlayerSeat, ev: number, cents: number, day: number, dir: 'pay' | 'spend'): void {
+  st.moneyEv = ev;
+  st.cashDay = day;
+  st.statEv.cash = ev;
+  if (dir === 'pay') { st.payEv = ev; st.payCents = cents; }
+  else { st.spendEv = ev; st.spendCents = cents; }
+}
+
+/** The cash that moved because the city paid or the player spent. One event, in the player's own words. */
+function noteMoney(w: World, st: PlayerSeat, i: number): void {
+  const P = econ(w).P;
+  const id = P.id(i);
+  const cash = Math.floor(w.ledger.balance(id, DEP));
+  if (!(st.cashSeen >= 0)) { st.cashSeen = cash; return; }
+  if (st.cashDay === w.day) { st.cashSeen = cash; return; }
+  const delta = cash - st.cashSeen;
+  st.cashSeen = cash;
+  if (delta === 0) return;
+  const cause = st.moneyEv >= 0 ? st.moneyEv : causeOf(w, st);
+  if (delta > 0) {
+    const emp = P.employer[i];
+    const firm = emp >= 0 ? econ(w).firms[emp] : undefined;
+    const by = firm ? ` by ${firm.name}` : '';
+    const ev = w.events.emit('life.pay', `You are paid ${dollars(delta)}${by}`, [cause]);
+    st.moneyEv = ev;
+    st.payEv = ev;
+    st.payCents = delta;
+    st.statEv.cash = ev;
+  } else {
+    const ev = w.events.emit('life.spend', `You spend ${dollars(-delta)}`, [cause]);
+    st.moneyEv = ev;
+    st.spendEv = ev;
+    st.spendCents = -delta;
+    st.statEv.cash = ev;
+  }
+}
+
+function coinNames(w: World): string {
+  const c = w.state.crypto as { majors?: { name: string }[]; memes?: { name: string; live: boolean; rugged: boolean }[] } | undefined;
+  if (!c) return '';
+  const names: string[] = [];
+  for (const m of c.majors ?? []) if (m.name) names.push(m.name);
+  for (const m of c.memes ?? []) if (m.live && !m.rugged && m.name) names.push(m.name);
+  return names.join(', ');
+}
+
+function knownPrivate(w: World, i: number, firmKey: string): { eventId: number; msg: string } | undefined {
+  const f = firmByKey(w, firmKey);
+  if (!f) return;
+  const facts = (w.state.social as { facts?: { id: number; eventId: number; msg: string; pub: boolean; drop: boolean; firms: number[]; instrs: string[] }[] } | undefined)?.facts ?? [];
+  for (let n = facts.length - 1; n >= 0; n--) {
+    const fact = facts[n];
+    if (!fact || fact.drop || fact.pub || !fact.msg) continue;
+    const about = fact.firms.includes(f.idx) || fact.instrs.includes('eq:' + f.id);
+    if (!about || !knows(w, i, fact.id)) continue;
+    return { eventId: fact.eventId, msg: fact.msg };
+  }
+  return undefined;
+}
+
 function rememberWords(w: World, st: PlayerSeat, i: number): void {
   const board = lifeBoard(w, i, st, Math.round(worth(w, i)));
   for (const s of board.stats) st.words[s.id] = s.word;
@@ -821,14 +901,14 @@ function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: Choic
     const bonus = Math.round(econ(w).wage * Math.max(0.5, P.skill[i]) * 5);
     if (Math.floor(w.ledger.balance(firm.id, DEP)) < bonus) return rejected('the firm cannot pay overtime');
     if (!pay(w, firm.id, id, bonus, 'wages', cause)) return rejected('the firm cannot pay overtime');
-    const ev = w.events.emit('player.overtime', `${P.name(i)} works extra days at ${firm.name} for ${(bonus / 100).toFixed(0)}`, [cause], id);
+    const ev = w.events.emit('player.overtime', `${P.name(i)} works extra days at ${firm.name} for ${dollars(bonus)}`, [cause], id);
     P.stress[i] += 28;
     st.cool.overtime = w.day + spec.cool;
-    st.statEv.cash = ev;
+    rememberMove(st, ev, bonus, w.day, 'pay');
     st.statEv.worth = ev;
     st.statEv.stress = ev;
     rememberWords(w, st, i);
-    return { status: 'accepted', eventId: ev, text: `${firm.name} pays ${(bonus / 100).toFixed(0)} for the extra days` };
+    return { status: 'accepted', eventId: ev, text: `${firm.name} pays ${dollars(bonus)} for the extra days` };
   }
   if (kind === 'clinic' && P.health[i] >= 100) return rejected('you are already well');
   const cost = feeOf(w, spec.days);
@@ -839,19 +919,19 @@ function liveChoice(w: World, st: PlayerSeat, i: number, id: string, kind: Choic
     const named = lawyer !== undefined ? P.name(lawyer) : 'the city';
     const paid = lawyer !== undefined ? pay(w, id, P.id(lawyer), cost, 'player.lawyer', cause) : payGov(w, id, cost, 'player.lawyer', cause);
     if (!paid) return rejected('not enough cash');
-    const ev = w.events.emit('player.lawyer', `${P.name(i)} pays ${named} ${(cost / 100).toFixed(0)} to speak to the regulator`, [cause], id);
+    const ev = w.events.emit('player.lawyer', `${P.name(i)} pays ${named} ${dollars(cost)} to speak to the regulator`, [cause], id);
     st.counsel = Math.min(80, (st.counsel || 0) + 30);
     st.cool.lawyer = w.day + spec.cool;
+    rememberMove(st, ev, cost, w.day, 'spend');
     st.statEv.attention = ev;
-    st.statEv.cash = ev;
     rememberWords(w, st, i);
     return { status: 'accepted', eventId: ev, text: `${named} takes the brief` };
   }
   const verb = kind === 'holiday' ? 'takes a month away' : kind === 'donate' ? 'gives to the city' : 'sees a doctor';
   if (!payGov(w, id, cost, `player.${kind}`, cause)) return rejected('not enough cash');
-  const ev = w.events.emit(`player.${kind}`, `${P.name(i)} ${verb} and pays ${(cost / 100).toFixed(0)}`, [cause], id);
+  const ev = w.events.emit(`player.${kind}`, `${P.name(i)} ${verb}, paying ${dollars(cost)}`, [cause], id);
   st.cool[kind] = w.day + spec.cool;
-  st.statEv.cash = ev;
+  rememberMove(st, ev, cost, w.day, 'spend');
   st.statEv.worth = ev;
   if (kind === 'holiday') {
     P.stress[i] = Math.max(0, P.stress[i] - 80);
@@ -1035,6 +1115,13 @@ function continueAs(w: World, dead: number, heir: number, cause: number, st: Pla
   st.will = null;
   st.chair = -1;
   remember(st, heir);
+  const held = Math.floor(w.ledger.balance(P.id(heir), DEP));
+  st.cashSeen = held;
+  st.cashDay = w.day;
+  st.payEv = -1;
+  st.payCents = 0;
+  st.spendEv = -1;
+  st.spendCents = 0;
   const ev = w.events.emit(
     'player.heir',
     `${P.name(heir)} (${P.age(w, heir)}) takes up the life ${P.name(dead)} left. Skill ${P.skill[heir].toFixed(2)}, health ${P.health[heir]}, and the contacts and reputation already their own`,
@@ -1042,6 +1129,7 @@ function continueAs(w: World, dead: number, heir: number, cause: number, st: Pla
     P.id(heir),
   );
   P.lastEv[heir] = ev;
+  st.moneyEv = w.events.emit('life.cash', `You hold ${dollars(held)} in cash`, [ev]);
   chronicle(w, heir, `${P.name(heir)} continues the house after ${P.name(dead)}`, ev);
   refreshFirms(w, st);
   sync(roster(w));
@@ -1340,7 +1428,13 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     }
     case 'coin': {
       const r = orderCoin(w, id, cmd.coin, cmd.side, cmd.qty, cmd.limit);
-      if (r.why) return rejected(r.why);
+      if (r.why) {
+        if (r.why.startsWith('no coin')) {
+          const names = coinNames(w);
+          return rejected(names ? `${r.why}. coins: ${names}` : r.why);
+        }
+        return rejected(r.why);
+      }
       return { status: 'accepted', orderId: r.orderId, fill: r.fill, text: `${cmd.side} ${cmd.coin}` };
     }
     case 'launch': {
@@ -1349,7 +1443,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', eventId: w.events.last('crypto.launch'), text: `launched ${r.name} (${r.id})` };
     }
     case 'cash': {
-      const cause = st.arrived >= 0 ? st.arrived : econ(w).macroEv;
+      const cause = st.moneyEv >= 0 ? st.moneyEv : (st.arrived >= 0 ? st.arrived : econ(w).macroEv);
       switch (cmd.op) {
         case 'deposit': {
           const n = depositSight(w, id, cmd.cents, cause);
@@ -1368,14 +1462,16 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
             if (scene.loan <= 0) return rejected('this scenario does not lend');
             cents = Math.max(1, Math.floor(cmd.cents * scene.loan));
           }
-          const limit = pledgeValue(w, id);
+          const limit = marginLimit(w, i);
           const r = borrowMargin(w, i, cents, cause);
           st.margin = true;
           const rate = r.rate > 0 ? r.rate : marginRate(w, i);
           const pct = (rate * 100).toFixed(2);
-          const cap = (limit / 100).toFixed(2);
+          const cap = '$' + (limit / 100).toFixed(2);
           if (r.taken < 1) return { status: 'accepted', text: `margin account open. The bank will lend up to ${cap} at ${pct}%` };
-          return { status: 'accepted', fill: r.taken, eventId: w.events.last('loan.grant'), text: `borrowed ${(r.taken / 100).toFixed(2)} at ${pct}%. Limit ${cap}. Margin account open` };
+          const grant = w.events.last('loan.grant');
+          if (grant !== undefined && grant >= 0) rememberMove(st, grant, r.taken, w.day, 'pay');
+          return { status: 'accepted', fill: r.taken, eventId: grant, text: `borrowed ${(r.taken / 100).toFixed(2)} at ${pct}%. Limit ${cap}. Margin account open` };
         }
         case 'repay': {
           const n = repayPerson(w, i, cmd.cents, cause);
@@ -1398,7 +1494,11 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!firm) return rejected('ask needs a firm');
       const r = askFirm(w, i, cmd.slot, firm);
       for (const f of r.facts) if (!st.heard.some((h) => h.factId === f.factId)) st.heard.push({ factId: f.factId, eventId: f.eventId, from: f.from, day: f.day });
-      if (!r.facts.length) return rejected(r.why ?? 'they had nothing to add');
+      if (!r.facts.length) {
+        const known = knownPrivate(w, i, firm);
+        if (known) return { status: 'accepted', eventId: known.eventId, text: `you already know: ${known.msg}` };
+        return rejected(r.why ?? 'they had nothing to add');
+      }
       const who = P.name(r.facts[0].from);
       const told = r.facts.map((f) => f.msg).join(' ');
       return { status: 'accepted', eventId: r.facts[0].eventId, fill: r.facts.length, text: `${who} told you: ${told}` };
@@ -1409,6 +1509,13 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     }
     case 'why': {
       const nw = Math.round(worth(w, i));
+      if (!cmd.thing && cmd.id !== undefined) {
+        const hit = explainNumber(w, cmd.id, st, i);
+        if ('error' in hit) return rejected(hit.error);
+        const lines = w.events.explain(hit.id, 8);
+        if (!lines.length) return rejected('that event is gone from the log');
+        return { status: 'accepted', lines, eventId: hit.id };
+      }
       let id = cmd.id;
       if (cmd.thing) {
         const hit = explainThing(w, cmd.thing, st, nw);
@@ -1457,14 +1564,23 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const jobName = job >= 0 ? econ(w).firms[job]?.name ?? '' : '';
       const before = Math.floor(w.ledger.balance(id, DEP));
       const r = foundCompany(w, i, cmd.name, cmd.sector.toUpperCase(), cmd.cents, cmd.loan);
-      if ('why' in r) return rejected(r.why);
+      if ('why' in r) {
+        if (r.why.startsWith('unknown sector')) return rejected(`${r.why}. sectors: ${SECTOR_NAMES.join(', ')}`);
+        return rejected(r.why);
+      }
       refreshFirms(w, st);
       const after = Math.floor(w.ledger.balance(id, DEP));
       let text = `you found ${r.name} (${r.id}), making ${r.good}`;
       if (job >= 0 && people.employer[i] !== job && jobName) text += `. left ${jobName}`;
       const moved = before - after;
-      if (moved > 0) text += `. ${dollars(moved)} cash moved into the firm`;
-      else if (moved < 0) text += `. ${dollars(-moved)} cash came back`;
+      const prior = st.moneyEv >= 0 ? st.moneyEv : causeOf(w, st);
+      if (moved > 0) {
+        text += `. ${dollars(moved)} cash moved into the firm`;
+        rememberMove(st, w.events.emit('life.spend', `You spend ${dollars(moved)} to found ${r.name}`, [prior]), moved, w.day, 'spend');
+      } else if (moved < 0) {
+        text += `. ${dollars(-moved)} cash came back`;
+        rememberMove(st, w.events.emit('life.pay', `You are paid ${dollars(-moved)} back from ${r.name}`, [prior]), -moved, w.day, 'pay');
+      }
       return { status: 'accepted', text };
     }
     case 'ceo': {
@@ -1959,6 +2075,7 @@ export const player: Module = {
         continue;
       }
       noticeBoard(w, st, i);
+      noteMoney(w, st, i);
       noteBoard(w, i, st, Math.round(worth(w, i)));
       if ((w.day + 1) % 7 === 0) tellWeek(w, st, i);
       if (w.day > 0 && w.day % DAYS_PER_YEAR === 0 && (st.score.length === 0 || st.score[st.score.length - 1].day !== w.day)) {

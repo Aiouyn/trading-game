@@ -7,7 +7,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { GOODS } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, type EconState, type Firm, pay } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
-import { pledgeValue, saleValue, sellToBook } from '../markets/index.ts';
+import { markHolding, sellToBook } from '../markets/index.ts';
 import { noteBuiltHome } from '../property/index.ts';
 
 const BUFFER = 2.4;         // spare machines so a firm can hire through a supply shock without capital binding
@@ -652,7 +652,7 @@ function writeoffPart(w: World, instr: string, gap: number, cause: number): numb
 }
 
 /**
- * A margin loan the bids no longer cover is called: sell what the book will take, repay that,
+ * A margin loan the collateral no longer covers is called: sell what the book will take, repay that,
  * and write off whatever is still uncovered. Returns true when the loan was closed.
  */
 function callMargin(w: World, s: EconState, b: Book, k: number, i: number): boolean {
@@ -662,7 +662,7 @@ function callMargin(w: World, s: EconState, b: Book, k: number, i: number): bool
   const instr = plInstr(k);
   const owed = Math.floor(w.ledger.issued.get(instr) ?? 0);
   if (owed <= 0) return false;
-  if (owed <= saleValue(w, id)) return false;
+  if (owed <= marginLimit(w, i)) return false;
   const ev = w.events.emit('loan.margin', `${P.name(i)} is called on a margin loan of ${(owed / 100).toFixed(0)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), id);
   const stocks = (w.state.markets as { stocks?: { instr: string }[] } | undefined)?.stocks ?? [];
   for (const st of stocks) {
@@ -676,7 +676,7 @@ function callMargin(w: World, s: EconState, b: Book, k: number, i: number): bool
     if (paid > 0) addOwed(b, i, -paid);
   }
   const left = Math.floor(w.ledger.issued.get(instr) ?? 0);
-  const cover = saleValue(w, id);
+  const cover = marginLimit(w, i);
   if (left <= cover) return false;
   const losses = rows.map(([holder, bal]) => ({ bank: bankById(b, holder), amt: Math.floor(Math.min(bal, left - cover)) })).filter((x): x is { bank: Bank; amt: number } => !!x.bank && x.amt > 0);
   const lost = writeoffPart(w, instr, left - cover, ev);
@@ -860,18 +860,72 @@ export function withdrawSight(w: World, holder: string, cents: number, cause: nu
   return withdraw(w, bank, holder, cents, cause);
 }
 
-/** A margin loan against listed shares, at the bank's quoted rate. Kind 3 is serviced with the other personal loans. */
+function unitPrice(s: EconState, good: string): number {
+  let n = 0, p = 0;
+  for (const f of s.firms) if (f.good === good && !f.closed) { p += f.price; n++; }
+  return n ? p / n : 0;
+}
+
+/** One private share at book: machinery at what it costs to replace. Listed names use the market mark. */
+function bookPerShare(w: World, f: Firm): number {
+  const sh = Math.floor(w.ledger.issued.get('eq:' + f.id) ?? 0);
+  if (sh < 1) return 0;
+  const s = econ(w);
+  const def = GOODS[f.good];
+  const capPx = def ? 360 * s.wage / Math.max(0.01, def.prod) : 0;
+  const eq = Math.round(w.ledger.netWorth(f.id, (instr) => {
+    if (instr === CAPITAL) return capPx;
+    if (instr.startsWith('good:')) return unitPrice(s, instr.slice(5));
+    return 0;
+  }));
+  return eq > 0 ? eq / sh : 0;
+}
+
+const LEND_HAIRCUT = 0.5;
+
+/**
+ * What this person's shares would fetch, less the margin haircut.
+ * A listed block is marked at the price the market would pay. A private block is marked at book.
+ * The bank lends half of that. An empty bid list is not a value of zero.
+ */
+export function marginLimit(w: World, person: number): number {
+  const s = econ(w);
+  if (person < 0 || person >= s.P.n) return 0;
+  const id = s.P.id(person);
+  let fetch = 0;
+  const listed = new Set<string>();
+  const stocks = (w.state.markets as { stocks?: { instr: string }[] } | undefined)?.stocks ?? [];
+  for (const st of stocks) {
+    listed.add(st.instr);
+    const qty = Math.floor(w.ledger.balance(id, st.instr));
+    if (qty < 1) continue;
+    const px = markHolding(w, id, st.instr, qty);
+    if (px > 0) fetch += qty * px;
+  }
+  for (const f of s.firms) {
+    if (f.closed) continue;
+    const instr = 'eq:' + f.id;
+    if (listed.has(instr)) continue;
+    const qty = Math.floor(w.ledger.balance(id, instr));
+    if (qty < 1) continue;
+    const px = bookPerShare(w, f);
+    if (px > 0) fetch += Math.round(qty * px);
+  }
+  return Math.floor(fetch * (1 - LEND_HAIRCUT));
+}
+
+/** A margin loan against shares, at the bank's quoted rate. Kind 3 is serviced with the other personal loans. */
 export function borrowMargin(w: World, person: number, cents: number, cause: number): { taken: number; rate: number; why?: string } {
   const s = econ(w), P = s.P;
   if (person < 0 || person >= P.n || !P.alive(person)) return { taken: 0, rate: 0, why: 'the borrower is dead' };
-  const id = P.id(person);
   const b = book(w);
   let owed = 0;
   for (let k = 0; k < b.ln; k++) {
     if (!b.lnOpen[k] || b.lnPerson[k] !== person || b.lnKind[k] !== 3) continue;
     owed += Math.floor(w.ledger.issued.get(plInstr(k)) ?? 0);
   }
-  const ask = Math.min(Math.round(cents), Math.max(0, pledgeValue(w, id) - owed));
+  const room = Math.max(0, marginLimit(w, person) - owed);
+  const ask = Math.min(Math.round(cents), room);
   if (ask < 1) return { taken: 0, rate: 0, why: 'the bank lends against what the shares would fetch, and less when the block is large against daily volume' };
   const q = quote(w, s, personSpread(w, s, person), ask);
   if (!q) return { taken: 0, rate: 0, why: 'the bank refused the loan' };

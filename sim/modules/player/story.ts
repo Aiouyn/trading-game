@@ -12,6 +12,10 @@ export interface StoryLine {
   text: string;
   eventId: number;
   weight: number;
+  /** Dollars at stake, in cents. A month is ranked by this. */
+  stake?: number;
+  /** Set when a later week of the same month should fold into this line. */
+  fold?: string;
 }
 
 /** Seat fields this file reads and writes. The player module owns the object. */
@@ -68,6 +72,7 @@ const BASE: Record<string, number> = {
 const SKIP = new Set([
   'player.stat', 'player.scenario', 'macro.demand', 'macro.cpi.who', 'macro.jobs.who', 'macro.pay',
   'firm.ask', 'firm.staff', 'firm.insider', 'mkt.open', 'mkt.who', 'genesis',
+  'life.pay', 'life.spend', 'life.cash',
 ]);
 
 function dollars(cents: number): string {
@@ -277,6 +282,7 @@ function markBareDollars(text: string): string {
     .replace(/orders machinery for (\d+)/g, (_, n: string) => `orders machinery for ${usd(n)}`)
     .replace(/a profit of (\d+) dollars/g, (_, n: string) => `a profit of ${usd(n)}`)
     .replace(/loan of (\d+) from/g, (_, n: string) => `loan of ${usd(n)} from`)
+    .replace(/borrows (\d+)/g, (_, n: string) => `borrows ${usd(n)}`)
     .replace(/profit of (\d+) leaks/g, (_, n: string) => `profit of ${usd(n)} leaks`)
     .replace(/loss of (\d+) leaks/g, (_, n: string) => `loss of ${usd(n)} leaks`)
     .replace(/wage at (\d+) a day/g, (_, n: string) => `wage at $${n} a day`);
@@ -353,7 +359,7 @@ function secondPerson(msg: string, name: string): string {
     arrives: 'arrive', takes: 'take', works: 'work', pays: 'pay', gives: 'give', sees: 'see',
     retires: 'retire', dies: 'die', marries: 'marry', courts: 'court', writes: 'write', hands: 'hand',
     reports: 'report', moves: 'move', mortgages: 'mortgage', lets: 'let', sells: 'sell', bids: 'bid',
-    is: 'are', has: 'have',
+    is: 'are', has: 'have', counts: 'count',
   };
   const fixed = lead.replace(/^[a-z]+/, (v) => verb[v] ?? v);
   return 'You ' + fixed;
@@ -365,7 +371,12 @@ function effectOf(w: World, ev: Ev, c: Circle): string {
   const hit = ev.actor ? c.close.get(ev.actor) : undefined;
   const sub = hit?.phrase ?? '';
   if (ev.actor === c.pid || msg.startsWith(c.name)) {
-    if (ev.kind === 'player.arrive') return `You take a job at ${c.employerName || 'a firm'}`;
+    if (ev.kind === 'player.arrive') {
+      if (/holds no job/.test(msg)) return 'You hold no job';
+      const at = /takes a job at (.+)$/.exec(msg);
+      if (at) return `You take a job at ${at[1]}`;
+      return `You take a job at ${c.employerName || 'a firm'}`;
+    }
     if (ev.kind === 'loan.grant') {
       const m = /takes a (.+) of (\d+) from (\S+) at ([\d.]+)%/.exec(msg);
       if (m) return `You take a ${m[1]} of $${Number(m[2]).toLocaleString('en-US')} from ${m[3].replace(/_/g, ' ')} at ${m[4]}%`;
@@ -399,7 +410,7 @@ function effectOf(w: World, ev: Ev, c: Circle): string {
     return cap(msg) + where;
   }
   if (sub && (ev.kind.startsWith('firm.') || ev.kind.startsWith('loan.') || ev.kind.startsWith('property.'))) {
-    const name = firmName(s, ev.actor);
+    const name = firmName(s, ev.actor) || personName(s, ev.actor);
     const rest = name && msg.toLowerCase().startsWith(name.toLowerCase())
       ? msg.slice(name.length).replace(/^[\s,:–-]+/, '')
       : '';
@@ -425,6 +436,7 @@ function rateReach(ev: Ev, c: Circle): string {
 function sentence(w: World, ev: Ev, c: Circle): string {
   const effect = unperiod(effectOf(w, ev, c));
   if (ev.kind === 'player.arrive') {
+    if (/holds no job/.test(ev.msg)) return `${effect}.`;
     const wage = dollars(econ(w).wage);
     return `${effect}, because the city wage is ${wage} a day and ${c.employerName || 'the firm'} had room on the line.`;
   }
@@ -472,6 +484,8 @@ function paycheck(w: World, c: Circle, day: number): StoryLine | undefined {
       day,
       eventId: ev?.id ?? (c.close.size ? s.macroEv : w.genesis),
       weight: 1,
+      stake: 0,
+      fold: 'wage',
       text: `You drew no wage this week, because ${ev ? clause(s, ev) : 'you have no employer'}.`,
     };
   }
@@ -483,9 +497,50 @@ function paycheck(w: World, c: Circle, day: number): StoryLine | undefined {
   return {
     day,
     eventId: causeId,
-    weight: 1,
+    weight: net,
+    stake: net,
+    fold: 'wage',
     text: `${c.employerName} paid you ${dollars(net)} this week, because ${why}.`,
   };
+}
+
+/** One wage line per month, and one layoff line per firm per month. Rank the month by dollars at stake. */
+function placeLine(story: StoryLine[], line: StoryLine): void {
+  if (line.fold === 'wage') line.text = line.text.replace(/this week/g, 'this month');
+  if (line.fold) {
+    const month = Math.floor(line.day / 30);
+    const prev = story.find((x) => x.fold === line.fold && Math.floor(x.day / 30) === month);
+    if (prev) {
+      if (line.fold === 'wage') {
+        const sum = (prev.stake ?? 0) + (line.stake ?? 0);
+        const paying = (line.stake ?? 0) > 0 ? line.text : (/paid you /.test(prev.text) ? prev.text : line.text);
+        prev.stake = sum;
+        prev.weight = Math.max(sum, 1);
+        prev.text = /paid you /.test(paying)
+          ? paying.replace(/paid you \$[\d,]+(?:\.\d+)?/, `paid you ${dollars(sum)}`)
+          : paying;
+        if ((line.stake ?? 0) > 0) prev.eventId = line.eventId;
+        prev.day = line.day;
+      } else if ((line.stake ?? 0) > (prev.stake ?? 0) || ((line.stake ?? 0) === (prev.stake ?? 0) && line.weight > prev.weight)) {
+        prev.text = line.text;
+        prev.stake = line.stake ?? 0;
+        prev.weight = line.weight;
+        prev.eventId = line.eventId;
+        prev.day = line.day;
+      }
+      return;
+    }
+  }
+  story.push(line);
+}
+
+function rankStory(story: StoryLine[]): void {
+  story.sort((a, b) =>
+    Math.floor(a.day / 30) - Math.floor(b.day / 30)
+    || (b.stake ?? 0) - (a.stake ?? 0)
+    || b.weight - a.weight
+    || a.day - b.day
+    || a.eventId - b.eventId);
 }
 
 /** Pick this week's stories and append them. Keeps the last 200 lines on the seat. */
@@ -517,24 +572,43 @@ export function tellWeek(w: World, seat: StorySeat, i: number): void {
   for (const x of people) if (!folded.has(x.ev.id)) kept.push(x);
   for (const x of rest) if (!folded.has(x.ev.id)) kept.push(x);
   kept.sort((a, b) => b.weight - a.weight || b.close - a.close || a.ev.id - b.ev.id);
-  const picked = kept.slice(0, 5).sort((a, b) => a.ev.day - b.ev.day || a.ev.id - b.ev.id);
-  const lines: StoryLine[] = picked.map((x) => ({
-    day: x.ev.day,
-    eventId: x.ev.id,
-    weight: x.weight,
-    text: sentence(w, x.ev, c),
-  }));
+  const seenLayoff = new Set<string>();
+  const unique: Scored[] = [];
+  for (const x of kept) {
+    if (x.ev.kind === 'firm.layoffs') {
+      const key = x.ev.actor || String(x.ev.id);
+      if (seenLayoff.has(key)) continue;
+      seenLayoff.add(key);
+    }
+    unique.push(x);
+  }
+  const picked = unique.slice(0, 5).sort((a, b) => a.ev.day - b.ev.day || a.ev.id - b.ev.id);
+  const lines: StoryLine[] = picked.map((x) => {
+    const text = sentence(w, x.ev, c);
+    const line: StoryLine = {
+      day: x.ev.day,
+      eventId: x.ev.id,
+      weight: x.weight,
+      stake: Math.max(stake(x.ev, c), dollarsMentioned(text)),
+      text,
+    };
+    if (x.ev.kind === 'firm.layoffs') line.fold = 'layoff:' + (x.ev.actor || x.ev.id);
+    return line;
+  });
   if (!lines.length) {
     const pay = paycheck(w, c, w.day);
     if (pay) lines.push(pay);
   }
   const have = new Set(seat.story.map((x) => x.eventId + ':' + x.day));
   for (const line of lines) {
-    const key = line.eventId + ':' + line.day;
-    if (have.has(key)) continue;
-    have.add(key);
-    seat.story.push(line);
+    if (!line.fold) {
+      const key = line.eventId + ':' + line.day;
+      if (have.has(key)) continue;
+      have.add(key);
+    }
+    placeLine(seat.story, line);
   }
+  rankStory(seat.story);
   if (seat.story.length > 200) seat.story.splice(0, seat.story.length - 200);
 }
 
