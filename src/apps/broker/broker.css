@@ -204,3 +204,4 @@ html[data-hc="1"] .br-chart-table th, html[data-hc="1"] .br-chart-table td { bor
 @media (pointer: coarse) {
   .br-desks button, .br-tenor > button, .br-chain button { min-height: 44px; }
 }
+.br-back { margin-bottom: var(--sp-8); background: transparent; border: 1px solid var(--line); border-radius: var(--r-input); color: var(--fg-muted); padding: 2px var(--sp-12); }

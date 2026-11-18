@@ -7,6 +7,7 @@ import { act, dollars, symbolOf, useSimSnap, type ActNote, type Quote, type SimV
 import { levelPct, moneyFromCents, presentNote } from "@/components/ui/format";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "@/apps/markets/why";
 import { holidayReason, parseCalendar } from "@/apps/society/read";
+import Terminal from "./Terminal";
 import "./broker.css";
 
 type Desk = "stocks" | "bonds" | "futures" | "options" | "coins" | "fx";
@@ -96,6 +97,7 @@ export default function BrokerApp({ context }: { context?: string }) {
   const [strike, setStrike] = useState(0);
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState<ActNote | null>(null);
+  const [terminal, setTerminal] = useState(() => !context || !/^(opt:|fx)/.test(context));
 
   useEffect(() => {
     const next = readContext(context);
@@ -108,6 +110,7 @@ export default function BrokerApp({ context }: { context?: string }) {
   }, [desk]);
 
   if (!view) return <div className="br" data-testid="broker"><p className="muted">The desk is not open.</p></div>;
+  if (terminal) return <Terminal context={context} onDesks={() => setTerminal(false)} />;
 
   const place = async () => {
     if (busy || desk === "fx" || !view) return;
@@ -168,6 +171,7 @@ export default function BrokerApp({ context }: { context?: string }) {
 
   return (
     <div className="br" data-testid="broker">
+      <button type="button" className="br-back" data-testid="br-terminal" onClick={() => setTerminal(true)}>Back to the chart</button>
       <div className="br-desks" role="group" aria-label="Desk">
         {DESKS.map((d) => (
           <button key={d.id} type="button" data-testid={`br-desk-${d.id}`} aria-pressed={desk === d.id} onClick={() => setDesk(d.id)}>{d.label}</button>

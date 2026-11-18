@@ -21,6 +21,7 @@ import { health } from './modules/health/index.ts';
 import { careers } from './modules/careers/index.ts';
 import { labour } from './modules/labour/index.ts';
 import { crypto } from './modules/crypto/index.ts';
+import { bars } from './modules/markets/bars.ts';
 import { earnings } from './modules/earnings/index.ts';
 import { signals } from './modules/signals/index.ts';
 import { law } from './modules/law/index.ts';
@@ -68,6 +69,7 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('society')) w.use(society);
   if (!without.has('courses')) w.use(courses);
   if (!without.has('venues')) w.use(venues);
+  if (!without.has('bars')) w.use(bars);
   if (!without.has('history')) w.use(history);
 }
 

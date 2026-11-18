@@ -35,6 +35,7 @@ import { calendarOf, societyView } from './modules/society/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
+import { barsFor, listBars } from './modules/markets/bars.ts';
 
 type Speed = 'pause' | 'day' | 'week' | 'month';
 
@@ -5084,7 +5085,20 @@ const server = http.createServer(async (req, res) => {
       send(res, 200, page);
       return;
     }
-    if (req.method === 'GET' && pathname === '/history') { send(res, 200, historyPage(w)); return; }
+    if (req.method === 'GET' && pathname === '/history') {
+      const instr = url.searchParams.get('instr');
+      if (url.searchParams.get('list')) { send(res, 200, { day: w.day, ticks: w.ticksPerDay, rows: listBars(w) }); return; }
+      if (instr) {
+        const tf = url.searchParams.get('tf') === 'i' ? 'i' : url.searchParams.get('tf') === 'w' ? 'w' : url.searchParams.get('tf') === 'm' ? 'm' : 'd';
+        const limit = Math.min(1500, Math.max(10, Number(url.searchParams.get('limit')) || 400));
+        const out = barsFor(w, instr, tf, limit);
+        if (!out) { send(res, 404, { error: 'no chart for ' + instr }); return; }
+        send(res, 200, { ...out, day: w.day });
+        return;
+      }
+      send(res, 200, historyPage(w));
+      return;
+    }
     if (req.method === 'GET' && pathname.startsWith('/explain/')) {
       const id = Number(pathname.slice('/explain/'.length));
       if (!Number.isSafeInteger(id) || id < 0) { send(res, 400, { error: 'bad event' }); return; }
