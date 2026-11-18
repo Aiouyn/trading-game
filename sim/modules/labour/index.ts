@@ -669,3 +669,27 @@ export const labour: Module = {
     return out;
   },
 };
+
+/** An owner's own deal with the union at one plant: give a premium for two years, or break it. */
+export function unionDeal(w: World, firmIdx: number, op: 'concede' | 'break', cause: number): { leader: number; sector: string; ev: number; text: string } | null {
+  const st = w.state.labour as Book | undefined;
+  if (!st) return null;
+  const s = econ(w);
+  const f = s.firms[firmIdx];
+  if (!f) return null;
+  const uid = uidOf(st, f.sector);
+  if (!uid) return null;
+  const u = st.unions[uid - 1];
+  elect(w, st, u, cause);
+  const who = u.leader >= 0 && u.leader < s.P.n ? s.P.name(u.leader) : 'the union';
+  if (op === 'concede') {
+    const prem = Math.max(u.premium, CAP_PREM);
+    attach(st, firmIdx, prem, w.day);
+    const ev = w.events.emit('labour.ownerDeal', `${f.name} gives ${who} a ${(prem * 100).toFixed(2)}% premium for two years`, [cause], u.actor);
+    return { leader: u.leader, sector: f.sector, ev, text: `${f.name} agrees a ${(prem * 100).toFixed(2)}% premium with ${who}` };
+  }
+  if (firmIdx < st.deal.length) { st.deal[firmIdx] = 1; st.dealUntil[firmIdx] = 0; }
+  for (const i of f.staff) if (i < st.member.length && st.member[i] === uid) st.member[i] = 0;
+  const ev = w.events.emit('labour.ownerBreak', `${f.name} breaks with ${who} and its members leave the union`, [cause], u.actor);
+  return { leader: u.leader, sector: f.sector, ev, text: `${f.name} breaks with ${who}` };
+}

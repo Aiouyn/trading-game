@@ -1,5 +1,6 @@
 // The player's chronicle: five events that moved money, family, health or freedom,
 // the family tree, the firms, and the city's stories during that life.
+import { cityMemory } from '../corporate/owner.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { World } from '../../kernel/index.ts';
@@ -54,6 +55,15 @@ const BASE: Record<string, number> = {
   'player.wed': 1_500_000,
   'player.birth': 2_000_000,
   'player.died': 8_000_000,
+  'player.owner.control': 2_500_000,
+  'player.owner.layoff': 1_200_000,
+  'player.owner.protect': 900_000,
+  'player.owner.ally': 1_000_000,
+  'player.owner.grudge': 900_000,
+  'player.owner.leak': 1_600_000,
+  'player.owner.witness': 2_000_000,
+  'player.owner.guarantee': 1_800_000,
+  'player.owner.heir': 3_000_000,
   'person.died': 6_000_000,
   'player.heir': 3_000_000,
   'player.health': 800_000,
@@ -130,6 +140,14 @@ function titleOf(kind: string, axis: Axis): string {
     case 'player.died':
     case 'person.died': return 'A death';
     case 'player.heir': return 'The heir';
+    case 'player.owner.heir': return 'What the heir inherited';
+    case 'player.owner.control': return 'The chair';
+    case 'player.owner.layoff': return 'Cuts';
+    case 'player.owner.protect': return 'A promise to the workers';
+    case 'player.owner.ally':
+    case 'player.owner.grudge':
+    case 'player.owner.leak':
+    case 'player.owner.witness': return 'Remembered';
     case 'player.health': return 'Health';
     case 'player.court': return 'A courtship';
     case 'player.will': return 'A will';
@@ -558,6 +576,8 @@ export function playerChronicle(w: World, worthNow: number): { markdown: string;
   });
   lines.push(...familyLines(w, ids));
   lines.push(...firmLines(w, ids));
+  const remembered = cityMemory(w, who);
+  if (remembered.length) lines.push('## What the city remembers', '', ...remembered.map((r) => r + '.'), '');
   const fromDay = sc?.begun ?? (P.born[who] > 0 ? P.born[who] : 0);
   lines.push(...cityLines(w, fromDay));
   const markdown = `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`;

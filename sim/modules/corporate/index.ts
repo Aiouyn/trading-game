@@ -13,6 +13,7 @@ import { borrowMargin } from '../banking/index.ts';
 import { blockPrice } from '../markets/index.ts';
 import { addFirm, closeFirm, DEP, noteCommission, pay, type EconState, type Firm } from '../economy/index.ts';
 import { joinFirm, leaveJob, succession } from '../economy/people.ts';
+import { adjustBar, ownerMonth, ownerStats } from './owner.ts';
 
 interface Style { prefix: string[]; suffix: string[] }
 interface Steer { idx: number; by: number; price: number | null; hires: number | null; dividend: number | null; capex: number }
@@ -76,14 +77,14 @@ function growStruck(c: CorpState, n: number): void {
   c.struck = a;
 }
 
-function quote(w: World, f: Firm): Listing | undefined {
+export function quote(w: World, f: Firm): Listing | undefined {
   const stocks = (w.state.markets as Book | undefined)?.stocks;
   if (!stocks) return;
   for (const st of stocks) if (st.issuer === f.id) return st;
   return;
 }
 
-function sharesOf(w: World, f: Firm): number {
+export function sharesOf(w: World, f: Firm): number {
   return Math.floor(w.ledger.issued.get('eq:' + f.id) ?? 0);
 }
 
@@ -284,7 +285,7 @@ function underwriter(w: World): Bank | undefined {
   return best;
 }
 
-function offerPrice(w: World, s: EconState, f: Firm): { price: number; n: number } {
+export function offerPrice(w: World, s: EconState, f: Firm): { price: number; n: number } {
   let cap = 0, workers = 0, n = 0;
   const take = (o: Firm): void => {
     if (o.closed || o.idx === f.idx || !o.listed || o.workers <= 0) return;
@@ -374,7 +375,7 @@ function creditRoom(w: World, s: EconState, f: Firm): number {
   return have + Math.max(0, limit - owed);
 }
 
-function raiseCash(w: World, s: EconState, f: Firm, cost: number, cause: number): boolean {
+export function raiseCash(w: World, s: EconState, f: Firm, cost: number, cause: number): boolean {
   const floor = Math.round(f.eff * s.wage * 14);
   if (Math.floor(w.ledger.balance(f.id, DEP)) - floor >= cost) return true;
   const need = cost + floor - Math.floor(w.ledger.balance(f.id, DEP));
@@ -383,7 +384,7 @@ function raiseCash(w: World, s: EconState, f: Firm, cost: number, cause: number)
   return Math.floor(w.ledger.balance(f.id, DEP)) - floor >= cost;
 }
 
-function hurdle(s: EconState, id: string, last: number, board: boolean): number {
+export function hurdle(s: EconState, id: string, last: number, board: boolean): number {
   if (id.startsWith('p_')) {
     const i = +id.slice(2);
     const g = i >= 0 && i < s.P.n ? s.P.greed[i] : 0;
@@ -396,7 +397,7 @@ function hurdle(s: EconState, id: string, last: number, board: boolean): number 
   return Math.ceil(last * (board ? 1.35 : 1.12));
 }
 
-function holdersOf(w: World, f: Firm): [string, number][] {
+export function holdersOf(w: World, f: Firm): [string, number][] {
   return [...w.ledger.holders('eq:' + f.id).entries()].filter(([, n]) => n > 0);
 }
 
@@ -682,6 +683,7 @@ export const corporate: Module = {
     failures(w);
     replenish(w);
     maybeSplits(w);
+    ownerMonth(w);
   },
   stats(w) {
     const s = econ(w), c = corp(w);
@@ -690,6 +692,7 @@ export const corporate: Module = {
     const out = {
       firms: alive, founded: c.foundedY, listed: c.listedY, takeovers: c.takenY, failed: c.failedY,
       foundedTot: c.foundedN, listedTot: c.listedN, takenTot: c.takenN, failedTot: c.failedN,
+      ...ownerStats(w),
     };
     c.foundedY = 0; c.listedY = 0; c.takenY = 0; c.failedY = 0;
     return out;
@@ -715,7 +718,7 @@ function contest(w: World): void {
   for (const target of targets.slice(0, 4)) if (raid(w, target)) return;
 }
 
-function stakeOf(w: World, id: string, f: Firm): number {
+export function stakeOf(w: World, id: string, f: Firm): number {
   return Math.floor(w.ledger.balance(id, 'eq:' + f.id));
 }
 
@@ -818,7 +821,7 @@ function dollars(cents: number): string {
   return `${v < 0 ? '-' : ''}$${(Math.abs(v) / 100).toFixed(2)}`;
 }
 
-function ready(w: World): CorpState {
+export function ready(w: World): CorpState {
   const c = corp(w);
   if (!c.steer) c.steer = [];
   if (!c.chair) c.chair = [];
@@ -832,17 +835,17 @@ function seat(c: CorpState, f: Firm): number {
   return c.chair && f.idx < c.chair.length ? c.chair[f.idx] : -1;
 }
 
-function setChair(c: CorpState, f: Firm, person: number): void {
+export function setChair(c: CorpState, f: Firm, person: number): void {
   if (!c.chair) c.chair = [];
   while (c.chair.length <= f.idx) c.chair.push(-1);
   c.chair[f.idx] = person;
 }
 
-function rootOf(s: EconState, f: Firm): number[] {
+export function rootOf(s: EconState, f: Firm): number[] {
   return causesOf(s, f).slice(0, 4);
 }
 
-function findFirm(w: World, key: string): Firm | undefined {
+export function findFirm(w: World, key: string): Firm | undefined {
   const k = key.toLowerCase().replace(/-/g, ' ').replace(/^eq:/, '');
   return econ(w).firms.find((f) => !f.closed && (f.id === key || f.id === k || f.name.toLowerCase() === k));
 }
@@ -854,14 +857,14 @@ function pickGood(s: EconState, sector: string): string | undefined {
   return (goods.find((g) => g.share > 0 && hot.has(g.good)) ?? goods.find((g) => g.share > 0) ?? goods.find((g) => hot.has(g.good)) ?? goods[0]).good;
 }
 
-function controls(w: World, person: number, f: Firm): boolean {
+export function controls(w: World, person: number, f: Firm): boolean {
   if (f.ceo === person || seat(ready(w), f) === person) return true;
   const shares = sharesOf(w, f);
   return shares > 0 && blockOf(w, person, f) * 2 > shares;
 }
 
 /** Shares the person holds, plus shares held by firms they run. */
-function blockOf(w: World, person: number, f: Firm): number {
+export function blockOf(w: World, person: number, f: Firm): number {
   const s = econ(w), c = ready(w);
   let n = stakeOf(w, s.P.id(person), f);
   for (const o of s.firms) {
@@ -1141,7 +1144,7 @@ export function tenderOffer(w: World, person: number, key: string, cents: number
   let owned = 0;
   for (const [id, n] of holders) {
     if (mine.has(id)) { owned += n; continue; }
-    let bar = hurdle(s, id, last, board.has(id));
+    let bar = adjustBar(w, person, id, hurdle(s, id, last, board.has(id)), last);
     const scene = w.state.scenario as { who?: number; rivals?: number; outcome?: string } | undefined;
     if (scene && !scene.outcome && scene.who === person && scene.rivals !== undefined && scene.rivals !== 1) bar = Math.max(1, Math.ceil(bar * scene.rivals));
     if (price < bar) continue;
