@@ -1468,6 +1468,24 @@ function locateShares(w: World, actor: string, instr: string, qty: number, cause
   return { qty: take, lender };
 }
 
+/** Standing limit orders from other actors on the side that would fill a market order now. */
+function standingDepth(w: World, self: string, instr: string, side: string): number {
+  const orders = (w.state.markets as { orders?: { actor: string; instr: string; side: string; qty: number; limit: number | null; open: boolean; skip?: boolean }[] } | undefined)?.orders ?? [];
+  const other = side === 'buy' ? 'sell' : 'buy';
+  let n = 0;
+  for (const o of orders) if (o.open && !o.skip && o.instr === instr && o.side === other && o.limit !== null && o.actor !== self && o.qty > 0) n += o.qty;
+  return n;
+}
+
+/** A market order fills only against standing orders, and what is left at the close expires without a word. Say so when the book is thin. */
+function thinNote(w: World, self: string, instr: string, side: string, qty: number): string {
+  const depth = standingDepth(w, self, instr, side);
+  if (depth >= qty) return '';
+  const opp = side === 'buy' ? 'sellers' : 'bids';
+  if (depth < 1) return `. No ${opp} are standing yet. A market order that finds none expires unfilled at the close: name a price with @ to wait for one.`;
+  return `. Only ${depth} of ${qty} can fill against the standing ${opp} now; the rest expires at the close unless you name a price with @.`;
+}
+
 function shortSell(w: World, st: PlayerSeat, id: string, instr: string, qty: number, limit: number | undefined): ActResult {
   if (!st.margin) return rejected('short selling needs a margin account at a bank');
   const stock = (w.state.markets as { stocks: { instr: string; last: number }[] }).stocks.find((s) => s.instr === instr);
@@ -1489,7 +1507,7 @@ function shortSell(w: World, st: PlayerSeat, id: string, instr: string, qty: num
     const orderId = submitOrder(w, id, { instr, side: 'sell', qty: got, limit });
     st.loans.push({ instr, qty: got, claim, face });
     const label = shareName(w, instr) || 'the shares';
-    return { status: 'accepted', orderId, fill: got, eventId: cause, text: `borrowed ${got} ${label} and offered them` };
+    return { status: 'accepted', orderId, fill: got, eventId: cause, text: `borrowed ${got} ${label} and offered them` + thinNote(w, id, instr, 'sell', got) };
   } catch (e) {
     w.ledger.redeem(claim, lender, face, 'mkt.borrow', cause);
     if (lender === 'fund_mm') returnShares(w, id, instr, got, cause);
@@ -1685,12 +1703,13 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       try {
         const orderId = submitOrder(w, id, { instr, side: cmd.side, qty: cmd.qty, limit: cmd.limit });
         const label = shareName(w, instr) || 'the shares';
-        return { status: 'accepted', orderId, text: `${cmd.side} ${cmd.qty} ${label}${cmd.limit ? ` at $${(cmd.limit / 100).toFixed(2)}` : ''}` };
+        const text = `${cmd.side} ${cmd.qty} ${label}${cmd.limit ? ` at $${(cmd.limit / 100).toFixed(2)}` : ''}`;
+        return { status: 'accepted', orderId, text: cmd.limit ? text : text + thinNote(w, id, instr, cmd.side, cmd.qty) };
       } catch (e) { return rejected(whyOf(e)); }
     }
     case 'cancel': {
       if (!cancelOrder(w, id, cmd.orderId)) return rejected('that order is not open');
-      return { status: 'accepted', orderId: cmd.orderId, text: `cancelled ${cmd.orderId}` };
+      return { status: 'accepted', text: `cancelled ${cmd.orderId}` };
     }
     case 'bond': {
       const b = onRun(w, cmd.tenor);
@@ -1775,7 +1794,9 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     case 'talk': {
       const r = talk(w, i, cmd.slot);
       if (r.who < 0) return rejected(r.why ?? 'nobody there');
-      return { status: 'accepted', text: `talked with ${P.name(r.who)}` };
+      // The talk itself changes how they stand with you; show that, since the talk prints nothing else.
+      const line = view(w, playerId).contacts.find((c) => c.slot === cmd.slot)?.line;
+      return { status: 'accepted', text: `talked with ${P.name(r.who)}${line ? `. ${line}` : ''}` };
     }
     case 'ask': {
       const firm = cmd.firm || (P.employer[i] >= 0 ? econ(w).firms[P.employer[i]].id : '');
