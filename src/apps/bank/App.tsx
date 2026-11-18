@@ -47,6 +47,7 @@ export default function BankApp() {
   const tight = credit?.tightness ?? 0;
   const chosen = PRODUCTS.find((p) => p.id === product) ?? PRODUCTS[0];
   const open = credit?.products.find((p) => p.product === (product === "line" ? "credit line" : product === "term" ? "term loan" : "margin"));
+  const haircut = haircutOf(product, tight, open?.haircut);
 
   const go = async (op: "deposit" | "withdraw" | "borrow" | "repay") => {
     const cents = centsOf(amount);
@@ -113,7 +114,7 @@ export default function BankApp() {
         </div>
         <p className="qa-muted" data-testid="bank-terms">{chosen.terms}</p>
         <p data-testid="bank-haircut">
-          The bank lends against {Math.round((1 - haircutOf(product, tight)) * 100)}% of what your shares would fetch: a {Math.round(haircutOf(product, tight) * 100)}% haircut today.
+          The bank lends against {Math.round((1 - haircut) * 100)}% of what your shares would fetch: a {Math.round(haircut * 100)}% haircut today.
         </p>
         {open && !open.open ? <p className="rs-warn" data-testid="bank-not-offered">Lenders are not writing {chosen.name.toLowerCase()} now, so a request will be refused.</p> : null}
         {open && open.loans > 0 ? (

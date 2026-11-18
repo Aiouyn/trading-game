@@ -72,7 +72,7 @@ const ROWS: Row[] = [
   { id: "launchpad", group: "trade" },
   { id: "risk", group: "trade", minW: 480, minH: 360 },
   { id: "quantlab", group: "trade", unlock: { kind: "rank", min: "R2" }, teaser: { kind: "fromRank", rank: "R1" }, lockLabel: "R2", lockHint: "Opens at rank R2 · Owner" },
-  { id: "research", group: "trade", unlock: { kind: "rank", min: "R3" }, teaser: { kind: "fromRank", rank: "R2" }, lockLabel: "R3", lockHint: "Opens at rank R3 · Mogul" },
+  { id: "research", group: "trade" }, // order 106: open from the start, no rank gate (the information edge is the core of play)
   { id: "businesses", group: "build" },
   { id: "company", group: "build", unlock: { kind: "rank", min: "R2" }, teaser: { kind: "fromRank", rank: "R1" }, lockLabel: "R2", lockHint: "Opens at rank R2 · Owner" },
   { id: "property", group: "build" },

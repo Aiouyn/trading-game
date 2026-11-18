@@ -16,13 +16,19 @@ export interface RevealRow {
   issuer: string; firm: string; day: number; consensus: number; actual: number; surprise: number; px: number; pxAfter: number;
   signals: number; right: number; story: string; storyRight: boolean; mine: { text: string; outcome: string }[]; eventId: number;
 }
-export interface CreditProduct { product: string; owed: number; rate: number; loans: number; open: boolean; note: string }
+export interface CreditProduct { product: string; owed: number; rate: number; loans: number; open: boolean; note: string; haircut?: number }
 export interface CreditView { tightness: number; word: string; limit: number; owed: number; room: number; products: CreditProduct[] }
 export interface StakeChoice { op: string; text: string; day: number; eventId: number }
 export interface StakeRemember { name: string; role: string; what: string; warm: boolean; acted: boolean; eventId: number }
 export interface StakeView {
   firm: string; name: string; shares: number; issued: number; percent: number; value: number; controls: boolean; chair: boolean;
   how: string; choices: StakeChoice[]; remembers: StakeRemember[]; city: string[];
+  /** Market value, when /view names it beside the sale value (order 106). Otherwise `value` is the market value. */
+  marketValue?: number;
+  /** What selling the stake into the bids would fetch, in cents, when /view sends it. */
+  saleValue?: number;
+  /** The sim's one-line reason for the gap between the two, when it sends one. */
+  saleWhy?: string;
 }
 
 export interface EdgeView {
@@ -76,11 +82,23 @@ export function creditSentence(word: string): string {
 }
 
 /**
- * The haircut a lender takes off what the shares would fetch. Display only: it mirrors lendHaircut and TERM_HAIRCUT in
- * sim/modules/banking/index.ts, because /view does not carry the haircut itself.
+ * The haircut a lender takes off what the shares would fetch, as a fraction. The server's per-product haircut wins when
+ * /view carries it (a fraction, or a percent if it is above one). Otherwise this mirrors lendHaircut and TERM_HAIRCUT in
+ * sim/modules/banking/index.ts, so the screen still reads before the server sends it.
  */
-export function haircutOf(product: string, tightness: number): number {
+export function haircutOf(product: string, tightness: number, server?: number): number {
+  if (typeof server === "number" && Number.isFinite(server) && server >= 0) return server > 1 ? server / 100 : server;
   return product === "term" ? 0.55 + 0.2 * tightness : 0.5 + 0.25 * tightness;
+}
+
+/** The sale-versus-market reason in one line, from the two cents amounts (the sim's own line wins when it sends one). */
+export function saleReason(market: number, sale: number, why?: string): string {
+  if (why && why.trim()) return why.trim();
+  if (market <= 0) return "Nothing is priced for this stake yet.";
+  const gap = (sale - market) / market;
+  if (gap < -0.02) return "The bids for a block this size are thin, so a sale would take a discount to the market price.";
+  if (gap > 0.02) return "The bids are above the market price for this stake, so a sale would fetch more than it is marked at.";
+  return "The bids cover the block at about the market price.";
 }
 
 /** A percentage with its sign, for a fraction (0.035 is +3.5%). */

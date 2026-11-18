@@ -9,6 +9,8 @@ import { dollars, symbolOf, useSimSnap, type NewsLine, type Quote } from "@/shel
 import { gameDate, moneyFromCents, signedQty, titleWord } from "@/components/ui/format";
 import { Named } from "@/components/ui/Named";
 import { holidayReason, parseCalendar } from "@/apps/society/read";
+import { edgeOf } from "@/apps/research/edge";
+import "@/apps/research/research.css";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "./why";
 import { IndexStrip, SectorTable, type QuoteX, type TapeX } from "./Sectors";
 import "./markets.css";
@@ -31,7 +33,8 @@ interface FirmPage {
   events?: Record<string, number>;
   daily?: { day: number; px: number }[];
   news?: { eventId: number; day: number; text: string }[];
-  holders?: { id: string; name: string; qty: number }[];
+  /** The server names the holding `qty` (and, from order 105, `shares` beside it). Read either. */
+  holders?: { id: string; name: string; qty?: number; shares?: number }[];
   move?: { eventId: number; day: number; text: string };
   eventId?: number;
 }
@@ -56,11 +59,13 @@ export default function MarketsApp({ context }: { context?: string }) {
 
   const quotes = view?.quotes ?? [];
   const quote = quotes.find((q) => q.instr === sel);
+  // The player's open inside readings, by firm: an order on such a firm asks first (order 106), as Research does.
+  const insideIssuers = new Set(edgeOf(view).signals.filter((s) => s.legal === "inside" && s.outcome === "open").map((s) => s.issuer));
   if (!view) return <div className="mk" data-testid="markets"><p className="muted">The board is not open.</p></div>;
   if (quote) {
     return (
       <div className="mk" data-testid="markets">
-        <Stock quote={quote} day={view.date.abs} news={view.news} ask={ask} closed={holidayReason(view.date.abs, parseCalendar(view.calendar))} onBack={() => setSel(null)} />
+        <Stock quote={quote} day={view.date.abs} news={view.news} ask={ask} closed={holidayReason(view.date.abs, parseCalendar(view.calendar))} inside={!!quote.issuer && insideIssuers.has(quote.issuer)} onBack={() => setSel(null)} />
         <Cause cause={cause} onClose={close} />
       </div>
     );
@@ -135,17 +140,20 @@ function cmp(a: Quote, b: Quote, key: SortKey): number {
   return (a.pos ?? 0) - (b.pos ?? 0);
 }
 
-function Stock({ quote, day, news, ask, closed, onBack }: {
+function Stock({ quote, day, news, ask, closed, inside, onBack }: {
   quote: Quote;
   day: number;
   news: NewsLine[];
   ask: (id: number, title: string) => void;
   closed: string;
+  /** The player holds an open inside reading on this firm. */
+  inside: boolean;
   onBack: () => void;
 }) {
   const store = useShellStore();
   const [firm, setFirm] = useState<FirmPage | null>(null);
   const [firmState, setFirmState] = useState<"load" | "in" | "out">("load");
+  const [warn, setWarn] = useState(false);
   const issuer = quote.issuer || "";
   useEffect(() => {
     if (!issuer) { setFirm(null); setFirmState("out"); return; }
@@ -184,8 +192,16 @@ function Stock({ quote, day, news, ask, closed, onBack }: {
           <p className="muted">{firm?.sector ? titleWord(firm.sector) : quote.sector ? titleWord(quote.sector) : ""}{firm?.goodName ? ` · ${firm.goodName}` : ""}{firm?.ceo?.name ? <> · <Named name={firm.ceo.name} /></> : null}</p>
         </div>
         <div>
-          <Button variant="primary" data-testid="mk-trade" disabled={!!closed} onClick={() => { if (!closed) store.getState().open("broker", quote.instr); }}>Trade</Button>
+          <Button variant="primary" data-testid="mk-trade" disabled={!!closed} onClick={() => { if (closed) return; if (inside) setWarn(true); else store.getState().open("broker", quote.instr); }}>Trade</Button>
           {closed ? <p className="muted" data-testid="mk-closed">{closed}</p> : null}
+          {inside ? <p className="rs-warn" role="note" data-testid="mk-inside-warn">You hold inside information on {sym}. Trading on it before the print is insider dealing.</p> : null}
+          {warn ? (
+            <div className="qa-actions" data-testid="mk-trade-confirm">
+              <p className="rs-warn" role="alert" data-testid="mk-trade-warn">You are about to trade {sym} on inside information. Trading on it before the print is insider dealing, and the law can see who knew.</p>
+              <Button variant="secondary" data-testid="mk-trade-anyway" onClick={() => { setWarn(false); store.getState().open("broker", quote.instr); }}>Open the order ticket anyway</Button>
+              <Button variant="ghost" onClick={() => setWarn(false)}>Keep looking</Button>
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="mk-quote">
@@ -234,7 +250,7 @@ function Stock({ quote, day, news, ask, closed, onBack }: {
         {firm?.holders?.length ? firm.holders.map((h) => (
           <div key={h.id} className="mk-book-row">
             <Named name={h.name} />
-            <NumBtn id={shareId} title={`${h.name} holds ${sym}`} ask={ask}><span className="num">{h.qty.toLocaleString("en-US")}</span></NumBtn>
+            <NumBtn id={shareId} title={`${h.name} holds ${sym}`} ask={ask}><span className="num">{(h.qty ?? h.shares ?? 0).toLocaleString("en-US")}</span></NumBtn>
           </div>
         )) : <p className={firmState === "out" ? "quay-state" : "muted"} data-kind={firmState === "out" ? "error" : undefined}>{firm ? "No holders on the book." : firmState === "out" ? "The firm page did not open." : "Reading the firm…"}</p>}
       </section>

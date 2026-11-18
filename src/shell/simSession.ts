@@ -384,6 +384,31 @@ async function readView(): Promise<SimView | null> {
   }
 }
 
+// The day frame carries prices and news, not the player's readings, the street's numbers, credit or stakes. Those come
+// from /view, so each tick re-reads it (one read in flight; a tick during a read queues one more). Order 106.
+let edgeInFlight = false;
+let edgeAgain = false;
+const EDGE_FIELDS = ["signals", "consensus", "reveals", "credit", "stake"] as const;
+function withEdge(cur: SimView, from: SimView): SimView {
+  const out: SimView = { ...cur };
+  const src = from as unknown as Record<string, unknown>;
+  const dst = out as unknown as Record<string, unknown>;
+  for (const k of EDGE_FIELDS) if (src[k] !== undefined) dst[k] = src[k];
+  return out;
+}
+function refreshEdge() {
+  if (edgeInFlight) { edgeAgain = true; return; }
+  edgeInFlight = true;
+  void readView().then((view) => {
+    const cur = pending.view;
+    if (!view || !cur || pending.mode !== "play" || view.date.abs < cur.date.abs) return;
+    publish({ ...pending, view: adopt(withEdge(cur, view)) }, true);
+  }).catch(() => {}).finally(() => {
+    edgeInFlight = false;
+    if (edgeAgain) { edgeAgain = false; refreshEdge(); }
+  });
+}
+
 function scheduleRefetch() {
   if (refetchTimer) clearTimeout(refetchTimer);
   refetchTimer = setTimeout(() => {
@@ -495,7 +520,10 @@ function startStream() {
   stream.addEventListener("day", (ev) => {
     try {
       const view = asView(JSON.parse((ev as MessageEvent).data));
-      if (view) mergeDay(view);
+      if (view) {
+        mergeDay(view);
+        if (pending.mode === "play") refreshEdge();
+      }
     } catch { /* a bad frame is not a crash */ }
   });
   stream.addEventListener("speed", (ev) => {

@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { presentNote } from "@/components/ui/format";
 import type { ActNote } from "@/shell/simSession";
-import { Field, Fig, centsOf } from "@/apps/businesses/sheet";
-import type { StakeRemember, StakeView } from "@/apps/research/edge";
+import { Field, Fig, centsOf, moneyTitle } from "@/apps/businesses/sheet";
+import { saleReason, type StakeRemember, type StakeView } from "@/apps/research/edge";
 
 type Run = (cmd: unknown) => Promise<ActNote>;
 type Input = "count" | "person" | "percent" | "dollars" | "none";
@@ -90,6 +90,21 @@ function ChoiceRow({ c, firm, run, busy }: { c: Choice; firm: string; run: Run; 
   );
 }
 
+/** Market value and what a sale would fetch, side by side, with one line on why they differ. */
+function StakeWorth({ stake: s }: { stake: StakeView }) {
+  const market = s.marketValue ?? s.value;
+  const sale = s.saleValue ?? 0;
+  return (
+    <div className="qa-block" data-testid="stake-worth">
+      <div className="qa-kv">
+        <p><span className="label">Market value</span><span className="num" data-testid="stake-market">{moneyTitle(market)}</span></p>
+        <p><span className="label">A sale would fetch</span><span className="num" data-testid="stake-sale">{moneyTitle(sale)}</span></p>
+      </div>
+      <p className="qa-muted">{saleReason(market, sale, s.saleWhy)}</p>
+    </div>
+  );
+}
+
 function StakeBlock({ stake: s, run, busy, onWhy }: { stake: StakeView; run: Run; busy: boolean; onWhy: (id: number) => void }) {
   const how = HOW[s.how] ?? "";
   return (
@@ -99,6 +114,7 @@ function StakeBlock({ stake: s, run, busy, onWhy }: { stake: StakeView; run: Run
         <Fig word={s.controls ? "You chair it" : "You hold a block"} title={`${s.percent.toFixed(1)}% · ${s.shares.toLocaleString("en-US")} of ${s.issued.toLocaleString("en-US")} shares`} onWhy={onWhy} />
         {how ? <span className="qa-muted"> Bought {how}.</span> : null}
       </p>
+      {typeof s.saleValue === "number" ? <StakeWorth stake={s} /> : null}
       {s.choices.length ? (
         <div className="qa-block" data-testid="stake-choices">
           <span className="label">What you have done</span>
