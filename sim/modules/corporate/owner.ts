@@ -6,22 +6,23 @@
 import { type World } from '../../kernel/index.ts';
 import { DEP, pay, type EconState, type Firm } from '../economy/index.ts';
 import { joinFirm, leaveJob } from '../economy/people.ts';
-import { borrowMargin } from '../banking/index.ts';
+import { borrowMargin, type Product } from '../banking/index.ts';
 import { contactsOf, nudgeLink, nudgeStanding } from '../social/index.ts';
 import { unionDeal } from '../labour/index.ts';
 import { blockOf, controls, findFirm, hurdle, offerPrice, quote, raiseCash, ready, rootOf, setChair, sharesOf } from './index.ts';
 
 export const LAID_OFF = 1, PROTECTED = 2, PROMOTED = 3, BETRAYED = 4, PARTNER = 5, SOLD = 6, PAID = 7, HIT = 8;
-const KIND = ['', 'laid off', 'protected', 'promoted', 'betrayed', 'partnered with', 'sold on', 'paid fairly', 'left holding the bill'];
-const VAL = [0, -1, 1, 1.2, -1.6, 1, -0.6, 0.35, -1];
+export const KIND = ['', 'laid off', 'protected', 'promoted', 'betrayed', 'partnered with', 'sold on', 'paid fairly', 'left holding the bill'];
+export const VAL = [0, -1, 1, 1.2, -1.6, 1, -0.6, 0.35, -1];
 export const ROLES = ['worker', 'union rep', 'manager', 'rival', 'journalist', 'partner', 'shareholder'];
 const R_WORKER = 0, R_UNION = 1, R_MANAGER = 2, R_RIVAL = 3, R_PRESS = 4, R_PARTNER = 5, R_HOLDER = 6;
 
 export interface Memo { who: number; by: number; firm: number; kind: number; role: number; day: number; ev: number; w: number; fired: number; out: number }
 interface Pledge { firm: number; who: number; cents: number; ev: number; called: boolean }
-interface Held { firm: number; by: number; day: number; ev: number; how: string }
+interface Held { firm: number; by: number; day: number; ev: number; how: string; partners?: number[] }
+export interface Choice { firm: number; by: number; day: number; ev: number; op: string }
 export interface OwnerState {
-  memos: Memo[]; pledges: Pledge[]; held: Held[];
+  memos: Memo[]; pledges: Pledge[]; held: Held[]; choices?: Choice[];
   cutDay: number[]; keepUntil: number[]; keepers: number[][];
   inherit: Record<number, number>; lastWho: number; heirEv: number; leaks: number; allies: number; witnesses: number; guarantees: number; cursor: number;
 }
@@ -104,8 +105,22 @@ function repOf(w: World, f: Firm): number {
   return u && u.leader >= 0 && econ(w).P.alive(u.leader) ? u.leader : -1;
 }
 
+/** Ask the banks in turn until the amount is met: one bank's room may cover only part of it. */
+export function borrowAll(w: World, person: number, cents: number, cause: number, product: Product = 'margin'): { taken: number; rate: number; why?: string } {
+  let taken = 0, rate = 0, why: string | undefined;
+  for (let n = 0; n < 8 && taken < cents; n++) {
+    const r = borrowMargin(w, person, cents - taken, cause, product);
+    if (r.taken < 1) { why = r.why; break; }
+    rate = taken > 0 ? (rate * taken + r.rate * r.taken) / (taken + r.taken) : r.rate;
+    taken += r.taken;
+  }
+  return { taken, rate, why };
+}
+
 /** Build a stake in the firm that employs you. how: savings, loan, partners or mbo. */
-export function buyIn(w: World, person: number, key: string, how: string, cents: number): Done {
+export function buyIn(w: World, person: number, key: string, howIn: string, cents: number, product: Product = 'margin'): Done {
+  const how = howIn === 'cash' ? 'savings' : howIn === 'margin' || howIn === 'line' ? 'loan' : howIn === 'buyout' ? 'mbo' : howIn;
+  if (howIn === 'line') product = 'line';
   const f = findFirm(w, key);
   const s = econ(w), P = s.P, L = w.ledger, c = ready(w), o = owner(w);
   if (!f) return { why: 'no such firm' };
@@ -126,7 +141,10 @@ export function buyIn(w: World, person: number, key: string, how: string, cents:
     if (how === 'loan') {
       const before = Math.floor(L.balance(pid, DEP));
       const need = cents - before;
-      if (need > 0) borrowMargin(w, person, need, ev);
+      if (need > 0) {
+        const got = borrowAll(w, person, need, ev, product);
+        if (got.taken < 1 && before < 1) return { why: `the bank will not lend: ${got.why ?? 'no collateral'}` };
+      }
       // keep a year of the interest in hand: a loan that eats your cash is how a buyer goes bankrupt
       reserve = Math.round(Math.max(0, Math.floor(L.balance(pid, DEP)) - before) * 0.25);
     }
@@ -134,13 +152,16 @@ export function buyIn(w: World, person: number, key: string, how: string, cents:
     budget = own;
     share.set(pid, own);
     if (how === 'partners') {
-      for (const ct of contactsOf(w, person)) {
-        if (partners.length >= 6 || ct.trust < 40 || !P.adult(w, ct.who)) continue;
-        const pledge = Math.floor(L.balance(P.id(ct.who), DEP) * 0.25);
-        if (pledge < 1000) continue;
-        partners.push(ct.who);
-        share.set(P.id(ct.who), pledge);
-        budget += pledge;
+      // The friends with the most to put in come first: a rich friend further down the list is still asked.
+      const asks = contactsOf(w, person)
+        .filter((ct) => ct.trust >= 35 && P.adult(w, ct.who))
+        .map((ct) => ({ who: ct.who, pledge: Math.floor(L.balance(P.id(ct.who), DEP) * 0.4) }))
+        .filter((a) => a.pledge >= 1000)
+        .sort((x, y) => y.pledge - x.pledge || x.who - y.who);
+      for (const a of asks.slice(0, 8)) {
+        partners.push(a.who);
+        share.set(P.id(a.who), a.pledge);
+        budget += a.pledge;
       }
       payers = [pid, ...partners.map((p) => P.id(p))];
     }
@@ -151,9 +172,13 @@ export function buyIn(w: World, person: number, key: string, how: string, cents:
     budget = Math.max(0, Math.min(cents, Math.floor(L.balance(f.id, DEP)) - floor));
     payers = [f.id];
     share.set(f.id, budget);
-  } else return { why: 'buy in with savings, loan, partners or mbo' };
+  } else return { why: 'buy in with cash, margin, partners or buyout' };
+  budget = Math.min(budget, Math.round(cents));
   if (budget < 1) return { why: 'you cannot raise anything' };
-  const mine = new Set<string>([pid, f.id, ...partners.map((p) => P.id(p))]);
+  // Partners from earlier buy-ins still stand with you: you do not buy from them, and their shares count towards the chair.
+  const crew = new Set<number>(partners);
+  for (const h of o.held) if (h.firm === f.idx && h.by === person) for (const p of h.partners ?? []) if (P.alive(p)) crew.add(p);
+  const mine = new Set<string>([pid, f.id, ...[...crew].map((p) => P.id(p))]);
   const sellers: { id: string; n: number; bar: number }[] = [];
   for (const [id, n] of L.holders('eq:' + f.id).entries()) {
     if (n <= 0 || mine.has(id)) continue;
@@ -208,16 +233,21 @@ export function buyIn(w: World, person: number, key: string, how: string, cents:
   for (const pt of partners) remember(w, pt, person, f, PARTNER, R_PARTNER, 1.2, ev);
   const issued = Math.max(1, Math.floor(L.issued.get('eq:' + f.id) ?? 0));
   const now = blockOf(w, person, f);
-  const together = now + partners.reduce((a, p) => a + have(P.id(p)), 0);
-  o.held.push({ firm: f.idx, by: person, day: w.day, ev, how });
-  const text = `${P.name(person)} buys ${got} shares of ${f.name} at ${dollars(px)} (${how}); holds ${now} of ${issued}`;
-  if (together * 2 > issued && !controls(w, person, f)) {
+  const together = now + [...crew].reduce((a, p) => a + have(P.id(p)), 0);
+  o.held.push({ firm: f.idx, by: person, day: w.day, ev, how, partners: partners.slice() });
+  const text = `${P.name(person)} buys ${got} shares of ${f.name} at ${dollars(px)} (${howIn}); holds ${now} of ${issued}`;
+  // A register with no big holder is run by whoever holds a clear lead: 30% and twice anyone else.
+  const outside = [...L.holders('eq:' + f.id).entries()].filter(([id]) => id !== pid && id !== f.id && ![...crew].some((p) => P.id(p) === id));
+  const biggest = outside.reduce((a, [, n]) => Math.max(a, n), 0);
+  const sway = together * 10 >= issued * 3 && together >= 2 * biggest;
+  if ((together * 2 > issued || sway) && !controls(w, person, f)) {
     setChair(c, f, person);
     const cev = w.events.emit('player.owner.control', `${P.name(person)} takes the chair of ${f.name}${partners.length ? ` with ${partners.length} partners from their circle` : ''}`, [ev], f.id);
     return { text: `${text}; the chair is yours`, eventId: cev };
   }
   if (controls(w, person, f)) return { text: `${text}; you control it`, eventId: ev };
-  return { text: `${text}; ${Math.max(0, Math.floor(issued / 2) + 1 - together)} more shares for control`, eventId: ev };
+  const need = Math.max(0, Math.min(Math.floor(issued / 2) + 1, Math.ceil(issued * 0.3)) - together);
+  return { text: `${text}; about ${need} more shares for the chair (30% with a clear lead, or half)`, eventId: ev };
 }
 
 /** Cut jobs. The lowest-skilled go first; workers, the union rep, the manager and the press all note it. */

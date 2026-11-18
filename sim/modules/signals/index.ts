@@ -338,3 +338,12 @@ export function signalsFor(w: World, seat: string, n = 20): Signal[] {
 export function consensusFor(w: World, issuer: string): Consensus | undefined {
   return (w.state.signals as SignalState | undefined)?.consensus[issuer];
 }
+/** Every published consensus, for a screen. */
+export function consensusAll(w: World): Consensus[] {
+  return Object.values((w.state.signals as SignalState | undefined)?.consensus ?? {});
+}
+/** Past reveals, newest first. */
+export function revealsOf(w: World, n = 40): Reveal[] {
+  const st = w.state.signals as SignalState | undefined;
+  return st ? st.reveals.slice(-n).reverse() : [];
+}

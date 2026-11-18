@@ -1,10 +1,12 @@
 // The player is one person in the same arrays as everyone else. They see only what they
 // know, and every order, loan and futures fill goes through the modules that already book it.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
-import { borrowBar, borrowMargin, depositSight, marginLimit, repayPerson, withdrawSight } from '../banking/index.ts';
+import { borrowBar, borrowMargin, creditTightness, depositSight, marginLimit, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
-import { appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
+import { blockOf, controls, sharesOf, appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
+import { KIND, ROLES, VAL, borrowAll, buyIn, cutJobs, dealUnion, owner, payOut, promote, protectJobs, refinance, cityMemory, regard, sellAssets } from '../corporate/owner.ts';
+import { consensusAll, revealsOf, signalsFor } from '../signals/index.ts';
 import { launchCoin, orderCoin } from '../crypto/index.ts';
 import { CEO_POSITION, GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
@@ -164,7 +166,10 @@ export type Command =
   | { kind: 'apply'; n: number }
   | { kind: 'quit' }
   | { kind: 'raise' }
-  | { kind: 'study'; field: string };
+  | { kind: 'study'; field: string }
+  | { kind: 'signals' }
+  | { kind: 'stake'; firm: string; cents: number; how: 'cash' | 'margin' | 'line' | 'partners' | 'buyout' }
+  | { kind: 'owner'; op: 'cut' | 'protect' | 'promote' | 'sell-division' | 'refinance' | 'payout' | 'union'; firm?: string; n?: number; person?: string; cents?: number; buyer?: string; fraction?: number; deal?: 'deal' | 'refuse'; guarantee?: boolean };
 
 export interface ActResult {
   status: 'accepted' | 'rejected';
@@ -235,6 +240,29 @@ export interface PlayerView {
   tutorial: TutorialView;
   /** Job changes since this seat was opened. `/view` carries them so the clock can stop. */
   interrupts: { why: string; text: string; eventId: number; cause: number }[];
+  /** The player's private readings of coming quarters, newest first. */
+  signals: SignalRow[];
+  /** The street's number for each listed firm's coming quarter. */
+  consensus: ConsensusRow[];
+  /** Prints that settled the player's signals, newest first. */
+  reveals: RevealRow[];
+  credit: CreditView;
+  /** Stakes the player holds in firms they bought into, with the choices made and who remembers them. */
+  stake: StakeView[];
+}
+
+export interface SignalRow { id: number; text: string; kind: string; clarity: number; clearWord: string; legal: string; legalLine: string; firm: string; issuer: string; day: number; age: number; outcome: string; eventId: number }
+export interface ConsensusRow { issuer: string; firm: string; profit: number; high: number; low: number; analysts: number; lagDays: number; hopeful: string; due: boolean; printInDays: number; employer: boolean; actual: number | null; surprise: number | null; eventId: number }
+export interface RevealRow { issuer: string; firm: string; day: number; consensus: number; actual: number; surprise: number; px: number; pxAfter: number; signals: number; right: number; story: string; storyRight: boolean; mine: { text: string; outcome: string }[]; eventId: number }
+export interface CreditView {
+  tightness: number; word: string; limit: number; owed: number; room: number;
+  products: { product: string; owed: number; rate: number; loans: number; open: boolean; note: string }[];
+}
+export interface StakeView {
+  firm: string; name: string; shares: number; issued: number; percent: number; value: number; controls: boolean; chair: boolean; how: string;
+  choices: { op: string; text: string; day: number; eventId: number }[];
+  remembers: { name: string; role: string; what: string; warm: boolean; acted: boolean; eventId: number }[];
+  city: string[];
 }
 
 const COMMANDS: { topic: string; name: string; use: string; about: string }[] = [
@@ -256,8 +284,8 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'bank', name: 'deposit', use: 'deposit 500', about: 'Place cash in a time deposit.\nThe amount is in dollars.' },
   { topic: 'bank', name: 'withdraw', use: 'withdraw 500', about: 'Take cash back from a time deposit.\nThe amount is in dollars.' },
   { topic: 'bank', name: 'sheet', use: 'sheet', about: 'Print the balance sheet.\nCash, deposits, shares, loans, futures and bonds.' },
-  { topic: 'bank', name: 'borrow', use: 'borrow 500', about: 'Open a margin account and borrow against shares.\nThe reply states the limit and the rate. sheet shows the loan.' },
-  { topic: 'bank', name: 'repay', use: 'repay 500', about: 'Repay a margin loan.\nThe amount is in dollars.' },
+  { topic: 'bank', name: 'borrow', use: 'borrow 500 line', about: 'Borrow against shares: borrow AMOUNT margin|line|term (margin if you name none).\nA line is cheap but the bank may not roll it in a crunch; a term loan is fixed for three years. A refusal says why.' },
+  { topic: 'bank', name: 'repay', use: 'repay 500', about: 'Repay your loans, margin first, then lines and term loans.\nThe amount is in dollars.' },
   { topic: 'property', name: 'homes', use: 'homes', about: 'List homes by neighbourhood, with price and rent.\nHomes you own are marked, and so is the one you live in.' },
   { topic: 'property', name: 'bid', use: 'bid 12', about: 'Bid for home 12 at the asking price, or bid 12 150000 to name dollars.\nA bank lends the shortfall on the same terms as for anyone. bid FIRM 2x cash is still a takeover bid.' },
   { topic: 'property', name: 'sell', use: 'sell 12', about: 'Sell home 12, which you own and do not live in.\nsell SYMBOL QTY still sells shares.' },
@@ -279,6 +307,15 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'company', name: 'ipo', use: 'ipo frm_north 0.4', about: 'Sell part of your stake to the public.\nThe fraction is at most 0.9.' },
   { topic: 'company', name: 'bid', use: 'bid frm_north 2x cash', about: 'Offer cash or shares for a firm.\nA number like 2x is a multiple of the last price. bid HOME is a house, not a firm.' },
   { topic: 'company', name: 'board', use: 'board list', about: 'List the firms you can direct.\nboard chief FIRM PERSON names any person. merge and sell move a firm you control.' },
+  { topic: 'owner', name: 'signals', use: 'signals', about: 'Read what your job, your friends and the street say about the quarters about to print.\nEach reading says how clear it is and whether trading on it is fair. The street number is beside it.' },
+  { topic: 'owner', name: 'stake', use: 'stake frm_salar 150000 partners', about: 'Buy into the firm you work for: stake FIRM DOLLARS cash|margin|line|partners|buyout.\npartners asks friends who trust you to pledge cash; buyout has the firm buy shares back once you hold some. Past half the shares, or 30% with twice anyone else, the chair is yours.' },
+  { topic: 'owner', name: 'cut', use: 'cut 5', about: 'Chair only: lay off the 5 lowest-skilled. Workers, the union rep and the press remember.\nPromised jobs broken are remembered worse.' },
+  { topic: 'owner', name: 'protect', use: 'protect', about: 'Chair only: pay every worker a week and promise no cuts for a year.\nIt costs the firm cash and binds you.' },
+  { topic: 'owner', name: 'promote', use: 'promote best', about: 'Chair only: put a worker in charge. promote best takes the most skilled; a contact slot or a full name also works.\nThe chief they passed over remembers.' },
+  { topic: 'owner', name: 'sell-division', use: 'sell-division 30', about: 'Chair only: sell part of the plant and its staff to the richest rival, to meet payroll.\nsell-division 30 FIRM names the percent and the buyer.' },
+  { topic: 'owner', name: 'refinance', use: 'refinance 20000', about: 'Chair only: borrow for the firm. Add guarantee and the bank lends double, with half your cash behind it.' },
+  { topic: 'owner', name: 'payout', use: 'payout 5000', about: 'Chair only: a special dividend to every holder.\nPeople you laid off this year will not forget it.' },
+  { topic: 'owner', name: 'union', use: 'union deal', about: 'Chair only: union deal meets the union at your plant; union refuse breaks with it.' },
   { topic: 'news', name: 'news', use: 'news', about: 'Show the stories you can read.\nPrivate lines are facts not yet in the paper.' },
   { topic: 'news', name: 'why', use: 'why cash', about: 'Show the cause of a number on the status line.\nwhy price NAME, why staff, why wage and why rate work too. why 41 still takes an event number.' },
   { topic: 'news', name: 'tip', use: 'tip 4', about: 'Give a paper a fact you know. The number is the fact on a private line.\nThat is the source a journalist prints.' },
@@ -403,6 +440,10 @@ function helpSituation(v: PlayerView, topic: string): string {
       return v.employer
         ? `You work at ${v.employer} (${v.firm}). Cash is ${cash}. Net worth is ${dollars(v.netWorth)}.`
         : `You have no employer. Cash is ${cash}. Net worth is ${dollars(v.netWorth)}.`;
+    case 'owner': {
+      const st = v.stake[0];
+      return st ? `You hold ${st.shares} of ${st.issued} shares of ${st.name} (${st.percent}%)${st.controls ? ' and chair it' : ', short of the chair'}.` : `You hold no stake in your employer. Cash is ${cash}.`;
+    }
     case 'news': {
       const n = v.news[v.news.length - 1];
       const s = v.story[v.story.length - 1];
@@ -1510,7 +1551,21 @@ function sheetLines(w: World, playerId: string): string[] {
   for (const c of v.coins) lines.push(`  ${c.name} ${c.qty} @ ${dollars(c.px)}  [${c.eventId}]`);
   for (const b of v.bonds) lines.push(`  ${b.instr} face ${dollars(b.face)}  [${b.eventId}]`);
   for (const l of v.stockLoans) lines.push(`  stock loan ${l.instr} ${l.qty} face ${dollars(l.face)}  [${l.eventId}]`);
+  for (const st of v.stake) lines.push(`  stake ${st.name} ${st.shares} of ${st.issued} shares (${st.percent}%)${st.controls ? ', you chair it' : ''}`);
   if (v.score.length) lines.push(`  score ${v.score.map((p) => `day ${p.day} ${dollars(p.worth)}`).join(', ')}`);
+  return lines;
+}
+
+function signalLines(w: World, playerId: string): string[] {
+  const v = view(w, playerId);
+  const lines: string[] = [];
+  if (!v.signals.length) lines.push('No readings yet. They come a week before the firms you can see print: your own job, friends who work at a printing firm, and the street.');
+  for (const s of v.signals.slice(0, 8)) {
+    lines.push(`[${s.eventId}] day ${s.age === 0 ? 'today' : s.age + ' ago'}, ${s.firm}: ${s.text}. ${s.clearWord} ${s.kind} reading${s.outcome === 'open' ? '' : ', ' + s.outcome}. ${s.legalLine}`);
+  }
+  const due = v.consensus.filter((c) => c.due).slice(0, 6);
+  for (const c of due) lines.push(`street: ${c.firm} expected to make ${dollars(c.profit)} (${dollars(c.low)} to ${dollars(c.high)}, ${c.analysts} analysts, books ${c.lagDays} days old, ${c.hopeful}), prints in ${c.printInDays} days`);
+  for (const r of v.reveals.slice(0, 3)) lines.push(`[${r.eventId}] ${r.firm} printed ${dollars(r.actual)} against ${dollars(r.consensus)}: ${r.right} of ${r.signals} of your readings pointed the right way`);
   return lines;
 }
 
@@ -1569,6 +1624,26 @@ function quoteLines(w: World, key: string): string[] | undefined {
   return lines;
 }
 
+/** The firm this person chairs or controls: their employer first, then any they hold a majority or the chair of. */
+function ownedFirm(w: World, i: number): Firm | undefined {
+  const s = econ(w);
+  const job = s.P.employer[i] >= 0 ? s.firms[s.P.employer[i]] : undefined;
+  if (job && !job.closed && controls(w, i, job)) return job;
+  for (const o of owner(w).held) {
+    const f = s.firms[o.firm];
+    if (f && !f.closed && o.by === i && controls(w, i, f)) return f;
+  }
+  return companyPosts(w, i).map((c) => firmByKey(w, c.id)).find((f) => f && controls(w, i, f));
+}
+
+/** The rival with the most cash in the same sector (any sector when it has no rival). */
+function richRival(w: World, f: Firm): Firm | undefined {
+  const s = econ(w);
+  const pool = s.firms.filter((o) => !o.closed && o.idx !== f.idx);
+  const same = pool.filter((o) => o.sector === f.sector);
+  return (same.length ? same : pool).sort((a, b) => w.ledger.balance(b.id, DEP) - w.ledger.balance(a.id, DEP) || a.idx - b.idx)[0];
+}
+
 function actSeat(w: World, playerId: string, cmd: Command): ActResult {
   const who = me(w, playerId);
   if (!isMe(who)) return who;
@@ -1577,7 +1652,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
   const dead = st.over || !P.alive(i);
   if (dead) {
     st.over = true;
-    if (cmd.kind !== 'news' && cmd.kind !== 'why' && cmd.kind !== 'help' && cmd.kind !== 'hints' && cmd.kind !== 'story' && cmd.kind !== 'sheet') return rejected(st.final || 'you have died');
+    if (cmd.kind !== 'news' && cmd.kind !== 'signals' && cmd.kind !== 'why' && cmd.kind !== 'help' && cmd.kind !== 'hints' && cmd.kind !== 'story' && cmd.kind !== 'sheet') return rejected(st.final || 'you have died');
   }
   switch (cmd.kind) {
     case 'order': {
@@ -1650,15 +1725,20 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
             cents = Math.max(1, Math.floor(cmd.cents * scene.loan));
           }
           const limit = marginLimit(w, i);
-          const r = borrowMargin(w, i, cents, cause, cmd.product ?? 'margin');
+          const r = borrowAll(w, i, cents, cause, cmd.product ?? 'margin');
           st.margin = true;
           const rate = r.rate > 0 ? r.rate : marginRate(w, i);
           const pct = (rate * 100).toFixed(2);
           const cap = '$' + (limit / 100).toFixed(2);
-          if (r.taken < 1) return { status: 'accepted', text: r.why ? `the bank will not lend: ${r.why}. Margin limit ${cap}` : `margin account open. The bank will lend up to ${cap} at ${pct}%` };
+          if (r.taken < 1) {
+            const product = cmd.product ?? 'margin';
+            if (!r.why) return { status: 'accepted', text: `margin account open. The bank will lend up to ${cap} at ${pct}%` };
+            const bar = limit < 100 && !/court|stopped|margin call|dead|not writing/.test(r.why) ? 'not enough collateral: hold shares first, the bank lends against them' : r.why;
+            return rejected(`no ${product === 'line' ? 'credit line' : product === 'term' ? 'term loan' : 'margin loan'}: ${bar}. Limit ${cap}`);
+          }
           const grant = w.events.last('loan.grant');
           if (grant !== undefined && grant >= 0) rememberMove(st, grant, r.taken, w.day, 'pay');
-          return { status: 'accepted', fill: r.taken, eventId: grant, text: `borrowed ${(r.taken / 100).toFixed(2)} at ${pct}%. Limit ${cap}. Margin account open` };
+          return { status: 'accepted', fill: r.taken, eventId: grant, text: `borrowed ${(r.taken / 100).toFixed(2)} on a ${cmd.product === 'line' ? 'credit line' : cmd.product === 'term' ? 'term loan' : 'margin loan'} at ${pct}%. Limit ${cap}${cmd.product === 'line' ? '. A line is cheap but the bank may not roll it in a crunch' : cmd.product === 'term' ? '. Fixed for three years' : '. Margin account open'}` };
         }
         case 'repay': {
           const n = repayPerson(w, i, cmd.cents, cause);
@@ -2087,6 +2167,44 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     case 'introduce':
     case 'mail':
       return circleAct(w, i, id, cmd);
+    case 'signals': return { status: 'accepted', lines: signalLines(w, playerId) };
+    case 'stake': {
+      const f = firmByKey(w, cmd.firm);
+      if (!f) return rejected(`no firm ${cmd.firm}. Try stake FIRM DOLLARS cash|margin|partners|buyout`);
+      const r = buyIn(w, i, f.id, cmd.how, cmd.cents, cmd.how === 'line' ? 'line' : 'margin');
+      if ('why' in r) return rejected(r.why);
+      return { status: 'accepted', eventId: r.eventId, text: r.text };
+    }
+    case 'owner': {
+      const f = cmd.firm ? firmByKey(w, cmd.firm) : ownedFirm(w, i);
+      if (!f) return rejected(cmd.firm ? `no firm ${cmd.firm}` : 'you do not chair a firm yet: build a stake first, stake FIRM DOLLARS');
+      let r: { why: string } | { text: string; eventId: number };
+      switch (cmd.op) {
+        case 'cut': r = cutJobs(w, i, f.id, cmd.n ?? 0); break;
+        case 'protect': r = protectJobs(w, i, f.id); break;
+        case 'promote': {
+          const tok = (cmd.person ?? '').trim().toLowerCase();
+          const P = econ(w).P;
+          const best = [...f.staff].filter((k) => k !== i && k !== f.ceo).sort((a, b) => P.skill[b] - P.skill[a] || a - b)[0];
+          const who = tok === '' || tok === 'best' ? best : resolvePerson(w, i, cmd.person ?? '');
+          r = who === undefined ? { why: 'promote whom? name a worker, or promote best for the most skilled' } : promote(w, i, f.id, who);
+          break;
+        }
+        case 'sell-division': {
+          const buyer = cmd.buyer ? firmByKey(w, cmd.buyer) : richRival(w, f);
+          r = !buyer ? { why: 'no rival firm can pay for a division' } : sellAssets(w, i, f.id, buyer.id, cmd.fraction ?? 0.3);
+          break;
+        }
+        case 'refinance': r = refinance(w, i, f.id, cmd.cents ?? 0, cmd.guarantee === true); break;
+        case 'payout': r = payOut(w, i, f.id, cmd.cents ?? 0); break;
+        case 'union': r = dealUnion(w, i, f.id, cmd.deal === 'refuse' ? 'break' : 'concede'); break;
+        default: return rejected('unknown owner choice');
+      }
+      if ('why' in r) return rejected(r.why);
+      const oo = owner(w);
+      (oo.choices ??= []).push({ firm: f.idx, by: i, day: w.day, ev: r.eventId, op: cmd.op });
+      return { status: 'accepted', eventId: r.eventId, text: r.text };
+    }
     case 'jobs':
     case 'apply':
     case 'quit':
@@ -2258,7 +2376,100 @@ export function view(w: World, playerId?: string): PlayerView {
     story: storyLines(st),
     tutorial: tutorialOf(w, st, i),
     interrupts: st.jobNotes.map((n) => ({ why: n.why, text: n.text, eventId: n.eventId, cause: n.cause })),
+    ...edgeOf(w, i, key ?? ''),
+    credit: creditOf(w, i, loans),
+    stake: stakesOf(w, i),
   };
+}
+
+function tightWord(t: number): string { return t < 0.25 ? 'easy' : t < 0.5 ? 'steady' : t < 0.8 ? 'tight' : 'shut'; }
+
+function edgeOf(w: World, i: number, id: string): Pick<PlayerView, 'signals' | 'consensus' | 'reveals'> {
+  if (i < 0) return { signals: [], consensus: [], reveals: [] };
+  const sigs = signalsFor(w, id, 30);
+  const signals: SignalRow[] = sigs.map((x) => ({
+    id: x.id, text: x.text, kind: x.kind, clarity: x.clarity, clearWord: x.clearWord, legal: x.legal, legalLine: x.legalLine,
+    firm: x.name, issuer: x.issuer, day: x.day, age: w.day - x.day, outcome: x.outcome, eventId: x.event,
+  }));
+  const s = econ(w), P = s.P;
+  const job = P.employer[i] >= 0 ? s.firms[P.employer[i]] : undefined;
+  const month = w.day % 30;
+  const consensus: ConsensusRow[] = consensusAll(w).map((c) => {
+    const due = c.actual === null && w.day - c.day < 30;
+    return {
+      issuer: c.issuer, firm: c.name, profit: c.profit, high: c.high, low: c.low, analysts: c.analysts, lagDays: c.lagDays,
+      hopeful: c.tilt > 0.02 ? 'runs hopeful' : c.tilt < -0.02 ? 'runs cautious' : 'about right',
+      due, printInDays: due ? Math.max(0, 29 - month) : -1, employer: !!job && c.firm === job.name, actual: c.actual, surprise: c.surprise, eventId: c.event >= 0 ? c.event : w.genesis,
+    };
+  }).sort((a, b) => Number(b.employer) - Number(a.employer) || Number(b.due) - Number(a.due) || (a.firm < b.firm ? -1 : 1));
+  const mineReports = new Set(sigs.filter((x) => x.report >= 0).map((x) => x.report));
+  const reveals: RevealRow[] = revealsOf(w, 80).filter((r) => mineReports.has(r.event)).slice(0, 12).map((r) => ({
+    issuer: r.issuer, firm: r.name, day: r.day, consensus: r.consensus, actual: r.actual, surprise: r.surprise, px: r.px, pxAfter: r.pxAfter,
+    signals: r.signals, right: r.right, story: r.story, storyRight: r.storyRight,
+    mine: sigs.filter((x) => x.report === r.event).map((x) => ({ text: x.text, outcome: x.outcome })), eventId: r.event,
+  }));
+  return { signals, consensus, reveals };
+}
+
+function creditOf(w: World, i: number, loans: PlayerView['loans']): CreditView {
+  const tight = creditTightness(w);
+  const limit = i >= 0 ? marginLimit(w, i) : 0;
+  const by = new Map<string, { owed: number; rate: number; loans: number }>();
+  for (const l of loans) {
+    if (l.kind !== 'margin' && l.kind !== 'credit line' && l.kind !== 'term loan') continue;
+    const row = by.get(l.kind) ?? { owed: 0, rate: 0, loans: 0 };
+    row.rate = (row.rate * row.owed + l.rate * l.owed) / Math.max(1, row.owed + l.owed);
+    row.owed += l.owed; row.loans++;
+    by.set(l.kind, row);
+  }
+  const owed = [...by.values()].reduce((a, r) => a + r.owed, 0);
+  const row = (product: string, open: boolean, note: string): CreditView['products'][number] => {
+    const r = by.get(product) ?? { owed: 0, rate: 0, loans: 0 };
+    return { product, owed: r.owed, rate: +r.rate.toFixed(4), loans: r.loans, open, note };
+  };
+  return {
+    tightness: +tight.toFixed(2), word: tightWord(tight), limit, owed, room: Math.max(0, limit - owed),
+    products: [
+      row('margin', tight < 0.9, 'floats, and is called when the shares slip'),
+      row('credit line', tight < 0.5, tight < 0.5 ? 'cheaper, but due every quarter and not rolled in a crunch' : 'lenders are not writing credit lines now'),
+      row('term loan', tight < 0.8, 'deeper haircut, fixed for three years, not called while paid'),
+    ],
+  };
+}
+
+function stakesOf(w: World, i: number): StakeView[] {
+  if (i < 0) return [];
+  const s = econ(w), P = s.P, o = owner(w), id = P.id(i);
+  const mine = (by: number): boolean => by === i || o.inherit[i] === by;
+  const firms = new Set<number>();
+  for (const h of o.held) if (mine(h.by)) firms.add(h.firm);
+  const out: StakeView[] = [];
+  for (const fi of firms) {
+    const f = s.firms[fi];
+    if (!f || f.closed) continue;
+    const have = Math.floor(w.ledger.balance(id, 'eq:' + f.id));
+    if (have < 1) continue;
+    const issued = Math.max(1, Math.floor(w.ledger.issued.get('eq:' + f.id) ?? 0));
+    const px = f.listed ? Math.round(f.price) : 0;
+    const bought = o.held.filter((h) => h.firm === fi && mine(h.by)).map((h) => ({ op: `stake ${h.how}`, text: w.events.get(h.ev)?.msg ?? 'bought in', day: h.day, eventId: h.ev }));
+    const choices = [...bought, ...(o.choices ?? []).filter((c) => c.firm === fi && mine(c.by)).map((c) => ({ op: c.op, text: w.events.get(c.ev)?.msg ?? c.op, day: c.day, eventId: c.ev }))].sort((x, y) => x.day - y.day || x.eventId - y.eventId).slice(-12);
+    const memos = o.memos.filter((m) => m.firm === fi && mine(m.by) && P.alive(m.who)).sort((a, b) => Math.abs(VAL[b.kind] * b.w) - Math.abs(VAL[a.kind] * a.w) || a.day - b.day);
+    const seen = new Set<number>();
+    const remembers: StakeView['remembers'] = [];
+    for (const m of memos) {
+      if (seen.has(m.who) || remembers.length >= 8) continue;
+      seen.add(m.who);
+      remembers.push({ name: P.name(m.who), role: ROLES[m.role] ?? 'person', what: KIND[m.kind] ?? '', warm: regard(w, m.who, i) >= 0, acted: m.out >= 0, eventId: m.ev });
+    }
+    const held = o.held.find((h) => h.firm === fi && mine(h.by));
+    const ctl = controls(w, i, f);
+    out.push({
+      firm: f.id, name: f.name, shares: have, issued, percent: +(have / issued * 100).toFixed(1), value: have * (px > 0 ? px : 0),
+      controls: ctl, chair: ctl, how: held?.how ?? '', choices, remembers, city: [],
+    });
+  }
+  if (out.length) out[0].city = cityMemory(w, i);
+  return out;
 }
 
 export const player: Module = {

@@ -103,8 +103,47 @@ export function parseCommand(line: string, employer: string): Command | { error:
   if (head === 'launch') return { kind: 'launch' };
   if (head === 'deposit' || head === 'withdraw' || head === 'borrow' || head === 'repay') {
     const cents = t[1] ? centsOf(t[1]) : undefined;
-    if (!cents) return { error: `usage: ${head} DOLLARS` };
+    if (!cents) return { error: head === 'borrow' ? 'usage: borrow DOLLARS [margin|line|term]' : `usage: ${head} DOLLARS` };
+    if (head === 'borrow' && t[2]) {
+      const product = t[2].toLowerCase();
+      if (product !== 'margin' && product !== 'line' && product !== 'term') return { error: 'borrow on margin, line or term' };
+      return { kind: 'cash', op: head, cents, product };
+    }
     return { kind: 'cash', op: head, cents };
+  }
+  if (head === 'signals') return { kind: 'signals' };
+  if (head === 'stake') {
+    const bare = !!t[1] && centsOf(t[1]) !== undefined && !/^frm_/.test(t[1]);
+    const firm = bare ? employer : t[1];
+    const cents = bare ? centsOf(t[1]) : t[2] ? centsOf(t[2]) : undefined;
+    const how = (bare ? t[2] : t[3])?.toLowerCase() ?? 'cash';
+    if (!firm || !cents) return { error: 'usage: stake FIRM DOLLARS [cash|margin|line|partners|buyout]' };
+    if (how !== 'cash' && how !== 'margin' && how !== 'line' && how !== 'partners' && how !== 'buyout') return { error: 'pay with cash, margin, line, partners or buyout' };
+    return { kind: 'stake', firm, cents, how };
+  }
+  if (head === 'cut') {
+    const n = Number(t[1]);
+    if (!Number.isSafeInteger(n) || n < 1) return { error: 'usage: cut N (the number of jobs)' };
+    return { kind: 'owner', op: 'cut', n };
+  }
+  if (head === 'protect') return { kind: 'owner', op: 'protect' };
+  if (head === 'promote') {
+    return { kind: 'owner', op: 'promote', person: t.slice(1).join(' ') || 'best' };
+  }
+  if (head === 'sell-division') {
+    const pct = t[1] && /^\d+(\.\d+)?%?$/.test(t[1]) ? Number(t[1].replace('%', '')) : undefined;
+    const buyer = pct !== undefined ? t[2] : t[1];
+    return { kind: 'owner', op: 'sell-division', fraction: pct !== undefined ? pct / 100 : undefined, buyer };
+  }
+  if (head === 'refinance' || head === 'payout') {
+    const cents = t[1] ? centsOf(t[1]) : undefined;
+    if (!cents) return { error: `usage: ${head} DOLLARS${head === 'refinance' ? ' [guarantee]' : ''}` };
+    return { kind: 'owner', op: head, cents, guarantee: t[2]?.toLowerCase() === 'guarantee' };
+  }
+  if (head === 'union') {
+    const deal = t[1]?.toLowerCase();
+    if (deal !== 'deal' && deal !== 'refuse') return { error: 'usage: union deal | union refuse' };
+    return { kind: 'owner', op: 'union', deal };
   }
   if (head === 'talk') {
     const slot = Number(t[1]);
@@ -397,6 +436,10 @@ function summary(v: PlayerView): string[] {
   const news = v.news.slice(-3);
   if (news.length) lines.push('  news: ' + news.map((n) => `[${n.eventId}] ${n.text}`).join(' | '));
   if (v.private.length) lines.push('  private: ' + v.private.map((p) => `[${p.eventId}] ${p.from} day ${p.day}: ${p.text}`).join(' | '));
+  for (const s of v.stake ?? []) lines.push(`  stake: ${s.name} ${s.shares} of ${s.issued} (${s.percent}%)${s.controls ? ', you chair it' : ''}${s.choices.length ? '; choices ' + s.choices.map((c) => c.op).join(', ') : ''}${s.remembers.length ? '; remembered by ' + s.remembers.slice(0, 3).map((r) => `${r.name} (${r.role}, ${r.what})`).join(', ') : ''}`);
+  if (v.credit && v.credit.limit > 0) lines.push(`  credit: ${v.credit.word}, room ${dollars(v.credit.room)} of ${dollars(v.credit.limit)}`);
+  const open = (v.signals ?? []).filter((s) => s.outcome === 'open');
+  if (open.length) lines.push(`  signals: ${open.length} unread readings (signals)`);
   if (v.companies.length) lines.push('  companies: ' + v.companies.map((c) => `${c.role} ${c.name}, ${c.workers} workers, cash ${dollars(c.cash)}, sales ${dollars(c.sales)}, profit ${dollars(c.profit)}, ${c.listed ? 'listed' : 'private'}`).join(' | '));
   if (v.contacts.length) lines.push('  contacts: ' + v.contacts.map((c) => `${c.slot} ${c.name.split(' ')[0]} ${c.line}`).join(' | '));
   if (v.choices?.length) lines.push('  choices: ' + v.choices.map((c) => `${c.id}${c.left ? ` (${c.left}d)` : ''}`).join(', '));

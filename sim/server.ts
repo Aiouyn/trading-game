@@ -159,9 +159,54 @@ function commandOf(body: unknown): Command | string {
     case 'launch': return { kind: 'launch' };
     case 'cash': {
       if (b.op !== 'deposit' && b.op !== 'withdraw' && b.op !== 'borrow' && b.op !== 'repay') return 'cash op must be deposit, withdraw, borrow or repay';
-      const cents = whole(b.cents, 1);
+      const cents = whole(b.cents ?? b.amount, 1);
       if (cents === undefined) return 'amount must be a positive number of cents';
-      return { kind: 'cash', op: b.op, cents };
+      if (b.product !== undefined && b.product !== 'margin' && b.product !== 'line' && b.product !== 'term') return 'product must be margin, line or term';
+      if (b.product !== undefined && b.op !== 'borrow') return 'only borrow takes a product';
+      return b.product !== undefined ? { kind: 'cash', op: b.op, cents, product: b.product } : { kind: 'cash', op: b.op, cents };
+    }
+    case 'signals': return { kind: 'signals' };
+    case 'stake': {
+      if (typeof b.firm !== 'string' || !b.firm) return 'stake needs a firm';
+      const cents = whole(b.cents ?? b.amount, 1);
+      if (cents === undefined) return 'amount must be a positive number of cents';
+      const how = b.how === undefined ? 'cash' : b.how;
+      if (how !== 'cash' && how !== 'margin' && how !== 'line' && how !== 'partners' && how !== 'buyout') return 'how is cash, margin, line, partners or buyout';
+      return { kind: 'stake', firm: b.firm, cents, how };
+    }
+    case 'owner': {
+      const ops = ['cut', 'protect', 'promote', 'sell-division', 'refinance', 'payout', 'union'];
+      if (typeof b.op !== 'string' || !ops.includes(b.op)) return 'owner op is cut, protect, promote, sell-division, refinance, payout or union';
+      const cmd: Command = { kind: 'owner', op: b.op as 'cut' };
+      if (typeof b.firm === 'string' && b.firm) cmd.firm = b.firm;
+      if (b.op === 'cut') {
+        const n = whole(b.n, 1);
+        if (n === undefined) return 'cut needs n, a number of jobs';
+        cmd.n = n;
+      }
+      if (b.op === 'promote') {
+        const who = typeof b.person === 'string' ? b.person.trim() : b.slot !== undefined ? String(b.slot) : 'best';
+        cmd.person = who || 'best';
+      }
+      if (b.op === 'sell-division') {
+        if (typeof b.buyer === 'string' && b.buyer) cmd.buyer = b.buyer;
+        if (b.fraction !== undefined) {
+          const fr = Number(b.fraction);
+          if (!Number.isFinite(fr) || fr <= 0 || fr > 1) return 'fraction is between 0 and 1';
+          cmd.fraction = fr;
+        }
+      }
+      if (b.op === 'refinance' || b.op === 'payout') {
+        const cents = whole(b.cents ?? b.amount, 1);
+        if (cents === undefined) return 'amount must be a positive number of cents';
+        cmd.cents = cents;
+        if (b.guarantee === true) cmd.guarantee = true;
+      }
+      if (b.op === 'union') {
+        if (b.deal !== 'deal' && b.deal !== 'refuse') return 'union deal is deal or refuse';
+        cmd.deal = b.deal;
+      }
+      return cmd;
     }
     case 'talk': {
       const slot = whole(b.slot, 0);

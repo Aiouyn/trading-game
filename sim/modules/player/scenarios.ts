@@ -11,7 +11,10 @@ import { joinFirm, labourOf, leaveJob, retargetLabour } from '../economy/people.
 import { simulate } from '../history/boot.ts';
 import { applySnapshot, snapshotSeed } from '../history/save.ts';
 import { markHolding } from '../markets/index.ts';
-import { contactsOf, seatPerson } from '../social/index.ts';
+import { contactsOf, nudgeLink, seatPerson } from '../social/index.ts';
+import { marginLimit } from '../banking/index.ts';
+import { owner } from '../corporate/owner.ts';
+import { deskOf } from '../earnings/index.ts';
 import { challengeOf } from '../history/commands.ts';
 import { playerChronicle } from '../history/story.ts';
 import { openWorld } from '../../run.ts';
@@ -27,6 +30,7 @@ type Goal =
   | { kind: 'crash' }
   | { kind: 'turn'; firm: string; days: number }
   | { kind: 'homes'; count: number }
+  | { kind: 'decide'; firm: string }
   | { kind: 'none' };
 
 type Kin = 'none' | 'spouse' | 'child';
@@ -104,6 +108,9 @@ export interface ScenarioRun {
   /** Written when the outcome is set, from the world at that moment. */
   closing?: string;
   continueAfter: boolean;
+  /** employer-week: the friend whose money is on offer, and the cash they keep ready for the first two months. */
+  friend?: number;
+  floor?: number;
 }
 
 export interface ScenarioCard {
@@ -257,6 +264,73 @@ function loadOne(r: RawReader): ScenarioDef {
 
 const catalog: ScenarioDef[] = loadRaws(process.env.SIM_CONTENT ?? contentDir).filter((raw) => raw.type === 'SCENARIO').map((raw) => loadOne(new RawReader(raw)));
 
+const EMPLOYER_WEEK: ScenarioDef = {
+  id: 'employer-week', name: 'Employer week',
+  story: ['You work at a small listed firm with a quarter about to print. A friend in finance has a head start on what the street thinks, the bank will write you a credit line against your shares, and the board cannot decide between selling a division and laying people off. A stake would let you decide.'],
+  age: 34, cash: 40000, job: 'small', family: 'none', kin: ['none', 'spouse'], contacts: 6, holdings: {}, inherit: false,
+  seed: '3', years: 1, world: '', goal: { kind: 'decide', firm: '' }, limit: 360, loan: 1, regulator: 1, rivals: 1, beginner: false, hints: {},
+  shock: '', shockIn: 0, twist: '', twistIn: 0, debt: 0, debtPct: 0, keepPlaying: false,
+};
+catalog.push(EMPLOYER_WEEK);
+
+/** The economy lets go, and poaches, whoever joined a firm last. A person put at the front of the list keeps the desk for the week. */
+function shelter(s: EconState, person: number, f: Firm): void {
+  const P = s.P, k = P.staffPos[person], first = f.staff[0];
+  if (P.employer[person] !== f.idx || k < 1 || first === undefined) return;
+  f.staff[0] = person; f.staff[k] = first;
+  P.staffPos[person] = 0; P.staffPos[first] = k;
+}
+
+function decided(w: World, person: number, firmId: string): boolean {
+  const f = firmBy(w, firmId);
+  if (!f || f.closed || !controls(w, person, f)) return false;
+  return (owner(w).choices ?? []).some((c) => c.firm === f.idx && c.by === person);
+}
+
+/** Cheapest listed firm with a real staff whose quarter prints this month. */
+function smallListed(w: World): Firm | undefined {
+  const rows = operating(w).filter((f) => f.listed && f.workers >= 8 && sharePx(w, f.id) >= 500);
+  const cap = (f: Firm): number => sharePx(w, f.id) * (w.ledger.issued.get('eq:' + f.id) ?? 0);
+  rows.sort((a, b) => cap(a) - cap(b) || (a.id < b.id ? -1 : 1));
+  return rows.find((f) => f.idx % 3 === w.month % 3) ?? rows[0];
+}
+
+/**
+ * The week before the print. Savings and a friend's money are scaled to what control of this firm costs, so the way
+ * in is savings, a credit line and a friend, not a legacy. Nothing here touches the firm's own books.
+ */
+function stageEmployerWeek(w: World, i: number, cause: number): { friend: number; floor: number } {
+  const s = econ(w), P = s.P, pid = P.id(i);
+  const none = { friend: -1, floor: 0 };
+  const f = P.employer[i] >= 0 ? s.firms[P.employer[i]] : undefined;
+  if (!f) return none;
+  const px = sharePx(w, f.id);
+  const issued = Math.floor(w.ledger.issued.get('eq:' + f.id) ?? 0);
+  const cost = Math.round(0.3 * issued * px * 1.12);
+  setCash(w, pid, Math.max(1_500_000, Math.min(6_000_000, Math.round(cost * 0.3))), cause);
+  // Shares in two big names: what the credit line is lent against.
+  const big = operating(w).filter((o) => o.listed && o.idx !== f.idx && sharePx(w, o.id) > 0)
+    .sort((a, b) => sharePx(w, b.id) * (w.ledger.issued.get('eq:' + b.id) ?? 0) - sharePx(w, a.id) * (w.ledger.issued.get('eq:' + a.id) ?? 0) || (a.id < b.id ? -1 : 1));
+  const stock = Math.max(2_500_000, Math.min(6_000_000, Math.round(cost * 0.35)));
+  for (const o of big.slice(0, 2)) giveStake(w, i, o, stock / 200, 0.01, cause);
+  // A friend from your circle who now works at a firm that prints this month, and has money to put behind you.
+  const printing = operating(w).filter((o) => o.listed && o.idx !== f.idx && o.idx % 3 === w.month % 3 && o.staff.length >= 5);
+  const pick = printing.find((o) => o.sector === 'FINANCE') ?? printing[0];
+  const mates = contactsOf(w, i).filter((c) => c.who >= 0 && P.alive(c.who) && P.adult(w, c.who) && P.employer[c.who] !== f.idx);
+  const friend = mates.sort((a, b) => b.trust - a.trust || w.ledger.balance(P.id(b.who), DEP) - w.ledger.balance(P.id(a.who), DEP) || a.who - b.who)[0];
+  if (!friend || !pick) return none;
+  const seats = new Set(deskOf(w, pick.idx));
+  const who = seats.has(friend.who) || pick.ceo === friend.who ? undefined : friend.who;
+  if (who === undefined) return none;
+  joinFirm(s, who, pick);
+  shelter(s, who, pick);
+  const floor = Math.max(5_000_000, Math.min(40_000_000, Math.round(cost * 1.5 / 0.4)));
+  setCash(w, P.id(who), floor, cause);
+  nudgeLink(w, i, who, 40);
+  w.events.emit('player.scenario', `${P.name(who)}, who used to work beside ${P.name(i)} at ${f.name}, now works at ${pick.name} and keeps money to spare`, [cause], P.id(who));
+  return { friend: who, floor };
+}
+
 function aan(phrase: string): string {
   return /^[aeiou]/i.test(phrase) ? `an ${phrase}` : `a ${phrase}`;
 }
@@ -292,6 +366,7 @@ function goalText(g: Goal): string {
     case 'crash': return 'survive the crash';
     case 'turn': return g.firm ? `keep the seat at ${g.firm} with ${g.days} days of wages in the box` : `keep the seat with ${g.days} days of wages in the box`;
     case 'homes': return `own ${g.count} ${g.count === 1 ? 'home' : 'homes'} and stay solvent`;
+    case 'decide': return g.firm ? `take the chair at ${g.firm} and make the hard choice yourself` : 'take the chair at your employer and make the hard choice yourself';
     case 'none': return 'no goal';
     default: {
       const never: never = g;
@@ -415,6 +490,7 @@ function copyGoal(g: Goal): Goal {
     case 'dynasty': return { kind: 'dynasty', generations: g.generations };
     case 'turn': return { kind: 'turn', firm: g.firm, days: g.days };
     case 'homes': return { kind: 'homes', count: g.count };
+    case 'decide': return { kind: 'decide', firm: g.firm };
     case 'office': return { kind: 'office' };
     case 'crash': return { kind: 'crash' };
     case 'none': return { kind: 'none' };
@@ -646,6 +722,18 @@ function openingOf(w: World, def: ScenarioDef, person: number, worthCents: numbe
       const sector = def.goal.kind === 'sector' ? def.goal.sector : 'a sector';
       return `${name} is ${age} with ${cash} and no job, treating ${sector} as a sector rather than one gate. ${clock} The goal is ${goal}.`;
     }
+    case 'employer-week': {
+      const f = P.employer[person] >= 0 ? econ(w).firms[P.employer[person]] : undefined;
+      if (!f) return `${name} is ${age} with ${cash} and no job.`;
+      const weekly = Math.max(1, f.eff * econ(w).wage * 7);
+      const weeks = Math.floor(w.ledger.balance(f.id, DEP) / weekly);
+      const px = sharePx(w, f.id);
+      const issued = Math.floor(w.ledger.issued.get('eq:' + f.id) ?? 0);
+      const friend = contactsOf(w, person).map((c) => c.who).filter((x) => x >= 0 && P.alive(x) && P.employer[x] >= 0 && P.employer[x] !== f.idx).sort((a, b) => w.ledger.balance(P.id(b), DEP) - w.ledger.balance(P.id(a), DEP))[0];
+      const mate = friend !== undefined ? `${P.name(friend)} (now at ${econ(w).firms[P.employer[friend]].name}) has money and a head start on the street` : 'nobody in your circle has money to spare';
+      const line = marginLimit(w, person);
+      return `${name}, ${age}, works at ${f.name}: ${f.workers} staff, ${money(Math.floor(w.ledger.balance(f.id, DEP)))} in the cash box (${weeks} weeks of payroll), shares at ${money(px)} (${issued.toLocaleString('en-US')} issued). Its quarter prints at the end of the month. ${cash} in the book, and the bank will lend up to ${money(line)} against your shares. ${mate}. The board cannot agree: sell a division, or lay people off. Whoever holds the chair decides. ${clock} The goal is ${goal}.`;
+    }
     case 'sandbox': {
       const loan = def.loan / difficulty;
       const regulator = def.regulator * difficulty;
@@ -763,6 +851,9 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
       joinFirm(s, i, seated);
       giveStake(w, i, seated, 40_000, 0.01, cause);
     }
+  } else if (def.job === 'small') {
+    const small = smallListed(w);
+    if (small) { joinFirm(s, i, small); shelter(s, i, small); }
   } else if (def.job !== 'any') {
     const namedFirm = firmBy(w, def.job);
     if (namedFirm) joinFirm(s, i, namedFirm);
@@ -786,12 +877,14 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
   const d = opts?.difficulty && opts.difficulty > 0 ? opts.difficulty : 1;
   const dollars = opts?.cash !== undefined && Number.isFinite(opts.cash) && opts.cash >= 0 ? opts.cash : def.cash;
   setCash(w, pid, Math.round(dollars * 100), cause);
+  const staged = def.id === 'employer-week' ? stageEmployerWeek(w, i, cause) : undefined;
   if (def.debtPct > 0 && stake > 0) owePlayer(w, pid, Math.round(stake * def.debtPct), 'player.heir', cause);
   else if (def.debt > 0) owePlayer(w, pid, def.debt, 'player.heir', cause);
   const owed = claimOf(w, pid);
   if (owed > 0) w.events.emit('player.heir', `${P.name(i)} owes ${money(owed)} that is not cash in the book`, [cause], pid);
   const goal = copyGoal(def.goal);
   if (goal.kind === 'turn' && seated) goal.firm = seated.id;
+  if (goal.kind === 'decide' && P.employer[i] >= 0) goal.firm = s.firms[P.employer[i]].id;
   if (goal.kind === 'firm' && (!goal.firm || goal.firm === '*')) {
     const cashNow = Math.floor(w.ledger.balance(pid, DEP));
     const target = pickOf(activistPool(w, cashNow), seed, def.id, 'target');
@@ -851,6 +944,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     opening: openingOf(w, def, i, opened, d, goal, seed),
     continueAfter: def.keepPlaying,
   };
+  if (staged && staged.friend >= 0) { run.friend = staged.friend; run.floor = staged.floor; }
   w.state.scenario = run;
   rememberJob(w);
 }
@@ -931,6 +1025,7 @@ function met(w: World, sc: ScenarioRun, person: number): boolean {
     case 'crash': return crashSurvived(w, sc);
     case 'homes': return view(w).homes.filter((h) => h.mine).length >= g.count && worthNow(w) > 0;
     case 'turn': return turnMet(w, person, g.firm, g.days);
+    case 'decide': return decided(w, person, g.firm);
     default: {
       const never: never = g;
       return never;
@@ -949,6 +1044,7 @@ function reasonOf(sc: ScenarioRun, result: 'win' | 'loss'): string {
     case 'crash': return result === 'win' ? 'You came through the crisis solvent.' : 'You did not come through the crisis.';
     case 'homes': return result === 'win' ? `You own ${g.count} ${g.count === 1 ? 'home' : 'homes'}.` : `You do not own ${g.count} ${g.count === 1 ? 'home' : 'homes'}.`;
     case 'turn': return result === 'win' ? `The cash box holds ${g.days} days of wages and you still have the seat.` : `The cash box never held ${g.days} days of wages while you kept the seat.`;
+    case 'decide': return result === 'win' ? 'You took the chair and made the choice yourself.' : 'You never took the chair and decided.';
     case 'none': return 'There was no goal.';
     default: {
       const never: never = g;
@@ -1214,9 +1310,20 @@ function drawRetained(w: World, sc: ScenarioRun): void {
   w.events.emit('player.draw', `${s.P.name(st.who)} draws ${money(cents)} from ${f.name} for keeping the seat`, [cause], pid);
 }
 
+/** Rich people put idle cash into shares within days. The friend's offer stands for two months, or until you have bought in. */
+function keepFriend(w: World, sc: ScenarioRun): void {
+  if (sc.friend === undefined || sc.friend < 0 || !sc.floor || w.day >= sc.begun + 60) return;
+  const P = econ(w).P;
+  if (!P.alive(sc.friend) || owner(w).held.some((h) => h.by === sc.who)) return;
+  const fid = P.id(sc.friend);
+  const have = Math.floor(w.ledger.balance(fid, DEP));
+  if (have < sc.floor) pay(w, BANK, fid, sc.floor - have, 'player.endowment', w.events.last('player.scenario') ?? w.genesis);
+}
+
 export function reviewScenario(w: World): void {
   const sc = runOf(w);
   if (!sc || sc.outcome) return;
+  keepFriend(w, sc);
   drawRetained(w, sc);
   armShock(w, sc);
   applyTwist(w, sc);
