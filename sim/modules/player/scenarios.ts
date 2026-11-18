@@ -19,6 +19,7 @@ import { challengeOf } from '../history/commands.ts';
 import { playerChronicle } from '../history/story.ts';
 import { openWorld } from '../../run.ts';
 import { repWord } from './life.ts';
+import { ARRIVAL_ID, arrivalOpening, arrive, splitName } from './arrival.ts';
 import { PLAYER, ensurePlayer, noteScript, onPlayerDay, playerIndex, rememberJob, soleSeat, view, type ScriptNote } from './index.ts';
 
 type Goal =
@@ -396,7 +397,7 @@ export function listScenarios(): ScenarioCard[] {
     limit: limitText(sc.limit),
     difficulty: diffText(sc.loan, sc.regulator, sc.rivals),
     beginner: sc.beginner,
-    sandbox: sc.goal.kind === 'none',
+    sandbox: sc.goal.kind === 'none' && sc.id !== ARRIVAL_ID,
   }));
 }
 
@@ -666,6 +667,8 @@ function openingOf(w: World, def: ScenarioDef, person: number, worthCents: numbe
   const owed = claimOf(w, P.id(person));
   const debt = owed > 0 ? ` The book owes ${money(owed)}.` : '';
   switch (def.id) {
+    case ARRIVAL_ID:
+      return arrivalOpening(w, person, name, age);
     case 'first-paycheck':
       return `${name} is ${age} and ${job}, with ${cash} just cleared, ${kin}. ${city} ${clock} The goal is ${goal}. Save it, and buy one share, before the job goes.`;
     case 'heir-debts': {
@@ -818,7 +821,7 @@ function closingOf(w: World, sc: ScenarioRun, result: 'win' | 'loss'): string {
   }
 }
 
-function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficulty?: number; seed?: string }): void {
+function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficulty?: number; seed?: string; name?: string; age?: number }): void {
   const s = econ(w), P = s.P;
   let i = ensurePlayer(w);
   const st = soleSeat(w);
@@ -829,7 +832,9 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     i = ensurePlayer(w);
   }
   const seed = opts?.seed || def.seed;
-  P.born[i] = w.day - def.age * DAYS_PER_YEAR;
+  const arrival = def.id === ARRIVAL_ID;
+  const startAge = arrival && opts?.age && opts.age >= 18 && opts.age <= 60 ? Math.round(opts.age) : def.age;
+  P.born[i] = w.day - startAge * DAYS_PER_YEAR;
   const cause = st.arrived >= 0 ? st.arrived : w.genesis;
   let seated: Firm | undefined;
   let stake = 0;
@@ -868,7 +873,8 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     if (kin === 'child' && spouse >= 0) P.add(w, w.day, i, spouse);
   }
   const contacts = 2 + (mix(seed, def.id, 'contacts') % 7);
-  seatPerson(w, i, contacts);
+  if (arrival) arrive(w, i, cause, splitName(opts?.name ?? ''));
+  else seatPerson(w, i, contacts);
   const pid = P.id(i);
   for (const [key, qty] of Object.entries(def.holdings)) {
     const f = firmBy(w, key);
@@ -901,8 +907,8 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     const firm = job >= 0 ? s.firms[job] : undefined;
     const seatWord = seated && (def.job === 'chief' || def.job === 'inherit' || def.inherit) ? ` and takes the seat at ${seated.name}` : '';
     arrived.msg = firm
-      ? `${P.name(i)} arrives, aged ${def.age}, and takes a job at ${firm.name}${seatWord}`
-      : `${P.name(i)} arrives, aged ${def.age}, and holds no job`;
+      ? `${P.name(i)} arrives, aged ${startAge}, and takes a job at ${firm.name}${seatWord}`
+      : `${P.name(i)} arrives, aged ${startAge}, and holds no job`;
   }
   const opened = Math.round(view(w).netWorth);
   if (goal.kind === 'worth' && (def.id === 'heir-debts' || def.id === 'struggling-ceo' || def.id === 'hedge-fund')) {
@@ -912,7 +918,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
   if (last && last.day === w.day) last.worth = opened;
   else st.score.push({ day: w.day, worth: opened });
   const story = def.story[0] ?? def.name;
-  w.events.emit('player.scenario', `${P.name(i)} begins ${def.name}. ${story}`, [cause], pid);
+  w.events.emit('player.scenario', arrival ? `${P.name(i)} steps off the boat in Port Avalon` : `${P.name(i)} begins ${def.name}. ${story}`, [cause], pid);
   const index = (w.state.markets as { index?: number } | undefined)?.index ?? 100;
   const run: ScenarioRun = {
     id: def.id,
@@ -949,7 +955,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
   rememberJob(w);
 }
 
-export function openScenario(id: string, opts?: { cash?: number; difficulty?: number; seed?: string }): World {
+export function openScenario(id: string, opts?: { cash?: number; difficulty?: number; seed?: string; name?: string; age?: number }): World {
   const def = catalog.find((s) => s.id === id);
   if (!def) throw new Error(`no scenario ${id}. ${catalog.map((s) => s.id).join(', ')}`);
   const saved = worldDir(def.world);
@@ -957,7 +963,7 @@ export function openScenario(id: string, opts?: { cash?: number; difficulty?: nu
   const w = openWorld(seed, new Set(), true);
   if (saved) applySnapshot(w, saved);
   else if (def.years > 0) simulate(w, def.years, 1, false);
-  applyStart(w, def, { cash: opts?.cash, difficulty: opts?.difficulty, seed });
+  applyStart(w, def, { cash: opts?.cash, difficulty: opts?.difficulty, seed, name: opts?.name, age: opts?.age });
   const note: ScriptNote = {
     id: def.id,
     seed,

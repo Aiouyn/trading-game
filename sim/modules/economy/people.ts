@@ -60,6 +60,8 @@ export class People {
   apt!: Float64Array;
   ill!: Uint8Array; cover!: Uint8Array; bill!: Uint16Array;
   families: string[] = [];
+  /** Given names a player typed. A given index past the built-in list points here. */
+  givens: string[] = [];
 
   constructor(capacity: number) {
     this.capacity = Math.max(16, capacity);
@@ -110,7 +112,14 @@ export class People {
     if (!out.length && sp >= 0) for (let c = this.firstKid[sp]; c >= 0; c = this.nextSib[c]) out.push(c);
     return out;
   }
-  name(i: number): string { return `${GIVEN[this.given[i]]} ${this.families[this.family[i]]}`; }
+  name(i: number): string { const g = this.given[i]; return `${g < GIVEN.length ? GIVEN[g] : this.givens[g - GIVEN.length]} ${this.families[this.family[i]]}`; }
+  /** Add a typed given name to the city's book and return its index. */
+  addGiven(name: string): number {
+    if (!this.givens) this.givens = [];
+    let k = this.givens.indexOf(name);
+    if (k < 0) k = this.givens.push(name) - 1;
+    return GIVEN.length + k;
+  }
   id(i: number): string { return 'p_' + i; }
   alive(i: number): boolean { return (this.flags[i] & ALIVE) !== 0; }
   retired(i: number): boolean { return (this.flags[i] & RETIRED) !== 0; }

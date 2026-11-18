@@ -1,5 +1,6 @@
 // The player is one person in the same arrays as everyone else. They see only what they
 // know, and every order, loan and futures fill goes through the modules that already book it.
+import { lifeHelp } from './arrival.ts';
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { borrowBar, borrowMargin, creditTightness, depositSight, marginLimit, productHaircuts, rateWhy, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
@@ -470,7 +471,8 @@ export function helpLines(which: string, w?: World, playerId?: string): string[]
   const v = w ? view(w, playerId) : undefined;
   const sym = v ? helpSymbol(v) : 'silicrest';
   const use = (raw: string): string => raw.replace(/silicrest/gi, sym).replace(/frm_north\b/g, sym);
-  if (!q) {
+  if (!q) return lifeHelp([...new Set(COMMANDS.map((c) => c.topic))]);
+  if (q === 'all') {
     const lines = ['commands'];
     let topic = '';
     for (const c of COMMANDS) {

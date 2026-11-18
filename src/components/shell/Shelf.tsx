@@ -10,6 +10,8 @@ import { APP_NAMES, S } from "@/shell/strings";
 import { viewportOf, workArea } from "@/shell/wm";
 import { Glyph } from "./Glyph";
 import { DockBadge } from "@/apps/messages/notices";
+import { onDesk } from "@/shell/desk";
+import { useSimSnap } from "@/shell/simSession";
 import { useShell, useShellStore } from "./ShellContext";
 
 export function Shelf() {
@@ -25,7 +27,8 @@ export function Shelf() {
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const row = useRef<HTMLDivElement>(null);
   const [clipped, setClipped] = useState({ left: false, right: false });
-  const apps = shelfOrder(APP_IDS).filter((a) => isBuiltApp(a) && vis[a] !== "hidden");
+  const simView = useSimSnap().view;
+  const apps = shelfOrder(APP_IDS).filter((a) => isBuiltApp(a) && vis[a] !== "hidden" && onDesk(a, simView, windows.some((w) => w.app === a)));
   const top = windows.at(-1);
   const desktop = viewportOf(vw) === "desktop";
   const area = workArea(vw, vh);

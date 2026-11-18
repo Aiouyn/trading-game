@@ -13,7 +13,7 @@ import type { SnapSlot } from "@/shell/types";
 import { viewportOf } from "@/shell/wm";
 import "./title.css";
 
-type Page = "night" | "new" | "who" | "load" | "settings" | "sandbox" | "code";
+type Page = "night" | "new" | "challenges" | "who" | "load" | "settings" | "sandbox" | "code";
 type Clock = "pause" | "day" | "week" | "month";
 
 const SCENARIO_APPS: Record<string, AppId[]> = {
@@ -24,7 +24,11 @@ const SCENARIO_APPS: Record<string, AppId[]> = {
   "property-developer": ["property", "portfolio", "bank"],
   activist: ["broker", "markets", "businesses"],
   sandbox: ["portfolio", "broker", "wire"],
+  arrival: ["city", "portfolio", "broker"],
 };
+
+/** The new life is not a challenge: it has no card of its own on the Challenges page. */
+const isChallenge = (s: ScenarioCard) => !s.sandbox && s.id !== "arrival";
 
 export function applySound(): void {
   try {
@@ -77,7 +81,7 @@ export function useArrivalPending(): boolean {
     () => 0,
   );
   const lines = view?.arrival;
-  return mode === "play" && layoutNonce > 0 && !!view?.scenario?.fresh && Array.isArray(lines) && lines.length >= 3 && acked !== layoutNonce;
+  return mode === "play" && layoutNonce > 0 && !!view?.scenario?.fresh && Array.isArray(lines) && lines.length >= 1 && acked !== layoutNonce;
 }
 
 export function useSavedClock(active: boolean): void {
@@ -128,7 +132,6 @@ function Lines({ lines }: { lines: DriftLine[] }) {
 
 function Night({ title, onPage }: { title: TitleData | null; onPage: (p: Page) => void }) {
   const last = title?.last ?? null;
-  const sandbox = (title?.scenarios ?? []).find((s) => s.sandbox);
   return (
     <div className="qy-night">
       <div className="qy-copy">
@@ -144,13 +147,11 @@ function Night({ title, onPage }: { title: TitleData | null; onPage: (p: Page) =
             <Button variant="primary" data-testid="sim-new" onClick={() => onPage("new")}>New game</Button>
           )}
           {last ? <button type="button" className="qy-sec" data-testid="sim-new" onClick={() => onPage("new")}>New game</button> : null}
-          <button type="button" className="qy-sec" data-testid="sim-load" onClick={() => onPage("load")}>Load</button>
           <button type="button" className="qy-sec" data-testid="sim-settings" onClick={() => onPage("settings")}>Settings</button>
         </div>
         {last ? <p className="muted">{last.scenario} · <span className="num">{money(last.netWorth)}</span></p> : null}
         <p className="qy-links">
-          {sandbox ? <button type="button" data-testid="sim-sandbox" onClick={() => onPage("sandbox")}>Sandbox</button> : null}
-          <button type="button" data-testid="sim-challenge" onClick={() => onPage("code")}>Challenge</button>
+          <button type="button" data-testid="sim-challenges" onClick={() => onPage("challenges")}>Challenges</button>
         </p>
       </div>
       {title?.scene ? <NightScene scene={title.scene} lines={title.lines ?? []} /> : <Lines lines={title?.lines ?? []} />}
@@ -158,12 +159,45 @@ function Night({ title, onPage }: { title: TitleData | null; onPage: (p: Page) =
   );
 }
 
-function Cards({ title, onPick, onPage }: { title: TitleData | null; onPick: (sc: ScenarioCard) => void; onPage: (p: Page) => void }) {
-  const scenarios = (title?.scenarios ?? []).filter((s) => !s.sandbox);
+function NewGame({ onPage }: { onPage: (p: Page) => void }) {
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("24");
+  const years = Number(age);
+  const okAge = Number.isInteger(years) && years >= 18 && years <= 60;
+  const ok = name.trim().length > 0 && okAge;
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (ok) void startScenario("arrival", { name: name.trim(), age: years });
+  };
   return (
-    <div className="qy-panel" data-testid="sim-new">
+    <form className="qy-panel" data-testid="sim-newgame" onSubmit={onSubmit}>
       <button type="button" className="qy-back" onClick={() => onPage("night")}>Back</button>
       <h2>New game</h2>
+      <label className="qy-field">
+        Name
+        <input data-testid="sim-name" value={name} autoFocus autoComplete="off" maxLength={40} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label className="qy-field">
+        Age
+        <input data-testid="sim-age" type="number" min={18} max={60} value={age} onChange={(e) => setAge(e.target.value)} />
+      </label>
+      {!okAge ? <p className="qy-err">Between 18 and 60.</p> : null}
+      <Button variant="primary" type="submit" data-testid="sim-begin" disabled={!ok}>Begin</Button>
+    </form>
+  );
+}
+
+function Cards({ title, onPick, onPage }: { title: TitleData | null; onPick: (sc: ScenarioCard) => void; onPage: (p: Page) => void }) {
+  const scenarios = (title?.scenarios ?? []).filter(isChallenge);
+  const sandbox = (title?.scenarios ?? []).find((s) => s.sandbox);
+  return (
+    <div className="qy-panel" data-testid="sim-challenges-page">
+      <button type="button" className="qy-back" onClick={() => onPage("night")}>Back</button>
+      <h2>Challenges</h2>
+      <p className="qy-links">
+        {sandbox ? <button type="button" data-testid="sim-sandbox" onClick={() => onPage("sandbox")}>Sandbox</button> : null}
+        <button type="button" data-testid="sim-challenge" onClick={() => onPage("code")}>Challenge code</button>
+      </p>
       <div className="qy-cards">
         {scenarios.map((sc) => (
           <button type="button" key={sc.id} className="qy-card" data-testid={`scenario-${sc.id}`} onClick={() => onPick(sc)}>
@@ -204,7 +238,7 @@ function Who({ sc, title, onPage }: { sc: ScenarioCard; title: TitleData | null;
   };
   return (
     <div className="qy-panel" data-testid="sim-who">
-      <button type="button" className="qy-back" onClick={() => onPage("new")}>Back</button>
+      <button type="button" className="qy-back" onClick={() => onPage("challenges")}>Back</button>
       <h2>{sc.name}</h2>
       <p className="muted">{sc.story}</p>
       <label className="qy-field">
@@ -341,7 +375,7 @@ function Sandbox({ title, onPage }: { title: TitleData | null; onPage: (p: Page)
   };
   return (
     <form className="qy-panel" data-testid="sim-sandbox-page" onSubmit={onSubmit}>
-      <button type="button" className="qy-back" onClick={() => onPage("night")}>Back</button>
+      <button type="button" className="qy-back" onClick={() => onPage("challenges")}>Back</button>
       <h2>Sandbox</h2>
       <p className="muted">No goal. You choose the cash and the difficulty.</p>
       <label className="qy-field">Start money <input value={cash} inputMode="decimal" onChange={(e) => setCash(e.target.value)} /></label>
@@ -396,7 +430,8 @@ export function TitleScreen() {
   }, []);
   useEffect(() => { if (mode === "menu") void refreshTitle(); }, [mode]);
   let body;
-  if (page === "new") body = <Cards title={title} onPage={setPage} onPick={(sc) => { setPicked(sc); setPage("who"); }} />;
+  if (page === "new") body = <NewGame onPage={setPage} />;
+  else if (page === "challenges") body = <Cards title={title} onPage={setPage} onPick={(sc) => { setPicked(sc); setPage("who"); }} />;
   else if (page === "who" && picked) body = <Who sc={picked} title={title} onPage={setPage} />;
   else if (page === "load") body = <Load title={title} onPage={setPage} />;
   else if (page === "settings") body = <Settings title={title} onPage={setPage} />;
@@ -413,11 +448,12 @@ export function TitleScreen() {
 export function Arrival() {
   const { view, layoutNonce } = useSimSnap();
   const lines = (view?.arrival ?? []).slice(0, 3);
+  const quiet = view?.scenario?.id === "arrival";
   return (
     <div className="qy-arrive" data-testid="arrival" role="dialog" aria-label="Arrival">
-      <p className="label">You have arrived</p>
+      {quiet ? null : <p className="label">You have arrived</p>}
       {lines.map((line, i) => <p key={i}>{line}</p>)}
-      <Button variant="primary" data-testid="arrival-open" onClick={() => ackArrival(layoutNonce)}>Open the desk</Button>
+      <Button variant="primary" data-testid="arrival-open" onClick={() => ackArrival(layoutNonce)}>{quiet ? "Step into the city" : "Open the desk"}</Button>
     </div>
   );
 }

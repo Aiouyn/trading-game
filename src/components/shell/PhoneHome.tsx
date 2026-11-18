@@ -4,6 +4,8 @@ import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { isBuiltApp } from "@/shell/appModules";
+import { onDesk } from "@/shell/desk";
+import { useSimSnap } from "@/shell/simSession";
 import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
@@ -241,6 +243,7 @@ function StatusBar() {
 
 export function PhoneHome() {
   const vis = useShell((s) => s.vis);
+  const simView = useSimSnap().view;
   const me = useShell((s) => s.channels.me);
   const reading = useNwReading();
   const nw = reading.nw ?? "0.00"; // only read with a value: the rank bar and guest today row wait for one
@@ -385,7 +388,7 @@ export function PhoneHome() {
         </section>
         <div className="app-grid" data-testid="app-grid">
           {GROUPS.map((g) => {
-            const apps = APP_IDS.filter((a) => APPS[a].group === g && isBuiltApp(a) && vis[a] !== "hidden" && !GRID_OMIT.has(a));
+            const apps = APP_IDS.filter((a) => APPS[a].group === g && isBuiltApp(a) && vis[a] !== "hidden" && !GRID_OMIT.has(a) && onDesk(a, simView));
             if (apps.length === 0) return null;
             return (
               <section key={g} className="grid-group" data-testid={`group-${g}`}>
@@ -400,7 +403,7 @@ export function PhoneHome() {
       <div data-testid="consent-dock" />
       {!phoneApp ? (
       <nav className="bottom-row" data-testid="bottom-row" data-dock={dock ? "1" : undefined} data-cols={BOTTOM.length} aria-label={S.shelf}>
-        {BOTTOM.map((a) => <AppIcon key={a} app={a} dock={dock} />)}
+        {BOTTOM.filter((a) => onDesk(a, simView)).map((a) => <AppIcon key={a} app={a} dock={dock} />)}
       </nav>
       ) : null}
       {edgeBar}

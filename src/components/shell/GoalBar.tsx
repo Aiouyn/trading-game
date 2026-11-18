@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Glyph } from "./Glyph";
 import { useShellStore } from "./ShellContext";
 import { toggleNotes } from "./flowState";
+import { ARRIVAL } from "@/shell/desk";
 import { FamilyInterrupt } from "@/apps/messages/notices";
 
 /** Scenario goal, progress and time left. Desktop pins its height into the window work area. */
@@ -40,6 +41,8 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
     return () => { ro.disconnect(); store.getState().setBannerH(0); };
   }, [pin, store, stepKey, gone, sc?.goal, sc?.timeLeft, prose, result?.text]);
   if (!sc) return null;
+  // A new life has no goal, no clock and no score to show. Only a family request can still reach the desk here.
+  if (sc.id === ARRIVAL) return <div className="goal-quiet" ref={bar}><FamilyInterrupt /></div>;
   const ended = sc.outcome === "win" || sc.outcome === "loss";
   const progress = Math.max(0, sc.progress ?? 0);
   const width = Math.max(0, Math.min(1, progress));

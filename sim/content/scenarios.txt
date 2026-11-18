@@ -89,3 +89,11 @@ in dollars. DEBT_PCT is that claim as a percent of the family stake.
   [SEED:1] [YEARS:0]
   [GOAL:NONE] [LIMIT:0]
   [LOAN:1] [REGULATOR:1] [RIVALS:1]
+
+[SCENARIO:arrival]
+  [NAME:A new life]
+  [STORY:You step off the boat with five thousand dollars. The rest is yours to make.]
+  [AGE:24] [CASH:5000] [JOB:none] [KIN:none] [CONTACTS:0]
+  [SEED:1] [YEARS:0]
+  [GOAL:NONE] [LIMIT:0]
+  [LOAN:1] [REGULATOR:1] [RIVALS:1]

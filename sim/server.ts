@@ -2029,11 +2029,11 @@ function runGenWorker(): void {
   const unhook = hookHistory((year, text) => send({ type: 'line', year, text }));
   try {
     send({ type: 'phase', text: 'Opening the harbour' });
-    const world = openScenario(job.id, { cash: job.cash, difficulty: job.difficulty, seed: job.seed });
+    const world = openScenario(job.id, { cash: job.cash, difficulty: job.difficulty, seed: job.seed, name: job.name, age: job.age });
     unhook();
     send({ type: 'phase', text: 'The exchange has its prices' });
     applyIdentity(world, job);
-    send({ type: 'phase', text: welcomeLetter(world) });
+    send({ type: 'phase', text: job.id === 'arrival' ? 'The boat is docking' : welcomeLetter(world) });
     send({ type: 'phase', text: 'Saving the new city…' });
     writeSnapshot(job.dir, world);
     send({ type: 'done', dir: job.dir, seed: world.seed });
@@ -4534,12 +4534,13 @@ function startOpts(body: unknown): GenJob | string {
   if (typeof b.id !== 'string' || !b.id) return 'missing scenario';
   const out: GenJob = { id: b.id };
   if (b.again === true) out.again = true;
-  if (b.cash !== undefined) {
+  const arriving = b.id === 'arrival';
+  if (b.cash !== undefined && !arriving) {
     const n = Number(b.cash);
     if (!Number.isFinite(n) || n < 0) return 'cash must be a number of dollars';
     out.cash = n;
   }
-  if (b.difficulty !== undefined) {
+  if (b.difficulty !== undefined && !arriving) {
     const n = Number(b.difficulty);
     if (!Number.isFinite(n) || n <= 0) return 'difficulty must be a positive number';
     out.difficulty = n;
@@ -4547,10 +4548,10 @@ function startOpts(body: unknown): GenJob | string {
   if (typeof b.name === 'string' && b.name.trim()) out.name = b.name.trim().slice(0, 40);
   if (b.age !== undefined) {
     const n = Number(b.age);
-    if (!Number.isInteger(n) || n < 18 || n > 70) return 'age must be a whole number of years from 18 to 70';
+    if (!Number.isInteger(n) || n < 18 || n > (arriving ? 60 : 70)) return arriving ? 'age must be a whole number of years from 18 to 60' : 'age must be a whole number of years from 18 to 70';
     out.age = n;
   }
-  if (typeof b.district === 'string' && b.district.trim()) out.district = b.district.trim().slice(0, 80);
+  if (!arriving && typeof b.district === 'string' && b.district.trim()) out.district = b.district.trim().slice(0, 80);
   return out;
 }
 
@@ -4906,6 +4907,8 @@ function writerNames(world: World, i: number): string[] {
 function arrivalLines(world: World): string[] {
   const i = playerIndex(world);
   const P = econ(world).P;
+  const run = world.state.scenario as { id?: string; opening?: string } | undefined;
+  if (run?.id === 'arrival' && run.opening) return [run.opening];
   const s = econ(world);
   const port = world.state.port as { name?: string; berths?: number; ships?: unknown[]; closedUntil?: number } | undefined;
   const shut = (port?.closedUntil ?? 0) > world.day;
