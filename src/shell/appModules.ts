@@ -18,6 +18,7 @@ export const APP_MODULES = {
   broker: { kind: "lazy", load: () => import("@/apps/broker/App") }, // UI card 4 (BRK-A)
   portfolio: { kind: "lazy", load: () => import("@/apps/portfolio/App") },
   markets: { kind: "lazy", load: () => import("@/apps/markets/App") },
+  research: { kind: "lazy", load: () => import("@/apps/research/App") }, // order 102: the desk for a firm's readings and street number
   risk: { kind: "lazy", load: () => import("@/apps/risk/App") },
   wire: { kind: "lazy", load: () => import("@/apps/wire/App") },
   boards: { kind: "lazy", load: () => import("@/apps/boards/App") }, // M2-03 net-worth leaderboard

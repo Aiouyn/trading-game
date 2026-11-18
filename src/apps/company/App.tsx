@@ -5,6 +5,8 @@ import { presentNote } from "@/components/ui/format";
 import { act, useSimSnap, type ActNote, type SimCompany } from "@/shell/simSession";
 import { Because, Field, Fig, Note, centsOf, moneyTitle, titleCase, usePhone, useWhy } from "@/apps/businesses/sheet";
 import "@/apps/businesses/sheet.css";
+import { edgeOf } from "@/apps/research/edge";
+import { Stakes } from "./Stakes";
 
 function runs(c: SimCompany): boolean {
   return c.role === "chief executive" || c.role === "chairman" || (c.shares > 0 && c.stake * 2 > c.shares);
@@ -79,6 +81,7 @@ export default function CompanyApp({ context }: { context?: string }) {
   return (
     <div className="qa" data-phone={phone ? "1" : "0"} data-testid="company">
       <Note note={note} testId="company-note" />
+      <Stakes stakes={edgeOf(view).stake} run={go} busy={busy} onWhy={why.open} />
       {!posts.length ? (
         <p className="qa-empty">You do not run a firm yet. Found one in Businesses.</p>
       ) : (
