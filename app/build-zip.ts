@@ -100,7 +100,7 @@ try {
   fs.mkdirSync(dist, { recursive: true });
   fs.rmSync(zipPath, { force: true });
   const tar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
-  const packed = spawnSync(tar, ['-a', '-c', '-f', zipPath, '-C', stage, '.'], { stdio: 'inherit' });
+  const packed = spawnSync(tar, ['-a', '-c', '-f', zipPath, '-C', stage, ...fs.readdirSync(stage)], { stdio: 'inherit' });
   if (packed.status !== 0) throw new Error('could not write the zip');
   const size = fs.statSync(zipPath).size;
   console.log(`${zipPath} ${size} bytes`);
