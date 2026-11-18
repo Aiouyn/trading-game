@@ -58,6 +58,7 @@ const BASE: Record<string, number> = {
   'macro.jobs': 15_000,
   'loan.grant': 40_000,
   'loan.margin': 150_000,
+  'loan.line': 150_000,
   'loan.default': 200_000,
   'loan.refused': 30_000,
   'property.repossess': 250_000,
@@ -398,6 +399,7 @@ function effectOf(w: World, ev: Ev, c: Circle): string {
       }
     }
     if (ev.kind === 'loan.margin') return `The bank calls your margin loan`;
+    if (ev.kind === 'loan.line') return `The bank calls your credit line`;
     return unperiod(secondPerson(msg, c.name));
   }
   if (ev.kind === 'earnings.report' || ev.kind === 'news.story') {

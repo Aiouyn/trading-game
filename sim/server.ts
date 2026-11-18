@@ -1599,7 +1599,7 @@ function mentionsFirm(msg: string, actor: string | undefined, firms: { id: strin
 function classify(e: { id: number; day: number; kind: string; actor?: string; msg: string }, ctx: ReturnType<typeof feedCtx>, news: number): FeedLine | null {
   const you = !!ctx.id && e.actor === ctx.id;
   let tag = '';
-  if (you && (e.kind.startsWith('player.') || e.kind === 'loan.grant' || e.kind === 'loan.margin' || e.kind === 'loan.default' || e.kind === 'loan.sell' || e.kind === 'loan.shortfall' || e.kind === 'loan.writeoff' || e.kind === 'court.bankruptcy' || e.kind === 'court.sale' || e.kind === 'court.pay' || e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind.startsWith('law.') || e.kind === 'person.breakdown' || e.kind === 'health.injury' || e.kind === 'health.debt' || e.kind === 'person.died')) tag = 'you';
+  if (you && (e.kind.startsWith('player.') || e.kind === 'loan.grant' || e.kind === 'loan.margin' || e.kind === 'loan.line' || e.kind === 'loan.default' || e.kind === 'loan.sell' || e.kind === 'loan.shortfall' || e.kind === 'loan.writeoff' || e.kind === 'court.bankruptcy' || e.kind === 'court.sale' || e.kind === 'court.pay' || e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind.startsWith('law.') || e.kind === 'person.breakdown' || e.kind === 'health.injury' || e.kind === 'health.debt' || e.kind === 'person.died')) tag = 'you';
   else if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) tag = 'family';
   else if ((e.kind === 'health.injury' || e.kind === 'health.debt') && e.actor && ctx.family.has(e.actor)) tag = 'family';
   else if ((e.kind === 'firm.bid' || e.kind === 'firm.takeover' || e.kind === 'firm.layoffs' || e.kind === 'firm.failed' || e.kind === 'firm.ceoFired' || e.kind === 'labour.strike' || e.kind === 'labour.lockout') && mentionsFirm(e.msg, e.actor, ctx.firms)) tag = 'firm';
@@ -1672,8 +1672,8 @@ function pauseHit(e: { id: number; kind: string; actor?: string; msg: string }, 
   if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall') && /closed out/i.test(e.msg)) {
     return { why: 'A forced close', eventId: e.id, kind: 'sale', text: e.msg };
   }
-  if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind === 'loan.margin')) {
-    return { why: 'A margin call', eventId: e.id, kind: 'margin', text: e.msg };
+  if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind === 'loan.margin' || e.kind === 'loan.line')) {
+    return { why: e.kind === 'loan.line' ? 'A credit line is called' : 'A margin call', eventId: e.id, kind: 'margin', text: e.msg };
   }
   if (e.kind === 'firm.bid' && e.actor !== ctx.id && ctx.firms.some((f) => e.msg.includes('for ' + f.name))) {
     return { why: 'a takeover bid', eventId: e.id, kind: 'bid', text: e.msg };
@@ -1823,7 +1823,8 @@ function composeRuin(w: World, hits: PauseHit[], extra: string[], before: LotSna
     parts.push(sale);
     brief = sale;
   }
-  const owe = `You owe the bank ${moneyLabel(owed)} on open loans.${claim > 0 ? ` The book also owes ${moneyLabel(claim)} that is not a bank loan.` : ''} Cash in hand is ${moneyLabel(cash)}.`;
+  const called = kind === 'margin' ? /($[d,]+.dd)/.exec(worst.text || '')?.[1] : undefined;
+  const owe = `${called ? `The call was for ${called}. ` : ''}You owe the bank ${moneyLabel(owed)} on open loans${called ? ' now' : ''}.${claim > 0 ? ` The book also owes ${moneyLabel(claim)} that is not a bank loan.` : ''} Cash in hand is ${moneyLabel(cash)}.`;
   parts.push(owe);
   brief = `${brief} ${owe}`;
   if (kind === 'bankruptcy' || (book?.bust && i >= 0 && book.bust[i] >= 0)) {

@@ -60,6 +60,7 @@ interface Book {
   bust: Int32Array; // day the court last declared, or -1
   tight?: number;       // credit tightness 0..1: lenders' appetite is the opposite
   tightEv?: number;     // the event that last moved it
+  pledged?: Record<number, number>; // person -> what their shares fetched when they last borrowed against them
   rateEv?: Record<number, number>; // loan slot -> the event that last repriced it
   woEma?: number;       // annualised write-off rate, smoothed
   woSeen?: number;      // yWriteoff at the last month end
@@ -1090,6 +1091,34 @@ function repriceLoan(w: World, s: EconState, b: Book, k: number, i: number): voi
   (b.rateEv ??= {})[k] = rev;
 }
 
+const money = (c: number): string => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** What one person's lender has a right to call today: due lines, margin loans the shares no longer carry, lines the shares no longer cover at all. */
+function callSet(w: World, b: Book, i: number): { ks: number[]; owed: number; due: number; why: 'due' | 'slip' | 'under'; fell: number } {
+  const ks = callable(b, i);
+  let margin = 0, line = 0, due = 0;
+  for (const n of ks) {
+    const o = Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
+    if (b.lnKind[n] === MARGIN) margin += o; else line += o;
+    if (b.lnKind[n] === LINE && w.day - b.lnOpened[n] >= LINE_DAYS) due += o;
+  }
+  const fetch = collateralFetch(w, i);
+  // Maintenance sits below the opening haircut, so a loan taken to the limit survives an ordinary dip.
+  const keep = Math.floor(fetch * (1 - 0.75 * lendHaircut(w)));
+  const under = margin + line > fetch;
+  const slip = margin > 0 && margin + line > keep;
+  const pl = b.pledged?.[i] ?? 0;
+  const fell = pl > 0 ? 1 - fetch / pl : 0;
+  const out: number[] = [];
+  for (const n of ks) {
+    const isDue = b.lnKind[n] === LINE && w.day - b.lnOpened[n] >= LINE_DAYS;
+    if (isDue || under || (slip && b.lnKind[n] === MARGIN)) out.push(n);
+  }
+  let owed = 0;
+  for (const n of out) owed += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
+  return { ks: out, owed, due, why: under ? 'under' : slip ? 'slip' : 'due', fell };
+}
+
 /** Daily maintenance. A call waits three trading days, then the book is hit and any gap is still owed. */
 function maintainMargins(w: World, s: EconState, b: Book): void {
   const P = s.P;
@@ -1101,56 +1130,55 @@ function maintainMargins(w: World, s: EconState, b: Book): void {
     if (seen.includes(i)) continue;
     seen.push(i);
     if (i < 0 || i >= P.n || !P.alive(i)) continue;
-    const ks = callable(b, i);
-    let owed = 0, pulled = 0;
-    for (const n of ks) {
-      const o = Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
-      owed += o;
-      // A line past its quarter that the lender did not roll is due.
-      if (b.lnKind[n] === LINE && w.day - b.lnOpened[n] >= LINE_DAYS) pulled += o;
-    }
     const id = P.id(i);
-    if (owed <= 0) { clearCalls(b, ks); continue; }
-    // The bank's own advance: what the shares would fetch less today's haircut. A loan past that is a call.
-    const cover = marginLimit(w, i);
-    if (owed <= cover && pulled <= 0) { clearCalls(b, ks); continue; }
+    const all = callable(b, i);
+    let cs = callSet(w, b, i);
+    if (cs.owed <= 0) { clearCalls(b, all); continue; }
+    for (const n of all) if (!cs.ks.includes(n)) b.lnCall[n] = -1;
+    let ks = cs.ks;
     let opened = -1;
     for (const n of ks) if (b.lnCall[n] >= 0 && (opened < 0 || b.lnCall[n] < opened)) opened = b.lnCall[n];
     const falls = priceFalls(w, id);
+    const hasLine = ks.some((n) => b.lnKind[n] === LINE), hasMargin = ks.some((n) => b.lnKind[n] === MARGIN);
     let call = -1;
     if (opened < 0) {
-      const worst = worstName(w, id);
-      call = pulled > 0 && owed <= cover
-        ? w.events.emit('loan.line', `the bank does not roll ${P.name(i)}'s credit line: ${(pulled / 100).toFixed(0)} is due in three trading days`, because(s, [b.tightEv]), id)
-        : w.events.emit('loan.margin', `${P.name(i)} is called on ${worst} for ${(owed / 100).toFixed(0)}; three trading days to pay it down`, tie(s, [...falls, ...(b.tightEv !== undefined && b.tightEv >= 0 && (b.tight ?? 0) > 0.2 ? [b.tightEv] : [])]), id);
+      const called = hasLine && hasMargin ? 'a margin loan and a credit line' : hasLine ? 'a credit line' : 'a margin loan';
+      const reason = cs.why === 'due'
+        ? 'the line came due and the bank did not roll it'
+        : cs.fell >= 0.01
+          ? `shares fell ${(cs.fell * 100).toFixed(0)}% since you borrowed`
+          : `lenders pulled back: they now lend ${((1 - lendHaircut(w)) * 100).toFixed(0)}% of what your shares would fetch`;
+      const head = `${P.name(i)} is called on ${called} of ${money(cs.owed)}: ${reason}; three trading days to pay it down`;
+      call = cs.why === 'due'
+        ? w.events.emit('loan.line', head, because(s, [b.tightEv]), id)
+        : w.events.emit('loan.margin', head, tie(s, [...falls, ...(b.tightEv !== undefined && b.tightEv >= 0 && (b.tight ?? 0) > 0.2 ? [b.tightEv] : [])]), id);
       for (const n of ks) b.lnCall[n] = w.day;
       opened = w.day;
     }
     // The lender sets off cash the borrower holds beyond a month's income before it touches the shares.
     const spare = Math.floor(depCash(w, id) - P.incEma[i] * 30);
-    if (spare > 0 && (pulled > 0 || w.day >= opened + CURE_DAYS)) {
+    if (spare > 0 && (cs.why === 'due' || w.day >= opened + CURE_DAYS)) {
       const why0 = call >= 0 ? call : (b.tightEv ?? s.macroEv);
-      const used = repayKind(w, s, b, i, LINE, spare, why0);
-      repayKind(w, s, b, i, MARGIN, spare - used, why0);
-      owed = 0;
-      for (const n of callable(b, i)) owed += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
-      pulled = 0;
-      for (const n of callable(b, i)) if (b.lnKind[n] === LINE && w.day - b.lnOpened[n] >= LINE_DAYS) pulled += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
-      if (owed <= 0 || (owed <= marginLimit(w, i) && pulled <= 0)) { clearCalls(b, callable(b, i)); continue; }
+      let used = 0;
+      if (hasLine) used = repayKind(w, s, b, i, LINE, spare, why0);
+      if (hasMargin) repayKind(w, s, b, i, MARGIN, spare - used, why0);
+      cs = callSet(w, b, i);
+      if (cs.owed <= 0) { clearCalls(b, callable(b, i)); continue; }
+      ks = cs.ks;
     }
-    const sunk = owed > liquidAssets(w, id);
+    const sunk = cs.owed > liquidAssets(w, id);
     if (!sunk && w.day < opened + CURE_DAYS) continue;
     const why = call >= 0 ? call : (falls[0] ?? (P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv));
     const saleFills: Fill[] = [];
     const sell = w.events.emit('loan.sell', `the bank sells ${P.name(i)}'s shares into the book`, tie(s, [why]), id);
-    const proceeds = sellCollateral(w, id, owed, sell, saleFills);
+    const proceeds = sellCollateral(w, id, cs.owed, sell, saleFills);
     stampSale(w, sell, saleFills);
-    const first = repayKind(w, s, b, i, LINE, proceeds, sell);
-    repayKind(w, s, b, i, MARGIN, proceeds - first, sell);
+    const first = ks.some((n) => b.lnKind[n] === LINE) ? repayKind(w, s, b, i, LINE, proceeds, sell) : 0;
+    if (ks.some((n) => b.lnKind[n] === MARGIN)) repayKind(w, s, b, i, MARGIN, proceeds - first, sell);
     let left = 0;
-    for (const n of callable(b, i)) left += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
+    for (const n of ks) if (b.lnOpen[n]) left += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
     if (left <= 0) { clearCalls(b, ks); continue; }
-    for (const n of callable(b, i)) { b.lnKind[n] = DEFIC; b.lnCall[n] = -1; }
+    for (const n of ks) if (b.lnOpen[n]) { b.lnKind[n] = DEFIC; b.lnCall[n] = -1; }
     const gap = w.events.emit('loan.shortfall', `${P.name(i)} still owes ${(left / 100).toFixed(0)} after the sale`, tie(s, [sell]), id);
     if (riskyDebt(w, i) > liquidAssets(w, id)) declareBankruptcy(w, i, gap);
   }
@@ -1464,6 +1492,7 @@ export function borrowMargin(w: World, person: number, cents: number, cause: num
   if (taken <= 0) return { taken: 0, rate: 0, why: 'the bank refused the loan' };
   // The line is cheaper than margin; the term loan pays for the lender's certainty.
   // Margin and line price off the same floating formula the monthly reprice uses, so the first month does not move the rate on a hidden term.
+  (b.pledged ??= {})[person] = collateralFetch(w, person);
   if (kind === LINE || kind === MARGIN) b.lnRate[slot] = floatRate(w, s, person, kind);
   else if (kind === TERM) b.lnRate[slot] += 0.01;
   return { taken, rate: b.lnRate[slot] };

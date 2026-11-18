@@ -1409,8 +1409,8 @@ function mirrorMargin(w: World, st: PlayerSeat, i: number): void {
   for (let e = from; e < n; e++) {
     const ev = w.events.get(e);
     if (!ev || ev.actor !== id) continue;
-    if (ev.kind === 'loan.margin' || ev.kind === 'opt.marginCall') {
-      w.events.emit('player.margin', 'The bank calls your margin. You have three trading days to pay it down, or the bank sells the shares for whatever the book will pay.', [ev.id], id);
+    if (ev.kind === 'loan.margin' || ev.kind === 'loan.line' || ev.kind === 'opt.marginCall') {
+      w.events.emit('player.margin', ev.kind === 'loan.line' ? 'The bank calls your credit line. You have three trading days to pay it down, or the bank sells the shares for whatever the book will pay.' : 'The bank calls your margin. You have three trading days to pay it down, or the bank sells the shares for whatever the book will pay.', [ev.id], id);
     } else if (ev.kind === 'court.bankruptcy') {
       w.events.emit('player.bankrupt', 'The court declares you bankrupt. Your assets are sold, creditors are paid, and you cannot borrow for six years.', [ev.id], id);
       if (scenarioEndsOnRuin(w)) {
