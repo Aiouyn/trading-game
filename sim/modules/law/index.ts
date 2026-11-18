@@ -4,6 +4,7 @@
 // rarely charged. A large or unusual gain usually is, months later. Verdicts can
 // be wrong in both directions. Fines move on the ledger. Prison is a flag.
 import { DAYS_PER_MONTH, type Module, type World } from '../../kernel/index.ts';
+import { isSeatPerson } from '../../kernel/seat.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { PRISON, leaveJob, seekRefresh, setSimDay, succession, thought } from '../economy/people.ts';
 import { discountForNews, playerTrading, submitOrder } from '../markets/index.ts';
@@ -405,7 +406,7 @@ function consider(w: World): void {
     const side: Side = edge > 0 ? 'buy' : 'sell';
     let best: Cand | undefined;
     eachKnower(fact.know, (person) => {
-      if (!P.adult(w, person)) return;
+      if (!P.adult(w, person) || isSeatPerson(w, person)) return;
       let fear = 0;
       if (firm < st.firmHeat.length && st.firmHeat[firm] >= 0) {
         const age = w.day - st.firmHeat[firm];

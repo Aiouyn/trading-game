@@ -23,7 +23,7 @@ interface Held { firm: number; by: number; day: number; ev: number; how: string;
 export interface Choice { firm: number; by: number; day: number; ev: number; op: string }
 export interface OwnerState {
   memos: Memo[]; pledges: Pledge[]; held: Held[]; choices?: Choice[];
-  cutDay: number[]; keepUntil: number[]; keepers: number[][];
+  cutDay: number[]; keepUntil: number[]; keepers: number[][]; keepBy?: number[];
   inherit: Record<number, number>; lastWho: number; heirEv: number; leaks: number; allies: number; witnesses: number; guarantees: number; cursor: number;
 }
 interface PlayerPeek { who?: number }
@@ -235,7 +235,8 @@ export function buyIn(w: World, person: number, key: string, howIn: string, cent
   const now = blockOf(w, person, f);
   const together = now + [...crew].reduce((a, p) => a + have(P.id(p)), 0);
   o.held.push({ firm: f.idx, by: person, day: w.day, ev, how, partners: partners.slice() });
-  const text = `${P.name(person)} buys ${got} shares of ${f.name} at ${dollars(px)} (${howIn}); holds ${now} of ${issued}`;
+  const mineGot = gets.get(pid) ?? 0;
+  const text = how === 'mbo' ? `${f.name} buys back ${got} shares at ${dollars(px)}; you hold ${now} of ${issued}` : `${P.name(person)} buys ${mineGot} shares of ${f.name} at ${dollars(px)} (${howIn})${partners.length ? `; ${partners.length} partners buy ${got - mineGot} more beside you` : ''}; you hold ${now} of ${issued}${together > now ? `, with partners ${together}` : ''}`;
   // A register with no big holder is run by whoever holds a clear lead: 30% and twice anyone else.
   const outside = [...L.holders('eq:' + f.id).entries()].filter(([id]) => id !== pid && id !== f.id && ![...crew].some((p) => P.id(p) === id));
   const biggest = outside.reduce((a, [, n]) => Math.max(a, n), 0);
@@ -271,6 +272,7 @@ export function cutJobs(w: World, person: number, key: string, n: number): Done 
   for (const i of promised) if (P.alive(i) && P.employer[i] === f.idx) { remember(w, i, person, f, BETRAYED, R_WORKER, 1.2, ev); broke++; }
   while (o.cutDay.length <= f.idx) o.cutDay.push(-1e9);
   o.cutDay[f.idx] = w.day;
+  f.keepUntil = 0;
   nudgeStanding(w, person, -Math.min(6, 1 + list.length / 8));
   return { text: `${list.length} jobs go at ${f.name}${broke ? `; ${broke} workers you promised to keep feel betrayed` : ''}`, eventId: ev };
 }
@@ -283,7 +285,7 @@ export function protectJobs(w: World, person: number, key: string): Done {
   const s = econ(w), P = s.P, o = owner(w);
   const each = Math.round(s.wage * 7);
   raiseCash(w, s, f, each * f.staff.length, rootOf(s, f)[0] ?? w.genesis);
-  const ev = w.events.emit('player.owner.protect', `${P.name(person)} promises ${f.name}'s ${f.staff.length} workers their jobs for a year and pays each a week's wages`, rootOf(s, f), f.id);
+  const ev = w.events.emit('player.owner.protect', `${P.name(person)} promises ${f.name}'s ${f.staff.length} workers their jobs for a year and pays each a week's wages (${dollars(each)} each, ${dollars(each * f.staff.length)} in all)`, rootOf(s, f), f.id);
   let paid = 0;
   for (const i of f.staff) if (pay(w, f.id, P.id(i), each, 'player.owner.retention', ev)) paid++;
   const keep = f.staff.filter((i) => i !== person).slice(0, 40);
@@ -295,8 +297,25 @@ export function protectJobs(w: World, person: number, key: string): Done {
   while (o.keepUntil.length <= f.idx) { o.keepUntil.push(0); o.keepers.push([]); }
   o.keepUntil[f.idx] = w.day + 360;
   o.keepers[f.idx] = keep;
+  f.keepUntil = w.day + 360;
+  o.keepBy ??= [];
+  while (o.keepBy.length <= f.idx) o.keepBy.push(-1);
+  o.keepBy[f.idx] = person;
   nudgeStanding(w, person, 2);
-  return { text: `${paid} workers of ${f.name} are paid ${dollars(each)} and promised a year`, eventId: ev };
+  return { text: `${paid} workers of ${f.name} are paid ${dollars(each)} each (${dollars(each * paid)} of payroll) and promised no cuts for a year while the firm can pay`, eventId: ev };
+}
+
+/** The firm could not pay, so the no-cuts promise broke. Those who were promised remember it as a betrayal. */
+export function promiseBroken(w: World, f: Firm, ev: number): void {
+  const o = owner(w), P = econ(w).P;
+  const by = o.keepBy?.[f.idx] ?? -1;
+  o.keepUntil[f.idx] = 0;
+  if (by < 0) return;
+  const keepers = o.keepers[f.idx] ?? [];
+  for (const i of keepers) if (P.alive(i)) remember(w, i, by, f, BETRAYED, R_WORKER, 1.2, ev);
+  const rep = repOf(w, f);
+  if (rep >= 0) remember(w, rep, by, f, BETRAYED, R_UNION, 1.4, ev);
+  nudgeStanding(w, by, -2);
 }
 
 /** Put a worker in charge: they remember, and so does the chief they passed over. */

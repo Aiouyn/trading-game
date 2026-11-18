@@ -3,6 +3,7 @@
 // A few days before the print the finance desk and the people they trust hold that number.
 // Funds and households then trade the surprise on the order book.
 import { type Module, type World } from '../../kernel/index.ts';
+import { isSeatActor, isSeatPerson } from '../../kernel/seat.ts';
 import { CEO_POSITION } from '../economy/content.ts';
 import { BANK, DEP, type EconState, type Firm } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
@@ -328,7 +329,7 @@ function consensusOf(calls: Call[], fallback: number): number {
 }
 
 function place(w: World, actor: string, instr: string, side: 'buy' | 'sell', qty: number, limit: number | null, until: number): void {
-  if (qty < 1 || !w.ledger.actors.has(actor) || !mkt(w)) return;
+  if (qty < 1 || !w.ledger.actors.has(actor) || !mkt(w) || isSeatActor(w, actor)) return;
   const id = limit === null
     ? submitOrder(w, actor, { instr, side, qty })
     : submitOrder(w, actor, { instr, side, qty, limit });
@@ -416,7 +417,7 @@ function finishReport(w: World, issuer: string, name: string, firm: number, reve
   const px = stockOf(w, issuer)?.last ?? 0;
   b.reports.push({
     issuer, name, firm, day: w.day, text, revenue: Math.round(revenue), costs: Math.round(costs), profit: actual,
-    eps, cash, debt, consensus, surprise, beat, event, px, pxAfter: 0,
+    eps, cash, debt, consensus, surprise, beat, event, px, pxAfter: px,
   });
   b.filed = (b.filed ?? 0) + 1;
   if (b.reports.length > 80) b.reports.splice(0, b.reports.length - 80);
@@ -535,9 +536,9 @@ function tradeInside(w: World, f: Firm, ids: number[], pace: number): void {
   const edge = (privateQ - pub) / scale;
   if (Math.abs(edge) < 0.04) return;
   const side: 'buy' | 'sell' = edge > 0 ? 'buy' : 'sell';
-  const ranked = ids.filter((i) => P.alive(i) && P.greed[i] >= 52 && P.greed[i] > P.diligence[i] * 0.85);
+  const ranked = ids.filter((i) => P.alive(i) && !isSeatPerson(w, i) && P.greed[i] >= 52 && P.greed[i] > P.diligence[i] * 0.85);
   ranked.sort((a, c) => (P.greed[c] - P.diligence[c]) - (P.greed[a] - P.diligence[a]) || a - c);
-  if (f.ceo >= 0 && P.alive(f.ceo) && !ranked.includes(f.ceo) && P.greed[f.ceo] >= 45) ranked.unshift(f.ceo);
+  if (f.ceo >= 0 && P.alive(f.ceo) && !isSeatPerson(w, f.ceo) && !ranked.includes(f.ceo) && P.greed[f.ceo] >= 45) ranked.unshift(f.ceo);
   let n = 0;
   for (const i of ranked) {
     if (n >= 3) break;

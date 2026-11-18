@@ -3,6 +3,7 @@
 // Memories, facet drift and the crash-generation anxiety run only for shareholders, chief
 // executives, staff of firms in the news, and their families.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
+import { isSeatPerson } from '../../kernel/seat.ts';
 import { DEP, type EconState, type Firm } from '../economy/index.ts';
 import { firmScaleOf, labourOf, leaveJob, retargetLabour, setEffScaled, setFirmScale, setSimDay, setThoughtHook, succession, thought } from '../economy/people.ts';
 import { submitOrder } from '../markets/index.ts';
@@ -142,6 +143,7 @@ function gamble(w: World, i: number, share: number, capQty: number): { name: str
   const st = riskiest(w);
   if (!st) return { name: 'nothing listed', filled: false };
   const P = econ(w).P;
+  if (isSeatPerson(w, i)) return { name: st.instr, filled: false };
   const cash = Math.floor(w.ledger.balance(P.id(i), DEP));
   const qty = Math.min(capQty, Math.floor(cash * share / Math.max(1, st.last)));
   if (qty < 1) return { name: st.instr, filled: false };

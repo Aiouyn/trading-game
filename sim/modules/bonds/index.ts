@@ -5,6 +5,7 @@
 // Corporate notes are claims on firms, a spread over the five-year: wider in a downturn and for a
 // weaker rating, and written off when that firm defaults.
 import { type Module, type World } from '../../kernel/index.ts';
+import { isSeatPerson } from '../../kernel/seat.ts';
 import { BANK, BOND, CB, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 
 export const LOT = 16_000; // one bond, in cents of face. Par price is LOT. Coupons land on whole cents.
@@ -385,7 +386,7 @@ function rebuildSavers(w: World): void {
   if (st.saverMonth === w.month && st.savers.length) return;
   const ids: number[] = [];
   for (let i = 0; i < P.n; i++) {
-    if (i === ((w.state.player as { who?: number } | undefined)?.who ?? -1)) continue;
+    if (isSeatPerson(w, i)) continue;
     if ((P.flags[i] & 1) === 0 || w.day < P.fearUntil[i]) continue;
     const inc = P.incEma[i];
     if (!(inc > 0)) continue;

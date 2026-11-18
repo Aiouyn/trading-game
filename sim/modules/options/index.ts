@@ -12,6 +12,7 @@
 // The market maker hedges its delta in the stock through the order book.
 // Direction is never drawn. w.rng('opt:...') only jitters who acts today and how many.
 import { DAYS_PER_MONTH, type Module, type World } from '../../kernel/index.ts';
+import { isSeatPerson } from '../../kernel/seat.ts';
 import { oweUnsecured, pressInsolvency, repayUnsecured } from '../banking/index.ts';
 import { DEP, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, cancelOrder, returnShares, submitOrder } from '../markets/index.ts';
@@ -560,7 +561,7 @@ function insiderTrades(w: World, cause: number): void {
     const cands: number[] = [];
     eachKnower(fact.know, (person) => {
       if (cands.length >= 8) return true;
-      if (!s.P.adult(w, person) || s.P.greed[person] < 60) return false;
+      if (!s.P.adult(w, person) || isSeatPerson(w, person) || s.P.greed[person] < 60) return false;
       const key = 'p_' + person;
       const prev = st.insiderAt[key];
       if (prev !== undefined && w.day - prev < 50) return false;

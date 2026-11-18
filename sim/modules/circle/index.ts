@@ -114,6 +114,8 @@ interface Circle {
   yReq: number;
   yPlans: number;
   openWorth: number;
+  /** The day the player's circle opened: a year is a year since then, not a year of the city's calendar. */
+  openDay?: number;
   markWorth: number;
   rivalDone: number;
   allyDone: number;
@@ -561,6 +563,7 @@ function cast(w: World, st: Circle, me: number): void {
   }
   st.cast = 1;
   if (st.openWorth < 0) st.openWorth = position(w, me);
+  if (st.openDay === undefined) st.openDay = w.day;
   st.markWorth = st.openWorth;
 }
 function findBanker(w: World, me: number, first: number[]): number {
@@ -1877,7 +1880,7 @@ function milestones(w: World, st: Circle, me: number, budget: number): number {
   const mentor = st.bonds.find((b) => b.role === 'mentor' && alive(w, b.who));
   if (!mentor) return 0;
   let n = 0;
-  const year = Math.floor(w.day / 360);
+  const year = Math.floor((w.day - (st.openDay ?? 0)) / 360);
   if (year >= 1 && st.mileYear !== year) {
     const worth = position(w, me);
     const cause = w.events.last('life.year') ?? root(w);

@@ -11,9 +11,9 @@ import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { borrowMargin } from '../banking/index.ts';
 import { blockPrice } from '../markets/index.ts';
-import { addFirm, closeFirm, DEP, noteCommission, pay, type EconState, type Firm } from '../economy/index.ts';
+import { addFirm, closeFirm, DEP, noteCommission, pay, setKeepHook, type EconState, type Firm } from '../economy/index.ts';
 import { joinFirm, leaveJob, succession } from '../economy/people.ts';
-import { adjustBar, ownerMonth, ownerStats } from './owner.ts';
+import { adjustBar, ownerMonth, ownerStats, promiseBroken } from './owner.ts';
 
 interface Style { prefix: string[]; suffix: string[] }
 interface Steer { idx: number; by: number; price: number | null; hires: number | null; dividend: number | null; capex: number }
@@ -618,6 +618,10 @@ function maybeSplits(w: World): void {
       o.qty = Math.round(o.qty * ratio);
       if (o.limit !== null && o.limit > 0) o.limit = Math.max(1, Math.round(o.limit / ratio));
     }
+    // Everything counted in shares scales with them: the market maker's target stock and the traded volume. Left alone, the maker holds ratio times its target, reads that as a glut, and marks the price down every day until the extra is sold: a split that quietly cost holders a quarter of their value.
+    q.targetInv = Math.max(1, Math.round(q.targetInv * ratio));
+    q.vol = Math.round(q.vol * ratio);
+    for (const bar of q.hist) bar.v = Math.round(bar.v * ratio);
     q.last = cutPx(q.last, ratio);
     q.prev = cutPx(q.prev, ratio);
     q.open = cutPx(q.open, ratio);
@@ -632,7 +636,7 @@ function maybeSplits(w: World): void {
     let paperName = 'The paper';
     let paperId = f.id;
     for (const o of s.firms) if (o.good === 'NEWS' && !o.closed) { paperName = o.name; paperId = o.id; break; }
-    const msg = `${paperName}: ${f.name} splits ${ratio}-for-1. Holders have ${ratio} shares for each one they held, priced at $${(q.last / 100).toFixed(2)} (+${(ratio - 1) * 100}% shares).`;
+    const msg = `${paperName}: ${f.name} splits ${ratio}-for-1. Holders have ${ratio} shares for each one they held, priced at $${(q.last / 100).toFixed(2)} instead of $${(old / 100).toFixed(2)} (+${(ratio - 1) * 100}% shares). A split changes the share count, not what a holding is worth.`;
     const story = w.events.emit('news.story', msg, [ev], paperId);
     const social = w.state.social as { facts?: Record<string, unknown>[]; yCreated?: number } | undefined;
     if (social?.facts) {
@@ -665,6 +669,7 @@ export const corporate: Module = {
       steer: [], chair: [], parked: [], wasOpen, absorbed: [], born,
     };
     w.state.corporate = st;
+    setKeepHook(promiseBroken);
   },
   tick(w) { openListings(w); },
   dayClose(w) { noteStruck(w); applySteer(w); parkDividends(w); briefBoard(w); },

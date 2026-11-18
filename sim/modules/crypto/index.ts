@@ -6,6 +6,7 @@
 // can pull the pool. Majors are a separate, listed book: the quote is the
 // policy rate, plus a market maker and a fund that follows the last move.
 import { type Module, type World } from '../../kernel/index.ts';
+import { isSeatPerson } from '../../kernel/seat.ts';
 import { DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
 
@@ -479,7 +480,7 @@ function quoteMajors(w: World): void {
     if (w.day % 7 === 6 && econ(w).policyRate <= 0.09 && m.last >= m.week) {
       const P = econ(w).P;
       const i = (st.cursor + m.supply) % Math.max(1, P.n);
-      if (P.alive(i) && w.day >= P.fearUntil[i]) {
+      if (P.alive(i) && !isSeatPerson(w, i) && w.day >= P.fearUntil[i]) {
         const surplus = cashOf(w, P.id(i)) - P.incEma[i] * 120;
         const qty = Math.min(3, Math.floor(surplus / mid / 40));
         if (qty >= 1) place(w, P.id(i), m.id, 'buy', qty, mid);

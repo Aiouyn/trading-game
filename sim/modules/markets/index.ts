@@ -6,6 +6,7 @@ import { SECTOR_GROWTH } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
 import { GOODS } from '../economy/content.ts';
 import { type Module, type World } from '../../kernel/index.ts';
+import { isSeatActor } from '../../kernel/seat.ts';
 
 const SHARES = 1_000_000;
 const W_DIV = 0.7;
@@ -870,7 +871,7 @@ function householdOrders(w: World): void {
     return v;
   };
   for (const h of s.investors) {
-    if (self && h.id === self) continue;
+    if ((self && h.id === self) || isSeatActor(w, h.id)) continue;
     const rng = w.rng('mkt:' + h.id);
     if (!rng.chance(0.2)) continue; // each person rebalances about once a week
     const wealth = w.ledger.netWorth(h.id, px);

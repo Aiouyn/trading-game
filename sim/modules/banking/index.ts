@@ -60,6 +60,7 @@ interface Book {
   bust: Int32Array; // day the court last declared, or -1
   tight?: number;       // credit tightness 0..1: lenders' appetite is the opposite
   tightEv?: number;     // the event that last moved it
+  rateEv?: Record<number, number>; // loan slot -> the event that last repriced it
   woEma?: number;       // annualised write-off rate, smoothed
   woSeen?: number;      // yWriteoff at the last month end
   rateHist?: number[];  // policy rate at the last twelve month ends
@@ -295,9 +296,14 @@ function openPersonal(w: World, s: EconState, i: number, kind: number, cents: nu
   b.lnMiss[k] = 0; b.lnOpen[k] = 1; b.lnOpened[k] = w.day; b.lnTerm[k] = kind === MTG ? MTG_TERM : kind === TERM ? TERM_MONTHS : CON_TERM;
   b.lnCall[k] = -1;
   addOwed(b, i, pick.take);
+  if (kind === MARGIN || kind === LINE) {
+    b.lnRate[k] = floatRate(w, s, i, kind);
+    // More debt raises what every floating loan of this borrower costs: they move together, with the reason written down.
+    for (let j = 0; j < b.ln; j++) if (j !== k && b.lnOpen[j] && b.lnPerson[j] === i && (b.lnKind[j] === MARGIN || b.lnKind[j] === LINE)) repriceLoan(w, s, b, j, i);
+  }
   if (kind === MTG) { growPeople(b, i + 1); b.mtg[i] = 1; }
   const what = kind === MTG ? 'mortgage' : kind === MARGIN ? 'margin loan' : kind === LINE ? 'credit line' : kind === TERM ? 'term loan' : kind === DEFIC ? 'unsecured loan' : 'consumer loan';
-  w.events.emit('loan.grant', `${P.name(i)} takes a ${what} of ${(pick.take / 100).toFixed(0)} from ${bank.id} at ${(pick.rate * 100).toFixed(1)}%`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv]), P.id(i));
+  w.events.emit('loan.grant', `${P.name(i)} takes a ${what} of ${(pick.take / 100).toFixed(0)} from ${bank.id} at ${(b.lnRate[k] * 100).toFixed(1)}%${kind === MARGIN || kind === LINE ? ` (floats: ${rateWhy(w, i, kind === LINE ? 'line' : 'margin')})` : ''}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv]), P.id(i));
   return pick.take;
 }
 
@@ -1027,6 +1033,25 @@ export function oweUnsecured(w: World, person: number, cents: number, cause: num
 }
 
 /** Rate on a floating loan: the policy rate, the borrower's spread, the lender's margin and the crunch. */
+/** In words, what makes up the rate on a floating loan today. The rate rises with how much of a year's income the borrower already owes. */
+export function rateWhy(w: World, person: number, product: 'margin' | 'line' | 'term'): string {
+  const s = econ(w), b = book(w), P = s.P;
+  const kind = product === 'line' ? LINE : product === 'term' ? TERM : MARGIN;
+  const pct = (x: number): string => (x * 100).toFixed(1) + '%';
+  const income = Math.max(1, P.incEma[person]);
+  const load = (person < b.owed.length ? b.owed[person] : 0) / (income * 360);
+  const loadPart = Math.min(0.08, 0.06 * load);
+  const tenure = P.employer[person] >= 0 ? Math.max(0, Math.floor((w.day - P.born[person]) / DAYS_PER_YEAR) - 18) : 0;
+  const young = tenure < 2 ? 0.02 : tenure < 5 ? 0.01 : 0;
+  const crunch = (kind === LINE ? 0.04 : 0.05) * (b.tight ?? 0);
+  const parts = [`policy rate ${pct(s.policyRate)}`, `base spread 2.5%`, `${pct(loadPart)} for the ${(load * 100).toFixed(0)}% of a year's income you owe`];
+  if (young > 0) parts.push(`${pct(young)} for a short work record`);
+  parts.push(`lender margin ${pct(kind === LINE ? 0.006 : 0.012)}`);
+  if (crunch > 0) parts.push(`${pct(crunch)} for tight credit`);
+  if (kind === TERM) parts.push('1.0% for a fixed term');
+  return parts.join(' + ');
+}
+
 function floatRate(w: World, s: EconState, i: number, kind: number): number {
   const b = book(w);
   return s.policyRate + personSpread(w, s, i) + (kind === LINE ? 0.006 : 0.012) + (kind === LINE ? 0.04 : 0.05) * (b.tight ?? 0);
@@ -1052,6 +1077,17 @@ function rollLines(w: World, s: EconState, b: Book): void {
       if (owed > 0) w.events.emit('loan.rolled', `the bank rolls ${P.name(i)}'s credit line of ${(owed / 100).toFixed(0)} for another quarter`, because(s, [b.tightEv]), P.id(i));
     }
   }
+}
+
+/** A floating loan takes today's rate. When it moves by 0.4 points or more, an event says what moved it. */
+function repriceLoan(w: World, s: EconState, b: Book, k: number, i: number): void {
+  const P = s.P;
+  const was = b.lnRate[k];
+  b.lnRate[k] = floatRate(w, s, i, b.lnKind[k]);
+  if (Math.abs(b.lnRate[k] - was) < 0.004 || !P.alive(i)) return;
+  const nm = b.lnKind[k] === LINE ? 'credit line' : 'margin loan';
+  const rev = w.events.emit('loan.reprice', `${P.name(i)}'s ${nm} reprices from ${(was * 100).toFixed(1)}% to ${(b.lnRate[k] * 100).toFixed(1)}%: ${rateWhy(w, i, b.lnKind[k] === LINE ? 'line' : 'margin')}`, because(s, [s.rateEv, P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), P.id(i));
+  (b.rateEv ??= {})[k] = rev;
 }
 
 /** Daily maintenance. A call waits three trading days, then the book is hit and any gap is still owed. */
@@ -1154,7 +1190,7 @@ function servicePeople(w: World, s: EconState, b: Book): void {
       closePersonal(w, s, b, k, i);
       continue;
     }
-    if (b.lnKind[k] === MARGIN || b.lnKind[k] === LINE) b.lnRate[k] = floatRate(w, s, i, b.lnKind[k]);
+    if (b.lnKind[k] === MARGIN || b.lnKind[k] === LINE) repriceLoan(w, s, b, k, i);
     const leftTerm = Math.max(1, b.lnTerm[k] - Math.max(0, Math.floor((w.day - b.lnOpened[k]) / 30)));
     const interest = Math.round(owed * b.lnRate[k] / 12);
     const paidI = payInterest(w, bank, P.id(i), interest, s.rateEv);
@@ -1331,6 +1367,12 @@ export function lendHaircut(w: World): number {
   return LEND_HAIRCUT + 0.25 * ((w.state.banking as Book | undefined)?.tight ?? 0);
 }
 
+/** The haircut each product takes off what the shares would fetch before the bank lends. Margin and line share one; a term loan takes more. */
+export function productHaircuts(w: World): { margin: number; line: number; term: number } {
+  const tight = (w.state.banking as Book | undefined)?.tight ?? 0;
+  return { margin: lendHaircut(w), line: lendHaircut(w), term: Math.min(0.95, TERM_HAIRCUT + 0.2 * tight) };
+}
+
 /** Credit tightness 0 (easy) to 1 (lenders pulling lines). */
 export function creditTightness(w: World): number {
   return (w.state.banking as Book | undefined)?.tight ?? 0;
@@ -1421,7 +1463,8 @@ export function borrowMargin(w: World, person: number, cents: number, cause: num
   const taken = openPersonal(w, s, person, kind, ask, posted as number);
   if (taken <= 0) return { taken: 0, rate: 0, why: 'the bank refused the loan' };
   // The line is cheaper than margin; the term loan pays for the lender's certainty.
-  if (kind === LINE) b.lnRate[slot] = floatRate(w, s, person, LINE);
+  // Margin and line price off the same floating formula the monthly reprice uses, so the first month does not move the rate on a hidden term.
+  if (kind === LINE || kind === MARGIN) b.lnRate[slot] = floatRate(w, s, person, kind);
   else if (kind === TERM) b.lnRate[slot] += 0.01;
   return { taken, rate: b.lnRate[slot] };
 }

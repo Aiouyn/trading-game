@@ -1,7 +1,7 @@
 // The player is one person in the same arrays as everyone else. They see only what they
 // know, and every order, loan and futures fill goes through the modules that already book it.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
-import { borrowBar, borrowMargin, creditTightness, depositSight, marginLimit, repayPerson, withdrawSight } from '../banking/index.ts';
+import { borrowBar, borrowMargin, creditTightness, depositSight, marginLimit, productHaircuts, rateWhy, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
 import { blockOf, controls, sharesOf, appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
@@ -199,8 +199,9 @@ export interface PlayerView {
   netWorth: number;
   cash: number;
   deposits: { bank: string; cents: number; eventId: number }[];
-  loans: { kind: string; owed: number; rate: number; eventId: number }[];
-  shares: { instr: string; name: string; qty: number; px: number; eventId: number }[];
+  loans: { kind: string; owed: number; rate: number; why: string; eventId: number }[];
+  /** px is the market price a share last traded at; value = qty * px; sale is what the whole holding would fetch if sold now, per share (a large block sells below the print). */
+  shares: { instr: string; name: string; qty: number; px: number; value: number; sale: number; saleValue: number; eventId: number }[];
   futures: { good: string; monthsAhead: number; net: number; px: number; eventId: number }[];
   coins: { id: string; name: string; qty: number; px: number; eventId: number }[];
   bonds: { instr: string; face: number; eventId: number }[];
@@ -256,10 +257,10 @@ export interface ConsensusRow { issuer: string; firm: string; profit: number; hi
 export interface RevealRow { issuer: string; firm: string; day: number; consensus: number; actual: number; surprise: number; px: number; pxAfter: number; signals: number; right: number; story: string; storyRight: boolean; mine: { text: string; outcome: string }[]; eventId: number }
 export interface CreditView {
   tightness: number; word: string; limit: number; owed: number; room: number;
-  products: { product: string; owed: number; rate: number; loans: number; open: boolean; note: string }[];
+  products: { product: string; owed: number; rate: number; loans: number; open: boolean; haircut: number; note: string }[];
 }
 export interface StakeView {
-  firm: string; name: string; shares: number; issued: number; percent: number; value: number; controls: boolean; chair: boolean; how: string;
+  firm: string; name: string; shares: number; issued: number; percent: number; value: number; saleValue: number; controls: boolean; chair: boolean; how: string;
   choices: { op: string; text: string; day: number; eventId: number }[];
   remembers: { name: string; role: string; what: string; warm: boolean; acted: boolean; eventId: number }[];
   city: string[];
@@ -875,13 +876,23 @@ function bookShare(w: World, firmId: string): number {
 }
 
 let pricingBook = false;
+/** A controlling block (30% of the shares, or the chair) is valued at no less than 60% of the market price: a thin book's bid says what a panic sale fetches, not what the block is worth to the person who chairs the firm. */
+function controlFloor(w: World, person: number, instr: string, qty: number): number {
+  const out = w.ledger.issued.get(instr) ?? 0;
+  if (qty < 1 || !(out > 0)) return 0;
+  const f = econ(w).firms.find((x) => !x.closed && instr === 'eq:' + x.id);
+  if (qty / out < 0.3 && !(f && controls(w, person, f))) return 0;
+  const last = (w.state.markets as { stocks?: { instr: string; last: number }[] } | undefined)?.stocks?.find((x) => x.instr === instr)?.last ?? 0;
+  return Math.round(last * 0.6);
+}
+
 function worth(w: World, i: number): number {
   const id = econ(w).P.id(i);
   const tape = markPrice(w);
   return w.ledger.netWorth(id, (instr) => {
     const qty = Math.floor(w.ledger.balance(id, instr));
     const marked = markHolding(w, id, instr, qty);
-    if (marked >= 0) return marked;
+    if (marked >= 0) return Math.max(marked, controlFloor(w, i, instr, qty));
     const px = tape(instr);
     if (px > 0) return px;
     if (pricingBook || !instr.startsWith('eq:')) return 0;
@@ -1545,8 +1556,8 @@ function sheetLines(w: World, playerId: string): string[] {
   const v = view(w, playerId);
   const lines = ['Balance sheet', `  cash ${dollars(v.cash)}`, `  net worth ${dollars(v.netWorth)}`];
   for (const d of v.deposits) lines.push(`  deposit ${d.bank} ${dollars(d.cents)}  [${d.eventId}]`);
-  for (const s of v.shares) lines.push(`  ${s.instr} ${s.qty} @ ${dollars(s.px)} = ${dollars(s.qty * s.px)}  [${s.eventId}]`);
-  for (const l of v.loans) lines.push(`  loan ${l.kind} ${dollars(l.owed)} @ ${(l.rate * 100).toFixed(2)}%  [${l.eventId}]`);
+  for (const s of v.shares) lines.push(`  ${s.instr} ${s.qty} @ ${dollars(s.px)} = ${dollars(s.value)} at market; a sale now would fetch ${dollars(s.saleValue)}  [${s.eventId}]`);
+  for (const l of v.loans) lines.push(`  loan ${l.kind} ${dollars(l.owed)} @ ${(l.rate * 100).toFixed(2)}% (${l.why})  [${l.eventId}]`);
   for (const f of v.futures) lines.push(`  future ${f.good} m+${f.monthsAhead} ${f.net > 0 ? 'long' : 'short'} ${Math.abs(f.net)} @ ${dollars(f.px)}  [${f.eventId}]`);
   if (v.marginPosted) lines.push(`  futures margin ${dollars(v.marginPosted)}`);
   for (const c of v.coins) lines.push(`  ${c.name} ${c.qty} @ ${dollars(c.px)}  [${c.eventId}]`);
@@ -1588,13 +1599,22 @@ function quoteLines(w: World, key: string): string[] | undefined {
   const instr = stockInstr(w, key) ?? (firm ? 'eq:' + firm.id : undefined);
   if (!firm && !instr) return undefined;
   const st = tapeOf(w).find((s) => s.instr === instr);
-  const orders = (w.state.markets as { orders?: { instr: string; side: string; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
-  let bid = -1, ask = -1;
+  const orders = (w.state.markets as { orders?: { instr: string; side: string; qty: number; skip?: boolean; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
+  // Orders that cross will trade at the next match, so they are not the standing quote: take the book the way matching would, then read the top of what is left. A bid is always below the ask.
+  const buys: { limit: number; qty: number }[] = [], sells: { limit: number; qty: number }[] = [];
   for (const o of orders) {
-    if (!o.open || o.instr !== instr || o.limit === null) continue;
-    if (o.side === 'buy' && o.limit > bid) bid = o.limit;
-    if (o.side === 'sell' && (ask < 0 || o.limit < ask)) ask = o.limit;
+    if (!o.open || o.skip || o.qty < 1 || o.instr !== instr || o.limit === null) continue;
+    (o.side === 'buy' ? buys : sells).push({ limit: o.limit, qty: o.qty });
   }
+  buys.sort((a, c) => c.limit - a.limit);
+  sells.sort((a, c) => a.limit - c.limit);
+  while (buys.length && sells.length && buys[0].limit >= sells[0].limit) {
+    const n = Math.min(buys[0].qty, sells[0].qty);
+    buys[0].qty -= n; sells[0].qty -= n;
+    if (buys[0].qty <= 0) buys.shift();
+    if (sells.length && sells[0].qty <= 0) sells.shift();
+  }
+  const bid = buys.length ? buys[0].limit : -1, ask = sells.length ? sells[0].limit : -1;
   const name = firm?.name ?? key;
   const lines = [`${name}  last ${dollars(st ? st.last : 0)}  bid ${bid < 0 ? 'none' : dollars(bid)}  ask ${ask < 0 ? 'none' : dollars(ask)}`];
   const closes = (st?.hist ?? []).slice(-20).map((b) => dollars(b.c));
@@ -1739,7 +1759,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
           }
           const grant = w.events.last('loan.grant');
           if (grant !== undefined && grant >= 0) rememberMove(st, grant, r.taken, w.day, 'pay');
-          return { status: 'accepted', fill: r.taken, eventId: grant, text: `borrowed ${(r.taken / 100).toFixed(2)} on a ${cmd.product === 'line' ? 'credit line' : cmd.product === 'term' ? 'term loan' : 'margin loan'} at ${pct}%. Limit ${cap}${cmd.product === 'line' ? '. A line is cheap but the bank may not roll it in a crunch' : cmd.product === 'term' ? '. Fixed for three years' : '. Margin account open'}` };
+          return { status: 'accepted', fill: r.taken, eventId: grant, text: `borrowed ${(r.taken / 100).toFixed(2)} on a ${cmd.product === 'line' ? 'credit line' : cmd.product === 'term' ? 'term loan' : 'margin loan'} at ${pct}% (${rateWhy(w, i, cmd.product ?? 'margin')}). Limit ${cap}${cmd.product === 'line' ? '. A line is cheap but the bank may not roll it in a crunch' : cmd.product === 'term' ? '. Fixed for three years' : '. Margin account open'}` };
         }
         case 'repay': {
           const n = repayPerson(w, i, cmd.cents, cause);
@@ -2239,7 +2259,7 @@ export function act(w: World, playerIdOrCmd: string | Command, cmd?: Command): A
   return result;
 }
 
-interface Fact { id: number; eventId: number; day: number; msg: string; pub: boolean; drop: boolean; firms: number[]; tag?: string }
+interface Fact { id: number; eventId: number; day: number; msg: string; pub: boolean; drop: boolean; firms: number[]; instrs?: string[]; tag?: string }
 
 export function view(w: World, playerId?: string): PlayerView {
   const players = roster(w);
@@ -2259,6 +2279,11 @@ export function view(w: World, playerId?: string): PlayerView {
   const stocks = (w.state.markets as { stocks?: { instr: string; last: number; issuer: string }[] } | undefined)?.stocks ?? [];
   const shares = i < 0 ? [] : stocks.filter((stc) => w.ledger.balance(id, stc.instr) > 0).map((stc) => ({
     instr: stc.instr, name: s.firms.find((f) => f.id === stc.issuer)?.name ?? '', qty: w.ledger.balance(id, stc.instr), px: stc.last, eventId: mktRoot,
+    ...(() => {
+      const q = Math.floor(w.ledger.balance(id, stc.instr));
+      const sale = Math.max(0, markHolding(w, id, stc.instr, q));
+      return { value: q * stc.last, sale, saleValue: q * sale };
+    })(),
   }));
   const banks = (w.state.banking as { banks?: { id: string; depo: string }[] } | undefined)?.banks ?? [];
   const deposits = i < 0 ? [] : banks.flatMap((b) => {
@@ -2272,7 +2297,9 @@ export function view(w: World, playerId?: string): PlayerView {
     const owed = Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
     if (owed <= 0) continue;
     const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : book.lnKind[k] === 5 ? 'credit line' : book.lnKind[k] === 6 ? 'term loan' : book.lnKind[k] === 4 ? 'unsecured' : 'consumer';
-    loans.push({ kind, owed, rate: book.lnRate[k], eventId: w.events.last('loan.grant') ?? arrived });
+    const floats = book.lnKind[k] === 3 || book.lnKind[k] === 5;
+    const why = floats ? rateWhy(w, i, book.lnKind[k] === 5 ? 'line' : 'margin') : book.lnKind[k] === 6 ? rateWhy(w, i, 'term') : 'fixed when taken out';
+    loans.push({ kind, owed, rate: book.lnRate[k], why, eventId: (book as unknown as { rateEv?: Record<number, number> }).rateEv?.[k] ?? w.events.last('loan.grant') ?? arrived });
   }
   const cmd = w.state.commodities as { books?: { good: string; tenors: { month: number; longId: string; shortId: string; px: number }[] }[] } | undefined;
   const futures: PlayerView['futures'] = [];
@@ -2321,12 +2348,27 @@ export function view(w: World, playerId?: string): PlayerView {
   const facts = (w.state.social as { facts?: Fact[] } | undefined)?.facts ?? [];
   const news: Line[] = [];
   // A results week is more than eight lines. The page keeps a month so a printed profit can be read.
-  if (i >= 0) for (let f = facts.length - 1; f >= 0 && news.length < 24; f--) {
-    const fact = facts[f];
-    if (!fact || fact.drop || !fact.pub || !knows(w, i, fact.id)) continue;
-    news.push({ eventId: fact.eventId, day: fact.day, text: fact.msg });
+  // The player's own firm, holdings and stakes come first, so a day of price closes cannot crowd them out.
+  const companies = i >= 0 ? companyPosts(w, i) : [];
+  if (i >= 0) {
+    const mineFirms = new Set<number>();
+    const mineInstrs = new Set<string>();
+    if (P.employer[i] >= 0) mineFirms.add(P.employer[i]);
+    for (const sh of shares) mineInstrs.add(sh.instr);
+    for (const c of companies) { const fi = s.firms.find((x) => x.id === c.id); if (fi) mineFirms.add(fi.idx); mineInstrs.add('eq:' + c.id); }
+    const own = (fact: Fact): boolean => fact.firms.some((x) => mineFirms.has(x)) || (fact.instrs ?? []).some((x) => mineInstrs.has(x));
+    const first: Line[] = [], rest: Line[] = [];
+    for (let f = facts.length - 1; f >= Math.max(0, facts.length - 3000) && (first.length < 24 || rest.length < 24); f--) {
+      const fact = facts[f];
+      if (!fact || fact.drop || !fact.pub || !knows(w, i, fact.id)) continue;
+      const line = { eventId: fact.eventId, day: fact.day, text: fact.msg };
+      if (own(fact)) { if (first.length < 24) first.push(line); } else if (rest.length < 24) rest.push(line);
+    }
+    const keep = first.slice(0, 12);
+    for (const l of [...first.slice(12), ...rest]) { if (keep.length >= 24) break; keep.push(l); }
+    keep.sort((a, b) => a.day - b.day || a.eventId - b.eventId);
+    news.push(...keep);
   }
-  news.reverse();
   const priv: Priv[] = [];
   if (i >= 0) {
     for (const h of st.heard) {
@@ -2360,7 +2402,7 @@ export function view(w: World, playerId?: string): PlayerView {
       const board = lifeBoard(w, i, st, i >= 0 ? Math.round(worth(w, i)) : 0);
       return { stats: board.stats, choices: board.choices };
     })(),
-    companies: i >= 0 ? companyPosts(w, i) : [],
+    companies,
     health: i >= 0 ? P.health[i] : 0,
     final: st.final,
     family: {
@@ -2426,7 +2468,8 @@ function creditOf(w: World, i: number, loans: PlayerView['loans']): CreditView {
   const owed = [...by.values()].reduce((a, r) => a + r.owed, 0);
   const row = (product: string, open: boolean, note: string): CreditView['products'][number] => {
     const r = by.get(product) ?? { owed: 0, rate: 0, loans: 0 };
-    return { product, owed: r.owed, rate: +r.rate.toFixed(4), loans: r.loans, open, note };
+    const hc = productHaircuts(w);
+    return { product, owed: r.owed, rate: +r.rate.toFixed(4), loans: r.loans, open, haircut: +(product === 'term loan' ? hc.term : product === 'credit line' ? hc.line : hc.margin).toFixed(3), note };
   };
   return {
     tightness: +tight.toFixed(2), word: tightWord(tight), limit, owed, room: Math.max(0, limit - owed),
@@ -2465,7 +2508,7 @@ function stakesOf(w: World, i: number): StakeView[] {
     const held = o.held.find((h) => h.firm === fi && mine(h.by));
     const ctl = controls(w, i, f);
     out.push({
-      firm: f.id, name: f.name, shares: have, issued, percent: +(have / issued * 100).toFixed(1), value: have * (px > 0 ? px : 0),
+      firm: f.id, name: f.name, shares: have, issued, percent: +(have / issued * 100).toFixed(1), value: have * (px > 0 ? px : 0), saleValue: f.listed ? have * Math.max(0, markHolding(w, id, 'eq:' + f.id, have)) : 0,
       controls: ctl, chair: ctl, how: held?.how ?? '', choices, remembers, city: [],
     });
   }

@@ -20,7 +20,8 @@ import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
 import { careerCard } from './modules/careers/index.ts';
-import { pledgeValue, saleProceeds, saleValue } from './modules/markets/index.ts';
+import { saleProceeds, saleValue } from './modules/markets/index.ts';
+import { marginLimit, productHaircuts } from './modules/banking/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
 import { answerAsk, STANCES } from './modules/media/index.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
@@ -2480,11 +2481,11 @@ function bankPanel(w: World): Record<string, unknown> {
     if (!book.lnOpen[k] || book.lnPerson[k] !== i) continue;
     const owed = Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
     if (owed <= 0) continue;
-    const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : 'consumer';
+    const kind = book.lnKind[k] === 1 ? 'mortgage' : book.lnKind[k] === 3 ? 'margin' : book.lnKind[k] === 5 ? 'credit line' : book.lnKind[k] === 6 ? 'term loan' : book.lnKind[k] === 4 ? 'unsecured' : 'consumer';
     loans.push({ kind, owed, rate: book.lnRate[k], eventId: grant });
-    if (kind === 'margin') { marginOwed += owed; marginRate = book.lnRate[k]; }
+    if (kind === 'margin' || kind === 'credit line' || kind === 'term loan') { marginOwed += owed; marginRate = book.lnRate[k]; }
   }
-  const limit = i >= 0 ? pledgeValue(w, id) : 0;
+  const limit = i >= 0 ? marginLimit(w, i) : 0;
   const room = Math.max(0, limit - marginOwed);
   const claims = scenarioClaims(w);
   return {
@@ -2498,6 +2499,7 @@ function bankPanel(w: World): Record<string, unknown> {
       owed: marginOwed,
       room,
       rate: marginRate,
+      haircut: productHaircuts(w),
       word: room > 0 ? 'Open' : marginOwed > 0 ? 'Full' : 'No collateral',
       eventId: grant,
     },
@@ -3748,7 +3750,7 @@ function screen(w: World): Record<string, unknown> {
   };
 }
 
-function topHolders(w: World, instr: string): { id: string; name: string; index?: number; qty: number }[] {
+function topHolders(w: World, instr: string): { id: string; name: string; index?: number; qty: number; shares: number }[] {
   let rows: [string, number][];
   try { rows = [...w.ledger.holders(instr)].filter(([, n]) => n > 0); }
   catch { return []; }
@@ -3757,9 +3759,9 @@ function topHolders(w: World, instr: string): { id: string; name: string; index?
   return rows.slice(0, 5).map(([hid, n]) => {
     if (hid.startsWith('p_')) {
       const k = Number(hid.slice(2));
-      if (Number.isInteger(k) && k >= 0 && k < P.n) return { id: hid, name: P.name(k), index: k, qty: Math.floor(n) };
+      if (Number.isInteger(k) && k >= 0 && k < P.n) return { id: hid, name: P.name(k), index: k, qty: Math.floor(n), shares: Math.floor(n) };
     }
-    return { id: hid, name: hid, qty: Math.floor(n) };
+    return { id: hid, name: hid, qty: Math.floor(n), shares: Math.floor(n) };
   });
 }
 
@@ -3798,11 +3800,11 @@ function riskOf(w: World): Record<string, unknown> {
   let loanRate = 0;
   const book = w.state.banking as { ln: number; lnOpen: Uint8Array; lnPerson: Int32Array; lnKind: Uint8Array; lnRate: Float64Array } | undefined;
   if (book) for (let k = 0; k < book.ln; k++) {
-    if (!book.lnOpen[k] || book.lnPerson[k] !== i || book.lnKind[k] !== 3) continue;
+    if (!book.lnOpen[k] || book.lnPerson[k] !== i || (book.lnKind[k] !== 3 && book.lnKind[k] !== 5 && book.lnKind[k] !== 6)) continue;
     loanOwed += Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
     if (book.lnRate[k] > 0) loanRate = book.lnRate[k];
   }
-  const limit = pledgeValue(w, id);
+  const limit = marginLimit(w, i);
   const sale = saleValue(w, id);
   let futNote = 0;
   const cmd = w.state.commodities as { books?: { lot: number; tenors: { longId: string; shortId: string; px: number }[] }[] } | undefined;

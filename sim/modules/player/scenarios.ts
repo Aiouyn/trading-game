@@ -1345,7 +1345,8 @@ export function reviewScenario(w: World): void {
     }
   }
   if (sc.twist && !sc.twisted && !dead) return;
-  const month = w.day > sc.begun && w.day % 30 === 0;
+  // The goal is looked at every day, so a win lands on the day it is true, not at the next month end.
+  const month = w.day > sc.begun;
   const due = sc.deadline > 0 && w.day >= sc.deadline;
   const shockDone = sc.goal.kind === 'crash' && sc.shockUntil !== undefined && w.day >= sc.shockUntil;
   if (!dead && !month && !due && !shockDone) return;

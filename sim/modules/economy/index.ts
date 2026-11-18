@@ -37,7 +37,7 @@ export interface Firm {
   id: string; idx: number; name: string; sector: string; good: string; price: number; workers: number; expSales: number;
   slot: number; staff: number[]; eff: number; ceo: number; family: boolean; badMonths: number; ceoEv?: number; // staff: person indexes into s.P; eff = sum of staff skill
   sold: number; lost: number; unitCost: number; markup: number; made: number; soldEma: number; lostEma: number; madeEma: number;
-  mRev: number; mCost: number; mStockDays: number; mPrice0: number; mUnitCost0: number; layoffEv?: number; divMtd?: number; divRate?: number;
+  mRev: number; mCost: number; mStockDays: number; mPrice0: number; mUnitCost0: number; layoffEv?: number; keepUntil?: number; divMtd?: number; divRate?: number;
   stockoutEv?: number; inputShortEv?: number; priceEv?: number; priceWho?: number;
   staffEv?: number; staffNoted?: number; staffMonth?: number; profitEv?: number;
   lastProfit: number; lastDividend: number; // last month's figures, for valuation
@@ -150,6 +150,11 @@ type CloseHook = (w: World, actor: string, cause: number) => void;
 let closeHook: CloseHook | undefined;
 /** Commodities registers this so a winding-up firm is taken off the futures book before its accounts go to zero. */
 export function setFirmCloseHook(fn: CloseHook): void { closeHook = fn; }
+
+/** Corporate sets this. A chair's promise of no cuts (`f.keepUntil`) held until the firm could not pay; this is told when it breaks. */
+export type KeepHook = (w: World, f: Firm, ev: number) => void;
+let keepHook: KeepHook | undefined;
+export function setKeepHook(fn: KeepHook): void { keepHook = fn; }
 
 /** Careers sets this. Called when a person is taken on, so the module can give them an occupation. Absent, hiring is unchanged. */
 export type HireHook = (w: World, person: number, firm: Firm) => void;
@@ -676,11 +681,20 @@ export const economy: Module = {
         while (f.eff < goal - 0.3) { const p = sp < keep ? seekBuf[sp++] : poach(); if (p === undefined) break; joinFirm(s, p, f); hireHook?.(w, p, f); P.lastEv[p] = -1; }
       } else if (gap < -2) {
         const goal = f.eff + Math.min(0.06 * gap, -1);
-        while (f.eff > goal + 0.3 && f.staff.length > 1) {
-          let k = f.staff.length - 1; if (f.staff[k] === f.ceo) k--;
-          const p = f.staff[k];
-          f.layoffEv ??= w.events.emit('firm.layoffs', `sales of ${GOODS[f.good].name} below plan: laying off staff`, [f.priceEv ?? cause], f.id);
-          leaveJob(s, p); P.lastEv[p] = f.layoffEv;
+        // A chair's promise of no cuts holds while the firm can pay two weeks of wages from its own till.
+        const promised = (f.keepUntil ?? 0) > w.day;
+        const solvent = Math.floor(w.ledger.balS(f.slot, DEP)) >= f.eff * s.wage * PAY_EVERY * 2;
+        if (promised && solvent) { /* the promise holds */ } else {
+          if (promised) {
+            const bev = w.events.emit('firm.layoffs', `${f.name} cannot pay its wage bill from the till, so the chair's promise of no cuts is broken: laying off staff`, [f.priceEv ?? cause], f.id);
+            f.layoffEv = bev; f.keepUntil = 0; keepHook?.(w, f, bev);
+          }
+          while (f.eff > goal + 0.3 && f.staff.length > 1) {
+            let k = f.staff.length - 1; if (f.staff[k] === f.ceo) k--;
+            const p = f.staff[k];
+            f.layoffEv ??= w.events.emit('firm.layoffs', `sales of ${GOODS[f.good].name} below plan: laying off staff`, [f.priceEv ?? cause], f.id);
+            leaveJob(s, p); P.lastEv[p] = f.layoffEv;
+          }
         }
       }
       // One staff event a month, naming the chief, so a headcount has a cause.
@@ -771,7 +785,9 @@ export const economy: Module = {
           // A till that is a few percent short used to shed a sixth of the staff anyway, so a
           // payroll that almost cleared still produced a mass layoff and a rehire within the year.
           const shed = Math.min(1 / 6, 1 - frac);
-          const ev = w.events.emit('firm.cashCrunch', `no cash and no credit: paid ${(frac * 100).toFixed(0)}% of wages and cut ${(shed * 100).toFixed(0)}% of the staff`, [f.priceEv ?? cause], f.id);
+          const broke = (f.keepUntil ?? 0) > w.day;
+          const ev = w.events.emit('firm.cashCrunch', `no cash and no credit: paid ${(frac * 100).toFixed(0)}% of wages and cut ${(shed * 100).toFixed(0)}% of the staff${broke ? `; the chair's promise of no cuts at ${f.name} is broken` : ''}`, [f.priceEv ?? cause], f.id);
+          if (broke) { f.keepUntil = 0; keepHook?.(w, f, ev); }
           for (let k = Math.max(1, Math.floor(f.staff.length * shed)); k > 0 && f.staff.length > 1; k--) {
             let j = f.staff.length - 1; if (f.staff[j] === f.ceo) j--;
             const p = f.staff[j]; leaveJob(s, p); P.lastEv[p] = ev;

@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DAYS_PER_MONTH, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
+import { isSeatActor, isSeatPerson } from '../../kernel/seat.ts';
 import { addFirm, DEP, pay, type EconState, type Firm } from '../economy/index.ts';
 import { askFirm, contactsOf, knows, publish, seatPerson } from '../social/index.ts';
 import { CITY, money, sectorWord, signedPct } from '../social/words.ts';
@@ -113,7 +114,7 @@ function readerOf(b: Book, person: number): number {
   return b.outlets.length - 1;
 }
 function place(w: World, actor: string, instr: string, side: 'buy' | 'sell', qty: number, limit: number, until: number): void {
-  if (qty < 1 || !w.ledger.actors.has(actor)) return;
+  if (qty < 1 || !w.ledger.actors.has(actor) || isSeatActor(w, actor)) return;
   const px = limit > 0 ? limit : (stockOf(w, instr.startsWith('eq:') ? instr.slice(3) : '')?.last ?? 0);
   if (side === 'buy') {
     const cash = Math.floor(w.ledger.balance(actor, DEP));
@@ -373,7 +374,7 @@ function plant(w: World): void {
     const id = investors[(start + k) % investors.length].id;
     if (!id.startsWith('p_')) continue;
     const i = +id.slice(2);
-    if (!P.adult(w, i) || P.greed[i] < 58) continue;
+    if (!P.adult(w, i) || isSeatPerson(w, i) || P.greed[i] < 58) continue;
     if (b.outlets.some((o) => o.journalists.includes(i))) continue;
     person = i;
     break;

@@ -112,6 +112,7 @@ export function parseCommand(line: string, employer: string): Command | { error:
     return { kind: 'cash', op: head, cents };
   }
   if (head === 'signals') return { kind: 'signals' };
+  if (head === 'owner') return { kind: 'help', command: 'owner' };
   if (head === 'stake') {
     const bare = !!t[1] && centsOf(t[1]) !== undefined && !/^frm_/.test(t[1]);
     const firm = bare ? employer : t[1];
