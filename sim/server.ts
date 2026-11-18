@@ -23,7 +23,7 @@ import { careerCard } from './modules/careers/index.ts';
 import { cityBook } from './modules/venues/world.ts';
 import { seatId } from './modules/venues/world.ts';
 import { courseBoard } from './modules/courses/index.ts';
-import { saleProceeds, saleValue } from './modules/markets/index.ts';
+import { bookLevels, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { marginLimit, productHaircuts } from './modules/banking/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
 import { answerAsk, STANCES } from './modules/media/index.ts';
@@ -103,6 +103,18 @@ function whole(n: unknown, min: number): number | undefined {
   return n;
 }
 
+/** type "stop" (or "stop-limit" when a limit comes with it) and a stop price in cents. Returns undefined for a plain order. */
+function stopOf(b: Record<string, unknown>, hasLimit: boolean): { type: 'stop' | 'stop-limit'; stop: number } | string | undefined {
+  const t = b.type;
+  if (t === undefined && b.stop === undefined) return undefined;
+  if (t !== undefined && t !== 'market' && t !== 'limit' && t !== 'stop' && t !== 'stop-limit') return 'type must be market, limit, stop or stop-limit';
+  if (t === 'market' || t === 'limit') return b.stop !== undefined ? 'a stop price needs type stop or stop-limit' : undefined;
+  const stop = whole(b.stop, 1);
+  if (stop === undefined) return 'stop must be a positive integer price in cents';
+  if (t === 'stop-limit' && !hasLimit) return 'a stop-limit order needs a limit price in cents';
+  return { type: t === 'stop-limit' || (t === undefined && hasLimit) ? 'stop-limit' : 'stop', stop };
+}
+
 function commandOf(body: unknown): Command | string {
   if (!body || typeof body !== 'object') return 'missing command';
   const b = body as Record<string, unknown>;
@@ -119,6 +131,9 @@ function commandOf(body: unknown): Command | string {
         if (limit === undefined) return 'limit must be a positive integer price in cents';
         cmd.limit = limit;
       }
+      const stop = stopOf(b, cmd.limit !== undefined);
+      if (typeof stop === 'string') return stop;
+      if (stop) { cmd.type = stop.type; cmd.stop = stop.stop; }
       return cmd;
     }
     case 'cancel': {
@@ -146,7 +161,10 @@ function commandOf(body: unknown): Command | string {
       if (qty === undefined) return 'qty is a number of contracts';
       const months = whole(b.months, 0);
       if (months === undefined) return 'month must be 0 to 5';
-      return { kind: 'fut', side: b.side, good: b.good, qty, months };
+      const stop = stopOf(b, false);
+      if (typeof stop === 'string') return stop;
+      if (stop && stop.type === 'stop-limit') return 'a future has no limit price: use a plain stop';
+      return stop ? { kind: 'fut', side: b.side, good: b.good, qty, months, type: 'stop', stop: stop.stop } : { kind: 'fut', side: b.side, good: b.good, qty, months };
     }
     case 'coin': {
       if (b.side !== 'buy' && b.side !== 'sell') return 'coin side must be buy or sell';
@@ -159,6 +177,9 @@ function commandOf(body: unknown): Command | string {
         if (limit === undefined) return 'limit must be a positive integer price in cents';
         cmd.limit = limit;
       }
+      const stop = stopOf(b, cmd.limit !== undefined);
+      if (typeof stop === 'string') return stop;
+      if (stop) { cmd.type = stop.type; cmd.stop = stop.stop; }
       return cmd;
     }
     case 'launch': return { kind: 'launch' };
@@ -852,27 +873,10 @@ function sparkOf(st: Stock): number[] {
 interface BookLevel { px: number; qty: number }
 interface BookSide { bids: BookLevel[]; asks: BookLevel[] }
 
-/** Resting limit orders, collapsed to price levels. The book already lives on the market. */
+/** The standing book of every listed share: resting limit orders and the dealers' ladder, as price levels. */
 function booksOf(w: World): Map<string, BookSide> {
-  const orders = (w.state.markets as { orders?: { open: boolean; skip?: boolean; instr: string; side: string; qty: number; limit: number | null }[] } | undefined)?.orders ?? [];
-  const bid = new Map<string, Map<number, number>>();
-  const ask = new Map<string, Map<number, number>>();
-  for (const o of orders) {
-    if (!o.open || o.skip || o.limit === null || o.qty < 1) continue;
-    const side = o.side === 'buy' ? bid : o.side === 'sell' ? ask : undefined;
-    if (!side) continue;
-    let levels = side.get(o.instr);
-    if (!levels) { levels = new Map(); side.set(o.instr, levels); }
-    levels.set(o.limit, (levels.get(o.limit) ?? 0) + o.qty);
-  }
-  const top = (m: Map<number, number> | undefined, desc: boolean): BookLevel[] => {
-    if (!m) return [];
-    return [...m.entries()].sort((a, b) => desc ? b[0] - a[0] : a[0] - b[0]).slice(0, 8).map(([px, qty]) => ({ px, qty }));
-  };
   const out = new Map<string, BookSide>();
-  for (const instr of new Set([...bid.keys(), ...ask.keys()])) {
-    out.set(instr, { bids: top(bid.get(instr), true), asks: top(ask.get(instr), false) });
-  }
+  for (const st of stocksOf(w)) out.set(st.instr, bookLevels(w, st.instr));
   return out;
 }
 

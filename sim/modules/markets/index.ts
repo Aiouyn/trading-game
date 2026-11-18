@@ -12,6 +12,8 @@ const SHARES = 1_000_000;
 const W_DIV = 0.7;
 const W_EARN = 0.3;
 const PAYOUT = 0.5;
+/** Cents: the highest price a share opens at. Above it the shares are split before trading starts. */
+const OPEN_CAP = 20_000;
 
 type Side = 'buy' | 'sell';
 type Src = 'player' | 'value' | 'momentum' | 'mm' | 'hh';
@@ -61,6 +63,8 @@ interface Stock {
   printDir?: number;
   /** Shares lender-forced sales dumped on the book lately, in days of volume. It decays and the price recovers. */
   forced?: number;
+  /** Fraction the quote sits off the sim price because a player's own orders walked the book. It decays within the day. */
+  imp?: number;
   /** Capitalisation at the last total-return point, so the index follows the same names month to month. */
   trPrev?: number;
 }
@@ -140,6 +144,8 @@ function compactOrders(m: MktState): void {
 function sharesOut(w: World, instr: string): number { return w.ledger.issued.get(instr) ?? SHARES; }
 
 const BLOCK_SHARE = 0.01;
+/** A holding of less than this share of the company is marked at the quote's mid price. A bigger block is the market itself and gets the haircut below. */
+const MARK_BLOCK = 0.05;
 const FORCED_IMPACT = 0.02; // price discount per day of volume dumped by forced sellers
 const FORCED_CAP = 0.35;
 const FORCED_DECAY = 0.94;  // per day: the half-life is about eleven days
@@ -174,14 +180,18 @@ function bidLevels(w: World, instr: string, skip: string): { qty: number; limit:
   return out;
 }
 
-/** Cents a sale of `qty` would raise by walking the resting bids. Shares the book does not want fetch nothing. */
+/** Cents a sale of `qty` would raise by walking the bids: those resting in the book and the dealers' standing ladder. Shares beyond the depth fetch nothing. */
 export function saleProceeds(w: World, instr: string, qty: number, skipActor: string): number {
   if (qty < 1) return 0;
+  const st = book(w).stocks.find((x) => x.instr === instr);
+  const levels = bidLevels(w, instr, skipActor);
+  if (st) for (const l of ladder(w, st, 'sell')) levels.push({ qty: l.qty, limit: l.px });
+  levels.sort((x, y) => y.limit - x.limit);
   let left = qty, got = 0;
-  for (const b of bidLevels(w, instr, skipActor)) {
+  for (const l of levels) {
     if (left < 1) break;
-    const q = Math.min(left, b.qty);
-    got += q * b.limit;
+    const q = Math.min(left, l.qty);
+    got += q * l.limit;
     left -= q;
   }
   return got;
@@ -229,7 +239,7 @@ function bestBid(w: World, instr: string, skip: string): number {
 export function markHolding(w: World, actor: string, instr: string, qty: number): number {
   const st = book(w).stocks.find((s) => s.instr === instr);
   if (!st) return -1;
-  if (qty < 1 || !corner(qty, sharesOut(w, instr))) return st.last;
+  if (qty < 1 || qty < sharesOut(w, instr) * MARK_BLOCK) return quoteMid(st);
   const fair = Math.max(1, fairValue(w, st, 0.04));
   const bid = bestBid(w, instr, actor);
   const days = qty / advOf(st);
@@ -257,6 +267,252 @@ export function blockPrice(w: World, instr: string, qty: number): number {
   return px > 0 ? px : 0;
 }
 
+// ---- standing depth ----
+// Dealers and the city's investors stand behind every listed share. The book a buyer meets is a ladder
+// of asks over the mid price and a ladder of bids under it. Its width and size come from the firm: a
+// small firm has a wide, thin book, a big one a tight, deep one, and a busy name more than a quiet one.
+// The shares and the cash are real: a fill moves them from and to the dealer and the investors who hold
+// them, through the ledger, and a ladder level the holders cannot cover is not there.
+
+/** Each level sits this many half-spreads from the mid. */
+const LADDER_OFF = [1, 1.6, 3.4, 6.4, 10.6, 16];
+/** Each level offers this share of the company's shares, before the size and volume factors. */
+const LADDER_FRAC = [0.005, 0.0075, 0.01, 0.0125, 0.015, 0.02];
+/** Part of a walk through the book that stays in the quote. Under one, so a round trip always costs the spread. */
+const IMPACT_KEEP = 0.35;
+const IMPACT_MAX = 0.2;
+/** What each holder will lend out of the book, by kind. */
+const SELL_SHARE = 0.3;
+const MM_SELL_SHARE = 0.8;
+const BUY_SHARE = 0.06;
+
+export interface Fill { px: number; qty: number }
+export interface Execution {
+  side: Side;
+  asked: number;
+  filled: number;
+  /** Cents paid, or raised. */
+  cents: number;
+  /** Average price per share, in cents. 0 when nothing filled. */
+  avg: number;
+  /** Mid price before the order, in cents. */
+  mid: number;
+  fills: Fill[];
+  /** Id of what is left resting when a limit order did not fill whole. */
+  restId?: number;
+  why?: string;
+}
+interface Level { px: number; qty: number }
+
+/** The price the quote is centred on: the sim price, nudged by what the player's own orders did to it. */
+function quoteMid(st: Stock): number {
+  return Math.max(1, Math.round(st.last * (1 + (st.imp ?? 0))));
+}
+
+/** Mid price of a listed share in cents, or 0. */
+export function midPrice(w: World, instr: string): number {
+  const st = book(w)?.stocks.find((x) => x.instr === instr);
+  return st ? quoteMid(st) : 0;
+}
+
+function halfSpread(w: World, st: Stock): number {
+  const capD = Math.max(1, st.last * sharesOut(w, st.instr) / 100);
+  return 0.0015 + 0.006 / (1 + capD / 4e6) + Math.min(0.01, volOf(st) * 0.25);
+}
+
+function sizeFactor(w: World, st: Stock): number {
+  const capD = Math.max(1, st.last * sharesOut(w, st.instr) / 100);
+  const out = sharesOut(w, st.instr);
+  const size = Math.max(0.6, Math.min(1.5, 0.6 + 0.35 * Math.log10(Math.max(1, capD / 1e6))));
+  const busy = 1 + 0.5 * Math.min(1, advOf(st) / Math.max(1, out * 0.01));
+  return size * busy;
+}
+
+/** What a buyer meets (side 'buy': asks, rising) or a seller meets (side 'sell': bids, falling). */
+function ladder(w: World, st: Stock, side: Side): Level[] {
+  const mid = quoteMid(st);
+  const h = halfSpread(w, st);
+  const out = sharesOut(w, st.instr);
+  const lf = sizeFactor(w, st);
+  const levels: Level[] = [];
+  let prev = side === 'buy' ? mid : mid + 1;
+  for (let k = 0; k < LADDER_OFF.length; k++) {
+    const off = h * LADDER_OFF[k];
+    let px = side === 'buy' ? Math.round(mid * (1 + off)) : Math.round(mid * (1 - off));
+    if (side === 'buy') px = Math.max(prev + 1, px);
+    else px = Math.min(prev - 1, px);
+    if (px < 1) break;
+    const qty = Math.floor(out * LADDER_FRAC[k] * lf);
+    if (qty >= 1) levels.push({ px, qty });
+    prev = px;
+  }
+  return levels;
+}
+
+interface Maker { id: string; left: number }
+
+function sellers(w: World, st: Stock, skip: string): Maker[] {
+  const out: Maker[] = [];
+  const L = w.ledger;
+  for (const [slot, n] of L.holdersS(st.instr)) {
+    const id = L.ids[slot];
+    if (!id || id === skip) continue;
+    const mm = id === 'fund_mm';
+    if (!mm && !id.startsWith('fund_') && !id.startsWith('p_')) continue;
+    if (id.startsWith('p_') && isSeatActor(w, id)) continue;
+    const left = Math.floor(n * (mm ? MM_SELL_SHARE : SELL_SHARE));
+    if (left >= 1) out.push({ id, left });
+  }
+  out.sort((a, b) => (b.id === 'fund_mm' ? 1 : 0) - (a.id === 'fund_mm' ? 1 : 0) || b.left - a.left || (a.id < b.id ? -1 : 1));
+  return out;
+}
+
+function buyers(w: World, skip: string): Maker[] {
+  const out: Maker[] = [];
+  const ids = book(w).funds.map((f) => f.id);
+  for (const h of econ(w).investors) ids.push(h.id);
+  for (const id of ids) {
+    if (id === skip || (id.startsWith('p_') && isSeatActor(w, id))) continue;
+    const c = Math.floor(cash(w, id) * (id === 'fund_mm' ? 0.2 : BUY_SHARE));
+    if (c >= 1) out.push({ id, left: c });
+  }
+  out.sort((a, b) => b.left - a.left || (a.id < b.id ? -1 : 1));
+  return out;
+}
+
+/**
+ * Walk the ladder for `actor`. A buy meets the asks at or under `limit`, a sale the bids at or over it.
+ * Returns what filled; nothing rests here.
+ */
+function walkLadder(w: World, actor: string, st: Stock, side: Side, qty: number, limit: number | null, cause: number): Execution {
+  const m = book(w);
+  const mid = quoteMid(st);
+  const ex: Execution = { side, asked: qty, filled: 0, cents: 0, avg: 0, mid, fills: [] };
+  const levels = ladder(w, st, side);
+  const makers = side === 'buy' ? sellers(w, st, actor) : buyers(w, actor);
+  let left = qty;
+  let top = 0;
+  for (const lv of levels) {
+    if (left < 1) break;
+    if (limit !== null && (side === 'buy' ? lv.px > limit : lv.px < limit)) break;
+    const target = Math.min(left, lv.qty);
+    let want = target;
+    let got = 0;
+    for (const mk of makers) {
+      if (want < 1) break;
+      if (mk.left < 1) continue;
+      let q: number;
+      if (side === 'buy') {
+        const afford = Math.floor(cash(w, actor) / lv.px);
+        q = Math.min(want, mk.left, Math.floor(w.ledger.balance(mk.id, st.instr)), afford);
+        if (afford < 1) break;
+        if (q < 1) continue;
+        if (!pay(w, actor, mk.id, q * lv.px, 'mkt.trade', cause)) break;
+        if (!w.ledger.move(st.instr, mk.id, actor, q, 'mkt.trade', cause)) throw new Error(`share delivery failed on ${st.instr}`);
+        mk.left -= q;
+      } else {
+        const held = Math.floor(w.ledger.balance(actor, st.instr));
+        if (held < 1) break;
+        q = Math.min(want, held, Math.floor(mk.left / lv.px));
+        if (q < 1) continue;
+        if (!pay(w, mk.id, actor, q * lv.px, 'mkt.trade', cause)) continue;
+        if (!w.ledger.move(st.instr, actor, mk.id, q, 'mkt.trade', cause)) throw new Error(`share delivery failed on ${st.instr}`);
+        mk.left -= q * lv.px;
+      }
+      want -= q;
+      got += q;
+    }
+    if (got > 0) {
+      ex.fills.push({ px: lv.px, qty: got });
+      ex.filled += got;
+      ex.cents += got * lv.px;
+      left -= got;
+      top = lv.px;
+    }
+    if (got < target) break; // the holders at this level ran dry, or the actor did
+  }
+  if (ex.filled > 0) {
+    ex.avg = ex.cents / ex.filled;
+    st.vol += ex.filled;
+    if (top > st.high) st.high = top;
+    if (top < st.low || st.low <= 0) st.low = top;
+    m.yTurn += ex.cents;
+    // The quote follows part of the walk. A buyer who lifted the book leaves the next ask higher.
+    const move = mid > 0 ? top / mid - 1 : 0;
+    st.imp = Math.max(-IMPACT_MAX, Math.min(IMPACT_MAX, (st.imp ?? 0) + IMPACT_KEEP * move));
+  }
+  return ex;
+}
+
+/**
+ * Trade now. A market order (no limit) walks the book and what it cannot fill is dropped. A limit order
+ * fills what is marketable and the rest rests until the price comes, or the order is cancelled.
+ */
+export function trade(w: World, actor: string, req: OrderRequest, cause: number): Execution {
+  const st = book(w).stocks.find((x) => x.instr === req.instr);
+  if (!st) throw new Error(`not listed ${req.instr}`);
+  if (!w.ledger.actors.has(actor)) throw new Error(`unknown actor ${actor}`);
+  if (req.side !== 'buy' && req.side !== 'sell') throw new Error('side must be buy or sell');
+  if (!Number.isSafeInteger(req.qty) || req.qty <= 0) throw new Error('qty must be a positive integer');
+  if (req.limit !== undefined && (!Number.isSafeInteger(req.limit) || req.limit <= 0)) throw new Error('limit must be a positive integer price in cents');
+  const limit = req.limit ?? null;
+  const ex = walkLadder(w, actor, st, req.side, req.qty, limit, cause);
+  const left = req.qty - ex.filled;
+  if (limit !== null && left > 0) ex.restId = place(w, actor, req.instr, req.side, left, limit, 'player');
+  return ex;
+}
+
+/** A resting limit order that the ladder now meets fills against it. Runs each tick, for the player's orders only. */
+function sweepSeatOrders(w: World): void {
+  const m = book(w);
+  if (!m.playerLive) return;
+  for (let i = 0; i < m.orders.length; i++) {
+    const o = m.orders[i];
+    if (!o.open || o.limit === null || o.src !== 'player' || !isSeatActor(w, o.actor)) continue;
+    const st = m.stocks.find((x) => x.instr === o.instr);
+    if (!st) continue;
+    const lv = ladder(w, st, o.side);
+    if (!lv.length) continue;
+    const marketable = o.side === 'buy' ? lv[0].px <= o.limit : lv[0].px >= o.limit;
+    if (!marketable) continue;
+    const ex = walkLadder(w, o.actor, st, o.side, o.qty, o.limit, m.root);
+    o.qty -= ex.filled;
+    if (o.qty < 1) o.open = false;
+  }
+}
+
+/** Let the player's impact on the quote fade. */
+function fadeImpact(w: World, keep: number): void {
+  for (const st of book(w).stocks) {
+    if (st.imp) { st.imp *= keep; if (Math.abs(st.imp) < 0.0002) st.imp = 0; }
+  }
+}
+
+/** The standing book for one share: resting limit orders and the dealers' ladder, collapsed to price levels, best first, crossed levels netted. */
+export function bookLevels(w: World, instr: string, depth = 8): { bids: { px: number; qty: number }[]; asks: { px: number; qty: number }[] } {
+  const m = book(w);
+  const st = m.stocks.find((x) => x.instr === instr);
+  const bid = new Map<number, number>(), ask = new Map<number, number>();
+  for (const o of m.orders) {
+    if (!o.open || o.skip || o.limit === null || o.qty < 1 || o.instr !== instr) continue;
+    const side = o.side === 'buy' ? bid : ask;
+    side.set(o.limit, (side.get(o.limit) ?? 0) + o.qty);
+  }
+  if (st) {
+    for (const l of ladder(w, st, 'sell')) bid.set(l.px, (bid.get(l.px) ?? 0) + l.qty);
+    for (const l of ladder(w, st, 'buy')) ask.set(l.px, (ask.get(l.px) ?? 0) + l.qty);
+  }
+  const bids = [...bid.entries()].sort((a, b) => b[0] - a[0]).map(([px, qty]) => ({ px, qty }));
+  const asks = [...ask.entries()].sort((a, b) => a[0] - b[0]).map(([px, qty]) => ({ px, qty }));
+  while (bids.length && asks.length && bids[0].px >= asks[0].px) {
+    const n = Math.min(bids[0].qty, asks[0].qty);
+    bids[0].qty -= n; asks[0].qty -= n;
+    if (bids[0].qty <= 0) bids.shift();
+    if (asks.length && asks[0].qty <= 0) asks.shift();
+  }
+  return { bids: bids.slice(0, depth), asks: asks.slice(0, depth) };
+}
+
 /** Hit the resting bids. Cash and shares move through the ledger. Returns shares sold. */
 export function sellToBook(w: World, actor: string, instr: string, qty: number, cause: number, forced = false): number {
   const st = book(w).stocks.find((s) => s.instr === instr);
@@ -281,6 +537,7 @@ export function sellToBook(w: World, actor: string, instr: string, qty: number, 
     sold += q;
     left -= q;
   }
+  if (left >= 1) sold += walkLadder(w, actor, st, 'sell', left, null, cause).filled;
   return sold;
 }
 
@@ -539,6 +796,11 @@ export function submitOrder(w: World, actor: string, req: OrderRequest): number 
   if (!Number.isSafeInteger(req.qty) || req.qty <= 0) throw new Error('qty must be a positive integer');
   if (req.limit !== undefined && (!Number.isSafeInteger(req.limit) || req.limit <= 0)) throw new Error('limit must be a positive integer price in cents');
   return place(w, actor, req.instr, req.side, req.qty, req.limit ?? null, 'player');
+}
+
+/** A fresh order id, so a stop held elsewhere never shares a number with a resting order. */
+export function nextOrderId(w: World): number {
+  return book(w).nextId++;
 }
 
 /** The player has chosen to trade. Household rebalancing and house bids then leave their cash and book alone. */
@@ -1028,26 +1290,46 @@ export const markets: Module = {
         wide: false, hist: [], rets: [], divEma: 0, profitEma: 0, seenProfit: 0, seenDiv: 0, targetInv: 1,
       });
     }
+    // A firm opens at what its running profit is worth, the same discounted stream the value funds will
+    // price it by. The book is not that: machinery counted at replacement cost made a $24,000-a-year firm
+    // a $38 million one, and the first quarter then split and repriced it. Month one is calm when the
+    // opening price is already the price the earnings support.
     for (const st of state.stocks) {
-      if (st.issuer === BANK) continue;
-      const f = firmOf(s, st.issuer);
-      // Book equity is cash and stock minus the charter loan, and the loan is larger than both,
-      // so the book floors at a cent. The loan is repaid out of profit; the shares are worth the
-      // profit that remains. Price that, or the book when the book is the larger of the two.
+      const sh = sharesOut(w, st.instr);
       let last = st.last;
-      if (f && f.markup > 1 && f.expSales > 0 && f.price > 0) {
-        const daily = f.expSales * f.price * (1 - 1 / f.markup);
-        const loan = w.ledger.issued.get('loan:' + f.id) ?? 0;
-        const interest = loan * (s.policyRate + 0.03) / 12;
-        const tax = s.profitTax ?? 0.2;
-        const monthly = daily * 30 - interest;
-        const after = monthly > 0 ? monthly * (1 - tax) : 0;
-        const sh = sharesOut(w, st.instr);
-        const r = capRate(s, s.policyRate, 0.04, state.gHat);
-        if (sh > 0 && r > 0) last = Math.max(last, Math.round(after * 12 / r / sh));
+      if (st.issuer === BANK) {
+        const per = Math.max(1, Math.round(bookEquity(w, BANK) / sh));
+        last = Math.max(1, Math.round(per * (0.03 + 0.04) / discount(s.policyRate, 0.04)));
+      } else {
+        const f = firmOf(s, st.issuer);
+        if (f && f.markup > 1 && f.expSales > 0 && f.price > 0) {
+          const daily = f.expSales * f.price * (1 - 1 / f.markup);
+          const loan = w.ledger.issued.get('loan:' + f.id) ?? 0;
+          const interest = loan * (s.policyRate + 0.03) / 12;
+          const tax = s.profitTax ?? 0.2;
+          const monthly = daily * 30 - interest;
+          const after = monthly > 0 ? monthly * (1 - tax) : 0;
+          const r = capRate(s, s.policyRate, 0.04, state.gHat);
+          if (sh > 0 && r > 0) {
+            const dcf = Math.round(annualCash(after, after) / r / sh);
+            last = dcf >= 1 ? dcf : Math.max(1, Math.min(last, 25));
+          }
+        }
+      }
+      // A listed price above $200 is split before the first bell, ten-for-one or more as needed. The
+      // corporate rule would split it at the first month end and the chart would open with a cliff.
+      let shOut = sh;
+      const ratio = Math.ceil(last / OPEN_CAP);
+      if (ratio > 1 && sh > 0) {
+        for (const [holder, qty] of [...w.ledger.holders(st.instr)]) {
+          const add = (ratio - 1) * Math.floor(qty);
+          if (add > 0) w.ledger.issue(st.instr, holder, add, 'mkt.presplit', w.genesis);
+        }
+        shOut = sharesOut(w, st.instr);
+        last = Math.max(1, Math.round(last / ratio));
       }
       st.last = last; st.prev = last; st.open = last; st.high = last; st.low = last;
-      const x = impliedEma(s, last, s.policyRate, 0.04, sharesOut(w, st.instr));
+      const x = impliedEma(s, last, s.policyRate, 0.04, shOut);
       st.divEma = x;
       st.profitEma = x;
     }
@@ -1103,6 +1385,8 @@ export const markets: Module = {
       for (const f of m.funds) if (f.style === 'momentum') momentumOrders(w, f);
       matchAll(w);
     }
+    sweepSeatOrders(w);
+    fadeImpact(w, Math.pow(0.7, 1 / Math.max(1, w.ticksPerDay)));
   },
 
   dayClose(w) {

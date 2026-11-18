@@ -88,8 +88,8 @@ export function seriesSymbol(id: string, name: string): string {
 
 function sampleAll(w: World, t: number): void {
     const st = state(w);
-    const m = w.state.markets as { stocks?: { instr: string; issuer: string; last: number; vol: number }[] } | undefined;
-    for (const k of m?.stocks ?? []) sample(st, w, t, k.instr, firmName(w, k.issuer), 'share', 'cents', k.last, k.vol);
+    const m = w.state.markets as { stocks?: { instr: string; issuer: string; last: number; vol: number; imp?: number }[] } | undefined;
+    for (const k of m?.stocks ?? []) sample(st, w, t, k.instr, firmName(w, k.issuer), 'share', 'cents', Math.max(1, Math.round(k.last * (1 + (k.imp ?? 0)))), k.vol);
     sample(st, w, t, 'index', 'Port Avalon index', 'index', 'pts', indexLevel(w), 0);
     const c = w.state.crypto as { majors?: { id: string; name: string; last: number }[]; memes?: { id: string; name: string; pool: string; rugged: boolean; live: boolean }[] } | undefined;
     for (const k of c?.majors ?? []) sample(st, w, t, k.id, k.name, 'coin', 'cents', k.last, 0);
@@ -110,12 +110,85 @@ function sampleAll(w: World, t: number): void {
     if (ab?.mid) sample(st, w, t, 'fx', (ab.cfg?.currency ?? 'Foreign') + ' per dollar', 'fx', 'rate', ab.mid, 0);
 }
 
+// ---- the year before day one ----
+// A chart opens with a past. Each series gets a deterministic year of daily bars that ends at its opening price,
+// drawn from the same kind of process the price model follows: a slow pull back toward the level the market sits
+// at, shocks sized by what the instrument is, and for shares one common market factor, so the index has a year too.
+export const PREROLL_DAYS = 360;
+
+function sigmaOf(w: World, s: Series): number {
+  if (s.kind === 'coin') return 0.03;
+  if (s.kind === 'future') return 0.014;
+  if (s.kind === 'bond') return 0.002;
+  if (s.kind === 'fx') return 0.003;
+  const out = w.ledger.issued.get(s.id) ?? 1_000_000;
+  const capD = Math.max(1, s.last * out / 100);
+  return 0.006 + 0.011 / (1 + capD / 2e7);
+}
+
+function preRoll(w: World, st: BarsState): void {
+  const N = PREROLL_DAYS;
+  const mrng = w.rng('bars:pre:market');
+  // The market factor, backward from the open: slow, with a daily shock of about half a percent.
+  const mkt: number[] = new Array(N);
+  let mx = 0;
+  for (let t = N - 1; t >= 0; t--) { mx = Math.max(-0.4, Math.min(0.4, mx * 0.995 + 0.005 * mrng.normal())); mkt[t] = mx; }
+  const closes = new Map<string, number[]>();
+  for (const s of st.series) {
+    if (s.kind === 'index' || !(s.last > 0)) continue;
+    const rng = w.rng('bars:pre:' + s.id);
+    const sig = sigmaOf(w, s);
+    const beta = s.kind === 'share' ? 1 : s.kind === 'coin' ? 0.6 : 0;
+    const px0 = s.last;
+    const c: number[] = new Array(N);
+    let x = 0;
+    for (let t = N - 1; t >= 0; t--) {
+      x = Math.max(-0.45, Math.min(0.45, x * 0.97 + sig * rng.normal()));
+      c[t] = px0 * Math.exp(x + beta * mkt[t]);
+    }
+    const whole = s.unit === 'cents';
+    const round = (v: number): number => whole ? Math.max(1, Math.round(v)) : v;
+    const out = w.ledger.issued.get(s.id) ?? 0;
+    const flat: number[] = [];
+    let prev = c[0] * Math.exp(-sig * rng.normal());
+    for (let t = 0; t < N; t++) {
+      const o = round(prev), cl = round(c[t]);
+      const hi = round(Math.max(o, cl) * (1 + Math.abs(rng.normal()) * sig * 0.5));
+      const lo = Math.max(whole ? 1 : 0, round(Math.min(o, cl) * (1 - Math.abs(rng.normal()) * sig * 0.5)));
+      const vol = s.kind === 'share' ? Math.max(1, Math.round(out * 0.002 * Math.exp(0.5 * rng.normal()))) : 0;
+      flat.push(t - N, 0, o, Math.max(hi, o, cl), Math.min(lo, o, cl), cl, vol);
+      prev = c[t];
+    }
+    s.d = flat.concat(s.d);
+    s.since = -N;
+    if (s.kind === 'share') closes.set(s.id, c);
+  }
+  // The index is the same names, so its year is theirs.
+  const ix = st.series[st.by['index']];
+  const m = w.state.markets as { baseCap?: number } | undefined;
+  if (ix && closes.size && m?.baseCap) {
+    const flat: number[] = [];
+    let prev = 100;
+    for (let t = 0; t < N; t++) {
+      let cap = 0;
+      for (const [id, c] of closes) cap += c[t] * (w.ledger.issued.get(id) ?? 1_000_000);
+      const cl = 100 * cap / m.baseCap;
+      const hi = Math.max(prev, cl) * 1.002, lo = Math.min(prev, cl) * 0.998;
+      flat.push(t - N, 0, prev, hi, lo, cl, 0);
+      prev = cl;
+    }
+    ix.d = flat.concat(ix.d);
+    ix.since = -N;
+  }
+}
+
 export const bars: Module = {
   id: 'bars',
 
   init(w) {
     w.state.bars = { series: [], by: {} } as BarsState;
     sampleAll(w, 0);
+    preRoll(w, w.state.bars as BarsState);
   },
 
   tick(w, t) { sampleAll(w, t); },

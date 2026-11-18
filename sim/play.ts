@@ -48,11 +48,15 @@ export function parseCommand(line: string, employer: string): Command | { error:
     const qty = Number(t[2]);
     if (!Number.isSafeInteger(qty) || qty < 1) return { error: 'qty must be a whole number of shares' };
     let limit: number | undefined;
-    if (t[3] === '@') {
-      const px = t[4] ? centsOf(t[4]) : undefined;
-      if (!px) return { error: 'price must be positive' };
-      limit = px;
+    let stop: number | undefined;
+    for (let k = 3; k < t.length; k += 2) {
+      const key = t[k].toLowerCase();
+      const px = t[k + 1] ? centsOf(t[k + 1]) : undefined;
+      if (key === '@' || key === 'limit') { if (!px) return { error: 'price must be positive' }; limit = px; }
+      else if (key === 'stop') { if (!px) return { error: 'the stop price must be positive' }; stop = px; }
+      else return { error: `usage: ${head} SYMBOL QTY [@ PRICE] [stop PRICE]` };
     }
+    if (stop !== undefined) return { kind: 'order', side: head, instr: t[1], qty, limit, stop, type: limit !== undefined ? 'stop-limit' : 'stop' };
     return { kind: 'order', side: head, instr: t[1], qty, limit };
   }
   if (head === 'cancel') {
@@ -85,6 +89,11 @@ export function parseCommand(line: string, employer: string): Command | { error:
     const months = Number(t[4] ?? 0);
     if (!Number.isSafeInteger(qty) || qty < 1) return { error: 'qty is a number of contracts' };
     if (!Number.isSafeInteger(months) || months < 0) return { error: 'month must be 0 to 5' };
+    if (t[5]?.toLowerCase() === 'stop') {
+      const px = t[6] ? centsOf(t[6]) : undefined;
+      if (!px) return { error: 'the stop price must be positive' };
+      return { kind: 'fut', side, good: t[2], qty, months, type: 'stop', stop: px };
+    }
     return { kind: 'fut', side, good: t[2], qty, months };
   }
   if (head === 'coin') {
@@ -93,11 +102,15 @@ export function parseCommand(line: string, employer: string): Command | { error:
     const qty = Number(t[3]);
     if (!Number.isSafeInteger(qty) || qty < 1) return { error: 'qty must be a positive integer' };
     let limit: number | undefined;
-    if (t[4] === '@') {
-      const px = t[5] ? centsOf(t[5]) : undefined;
-      if (!px) return { error: 'price must be positive' };
-      limit = px;
+    let stop: number | undefined;
+    for (let k = 4; k < t.length; k += 2) {
+      const key = t[k].toLowerCase();
+      const px = t[k + 1] ? centsOf(t[k + 1]) : undefined;
+      if (key === '@' || key === 'limit') { if (!px) return { error: 'price must be positive' }; limit = px; }
+      else if (key === 'stop') { if (!px) return { error: 'the stop price must be positive' }; stop = px; }
+      else return { error: 'usage: coin buy|sell COIN QTY [@ PRICE] [stop PRICE]' };
     }
+    if (stop !== undefined) return { kind: 'coin', side, coin: t[2], qty, limit, stop, type: limit !== undefined ? 'stop-limit' : 'stop' };
     return { kind: 'coin', side, coin: t[2], qty, limit };
   }
   if (head === 'launch') return { kind: 'launch' };
@@ -462,7 +475,7 @@ function summary(v: PlayerView): string[] {
   if (v.coins.length) lines.push('  coins: ' + v.coins.map((c) => `${c.name} ${c.qty}`).join(', '));
   if (v.bonds.length) lines.push(`  bonds: ${v.bonds.length} issues, face ${dollars(v.bonds.reduce((a, b) => a + b.face, 0))}`);
   if (v.deposits.length) lines.push('  time deposits: ' + v.deposits.map((d) => `${d.bank} ${dollars(d.cents)}`).join(', '));
-  if (v.orders.length) lines.push('  orders: ' + v.orders.map((o) => `#${o.id} ${o.side} ${o.qty} ${o.instr}`).join(', '));
+  if (v.orders.length) lines.push('  orders: ' + v.orders.map((o) => `#${o.id} ${o.side} ${o.qty} ${o.instr}${o.stop ? ` stop ${dollars(o.stop)}` : ''}${o.limit ? ` @ ${dollars(o.limit)}` : ''}`).join(', '));
   const news = v.news.slice(-3);
   if (news.length) lines.push('  news: ' + news.map((n) => `[${n.eventId}] ${n.text}`).join(' | '));
   if (v.private.length) lines.push('  private: ' + v.private.map((p) => `[${p.eventId}] ${p.from} day ${p.day}: ${p.text}`).join(' | '));

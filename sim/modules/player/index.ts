@@ -8,12 +8,13 @@ import { tradeFuture } from '../commodities/index.ts';
 import { blockOf, controls, sharesOf, appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { KIND, ROLES, VAL, borrowAll, buyIn, cutJobs, dealUnion, owner, payOut, promote, protectJobs, refinance, cityMemory, regard, sellAssets } from '../corporate/owner.ts';
 import { consensusAll, revealsOf, signalsFor } from '../signals/index.ts';
-import { launchCoin, orderCoin } from '../crypto/index.ts';
+import { coinPrice, launchCoin, orderCoin } from '../crypto/index.ts';
 import { CEO_POSITION, GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
-import { borrowShares, cancelOrder, markHolding, markPlayerTrading, returnShares, submitOrder } from '../markets/index.ts';
+import { bookLevels, markHolding, markPlayerTrading, midPrice, saleProceeds } from '../markets/index.ts';
+import { cancelAny, placeShareOrder, placeStop, runStops, settleCovers, shortMark, shortSell, shortsDay, stopRows, type StockLoan, type Stop } from './trading.ts';
 import { matchOption, optionChain, optionWhy, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
@@ -27,7 +28,6 @@ export const PLAYER = 8;
 
 export interface Heard { factId: number; eventId: number; from: number; day: number }
 export interface ScorePoint { day: number; worth: number }
-interface StockLoan { instr: string; qty: number; claim: string; face: number }
 interface Share { who: number; bps: number }
 
 export interface Will { heir: number; shares: Share[]; eventId: number }
@@ -47,6 +47,8 @@ export interface PlayerSeat {
   heard: Heard[];
   score: ScorePoint[];
   loans: StockLoan[];
+  /** Stop and stop-limit orders, held here and checked every tick. */
+  stops?: Stop[];
   line: number[];
   generation: number;
   founded: number;
@@ -108,11 +110,11 @@ export interface PlayerState {
 export const DEFAULT_PLAYER = '1';
 
 export type Command =
-  | { kind: 'order'; side: 'buy' | 'sell' | 'short'; instr: string; qty: number; limit?: number }
+  | { kind: 'order'; side: 'buy' | 'sell' | 'short'; instr: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
   | { kind: 'cancel'; orderId: number }
   | { kind: 'bond'; side: 'buy' | 'sell'; tenor: string; bonds: number; limit?: number }
-  | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number }
-  | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number }
+  | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop'; stop?: number }
+  | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
   | { kind: 'launch' }
   | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number; product?: 'margin' | 'line' | 'term' }
   | { kind: 'talk'; slot: number }
@@ -178,6 +180,10 @@ export interface ActResult {
   why?: string;
   orderId?: number;
   fill?: number;
+  /** What an order cost or raised in cents, its average price in cents a share, and the fills it took. */
+  cents?: number;
+  avg?: number;
+  fills?: { px: number; qty: number }[];
   eventId?: number;
   text?: string;
   days?: number;
@@ -209,7 +215,7 @@ export interface PlayerView {
   bonds: { instr: string; face: number; eventId: number }[];
   marginPosted: number;
   stockLoans: { instr: string; qty: number; face: number; eventId: number }[];
-  orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }[];
+  orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; stop?: number; eventId: number }[];
   contacts: { slot: number; name: string; kind: string; word: string; line: string }[];
   stats: StatView[];
   choices: ChoiceView[];
@@ -271,9 +277,9 @@ export interface StakeView {
 const COMMANDS: { topic: string; name: string; use: string; about: string }[] = [
   { topic: 'markets', name: 'desk', use: 'desk', about: 'A board of every listed stock: last, change, volume, P/E and your position.' },
   { topic: 'markets', name: 'quote', use: 'quote silicrest', about: 'Price, bid, ask, the last 20 closes, profit, staff, the top holders and the last 3 news lines.' },
-  { topic: 'markets', name: 'buy', use: 'buy silicrest 10', about: 'Buy shares of a listed name.\nA trailing @ PRICE is a limit; otherwise it is a market order.' },
-  { topic: 'markets', name: 'sell', use: 'sell silicrest 10', about: 'Sell shares you hold.\nA trailing @ PRICE is a limit.' },
-  { topic: 'markets', name: 'short', use: 'short silicrest 10', about: 'Borrow shares and sell them.\nYou post the cash the lender requires.' },
+  { topic: 'markets', name: 'buy', use: 'buy silicrest 10', about: 'Buy shares of a listed name.\nWithout a price it is a market order: it walks the book and tells you what it filled and the average price. @ PRICE makes it a limit; stop PRICE holds it as a stop order that fires on its own (stop 190 @ 188 for a stop-limit).' },
+  { topic: 'markets', name: 'sell', use: 'sell silicrest 10', about: 'Sell shares you hold.\n@ PRICE is a limit. stop PRICE holds a stop order below the market that fires whether or not you are looking.' },
+  { topic: 'markets', name: 'short', use: 'short silicrest 10', about: 'Borrow shares and sell them.\nYou post half the value in cash and pay a daily borrow fee. buy the name to cover. A price that runs against you, or a lender who wants the shares back, buys you in.' },
   { topic: 'markets', name: 'cancel', use: 'cancel 3', about: 'Cancel an open order by its number.\nA filled order is already done.' },
   { topic: 'bonds', name: 'bond', use: 'bond buy 10y 1', about: 'Buy or sell the bond on the run for that tenor.\nbond sell 2y 1 sells one bond.' },
   { topic: 'futures', name: 'fut', use: 'fut long oil 1 2', about: 'Go long or short a commodity future, month 0 to 5.\nfut close oil 2 flattens that month.' },
@@ -905,10 +911,20 @@ function controlFloor(w: World, person: number, instr: string, qty: number): num
   return Math.round(last * 0.6);
 }
 
+/** Borrowed shares are owed at today's price, not the price they were sold at. */
+function shortAdjust(w: World, i: number): number {
+  const r = roster(w);
+  for (const k of r.ids) {
+    const seat = r.seat[k];
+    if (seat && seat.who === i && seat.loans.length) return shortMark(w, seat);
+  }
+  return 0;
+}
+
 function worth(w: World, i: number): number {
   const id = econ(w).P.id(i);
   const tape = markPrice(w);
-  return w.ledger.netWorth(id, (instr) => {
+  return shortAdjust(w, i) + w.ledger.netWorth(id, (instr) => {
     const qty = Math.floor(w.ledger.balance(id, instr));
     const marked = markHolding(w, id, instr, qty);
     if (marked >= 0) return Math.max(marked, controlFloor(w, i, instr, qty));
@@ -1471,70 +1487,6 @@ function ageYear(w: World, i: number, st: PlayerSeat): void {
   }
 }
 
-/** Same spare a fund leaves a holder: most of the position stays, the rest can be lent. */
-function locateShares(w: World, actor: string, instr: string, qty: number, cause: number): { qty: number; lender: string } | undefined {
-  let lender = '', have = 0;
-  const ids = w.ledger.ids;
-  for (const [slot, n] of w.ledger.holdersS(instr)) {
-    const id = ids[slot];
-    if (!id || id === actor || !id.startsWith('p_') || n < have) continue;
-    const spare = n - Math.max(80, Math.floor(n * 0.55));
-    if (spare > have) { have = spare; lender = id; }
-  }
-  const take = Math.min(qty, Math.floor(have));
-  if (take < 1 || !lender) return undefined;
-  if (!w.ledger.move(instr, lender, actor, take, 'mkt.borrow', cause)) return undefined;
-  return { qty: take, lender };
-}
-
-/** Standing limit orders from other actors on the side that would fill a market order now. */
-function standingDepth(w: World, self: string, instr: string, side: string): number {
-  const orders = (w.state.markets as { orders?: { actor: string; instr: string; side: string; qty: number; limit: number | null; open: boolean; skip?: boolean }[] } | undefined)?.orders ?? [];
-  const other = side === 'buy' ? 'sell' : 'buy';
-  let n = 0;
-  for (const o of orders) if (o.open && !o.skip && o.instr === instr && o.side === other && o.limit !== null && o.actor !== self && o.qty > 0) n += o.qty;
-  return n;
-}
-
-/** A market order fills only against standing orders, and what is left at the close expires without a word. Say so when the book is thin. */
-function thinNote(w: World, self: string, instr: string, side: string, qty: number): string {
-  const depth = standingDepth(w, self, instr, side);
-  if (depth >= qty) return '';
-  const opp = side === 'buy' ? 'sellers' : 'bids';
-  if (depth < 1) return `. No ${opp} are standing yet. A market order that finds none expires unfilled at the close: name a price with @ to wait for one.`;
-  return `. Only ${depth} of ${qty} can fill against the standing ${opp} now; the rest expires at the close unless you name a price with @.`;
-}
-
-function shortSell(w: World, st: PlayerSeat, id: string, instr: string, qty: number, limit: number | undefined): ActResult {
-  if (!st.margin) return rejected('short selling needs a margin account at a bank');
-  const stock = (w.state.markets as { stocks: { instr: string; last: number }[] }).stocks.find((s) => s.instr === instr);
-  if (!stock) return rejected(`not listed ${instr}`);
-  const cause = st.arrived >= 0 ? st.arrived : econ(w).macroEv;
-  let got = borrowShares(w, id, instr, qty, cause);
-  let lender = 'fund_mm';
-  if (got < 1) {
-    const loc = locateShares(w, id, instr, qty, cause);
-    if (!loc) return rejected('the market maker cannot lend those shares');
-    got = loc.qty;
-    lender = loc.lender;
-  }
-  const face = got * stock.last;
-  const claim = `stkln:${id}:${instr}`;
-  if (!w.ledger.instruments.has(claim)) w.ledger.define({ id: claim, kind: 'claim', issuer: id });
-  w.ledger.issue(claim, lender, face, 'mkt.borrow', cause);
-  try {
-    const orderId = submitOrder(w, id, { instr, side: 'sell', qty: got, limit });
-    st.loans.push({ instr, qty: got, claim, face });
-    const label = shareName(w, instr) || 'the shares';
-    return { status: 'accepted', orderId, fill: got, eventId: cause, text: `borrowed ${got} ${label} and offered them` + thinNote(w, id, instr, 'sell', got) };
-  } catch (e) {
-    w.ledger.redeem(claim, lender, face, 'mkt.borrow', cause);
-    if (lender === 'fund_mm') returnShares(w, id, instr, got, cause);
-    else w.ledger.move(instr, id, lender, got, 'mkt.borrow', cause);
-    return rejected(whyOf(e));
-  }
-}
-
 function marginRate(w: World, i: number): number {
   const s = econ(w), P = s.P;
   const book = w.state.banking as { ln: number; lnOpen: Uint8Array; lnPerson: Int32Array; lnKind: Uint8Array; lnRate: Float64Array; owed: Float64Array } | undefined;
@@ -1636,22 +1588,8 @@ function quoteLines(w: World, key: string): string[] | undefined {
   const instr = stockInstr(w, key) ?? (firm ? 'eq:' + firm.id : undefined);
   if (!firm && !instr) return undefined;
   const st = tapeOf(w).find((s) => s.instr === instr);
-  const orders = (w.state.markets as { orders?: { instr: string; side: string; qty: number; skip?: boolean; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
-  // Orders that cross will trade at the next match, so they are not the standing quote: take the book the way matching would, then read the top of what is left. A bid is always below the ask.
-  const buys: { limit: number; qty: number }[] = [], sells: { limit: number; qty: number }[] = [];
-  for (const o of orders) {
-    if (!o.open || o.skip || o.qty < 1 || o.instr !== instr || o.limit === null) continue;
-    (o.side === 'buy' ? buys : sells).push({ limit: o.limit, qty: o.qty });
-  }
-  buys.sort((a, c) => c.limit - a.limit);
-  sells.sort((a, c) => a.limit - c.limit);
-  while (buys.length && sells.length && buys[0].limit >= sells[0].limit) {
-    const n = Math.min(buys[0].qty, sells[0].qty);
-    buys[0].qty -= n; sells[0].qty -= n;
-    if (buys[0].qty <= 0) buys.shift();
-    if (sells.length && sells[0].qty <= 0) sells.shift();
-  }
-  const bid = buys.length ? buys[0].limit : -1, ask = sells.length ? sells[0].limit : -1;
+  const lv = instr ? bookLevels(w, instr, 1) : { bids: [], asks: [] };
+  const bid = lv.bids.length ? lv.bids[0].px : -1, ask = lv.asks.length ? lv.asks[0].px : -1;
   const name = firm?.name ?? key;
   const lines = [`${name}  last ${dollars(st ? st.last : 0)}  bid ${bid < 0 ? 'none' : dollars(bid)}  ask ${ask < 0 ? 'none' : dollars(ask)}`];
   const closes = (st?.hist ?? []).slice(-20).map((b) => dollars(b.c));
@@ -1718,17 +1656,22 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!instr) return rejected(`not listed ${cmd.instr}`);
       if (!Number.isSafeInteger(cmd.qty) || cmd.qty < 1) return rejected('qty must be a positive integer');
       markPlayerTrading(w);
-      if (cmd.side === 'short') return shortSell(w, st, id, instr, cmd.qty, cmd.limit);
-      try {
-        const orderId = submitOrder(w, id, { instr, side: cmd.side, qty: cmd.qty, limit: cmd.limit });
-        const label = shareName(w, instr) || 'the shares';
-        const text = `${cmd.side} ${cmd.qty} ${label}${cmd.limit ? ` at $${(cmd.limit / 100).toFixed(2)}` : ''}`;
-        return { status: 'accepted', orderId, text: cmd.limit ? text : text + thinNote(w, id, instr, cmd.side, cmd.qty) };
-      } catch (e) { return rejected(whyOf(e)); }
+      const label = shareName(w, instr) || 'the shares';
+      const stopped = cmd.type === 'stop' || cmd.type === 'stop-limit' || cmd.stop !== undefined;
+      if (stopped) {
+        if (cmd.stop === undefined) return rejected('a stop order needs a stop price');
+        if (cmd.type === 'stop-limit' && cmd.limit === undefined) return rejected('a stop-limit order needs a limit price');
+        const lim = cmd.type === 'stop' ? undefined : cmd.limit;
+        return placeStop(w, st, { kind: 'share', side: cmd.side, instr, qty: cmd.qty, stop: cmd.stop, limit: lim, label });
+      }
+      const limit = cmd.type === 'market' ? undefined : cmd.limit;
+      if (cmd.side === 'short') return shortSell(w, st, id, instr, cmd.qty, limit, label);
+      return placeShareOrder(w, st, id, instr, cmd.side, cmd.qty, limit, label);
     }
     case 'cancel': {
-      if (!cancelOrder(w, id, cmd.orderId)) return rejected('that order is not open');
-      return { status: 'accepted', text: `cancelled ${cmd.orderId}` };
+      const what = cancelAny(w, st, id, cmd.orderId);
+      if (!what) return rejected('that order is not open');
+      return { status: 'accepted', text: `cancelled ${what} ${cmd.orderId}` };
     }
     case 'bond': {
       const b = onRun(w, cmd.tenor);
@@ -1741,6 +1684,10 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     }
     case 'fut': {
       const good = FUTURES[cmd.good.toUpperCase()] ?? cmd.good.toUpperCase();
+      if (cmd.type === 'stop' || cmd.stop !== undefined) {
+        if (cmd.stop === undefined) return rejected('a stop order needs a stop price');
+        return placeStop(w, st, { kind: 'fut', side: cmd.side, instr: good, qty: cmd.qty, stop: cmd.stop, months: cmd.months, label: `${good} m+${cmd.months}` });
+      }
       const r = tradeFuture(w, id, good, cmd.months, cmd.qty, cmd.side);
       if (r.why) return rejected(r.why);
       const root = (w.state.commodities as { root?: number } | undefined)?.root ?? st.arrived;
@@ -1748,7 +1695,17 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', fill: r.qty, eventId: root, text: `${word} ${r.qty} ${good} m+${cmd.months} @ ${(r.px / 100).toFixed(2)}, position ${r.net}` };
     }
     case 'coin': {
-      const r = orderCoin(w, id, cmd.coin, cmd.side, cmd.qty, cmd.limit);
+      if (cmd.type === 'stop' || cmd.type === 'stop-limit' || cmd.stop !== undefined) {
+        if (cmd.stop === undefined) return rejected('a stop order needs a stop price');
+        const q = coinPrice(w, cmd.coin);
+        if (!q) {
+          const names = coinNames(w);
+          return rejected(names ? `no coin ${cmd.coin}. coins: ${names}` : `no coin ${cmd.coin}`);
+        }
+        const lim = cmd.type === 'stop' ? undefined : cmd.limit;
+        return placeStop(w, st, { kind: 'coin', side: cmd.side, instr: q.id, qty: cmd.qty, stop: cmd.stop, limit: lim, label: q.name });
+      }
+      const r = orderCoin(w, id, cmd.coin, cmd.side, cmd.qty, cmd.type === 'market' ? undefined : cmd.limit);
       if (r.why) {
         if (r.why.startsWith('no coin')) {
           const names = coinNames(w);
@@ -1756,7 +1713,16 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
         }
         return rejected(r.why);
       }
-      return { status: 'accepted', orderId: r.orderId, fill: r.fill, text: `${cmd.side} ${cmd.coin}` };
+      const verb = cmd.side === 'buy' ? 'bought' : 'sold';
+      const dollar = (n: number): string => dollars(Math.round(n));
+      let text: string;
+      if (r.filled > 0) {
+        text = `${verb} ${r.filled} ${r.name} for ${dollar(r.cents)}, average ${dollar(r.avg)} a coin`;
+        if (r.fills.length > 1) text += `. Fills: ${r.fills.slice(0, 4).map((f) => `${f.qty} at ${dollar(f.px)}`).join(', ')}`;
+        if (r.orderId !== undefined) text += `. The other ${r.asked - r.filled} rest at ${dollar(cmd.limit ?? 0)}`;
+        else if (r.filled < r.asked && !r.id.startsWith('coin:me:')) text += `. The dealers had no more within reach: ${r.asked - r.filled} did not fill`;
+      } else text = `${cmd.side} ${cmd.coin} at ${dollar(cmd.limit ?? 0)}: resting until the price comes`;
+      return { status: 'accepted', orderId: r.orderId, fill: r.filled, cents: Math.round(r.cents), avg: r.avg, fills: r.fills, text };
     }
     case 'launch': {
       const r = launchCoin(w, i);
@@ -2324,9 +2290,11 @@ export function view(w: World, playerId?: string): PlayerView {
   const shares = i < 0 ? [] : stocks.filter((stc) => w.ledger.balance(id, stc.instr) > 0).map((stc) => ({
     instr: stc.instr, name: s.firms.find((f) => f.id === stc.issuer)?.name ?? '', qty: w.ledger.balance(id, stc.instr), px: stc.last, eventId: mktRoot,
     ...(() => {
+      // Held at the mid price; what a sale would fetch is a separate figure, walked down the bids.
       const q = Math.floor(w.ledger.balance(id, stc.instr));
-      const sale = Math.max(0, markHolding(w, id, stc.instr, q));
-      return { value: q * stc.last, sale, saleValue: q * sale };
+      const mark = midPrice(w, stc.instr);
+      const proceeds = saleProceeds(w, stc.instr, q, id);
+      return { px: mark, value: q * mark, sale: q > 0 ? proceeds / q : 0, saleValue: proceeds };
     })(),
   }));
   const banks = (w.state.banking as { banks?: { id: string; depo: string }[] } | undefined)?.banks ?? [];
@@ -2369,6 +2337,7 @@ export function view(w: World, playerId?: string): PlayerView {
   const orders: PlayerView['orders'] = [];
   const mOrders = (w.state.markets as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
   for (const o of mOrders) if (o.open && o.actor === id) orders.push({ id: o.id, book: 'shares', instr: o.instr, side: o.side, qty: o.qty, limit: o.limit, eventId: mktRoot });
+  if (i >= 0) for (const r of stopRows(st)) orders.push(r);
   const bOrders = (w.state.bonds as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
   for (const o of bOrders) if (o.open && o.actor === id) orders.push({ id: o.id, book: 'bonds', instr: o.instr, side: o.side, qty: o.qty, limit: o.limit, eventId: arrived });
   const cOrders = (w.state.crypto as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number; open: boolean }[] } | undefined)?.orders ?? [];
@@ -2568,6 +2537,18 @@ export const player: Module = {
     if (process.argv.includes('--load')) return;
     if (playerIndex(w) < 0) spawn(w, DEFAULT_PLAYER);
   },
+  tick(w) {
+    const players = roster(w);
+    const P = econ(w).P;
+    for (const id of players.ids) {
+      const st = players.seat[id];
+      if (!st || st.who < 0 || st.who >= P.n || !P.alive(st.who)) continue;
+      if (!st.stops?.length && !st.loans.length) continue;
+      const pid = P.id(st.who);
+      runStops(w, st, pid, (instr, qty, limit, label) => shortSell(w, st, pid, instr, qty, limit, label));
+      if (st.loans.length) settleCovers(w, st, pid, st.arrived >= 0 ? st.arrived : w.genesis);
+    }
+  },
   dayClose(w) {
     const players = roster(w);
     const P = econ(w).P;
@@ -2576,6 +2557,7 @@ export const player: Module = {
       if (!st || st.who < 0) continue;
       const i = st.who;
       if (i >= P.n) continue;
+      if (P.alive(i) && st.loans.length) shortsDay(w, st, P.id(i));
       if (!P.alive(i)) {
         if (st.over || st.passed === i) continue;
         const died = w.events.last('person.died');
