@@ -377,7 +377,7 @@ function goalText(g: Goal): string {
 
 function limitText(days: number): string {
   if (days <= 0) return 'open-ended';
-  if (days % 360 === 0) return `${days / 360} years`;
+  if (days % 360 === 0) return days === 360 ? '1 year' : `${days / 360} years`;
   if (days % 30 === 0) return `${days / 30} months`;
   return `${days} days`;
 }
@@ -1044,7 +1044,7 @@ function reasonOf(sc: ScenarioRun, result: 'win' | 'loss'): string {
     case 'crash': return result === 'win' ? 'You came through the crisis solvent.' : 'You did not come through the crisis.';
     case 'homes': return result === 'win' ? `You own ${g.count} ${g.count === 1 ? 'home' : 'homes'}.` : `You do not own ${g.count} ${g.count === 1 ? 'home' : 'homes'}.`;
     case 'turn': return result === 'win' ? `The cash box holds ${g.days} days of wages and you still have the seat.` : `The cash box never held ${g.days} days of wages while you kept the seat.`;
-    case 'decide': return result === 'win' ? 'You took the chair and made the choice yourself.' : 'You never took the chair and decided.';
+    case 'decide': return result === 'win' ? 'You took the chair and made the choice.' : 'You never took the chair and decided.';
     case 'none': return 'There was no goal.';
     default: {
       const never: never = g;

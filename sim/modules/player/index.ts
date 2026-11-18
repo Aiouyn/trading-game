@@ -373,6 +373,7 @@ export function suggestCommand(head: string): string {
   const names = [...new Set(COMMANDS.map((c) => c.name))];
   let best = 'help', dist = 99;
   const h = head.toLowerCase();
+  if (COMMANDS.some((c) => c.topic === h)) return `${h} is a help topic: type help ${h}.`;
   for (const name of names) {
     const d = editDistance(h, name);
     if (d < dist || (d === dist && name < best)) { dist = d; best = name; }
