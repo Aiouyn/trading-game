@@ -162,6 +162,35 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!field) return { error: 'usage: study FIELD' };
     return { kind: 'study', field };
   }
+  if (head === 'places' || head === 'tonight') return { kind: 'out', op: 'places' };
+  if (head === 'go') {
+    const where = t.slice(1).join(' ').trim();
+    if (!where) return { error: 'usage: go PLACE (places lists them)' };
+    return { kind: 'out', op: 'go', arg: where };
+  }
+  if (head === 'round') return { kind: 'out', op: 'round' };
+  if (head === 'listen') return { kind: 'out', op: 'listen' };
+  if (head === 'known') return { kind: 'out', op: 'known' };
+  if (head === 'courses') return { kind: 'out', op: 'courses' };
+  if (head === 'enrol' || head === 'enroll') {
+    const name = t.slice(1).join(' ').trim();
+    if (!name) return { error: 'usage: enrol COURSE (courses lists them)' };
+    return { kind: 'out', op: 'enrol', arg: name };
+  }
+  if (head === 'approach' || head === 'business' || head === 'offer') {
+    const n = Number(t[1]);
+    if (!Number.isSafeInteger(n) || n < 1) return { error: `usage: ${head} N` };
+    return { kind: 'out', op: head, n };
+  }
+  if (head === 'favour' || head === 'favor') {
+    const n = Number(t[1]);
+    const what = (t[2] ?? '').toLowerCase();
+    if (!Number.isSafeInteger(n) || n < 1 || !what) return { error: 'usage: favour N intro|interview|loan [DOLLARS]|lender [DOLLARS]|invest FIRM DOLLARS' };
+    const rest = t.slice(3);
+    const money = rest.length ? centsOf(rest[rest.length - 1]) : undefined;
+    const firm = rest.length && money !== undefined ? rest.slice(0, -1).join(' ') : rest.join(' ');
+    return { kind: 'out', op: 'favour', n, arg: `${what}${firm ? ' ' + firm : ''}`, cents: money };
+  }
   if (head === 'quit') return { kind: 'quit' };
   if (head === 'ask' && (t[1] ?? '').toLowerCase() === 'raise') return { kind: 'raise' };
   if (head === 'ask') {

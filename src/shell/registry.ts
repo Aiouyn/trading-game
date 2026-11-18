@@ -5,7 +5,7 @@ export const APP_IDS = [
   "broker", "portfolio", "wire", "messages", "markets", "launchpad", "risk", "quantlab", "research",
   "businesses", "company", "property", "city", "bank", "funds", "insurance", "institutions",
   "ailab", "security", "legal", "estate", "boards", "profile", "people", "diary", "health", "alliance", "contracts",
-  "auctions", "civic", "society", "academy", "careers", "help", "atelier", "settings", "replay", "api",
+  "auctions", "civic", "society", "academy", "careers", "help", "atelier", "settings", "replay", "api", "citylife",
 ] as const;
 
 /** V3 17 §2.2 AppId union, plus "launchpad" (owner-restored meme-coin Launchpad; 17 §2.2 had listed it as legacy). */
@@ -13,7 +13,7 @@ export type AppId =
   | "broker" | "portfolio" | "wire" | "messages" | "markets" | "launchpad" | "risk" | "quantlab" | "research"
   | "businesses" | "company" | "property" | "city" | "bank" | "funds" | "institutions" | "insurance"
   | "ailab" | "security" | "legal" | "estate" | "boards" | "profile" | "people" | "diary" | "health" | "alliance" | "contracts"
-  | "auctions" | "civic" | "society" | "academy" | "careers" | "help" | "atelier" | "settings" | "replay" | "api";
+  | "auctions" | "civic" | "society" | "academy" | "careers" | "help" | "atelier" | "settings" | "replay" | "api" | "citylife";
 
 export type AppGroup = "trade" | "build" | "shadow" | "world" | "me";
 export const GROUPS: readonly AppGroup[] = ["trade", "build", "shadow", "world", "me"];
@@ -100,6 +100,7 @@ const ROWS: Row[] = [
   { id: "society", group: "world", minW: 560, minH: 420 },
   { id: "academy", group: "me" },
   { id: "careers", group: "me", minW: 480, minH: 420 },
+  { id: "citylife", group: "me", minW: 480, minH: 420 },
   { id: "help", group: "me" },
   { id: "atelier", group: "me" },
   { id: "settings", group: "me" },

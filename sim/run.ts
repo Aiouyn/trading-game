@@ -29,6 +29,8 @@ import { politics } from './modules/politics/index.ts';
 import { player } from './modules/player/index.ts';
 import { circle } from './modules/circle/index.ts';
 import { society } from './modules/society/index.ts';
+import { courses } from './modules/courses/index.ts';
+import { venues } from './modules/venues/index.ts';
 import { history } from './modules/history/index.ts';
 import { simulate } from './modules/history/boot.ts';
 import { installRng } from './modules/history/rngbox.ts';
@@ -64,6 +66,8 @@ export function useModules(w: World, without: Set<string>): void {
   if (!without.has('player')) w.use(player);
   if (!without.has('circle')) w.use(circle);
   if (!without.has('society')) w.use(society);
+  if (!without.has('courses')) w.use(courses);
+  if (!without.has('venues')) w.use(venues);
   if (!without.has('history')) w.use(history);
 }
 

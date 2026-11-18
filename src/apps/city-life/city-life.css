@@ -1,0 +1,18 @@
+/* City life. Tokens only. */
+.cl-tabs { display: flex; gap: var(--sp-8); }
+.cl-tabs button {
+  min-height: 32px; padding: 0 var(--sp-12); border: 1px solid var(--line); border-radius: var(--r-btn);
+  background: transparent; color: var(--fg-muted); font: inherit;
+}
+.cl-tabs button[data-on="1"] { color: var(--fg); background: var(--win2); }
+.cl-acts { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.cl-word { color: var(--fg-muted); margin-left: var(--sp-8); }
+.cl-line, .cl-news { display: block; color: var(--fg-muted); }
+.cl .qy-choice p { display: flex; flex-direction: column; gap: 2px; }
+.cl-row {
+  display: flex; justify-content: space-between; align-items: center; width: 100%;
+  background: transparent; border: 0; padding: 0; color: var(--fg); font: inherit; text-align: left;
+}
+@container (max-width: 480px) {
+  .cl .btn, .cl-tabs button { min-height: 44px; }
+}

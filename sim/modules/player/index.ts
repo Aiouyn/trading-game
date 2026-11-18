@@ -168,6 +168,7 @@ export type Command =
   | { kind: 'quit' }
   | { kind: 'raise' }
   | { kind: 'study'; field: string }
+  | { kind: 'out'; op: 'places' | 'go' | 'approach' | 'round' | 'listen' | 'known' | 'business' | 'offer' | 'favour' | 'courses' | 'enrol'; arg?: string; n?: number; cents?: number }
   | { kind: 'signals' }
   | { kind: 'stake'; firm: string; cents: number; how: 'cash' | 'margin' | 'line' | 'partners' | 'buyout' }
   | { kind: 'owner'; op: 'cut' | 'protect' | 'promote' | 'sell-division' | 'refinance' | 'payout' | 'union'; firm?: string; n?: number; person?: string; cents?: number; buyer?: string; fraction?: number; deal?: 'deal' | 'refuse'; guarantee?: boolean };
@@ -332,6 +333,17 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'work', name: 'quit', use: 'quit', about: 'Leave your job. A layoff still follows seniority, the same rule as for anyone.' },
   { topic: 'work', name: 'raise', use: 'ask raise', about: 'Ask for a raise. It depends on your performance, how long you have been in the trade, and whether the firm is making money.\nA refusal is remembered.' },
   { topic: 'work', name: 'study', use: 'study clerk', about: 'Study a trade. It costs money and takes days, and it raises the schooling the jobs ask for.' },
+  { topic: 'people', name: 'places', use: 'places', about: 'The six places to spend an evening, and who they draw.' },
+  { topic: 'people', name: 'go', use: 'go cellar', about: 'Spend an evening at a bar, pub, café or club. It costs money and you see who is there.\nOne evening a day; the crowd comes from the real people of the city.' },
+  { topic: 'people', name: 'approach', use: 'approach 2', about: 'Talk to one of the faces you saw tonight. A first meeting makes an acquaintance.\nSeeing them again builds trust. Three conversations an evening.' },
+  { topic: 'people', name: 'round', use: 'round', about: 'Buy a round. The people you spoke to think the better of you.' },
+  { topic: 'people', name: 'listen', use: 'listen', about: 'Spend the evening with your ears open. You may overhear something about a firm.' },
+  { topic: 'people', name: 'known', use: 'known', about: 'The people you have met, how you met, and how they regard you.' },
+  { topic: 'people', name: 'business', use: 'business 1', about: 'Talk shop with someone you know. They may say what their firm is up to.\nToo soon, and they close up.' },
+  { topic: 'people', name: 'offer', use: 'offer 1', about: 'Offer someone you know a job at the firm you run.' },
+  { topic: 'people', name: 'favour', use: 'favour 1 interview', about: 'Ask someone you know for intro, interview (a word at their firm), loan, lender (a word with their bank) or invest FIRM DOLLARS.\nAsk too much too soon and it costs trust. They remember favours.' },
+  { topic: 'work', name: 'courses', use: 'courses', about: 'Evening courses: each has a fee and a number of weekly classes. Finishing one sharpens your read of its sectors.' },
+  { topic: 'work', name: 'enrol', use: 'enrol law', about: 'Join a course. Your classmates become people you have met.' },
   { topic: 'time', name: 'wait', use: 'wait 1m', about: 'Let the city run for 1d, 1w, 1m or 1y.\nThe books are checked as the days pass.' },
   { topic: 'help', name: 'help', use: 'help bank', about: 'Explain one topic, using your own numbers.\nhelp alone lists every command by topic, with one example each.' },
   { topic: 'help', name: 'hints', use: 'hints off', about: 'Turn the beginner hints off, or hints on to bring them back.\nhints off also skips the first-paycheck lesson.' },
@@ -366,6 +378,11 @@ type CareerAct = (w: World, playerId: string, cmd: Command) => ActResult;
 let careerAct: CareerAct | undefined;
 /** Careers registers jobs, apply, quit, ask raise and study. The player module does not import it back. */
 export function setCareerCommands(fn: CareerAct): void { careerAct = fn; }
+
+type OutingAct = (w: World, playerId: string, cmd: Extract<Command, { kind: 'out' }>) => ActResult;
+let outingAct: OutingAct | undefined;
+/** Venues registers going out, the people met there, and courses. */
+export function setOutingCommands(fn: OutingAct): void { outingAct = fn; }
 
 function articles(s: string): string {
   return s.replace(/\ba ([AaEeIiOoUu])/g, 'an $1');
@@ -2256,6 +2273,10 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     case 'study': {
       if (!careerAct) return rejected('the labour market is not open');
       return careerAct(w, playerId, cmd);
+    }
+    case 'out': {
+      if (!outingAct) return rejected('the city is not open');
+      return outingAct(w, playerId, cmd);
     }
     default: {
       const never: never = cmd;

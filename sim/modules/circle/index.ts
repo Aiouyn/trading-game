@@ -2058,6 +2058,26 @@ function mailLines(w: World, st: Circle, me: number): string[] {
   return lines;
 }
 
+/** Hooks for the venues and courses modules: someone the player has just met becomes part of the circle. */
+export function circleMeet(w: World, who: number, role: string, stance: string, trust: number, friend: number): number {
+  const me = playerWho(w);
+  if (me < 0 || !alive(w, who) || who === me) return -1;
+  const st = box(w);
+  const had = slotOf(w, st, me, who);
+  if (had >= 0) return had;
+  return linkNew(w, st, me, who, trust, friend, role, stance);
+}
+export function circleRegard(w: World, who: number): { score: number; word: string; slot: number } {
+  const me = playerWho(w);
+  const st = box(w);
+  const b = bondOf(st, who);
+  return { score: b?.score ?? 0, word: wordOf(b?.score ?? 0), slot: me >= 0 ? slotOf(w, st, me, who) : -1 };
+}
+export function circleTouch(w: World, who: number, delta: number, text: string, eventId: number): void {
+  if (playerWho(w) < 0 || !alive(w, who)) return;
+  moveBond(w, box(w), who, delta, Math.round(delta / 2), 0, text, eventId);
+}
+
 export interface CirclePersonView {
   role: string;
   stance: string;

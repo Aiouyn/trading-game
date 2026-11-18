@@ -20,6 +20,9 @@ import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
 import { careerCard } from './modules/careers/index.ts';
+import { cityBook } from './modules/venues/world.ts';
+import { seatId } from './modules/venues/world.ts';
+import { courseBoard } from './modules/courses/index.ts';
 import { saleProceeds, saleValue } from './modules/markets/index.ts';
 import { marginLimit, productHaircuts } from './modules/banking/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
@@ -412,6 +415,13 @@ function commandOf(body: unknown): Command | string {
       const n = whole(b.n, 1);
       if (n === undefined) return 'apply needs a job number';
       return { kind: 'apply', n };
+    }
+    case 'out': {
+      const ops = ['places', 'go', 'approach', 'round', 'listen', 'known', 'business', 'offer', 'favour', 'courses', 'enrol'];
+      if (typeof b.op !== 'string' || !ops.includes(b.op)) return 'out needs an op';
+      const n = b.n === undefined ? undefined : whole(b.n, 1);
+      if (b.n !== undefined && n === undefined) return 'n is a number from 1';
+      return { kind: 'out', op: b.op as Extract<Command, { kind: 'out' }>['op'], arg: typeof b.arg === 'string' ? b.arg : undefined, n, cents: typeof b.cents === 'number' && b.cents > 0 ? Math.round(b.cents) : undefined };
     }
     case 'quit': return { kind: 'quit' };
     case 'raise': return { kind: 'raise' };
@@ -3113,6 +3123,11 @@ function wirePanel(w: World): Record<string, unknown> {
   return { papers, asks: pressAsks(w) };
 }
 
+function cityLifePanel(w: World): Record<string, unknown> {
+  const seat = seatId(w);
+  const cash = playerIndex(w) >= 0 ? Math.floor(w.ledger.balance(econ(w).P.id(playerIndex(w)), 'dep')) : 0;
+  return { ...cityBook(w, seat), courses: courseBoard(w, seat), cash, day: w.day };
+}
 function panelSlice(w: World, name: string, url: URL): Record<string, unknown> {
   const i = playerIndex(w);
   switch (name) {
@@ -3146,6 +3161,8 @@ function panelSlice(w: World, name: string, url: URL): Record<string, unknown> {
       return legalPanel(w);
     case 'wire':
       return wirePanel(w);
+    case 'citylife':
+      return cityLifePanel(w);
     default:
       return {};
   }

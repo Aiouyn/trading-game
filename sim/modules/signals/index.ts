@@ -8,6 +8,7 @@ import { BANK, type EconState } from '../economy/index.ts';
 import { askFirm, contactsOf } from '../social/index.ts';
 import { dueThisMonth, deskOf, previewEvent, quarterView, reportsAfter, type QuarterView, type Report } from '../earnings/index.ts';
 import { dockWatch } from '../port/index.ts';
+import { knowledgeBonus } from '../courses/know.ts';
 
 export type Kind = 'work' | 'contact' | 'street';
 export interface Signal {
@@ -134,7 +135,7 @@ function streetText(w: World, sector: string, name: string, lean: number): strin
 }
 
 function add(w: World, st: SignalState, seat: string, kind: Kind, observer: number, source: number, firm: number, view: QuarterView, clarity: number, legal: 'fair' | 'inside', legalLine: string, make: (lean: -1 | 0 | 1) => string): void {
-  clarity = clamp(clarity, 0.15, 0.92);
+  clarity = clamp(clarity + knowledgeBonus(w, seat, firm), 0.15, 0.92);
   const lean = read(w, view, clarity);
   const text = make(lean);
   const name = nameOf(w, firm), issuer = issuerOf(w, firm);

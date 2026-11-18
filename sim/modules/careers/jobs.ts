@@ -8,6 +8,11 @@ import { CAPITAL, GOV, pay, type EconState, type Firm } from '../economy/index.t
 import { labourOf, leaveJob, setSimDay, succession, thought } from '../economy/people.ts';
 import { playerIndex, type ActResult, type Command } from '../player/index.ts';
 
+/** A hook for what the player knows and who has spoken for them: it lifts the fit, and a word put in thins the field. */
+export interface JobBoost { fit: number; vouch: boolean }
+let boostFn: ((w: World, person: number, f: Firm) => JobBoost) | undefined;
+export function setJobBoost(fn: (w: World, person: number, f: Firm) => JobBoost): void { boostFn = fn; }
+
 export interface OccRow { id: string; name: string; pay: number; school: number; rank: number }
 
 interface App {
@@ -234,7 +239,8 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
   if (youHealth < ask.health) return { ...blank, taken: false, note: `health ${youHealth} is short of ${ask.health}` };
   if (youExp < ask.exp) return { ...blank, taken: false, note: `${counted(youExp, 'year', 'years')} is short of ${ask.exp}` };
   const mine = labourOf(P, person, w.day);
-  const fit = fitOf(youSchool, ask.school, youExp, ask.exp, youHealth, ask.health);
+  const boost = boostFn ? boostFn(w, person, f) : undefined;
+  const fit = fitOf(youSchool, ask.school, youExp, ask.exp, youHealth, ask.health) + (boost?.fit ?? 0);
   let pool = 0, better = 0;
   const adultLine = w.day - 18 * 360;
   for (let i = 0; i < P.n; i++) {
@@ -246,6 +252,7 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
     pool++;
     if (labourOf(P, i, w.day) > mine + fit * 0.15) better++;
   }
+  if (boost?.vouch) better = Math.floor(better * 0.15);
   const odds = outlook(better, pool, gap, fit);
   return { ...blank, taken: true, better, pool, note: odds.note, score: odds.score };
 }
