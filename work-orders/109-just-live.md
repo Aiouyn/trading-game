@@ -1,30 +1,24 @@
-# Work order 109: just live
+# Work order 109: you arrive with $5,000 (rewritten)
 
 Read `AGENTS.md`, `docs/DIRECTION.md`, `sim/README.md`, `sim/modules/player/scenarios.ts` (the `sandbox` goal kind), `sim/modules/player/index.ts`, `sim/server.ts` (`/start`, `/title`), `src/components/shell/TitleScreen.tsx`, `src/shell/StartGate.tsx`, `src/shell/layouts.ts` and `src/components/shell/QuayShell.tsx`.
 
-You own `src/components/shell/`, `src/shell/`, `sim/server.ts`, and the new-life setup in `sim/modules/player/` (a new file is best). Another agent may make small wording fixes in `sim/modules/player/` at the same time; keep both sides on any rebase conflict. Keep every existing scenario working in the sim: tests and AI playtests use them.
+You own `src/components/shell/`, `src/shell/`, the `/start` and `/title` parts of `sim/server.ts`, and a new file `sim/modules/player/arrival.ts`. Orders 110 (trading terminal) and 111 (bars, courses, people) run at the same time and add routes and commands; keep both sides on any rebase conflict. Keep every existing scenario working in the sim: tests and AI playtests use them.
 
-## Why
+## Why, in the owner's words
 
-The owner of the game: "I want to be able to just play, there is no goal, people do what they want, they should be able to do anything in this game." Today New game opens on scenario cards with goals and time limits, and the name must come from the city's book. The game must start from the player's own life.
+"I should start from nothing, no contact, I just arrived in the city with 5000$ and that's it, then it's my life." "I shouldn't have to learn my situation to then play, I just create mine." "There is no goal, people do what they want, they should be able to do anything." "We are not overloaded with things."
 
 ## Do
 
-1. **New game is "who are you?"**, on one calm screen:
-   - Any name the player types (the city adds them to its book).
-   - Age (18 to 60).
-   - Where they grew up (a district).
-   - The family they come from: struggling, modest or comfortable. This sets starting cash, debts and who can help.
-   - Schooling, and their first work, chosen from jobs that really exist in the city at the start (a trade, the port, a shop, a desk, a bank, a lab…), or "looking for work".
-   - Optional: one or two people they already know (a sibling, an old friend at a firm, a mentor), chosen from real people in the city who fit.
-   Sensible defaults for everything, so "Begin" works straight away.
-2. **The city builds around the player**: the job, rent or a room at the family's, cash, the first contacts and the circle follow from those choices, inside the real economy (no invented money: use the ledger the way scenarios do). Same seed and same choices give the same world.
-3. **No goal, no time limit, no win or lose.** The player's life runs until they die, and the heir can carry on. Remove every goal, limit and "scenario" wording from this path.
-4. **A first morning** written about the player: where they wake up, who messages them, a line from the paper, and three or four plain suggestions of things they could do now (go to work, look at the market, call the friend, look for a better job). These are suggestions, not goals.
-5. **Ambitions, optional**: the player can write or pick their own ambitions at any time (own a home, start a firm, own the firm I work for, look after my family, retire rich) and drop them. The diary notes progress. Nothing ends when one is met.
-6. **The title screen**: New game, Continue/Load, Settings. Scenarios leave the front: keep them reachable only under a small "Challenges" link at the bottom, for players who want a set puzzle.
-7. **Discoverable freedom**: the Quay layout for a new life opens on the things a person does (work, money, people, the city), and `help` lists everything the player can do, grouped by life area.
+1. **New game**: type a name (any name; the city adds it to its book) and an age (18 to 60, default 24). Begin. Nothing else.
+2. **Arrival**: the player arrives in Port Avalon with exactly $5,000 in cash (moved through the ledger from outside the city, like an immigrant's savings, so the books balance), a room rented by the week in a cheap district, no job, no contacts, no circle, no family in the city, no holdings, no messages, no goal, no time limit. Same seed and name give the same world.
+3. **A quiet first screen**: one short paragraph about stepping off the boat, the room and the city's lights. Nothing about work or what to do. No inbox messages, no suggestions, no tutorial.
+4. **The city waits**: the player starts everything. They can look for work and apply, take courses, trade, go out to bars, rent a better place, start a company. Nobody contacts the player until the player has met them.
+5. **No win or lose**: life runs until death; an heir can carry on. Remove every goal, limit, score and "scenario" word from this path.
+6. **Not overloaded**: Quay opens with almost nothing on the desk: the city (where to go), the wallet (cash, room) and the markets. Other apps appear when they become relevant (Bank after the first account, Company after founding one, People after meeting someone). Every app stays reachable from the launcher.
+7. **Title screen**: New game, Continue, Settings. Scenarios move to a small "Challenges" link at the bottom.
+8. `help` lists what a person can do, grouped by life area, in plain words.
 
 ## Done
 
-Paste the `/start` call for a new life and the first-morning text from `/view`, then check through Quay (`next dev --webpack`) that New game → Begin opens a life with no goal. `npx tsc --noEmit` clean for your files. Then `node sim/run.ts --years 10` showing "Books balanced every day". Commit after `git pull --rebase`, push to v1-build, and reply with that. Then stop.
+Paste the `/start` call for a new arrival and the first `/view` (cash, room, job none, contacts none). Check in Quay (`next dev --webpack`) that New game, name, Begin opens the quiet arrival. `npx tsc --noEmit` clean for your files. Then `node sim/run.ts --years 10` showing "Books balanced every day". Commit after `git pull --rebase`, push to v1-build, and reply with that. Then stop.
