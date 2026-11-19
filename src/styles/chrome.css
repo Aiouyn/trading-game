@@ -244,3 +244,19 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .lazy-chunk-error.lazy-module-error { align-items: flex-start; padding: var(--sp-16); min-width: 0; overflow-wrap: anywhere; }
 .lazy-module-error p { margin: 0; }
 .lazy-module-error .btn { min-width: var(--hit-touch); min-height: var(--hit-touch); }
+
+/* The strip never clips at 1280 to 1500 px: the search field and the calendar chip give way before the net worth does. */
+.strip .launch-field { flex: 0 1 312px; min-width: 160px; }
+.strip-mid { flex: 0 1 auto; min-width: 0; }
+.strip-right { flex: none; }
+@media (max-width: 1500px) {
+  .strip { gap: 10px; }
+  .strip .release { display: none; }
+  .strip .launch-field { flex-basis: 200px; }
+  .strip-mid { gap: 10px; }
+  .strip-mid .soc-chip { display: inline-block; max-width: 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@media (max-width: 1280px) {
+  .strip .launch-field { flex-basis: 160px; }
+  .strip .wordmark { display: none; }
+}

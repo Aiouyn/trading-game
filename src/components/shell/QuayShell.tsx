@@ -31,7 +31,7 @@ import { LiveNwUnlock } from "./useNw";
 import { AuthAccountBoundary } from "./AuthAccountBoundary";
 import { Desktop } from "./Desktop";
 import { FillAckHost } from "./FillAckHost";
-import { SystemOverlays } from "./SystemOverlays";
+import { SystemOverlays, TakenOverlay } from "./SystemOverlays";
 import { Banner, WorldEventBanner } from "./Banner";
 import { Sheet } from "./Sheet";
 import { FEED_HOOKS, mockFeedSource, useFeed } from "@/shell/feed";
@@ -60,7 +60,7 @@ function Surface({ query }: { query: string }) {
   // M2-05: offline dims the strip clock like reconnecting (pulse.css); nothing shown is live.
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting" || s.channels.system.offline);
   const sim = useShell((s) => s.channels.me.source === "sim");
-  const mode = useSimSnap().mode;
+  const { mode, taken } = useSimSnap();
   const pending = useArrivalPending();
   const store = useShellStore();
   useHtmlAttributes();
@@ -87,7 +87,7 @@ function Surface({ query }: { query: string }) {
     if (FEED_HOOKS && new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
   }, []);
 
-  if (mode !== "play") return <TitleScreen />;
+  if (mode !== "play") return <><TitleScreen />{taken ? <TakenOverlay /> : null}</>;
   const phone = viewportOf(vw) === "phone";
   return (
     <AuthAccountBoundary query={query}>
@@ -116,6 +116,7 @@ function Surface({ query }: { query: string }) {
       <FirstMinute />
       {pending ? <Arrival /> : <FirstStep />}
       <GameFlow />
+      {taken ? <TakenOverlay /> : null}
     </div>
     </AuthAccountBoundary>
   );

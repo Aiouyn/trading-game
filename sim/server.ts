@@ -4274,6 +4274,9 @@ const panelCache = new Map<string, { day: number; rev: number; json: string }>()
 const bootPid = String(process.pid);
 let writer: { id: string; seen: number } | null = null;
 const sockets = new Map<string, number>();
+/** Tabs that lost the game to a newer window. They stay read-only until their player takes it back (POST /claim). */
+const displaced = new Set<string>();
+const clientTab = new Map<http.ServerResponse, string>();
 let lastTick: Record<string, unknown> | null = null;
 let viewFull = false;
 /** When the cached view's coin board was last read fresh. The coins trade every minute, the rest of the view changes at the ticks. */
@@ -4312,6 +4315,7 @@ function boot(world: World): void {
   panelCache.clear();
   writer = null;
   sockets.clear();
+  displaced.clear();
   pins.length = 0;
   notedThrough = -1;
   bandDay = -1;
@@ -4574,6 +4578,7 @@ function playerLine(raw: string): string {
   if (/no such save/i.test(text)) return 'That save is not here, so pick another or start a new city.';
   if (/already being written/i.test(text)) return 'A city is already being written, so wait for it to finish.';
   if (/already open/i.test(text)) return 'A game is already open, so close the other window or carry on in this one.';
+  if (/newer window/i.test(text)) return text.endsWith('.') ? text : `${text}.`;
   if (/another window/i.test(text)) return 'This game is open in another window, so close that window and use this one.';
   if (/do not balance|BOOKS DO NOT/i.test(text)) return 'The books do not balance, so pause and reload the last save.';
   if (/you have died/i.test(text)) return 'You have died, so load a save or let the heir carry on.';
@@ -4796,18 +4801,30 @@ function noteSocket(id: string, open: boolean): void {
   const n = (sockets.get(id) ?? 0) + (open ? 1 : -1);
   if (n <= 0) sockets.delete(id);
   else sockets.set(id, n);
-  if (open && (!writer || writer.id === id || !sockets.has(writer.id))) writer = { id, seen: Date.now() };
-  if (!open && writer?.id === id && !sockets.has(id)) {
-    const next = sockets.keys().next().value;
-    writer = next ? { id: next, seen: Date.now() } : null;
+  if (open && !displaced.has(id)) takeover(id);
+  if (!open && writer?.id === id && !sockets.has(id)) writer = null;
+}
+
+/** The newest window always gets the game. The window that held it is told, and stays read-only until its player takes it back. */
+function takeover(id: string): void {
+  if (writer && writer.id !== id) {
+    const old = writer.id;
+    displaced.add(old);
+    if (displaced.size > 64) displaced.delete(displaced.values().next().value as string);
+    const payload = `event: taken\ndata: {}\n\n`;
+    for (const [res, tab] of clientTab) {
+      if (tab !== old) continue;
+      try { res.write(payload); } catch { /* it is gone */ }
+    }
   }
+  displaced.delete(id);
+  writer = { id, seen: Date.now() };
 }
 
 function claimWrite(id: string): string | null {
-  if (writer && writer.id !== id && sockets.has(writer.id)) {
-    return 'This game is open in another window, so close that window and use this one.';
-  }
-  writer = { id, seen: Date.now() };
+  if (id === 'local') return null;
+  if (displaced.has(id)) return 'This game moved to a newer window, so take it back here or carry on there.';
+  if (!writer || writer.id !== id) takeover(id);
   return null;
 }
 
@@ -4843,7 +4860,7 @@ function send(res: http.ServerResponse, code: number, body: unknown): void {
 function guard(req: http.IncomingMessage, url: URL, res: http.ServerResponse): boolean {
   const why = claimWrite(tabOf(req, url));
   if (!why) return false;
-  send(res, 409, { error: why });
+  send(res, 409, { error: why, taken: true });
   return true;
 }
 
@@ -5370,11 +5387,19 @@ const server = http.createServer(async (req, res) => {
       });
       res.write('retry: 2000\n\n');
       clients.add(res);
+      clientTab.set(res, tab);
       noteSocket(tab, true);
       req.on('close', () => {
         clients.delete(res);
+        clientTab.delete(res);
         noteSocket(tab, false);
       });
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/claim') {
+      const tab = tabOf(req, url);
+      if (tab !== 'local') takeover(tab);
+      send(res, 200, { ok: true });
       return;
     }
     if (req.method === 'POST' && pathname === '/release') {

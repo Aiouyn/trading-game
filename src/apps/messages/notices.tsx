@@ -71,7 +71,7 @@ function troubleOf(snap: CircleSnap, ask: CircleAsk | null): Trouble | null {
 
 function countUnread(snap: CircleSnap, read: Set<number>): number {
   let n = 0;
-  for (const thread of snap.threads) for (const m of thread.messages) if (!read.has(m.id)) n++;
+  for (const thread of snap.threads) for (const m of thread.messages) if (!m.mine && !read.has(m.id)) n++;
   return n;
 }
 
@@ -81,7 +81,7 @@ export function ingestCircle(life: unknown) {
   if (lastAbs >= 0 && snap.abs < lastAbs) resetMail();
   lastAbs = snap.abs;
   const ids: number[] = [];
-  for (const thread of snap.threads) for (const m of thread.messages) ids.push(m.id);
+  for (const thread of snap.threads) for (const m of thread.messages) if (!m.mine) ids.push(m.id);
   const trouble = troubleOf(snap, familyTrouble(snap));
   if (!primed) {
     primed = true;
@@ -95,6 +95,7 @@ export function ingestCircle(life: unknown) {
     const word = person?.bond.word || person?.word || "";
     for (const m of thread.messages) {
       if (known.has(m.id)) continue;
+      if (m.mine) continue;
       known.add(m.id);
       if (isClose(thread.role, word) || isRivalMove(thread.role, m.text)) {
         fresh.push({ who: thread.who, name: thread.name || person?.name || "Someone", role: thread.role, text: m.text });
@@ -193,14 +194,22 @@ function lineOf(snap: CircleSnap, ask: CircleAsk): string {
   return clipWords(line, 160);
 }
 
-/** Invitations and loan requests, with the day they lapse, on the top bar. */
-export function WaitingRequests() {
+/** The whole letter an ask came with, so the offer can be read before it is accepted. */
+function fullLine(snap: CircleSnap, ask: CircleAsk): string {
+  const letter = snap.threads.flatMap((t) => t.messages).find((m) => m.id === ask.msg);
+  return (letter?.text || ask.note || `${ask.name} is waiting on an answer`).replace(/\s+/g, " ");
+}
+
+/** Invitations and loan requests, with the day they lapse, over the desk (phone: on the top bar). */
+export function WaitingRequests({ float = false }: { float?: boolean }) {
   const { life, run } = useLife();
   const store = useShellStore();
   const [busy, setBusy] = useState<string | null>(null);
+  const [later, setLater] = useState<ReadonlySet<number>>(new Set());
   const snap = readCircle(life);
   if (!snap) return null;
-  const asks = waitingOn(snap);
+  // Floating on the desk, a request sits over the windows and never moves them. "Later" hides it until the page reloads.
+  const asks = waitingOn(snap).filter((a) => !float || !later.has(a.id));
   if (!asks.length) return null;
   const go = (ask: CircleAsk, yes: boolean) => {
     if (busy) return;
@@ -212,20 +221,21 @@ export function WaitingRequests() {
     void run(commandFor(ask, button, slot, ask.cents)).finally(() => setBusy(null));
   };
   return (
-    <div className="waiting" data-testid="waiting-requests">
+    <div className={`waiting${float ? " waiting-float" : ""}`} data-testid="waiting-requests">
       {asks.map((ask) => {
         const loan = ask.kind === "loan";
         return (
           <div className="goal-interrupt" key={ask.id} data-testid={loan && ask.role === "family" ? "family-interrupt" : "waiting-request"}>
             <button type="button" className="goal-interrupt-text" onClick={() => store.getState().open("messages", `who:${ask.from}`)}>
               <span className="label">{askTitle(ask)} · {deadlineWord(snap.abs, ask.due)}</span>
-              <span>{ask.name ? `${ask.name}. ` : ""}{lineOf(snap, ask)}</span>
+              <span>{ask.name ? `${ask.name}. ` : ""}{float ? fullLine(snap, ask) : lineOf(snap, ask)}</span>
             </button>
             <span className="goal-interrupt-acts">
               <Button variant="secondary" disabled={!!busy} data-testid={loan ? "interrupt-lend" : "interrupt-accept"} onClick={() => go(ask, true)}>
                 {loan ? `Lend ${moneyLabel(ask.cents)}` : "Accept"}
               </Button>
               <Button variant="secondary" disabled={!!busy} data-testid="interrupt-decline" onClick={() => go(ask, false)}>Decline</Button>
+              {float ? <Button variant="secondary" disabled={!!busy} data-testid="interrupt-later" onClick={() => setLater((cur) => new Set(cur).add(ask.id))}>Later</Button> : null}
             </span>
           </div>
         );

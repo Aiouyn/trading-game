@@ -5,7 +5,7 @@ import type { RestrictedReason } from "./contracts/channels";
 export const APP_NAMES: Record<AppId, string> = {
   broker: "Broker", portfolio: "Portfolio", wire: "Wire", messages: "Messages", markets: "Markets",
   risk: "Risk", quantlab: "Quant Lab", research: "Research Desk", businesses: "Businesses", company: "Company",
-  property: "Property", city: "City", bank: "Bank & Credit", funds: "Funds", insurance: "Insurance",
+  property: "Home & property", city: "City", bank: "Bank", funds: "Funds", insurance: "Insurance",
   institutions: "Institutions", ailab: "AI Lab", security: "Security", legal: "Legal & Court", estate: "Estate",
   boards: "Boards", profile: "Profile", people: "People", diary: "Diary", health: "Health", alliance: "Alliance", contracts: "Contracts", auctions: "Auctions",
   civic: "Civic", society: "Society", academy: "Academy", careers: "Careers", citylife: "City life", help: "Help", atelier: "Atelier", settings: "Settings", replay: "Replay", api: "API",
@@ -32,6 +32,7 @@ export const S = {
   close: "Close",
   collapse: "Collapse",
   fill: "Fill",
+  allApps: "All apps",
   back: "Back",
   backTo: "Back to",
   cancel: "Cancel",

@@ -67,7 +67,7 @@ const ROWS: Row[] = [
   { id: "broker", group: "trade", minW: 520, minH: 420, narrowMinW: 480, maxInstances: 4 },
   { id: "portfolio", group: "trade", minW: 520, minH: 220 },
   { id: "wire", group: "trade", minW: 360, minH: 280 },
-  { id: "messages", group: "trade", minW: 480, minH: 560 },
+  { id: "messages", group: "trade", minW: 440, minH: 400 },
   { id: "markets", group: "trade" },
   { id: "launchpad", group: "trade" },
   { id: "risk", group: "trade", minW: 480, minH: 360 },

@@ -8,6 +8,7 @@ import {
 } from "@/shell/simSession";
 import { presentNote, seedDebug } from "@/components/ui/format";
 import { closeNotes, useNotesOpen } from "./flowState";
+import { ResultPanel, isResult } from "./ResultPanel";
 import { CircleChrome, RequestInterrupt } from "@/apps/messages/notices";
 
 const QUARTER = ["", "A quarter of the way", "Halfway", "Three quarters of the way", "The goal is met"];
@@ -231,17 +232,19 @@ function NoteToast() {
   useEffect(() => {
     if (!note || paused) return;
     setShown(note);
-    const stay = note.text.includes("\n") || (note.lines?.length ?? 0) > 1;
-    if (stay) return;
-    const t = window.setTimeout(() => setShown((cur) => (cur === note ? null : cur)), 5000);
+    if (isResult(note)) return;
+    const t = window.setTimeout(() => setShown((cur) => (cur === note ? null : cur)), 6000);
     return () => window.clearTimeout(t);
   }, [note, paused]);
   if (!shown || paused) return null;
-  const stay = shown.text.includes("\n") || (shown.lines?.length ?? 0) > 1;
+  const close = () => { setShown(null); clearNote(); };
+  if (isResult(shown)) return <ResultPanel note={shown} onClose={close} />;
+  const text = presentNote(shown.text);
+  if (!text) return null;
   return (
-    <div className="goal-toast note-toast" role="status">
-      <p className="note-toast-text">{presentNote(shown.text)}</p>
-      {stay ? <button type="button" className="goal-dismiss" onClick={() => setShown(null)}>Dismiss</button> : null}
+    <div className="note-toast" role="status" data-testid="note-toast">
+      <p className="note-toast-text">{text}</p>
+      <button type="button" className="note-toast-close" aria-label="Close" onClick={close}>Close</button>
     </div>
   );
 }

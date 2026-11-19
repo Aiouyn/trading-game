@@ -79,6 +79,12 @@ export function Shelf() {
           </span>
         );
       })}
+        <span className="shelf-slot">
+          <span className="shelf-divider" aria-hidden="true" />
+          <button className="tile" data-testid="tile-all" aria-label={S.allApps} title={S.allApps} onClick={() => store.getState().setLauncher(true)}>
+            <Glyph name="apps" size={20} />
+          </button>
+        </span>
       </div>
       <div className="shelf-tools" data-testid="shelf-tools">
         {desktop && layouts.length > 0 && (

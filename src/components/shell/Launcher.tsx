@@ -2,7 +2,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { prefersCommand, search, type LauncherItem, type SearchDir } from "@/shell/launcher";
 import { actLine, useSimSnap } from "@/shell/simSession";
-import { S } from "@/shell/strings";
+import { APP_NAMES, GROUP_LABELS, S } from "@/shell/strings";
+import { APP_IDS, APPS, GROUPS } from "@/shell/registry";
+import { isBuiltApp } from "@/shell/appModules";
 import { viewportOf } from "@/shell/wm";
 import { openSheet } from "@/shell/sheetHost";
 import { Glyph } from "./Glyph";
@@ -108,7 +110,28 @@ export function Launcher() {
             </div>
           ))}
         </div>
-        {items.length === 0 && <p className="muted empty">{q ? S.nothingFound : S.noRecent}</p>}
+        {!q.trim() && (
+          <div className="launcher-all" data-testid="launcher-all">
+            {GROUPS.map((g) => {
+              const apps = APP_IDS.filter((a) => APPS[a].group === g && isBuiltApp(a) && vis[a] === "unlocked");
+              if (!apps.length) return null;
+              return (
+                <section key={g}>
+                  <div className="label">{GROUP_LABELS[g]}</div>
+                  <div className="launcher-grid">
+                    {apps.map((a) => (
+                      <button key={a} type="button" className="launcher-app" data-testid={`launch-${a}`} onClick={() => choose({ id: `all:${a}`, group: "Apps", label: APP_NAMES[a], app: a })}>
+                        <Glyph name={a} size={18} />
+                        <span>{APP_NAMES[a]}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
+        {items.length === 0 && q && <p className="muted empty">{S.nothingFound}</p>}
       </div>
     </div>
   );

@@ -124,6 +124,7 @@ export default function MessagesApp({ context }: AppBodyProps) {
   const { note, busy, go } = useAct();
   const snap = readCircle(life);
   const [who, setWho] = useState<number | null>(whoFrom(context));
+  const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState("");
   const [mine, setMine] = useState<LocalReply[]>([]);
   useEffect(() => {
@@ -132,7 +133,10 @@ export default function MessagesApp({ context }: AppBodyProps) {
   }, [context]);
   const press = readPress((useSimSnap().view as { press?: unknown } | null)?.press);
   const threads = snap ? withPress(snap.threads, press) : [];
-  const open = threads.find((t) => t.who === who) ?? null;
+  // A contact with no letters yet still opens as an empty thread, so the player can write first.
+  const asked = who === null ? undefined : snap?.contacts.find((c) => c.who === who);
+  const open: CircleThread | null = threads.find((t) => t.who === who)
+    ?? (asked ? { who: asked.who, name: asked.name, role: asked.role, stance: asked.stance, messages: [] } : null);
   const openIds = open ? open.messages.map((m) => m.id).join(",") : "";
   const read = useRead();
   useEffect(() => {
@@ -143,15 +147,19 @@ export default function MessagesApp({ context }: AppBodyProps) {
 
   const send = async (thread: CircleThread, text: string) => {
     const last = thread.messages[thread.messages.length - 1];
-    if (!last || !text.trim()) return;
     const said = text.trim();
+    if (!said) return;
+    if (!last || !(last.press && last.pressId !== undefined && last.pressId >= 0)) {
+      setDraft("");
+      const result = await go({ kind: "message", who: thread.who, text: said });
+      if (!result.ok) setDraft(said);
+      return;
+    }
     const key = `${thread.who}:${last.id}:${mine.length}:${said}`;
     const reply: LocalReply = { key, who: thread.who, afterId: last.id, text: said, day: snap.abs };
     setMine((cur) => [...cur, reply]);
     setDraft("");
-    const result = last.press && last.pressId !== undefined && last.pressId >= 0
-      ? await go({ kind: "press", request: last.pressId, stance: "explain", text: said })
-      : await go({ kind: "reply", msg: last.id, text: said });
+    const result = await go({ kind: "press", request: last.pressId, stance: "explain", text: said });
     if (!result.ok) setMine((cur) => cur.filter((r) => r.key !== key));
   };
   const actOn = async (thread: CircleThread, afterId: number, cmd: Record<string, unknown>, said: string) => {
@@ -166,19 +174,39 @@ export default function MessagesApp({ context }: AppBodyProps) {
   };
 
   return (
-    <div className="msg" data-testid="messages" data-pane={open ? "thread" : "list"}>
+    <div className="msg" data-testid="messages" data-pane={open && !picking ? "thread" : "list"}>
       <div className="msg-split">
         <section className="msg-list" aria-label="Threads">
           <header className="msg-head">
             <div>
               <h2>Messages</h2>
-              <p>{threads.length ? `${threads.length} people` : "No letters yet"}</p>
+              <p>{picking ? "Who do you want to write to?" : threads.length ? `${threads.length} ${threads.length === 1 ? "person" : "people"}` : "No letters yet"}</p>
             </div>
+            {snap.contacts.length ? (
+              <Button variant="secondary" size="sm" className="msg-new" data-testid="msg-new" onClick={() => setPicking((v) => !v)}>
+                {picking ? "Cancel" : "New message"}
+              </Button>
+            ) : null}
           </header>
           <div className="msg-scroll">
-            {threads.length ? threads.map((t) => {
+            {picking ? snap.contacts.map((c) => (
+              <button
+                key={c.who}
+                type="button"
+                className="msg-row"
+                data-testid="contact-pick"
+                onClick={() => { setWho(c.who); setPicking(false); }}
+              >
+                <span className="avatar" data-role={c.role}>{initial(c.name)}</span>
+                <span className="msg-row-text">
+                  <strong className="msg-who">{c.name || "Someone"}</strong>
+                  <span className="msg-role">{roleWord(c.role, c.stance)}{c.bond.word ? ` · ${c.bond.word}` : ""}</span>
+                  <span className="msg-preview">{c.line || c.sentence || ""}</span>
+                </span>
+              </button>
+            )) : threads.length ? threads.map((t) => {
               const last = t.messages[t.messages.length - 1];
-              const shownUnread = t.who === open?.who ? 0 : t.messages.filter((m) => !read.has(m.id)).length;
+              const shownUnread = t.who === open?.who ? 0 : t.messages.filter((m) => !m.mine && !read.has(m.id)).length;
               return (
                 <button
                   key={t.who}
@@ -186,7 +214,7 @@ export default function MessagesApp({ context }: AppBodyProps) {
                   className="msg-row"
                   data-testid="thread"
                   data-on={t.who === open?.who ? "1" : "0"}
-                  onClick={() => setWho(t.who)}
+                  onClick={() => { setWho(t.who); setPicking(false); }}
                 >
                   <span className="avatar" data-role={t.role}>{initial(t.name)}</span>
                   <span className="msg-row-text">
@@ -197,11 +225,12 @@ export default function MessagesApp({ context }: AppBodyProps) {
                   {shownUnread > 0 ? <span className="msg-unread">{shownUnread > 9 ? "9+" : shownUnread}</span> : null}
                 </button>
               );
-            }) : <p className="msg-empty">No one has written. Letters come when someone has a reason.</p>}
+            }) : <p className="msg-empty">{snap.contacts.length ? "No one has written yet. Use New message to write to someone you know." : "You have not met anyone yet. Go out in the evening from City life, and the people you meet will be here."}</p>}
           </div>
         </section>
         <Thread
           thread={open}
+          anyone={snap.contacts.length > 0 || threads.length > 0}
           plans={plans}
           pending={snap.pending}
           contact={open ? contactOf(snap.contacts, open.who) : undefined}
@@ -220,8 +249,9 @@ export default function MessagesApp({ context }: AppBodyProps) {
   );
 }
 
-function Thread({ thread, plans, pending, contact, slot, mine, draft, busy, note, onDraft, onBack, onSend, onAsk }: {
+function Thread({ thread, anyone, plans, pending, contact, slot, mine, draft, busy, note, onDraft, onBack, onSend, onAsk }: {
   thread: CircleThread | null;
+  anyone: boolean;
   plans: DiaryPlan[];
   pending: CircleAsk[];
   contact?: CircleContact;
@@ -246,24 +276,25 @@ function Thread({ thread, plans, pending, contact, slot, mine, draft, busy, note
         ) : null}
         <div className="msg-row-text">
           <h2>{person?.name ? <Named name={person.name} /> : "Choose someone"}</h2>
-          {person ? <p>{roleWord(person.role, person.stance)}{contact?.bond.word ? ` · ${contact.bond.word}` : ""}</p> : <p>A thread opens when they write.</p>}
+          {person ? <p>{roleWord(person.role, person.stance)}{contact?.bond.word ? ` · ${contact.bond.word}` : ""}</p> : <p>Pick someone from the list, or start a new message.</p>}
         </div>
       </header>
       <div className="msg-scroll">
         <Result note={note} />
         {person ? (
           <div className="msg-log" data-testid="transcript">
+            {person.messages.length === 0 ? <p className="msg-empty">You have not written to {person.name.split(/\s+/)[0] || "them"} yet. Say hello below.</p> : null}
             {person.messages.slice(-30).map((m) => (
               <Letter key={m.id} message={m} ask={askForMessage(pending, m)} plan={planForMessage(plans, m)} slot={slot} busy={busy} mine={mine.filter((r) => r.afterId === m.id)} onAsk={onAsk} />
             ))}
           </div>
-        ) : <p className="msg-empty">Pick a person. Their letters, and what each one is about, sit here.</p>}
+        ) : <p className="msg-empty">{anyone ? "Pick a person from the list. Their letters, and what each one is about, sit here." : "Letters from the people you meet sit here."}</p>}
       </div>
-      {person && last && (last.id >= 0 || last.press) ? (
+      {person ? (
         <form className="msg-compose" onSubmit={(e) => { e.preventDefault(); onSend(draft); }}>
           <input
             value={draft}
-            placeholder={last?.press ? "A sentence for the paper" : `Reply to ${person.name.split(/\s+/)[0] || "them"}`}
+            placeholder={last?.press ? "A sentence for the paper" : last && !last.mine ? `Reply to ${person.name.split(/\s+/)[0] || "them"}` : `Write to ${person.name.split(/\s+/)[0] || "them"}`}
             data-testid="reply-text"
             onChange={(e) => onDraft(e.target.value)}
           />
@@ -283,6 +314,14 @@ function Letter({ message, ask, plan, slot, busy, mine, onAsk }: {
   mine: LocalReply[];
   onAsk: (afterId: number, cmd: Record<string, unknown>, said: string) => void;
 }) {
+  if (message.mine) {
+    return (
+      <article className="msg-item you" data-testid="my-letter">
+        <p className="msg-role">You · {when(message.day)}</p>
+        <p className="msg-bubble">{presentNote(message.text)}</p>
+      </article>
+    );
+  }
   return (
     <>
       <article className="msg-item" data-testid="letter">

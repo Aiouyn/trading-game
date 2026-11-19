@@ -47,13 +47,13 @@ export function WindowFrame({ win, z, active, rect, movable, background }: Props
       style={{ left: rect.x, top: Math.max(rect.y, minWindowTop(store.getState().local.focusMode)), width: rect.w, height: win.collapsed ? 32 : rect.h, zIndex: 10 + z }}
       onPointerDown={() => !active && store.getState().focus(win)}
     >
-      <div className="titlebar" onPointerDown={(e) => start(e, "move")} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}>
+      <div className="titlebar" onDoubleClick={(e) => { if (movable && !(e.target as HTMLElement).closest("button")) store.getState().snap(win, "FILL"); }} onPointerDown={(e) => start(e, "move")} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}>
         <span className="tb-glyph"><Glyph name={win.app} size={15} /></span>
         <span className="tb-name" id={titleId}>{APP_NAMES[win.app]}</span>
         {win.context && <span className="tb-context">{win.context}</span>}
         <span className="tb-controls">
           <button aria-label={S.collapse} onClick={() => store.getState().toggleCollapse(win)}><Glyph name="collapse" size={14} /></button>
-          <button aria-label={S.fill} onClick={() => store.getState().snap(win, "FILL")}><Glyph name="fill" size={14} /></button>
+          <button aria-label={win.snap === "FILL" ? "Restore" : S.fill} title={win.snap === "FILL" ? "Restore" : S.fill} onClick={() => store.getState().snap(win, "FILL")}><Glyph name="fill" size={14} /></button>
           <button aria-label={S.close} data-testid="win-close" onClick={() => store.getState().close(win)}><Glyph name="close" size={14} /></button>
         </span>
       </div>

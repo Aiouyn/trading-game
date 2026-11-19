@@ -7,6 +7,7 @@ export const layout = ["M5 5h14a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 19 19H5a1
 export const chevLeft = ["m15 6-6 6 6 6"] as const;
 /** External link (17B SET-08, Studio ruling): up-right arrow, drawn after the label. */
 export const external = ["M8 16 16 8", "M9.5 8H16v6.5"] as const;
+export const apps = ["M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z"] as const;
 export const app = ["M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5z", "M9 12h6"] as const;
 
 /** P0 alert (Studio-approved): warning triangle with a vertical bar and dot, same 24 grid / stroke as the set. */
@@ -15,7 +16,7 @@ export const alert = ["M10.7 5.25a1.5 1.5 0 0 1 2.6 0l7.1 12.5a1.5 1.5 0 0 1-1.3
 export const world = ["M12 3.5l2.1 6.4 6.4 2.1-6.4 2.1-2.1 6.4-2.1-6.4-6.4-2.1 6.4-2.1z"] as const;
 /** Error (Studio-approved): circle with an exclamation mark, drawn in --signal (never --loss, which is P0's). */
 export const error = ["M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z", "M12 7.75v5", "M12 16.25h.01"] as const;
-export const UI_GLYPHS = { quay, bell, alert, world, error, search, focus, layout, chevLeft, external, app };
+export const UI_GLYPHS = { quay, bell, alert, world, error, search, focus, layout, chevLeft, external, app, apps };
 
 // 16 px window controls.
 export const collapse = "M4.5 12h7";

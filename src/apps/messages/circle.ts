@@ -8,6 +8,8 @@ export interface CircleMsg {
   eventId: number;
   source: number;
   requestId: number;
+  /** A letter the player wrote. */
+  mine?: boolean;
   /** A journalist's request for comment. A reply is the comment, not a yes or no. */
   press?: boolean;
   /** The request a press reply answers. */
@@ -109,6 +111,7 @@ export function readCircle(life: unknown): CircleSnap | null {
         eventId: num(msg.eventId, -1),
         source: num(msg.source, -1),
         requestId: num(msg.requestId, -1),
+        mine: msg.mine === true,
       }];
     }) : [];
     return [{

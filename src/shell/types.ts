@@ -52,6 +52,8 @@ export interface Watchlist { id: string; name: string; assetIds: string[] }
 export interface WindowRect {
   app: AppId; instance: number; x: number; y: number; w: number; h: number;
   snap: SnapSlot | null; workspace: 1 | 2 | 3; collapsed: boolean; context?: string;
+  /** Where the window was before it was maximised, so a second click on Fill puts it back. */
+  restore?: { x: number; y: number; w: number; h: number; snap: SnapSlot | null };
 }
 export type SnapSlot = "L1/2" | "R1/2" | "L1/3" | "C1/3" | "R1/3" | "L2/3" | "R2/3" | "TL" | "TR" | "BL" | "BR" | "FILL";
 

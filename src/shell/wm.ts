@@ -28,6 +28,33 @@ export const BROKER_WINDOW_H = 640;
 /** Society holds the month, the rich list, and standing in one view. 560 left the list under the fold. */
 export const SOCIETY_WINDOW_H = 720;
 
+/** Opening size per app: room for the whole body on a 1366 x 768 screen. A window never opens above the work area. */
+const OPEN_SIZE: Partial<Record<AppId, { w: number; h: number }>> = {
+  broker: { w: 980, h: BROKER_WINDOW_H },
+  portfolio: { w: 580, h: 660 },
+  wire: { w: 560, h: 660 },
+  messages: { w: 820, h: 620 },
+  launchpad: { w: 1000, h: 660 },
+  careers: { w: 760, h: 660 },
+  citylife: { w: 760, h: 660 },
+  people: { w: 600, h: 660 },
+  city: { w: 820, h: 660 },
+  society: { w: 820, h: SOCIETY_WINDOW_H },
+  markets: { w: 900, h: 660 },
+  property: { w: 800, h: 660 },
+  bank: { w: 680, h: 640 },
+  academy: { w: 760, h: 660 },
+  profile: { w: 720, h: 660 },
+  diary: { w: 760, h: 640 },
+  settings: { w: 760, h: 640 },
+  help: { w: 680, h: 640 },
+};
+const DEFAULT_OPEN = { w: 760, h: 640 };
+export const openSize = (app: AppId, a: { w: number; h: number }): { w: number; h: number } => {
+  const want = OPEN_SIZE[app] ?? DEFAULT_OPEN;
+  return clampSize(app, Math.min(a.w, want.w), Math.min(a.h, want.h), a.w);
+};
+
 /**
  * Move a window; its top is clamped below the strip's hit band so the title bar never sits under it. With the work
  * area `a` (desktop, banners included) the window stops at AC-WM-SHELF-CLAMP's edges: top ≥ clampTop (= a.y),
@@ -107,14 +134,111 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
     return { windows: [...windows.filter((x) => !sameWin(x, existing)), moved], focused: moved, opened: false };
   }
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
-  const openH = app === "broker" ? BROKER_WINDOW_H : app === "society" ? SOCIETY_WINDOW_H : DEFAULT_WINDOW_H;
-  const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, openH), a.w);
-  const n = windows.length % 6;
-  const rect: WindowRect = {
-    app, instance, workspace: 1, collapsed: false, snap: null, context,
-    x: a.x + 24 + n * 28, y: a.y + 16 + n * 28, w: Math.min(size.w, a.w), h: Math.min(size.h, a.h),
-  };
-  return { windows: [...windows, rect], focused: rect, opened: true };
+  const fresh: WindowRect = { app, instance, workspace: 1, collapsed: false, snap: null, context, x: a.x, y: a.y, w: 0, h: 0 };
+  const placed = placeNew(windows, fresh, a);
+  return { windows: placed.windows, focused: placed.focused, opened: true };
+}
+
+const overlaps = (p: Area, q: Area) => p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h;
+
+/**
+ * Put a new window where it overlaps nothing. First choice is a free spot at its opening size, then at smaller sizes
+ * (never below the app minimum). With no free spot, every open window is tiled into a grid with the new one when all
+ * minimums fit. When they do not, the window that has waited longest is replaced by the new one.
+ */
+export function placeNew(windows: WindowRect[], fresh: WindowRect, a: Area): { windows: WindowRect[]; focused: WindowRect } {
+  const live = windows.filter((w) => w.workspace === 1);
+  const taken: Area[] = live.map((w) => {
+    const r = fitRect(w, a);
+    return w.collapsed ? { ...r, h: 32 } : r;
+  });
+  const want = openSize(fresh.app, a);
+  const min = minSize(fresh.app, a.w);
+  const sizes: { w: number; h: number }[] = [want];
+  for (const k of [0.88, 0.76]) sizes.push({ w: Math.max(min.w, Math.round(want.w * k)), h: Math.max(min.h, Math.round(want.h * k)) });
+  sizes.push({ w: min.w, h: min.h });
+  for (const s of sizes) {
+    if (s.w > a.w || s.h > a.h) continue;
+    const xs = [...new Set([a.x, ...taken.map((t) => t.x + t.w + GUTTER)])].sort((p, q) => p - q);
+    const ys = [...new Set([a.y, ...taken.map((t) => t.y + t.h + GUTTER)])].sort((p, q) => p - q);
+    for (const y of ys) for (const x of xs) {
+      const r = { x, y, w: s.w, h: s.h };
+      if (x + s.w > a.x + a.w || y + s.h > a.y + a.h) continue;
+      if (taken.some((t) => overlaps(r, t))) continue;
+      const rect: WindowRect = { ...fresh, x: r.x, y: r.y, w: r.w, h: r.h };
+      return { windows: [...windows, rect], focused: rect };
+    }
+  }
+  const tiled = tileAll(windows, fresh, a);
+  if (tiled) return tiled;
+  // No room: the window that has waited longest, and whose place is big enough, gives it up. The trading desk and the
+  // wallet are the last to go.
+  const keep = (w: WindowRect) => w.app === "broker" || w.app === "portfolio";
+  const fits = live.filter((w) => { const r = fitRect(w, a); return r.w >= min.w && r.h >= min.h; });
+  const victim = fits.find((w) => !keep(w)) ?? fits[0];
+  if (victim) {
+    const v = fitRect(victim, a);
+    const rect: WindowRect = { ...fresh, x: v.x, y: v.y, w: v.w, h: v.h };
+    return { windows: [...windows.filter((w) => !sameWin(w, victim)), rect], focused: rect };
+  }
+  // Two neighbours that line up (one column, or one row) give their joint place to the new window.
+  const order = [...live.filter((w) => !keep(w)), ...live.filter(keep)];
+  for (const v of order) {
+    const r = fitRect(v, a);
+    for (const p of live) {
+      if (p === v) continue;
+      const q = fitRect(p, a);
+      const column = Math.abs(q.x - r.x) <= 2 && Math.abs(q.w - r.w) <= 2 && (Math.abs(q.y - (r.y + r.h)) <= GUTTER + 2 || Math.abs(r.y - (q.y + q.h)) <= GUTTER + 2);
+      const row = Math.abs(q.y - r.y) <= 2 && Math.abs(q.h - r.h) <= 2 && (Math.abs(q.x - (r.x + r.w)) <= GUTTER + 2 || Math.abs(r.x - (q.x + q.w)) <= GUTTER + 2);
+      if (!column && !row) continue;
+      const joint = { x: Math.min(r.x, q.x), y: Math.min(r.y, q.y), w: Math.max(r.x + r.w, q.x + q.w) - Math.min(r.x, q.x), h: Math.max(r.y + r.h, q.y + q.h) - Math.min(r.y, q.y) };
+      if (joint.w < min.w || joint.h < min.h) continue;
+      const rect: WindowRect = { ...fresh, ...joint };
+      return { windows: [...windows.filter((w) => w !== v && w !== p), rect], focused: rect };
+    }
+  }
+  const rect: WindowRect = { ...fresh, x: a.x, y: a.y, w: Math.min(a.w, want.w), h: Math.min(a.h, want.h) };
+  return { windows: [...windows, rect], focused: rect };
+}
+
+/** A grid of rows and columns over the work area for the open windows and the new one, or null when a minimum does not fit. */
+function tileAll(windows: WindowRect[], fresh: WindowRect, a: Area): { windows: WindowRect[]; focused: WindowRect } | null {
+  const rest = windows.filter((w) => w.workspace !== 1 || w.collapsed);
+  const order = windows.filter((w) => w.workspace === 1 && !w.collapsed)
+    .map((w) => ({ w, r: fitRect(w, a) }))
+    .sort((p, q) => Math.round(p.r.y / 40) - Math.round(q.r.y / 40) || p.r.x - q.r.x)
+    .map((p) => p.w);
+  const items = [...order, fresh];
+  const n = items.length;
+  for (let cols = Math.min(n, Math.max(1, Math.round(Math.sqrt(n * (a.w / a.h))))); cols >= 1; cols--) {
+    const rows = Math.ceil(n / cols);
+    const cellH = Math.floor((a.h - (rows - 1) * GUTTER) / rows);
+    const placed: WindowRect[] = [];
+    let ok = true;
+    for (let row = 0; row < rows && ok; row++) {
+      const slice = items.slice(row * cols, row * cols + cols);
+      const cellW = Math.floor((a.w - (slice.length - 1) * GUTTER) / slice.length);
+      slice.forEach((w, i) => {
+        const m = minSize(w.app, a.w);
+        if (cellW < m.w || cellH < m.h) ok = false;
+        placed.push({ ...w, x: a.x + i * (cellW + GUTTER), y: a.y + row * (cellH + GUTTER), w: cellW, h: cellH, snap: null, collapsed: false });
+      });
+    }
+    if (ok) {
+      const focused = placed[placed.length - 1];
+      return { windows: [...rest, ...placed], focused };
+    }
+  }
+  for (let cols = Math.min(n, Math.round(Math.sqrt(n * (a.w / a.h))) + 1); cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const cellW = Math.floor((a.w - (cols - 1) * GUTTER) / cols);
+    const cellH = Math.floor((a.h - (rows - 1) * GUTTER) / rows);
+    if (items.every((w) => cellW >= minSize(w.app, a.w).w && cellH >= minSize(w.app, a.w).h)) {
+      const placed = items.map((w, i) => ({ ...w, x: a.x + (i % cols) * (cellW + GUTTER), y: a.y + Math.floor(i / cols) * (cellH + GUTTER), w: cellW, h: cellH, snap: null, collapsed: false }));
+      return { windows: [...rest, ...placed], focused: placed[placed.length - 1] };
+    }
+  }
+  return null;
 }
 
 export const sameWin = (a: WindowRect, b: WindowRect) => a.app === b.app && a.instance === b.instance;
@@ -178,9 +302,18 @@ export function resizeEdgeWin(windows: WindowRect[], w: WindowRect, r0: Area, ed
 }
 
 export function snapWin(windows: WindowRect[], w: WindowRect, slot: SnapSlot, a: Area): WindowRect[] {
+  // Maximising twice restores: the size and place it had before, or its opening size in the middle of the work area.
+  if (slot === "FILL" && w.snap === "FILL") {
+    const r = w.restore ?? (() => {
+      const s = openSize(w.app, a);
+      return { x: Math.round(a.x + (a.w - s.w) / 2), y: Math.round(a.y + (a.h - s.h) / 2), w: s.w, h: s.h, snap: null };
+    })();
+    return updateWin(windows, w, { x: r.x, y: r.y, w: r.w, h: r.h, snap: r.snap, restore: undefined, collapsed: false });
+  }
   const r = slotRect(slot, a);
   const s = clampSize(w.app, r.w, r.h, a.w);
-  return updateWin(windows, w, { ...r, w: s.w, h: s.h, snap: slot, collapsed: false });
+  const restore = slot === "FILL" ? { x: w.x, y: w.y, w: w.w, h: w.h, snap: w.snap } : undefined;
+  return updateWin(windows, w, { ...r, w: s.w, h: s.h, snap: slot, collapsed: false, restore });
 }
 
 /** Ctrl ←/→ cycles halves then thirds on that side; ↑ fills; ↓ collapses (17 §3.2.6). */

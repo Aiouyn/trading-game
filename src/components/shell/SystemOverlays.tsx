@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { S } from "@/shell/strings";
 import { Button } from "@/components/ui/Button";
+import { takeBack } from "@/shell/simSession";
 import { useShell } from "./ShellContext";
 
 export type OverlayKind = "held" | "halted" | "disconnected" | "update";
@@ -89,5 +90,18 @@ export function SystemOverlays() {
       {sys.held && <SystemOverlay kind="held" />}
       <HaltLayer halted={sys.halted} />
     </>
+  );
+}
+
+/** Another window took the game. This one shows it and offers the game back. */
+export function TakenOverlay() {
+  return (
+    <div className="sys-overlay sys-taken overlay-system" data-testid="overlay-taken" role="alertdialog" aria-label="Game moved" style={{ pointerEvents: "auto" }}>
+      <div className="sys-card">
+        <h2 className="sys-title">The game moved to another window</h2>
+        <p className="muted">You opened Port Avalon somewhere else, so it is running there now. Nothing was lost.</p>
+        <Button variant="primary" className="sys-action" data-testid="overlay-taken-action" onClick={() => void takeBack()}>Play here instead</Button>
+      </div>
+    </div>
   );
 }

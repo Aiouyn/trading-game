@@ -397,6 +397,16 @@ export function PhoneHome() {
               </section>
             );
           })}
+          {(() => {
+            const more = APP_IDS.filter((a) => isBuiltApp(a) && vis[a] !== "hidden" && !GRID_OMIT.has(a) && !onDesk(a, simView));
+            if (more.length === 0) return null;
+            return (
+              <section className="grid-group" data-testid="group-more">
+                <h2 className="label">{S.allApps}</h2>
+                <div className="grid4" data-cols={cols} data-testid="grid-more">{more.map((a) => <AppIcon key={a} app={a} />)}</div>
+              </section>
+            );
+          })()}
         </div>
       </main>
       )}

@@ -172,7 +172,7 @@ export interface TitleData {
 }
 export type GateMode = "boot" | "menu" | "new" | "load" | "challenge" | "progress" | "play";
 export interface GenState { text: string; lines: string[]; error: string }
-export interface ActNote { ok: boolean; text: string; lines?: string[] }
+export interface ActNote { ok: boolean; text: string; lines?: string[]; title?: string }
 export interface SimCompany {
   id: string; name: string; good: string; sector: string; role: string;
   listed: boolean; workers: number; price: number; cash: number;
@@ -192,10 +192,12 @@ export interface SimSnap {
   note: ActNote | null;
   /** Bumps only when a new scenario is started, so the first-minute windows replace a saved layout once. */
   layoutNonce: number;
+  /** True when a newer window took the game. This one is read-only until the player takes it back. */
+  taken: boolean;
 }
 
 const EMPTY_GEN: GenState = { text: "", lines: [], error: "" };
-let snap: SimSnap = { mode: "boot", title: null, gen: EMPTY_GEN, view: null, note: null, layoutNonce: 0 };
+let snap: SimSnap = { mode: "boot", title: null, gen: EMPTY_GEN, view: null, note: null, layoutNonce: 0, taken: false };
 const listeners = new Set<() => void>();
 let shell: { getState(): { channels: Channels; setChannels(c: Channels): void } } | null = null;
 let started = false;
@@ -229,13 +231,16 @@ function publish(next: SimSnap, coalesce = false) {
   }
   if (paintQueued) return;
   paintQueued = true;
-  const schedule = typeof requestAnimationFrame === "function"
-    ? (fn: () => void) => requestAnimationFrame(fn)
-    : (fn: () => void) => setTimeout(fn, 16);
-  schedule(() => {
+  // A hidden or unfocused page may never get an animation frame, so a timer paints too: the first of the two wins.
+  let done = false;
+  const paint = () => {
+    if (done) return;
+    done = true;
     paintQueued = false;
     flush();
-  });
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(paint);
+  setTimeout(paint, 60);
 }
 
 export function simOwnsShell(): boolean {
@@ -588,7 +593,9 @@ function startStream() {
     try { onGen(JSON.parse((ev as MessageEvent).data) as { phase?: string; year?: number; text?: string; error?: string }); }
     catch { /* ignore a bad progress frame */ }
   });
+  stream.addEventListener("taken", () => markTaken());
   stream.onerror = () => {
+    if (pending.taken) return;
     if (recovering || Date.now() < quietUntil) return;
     if (pending.mode === "progress") {
       void readView().then((view) => {
@@ -600,6 +607,22 @@ function startStream() {
     }
     if (pending.mode === "play") void recoverFromStream();
   };
+}
+
+/** A newer window took the game: stop listening and say so. Nothing here writes until the player takes it back. */
+function markTaken() {
+  if (es) { es.close(); es = null; }
+  if (!pending.taken) publish({ ...pending, taken: true, note: null });
+}
+
+/** Take the game back into this window. The other window, if it is still open, is told in its turn. */
+export async function takeBack(): Promise<void> {
+  const { ok } = await post("claim", {});
+  if (!ok) return;
+  publish({ ...pending, taken: false });
+  startStream();
+  const view = await readView();
+  if (view) publish({ ...pending, view: adopt(view), taken: false });
 }
 
 function armChain() {
@@ -650,7 +673,8 @@ async function boot() {
 export function startSim(): () => void {
   if (started) return () => {};
   started = true;
-  startStream();
+  // A page that opens or reloads takes the game at once, whatever window held it before.
+  void post("claim", {}).then(() => { startStream(); });
   armChain();
   void boot();
   return () => {};
@@ -668,6 +692,7 @@ async function post(path: string, body: unknown): Promise<{ ok: boolean; status:
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+    if (res.status === 409 && data.taken === true) markTaken();
     if ((res.status === 502 || res.status === 503) && typeof data.error !== "string") data.error = STOPPED;
     if (typeof data.error === "string" && /failed to fetch|fetch failed/i.test(data.error)) data.error = STOPPED;
     return { ok: res.ok, status: res.status, data };
@@ -793,6 +818,17 @@ export async function setSpeed(speed: SimView["speed"]): Promise<void> {
   } finally { dropLock(); }
 }
 
+const RESULT_TITLES: Record<string, string> = {
+  help: "Help", homes: "Homes to rent or buy", sheet: "What you have and owe", jobs: "Who is hiring", news: "The news",
+  desk: "The desk", mail: "Your letters", story: "Your story", chronicle: "The chronicle", quote: "Quote", hints: "Hints",
+};
+function titleOf(body: unknown): string | undefined {
+  const b = body as { line?: unknown; kind?: unknown } | null;
+  const word = typeof b?.line === "string" ? b.line.trim().split(/\s+/)[0]?.toLowerCase() : typeof b?.kind === "string" ? b.kind : "";
+  if (!word) return undefined;
+  return RESULT_TITLES[word] ?? word.charAt(0).toUpperCase() + word.slice(1);
+}
+
 function noteOf(ok: boolean, data: Record<string, unknown>): ActNote {
   const lines = Array.isArray(data.lines) ? data.lines.filter((x): x is string => typeof x === "string") : undefined;
   const text = typeof data.why === "string" ? data.why
@@ -809,7 +845,7 @@ async function commitAct(body: unknown): Promise<ActNote> {
     const view = adopt(loaded);
     pending = { ...pending, view };
   }
-  const note = noteOf(ok, data);
+  const note = { ...noteOf(ok, data), title: titleOf(body) };
   publish({ ...pending, note });
   return note;
 }
