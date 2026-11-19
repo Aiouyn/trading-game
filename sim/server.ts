@@ -35,7 +35,7 @@ import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './
 import { answerAsk, STANCES } from './modules/media/index.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
 import { attentionOf } from './modules/law/index.ts';
-import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
+import { districts, homeBoard, lateRent, parcelView, rentBoard, residenceOf } from './modules/property/index.ts';
 import { circleBoard, circlePerson } from './modules/circle/index.ts';
 import { calendarOf, marketsOpen, societyView } from './modules/society/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
@@ -426,6 +426,11 @@ function commandOf(body: unknown): Command | string {
       if (id === undefined || cents === undefined) return 'let needs a home and a rent';
       return { kind: 'let', id, cents };
     }
+    case 'rentHome': {
+      const id = whole(b.id, 0);
+      if (id === undefined) return 'renting needs a home';
+      return { kind: 'rentHome', id };
+    }
     case 'move': {
       const id = whole(b.id, 0);
       if (id === undefined) return 'move needs a home';
@@ -700,7 +705,7 @@ function chain(w: World, id: number, maxDepth = 8): ChainLine[] {
       if (f) { firm = f.id; name = f.name; }
     }
     out.push({
-      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name, msg: speakIds(w, e.msg), exo: e.exo, again,
+      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name, msg: speakIds(w, e.msg).replace(' || ', ' because ').replace('because because ', 'because '), exo: e.exo, again,
     });
     if (again || d >= maxDepth) return;
     seen.add(i);
@@ -3252,7 +3257,7 @@ function panelSlice(w: World, name: string, url: URL): Record<string, unknown> {
     case 'options':
       return { chain: optionChain(w, i >= 0 ? econ(w).P.id(i) : '') };
     case 'homes':
-      return { homes: decorateHomes(w, homeBoard(w, i)), districts: districtsOf(w) };
+      return { homes: decorateHomes(w, homeBoard(w, i)), districts: districtsOf(w), rentals: rentBoard(w, i), current: residenceOf(w, i) };
     case 'firms':
       return { companies: desks(w) };
     case 'boards':
@@ -3329,7 +3334,7 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
   const pending = (st?.apps ?? []).filter((a) => a.person === person).map((a) => ({
     n: a.n,
     firm: firms[a.firm]?.name ?? 'a firm',
-    role: occ[a.occ]?.name ?? 'a seat',
+    role: firms[a.firm] ? roleTitle(firms[a.firm].sector, a.occ) : (occ[a.occ]?.name ?? 'a seat'),
     due: a.due,
     daysLeft: Math.max(0, a.due - w.day),
   }));
@@ -3844,6 +3849,7 @@ function screen(w: World): Record<string, unknown> {
     ...v,
     bonds: markedBonds(w, v.bonds),
     homes: decorateHomes(w, v.homes),
+    residence: residenceOf(w, me),
     districts: districtsOf(w),
     alerts: alertsOf(w),
     healthPanel: healthPanel(w),

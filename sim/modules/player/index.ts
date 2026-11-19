@@ -17,7 +17,7 @@ import { reportOffence } from '../law/index.ts';
 import { bookLevels, markHolding, markPlayerTrading, midPrice, saleProceeds } from '../markets/index.ts';
 import { cancelAny, placeShareOrder, placeStop, runStops, settleCovers, shortMark, shortSell, shortsDay, stopRows, type StockLoan, type Stop } from './trading.ts';
 import { matchOption, optionChain, optionWhy, tradeOption, type OptRow } from '../options/index.ts';
-import { bidHome, homeBoard, letHome, mortgageHome, moveHome, sellHome, type HomeRow } from '../property/index.ts';
+import { bidHome, homeBoard, letHome, mortgageHome, moveHome, rentHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
 import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
@@ -163,6 +163,7 @@ export type Command =
   | { kind: 'homesell'; id: number }
   | { kind: 'let'; id: number; cents: number }
   | { kind: 'move'; id: number }
+  | { kind: 'rentHome'; id: number }
   | { kind: 'mortgage'; id: number; cents: number }
   | { kind: 'tip'; fact: number }
   | { kind: 'report'; slot: number; text: string }
@@ -2185,6 +2186,12 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (got.why) return rejected(got.why);
       const ev = w.events.emit('player.home', `${P.name(i)} lets a home`, [cause], id);
       return { status: 'accepted', eventId: ev, text: articles(got.text) };
+    }
+    case 'rentHome': {
+      const got = rentHome(w, i, cmd.id);
+      if ('why' in got) return rejected(got.why);
+      const ev = w.events.emit('player.home', `${P.name(i)} moves into a rental`, [causeOf(w, st)], id);
+      return { status: 'accepted', eventId: ev, text: got.text };
     }
     case 'move': {
       const got = moveHome(w, i, cmd.id);

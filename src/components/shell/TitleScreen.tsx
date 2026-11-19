@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { useShell, useShellStore } from "./ShellContext";
 import NightScene from "./NightScene";
 import { actLine, continueGame, loadGame, openGate, refreshTitle, startChallenge, startScenario, setSpeed, useSimSnap, type AgeBand, type DriftLine, type GenState, type SaveMeta, type ScenarioCard, type TitleData } from "@/shell/simSession";
+import { ArrivalForm } from "@/shell/StartGate";
 import { lessonDo } from "@/shell/lessonDo";
 import { PALETTE_IDS, type PaletteId } from "@/styles/tokens";
 import type { AppId } from "@/shell/registry";
@@ -14,7 +15,15 @@ import { viewportOf } from "@/shell/wm";
 import "./title.css";
 
 type Page = "night" | "new" | "challenges" | "who" | "load" | "settings" | "sandbox" | "code";
-type Clock = "pause" | "day" | "week" | "month";
+const CLOCK_OPTIONS = [
+  { id: "pause", label: "Pause" }, { id: "x1", label: "×1" }, { id: "x2", label: "×2" },
+  { id: "x5", label: "×5" }, { id: "x10", label: "×10" }, { id: "x25", label: "×25" },
+] as const;
+type Clock = (typeof CLOCK_OPTIONS)[number]["id"];
+
+function clockPreference(raw: string | null): Clock {
+  return CLOCK_OPTIONS.find((option) => option.id === raw)?.id ?? "pause";
+}
 
 const SCENARIO_APPS: Record<string, AppId[]> = {
   "first-paycheck": ["portfolio", "bank", "academy"],
@@ -90,8 +99,8 @@ export function useSavedClock(active: boolean): void {
     if (!active || done.current) return;
     done.current = true;
     try {
-      const raw = localStorage.getItem("quay.clock");
-      if (raw === "x1" || raw === "x2" || raw === "x5" || raw === "x10" || raw === "x25" || raw === "day" || raw === "week" || raw === "month") void setSpeed(raw);
+      const speed = clockPreference(localStorage.getItem("quay.clock"));
+      if (speed !== "pause") void setSpeed(speed);
     } catch { /* leave the clock paused */ }
   }, [active]);
 }
@@ -156,34 +165,6 @@ function Night({ title, onPage }: { title: TitleData | null; onPage: (p: Page) =
       </div>
       {title?.scene ? <NightScene scene={title.scene} lines={title.lines ?? []} /> : <Lines lines={title?.lines ?? []} />}
     </div>
-  );
-}
-
-function NewGame({ onPage }: { onPage: (p: Page) => void }) {
-  const [name, setName] = useState("");
-  const [age, setAge] = useState("24");
-  const years = Number(age);
-  const okAge = Number.isInteger(years) && years >= 18 && years <= 60;
-  const ok = name.trim().length > 0 && okAge;
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (ok) void startScenario("arrival", { name: name.trim(), age: years });
-  };
-  return (
-    <form className="qy-panel" data-testid="sim-newgame" onSubmit={onSubmit}>
-      <button type="button" className="qy-back" onClick={() => onPage("night")}>Back</button>
-      <h2>New game</h2>
-      <label className="qy-field">
-        Name
-        <input data-testid="sim-name" value={name} autoFocus autoComplete="off" maxLength={40} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <label className="qy-field">
-        Age
-        <input data-testid="sim-age" type="number" min={18} max={60} value={age} onChange={(e) => setAge(e.target.value)} />
-      </label>
-      {!okAge ? <p className="qy-err">Between 18 and 60.</p> : null}
-      <Button variant="primary" type="submit" data-testid="sim-begin" disabled={!ok}>Begin</Button>
-    </form>
   );
 }
 
@@ -300,13 +281,12 @@ function Settings({ title, onPage }: { title: TitleData | null; onPage: (p: Page
   useEffect(() => { setAuto(title?.autosave !== false); }, [title?.autosave]);
   useEffect(() => {
     try {
-      const c = localStorage.getItem("quay.clock");
-      if (c === "pause" || c === "day" || c === "week" || c === "month") setClock(c);
+      setClock(clockPreference(localStorage.getItem("quay.clock")));
       setSound(localStorage.getItem("quay.sound") === "on" ? "on" : "off");
     } catch { /* defaults stand */ }
   }, []);
   const chooseClock = (id: string) => {
-    const next = id as Clock;
+    const next = clockPreference(id);
     setClock(next);
     try { localStorage.setItem("quay.clock", next); } catch { /* this sitting only */ }
   };
@@ -346,7 +326,7 @@ function Settings({ title, onPage }: { title: TitleData | null; onPage: (p: Page
       <Picks
         label="Game speed"
         value={clock}
-        options={[{ id: "pause", label: "Pause" }, { id: "day", label: "Day" }, { id: "week", label: "Week" }, { id: "month", label: "Month" }]}
+        options={[...CLOCK_OPTIONS]}
         onChange={chooseClock}
       />
       <Picks label="Autosave" value={auto ? "on" : "off"} options={[{ id: "on", label: "On" }, { id: "off", label: "Off" }]} onChange={chooseAuto} />
@@ -430,7 +410,7 @@ export function TitleScreen() {
   }, []);
   useEffect(() => { if (mode === "menu") void refreshTitle(); }, [mode]);
   let body;
-  if (page === "new") body = <NewGame onPage={setPage} />;
+  if (page === "new") body = <ArrivalForm onBack={() => setPage("night")} />;
   else if (page === "challenges") body = <Cards title={title} onPage={setPage} onPick={(sc) => { setPicked(sc); setPage("who"); }} />;
   else if (page === "who" && picked) body = <Who sc={picked} title={title} onPage={setPage} />;
   else if (page === "load") body = <Load title={title} onPage={setPage} />;

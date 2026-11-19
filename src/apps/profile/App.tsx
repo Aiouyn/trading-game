@@ -1,6 +1,8 @@
 "use client";
 // You, as a person: the six stats, the choices, and the chronicle.
 import { useState } from "react";
+import { ResidenceDetails } from "@/apps/property/App";
+import { useShellStore } from "@/components/shell/ShellContext";
 import { gameDate, presentNote } from "@/components/ui/format";
 import {
   ChoiceButton, Closed, Result, StatLine, WordNum, ageWord, coolWord, money, useAct, useLife,
@@ -10,6 +12,7 @@ import "./life.css";
 const ORDER = ["holiday", "clinic", "overtime", "donate", "lawyer"];
 
 export default function ProfileApp() {
+  const store = useShellStore();
   const { life, run } = useLife();
   const { note, busy, go } = useAct();
   const [lines, setLines] = useState<string[] | null>(null);
@@ -20,6 +23,7 @@ export default function ProfileApp() {
   const choices = [...(life.choices ?? [])].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
   const primary = choices.find((c) => c.left <= 0)?.id;
   const story = life.story ?? [];
+  const background = life.life;
 
   const chronicle = () => {
     void run({ kind: "story" }).then((n) => setLines(n.lines ?? []));
@@ -29,13 +33,29 @@ export default function ProfileApp() {
     <div className="qy-life" data-testid="profile">
       <header className="qy-block">
         <h2>{life.name || "You"}</h2>
-        <p className="qy-kicker">
+        <p className="qy-kicker qy-kicker-row">
           <WordNum word={ageWord(age)} hover={`${age} years`} eventId={life.ageEvent} />
-          {" · "}
-          <WordNum word={job} hover={life.firm || "no employer"} eventId={life.jobEvent} />
+          <span aria-hidden="true">·</span>
+          <WordNum word={job} hover={life.employer || ""} eventId={life.jobEvent} />
         </p>
       </header>
       <Result note={note} />
+      <section className="qy-block">
+        <h3>Your home</h3>
+        <ResidenceDetails home={life.residence} />
+        <ChoiceButton primary={false} disabled={false} testId="browse-homes" onClick={() => store.getState().open("property")}>Browse homes</ChoiceButton>
+      </section>
+      {background ? (
+        <section className="qy-block" data-testid="profile-background">
+          <h3>Background and skills</h3>
+          {background.past ? <p><strong>{background.past.name}</strong> · {background.past.line}</p> : null}
+          {background.origin ? <p><strong>{background.origin.name}</strong> · {background.origin.line}</p> : null}
+          {background.skills ? (
+            <p>{background.skills.school} years of schooling{background.skills.trade ? ` · ${background.skills.years} years as a ${background.skills.trade}` : ""}</p>
+          ) : null}
+          {background.knows.length ? <p>Knowledge · {background.knows.join(", ")}</p> : null}
+        </section>
+      ) : null}
       <section className="qy-block">
         <h3>How you are</h3>
         <div className="qy-stats">

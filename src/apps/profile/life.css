@@ -20,6 +20,7 @@
   font: 400 var(--fs-16) / 1.3 var(--font-display);
 }
 .qy-kicker { margin: 0; color: var(--fg-muted); }
+.qy-kicker-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .qy-block { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
 .qy-card {
   display: flex;

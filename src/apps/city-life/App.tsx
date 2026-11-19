@@ -1,17 +1,25 @@
 "use client";
 // Where to go tonight, who you have met, and evening courses. Calm: one thing to do at a time.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChoiceButton, Closed, Result, money, useAct, useLife } from "@/apps/profile/data";
+import { gameDate, presentNote } from "@/components/ui/format";
+import { useSimSnap } from "@/shell/simSession";
 import "@/apps/profile/life.css";
 import "./city-life.css";
 
-interface VenueRow { n: number; id: string; name: string; where: string; cost: number; count: number; line: string; news: string[]; friends: string[]; here: boolean }
-interface Face { n: number; name: string; text: string; news: string; known: string }
+interface VenueRow { id: string; name: string; where: string; cost: number; round: number; opens: string; line: string; say: string; news: string[]; friends: string[] }
+interface Face { n: number; name: string; text: string; heard: string; exchanges: number }
+interface Exchange { topic: string; text: string; lines: string[] }
+const TOPICS = [
+  { id: "", label: "Keep talking" }, { id: "work", label: "Work" },
+  { id: "city", label: "The city" }, { id: "home", label: "Life at home" },
+  { id: "money", label: "Money" },
+];
 interface Known { n: number; name: string; job: string; how: string; word: string; met: number; line: string }
 interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; done: boolean }
 interface Board {
   venues: VenueRow[];
-  tonight: { venue: string; faces: Face[]; asked: number; rounds: number; listened: boolean } | null;
+  tonight: { venue: string; venueId: string; faces: Face[]; open: boolean; rounds: number; listened: boolean; spent: number } | null;
   people: Known[];
   loans: { name: string; cents: number; due: number }[];
   courses: { now: { name: string; sessions: number; weeks: number; nextIn: number; classmates: string[] } | null; rows: CourseRow[]; finished: string[] };
@@ -28,12 +36,18 @@ const FAVOURS: { what: string; label: string }[] = [
 
 export default function CityLifeApp() {
   const { life } = useLife();
+  const clock = useSimSnap().view?.live?.label;
   const { note, busy, go } = useAct();
   const [board, setBoard] = useState<Board | null>(null);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
+  const [talking, setTalking] = useState<number | null>(null);
+  const conversation = useRef<HTMLElement>(null);
+  useEffect(() => { if (talking !== null) conversation.current?.scrollIntoView({ block: "nearest" }); }, [talking]);
+  const [transcript, setTranscript] = useState<Record<number, Exchange[]>>({});
   const [tab, setTab] = useState<"out" | "people" | "school">("out");
   const [rev, setRev] = useState(0);
+  const [quiet, setQuiet] = useState(false);
   const day = life?.date.abs ?? -1;
 
   useEffect(() => {
@@ -50,6 +64,29 @@ export default function CityLifeApp() {
     setRev((n) => n + 1);
   }, [go]);
 
+  const out = async (op: "go" | "leave" | "round" | "listen", arg?: string) => {
+    setQuiet(op === "go");
+    const next = await go({ kind: "out", op, arg });
+    if (next.ok && (op === "go" || op === "leave")) {
+      setTalking(null);
+      setTranscript({});
+    }
+    setRev((n) => n + 1);
+  };
+  const talk = async (n: number, topic = "") => {
+    setTalking(n);
+    setQuiet(false);
+    const next = await go({ kind: "out", op: "talk", n, arg: topic });
+    if (next.ok) {
+      const label = TOPICS.find((choice) => choice.id === topic)?.label ?? "Keep talking";
+      setTranscript((old) => {
+        const before = old[n] ?? [];
+        return { ...old, [n]: [...before, { topic: before.length ? label : "Introduce yourself", text: next.text, lines: next.lines ?? [] }] };
+      });
+    }
+    setRev((k) => k + 1);
+  };
+
   if (!life) return <Closed title="City life" />;
   if (!board) {
     return (
@@ -59,7 +96,9 @@ export default function CityLifeApp() {
       </div>
     );
   }
-  const t = board.tonight;
+  const t = board.tonight?.open ? board.tonight : null;
+  const venue = t ? board.venues.find((row) => row.id === t.venueId) : undefined;
+  const face = t?.faces.find((row) => row.n === talking);
   const tabs: { id: typeof tab; label: string }[] = [
     { id: "out", label: "Tonight" },
     { id: "people", label: `People${board.people.length ? ` (${board.people.length})` : ""}` },
@@ -70,48 +109,82 @@ export default function CityLifeApp() {
     <div className="qy-life cl" data-testid="citylife">
       <header className="qy-block">
         <h2>City life</h2>
-        <p className="qy-kicker">{t ? `Out at ${t.venue}` : board.courses.now ? `In class: ${board.courses.now.name}` : "An evening is yours"}</p>
+        <p className="qy-kicker">{t ? `${t.venue} · The clock waits while you’re here` : "Find somewhere to spend the evening"}</p>
       </header>
       <div className="cl-tabs" role="tablist">
         {tabs.map((x) => (
           <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} data-on={tab === x.id ? "1" : "0"} data-testid={`cl-tab-${x.id}`} onClick={() => setTab(x.id)}>{x.label}</button>
         ))}
       </div>
-      <Result note={note} />
+      <Result note={quiet || (note?.ok && transcript[talking ?? -1]?.at(-1)?.text === note.text) ? null : note} />
 
       {tab === "out" ? (
         <section className="qy-block" data-testid="cl-out">
           {t ? (
             <>
-              <h3>Who is here</h3>
-              {t.faces.map((f) => (
-                <div className="qy-choice" key={f.n} data-testid={`face-${f.n}`}>
-                  <p>
-                    <span>{f.text}</span>
-                    {f.known ? <span className="cl-word">{f.known}</span> : null}
-                  </p>
-                  <ChoiceButton primary={false} disabled={busy || t.asked >= 3} testId={`approach-${f.n}`} onClick={() => void say(`approach ${f.n}`)}>Talk</ChoiceButton>
+              <div className="cl-venue-now qy-card">
+                <div>
+                  <h3>{t.venue}</h3>
+                  <p className="qy-muted">{venue?.say}</p>
+                  <p className="qy-muted">{clock} · Spent {money(t.spent)}</p>
                 </div>
-              ))}
-              <div className="cl-acts">
-                <ChoiceButton primary={false} disabled={busy || t.rounds >= 2} testId="round" onClick={() => void say("round")}>Buy a round</ChoiceButton>
-                <ChoiceButton primary={false} disabled={busy || t.listened} testId="listen" onClick={() => void say("listen")}>Just listen</ChoiceButton>
+                <div className="cl-acts">
+                  <ChoiceButton primary={false} disabled={busy || t.rounds >= 3 || (venue ? board.cash < venue.round : false)} testId="round" onClick={() => void out("round")}>
+                    Buy a round{venue ? ` · ${money(venue.round)}` : ""}
+                  </ChoiceButton>
+                  <ChoiceButton primary={false} disabled={busy || t.listened} testId="listen" onClick={() => void out("listen")}>Listen</ChoiceButton>
+                  <ChoiceButton primary={false} disabled={busy} testId="leave-venue" onClick={() => void out("leave")}>Leave</ChoiceButton>
+                </div>
               </div>
-              <p className="qy-muted">Three conversations make an evening.</p>
+              {face ? (
+                <section ref={conversation} className="qy-card cl-conversation" aria-label="Conversation" data-testid="venue-conversation">
+                  <h3>{face.name || "Conversation"}</h3>
+                  <ol className="cl-dialogue" aria-live="polite">
+                    {(transcript[face.n] ?? []).map((exchange, i) => (
+                      <li key={i}>
+                        <span className="label">{exchange.topic}</span>
+                        <p>{presentNote(exchange.text)}</p>
+                        {exchange.lines.map((line) => <p className="qy-muted" key={line}>{presentNote(line)}</p>)}
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="cl-acts">
+                    {TOPICS.map((topic) => (
+                      <ChoiceButton key={topic.label} primary={!topic.id} disabled={busy} testId={`topic-${topic.id || "next"}`} onClick={() => void talk(face.n, topic.id)}>
+                        {topic.label}
+                      </ChoiceButton>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+              <h3>Who is here</h3>
+              <div className="cl-faces">
+                {t.faces.map((f) => (
+                  <article className="qy-card" key={f.n} data-testid={`face-${f.n}`}>
+                    <p>{f.text}</p>
+                    {f.heard && !f.text.includes(f.heard) ? <p className="qy-muted">{f.heard}</p> : null}
+                    <ChoiceButton primary={false} disabled={busy} testId={`approach-${f.n}`} onClick={() => {
+                      if (transcript[f.n]?.length) setTalking(f.n);
+                      else void talk(f.n);
+                    }}>{f.exchanges ? "Talk again" : "Introduce yourself"}</ChoiceButton>
+                  </article>
+                ))}
+              </div>
+              {!t.faces.length ? <p className="qy-muted">The room is quiet tonight.</p> : null}
             </>
           ) : (
             <>
-              <h3>Where to go tonight</h3>
-              {board.courses.now && board.courses.now.nextIn === 7 ? <p className="qy-muted">Class tonight: {board.courses.now.name}.</p> : null}
+              <h3>Venues</h3>
               {board.venues.map((v) => (
                 <div className="qy-choice" key={v.id} data-testid={`venue-${v.id}`}>
                   <p>
                     <span>{v.name} <span className="cl-word">{v.where}</span></span>
                     <span className="cl-line">{v.line}</span>
-                    {v.news.length ? <span className="cl-news">From the paper: {v.news.join("; ")}</span> : null}
-                    {v.friends.length ? <span className="cl-news">You know: {v.friends.join(", ")}</span> : null}
+                    <span className="cl-line">Opens at {v.opens} · Rounds {money(v.round)}</span>
+                    {v.news.length ? <span className="cl-news">In the papers · {v.news.join(", ")}</span> : null}
+                    {v.friends.length ? <span className="cl-news">You might see {v.friends.join(", ")}</span> : null}
                   </p>
-                  <ChoiceButton primary={false} disabled={busy || board.cash < v.cost} testId={`go-${v.id}`} onClick={() => void say(`go ${v.id}`)}>Go · {money(v.cost)}</ChoiceButton>
+                  <ChoiceButton primary={false} disabled={busy || board.cash < v.cost} testId={`go-${v.id}`} onClick={() => void out("go", v.id)}>Go · {money(v.cost)}</ChoiceButton>
                 </div>
               ))}
             </>
@@ -141,7 +214,7 @@ export default function CityLifeApp() {
               ) : null}
             </div>
           ))}
-          {board.loans.length ? <p className="qy-muted">You owe {board.loans.map((l) => `${l.name} ${money(l.cents)}`).join(", ")}.</p> : null}
+          {board.loans.length ? <p className="qy-muted">You owe {board.loans.map((l) => `${l.name} ${money(l.cents)} (due ${gameDate(l.due)})`).join(", ")}.</p> : null}
         </section>
       ) : null}
 

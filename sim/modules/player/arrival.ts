@@ -1,10 +1,10 @@
 // The arrival: a person steps off the boat in Port Avalon with 5,000 dollars and nothing else.
-// No job, no contacts, no family in the city, no holdings, a rented room in the cheapest district. The books stay balanced:
+// No job, no contacts, no family in the city, no holdings, a modest room near the quay. The books stay balanced:
 // the savings come in through the ledger from outside the city, like an immigrant's.
 import type { World } from '../../kernel/index.ts';
 import { BANK, DEP, pay, type EconState } from '../economy/index.ts';
 import { leaveJob, type People } from '../economy/people.ts';
-import { homeBoard, property } from '../property/index.ts';
+import { districts, homeBoard, property, rentBoard, rentHome } from '../property/index.ts';
 import { dateText, usd } from './gamedate.ts';
 import { openBook } from './cashbook.ts';
 import { circleOpen } from '../circle/index.ts';
@@ -116,13 +116,16 @@ function forgetEveryone(w: World, i: number): void {
   }
 }
 
-/** Put the player in the cheapest room in the city. The property module houses anyone who has no home. */
+/** Find a room near the ferry; keep the housing module’s fallback if the district is full. */
 function takeARoom(w: World, i: number): void {
   const st = w.state.property as { live?: Int32Array | number[]; seen?: number } | undefined;
   if (!st?.live) return;
   if (i < st.live.length) st.live[i] = -1;
   st.seen = -1;
   if (w.day % 360 !== 0 || w.day === 0) property.dayClose?.(w);
+  const nearest = districts(w).reduce((a, b) => a.distance <= b.distance ? a : b);
+  const room = rentBoard(w, i).find((row) => row.neighbourhood === nearest.name);
+  if (room) rentHome(w, i, room.id);
 }
 
 /** Make the person who is seated an arrival. `given` and `family` are what they typed; the age is set by the caller. */

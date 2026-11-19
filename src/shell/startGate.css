@@ -81,3 +81,15 @@
 .sim-life li { display: flex; gap: 8px; align-items: baseline; }
 .sim-life .label { width: 88px; }
 .sim-err { color: var(--loss); margin: 0; }
+
+.sim-arrival-form .sim-background-picker { width: 100%; }
+.sim-arrival-form .sim-background-details { margin: 6px 0 0; font-size: 0.875rem; }
+.sim-arrival-form .sim-background-details:empty { display: none; }
+.sim-arrival-form select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--win2);
+  color: var(--fg);
+  padding: 0 10px;
+}

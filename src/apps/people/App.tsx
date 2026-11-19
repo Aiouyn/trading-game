@@ -9,7 +9,7 @@ import { CircleMap } from "./Map";
 import { Person } from "./Person";
 import "./people.css";
 
-const FILTERS = ["all", "friend", "family", "rival", "mentor", "colleague"] as const;
+const FILTERS = ["all", "acquaintance", "friend", "family", "rival", "mentor", "colleague"] as const;
 type Filter = (typeof FILTERS)[number];
 
 function whoFrom(context?: string): number | null {
@@ -34,6 +34,7 @@ export default function PeopleApp({ context }: AppBodyProps) {
 
   const shown = snap.contacts.filter((c) => matches(c, filter));
   const selected = who === null ? undefined : snap.contacts.find((c) => c.who === who);
+  const knows = life.contacts?.find((c) => c.who === who)?.knows ?? [];
   const preview = (c: CircleContact) => c.bond.why[c.bond.why.length - 1]?.text || c.line || c.sentence || "";
 
   return (
@@ -57,7 +58,7 @@ export default function PeopleApp({ context }: AppBodyProps) {
       </div>
       <div className="peo-body">
         <div className="peo-side">
-          <CircleMap you={snap.name} people={shown} pending={snap.pending} selected={who} onPick={setWho} />
+          <CircleMap you={snap.name} people={shown} pending={snap.pending} links={life.links ?? []} selected={who} onPick={setWho} />
           <div className="peo-scroll" aria-label="People">
             {shown.length ? shown.map((c) => (
               <button
@@ -80,7 +81,10 @@ export default function PeopleApp({ context }: AppBodyProps) {
         </div>
         {who !== null ? (
           <Person
+            key={who}
             index={who}
+            knows={knows}
+            onPick={setWho}
             contact={selected}
             firms={snap.firms}
             homes={snap.homes}

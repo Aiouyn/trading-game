@@ -1,14 +1,29 @@
 "use client";
 // The lesson, one hint at a time, and the help topics.
-import { useMemo, useState } from "react";
-import { HELP, LESSON, Result, useAct, useLife } from "@/apps/profile/data";
+import { useEffect, useMemo, useState } from "react";
+import { ChoiceButton, HELP, LESSON, Result, money, useAct, useLife } from "@/apps/profile/data";
 import { lessonDo } from "@/shell/lessonDo";
 import { Button } from "@/components/ui/Button";
 import "@/apps/profile/life.css";
 
+interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; done: boolean }
+interface Courses { now: { name: string; sessions: number; weeks: number; nextIn: number } | null; rows: CourseRow[]; finished: string[] }
+
 export default function AcademyApp() {
   const { life } = useLife();
   const { note, busy, go } = useAct();
+  const [courses, setCourses] = useState<Courses | null>(null);
+  const [cash, setCash] = useState(0);
+  const [rev, setRev] = useState(0);
+  const day = life?.date.abs ?? -1;
+  useEffect(() => {
+    const ac = new AbortController();
+    void fetch("/api/sim/panel?name=citylife", { cache: "no-store", signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { courses?: Courses; cash?: number } | null) => { if (j?.courses) { setCourses(j.courses); setCash(j.cash ?? 0); } })
+      .catch(() => {});
+    return () => ac.abort();
+  }, [day, rev]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const tutorial = life?.tutorial;
@@ -34,8 +49,31 @@ export default function AcademyApp() {
     <div className="qy-life" data-testid="academy">
       <header className="qy-block">
         <h2>Academy</h2>
-        <p className="qy-kicker">{tutorial && !tutorial.done ? tutorial.goal : "Help, when you want it"}</p>
+        <p className="qy-kicker">{tutorial && !tutorial.done ? tutorial.goal : "Courses, what you know, and help"}</p>
       </header>
+      <section className="qy-block" data-testid="academy-courses">
+        <h3>Courses</h3>
+        {courses?.now ? <p className="qy-card" data-testid="class-now">In class: {courses.now.name}, evening {courses.now.sessions} of {courses.now.weeks}. The next one is in {courses.now.nextIn} days.</p> : null}
+        {courses?.rows.map((c) => (
+          <div className="qy-choice" key={c.id} data-testid={`course-${c.id}`}>
+            <p>
+              <strong>{c.name}</strong>
+              <span className="qy-muted" style={{ display: "block" }}>{c.blurb}. {c.weeks} weekly evenings, {money(c.fee)}.</span>
+            </p>
+            <ChoiceButton primary={false} disabled={busy || c.done || !!courses.now || cash < c.fee} testId={`academy-enrol-${c.id}`} onClick={() => void go({ line: `enrol ${c.id}` }).then(() => setRev((n) => n + 1))}>
+              {c.done ? "Finished" : "Enrol"}
+            </ChoiceButton>
+          </div>
+        ))}
+        {courses && !courses.rows.length ? <p className="qy-muted">No courses are running.</p> : null}
+        {life.life ? (
+          <p className="qy-muted" data-testid="academy-knows">
+            What you know: {life.life.knows.length ? life.life.knows.join(", ") : "nothing formal yet"}
+            {life.life.skills ? ` · ${life.life.skills.school} years of schooling${life.life.skills.trade ? `, ${life.life.skills.years} years as a ${life.life.skills.trade}` : ""}` : ""}
+            {courses?.finished.length ? ` · Finished: ${courses.finished.join(", ")}` : ""}
+          </p>
+        ) : null}
+      </section>
       <section className="qy-block" data-testid="lesson">
         <h3>The lesson</h3>
         {!tutorial || (tutorial.done && !step) ? (

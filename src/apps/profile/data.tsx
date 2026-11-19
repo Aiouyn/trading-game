@@ -1,6 +1,8 @@
 "use client";
 // Shared reader for the life apps. The view is the simulation's /view; every action is /act.
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import type { Residence } from "../../../sim/modules/property/index";
+import type { CareerCard } from "@/apps/careers/App";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { Button } from "@/components/ui/Button";
 import { act, explain, useSimSnap, type ActNote, type ExplainLine } from "@/shell/simSession";
@@ -41,6 +43,7 @@ export interface LifeContact {
   word: string;
   line: string;
   sentence?: string;
+  knows?: { who: number; name: string; why: string }[];
   told?: Told[];
 }
 export interface LifeStory { day: number; text: string; eventId: number; weight?: number }
@@ -87,11 +90,22 @@ export interface LifeCompany {
 }
 export interface LifeView {
   date: { year: number; month: number; day: number; abs: number };
+  epoch?: string;
   name: string;
   age?: number;
   alive?: boolean;
   employer?: string;
   firm?: string;
+  career?: CareerCard;
+  residence?: Residence | null;
+  links?: { a: number; b: number; why: string; kind: string }[];
+  life?: {
+    past: { name: string; line: string } | null;
+    origin: { name: string; line: string } | null;
+    skills: { school: number; years: number; trade: string } | null;
+    knows: string[];
+    arrived: number;
+  } | null;
   cash?: number;
   netWorth?: number;
   ageEvent?: number;
@@ -140,6 +154,7 @@ function publishLife(v: LifeView) {
 export function useLife() {
   const snap = useSimSnap();
   const day = snap.view?.date.abs ?? -1;
+  const epoch = snap.view?.epoch;
   const [copy, setCopy] = useState<LifeView | null>(lifeNow);
   useEffect(() => {
     lifeEars.add(setCopy);
@@ -155,7 +170,7 @@ export function useLife() {
         .catch(() => {});
     }, 40);
     return () => { stop = true; clearTimeout(t); };
-  }, [day]);
+  }, [day, epoch]);
   const run = useCallback(async (cmd: unknown): Promise<ActNote> => {
     const note = await act(cmd);
     try {
@@ -167,7 +182,7 @@ export function useLife() {
     } catch { /* the shell already holds the act view */ }
     return note;
   }, []);
-  const life = copy ?? (isLife(snap.view) ? snap.view : null);
+  const life = copy && copy.date.abs === day && copy.epoch === epoch ? copy : isLife(snap.view) ? snap.view : null;
   return { life, run };
 }
 
@@ -175,6 +190,8 @@ export function useAct() {
   const { run } = useLife();
   const [note, setNote] = useState<ActNote | null>(null);
   const [busy, setBusy] = useState(false);
+  const today = useSimSnap().view?.date.abs;
+  useEffect(() => { setNote((old) => (old && old.text !== "Sending…" ? null : old)); }, [today]);
   const go = useCallback(async (cmd: unknown) => {
     setBusy(true);
     setNote({ ok: true, text: "Sending…" });
@@ -263,7 +280,7 @@ export function healthWord(n: number): string {
 export function sentenceOf(c: LifeContact): string {
   if (c.sentence) return c.sentence;
   const who = c.name.trim().split(/\s+/)[0] || "Someone";
-  const tie = c.kind === "family" ? "you are family" : "you work together";
+  const tie = c.kind === "family" ? "you are family" : "you know each other";
   if (c.word === "Trusts you") return `${who} trusts you; ${tie}`;
   if (c.word === "Confides") return `${who} confides in you; ${tie}`;
   if (c.word === "Unsure") return `${who} is unsure of you; ${tie}`;

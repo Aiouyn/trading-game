@@ -198,7 +198,7 @@ function cityTalk(w: World, p: Profile, c: Ctx): string {
     const m = /^([^:|]{3,40}): (.+)$/.exec(col.msg.split('||')[0]);
     if (m) {
       const line = m[2].split(' — ')[0].split(/[.!?]\s/)[0].slice(0, 120).replace(/[.]+$/, '');
-      if (line.length > 20) return `${p.first} nods at the paper on the bar. "${m[1].trim()}: ${line}. You see how it goes."`;
+      if (line.length > 20) return `${p.first} nods at the paper on the bar. "${m[1].trim()}: ${line.replace(/[.,\s]+$/, '')}. You see how it goes."`;
     }
   }
   return `${p.first} says ${pick(lines, c.salt)}`;

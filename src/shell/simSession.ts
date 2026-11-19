@@ -156,7 +156,10 @@ export interface SceneData {
   waiting: number;
   sailing: number;
 }
+export interface BackgroundOption { id: string; name: string; line: string }
 export interface TitleData {
+  pasts?: BackgroundOption[];
+  origins?: BackgroundOption[];
   scene?: SceneData;
   scenarios: ScenarioCard[];
   saves: SaveMeta[];
@@ -699,7 +702,7 @@ export async function refreshTitle(): Promise<void> {
   } catch { /* the menu keeps the list it has */ }
 }
 
-export async function startScenario(id: string, extra?: { cash?: number; difficulty?: number; again?: boolean; name?: string; age?: number; district?: string }): Promise<void> {
+export async function startScenario(id: string, extra?: { cash?: number; difficulty?: number; again?: boolean; name?: string; age?: number; district?: string; past?: string; origin?: string }): Promise<void> {
   if (!takeLock()) {
     publish({ ...pending, note: { ok: false, text: BUSY_NOTE } });
     return;
@@ -713,6 +716,8 @@ export async function startScenario(id: string, extra?: { cash?: number; difficu
     if (extra?.name) body.name = extra.name;
     if (extra?.age !== undefined) body.age = extra.age;
     if (extra?.district) body.district = extra.district;
+    if (extra?.past) body.past = extra.past;
+    if (extra?.origin) body.origin = extra.origin;
     const { ok, data } = await post("start", body);
     if (!ok) publish({ ...pending, gen: { ...pending.gen, error: typeof data.error === "string" ? data.error : "The city could not be opened, so try again." } });
   } finally { dropLock(); }

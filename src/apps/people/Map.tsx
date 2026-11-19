@@ -43,10 +43,11 @@ function place(people: CircleContact[]): Node[] {
   });
 }
 
-export function CircleMap({ you, people, pending, selected, onPick }: {
+export function CircleMap({ you, people, pending, links, selected, onPick }: {
   you: string;
   people: CircleContact[];
   pending: CircleAsk[];
+  links: { a: number; b: number; why: string; kind: string }[];
   selected: number | null;
   onPick: (who: number) => void;
 }) {
@@ -81,11 +82,16 @@ export function CircleMap({ you, people, pending, selected, onPick }: {
         {nodes.filter((n) => showLine(n.who)).map((n) => (
           <line key={`you-${n.who}`} x1={160} y1={104} x2={n.x} y2={n.y} stroke="var(--line)" strokeWidth={1} />
         ))}
-        {family.map((n, i) => {
-          const next = family[(i + 1) % family.length];
-          if (!next || family.length < 2 || next.who === n.who) return null;
-          if (family.length === 2 && i > 0) return null;
-          return <line key={`fam-${n.who}`} x1={n.x} y1={n.y} x2={next.x} y2={next.y} stroke="var(--acc)" strokeWidth={1} />;
+        {links.map((link) => {
+          const a = byWho.get(link.a), b = byWho.get(link.b);
+          if (!a || !b || (crowded && selected !== a.who && selected !== b.who)) return null;
+          return (
+            <line key={`link-${link.a}-${link.b}`} data-testid="circle-link"
+              x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+              stroke={link.kind === "family" ? "var(--acc)" : "var(--info)"} strokeWidth={1.5}>
+              <title>{a.name} and {b.name} · {link.why}</title>
+            </line>
+          );
         })}
         {intros.map((ask) => {
           const from = byWho.get(ask.from);

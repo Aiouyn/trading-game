@@ -794,7 +794,7 @@ function roundup(w: World, c: Cluster, first: boolean): Item {
     if (show.length >= 6 || !x.name || show.includes(x.name)) continue;
     show.push(x.name);
   }
-  const tail = cuts.length > show.length ? ', ...' : '';
+  const tail = cuts.length > show.length ? ' and others' : '';
   const lead = first
     ? `${countWord(cuts.length)} firms cut jobs as the year opens: ${show.join(', ')}${tail}`
     : `${countWord(cuts.length)} firms cut jobs: ${show.join(', ')}${tail}`;

@@ -5,7 +5,7 @@
 // forced sales pull the neighbourhood index down with them.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
+import { DAYS_PER_MONTH, DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { BANK, DEP, GOV, pay, payS, type EconState } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
@@ -1384,8 +1384,8 @@ export function bidHome(w: World, person: number, parcel: number, cents: number,
   if (!sell(w, parcel, PERSON, person, price, cause, false)) return { why: 'the bid did not clear' };
   // sell() moves a renter into a vacant house. Buying is not moving: put them back so the house can be let.
   if (before >= 0 && before !== parcel && st.live[person] === parcel && st.ten[parcel] === person) shiftAll(w, parcel, before);
-  const nb = NBHDS[st.nb[parcel]]?.name ?? 'a';
-  return { text: `bought a ${nb} home (#${parcel}) for ${moneyText(price)}` };
+  const nb = NBHDS[st.nb[parcel]]?.name ?? 'this district';
+  return { text: `bought a home in ${nb} for ${moneyText(price)}` };
 }
 
 export function sellHome(w: World, person: number, parcel: number, cause: number): { why?: string; text?: string } {
@@ -1396,11 +1396,11 @@ export function sellHome(w: World, person: number, parcel: number, cause: number
   if (person < st.live.length && st.live[person] === parcel) return { why: 'move out before you sell it' };
   const price = askOf(st, parcel);
   if (st.tenK[parcel] === PERSON && st.ten[parcel] !== person && st.ten[parcel] >= 0) {
-    if (sell(w, parcel, PERSON, st.ten[parcel], price, cause, false)) return { text: `sold #${parcel} for ${moneyText(price)}` };
+    if (sell(w, parcel, PERSON, st.ten[parcel], price, cause, false)) return { text: `sold the home for ${moneyText(price)}` };
   }
   const buyer = findCashBuyer(w, price, person);
   if (!buyer || !sell(w, parcel, buyer.k, buyer.id, price, cause, true)) return { why: 'no buyer at that price' };
-  return { text: `sold #${parcel} for ${moneyText(price)}` };
+  return { text: `sold the home for ${moneyText(price)}` };
 }
 
 function takeTenant(w: World, parcel: number, rent: number, owner: number): number {
@@ -1438,25 +1438,21 @@ export function letHome(w: World, person: number, parcel: number, cents: number,
   if (tenant < 0 && st.tenK[parcel] === 0) tenant = takeTenant(w, parcel, rent, person);
   const ev = w.events.emit('property.let', `${P.name(person)} lets a ${NBHDS[st.nb[parcel]]?.name ?? ''} home for ${moneyText(rent)} a month`, [cause], P.id(person));
   P.lastEv[person] = ev;
-  if (tenant < 0) return { text: `rent on #${parcel} is ${moneyText(rent)} a month, no tenant yet` };
-  return { text: `${P.name(tenant)} rents #${parcel} for ${moneyText(rent)} a month` };
+  if (tenant < 0) return { text: `rent on this home is ${moneyText(rent)} a month, no tenant yet` };
+  return { text: `${P.name(tenant)} rents this home for ${moneyText(rent)} a month` };
 }
 
 export function moveHome(w: World, person: number, parcel: number): { why?: string; text?: string } {
   dropHomes(w);
-  const st = book(w), P = econ(w).P;
+  const st = book(w);
   if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
   const owns = st.ownK[parcel] === PERSON && st.own[parcel] === person;
   const tenant = st.tenK[parcel] === PERSON && st.ten[parcel] === person;
   if (!owns && !tenant) return { why: 'you do not own it' };
   ensurePeople(st, person + 1);
-  const old = person < st.live.length ? st.live[person] : -1;
-  setLive(st, P.n, person, parcel);
-  if (owns && st.tenK[parcel] === 0) { st.tenK[parcel] = PERSON; st.ten[parcel] = person; st.missR[parcel] = 0; }
-  if (old >= 0 && old !== parcel && st.ownK[old] === PERSON && st.own[old] === person && st.ten[old] === person) {
-    st.tenK[old] = 0; st.ten[old] = -1; st.missR[old] = 0;
-  }
-  return { text: `you live in #${parcel}` };
+  if (!tenant && st.tenK[parcel] !== 0) return { why: 'somebody already lives there' };
+  settleMove(w, person, parcel);
+  return { text: `you live in ${NBHDS[st.nb[parcel]]?.name ?? 'your new home'}` };
 }
 
 export function mortgageHome(w: World, person: number, parcel: number, cents: number, cause: number): { why?: string; text?: string } {
@@ -1472,7 +1468,7 @@ export function mortgageHome(w: World, person: number, parcel: number, cents: nu
   if (k < 0) return { why: 'the bank refused' };
   st.mtg[parcel] = k;
   const got = Math.floor(w.ledger.issued.get('pm_' + k) ?? 0);
-  return { text: `borrowed ${moneyText(got)} against #${parcel}` };
+  return { text: `borrowed ${moneyText(got)} against your home` };
 }
 
 /** Neighbourhoods in file order: name, distance from the port, desirability, and the index price. */
@@ -1695,3 +1691,90 @@ export const property: Module = {
     return out;
   },
 };
+
+export interface RentalRow {
+  id: number;
+  neighbourhood: string;
+  rent: number;
+  size: number;
+  condition: number;
+}
+
+/** Empty homes you could rent today: the cheapest few in every district. */
+export function rentBoard(w: World, person: number): RentalRow[] {
+  const st = w.state.property as Book | undefined;
+  if (!st) return [];
+  const perDistrict = new Map<number, RentalRow[]>();
+  for (let p = 0; p < st.n; p++) {
+    if (st.kind[p] !== HOME || st.tenK[p] !== 0) continue;
+    if (st.ownK[p] === PERSON && st.own[p] === person) continue;
+    const nb = st.nb[p] ?? 0;
+    const list = perDistrict.get(nb) ?? [];
+    list.push({
+      id: p, neighbourhood: NBHDS[nb]?.name ?? '', rent: Math.round(st.rent[p]), size: st.size[p],
+      condition: st.cond[p],
+    });
+    perDistrict.set(nb, list);
+  }
+  const out: RentalRow[] = [];
+  for (const list of perDistrict.values()) {
+    list.sort((a, b) => a.rent - b.rent || b.size - a.size || a.id - b.id);
+    for (const r of list.slice(0, 3)) out.push(r);
+  }
+  return out;
+}
+
+/** Take an empty home on a rent. The home you leave falls empty, and the rent runs from the next month end. */
+export function rentHome(w: World, person: number, parcel: number): { why: string } | { text: string } {
+  const st = book(w);
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
+  if (st.ownK[parcel] === PERSON && st.own[parcel] === person) return { why: 'you own it, so move in instead' };
+  if (st.tenK[parcel] !== 0) return { why: 'somebody already lives there' };
+  settleMove(w, person, parcel);
+  const nb = NBHDS[st.nb[parcel]]?.name ?? 'this district';
+  return { text: `you rent a home in ${nb} for ${moneyText(Math.round(st.rent[parcel]))} a month` };
+}
+
+function settleMove(w: World, person: number, parcel: number): void {
+  const st = book(w), P = econ(w).P;
+  ensurePeople(st, person + 1);
+  const old = st.live[person];
+  if (old === parcel) return;
+  dropHomes(w);
+  if (old >= 0 && st.tenK[old] === PERSON && st.ten[old] === person) {
+    shiftAll(w, old, parcel);
+  } else {
+    setLive(st, P.n, person, parcel);
+  }
+  st.tenK[parcel] = PERSON;
+  st.ten[parcel] = person;
+  st.missR[parcel] = 0;
+}
+
+export interface Residence {
+  neighbourhood: string;
+  size: number;
+  condition: number;
+  tenure: 'owned' | 'rented' | 'shared';
+  rent: number;
+  due: number | null;
+}
+
+export function residenceOf(w: World, person: number): Residence | null {
+  const st = w.state.property as Book | undefined;
+  if (!st || person < 0 || person >= st.live.length) return null;
+  const p = st.live[person];
+  if (p < 0 || p >= st.n || st.kind[p] !== HOME) return null;
+  const P = econ(w).P;
+  const landlord = st.ownK[p] === PERSON ? st.own[p] : -1;
+  const owns = landlord === person;
+  const rents = !owns && (landlord < 0 || landlord !== P.spouse[person]) && st.tenK[p] === PERSON && st.ten[p] === person;
+  return {
+    neighbourhood: NBHDS[st.nb[p]]?.name ?? '',
+    size: st.size[p],
+    condition: st.cond[p],
+    tenure: owns ? 'owned' : rents ? 'rented' : 'shared',
+    rent: rents ? Math.round(st.rent[p]) : 0,
+    due: rents ? w.day + DAYS_PER_MONTH - 1 - w.day % DAYS_PER_MONTH : null,
+  };
+}

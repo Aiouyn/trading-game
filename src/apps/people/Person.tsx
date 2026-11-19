@@ -84,7 +84,7 @@ function StandingLine({ index, family }: { index: number; family: boolean }) {
   const door = mine ? null : acceptLine(soc.standing.score, family, barFor(index, soc.rich, soc.powerful));
   return (
     <p className="peo-standing" data-testid="person-standing">
-      You are <span title={String(soc.standing.score)}>{soc.standing.word}</span>.
+      Your standing in the city is <span title={String(soc.standing.score)}>{soc.standing.word.toLowerCase()}</span>.
       {mine ? " This is you." : door ? ` ${door.line}` : ""}
       {power ? ` They are ${power.word}: ${power.role}.` : ""}
       {soc.standing.eventId >= 0 ? <> <Why id={soc.standing.eventId} /></> : null}
@@ -92,11 +92,13 @@ function StandingLine({ index, family }: { index: number; family: boolean }) {
   );
 }
 
-export function Person({ index, contact, firms, homes, onBack }: {
+export function Person({ index, contact, firms, homes, knows, onPick, onBack }: {
   index: number;
   contact?: CircleContact;
   firms: { id: string; name: string }[];
   homes: HomeNote[];
+  knows: { who: number; name: string; why: string }[];
+  onPick: (who: number) => void;
   onBack: () => void;
 }) {
   const store = useShellStore();
@@ -128,12 +130,12 @@ export function Person({ index, contact, firms, homes, onBack }: {
 
   const slot = page?.slot ?? contact?.slot ?? -1;
   const name = page?.name || contact?.name || "Someone";
-  const role = page?.circle?.role || contact?.role || "colleague";
+  const role = contact?.role || page?.circle?.role || "acquaintance";
   const stance = page?.circle?.stance || contact?.stance || "";
-  const word = page?.circle?.word || contact?.bond.word || contact?.word || "";
-  const score = Math.max(0, Math.min(100, page?.circle?.score ?? contact?.bond.score ?? 0));
-  const why = page?.circle?.why.length ? page.circle.why : (contact?.bond.why ?? []);
-  const together = page?.circle?.together.length ? page.circle.together : (contact?.together ?? []);
+  const word = contact?.bond.word || page?.circle?.word || contact?.word || "";
+  const score = Math.max(0, Math.min(100, contact?.bond.score ?? page?.circle?.score ?? 0));
+  const why = contact?.bond.why.length ? contact.bond.why : (page?.circle?.why ?? []);
+  const together = contact?.together.length ? contact.together : (page?.circle?.together ?? []);
   const owned = homes.filter((h) => h.owner?.index === index && h.neighbourhood);
   const cents = Math.round(Number(amount) * 100);
   const amountOk = Number.isFinite(cents) && cents >= 1;
@@ -197,6 +199,15 @@ export function Person({ index, contact, firms, homes, onBack }: {
           )) : <p className="peo-muted">Nothing done together yet.</p>}
         </div>
         <div className="peo-block">
+          <h3>Who they know</h3>
+          {knows.length ? knows.map((person) => (
+            <p key={person.who}>
+              <button className="name-link" type="button" onClick={() => onPick(person.who)}>{person.name}</button>
+              {" · "}{presentNote(person.why)}
+            </p>
+          )) : <p className="peo-muted">You haven’t met anyone you know they’re connected to.</p>}
+        </div>
+        <div className="peo-block">
           <h3>What they own</h3>
           <p>{bandWord(page?.wealthBand ?? "")}</p>
           {owned.length ? owned.map((h) => <p key={h.neighbourhood}>A home in {h.neighbourhood}.</p>) : <p className="peo-muted">No home in your book.</p>}
@@ -207,7 +218,7 @@ export function Person({ index, contact, firms, homes, onBack }: {
           <p>{work}</p>
         </div>
         <div className="peo-acts">
-          <Button variant="primary" data-testid="person-message" onClick={() => store.getState().open("messages", `who:${index}`)}>
+          <Button variant="primary" data-testid="person-message" disabled={!reach && !contact} onClick={() => store.getState().open("messages", `who:${index}`)}>
             Message
           </Button>
           {!reach ? <p className="peo-muted">You cannot reach them yet.</p> : null}
