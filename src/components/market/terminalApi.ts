@@ -1,27 +1,51 @@
 // The trading terminal's data: bars and the market list from the sim's /history route, drawings saved per instrument,
 // and the two indicators movingAverages.ts does not have. Every price comes from the sim; nothing here invents one.
+//
+// Timeframes are the first version's eleven (7122f67b): 1m 3m 5m 15m 30m 1h 2h 4h cut from the sim's one-minute bars on the
+// session clock, and 1D 1W 1M from its daily bars. A bar's time is game seconds since day 0 (a game day is 86,400 s), so the
+// chart library's own spacing holds and a drawing's time is in game days.
 
-export type Tf = "i" | "d" | "w" | "m";
+export type Tf = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1D" | "1W" | "1M";
 export type Kind = "share" | "index" | "coin" | "future" | "bond" | "fx";
 export type Unit = "cents" | "pts" | "rate";
 
-export interface Bar { t: number; k: number; o: number; h: number; l: number; c: number; v: number }
-export interface Series { id: string; name: string; kind: Kind; unit: Unit; tf: Tf; ticks: number; since: number; day: number; bars: Bar[] }
+/** ts: game seconds since day 0. */
+export interface Bar { ts: number; o: number; h: number; l: number; c: number; v: number }
+export interface Series { id: string; name: string; kind: Kind; unit: Unit; tf: Tf; session: boolean; since: number; day: number; bars: Bar[] }
 export interface ListRow { id: string; name: string; kind: Kind; unit: Unit; px: number; prev: number; chg: number; since: number; live: boolean }
 export interface MarketList { day: number; ticks: number; rows: ListRow[] }
 
-export const TFS: { id: Tf; label: string }[] = [
-  { id: "i", label: "Intraday" },
-  { id: "d", label: "Day" },
-  { id: "w", label: "Week" },
-  { id: "m", label: "Month" },
+/** minutes: game minutes per candle for the intraday sizes, 0 for the daily ones. */
+export const TFS: { id: Tf; label: string; minutes: number }[] = [
+  { id: "1m", label: "1m", minutes: 1 }, { id: "3m", label: "3m", minutes: 3 }, { id: "5m", label: "5m", minutes: 5 },
+  { id: "15m", label: "15m", minutes: 15 }, { id: "30m", label: "30m", minutes: 30 }, { id: "1h", label: "1h", minutes: 60 },
+  { id: "2h", label: "2h", minutes: 120 }, { id: "4h", label: "4h", minutes: 240 },
+  { id: "1D", label: "1D", minutes: 0 }, { id: "1W", label: "1W", minutes: 0 }, { id: "1M", label: "1M", minutes: 0 },
 ];
+export const isTf = (v: unknown): v is Tf => TFS.some((t) => t.id === v);
+export const tfMinutes = (tf: Tf): number => TFS.find((t) => t.id === tf)?.minutes ?? 0;
+export const isIntraday = (tf: Tf): boolean => tfMinutes(tf) > 0;
+
+/** Range presets move the visible window only: game days back from the newest candle. */
+export type RangeId = "1D" | "1W" | "1M" | "1Y" | "ALL";
+export const RANGES: { id: RangeId; days: number }[] = [
+  { id: "1D", days: 1 }, { id: "1W", days: 7 }, { id: "1M", days: 30 }, { id: "1Y", days: 360 }, { id: "ALL", days: 0 },
+];
+export const MIN_VIEW_CANDLES = 20;
 
 export const DAY_S = 86400;
+export const OPEN_MIN = 570;
 
-/** Chart time for a bar: game time in seconds, so a day is one 86,400 s step and the library's own spacing holds. */
-export function barTime(b: Bar, ticks: number): number {
-  return Math.round((b.t + (b.k / Math.max(1, ticks))) * DAY_S);
+/** Real seconds one candle takes at x1, where one real hour is one game day. */
+export function candleRealSeconds(tf: Tf): number {
+  const m = tfMinutes(tf);
+  return (m > 0 ? m : tf === "1D" ? 1440 : tf === "1W" ? 7 * 1440 : 30 * 1440) * 2.5;
+}
+export function realText(sec: number): string {
+  if (sec < 60) return `${+sec.toFixed(1)} s`;
+  if (sec < 3600) return `${+(sec / 60).toFixed(1)} min`;
+  if (sec < 86400) return `${+(sec / 3600).toFixed(1)} h`;
+  return `${+(sec / 86400).toFixed(1)} days`;
 }
 
 /** A price in the sim's unit as the number the player reads: cents to dollars, points and rates as they are. */
@@ -45,22 +69,93 @@ export function volText(v: number): string {
   return String(Math.round(v));
 }
 
-/** "Y2 M3 D4" for a game day; the intraday label adds the slot of the day. */
-export function gameDate(gt: number, ticks: number, withTick = false): string {
-  const abs = Math.floor(gt);
-  const doy = ((abs % 360) + 360) % 360;
-  const base = `Y${Math.floor(abs / 360) + 1} M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
-  if (!withTick) return base;
-  const k = Math.round((gt - abs) * ticks);
-  return `${base} ${String(Math.round(k * 24 / ticks)).padStart(2, "0")}:00`;
+const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Tue 2 Jan" for a game day (day 0 is a Monday; a year is twelve 30-day months). */
+export function dayLabel(day: number): string {
+  const d = Math.floor(day);
+  const doy = ((d % 360) + 360) % 360;
+  return `${WD[((d % 7) + 7) % 7]} ${(doy % 30) + 1} ${MON[Math.floor(doy / 30)]}`;
+}
+export const hhmm = (min: number): string => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+/** The crosshair's time: the day for the daily sizes, the day and the clock for the intraday ones. */
+export function stampLabel(ts: number, intraday: boolean): string {
+  const min = Math.floor(ts / 60);
+  const day = Math.floor(min / 1440);
+  return intraday ? `${dayLabel(day)} ${hhmm(min - day * 1440)}` : dayLabel(day);
 }
 
-export async function fetchSeries(instr: string, tf: Tf, limit = 600): Promise<Series | null> {
+/** The axis label: the clock inside a day, the date on a day's first candle; on the daily sizes the day, the month or the year. */
+export function axisLabel(ts: number, tf: Tf, session: boolean): string {
+  const min = Math.floor(ts / 60);
+  const day = Math.floor(min / 1440);
+  const m = min - day * 1440;
+  const doy = ((day % 360) + 360) % 360;
+  if (isIntraday(tf)) {
+    const first = tfMinutes(tf) > 0 && m < (session ? OPEN_MIN : 0) + tfMinutes(tf);
+    return first ? dayLabel(day).slice(4) : hhmm(m);
+  }
+  if (doy === 0) return day >= 0 ? `Y${Math.floor(day / 360) + 1}` : "Jan";
+  return doy % 30 === 0 ? MON[Math.floor(doy / 30)]! : `${(doy % 30) + 1} ${MON[Math.floor(doy / 30)]}`;
+}
+
+// ---- fetching and cutting ----
+
+interface Wire { id: string; name: string; kind: Kind; unit: Unit; tf: string; tt?: "min" | "day"; session?: boolean; since: number; day: number; now?: number; bars: { t: number; k?: number; o: number; h: number; l: number; c: number; v: number }[] }
+
+export interface Raw { meta: Omit<Series, "bars" | "tf">; bars: Bar[]; now: number }
+
+/** Bars at the sim's own sizes: "1m" (minute bars, t in game minutes), "1d", "1w" or "1M" (t is the day). */
+export async function fetchRaw(instr: string, api: "1m" | "1d" | "1w" | "1M", limit: number): Promise<Raw | null> {
   try {
-    const res = await fetch(`/api/sim/history?instr=${encodeURIComponent(instr)}&tf=${tf}&limit=${limit}`, { cache: "no-store" });
+    const res = await fetch(`/api/sim/history?instr=${encodeURIComponent(instr)}&tf=${api}&limit=${limit}`, { cache: "no-store" });
     if (!res.ok) return null;
-    return await res.json() as Series;
+    const w = await res.json() as Wire;
+    if (!Array.isArray(w.bars)) return null;
+    const mul = w.tt === "min" ? 60 : DAY_S;
+    return {
+      meta: { id: w.id, name: w.name, kind: w.kind, unit: w.unit, session: !!w.session, since: w.since, day: w.day },
+      bars: w.bars.map((b) => ({ ts: b.t * mul, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v })),
+      now: typeof w.now === "number" ? w.now : w.day * 1440,
+    };
   } catch { return null; }
+}
+
+/** Cut one-minute bars into candles of `minutes`, on the session clock from 09:30 for shares and from midnight for coins. */
+export function cut(raw: readonly Bar[], minutes: number, session: boolean): Bar[] {
+  if (minutes <= 1) return raw.slice();
+  const out: Bar[] = [];
+  const anchor = session ? OPEN_MIN : 0;
+  let key = NaN;
+  for (const b of raw) {
+    const min = Math.floor(b.ts / 60);
+    const day = Math.floor(min / 1440);
+    const slot = Math.floor((min - day * 1440 - anchor) / minutes);
+    const k = day * 100000 + slot;
+    const cur = out[out.length - 1];
+    if (cur && k === key) {
+      if (b.h > cur.h) cur.h = b.h;
+      if (b.l < cur.l) cur.l = b.l;
+      cur.c = b.c;
+      cur.v += b.v;
+    } else {
+      out.push({ ts: (day * 1440 + anchor + slot * minutes) * 60, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
+      key = k;
+    }
+  }
+  return out;
+}
+
+/** Replace the newest bars with fresher ones: bars at or after the first fresh one are dropped and the fresh ones follow. */
+export function merge(old: readonly Bar[], fresh: readonly Bar[], keep: number): Bar[] {
+  if (!fresh.length) return old.slice();
+  const f0 = fresh[0]!.ts;
+  let i = old.length;
+  while (i > 0 && old[i - 1]!.ts >= f0) i--;
+  const out = old.slice(0, i).concat(fresh);
+  return out.length > keep ? out.slice(out.length - keep) : out;
 }
 
 export async function fetchList(): Promise<MarketList | null> {
@@ -82,17 +177,18 @@ export function instrOf(context: string | undefined): string {
 // ---- drawings, saved per instrument in this browser ----
 
 export type Tool = "cursor" | "trend" | "hline" | "ray" | "rect" | "fib" | "note";
+/** t is game days (a float): a drawing keeps its place in time across every timeframe. */
 export interface Pt { t: number; p: number }
 export interface Drawing { id: string; kind: Exclude<Tool, "cursor">; a: Pt; b?: Pt; text?: string }
 
-export const TOOLS: { id: Tool; label: string; hint: string }[] = [
-  { id: "cursor", label: "Cursor", hint: "Pan and select" },
-  { id: "trend", label: "Trendline", hint: "Click two points" },
-  { id: "hline", label: "Horizontal line", hint: "Click a price" },
-  { id: "ray", label: "Ray", hint: "Click two points" },
-  { id: "rect", label: "Rectangle", hint: "Click two corners" },
-  { id: "fib", label: "Fibonacci", hint: "Click the swing low then high" },
-  { id: "note", label: "Note", hint: "Click, then type" },
+export const TOOLS: { id: Tool; label: string; hint: string; glyph: string }[] = [
+  { id: "cursor", label: "Cursor", hint: "Pan and select", glyph: "↖" },
+  { id: "trend", label: "Trendline", hint: "Click two points", glyph: "╱" },
+  { id: "hline", label: "Horizontal line", hint: "Click a price", glyph: "─" },
+  { id: "ray", label: "Ray", hint: "Click two points", glyph: "↗" },
+  { id: "rect", label: "Rectangle", hint: "Click two corners", glyph: "▭" },
+  { id: "fib", label: "Fibonacci", hint: "Click the swing low then high", glyph: "≡" },
+  { id: "note", label: "Note", hint: "Click, then type", glyph: "T" },
 ];
 
 export const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
@@ -160,7 +256,8 @@ export function vwapOf(bars: readonly Bar[], intraday: boolean): (number | null)
   const out: (number | null)[] = [];
   let pv = 0, vol = 0, day = -1;
   for (const b of bars) {
-    if (intraday && b.t !== day) { pv = 0; vol = 0; day = b.t; }
+    const d = Math.floor(b.ts / DAY_S);
+    if (intraday && d !== day) { pv = 0; vol = 0; day = d; }
     pv += (b.h + b.l + b.c) / 3 * b.v;
     vol += b.v;
     out.push(vol > 0 ? pv / vol : null);

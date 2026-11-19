@@ -8,9 +8,10 @@ import { act, symbolOf, useSimSnap, type ActNote, type SimView } from "@/shell/s
 import { moneyFromCents, presentNote } from "@/components/ui/format";
 import type { ChartLine, Studies } from "@/components/market/TerminalChart";
 import {
-  TFS, TOOLS, fetchList, fetchSeries, instrOf, loadDrawings, loadPref, priceText, saveDrawings, savePref,
-  type Drawing, type ListRow, type Series, type Tf, type Tool,
+  RANGES, TFS, TOOLS, candleRealSeconds, fetchList, instrOf, isIntraday, isTf, loadDrawings, loadPref, priceText, realText, saveDrawings, savePref, volText,
+  type Drawing, type ListRow, type RangeId, type Series, type Tf, type Tool,
 } from "@/components/market/terminalApi";
+import { useBars } from "@/components/market/useBars";
 import "./terminal.css";
 
 const Chart = dynamic(() => import("@/components/market/TerminalChart"), { ssr: false, loading: () => <div className="tm-chart-wait">Drawing the chart…</div> });
@@ -71,15 +72,19 @@ function entryOf(view: SimView, instr: string, held: number): number | null {
 export default function Terminal({ context, onDesks }: { context?: string; onDesks: () => void }) {
   const { view } = useSimSnap();
   const [instr, setInstr] = useState(() => instrOf(context));
-  const [tf, setTf] = useState<Tf>(() => loadPref<Tf>("tf", "d"));
+  const [tf, setTf] = useState<Tf>(() => { const v = loadPref<unknown>("tf2", "1D"); return isTf(v) ? v : "1D"; });
+  const [range, setRange] = useState<RangeId>(() => { const v = loadPref<string>("range", "1Y"); return RANGES.some((r) => r.id === v) ? (v as RangeId) : "1Y"; });
+  const [rangeKey, setRangeKey] = useState(0);
+  const [pct, setPct] = useState(() => loadPref("pct", false));
+  const [look, setLook] = useState<"candles" | "line">(() => (loadPref<string>("look", "candles") === "line" ? "line" : "candles"));
+  const [past, setPast] = useState<Drawing[][]>([]);
+  const [future, setFuture] = useState<Drawing[][]>([]);
   const [studies, setStudies] = useState<Studies>(() => ({ ...DEFAULT_STUDIES, ...loadPref<Partial<Studies>>("studies", {}) }));
   const [log, setLog] = useState(() => loadPref("log", false));
   const [tool, setTool] = useState<Tool>("cursor");
-  const [series, setSeries] = useState<Series | null>(null);
-  const [compare, setCompare] = useState<Series | null>(null);
   const [list, setList] = useState<ListRow[]>([]);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
-  const [menu, setMenu] = useState<"" | "draw" | "studies">("");
+  const [menu, setMenu] = useState<"" | "studies">("");
   const [showList, setShowList] = useState(true);
   const [tab, setTab] = useState<"all" | "movers" | "coins" | "new" | "watch">("all");
   const [query, setQuery] = useState("");
@@ -98,30 +103,43 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   const pxNow = view ? livePx(view, instr) : null;
 
   useEffect(() => { setInstr(instrOf(context)); }, [context]);
-  useEffect(() => { savePref("tf", tf); }, [tf]);
+  useEffect(() => { savePref("tf2", tf); }, [tf]);
+  useEffect(() => { savePref("range", range); }, [range]);
+  useEffect(() => { savePref("pct", pct); }, [pct]);
+  useEffect(() => { savePref("look", look); }, [look]);
   useEffect(() => { savePref("studies", studies); }, [studies]);
   useEffect(() => { savePref("log", log); }, [log]);
   useEffect(() => { savePref("watch", watch); }, [watch]);
   useEffect(() => { savePref("stops", stops); }, [stops]);
 
   // the saved drawings follow the instrument
-  useEffect(() => { setDrawings(loadDrawings(instr)); setTool("cursor"); setReview(""); setNote(null); }, [instr]);
-  const changeDrawings = useCallback((next: Drawing[]) => { setDrawings(next); saveDrawings(instr, next); }, [instr]);
+  useEffect(() => { setDrawings(loadDrawings(instr)); setTool("cursor"); setReview(""); setNote(null); setPast([]); setFuture([]); }, [instr]);
+  const lastEdit = useRef(0);
+  const drawRef = useRef<Drawing[]>([]);
+  drawRef.current = drawings;
+  const changeDrawings = useCallback((next: Drawing[]) => {
+    // a drag sends many small changes: one undo step per burst
+    setPast((p) => (p.length && Date.now() - lastEdit.current < 400 ? p : [...p, drawRef.current].slice(-30)));
+    lastEdit.current = Date.now();
+    setFuture([]);
+    setDrawings(next); saveDrawings(instr, next);
+  }, [instr]);
+  const undo = () => { const prev = past[past.length - 1]; if (!prev) return; setPast(past.slice(0, -1)); setFuture((f) => [...f, drawRef.current]); setDrawings(prev); saveDrawings(instr, prev); };
+  const redo = () => { const nxt = future[future.length - 1]; if (!nxt) return; setFuture(future.slice(0, -1)); setPast((p) => [...p, drawRef.current]); setDrawings(nxt); saveDrawings(instr, nxt); };
 
-  // bars: refetched when the game clock or the price moves, and when the instrument or timeframe changes
-  const gen = useRef(0);
-  const refresh = useCallback(() => {
-    const mine = ++gen.current;
-    void fetchSeries(instr, tf, tf === "i" ? 400 : 700).then((s) => { if (mine === gen.current && s) setSeries(s); });
-    void fetchList().then((l) => { if (l) setList(l.rows); });
-  }, [instr, tf]);
-  useEffect(() => { refresh(); }, [refresh, abs, pxNow]);
+  // bars: fetched once per instrument, then the newest minutes as the game clock runs (useBars)
+  const stamp = `${view?.live?.day ?? abs}:${view?.live?.min ?? ""}:${pxNow ?? ""}`;
+  const bars = useBars(instr, tf, stamp);
+  const kept = useRef<{ id: string; series: Series } | null>(null);
+  if (bars.series) kept.current = { id: instr, series: bars.series };
+  const series = bars.series ?? (kept.current?.id === instr ? kept.current.series : null);
+  const compare = useBars(studies.cmp && instr !== "index" ? "index" : null, tf, stamp).series;
+  const refresh = useCallback(() => { void fetchList().then((l) => { if (l) setList(l.rows); }); }, []);
   useEffect(() => {
-    if (!studies.cmp || instr === "index") { setCompare(null); return; }
-    let live = true;
-    void fetchSeries("index", tf, tf === "i" ? 400 : 700).then((s) => { if (live) setCompare(s); });
-    return () => { live = false; };
-  }, [studies.cmp, instr, tf, abs]);
+    refresh();
+    const id = window.setInterval(refresh, 4000);
+    return () => window.clearInterval(id);
+  }, [refresh]);
 
   const row = list.find((r) => r.id === instr);
   const kind = kindOf(instr);
@@ -314,42 +332,63 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
         <header className="tm-head">
           <button type="button" className="tm-ghost tm-listbtn" onClick={() => setShowList((v) => !v)} aria-pressed={showList}>Markets</button>
           <h2 className="tm-title">{sym}{instr.startsWith("eq:") ? <small>{title}</small> : null}</h2>
-          <span className="tm-price" data-testid="tm-price">{series ? priceText(series.unit, last) : "…"}<small className={chg >= 0 ? "gain" : "loss"}>{chg >= 0 ? "+" : ""}{(chg * 100).toFixed(2)}%</small></span>
+          <span className="tm-price" data-testid="tm-price">{series ? priceText(series.unit, last) : "…"}<small className={chg >= 0 ? "gain" : "loss"}>{chg >= 0 ? "+" : ""}{(chg * 100).toFixed(2)}%</small><small className="tm-today">today</small></span>
           <span className="tm-grow" />
-          <div className="tm-seg" role="group" aria-label="Timeframe">
-            {TFS.map((t) => <button key={t.id} type="button" aria-pressed={tf === t.id} onClick={() => setTf(t.id)}>{t.label}</button>)}
+          {view.live ? <span className="tm-clock" data-testid="tm-clock">{view.live.label}<small>{view.live.session === "open" ? "open" : view.live.session === "pre" ? "pre-market" : view.live.session === "after" ? "after hours" : "closed"}</small></span> : null}
+        </header>
+        {bars.today && !instr.startsWith("fx") ? (
+          <p className="tm-ohlc" data-testid="tm-ohlc">
+            <span>Open <b>{priceText(series?.unit ?? "cents", bars.today.o)}</b></span>
+            <span>High <b>{priceText(series?.unit ?? "cents", bars.today.h)}</b></span>
+            <span>Low <b>{priceText(series?.unit ?? "cents", bars.today.l)}</b></span>
+            {bars.today.v > 0 ? <span>Volume <b>{volText(bars.today.v)}</b></span> : null}
+          </p>
+        ) : null}
+        <div className="tm-bar" data-testid="tm-bar">
+          <div className="tm-seg tm-tfs" role="group" aria-label="Candle size" title={`One candle is ${series ? realText(candleRealSeconds(tf)) : ""} of real time at x1 (a game day is one real hour).`}>
+            {TFS.map((t) => <button key={t.id} type="button" aria-pressed={tf === t.id} data-testid={`tf-${t.id}`} onClick={() => setTf(t.id)}>{t.label}</button>)}
+          </div>
+          <span className="tm-real muted" data-testid="candle-real">{tf} candle = {realText(candleRealSeconds(tf))} at x1{isIntraday(tf) ? ". Minute candles reach back 6 game days." : ""}</span>
+          <span className="tm-grow" />
+          <div className="tm-seg" role="group" aria-label="Range">
+            {RANGES.map((r) => <button key={r.id} type="button" aria-pressed={range === r.id} data-testid={`range-${r.id}`} onClick={() => { setRange(r.id); setRangeKey((n) => n + 1); }}>{r.id === "ALL" ? "All" : r.id}</button>)}
+          </div>
+          <div className="tm-seg" role="group" aria-label="Style">
+            <button type="button" aria-pressed={look === "candles"} onClick={() => setLook("candles")}>Candles</button>
+            <button type="button" aria-pressed={look === "line"} onClick={() => setLook("line")}>Line</button>
           </div>
           <div className="tm-menu">
-            <button type="button" className="tm-ghost" aria-expanded={menu === "draw"} onClick={() => setMenu(menu === "draw" ? "" : "draw")} data-testid="tm-draw">{tool === "cursor" ? "Draw" : TOOLS.find((t) => t.id === tool)?.label}</button>
-            {menu === "draw" ? (
-              <div className="tm-pop" role="menu">
-                {TOOLS.map((t) => (
-                  <button key={t.id} type="button" role="menuitem" aria-pressed={tool === t.id} data-testid={`tm-tool-${t.id}`} onClick={() => { setTool(t.id); setMenu(""); root.current?.querySelector<HTMLElement>(".tm-chart")?.focus(); }}>
-                    {t.label}<small>{t.hint}</small>
-                  </button>
-                ))}
-                {drawings.length ? <button type="button" role="menuitem" className="tm-danger" onClick={() => { changeDrawings([]); setMenu(""); }}>Clear {drawings.length} drawing{drawings.length > 1 ? "s" : ""}</button> : null}
-              </div>
-            ) : null}
-          </div>
-          <div className="tm-menu">
-            <button type="button" className="tm-ghost" aria-expanded={menu === "studies"} onClick={() => setMenu(menu === "studies" ? "" : "studies")} data-testid="tm-studies">Indicators</button>
+            <button type="button" className="tm-ghost" aria-expanded={menu === "studies"} onClick={() => setMenu(menu === "studies" ? "" : "studies")} data-testid="tm-studies">Indicators{Object.values(studies).filter(Boolean).length - (studies.vol ? 1 : 0) > 0 ? ` (${Object.values(studies).filter(Boolean).length - (studies.vol ? 1 : 0)})` : ""}</button>
             {menu === "studies" ? (
               <div className="tm-pop" role="menu">
                 {STUDY_LABEL.filter(([k]) => k !== "cmp" || instr !== "index").map(([k, label]) => (
-                  <label key={k} className="tm-check"><input type="checkbox" checked={studies[k]} data-testid={`tm-study-${k}`} onChange={(e) => setStudies((s) => ({ ...s, [k]: e.target.checked }))} />{label}</label>
+                  <label key={k} className="tm-check"><input type="checkbox" checked={studies[k]} data-testid={`tm-study-${k}`} onChange={(e) => setStudies((x) => ({ ...x, [k]: e.target.checked }))} />{label}</label>
                 ))}
               </div>
             ) : null}
           </div>
-          <button type="button" className="tm-ghost" aria-pressed={log} onClick={() => setLog((v) => !v)} data-testid="tm-log">{log ? "Log" : "Linear"}</button>
-        </header>
-        <div className="tm-stage" onClick={() => { if (menu) setMenu(""); }}>
-          {series && series.bars.length ? (
-            <Chart series={series} compare={compare} studies={studies} log={log} tool={tool} onTool={setTool} drawings={drawings} onDrawings={changeDrawings} lines={lines} onMoveLine={moveLine} onPickPrice={pickPrice} />
-          ) : <div className="tm-chart-wait">{series ? "Nothing has traded here yet. Let a day pass." : "Loading the chart…"}</div>}
         </div>
-        {tool !== "cursor" ? <p className="tm-hint">{TOOLS.find((t) => t.id === tool)?.hint}. Esc cancels.</p> : <p className="tm-hint muted">Double-click the chart to set a price. Drag a limit line to move it.</p>}
+        <div className="tm-stage" onClick={() => { if (menu) setMenu(""); }}>
+          <div className="tm-rail" role="toolbar" aria-label="Drawing tools" data-testid="tm-rail">
+            {TOOLS.map((t) => (
+              <button key={t.id} type="button" aria-pressed={tool === t.id} title={`${t.label}: ${t.hint}`} aria-label={t.label} data-testid={`tm-tool-${t.id}`}
+                onClick={() => { setTool(t.id); root.current?.querySelector<HTMLElement>(".tm-chart")?.focus(); }}>{t.glyph}</button>
+            ))}
+            <span className="tm-rail-gap" />
+            <button type="button" title="Undo a drawing change" aria-label="Undo" disabled={!past.length} onClick={undo}>↶</button>
+            <button type="button" title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}>↷</button>
+            <button type="button" title={`Remove all ${drawings.length} drawings`} aria-label="Remove all drawings" disabled={!drawings.length} className="tm-danger" onClick={() => changeDrawings([])} data-testid="tm-clear">✕</button>
+          </div>
+          <div className="tm-chartbox">
+            {series && series.bars.length ? (
+              <Chart series={series} compare={compare} studies={studies} log={log} pct={pct} look={look} range={range} rangeKey={rangeKey}
+                onScale={(m) => (m === "pct" ? setPct((v) => !v) : setLog((v) => !v))}
+                onStudy={(k) => setStudies((x) => ({ ...x, [k]: false }))}
+                tool={tool} onTool={setTool} drawings={drawings} onDrawings={changeDrawings} lines={lines} onMoveLine={moveLine} onPickPrice={pickPrice} />
+            ) : <div className="tm-chart-wait">{bars.missing ? (isIntraday(tf) ? "This market has no minute candles. Try 1D." : "Nothing has traded here yet.") : series ? "Nothing has traded here yet. Let a day pass." : "Loading the chart…"}</div>}
+          </div>
+        </div>
+        {tool !== "cursor" ? <p className="tm-hint">{TOOLS.find((t) => t.id === tool)?.hint}. Esc cancels.</p> : <p className="tm-hint muted">Double-click the chart to set a price. Drag a limit line to move it. Drag an axis to scale it, double-click it to reset.</p>}
       </section>
 
       <aside className="tm-ticket" aria-label="Order ticket">

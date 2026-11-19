@@ -5,12 +5,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart,
-  type IChartApi, type ISeriesApi, type LogicalRange, type UTCTimestamp,
+  type AutoscaleInfoProvider, type IChartApi, type ISeriesApi, type LogicalRange, type UTCTimestamp,
 } from "lightweight-charts";
 import { bollinger, ema, rsi, sma } from "./movingAverages";
 import {
-  DAY_S, FIB, barTime, gameDate, macd, priceText, shown, volText, vwapOf,
-  type Bar, type Drawing, type Pt, type Series, type Tool,
+  DAY_S, FIB, MIN_VIEW_CANDLES, RANGES, axisLabel, isIntraday, macd, priceText, shown, stampLabel, volText, vwapOf,
+  type Bar, type Drawing, type Pt, type RangeId, type Series, type Tool,
 } from "./terminalApi";
 
 export interface ChartLine { id: string; kind: "order" | "stop" | "pos" | "margin"; side?: "buy" | "sell"; price: number; label: string; drag?: boolean }
@@ -21,6 +21,15 @@ interface Props {
   compare: Series | null;
   studies: Studies;
   log: boolean;
+  /** the percent axis wins over log */
+  pct: boolean;
+  /** candles or a close line */
+  look: "candles" | "line";
+  /** the range preset moves the visible window only; rangeKey changes each time one is pressed */
+  range: RangeId;
+  rangeKey: number;
+  onScale: (m: "log" | "pct") => void;
+  onStudy: (k: keyof Studies) => void;
   tool: Tool;
   onTool: (t: Tool) => void;
   drawings: Drawing[];
@@ -58,6 +67,20 @@ function dedupe<T extends { time: UTCTimestamp }>(rows: T[]): T[] {
   return out;
 }
 
+/** The empty candles kept to the right of the newest one (room to draw past the live candle). */
+const RIGHT_OFFSET = 18;
+/** The narrowest price range the plot shows, as a share of the price: a 0.1% wiggle never fills the plot. */
+const MIN_SPAN_SHARE = 0.005;
+const spanFloor: AutoscaleInfoProvider = (base) => {
+  const res = base();
+  if (!res || !res.priceRange) return res;
+  const { minValue, maxValue } = res.priceRange;
+  const mid = (minValue + maxValue) / 2;
+  const floor = Math.abs(mid) * MIN_SPAN_SHARE;
+  if (maxValue - minValue >= floor) return res;
+  return { ...res, priceRange: { minValue: mid - floor / 2, maxValue: mid + floor / 2 } };
+};
+
 let seq = 0;
 const newId = () => `d${Date.now().toString(36)}${(seq++).toString(36)}`;
 
@@ -67,12 +90,15 @@ export default function TerminalChart(props: Props) {
   const cvs = useRef<HTMLCanvasElement>(null);
   const live = useRef(props);
   live.current = props;
-  const api = useRef<{ chart: IChartApi; candle: ISeriesApi<"Candlestick">; layers: Map<string, ISeriesApi<"Line" | "Histogram">>; tk: Tokens; rsiPane: number; macdPane: number } | null>(null);
+  const api = useRef<{ chart: IChartApi; candle: ISeriesApi<"Candlestick">; closeLine: ISeriesApi<"Line">; layers: Map<string, ISeriesApi<"Line" | "Histogram">>; tk: Tokens; rsiPane: number; macdPane: number } | null>(null);
   const times = useRef<number[]>([]);
   const prevShape = useRef<{ id: string; tf: string; n: number; first: number }>({ id: "", tf: "", n: 0, first: 0 });
+  const [auto, setAuto] = useState(true);
+  const [axisW, setAxisW] = useState(64);
   const ix = useRef<{ sel: string; draft: Pt | null; first: Pt | null; hover: { x: number; y: number } | null; drag: null | { kind: "line"; id: string; price: number } | { kind: "pt"; id: string; which: "a" | "b" } | { kind: "body"; id: string; from: Pt; orig: Drawing } }>({ sel: "", draft: null, first: null, hover: null, drag: null });
   const dirty = useRef(true);
-  const [legend, setLegend] = useState<{ gt: number; bar: Bar | null } | null>(null);
+  const [legend, setLegend] = useState<{ ts: number; bar: Bar | null; prev: number | null } | null>(null);
+  const [chips, setChips] = useState<{ k: keyof Studies; label: string; value: string }[]>([]);
   const [theme, setTheme] = useState(0);
   const [editing, setEditing] = useState<{ id: string; x: number; y: number } | null>(null);
   const [ready, setReady] = useState(0);
@@ -99,38 +125,38 @@ export default function TerminalChart(props: Props) {
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: tk.steel, labelBackgroundColor: tk.line }, horzLine: { color: tk.steel, labelBackgroundColor: tk.line } },
       rightPriceScale: { borderColor: tk.line, scaleMargins: { top: 0.08, bottom: 0.08 }, minimumWidth: 64 },
       timeScale: {
-        borderColor: tk.line, rightOffset: 8, barSpacing: 9, minBarSpacing: 1.5, timeVisible: false, secondsVisible: false,
-        tickMarkFormatter: (time: unknown) => {
-          const abs = Math.floor(Number(time) / DAY_S);
-          const doy = ((abs % 360) + 360) % 360;
-          if (doy === 0) return `Y${Math.floor(abs / 360) + 1}`;
-          return doy % 30 === 0 ? `M${Math.floor(doy / 30) + 1}` : `M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
-        },
+        borderColor: tk.line, rightOffset: RIGHT_OFFSET, barSpacing: 9, minBarSpacing: 1.5, timeVisible: true, secondsVisible: false,
+        tickMarkFormatter: (time: unknown) => axisLabel(Number(time), live.current.series.tf, live.current.series.session),
       },
-      localization: { timeFormatter: (time: unknown) => gameDate(Number(time) / DAY_S, live.current.series.ticks, live.current.series.tf === "i") },
-      handleScale: { axisPressedMouseMove: true },
+      localization: { timeFormatter: (time: unknown) => stampLabel(Number(time), isIntraday(live.current.series.tf)) },
+      // the mouse on the axes as TradingView has it: drag an axis to scale it, double-click it to reset
+      handleScale: { axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
     });
     const candle = chart.addSeries(CandlestickSeries, {
-      upColor: tk.up, downColor: tk.down, borderUpColor: tk.up, borderDownColor: tk.down, wickUpColor: tk.up, wickDownColor: tk.down,
-      priceLineColor: tk.muted, lastValueVisible: true, priceFormat: { type: "custom", formatter: (p: number) => priceText("pts", p), minMove: 0.0001 },
+      upColor: tk.up, downColor: tk.down, borderVisible: false, wickUpColor: tk.up, wickDownColor: tk.down,
+      priceLineColor: tk.acc, priceLineStyle: LineStyle.Dotted, lastValueVisible: true, autoscaleInfoProvider: spanFloor,
+      priceFormat: { type: "custom", formatter: (p: number) => priceText("pts", p), minMove: 0.0001 },
+    }, 0);
+    const closeLine = chart.addSeries(LineSeries, {
+      color: tk.fg, lineWidth: 2, priceLineColor: tk.acc, priceLineStyle: LineStyle.Dotted, lastValueVisible: true, visible: false, autoscaleInfoProvider: spanFloor,
+      priceFormat: { type: "custom", formatter: (p: number) => priceText("pts", p), minMove: 0.0001 },
     }, 0);
     const rsiPane = studies.rsi ? 1 : -1;
     const macdPane = studies.macd ? (studies.rsi ? 2 : 1) : -1;
-    api.current = { chart, candle, layers: new Map(), tk, rsiPane, macdPane };
+    api.current = { chart, candle, closeLine, layers: new Map(), tk, rsiPane, macdPane };
     prevShape.current = { id: "", tf: "", n: 0, first: 0 };
     chart.subscribeCrosshairMove((p) => {
       const t = p.time as number | undefined;
       const bars = live.current.series.bars;
       if (t === undefined || !p.point) { setLegend(null); return; }
-      const tks = live.current.series.ticks;
       let lo = 0, hi = bars.length - 1, at = -1;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        const bt = barTime(bars[mid]!, tks);
+        const bt = bars[mid]!.ts;
         if (bt === t) { at = mid; break; }
         if (bt < t) lo = mid + 1; else hi = mid - 1;
       }
-      setLegend({ gt: t / DAY_S, bar: at >= 0 ? bars[at]! : null });
+      setLegend({ ts: t, bar: at >= 0 ? bars[at]! : null, prev: at > 0 ? bars[at - 1]!.c : null });
       ix.current.hover = { x: p.point.x, y: p.point.y };
       dirty.current = true;
     });
@@ -144,21 +170,39 @@ export default function TerminalChart(props: Props) {
   useEffect(() => {
     const a = api.current;
     if (!a) return;
-    const { chart, candle, layers, tk } = a;
+    const { chart, candle, closeLine, layers, tk } = a;
     const u = series.unit;
-    const ticks = series.ticks;
     const bars = series.bars;
-    const tv = (b: Bar) => barTime(b, ticks) as UTCTimestamp;
+    const tv = (b: Bar) => b.ts as UTCTimestamp;
     const fmt = (p: number) => priceText(u === "cents" ? "pts" : u, p);
-    candle.applyOptions({ priceFormat: { type: "custom", formatter: fmt, minMove: u === "rate" ? 0.0001 : 0.01 } });
-    chart.priceScale("right", 0).applyOptions({ mode: props.log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal, scaleMargins: { top: 0.08, bottom: studies.vol ? 0.24 : 0.08 } });
+    const pf = { priceFormat: { type: "custom" as const, formatter: fmt, minMove: u === "rate" ? 0.0001 : 0.01 } };
+    candle.applyOptions({ ...pf, visible: props.look === "candles" });
+    closeLine.applyOptions({ ...pf, visible: props.look === "line" });
+    chart.priceScale("right", 0).applyOptions({ mode: props.pct ? PriceScaleMode.Percentage : props.log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal, scaleMargins: { top: 0.08, bottom: studies.vol ? 0.24 : 0.08 } });
+    chart.applyOptions({ localization: { priceFormatter: (v: number) => (props.pct ? `${v.toFixed(2)}%` : fmt(v)) } });
 
     const range = chart.timeScale().getVisibleLogicalRange();
     const same = prevShape.current.id === series.id && prevShape.current.tf === series.tf;
     const prevN = prevShape.current.n;
 
     const ohlc = dedupe(bars.map((b) => ({ time: tv(b), open: shown(u, b.o), high: shown(u, b.h), low: shown(u, b.l), close: shown(u, b.c) })));
+    // The clock running only moves the newest candle or adds one: update those and leave the rest of the chart alone.
+    const lined = studies.sma || studies.ema || studies.bb || studies.vwap || studies.cmp || studies.rsi || studies.macd;
+    const vs = layers.get("vol") as ISeriesApi<"Histogram"> | undefined;
+    if (same && !lined && prevN > 0 && ohlc.length >= prevN && ohlc.length - prevN <= 2 && prevShape.current.first === (ohlc[0]?.time ?? -1) && (studies.vol ? !!vs : !vs)) {
+      for (let i = prevN - 1; i < ohlc.length; i++) {
+        const r = ohlc[i]!, b = bars[i];
+        candle.update(r);
+        closeLine.update({ time: r.time, value: r.close });
+        if (vs && b && b.v > 0) vs.update({ time: r.time, value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, 0.35) });
+      }
+      times.current = ohlc.map((r) => r.time as number);
+      prevShape.current = { id: series.id, tf: series.tf, n: ohlc.length, first: times.current[0] ?? 0 };
+      dirty.current = true;
+      return;
+    }
     candle.setData(ohlc);
+    closeLine.setData(ohlc.map((r) => ({ time: r.time, value: r.close })));
     times.current = ohlc.map((r) => r.time as number);
     const closes = ohlc.map((r) => r.close);
 
@@ -190,10 +234,10 @@ export default function TerminalChart(props: Props) {
       const [up, lo] = bollinger(closes, 20);
       line("bbu", up, tk.steel, 0, LineStyle.Dashed); line("bbl", lo, tk.steel, 0, LineStyle.Dashed);
     } else { off("bbu"); off("bbl"); }
-    if (studies.vwap) line("vwap", vwapOf(dedupeBars(bars), series.tf === "i").map((v) => (v === null ? null : shown(u, v))), tk.muted, 0, LineStyle.Dotted); else off("vwap");
+    if (studies.vwap) line("vwap", vwapOf(dedupeBars(bars), isIntraday(series.tf)).map((v) => (v === null ? null : shown(u, v))), tk.muted, 0, LineStyle.Dotted); else off("vwap");
 
     if (studies.cmp && props.compare && props.compare.bars.length) {
-      const by = new Map(props.compare.bars.map((b) => [barTime(b, props.compare!.ticks), b.c]));
+      const by = new Map(props.compare.bars.map((b) => [b.ts, b.c]));
       let k = 0, found = false;
       for (const r of ohlc) { const c = by.get(r.time as number); if (c) { k = r.close / c; found = true; break; } }
       line("cmp", ohlc.map((r) => { const c = by.get(r.time as number); return found && c ? c * k : null; }), tk.info, 0, LineStyle.Dashed, 2);
@@ -219,11 +263,22 @@ export default function TerminalChart(props: Props) {
 
     const panes = chart.panes();
     panes.forEach((p, i) => p.setStretchFactor(i === 0 ? 4 : 1));
-    // keep the player's view when only the newest bars changed; a new instrument or timeframe starts at the right edge
+    // the legend rows: each active indicator and its newest value
+    const last = (v: (number | null)[]) => { for (let i = v.length - 1; i >= 0; i--) if (v[i] !== null && Number.isFinite(v[i]!)) return v[i]!; return null; };
+    const num = (v: number | null) => (v === null ? "–" : priceText("pts", v));
+    const rows: { k: keyof Studies; label: string; value: string }[] = [];
+    if (studies.sma) rows.push({ k: "sma", label: "SMA 20 / 50", value: `${num(last(sma(closes, 20)))} / ${num(last(sma(closes, 50)))}` });
+    if (studies.ema) rows.push({ k: "ema", label: "EMA 21", value: num(last(ema(closes, 21))) });
+    if (studies.bb) { const [bu, bl] = bollinger(closes, 20); rows.push({ k: "bb", label: "Bollinger", value: `${num(last(bu))} / ${num(last(bl))}` }); }
+    if (studies.vwap) rows.push({ k: "vwap", label: "VWAP", value: num(last(vwapOf(dedupeBars(bars), isIntraday(series.tf)).map((v) => (v === null ? null : shown(u, v))))) });
+    if (studies.rsi) { const r = last(rsi(closes, 14)); rows.push({ k: "rsi", label: "RSI 14", value: r === null ? "–" : r.toFixed(1) }); }
+    if (studies.macd) { const m = last(macd(closes).line); rows.push({ k: "macd", label: "MACD", value: m === null ? "–" : m.toFixed(4) }); }
+    setChips((old) => (old.length === rows.length && old.every((o, i) => o.k === rows[i]!.k && o.value === rows[i]!.value) ? old : rows));
+    // a new instrument or size opens on the auto scale, with the range preset's window; the same one keeps the player's view
     const n = ohlc.length;
     if (!same || !range) {
-      const show = Math.min(n, series.tf === "i" ? 96 : 120);
-      chart.timeScale().setVisibleLogicalRange({ from: n - show, to: n + 8 });
+      if (!same) chart.priceScale("right", 0).applyOptions({ autoScale: true });
+      applyRange(chart, ohlc.map((r) => r.time as number), props.range);
     } else {
       const atEdge = range.to >= prevN - 1 + 2;
       const shift = atEdge ? n - prevN : 0;
@@ -232,18 +287,47 @@ export default function TerminalChart(props: Props) {
     prevShape.current = { id: series.id, tf: series.tf, n, first: times.current[0] ?? 0 };
     dirty.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [series, props.compare, props.log, studies.sma, studies.ema, studies.bb, studies.vwap, studies.vol, studies.cmp, ready]);
+  }, [series, props.compare, props.log, props.pct, props.look, studies.sma, studies.ema, studies.bb, studies.vwap, studies.vol, studies.cmp, studies.rsi, studies.macd, ready]);
+
+  // a range preset moves the visible window over the candles; the candles themselves do not change
+  useEffect(() => {
+    const a = api.current;
+    if (!a || !times.current.length) return;
+    applyRange(a.chart, times.current, props.range);
+    dirty.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.rangeKey]);
+
+  // the bottom-right "auto" switch follows the price scale: a drag on the axis turns it off
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const a = api.current;
+      if (!a) return;
+      const sc = a.chart.priceScale("right", 0);
+      setAuto(sc.options().autoScale);
+      setAxisW(Math.round(sc.width()));
+      // what the chart shows now, for a check from the page: the candle count and the visible window (logical indexes)
+      const vr = a.chart.timeScale().getVisibleLogicalRange(), pr = sc.getVisibleRange();
+      if (host.current) {
+        host.current.dataset.candles = String(times.current.length);
+        host.current.dataset.view = vr ? `${Math.round(vr.from)},${Math.round(vr.to)}` : "";
+        host.current.dataset.prices = pr ? `${pr.from.toFixed(2)},${pr.to.toFixed(2)}` : "";
+      }
+    }, 400);
+    return () => window.clearInterval(id);
+  }, []);
 
   // ---- overlay canvas ----
   useEffect(() => {
     const canvas = cvs.current, box = wrap.current;
     if (!canvas || !box) return;
     let raf = 0, sig = "";
+    const stepOf = () => (isIntraday(live.current.series.tf) ? 60 : DAY_S);
     const toLogical = (t: number): number | null => {
       const arr = times.current;
       const n = arr.length;
       if (!n) return null;
-      if (n === 1) return (t - arr[0]!) / DAY_S * live.current.series.ticks;
+      if (n === 1) return (t - arr[0]!) / stepOf();
       if (t <= arr[0]!) return (t - arr[0]!) / Math.max(1, arr[1]! - arr[0]!);
       if (t >= arr[n - 1]!) return n - 1 + (t - arr[n - 1]!) / Math.max(1, arr[n - 1]! - arr[n - 2]!);
       let lo = 0, hi = n - 1;
@@ -254,7 +338,7 @@ export default function TerminalChart(props: Props) {
       const arr = times.current;
       const n = arr.length;
       if (!n) return 0;
-      if (n === 1) return arr[0]! + l * DAY_S / live.current.series.ticks;
+      if (n === 1) return arr[0]! + l * stepOf();
       if (l <= 0) return arr[0]! + l * (arr[1]! - arr[0]!);
       if (l >= n - 1) return arr[n - 1]! + (l - (n - 1)) * (arr[n - 1]! - arr[n - 2]!);
       const i = Math.floor(l);
@@ -463,6 +547,18 @@ export default function TerminalChart(props: Props) {
         e.preventDefault();
       }
     };
+    // a wheel step over the price axis zooms the price scale, as TradingView's does (the library would zoom time)
+    const wheel = (e: WheelEvent) => {
+      const a = api.current;
+      if (!a || e.clientX - box.getBoundingClientRect().left < plot().w) return;
+      e.preventDefault(); e.stopPropagation();
+      const sc = a.chart.priceScale("right", 0);
+      const vr = sc.getVisibleRange();
+      if (!vr || sc.options().mode === PriceScaleMode.Percentage || e.deltaY === 0) return;
+      const mid = (vr.from + vr.to) / 2, half = (vr.to - vr.from) / 2 * (e.deltaY > 0 ? 1.1 : 1 / 1.1);
+      sc.setVisibleRange({ from: mid - half, to: mid + half });
+    };
+    box.addEventListener("wheel", wheel, { capture: true, passive: false });
     box.addEventListener("mousedown", down, true);
     box.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -472,6 +568,7 @@ export default function TerminalChart(props: Props) {
     box.addEventListener("keydown", key);
     return () => {
       cancelAnimationFrame(raf);
+      box.removeEventListener("wheel", wheel, { capture: true });
       box.removeEventListener("mousedown", down, true);
       box.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -489,22 +586,39 @@ export default function TerminalChart(props: Props) {
   const bar = legend?.bar ?? series.bars[series.bars.length - 1] ?? null;
   const u = series.unit;
   const up = bar ? bar.c >= bar.o : true;
-  const t = legend ? legend.gt : bar ? bar.t + bar.k / Math.max(1, series.ticks) : 0;
+  const t = legend ? legend.ts : bar ? bar.ts : 0;
+  const before = legend ? legend.prev : series.bars.length > 1 ? series.bars[series.bars.length - 2]!.c : null;
+  const move = bar && before && before > 0 ? bar.c / before - 1 : null;
 
   return (
     <div className="tm-chart" ref={wrap} tabIndex={0} aria-label={`${series.name} chart`} data-testid="tm-chart">
       <p className="tm-legend" data-testid="tm-legend">
-        <span className="tm-legend-t">{gameDate(t, series.ticks, series.tf === "i")}</span>
+        <span className="tm-legend-t">{stampLabel(t, isIntraday(series.tf))}</span>
         {bar ? (
           <>
             <span>O <b>{priceText(u, bar.o)}</b></span>
             <span>H <b>{priceText(u, bar.h)}</b></span>
             <span>L <b>{priceText(u, bar.l)}</b></span>
             <span className={up ? "gain" : "loss"}>C <b>{priceText(u, bar.c)}</b></span>
+            {move !== null ? <span className={move >= 0 ? "gain" : "loss"} data-testid="tm-legend-chg">{move >= 0 ? "+" : ""}{(move * 100).toFixed(2)}%</span> : null}
             {bar.v > 0 ? <span>Vol <b>{volText(bar.v)}</b></span> : null}
           </>
         ) : null}
       </p>
+      {chips.length ? (
+        <ul className="tm-chips" data-testid="tm-chips" aria-label="Indicators">
+          {chips.map((c) => (
+            <li key={c.k}><span>{c.label}</span><b>{c.value}</b>
+              <button type="button" aria-label={`Remove ${c.label}`} onClick={() => props.onStudy(c.k)} data-testid={`tm-chip-${c.k}`}>×</button></li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="tm-scales" style={{ right: axisW + 4 }} data-testid="tm-scales">
+        <button type="button" aria-pressed={auto} title="Fit the price scale to the candles" data-testid="tm-auto"
+          onClick={() => { api.current?.chart.priceScale("right", 0).applyOptions({ autoScale: true }); setAuto(true); }}>auto</button>
+        <button type="button" aria-pressed={props.log && !props.pct} title="Logarithmic price scale" data-testid="tm-logsw" onClick={() => props.onScale("log")}>log</button>
+        <button type="button" aria-pressed={props.pct} title="Percent change from the first visible candle" data-testid="tm-pct" onClick={() => props.onScale("pct")}>%</button>
+      </div>
       <div className="tm-plot" ref={host} />
       <canvas className="tm-over" ref={cvs} />
       {editing && note ? (
@@ -526,9 +640,25 @@ function dedupeBars(bars: Bar[]): Bar[] {
   const out: Bar[] = [];
   for (const b of bars) {
     const last = out[out.length - 1];
-    if (last && last.t === b.t && last.k === b.k) out[out.length - 1] = b; else out.push(b);
+    if (last && last.ts === b.ts) out[out.length - 1] = b; else out.push(b);
   }
   return out;
+}
+
+/** The window a range preset shows: from the first candle within its game days of the newest one (all of them for ALL), and
+ *  never fewer than MIN_VIEW_CANDLES when the data has that many. */
+function applyRange(chart: IChartApi, times: number[], range: RangeId): void {
+  const n = times.length;
+  if (!n) return;
+  const days = RANGES.find((r) => r.id === range)?.days ?? 0;
+  let start = 0;
+  if (days > 0) {
+    const from = times[n - 1]! - days * DAY_S;
+    start = times.findIndex((t) => t >= from);
+    if (start < 0) start = n - 1;
+  }
+  start = Math.min(start, Math.max(0, n - MIN_VIEW_CANDLES));
+  chart.timeScale().setVisibleLogicalRange({ from: start - 0.5, to: n - 1 + RIGHT_OFFSET } as LogicalRange);
 }
 
 function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
