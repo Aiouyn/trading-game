@@ -7,7 +7,7 @@ import { DEP } from '../economy/index.ts';
 import { LOT } from '../bonds/index.ts';
 import { fxPairs } from '../abroad/index.ts';
 import { futureUnit } from '../commodities/index.ts';
-import { dayVolume, tradingDay } from './noise.ts';
+import { dayVolume, fnv, normal, tradingDay } from './noise.ts';
 
 export type Unit = 'cents' | 'pts' | 'rate';
 export type Kind = 'share' | 'index' | 'coin' | 'future' | 'bond' | 'fx';
@@ -219,6 +219,28 @@ function preRoll(w: World, st: BarsState): void {
   }
 }
 
+/**
+ * A day nobody lived minute by minute (a world stepped headless, or a day skipped by the interactive clock) gets a deterministic high and low around the simulated open and close.
+ * Shares use the same volume model as minute bars. Other markets keep their sampled volumes.
+ */
+function textured(w: World, s: Series, o: number, h: number, l: number, c: number, volume: number): [number, number, number, number, number] {
+  const shut = (s.kind === 'share' || s.kind === 'future' || s.kind === 'bond' || s.kind === 'index') && !tradingDay(w.day);
+  if (shut) return [c, c, c, c, 0];
+  let hi = Math.max(h, o, c), lo = Math.min(l, o, c);
+  if (s.kind !== 'index') {
+    const sig = sigmaOf(w, s);
+    const seed = fnv(s.id);
+    const whole = s.unit === 'cents';
+    hi = Math.max(hi, Math.max(o, c) * (1 + 0.55 * sig * Math.abs(normal(seed, w.day, 31))));
+    lo = Math.min(lo, Math.min(o, c) * (1 - 0.55 * sig * Math.abs(normal(seed, w.day, 32))));
+    if (whole) { hi = Math.round(hi); lo = Math.max(1, Math.round(lo)); }
+  }
+  const v = s.kind === 'share'
+    ? dayVolume(s.id, w.ledger.issued.get(s.id) ?? 0, c / Math.max(1e-9, o) - 1, false)
+    : volume;
+  return [o, hi, lo, c, v];
+}
+
 export const bars: Module = {
   id: 'bars',
 
@@ -241,8 +263,8 @@ export const bars: Module = {
       const lived = dayProvider ? dayProvider(w, s.id, w.day) : null;
       const own = lived ? undefined : hist.get(s.id);
       if (lived) s.d.push(w.day, 0, lived.o, lived.h, lived.l, lived.c, lived.v);
-      else if (own) s.d.push(w.day, 0, own.o, Math.max(own.h, own.o, own.c), Math.min(own.l, own.o, own.c), own.c, own.v);
-      else s.d.push(w.day, 0, a[0], a[1], a[2], a[3], a[4]);
+      else if (own) s.d.push(w.day, 0, ...textured(w, s, own.o, own.h, own.l, own.c, own.v));
+      else s.d.push(w.day, 0, ...textured(w, s, a[0], a[1], a[2], a[3], a[4]));
       if (s.d.length > (DAILY_KEEP + 90) * W) s.d.splice(0, s.d.length - DAILY_KEEP * W);
       a[5] = 0; a[4] = 0;
       s.vol = 0;

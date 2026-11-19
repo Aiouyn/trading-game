@@ -221,7 +221,7 @@ function drawDay(w: World, s: Store, day: number, o: number, h: number, l: numbe
       const a = sess ? Math.min(SESSION_MIN, i * step) : 0, e = sess ? Math.min(SESSION_MIN, (i + 1) * step) : 0;
       const share = sess ? (CUM[e] - CUM[a]) / SESSION_MIN : step / MIN_PER_DAY;
       const big = Math.min(4, Math.abs(Math.log(cl / Math.max(1e-9, prev))) / Math.max(1e-9, sig));
-      v = Math.round(vol * share * Math.exp(0.3 * normal(sd, day, i + 777) - 0.045) * (0.55 + 0.45 * big));
+      v = Math.round(vol * share * Math.exp(0.3 * normal(sd, day, i + 777) - 0.045) * (0.4 + 0.75 * big));
     }
     const t = day * MIN_PER_DAY + start + i * step;
     const bo = rnd(s, prev), bh = rnd(s, Math.max(hh, prev, cl)), bl = rnd(s, Math.min(ll, prev, cl));
