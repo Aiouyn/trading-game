@@ -3,21 +3,24 @@
 // the newest few are asked for as the game clock runs; every intraday size is cut from them here on the session clock.
 // The daily sizes come from the sim's daily bars the same way. Nothing is priced here.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cut, fetchRaw, isIntraday, merge, tfMinutes, type Bar, type Raw, type Series, type Tf } from "./terminalApi";
+import { cut, fetchRaw, isIntraday, merge, sourceOf, type ApiTf, type Bar, type Raw, type Series, type Tf } from "./terminalApi";
 
-const FULL: Record<string, number> = { "1m": 9000, "1d": 3000, "1w": 1000, "1M": 300 };
-const FRESH: Record<string, number> = { "1m": 90, "1d": 4, "1w": 3, "1M": 3 };
-const KEEP: Record<string, number> = { "1m": 9000, "1d": 5000, "1w": 2000, "1M": 600 };
+// Every size is read from the sim at its own size (a year of hours, a month of five-minute bars), so an indicator has its
+// candles on every timeframe. 3m and 2h are cut from the minutes and the hours.
+const FULL: Record<ApiTf, number> = { "1m": 9000, "5m": 3000, "15m": 1500, "30m": 1000, "1h": 3000, "4h": 1000, "1d": 3000, "1w": 1000, "1M": 300 };
+const FRESH: Record<ApiTf, number> = { "1m": 90, "5m": 30, "15m": 12, "30m": 8, "1h": 6, "4h": 4, "1d": 4, "1w": 3, "1M": 3 };
+const KEEP: Record<ApiTf, number> = { "1m": 9000, "5m": 3000, "15m": 1500, "30m": 1000, "1h": 3000, "4h": 1000, "1d": 5000, "1w": 2000, "1M": 600 };
+const MINUTE_API = new Set<ApiTf>(["1m", "5m", "15m", "30m", "1h", "4h"]);
 /** A minute store this far behind the clock is refetched whole (the clock ran while the page was hidden). */
 const GAP_MIN = 80;
 
-const apiOf = (tf: Tf): "1m" | "1d" | "1w" | "1M" => (isIntraday(tf) ? "1m" : tf === "1D" ? "1d" : tf === "1W" ? "1w" : "1M");
 
-export interface Bars { series: Series | null; today: Bar | null; missing: boolean }
+/** live: the sim's live price when the newest bars were read. The last candle already closes on it. */
+export interface Bars { series: Series | null; today: Bar | null; missing: boolean; live: number | null }
 
 /** `stamp` changes whenever the game clock or a price moves; it is what drives the live refresh. */
 export function useBars(instr: string | null, tf: Tf, stamp: string): Bars {
-  const api = apiOf(tf);
+  const { api, cutBy } = sourceOf(tf);
   const key = instr ? `${instr}|${api}` : "";
   const store = useRef<{ key: string; raw: Raw | null; missing: boolean }>({ key: "", raw: null, missing: false });
   const [rev, setRev] = useState(0);
@@ -32,15 +35,15 @@ export function useBars(instr: string | null, tf: Tf, stamp: string): Bars {
     if (busy.current) { again.current = true; return; }
     busy.current = true;
     try {
-      const [id, a] = k.split("|") as [string, "1m" | "1d" | "1w" | "1M"];
+      const [id, a] = k.split("|") as [string, ApiTf];
       const st = store.current;
       const have = st.key === k && st.raw && st.raw.bars.length > 0;
       let full = !have;
       if (!full) {
         const got = await fetchRaw(id, a, FRESH[a]!);
         if (keyNow.current !== k) return;
-        if (got && st.raw && (a !== "1m" || got.now - st.raw.now <= GAP_MIN)) {
-          st.raw = { meta: got.meta, bars: merge(st.raw.bars, got.bars, KEEP[a]!), now: got.now };
+        if (got && st.raw && (!MINUTE_API.has(a) || got.now - st.raw.now <= GAP_MIN)) {
+          st.raw = { meta: got.meta, bars: merge(st.raw.bars, got.bars, KEEP[a]!), now: got.now, live: got.live ?? st.raw.live };
           setRev((n) => n + 1);
         } else full = true;
       }
@@ -63,9 +66,13 @@ export function useBars(instr: string | null, tf: Tf, stamp: string): Bars {
 
   return useMemo<Bars>(() => {
     const st = store.current;
-    if (!instr || st.key !== key || !st.raw) return { series: null, today: null, missing: !!instr && st.key === key && st.missing };
-    const { meta, bars } = st.raw;
-    const out = isIntraday(tf) ? cut(bars, tfMinutes(tf), meta.session) : bars;
+    if (!instr || st.key !== key || !st.raw) return { series: null, today: null, missing: !!instr && st.key === key && st.missing, live: null };
+    const { meta, bars: raw, live } = st.raw;
+    // One price everywhere: the newest candle closes on the live price the header and the ticket read.
+    let bars = raw;
+    const tail = raw[raw.length - 1];
+    if (live !== null && tail && live !== tail.c) bars = raw.slice(0, -1).concat({ ...tail, c: live, h: Math.max(tail.h, live), l: Math.min(tail.l, live) });
+    const out = cutBy > 0 ? cut(bars, cutBy, meta.session) : bars;
     // today's candle: the day of the newest minute, or the newest daily bar
     let today: Bar | null = null;
     if (bars.length) {
@@ -77,7 +84,7 @@ export function useBars(instr: string | null, tf: Tf, stamp: string): Bars {
         }
       } else today = bars[bars.length - 1]!;
     }
-    return { series: { ...meta, tf, bars: out }, today, missing: false };
+    return { series: { ...meta, tf, bars: out }, today, missing: false, live };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rev, tf, key, instr]);
+  }, [rev, tf, key, instr, cutBy]);
 }

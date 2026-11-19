@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { act, symbolOf, useSimSnap, type ActNote, type SimView } from "@/shell/simSession";
 import { moneyFromCents, presentNote } from "@/components/ui/format";
+import { plainCopy } from "@/components/market/copy";
 import type { ChartLine, Studies } from "@/components/market/TerminalChart";
 import {
   RANGES, TFS, TOOLS, candleRealSeconds, fetchList, instrOf, isIntraday, isTf, loadDrawings, loadPref, priceText, realText, saveDrawings, savePref, volText,
@@ -27,6 +28,11 @@ const RECENT = 30;
 type Side = "buy" | "sell" | "short" | "long" | "flat";
 type OType = "market" | "limit" | "stop";
 interface Stop { id: string; instr: string; side: "buy" | "sell"; qty: number; price: number }
+
+/** How far back a candle size goes: the minutes six game days, the five to thirty-minute sizes a game month, the hours a game year. */
+function reachOf(tf: Tf): string {
+  return tf === "1m" || tf === "3m" ? "6 game days" : tf === "5m" || tf === "15m" || tf === "30m" ? "a game month" : "a game year";
+}
 
 function kindOf(instr: string): "share" | "coin" | "future" | "bond" | "none" {
   if (instr.startsWith("eq:")) return "share";
@@ -113,7 +119,13 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   useEffect(() => { savePref("stops", stops); }, [stops]);
 
   // the saved drawings follow the instrument
-  useEffect(() => { setDrawings(loadDrawings(instr)); setTool("cursor"); setReview(""); setNote(null); setPast([]); setFuture([]); }, [instr]);
+  useEffect(() => {
+    setDrawings(loadDrawings(instr)); setTool("cursor"); setReview(""); setNote(null); setPast([]); setFuture([]);
+    // the ticket starts clean on each instrument: a stop price typed for a share must not wait in a coin's form
+    setQty("1"); setPrice(""); setOtype("market"); setSide(kindOf(instr) === "future" ? "long" : "buy");
+  }, [instr]);
+  const pickSide = useCallback((s: Side) => { setSide(s); setNote(null); setReview(""); }, []);
+  const pickType = useCallback((t: OType) => { setOtype(t); setPrice(""); setNote(null); setReview(""); }, []);
   const lastEdit = useRef(0);
   const drawRef = useRef<Drawing[]>([]);
   drawRef.current = drawings;
@@ -135,16 +147,20 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   const series = bars.series ?? (kept.current?.id === instr ? kept.current.series : null);
   const compare = useBars(studies.cmp && instr !== "index" ? "index" : null, tf, stamp).series;
   const refresh = useCallback(() => { void fetchList().then((l) => { if (l) setList(l.rows); }); }, []);
+  const listAt = useRef(0);
   useEffect(() => {
     refresh();
     const id = window.setInterval(refresh, 4000);
     return () => window.clearInterval(id);
   }, [refresh]);
+  // the list follows the game clock too, so a row never trails the chart by more than a moment
+  useEffect(() => { if (Date.now() - listAt.current > 1200) { listAt.current = Date.now(); refresh(); } }, [stamp, refresh]);
 
   const row = list.find((r) => r.id === instr);
   const kind = kindOf(instr);
   const unitCents = (series?.unit ?? row?.unit ?? "cents") === "cents";
-  const last = series?.bars.length ? series.bars[series.bars.length - 1]!.c : row?.px ?? 0;
+  // One price: the live price the sim gave with the newest candles. The header, the ticket, the watchlist row and the last candle read it.
+  const last = bars.live ?? (row && row.px > 0 ? row.px : null) ?? (series?.bars.length ? series.bars[series.bars.length - 1]!.c : 0);
   const title = series?.name ?? row?.name ?? instr;
   const sym = instr.startsWith("eq:") ? symbolOf(instr) : title;
 
@@ -184,7 +200,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     : kind === "share" ? [{ id: "buy", label: "Buy" }, { id: "sell", label: "Sell" }, { id: "short", label: "Short" }]
     : [{ id: "buy", label: "Buy" }, { id: "sell", label: "Sell" }];
   const types: OType[] = kind === "share" ? ["market", "limit", "stop"] : kind === "coin" ? (MAJORS.has(instr) ? ["market", "limit", "stop"] : ["market", "stop"]) : kind === "bond" ? ["market", "limit"] : ["market"];
-  useEffect(() => { if (!sides.some((s) => s.id === side)) setSide(sides[0]!.id); if (!types.includes(otype)) setOtype("market"); }, [instr]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!sides.some((s) => s.id === side)) setSide(sides[0]!.id); if (!types.includes(otype)) setOtype("market"); }, [instr, side, otype]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = useCallback(async (cmd: unknown, text: string) => {
     setBusy(true); setNote({ ok: true, text: "Sending…" });
@@ -194,15 +210,18 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     void text;
   }, [refresh]);
 
+  // A memecoin buy is "dollars to spend": the sim takes cents, the player types dollars.
+  const spend = kind === "coin" && instr.startsWith("coin:me:") && side === "buy";
   const build = useCallback((): { cmd?: unknown; stop?: Stop; text: string; error?: string } => {
-    const n = Math.floor(Number(qty));
     const flat = kind === "future" && side === "flat";
-    if (!flat && (!Number.isFinite(n) || n < 1)) return { text: "", error: "Name how many, as a whole number." };
+    const typed = Number(qty.replace(/[$,s]/g, ""));
+    const n = spend ? Math.round(typed * 100) : Math.floor(typed);
+    if (!flat && (!Number.isFinite(n) || n < 1)) return { text: "", error: spend ? "Name how many dollars to spend, at least one cent." : "Name how many, as a whole number." };
     const p = Number(price);
     const cents = Math.round(p * 100);
     if (otype !== "market" && (!Number.isFinite(p) || p <= 0)) return { text: "", error: otype === "stop" ? "Name the stop price." : "Name the limit price." };
-    const at = otype === "market" ? "at market" : otype === "limit" ? `limit ${priceText(series?.unit ?? "cents", unitCents ? cents : p)}` : `stop ${priceText(series?.unit ?? "cents", unitCents ? cents : p)}`;
-    const word = `${side} ${flat ? "everything" : n.toLocaleString("en-US")} ${sym}`;
+    const at = otype === "market" ? "at market" : otype === "limit" ? `limit ${dollarText(series?.unit ?? "cents", unitCents ? cents : p)}` : `stop ${dollarText(series?.unit ?? "cents", unitCents ? cents : p)}`;
+    const word = spend ? `buy ${moneyFromCents(n)} of ${sym}` : `${side} ${flat ? "everything" : n.toLocaleString("en-US")} ${sym}`;
     if (otype === "stop") {
       if (side !== "buy" && side !== "sell") return { text: "", error: "A stop buys or sells." };
       return { stop: { id: `s${Date.now().toString(36)}`, instr, side, qty: n, price: cents }, text: `${word}, ${at}` };
@@ -213,7 +232,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     if (kind === "future") return { cmd: { kind: "fut", side, good: instr.slice(4), qty: flat ? 0 : n, months: 0 }, text: word };
     if (kind === "bond") return { cmd: { kind: "bond", side: side === "sell" ? "sell" : "buy", tenor: instr.slice(5), bonds: n, ...lim }, text: `${word}, ${at}` };
     return { text: "", error: "This is a reading, not a market." };
-  }, [kind, side, otype, qty, price, instr, sym, series, unitCents]);
+  }, [kind, side, otype, qty, price, instr, sym, series, unitCents, spend]);
 
   const ask = () => {
     if (!tradable || busy) return;
@@ -233,7 +252,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   useEffect(() => {
     if (!view || !stops.length) return;
     const hit = stops.filter((s) => {
-      const p = livePx(view, s.instr);
+      const p = s.instr === instr && bars.live ? bars.live : livePx(view, s.instr);
       return p !== null && (s.side === "sell" ? p <= s.price : p >= s.price);
     });
     if (!hit.length) return;
@@ -242,7 +261,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
       const cmd = s.instr.startsWith("coin:") ? { kind: "coin", side: s.side, coin: s.instr, qty: s.qty } : { kind: "order", side: s.side, instr: s.instr, qty: s.qty };
       void act(cmd).then((n) => setNote({ ok: n.ok, text: `Stop hit: ${n.text}` }));
     }
-  }, [view, stops]);
+  }, [view, stops, instr, bars.live]);
 
   const moveLine = useCallback((id: string, p: number) => {
     const cents = unitCents ? Math.round(p * 100) : p;
@@ -276,9 +295,9 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === "/") { e.preventDefault(); search.current?.focus(); return; }
     const k = e.key.toLowerCase();
-    if (k === "b") setSide(kind === "future" ? "long" : "buy");
-    else if (k === "s") setSide(kind === "future" ? "short" : "sell");
-    else if (k === "1" || k === "2" || k === "3") { const t = types[Number(k) - 1]; if (t) setOtype(t); }
+    if (k === "b") pickSide(kind === "future" ? "long" : "buy");
+    else if (k === "s") pickSide(kind === "future" ? "short" : "sell");
+    else if (k === "1" || k === "2" || k === "3") { const t = types[Number(k) - 1]; if (t) pickType(t); }
   };
 
   // ---- list ----
@@ -291,19 +310,21 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     else if (tab === "watch") r = r.filter((x) => watch.includes(x.id));
     return r.slice(0, 120);
   }, [list, query, tab, watch, abs, instr]);
+  const rowChg = (r: ListRow) => (r.id === instr && r.prev > 0 && last > 0 ? last / r.prev - 1 : r.chg);
   const star = (id: string) => setWatch((w) => (w.includes(id) ? w.filter((x) => x !== id) : [...w, id]));
 
   if (!view) return <div className="tm"><p className="muted">The desk is not open.</p></div>;
 
   const cash = view.cash;
-  const n = Math.max(0, Math.floor(Number(qty)) || 0);
+  const typedQty = Number(qty.replace(/[$,s]/g, ""));
+  const n = spend ? Math.max(0, Math.round(typedQty * 100) || 0) : Math.max(0, Math.floor(typedQty) || 0);
   const refPx = otype !== "market" && Number(price) > 0 ? (unitCents ? Math.round(Number(price) * 100) : Number(price)) : last;
-  const cost = kind === "share" || kind === "coin" || kind === "bond" ? n * refPx : 0;
+  const cost = spend ? n : kind === "share" || kind === "coin" || kind === "bond" ? n * refPx : 0;
   const held = view.shares.find((h) => h.instr === instr)?.qty ?? view.coins.find((c) => c.id === instr)?.qty ?? 0;
-  const chg = row?.chg ?? 0;
+  const chg = row && row.prev > 0 && last > 0 ? last / row.prev - 1 : row?.chg ?? 0;
   const mine = (view.orders ?? []).filter((o) => o.instr === instr);
   const myStops = stops.filter((s) => s.instr === instr);
-  const asideTitle = kind === "coin" && instr.startsWith("coin:me:") ? (side === "sell" ? "Coins to sell" : "Cents to spend") : kind === "future" || kind === "bond" ? (kind === "bond" ? "Bonds" : "Contracts") : "Quantity";
+  const asideTitle = spend ? "Dollars to spend" : kind === "coin" ? (side === "sell" ? "Coins to sell" : "Coins to buy") : kind === "future" ? "Contracts" : kind === "bond" ? "Bonds" : side === "sell" ? "Shares to sell" : side === "short" ? "Shares to short" : "Shares";
 
   return (
     <div className="tm-wrap"><div className="tm" data-testid="terminal" ref={root} onKeyDown={onKey} data-list={showList ? "on" : "off"}>
@@ -319,7 +340,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
             <li key={r.id} className={r.id === instr ? "on" : ""}>
               <button type="button" className="tm-row" onClick={() => { setInstr(r.id); }} data-testid={`tm-row-${r.id}`}>
                 <span className="tm-row-n"><b>{r.id.startsWith("eq:") ? symbolOf(r.id) : r.name}</b>{r.id.startsWith("eq:") ? <small>{r.name}</small> : <small>{r.kind}</small>}</span>
-                <span className="tm-row-p">{priceText(r.unit, r.px)}<small className={r.chg >= 0 ? "gain" : "loss"}>{r.chg >= 0 ? "+" : ""}{(r.chg * 100).toFixed(1)}%</small></span>
+                <span className="tm-row-p">{priceText(r.unit, r.id === instr && last > 0 ? last : r.px)}<small className={rowChg(r) >= 0 ? "gain" : "loss"}>{rowChg(r) >= 0 ? "+" : ""}{(rowChg(r) * 100).toFixed(1)}%</small></span>
               </button>
               <button type="button" className="tm-star" aria-pressed={watch.includes(r.id)} aria-label={watch.includes(r.id) ? "Stop watching" : "Watch"} onClick={() => star(r.id)}>{watch.includes(r.id) ? "★" : "☆"}</button>
             </li>
@@ -348,7 +369,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
           <div className="tm-seg tm-tfs" role="group" aria-label="Candle size" title={`One candle is ${series ? realText(candleRealSeconds(tf)) : ""} of real time at x1 (a game day is one real hour).`}>
             {TFS.map((t) => <button key={t.id} type="button" aria-pressed={tf === t.id} data-testid={`tf-${t.id}`} onClick={() => setTf(t.id)}>{t.label}</button>)}
           </div>
-          <span className="tm-real muted" data-testid="candle-real">{tf} candle = {realText(candleRealSeconds(tf))} at x1{isIntraday(tf) ? ". Minute candles reach back 6 game days." : ""}</span>
+          <span className="tm-real muted" data-testid="candle-real">{tf} candle = {realText(candleRealSeconds(tf))} at x1{isIntraday(tf) ? `. These candles reach back ${reachOf(tf)}.` : ""}</span>
           <span className="tm-grow" />
           <div className="tm-seg" role="group" aria-label="Range">
             {RANGES.map((r) => <button key={r.id} type="button" aria-pressed={range === r.id} data-testid={`range-${r.id}`} onClick={() => { setRange(r.id); setRangeKey((n) => n + 1); }}>{r.id === "ALL" ? "All" : r.id}</button>)}
@@ -393,21 +414,21 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
 
       <aside className="tm-ticket" aria-label="Order ticket">
         <div className="tm-seg tm-seg-side" role="group" aria-label="Side">
-          {sides.map((s) => <button key={s.id} type="button" aria-pressed={side === s.id} data-side={s.id} onClick={() => setSide(s.id)}>{s.label}</button>)}
+          {sides.map((s) => <button key={s.id} type="button" aria-pressed={side === s.id} data-side={s.id} onClick={() => pickSide(s.id)}>{s.label}</button>)}
         </div>
         {tradable ? (
           <>
             <div className="tm-seg" role="group" aria-label="Order type">
-              {types.map((t) => <button key={t} type="button" aria-pressed={otype === t} onClick={() => setOtype(t)}>{t[0]!.toUpperCase() + t.slice(1)}</button>)}
+              {types.map((t) => <button key={t} type="button" aria-pressed={otype === t} onClick={() => pickType(t)}>{t[0]!.toUpperCase() + t.slice(1)}</button>)}
             </div>
             {!(kind === "future" && side === "flat") ? (
               <label className="tm-field">{asideTitle}
-                <input data-tm="field" inputMode="numeric" value={qty} onChange={(e) => { setQty(e.target.value); setReview(""); }} data-testid="tm-qty" />
+                <input data-tm="field" inputMode={spend ? "decimal" : "numeric"} value={qty} onChange={(e) => { setQty(e.target.value); setReview(""); setNote(null); }} data-testid="tm-qty" />
               </label>
             ) : null}
             {otype !== "market" ? (
               <label className="tm-field">{otype === "stop" ? "Stop price" : "Limit price"}
-                <input data-tm="field" inputMode="decimal" value={price} onChange={(e) => { setPrice(e.target.value); setReview(""); }} data-testid="tm-price-in" />
+                <input data-tm="field" inputMode="decimal" value={price} placeholder={last > 0 ? priceText(series?.unit ?? "cents", last).replace(/,/g, "") : ""} onChange={(e) => { setPrice(e.target.value); setReview(""); setNote(null); }} data-testid="tm-price-in" />
               </label>
             ) : null}
             <p className="tm-est">
@@ -426,16 +447,16 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
               <button type="button" className="tm-go" data-side={side} onClick={ask} disabled={busy} data-testid="tm-place">{side === "flat" ? "Close out" : `${side[0]!.toUpperCase()}${side.slice(1)} ${sym}`}</button>
             )}
           </>
-        ) : <p className="muted tm-nolist">{instr === "fx" ? "The city dealer does not take a player order in foreign currency." : "The index is a reading, not something you can buy. Trade the names in it."}</p>}
-        <p className={note && !note.ok ? "tm-note warn" : "tm-note"} data-testid="tm-note" aria-live="polite">{note ? presentNote(note.text) : " "}</p>
+        ) : <p className="muted tm-nolist">{instr.startsWith("fx") ? "A currency is traded at the Currency desk. Open it with the button below." : instr === "index" ? "The index is a reading, not something you can buy. Trade the names in it." : "This is a reading, not something you can buy."}</p>}
+        <p className={note && !note.ok ? "tm-note warn" : "tm-note"} data-testid="tm-note" aria-live="polite">{note ? presentNote(plainCopy(note.text)) : " "}</p>
         {mine.length || myStops.length ? (
           <ul className="tm-orders" data-testid="tm-orders">
             {mine.map((o) => (
-              <li key={o.id}><span>{o.side} {o.qty.toLocaleString("en-US")}{o.limit ? ` @ ${priceText(series?.unit ?? "cents", o.limit)}` : ""}</span>
+              <li key={o.id}><span>{o.side} {o.qty.toLocaleString("en-US")}{o.limit ? ` @ ${dollarText(series?.unit ?? "cents", o.limit)}` : ""}</span>
                 {o.book === "shares" ? <button type="button" onClick={() => void act({ kind: "cancel", orderId: o.id }).then((n) => { setNote(n); refresh(); })}>Cancel</button> : <small className="muted">rests</small>}</li>
             ))}
             {myStops.map((s) => (
-              <li key={s.id}><span>stop {s.side} {s.qty} @ {priceText(series?.unit ?? "cents", s.price)}</span><button type="button" onClick={() => setStops((all) => all.filter((x) => x.id !== s.id))}>Cancel</button></li>
+              <li key={s.id}><span>stop {s.side} {s.qty} @ {dollarText(series?.unit ?? "cents", s.price)}</span><button type="button" onClick={() => setStops((all) => all.filter((x) => x.id !== s.id))}>Cancel</button></li>
             ))}
           </ul>
         ) : null}
@@ -444,4 +465,9 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
       </aside>
     </div></div>
   );
+}
+
+/** A price in words: dollars get their sign, points and rates stay as they are. */
+function dollarText(unit: Series["unit"], v: number): string {
+  return unit === "cents" ? `$${priceText(unit, v)}` : priceText(unit, v);
 }

@@ -57,6 +57,18 @@ function whole(text: string): number | null {
   return n;
 }
 
+/** Dollars typed by the player, as the cents the sim takes. Null when it is not a sum of at least one cent. */
+function dollarsToCents(text: string): number | null {
+  const x = Number(text.replace(/[$,s]/g, ""));
+  if (!Number.isFinite(x) || x < 0.01) return null;
+  return Math.round(x * 100);
+}
+
+/** A memecoin buy is a sum to spend: the player types dollars. */
+function spendsDollars(view: SimView, desk: Desk, key: string, side: string): boolean {
+  return desk === "coins" && side !== "sell" && coinId(view, key).startsWith("coin:me:");
+}
+
 function limitCents(text: string): number | undefined | null {
   const t = text.trim();
   if (!t) return undefined;
@@ -116,11 +128,12 @@ export default function BrokerApp({ context }: { context?: string }) {
     if (busy || desk === "fx" || !view) return;
     const exchange = desk === "stocks" || desk === "bonds" || desk === "futures" || desk === "options";
     if (exchange && holidayReason(view.date.abs, parseCalendar(view.calendar))) return;
-    const n = whole(qty);
+    const spend = spendsDollars(view, desk, key, side);
+    const n = spend ? dollarsToCents(qty) : whole(qty);
     const lim = limitCents(limit);
     if (lim === null) { setLocal({ ok: false, text: "Name a limit in dollars, or leave it empty for the market." }); return; }
     const flat = desk === "futures" && side === "flat";
-    if (!flat && !n) { setLocal({ ok: false, text: "Name how many. Use a whole number." }); return; }
+    if (!flat && !n) { setLocal({ ok: false, text: spend ? "Name how many dollars to spend, at least one cent." : "Name how many. Use a whole number." }); return; }
     setBusy(true);
     setLocal({ ok: true, text: "Sending…" });
     let sent = false;
@@ -197,7 +210,7 @@ export default function BrokerApp({ context }: { context?: string }) {
             </div>
           ) : null}
           <label className="br-field">{qtyLabel(desk, desk === "coins" ? coinId(view, key) : key, side)}
-            <input className="br-qty" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="br-qty" />
+            <input className="br-qty" inputMode={spendsDollars(view, desk, key, side) ? "decimal" : "numeric"} value={qty} onChange={(e) => setQty(e.target.value)} data-testid="br-qty" />
           </label>
           {desk === "futures" || desk === "options" ? (
             <label className="br-field">Months ahead
@@ -254,8 +267,8 @@ function qtyLabel(desk: Desk, key: string, side: string): string {
   if (desk === "bonds") return "Bonds";
   if (desk === "futures") return "Contracts";
   if (desk === "options") return "Contracts";
-  if (desk === "coins" && key.startsWith("coin:me:")) return side === "sell" ? "Coins to sell" : "Cents to spend";
-  if (desk === "fx") return "Foreign cents";
+  if (desk === "coins" && key.startsWith("coin:me:")) return side === "sell" ? "Coins to sell" : "Dollars to spend";
+  if (desk === "fx") return "Foreign currency";
   return "Qty";
 }
 
@@ -630,7 +643,7 @@ function Preview({ desk, view, picked: key, side, qty, right, months, strike, as
   desk: Desk; view: SimView; picked: string; side: string; qty: string; right: "C" | "P"; months: number; strike: number;
   ask: (id: number, title: string) => void;
 }) {
-  const n = whole(qty) ?? 0;
+  const n = (spendsDollars(view, desk, key, side) ? dollarsToCents(qty) : whole(qty)) ?? 0;
   const lines = previewLines(desk, view, key, side, n, right, months, strike);
   if (!lines.length) return null;
   return (
@@ -703,14 +716,14 @@ function previewLines(desk: Desk, view: SimView, key: string, side: string, qty:
     const coin = view.coinBoard?.find((c) => c.id === id);
     if (!coin || qty < 1) return [];
     if (id.startsWith("coin:me:")) {
-      return [{ label: side === "sell" ? "Coins into the pool" : "Cents into the pool", text: side === "sell" ? `${qty} coins` : dollars(qty), eventId: coin.eventId }];
+      return [{ label: side === "sell" ? "Coins into the pool" : "Dollars into the pool", text: side === "sell" ? `${qty} coins` : `${dollars(qty)}`, eventId: coin.eventId }];
     }
     return [{ label: side === "sell" ? "Proceeds if it prints" : "Cost if it prints", cents: qty * Math.round(coin.px), eventId: coin.eventId }];
   }
   const fx = view.fx;
   if (!fx) return [];
-  const q = qty > 0 ? qty : 100;
-  return [{ label: `Buying ${q} foreign cents would cost`, cents: Math.round(q * fx.ask), eventId: fx.eventId }];
+  const q = qty > 0 ? qty : 1;
+  return [{ label: `Buying ${q.toLocaleString("en-US")} of the foreign currency would cost`, cents: Math.round(q * 100 * fx.ask), eventId: fx.eventId }];
 }
 
 function Orders({ view, ask }: { view: SimView; ask: (id: number, title: string) => void }) {

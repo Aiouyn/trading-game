@@ -1,45 +1,171 @@
 "use client";
 // Portfolio on the simulation: positions, day P&L, loans, the net-worth line, and fills.
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { useShellStore } from "@/components/shell/ShellContext";
-import { dollars, symbolOf, useSimSnap, type SimView } from "@/shell/simSession";
-import { gameDate, moneyFromCents } from "@/components/ui/format";
+import { dollars, explain, symbolOf, useSimSnap, type ExplainLine, type SimView } from "@/shell/simSession";
+import { gameDate, moneyFromCents, presentNote } from "@/components/ui/format";
 import { LiveNum } from "@/components/ui/LiveNum";
-import { Cause, LineChart, NumBtn, tone, useCause } from "@/apps/markets/why";
+import { LineChart, tone } from "@/apps/markets/why";
+import "@/apps/markets/why.css";
 import "./portfolio.css";
 
 const LOT = 16000;
 
+/** One "Why?": a title, the sentences that explain the figure from the books, and the sim's own recorded reasons (an event id). */
+interface Why { title: string; plain: string[]; id?: number }
+type OpenWhy = Why & { lines: ExplainLine[] | null };
+
+function usePfWhy() {
+  const [why, setWhy] = useState<OpenWhy | null>(null);
+  const req = useRef(0);
+  const open = (w: Why) => {
+    const n = ++req.current;
+    const asks = w.id !== undefined && w.id >= 0;
+    setWhy({ ...w, lines: asks ? null : [] });
+    if (asks) void explain(w.id!).then((lines) => { if (req.current === n) setWhy({ ...w, lines }); });
+  };
+  return { why, open, close: () => { req.current++; setWhy(null); } };
+}
+
+/** The explanation sits at the top of the window, where the player is looking, and scrolls into view when it opens. */
+function WhyPanel({ why, onClose }: { why: OpenWhy | null; onClose: () => void }) {
+  const ref = useRef<HTMLElement>(null);
+  const key = why ? `${why.title}|${why.plain.join("|")}` : "";
+  useEffect(() => { if (key) ref.current?.scrollIntoView({ block: "nearest" }); }, [key]);
+  if (!why) return null;
+  const reasons = (why.lines ?? [])
+    .filter((l) => l.kind !== "genesis" && !l.missing)
+    .map((l) => ({ id: l.id, depth: l.depth, text: presentNote(`${l.name ? `${l.name}: ` : ""}${l.msg}`), day: l.day }))
+    .filter((l) => l.text)
+    .slice(0, 5);
+  return (
+    <aside className="cause" data-testid="why-panel" ref={ref}>
+      <div className="cause-bar">
+        <p className="cause-title">{why.title}</p>
+        <button type="button" onClick={onClose}>Close</button>
+      </div>
+      {why.plain.map((t, i) => <p key={i} className="cause-line">{t}</p>)}
+      {why.lines === null ? <p className="muted">Reading what the books recorded…</p> : reasons.length ? (
+        <>
+          <p className="cause-line muted">What the books recorded: each line is the cause of the one above</p>
+          {reasons.map((r) => <p key={r.id} className="cause-line" style={{ paddingLeft: r.depth * 12 }}><span className="label">{gameDate(r.day)}</span> {r.text}</p>)}
+        </>
+      ) : null}
+    </aside>
+  );
+}
+
+/** A figure that opens its explanation. The explanation is built from the books, so it is never empty. */
+function Num({ w, ask, children }: { w: Why; ask: (w: Why) => void; children: ReactNode }) {
+  return (
+    <button type="button" className="num-btn" title="Why?" onClick={() => ask(w)}>
+      {children}
+      <span className="num-why"> Why?</span>
+    </button>
+  );
+}
+
+/** The price the chart shows: the live minute price when the sim sends one, else the books' mark. */
+const liveOf = (view: SimView, instr: string, fallback: number): number => {
+  const v = view.live?.px?.[instr];
+  return typeof v === "number" && v > 0 ? v : fallback;
+};
+const sign = (cents: number): string => (cents > 0 ? "+" : "") + moneyFromCents(cents);
+const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
+
 export default function PortfolioApp() {
   const { view } = useSimSnap();
-  const { cause, ask, close } = useCause();
+  const { why, open: ask, close } = usePfWhy();
   const store = useShellStore();
   if (!view) return <div className="pf" data-testid="portfolio"><p className="muted">The books are not open.</p></div>;
   const open = (ctx: string) => store.getState().open("broker", ctx);
   const shorts = view.quotes.filter((q) => (q.pos ?? 0) < 0 && !view.shares.some((s) => s.instr === q.instr));
-  const book = view.risk?.eventId;
   const points = netPoints(view);
   const up = points.length > 1 ? points[points.length - 1].worth >= points[0].worth : (view.nwChange ?? 0) >= 0;
+  const stat = (id: string) => view.stats?.find((x) => x.id === id)?.eventId;
+
+  const shareRows = view.shares.map((h) => {
+    const q = view.quotes.find((x) => x.instr === h.instr);
+    const px = liveOf(view, h.instr, h.px);
+    const prev = q?.prev ?? h.px;
+    return { h, px, prev, value: px * h.qty, day: (px - prev) * h.qty };
+  });
+  const shortRows = shorts.map((q) => {
+    const px = liveOf(view, q.instr, q.px);
+    return { q, px, value: (q.pos ?? 0) * px, day: (q.pos ?? 0) * (px - q.prev) };
+  });
+  const coinRows = view.coins.map((c) => {
+    const board = view.coinBoard?.find((x) => x.id === c.id);
+    const prev = board?.prev ?? c.px;
+    return { c, value: Math.round(c.px * c.qty), day: Math.round((c.px - prev) * c.qty) };
+  });
+  const bondRows = view.bonds.map((b) => {
+    const px = b.px ?? 0;
+    const prev = b.prev ?? px;
+    const lots = px > 0 ? b.face / LOT : 0;
+    return { b, value: Math.round(lots * px), day: Math.round(lots * (px - prev)) };
+  });
+
+  // Today is one figure with one meaning: net worth now less net worth at the last close, both from the same books.
+  const today = Math.round(view.nwChange ?? 0);
+  const atClose = Math.round(view.netWorth) - today;
+  const sum = (a: { value: number }[]) => a.reduce((t, r) => t + r.value, 0);
+  const moved = Math.round([...shareRows, ...shortRows, ...coinRows, ...bondRows].reduce((t, r) => t + r.day, 0));
+  const loansOwed = view.loans.reduce((t, l) => t + l.owed, 0);
+  const deposits = (view.deposits ?? []).reduce((t, d) => t + d.cents, 0);
+  const homesWorth = view.homes.filter((h) => h.mine).reduce((t, h) => t + h.price - (h.mortgage ?? 0), 0);
+  const listed = Math.round(view.cash + deposits + sum(shareRows) + sum(shortRows) + sum(coinRows) + sum(bondRows) + homesWorth - loansOwed);
+  const rest = Math.round(view.netWorth) - listed;
+  const bits = [`cash ${moneyFromCents(view.cash)}`];
+  if (deposits) bits.push(`deposits ${moneyFromCents(deposits)}`);
+  if (shareRows.length || shortRows.length) bits.push(`shares ${moneyFromCents(sum(shareRows) + sum(shortRows))}`);
+  if (coinRows.length) bits.push(`coins ${moneyFromCents(sum(coinRows))}`);
+  if (bondRows.length) bits.push(`bonds ${moneyFromCents(sum(bondRows))}`);
+  if (homesWorth) bits.push(`property ${moneyFromCents(homesWorth)}`);
+  if (loansOwed) bits.push(`less loans ${moneyFromCents(loansOwed)}`);
+  const worthWhy: Why = {
+    title: "Net worth",
+    plain: [
+      `Your net worth is ${moneyFromCents(view.netWorth)}: everything you own, less everything you owe, at today's prices.`,
+      `${cap(bits.join(", "))}.`,
+      Math.abs(rest) >= 100
+        ? `The remaining ${moneyFromCents(rest)} is what the books count that this list does not show: a business, money owed to you, or the gap between a share's last trade and the price on the chart.`
+        : "Those add up to your net worth.",
+      ...(points.length > 1 && points[0].worth > 0 ? [`You began at ${moneyFromCents(points[0].worth)}, so you are ${view.netWorth >= points[0].worth ? "up" : "down"} ${moneyFromCents(Math.abs(view.netWorth - points[0].worth))} since then.`] : []),
+    ],
+    id: stat("worth"),
+  };
+  const other = today - moved;
+  const todayWhy: Why = {
+    title: "Today",
+    plain: [
+      `Today is your net worth now (${moneyFromCents(view.netWorth)}) less what it was at the last close (${moneyFromCents(atClose)}): ${sign(today)}.`,
+      moved ? `Your holdings moved ${sign(moved)} since the close.` : "Your holdings have not moved since the close.",
+      Math.abs(other) >= 1 ? `The other ${sign(other)} is what you spent, paid in fees or interest, or earned since then.` : "Nothing else changed.",
+    ],
+    id: stat("worth"),
+  };
 
   return (
     <div className="pf sim-pf" data-testid="portfolio">
       <div className="pf-hero">
         <span className="pf-label">Net worth</span>
         <div className="pf-hero-nw">
-          <NumBtn id={book} title="Net worth" ask={ask}><LiveNum value={view.netWorth}><MoneyText amount={dollars(view.netWorth)} ctx="hero" /></LiveNum></NumBtn>
+          <Num w={worthWhy} ask={ask}><LiveNum value={view.netWorth}><MoneyText amount={dollars(view.netWorth)} ctx="hero" /></LiveNum></Num>
         </div>
-        <span className="today">Today <NumBtn id={book} title="Change today" ask={ask}><MoneyText amount={dollars(view.nwChange ?? 0)} ctx="delta" /></NumBtn></span>
+        <span className="today" data-testid="pf-today">Today <Num w={todayWhy} ask={ask}><MoneyText amount={dollars(today)} ctx="delta" /></Num> <small className="muted">since the last close</small></span>
       </div>
+      <WhyPanel why={why} onClose={close} />
       {view.stats?.length ? (
         <ul className="sim-life" data-testid="pf-life">
           {view.stats.map((s) => (
             <li key={s.id} title={s.hover}>
               <span className="label">{s.label}</span>
-              <NumBtn id={s.eventId} title={s.hover || s.label} ask={ask}>
+              <Num w={{ title: cap(s.label), plain: [`${cap(s.label)}: ${s.word}${s.hover && s.hover !== s.word ? ` (${s.hover})` : ""}.`], id: s.eventId }} ask={ask}>
                 <span>{s.word}</span>
                 {s.hover && s.hover !== s.word ? <span className="num">{s.hover}</span> : null}
-              </NumBtn>
+              </Num>
             </li>
           ))}
         </ul>
@@ -54,33 +180,27 @@ export default function PortfolioApp() {
       </section>
       <section>
         <h2 className="label">Shares</h2>
-        {view.shares.length || shorts.length ? (
+        {shareRows.length || shortRows.length ? (
           <>
-            {view.shares.map((h) => {
-              const q = view.quotes.find((x) => x.instr === h.instr);
-              const prev = q?.prev ?? h.px;
-              return (
-                <Pos key={h.instr} testid="pf-share" name={`${symbolOf(h.instr)} · ${h.qty}`} onOpen={() => open(h.instr)}
-                  value={h.px * h.qty} day={(h.px - prev) * h.qty} id={h.eventId} ask={ask} />
-              );
-            })}
-            {shorts.map((q) => (
+            {shareRows.map(({ h, px, prev, value, day }) => (
+              <Pos key={h.instr} testid="pf-share" name={`${symbolOf(h.instr)} · ${h.qty}`} onOpen={() => open(h.instr)}
+                value={value} day={day} id={h.eventId} ask={ask}
+                says={`You hold ${h.qty.toLocaleString("en-US")} ${symbolOf(h.instr)}. The price is ${moneyFromCents(px)} now and was ${moneyFromCents(prev)} at the last close, so the holding is worth ${moneyFromCents(value)} and moved ${sign(Math.round(day))} today.`} />
+            ))}
+            {shortRows.map(({ q, px, value, day }) => (
               <Pos key={q.instr} testid="pf-share" name={`${symbolOf(q.instr)} · ${q.pos}`} onOpen={() => open(q.instr)}
-                value={(q.pos ?? 0) * q.px} day={(q.pos ?? 0) * (q.px - q.prev)} id={q.eventId} ask={ask} />
+                value={value} day={day} id={q.eventId} ask={ask}
+                says={`You are short ${Math.abs(q.pos ?? 0).toLocaleString("en-US")} ${symbolOf(q.instr)}: you owe those shares back. At ${moneyFromCents(px)} that debt is ${moneyFromCents(Math.abs(value))}, and it moved ${sign(Math.round(day))} today.`} />
             ))}
           </>
         ) : <p className="muted">No shares yet. <button type="button" className="pf-link" onClick={() => open("")}>Open the broker</button> and buy one.</p>}
       </section>
       <Block title="Bonds" empty="No bonds." show={view.bonds.length > 0}>
-        {view.bonds.map((b) => {
-          const px = b.px ?? 0;
-          const prev = b.prev ?? px;
-          const lots = px > 0 ? b.face / LOT : 0;
-          return (
-            <Pos key={b.instr} name={`${b.tenor || b.instr} · face ${dollars(b.face)}`} onOpen={() => open(`bond:${b.tenor || b.instr}`)}
-              value={Math.round(lots * px)} day={Math.round(lots * (px - prev))} id={b.eventId} ask={ask} />
-          );
-        })}
+        {bondRows.map(({ b, value, day }) => (
+          <Pos key={b.instr} name={`${b.tenor || b.instr} · face $${dollars(b.face)}`} onOpen={() => open(`bond:${b.tenor || b.instr}`)}
+            value={value} day={day} id={b.eventId} ask={ask}
+            says={`A ${b.tenor || b.instr} bond with $${dollars(b.face)} face value. It is worth ${moneyFromCents(value)} at today's price, and moved ${sign(day)} today.`} />
+        ))}
       </Block>
       <Block title="Futures" empty="" show={view.futures.length > 0}>
         {view.futures.map((f) => {
@@ -90,7 +210,8 @@ export default function PortfolioApp() {
           const day = prev == null ? undefined : f.net * (f.px - prev) * lot;
           return (
             <Pos key={`${f.good}-${f.monthsAhead}`} name={`${board?.name || f.good} · ${f.monthsAhead}m · ${f.net}`} onOpen={() => open(`fut:${f.good}`)}
-              value={f.net * f.px * lot} day={day} id={f.eventId} ask={ask} />
+              value={f.net * f.px * lot} day={day} id={f.eventId} ask={ask}
+              says={`${f.net > 0 ? "Long" : "Short"} ${Math.abs(f.net)} ${board?.name || f.good} contract${Math.abs(f.net) === 1 ? "" : "s"}, ${f.monthsAhead} months out. The position is marked at ${moneyFromCents(f.net * f.px * lot)}${day == null ? "." : `, and moved ${sign(Math.round(day))} today.`}`} />
           );
         })}
       </Block>
@@ -104,14 +225,11 @@ export default function PortfolioApp() {
         })}
       </Block>
       <Block title="Coins" empty="" show={view.coins.length > 0}>
-        {view.coins.map((c) => {
-          const board = view.coinBoard?.find((x) => x.id === c.id);
-          const prev = board?.prev ?? c.px;
-          return (
-            <Pos key={c.id} name={`${c.name} · ${c.qty}`} onOpen={() => open(c.id.startsWith("coin:") ? c.id : `coin:${c.id}`)}
-              value={Math.round(c.px * c.qty)} day={Math.round((c.px - prev) * c.qty)} id={c.eventId} ask={ask} />
-          );
-        })}
+        {coinRows.map(({ c, value, day }) => (
+          <Pos key={c.id} name={`${c.name} · ${c.qty.toLocaleString("en-US")}`} onOpen={() => open(c.id.startsWith("coin:") ? c.id : `coin:${c.id}`)}
+            value={value} day={day} id={c.eventId} ask={ask}
+            says={`You hold ${c.qty.toLocaleString("en-US")} ${c.name}. At the price now that is ${moneyFromCents(value)}, and it moved ${sign(day)} today.`} />
+        ))}
       </Block>
       {view.fx && (view.fx.held || view.fx.bonds) ? (
         <section>
@@ -136,35 +254,35 @@ export default function PortfolioApp() {
       </Block>
       <section>
         <h2 className="label">Loans and margin</h2>
-        <Pos name="Cash" value={view.cash} id={book} ask={ask} />
+        <Pos name="Cash" value={view.cash} id={stat("cash")} ask={ask} says={`Cash in hand: ${moneyFromCents(view.cash)}. It is what you can spend or put into a trade right now.`} />
         {(view.deposits ?? []).map((d) => <Pos key={`${d.bank}-${d.eventId}`} name={d.bank} value={d.cents} id={d.eventId} ask={ask} />)}
         {view.loans.map((l) => (
-          <Pos key={`${l.kind}-${l.eventId}`} name={`${l.kind} · ${(l.rate * 100).toFixed(2)}%`} value={-l.owed} id={l.eventId} ask={ask} />
+          <Pos key={`${l.kind}-${l.eventId}`} name={`${l.kind} · ${(l.rate * 100).toFixed(2)}%`} value={-l.owed} id={l.eventId} ask={ask}
+            says={`You owe ${moneyFromCents(l.owed)} on a ${l.kind} at ${(l.rate * 100).toFixed(2)}% a year. It is taken off your net worth.`} />
         ))}
         {view.risk?.open ? (
           <>
             {view.loans.some((l) => l.kind === "margin") ? null : <Pos name="Margin loan" value={-(view.risk.loanOwed ?? 0)} id={view.risk.eventId} ask={ask} />}
-            <Pos name="Loan limit" value={view.risk.limit ?? 0} id={view.risk.eventId} ask={ask} />
+            <Pos name="Loan limit" value={view.risk.limit ?? 0} id={view.risk.eventId} ask={ask} says={`The bank will lend you up to ${moneyFromCents(view.risk.limit ?? 0)} against your shares. Past it, you are asked to sell.`} />
             <Pos name="Futures margin posted" value={view.risk.futPosted ?? 0} id={view.risk.eventId} ask={ask} />
             <Pos name="Option margin posted" value={view.risk.optPosted ?? 0} id={view.risk.eventId} ask={ask} />
           </>
-        ) : view.marginPosted ? <Pos name="Margin posted" value={view.marginPosted} id={book} ask={ask} /> : <p className="muted">No margin account.</p>}
+        ) : view.marginPosted ? <Pos name="Margin posted" value={view.marginPosted} id={view.risk?.eventId} ask={ask} /> : <p className="muted">No margin account.</p>}
         {(view.stockLoans ?? []).map((s) => (
           <Pos key={`${s.instr}-${s.eventId}`} name={`Stock loan ${symbolOf(s.instr)} · ${s.qty}`} value={-s.face} id={s.eventId} ask={ask} />
         ))}
       </section>
       <section>
         <h2 className="label">Fills</h2>
-        <p className="muted">Why on a fill opens the exchange, the cause kept for that book.</p>
+        <p className="muted">Choose a fill to see what the books recorded about it.</p>
         {(view.fills ?? []).length ? [...(view.fills ?? [])].reverse().map((f, i) => (
           <div key={`${f.day}-${i}`} className="sim-pf-row" data-testid="pf-fill">
-            <button type="button" className="pf-link" onClick={() => ask(f.eventId, f.text)}>
+            <button type="button" className="pf-link" onClick={() => ask({ title: "That trade", plain: [cap(presentNote(f.text))], id: f.eventId })}>
               <span className="label">{gameDate(f.day)} · {f.kind}</span> {f.text}
             </button>
           </div>
         )) : <p className="muted">No fills yet.</p>}
       </section>
-      <Cause cause={cause} onClose={close} />
     </div>
   );
 }
@@ -181,22 +299,27 @@ function Block({ title, empty, show, children }: { title: string; empty: string;
   return <section><h2 className="label">{title}</h2>{children}</section>;
 }
 
-function Pos({ name, value, day, id, ask, onOpen, testid }: {
+function Pos({ name, value, day, id, ask, onOpen, testid, says }: {
   name: string;
   value: number;
   day?: number | null;
   id?: number;
-  ask: (id: number, title: string) => void;
+  ask: (w: Why) => void;
   onOpen?: () => void;
   testid?: string;
+  /** The sentence that explains this line; without one the line says what it is and what it is worth. */
+  says?: string;
 }) {
+  const worth = Math.round(value);
+  const plain = [says ?? `${name}: ${moneyFromCents(worth)}.`];
+  if (day != null && !says) plain.push(`It moved ${sign(Math.round(day))} today.`);
   return (
     <div className="sim-pf-row" data-testid={testid}>
       {onOpen ? <button type="button" className="pf-link" onClick={onOpen}>{name}</button> : <span>{name}</span>}
       <span className="pf-nums">
-        <NumBtn id={id} title={name} ask={ask}><MoneyText amount={dollars(Math.round(value))} ctx="table" /></NumBtn>
+        <Num w={{ title: name, plain, id }} ask={ask}><MoneyText amount={dollars(worth)} ctx="table" /></Num>
         {day == null ? null : (
-          <NumBtn id={id} title={`${name} today`} ask={ask}><span className={tone(day)}> <MoneyText amount={dollars(Math.round(day))} ctx="delta" /></span></NumBtn>
+          <Num w={{ title: `${name}, today`, plain, id }} ask={ask}><span className={tone(day)}> <MoneyText amount={dollars(Math.round(day))} ctx="delta" /></span></Num>
         )}
       </span>
     </div>

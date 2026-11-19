@@ -9,7 +9,7 @@ import {
 } from "lightweight-charts";
 import { bollinger, ema, rsi, sma } from "./movingAverages";
 import {
-  DAY_S, FIB, MIN_VIEW_CANDLES, RANGES, axisLabel, isIntraday, macd, priceText, shown, stampLabel, volText, vwapOf,
+  DAY_S, FIB, MIN_VIEW_CANDLES, RANGES, axisLabel, axisText, isIntraday, macd, minMoveFor, priceText, shown, sigText, stampLabel, volText, vwapOf,
   type Bar, type Drawing, type Pt, type RangeId, type Series, type Tool,
 } from "./terminalApi";
 
@@ -174,12 +174,18 @@ export default function TerminalChart(props: Props) {
     const u = series.unit;
     const bars = series.bars;
     const tv = (b: Bar) => b.ts as UTCTimestamp;
-    const fmt = (p: number) => priceText(u === "cents" ? "pts" : u, p);
-    const pf = { priceFormat: { type: "custom" as const, formatter: fmt, minMove: u === "rate" ? 0.0001 : 0.01 } };
+    // Axis labels: the decimals follow what the axis shows now (a coin at a fraction of a cent, an index in points, a share in dollars),
+    // and a pane with its own scale (RSI, MACD) reads its own range. Never "0.000000", never "-0.000000".
+    const spanOf = (s: ISeriesApi<"Candlestick" | "Line" | "Histogram">): number => { const r = s.priceScale().getVisibleRange(); return r ? Math.abs(r.to - r.from) : 0; };
+    const floorOf = u === "rate" ? 4 : 2;
+    let lowest = Infinity;
+    for (const b of bars) { const l = shown(u, b.l); if (l > 0 && l < lowest) lowest = l; }
+    // a price is never negative: the empty margin the scale keeps under a low-priced coin carries no label
+    const fmt = (p: number) => (props.pct ? `${axisText(p, spanOf(candle), 2)}%` : p < 0 && lowest > 0 && Number.isFinite(lowest) ? "" : axisText(p, spanOf(candle), floorOf));
+    const pf = { priceFormat: { type: "custom" as const, formatter: fmt, minMove: u === "rate" ? 0.0001 : minMoveFor(lowest) } };
     candle.applyOptions({ ...pf, visible: props.look === "candles" });
     closeLine.applyOptions({ ...pf, visible: props.look === "line" });
     chart.priceScale("right", 0).applyOptions({ mode: props.pct ? PriceScaleMode.Percentage : props.log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal, scaleMargins: { top: 0.08, bottom: studies.vol ? 0.24 : 0.08 } });
-    chart.applyOptions({ localization: { priceFormatter: (v: number) => (props.pct ? `${v.toFixed(2)}%` : fmt(v)) } });
 
     const range = chart.timeScale().getVisibleLogicalRange();
     const same = prevShape.current.id === series.id && prevShape.current.tf === series.tf;
@@ -194,7 +200,7 @@ export default function TerminalChart(props: Props) {
         const r = ohlc[i]!, b = bars[i];
         candle.update(r);
         closeLine.update({ time: r.time, value: r.close });
-        if (vs && b && b.v > 0) vs.update({ time: r.time, value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, 0.35) });
+        if (vs && b && b.v > 0) vs.update({ time: r.time, value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, 0.55) });
       }
       times.current = ohlc.map((r) => r.time as number);
       prevShape.current = { id: series.id, tf: series.tf, n: ohlc.length, first: times.current[0] ?? 0 };
@@ -220,10 +226,11 @@ export default function TerminalChart(props: Props) {
 
     // volume bars under the price
     if (studies.vol && bars.some((b) => b.v > 0)) {
-      const vol = dedupe(bars.map((b) => ({ time: tv(b), value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, 0.35) })));
+      // a short band at the foot of the chart, scaled to the bars in view, each bar coloured by its candle's direction
+      const vol = dedupe(bars.filter((b) => b.v > 0).map((b) => ({ time: tv(b), value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, 0.55) })));
       setLayer("vol", () => {
         const s = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false }, 0);
-        chart.priceScale("vol", 0).applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+        chart.priceScale("vol", 0).applyOptions({ scaleMargins: { top: 0.84, bottom: 0 }, visible: false });
         return s;
       }, vol);
     } else off("vol");
@@ -245,7 +252,7 @@ export default function TerminalChart(props: Props) {
 
     if (a.rsiPane > 0) {
       const r = rsi(closes, 14);
-      line("rsi", r, tk.steel, a.rsiPane, LineStyle.Solid, 1, { priceFormat: { type: "price", precision: 1, minMove: 0.1 } });
+      line("rsi", r, tk.steel, a.rsiPane, LineStyle.Solid, 1, { priceFormat: { type: "custom", formatter: (v: number) => axisText(v, 0, 0), minMove: 0.1 } });
       const s = layers.get("rsi") as ISeriesApi<"Line"> | undefined;
       if (s && !layers.has("rsi70")) {
         layers.set("rsi70", s);
@@ -255,24 +262,27 @@ export default function TerminalChart(props: Props) {
     } else { off("rsi"); layers.delete("rsi70"); }
     if (a.macdPane > 0) {
       const m = macd(closes);
-      line("macd", m.line, tk.info, a.macdPane);
-      line("macds", m.signal, tk.warn, a.macdPane);
+      // the MACD pane reads its own range: a hundredth of a cent on a coin, a few cents on a share
+      const macdFmt = (v: number) => { const ms = layers.get("macd"); const r = ms ? ms.priceScale().getVisibleRange() : null; return axisText(v, r ? Math.abs(r.to - r.from) : 0, 0); };
+      const macdOpts = { priceFormat: { type: "custom" as const, formatter: macdFmt, minMove: 1e-8 } };
+      line("macd", m.line, tk.info, a.macdPane, LineStyle.Solid, 1, macdOpts);
+      line("macds", m.signal, tk.warn, a.macdPane, LineStyle.Solid, 1, macdOpts);
       const hd = m.hist.flatMap((v, i) => (v === null ? [] : [{ time: ohlc[i]!.time, value: v, color: alpha(v >= 0 ? tk.up : tk.down, 0.5) }]));
-      setLayer("macdh", () => chart.addSeries(HistogramSeries, { lastValueVisible: false, priceLineVisible: false }, a.macdPane), hd);
+      setLayer("macdh", () => chart.addSeries(HistogramSeries, { lastValueVisible: false, priceLineVisible: false, ...macdOpts }, a.macdPane), hd);
     } else { off("macd"); off("macds"); off("macdh"); }
 
     const panes = chart.panes();
     panes.forEach((p, i) => p.setStretchFactor(i === 0 ? 4 : 1));
     // the legend rows: each active indicator and its newest value
     const last = (v: (number | null)[]) => { for (let i = v.length - 1; i >= 0; i--) if (v[i] !== null && Number.isFinite(v[i]!)) return v[i]!; return null; };
-    const num = (v: number | null) => (v === null ? "–" : priceText("pts", v));
+    const num = (v: number | null) => (v === null ? "–" : sigText(v));
     const rows: { k: keyof Studies; label: string; value: string }[] = [];
     if (studies.sma) rows.push({ k: "sma", label: "SMA 20 / 50", value: `${num(last(sma(closes, 20)))} / ${num(last(sma(closes, 50)))}` });
     if (studies.ema) rows.push({ k: "ema", label: "EMA 21", value: num(last(ema(closes, 21))) });
     if (studies.bb) { const [bu, bl] = bollinger(closes, 20); rows.push({ k: "bb", label: "Bollinger", value: `${num(last(bu))} / ${num(last(bl))}` }); }
     if (studies.vwap) rows.push({ k: "vwap", label: "VWAP", value: num(last(vwapOf(dedupeBars(bars), isIntraday(series.tf)).map((v) => (v === null ? null : shown(u, v))))) });
     if (studies.rsi) { const r = last(rsi(closes, 14)); rows.push({ k: "rsi", label: "RSI 14", value: r === null ? "–" : r.toFixed(1) }); }
-    if (studies.macd) { const m = last(macd(closes).line); rows.push({ k: "macd", label: "MACD", value: m === null ? "–" : m.toFixed(4) }); }
+    if (studies.macd) { const m = last(macd(closes).line); rows.push({ k: "macd", label: "MACD", value: m === null ? "–" : sigText(m) }); }
     setChips((old) => (old.length === rows.length && old.every((o, i) => o.k === rows[i]!.k && o.value === rows[i]!.value) ? old : rows));
     // a new instrument or size opens on the auto scale, with the range preset's window; the same one keeps the player's view
     const n = ohlc.length;

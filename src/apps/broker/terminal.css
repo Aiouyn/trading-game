@@ -22,7 +22,8 @@
 .tm-row-n, .tm-row-p { display: flex; flex-direction: column; min-width: 0; }
 .tm-row-n b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tm-row-n small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tm-row-p { align-items: flex-end; font-family: var(--font-num); }
+.tm-row-n { flex: 1 1 auto; }
+.tm-row-p { align-items: flex-end; flex: none; font-family: var(--font-num); }
 .tm-star { background: transparent; border: 0; color: var(--fg-faint); padding: 0 var(--sp-4); }
 .tm-star[aria-pressed="true"] { color: var(--acc); }
 .tm-none { padding: var(--sp-8); }

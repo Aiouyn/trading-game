@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { act, useSimSnap, type ActNote } from "@/shell/simSession";
 import { Because, Field, Fig, Note, centsOf, moneyTitle, usePanel, usePhone, useWhy } from "@/apps/businesses/sheet";
 import "@/apps/businesses/sheet.css";
+import { plainCopy } from "@/components/market/copy";
 import { creditSentence, edgeOf, haircutOf } from "@/apps/research/edge";
 import "@/apps/research/research.css";
 
@@ -69,7 +70,7 @@ export default function BankApp() {
   const marginWord = credit ? (credit.room > 0 ? "Open" : credit.owed > 0 ? "Full" : "No collateral") : margin?.word ?? "No collateral";
   return (
     <div className="qa" data-phone={phone ? "1" : "0"} data-testid="bank">
-      <Note note={note} testId="bank-note" />
+      <Note note={note ? { ...note, text: plainCopy(note.text) } : null} testId="bank-note" />
       <h2 className="qa-title">Your account</h2>
       {book ? (
         <div className="qa-kv">
@@ -138,7 +139,7 @@ export default function BankApp() {
           </div>
         ))}
       </div>
-      <Because id={why.id} lines={why.lines} />
+      <Because id={why.id} lines={why.lines ? why.lines.map((l) => ({ ...l, msg: plainCopy(l.msg) })) : null} />
     </div>
   );
 }

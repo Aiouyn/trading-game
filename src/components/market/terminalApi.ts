@@ -62,6 +62,30 @@ export function priceText(unit: Unit, v: number): string {
   return x.toFixed(6);
 }
 
+/** A number on an axis or in a legend: the decimals follow the span the axis shows (a 0.1 span gets two, a 40 span none past the
+ *  floor), the thousands are grouped, and a value that rounds to nothing is never "-0.00". */
+export function axisText(v: number, span: number, floor = 0): string {
+  if (!Number.isFinite(v)) return "";
+  const raw = Number.isFinite(span) && span > 0 ? span / 6 : 0;
+  const d = Math.min(8, Math.max(floor, raw > 0 ? -Math.floor(Math.log10(raw)) : floor));
+  const s = Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }) : v.toFixed(d);
+  return /^-[0.,]*$/.test(s) ? s.slice(1) : s;
+}
+
+/** The smallest price step a series of this size can show: coins at a fraction of a cent need a finer step than shares. */
+export function minMoveFor(lowest: number): number {
+  if (!(lowest > 0)) return 0.01;
+  return Math.min(0.01, 10 ** (Math.floor(Math.log10(lowest)) - 1));
+}
+
+/** A value shown with four significant figures, for indicators whose size is not known in advance. */
+export function sigText(v: number): string {
+  if (!Number.isFinite(v)) return "–";
+  const a = Math.abs(v);
+  const s = a === 0 ? "0" : a >= 100 ? v.toFixed(2) : v.toPrecision(4);
+  return /^-0(.0*)?$/.test(s) ? s.slice(1) : s;
+}
+
 export function volText(v: number): string {
   if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
   if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
@@ -97,28 +121,48 @@ export function axisLabel(ts: number, tf: Tf, session: boolean): string {
     const first = tfMinutes(tf) > 0 && m < (session ? OPEN_MIN : 0) + tfMinutes(tf);
     return first ? dayLabel(day).slice(4) : hhmm(m);
   }
-  if (doy === 0) return day >= 0 ? `Y${Math.floor(day / 360) + 1}` : "Jan";
+  if (doy === 0) return day >= 0 ? `Year ${Math.floor(day / 360) + 1}` : "Jan";
   return doy % 30 === 0 ? MON[Math.floor(doy / 30)]! : `${(doy % 30) + 1} ${MON[Math.floor(doy / 30)]}`;
 }
 
 // ---- fetching and cutting ----
 
-interface Wire { id: string; name: string; kind: Kind; unit: Unit; tf: string; tt?: "min" | "day"; session?: boolean; since: number; day: number; now?: number; bars: { t: number; k?: number; o: number; h: number; l: number; c: number; v: number }[] }
+interface Wire { live?: number | null; id: string; name: string; kind: Kind; unit: Unit; tf: string; tt?: "min" | "day"; session?: boolean; since: number; day: number; now?: number; bars: { t: number; k?: number; o: number; h: number; l: number; c: number; v: number }[] }
 
-export interface Raw { meta: Omit<Series, "bars" | "tf">; bars: Bar[]; now: number }
+/** live: the sim's live price for the instrument when these bars were read, in the sim's own unit. */
+export interface Raw { meta: Omit<Series, "bars" | "tf">; bars: Bar[]; now: number; live: number | null }
 
-/** Bars at the sim's own sizes: "1m" (minute bars, t in game minutes), "1d", "1w" or "1M" (t is the day). */
-export async function fetchRaw(instr: string, api: "1m" | "1d" | "1w" | "1M", limit: number): Promise<Raw | null> {
+/** The sim's own sizes: minute bars to four-hour bars (t in game minutes) and daily to monthly bars (t is the day). */
+export type ApiTf = "1m" | "5m" | "15m" | "30m" | "1h" | "4h" | "1d" | "1w" | "1M";
+
+/** Which of the sim's sizes a candle size is read from, and how many of its minutes to cut it to (0: as it comes).
+ *  3m comes from the minutes and 2h from the hours, which the sim does not keep as sizes of their own. */
+export function sourceOf(tf: Tf): { api: ApiTf; cutBy: number } {
+  switch (tf) {
+    case "1m": return { api: "1m", cutBy: 0 };
+    case "3m": return { api: "1m", cutBy: 3 };
+    case "5m": case "15m": case "30m": case "1h": case "4h": return { api: tf, cutBy: 0 };
+    case "2h": return { api: "1h", cutBy: 120 };
+    case "1D": return { api: "1d", cutBy: 0 };
+    case "1W": return { api: "1w", cutBy: 0 };
+    case "1M": return { api: "1M", cutBy: 0 };
+  }
+}
+
+/** Bars at one of the sim's sizes. */
+export async function fetchRaw(instr: string, api: ApiTf, limit: number): Promise<Raw | null> {
   try {
     const res = await fetch(`/api/sim/history?instr=${encodeURIComponent(instr)}&tf=${api}&limit=${limit}`, { cache: "no-store" });
     if (!res.ok) return null;
     const w = await res.json() as Wire;
     if (!Array.isArray(w.bars)) return null;
     const mul = w.tt === "min" ? 60 : DAY_S;
+    void api;
     return {
       meta: { id: w.id, name: w.name, kind: w.kind, unit: w.unit, session: !!w.session, since: w.since, day: w.day },
       bars: w.bars.map((b) => ({ ts: b.t * mul, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v })),
       now: typeof w.now === "number" ? w.now : w.day * 1440,
+      live: typeof w.live === "number" && w.live > 0 ? w.live : null,
     };
   } catch { return null; }
 }
