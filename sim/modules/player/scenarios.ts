@@ -19,7 +19,7 @@ import { challengeOf } from '../history/commands.ts';
 import { playerChronicle } from '../history/story.ts';
 import { openWorld } from '../../run.ts';
 import { repWord } from './life.ts';
-import { ARRIVAL_ID, arrivalOpening, arrive, splitName } from './arrival.ts';
+import { ARRIVAL_DAY, ARRIVAL_ID, ARRIVAL_MIN, arrivalOpening, arrive, splitName } from './arrival.ts';
 import { PLAYER, ensurePlayer, noteScript, onPlayerDay, playerIndex, rememberJob, soleSeat, view, type ScriptNote } from './index.ts';
 
 type Goal =
@@ -821,7 +821,7 @@ function closingOf(w: World, sc: ScenarioRun, result: 'win' | 'loss'): string {
   }
 }
 
-function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficulty?: number; seed?: string; name?: string; age?: number }): void {
+function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficulty?: number; seed?: string; name?: string; age?: number; past?: string; origin?: string }): void {
   const s = econ(w), P = s.P;
   let i = ensurePlayer(w);
   const st = soleSeat(w);
@@ -873,7 +873,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
     if (kin === 'child' && spouse >= 0) P.add(w, w.day, i, spouse);
   }
   const contacts = 2 + (mix(seed, def.id, 'contacts') % 7);
-  if (arrival) arrive(w, i, cause, splitName(opts?.name ?? ''));
+  if (arrival) arrive(w, i, cause, splitName(opts?.name ?? ''), { past: opts?.past, origin: opts?.origin });
   else seatPerson(w, i, contacts);
   const pid = P.id(i);
   for (const [key, qty] of Object.entries(def.holdings)) {
@@ -955,7 +955,7 @@ function applyStart(w: World, def: ScenarioDef, opts?: { cash?: number; difficul
   rememberJob(w);
 }
 
-export function openScenario(id: string, opts?: { cash?: number; difficulty?: number; seed?: string; name?: string; age?: number }): World {
+export function openScenario(id: string, opts?: { cash?: number; difficulty?: number; seed?: string; name?: string; age?: number; past?: string; origin?: string }): World {
   const def = catalog.find((s) => s.id === id);
   if (!def) throw new Error(`no scenario ${id}. ${catalog.map((s) => s.id).join(', ')}`);
   const saved = worldDir(def.world);
@@ -963,7 +963,10 @@ export function openScenario(id: string, opts?: { cash?: number; difficulty?: nu
   const w = openWorld(seed, new Set(), true);
   if (saved) applySnapshot(w, saved);
   else if (def.years > 0) simulate(w, def.years, 1, false);
-  applyStart(w, def, { cash: opts?.cash, difficulty: opts?.difficulty, seed, name: opts?.name, age: opts?.age });
+  // A new life starts on an ordinary Monday morning with the city already at work: run the first two weeks before the boat docks.
+  if (def.id === ARRIVAL_ID && !saved) { for (let d = 0; d < ARRIVAL_DAY; d++) w.step(); w.ledger.day = w.events.day = w.day; }
+  applyStart(w, def, { cash: opts?.cash, difficulty: opts?.difficulty, seed, name: opts?.name, age: opts?.age, past: opts?.past, origin: opts?.origin });
+  if (def.id === ARRIVAL_ID) w.state.clock = { min: ARRIVAL_MIN, tickDone: 0 };
   const note: ScriptNote = {
     id: def.id,
     seed,

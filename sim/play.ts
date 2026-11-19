@@ -190,10 +190,17 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (!name) return { error: 'usage: enrol COURSE (courses lists them)' };
     return { kind: 'out', op: 'enrol', arg: name };
   }
-  if (head === 'approach' || head === 'business' || head === 'offer') {
+  if (head === 'leave') return { kind: 'out', op: 'leave' };
+  if (head === 'approach' || head === 'talk' || head === 'business' || head === 'offer') {
     const n = Number(t[1]);
-    if (!Number.isSafeInteger(n) || n < 1) return { error: `usage: ${head} N` };
-    return { kind: 'out', op: head, n };
+    if (!Number.isSafeInteger(n) || n < 1) return { error: head === 'talk' ? 'usage: talk N [work|home|money|city|inside]' : `usage: ${head} N` };
+    return { kind: 'out', op: head, n, arg: t[2] };
+  }
+  if (head === 'message' || head === 'write') {
+    const who = Number(t[1]);
+    const text = t.slice(2).join(' ').trim();
+    if (!Number.isSafeInteger(who) || who < 0 || !text) return { error: 'usage: message PERSON a few words' };
+    return { kind: 'message', who, text };
   }
   if (head === 'favour' || head === 'favor') {
     const n = Number(t[1]);

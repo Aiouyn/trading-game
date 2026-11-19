@@ -10,6 +10,7 @@ import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { BANK, DEP, GOV, pay, payS, type EconState } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
 import { playerTrading } from '../markets/index.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 const PROP = 'prop:value';
 const LAND = 'land';
@@ -383,7 +384,7 @@ function openLoan(w: World, person: number, parcel: number, amount: number, caus
   const spread = 0.018;
   st.lnParcel[k] = parcel; st.lnPay[k] = person; st.lnBank[k] = pick.idx; st.lnSpread[k] = spread;
   st.lnMiss[k] = 0; st.lnOpen[k] = 1; st.lnAge[k] = 0; st.lnTerm[k] = TERM;
-  const ev = w.events.emit('property.mortgage', `${P.name(person)} borrows ${(a / 100).toFixed(0)} at ${((s.policyRate + spread) * 100).toFixed(1)}% against a ${NBHDS[st.nb[parcel]].name} home`, [cause, s.rateEv], P.id(person));
+  const ev = w.events.emit('property.mortgage', `${P.name(person)} borrows ${moneyText(a)} at ${((s.policyRate + spread) * 100).toFixed(1)}% against a ${NBHDS[st.nb[parcel]].name} home`, [cause, s.rateEv], P.id(person));
   P.lastEv[person] = ev;
   return k;
 }
@@ -736,7 +737,7 @@ function sell(w: World, p: number, bk: number, bid: number, price: number, cause
   st.lastPx[p] = price;
   noteComp(st, st.nb[p], price / quality(st, p));
   st.mSale++;
-  const ev = w.events.emit('property.sale', `${whoName(w, bk, bid)} pays ${(price / 100).toFixed(0)} for a ${NBHDS[st.nb[p]].name} ${st.kind[p] === COMM ? 'building' : 'home'}`, [st.priceEv, s.macroEv], buyer);
+  const ev = w.events.emit('property.sale', `${whoName(w, bk, bid)} pays ${moneyText(price)} for a ${NBHDS[st.nb[p]].name} ${st.kind[p] === COMM ? 'building' : 'home'}`, [st.priceEv, s.macroEv], buyer);
   st.lastSaleEv = ev;
   if (bk === PERSON) P.lastEv[bid] = ev;
   return true;
@@ -746,7 +747,7 @@ function repo(w: World, k: number, cause: number): void {
   if (!st.lnOpen[k]) return;
   const p = st.lnParcel[k];
   const who = st.lnPay[k];
-  const ev = w.events.emit('property.repossess', `${who >= 0 && who < P.n ? P.name(who) : 'a borrower'} loses a ${p >= 0 ? NBHDS[st.nb[p]].name : ''} home, still owing ${(owed(w, k) / 100).toFixed(0)}`, [cause, st.priceEv], who >= 0 && who < P.n ? P.id(who) : undefined);
+  const ev = w.events.emit('property.repossess', `${who >= 0 && who < P.n ? P.name(who) : 'a borrower'} loses a ${p >= 0 ? NBHDS[st.nb[p]].name : ''} home, still owing ${moneyText(owed(w, k))}`, [cause, st.priceEv], who >= 0 && who < P.n ? P.id(who) : undefined);
   if (who >= 0 && who < P.n && P.alive(who)) { thought(w, s, who, 240, 'losing a home', ev); P.lastEv[who] = ev; }
   st.yRepo++; st.mRepo++;
   if (p < 0 || p >= st.n) { writeoff(w, k, st.bankIds[st.lnBank[k]] || BANK, ev); closeLoan(st, k); return; }
@@ -1384,7 +1385,7 @@ export function bidHome(w: World, person: number, parcel: number, cents: number,
   // sell() moves a renter into a vacant house. Buying is not moving: put them back so the house can be let.
   if (before >= 0 && before !== parcel && st.live[person] === parcel && st.ten[parcel] === person) shiftAll(w, parcel, before);
   const nb = NBHDS[st.nb[parcel]]?.name ?? 'a';
-  return { text: `bought a ${nb} home (#${parcel}) for ${(price / 100).toFixed(0)}` };
+  return { text: `bought a ${nb} home (#${parcel}) for ${moneyText(price)}` };
 }
 
 export function sellHome(w: World, person: number, parcel: number, cause: number): { why?: string; text?: string } {
@@ -1395,11 +1396,11 @@ export function sellHome(w: World, person: number, parcel: number, cause: number
   if (person < st.live.length && st.live[person] === parcel) return { why: 'move out before you sell it' };
   const price = askOf(st, parcel);
   if (st.tenK[parcel] === PERSON && st.ten[parcel] !== person && st.ten[parcel] >= 0) {
-    if (sell(w, parcel, PERSON, st.ten[parcel], price, cause, false)) return { text: `sold #${parcel} for ${(price / 100).toFixed(0)}` };
+    if (sell(w, parcel, PERSON, st.ten[parcel], price, cause, false)) return { text: `sold #${parcel} for ${moneyText(price)}` };
   }
   const buyer = findCashBuyer(w, price, person);
   if (!buyer || !sell(w, parcel, buyer.k, buyer.id, price, cause, true)) return { why: 'no buyer at that price' };
-  return { text: `sold #${parcel} for ${(price / 100).toFixed(0)}` };
+  return { text: `sold #${parcel} for ${moneyText(price)}` };
 }
 
 function takeTenant(w: World, parcel: number, rent: number, owner: number): number {
@@ -1435,10 +1436,10 @@ export function letHome(w: World, person: number, parcel: number, cents: number,
   st.rent[parcel] = rent;
   let tenant = st.tenK[parcel] === PERSON && st.ten[parcel] >= 0 && st.ten[parcel] !== person ? st.ten[parcel] : -1;
   if (tenant < 0 && st.tenK[parcel] === 0) tenant = takeTenant(w, parcel, rent, person);
-  const ev = w.events.emit('property.let', `${P.name(person)} lets a ${NBHDS[st.nb[parcel]]?.name ?? ''} home for ${(rent / 100).toFixed(0)} a month`, [cause], P.id(person));
+  const ev = w.events.emit('property.let', `${P.name(person)} lets a ${NBHDS[st.nb[parcel]]?.name ?? ''} home for ${moneyText(rent)} a month`, [cause], P.id(person));
   P.lastEv[person] = ev;
-  if (tenant < 0) return { text: `rent on #${parcel} is ${(rent / 100).toFixed(0)} a month, no tenant yet` };
-  return { text: `${P.name(tenant)} rents #${parcel} for ${(rent / 100).toFixed(0)} a month` };
+  if (tenant < 0) return { text: `rent on #${parcel} is ${moneyText(rent)} a month, no tenant yet` };
+  return { text: `${P.name(tenant)} rents #${parcel} for ${moneyText(rent)} a month` };
 }
 
 export function moveHome(w: World, person: number, parcel: number): { why?: string; text?: string } {
@@ -1471,7 +1472,7 @@ export function mortgageHome(w: World, person: number, parcel: number, cents: nu
   if (k < 0) return { why: 'the bank refused' };
   st.mtg[parcel] = k;
   const got = Math.floor(w.ledger.issued.get('pm_' + k) ?? 0);
-  return { text: `borrowed ${(got / 100).toFixed(0)} against #${parcel}` };
+  return { text: `borrowed ${moneyText(got)} against #${parcel}` };
 }
 
 /** Neighbourhoods in file order: name, distance from the port, desirability, and the index price. */

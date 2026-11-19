@@ -20,7 +20,13 @@ import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
 import { careerCard } from './modules/careers/index.ts';
+import { openingRows } from './modules/careers/jobs.ts';
 import { cityBook } from './modules/venues/world.ts';
+import { circleLinks } from './modules/circle/network.ts';
+import { profileOf } from './modules/venues/talk.ts';
+import { roleTitle } from './modules/careers/jobs.ts';
+import { cashDay } from './modules/player/cashbook.ts';
+import { clockText, dateText } from './modules/player/gamedate.ts';
 import { seatId } from './modules/venues/world.ts';
 import { courseBoard } from './modules/courses/index.ts';
 import { bookLevels, saleProceeds, saleValue } from './modules/markets/index.ts';
@@ -33,6 +39,7 @@ import { districts, homeBoard, lateRent, parcelView } from './modules/property/i
 import { circleBoard, circlePerson } from './modules/circle/index.ts';
 import { calendarOf, marketsOpen, societyView } from './modules/society/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
+import { findOrigin, findPast, lifeOf, ORIGINS, PASTS } from './modules/player/arrival.ts';
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
@@ -465,6 +472,13 @@ function commandOf(body: unknown): Command | string {
       return { kind: 'introduce', slot };
     }
     case 'mail': return { kind: 'mail' };
+    case 'message': {
+      const who = b.who === undefined ? undefined : whole(b.who, 0);
+      const slot = b.slot === undefined ? undefined : whole(b.slot, 0);
+      if (who === undefined && slot === undefined) return 'message needs a person';
+      if (typeof b.text !== 'string' || !b.text.trim()) return 'message needs a few words';
+      return { kind: 'message', who, slot, text: b.text.trim().slice(0, 400) };
+    }
     case 'jobs': return { kind: 'jobs' };
     case 'apply': {
       const n = whole(b.n, 1);
@@ -472,7 +486,7 @@ function commandOf(body: unknown): Command | string {
       return { kind: 'apply', n };
     }
     case 'out': {
-      const ops = ['places', 'go', 'approach', 'round', 'listen', 'known', 'business', 'offer', 'favour', 'courses', 'enrol'];
+      const ops = ['places', 'go', 'approach', 'talk', 'round', 'listen', 'leave', 'known', 'business', 'offer', 'favour', 'courses', 'enrol'];
       if (typeof b.op !== 'string' || !ops.includes(b.op)) return 'out needs an op';
       const n = b.n === undefined ? undefined : whole(b.n, 1);
       if (b.n !== undefined && n === undefined) return 'n is a number from 1';
@@ -549,17 +563,71 @@ function yoyOf(s: EconState): number {
 
 interface Rel { slot: number; who: number; familiarity: number; trust: number; friendship: number; kind: string }
 
-/** A relationship as one sentence. The trust byte stays in the graph. */
-function relationSentence(name: string, word: string, kind: string): string {
+/** The graph's trust words in the words the circle uses for a bond, so a screen shows one vocabulary. */
+function plainWord(word: string): string {
+  if (word === 'Confides') return 'Close';
+  if (word === 'Trusts you') return 'Friendly';
+  if (word === 'Unsure') return 'Acquainted';
+  if (word === 'Wary') return 'Just met';
+  return word;
+}
+
+/** The first thing the circle recorded about two people: how they came to know each other. */
+function firstWhy(person: { bond?: { why?: { text: string }[] } } | undefined): string {
+  return person?.bond?.why?.[0]?.text ?? '';
+}
+
+/** What a person does, in words: "a dispatch clerk at Metrolink Transit", or "between jobs". */
+function jobOf(w: World, i: number): string {
+  const s = econ(w), P = s.P;
+  if (i < 0 || i >= P.n) return '';
+  const e = P.employer[i];
+  if (e < 0) return 'between jobs';
+  const f = s.firms[e];
+  if (!f) return '';
+  if (f.ceo === i) return `runs ${f.name}`;
+  return `works at ${f.name}`;
+}
+
+/** The life the player chose at the start, in words. */
+function lifeSummary(w: World): Record<string, unknown> | null {
+  const life = lifeOf(w);
+  if (!life) return null;
+  const past = findPast(life.past), origin = findOrigin(life.origin);
+  const me = playerIndex(w);
+  const P = econ(w).P;
+  const seat = seatId(w);
+  const know = seat ? courseBoard(w, seat).finished : [];
+  return {
+    knows: know,
+    skills: me >= 0 ? { school: P.school[me], years: P.occYrs[me], trade: P.occ[me] > 0 ? (occTable()[P.occ[me]]?.name ?? '') : '' } : null,
+    past: past ? { id: past.id, name: past.name, line: past.line } : null,
+    origin: origin ? { id: origin.id, name: origin.name, line: origin.line } : null,
+    arrived: life.day,
+    arrivedText: dateText(life.day),
+  };
+}
+
+/** Where the money went, a day at a time: every posting to or from the player's cash, by what it was for. */
+function cashbookOf(w: World): Record<string, unknown> {
+  const today = cashDay(w, w.day);
+  const days = [1, 2, 3, 4, 5, 6].map((k) => cashDay(w, w.day - k)).filter((d) => d.rows.length);
+  return { day: w.day, dateText: dateText(w.day), today, days };
+}
+
+/** A relationship as one sentence: how warm it is and how you know each other. */
+function relationSentence(name: string, word: string, kind: string, role = '', how = ''): string {
   const who = (name.trim().split(/\s+/)[0] || 'Someone');
-  let bond = `${who} is ${word.toLowerCase()}`;
-  if (word === 'Trusts you') bond = `${who} trusts you`;
-  else if (word === 'Confides') bond = `${who} confides in you`;
-  else if (word === 'Unsure') bond = `${who} is unsure of you`;
-  else if (word === 'Wary') bond = `${who} is wary of you`;
-  else if (word === 'Unknown' || word === 'Empty') return `You have not met ${who}`;
-  const tie = kind === 'family' ? 'you are family' : 'you work together';
-  return `${bond}; ${tie}`;
+  if (word === 'Unknown' || word === 'Empty') return `You have not met ${who}`;
+  const warm = plainWord(word).toLowerCase();
+  const kinRole = role || (kind === 'family' ? 'family' : kind === 'work' ? 'colleague' : 'acquaintance');
+  const tie = kinRole === 'family' ? 'you are family'
+    : kinRole === 'colleague' ? 'you work together'
+    : kinRole === 'friend' ? `you are friends${how ? `; ${how.charAt(0).toLowerCase()}${how.slice(1)}` : ''}`
+    : kinRole === 'mentor' ? 'they look out for you'
+    : kinRole === 'rival' ? 'you are rivals'
+    : (how ? how.charAt(0).toLowerCase() + how.slice(1) : 'you have met');
+  return `${who}: ${warm}; ${tie}`;
 }
 
 function heardOf(facts: FactRow[], heard: { factId: number; eventId: number; from: number; day: number }[], who: number): { factId: number; eventId: number; day: number; text: string }[] {
@@ -883,11 +951,11 @@ function bandOf(cents: number, edges: number[]): string {
 }
 
 function moodWord(n: number): string {
-  if (n < 25) return 'bleak';
+  if (n < 25) return 'in a dark mood';
   if (n < 45) return 'low';
   if (n < 65) return 'steady';
-  if (n < 85) return 'bright';
-  return 'high';
+  if (n < 85) return 'in good spirits';
+  return 'in high spirits';
 }
 
 function sparkOf(st: Stock): number[] {
@@ -1419,7 +1487,7 @@ interface SaveMeta {
 }
 interface GenJob {
   id: string; cash?: number; difficulty?: number; seed?: string; beat?: number; again?: boolean;
-  name?: string; age?: number; district?: string;
+  name?: string; age?: number; district?: string; past?: string; origin?: string;
 }
 
 const feed: FeedLine[] = [];
@@ -1440,8 +1508,7 @@ let challengeBeat = 0;
 let generating = false;
 
 function dateLabel(day: number): string {
-  const doy = ((day % 360) + 360) % 360;
-  return `Y${Math.floor(day / 360) + 1} M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
+  return `${dateText(day, false)}, year ${Math.floor(day / 360) + 1}`;
 }
 
 function moneyLabel(cents: number): string {
@@ -2080,7 +2147,7 @@ function runGenWorker(): void {
   const unhook = hookHistory((year, text) => send({ type: 'line', year, text }));
   try {
     send({ type: 'phase', text: 'Opening the harbour' });
-    const world = openScenario(job.id, { cash: job.cash, difficulty: job.difficulty, seed: job.seed, name: job.name, age: job.age });
+    const world = openScenario(job.id, { cash: job.cash, difficulty: job.difficulty, seed: job.seed, name: job.name, age: job.age, past: job.past, origin: job.origin });
     unhook();
     send({ type: 'phase', text: 'The exchange has its prices' });
     applyIdentity(world, job);
@@ -3249,7 +3316,7 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
     field: o.name,
     name: o.name,
     days: 12 + 6 * o.rank,
-    cost: Math.round(wage * (8 + 6 * o.rank)),
+    cost: Math.round(wage * (8 + 6 * o.rank) * 0.4),
   }));
   const pending = (st?.apps ?? []).filter((a) => a.person === person).map((a) => ({
     n: a.n,
@@ -3263,9 +3330,26 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
     day: n.day,
     text: n.text,
   }));
+  const board = circleBoard(w);
+  const ids = new Set<number>([...Object.keys(board.people).map(Number), ...board.added.map((a) => a.who)]);
+  const P = econ(w).P;
+  const openings = person >= 0 ? openingRows(w, person).map((o) => {
+    const fi = firms[o.firm];
+    const at = fi ? [...ids].filter((i) => i < P.n && P.employer[i] === o.firm).map((i) => ({ who: i, name: P.name(i) })) : [];
+    return {
+      n: o.n, firm: o.name, firmId: fi?.id ?? '', sector: o.sector, role: o.role, wage: o.wage, seats: Math.floor(o.gap),
+      asks: { exp: o.askExp, school: o.askSchool, health: o.askHealth },
+      you: { exp: o.youExp, school: o.youSchool, health: o.youHealth },
+      chance: o.note, canApply: o.taken, why: o.taken ? '' : o.note, vouched: o.vouched,
+      decider: fi && fi.ceo >= 0 && fi.ceo < P.n ? P.name(fi.ceo) : '',
+      contacts: at,
+      applied: (st?.apps ?? []).some((a) => a.person === person && a.firm === o.firm),
+    };
+  }) : [];
   return {
     ...card,
     eventId,
+    openingList: openings,
     study,
     pending,
     course: course ? {
@@ -3666,11 +3750,13 @@ function screen(w: World): Record<string, unknown> {
       who: r.who,
       name,
       kind: r.kind,
-      word: g.word,
+      word: person?.bond.word && person.role !== 'colleague' && person.role !== 'family' ? person.bond.word : plainWord(g.word),
       line: g.line,
-      sentence: relationSentence(name, g.word, r.kind),
+      sentence: relationSentence(name, person?.bond.word && (r.kind !== 'family' && !person.role.includes('colleague')) ? person.bond.word : g.word, r.kind, person?.role ?? '', firstWhy(person)),
       told,
       role: person?.role ?? (r.kind === 'family' ? 'family' : 'colleague'),
+      how: firstWhy(person),
+      job: jobOf(w, r.who),
       stance: person?.stance ?? '',
       bond: person?.bond ?? { word: g.word, score: 0, why: [] as { day: number; delta: number; text: string; eventId: number }[] },
       together: person?.together ?? [],
@@ -3684,14 +3770,23 @@ function screen(w: World): Record<string, unknown> {
       kind: 'work',
       word: extra.word,
       line: extra.why[extra.why.length - 1]?.text ?? '',
-      sentence: relationSentence(extra.name, extra.word, 'work'),
+      sentence: relationSentence(extra.name, extra.word, 'work', extra.role, extra.why[0]?.text ?? ''),
       told: heardOf(facts, heard, extra.who),
       role: extra.role,
+      how: extra.why[0]?.text ?? '',
+      job: jobOf(w, extra.who),
       stance: extra.stance,
       bond: { word: extra.word, score: extra.score, why: extra.why },
       together: extra.together,
     });
   }
+  const links = circleLinks(w, contacts.map((c) => c.who)).map((l) => ({ ...l, aName: P.name(l.a), bName: P.name(l.b) }));
+  const knows = new Map<number, { who: number; name: string; why: string }[]>();
+  for (const l of links) {
+    (knows.get(l.a) ?? knows.set(l.a, []).get(l.a)!).push({ who: l.b, name: P.name(l.b), why: l.why });
+    (knows.get(l.b) ?? knows.set(l.b, []).get(l.b)!).push({ who: l.a, name: P.name(l.a), why: l.why });
+  }
+  const people = contacts.map((c) => ({ ...c, knows: knows.get(c.who) ?? [] }));
   const firms = econ(w).firms;
   const news = v.news.map((n) => {
     const fact = facts.find((f) => f && f.eventId === n.eventId && f.msg === n.text);
@@ -3747,11 +3842,15 @@ function screen(w: World): Record<string, unknown> {
     player: me,
     ageEvent: me >= 0 && P.lastEv[me] >= 0 ? P.lastEv[me] : w.genesis,
     jobEvent: job ? (job.staffEv ?? job.ceoEv ?? econ(w).jobsWho ?? w.genesis) : w.genesis,
-    contacts,
+    contacts: people,
+    links,
+    life: lifeSummary(w),
+    cashbook: cashbookOf(w),
     inbox: withDue(w, board.inbox),
     news,
     private: priv,
-    nwChange,
+    nwChange: v.netWorth - closeWorth,
+    yesterday: yesterdayChange,
     sinceOpen: v.netWorth - openWorth,
     quotes: quotesOf(w),
     firms: firmsDir,
@@ -4047,7 +4146,7 @@ function personPage(w: World, index: number): Record<string, unknown> | undefine
   else if ((P.flags[index] & 4) !== 0) title = 'in prison';
   else if ((P.flags[index] & 2) !== 0) title = 'retired';
   else if (firm && firm.ceo === index) title = 'chief executive';
-  else if (firm) title = 'on the staff';
+  else if (firm) title = P.occ[index] > 0 ? roleTitle(firm.sector, P.occ[index]) : 'on the staff';
   const parent = P.parent[index];
   const kids = P.kids(index).slice(0, 12).map((i) => ({ index: i, name: P.name(i), alive: P.alive(i) }));
   const sibs = (parent >= 0 ? P.kids(parent) : []).filter((i) => i !== index).slice(0, 8).map((i) => ({ index: i, name: P.name(i), alive: P.alive(i) }));
@@ -4072,6 +4171,16 @@ function personPage(w: World, index: number): Record<string, unknown> | undefine
     },
     wealthBand: bandOf(cents, wealthEdges(w)),
     moodWord: moodWord(mood),
+    job: jobOf(w, index),
+    work: ((): Record<string, unknown> | null => {
+      const p = profileOf(w, index);
+      if (!p.firm) return null;
+      return { firm: p.firm.name, firmId: p.firm.id, seats: p.seats, decider: p.decider, profit: p.profit, role: p.role, years: p.years };
+    })(),
+    links: me >= 0 && me !== index ? circleLinks(w, [index, ...relations(w, me).map((r) => r.who)]).filter((l) => l.a === index || l.b === index).map((l) => {
+      const other = l.a === index ? l.b : l.a;
+      return { who: other, name: P.name(other), why: l.why, kind: l.kind };
+    }) : [],
     contact: rel ? { slot: rel.slot, kind: rel.kind, ...regardOf(w, me, rel.slot) } : null,
     circle: circlePerson(w, index),
     inner: innerOf(w, index),
@@ -4162,6 +4271,7 @@ let over = false;
 let openWorth = 0;
 let closeWorth = 0;
 let nwChange = 0;
+let yesterdayChange = 0;
 const clients = new Set<http.ServerResponse>();
 
 function boot(world: World): void {
@@ -4318,9 +4428,11 @@ function stepDay(): string | undefined {
     return why;
   }
   const now = frame.netWorth as number;
-  nwChange = now - closeWorth;
+  yesterdayChange = now - closeWorth;
   closeWorth = now;
-  frame.nwChange = nwChange;
+  nwChange = 0;
+  frame.nwChange = 0;
+  frame.yesterday = yesterdayChange;
   frame.sinceOpen = now - openWorth;
   frame.speed = speed;
   if (w.day % 30 === 0) sampleMacro(w);
@@ -4446,7 +4558,9 @@ function playerLine(raw: string): string {
   if (!text || text.length > 160 || /\.ts:\d+|at \S+\(|Cannot read propert|node_modules|world\.bin|snapshot seed/i.test(text)) {
     return 'Something went wrong, so wait a moment and try again.';
   }
-  return `${text.replace(/[.]+$/, '')}, so try again.`;
+  // A rule the game states in plain words is shown as it is: "You have already spoken with them tonight."
+  const said = text.charAt(0).toUpperCase() + text.slice(1);
+  return /[.!?]$/.test(said) ? said : `${said}.`;
 }
 
 function heldChain(w: World): Record<string, unknown>[] {
@@ -4742,6 +4856,16 @@ function startOpts(body: unknown): GenJob | string {
     out.age = n;
   }
   if (!arriving && typeof b.district === 'string' && b.district.trim()) out.district = b.district.trim().slice(0, 80);
+  if (arriving) {
+    if (b.past !== undefined && b.past !== '') {
+      if (typeof b.past !== 'string' || !findPast(b.past)) return `past is one of: ${PASTS.map((p) => p.id).join(', ')}`;
+      out.past = b.past;
+    }
+    if (b.origin !== undefined && b.origin !== '') {
+      if (typeof b.origin !== 'string' || !findOrigin(b.origin)) return `origin is one of: ${ORIGINS.map((p) => p.id).join(', ')}`;
+      out.origin = b.origin;
+    }
+  }
   return out;
 }
 
@@ -5131,6 +5255,8 @@ function titleBody(): Record<string, unknown> {
     scene: titleScene(worldReady ? w : null),
     names: GIVEN_NAMES,
     ages: AGE_BANDS,
+    pasts: PASTS.map((p) => ({ id: p.id, name: p.name, line: p.line })),
+    origins: ORIGINS.map((o) => ({ id: o.id, name: o.name, line: o.line })),
     districts: face.districts,
     autosave: autosaveOn,
   };
@@ -5406,10 +5532,13 @@ const server = http.createServer(async (req, res) => {
           result = bad ? { status: 'rejected', why: bad } : { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
         } else {
           result = playerId ? act(w, playerId, cmd) : act(w, cmd);
-          // An evening out takes the evening: the clock jumps to late night, the same as sleeping.
-          if (cmd.kind === 'out' && cmd.op === 'go' && result.status === 'accepted' && clockMin < 1410) {
-            const bad = fastForward(1410 - clockMin);
-            if (bad) result = { status: 'rejected', why: bad };
+          // An evening is played minute by minute: sitting down holds the clock, and each talk, round or listen lets its minutes run.
+          if (result.status === 'accepted' && (result.pause || (result.minutes ?? 0) > 0)) {
+            if (result.pause && speed !== 'pause') { speed = 'pause'; pumping = false; broadcast('speed', { speed: 'pause', quiet: true }); }
+            if ((result.minutes ?? 0) > 0) {
+              const bad = fastForward(Math.min(180, result.minutes ?? 0));
+              if (bad) result = { status: 'rejected', why: bad };
+            }
           }
         }
         const held = pauseNote;

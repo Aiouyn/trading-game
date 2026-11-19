@@ -6,6 +6,7 @@ import type { Ev } from '../../kernel/events.ts';
 import { GOODS } from '../economy/content.ts';
 import { DEP, type EconState, type Firm } from '../economy/index.ts';
 import { People } from '../economy/people.ts';
+import { whole as grouped } from '../player/gamedate.ts';
 
 export interface Entry {
   year: number;
@@ -50,7 +51,7 @@ function money(cents: number): string {
   const a = Math.abs(Math.round(cents));
   if (a >= 1e8) return `${sign}$${(a / 1e8).toFixed(1)} million`;
   if (a >= 1e5) return `${sign}$${(a / 1e5).toFixed(1)} thousand`;
-  return `${sign}$${(a / 100).toFixed(0)}`;
+  return `${sign}${grouped(a)}`;
 }
 
 function anchor(w: World): { person: string; firm: string } {

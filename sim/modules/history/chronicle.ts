@@ -5,6 +5,7 @@ import { DAYS_PER_YEAR, type World } from '../../kernel/index.ts';
 import type { EconState } from '../economy/index.ts';
 import { type Entry, historyOf } from './index.ts';
 import { causeParagraph, dollarsMentioned, joinAnd } from './prose.ts';
+import { whole as grouped } from '../player/gamedate.ts';
 
 const econ = (w: World): EconState => w.state.economy as EconState;
 
@@ -185,7 +186,7 @@ function families(w: World): string {
     const sign = cents < 0 ? '-' : '';
     if (a >= 1e8) return `${sign}$${(a / 1e8).toFixed(1)} million`;
     if (a >= 1e5) return `${sign}$${(a / 1e5).toFixed(1)} thousand`;
-    return `${sign}$${(a / 100).toFixed(0)}`;
+    return `${sign}${grouped(a)}`;
   };
   const lines: string[] = ['# Family trees', '', `The twenty richest families at the end of year ${w.year}.`, ''];
   for (const [fam, worth] of top) {

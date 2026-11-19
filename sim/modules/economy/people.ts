@@ -13,6 +13,7 @@
 import { DAYS_PER_YEAR, type World } from '../../kernel/index.ts';
 import { CEO_POSITION } from './content.ts';
 import { DEP, type EconState, type Firm } from './index.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 const RETIRE_AGE = CEO_POSITION.retireAge, ADULT_AGE = 18;
 const BREAKDOWN_AT = 220;
@@ -336,7 +337,7 @@ export function leaveJob(s: EconState, i: number): void {
 export function joinFirm(s: EconState, i: number, f: Firm): void {
   const P = s.P;
   leaveJob(s, i);
-  P.employer[i] = f.idx; P.staffPos[i] = f.staff.length; P.jobless[i] = 0;
+  P.employer[i] = f.idx; P.staffPos[i] = f.staff.length; P.jobless[i] = 0; if (P.migrant[i] === 3) P.migrant[i] = 0; // the first job gives a newcomer a work record
   f.staff.push(i); f.eff += labourOf(P, i, simDay) * appliedScale(f.idx); f.workers = f.staff.length;
   staffHook?.(f.idx, i, P.occ[i], true);
   seekRefresh(P, i);
@@ -433,7 +434,7 @@ function die(w: World, s: EconState, i: number, yearEv: number, cause?: number):
   const holdings = s.shareIds.filter((id) => L.balS(me, id) > 0);
   const cashNow = L.balS(me, DEP);
   const notable = holdings.length > 0 || (P.employer[i] >= 0 && s.firms[P.employer[i]].ceo === i);
-  const tail = heirs.length ? `; estate of ${(cashNow / 100).toFixed(0)} and ${holdings.length} shareholdings passes to ${heirs.map((h) => P.name(h)).join(', ')}` : '; no heirs, the estate goes to the state';
+  const tail = heirs.length ? `; estate of ${moneyText(cashNow)} and ${holdings.length} shareholdings passes to ${heirs.map((h) => P.name(h)).join(', ')}` : '; no heirs, the estate goes to the state';
   const ev = cause !== undefined
     ? w.events.emit('person.died', `${P.name(i)} died aged ${P.age(w, i)}${tail}`, [cause], P.id(i))
     : notable

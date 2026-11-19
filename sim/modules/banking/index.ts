@@ -9,6 +9,7 @@ import { BANK, CAPITAL, DEP, GOV, type EconState, type Firm, noteBankMargin, pay
 import { thought } from '../economy/people.ts';
 import { markHolding, saleProceeds, saleValue, sellToBook } from '../markets/index.ts';
 import { noteBuiltHome } from '../property/index.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 const BUFFER = 2.4;         // spare machines so a firm can hire through a supply shock without capital binding
 const YEARS = 1;            // labour-years embodied in one unit of daily output capacity
@@ -254,14 +255,14 @@ function lendFirm(w: World, s: EconState, f: Firm, cents: number, cause: number)
   if (!pick) {
     if (w.day - b.firmRefuse[f.idx] >= 30) {
       b.firmRefuse[f.idx] = w.day;
-      w.events.emit('loan.refused', `${f.name} was refused ${(want / 100).toFixed(0)} of credit`, because(s, [firmSituation(s, f)]), f.id);
+      w.events.emit('loan.refused', `${f.name} was refused ${moneyText(want)} of credit`, because(s, [firmSituation(s, f)]), f.id);
     }
     return false;
   }
   const bank = b.banks[pick.idx];
   if (!grant(w, bank, firmInstr(f), f.id, pick.take, cause)) return false;
   b.firmRate[f.idx] = pick.rate;
-  w.events.emit('loan.grant', `${f.name} borrows ${(pick.take / 100).toFixed(0)} from ${bank.id} at ${(pick.rate * 100).toFixed(1)}%`, because(s, [firmSituation(s, f)]), f.id);
+  w.events.emit('loan.grant', `${f.name} borrows ${moneyText(pick.take)} from the bank at ${(pick.rate * 100).toFixed(1)}%`, because(s, [firmSituation(s, f)]), f.id);
   return pick.take + 1 >= want || pick.take >= ask;
 }
 
@@ -304,7 +305,7 @@ function openPersonal(w: World, s: EconState, i: number, kind: number, cents: nu
   }
   if (kind === MTG) { growPeople(b, i + 1); b.mtg[i] = 1; }
   const what = kind === MTG ? 'mortgage' : kind === MARGIN ? 'margin loan' : kind === LINE ? 'credit line' : kind === TERM ? 'term loan' : kind === DEFIC ? 'unsecured loan' : 'consumer loan';
-  w.events.emit('loan.grant', `${P.name(i)} takes a ${what} of ${(pick.take / 100).toFixed(0)} from ${bank.id} at ${(b.lnRate[k] * 100).toFixed(1)}%${kind === MARGIN || kind === LINE ? ` (floats: ${rateWhy(w, i, kind === LINE ? 'line' : 'margin')})` : ''}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv]), P.id(i));
+  w.events.emit('loan.grant', `${P.name(i)} takes a ${what} of ${moneyText(pick.take)} from the bank at ${(b.lnRate[k] * 100).toFixed(1)}%${kind === MARGIN || kind === LINE ? ` (floats: ${rateWhy(w, i, kind === LINE ? 'line' : 'margin')})` : ''}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv]), P.id(i));
   return pick.take;
 }
 
@@ -363,7 +364,7 @@ function resolve(w: World, s: EconState, bank: Bank, cause: number): void {
   const fin = finances(w, bank);
   if (fin.equity >= -100) return;
   bank.failed = true;
-  const ev = w.events.emit('bank.fail', `${bank.id} failed with capital ${(fin.equity / 100).toFixed(0)}; depositors take the loss`, because(s, [cause, bank.runEv > 0 ? bank.runEv : undefined]), bank.id);
+  const ev = w.events.emit('bank.fail', `${bank.id} failed with capital ${moneyText(fin.equity)}; depositors take the loss`, because(s, [cause, bank.runEv > 0 ? bank.runEv : undefined]), bank.id);
   const hole = Math.round(-finances(w, bank).equity);
   if (bank.id === BANK) haircutSight(w, s, hole, ev);
   else haircutClaim(w, s, bank.depo, hole, ev);
@@ -441,7 +442,7 @@ function serviceFirms(w: World, s: EconState, b: Book): void {
       }
     }
     if (b.firmMiss[f.idx] < 3) continue;
-    const ev = w.events.emit('firm.default', `${f.name} missed three payments and defaulted on ${(owed / 100).toFixed(0)}`, because(s, [firmSituation(s, f)]), f.id);
+    const ev = w.events.emit('firm.default', `${f.name} missed three payments and defaulted on ${moneyText(owed)}`, because(s, [firmSituation(s, f)]), f.id);
     const losses: { bank: Bank; amt: number }[] = [];
     for (const [holder, bal] of rows) {
       const bank = bankById(b, holder);
@@ -484,7 +485,7 @@ function planInvestment(w: World, s: EconState, b: Book): void {
     }
     if (!(order > 1e-3) || order * centsPerUnit(s, f) < 5_000) continue;
     b.need[f.idx] = Math.min(b.need[f.idx] + order, order * 2);
-    w.events.emit('firm.invest', `${f.name} orders machinery for ${(order * centsPerUnit(s, f) / 100).toFixed(0)} (${(util * 100).toFixed(0)}% utilised)`, because(s, [firmSituation(s, f)]), f.id);
+    w.events.emit('firm.invest', `${f.name} orders machinery for ${moneyText(order * centsPerUnit(s, f))} (${(util * 100).toFixed(0)}% utilised)`, because(s, [firmSituation(s, f)]), f.id);
   }
 }
 
@@ -639,7 +640,7 @@ function housingOrders(w: World, s: EconState, b: Book): void {
     n++;
   }
   b.housePerDay = price > 0 ? spent / price / 30 : 0;
-  if (n > 0) w.events.emit('firm.invest', `households ordered ${n} homes, ${(spent / 100).toFixed(0)} paid to builders`, because(s, hs.map((h) => h.priceEv ?? h.stockoutEv)), hs[0].id);
+  if (n > 0) w.events.emit('firm.invest', `households ordered ${n} homes, ${moneyText(spent)} paid to builders`, because(s, hs.map((h) => h.priceEv ?? h.stockoutEv)), hs[0].id);
 }
 
 function consumerCredit(w: World, s: EconState, b: Book): void {
@@ -748,7 +749,7 @@ function callMargin(w: World, s: EconState, b: Book, k: number, i: number): bool
   if (owed <= 0) return false;
   if (owed <= marginLimit(w, i)) return false;
   const snap = bidSnap(w);
-  const ev = w.events.emit('loan.margin', `${P.name(i)} is called on a margin loan of ${(owed / 100).toFixed(0)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), id);
+  const ev = w.events.emit('loan.margin', `${P.name(i)} is called on a margin loan of ${moneyText(owed)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), id);
   const stocks = (w.state.markets as { stocks?: { instr: string }[] } | undefined)?.stocks ?? [];
   for (const st of stocks) {
     const qty = Math.floor(w.ledger.balance(id, st.instr));
@@ -987,7 +988,7 @@ function declareBankruptcy(w: World, i: number, cause: number): boolean {
         if (q > 0) w.ledger.move(st.instr, id, lender.id, q, 'court.surrender', pay);
       }
     }
-    w.events.emit('loan.writeoff', `${(wrote / 100).toFixed(0)} of ${P.name(i)}'s debt is written off`, tie(s, [pay]), id);
+    w.events.emit('loan.writeoff', `${moneyText(wrote)} of ${P.name(i)}'s debt is written off`, tie(s, [pay]), id);
     afterLoss(w, s, losses, pay);
   }
   b.lock[i] = Math.max(b.lock[i], w.day + BAR_YEARS * DAYS_PER_YEAR);
@@ -1029,7 +1030,7 @@ export function oweUnsecured(w: World, person: number, cents: number, cause: num
   b.lnPerson[k] = person; b.lnBank[k] = idx; b.lnKind[k] = DEFIC; b.lnRate[k] = s.policyRate + personSpread(w, s, person) + 0.02;
   b.lnMiss[k] = 0; b.lnOpen[k] = 1; b.lnOpened[k] = w.day; b.lnTerm[k] = CON_TERM; b.lnCall[k] = -1;
   addOwed(b, person, a);
-  w.events.emit('loan.shortfall', `${P.name(person)} owes ${(a / 100).toFixed(0)} that the collateral did not cover`, tie(s, [cause]), P.id(person));
+  w.events.emit('loan.shortfall', `${P.name(person)} owes ${moneyText(a)} that the collateral did not cover`, tie(s, [cause]), P.id(person));
   return a;
 }
 
@@ -1075,7 +1076,7 @@ function rollLines(w: World, s: EconState, b: Book): void {
     if ((b.tight ?? 0) < ROLL_LIMIT) {
       b.lnOpened[k] = w.day;
       const owed = Math.floor(w.ledger.issued.get(plInstr(k)) ?? 0);
-      if (owed > 0) w.events.emit('loan.rolled', `the bank rolls ${P.name(i)}'s credit line of ${(owed / 100).toFixed(0)} for another quarter`, because(s, [b.tightEv]), P.id(i));
+      if (owed > 0) w.events.emit('loan.rolled', `the bank rolls ${P.name(i)}'s credit line of ${moneyText(owed)} for another quarter`, because(s, [b.tightEv]), P.id(i));
     }
   }
 }
@@ -1179,7 +1180,7 @@ function maintainMargins(w: World, s: EconState, b: Book): void {
     for (const n of ks) if (b.lnOpen[n]) left += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
     if (left <= 0) { clearCalls(b, ks); continue; }
     for (const n of ks) if (b.lnOpen[n]) { b.lnKind[n] = DEFIC; b.lnCall[n] = -1; }
-    const gap = w.events.emit('loan.shortfall', `${P.name(i)} still owes ${(left / 100).toFixed(0)} after the sale`, tie(s, [sell]), id);
+    const gap = w.events.emit('loan.shortfall', `${P.name(i)} still owes ${moneyText(left)} after the sale`, tie(s, [sell]), id);
     if (riskyDebt(w, i) > liquidAssets(w, id)) declareBankruptcy(w, i, gap);
   }
 }
@@ -1208,7 +1209,7 @@ function servicePeople(w: World, s: EconState, b: Book): void {
     const bank = rows.length ? bankById(b, rows[0][0]) : b.banks[b.lnBank[k]];
     if (owed <= 0 || !P.alive(i) || !bank) {
       if (owed > 0 && bank) {
-        const ev = w.events.emit('loan.default', `${P.alive(i) ? P.name(i) : 'a borrower'} defaulted on ${(owed / 100).toFixed(0)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), P.id(i));
+        const ev = w.events.emit('loan.default', `${P.alive(i) ? P.name(i) : 'a borrower'} defaulted on ${moneyText(owed)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), P.id(i));
         const losses = rows.map(([holder, bal]) => ({ bank: bankById(b, holder), amt: Math.floor(bal) })).filter((x): x is { bank: Bank; amt: number } => !!x.bank && x.amt > 0);
         b.yWriteoff += writeoffLoan(w, instr, ev);
         addOwed(b, i, -owed);
@@ -1237,7 +1238,7 @@ function servicePeople(w: World, s: EconState, b: Book): void {
       declareBankruptcy(w, i, P.lastEv[i] >= 0 ? P.lastEv[i] : s.macroEv);
       continue;
     }
-    const ev = w.events.emit('loan.default', `${P.name(i)} missed three payments on ${(left / 100).toFixed(0)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), P.id(i));
+    const ev = w.events.emit('loan.default', `${P.name(i)} missed three payments on ${moneyText(left)}`, because(s, [P.lastEv[i] >= 0 ? P.lastEv[i] : undefined]), P.id(i));
     const losses = rows.map(([holder, bal]) => ({ bank: bankById(b, holder), amt: Math.floor(Math.min(bal, left)) })).filter((x): x is { bank: Bank; amt: number } => !!x.bank && x.amt > 0);
     const lost = writeoffLoan(w, instr, ev);
     b.yWriteoff += lost; addOwed(b, i, -lost); b.lnMiss[k] = 0;

@@ -9,6 +9,7 @@ import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOODS } from '../economy/content.ts';
 import { BANK, DEP, pay, setPowerHook, type EconState, type Firm } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 type Fuel = 'HYDRO' | 'COAL' | 'GAS' | 'OIL';
 
@@ -382,7 +383,7 @@ function bond(w: World, st: Grid, f: Firm, cents: number, cause: number): boolea
   L.issue(id, BANK, a, 'energy.bond', cause);
   L.issue(DEP, f.id, a, 'energy.bond', cause);
   st.bonds.push({ id, utility: f.idx, rate: econ(w).policyRate + 0.012 });
-  w.events.emit('energy.bond', `${f.name} issues ${(a / 100).toFixed(0)} of bonds to build plant`, [cause], f.id);
+  w.events.emit('energy.bond', `${f.name} issues ${moneyText(a)} of bonds to build plant`, [cause], f.id);
   return true;
 }
 function fundPlant(w: World, st: Grid, f: Firm, cents: number, cause: number): boolean {

@@ -10,6 +10,7 @@ import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { DEP, type EconState, type Firm, payS } from '../economy/index.ts';
 import { type People, diePerson, labourOf, retargetLabour, setDeathChance, setSimDay } from '../economy/people.ts';
 import { PLAYER } from '../player/index.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 const CASE_CAP = 4096, AWAY_CAP = 2048, DUE_CAP = 4096, DEG = 16;
 
@@ -190,7 +191,7 @@ function owe(w: World, i: number, hosp: Firm, left: number, cause: number): void
   st.dueAmt[slot] += left;
   if (!st.dueTold[slot] && P.age(w, i) >= 18 && P.incEma[i] > 0 && st.dueAmt[slot] > P.incEma[i] * 18) {
     st.dueTold[slot] = 1;
-    w.events.emit('health.debt', `${P.name(i)} owes ${(st.dueAmt[slot] / 100).toFixed(0)} for care at ${holder.name} and the family cannot pay`, [cause], P.id(i));
+    w.events.emit('health.debt', `${P.name(i)} owes ${moneyText(st.dueAmt[slot])} for care at ${holder.name} and the family cannot pay`, [cause], P.id(i));
   }
 }
 

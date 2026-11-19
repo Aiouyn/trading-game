@@ -4,6 +4,7 @@ import type { World } from '../../kernel/index.ts';
 import { DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { attentionOf } from '../law/index.ts';
 import { nudgeStanding, regardOf, standingOf } from '../social/index.ts';
+import { standingMult } from './standing.ts';
 
 export type StatId = 'worth' | 'cash' | 'stress' | 'health' | 'reputation' | 'attention';
 export type ChoiceId = 'holiday' | 'donate' | 'lawyer' | 'clinic' | 'overtime';
@@ -122,8 +123,11 @@ export function weeklySpend(w: World, i: number): number {
   return Math.max(1, Math.floor(7 * (P.cY[i] * fear * thrift * inc + 0.001 * Math.max(0, cash))));
 }
 
+/** What a choice costs: days of the city's wage, halved for a newcomer's purse and following the player's standing up from there. */
 export function feeOf(w: World, days: number): number {
-  return Math.max(10000, Math.round(econ(w).wage * days));
+  const st = w.state.player as { ids?: string[]; seat?: Record<string, { who?: number }> } | undefined;
+  const me = st?.ids?.[0] ? st.seat?.[st.ids[0]]?.who ?? -1 : -1;
+  return Math.max(5000, Math.round(econ(w).wage * days * 0.5 * (me >= 0 ? standingMult(w, me) : 1)));
 }
 
 function sign(n: number): -1 | 0 | 1 {

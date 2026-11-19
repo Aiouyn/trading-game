@@ -12,6 +12,7 @@
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { CEO_POSITION, FIRM_DEFS, GOODS, OPEN_TRADE, SECTOR_GROWTH, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
 import { People, PRISON, joinFirm, leaveJob, seekCopy, seekCount, seekLive, seekPromote, seekRebuild, seekReset, setSimDay, succession, thought, yearlyLifePass } from './people.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
 export const BANK = 'bank_1', GOV = 'gov', CB = 'cb', CLEAR = 'clearing';
@@ -823,7 +824,7 @@ export const economy: Module = {
       const fl = P.flags[i];
       if (!(fl & 1)) continue;
       const retired = (fl & 2) !== 0, adult = !retired && P.born[i] <= adultBorn, me = P.slot[i];
-      if ((fl & PRISON) === 0 && (retired || (adult && P.employer[i] < 0))) {
+      if ((fl & PRISON) === 0 && (retired || (adult && P.employer[i] < 0 && P.migrant[i] !== 3))) { // migrant 3: a newcomer with no work record here draws no benefit
         const b = Math.round(benefit * (retired ? 1 : Math.min(1, P.skill[i])));
         L.moveS(DEP, s.govSlot, me, b, retired ? 'gov.pensions' : 'gov.benefits', macro); P.incWeek[i] += b; if (retired) s.pensionToday += b;
       }
@@ -1064,7 +1065,7 @@ export const economy: Module = {
     s.wage = Math.round(s.wage * (1 + wCh));
     if (Math.abs(wCh) > 0.002) s.wageEv = E.emit('macro.wage', `wages ${(wCh * 100).toFixed(2)}% this month`, [uEv, cpiEv]);
     const payer = deskPerson(w, s, 'finance');
-    if (payer >= 0) s.wageWho = E.emit('macro.pay', `${s.P.name(payer)} settles the city's wage at ${(s.wage / 100).toFixed(0)} a day`, [s.wageEv], s.P.id(payer));
+    if (payer >= 0) s.wageWho = E.emit('macro.pay', `${s.P.name(payer)} settles the city's wage at ${moneyText(s.wage)} a day`, [s.wageEv], s.P.id(payer));
 
     // Central bank: Taylor rule with smoothing. It reads inflation as half the year-on-year rate and half the last three
     // months annualised: it reacts sooner to a burst and stops tightening sooner once the burst is over.
@@ -1121,7 +1122,7 @@ export const economy: Module = {
       f.lastProfit = profit; f.lastDividend = paid + (f.divMtd ?? 0) + Math.max(0, Math.round(excess)); f.divMtd = 0;
       const teller = f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo) ? f.ceo : deskPerson(w, s, 'leader');
       const tellName = teller >= 0 ? s.P.name(teller) : f.name;
-      f.profitEv = E.emit('firm.profit', `${tellName} counts a profit of ${(Math.round(profit) / 100).toFixed(0)} dollars at ${f.name}`, [f.priceWho ?? f.priceEv ?? s.wageWho ?? s.wageEv ?? s.macroEv], teller >= 0 ? s.P.id(teller) : f.id);
+      f.profitEv = E.emit('firm.profit', `${tellName} counts a profit of ${moneyText(Math.round(profit))} at ${f.name}`, [f.priceWho ?? f.priceEv ?? s.wageWho ?? s.wageEv ?? s.macroEv], teller >= 0 ? s.P.id(teller) : f.id);
       if (excess > 0) payDividends(w, s, f.id, excess, s.macroEv);
       if (loan > 0 && loanOf(w, f) > 140 * (f.eff * s.wage + 1) && profit < 0) {
         const off = Math.round(loanOf(w, f) * 0.5);

@@ -4,6 +4,7 @@
 // and catches up the player's reputation from new events.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import type { Ev } from '../../kernel/events.ts';
+import { tierOf } from '../player/standing.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { circlePlansOn, settleSocietyAsks } from '../circle/plans.ts';
 import { PRISON } from '../economy/people.ts';
@@ -711,6 +712,8 @@ function playerInvited(w: World, st: Soc, me: number): boolean {
   const P = econ(w).P;
   const kin = me < P.n ? P.kin[me] : 0;
   const onList = st.rich.some((r) => r.person === me);
+  // The hill house does not send cards to newcomers: you need standing of your own (a name on the rich list, or real money) first.
+  if (!onList && tierOf(w, me) < 2) return false;
   if (st.rep < 20 && kin < 45) return false;
   return st.rep >= 30 || kin >= 55 || onList;
 }
@@ -755,7 +758,7 @@ function scheduleDate(w: World, st: Soc): void {
   const title = kind === 'gala'
     ? `Charity gala at ${place}. ${attendLine(names)}.${invite ? ' You are invited.' : ''}`
     : `A society party at ${place}. ${attendLine(names)}.${invite ? ' You are invited.' : ''}`;
-  const cents = invite ? (kind === 'gala' ? Math.max(100, wageOf(w) * 40) : Math.max(100, wageOf(w) * 18)) : 0;
+  const cents = invite ? (kind === 'gala' ? Math.max(100, wageOf(w) * 12) : Math.max(100, wageOf(w) * 6)) : 0;
   const cause = st.root || w.genesis;
   const ev = w.events.emit('society.plan', title, [cause], P.id(host));
   dates.push({

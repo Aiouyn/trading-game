@@ -23,6 +23,14 @@ import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, life
 import { storyLines, tellWeek, type StoryLine } from './story.ts';
 import { noteAct, skipTutorial, tutorialOf, type TutorialState, type TutorialView } from './tutorial.ts';
 import { circleAct } from '../circle/index.ts';
+import { cashDay, setOvernight, watchCash } from './cashbook.ts';
+import { dateText } from './gamedate.ts';
+
+/** An explain line starts "[day 14]": the game says the date. */
+function tidyWhy(line: string): string {
+  return line.replace(/\[day (\d+)\]/, (_m, n: string) => `[${dateText(Number(n))}]`);
+}
+import { usd as moneyText } from '../player/gamedate.ts';
 
 export const PLAYER = 8;
 
@@ -165,12 +173,13 @@ export type Command =
   | { kind: 'gift'; slot: number; cents: number }
   | { kind: 'introduce'; slot: number }
   | { kind: 'mail' }
+  | { kind: 'message'; who?: number; slot?: number; text: string }
   | { kind: 'jobs' }
   | { kind: 'apply'; n: number }
   | { kind: 'quit' }
   | { kind: 'raise' }
   | { kind: 'study'; field: string }
-  | { kind: 'out'; op: 'places' | 'go' | 'approach' | 'round' | 'listen' | 'known' | 'business' | 'offer' | 'favour' | 'courses' | 'enrol'; arg?: string; n?: number; cents?: number }
+  | { kind: 'out'; op: 'places' | 'go' | 'approach' | 'talk' | 'round' | 'listen' | 'leave' | 'known' | 'business' | 'offer' | 'favour' | 'courses' | 'enrol'; arg?: string; n?: number; cents?: number }
   | { kind: 'signals' }
   | { kind: 'stake'; firm: string; cents: number; how: 'cash' | 'margin' | 'line' | 'partners' | 'buyout' }
   | { kind: 'owner'; op: 'cut' | 'protect' | 'promote' | 'sell-division' | 'refinance' | 'payout' | 'union'; firm?: string; n?: number; person?: string; cents?: number; buyer?: string; fraction?: number; deal?: 'deal' | 'refuse'; guarantee?: boolean };
@@ -190,6 +199,10 @@ export interface ActResult {
   lines?: string[];
   /** Set when a wait stepped into a day whose books do not balance. */
   books?: string;
+  /** Game minutes an action took. The live server lets that much of the clock run. */
+  minutes?: number;
+  /** The action sits the player down somewhere: the clock waits for them. */
+  pause?: boolean;
 }
 
 interface Quote { instr: string; px: number; eventId: number }
@@ -390,6 +403,15 @@ let outingAct: OutingAct | undefined;
 /** Venues registers going out, the people met there, and courses. */
 export function setOutingCommands(fn: OutingAct): void { outingAct = fn; }
 
+/** What a contact says when asked about a firm and nothing private is known: their own work knowledge. Venues registers it. */
+export type WorkKnowledge = (w: World, seat: string, slot: number, firm: string) => { text: string; eventId?: number } | undefined;
+let workKnowledge: WorkKnowledge | undefined;
+export function setWorkKnowledge(fn: WorkKnowledge): void { workKnowledge = fn; }
+/** A talk by contact slot, away from any bar. Venues registers it so a talk draws on who the person is. */
+export type TalkHook = (w: World, seat: string, who: number) => { text: string; lines?: string[]; eventId?: number } | { why: string };
+let talkHook: TalkHook | undefined;
+export function setTalkHook(fn: TalkHook): void { talkHook = fn; }
+
 function articles(s: string): string {
   return s.replace(/\ba ([AaEeIiOoUu])/g, 'an $1');
 }
@@ -481,7 +503,7 @@ function helpSituation(v: PlayerView, topic: string): string {
       return `You are ${health?.word ?? 'unknown'} in health and ${stress?.word ?? 'unknown'} in stress. Cash is ${cash}.`;
     }
     case 'time':
-      return `It is year ${v.date.year}, month ${v.date.month}, day ${v.date.day}. Cash is ${cash}.`;
+      return `It is ${dateText(v.date.abs)}, year ${v.date.year}. Cash is ${cash}.`;
     case 'help':
       return v.tutorial && !v.tutorial.done ? `The lesson is on “${v.tutorial.goal}”. ${v.tutorial.hint}` : 'help names a topic. hints off skips the lesson.';
     default:
@@ -554,7 +576,7 @@ function countedMonths(n: number): string {
 function homeLines(w: World, person: number): string[] {
   const rows = homeBoard(w, person);
   if (!rows.length) return ['no homes listed'];
-  return rows.map((h) => `#${h.id} ${h.neighbourhood} price ${(h.price / 100).toFixed(0)} rent ${(h.rent / 100).toFixed(0)}${h.mine ? ' yours' : ''}${h.live ? (h.mine ? ' home' : ' rented') : ''}${h.vacant ? ' vacant' : ''}`);
+  return rows.map((h) => `#${h.id} ${h.neighbourhood} price ${moneyText(h.price)} rent ${moneyText(h.rent)}${h.mine ? ' yours' : ''}${h.live ? (h.mine ? ' home' : ' rented') : ''}${h.vacant ? ' vacant' : ''}`);
 }
 
 const FUTURES: Record<string, string> = {
@@ -853,11 +875,19 @@ function spawn(w: World, playerId = DEFAULT_PLAYER): number {
   return i;
 }
 
+/** Count every posting that touches the player's deposit, by reason, so each dollar can be explained. */
+export function watchPlayer(w: World): void {
+  const i = playerIndex(w);
+  if (i >= 0) watchCash(w, econ(w).P.slot[i]);
+}
+
 export function ensurePlayer(w: World, playerId = DEFAULT_PLAYER): number {
   if (w.state.markets) markPlayerTrading(w);
   const have = playerIndex(w, playerId);
-  if (have >= 0) return have;
-  return spawn(w, playerId);
+  if (have >= 0) { watchPlayer(w); return have; }
+  const made = spawn(w, playerId);
+  watchPlayer(w);
+  return made;
 }
 
 function markPrice(w: World): (instr: string) => number {
@@ -1070,17 +1100,21 @@ function noteMoney(w: World, st: PlayerSeat, i: number): void {
   st.cashSeen = cash;
   if (delta === 0) return;
   const cause = st.moneyEv >= 0 ? st.moneyEv : causeOf(w, st);
+  const rows = cashDay(w, w.day + 1).rows;
+  const said = (list: typeof rows): string => list.slice(0, 3).map((r) => `${r.label.toLowerCase()} ${dollars(Math.abs(r.cents))}`).join(', ');
   if (delta > 0) {
+    const ins = rows.filter((r) => r.cents > 0);
     const emp = P.employer[i];
     const firm = emp >= 0 ? econ(w).firms[emp] : undefined;
-    const by = firm ? ` by ${firm.name}` : '';
+    const by = ins.length ? ` (${said(ins)})` : firm ? ` by ${firm.name}` : '';
     const ev = w.events.emit('life.pay', `You are paid ${dollars(delta)}${by}`, [cause]);
     st.moneyEv = ev;
     st.payEv = ev;
     st.payCents = delta;
     st.statEv.cash = ev;
   } else {
-    const ev = w.events.emit('life.spend', `You spend ${dollars(-delta)}`, [cause]);
+    const outs = rows.filter((r) => r.cents < 0);
+    const ev = w.events.emit('life.spend', `You spend ${dollars(-delta)}${outs.length ? ` (${said(outs)})` : ''}`, [cause]);
     st.moneyEv = ev;
     st.spendEv = ev;
     st.spendCents = -delta;
@@ -1118,8 +1152,10 @@ function rememberWords(w: World, st: PlayerSeat, i: number): void {
 
 function stepDays(w: World, st: PlayerSeat, days: number): ActResult | undefined {
   const people = econ(w).P;
+  watchPlayer(w);
   for (let d = 0; d < days; d++) {
-    w.step();
+    setOvernight(w, true);
+    try { w.step(); } finally { setOvernight(w, false); }
     afterDay?.(w);
     noteClosedDay(w);
     const bad = w.ledger.check();
@@ -1325,7 +1361,7 @@ function dynastyOf(w: World, st: PlayerSeat): PlayerView['dynasty'] {
 function epitaph(w: World, st: PlayerSeat, dead: number): string {
   const P = econ(w).P;
   const d = dynastyOf(w, st);
-  return `${P.name(dead)} has died, and nobody is left to take the name. The house ends. Generation ${d.generation}. Family net worth ${(d.worth / 100).toFixed(0)} dollars. Firms founded ${d.founded}, controlled ${d.controlled}. Offices held ${d.offices}. Convictions ${d.convictions}.`;
+  return `${P.name(dead)} has died, and nobody is left to take the name. The house ends. Generation ${d.generation}. Family net worth ${moneyText(d.worth)}. Firms founded ${d.founded}, controlled ${d.controlled}. Offices held ${d.offices}. Convictions ${d.convictions}.`;
 }
 
 function livingHeir(w: World, dead: number, st: PlayerSeat): number {
@@ -1553,7 +1589,7 @@ function sheetLines(w: World, playerId: string): string[] {
   for (const b of v.bonds) lines.push(`  ${b.instr} face ${dollars(b.face)}  [${b.eventId}]`);
   for (const l of v.stockLoans) lines.push(`  stock loan ${l.instr} ${l.qty} face ${dollars(l.face)}  [${l.eventId}]`);
   for (const st of v.stake) lines.push(`  stake ${st.name} ${st.shares} of ${st.issued} shares (${st.percent}%)${st.controls ? ', you chair it' : ''}`);
-  if (v.score.length) lines.push(`  score ${v.score.map((p) => `day ${p.day} ${dollars(p.worth)}`).join(', ')}`);
+  if (v.score.length) lines.push(`  score ${v.score.map((p) => `${dateText(p.day, false)} ${dollars(p.worth)}`).join(', ')}`);
   return lines;
 }
 
@@ -1782,6 +1818,9 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const r = talk(w, i, cmd.slot);
       if (r.who < 0) return rejected(r.why ?? 'nobody there');
       // The talk itself changes how they stand with you; show that, since the talk prints nothing else.
+      const said = talkHook?.(w, playerId, r.who);
+      if (said && 'why' in said) return rejected(said.why);
+      if (said) return { status: 'accepted', text: said.text, lines: said.lines, eventId: said.eventId };
       const line = view(w, playerId).contacts.find((c) => c.slot === cmd.slot)?.line;
       return { status: 'accepted', text: `talked with ${P.name(r.who)}${line ? `. ${line}` : ''}` };
     }
@@ -1793,6 +1832,8 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!r.facts.length) {
         const known = knownPrivate(w, i, firm);
         if (known) return { status: 'accepted', eventId: known.eventId, text: `you already know: ${known.msg}` };
+        const work = workKnowledge?.(w, playerId, cmd.slot, firm);
+        if (work) return { status: 'accepted', eventId: work.eventId, text: work.text };
         return rejected(r.why ?? 'they had nothing to add');
       }
       const who = P.name(r.facts[0].from);
@@ -1800,7 +1841,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', eventId: r.facts[0].eventId, fill: r.facts.length, text: `${who} told you: ${told}` };
     }
     case 'news': {
-      const lines = view(w, playerId).news.map((n) => `[${n.eventId}] day ${n.day}: ${n.text}`);
+      const lines = view(w, playerId).news.map((n) => `[${n.eventId}] ${dateText(n.day)}: ${n.text}`);
       return { status: 'accepted', lines, text: lines.length ? `${lines.length} stories` : 'no news' };
     }
     case 'why': {
@@ -1808,7 +1849,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!cmd.thing && cmd.id !== undefined) {
         const hit = explainNumber(w, cmd.id, st, i);
         if ('error' in hit) return rejected(hit.error);
-        const lines = w.events.explain(hit.id, 8);
+        const lines = w.events.explain(hit.id, 8).map(tidyWhy);
         if (!lines.length) return rejected('that event is gone from the log');
         return { status: 'accepted', lines, eventId: hit.id };
       }
@@ -1838,7 +1879,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
         take(st.arrived);
         if (!ids.has(id)) return rejected('you have not seen that');
       }
-      const lines = w.events.explain(id, 8);
+      const lines = w.events.explain(id, 8).map(tidyWhy);
       if (!lines.length) return rejected('that event is gone from the log');
       return { status: 'accepted', lines, eventId: id };
     }
@@ -2195,6 +2236,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     case 'gift':
     case 'introduce':
     case 'mail':
+    case 'message':
       return circleAct(w, i, id, cmd);
     case 'signals': return { status: 'accepted', lines: signalLines(w, playerId) };
     case 'stake': {
@@ -2580,7 +2622,7 @@ export const player: Module = {
         const nw = Math.round(worth(w, i));
         st.score.push({ day: w.day, worth: nw });
         const cause = econ(w).macroEv || st.arrived;
-        chronicle(w, i, `${P.name(i)} marks the year with a net worth of ${(nw / 100).toFixed(0)} dollars`, cause);
+        chronicle(w, i, `${P.name(i)} marks the year with a net worth of ${moneyText(nw)}`, cause);
         refreshFirms(w, st);
         refreshLife(w, st);
       }

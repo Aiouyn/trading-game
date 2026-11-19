@@ -10,6 +10,7 @@ import { DEP, pay, payS, setWageHook, type EconState, type Firm } from '../econo
 import { thought } from '../economy/people.ts';
 import { discountForNews } from '../markets/index.ts';
 import { B_FRIEND, B_LOYALTY } from '../social/index.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 const DEG = 16;
 // A stoppage on an input (power, freight, steel) starves the plants downstream. Only a final good walks out.
@@ -432,7 +433,7 @@ function startStop(w: World, st: Book, s: EconState, u: Union, lock: boolean, de
   if (!lock) st.yStrikes++;
   const paid = fundPay(w, s, u, STRIKE_DAYS, ev);
   if (paid.n > 0) {
-    w.events.emit('labour.strikePay', `${paid.n} ${u.sector.toLowerCase()} strikers draw ${(paid.cents / 100).toFixed(0)} from the fund; the rest live on savings`, [ev], u.actor);
+    w.events.emit('labour.strikePay', `${paid.n} ${u.sector.toLowerCase()} strikers draw ${moneyText(paid.cents)} from the fund; the rest live on savings`, [ev], u.actor);
   }
   feel(w, s, st, u, ev);
   if (w.state.markets && plant.listed) discountForNews(w, plant.id, ev);
@@ -523,7 +524,7 @@ function dues(w: World, st: Book, s: EconState): void {
       members += n; firms++; cents += due;
     }
     if (!owing.length) continue;
-    const ev = w.events.emit('labour.dues', `${u.sector.toLowerCase()} collects ${(cents / 100).toFixed(0)} in dues from ${members} members at ${firms} firms`, [st.openEv], u.actor);
+    const ev = w.events.emit('labour.dues', `${u.sector.toLowerCase()} collects ${moneyText(cents)} in dues from ${members} members at ${firms} firms`, [st.openEv], u.actor);
     for (const row of owing) pay(w, row.f.id, u.actor, row.due, 'labour.dues', ev);
   }
 }
@@ -560,7 +561,7 @@ function endorse(w: World, st: Book, s: EconState): void {
     const gift = Math.floor(cash * 0.08);
     if (gift < 100) continue;
     const who = u.leader >= 0 && u.leader < s.P.n ? s.P.name(u.leader) : 'the union';
-    const ev = w.events.emit('labour.endorse', `${who} endorses ${best.name} and gives ${(gift / 100).toFixed(0)}`, [prior], u.actor);
+    const ev = w.events.emit('labour.endorse', `${who} endorses ${best.name} and gives ${moneyText(gift)}`, [prior], u.actor);
     pay(w, u.actor, best.actor, gift, 'labour.donation', ev);
   }
 }

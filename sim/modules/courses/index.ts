@@ -4,6 +4,8 @@
 import { type Module, type World } from '../../kernel/index.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { metClassmate } from '../venues/index.ts';
+import { standingMult } from '../player/standing.ts';
+import { usd } from '../player/gamedate.ts';
 import { COURSES, type CourseDef } from './know.ts';
 
 export { COURSES } from './know.ts';
@@ -23,7 +25,12 @@ function mix(a: number, b: number, c: number): number {
   return x >>> 0;
 }
 
-export function courseFee(w: World, c: CourseDef): number { return Math.round(econ(w).wage * c.feeDays); }
+/** An evening course costs a fraction of the days of wages its length suggests: about a week of pay for the short ones, and more as your standing rises. */
+export function courseFee(w: World, c: CourseDef, seat = ''): number {
+  const me = seat ? whoOf(w, seat) : -1;
+  const stand = me >= 0 ? Math.max(0.7, Math.min(1.6, standingMult(w, me))) : 1;
+  return Math.max(100, Math.round(econ(w).wage * c.feeDays * 0.3 * stand));
+}
 export function findCourse(key: string): CourseDef | undefined {
   const k = key.trim().toLowerCase();
   if (!k) return undefined;
@@ -46,7 +53,7 @@ export function courseBoard(w: World, seat: string): CourseBoard {
       id: def.id, name: def.name, sessions: c.sessions, weeks: def.weeks, nextIn: 7 - ((w.day - c.start) % 7),
       classmates: c.sessions > 0 ? c.mates.filter((m) => P.alive(m)).map((m) => P.name(m)) : [], eventId: c.ev,
     } : null,
-    rows: COURSES.map((d) => ({ id: d.id, name: d.name, weeks: d.weeks, fee: courseFee(w, d), blurb: d.blurb, sectors: d.sectors, done: known[d.id] !== undefined })),
+    rows: COURSES.map((d) => ({ id: d.id, name: d.name, weeks: d.weeks, fee: courseFee(w, d, seat), blurb: d.blurb, sectors: d.sectors, done: known[d.id] !== undefined })),
     finished: COURSES.filter((d) => known[d.id] !== undefined).map((d) => d.name),
   };
 }
@@ -66,9 +73,9 @@ export function enrol(w: World, seat: string, key: string): { ok: boolean; text:
   if (!def) return { ok: false, text: `no such course. Try one of: ${COURSES.map((c) => c.name.toLowerCase()).join(', ')}` };
   if (b.class[seat]) return { ok: false, text: `you are already in ${COURSES.find((c) => c.id === b.class[seat].course)?.name ?? 'a course'}. Finish it first` };
   if (b.know[seat]?.[def.id] !== undefined) return { ok: false, text: `you have already finished ${def.name}` };
-  const fee = courseFee(w, def);
+  const fee = courseFee(w, def, seat);
   const id = P.id(me);
-  if (Math.floor(w.ledger.balance(id, DEP)) < fee) return { ok: false, text: `${def.name} costs $${(fee / 100).toFixed(2)} and you do not have it` };
+  if (Math.floor(w.ledger.balance(id, DEP)) < fee) return { ok: false, text: `${def.name} costs ${usd(fee)} and you do not have it` };
   const ev = w.events.emit('course.enrol', `Enrolled in ${def.name} || ${def.weeks} weekly evenings, fee paid`, [w.genesis], id);
   if (!pay(w, id, GOV, fee, 'course.fee', ev)) return { ok: false, text: 'the fee did not leave your account' };
   // The class: five adults who would plausibly take it, chosen by who they are.
@@ -84,7 +91,7 @@ export function enrol(w: World, seat: string, key: string): { ok: boolean; text:
   const mates = near.slice(0, 5).map((x) => x.who);
   b.class[seat] = { course: def.id, start: w.day, sessions: 0, mates, ev };
   b.yEnrol++;
-  return { ok: true, text: `You enrol in ${def.name}: ${def.weeks} weekly evenings, $${(fee / 100).toFixed(2)} paid. The class meets in a week`, eventId: ev };
+  return { ok: true, text: `You enrol in ${def.name}: ${def.weeks} weekly evenings, ${usd(fee)} paid. The class meets in a week`, eventId: ev };
 }
 
 export const courses: Module = {

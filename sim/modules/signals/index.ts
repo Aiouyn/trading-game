@@ -9,6 +9,7 @@ import { askFirm, contactsOf } from '../social/index.ts';
 import { dueThisMonth, deskOf, previewEvent, quarterView, reportsAfter, type QuarterView, type Report } from '../earnings/index.ts';
 import { dockWatch } from '../port/index.ts';
 import { knowledgeBonus } from '../courses/know.ts';
+import { whole as grouped } from '../player/gamedate.ts';
 
 export type Kind = 'work' | 'contact' | 'street';
 export interface Signal {
@@ -65,7 +66,7 @@ function money(cents: number): string {
   const a = Math.abs(cents), sign = cents < 0 ? '-' : '';
   if (a >= 1e8) return `${sign}$${(a / 1e8).toFixed(2)}M`;
   if (a >= 1e5) return `${sign}$${(a / 1e5).toFixed(1)}k`;
-  return `${sign}$${(a / 100).toFixed(0)}`;
+  return `${sign}${grouped(a)}`;
 }
 function clearWord(c: number): string { return c >= 0.7 ? 'clear' : c >= 0.5 ? 'fair' : 'faint'; }
 

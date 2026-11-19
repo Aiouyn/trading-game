@@ -9,6 +9,7 @@ import { type Module, type World } from '../../kernel/index.ts';
 import { isSeatActor, isSeatPerson } from '../../kernel/seat.ts';
 import { DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
+import { whole as grouped } from '../player/gamedate.ts';
 
 const DEG = 16;
 const CX = 'cx';
@@ -543,7 +544,7 @@ function launch(w: World, i: number, opts: LaunchOpts = {}, seedCents = SEED): M
   const pool = st.free?.pop() ?? `pool:${coinId}`;
   if (!L.actors.has(pool)) L.addActor(pool, 'exchange');
   L.define({ id: coinId, kind: 'share', issuer: id });
-  const ev = w.events.emit('crypto.launch', `${P.name(i)} launched ${name} (${ticker}) and seeded the pool with $${(seedCents / 100).toFixed(0)}`, [st.root], id);
+  const ev = w.events.emit('crypto.launch', `${P.name(i)} launched ${name} (${ticker}) and seeded the pool with ${grouped(seedCents)}`, [st.root], id);
   if (!pay(w, id, GOV, FEE, 'crypto.fee', ev)) return undefined;
   if (!pay(w, id, pool, seedCents, 'crypto.seed', ev)) return undefined;
   L.issue(coinId, pool, POOL_TOKENS, 'crypto.seed', ev);
@@ -585,7 +586,7 @@ function rug(w: World, m: Meme): void {
   const P = econ(w).P, L = w.ledger;
   const cash = poolCash(w, m);
   const last = spot(w, m);
-  const ev = w.events.emit('crypto.rug', `${P.name(m.creator)} pulled the ${m.name} pool and kept $${(cash / 100).toFixed(0)}. The coins still out have nowhere to sell`, maniaCauses(m), P.id(m.creator));
+  const ev = w.events.emit('crypto.rug', `${P.name(m.creator)} pulled the ${m.name} pool and kept ${grouped(cash)}. The coins still out have nowhere to sell`, maniaCauses(m), P.id(m.creator));
   if (cash > 0 && !pay(w, m.pool, P.id(m.creator), cash, 'crypto.rug', ev)) throw new Error(`rug cash ${m.id}`);
   const left = poolTokens(w, m);
   if (left > 0 && !L.redeem(m.id, m.pool, left, 'crypto.rug', ev)) throw new Error(`rug tokens ${m.id}`);
@@ -1274,7 +1275,7 @@ export function launchCoin(w: World, person: number, opts: LaunchOpts = {}): { i
   const seat = isSeatPerson(w, person);
   const seed = seat ? Math.max(SEED_MIN, Math.min(SEED, opts.seed ?? SEED_MIN)) : seedFor(w, person);
   if (seat) {
-    if (cashOf(w, P.id(person)) < FEE + seed + buy) return { why: `a launch needs $${((FEE + seed + buy) / 100).toFixed(2)} of cash: $${(seed / 100).toFixed(0)} seed, $${(FEE / 100).toFixed(0)} fee and the starting buy` };
+    if (cashOf(w, P.id(person)) < FEE + seed + buy) return { why: `a launch needs $${((FEE + seed + buy) / 100).toFixed(2)} of cash: ${grouped(seed)} seed, ${grouped(FEE)} fee and the starting buy` };
   } else {
     if (w.day < P.fearUntil[person]) return { why: 'too shaken to launch a coin' };
     if (P.resil[person] < 55) return { why: 'not the temperament to launch a coin' };

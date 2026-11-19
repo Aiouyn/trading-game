@@ -9,6 +9,7 @@ import { GOODS } from '../economy/content.ts';
 import { bidHome, homeBoard, parcelView } from '../property/index.ts';
 import { contactsOf, nudgeLink, quietFact } from '../social/index.ts';
 import { chooseShape, money, renderLetter, type Voice } from '../social/words.ts';
+import { dateText } from '../player/gamedate.ts';
 
 const SKIP_STOP = 3;
 const INVITE_KINDS = ['dinner', 'drinks', 'deal', 'birthday', 'leaving'];
@@ -245,7 +246,8 @@ function hostTier(w: World, who: number): number {
   return 0;
 }
 function canPay(w: World, person: number, price: number): boolean {
-  return cashOf(w, person) >= price + wage(w) * 3;
+  // An invitation should cost an evening, not a month: no more than a week's wage, or a fortieth of what you hold.
+  return cashOf(w, person) >= price + wage(w) * 3 && price <= Math.max(wage(w) * 1.5, cashOf(w, person) * 0.025);
 }
 function canTreat(w: World, host: number, price: number): boolean {
   return alive(w, host) && cashOf(w, host) >= price + wage(w) * 15;
@@ -299,7 +301,7 @@ function whereOf(name: string, nb: string): string {
 function priceOf(w: World, me: number, host: number, role: string, rooms: Venue[], nb: string, salt: number, payTo: string): Quote | undefined {
   const rows = roomRows(w, rooms);
   if (!rows.length) return;
-  const preferred = roomAt(rows, hostTier(w, host), salt);
+  const preferred = roomAt(rows, Math.min(hostTier(w, host), hostTier(w, me)), salt);
   const cheaper = rows.filter((row) => row.cents < preferred.cents).sort((a, b) => b.cents - a.cents);
   for (const row of [preferred, ...cheaper]) {
     if (!canPay(w, me, row.cents)) continue;
@@ -488,8 +490,8 @@ function recentFaces(st: Box, day: number): Set<number> {
 function fitsBias(role: string, bias: string): boolean {
   if (bias === 'friend') return role === 'friend' || role === 'mentor';
   if (bias === 'family') return role === 'family';
-  if (bias === 'work') return role === 'colleague' || role === 'mentor';
-  if (bias === 'city') return role === 'friend' || role === 'colleague' || role === 'mentor' || role === 'family';
+  if (bias === 'work') return role === 'colleague' || role === 'acquaintance' || role === 'mentor';
+  if (bias === 'city') return role === 'friend' || role === 'colleague' || role === 'acquaintance' || role === 'mentor' || role === 'family';
   return true;
 }
 function outsiderOf(w: World, st: Box, me: number, host: number, salt: number): number {
@@ -581,7 +583,7 @@ function pushPlan(w: World, st: Box, spec: Omit<LifePlan, 'id' | 'ask' | 'status
   if (spec.invite && alive(w, host)) {
     const role = bondOf(st, host)?.role ?? 'colleague';
     const due = day;
-    const clock = `Say yes or no by day ${due}. If I hear nothing, I'll take it as a no.`;
+    const clock = `Say yes or no by ${dateText(due)}. If I hear nothing, I'll take it as a no.`;
     const cost = plan.pay === 'treat' ? `I'll get this one. ${clock}` : plan.cents > 0 ? `You pay ${usd(plan.cents)}. ${clock}` : clock;
     const fact = plan.title.replace(/\s*You are invited\.?/g, '').replace(/\s*I'll get this one\.?/g, '').trim();
     const text = say(w, host, role, fact, cost, `I'll be there either way.`, );
@@ -598,7 +600,7 @@ function pushPlan(w: World, st: Box, spec: Omit<LifePlan, 'id' | 'ask' | 'status
 
 function tryDinner(w: World, st: Box, me: number, drinks: boolean, asInvite: boolean, bias: string): boolean {
   const kind = drinks ? 'drinks' : 'dinner';
-  const hosts = pool(w, st, me, (b) => (!asInvite || willInvite(b)) && b.role !== 'rival' && (drinks || b.role === 'friend' || b.role === 'family' || b.role === 'mentor' || b.role === 'colleague'));
+  const hosts = pool(w, st, me, (b) => (!asInvite || willInvite(b)) && b.role !== 'rival' && (drinks || b.role === 'friend' || b.role === 'family' || b.role === 'mentor' || b.role === 'colleague' || b.role === 'acquaintance'));
   const salt = mix(w.day, drinks ? 2 : 1, me);
   const host = pickHost(w, st, me, hosts, salt, bias);
   if (!host) return false;
@@ -618,7 +620,7 @@ function tryDinner(w: World, st: Box, me: number, drinks: boolean, asInvite: boo
   });
 }
 function tryDeal(w: World, st: Box, me: number): boolean {
-  const hosts = pool(w, st, me, (b) => willInvite(b) && b.role !== 'rival' && (b.stance === 'banker' || b.role === 'colleague' || b.role === 'friend'));
+  const hosts = pool(w, st, me, (b) => willInvite(b) && b.role !== 'rival' && (b.stance === 'banker' || b.role === 'colleague' || b.role === 'acquaintance' || b.role === 'friend'));
   const salt = mix(w.day, 5, me);
   const host = pickHost(w, st, me, hosts, salt, 'work');
   if (!host) return false;
@@ -677,7 +679,7 @@ function tryLeaving(w: World, st: Box, me: number, asInvite: boolean): boolean {
     const f = econ(w).firms[e];
     if (!f || f.closed || f.ceo === b.who || f.staff.length < 5) return false;
     if (asInvite && !willInvite(b)) return false;
-    return b.role === 'colleague' || b.role === 'friend' || b.stance === 'ally';
+    return b.role === 'colleague' || b.role === 'acquaintance' || b.role === 'friend' || b.stance === 'ally';
   });
   const salt = mix(w.day, 7, me);
   const host = pickHost(w, st, me, hosts, salt, 'work') ?? pickFrom(hosts, salt);
@@ -1001,7 +1003,7 @@ function linkSociety(w: World, st: Box, me: number): void {
         continue;
       }
     }
-    const clock = `Say yes or no by day ${d.day}. If I hear nothing, I'll take it as a no.`;
+    const clock = `Say yes or no by ${dateText(d.day)}. If I hear nothing, I'll take it as a no.`;
     const treated = d.cents < 1 && treatCents(st, d.id) > 0;
     const cost = treated ? `I'll get this one. ${clock}` : d.cents > 0 ? `You pay the city ${usd(d.cents)}. ${clock}` : clock;
     const fact = d.title.replace(/\s*You are invited\.?/g, '').replace(/\s*I'll get this one\.?/g, '').trim();
@@ -1086,7 +1088,7 @@ export function tendCirclePlans(w: World): void {
       const role = bondOf(st, p.host)?.role ?? '';
       if (role === 'friend') got.friend = true;
       else if (role === 'family') got.family = true;
-      else if (role === 'colleague' || role === 'mentor') got.work = true;
+      else if (role === 'colleague' || role === 'acquaintance' || role === 'mentor') got.work = true;
       if (p.who.some((id) => !known.has(id))) got.city = true;
     }
     const start = w.day % GAPS.length;

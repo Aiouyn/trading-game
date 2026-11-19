@@ -15,6 +15,7 @@ import {
   setProfitTax, setSpendPriority, setSpendScale, type EconState,
 } from '../economy/index.ts';
 import { PRISON, type People } from '../economy/people.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 const DEG = 16;
 const ADULT = 18 * DAYS_PER_YEAR;
@@ -463,7 +464,7 @@ function donations(w: World): void {
   }
   if (topAmt <= 0) return;
   const donor = topPerson >= 0 ? P.name(topPerson) : topWho;
-  const ev = w.events.emit('politics.donation', `${donor} gives ${(topAmt / 100).toFixed(0)} to ${PARTIES[topParty].name}`, cause, topPerson >= 0 ? P.id(topPerson) : topWho);
+  const ev = w.events.emit('politics.donation', `${donor} gives ${moneyText(topAmt)} to ${PARTIES[topParty].name}`, cause, topPerson >= 0 ? P.id(topPerson) : topWho);
   const reg = PARTIES[st.gov].regulation;
   const bar = s.wage * (260 - 140 * reg);
   const sector = topFirm >= 0 ? s.firms[topFirm]?.sector ?? '' : '';
@@ -477,7 +478,7 @@ function recordBribe(w: World, person: number, firm: number, gain: number, event
   if (st.bribeN >= 2) return;
   const law = w.state.law as LawSt | undefined;
   const P = econ(w).P;
-  const text = `${P.name(person)} paid ${(gain / 100).toFixed(0)} to buy a favour, a bribe`;
+  const text = `${P.name(person)} paid ${moneyText(gain)} to buy a favour, a bribe`;
   w.events.emit('politics.bribe', text, [event], P.id(person));
   st.bribeN++;
   if (!law?.offences || !law.seenKey) return;
@@ -507,7 +508,7 @@ function subsidiseFrom(w: World, saved: Float64Array): void {
   const cause = causes(w, st, [])[0];
   let paid = 0;
   for (const f of firms) if (treasury(w, f.id, each, 'politics.subsidy', cause)) paid += each;
-  if (paid > 0) w.events.emit('politics.subsidy', `${PARTIES[st.gov].name} subsidises ${sec.toLowerCase()} with ${(paid / 100).toFixed(0)} after its donations`, causes(w, st, []), GOV);
+  if (paid > 0) w.events.emit('politics.subsidy', `${PARTIES[st.gov].name} subsidises ${sec.toLowerCase()} with ${moneyText(paid)} after its donations`, causes(w, st, []), GOV);
 }
 
 function bailout(w: World): void {
@@ -525,7 +526,7 @@ function bailout(w: World): void {
     if (!treasury(w, bank.id, amt, 'politics.bailout', cause[0])) continue;
     st.bailed[bank.id] = w.day;
     const why = bank.failed ? 'failed' : 'ran out of capital';
-    w.events.emit('politics.bailout', `the government bails out ${bank.id} with ${(amt / 100).toFixed(0)} after it ${why}`, cause, GOV);
+    w.events.emit('politics.bailout', `the government bails out ${bank.id} with ${moneyText(amt)} after it ${why}`, cause, GOV);
   }
 }
 

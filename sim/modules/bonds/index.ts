@@ -7,6 +7,7 @@
 import { type Module, type World } from '../../kernel/index.ts';
 import { isSeatPerson } from '../../kernel/seat.ts';
 import { BANK, BOND, CB, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
+import { usd as moneyText } from '../player/gamedate.ts';
 
 export const LOT = 16_000; // one bond, in cents of face. Par price is LOT. Coupons land on whole cents.
 const RESV = 'resv';
@@ -1252,7 +1253,7 @@ function issueCorp(w: World, f: Firm, cause: number): void {
   const payC = invoice(CORP_FACE, px);
   const causes = [cause];
   if (f.profitEv !== undefined && f.profitEv !== cause) causes.push(f.profitEv);
-  const ev = w.events.emit('bond.issue', `${f.name} issues ${(CORP_FACE / 100).toFixed(0)} of ${rating} notes at ${(y * 100).toFixed(2)}%`, causes, f.id);
+  const ev = w.events.emit('bond.issue', `${f.name} issues ${moneyText(CORP_FACE)} of ${rating} notes at ${(y * 100).toFixed(2)}%`, causes, f.id);
   if (!pay(w, BANK, f.id, payC, 'bond.issue', ev)) return;
   w.ledger.issue(id, BANK, CORP_FACE, 'bond.issue', ev);
   st.corp.push({

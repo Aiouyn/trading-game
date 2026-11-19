@@ -9,6 +9,7 @@ import { BANK, DEP, type EconState, type Firm } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
 import { cancelOrder, repriceOnReport, submitOrder } from '../markets/index.ts';
 import { askFirm, contactsOf } from '../social/index.ts';
+import { whole as grouped } from '../player/gamedate.ts';
 
 const REMOVE_AFTER = CEO_POSITION.removeAfter;
 
@@ -101,7 +102,7 @@ function usd(cents: number): string {
   const s = Math.round(cents), sign = s < 0 ? '-' : '', a = Math.abs(s);
   if (a >= 1e8) return `${sign}$${(a / 1e8).toFixed(2)}M`;
   if (a >= 1e5) return `${sign}$${(a / 1e5).toFixed(1)}k`;
-  return `${sign}$${(a / 100).toFixed(0)}`;
+  return `${sign}${grouped(a)}`;
 }
 function sharesOf(w: World, issuer: string): number {
   return Math.max(1, Math.round(w.ledger.issued.get('eq:' + issuer) ?? 0));
