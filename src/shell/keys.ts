@@ -28,6 +28,7 @@ export function useShellKeys(store: ShellStore): void {
         s.setLauncher(false);
         s.setKeySheet(false);
         s.setRecent(false);
+        if (s.local.focusMode) s.toggleFocusMode();
         return;
       }
       if (touchOnly()) return;

@@ -190,10 +190,12 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
           const flags = store.getState().channels.me.flags;
           // A window saved while a flag was on must not come back after the flag is off.
           const windows = saved.windows?.filter((w) => !isShrouded(w.app, flags));
-          store.setState((st) => ({ local: { ...st.local, ...saved, ...(windows ? { windows } : {}) } }));
+          // Focus mode hides the dock and the top-left of the strip: it never survives a reload.
+          store.setState((st) => ({ local: { ...st.local, ...saved, ...(windows ? { windows } : {}), focusMode: false } }));
         }
-        // A new account starts in the Trade layout (17 §3.2.5), desktop only.
-        if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
+        // A new account, or a desk saved with every window closed, starts in the Trade layout (17 §3.2.5), desktop only.
+        const empty = !saved || !(saved.windows?.length);
+        if (empty && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
         store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
       }, () => {});
     })();

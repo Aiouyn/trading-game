@@ -72,6 +72,7 @@ export function StatusStrip() {
         <HaltChip halted={sys.halted} />
         {nwChip}
         {sim ? <button className="icon-btn" aria-label={S.bell} data-testid="notes-bell" onClick={() => toggleNotes()}><Glyph name="bell" size={17} /></button> : null}
+        <Button data-testid="leave-focus" title="Focus mode hides the dock. Esc or Ctrl . also leaves it." onClick={() => store.getState().toggleFocusMode()}>Leave focus</Button>
       </header>
     );
   }
