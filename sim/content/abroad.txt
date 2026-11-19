@@ -4,7 +4,8 @@ The exchange rate is not in this file after the opening print: the forex desk se
 
 Tags on WORLD:
   (NAME:text)            what the chronicle calls it
-  (CURRENCY:USD)         ledger instrument FX:USD, integer cents, issued by the foreign central bank
+  (CURRENCY:MRK)         ledger instrument fxc:MRK, integer cents, issued by the foreign central bank
+  (CURRENCY_NAME:Marek)  what the desk calls it
   (SIZE:n)               how many times a home-sized economy the foreign one is (mobile capital)
   (START_RATE:r)         foreign central bank rate at the open
   (START_FX:x)           opening home cents per foreign cent
@@ -34,10 +35,11 @@ Tags on TRADED:
 
 [WORLD:ABROAD]
   [NAME:the rest of the world]
-  [CURRENCY:USD]
+  [CURRENCY:MRK]
+  [CURRENCY_NAME:Marek]
   [SIZE:6]
   [START_RATE:0.03]
-  [START_FX:1]
+  [START_FX:1.18]
   [INFLATION:0.02]
   [SPREAD:0.001]
   [ELASTICITY:1.2]
@@ -74,3 +76,12 @@ What the port sells when the home currency is cheap in foreign terms.
 [TRADED:FURNITURE] [FLOW:export]
 [TRADED:VEHICLES] [FLOW:export]
 [TRADED:ELECTRONICS] [FLOW:export]
+
+[OBJECT:PAIR]
+
+Smaller economies seen only through their currency. Each has its own rate cycle and price level; its rate against the dollar
+follows the rate gap, the price gap and the trade between us, and the flow of orders at the desk.
+Tags: (NAME:text) (START_FX:x home cents per foreign cent) (START_RATE:r) (INFLATION:r) (RATE_CYCLE:years) (RATE_AMP:r) (PHASE:radians) (TRADE:share of our trade)
+[PAIR:NMK] [NAME:Northmark] [START_FX:0.74] [START_RATE:0.045] [INFLATION:0.028] [RATE_CYCLE:7] [RATE_AMP:0.012] [PHASE:1.2] [TRADE:0.3]
+[PAIR:SOL] [NAME:Solari] [START_FX:1.62] [START_RATE:0.022] [INFLATION:0.014] [RATE_CYCLE:9] [RATE_AMP:0.009] [PHASE:3.1] [TRADE:0.2]
+[PAIR:KSH] [NAME:Kesh] [START_FX:0.38] [START_RATE:0.06] [INFLATION:0.045] [RATE_CYCLE:6] [RATE_AMP:0.015] [PHASE:5.0] [TRADE:0.1]

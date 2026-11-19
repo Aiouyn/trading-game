@@ -14,6 +14,12 @@ import { type Module, type World } from '../../kernel/index.ts';
 
 const LISTED = ['CRUDE_OIL', 'NATURAL_GAS', 'COAL', 'IRON_ORE', 'COPPER', 'LITHIUM', 'GRAIN', 'LIVESTOCK'] as const;
 const MONTHS = 6;
+
+/** What one unit of each listed good is, so a quote reads "per barrel" and not a bare number. */
+const UNITS: Record<string, string> = {
+  CRUDE_OIL: 'barrel', NATURAL_GAS: 'MMBtu', COAL: 'ton', IRON_ORE: 'ton', COPPER: '100 kg', LITHIUM: '10 kg', GRAIN: 'quintal', LIVESTOCK: 'head',
+};
+export function futureUnit(good: string): string { return UNITS[good] ?? 'unit'; }
 const EX = 'cmdty_exch';
 const MARGIN = 'cmdty:margin';
 const TREND = 'cmdty_trend';
@@ -51,6 +57,14 @@ interface CmdState {
   root: number;
   calls: number;
   pending: { good: string; from: string; to: string; qty: number }[];
+  /** The day's final marks' move events, set by the last tick of the session and read by the day close. */
+  moves?: number[];
+  /**
+   * Trades done during the session fill at the price of the moment, but the day's settlement is measured from the
+   * last settlement. This is each trader's correction for that, in cents, so a position opened at 14:00 earns
+   * only what the price did after 14:00. It zeroes between traders and clears at the day close.
+   */
+  adj?: Record<string, number>;
 }
 
 const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
@@ -255,11 +269,18 @@ function fairOf(w: World, s: EconState, b: Book, m: number, spot: number, days: 
   return { fair, prem, nonShock };
 }
 
-function markBook(w: World, s: EconState, b: Book): number[] {
+/**
+ * Price the book. A mid-session call (`final` false) only moves each month's price part of the way from the last
+ * settlement toward where the mark is heading (`g`, the share of the day's move done so far) and changes nothing else.
+ * The last tick's call is the settlement: it also learns, records the cause and speaks.
+ */
+function markBook(w: World, s: EconState, b: Book, g: number, final: boolean): number[] {
   const spot = spotOf(w, s, b.good);
   const days = stockDays(w, s, b);
-  b.usual += (days - b.usual) * 0.003;
-  if (b.usual < 1) b.usual = 1;
+  if (final) {
+    b.usual += (days - b.usual) * 0.003;
+    if (b.usual < 1) b.usual = 1;
+  }
   const front = shockRaw(w, b.good, 0);
   if (front.raw > 0.05 && b.anchor <= 0 && spot > 0) b.anchor = spot;
   const active = front.active;
@@ -284,6 +305,10 @@ function markBook(w: World, s: EconState, b: Book): number[] {
     const band = shockDriven ? 0.12 : 0.03;
     const lo = t.prev * (1 - band), hi = t.prev * (1 + band);
     const unrounded = Math.min(hi, Math.max(lo, mid));
+    if (!final) {
+      t.px = Math.max(1, Math.round(t.prev + (unrounded - t.prev) * g));
+      continue;
+    }
     const px = Math.max(1, Math.round(unrounded));
     if (m === 0 && t.prev > 0 && Math.abs(unrounded / t.prev - 1) > 0.04 && causeIds.length > 0) {
       const extra: number[] = [];
@@ -303,6 +328,7 @@ function markBook(w: World, s: EconState, b: Book): number[] {
     t.lastPrem = prem;
     if (m === 0) { frontPx = px; frontNon = nonShock; }
   }
+  if (!final) return emitted;
   if (active.length) b.driver = active.slice();
   else if (frontPx > 0 && Math.abs(frontPx / frontNon - 1) < 0.03) b.driver = [];
   if (front.raw < 0.02) b.anchor = 0;
@@ -312,10 +338,11 @@ function markBook(w: World, s: EconState, b: Book): number[] {
 function settleVariation(w: World, st: CmdState, cause: number): string[] {
   const rows: { actor: string; pnl: number }[] = [];
   let sum = 0;
+  if (st.adj) for (const actor of Object.keys(st.adj)) if (!st.roster.includes(actor)) delete st.adj[actor];
   for (const actor of st.roster) {
     let pnl = 0;
     for (const b of st.books) for (const t of b.tenors) pnl += netOf(w, actor, t) * (t.px - t.prev) * b.lot;
-    pnl = Math.round(pnl);
+    pnl = Math.round(pnl) + Math.round(st.adj?.[actor] ?? 0);
     sum += pnl;
     if (pnl !== 0) rows.push({ actor, pnl });
   }
@@ -727,6 +754,13 @@ export function tradeFuture(w: World, actor: string, good: string, monthsAhead: 
       return { qty: 0, px: t.px, net: cur, why: 'not enough cash to post margin' };
     }
   } else if (have > need) releaseMargin(w, actor, have - need, cause);
+  // Filled at the price of the moment: the day's settlement is measured from there, not from the last settlement.
+  const off = Math.round(-delta * (t.px - t.prev) * b.lot);
+  if (off !== 0) {
+    const adj = (st.adj ??= {});
+    adj[actor] = (adj[actor] ?? 0) + off;
+    adj[MM] = (adj[MM] ?? 0) - off;
+  }
   assertBook(w, t);
   return { qty: Math.abs(delta), px: t.px, net };
 }
@@ -791,17 +825,27 @@ export const commodities: Module = {
   },
 
   tick(w, t) {
-    if (t !== 0 || !bookOf(w).pending.length) return;
-    releasePending(w, bookOf(w).root);
+    const st = bookOf(w);
+    if (t === 0 && st.pending.length) releasePending(w, st.root);
+    // The session's price path: each tick marks part of the day's move, and the last one is the settlement.
+    const T = Math.max(1, w.ticksPerDay);
+    const final = t >= T - 1;
+    const g = T === 1 ? 1 : 0.15 + 0.85 * (t / (T - 1));
+    const s = econ(w);
+    const moves: number[] = [];
+    for (const b of st.books) moves.push(...markBook(w, s, b, g, final));
+    if (final) st.moves = moves;
   },
 
   dayClose(w) {
     const st = bookOf(w), s = econ(w);
     absorbHaircut(w, st.root);
-    const moves: number[] = [];
-    for (const b of st.books) moves.push(...markBook(w, s, b));
+    // The last tick of the session set the settlement prices. A world that ran no ticks marks them here.
+    const moves: number[] = st.moves ?? [];
+    st.moves = undefined;
     const cause = moves[0] ?? st.root;
     const failed = settleVariation(w, st, cause);
+    st.adj = undefined;
     const halted = new Set<string>();
     const callCauses = moves.length ? moves.slice(0, 4) : [st.root];
     for (const actor of failed) closeOut(w, st, actor, callCauses, halted);

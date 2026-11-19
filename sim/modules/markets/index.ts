@@ -7,13 +7,23 @@ import { BANK, CAPITAL, DEP, pay, type EconState, type Firm } from '../economy/i
 import { GOODS } from '../economy/content.ts';
 import { type Module, type World } from '../../kernel/index.ts';
 import { isSeatActor } from '../../kernel/seat.ts';
+import { fxMark } from '../abroad/index.ts';
+import { tradingDay } from './noise.ts';
 
 const SHARES = 1_000_000;
 const W_DIV = 0.7;
 const W_EARN = 0.3;
 const PAYOUT = 0.5;
 /** Cents: the highest price a share opens at. Above it the shares are split before trading starts. */
-const OPEN_CAP = 20_000;
+const OPEN_LOW = 700;
+const OPEN_HIGH = 26_000;
+/** Same share each time for the same name: a stable number between 0 and 1. */
+function hashUnit(key: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
+  return ((h >>> 0) + 0.5) / 4294967296;
+}
 
 type Side = 'buy' | 'sell';
 type Src = 'player' | 'value' | 'momentum' | 'mm' | 'hh';
@@ -67,6 +77,19 @@ interface Stock {
   imp?: number;
   /** Capitalisation at the last total-return point, so the index follows the same names month to month. */
   trPrev?: number;
+  /** Order-flow sentiment: the fraction the crowd has marked the price above (or below) what the earnings support. It reverts by itself. */
+  sent?: number;
+  /** Where that sentiment is going today: the move the day's order flow completes by the last tick. */
+  sentNext?: number;
+  /** Sentiment as of the tick that just ran. */
+  sentNow?: number;
+  /** Day of the last news or report that hit this name; the next session's flow is much heavier. */
+  newsAt?: number;
+  /** The price the last tick settled on, and a count of ticks, so the minute layer knows when the market moved. */
+  tgt?: number;
+  tgtSeq?: number;
+  /** Day the closing mark was set by the last tick. */
+  closedOn?: number;
 }
 
 interface Fund { id: string; style: Style; premium: number }
@@ -481,18 +504,6 @@ function sweepSeatOrders(w: World): void {
   }
 }
 
-/**
- * The closing print of a live session (16:00): every share's last price becomes the mark the day close will settle on,
- * so the last minute bar and the daily bar agree. The day close at midnight recomputes the same mark.
- */
-export function closingPrint(w: World): void {
-  for (const st of book(w).stocks) {
-    const { hi, lo } = collar(w, st);
-    st.last = Math.max(lo, Math.min(hi, destination(w, st)));
-    st.imp = 0;
-  }
-}
-
 /** Let the player's impact on the quote fade. */
 function fadeImpact(w: World, keep: number): void {
   for (const st of book(w).stocks) {
@@ -706,15 +717,17 @@ function destination(w: World, st: Stock): number {
   // Lenders dumping collateral push the price below what the news justifies. The pressure decays
   // a few percent a day and the price walks back, which is the rebound a patient cash buyer collects.
   const squeeze = Math.min(FORCED_CAP, FORCED_IMPACT * (st.forced ?? 0));
-  const fair = Math.max(1, Math.round(fairValue(w, st, 0.04) * (1 - squeeze)));
+  // The crowd's mood sits on top of what the earnings support. It is order flow, and it reverts.
+  const mood = 1 + (st.sentNow ?? 0);
+  const fair = Math.max(1, Math.round(fairValue(w, st, 0.04) * (1 - squeeze) * mood));
   if ((st.chaseUntil ?? 0) < w.day || (st.printDir ?? 0) <= 0) return fair;
   return Math.max(fair + 1, Math.round(fair * 1.04));
 }
 
 /** Cents the print may travel today. A report can close the gap; an ordinary day cannot. */
-function collar(w: World, st: Stock): { hi: number; lo: number } {
+function collar(w: World, st: Stock, to?: number): { hi: number; lo: number } {
   const prev = Math.max(1, st.prev || st.last);
-  const dest = destination(w, st);
+  const dest = to ?? destination(w, st);
   const printing = (st.printUntil ?? 0) >= w.day;
   if (printing) return { hi: Math.max(prev, dest), lo: Math.max(1, Math.min(prev, dest)) };
   const gap = Math.abs(dest - prev);
@@ -727,7 +740,7 @@ function collar(w: World, st: Stock): { hi: number; lo: number } {
   const wide = st.wide || gap > prev * 0.08;
   const step = wide
     ? Math.max(1, Math.min(gap, Math.round(Math.max(prev, dest) * (st.wide ? 0.1 : 0.08))))
-    : Math.max(1, Math.round(prev * 0.02));
+    : Math.max(1, Math.round(prev * 0.06));
   return { hi: prev + step, lo: Math.max(1, prev - step) };
 }
 
@@ -751,6 +764,7 @@ export function repriceOnReport(w: World, issuer: string, monthly: number, cause
   const f = firmOf(econ(w), st.issuer);
   if (f) { st.seenProfit = f.lastProfit; st.seenDiv = f.lastDividend; }
   st.printUntil = w.day + 6;
+  st.newsAt = w.day;
   st.printEv = cause;
   st.printDir = monthly > prev * 1.03 ? 1 : monthly < prev * 0.97 ? -1 : 0;
   // A beat stays rich for about six weeks, long enough for the buyers to get filled, then fades.
@@ -838,6 +852,7 @@ export function discountForNews(w: World, issuer: string, cause: number): void {
   if (!st) return;
   st.profitEma *= 0.7;
   st.divEma = Math.max(0, st.divEma * 0.7);
+  st.newsAt = w.day;
   w.events.emit('mkt.news', `${st.instr} earnings marked down after the news`, [cause], issuer);
 }
 
@@ -1242,6 +1257,77 @@ function impliedEma(s: EconState, last: number, policy: number, premium: number,
   return annual / (12 * (W_DIV + W_EARN * PAYOUT));
 }
 
+// ---- order flow: why a share moves on a day with no news ----
+// Between reports the earnings stream is fixed, but the price a crowd will pay for it is not. Each name carries a
+// mood (a fraction above or below the earnings value) that follows the day's order flow and reverts by itself.
+// The flow is market microstructure noise, so it is the one use of an outside random draw here: part of it is the
+// market's own (every name feels it) and part is the name's. Smaller firms swing more, and the session after a
+// report or a scandal swings much more.
+const MOOD_KEEP = 0.9;
+/** Share of a day's mood move that happens overnight, before the open. The rest arrives through the session. */
+const OVERNIGHT = 0.15;
+
+/** How far a name's mood moves on an ordinary day. Smaller firms swing more. */
+export function flowSigma(w: World, instr: string): number {
+  const st = book(w).stocks.find((x) => x.instr === instr);
+  if (!st) return 0.012;
+  const capD = Math.max(1, st.last * sharesOut(w, instr) / 100);
+  return 0.0065 + 0.0105 / (1 + capD / 2e7);
+}
+
+function drawMood(w: World, forDay: number): void {
+  const m = book(w);
+  const open = tradingDay(forDay);
+  const rng = w.rng('mkt:flow');
+  const common = rng.normal();
+  for (const st of m.stocks) {
+    const z = rng.normal();
+    const was = st.sentNext ?? 0;
+    st.sent = was;
+    if (!open) { st.sentNext = was; continue; }
+    const news = st.newsAt !== undefined && forDay - st.newsAt <= 1 ? 2.4 : 1;
+    const sg = flowSigma(w, st.instr) * news;
+    st.sentNext = Math.max(-0.4, Math.min(0.4, MOOD_KEEP * was + sg * (0.5 * common + 0.866 * z)));
+  }
+}
+
+function rampMood(w: World, t: number): void {
+  const T = Math.max(1, w.ticksPerDay);
+  const g = T === 1 ? 1 : OVERNIGHT + (1 - OVERNIGHT) * (t / (T - 1));
+  for (const st of book(w).stocks) {
+    const a = st.sent ?? 0, b = st.sentNext ?? a;
+    st.sentNow = a + (b - a) * g;
+  }
+}
+
+/** After the book has traded, the tick's price is where the quote has walked to: the earnings value plus the mood so far. The last tick's price is the close. */
+function settleTick(w: World, t: number): void {
+  const last = t >= w.ticksPerDay - 1;
+  for (const st of book(w).stocks) {
+    const dest = destination(w, st);
+    const { hi, lo } = collar(w, st, dest);
+    st.last = Math.max(lo, Math.min(hi, dest));
+    if (last) { fadeCorner(w, st); st.imp = 0; st.closedOn = w.day; }
+    if (!st.traded) { st.open = st.prev; st.high = Math.max(st.prev, st.last); st.low = Math.min(st.prev, st.last); st.traded = true; }
+    else { if (st.last > st.high) st.high = st.last; if (st.last < st.low) st.low = st.last; }
+    st.tgt = st.last;
+    st.tgtSeq = (st.tgtSeq ?? 0) + 1;
+  }
+}
+
+export interface Pulse { tgt: number; seq: number; imp: number; news: boolean; out: number }
+/** What the minute layer reads for a listed share: the price the last tick settled on and a counter that moves when a tick runs. */
+export function pulseOf(w: World, instr: string): Pulse | undefined {
+  const st = book(w)?.stocks.find((x) => x.instr === instr);
+  if (!st) return undefined;
+  return { tgt: st.tgt ?? st.last, seq: st.tgtSeq ?? 0, imp: st.imp ?? 0, news: st.newsAt !== undefined && w.day - st.newsAt <= 1, out: sharesOut(w, instr) };
+}
+/** The minute layer walks the quote through the session: the share trades, and the book is centred, at the minute's price. */
+export function setQuote(w: World, instr: string, px: number): void {
+  const st = book(w)?.stocks.find((x) => x.instr === instr);
+  if (st) st.last = Math.max(1, Math.round(px));
+}
+
 export const markets: Module = {
   id: 'markets',
 
@@ -1265,6 +1351,7 @@ export const markets: Module = {
       if (!byInstr || byInstr.size !== state.stocks.length) byInstr = new Map(state.stocks.map((x) => [x.instr, x]));
       const hit = byInstr.get(instr);
       if (hit) return hit.last;
+      if (instr.startsWith('fxc:')) return fxMark(w, instr);
       if (pricing || !instr.startsWith('eq:')) return 0;
       const issued = w.ledger.issued.get(instr) ?? 0;
       if (!(issued > 0)) return 0;
@@ -1306,6 +1393,7 @@ export const markets: Module = {
     // price it by. The book is not that: machinery counted at replacement cost made a $24,000-a-year firm
     // a $38 million one, and the first quarter then split and repriced it. Month one is calm when the
     // opening price is already the price the earnings support.
+    const pre: { st: Stock; sh: number; last: number }[] = [];
     for (const st of state.stocks) {
       const sh = sharesOut(w, st.instr);
       let last = st.last;
@@ -1327,11 +1415,29 @@ export const markets: Module = {
             last = dcf >= 1 ? dcf : Math.max(1, Math.min(last, 25));
           }
         }
+        // A firm with no profit to capitalise is worth what its sales are worth to a buyer, less its debt: a
+        // turnaround story, never a one-cent placeholder.
+        if (f && f.expSales > 0 && f.price > 0 && sh > 0 && last < 100) {
+          const sales = f.expSales * f.price * 360;
+          const loan = w.ledger.issued.get('loan:' + f.id) ?? 0;
+          const equity = Math.max(0.5 * sales - loan, 0.12 * sales);
+          last = Math.max(last, Math.round(equity / sh));
+        }
       }
-      // A listed price above $200 is split before the first bell, ten-for-one or more as needed. The
-      // corporate rule would split it at the first month end and the chart would open with a cliff.
+      pre.push({ st, sh, last });
+    }
+    // Each firm was founded with the same ten thousand shares, so the same earnings stream is a price in the
+    // thousands. A board splits until the price suits the firm: the bigger the firm and the older its name,
+    // the higher the price it keeps. The founding choice is spread from seven dollars to two hundred and sixty.
+    const ranked = [...pre].sort((a, b) => a.last * a.sh - b.last * b.sh);
+    const rankOf = new Map(ranked.map((r, i) => [r.st.instr, ranked.length > 1 ? i / (ranked.length - 1) : 0.5]));
+    for (const { st, sh, last: last0 } of pre) {
+      let last = last0;
+      const u = hashUnit(st.instr);
+      const frac = 0.55 * u + 0.45 * (rankOf.get(st.instr) ?? 0.5);
+      const target = Math.exp(Math.log(OPEN_LOW) + frac * (Math.log(OPEN_HIGH) - Math.log(OPEN_LOW)));
       let shOut = sh;
-      const ratio = Math.ceil(last / OPEN_CAP);
+      const ratio = Math.max(1, Math.round(last / target));
       if (ratio > 1 && sh > 0) {
         for (const [holder, qty] of [...w.ledger.holders(st.instr)]) {
           const add = (ratio - 1) * Math.floor(qty);
@@ -1369,6 +1475,7 @@ export const markets: Module = {
     state.baseCap = Math.max(1, cap);
     state.trCap = state.baseCap;
     state.index = 100;
+    drawMood(w, 0);
     state.root = w.events.emit('mkt.open', 'stock exchange open for firm and bank shares', [w.genesis]);
     const bad = w.ledger.check();
     if (bad.length) throw new Error(`books failed at the open: ${bad.slice(0, 5).join('; ')}`);
@@ -1376,6 +1483,7 @@ export const markets: Module = {
 
   tick(w, t) {
     if (t === 0) { updateEmas(w); markWide(w); }
+    rampMood(w, t);
     const m = book(w);
     if (byActor.size === 0) for (let i = 0; i < m.orders.length; i++) if (m.orders[i].open) indexOrder(m.orders[i]);
     compactOrders(m);
@@ -1398,6 +1506,7 @@ export const markets: Module = {
       matchAll(w);
     }
     sweepSeatOrders(w);
+    settleTick(w, t);
     fadeImpact(w, Math.pow(0.7, 1 / Math.max(1, w.ticksPerDay)));
   },
 
@@ -1417,18 +1526,20 @@ export const markets: Module = {
     // The close is the earnings quote, inside the day's band. A thin print used to set the mark
     // and then sit there, so a cheap earnings yield survived for months.
     for (const st of m.stocks) {
-      const { hi, lo } = collar(w, st);
       if (st.forced) st.forced = st.forced < 0.01 ? 0 : st.forced * FORCED_DECAY;
+      // The last tick of the session set the close. A world that ran no ticks marks it here.
+      if (st.closedOn === w.day) continue;
+      const { hi, lo } = collar(w, st);
       st.last = Math.max(lo, Math.min(hi, destination(w, st)));
+      fadeCorner(w, st);
     }
-    for (const st of m.stocks) fadeCorner(w, st);
     for (const st of m.stocks) {
       const ch = st.prev > 0 ? st.last / st.prev - 1 : 0;
       // A small print already has its earnings story. A move line for every name
       // fills the page and the EPS scrolls off before a reader acts. A large
       // print still makes the paper: that is the crash people spend less after.
       const onPrint = (st.printUntil ?? 0) >= w.day && (st.printEv ?? -1) >= 0;
-      if (Math.abs(ch) > 0.03 && (!onPrint || Math.abs(ch) >= 0.10)) {
+      if (Math.abs(ch) > 0.05 && (!onPrint || Math.abs(ch) >= 0.10)) {
         const pct = (ch * 100).toFixed(1);
         const id = w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%)`, causesFor(w, st), st.issuer);
         const s = econ(w);
@@ -1457,6 +1568,7 @@ export const markets: Module = {
       cap += st.last * sharesOut(w, st.instr);
     }
     m.index = 100 * cap / m.baseCap;
+    drawMood(w, w.day + 1);
   },
 
   // Funds pay out cash they cannot use: anything above the value of the shares they hold goes to their owners.

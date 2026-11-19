@@ -44,7 +44,8 @@ import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
 import { launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
-import { closingPrint } from './modules/markets/index.ts';
+import { fxMark, fxPairs } from './modules/abroad/index.ts';
+import { futureUnit } from './modules/commodities/index.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
 
 /** x1: one real hour is one game day. day, week and month are the old fast-forward speeds, kept for scripts. */
@@ -199,6 +200,13 @@ function commandOf(body: unknown): Command | string {
       if (typeof stop === 'string') return stop;
       if (stop) { cmd.type = stop.type; cmd.stop = stop.stop; }
       return cmd;
+    }
+    case 'fx': {
+      if (b.side !== 'buy' && b.side !== 'sell') return 'currency side must be buy or sell';
+      if (typeof b.code !== 'string' || !/^[A-Za-z]{3}$/.test(b.code)) return 'a currency is a three-letter code';
+      const units = whole(b.units ?? b.qty, 1);
+      if (units === undefined) return 'the amount is a whole number of currency units';
+      return { kind: 'fx', side: b.side, code: b.code.toUpperCase(), units };
     }
     case 'launch': {
       // The Launchpad's form: a name (3 to 24 letters, digits or spaces), a ticker (3 to 5 letters) and an optional starting buy in cents.
@@ -1407,7 +1415,7 @@ function markOf(w: World): (instr: string) => number {
       const tok = w.ledger.balance(meme.pool, meme.id);
       if (tok > 0) return w.ledger.balance(meme.pool, DEP) / tok;
     }
-    return 0;
+    return instr.startsWith('fxc:') ? fxMark(w, instr) : 0;
   };
 }
 
@@ -3811,6 +3819,8 @@ function screen(w: World): Record<string, unknown> {
       yield: finite(y) ? y : 0,
       id: on?.id ?? '',
       px: on?.last ?? 0,
+      /** The market's quote: a price per 100 of face, next to the yield. `px` stays the price of one lot, in cents. */
+      per100: on ? Math.round(on.last * 10000 / 16000) / 100 : 0,
       prev: on?.prev ?? on?.last ?? 0,
       coupon: on?.coupon ?? 0,
       eventId: on?.issueEv ?? w.genesis,
@@ -3820,6 +3830,7 @@ function screen(w: World): Record<string, unknown> {
   const futures = (cmd?.books ?? []).map((b) => ({
     good: b.good,
     name: b.name,
+    unit: futureUnit(b.good),
     lot: b.lot,
     eventId: cmd?.root ?? w.genesis,
     tenors: b.tenors.map((t) => ({ monthsAhead: t.month - w.month, px: t.px, prev: t.prev })),
@@ -4005,24 +4016,34 @@ function riskOf(w: World): Record<string, unknown> {
 }
 
 function fxOf(w: World): Record<string, unknown> {
-  const abroad = w.state.abroad as { mid?: number; policy?: number; fx?: string; rateEv?: number; fxWho?: number; cfg?: { name?: string; currency?: string; spread?: number } } | undefined;
+  const abroad = w.state.abroad as { mid?: number; policy?: number; fx?: string; rateEv?: number; fxWho?: number; cfg?: { name?: string; currency?: string; ccyName?: string; spread?: number } } | undefined;
   const i = playerIndex(w);
   const id = i >= 0 ? econ(w).P.id(i) : '';
-  const mid = abroad?.mid ?? 0;
-  const spread = abroad?.cfg?.spread ?? 0;
-  const half = spread / 2;
-  const fx = abroad?.fx ?? '';
+  const live = livePrices(w);
+  const pairs = fxPairs(w).map((p) => {
+    const q = live.get(p.id) ?? p.q;
+    const half = (abroad?.cfg?.spread ?? 0) / 2;
+    const held = id ? Math.floor(w.ledger.balance(id, p.fx)) : 0;
+    return {
+      id: p.id, code: p.code, name: p.name, main: p.main,
+      mid: q, bid: q * (1 - half), ask: q * (1 + half),
+      held: held / 100, value: Math.round(held * q), foreignRate: p.policy,
+    };
+  });
+  const first = pairs[0];
   return {
     name: abroad?.cfg?.name ?? '',
     currency: abroad?.cfg?.currency ?? '',
-    mid,
-    bid: mid * (1 - half),
-    ask: mid * (1 + half),
-    held: id && fx ? Math.floor(w.ledger.balance(id, fx)) : 0,
+    currencyName: abroad?.cfg?.ccyName ?? '',
+    mid: first?.mid ?? abroad?.mid ?? 0,
+    bid: first?.bid ?? 0,
+    ask: first?.ask ?? 0,
+    held: first ? first.held * 100 : 0,
     bonds: id ? Math.floor(w.ledger.balance(id, 'bond:fx')) : 0,
     eventId: abroad?.fxWho ?? abroad?.rateEv ?? w.genesis,
     homeRate: econ(w).policyRate,
     foreignRate: abroad?.policy ?? 0,
+    pairs,
   };
 }
 
@@ -4032,6 +4053,7 @@ function fillText(cmd: Record<string, unknown>): string {
   if (k === 'bond') return `bond ${cmd.side} ${cmd.bonds} ${cmd.tenor}`;
   if (k === 'fut') return `fut ${cmd.side} ${cmd.side === 'flat' ? '' : cmd.qty + ' '}${cmd.good} m+${cmd.months}`;
   if (k === 'coin') return `coin ${cmd.side} ${cmd.qty} ${cmd.coin}`;
+  if (k === 'fx') return `currency ${cmd.side} ${cmd.units} ${cmd.code}`;
   if (k === 'launch') return 'launch a coin';
   if (k === 'optbuy' || k === 'write') return `${k === 'write' ? 'write' : 'buy'} ${cmd.right === 'P' ? 'put' : 'call'} ${cmd.qty} ${cmd.instr} m+${cmd.months}`;
   if (k === 'optclose') return `close ${cmd.id || cmd.instr}${cmd.qty ? ' ' + cmd.qty : ''}`;
@@ -4042,7 +4064,7 @@ function fillText(cmd: Record<string, unknown>): string {
 function fillsOf(w: World): { day: number; kind: string; text: string; eventId: number }[] {
   const log = (w.state.player as { log?: { day: number; status: string; cmd?: Record<string, unknown> }[] } | undefined)?.log ?? [];
   const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
-  const keep = new Set(['order', 'bond', 'fut', 'coin', 'launch', 'optbuy', 'write', 'optclose', 'cash']);
+  const keep = new Set(['order', 'bond', 'fut', 'coin', 'fx', 'launch', 'optbuy', 'write', 'optclose', 'cash']);
   const out: { day: number; kind: string; text: string; eventId: number }[] = [];
   for (let i = log.length - 1; i >= 0 && out.length < 40; i--) {
     const row = log[i];
@@ -4460,7 +4482,6 @@ function advanceMinute(): string | undefined {
     }
     ticked = true;
   }
-  if (m === CLOSE_MIN && dayOpen) closingPrint(w);
   minuteStep(w, w.day * MIN_PER_DAY + m, dayOpen);
   if (ticked) {
     const heldBefore = pauseNote;
@@ -5387,9 +5408,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && pathname === '/history') {
-      const instr = url.searchParams.get('instr');
+      let instr = url.searchParams.get('instr');
+      if (instr === 'fx') instr = fxPairs(w)[0]?.id ?? instr;
       if (url.searchParams.get('list')) {
-        const rows = listBars(w).map((r) => { const px = livePrices(w).get(r.id); return px && px > 0 ? { ...r, px, chg: r.prev > 0 ? px / r.prev - 1 : r.chg } : r; });
+        const rows = listBars(w, dayOpen && clockMin >= OPEN_MIN).map((r) => { const px = livePrices(w).get(r.id); return px && px > 0 ? { ...r, px, chg: r.prev > 0 ? px / r.prev - 1 : r.chg } : r; });
         send(res, 200, { day: w.day, ticks: w.ticksPerDay, live: liveBlock(), rows });
         return;
       }

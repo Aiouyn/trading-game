@@ -113,6 +113,13 @@ export function parseCommand(line: string, employer: string): Command | { error:
     if (stop !== undefined) return { kind: 'coin', side, coin: t[2], qty, limit, stop, type: limit !== undefined ? 'stop-limit' : 'stop' };
     return { kind: 'coin', side, coin: t[2], qty, limit };
   }
+  if (head === 'fx' || head === 'currency') {
+    const side = t[1]?.toLowerCase();
+    if ((side !== 'buy' && side !== 'sell') || !t[2] || !t[3]) return { error: 'usage: fx buy|sell CODE UNITS' };
+    const units = Number(t[3]);
+    if (!Number.isSafeInteger(units) || units < 1) return { error: 'units is a whole number of currency units' };
+    return { kind: 'fx', side, code: t[2].toUpperCase(), units };
+  }
   if (head === 'launch') return { kind: 'launch' };
   if (head === 'deposit' || head === 'withdraw' || head === 'borrow' || head === 'repay') {
     const cents = t[1] ? centsOf(t[1]) : undefined;

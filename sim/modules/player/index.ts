@@ -5,6 +5,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { borrowBar, borrowMargin, creditTightness, depositSight, marginLimit, productHaircuts, rateWhy, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
+import { tradeFx } from '../abroad/index.ts';
 import { blockOf, controls, sharesOf, appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { KIND, ROLES, VAL, borrowAll, buyIn, cutJobs, dealUnion, owner, payOut, promote, protectJobs, refinance, cityMemory, regard, sellAssets } from '../corporate/owner.ts';
 import { consensusAll, revealsOf, signalsFor } from '../signals/index.ts';
@@ -123,6 +124,7 @@ export type Command =
   | { kind: 'bond'; side: 'buy' | 'sell'; tenor: string; bonds: number; limit?: number }
   | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop'; stop?: number }
   | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
+  | { kind: 'fx'; side: 'buy' | 'sell'; code: string; units: number }
   | { kind: 'launch'; name?: string; ticker?: string; buy?: number; seed?: number }
   | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number; product?: 'margin' | 'line' | 'term' }
   | { kind: 'talk'; slot: number }
@@ -896,7 +898,7 @@ function markPrice(w: World): (instr: string) => number {
   return (instr: string): number => {
     const hit = stocks?.stocks?.find((s) => s.instr === instr);
     if (hit) return hit.last;
-    if (instr.startsWith('eq:') && stocks?.price) {
+    if ((instr.startsWith('eq:') || instr.startsWith('fxc:')) && stocks?.price) {
       const px = stocks.price(instr);
       if (px > 0) return px;
     }
@@ -1761,6 +1763,12 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
         else if (r.filled < r.asked && !r.id.startsWith('coin:me:')) text += `. The dealers had no more within reach: ${r.asked - r.filled} did not fill`;
       } else text = `${cmd.side} ${cmd.coin} at ${dollar(cmd.limit ?? 0)}: resting until the price comes`;
       return { status: 'accepted', orderId: r.orderId, fill: r.filled, cents: Math.round(r.cents), avg: r.avg, fills: r.fills, text };
+    }
+    case 'fx': {
+      const r = tradeFx(w, id, cmd.code, cmd.side, cmd.units);
+      if (!r.ok) return rejected(r.why ?? 'the currency desk did not fill that');
+      const verb = cmd.side === 'buy' ? 'bought' : 'sold';
+      return { status: 'accepted', fill: r.units, cents: r.cents, avg: r.px, eventId: r.eventId, text: `${verb} ${r.units} ${r.code} at ${(r.px ?? 0).toFixed(4)} for ${dollars(r.cents ?? 0)}. You hold ${(r.held ?? 0).toFixed(2)} ${r.code}` };
     }
     case 'launch': {
       const r = launchCoin(w, i, { name: cmd.name, ticker: cmd.ticker, buy: cmd.buy, seed: cmd.seed });

@@ -20,12 +20,21 @@ const RATE_SENS = 0.09, RATE_CAP = 0.0008, RATE_CAP_CRISIS = 0.002, CARRY_STEP =
 const CARRY_BOOK = 0.3; // carry positions, in books of dealer depth, so they can move the rate but not pin it
 
 interface Cfg {
-  name: string; currency: string; size: number; startRate: number; startFx: number; inflation: number;
+  name: string; currency: string; ccyName: string; size: number; startRate: number; startFx: number; inflation: number;
   spread: number; elasticity: number; importShare: number; exportShare: number; carry: number; bondShare: number;
   rateCycle: number; rateAmp: number; activityCycle: number; activityAmp: number; depthDays: number;
   discount: number; hike: number; hikeChance: number; hikeDays: number; recessAt: number;
 }
 interface Traded { flow: 'import' | 'export'; share: number }
+/**
+ * A currency the city's traders can hold. The first is the one big partner modelled in full (its own prices, rate and demand,
+ * and the trade that clears against it). The others are smaller economies seen only through their currency: each has its own
+ * rate cycle and inflation, and its rate against the dollar follows the rate gap, the price gap and the trade between us.
+ */
+interface Sat {
+  code: string; name: string; fx: string; mid: number; q: number; qn: number; policy: number; plevel: number;
+  start: number; startRate: number; infl: number; cycle: number; amp: number; phase: number; trade: number; pressure: number; depth: number;
+}
 interface Book {
   cfg: Cfg; fx: string; traded: Record<string, Traded>; anchor: Record<string, number>;
   mid: number; mMid0: number; plevel: number; policy: number; announced: number; activity: number; depth: number;
@@ -33,20 +42,24 @@ interface Book {
   mImp: number; mExp: number; mCarry: number; yImp: number; yExp: number; yCarry: number;
   cycleEv: number; policyEv: number; priceEv: number; tradeEv: number; carryEv: number; rateEv: number; fxWho?: number;
   recessionEv?: number; hikeEv?: number;
+  sats: Sat[];
+  /** Dealer quote noise of the main pair: a fraction of the mid. It is microstructure, not a price. */
+  qn: number;
 }
 
 const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
 const book = (w: World): Book => w.state.abroad as Book;
 const econ = (w: World): EconState => w.state.economy as EconState;
 
-function loadCfg(): { cfg: Cfg; traded: Record<string, Traded> } {
+interface PairCfg { code: string; name: string; start: number; startRate: number; infl: number; cycle: number; amp: number; phase: number; trade: number }
+function loadCfg(): { cfg: Cfg; traded: Record<string, Traded>; pairs: PairCfg[] } {
   const dir = process.env.SIM_CONTENT ?? fileURLToPath(new URL('../../content/', import.meta.url));
   const raws = parseRaws(readFileSync(join(dir, 'abroad.txt'), 'utf8'), 'abroad.txt');
   const world = raws.find((r) => r.type === 'WORLD');
   if (!world) throw new Error('abroad.txt: missing [WORLD]');
   const r = new RawReader(world);
   const cfg: Cfg = {
-    name: r.str('NAME'), currency: r.str('CURRENCY'), size: r.num('SIZE'), startRate: r.num('START_RATE'),
+    name: r.str('NAME'), currency: r.str('CURRENCY'), ccyName: r.str('CURRENCY_NAME', r.str('CURRENCY')), size: r.num('SIZE'), startRate: r.num('START_RATE'),
     startFx: r.num('START_FX'), inflation: r.num('INFLATION'), spread: r.num('SPREAD'), elasticity: r.num('ELASTICITY'),
     importShare: r.num('IMPORT_SHARE'), exportShare: r.num('EXPORT_SHARE'), carry: r.num('CARRY'), bondShare: r.num('BOND_SHARE'),
     rateCycle: r.num('RATE_CYCLE'), rateAmp: r.num('RATE_AMP'), activityCycle: r.num('ACTIVITY_CYCLE'), activityAmp: r.num('ACTIVITY_AMP'),
@@ -64,7 +77,17 @@ function loadCfg(): { cfg: Cfg; traded: Record<string, Traded> } {
     if (!(share >= 0) || share > 1) throw new Error(`${t.where()}: [SHARE] must be between 0 and 1`);
     traded[raw.id] = { flow, share };
   }
-  return { cfg, traded };
+  const pairs: PairCfg[] = [];
+  for (const raw of raws.filter((x) => x.type === 'PAIR')) {
+    const t = new RawReader(raw);
+    const pc: PairCfg = {
+      code: raw.id, name: t.str('NAME'), start: t.num('START_FX'), startRate: t.num('START_RATE'), infl: t.num('INFLATION'),
+      cycle: t.num('RATE_CYCLE'), amp: t.num('RATE_AMP'), phase: t.num('PHASE', 0), trade: t.num('TRADE', 0.2),
+    };
+    if (!(pc.start > 0) || !(pc.cycle > 0)) throw new Error(`${t.where()}: the rate and the cycle must be positive`);
+    pairs.push(pc);
+  }
+  return { cfg, traded, pairs };
 }
 
 function policyNow(st: Book, day: number): number {
@@ -379,15 +402,144 @@ function assetsHome(w: World, st: Book): number {
   return usd * st.mid;
 }
 
+// ---- the currencies the player can trade ----
+
+const SAT_CARRY = 1.0;   // a point of rate lead lifts the currency a point a year
+const SAT_PPP = 1.0;     // a point of extra inflation costs the currency a point a year
+const SAT_REVERT = 0.0008; // the slow pull of the real exchange rate back to where the prices say it should sit
+/** The size of the dealers' quote wandering around the mid, and how fast it forgets (per minute). */
+const QUOTE_SD = 0.003;
+const QUOTE_FORGET = 1 / 240;
+
+function homeInflation(w: World): number {
+  const s = econ(w);
+  const n = s.cpiHist.length;
+  const prev = s.cpiHist[Math.max(0, n - 13)];
+  return prev > 0 ? s.cpi / prev - 1 : s.inflTarget ?? 0.02;
+}
+
+/** Each day: a satellite's own rate and prices roll on, its currency follows the rate gap, the price gap and the trade, and the flow of orders moves it. */
+function satsDay(w: World, st: Book): void {
+  const s = econ(w);
+  const year = w.day / DAYS_PER_YEAR;
+  const homeRate = s.policyRate, homeInfl = homeInflation(w);
+  // The city's trade surplus (home cents a day over the month so far) strengthens the dollar against every partner.
+  const surplus = (st.mExp - st.mImp) / Math.max(1, (w.day % 30) + 1);
+  for (const x of st.sats) {
+    x.policy = Math.max(0, x.startRate + x.amp * Math.sin((2 * Math.PI * year) / x.cycle + x.phase));
+    x.plevel *= 1 + x.infl / DAYS_PER_YEAR;
+    const homeLevel = s.cpi;
+    const parity = x.start * (homeLevel / x.plevel);
+    const carryStep = SAT_CARRY * (x.policy - homeRate) / DAYS_PER_YEAR;
+    const pppStep = SAT_PPP * (homeInfl - x.infl) / DAYS_PER_YEAR;
+    const revert = SAT_REVERT * Math.log(Math.max(1e-6, parity / x.mid));
+    const tradeStep = -x.trade * Math.max(-1, Math.min(1, surplus / Math.max(1, st.depth * 0.02))) * 0.0006;
+    const flow = x.depth > 0 ? Math.max(-RATE_CAP, Math.min(RATE_CAP, (x.pressure / x.depth) * RATE_SENS)) : 0;
+    x.mid = Math.max(0.05, Math.min(20, x.mid * Math.exp(carryStep + pppStep + revert + tradeStep + flow)));
+    x.pressure = 0;
+  }
+}
+
+export interface FxPair { id: string; code: string; name: string; fx: string; mid: number; q: number; bid: number; ask: number; policy: number; main: boolean }
+
+/** Every currency the dealers quote, the big partner first. The quote is the mid with the dealers' minute noise on it. */
+export function fxPairs(w: World): FxPair[] {
+  const st = w.state.abroad as Book | undefined;
+  if (!st?.mid) return [];
+  const h = st.cfg.spread / 2;
+  const out: FxPair[] = [];
+  const qm = st.mid * (1 + st.qn);
+  out.push({ id: 'fx:' + st.cfg.currency, code: st.cfg.currency, name: `${st.cfg.ccyName} (${st.cfg.currency}), in dollars`, fx: st.fx, mid: st.mid, q: qm, bid: qm * (1 - h), ask: qm * (1 + h), policy: st.policy, main: true });
+  for (const x of st.sats) {
+    const q = x.mid * (1 + x.qn);
+    out.push({ id: 'fx:' + x.code, code: x.code, name: `${x.name} (${x.code}), in dollars`, fx: x.fx, mid: x.mid, q, bid: q * (1 - h), ask: q * (1 + h), policy: x.policy, main: false });
+  }
+  return out;
+}
+
+/** The home-currency value of one foreign cent of a held currency, for net worth. 0 for anything that is not a currency here. */
+export function fxMark(w: World, instr: string): number {
+  if (!instr.startsWith('fxc:')) return 0;
+  for (const p of fxPairs(w)) if (p.fx === instr) return p.q;
+  return 0;
+}
+
+/** One game minute: the dealers' quotes wander around the mid. Called by the live minute layer only. */
+export function fxStep(w: World, abs: number): void {
+  const st = w.state.abroad as Book | undefined;
+  if (!st?.mid) return;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < w.seed.length; i++) { h ^= w.seed.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  const roll = (code: string, k: number): number => {
+    let a = h ^ 0x9e3779b9;
+    for (let i = 0; i < code.length; i++) a = Math.imul(a ^ code.charCodeAt(i), 0x85ebca6b);
+    a = Math.imul(a ^ (abs + k * 7919), 0xc2b2ae35); a ^= a >>> 15; a = Math.imul(a, 0x2c1b3c6d); a ^= a >>> 12; a = Math.imul(a, 0x297a2d39); a ^= a >>> 15;
+    return ((a >>> 0) + 0.5) / 4294967296;
+  };
+  const z = (code: string): number => Math.sqrt(-2 * Math.log(roll(code, 1))) * Math.cos(2 * Math.PI * roll(code, 2));
+  const step = QUOTE_SD * Math.sqrt(2 * QUOTE_FORGET);
+  st.qn = Math.max(-0.03, Math.min(0.03, (1 - QUOTE_FORGET) * st.qn + step * z(st.cfg.currency)));
+  for (const x of st.sats) x.qn = Math.max(-0.03, Math.min(0.03, (1 - QUOTE_FORGET) * x.qn + step * z(x.code)));
+}
+
+export interface FxFill { ok: boolean; why?: string; code?: string; units?: number; cents?: number; px?: number; held?: number; eventId?: number }
+
+/**
+ * Buy or sell a currency from the dealers at their quote. `units` are whole units of the foreign currency (a hundred foreign cents each).
+ * A buy pays home deposits and receives the currency; a sale does the reverse. Both go through the ledger.
+ */
+export function tradeFx(w: World, actor: string, code: string, side: 'buy' | 'sell', units: number): FxFill {
+  const st = w.state.abroad as Book | undefined;
+  if (!st) return { ok: false, why: 'there is no foreign exchange desk' };
+  const pair = fxPairs(w).find((p) => p.code === code.toUpperCase());
+  if (!pair) return { ok: false, why: `no currency ${code}. They trade: ${fxPairs(w).map((p) => p.code).join(', ')}` };
+  if (!w.ledger.actors.has(actor)) return { ok: false, why: 'unknown account' };
+  if (!Number.isSafeInteger(units) || units < 1) return { ok: false, why: 'the amount is a whole number of currency units' };
+  const cause = st.rateEv;
+  const sat = st.sats.find((x) => x.code === pair.code);
+  const cents = units * 100;
+  if (side === 'buy') {
+    const home = Math.round(cents * pair.ask);
+    const cash = Math.floor(w.ledger.balance(actor, DEP));
+    if (home < 1) return { ok: false, why: 'too small to quote' };
+    if (cash < home) return { ok: false, why: `not enough cash: ${units} ${pair.code} cost $${(home / 100).toFixed(2)}` };
+    const have = Math.floor(w.ledger.balance(DEALER, pair.fx));
+    if (have < cents) w.ledger.issue(pair.fx, DEALER, cents - have, 'fx.restock', cause);
+    if (!pay(w, actor, DEALER, home, 'fx.trade', cause)) return { ok: false, why: 'the payment did not clear' };
+    if (!w.ledger.move(pair.fx, DEALER, actor, cents, 'fx.trade', cause)) {
+      pay(w, DEALER, actor, home, 'fx.trade', cause);
+      return { ok: false, why: 'the dealer could not deliver' };
+    }
+    if (sat) sat.pressure += cents; else st.pressure += cents;
+    const ev = w.events.emit('fx.fill', `bought ${units} ${pair.code} at ${pair.ask.toFixed(4)} for $${(home / 100).toFixed(2)}`, [cause], actor);
+    return { ok: true, code: pair.code, units, cents: home, px: pair.ask, held: Math.floor(w.ledger.balance(actor, pair.fx)) / 100, eventId: ev };
+  }
+  const held = Math.floor(w.ledger.balance(actor, pair.fx));
+  const whole = Math.floor(Math.min(cents, held) / 100);
+  if (whole < 1) return { ok: false, why: `you hold ${(held / 100).toFixed(2)} ${pair.code}` };
+  const fxCents = whole * 100;
+  const home = Math.round(fxCents * pair.bid);
+  if (home < 1) return { ok: false, why: 'too small to quote' };
+  if (!w.ledger.move(pair.fx, actor, DEALER, fxCents, 'fx.trade', cause)) return { ok: false, why: 'the delivery did not clear' };
+  if (!dealerPayDep(w, actor, home, 'fx.trade', cause)) {
+    w.ledger.move(pair.fx, DEALER, actor, fxCents, 'fx.trade', cause);
+    return { ok: false, why: 'the dealer could not pay' };
+  }
+  if (sat) sat.pressure -= fxCents; else st.pressure -= fxCents;
+  const ev = w.events.emit('fx.fill', `sold ${whole} ${pair.code} at ${pair.bid.toFixed(4)} for $${(home / 100).toFixed(2)}`, [cause], actor);
+  return { ok: true, code: pair.code, units: whole, cents: home, px: pair.bid, held: Math.floor(w.ledger.balance(actor, pair.fx)) / 100, eventId: ev };
+}
+
 export const abroad: Module = {
   id: 'abroad',
 
   init(w) {
-    const { cfg, traded } = loadCfg();
+    const { cfg, traded, pairs } = loadCfg();
     const L = w.ledger, g = w.genesis;
-    const fx = 'FX:' + cfg.currency;
+    // A holding of foreign currency is a number of foreign cents, priced at the dealers' quote.
+    const fx = 'fxc:' + cfg.currency;
     L.addActor(FXCB, 'centralbank'); L.addActor(FXGOV, 'government'); L.addActor(DEALER, 'bank'); L.addActor(WORLD, 'foreign');
-    L.define({ id: fx, kind: 'money', issuer: FXCB });
+    L.define({ id: fx, kind: 'share', issuer: FXCB });
     L.define({ id: FXBOND, kind: 'claim', issuer: FXGOV });
     L.define({ id: LOAN, kind: 'claim', issuer: DEALER });
 
@@ -417,12 +569,22 @@ export const abroad: Module = {
       cfg, fx, traded, anchor, mid: cfg.startFx, mMid0: cfg.startFx, plevel: 1, policy: cfg.startRate, announced: cfg.startRate,
       activity: 1 + cfg.activityAmp * Math.sin(0), depth, crisis: false, hikeUntil: 0, pressure: 0,
       mImp: 0, mExp: 0, mCarry: 0, yImp: 0, yExp: 0, yCarry: 0,
-      cycleEv: 0, policyEv: 0, priceEv: 0, tradeEv: 0, carryEv: 0, rateEv: 0,
+      cycleEv: 0, policyEv: 0, priceEv: 0, tradeEv: 0, carryEv: 0, rateEv: 0, sats: [], qn: 0,
     };
+    for (const pc of pairs) {
+      const sid = 'fxc:' + pc.code;
+      L.define({ id: sid, kind: 'share', issuer: FXCB });
+      st.sats.push({
+        code: pc.code, name: pc.name, fx: sid, mid: pc.start, q: pc.start, qn: 0, policy: pc.startRate, plevel: 1,
+        start: pc.start, startRate: pc.startRate, infl: pc.infl, cycle: pc.cycle, amp: pc.amp, phase: pc.phase, trade: pc.trade,
+        pressure: 0, depth: Math.max(1, Math.round(depth * pc.trade / pc.start)),
+      });
+    }
     st.activity = activityAt(st, 0);
     w.state.abroad = st;
 
     const usdDepth = Math.max(1, Math.round(depth / cfg.startFx));
+    for (const sat of st.sats) L.issue(sat.fx, DEALER, Math.max(1, Math.round(sat.depth * 2)), 'genesis', g);
     L.issue(fx, DEALER, usdDepth * 2, 'genesis', g);
     L.issue(fx, WORLD, Math.round(usdDepth * cfg.size), 'genesis', g);
     L.issue(fx, FXGOV, Math.round(usdDepth * 0.25), 'genesis', g);
@@ -444,6 +606,7 @@ export const abroad: Module = {
     repayDealer(w, st.policyEv);
     const hot = st.activity < 1 ? st.cfg.inflation * Math.max(0.25, st.activity) : st.cfg.inflation;
     st.plevel *= 1 + hot / DAYS_PER_YEAR;
+    satsDay(w, st);
   },
 
   monthEnd(w) {
