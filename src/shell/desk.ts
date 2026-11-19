@@ -5,7 +5,8 @@ import type { SimView } from "./simSession";
 
 export const ARRIVAL = "arrival";
 
-const CORE = new Set<string>(["portfolio", "broker", "careers"]);
+// The Launchpad sits beside the trading terminal from the first minute: a new arrival can launch a coin with the cash they have.
+const CORE = new Set<string>(["portfolio", "broker", "launchpad", "careers"]);
 
 /** True when `app` belongs on the shelf and home screen. Games that are not an arrival show everything. */
 export function onDesk(app: AppId, view: SimView | null, running = false): boolean {

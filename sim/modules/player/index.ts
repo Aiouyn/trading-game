@@ -115,7 +115,7 @@ export type Command =
   | { kind: 'bond'; side: 'buy' | 'sell'; tenor: string; bonds: number; limit?: number }
   | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop'; stop?: number }
   | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
-  | { kind: 'launch' }
+  | { kind: 'launch'; name?: string; ticker?: string; buy?: number }
   | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number; product?: 'margin' | 'line' | 'term' }
   | { kind: 'talk'; slot: number }
   | { kind: 'ask'; slot: number; firm: string }
@@ -1725,9 +1725,9 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', orderId: r.orderId, fill: r.filled, cents: Math.round(r.cents), avg: r.avg, fills: r.fills, text };
     }
     case 'launch': {
-      const r = launchCoin(w, i);
+      const r = launchCoin(w, i, { name: cmd.name, ticker: cmd.ticker, buy: cmd.buy });
       if (r.why || !r.id) return rejected(r.why ?? 'the launch did not clear');
-      return { status: 'accepted', eventId: w.events.last('crypto.launch'), text: `launched ${r.name} (${r.id})` };
+      return { status: 'accepted', eventId: w.events.last('crypto.launch'), text: `launched ${r.name} ($${r.ticker}, ${r.id})` };
     }
     case 'cash': {
       const cause = st.moneyEv >= 0 ? st.moneyEv : (st.arrived >= 0 ? st.arrived : econ(w).macroEv);

@@ -43,9 +43,20 @@ interface Order {
   open: boolean;
 }
 
+/** One executed trade against a memecoin's pool: who, which side, the tokens and the cents. Kept for the Launchpad's tape. */
+interface Print {
+  seq: number;
+  day: number;
+  side: 'buy' | 'sell';
+  tokens: number;
+  cents: number;
+  who: number;
+}
+
 interface Meme {
   id: string;
   name: string;
+  ticker: string;
   creator: number;
   pool: string;
   seed: number;
@@ -59,6 +70,43 @@ interface Meme {
   bits: Uint32Array;
   rugged: boolean;
   live: boolean;
+  prints: Print[];
+}
+
+const PRINTS_KEEP = 40;
+
+/** Options a launch can carry from the Launchpad: a name, a ticker and a starting buy in cents, all optional. */
+export interface LaunchOpts { name?: string; ticker?: string; buy?: number }
+
+/** A memecoin as the Launchpad board reads it. Nothing here is stored: every figure is read from the pool and the ledger. */
+export interface MemeRow {
+  id: string;
+  name: string;
+  ticker: string;
+  creator: number;
+  creatorName: string;
+  mine: boolean;
+  live: boolean;
+  rugged: boolean;
+  born: number;
+  eventId: number;
+  /** Cents per token now (the pool's constant-product spot); 0 once rugged. */
+  px: number;
+  /** Cents per token at the start of the week. */
+  prev: number;
+  supply: number;
+  cap: number;
+  /** Share of the pool's tokens bought out, 0..1. */
+  sold: number;
+  /** Cents the buyers have paid into the pool, above the creator's seed. */
+  raised: number;
+  cash: number;
+  tokens: number;
+  holders: number;
+  /** Cents traded in the recent prints kept for the tape. */
+  vol: number;
+  lastDay: number;
+  replies: number;
 }
 
 interface Soc {
@@ -81,6 +129,7 @@ interface Book {
   root: number;
   fin: string;
   major: string; // id of the coin the finance firm accepts
+  printSeq: number;
 }
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -196,6 +245,14 @@ function stillHolds(w: World, i: number): boolean {
   return false;
 }
 
+function printTrade(w: World, m: Meme, side: 'buy' | 'sell', tokens: number, cents: number, who: number): void {
+  const st = book(w);
+  const seq = st.printSeq ?? 1; // a save from before the tape existed has no counter yet
+  st.printSeq = seq + 1;
+  m.prints.push({ seq, day: w.day, side, tokens, cents, who });
+  if (m.prints.length > PRINTS_KEEP) m.prints.splice(0, m.prints.length - PRINTS_KEEP);
+}
+
 function buyMeme(w: World, m: Meme, i: number, spend: number, cause: number, seat = false): number {
   const P = econ(w).P;
   const id = P.id(i);
@@ -207,6 +264,7 @@ function buyMeme(w: World, m: Meme, i: number, spend: number, cause: number, sea
   if (!w.ledger.move(m.id, m.pool, id, out, 'crypto.buy', cause)) throw new Error(`pool delivery ${m.id}`);
   m.cost.set(i, (m.cost.get(i) ?? 0) + spend);
   noteHold(book(w), i, true);
+  printTrade(w, m, 'buy', out, spend, i);
   return out;
 }
 
@@ -223,6 +281,7 @@ function sellMeme(w: World, m: Meme, i: number, qty: number, cause: number): num
   const left = held - q;
   if (left <= 0) { m.cost.delete(i); noteHold(book(w), i, stillHolds(w, i)); }
   else m.cost.set(i, Math.floor(cost * left / held));
+  printTrade(w, m, 'sell', q, payC, i);
   return payC;
 }
 
@@ -264,33 +323,37 @@ function tell(w: World, m: Meme, speaker: number, forced: boolean): void {
   if (m.tells.length > 6) m.tells.splice(0, m.tells.length - 6);
 }
 
-function launch(w: World, i: number): void {
+function launch(w: World, i: number, opts: LaunchOpts = {}): Meme | undefined {
   const st = book(w), P = econ(w).P, L = w.ledger;
   const id = P.id(i);
-  if (cashOf(w, id) < FEE + SEED) return;
+  if (cashOf(w, id) < FEE + SEED) return undefined;
   const word = WORDS[mix(w.day, i, 3) % WORDS.length];
   const fam = P.families[P.family[i]] ?? 'coin';
-  const name = word[0].toUpperCase() + word.slice(1) + ' ' + fam;
+  const name = opts.name ?? word[0].toUpperCase() + word.slice(1) + ' ' + fam;
+  const ticker = (opts.ticker ?? word.slice(0, 4)).toUpperCase();
   st.n++;
   const coinId = `coin:me:${String(st.n).padStart(4, '0')}`;
   const pool = `pool:${coinId}`;
   L.addActor(pool, 'exchange');
   L.define({ id: coinId, kind: 'share', issuer: id });
   const ev = w.events.emit('crypto.launch', `${P.name(i)} launched ${name} and seeded the pool with $${(SEED / 100).toFixed(0)}`, [st.root], id);
-  if (!pay(w, id, GOV, FEE, 'crypto.fee', ev)) return;
-  if (!pay(w, id, pool, SEED, 'crypto.seed', ev)) return;
+  if (!pay(w, id, GOV, FEE, 'crypto.fee', ev)) return undefined;
+  if (!pay(w, id, pool, SEED, 'crypto.seed', ev)) return undefined;
   L.issue(coinId, pool, POOL_TOKENS, 'crypto.seed', ev);
   L.issue(coinId, id, FOUNDER, 'crypto.seed', ev);
   const m: Meme = {
-    id: coinId, name, creator: i, pool, seed: SEED, born: w.day,
+    id: coinId, name, ticker, creator: i, pool, seed: SEED, born: w.day,
     bornPx: SEED / POOL_TOKENS, weekPx: SEED / POOL_TOKENS, launchEv: ev,
     tells: [], cost: new Map([[i, SEED]]), weekBuys: 0, bits: new Uint32Array(Math.ceil(P.capacity / 32)),
-    rugged: false, live: true,
+    rugged: false, live: true, prints: [],
   };
   hear(m, i);
   noteHold(st, i, true);
   st.memes.push(m);
+  // The starting buy is the creator's first trade on their own curve: it goes through the same pool as anyone's.
+  if (opts.buy && opts.buy >= 1) buyMeme(w, m, i, opts.buy, ev, true);
   tell(w, m, i, true);
+  return m;
 }
 
 function takeProfit(w: World, m: Meme, cause: number): number {
@@ -323,6 +386,7 @@ function releaseDead(m: Meme): void {
   if (m.bits.length) m.bits = new Uint32Array(0);
   if (m.cost.size) m.cost.clear();
   if (m.tells.length) m.tells = [];
+  if (m.prints.length) m.prints = [];
 }
 function maniaCauses(m: Meme): number[] {
   const c = [m.launchEv, ...m.tells];
@@ -691,24 +755,98 @@ export function orderCoin(w: World, actor: string, coin: string, side: 'buy' | '
   return { ...base, filled: sold, cents: got, avg: got / sold, fills: [{ px: got / sold, qty: sold }], fill: sold };
 }
 
-/** Same gates as an NPC creator: spare cash, eight contacts, the nerve, and room on the exchange. */
-export function launchCoin(w: World, person: number): { id?: string; name?: string; why?: string } {
+/**
+ * Launch a coin. An NPC creator passes the gates of temperament, fear, contacts and spare cash. A player seat only
+ * needs the cash for the fee, the seed and the starting buy, and room on the exchange: the player decides, not the temperament.
+ */
+export function launchCoin(w: World, person: number, opts: LaunchOpts = {}): { id?: string; name?: string; ticker?: string; why?: string } {
   const st = book(w), P = econ(w).P;
   if (person < 0 || person >= P.n || !P.alive(person)) return { why: 'dead' };
   let live = 0;
   for (const m of st.memes) if (m.live) live++;
   if (live >= 6) return { why: 'six memecoins are already live' };
-  if (w.day < 90) return { why: 'the exchange has not been open long enough' };
-  if (w.day < P.fearUntil[person]) return { why: 'too shaken to launch a coin' };
-  if (P.resil[person] < 55) return { why: 'not the temperament to launch a coin' };
-  if (contactsOf(w, person).length < 8) return { why: 'a launch needs eight contacts to tell' };
-  const surplus = cashOf(w, P.id(person)) - P.incEma[person] * 90;
-  if (surplus < FEE + SEED) return { why: 'needs spare cash for the fee and the seed' };
+  const buy = opts.buy ?? 0;
+  if (isSeatPerson(w, person)) {
+    if (cashOf(w, P.id(person)) < FEE + SEED + buy) return { why: `a launch needs $${((FEE + SEED + buy) / 100).toFixed(2)} of cash: $${(SEED / 100).toFixed(0)} seed, $${(FEE / 100).toFixed(0)} fee and the starting buy` };
+  } else {
+    if (w.day < 90) return { why: 'the exchange has not been open long enough' };
+    if (w.day < P.fearUntil[person]) return { why: 'too shaken to launch a coin' };
+    if (P.resil[person] < 55) return { why: 'not the temperament to launch a coin' };
+    if (contactsOf(w, person).length < 8) return { why: 'a launch needs eight contacts to tell' };
+    const surplus = cashOf(w, P.id(person)) - P.incEma[person] * 90;
+    if (surplus < FEE + SEED) return { why: 'needs spare cash for the fee and the seed' };
+  }
   const n0 = st.memes.length;
-  launch(w, person);
-  if (st.memes.length === n0) return { why: 'the launch did not clear' };
-  const m = st.memes[st.memes.length - 1];
-  return { id: m.id, name: m.name };
+  const m = launch(w, person, opts);
+  if (st.memes.length === n0 || !m) return { why: 'the launch did not clear' };
+  return { id: m.id, name: m.name, ticker: m.ticker };
+}
+
+function memeOf(w: World, instr: string): Meme | undefined {
+  const key = instr.toLowerCase();
+  return book(w).memes.find((m) => m.id.toLowerCase() === key || m.id.toLowerCase() === 'coin:' + key);
+}
+
+/** Every memecoin the exchange has listed, read from its pool and ledger. `me` is the player's person index. */
+export function memeBoard(w: World, me: number): MemeRow[] {
+  const P = econ(w).P;
+  const out: MemeRow[] = [];
+  for (const m of book(w).memes) {
+    const live = m.live && !m.rugged;
+    const tokens = poolTokens(w, m);
+    const px = m.rugged ? 0 : spot(w, m);
+    const supply = w.ledger.issued.get(m.id) ?? 0;
+    let holders = 0;
+    if (live) for (const [who, n] of w.ledger.holders(m.id)) if (who.startsWith('p_') && n > 0) holders++;
+    let vol = 0;
+    for (const p of m.prints) vol += p.cents;
+    out.push({
+      id: m.id, name: m.name, ticker: m.ticker, creator: m.creator, creatorName: P.name(m.creator),
+      mine: m.creator === me, live, rugged: m.rugged, born: m.born, eventId: m.launchEv,
+      px, prev: m.weekPx, supply, cap: Math.round(px * supply), sold: Math.max(0, Math.min(1, 1 - tokens / POOL_TOKENS)),
+      raised: Math.max(0, poolCash(w, m) - SEED), cash: poolCash(w, m), tokens, holders, vol,
+      lastDay: m.prints.length ? m.prints[m.prints.length - 1].day : m.born, replies: m.tells.length,
+    });
+  }
+  return out;
+}
+
+/** The newest trades across the live coins, newest first, for the Launchpad's trades bar. */
+export function memeTape(w: World, n: number, me: number): { coin: string; ticker: string; coinName: string; seq: number; day: number; side: 'buy' | 'sell'; tokens: number; cents: number; who: number; name: string; mine: boolean }[] {
+  const P = econ(w).P;
+  const rows: { coin: string; ticker: string; coinName: string; seq: number; day: number; side: 'buy' | 'sell'; tokens: number; cents: number; who: number; name: string; mine: boolean }[] = [];
+  for (const m of book(w).memes) {
+    if (!m.live || m.rugged) continue;
+    for (const p of m.prints) rows.push({ coin: m.id, ticker: m.ticker, coinName: m.name, seq: p.seq, day: p.day, side: p.side, tokens: p.tokens, cents: p.cents, who: p.who, name: P.name(p.who), mine: p.who === me });
+  }
+  rows.sort((a, b) => b.seq - a.seq);
+  return rows.slice(0, n);
+}
+
+/** One coin's page: the curve, its holders, its tape and what people said about it. Null for an unknown coin. */
+export function memeDetail(w: World, instr: string, me: number): Record<string, unknown> | null {
+  const m = memeOf(w, instr);
+  if (!m) return null;
+  const P = econ(w).P;
+  const row = memeBoard(w, me).find((r) => r.id === m.id);
+  if (!row) return null;
+  const top: { index: number; name: string; qty: number; share: number; mine: boolean }[] = [];
+  if (row.live) {
+    const held: [string, number][] = [];
+    for (const [who, n] of w.ledger.holders(m.id)) if (who.startsWith('p_') && n > 0) held.push([who, n]);
+    held.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+    for (const [who, n] of held.slice(0, 12)) {
+      const index = +who.slice(2);
+      top.push({ index, name: P.name(index), qty: Math.floor(n), share: row.supply > 0 ? n / row.supply : 0, mine: index === me });
+    }
+  }
+  const prints = m.prints.slice().reverse().map((p) => ({ seq: p.seq, day: p.day, side: p.side, tokens: p.tokens, cents: p.cents, index: p.who, name: P.name(p.who), mine: p.who === me }));
+  const replies: { eventId: number; day: number; text: string }[] = [];
+  for (const id of m.tells.slice().reverse()) {
+    const ev = w.events.get(id);
+    if (ev) replies.push({ eventId: id, day: ev.day, text: ev.msg });
+  }
+  return { ...row, creatorIndex: m.creator, top, prints, talk: replies };
 }
 
 export const crypto: Module = {
@@ -720,7 +858,7 @@ export const crypto: Module = {
     const st: Book = {
       majors: [], memes: [], orders: [], nextId: 500_001, seq: 1, n: 0, cursor: 0,
       holdBits: new Uint32Array(Math.ceil(s.P.capacity / 32)), holders: 0, rugLoss: 0,
-      root: 0, fin: fin?.id ?? '', major: MAJORS[0].id,
+      root: 0, fin: fin?.id ?? '', major: MAJORS[0].id, printSeq: 1,
     };
     w.state.crypto = st;
     L.addActor(CX, 'exchange');

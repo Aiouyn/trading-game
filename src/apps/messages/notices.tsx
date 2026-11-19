@@ -10,6 +10,7 @@ import {
 } from "./circle";
 import { setSpeed, useSimSnap } from "@/shell/simSession";
 import { clipWords } from "@/apps/diary/read";
+import { LaunchBadge } from "@/apps/launchpad/notes";
 import "./messages.css";
 
 interface Toast { id: number; who: number; text: string }
@@ -146,6 +147,7 @@ function useTrouble(): Trouble | null {
 
 export function DockBadge({ app }: { app: string }) {
   const n = useUnread();
+  if (app === "launchpad") return <LaunchBadge />;
   if (app !== "messages" || n < 1) return null;
   return <span className="dock-badge" data-testid="messages-badge">{n > 9 ? "9+" : n}</span>;
 }

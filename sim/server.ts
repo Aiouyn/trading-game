@@ -36,6 +36,7 @@ import { listScenarios, liveCard, openScenario } from './modules/player/scenario
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
+import { memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
 
 type Speed = 'pause' | 'day' | 'week' | 'month';
 
@@ -182,7 +183,24 @@ function commandOf(body: unknown): Command | string {
       if (stop) { cmd.type = stop.type; cmd.stop = stop.stop; }
       return cmd;
     }
-    case 'launch': return { kind: 'launch' };
+    case 'launch': {
+      // The Launchpad's form: a name (3 to 24 letters, digits or spaces), a ticker (3 to 5 letters) and an optional starting buy in cents.
+      const cmd: Command = { kind: 'launch' };
+      if (b.name !== undefined) {
+        if (typeof b.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9 .'&-]{2,23}$/.test(b.name.trim())) return 'a coin name is 3 to 24 letters, digits or spaces';
+        cmd.name = b.name.trim();
+      }
+      if (b.ticker !== undefined) {
+        if (typeof b.ticker !== 'string' || !/^[A-Za-z]{3,5}$/.test(b.ticker.trim())) return 'a ticker is 3 to 5 letters A to Z';
+        cmd.ticker = b.ticker.trim().toUpperCase();
+      }
+      if (b.buy !== undefined) {
+        const buy = whole(b.buy, 0);
+        if (buy === undefined) return 'the starting buy must be a whole number of cents';
+        cmd.buy = buy;
+      }
+      return cmd;
+    }
     case 'cash': {
       if (b.op !== 'deposit' && b.op !== 'withdraw' && b.op !== 'borrow' && b.op !== 'repay') return 'cash op must be deposit, withdraw, borrow or repay';
       const cents = whole(b.cents ?? b.amount, 1);
@@ -3075,7 +3093,8 @@ function wirePanel(w: World): Record<string, unknown> {
     if (f?.name) heldNames.push(f.name);
   }
   const outs = pressOutlets(w);
-  const kinds = ['media.column', 'media.story', 'media.scoop', 'media.retraction', 'news.story'];
+  // A memecoin launch is a quiet line on the wire under markets (the Launchpad's count is read from the same event).
+  const kinds = ['media.column', 'media.story', 'media.scoop', 'media.retraction', 'news.story', 'crypto.launch'];
   // The follow-up story is caused by the player's answer; the answer is caused by the request. Map answers back to requests.
   const requestOf = new Map<number, number>();
   for (const a of (w.state.media as { wire?: { asks?: PressAsk[] } } | undefined)?.wire?.asks ?? []) {
@@ -3102,7 +3121,7 @@ function wirePanel(w: World): Record<string, unknown> {
       }
       if (corrects < 0 && e.causes[0] !== undefined) corrects = e.causes[0];
     }
-    const beat = split.beat || (e.kind === 'media.retraction' ? 'correction' : e.kind === 'media.scoop' ? 'markets' : 'city');
+    const beat = split.beat || (e.kind === 'media.retraction' ? 'correction' : e.kind === 'media.scoop' || e.kind === 'crypto.launch' ? 'markets' : 'city');
     let answers = -1;
     for (const c of e.causes) {
       const req = requestOf.get(c);
@@ -3691,14 +3710,12 @@ function screen(w: World): Record<string, unknown> {
     eventId: cmd?.root ?? w.genesis,
     tenors: b.tenors.map((t) => ({ monthsAhead: t.month - w.month, px: t.px, prev: t.prev })),
   }));
-  const crypto = w.state.crypto as { majors?: { id: string; name: string; last: number; prev: number }[]; memes?: { id: string; name: string; pool: string; rugged: boolean; live: boolean; launchEv: number }[]; root?: number } | undefined;
-  const coins: { id: string; name: string; px: number; prev: number; live: boolean; eventId: number }[] = [];
+  const crypto = w.state.crypto as { majors?: { id: string; name: string; last: number; prev: number }[]; root?: number } | undefined;
+  const coins: Record<string, unknown>[] = [];
   for (const m of crypto?.majors ?? []) coins.push({ id: m.id, name: m.name, px: m.last, prev: m.prev, live: true, eventId: crypto?.root ?? w.genesis });
-  for (const m of crypto?.memes ?? []) {
+  for (const m of memeBoard(w, me)) {
     if (!m.live && !v.coins.some((c) => c.id === m.id)) continue;
-    const tok = w.ledger.balance(m.pool, m.id);
-    const px = !m.rugged && tok > 0 ? w.ledger.balance(m.pool, DEP) / tok : 0;
-    coins.push({ id: m.id, name: m.name, px, prev: px, live: m.live && !m.rugged, eventId: m.launchEv });
+    coins.push({ ...m, eventId: m.eventId });
   }
   const idx = indexPair(w);
   const firmsDir = firms.map((f) => ({ id: f.id, name: f.name }));
@@ -3755,6 +3772,7 @@ function screen(w: World): Record<string, unknown> {
     career: careerView(w, me, job ? (job.staffEv ?? job.ceoEv ?? econ(w).jobsWho ?? w.genesis) : w.genesis),
     futuresBoard: futures,
     coinBoard: coins,
+    coinTape: memeTape(w, 8, me),
     fx: fxOf(w),
     risk: riskOf(w),
     fills: fillsOf(w),
@@ -5096,8 +5114,11 @@ const server = http.createServer(async (req, res) => {
         const tf = url.searchParams.get('tf') === 'i' ? 'i' : url.searchParams.get('tf') === 'w' ? 'w' : url.searchParams.get('tf') === 'm' ? 'm' : 'd';
         const limit = Math.min(1500, Math.max(10, Number(url.searchParams.get('limit')) || 400));
         const out = barsFor(w, instr, tf, limit);
-        if (!out) { send(res, 404, { error: 'no chart for ' + instr }); return; }
-        send(res, 200, { ...out, day: w.day });
+        // A memecoin also returns its page (curve, holders, tape, replies); a coin with no bars yet returns an empty chart.
+        const coin = memeDetail(w, instr, playerIndex(w));
+        if (!out && !coin) { send(res, 404, { error: 'no chart for ' + instr }); return; }
+        const bars = out ?? { id: instr, name: String(coin?.name ?? instr), kind: 'coin', unit: 'cents', tf, ticks: w.ticksPerDay, since: w.day, bars: [] };
+        send(res, 200, { ...bars, day: w.day, ...(coin ? { coin } : {}) });
         return;
       }
       send(res, 200, historyPage(w));
