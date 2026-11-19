@@ -12,6 +12,7 @@ export interface SimPause { why?: string; eventId?: number }
 
 export interface ChannelView {
   date?: SimDate;
+  live?: { label?: string; min?: number; session?: "open" | "closed" | "pre" | "after" };
   netWorth?: number;
   nwChange?: number;
   stats?: SimStat[];
@@ -94,6 +95,9 @@ export function channelsFromView(prev: Channels, view: ChannelView): Channels {
       speed,
       pauseWhy: view.pause?.why,
       pauseEvent: view.pause?.eventId,
+      label: view.live?.label,
+      min: view.live?.min,
+      session: view.live?.session,
     },
   };
   const rank: RankChannel = {

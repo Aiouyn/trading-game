@@ -99,7 +99,7 @@ function Interrupt({ why, text, eventId, actions }: { why: string; text?: string
     setBusy(true);
     setPending("carry");
     clearNote();
-    await setSpeed("day");
+    await setSpeed("x1");
     setBusy(false);
     setPending(null);
   };

@@ -54,14 +54,22 @@ export interface ScenarioView {
 export interface NewsLine { eventId: number; day: number; text: string; firms?: { id: string; name: string }[] }
 export interface PrivLine { eventId: number; day: number; from?: string; text: string }
 export interface StatRow { id: string; label: string; word: string; hover: string; trend: -1 | 0 | 1; note?: string; eventId: number }
+export interface LiveClock {
+  abs: number; day: number; min: number; weekday: string; label: string;
+  session: "open" | "closed" | "pre" | "after";
+  open: number; close: number; speed: SimView["speed"]; rate: number; tick: number; ticks: number;
+  /** Latest minute price of every instrument, by id. */
+  px?: Record<string, number>;
+}
 export interface SimView {
   date: { year: number; month: number; day: number; abs: number };
+  live?: LiveClock;
   name: string;
   netWorth: number;
   cash: number;
   nwChange?: number;
   sinceOpen?: number;
-  speed: "pause" | "day" | "week" | "month";
+  speed: "pause" | "x1" | "x2" | "x5" | "x10" | "x25" | "day" | "week" | "month";
   pause: { why: string; eventId: number; kind?: string; text?: string; actions?: PauseAction[] } | null;
   scenario?: ScenarioView | null;
   contacts?: { slot: number; who?: number; name: string; kind?: string; word?: string; line?: string }[];
@@ -259,7 +267,26 @@ function asView(raw: unknown): SimView | null {
   v.stats = v.stats ?? [];
   v.speed = v.speed ?? "pause";
   v.pause = v.pause ?? null;
-  return v;
+  return applyLive(v, v.live);
+}
+
+/** Put the latest minute prices on the quotes and coins, so what is on screen moves with the clock. */
+function applyLive(v: SimView, live: LiveClock | undefined): SimView {
+  const px = live?.px;
+  if (!px) return v;
+  const quotes = v.quotes.map((q) => {
+    const p = px[q.instr];
+    return p && p > 0 && p !== q.px ? { ...q, px: p, chg: q.prev > 0 ? p / q.prev - 1 : q.chg } : q;
+  });
+  const coins = v.coins.map((c) => {
+    const p = px[c.id];
+    return p && p > 0 ? { ...c, px: p } : c;
+  });
+  const board = v.coinBoard?.map((c) => {
+    const p = px[c.id];
+    return p && p > 0 ? { ...c, px: p, } : c;
+  });
+  return { ...v, quotes, coins, ...(board ? { coinBoard: board } : {}) };
 }
 
 function tabId(): string {
@@ -303,7 +330,7 @@ function holdLists(view: SimView): SimView {
 function adopt(view: SimView): SimView {
   const next = holdLists(view);
   if (next.epoch) epoch = next.epoch;
-  return next;
+  return applyLive(next, next.live);
 }
 
 function newerFeed(cur: FeedLine[], frame: FeedLine[] | undefined): FeedLine[] {
@@ -347,6 +374,7 @@ function mergeDay(frame: SimView) {
     nwChange: frame.nwChange,
     sinceOpen: frame.sinceOpen,
     speed: frame.speed ?? cur.speed,
+    live: frame.live ?? cur.live,
     pause: frame.pause ?? null,
     stats: frame.stats?.length ? frame.stats : cur.stats,
     shares: frame.shares ?? cur.shares,
@@ -525,6 +553,15 @@ function startStream() {
         if (pending.mode === "play") refreshEdge();
       }
     } catch { /* a bad frame is not a crash */ }
+  });
+  stream.addEventListener("clock", (ev) => {
+    let msg: LiveClock;
+    try { msg = JSON.parse((ev as MessageEvent).data); }
+    catch { return; }
+    const cur = pending.view;
+    if (!cur || typeof msg.min !== "number") return;
+    const view = applyLive({ ...cur, live: msg, speed: msg.speed ?? cur.speed }, msg);
+    publish({ ...pending, view: adopt(view) }, true);
   });
   stream.addEventListener("speed", (ev) => {
     let msg: {
@@ -736,14 +773,14 @@ export function openGate(mode: GateMode) {
 export async function setSpeed(speed: SimView["speed"]): Promise<void> {
   if (!takeLock()) return;
   try {
-    const word = speed === "pause" ? "Paused." : speed === "day" ? "A day is passing." : speed === "week" ? "A week is passing." : "A month is passing.";
+    const word = speed === "pause" ? "Paused." : speed === "month" ? "A month is passing." : speed === "week" ? "A week is passing." : speed === "day" ? "A day is passing." : `Time runs at ${speed}.`;
     publish({ ...pending, note: { ok: true, text: word } });
     const { ok, data } = await post("speed", { speed });
     if (!ok) {
       publish({ ...pending, note: { ok: false, text: typeof data.error === "string" ? data.error : "The clock did not change, so try again." } });
       return;
     }
-    const next = data.speed === "pause" || data.speed === "day" || data.speed === "week" || data.speed === "month" ? data.speed : speed;
+    const next = typeof data.speed === "string" && ["pause", "x1", "x2", "x5", "x10", "x25", "day", "week", "month"].includes(data.speed) ? (data.speed as SimView["speed"]) : speed;
     if (pending.view) {
       const view = adopt({ ...pending.view, speed: next, pause: next === "pause" ? pending.view.pause : null });
       publish({ ...pending, view, note: next === "pause" && speed !== "pause" ? null : pending.note });

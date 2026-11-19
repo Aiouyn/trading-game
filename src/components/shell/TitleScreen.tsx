@@ -91,7 +91,7 @@ export function useSavedClock(active: boolean): void {
     done.current = true;
     try {
       const raw = localStorage.getItem("quay.clock");
-      if (raw === "day" || raw === "week" || raw === "month") void setSpeed(raw);
+      if (raw === "x1" || raw === "x2" || raw === "x5" || raw === "x10" || raw === "x25" || raw === "day" || raw === "week" || raw === "month") void setSpeed(raw);
     } catch { /* leave the clock paused */ }
   }, [active]);
 }

@@ -5,12 +5,14 @@ import { setSpeed, useSimSnap } from "./simSession";
 
 const SPEEDS: { id: SimSpeed; label: string }[] = [
   { id: "pause", label: "Pause" },
-  { id: "day", label: "1 day" },
-  { id: "week", label: "1 week" },
-  { id: "month", label: "1 month" },
+  { id: "x1", label: "x1" },
+  { id: "x2", label: "x2" },
+  { id: "x5", label: "x5" },
+  { id: "x10", label: "x10" },
+  { id: "x25", label: "x25" },
 ];
 
-/** Pause, a day, a week, a month. The simulation auto-pauses and names the reason. */
+/** Pause and x1 to x25. At x1 one real hour is one game day. The simulation auto-pauses and names the reason. */
 export function TimeControls() {
   const { view } = useSimSnap();
   const speed = view?.speed ?? "pause";

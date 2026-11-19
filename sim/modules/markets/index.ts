@@ -481,6 +481,18 @@ function sweepSeatOrders(w: World): void {
   }
 }
 
+/**
+ * The closing print of a live session (16:00): every share's last price becomes the mark the day close will settle on,
+ * so the last minute bar and the daily bar agree. The day close at midnight recomputes the same mark.
+ */
+export function closingPrint(w: World): void {
+  for (const st of book(w).stocks) {
+    const { hi, lo } = collar(w, st);
+    st.last = Math.max(lo, Math.min(hi, destination(w, st)));
+    st.imp = 0;
+  }
+}
+
 /** Let the player's impact on the quote fade. */
 function fadeImpact(w: World, keep: number): void {
   for (const st of book(w).stocks) {

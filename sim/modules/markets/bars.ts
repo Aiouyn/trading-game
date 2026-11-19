@@ -86,28 +86,45 @@ export function seriesSymbol(id: string, name: string): string {
   return name;
 }
 
+/** Every tradable price right now, in the order the series were first seen. Used by the tick sampler and by the minute layer. */
+export function eachPrice(w: World, cb: (id: string, name: string, kind: Kind, unit: Unit, px: number, cumVol: number) => void): void {
+  const m = w.state.markets as { stocks?: { instr: string; issuer: string; last: number; vol: number; imp?: number }[] } | undefined;
+  for (const k of m?.stocks ?? []) cb(k.instr, firmName(w, k.issuer), 'share', 'cents', Math.max(1, Math.round(k.last * (1 + (k.imp ?? 0)))), k.vol);
+  cb('index', 'Port Avalon index', 'index', 'pts', indexLevel(w), 0);
+  const c = w.state.crypto as { majors?: { id: string; name: string; last: number }[]; memes?: { id: string; name: string; pool: string; rugged: boolean; live: boolean }[] } | undefined;
+  for (const k of c?.majors ?? []) cb(k.id, k.name, 'coin', 'cents', k.last, 0);
+  for (const k of c?.memes ?? []) {
+    if (!k.live || k.rugged) continue;
+    const tok = w.ledger.balance(k.pool, k.id);
+    if (!(tok > 0)) continue;
+    cb(k.id, k.name, 'coin', 'cents', w.ledger.balance(k.pool, DEP) / tok, 0);
+  }
+  const f = w.state.commodities as { books?: { good: string; name: string; tenors: { px: number }[] }[] } | undefined;
+  for (const b of f?.books ?? []) if (b.tenors[0]) cb('fut:' + b.good, b.name, 'future', 'cents', b.tenors[0].px, 0);
+  const bd = w.state.bonds as { bonds?: { tenor: string; onRun: boolean; faceLeft: number; last: number }[] } | undefined;
+  for (const tenor of ['3m', '2y', '10y', '30y']) {
+    const on = bd?.bonds?.find((b) => b.onRun && b.faceLeft > 0 && b.tenor === tenor);
+    if (on) cb('bond:' + tenor, 'Treasury ' + tenor, 'bond', 'cents', on.last, 0);
+  }
+  const ab = w.state.abroad as { mid?: number; cfg?: { currency?: string; name?: string } } | undefined;
+  if (ab?.mid) cb('fx', (ab.cfg?.currency ?? 'Foreign') + ' per dollar', 'fx', 'rate', ab.mid, 0);
+}
+
 function sampleAll(w: World, t: number): void {
-    const st = state(w);
-    const m = w.state.markets as { stocks?: { instr: string; issuer: string; last: number; vol: number; imp?: number }[] } | undefined;
-    for (const k of m?.stocks ?? []) sample(st, w, t, k.instr, firmName(w, k.issuer), 'share', 'cents', Math.max(1, Math.round(k.last * (1 + (k.imp ?? 0)))), k.vol);
-    sample(st, w, t, 'index', 'Port Avalon index', 'index', 'pts', indexLevel(w), 0);
-    const c = w.state.crypto as { majors?: { id: string; name: string; last: number }[]; memes?: { id: string; name: string; pool: string; rugged: boolean; live: boolean }[] } | undefined;
-    for (const k of c?.majors ?? []) sample(st, w, t, k.id, k.name, 'coin', 'cents', k.last, 0);
-    for (const k of c?.memes ?? []) {
-      if (!k.live || k.rugged) continue;
-      const tok = w.ledger.balance(k.pool, k.id);
-      if (!(tok > 0)) continue;
-      sample(st, w, t, k.id, k.name, 'coin', 'cents', w.ledger.balance(k.pool, DEP) / tok, 0);
-    }
-    const f = w.state.commodities as { books?: { good: string; name: string; tenors: { px: number }[] }[] } | undefined;
-    for (const b of f?.books ?? []) if (b.tenors[0]) sample(st, w, t, 'fut:' + b.good, b.name, 'future', 'cents', b.tenors[0].px, 0);
-    const bd = w.state.bonds as { bonds?: { tenor: string; onRun: boolean; faceLeft: number; last: number }[] } | undefined;
-    for (const tenor of ['3m', '2y', '10y', '30y']) {
-      const on = bd?.bonds?.find((b) => b.onRun && b.faceLeft > 0 && b.tenor === tenor);
-      if (on) sample(st, w, t, 'bond:' + tenor, 'Treasury ' + tenor, 'bond', 'cents', on.last, 0);
-    }
-    const ab = w.state.abroad as { mid?: number; cfg?: { currency?: string; name?: string } } | undefined;
-    if (ab?.mid) sample(st, w, t, 'fx', (ab.cfg?.currency ?? 'Foreign') + ' per dollar', 'fx', 'rate', ab.mid, 0);
+  const st = state(w);
+  eachPrice(w, (id, name, kind, unit, px, cum) => sample(st, w, t, id, name, kind, unit, px, cum));
+}
+
+/** The charted series (id, name, kind, unit, last true price), for the minute layer. */
+export function chartSeries(w: World): { id: string; name: string; kind: Kind; unit: Unit; last: number }[] {
+  return state(w).series.map((s) => ({ id: s.id, name: s.name, kind: s.kind, unit: s.unit, last: s.last }));
+}
+
+/** Daily bars of one series, flat [day, tick, o, h, l, c, v], oldest first, for backfilling minutes. */
+export function dailyFlat(w: World, id: string): number[] {
+  const st = state(w);
+  const at = st.by[id];
+  return at === undefined ? [] : st.series[at].d;
 }
 
 // ---- the year before day one ----

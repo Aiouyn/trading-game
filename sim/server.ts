@@ -31,14 +31,18 @@ import { civicSnapshot } from './modules/politics/index.ts';
 import { attentionOf } from './modules/law/index.ts';
 import { districts, homeBoard, lateRent, parcelView } from './modules/property/index.ts';
 import { circleBoard, circlePerson } from './modules/circle/index.ts';
-import { calendarOf, societyView } from './modules/society/index.ts';
+import { calendarOf, marketsOpen, societyView } from './modules/society/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
 import { memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
+import { closingPrint } from './modules/markets/index.ts';
+import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
 
-type Speed = 'pause' | 'day' | 'week' | 'month';
+/** x1: one real hour is one game day. day, week and month are the old fast-forward speeds, kept for scripts. */
+type Speed = 'pause' | 'x1' | 'x2' | 'x5' | 'x10' | 'x25' | 'day' | 'week' | 'month';
+const SPEEDS: Speed[] = ['pause', 'x1', 'x2', 'x5', 'x10', 'x25', 'day', 'week', 'month'];
 
 interface Bar { o: number; h: number; l: number; c: number; v: number }
 interface Stock {
@@ -82,12 +86,18 @@ const MIME: Record<string, string> = {
 const econ = (w: World): EconState => w.state.economy as EconState;
 const stocksOf = (w: World): Stock[] => (w.state.markets as { stocks?: Stock[] } | undefined)?.stocks ?? [];
 
-function daysFor(speed: Speed): number {
+/** Game minutes that pass in one real second. At x1 a game day is a real hour, so a game minute is 2.5 real seconds. */
+function ratePerSecond(speed: Speed): number {
   switch (speed) {
     case 'pause': return 0;
-    case 'day': return 1;
-    case 'week': return 7;
-    case 'month': return 30;
+    case 'x1': return 1440 / 3600;
+    case 'x2': return 2 * 1440 / 3600;
+    case 'x5': return 5 * 1440 / 3600;
+    case 'x10': return 10 * 1440 / 3600;
+    case 'x25': return 25 * 1440 / 3600;
+    case 'day': return 1440;
+    case 'week': return 7 * 1440;
+    case 'month': return 30 * 1440;
     default: {
       const never: never = speed;
       return never;
@@ -1386,7 +1396,7 @@ function playerBook(w: World): { shares: { instr: string; qty: number; px: numbe
   return { shares, orders };
 }
 
-interface FeedLine { eventId: number; day: number; tag: string; text: string }
+interface FeedLine { eventId: number; day: number; tag: string; text: string; min?: number }
 interface PauseAction { label: string; line: string }
 interface PauseHit {
   why: string;
@@ -1926,7 +1936,10 @@ function collect(w: World, minDay = -1): FeedLine[] {
       if (/frm_|p_\d/.test(line.text)) line.text = speakIds(w, line.text);
       if (line.tag === 'wire') news++;
       lines.push(line);
-      feed.push(line);
+      // The paper comes out in the morning: a line made at the day close waits for its hour.
+      const at = line.tag === 'wire' ? 450 : (line.tag === 'firm' || line.tag === 'city') ? 480 : 0;
+      if (at > clockMin && e.day >= w.day - 1 && played) { line.min = at; held.push(line); }
+      else { line.min = clockMin; feed.push(line); }
     }
     if (ctx.id && e.actor === ctx.id && (e.kind === 'loan.shortfall' || e.kind === 'loan.writeoff' || e.kind === 'court.pay' || e.kind === 'player.margin')) extra.push(e.msg);
     const pause = pauseHit(e, ctx);
@@ -2214,6 +2227,7 @@ function tickFrame(w: World): Record<string, unknown> {
     speed,
     pause: pauseNote,
     stats: pst ? lifeBoard(w, i, pst, worth).stats : [],
+    live: { ...liveBlock(), px: livePx() },
   };
 }
 
@@ -4132,6 +4146,15 @@ let lastActCode = 200;
 let lastActJson = '';
 let actPending = false;
 let speed: Speed = 'pause';
+let clockMin = 540;
+let dayOpen = false;
+const held: FeedLine[] = [];
+const TICK_AT: number[] = [];
+let pumping = false;
+let acc = 0;
+let lastReal = 0;
+let lastPush = 0;
+let timer: NodeJS.Timeout | null = null;
 let booksOk = true;
 let booksBad: string[] = [];
 let over = false;
@@ -4164,6 +4187,7 @@ function boot(world: World): void {
   booksOk = true;
   booksBad = [];
   speed = 'pause';
+  initClock(world);
   const arrived = view(w);
   over = arrived.over || !arrived.alive;
   openWorth = arrived.netWorth;
@@ -4197,6 +4221,69 @@ function broadcast(event: string, data: unknown): void {
   }
 }
 
+/** The game clock. clockMin is the minute of the day about to be lived (0..1439); w.day is the date. */
+const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function initClock(world: World): void {
+  const saved = world.state.clock as { min?: number; tickDone?: number } | undefined;
+  clockMin = typeof saved?.min === 'number' ? saved.min : 540;
+  world.tickDone = typeof saved?.tickDone === 'number' ? saved.tickDone : 0;
+  TICK_AT.length = 0;
+  for (let t = 0; t < world.ticksPerDay; t++) TICK_AT.push(OPEN_MIN + Math.round(t * (CLOSE_MIN - OPEN_MIN - 30) / world.ticksPerDay));
+  dayOpen = isWeekday(world.day) && marketsOpen(world);
+  held.length = 0;
+  acc = 0;
+  minutesInit(world, world.day);
+  saveClock();
+}
+
+function saveClock(): void {
+  w.state.clock = { min: clockMin, tickDone: w.tickDone };
+}
+
+function sessionWord(): 'open' | 'closed' | 'pre' | 'after' {
+  if (!dayOpen) return 'closed';
+  if (clockMin < OPEN_MIN) return 'pre';
+  if (clockMin > CLOSE_MIN) return 'after';
+  return 'open';
+}
+
+function clockLabel(day: number, min: number): string {
+  const doy = ((day % 360) + 360) % 360;
+  const hh = String(Math.floor(min / 60)).padStart(2, '0'), mm = String(min % 60).padStart(2, '0');
+  return `${WD[weekday(day)]} ${(doy % 30) + 1} ${MON[Math.floor(doy / 30)]}, ${hh}:${mm}`;
+}
+
+function liveBlock(): Record<string, unknown> {
+  return {
+    abs: w.day * MIN_PER_DAY + clockMin,
+    day: w.day,
+    min: clockMin,
+    weekday: WD[weekday(w.day)],
+    label: clockLabel(w.day, clockMin),
+    session: sessionWord(),
+    open: OPEN_MIN,
+    close: CLOSE_MIN,
+    speed,
+    rate: ratePerSecond(speed),
+    tick: w.tickDone,
+    ticks: w.ticksPerDay,
+  };
+}
+
+function livePx(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, px] of livePrices(w)) out[id] = px;
+  return out;
+}
+
+function withLive(json: string): string {
+  if (!json.endsWith('}')) return json;
+  return `${json.slice(0, -1)},"live":${JSON.stringify({ ...liveBlock(), px: livePx() })}}`;
+}
+
+/** The midnight step: the whole economy closes the day. Returns the first problem, if any. */
 function stepDay(): string | undefined {
   let stepped: ReturnType<typeof act>;
   try { stepped = act(w, { kind: 'wait', days: 1 }); }
@@ -4243,56 +4330,98 @@ function stepDay(): string | undefined {
   return undefined;
 }
 
-let pumping = false;
-function pump(): void {
-  if (pumping) return;
-  if (speed === 'pause' || !booksOk || over || !started) return;
-  pumping = true;
-  if (speed === 'month') {
-    const left = (30 - (w.day % 30)) || 30;
-    let n = 0;
-    const next = (): void => {
-      if (speed !== 'month' || !booksOk || over) {
-        pumping = false;
-        if (speed !== 'pause' && speed !== 'month') pump();
-        return;
-      }
-      if (n >= left) {
-        speed = 'pause';
-        pumping = false;
-        broadcast('speed', { speed: 'pause', quiet: true });
-        return;
-      }
-      const bad = stepDay();
-      n++;
-      if (bad || speed === 'pause') { pumping = false; return; }
-      setImmediate(next);
-    };
-    next();
+/** Live the minute at clockMin, then move on. Returns the first problem, if any. */
+function advanceMinute(): string | undefined {
+  const m = clockMin;
+  let ticked = false;
+  const t = TICK_AT.indexOf(m);
+  if (t >= 0 && w.tickDone === t) {
+    try { w.runTick(); }
+    catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      booksOk = false;
+      booksBad = [playerLine(why)];
+      speed = 'pause';
+      broadcast('books', { ok: false, lines: booksBad });
+      return booksBad[0];
+    }
+    ticked = true;
+  }
+  if (m === CLOSE_MIN && dayOpen) closingPrint(w);
+  minuteStep(w, w.day * MIN_PER_DAY + m, dayOpen);
+  if (ticked) {
+    const heldBefore = pauseNote;
+    collect(w);
+    if (pauseNote && pauseNote !== heldBefore) broadcast('speed', { speed: 'pause', ...pauseNote });
+    try {
+      const frame = tickFrame(w);
+      const now = frame.netWorth as number;
+      frame.nwChange = now - closeWorth;
+      frame.sinceOpen = now - openWorth;
+      lastTick = frame;
+      broadcast('day', frame);
+    } catch { /* the frame is a convenience; the next close sends a full one */ }
+  }
+  for (let i = held.length - 1; i >= 0; i--) {
+    const at = held[i].min;
+    if (at !== undefined && at <= m) { feed.push(held[i]); held.splice(i, 1); }
+  }
+  clockMin = m + 1;
+  if (clockMin >= MIN_PER_DAY) {
+    clockMin = 0;
+    const bad = stepDay();
+    dayOpen = isWeekday(w.day) && marketsOpen(w);
+    saveClock();
+    if (bad) return bad;
+    if (speed === 'month' && w.day % 30 === 0) { speed = 'pause'; broadcast('speed', { speed: 'pause', quiet: true }); }
+  } else saveClock();
+  return undefined;
+}
+
+/** Jump the clock over a stretch of time (a wait, an evening out). The minutes are lived, only faster. */
+function fastForward(minutes: number): string | undefined {
+  for (let i = 0; i < minutes; i++) {
+    if (!booksOk || over) break;
+    const bad = advanceMinute();
+    if (bad) return bad;
+  }
+  return undefined;
+}
+
+function pushClock(): void {
+  lastPush = Date.now();
+  broadcast('clock', { ...liveBlock(), px: livePx() });
+}
+
+function runClockTick(): void {
+  if (speed === 'pause' || !booksOk || over || !started) {
+    if (timer) { clearInterval(timer); timer = null; }
+    pumping = false;
+    pushClock();
     return;
   }
-  const goal = daysFor(speed);
-  if (goal < 1) { pumping = false; return; }
-  const t0 = Date.now();
-  let n = 0;
-  const next = (): void => {
-    if (speed === 'pause' || speed === 'month' || !booksOk || over) {
-      pumping = false;
-      if (speed === 'month') pump();
-      return;
-    }
-    if (n >= goal) {
-      pumping = false;
-      const wait = Math.max(16, 1000 - (Date.now() - t0));
-      setTimeout(pump, wait);
-      return;
-    }
-    const bad = stepDay();
-    n++;
-    if (bad) { pumping = false; return; }
-    setImmediate(next);
-  };
-  next();
+  const now = Date.now();
+  const rate = ratePerSecond(speed);
+  acc += Math.min(1.5, (now - lastReal) / 1000) * rate;
+  lastReal = now;
+  let moved = 0;
+  while (acc >= 1 && speed !== 'pause' && booksOk && !over) {
+    if (Date.now() - now > 70) break;
+    acc -= 1;
+    moved++;
+    if (advanceMinute()) break;
+  }
+  if (acc > Math.max(5, rate)) acc = Math.max(5, rate);
+  if (moved && (Date.now() - lastPush >= 300 || rate < 1)) pushClock();
+}
+
+/** Start the clock if a speed is set. The server runs it itself; Quay only asks for a speed. */
+function pump(): void {
+  if (speed === 'pause' || !booksOk || over || !started) return;
+  pumping = true;
+  if (timer) return;
+  lastReal = Date.now();
+  timer = setInterval(runClockTick, 100);
 }
 
 function playerLine(raw: string): string {
@@ -4423,6 +4552,7 @@ function patchCached(): string {
     base.nwChange = frame.nwChange;
     base.sinceOpen = frame.sinceOpen;
     base.speed = frame.speed;
+    base.live = frame.live;
     base.pause = frame.pause;
     base.alive = frame.alive;
     base.over = frame.over;
@@ -5098,7 +5228,8 @@ const server = http.createServer(async (req, res) => {
       send(res, 409, { error: 'choose a scenario' });
       return;
     }
-    if (req.method === 'GET' && pathname === '/view') { sendRaw(res, 200, await viewJson()); return; }
+    if (req.method === 'GET' && pathname === '/view') { sendRaw(res, 200, withLive(await viewJson())); return; }
+    if (req.method === 'GET' && pathname === '/clock') { send(res, 200, { ...liveBlock(), px: livePx(), minutes: minuteStats(w) }); return; }
     if (req.method === 'GET' && pathname === '/panel') { sendRaw(res, 200, panelJson(url.searchParams.get('name') || '', url)); return; }
     if (req.method === 'GET' && pathname.startsWith('/parcel/')) {
       const id = Number(pathname.slice('/parcel/'.length));
@@ -5109,10 +5240,24 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && pathname === '/history') {
       const instr = url.searchParams.get('instr');
-      if (url.searchParams.get('list')) { send(res, 200, { day: w.day, ticks: w.ticksPerDay, rows: listBars(w) }); return; }
+      if (url.searchParams.get('list')) {
+        const rows = listBars(w).map((r) => { const px = livePrices(w).get(r.id); return px && px > 0 ? { ...r, px, chg: r.prev > 0 ? px / r.prev - 1 : r.chg } : r; });
+        send(res, 200, { day: w.day, ticks: w.ticksPerDay, live: liveBlock(), rows });
+        return;
+      }
       if (instr) {
-        const tf = url.searchParams.get('tf') === 'i' ? 'i' : url.searchParams.get('tf') === 'w' ? 'w' : url.searchParams.get('tf') === 'm' ? 'm' : 'd';
-        const limit = Math.min(1500, Math.max(10, Number(url.searchParams.get('limit')) || 400));
+        const q = url.searchParams.get('tf') ?? '1d';
+        const limit = Math.min(10000, Math.max(10, Number(q === 'i' ? 160 : url.searchParams.get('limit')) || 400));
+        // Real timeframes: 1m 5m 15m 30m 1h 4h from the kept minutes (t is the bar's start in game minutes since day 0),
+        // 1d 1w 1M from the daily history (t is the day). The old i, d, w, m still answer as before.
+        const real = (ALL_TFS as readonly string[]).includes(q) ? q as AnyTf : q === 'mo' ? '1M' : q === 'D' ? '1d' : q === 'W' ? '1w' : q === '1H' ? '1h' : q === '4H' ? '4h' : null;
+        if (real) {
+          const out = historyFor(w, instr, real as AnyTf, limit, w.day);
+          if (!out) { send(res, 404, { error: 'no chart for ' + instr }); return; }
+          send(res, 200, { ...out, day: w.day, now: w.day * MIN_PER_DAY + clockMin, live: livePrices(w).get(instr) ?? null, ticks: w.ticksPerDay });
+          return;
+        }
+        const tf = q === 'i' ? 'i' : q === 'w' ? 'w' : q === 'm' ? 'm' : 'd';
         const out = barsFor(w, instr, tf, limit);
         // A memecoin also returns its page (curve, holders, tape, replies); a coin with no bars yet returns an empty chart.
         const coin = memeDetail(w, instr, playerIndex(w));
@@ -5161,8 +5306,8 @@ const server = http.createServer(async (req, res) => {
       if (guard(req, url, res)) return;
       const body = await readBody(req) as { speed?: string };
       const next = body.speed;
-      if (next !== 'pause' && next !== 'day' && next !== 'week' && next !== 'month') {
-        send(res, 400, { error: 'speed must be pause, day, week or month' });
+      if (!SPEEDS.includes(next as Speed)) {
+        send(res, 400, { error: 'speed must be pause, x1, x2, x5, x10 or x25' });
         return;
       }
       if (!booksOk) { send(res, 409, { error: 'the books do not balance', lines: booksBad }); return; }
@@ -5180,9 +5325,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (next !== 'pause') pauseNote = null;
-      speed = next;
+      speed = next as Speed;
       touchView();
-      send(res, 200, { speed });
+      send(res, 200, { speed, live: liveBlock() });
+      broadcast('speed', { speed, quiet: true });
       pump();
       return;
     }
@@ -5231,7 +5377,19 @@ const server = http.createServer(async (req, res) => {
         const playerId = body && typeof body === 'object' && typeof (body as { playerId?: unknown }).playerId === 'string'
           ? (body as { playerId: string }).playerId
           : undefined;
-        const result = playerId ? act(w, playerId, cmd) : act(w, cmd);
+        let result: ReturnType<typeof act>;
+        if (cmd.kind === 'wait' && Number.isSafeInteger(cmd.days) && cmd.days >= 1) {
+          // A wait lives the minutes, so the clock, the minute bars and the day close all stay in step.
+          const bad = fastForward(cmd.days * MIN_PER_DAY);
+          result = bad ? { status: 'rejected', why: bad } : { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
+        } else {
+          result = playerId ? act(w, playerId, cmd) : act(w, cmd);
+          // An evening out takes the evening: the clock jumps to late night, the same as sleeping.
+          if (cmd.kind === 'out' && cmd.op === 'go' && result.status === 'accepted' && clockMin < 1410) {
+            const bad = fastForward(1410 - clockMin);
+            if (bad) result = { status: 'rejected', why: bad };
+          }
+        }
         const held = pauseNote;
         collect(w);
         if (pauseNote && pauseNote !== held) broadcast('speed', { speed: 'pause', ...pauseNote });
@@ -5241,6 +5399,7 @@ const server = http.createServer(async (req, res) => {
         maybeAutosave();
         touchView();
         const fitted = JSON.parse(await viewJson()) as Record<string, unknown>;
+        fitted.live = { ...liveBlock(), px: livePx() };
         const said = inviteSentence(body, cmd, fitted);
         const text = said && result.status === 'accepted' ? said : result.text;
         const books = result.books;

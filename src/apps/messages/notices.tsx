@@ -264,7 +264,7 @@ export function RequestInterrupt() {
     const id = wePaused;
     wePaused = 0;
     released.add(id);
-    if (view?.speed === "pause" && !view.pause) void setSpeed("day");
+    if (view?.speed === "pause" && !view.pause) void setSpeed("x1");
   }, [openIds, view?.pause, view?.speed]);
   if (mode !== "play" || view?.pause || !snap || !hot) return null;
   const answer = (yes: boolean) => {
@@ -279,7 +279,7 @@ export function RequestInterrupt() {
     released.add(hot.id);
     if (wePaused === hot.id) wePaused = 0;
     setTick((n) => n + 1);
-    void setSpeed("day");
+    void setSpeed("x1");
   };
   return (
     <div className="flow-modal" role="presentation">

@@ -188,7 +188,7 @@ function StatusBar() {
   const locale = useShell((s) => s.prefs.locale);
   const simDate = clock.sim;
   const { day, hhmm } = clockLabel(clock);
-  const clockText = simDate ? `Y${simDate.year} M${simDate.month} D${simDate.day}` : clockStrings(locale).phone(day, hhmm);
+  const clockText = simDate ? (simDate.label ?? `Y${simDate.year} M${simDate.month} D${simDate.day}`) : clockStrings(locale).phone(day, hhmm);
   const down = () => { timer.current = window.setTimeout(() => { timer.current = null; store.getState().setRecent(true); }, LONG_PRESS_MS); };
   const up = () => {
     if (timer.current !== null) { window.clearTimeout(timer.current); timer.current = null; store.getState().phoneBack(); }

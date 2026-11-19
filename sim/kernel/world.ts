@@ -37,9 +37,21 @@ export class World {
   get year(): number { return Math.floor(this.day / DAYS_PER_YEAR); }
   get month(): number { return Math.floor(this.day / DAYS_PER_MONTH); }
 
+  /** Ticks of the current day already run. The live server runs them one at a time through the game day; step() finishes the rest. */
+  tickDone = 0;
+  /** Run the next intraday tick (live play). Returns the tick that ran, or -1 when the day has no ticks left. */
+  runTick(): number {
+    if (this.tickDone >= this.ticksPerDay) return -1;
+    this.ledger.day = this.events.day = this.day;
+    const t = this.tickDone++;
+    for (const m of this.modules) m.tick?.(this, t);
+    return t;
+  }
+
   step(): void {
     this.ledger.day = this.events.day = this.day;
-    for (let t = 0; t < this.ticksPerDay; t++) for (const m of this.modules) m.tick?.(this, t);
+    while (this.tickDone < this.ticksPerDay) this.runTick();
+    this.tickDone = 0;
     for (const m of this.modules) m.dayClose?.(this);
     if ((this.day + 1) % DAYS_PER_MONTH === 0) {
       for (const m of this.modules) m.monthEnd?.(this);

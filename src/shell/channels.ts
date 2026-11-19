@@ -6,7 +6,8 @@ export type { ShellId };
 
 export type MarketPhase = "pre" | "open_auction" | "continuous" | "close_auction" | "after" | "weekend";
 
-export type SimSpeed = "pause" | "day" | "week" | "month";
+/** x1 is one real hour per game day. day, week and month are fast-forward speeds the server still answers to. */
+export type SimSpeed = "pause" | "x1" | "x2" | "x5" | "x10" | "x25" | "day" | "week" | "month";
 
 /** The simulation's clock, when Quay is running on sim/server.ts. */
 export interface SimClock {
@@ -17,6 +18,11 @@ export interface SimClock {
   speed: SimSpeed;
   pauseWhy?: string;
   pauseEvent?: number;
+  /** The game clock in words, for example "Tue 14 Mar, 10:42". */
+  label?: string;
+  /** Minute of the game day, 0 to 1439. */
+  min?: number;
+  session?: "open" | "closed" | "pre" | "after";
 }
 
 export interface ClockChannel { tick: number; gameDay: number; tickOfDay: number; phase: MarketPhase; sim?: SimClock }

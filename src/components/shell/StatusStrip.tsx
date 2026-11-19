@@ -35,7 +35,7 @@ export function StatusStrip() {
   const sim = me.source === "sim";
   const simDate = clock.sim;
   const { day, hhmm } = clockLabel(clock);
-  const clockText = simDate ? `Y${simDate.year} M${simDate.month} D${simDate.day}` : clockStrings(locale).strip(day, hhmm);
+  const clockText = simDate ? (simDate.label ?? `Y${simDate.year} M${simDate.month} D${simDate.day}`) : clockStrings(locale).strip(day, hhmm);
   const release = sim
     ? `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`
     : signedIn
