@@ -3724,13 +3724,7 @@ function screen(w: World): Record<string, unknown> {
     eventId: cmd?.root ?? w.genesis,
     tenors: b.tenors.map((t) => ({ monthsAhead: t.month - w.month, px: t.px, prev: t.prev })),
   }));
-  const crypto = w.state.crypto as { majors?: { id: string; name: string; last: number; prev: number }[]; root?: number } | undefined;
-  const coins: Record<string, unknown>[] = [];
-  for (const m of crypto?.majors ?? []) coins.push({ id: m.id, name: m.name, px: m.last, prev: m.prev, live: true, eventId: crypto?.root ?? w.genesis });
-  for (const m of memeBoard(w, me)) {
-    if (!m.live && !v.coins.some((c) => c.id === m.id)) continue;
-    coins.push({ ...m, eventId: m.eventId });
-  }
+  const coins = coinRows(w, me, v.coins);
   const idx = indexPair(w);
   const firmsDir = firms.map((f) => ({ id: f.id, name: f.name }));
   const job = me >= 0 && P.employer[me] >= 0 ? firms[P.employer[me]] : undefined;
@@ -4140,6 +4134,8 @@ let writer: { id: string; seen: number } | null = null;
 const sockets = new Map<string, number>();
 let lastTick: Record<string, unknown> | null = null;
 let viewFull = false;
+/** When the cached view's coin board was last read fresh. The coins trade every minute, the rest of the view changes at the ticks. */
+let coinAt = 0;
 let lastActSig = '';
 let lastActAt = 0;
 let lastActCode = 200;
@@ -4542,6 +4538,18 @@ function touchView(): void {
   viewFull = false;
 }
 
+/** The coin board: the dealers' majors and every memecoin on the exchange (a dead one only while the player still holds it). */
+function coinRows(world: World, me: number, held: { id: string }[]): Record<string, unknown>[] {
+  const crypto = world.state.crypto as { majors?: { id: string; name: string; last: number; prev: number; imp?: number }[]; root?: number } | undefined;
+  const coins: Record<string, unknown>[] = [];
+  for (const m of crypto?.majors ?? []) coins.push({ id: m.id, name: m.name, px: Math.max(1, Math.round(m.last * (1 + (m.imp ?? 0)))), prev: m.prev, live: true, eventId: crypto?.root ?? world.genesis });
+  for (const m of memeBoard(world, me)) {
+    if (!m.live && !held.some((c) => c.id === m.id)) continue;
+    coins.push({ ...m, eventId: m.eventId });
+  }
+  return coins;
+}
+
 function patchCached(): string {
   const base = JSON.parse(viewCache?.json || '{}') as Record<string, unknown>;
   const frame = lastTick && (lastTick.date as { abs?: number } | undefined)?.abs === w.day ? lastTick : null;
@@ -4581,6 +4589,13 @@ function patchCached(): string {
     base.speed = speed;
     base.epoch = `${bootPid}:${worldEpoch}`;
   }
+  // The coins trade every minute: the board and the tape are read fresh, not from the day's cached view.
+  if (Array.isArray(base.coinBoard)) {
+    const me = playerIndex(w);
+    base.coinBoard = coinRows(w, me, Array.isArray(base.coins) ? base.coins as { id: string }[] : []);
+    base.coinTape = memeTape(w, 8, me);
+    coinAt = Date.now();
+  }
   const json = JSON.stringify(base);
   viewCache = { day: w.day, rev: viewRev, json };
   viewFull = false;
@@ -4588,7 +4603,7 @@ function patchCached(): string {
 }
 
 function viewJson(): Promise<string> {
-  if (viewCache && viewCache.day === w.day && viewCache.rev === viewRev && (viewFull || pumping)) {
+  if (viewCache && viewCache.day === w.day && viewCache.rev === viewRev && (viewFull || pumping) && !(pumping && Date.now() - coinAt > 1500)) {
     return Promise.resolve(viewCache.json);
   }
   if (pumping && viewCache && viewCache.rev === viewRev) return Promise.resolve(patchCached());

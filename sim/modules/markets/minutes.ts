@@ -7,6 +7,7 @@
 // runs with the same seed and the same player actions draw the same minute path. The closing print at 16:00 sets the
 // mark the day close settles on, so the last minute bar of a session is the daily close.
 import { type World } from '../../kernel/index.ts';
+import { coinMinute, coinMinuteStep, coinRugs } from '../crypto/index.ts';
 import { chartSeries, dailyFlat, barsFor, eachPrice, type BarOut, type Kind, type Unit } from './bars.ts';
 
 export const MIN_PER_DAY = 1440;
@@ -96,7 +97,8 @@ function push(s: Store, t: number, o: number, h: number, l: number, c: number, v
   s.last = c;
 }
 
-const rnd = (s: Store, v: number): number => s.unit === 'cents' ? Math.max(1, Math.round(v)) : v;
+// A memecoin trades at fractions of a cent, so its minute prices are not rounded to the cent.
+const rnd = (s: Store, v: number): number => s.unit === 'cents' && !s.id.startsWith('coin:me:') ? Math.max(1, Math.round(v)) : v;
 
 // ---- the past: a few days of minutes drawn from the daily bars, so a chart opens with something to read ----
 
@@ -182,11 +184,14 @@ export function minuteStep(w: World, abs: number, open: boolean): void {
   let baseCap = 0;
   const mk = w.state.markets as { baseCap?: number } | undefined;
   if (mk?.baseCap) baseCap = mk.baseCap;
+  // The coins: the city's traders trade them through the pools and the dealers' ladders, every minute.
+  coinMinuteStep(w, abs);
   eachPrice(w, (id, name, kind, unit, base, cum) => {
     let s = b.stores.get(id);
     if (!s) { s = make(b, id, name, kind, unit); s.last = base; }
     s.name = name;
     const trading = sessionKind(kind) ? inSession : true;
+    const coinTrade = kind === 'coin' ? coinMinute(w, id) : undefined;
     const baseNow = base > 0 ? base : s.last;
     // Volume: the market's running total moves at ticks; spread each step over the minutes until the next one.
     if (kind === 'share') {
@@ -197,6 +202,9 @@ export function minuteStep(w: World, abs: number, open: boolean): void {
       let cap = 0;
       for (const [sid, p] of shares) cap += p * (w.ledger.issued.get(sid) ?? 1_000_000);
       px = baseCap > 0 && shares.size > 0 ? 100 * cap / baseCap : baseNow;
+    } else if (kind === 'coin' && coinTrade) {
+      s.noise = 0;
+      px = coinTrade.px;
     } else if (!trading) {
       s.noise *= 0.5;
       px = baseNow;
@@ -214,6 +222,11 @@ export function minuteStep(w: World, abs: number, open: boolean): void {
     b.px.set(id, px);
     if (!trading) return;
     const o = s.last > 0 ? s.last : px;
+    if (coinTrade) {
+      // Real trades: the bar's extremes are the prices the pool or the ladder visited, its volume the coins that changed hands.
+      push(s, abs, o, rnd(s, Math.max(o, px, coinTrade.hi)), rnd(s, Math.min(o, px, coinTrade.lo)), px, coinTrade.vol);
+      return;
+    }
     const sig = sigmaDaily(w, id, kind, baseNow) * 0.06;
     const wickUp = kind === 'index' ? 0.0002 : sig * 0.4 * Math.abs(normal(s.seed ^ b.seed, abs, 5));
     const wickDn = kind === 'index' ? 0.0002 : sig * 0.4 * Math.abs(normal(s.seed ^ b.seed, abs, 9));
@@ -221,6 +234,19 @@ export function minuteStep(w: World, abs: number, open: boolean): void {
     const ll = rnd(s, Math.min(o, px) * (1 - wickDn));
     push(s, abs, o, Math.max(hh, o, px), Math.min(ll, o, px), px, kind === 'share' ? Math.round(s.vper) : 0);
   });
+  rugBars(w, b, abs);
+}
+
+/** A rugged coin's chart ends with the pool pulled: one last bar that falls to nothing. */
+function rugBars(w: World, b: Minutes, abs: number): void {
+  for (const r of coinRugs(w)) {
+    const s = b.stores.get(r.id);
+    if (!s) continue;
+    const o = s.last > 0 ? s.last : r.last;
+    const floor = Math.max(1e-6, o * 0.01);
+    push(s, abs, o, o, floor, floor, 0);
+    b.px.set(r.id, floor);
+  }
 }
 
 /** The latest minute price of every instrument, by id. Outside a session this is the last close. */
