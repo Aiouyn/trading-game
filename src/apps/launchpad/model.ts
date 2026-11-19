@@ -1,9 +1,10 @@
-// Launchpad model (pure, no DOM): the sim's memecoins as the board reads them. Every figure is the sim's: the view's
-// coinBoard and coinTape, and the coin page from /history. Nothing here moves money or invents a price; the sim decides
-// every trade and every launch, and the constant-product quote below is only the estimate shown before a click.
-import type { SimView } from "@/shell/simSession";
+// Launchpad model (pure, no DOM): the sim's memecoins as the Launchpad reads them. Every figure is the sim's, read in one
+// piece from /coins (every coin's pool as it stands that minute), so a coin's price, market cap, holders, raised and
+// bought-out always come from the same pool state. Nothing here moves money or invents a price; the sim decides every
+// trade and every launch, and the constant-product quotes below are only the estimates shown before a click.
+import { dayLabel as weekdayLabel, hhmm } from "@/components/market/terminalApi";
 
-/** A memecoin row from the view. Prices are cents per token; the market cap is cents. */
+/** A memecoin row from the sim. Prices are cents per token; money is cents; times are game minutes since day 0. */
 export interface Coin {
   id: string;
   name: string;
@@ -14,9 +15,13 @@ export interface Coin {
   live: boolean;
   rugged: boolean;
   born: number;
+  bornAbs: number;
   eventId: number;
   px: number;
   prev: number;
+  /** Price change over the last game hour (1 = unchanged). */
+  h1: number;
+  king: boolean;
   supply: number;
   cap: number;
   /** Share of the pool's tokens bought out, 0..1. */
@@ -25,9 +30,20 @@ export interface Coin {
   cash: number;
   tokens: number;
   holders: number;
+  /** Cents traded since launch. */
   vol: number;
+  trades: number;
+  /** Cents traded lately, fading over a couple of game hours: what Trending sorts by. */
+  heat: number;
+  lastAbs: number;
   lastDay: number;
-  replies: number;
+  peak: number;
+  /** How the coin ended: pulled by its creator, or faded and delisted. Empty while it trades. */
+  ended: "" | "rugged" | "faded";
+  endAbs: number;
+  rugCash: number;
+  /** The game day a faded coin's pool pays out to whoever still holds it. */
+  windDay: number;
 }
 
 /** One executed trade on the trades bar. */
@@ -37,6 +53,7 @@ export interface TapeRow {
   coinName: string;
   seq: number;
   day: number;
+  abs: number;
   side: "buy" | "sell";
   tokens: number;
   cents: number;
@@ -45,43 +62,69 @@ export interface TapeRow {
   mine: boolean;
 }
 
-/** The coin page's read: the chart's bars and this detail, from /history?instr=coin:... */
+/** What someone posted on a coin: the creator's own posts and the people whose trades said something. */
+export interface Post {
+  id: string;
+  abs: number;
+  name: string;
+  mine: boolean;
+  creator: boolean;
+  act: "launch" | "buy" | "sell" | "pump" | "dump" | "rug";
+  cents: number;
+  gain?: number;
+  text: string;
+}
+
+/** The coin page's read: this detail comes with /coins?coin=... */
 export interface CoinPage extends Coin {
   creatorIndex: number;
-  top: { index: number; name: string; qty: number; share: number; mine: boolean }[];
-  prints: (TapeRow & { index: number })[];
-  /** What people said about the coin, newest first (the sim's crowd lines). */
-  talk: { eventId: number; day: number; text: string }[];
+  creatorHandle: string;
+  top: { index: number; name: string; qty: number; share: number; mine: boolean; creator: boolean }[];
+  prints: { seq: number; day: number; abs: number; side: "buy" | "sell"; tokens: number; cents: number; px: number; name: string; mine: boolean }[];
+  posts: Post[];
 }
 
-export interface Bar { t: number; k: number; o: number; h: number; l: number; c: number; v: number }
-export interface ChartRead { bars: Bar[]; ticks: number; day: number; coin?: CoinPage }
+export interface Rug { id: string; ticker: string; name: string; creatorName: string; mine: boolean; cash: number; abs: number }
+export interface Rules { fee: number; seedMin: number; seedMax: number; pool: number; founder: number }
 
-export const LAUNCH_FEE = 2_000;
-export const LAUNCH_SEED = 150_000;
-export const POOL_TOKENS = 150_000;
-export const MAX_LIVE = 6;
-
-export type Feed = "new" | "bumped" | "trending" | "holdings";
-export type Sort = "created" | "bumped" | "cap" | "vol";
-export const FEEDS: readonly Feed[] = ["new", "bumped", "trending", "holdings"];
-export const DEFAULT_SORT: Record<Feed, Sort> = { new: "created", bumped: "bumped", trending: "vol", holdings: "cap" };
-
-/** The memecoins in the view: the majors have no ticker and are traded in the Broker, not here. */
-export function coinsOf(view: SimView | null): Coin[] {
-  const rows = (view?.coinBoard ?? []) as unknown as Partial<Coin>[];
-  return rows.filter((c): c is Coin => typeof c.ticker === "string" && typeof c.id === "string" && c.id.startsWith("coin:me:"));
+/** Everything one read of /coins returns. */
+export interface LpData {
+  now: number;
+  day: number;
+  live: number;
+  max: number;
+  king: string;
+  board: Coin[];
+  held: Record<string, number>;
+  rugs: Rug[];
+  tape: TapeRow[];
+  rules: Rules;
+  detail?: CoinPage;
 }
 
-export function tapeOf(view: SimView | null): TapeRow[] {
-  return ((view as unknown as { coinTape?: TapeRow[] } | null)?.coinTape ?? []).filter((p) => typeof p.ticker === "string");
-}
+export type Feed = "new" | "bumped" | "trending" | "holdings" | "gone";
+export type Sort = "created" | "bumped" | "cap" | "heat";
+export const FEEDS: readonly Feed[] = ["new", "bumped", "trending", "holdings", "gone"];
+export const DEFAULT_SORT: Record<Feed, Sort> = { new: "created", bumped: "bumped", trending: "heat", holdings: "cap", gone: "bumped" };
 
-/** Holdings of memecoins: coin id to tokens, from the view's own holdings. */
-export function heldOf(view: SimView | null): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const h of view?.coins ?? []) if (h.id.startsWith("coin:me:") && h.qty > 0) out[h.id] = h.qty;
-  return out;
+/** Read the /coins reply defensively: a missing part is an empty one. */
+export function readLp(j: unknown): LpData | null {
+  if (!j || typeof j !== "object") return null;
+  const o = j as Partial<LpData>;
+  if (!Array.isArray(o.board) || typeof o.now !== "number") return null;
+  return {
+    now: o.now,
+    day: o.day ?? Math.floor(o.now / 1440),
+    live: o.live ?? 0,
+    max: o.max ?? 12,
+    king: o.king ?? "",
+    board: o.board,
+    held: o.held ?? {},
+    rugs: Array.isArray(o.rugs) ? o.rugs : [],
+    tape: Array.isArray(o.tape) ? o.tape : [],
+    rules: o.rules ?? { fee: 2_000, seedMin: 25_000, seedMax: 150_000, pool: 150_000, founder: 15_000 },
+    detail: o.detail,
+  };
 }
 
 /** The king of the hill: the live coin with the largest market cap. Null when no coin is live. */
@@ -94,18 +137,19 @@ export function kingOf(coins: readonly Coin[]): Coin | null {
 /** The coins of a feed, searched by name or ticker and sorted, largest first. */
 export function feedOf(coins: readonly Coin[], feed: Feed, held: Readonly<Record<string, number>>, q: string, sort: Sort): Coin[] {
   const needle = q.trim().toLowerCase();
-  const inFeed = (c: Coin) => (feed === "holdings" ? (held[c.id] ?? 0) > 0 : c.live);
-  const keyOf = (c: Coin): number => (sort === "created" ? c.eventId : sort === "bumped" ? c.lastDay * 1_000_000 + c.eventId : sort === "cap" ? c.cap : c.vol);
+  const inFeed = (c: Coin) => (feed === "holdings" ? (held[c.id] ?? 0) > 0 : feed === "gone" ? !c.live : c.live);
+  const keyOf = (c: Coin): number => (sort === "created" ? c.bornAbs : sort === "bumped" ? c.lastAbs : sort === "cap" ? c.cap : c.heat);
   const list = coins.filter((c) => inFeed(c) && (!needle || c.name.toLowerCase().includes(needle) || c.ticker.toLowerCase().includes(needle)));
   return list.sort((a, b) => keyOf(b) - keyOf(a) || (a.id < b.id ? -1 : 1));
 }
 
-/** Cents per token as the dollars a player reads: $0.0128. */
+/** Cents per token as the dollars a player reads: $0.001667. Always enough digits to see a move. */
 export function perToken(px: number): string {
   const d = px / 100;
   if (!(d > 0)) return "$0.00";
   if (d >= 1) return `$${d.toFixed(2)}`;
-  return `$${d.toPrecision(3).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")}`;
+  if (d >= 0.01) return `$${d.toFixed(4)}`;
+  return `$${d.toFixed(6)}`;
 }
 
 /** Cents as dollars with two decimals. */
@@ -113,21 +157,46 @@ export function usd(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** Cents as whole dollars, for market caps and other large figures. */
+export function usdWhole(cents: number): string {
+  return `$${Math.round(cents / 100).toLocaleString("en-US")}`;
+}
+
 /** A count of whole tokens. */
 export function qty(n: number): string {
   return Math.floor(n).toLocaleString("en-US");
 }
 
-/** The game day as "Y1 M2 D3". */
-export function dayLabel(day: number): string {
-  const doy = ((day % 360) + 360) % 360;
-  return `Y${Math.floor(day / 360) + 1} M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
+/** The change over a game hour as "+12.4%". */
+export function pctText(ratio: number): string {
+  if (!Number.isFinite(ratio)) return "0.0%";
+  const p = (ratio - 1) * 100;
+  return `${p >= 0 ? "+" : ""}${p.toFixed(Math.abs(p) >= 100 ? 0 : 1)}%`;
 }
 
-/** Days since `day`, as the board's "today", "2d" text. */
-export function agoDays(day: number, now: number): string {
-  const d = Math.max(0, now - day);
-  return d === 0 ? "today" : `${d}d`;
+/** The game clock "14:32" for a minute since day 0. */
+export function clockText(abs: number): string {
+  return hhmm((((Math.floor(abs) % 1440) + 1440) % 1440));
+}
+
+/** When a trade or a post happened, in game time: the clock today, the weekday and date before that. */
+export function whenText(abs: number, now: number): string {
+  const d = Math.floor(abs / 1440);
+  return d === Math.floor(now / 1440) ? clockText(abs) : `${weekdayLabel(d)} ${clockText(abs)}`;
+}
+
+/** Game time since `abs`: "just now", "12 min ago", "3 h ago", "2 d ago". */
+export function agoText(abs: number, now: number): string {
+  const m = Math.max(0, Math.floor(now - abs));
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  if (m < 1440) return `${Math.floor(m / 60)} h ago`;
+  return `${Math.floor(m / 1440)} d ago`;
+}
+
+/** The game day as "Tue 2 Jan". */
+export function dateText(day: number): string {
+  return weekdayLabel(day);
 }
 
 /** The FNV-1a hash of a ticker: the same ticker always draws the same token icon. */
@@ -149,4 +218,24 @@ export function quoteSell(cash: number, tokens: number, n: number): number {
   if (n < 1 || cash < 2 || tokens < 1) return 0;
   const newCash = Math.ceil((cash * tokens) / (tokens + n));
   return Math.max(0, cash - newCash);
+}
+
+/** The fewest tokens whose sale pays at least `cents`; 0 when the pool cannot pay that much. */
+export function tokensForCents(cash: number, tokens: number, cents: number): number {
+  if (cents < 1 || cash < 2 || tokens < 1 || cents >= cash - 1) return 0;
+  let q = Math.max(1, Math.ceil((cash * tokens) / (cash - cents)) - tokens);
+  while (q > 1 && quoteSell(cash, tokens, q - 1) >= cents) q--;
+  while (quoteSell(cash, tokens, q) < cents && q < 1e12) q++;
+  return q;
+}
+
+/** What a launch costs and what the player's books read just after: the fee and the seed leave cash, the buy goes in the pool, and
+ *  the tokens the player then holds (the founder's share plus the buy) are marked at the pool's price, as the sim marks every coin. */
+export function launchPreview(rules: Rules, seed: number, buy: number): { cost: number; tokens: number; px: number; value: number; change: number } {
+  const out = buy >= 1 ? quoteBuy(seed, rules.pool, buy) : 0;
+  const tokens = rules.founder + out;
+  const px = (seed + (out > 0 ? buy : 0)) / Math.max(1, rules.pool - out);
+  const value = Math.round(tokens * px);
+  const cost = rules.fee + seed + (out > 0 ? buy : 0);
+  return { cost, tokens, px, value, change: value - cost };
 }

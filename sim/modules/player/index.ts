@@ -115,7 +115,7 @@ export type Command =
   | { kind: 'bond'; side: 'buy' | 'sell'; tenor: string; bonds: number; limit?: number }
   | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop'; stop?: number }
   | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
-  | { kind: 'launch'; name?: string; ticker?: string; buy?: number }
+  | { kind: 'launch'; name?: string; ticker?: string; buy?: number; seed?: number }
   | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number; product?: 'margin' | 'line' | 'term' }
   | { kind: 'talk'; slot: number }
   | { kind: 'ask'; slot: number; firm: string }
@@ -1717,7 +1717,9 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const dollar = (n: number): string => dollars(Math.round(n));
       let text: string;
       if (r.filled > 0) {
-        text = `${verb} ${r.filled} ${r.name} for ${dollar(r.cents)}, average ${dollar(r.avg)} a coin`;
+        // A memecoin trades at fractions of a cent, so its average is shown to the millionth of a dollar.
+        const avg = r.id.startsWith('coin:me:') ? '$' + (r.avg / 100).toFixed(6) : dollar(r.avg);
+        text = `${verb} ${r.filled} ${r.name} for ${dollar(r.cents)}, average ${avg} a coin`;
         if (r.fills.length > 1) text += `. Fills: ${r.fills.slice(0, 4).map((f) => `${f.qty} at ${dollar(f.px)}`).join(', ')}`;
         if (r.orderId !== undefined) text += `. The other ${r.asked - r.filled} rest at ${dollar(cmd.limit ?? 0)}`;
         else if (r.filled < r.asked && !r.id.startsWith('coin:me:')) text += `. The dealers had no more within reach: ${r.asked - r.filled} did not fill`;
@@ -1725,7 +1727,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', orderId: r.orderId, fill: r.filled, cents: Math.round(r.cents), avg: r.avg, fills: r.fills, text };
     }
     case 'launch': {
-      const r = launchCoin(w, i, { name: cmd.name, ticker: cmd.ticker, buy: cmd.buy });
+      const r = launchCoin(w, i, { name: cmd.name, ticker: cmd.ticker, buy: cmd.buy, seed: cmd.seed });
       if (r.why || !r.id) return rejected(r.why ?? 'the launch did not clear');
       return { status: 'accepted', eventId: w.events.last('crypto.launch'), text: `launched ${r.name} ($${r.ticker}, ${r.id})` };
     }

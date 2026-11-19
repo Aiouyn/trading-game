@@ -36,7 +36,7 @@ import { listScenarios, liveCard, openScenario } from './modules/player/scenario
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
-import { memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
+import { launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
 import { closingPrint } from './modules/markets/index.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
 
@@ -208,6 +208,11 @@ function commandOf(body: unknown): Command | string {
         const buy = whole(b.buy, 0);
         if (buy === undefined) return 'the starting buy must be a whole number of cents';
         cmd.buy = buy;
+      }
+      if (b.seed !== undefined) {
+        const seed = whole(b.seed, 25_000);
+        if (seed === undefined || seed > 150_000) return 'the pool seed is a whole number of cents from 25000 to 150000';
+        cmd.seed = seed;
       }
       return cmd;
     }
@@ -5244,6 +5249,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && pathname === '/view') { sendRaw(res, 200, withLive(await viewJson())); return; }
+    // The Launchpad's own read: every coin from its pool right now (the coins trade every minute), the tape, rugs and, with ?coin=, one coin's page.
+    if (req.method === 'GET' && pathname === '/coins') { send(res, 200, launchpadRead(w, playerIndex(w), w.day * MIN_PER_DAY + clockMin, url.searchParams.get('coin') || undefined)); return; }
     if (req.method === 'GET' && pathname === '/clock') { send(res, 200, { ...liveBlock(), px: livePx(), minutes: minuteStats(w) }); return; }
     if (req.method === 'GET' && pathname === '/panel') { sendRaw(res, 200, panelJson(url.searchParams.get('name') || '', url)); return; }
     if (req.method === 'GET' && pathname.startsWith('/parcel/')) {
