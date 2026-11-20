@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { type Module, type World } from '../../kernel/index.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
-import { SECTOR_NAMES } from '../economy/content.ts';
+import { GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { DEP, pay, payS, setWageHook, type EconState, type Firm } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
 import { discountForNews } from '../markets/index.ts';
@@ -33,6 +33,8 @@ interface Book {
   unions: Union[];
   member: Uint8Array;
   prem: Float64Array;
+  /** What each firm pays against the national wage: its productivity, its margin and its size, rescaled so the city mean stays 1. */
+  house?: Float64Array;
   deal: Float64Array;
   dealUntil: Float64Array;
   floor: number; ban: boolean; lawEv: number; openEv: number;
@@ -566,6 +568,45 @@ function endorse(w: World, st: Book, s: EconState): void {
   }
 }
 
+/** A firm pays what it can and what the work is worth to it: output per worker against the wage, how its last month ended, how many it keeps. Updated monthly, kept at a mean of 1 across the city. */
+function houseRates(w: World, st: Book, s: EconState): void {
+  if (w.day % 30 !== 3 && st.house) return;
+  if (!st.house || st.house.length < s.firms.length) {
+    const a = new Float64Array(s.firms.length + 8);
+    a.fill(1);
+    if (st.house) a.set(st.house);
+    st.house = a;
+  }
+  const rows: { f: Firm; raw: number }[] = [];
+  let sumLog = 0, staff = 0;
+  for (const f of s.firms) {
+    if (f.closed || f.staff.length < 1 || !GOODS[f.good]) continue;
+    const vpw = Math.max(0.05, f.price * GOODS[f.good].prod * (f.tfp ?? 1) / Math.max(1, s.wage));
+    const lv = Math.log(vpw);
+    rows.push({ f, raw: lv });
+    sumLog += lv * f.staff.length;
+    staff += f.staff.length;
+  }
+  if (!staff) return;
+  const meanLog = sumLog / staff;
+  let wsum = 0;
+  const next: number[] = [];
+  for (const r of rows) {
+    const f = r.f;
+    const bill = Math.max(1, f.eff * s.wage * 30);
+    const margin = Math.max(-0.2, Math.min(0.2, f.lastProfit / bill));
+    const size = Math.min(0.06, Math.log10(Math.max(1, f.staff.length)) * 0.02);
+    const target = Math.max(0.82, Math.min(1.22, 1 + 0.12 * (r.raw - meanLog) + 0.3 * margin + size));
+    const old = st.house[f.idx] > 0 ? st.house[f.idx] : 1;
+    const mixed = old * 0.6 + target * 0.4;
+    next.push(mixed);
+    wsum += mixed * f.staff.length;
+  }
+  const norm = wsum / staff;
+  rows.forEach((r, k) => { st.house![r.f.idx] = next[k] / norm; });
+  if (w.day < OPEN_DAY) for (const r of rows) if (r.f.idx < st.prem.length) st.prem[r.f.idx] = st.house[r.f.idx];
+}
+
 function publish(st: Book, s: EconState, day: number): void {
   const stopped = new Uint8Array(s.firms.length);
   for (const u of st.unions) {
@@ -576,7 +617,7 @@ function publish(st: Book, s: EconState, day: number): void {
     if (f.idx >= st.prem.length) continue;
     if (stopped[f.idx]) { st.prem[f.idx] = 0; continue; }
     const agreed = f.idx < st.dealUntil.length && st.dealUntil[f.idx] > day && st.deal[f.idx] > 1 ? st.deal[f.idx] : 1;
-    st.prem[f.idx] = Math.max(st.floor, agreed);
+    st.prem[f.idx] = Math.max(st.floor, agreed) * (st.house && st.house[f.idx] > 0 ? st.house[f.idx] : 1);
   }
 }
 
@@ -629,6 +670,7 @@ export const labour: Module = {
   dayClose(w) {
     const st = book(w), s = econ(w);
     walkEarly(w, st, s);
+    houseRates(w, st, s);
     if (w.day < OPEN_DAY) return;
     openUnions(w, st);
     grow(st, s);

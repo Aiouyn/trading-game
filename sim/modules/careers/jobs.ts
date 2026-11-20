@@ -8,6 +8,7 @@ import { CAPITAL, GOV, pay, type EconState, type Firm } from '../economy/index.t
 import { labourOf, leaveJob, setSimDay, succession, thought } from '../economy/people.ts';
 import { playerIndex, type ActResult, type Command } from '../player/index.ts';
 import { dateText } from '../player/gamedate.ts';
+import { notify } from '../circle/notices.ts';
 
 /** A hook for what the player knows and who has spoken for them: it lifts the fit, and a word put in thins the field. */
 export interface JobBoost { fit: number; vouch: boolean }
@@ -550,6 +551,7 @@ function resolveApp(w: World, app: App): void {
     const from = boss(w, f, app.person);
     const ev = w.events.emit('career.refused', `${P.name(app.person)} is refused by ${f.name} || ${why}`, [w.genesis], P.id(app.person));
     if (from >= 0) postLetter(w, from, text, ev);
+    notify(w, { kind: 'answer', title: `${f.name} says no`, text, reason: `${why.charAt(0).toUpperCase()}${why.slice(1)}.`, cause: ev, from, actions: [{ label: 'See who is hiring', line: 'jobs' }] });
   };
   if (!f || app.person < 0 || app.person >= P.n || !P.alive(app.person)) return;
   if (P.retired(app.person) || (P.flags[app.person] & 4) !== 0) {
@@ -584,6 +586,7 @@ function resolveApp(w: World, app: App): void {
   const from = boss(w, f, app.person);
   if (from >= 0) postLetter(w, from, text, ev);
   notice(w, app.person, `Letter: ${text}`);
+  notify(w, { kind: 'offer', title: `${f.name} takes you on`, text, reason: `${why.charAt(0).toUpperCase()}${why.slice(1)}.`, cause: ev, from, urgent: true, actions: [{ label: 'Read the sheet', line: 'sheet' }] });
   thought(w, s, app.person, -35, 'a new job', ev);
 }
 
@@ -606,4 +609,36 @@ export function resolveJobs(w: World): void {
     else finishStudy(w, row);
   }
   st.study = studyLater;
+}
+
+/** A seat someone at a table can offer the player outright: the firm is short of hands and the player can take the shift. */
+export function seatOffer(w: World, person: number, firmIdx: number): { occ: number; role: string; wage: number } | null {
+  if (!api) return null;
+  const s = econ(w), P = s.P;
+  const f = firmIdx >= 0 ? s.firms[firmIdx] : undefined;
+  if (!f || f.closed || person < 0 || person >= P.n || P.employer[person] === f.idx) return null;
+  if (!(firmGap(w, f) > 1) || !(wagePrem(w, f.idx) > 0) || canWork(w, person)) return null;
+  const occ = api.seatFor(w, f, person);
+  if (!api.qualifies(schoolOf(P, person), occ, false)) return null;
+  return { occ, role: roleTitle(f.sector, occ), wage: weekly(w, person, f.idx, occ) };
+}
+
+/** Take a seat offered across a table, at the wage that was named. Returns the letter, or why it fell through. */
+export function takeSeat(w: World, person: number, firmIdx: number, occ: number, wage: number, cause: number, why: string): { text: string; eventId: number } | { why: string } {
+  if (!api) return { why: 'the labour market is not open' };
+  const s = econ(w), P = s.P;
+  const f = s.firms[firmIdx];
+  if (!f || f.closed) return { why: 'the firm has closed' };
+  if (!(firmGap(w, f) > 0.5)) return { why: `${f.name} filled the seat in the meantime` };
+  const block = canWork(w, person);
+  if (block) return { why: block };
+  const role = roleTitle(f.sector, occ);
+  const ev = w.events.emit('career.hired', `${P.name(person)} is hired as ${aan(role)} at ${f.name} || ${why}`, [cause >= 0 ? cause : w.genesis], P.id(person));
+  api.place(w, person, f, occ, ev);
+  const paid = pinOffer(w, person, f.idx, wage);
+  const text = `${f.name} takes you on as ${aan(role)} at ${usd(paid)} a week.`;
+  notice(w, person, `Letter: ${text}`);
+  notify(w, { kind: 'offer', title: `${f.name} takes you on`, text, reason: `${why.charAt(0).toUpperCase()}${why.slice(1)}.`, cause: ev, actions: [{ label: 'Read the sheet', line: 'sheet' }] });
+  thought(w, s, person, -35, 'a new job', ev);
+  return { text, eventId: ev };
 }

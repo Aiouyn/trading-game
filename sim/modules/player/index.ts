@@ -186,7 +186,7 @@ export type Command =
   | { kind: 'quit' }
   | { kind: 'raise' }
   | { kind: 'study'; field: string }
-  | { kind: 'out'; op: 'places' | 'go' | 'approach' | 'talk' | 'round' | 'listen' | 'leave' | 'known' | 'business' | 'offer' | 'favour' | 'courses' | 'enrol'; arg?: string; n?: number; cents?: number }
+  | { kind: 'out'; op: 'places' | 'go' | 'approach' | 'talk' | 'round' | 'listen' | 'leave' | 'known' | 'business' | 'offer' | 'favour' | 'courses' | 'enrol' | 'attend' | 'deal'; arg?: string; n?: number; cents?: number }
   | { kind: 'signals' }
   | { kind: 'stake'; firm: string; cents: number; how: 'cash' | 'margin' | 'line' | 'partners' | 'buyout' }
   | { kind: 'owner'; op: 'cut' | 'protect' | 'promote' | 'sell-division' | 'refinance' | 'payout' | 'union'; firm?: string; n?: number; person?: string; cents?: number; buyer?: string; fraction?: number; deal?: 'deal' | 'refuse'; guarantee?: boolean };

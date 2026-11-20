@@ -17,8 +17,20 @@ const MONTHS = 6;
 
 /** What one unit of each listed good is, so a quote reads "per barrel" and not a bare number. */
 const UNITS: Record<string, string> = {
-  CRUDE_OIL: 'barrel', NATURAL_GAS: 'MMBtu', COAL: 'ton', IRON_ORE: 'ton', COPPER: '100 kg', LITHIUM: '10 kg', GRAIN: 'quintal', LIVESTOCK: 'head',
+  CRUDE_OIL: 'barrel', NATURAL_GAS: 'MMBtu', COAL: 'ton', IRON_ORE: 'ton', COPPER: '10 kg', LITHIUM: 'kg', GRAIN: 'quintal', LIVESTOCK: 'cwt',
 };
+/** What a quoted unit costs on a real market, in dollars. The game's own unit price is rescaled so a barrel, a ton or a quintal reads like one: the contract is the same physical lot. */
+const REAL_DOLLARS: Record<string, number> = {
+  CRUDE_OIL: 72, NATURAL_GAS: 3.2, COAL: 105, IRON_ORE: 105, COPPER: 85, LITHIUM: 12, GRAIN: 27, LIVESTOCK: 190,
+};
+/** A round contract size, in quoted units, for a game lot worth this many cents when quoted at the real price. */
+function niceLot(x: number): number {
+  if (!(x >= 1)) return 1;
+  if (x < 20) return Math.max(1, Math.round(x));
+  // Two significant figures, always a whole number of units: 1,000 barrels, 360 MMBtu, 25 tons.
+  const mag = Math.pow(10, Math.floor(Math.log10(x)) - 1);
+  return Math.max(1, Math.round(Math.round(x / mag) * mag));
+}
 export function futureUnit(good: string): string { return UNITS[good] ?? 'unit'; }
 const EX = 'cmdty_exch';
 const MARGIN = 'cmdty:margin';
@@ -42,7 +54,11 @@ interface Tenor {
 interface Book {
   good: string;
   name: string;
+  /** Contract size in quoted units (barrels, tons, ...). Prices are in cents per quoted unit. */
   lot: number;
+  /** Game units in one contract, and game units in one quoted unit. */
+  simLot: number;
+  k: number;
   usual: number;
   anchor: number;
   driver: number[];
@@ -294,8 +310,8 @@ function markBook(w: World, s: EconState, b: Book, g: number, final: boolean): n
     const prem = shockPrem(view.raw, spot, b.anchor);
     const stockPrem = clamp((b.usual - days) / b.usual, -1, 1) * 0.08;
     const carry = s.policyRate * Math.max(0, m) / 12;
-    const fair = Math.max(1, spot * (1 + prem + stockPrem + carry));
-    const nonShock = Math.max(1, spot * (1 + stockPrem + carry));
+    const fair = Math.max(1, spot * (1 + prem + stockPrem + carry)) * b.k;
+    const nonShock = Math.max(1, spot * (1 + stockPrem + carry)) * b.k;
     const mm = netOf(w, MM, t);
     const skew = clamp(mm / (Math.abs(mm) + 40), -1, 1) * 0.012;
     const mid = fair * (1 - skew);
@@ -321,7 +337,7 @@ function markBook(w: World, s: EconState, b: Book, g: number, final: boolean): n
         }
       }
       const pct = (px / t.prev - 1) * 100;
-      const id = w.events.emit('futures.move', `${b.name} front month ${t.prev} -> ${px} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`, [...new Set([...causeIds, ...extra])], b.good);
+      const id = w.events.emit('futures.move', `${b.name} front month ${quote(t.prev)} -> ${quote(px)} a ${UNITS[b.good] ?? 'unit'} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`, [...new Set([...causeIds, ...extra])], b.good);
       emitted.push(id);
     }
     t.px = px;
@@ -334,6 +350,9 @@ function markBook(w: World, s: EconState, b: Book, g: number, final: boolean): n
   if (front.raw < 0.02) b.anchor = 0;
   return emitted;
 }
+
+/** A price in cents as dollars, for a line in the log. */
+function quote(cents: number): string { return '$' + (cents / 100).toFixed(2); }
 
 function settleVariation(w: World, st: CmdState, cause: number): string[] {
   const rows: { actor: string; pnl: number }[] = [];
@@ -516,10 +535,10 @@ function tradeBook(w: World, st: CmdState, b: Book, active: Set<string>, halted:
       }
       if (actor !== TREND && actor !== CARRY) {
         const f = bBy(s, actor);
-        if (f && b.prod.includes(actor)) want = producerWant(f, t.px, b.lot, m);
+        if (f && b.prod.includes(actor)) want = producerWant(f, t.px / b.k, b.simLot, m);
         else {
           const buy = b.buyers.find((x) => x.id === actor);
-          if (f && buy) want = buyerWant(f, buy.k, t.px, fair, b.lot, m, days, b.usual);
+          if (f && buy) want = buyerWant(f, buy.k, t.px / b.k, fair, b.simLot, m, days, b.usual);
         }
       }
       if (actor === CARRY && t !== near && t !== far) want = 0;
@@ -609,7 +628,7 @@ function physical(w: World, st: CmdState, b: Book, t: Tenor, cause: number): voi
   const s = econ(w);
   const shorts = b.prod.filter((id) => netOf(w, id, t) < 0);
   const longs = b.buyers.map((x) => x.id).filter((id) => netOf(w, id, t) > 0);
-  const px = Math.max(1, t.px);
+  const px = Math.max(1, t.px / b.k);
   const spot = Math.max(1, Math.round(spotOf(w, s, b.good)));
   let si = 0, li = 0, guard = 0;
   while (si < shorts.length && li < longs.length && guard++ < 1000) {
@@ -618,12 +637,12 @@ function physical(w: World, st: CmdState, b: Book, t: Tenor, cause: number): voi
     if (sc < 1) { si++; continue; }
     if (lc < 1) { li++; continue; }
     const stock = w.ledger.balance(a, 'good:' + b.good);
-    let n = Math.min(sc, lc, Math.floor(stock * 0.85 / b.lot), Math.floor(freeCash(w, s, h) / (px * b.lot)));
-    if (spot > px) n = Math.min(n, Math.floor(freeCash(w, s, a) / Math.max(1, (spot - px) * b.lot)));
-    if (n < 1) { if (freeCash(w, s, h) < px * b.lot) li++; else si++; continue; }
+    let n = Math.min(sc, lc, Math.floor(stock * 0.85 / b.simLot), Math.floor(freeCash(w, s, h) / (px * b.simLot)));
+    if (spot > px) n = Math.min(n, Math.floor(freeCash(w, s, a) / Math.max(1, (spot - px) * b.simLot)));
+    if (n < 1) { if (freeCash(w, s, h) < px * b.simLot) li++; else si++; continue; }
     applyDelta(w, a, t, n, cause);
     applyDelta(w, h, t, -n, cause);
-    deliverPair(w, s, b, a, h, n * b.lot, px, cause);
+    deliverPair(w, s, b, a, h, n * b.simLot, px, cause);
   }
 }
 
@@ -660,7 +679,7 @@ function expire(w: World, st: CmdState, b: Book, cause: number): void {
   const m = 5;
   const { fair, prem } = fairOf(w, s, b, m, spot, stockDays(w, s, b));
   t.month = w.month + MONTHS;
-  t.px = Math.max(1, Math.round(fair));
+  t.px = Math.max(1, Math.round(fair * b.k));
   t.prev = t.px;
   t.lastPrem = prem;
   t.rets = [];
@@ -800,14 +819,16 @@ export const commodities: Module = {
       for (const b of buyers) rosterSet.add(b.id);
       let flow = 0;
       for (const id of prod) flow += bBy(s, id)?.expSales ?? 0;
-      const lot = Math.max(1, Math.round(flow / 40));
-      const b: Book = { good, name: GOODS[good].name, lot, usual: 5, anchor: 0, driver: [], prod, buyers, tenors: [] };
+      const simLot = Math.max(1, Math.round(flow / 40));
       const spot = spotOf(w, s, good);
+      const real = REAL_DOLLARS[good] ?? 0;
+      const lot = real > 0 && spot > 0 ? niceLot(simLot * spot / (real * 100)) : simLot;
+      const b: Book = { good, name: GOODS[good].name, lot, simLot, k: simLot / lot, usual: 5, anchor: 0, driver: [], prod, buyers, tenors: [] };
       const days = stockDays(w, s, b);
       b.usual = Math.max(1, days);
       for (let slot = 0; slot < MONTHS; slot++) {
         const { fair, prem } = fairOf(w, s, b, slot, spot, days);
-        const px = Math.max(1, Math.round(fair));
+        const px = Math.max(1, Math.round(fair * b.k));
         const longId = `futL:${good}:${slot}`, shortId = `futS:${good}:${slot}`;
         L.define({ id: longId, kind: 'share', issuer: EX });
         L.define({ id: shortId, kind: 'share', issuer: EX });

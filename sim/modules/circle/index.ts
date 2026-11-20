@@ -10,6 +10,7 @@ import { borrowShares, returnShares, submitOrder } from '../markets/index.ts';
 import { bidHome, homeBoard, parcelView } from '../property/index.ts';
 import { societyGate } from '../society/index.ts';
 import { acceptFuturePlan, circleBill, declineFuturePlan, tendCirclePlans } from './plans.ts';
+import { noticeLetter, tendNotices } from './notices.ts';
 import { contactsOf, knows, nudgeStanding, settlePaper } from '../social/index.ts';
 import { chooseShape, jobs, money, renderLetter, signedPct } from '../social/words.ts';
 
@@ -516,6 +517,7 @@ function post(w: World, st: Circle, from: number, role: string, kind: string, te
   st.yMsg++;
   const b = bondOf(st, from);
   if (b) b.touched = w.day;
+  noticeLetter(w, letter);
   return letter;
 }
 /** A letter the inbox shows, with no new event and no change to who was last touched. */
@@ -888,7 +890,11 @@ function meet(w: World, st: Circle, me: number, actor: string, host: number, oth
   }
   const line = say(w, other, 'acquaintance', `${P.name(host)} says you are worth meeting.`, `I'm not sure yet.`, `Write if you want this to become more than a name.`, 'intro');
   post(w, st, other, 'acquaintance', 'intro', line, ev, ev);
-  return { status: 'accepted', eventId: ev, text: `${P.name(host)} introduced ${P.name(other)} (slot ${slot}), with less trust than a friend` };
+  void slot;
+  const oe = P.employer[other];
+  const ofirm = oe >= 0 ? econ(w).firms[oe] : undefined;
+  const what = ofirm ? (ofirm.ceo === other ? `, who runs ${ofirm.name}` : `, who works at ${ofirm.name}`) : ', who is between jobs';
+  return { status: 'accepted', eventId: ev, text: `${P.name(host)} introduced you to ${P.name(other)}${what}. You start as acquaintances, not yet friends.` };
 }
 
 function repay(w: World, st: Circle, me: number): void {
@@ -2297,6 +2303,7 @@ export const circle: Module = {
     answerSent(w, st, me);
     tendCirclePlans(w);
     week(w, st, me);
+    tendNotices(w);
   },
   monthEnd(w) { settlePaper(w); },
   stats(w) {

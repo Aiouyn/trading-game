@@ -4,6 +4,7 @@ import type { World } from '../../kernel/index.ts';
 import { classTonight, courseBoard, enrol } from '../courses/index.ts';
 import { approach, businessTalk, buyRound, doorPrice, favour, goOut, knownList, leaveVenue, listen, offerJob, roundPrice, seatId, VENUES, whoOf } from '../venues/world.ts';
 import { clockText, usd } from './gamedate.ts';
+import { attend, dealAnswer } from '../venues/scene.ts';
 import type { ActResult, Command } from './index.ts';
 import { setOutingCommands } from './index.ts';
 
@@ -35,6 +36,8 @@ export function handleOuting(w: World, playerId: string, cmd: OutCmd): ActResult
     case 'approach':
     case 'talk': return done(approach(w, seat, n, arg));
     case 'leave': return done(leaveVenue(w, seat));
+    case 'attend': return done(attend(w, seat, arg || (n ? String(n) : '')));
+    case 'deal': return done(dealAnswer(w, seat, arg));
     case 'round': return done(buyRound(w, seat));
     case 'listen': return done(listen(w, seat));
     case 'known': {

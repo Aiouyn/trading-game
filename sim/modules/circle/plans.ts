@@ -1118,3 +1118,24 @@ export function tendCirclePlans(w: World): void {
     if (!fill(LIFE_KINDS, false) && got.invite < need.invite) fill(INVITE_KINDS, true);
   } else if (got.invite < need.invite) fill(INVITE_KINDS, true);
 }
+
+/** An accepted invitation, as the evening it becomes: when it starts, where, who is there. */
+export interface DueScene { key: string; kind: string; place: string; title: string; host: number; who: number[]; eventId: number; day: number; minute: number; treat: boolean }
+const START: Record<string, number> = { deal: 750, dinner: 1170, drinks: 1110, birthday: 1140, leaving: 1050, wedding: 840, party: 1200, gala: 1170 };
+function cleanTitle(t: string): string { return t.replace(/\s*You are invited\.?/g, '').replace(/\s*I'll get this one\.?/g, '').replace(/\s*You (went|stayed away)\.?/g, '').replace(/\s+/g, ' ').trim(); }
+/** Every invitation the player said yes to, from `from` to `to` (inclusive). */
+export function acceptedPlans(w: World, from: number, to: number): DueScene[] {
+  const out: DueScene[] = [];
+  const st = w.state.circle as Box | undefined;
+  for (const p of st?.plans ?? []) {
+    if (!p.invite || p.day < from || p.day > to || (p.status !== 'yes' && !(p.status === 'held' && p.day === w.day))) continue;
+    if (p.status === 'held' && !/You went/.test(p.title)) continue;
+    out.push({ key: 'c' + p.id, kind: p.kind, place: p.place, title: cleanTitle(p.title), host: p.host, who: p.who.slice(), eventId: p.eventId, day: p.day, minute: START[p.kind] ?? 1140, treat: p.pay === 'treat' });
+  }
+  for (const d of societyDates(w)) {
+    if (!d.invite || d.day < from || d.day > to || d.status !== 'yes') continue;
+    out.push({ key: 's' + d.id, kind: d.kind, place: d.place, title: cleanTitle(d.title), host: d.host, who: d.who.slice(), eventId: d.eventId, day: d.day, minute: START[d.kind] ?? 1170, treat: d.cents < 1 });
+  }
+  out.sort((a, b) => a.day - b.day || a.minute - b.minute);
+  return out;
+}

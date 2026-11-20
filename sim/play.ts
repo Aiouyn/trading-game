@@ -198,6 +198,12 @@ export function parseCommand(line: string, employer: string): Command | { error:
     return { kind: 'out', op: 'enrol', arg: name };
   }
   if (head === 'leave') return { kind: 'out', op: 'leave' };
+  if (head === 'attend') return { kind: 'out', op: 'attend', arg: t[1] ?? '' };
+  if (head === 'deal') {
+    const a = (t[1] ?? '').toLowerCase();
+    if (a !== 'yes' && a !== 'no') return { error: 'usage: deal yes|no' };
+    return { kind: 'out', op: 'deal', arg: a };
+  }
   if (head === 'approach' || head === 'talk' || head === 'business' || head === 'offer') {
     const n = Number(t[1]);
     if (!Number.isSafeInteger(n) || n < 1) return { error: head === 'talk' ? 'usage: talk N [work|home|money|city|inside]' : `usage: ${head} N` };

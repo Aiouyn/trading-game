@@ -5,12 +5,15 @@ import { setJobBoost } from '../careers/jobs.ts';
 import '../player/outings.ts';
 import { setTalkHook, setWorkKnowledge } from '../player/index.ts';
 import { chatWith, firmKnowledgeFrom, init, jobBoost, monthly, yearly } from './world.ts';
+import { closeScenes } from './scene.ts';
 
 export { VENUES, cityBook, metClassmate } from './world.ts';
+export { attend, dealAnswer, sceneClock, sceneView } from './scene.ts';
 
 export const venues: Module = {
   id: 'venues',
   init(w: World) { init(w); setJobBoost(jobBoost); setTalkHook(chatWith); setWorkKnowledge(firmKnowledgeFrom); },
+  dayClose(w: World) { closeScenes(w); },
   monthEnd(w: World) { monthly(w); },
   stats(w: World) { return yearly(w); },
 };

@@ -13,7 +13,10 @@ import { askFirm, contactsOf, knows, publish, seatPerson } from '../social/index
 import { CITY, money, sectorWord, signedPct } from '../social/words.ts';
 import { cancelOrder, submitOrder } from '../markets/index.ts';
 import { wireDay, wireMonth, wireStats } from './wire.ts';
+import { paperDay, paperStats } from './paper.ts';
 export { answerAsk, STANCES } from './wire.ts';
+export { editionsFor } from './paper.ts';
+export type { Edition, Story } from './paper.ts';
 
 interface Outlet {
   id: string; name: string; readership: number; leaning: number; serious: boolean;
@@ -500,6 +503,7 @@ export const media: Module = {
     desks(w);
     watch(w);
     wireDay(w, (issuer, side, trust, outlet, weight) => trade(w, issuer, side, trust, outlet, weight));
+    paperDay(w);
     consider(w);
     spread(w);
     plant(w);
@@ -519,7 +523,7 @@ export const media: Module = {
       scSerious: b.yScoopSe, reSerious: b.yRetractSe, scSens: b.yScoopSn, reSens: b.yRetractSn,
       rumours: b.yRumours, trusted: trustedName(b),
     };
-    Object.assign(out, wireStats(w));
+    Object.assign(out, wireStats(w), paperStats(w));
     b.yStories = 0; b.yScoops = 0; b.yRetract = 0; b.yRumours = 0;
     b.yScoopSe = 0; b.yScoopSn = 0; b.yRetractSe = 0; b.yRetractSn = 0;
     return out;

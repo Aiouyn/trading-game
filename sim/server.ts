@@ -22,6 +22,7 @@ import { optionChain } from './modules/options/index.ts';
 import { careerCard } from './modules/careers/index.ts';
 import { openingRows } from './modules/careers/jobs.ts';
 import { cityBook } from './modules/venues/world.ts';
+import { sceneClock, sceneView } from './modules/venues/scene.ts';
 import { circleLinks } from './modules/circle/network.ts';
 import { profileOf } from './modules/venues/talk.ts';
 import { roleTitle } from './modules/careers/jobs.ts';
@@ -32,14 +33,15 @@ import { courseBoard } from './modules/courses/index.ts';
 import { bookLevels, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { callNeed, marginLimit, productHaircuts } from './modules/banking/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
-import { answerAsk, STANCES } from './modules/media/index.ts';
+import { answerAsk, editionsFor, STANCES } from './modules/media/index.ts';
+import { noticeRows } from './modules/circle/notices.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
 import { attentionOf } from './modules/law/index.ts';
 import { districts, homeBoard, lateRent, parcelView, rentBoard, residenceOf } from './modules/property/index.ts';
 import { circleBoard, circlePerson } from './modules/circle/index.ts';
 import { calendarOf, marketsOpen, societyView } from './modules/society/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
-import { findOrigin, findPast, lifeOf, ORIGINS, PASTS } from './modules/player/arrival.ts';
+import { findOrigin, findPast, lifeOf, ORIGINS, PASTS, splitName } from './modules/player/arrival.ts';
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
@@ -523,7 +525,7 @@ function commandOf(body: unknown): Command | string {
       return { kind: 'apply', n };
     }
     case 'out': {
-      const ops = ['places', 'go', 'approach', 'talk', 'round', 'listen', 'leave', 'known', 'business', 'offer', 'favour', 'courses', 'enrol'];
+      const ops = ['places', 'go', 'approach', 'talk', 'round', 'listen', 'leave', 'known', 'business', 'offer', 'favour', 'courses', 'enrol', 'attend', 'deal'];
       if (typeof b.op !== 'string' || !ops.includes(b.op)) return 'out needs an op';
       const n = b.n === undefined ? undefined : whole(b.n, 1);
       if (b.n !== undefined && n === undefined) return 'n is a number from 1';
@@ -1508,7 +1510,7 @@ interface PauseAction { label: string; line: string }
 interface PauseHit {
   why: string;
   eventId: number;
-  kind: 'margin' | 'sale' | 'bankruptcy' | 'bid' | 'arrest' | 'death' | 'job' | 'strike' | 'milestone' | 'end';
+  kind: 'margin' | 'sale' | 'bankruptcy' | 'bid' | 'arrest' | 'death' | 'job' | 'strike' | 'milestone' | 'end' | 'notice';
   text: string;
   actions?: PauseAction[];
 }
@@ -1803,6 +1805,7 @@ function rankPause(hit: PauseHit): number {
   if (hit.kind === 'margin') return 60;
   if (hit.kind === 'end') return 55;
   if (hit.kind === 'death') return 40;
+  if (hit.kind === 'notice') return 36;
   if (hit.kind === 'job') return 35;
   if (hit.kind === 'arrest') return 30;
   if (hit.kind === 'bid') return 20;
@@ -1827,7 +1830,8 @@ function pauseHit(e: { id: number; kind: string; actor?: string; msg: string }, 
   if (e.kind === 'firm.bid' && e.actor !== ctx.id && ctx.firms.some((f) => e.msg.includes('for ' + f.name))) {
     return { why: 'a takeover bid', eventId: e.id, kind: 'bid', text: e.msg };
   }
-  if (you && e.kind === 'player.job') return { why: 'A job change', eventId: e.id, kind: 'job', text: e.msg };
+  if (you && e.kind === 'player.alert') return { why: e.msg.split('. ')[0], eventId: e.id, kind: 'notice', text: e.msg };
+  // A change of job stops the clock through its notice (player.alert): a layoff or an offer, with the reason.
   if (you && (e.kind === 'law.charge' || e.kind === 'law.trial')) return { why: 'an arrest', eventId: e.id, kind: 'arrest', text: e.msg };
   if (e.kind === 'person.died' && e.actor && ctx.family.has(e.actor)) return { why: 'a death in the family', eventId: e.id, kind: 'death', text: e.msg };
   if ((e.kind === 'labour.strike' || e.kind === 'labour.lockout') && ctx.employer) {
@@ -1895,6 +1899,11 @@ function pauseActions(w: World, hit: PauseHit): PauseAction[] {
       return [{ label: 'Call a lawyer', line: 'lawyer' }, { label: 'Read the sheet', line: 'sheet' }];
     case 'death':
       return [{ label: 'Read the sheet', line: 'sheet' }];
+    case 'notice': {
+      const row = noticeRows(w, 60).find((n) => n.eventId === hit.eventId);
+      if (row && row.actions.length) return row.actions;
+      return [{ label: 'See who is hiring', line: 'jobs' }, { label: 'Read the sheet', line: 'sheet' }];
+    }
     case 'job':
       return [{ label: 'See who is hiring', line: 'jobs' }, { label: 'Read the sheet', line: 'sheet' }];
     case 'strike': {
@@ -3224,6 +3233,17 @@ function paperTags(text: string, beat: string, playerName: string, contactNames:
   if (!tags.length) tags.push('city');
   return tags;
 }
+/** The daily papers a reader can hold now: the Herald from 07:00, the Gazette from 18:00. Each story names the events behind it. */
+function paperRows(w: World, n: number): Record<string, unknown>[] {
+  return editionsFor(w, clockMin, n).map((e) => ({
+    id: e.id, day: e.day, date: dateText(e.day), outletId: e.outletId, outlet: e.outlet, edition: e.edition, minute: e.minute, time: clockText(e.minute),
+    headline: e.headline, eventId: e.eventId, column: e.column,
+    stories: e.stories.map((st) => ({
+      id: st.id, section: st.section, kicker: st.kicker, headline: st.headline, body: st.body, names: st.names, firms: st.firms,
+      eventId: st.eventIds[0] ?? -1, eventIds: st.eventIds, you: st.you,
+    })),
+  }));
+}
 function wirePanel(w: World): Record<string, unknown> {
   const i = playerIndex(w);
   const P = econ(w).P;
@@ -3289,13 +3309,13 @@ function wirePanel(w: World): Record<string, unknown> {
       tags: paperTags(`${split.outlet?.name ?? ''} ${body} ${split.journalist}`, beat, playerName, contactNames, heldNames),
     });
   }
-  return { papers, asks: pressAsks(w) };
+  return { papers, asks: pressAsks(w), editions: paperRows(w, 8) };
 }
 
 function cityLifePanel(w: World): Record<string, unknown> {
   const seat = seatId(w);
   const cash = playerIndex(w) >= 0 ? Math.floor(w.ledger.balance(econ(w).P.id(playerIndex(w)), 'dep')) : 0;
-  return { ...cityBook(w, seat), courses: courseBoard(w, seat), cash, day: w.day };
+  return { ...cityBook(w, seat), scenes: sceneView(w, seat), courses: courseBoard(w, seat), cash, day: w.day };
 }
 function panelSlice(w: World, name: string, url: URL): Record<string, unknown> {
   const i = playerIndex(w);
@@ -3962,6 +3982,9 @@ function screen(w: World): Record<string, unknown> {
     society: societyTick(w),
     plans: plansOf(w),
     press: pressAsks(w),
+    editions: paperRows(w, 4),
+    notices: noticeRows(w, 30),
+    scenes: sceneView(w, seatId(w)),
     pause: pauseNote,
   };
 }
@@ -4544,6 +4567,18 @@ function advanceMinute(): string | undefined {
     ticked = true;
   }
   minuteStep(w, w.day * MIN_PER_DAY + m, dayOpen);
+  // An accepted invitation opens at its hour and holds the clock; an evening that ran out of time is summed up.
+  let scene: ReturnType<typeof sceneClock> = null;
+  try { scene = started ? sceneClock(w, seatId(w)) : null; } catch { scene = null; }
+  if (scene?.ok && scene.pause) {
+    sceneStop = true;
+    speed = 'pause';
+    pumping = false;
+    const heldBefore = pauseNote;
+    collect(w);
+    if (pauseNote && pauseNote !== heldBefore) broadcast('speed', { speed: 'pause', ...pauseNote });
+    else broadcast('speed', { speed: 'pause', quiet: true });
+  }
   if (ticked) {
     const heldBefore = pauseNote;
     collect(w);
@@ -4575,11 +4610,15 @@ function advanceMinute(): string | undefined {
 }
 
 /** Jump the clock over a stretch of time (a wait, an evening out). The minutes are lived, only faster. */
+let sceneStop = false;
 function fastForward(minutes: number): string | undefined {
+  sceneStop = false;
   for (let i = 0; i < minutes; i++) {
     if (!booksOk || over) break;
     const bad = advanceMinute();
     if (bad) return bad;
+    // An invitation starting holds the clock: a wait or an errand stops at the door.
+    if (sceneStop) { sceneStop = false; break; }
   }
   return undefined;
 }
@@ -5232,6 +5271,32 @@ function placeDistrict(world: World, person: number, name: string): string {
   return dist[nb]?.name ?? now;
 }
 
+/** Every sentence the modules have already written and kept (letters, plans, coin launches, notices) takes the typed name. */
+function renameInState(root: unknown, from: string, to: string): void {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [root];
+  let guard = 0;
+  while (stack.length && guard++ < 2_000_000) {
+    const o = stack.pop();
+    if (!o || typeof o !== 'object' || seen.has(o) || ArrayBuffer.isView(o)) continue;
+    seen.add(o);
+    if (o instanceof Map) {
+      for (const [k, v] of o) {
+        if (typeof v === 'string') { if (v.includes(from)) o.set(k, v.split(from).join(to)); }
+        else if (v && typeof v === 'object') stack.push(v);
+      }
+      continue;
+    }
+    if (o instanceof Set) continue;
+    const rec = o as Record<string, unknown>;
+    for (const k of Object.keys(rec)) {
+      const v = rec[k];
+      if (typeof v === 'string') { if (v.includes(from)) rec[k] = v.split(from).join(to); }
+      else if (v && typeof v === 'object') stack.push(v);
+    }
+  }
+}
+
 function applyIdentity(world: World, job: { name?: string; age?: number; district?: string }): void {
   const i = playerIndex(world);
   if (i < 0) return;
@@ -5241,6 +5306,15 @@ function applyIdentity(world: World, job: { name?: string; age?: number; distric
   if (job.name) {
     const at = GIVEN_NAMES.indexOf(job.name);
     if (at >= 0) P.given[i] = at;
+    else {
+      // The player's own name, whatever they typed: it replaces the default name in the people book.
+      const typed = splitName(job.name);
+      if (typed.given) {
+        P.given[i] = P.addGiven(typed.given);
+        P.family[i] = P.families.length;
+        P.families.push(typed.family);
+      }
+    }
   }
   if (job.age && Number.isInteger(job.age) && job.age >= 18 && job.age <= 70) {
     let blocked = false;
@@ -5252,6 +5326,14 @@ function applyIdentity(world: World, job: { name?: string; age?: number; distric
   if (job.district) placeDistrict(world, i, job.district);
   const name = P.name(i);
   const age = P.age(world, i);
+  if (oldName && oldName !== name) {
+    // Every line already written about the player says the name they typed.
+    for (let id = world.events.count - 1; id >= 0; id--) {
+      const e = world.events.get(id);
+      if (e && e.msg.includes(oldName)) e.msg = e.msg.split(oldName).join(name);
+    }
+    renameInState(world.state, oldName, name);
+  }
   const seat = soleSeat(world);
   if (seat && seat.arrived >= 0) {
     const ev = world.events.get(seat.arrived);

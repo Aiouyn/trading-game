@@ -7,6 +7,7 @@ import { type EconState } from '../economy/index.ts';
 import { contactsOf, nudgeLink, nudgeStanding } from '../social/index.ts';
 import { CITY, money, sectorWord } from '../social/words.ts';
 import { discountForNews } from '../markets/index.ts';
+import { firmGap } from '../careers/jobs.ts';
 
 export type Fan = (issuer: string, side: number, trust: number, outlet: number, weight: number) => void;
 
@@ -785,24 +786,41 @@ function noteCut(w: World, wire: Wire, it: Item): void {
   const week = Math.floor(w.day / 7);
   const c = clusterOf(wire, week, 'layoff', it.cause);
   if (c.cuts.some((x) => x.id === id)) return;
-  c.cuts.push({ id, name: shortName(f?.name ?? 'A firm'), cut: cutOf(f) });
+  c.cuts.push({ id, name: f?.name ?? 'A firm', cut: cutOf(f) });
 }
 function roundup(w: World, c: Cluster, first: boolean): Item {
   const cuts = c.cuts.slice().sort((a, b) => b.cut - a.cut || (a.id < b.id ? -1 : 1));
   const show: string[] = [];
+  const seenNames = new Set<string>();
   for (const x of cuts) {
-    if (show.length >= 6 || !x.name || show.includes(x.name)) continue;
-    show.push(x.name);
+    if (show.length >= 4 || !x.name || seenNames.has(x.name)) continue;
+    seenNames.add(x.name);
+    show.push(x.cut > 0 ? `${x.name} (${x.cut} fewer)` : x.name);
   }
-  const tail = cuts.length > show.length ? ' and others' : '';
+  const more = cuts.length - show.length;
+  const tail = more > 0 ? `, and ${more} more` : '';
   const lead = first
     ? `${countWord(cuts.length)} firms cut jobs as the year opens: ${show.join(', ')}${tail}`
     : `${countWord(cuts.length)} firms cut jobs: ${show.join(', ')}${tail}`;
+  const hiring = hiringLine(w, new Set(cuts.map((x) => x.id)));
   return item({
     key: 'layoffweek:' + c.week, gap: 6, score: first ? 72 : 56, cause: c.cause, causes: [c.cause],
-    beat: 'labour', subject: lead, detail: 'Sales are below plan.',
-    heat: 'Layoffs', gossip: lead, weekly: `${lead} Sales are below plan.`,
+    beat: 'labour', subject: lead, detail: `Sales are below plan at each. ${hiring}`.trim(),
+    heat: 'Layoffs', gossip: lead, weekly: `${lead} Sales are below plan at each. ${hiring}`.trim(),
   });
+}
+/** Firms that are short of hands this week, each with how many, so a cut and an opening are never mixed up. */
+function hiringLine(w: World, not: Set<string>): string {
+  const rows: { name: string; seats: number }[] = [];
+  for (const f of econ(w).firms as Firm[]) {
+    if (f.closed || not.has(f.id)) continue;
+    const gap = firmGap(w, f as never);
+    if (gap >= 2) rows.push({ name: f.name, seats: Math.floor(gap) });
+  }
+  rows.sort((a, b) => b.seats - a.seats || (a.name < b.name ? -1 : 1));
+  if (!rows.length) return 'No firm is short of hands.';
+  const top = rows.slice(0, 3).map((r) => `${r.name} (${r.seats} ${r.seats === 1 ? 'seat' : 'seats'})`);
+  return `Taking people on: ${top.join(', ')}${rows.length > 3 ? ` and ${rows.length - 3} more` : ''}.`;
 }
 function dueRoundups(w: World, wire: Wire): Item[] {
   if (!wire.clusters) return [];
@@ -831,7 +849,7 @@ function absorbLayoffs(w: World, wire: Wire, items: Item[]): Item[] {
 }
 function earnLabel(subject: string): string {
   const i = subject.search(/ (beat|missed|met) /);
-  return shortName(i > 0 ? subject.slice(0, i) : subject);
+  return i > 0 ? subject.slice(0, i) : subject;
 }
 function foldDay(items: Item[]): Item[] {
   const earn: Item[] = [];
@@ -846,8 +864,8 @@ function foldDay(items: Item[]): Item[] {
     const n = earnLabel(it.subject);
     if (!names.includes(n)) names.push(n);
   }
-  const show = names.slice(0, 6);
-  const tail = names.length > show.length ? ', ...' : '';
+  const show = names.slice(0, 4);
+  const tail = names.length > show.length ? ` and ${names.length - show.length} more` : '';
   rest.push(item({
     ...best, key: 'earnweek:' + best.cause, score: best.score + 4,
     subject: `${countWord(earn.length)} firms report: ${show.join(', ')}${tail}`,

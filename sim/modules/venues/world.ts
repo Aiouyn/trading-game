@@ -16,6 +16,7 @@ import { clockText, dateText, usd } from '../player/gamedate.ts';
 import { standingMult } from '../player/standing.ts';
 import { lookKey, lookOf, overheardOf } from './faces.ts';
 import { converse, profileOf, TOPIC_WORDS, workTalk } from './talk.ts';
+import { finishScene, sceneFaces, sceneListen, sceneTalkExtra, type Scene } from './scene.ts';
 
 /** k is the door price as a share of one day's city wage; a round costs 0.7 of it. Prices also follow the player's standing. */
 export interface Venue { id: string; name: string; where: string; k: number; say: string; opens: number }
@@ -28,21 +29,27 @@ export const VENUES: Venue[] = [
   { id: 'neon', name: 'Neon Yard', where: 'the club', k: 0.3, say: 'the young, gamblers and the crypto crowd', opens: 1260 },
 ];
 /** The doors close at two in the morning. */
-const CLOSE_AT = 120;
+export const CLOSE_AT = 120;
 
-interface Rel {
+export interface Rel {
   who: number; venue: number; how: string; first: number; last: number; met: number;
   asked: Record<string, number>; refused: number; helped: number; owes: number; owesDay: number;
   /** Exchanges had with them in all, and the rungs of the conversation already climbed. */
-  depth: number; covered: string[]; recog?: string;
+  depth: number; covered: string[]; recog?: string; lastGist?: string;
 }
-interface Table {
+export interface Table {
   day: number; venue: number; faces: number[]; asked: number[]; rounds: number; listened: boolean; spent: number;
   open: boolean; openAbs: number; closeAbs: number; tonight: Record<number, number>; minutes: number; left?: string;
+  /** An accepted invitation played as an evening: the dinner, the drinks, the deal, the party. */
+  scene?: Scene;
 }
-interface Loan { who: number; cents: number; due: number; late: boolean; ev: number }
+/** The room a table is in: one of the six venues, or the place an invitation named. */
+export function roomOf(t: Table): { id: string; name: string } {
+  return t.scene ? { id: 'scene', name: t.scene.place } : { id: VENUES[t.venue].id, name: VENUES[t.venue].name };
+}
+export interface Loan { who: number; cents: number; due: number; late: boolean; ev: number }
 interface Ref { firm: number; who: number; until: number }
-interface Seat { lastOut: number; table: Table | null; people: Rel[]; loans: Loan[]; refs: Ref[]; outings: number }
+export interface Seat { played?: Record<string, number>; lastOut: number; table: Table | null; people: Rel[]; loans: Loan[]; refs: Ref[]; outings: number }
 interface Book { seats: Record<string, Seat>; yOut: number; yMet: number; yFav: number; yNo: number }
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -96,11 +103,17 @@ function scan(w: World): Scan {
   const life = lifeOf(w);
   const recog = new Set<number>(life ? life.recog.map((r) => r.who) : []);
   const recogUntil = (life?.day ?? 0) + 45;
+  // People the player has talked to at a room come back to it: they are the ones you will find there again.
+  const metAt = new Map<number, number>();
+  const sbk = (w.state.venues as Book | undefined)?.seats[seatId(w)];
+  for (const r of sbk?.people ?? []) if (r.venue >= 0 && w.day - r.last < 90) metAt.set(r.who, r.venue);
   for (let i = 0; i < P.n; i++) {
     if (i === me || !P.adult(w, i) || P.age(w, i) > 78 || P.health[i] < 35 || P.outUntil[i] > w.day) continue;
     const n1 = mix(i, 1, 0) % 7, n2 = mix(i, 2, 0) % 7;
     const usual = dow === n1 || dow === n2;
-    if (!usual && dow !== 4 && !(recog.has(i) && w.day <= recogUntil)) continue;
+    const callsIn = recog.has(i) && w.day <= recogUntil;
+    const back = metAt.get(i);
+    if (back !== undefined && unit(mix(i, w.day, 17)) < 0.75) { crowd[back].push(i); continue; }
     const e = P.employer[i];
     const sec = e >= 0 ? s.firms[e].sector : '';
     const ceo = ceos.get(i);
@@ -118,13 +131,16 @@ function scan(w: World): Scan {
     let v = 0;
     for (let k = 1; k < a.length; k++) if (a[k] > a[v]) v = k;
     if (a[v] < 0.2 && !recog.has(i)) continue;
-    const p = recog.has(i) && w.day <= recogUntil ? 0.92 : usual ? Math.min(0.85, 0.25 + 0.7 * a[v]) : 0.3 * a[v];
+    // The regulars of a room are there most nights: a fifth of the people whose room it is.
+    const regular = regularOf(w, i) === v && mix(i, 61, 0) % REGULAR_ONE_IN === 0 && a[v] >= 0.4;
+    if (!usual && dow !== 4 && !callsIn && !regular) continue;
+    const p = callsIn ? 0.92 : regular ? 0.9 : usual ? Math.min(0.85, 0.25 + 0.7 * a[v]) : 0.3 * a[v];
     if (unit(mix(i, w.day, 7)) < p) crowd[v].push(i);
   }
   // A room only holds so many: on a busy night the rest do not get in.
   const room = [160, 140, 60, 90, 110, 200];
   for (let v = 0; v < crowd.length; v++) {
-    if (crowd[v].length > room[v]) crowd[v] = crowd[v].sort((x, y) => (Number(recog.has(y)) - Number(recog.has(x))) || mix(x, w.day, 13) - mix(y, w.day, 13)).slice(0, room[v]);
+    if (crowd[v].length > room[v]) crowd[v] = crowd[v].sort((x, y) => (Number(recog.has(y) || metAt.has(y)) - Number(recog.has(x) || metAt.has(x))) || mix(x, w.day, 13) - mix(y, w.day, 13)).slice(0, room[v]);
   }
   return { crowd, day: w.day, ceos };
 }
@@ -166,7 +182,7 @@ function headline(w: World, ev: number): string {
   return t.length > 110 ? t.slice(0, 107).replace(/[ ,.;]+$/, '') + '...' : t;
 }
 
-function jobLine(w: World, i: number): string {
+export function jobLine(w: World, i: number): string {
   const s = econ(w), P = s.P;
   const e = P.employer[i];
   if (e < 0) return 'is between jobs';
@@ -174,6 +190,12 @@ function jobLine(w: World, i: number): string {
   if (f.ceo === i) return `runs ${f.name}`;
   return `works at ${f.name}`;
 }
+/** One of the fifth of a room's people who are there most nights. */
+export function isRegular(w: World, i: number, venue: number): boolean {
+  return regularOf(w, i) === venue && mix(i, 61, 0) % REGULAR_ONE_IN === 0;
+}
+/** One in this many of the people whose room it is are its regulars: a few dozen faces a room, there most nights. */
+const REGULAR_ONE_IN = 150;
 function regularOf(w: World, i: number): number {
   const s = econ(w), P = s.P;
   const e = P.employer[i];
@@ -187,14 +209,14 @@ function regularOf(w: World, i: number): number {
 }
 
 const friendWord = bondWord;
-function relOf(sb: Seat, who: number): Rel | undefined { for (const r of sb.people) if (r.who === who) return r; return undefined; }
-function cause(w: World, who: number): number {
+export function relOf(sb: Seat, who: number): Rel | undefined { for (const r of sb.people) if (r.who === who) return r; return undefined; }
+export function cause(w: World, who: number): number {
   const ev = econ(w).P.lastEv[who];
   return ev >= 0 && w.events.get(ev) ? ev : w.genesis;
 }
 function openOwes(w: World, r: Rel): number { return Math.max(0, r.owes - Math.floor((w.day - r.owesDay) / 60)); }
 
-function retailPayee(w: World): string {
+export function retailPayee(w: World): string {
   for (const f of econ(w).firms) if (!f.closed && f.good === 'GENERAL_RETAIL') return f.id;
   return GOV;
 }
@@ -214,7 +236,7 @@ function crowdWords(w: World, list: number[]): string {
 }
 
 export interface FaceView {
-  n: number; who: number; name: string; text: string; look: string; heard: string; news: string; known: string; word: string; recognises: boolean; exchanges: number;
+  n: number; who: number; name: string; text: string; look: string; heard: string; news: string; known: string; word: string; recognises: boolean; exchanges: number; regular: boolean;
 }
 /** Faces the papers have shown: the office-holders of the city. Chiefs in the news come from inTheNews. */
 function publicFaces(w: World): Map<number, string> {
@@ -226,7 +248,8 @@ function publicFaces(w: World): Map<number, string> {
   return out;
 }
 
-function faceView(w: World, seat: string, n: number, i: number, tries: number): FaceView {
+function faceView(w: World, seat: string, n: number, i: number, tries: number, venue = -1): FaceView {
+  const regular = venue >= 0 && isRegular(w, i, venue);
   const P = econ(w).P;
   const sb = seatBook(w, seat);
   const seen = inTheNews(w).get(i);
@@ -234,26 +257,28 @@ function faceView(w: World, seat: string, n: number, i: number, tries: number): 
   const pub = publicFaces(w).get(i);
   const life = lifeOf(w);
   const recog = life?.recog.find((r) => r.who === i);
-  const heard = overheardOf(w, i);
+  const heard = overheardOf(w, i, venue);
   if (rel) {
     const word = bondWord(circleRegard(w, i).score);
     const work = rel.depth >= 2 ? `, who ${jobLine(w, i)}` : '';
-    return { n, who: i, name: P.name(i), look: '', heard, news: '', known: word, word, recognises: false, exchanges: rel.depth,
-      text: `${P.name(i)}${work}. You have talked ${rel.depth <= 1 ? 'once' : `${rel.depth} times`}. ${word}` };
+    const ago = w.day - rel.last;
+    const when = ago <= 0 ? 'tonight' : ago === 1 ? 'yesterday' : ago < 14 ? `${ago} days ago` : 'a while back';
+    return { n, who: i, name: P.name(i), look: '', heard, news: '', known: word, word, recognises: false, exchanges: rel.depth, regular,
+      text: `${P.name(i)}${work}${regular ? ', a regular here' : ''}. You have talked ${rel.depth <= 1 ? 'once' : `${rel.depth} times`}, last ${when}. ${word}` };
   }
   if (seen || pub) {
     const f = seen ? econ(w).firms[seen.firm] : undefined;
     const h = seen ? headline(w, seen.ev) : '';
     const what = pub ?? `who runs ${f?.name ?? 'a firm'}`;
-    return { n, who: i, name: P.name(i), look: '', heard, news: f?.name ?? what, known: 'from the papers', word: '', recognises: false, exchanges: 0,
+    return { n, who: i, name: P.name(i), look: '', heard, news: f?.name ?? what, known: 'from the papers', word: '', recognises: false, exchanges: 0, regular,
       text: `${P.name(i)}, ${pub ? what : `who runs ${f?.name}`}. You know the face from the paper${h ? `: "${h}"` : ''}` };
   }
   const look = lookOf(w, i, tries);
   if (recog) {
-    return { n, who: i, name: '', look, heard, news: '', known: 'seems to know you', word: '', recognises: true, exchanges: 0,
+    return { n, who: i, name: '', look, heard, news: '', known: 'seems to know you', word: '', recognises: true, exchanges: 0, regular,
       text: `${look}. They are looking at you as if trying to place you` };
   }
-  return { n, who: i, name: '', look, heard, news: '', known: '', word: '', recognises: false, exchanges: 0, text: `${look}. From the next table: ${heard}` };
+  return { n, who: i, name: '', look, heard, news: '', known: regular ? 'a regular here' : '', word: '', recognises: false, exchanges: 0, regular, text: `${look}${regular ? ', in the seat they always take' : ''}. From the next table: ${heard}` };
 }
 
 // ---------- the evening: a table you sit at while the clock waits for you
@@ -265,7 +290,7 @@ function clockNow(w: World): number {
 export function absNow(w: World): number { return w.day * 1440 + clockNow(w); }
 
 /** The table you are at, if the doors are still open. Past closing time the evening ends by itself. */
-function liveTable(w: World, sb: Seat): Table | null {
+export function liveTable(w: World, sb: Seat): Table | null {
   const t = sb.table;
   if (!t || !t.open) return null;
   if (absNow(w) >= t.closeAbs) {
@@ -294,7 +319,8 @@ export function tonightFaces(w: World, seat: string): { venue: string; venueId: 
   const sb = seatBook(w, seat);
   const t = sb.table;
   if (!t || (!t.open && w.day > t.day + 1)) return null;
-  return { venue: VENUES[t.venue].name, venueId: VENUES[t.venue].id, faces: t.faces.map((i, k) => faceView(w, seat, k + 1, i, 0)), asked: t.asked.length, open: !!liveTable(w, sb) };
+  if (t.scene) return { venue: t.scene.place, venueId: 'scene', faces: sceneFaces(w, seat, t), asked: t.asked.length, open: !!liveTable(w, sb) };
+  return { venue: VENUES[t.venue].name, venueId: VENUES[t.venue].id, faces: t.faces.map((i, k) => faceView(w, seat, k + 1, i, 0, t.venue)), asked: t.asked.length, open: !!liveTable(w, sb) };
 }
 
 /** Leave the place you are at: the bill is paid, the clock is yours again. */
@@ -302,11 +328,15 @@ export function leaveVenue(w: World, seat: string): Res {
   const sb = seatBook(w, seat);
   const t = liveTable(w, sb);
   if (!t) return no('you are not at a venue');
-  const v = VENUES[t.venue];
+  const v = roomOf(t);
   const sp = spend(w, t, 10);
   t.open = false;
   t.left = 'you left';
   const met = t.asked.length;
+  if (t.scene) {
+    const fin = finishScene(w, seat, t);
+    return { ok: true, minutes: sp.minutes, eventId: fin.eventId, text: fin.text, lines: fin.lines };
+  }
   return { ok: true, minutes: sp.minutes, text: `You say your goodbyes and step out of ${v.name}. You spent ${usd(t.spent)} in about ${t.minutes} minutes${met ? ` and talked with ${met} ${met === 1 ? 'person' : 'people'}` : ''}.` };
 }
 
@@ -329,7 +359,7 @@ export function goOut(w: World, seat: string, venueKey: string, classTonight: st
   let before = '';
   if (here) {
     leaveVenue(w, seat);
-    before = ` You leave ${VENUES[here.venue].name} after ${here.minutes} minutes.`;
+    before = ` You leave ${roomOf(here).name} after ${here.minutes} minutes.`;
   }
   const ev = w.events.emit('venue.go', `An evening at ${VENUES[v].name} || ${usd(cost)} on the door and a first drink`, [w.genesis], id);
   if (!pay(w, id, retailPayee(w), cost, 'venue.evening', ev)) return no('the bill did not leave your account');
@@ -341,7 +371,9 @@ export function goOut(w: World, seat: string, venueKey: string, classTonight: st
   const push = (i: number): void => { if (faces.length < 7 && !faces.includes(i)) faces.push(i); };
   crowd.filter((i) => news.has(i) || pubs.has(i)).sort((x, y) => ((news.get(y)?.day ?? 0) - (news.get(x)?.day ?? 0)) || x - y).slice(0, 2).forEach(push);
   crowd.filter((i) => recog.has(i)).slice(0, 2).forEach(push);
-  crowd.filter((i) => relOf(sb, i)).sort((x, y) => x - y).slice(0, 2).forEach(push);
+  crowd.filter((i) => relOf(sb, i)).sort((x, y) => x - y).slice(0, 3).forEach(push);
+  // The regulars of this room come back: the same few faces, whichever night it is, drawn from who belongs here.
+  crowd.filter((i) => isRegular(w, i, v)).sort((x, y) => mix(x, v, 99) - mix(y, v, 99)).slice(0, 2).forEach(push);
   [...crowd].sort((x, y) => mix(x, w.day, 99) - mix(y, w.day, 99)).forEach(push);
   const open = absNow(w);
   const closeAbs = (Math.floor(open / 1440) + (open % 1440 >= CLOSE_AT ? 1 : 0)) * 1440 + CLOSE_AT;
@@ -350,15 +382,24 @@ export function goOut(w: World, seat: string, venueKey: string, classTonight: st
   sb.outings++;
   book(w).yOut++;
   const sp = spend(w, sb.table, 10);
-  const views = faces.map((i, k) => faceView(w, seat, k + 1, i, 0));
+  const views = faces.map((i, k) => faceView(w, seat, k + 1, i, 0, v));
   // Two faces in one room must not read the same: move the pick on until each description is new.
   const used = new Set<string>();
   for (let k = 0; k < views.length; k++) {
     if (!views[k].look) continue;
     let tries = 0;
     while (tries < 12 && lookKey(w, faces[k], tries).some((part) => used.has(part))) tries++;
-    if (tries > 0) views[k] = faceView(w, seat, k + 1, faces[k], tries);
+    if (tries > 0) views[k] = faceView(w, seat, k + 1, faces[k], tries, v);
     for (const part of lookKey(w, faces[k], tries)) used.add(part);
+  }
+  // Nobody at the next table says the same thing as the table beside it.
+  const heardSet = new Set<string>();
+  for (let k = 0; k < views.length; k++) {
+    const old = views[k].heard;
+    let line = old;
+    for (let sh = 1; heardSet.has(line) && sh < 10; sh++) line = overheardOf(w, faces[k], v, sh);
+    if (line !== old) views[k] = { ...views[k], heard: line, text: views[k].text.replace(old, line) };
+    heardSet.add(line);
   }
   const lines = [
     ...(views.length ? views.map((f) => `  ${f.n}. ${f.text}.`) : ['  The place is empty tonight.']),
@@ -379,7 +420,7 @@ function shared(w: World, me: number, who: number, rel: Rel | undefined, venue: 
   return n;
 }
 
-function meet(w: World, seat: string, who: number, venue: number, how: string, trust: number, friend: number, ev0: number): { rel: Rel; first: boolean } {
+export function meet(w: World, seat: string, who: number, venue: number, how: string, trust: number, friend: number, ev0: number): { rel: Rel; first: boolean } {
   const sb = seatBook(w, seat);
   const hit = relOf(sb, who);
   if (hit) return { rel: hit, first: false };
@@ -437,29 +478,35 @@ export function approach(w: World, seat: string, n: number, topicArg = ''): Res 
   const who = t.faces[n - 1];
   if (who === undefined) return no(`the faces are numbered 1 to ${t.faces.length}`);
   const word = TOPIC_WORDS[topicArg.trim().toLowerCase()];
-  const v = VENUES[t.venue];
+  const v = roomOf(t);
   const had = t.tonight[who] ?? 0;
   if (had >= 5) return no(`you have talked with ${P.name(who)} for most of the evening already. Try someone else, or come back another night`);
   const name0 = P.name(who);
   const c = cause(w, who);
   const recogRow = lifeOf(w)?.recog.find((r) => r.who === who);
-  const how = recogRow ? `knew you before: you ${recogRow.how}` : `met at ${v.name} on ${dateText(w.day, false)}`;
-  const { rel, first } = meet(w, seat, who, t.venue, how, recogRow ? 30 : 16, recogRow ? 30 : 16, c);
+  const how = recogRow ? `knew you before: you ${recogRow.how}` : t.scene ? `met at ${t.scene.what} at ${v.name} on ${dateText(w.day, false)}, through ${P.name(t.scene.host)}` : `met at ${v.name} on ${dateText(w.day, false)}`;
+  // At an invitation the host has vouched for everyone at the table, so a first word starts warmer than at a bar.
+  const start = recogRow ? 30 : t.scene ? 22 : 16;
+  const { rel, first } = meet(w, seat, who, t.scene ? -1 : t.venue, how, start, start, c);
   if (first) {
     const ev = w.events.emit('venue.meet', `First meeting with ${name0} at ${v.name} || ${name0} ${jobLine(w, who)}`, [c], P.id(me));
-    circleTouch(w, who, 0, recogRow ? `You knew each other before: you ${recogRow.how}` : `You met at ${v.name}`, ev);
+    circleTouch(w, who, 0, recogRow ? `You knew each other before: you ${recogRow.how}` : t.scene ? `${P.name(t.scene.host)} introduced you at ${v.name}` : `You met at ${v.name}`, ev);
     rel.recog = recogRow?.how;
   } else {
     rel.met++;
   }
   if (!t.asked.includes(who)) t.asked.push(who);
   const score = circleRegard(w, who).score;
+  const memory = !first && had === 0 && rel.depth > 0
+    ? { days: w.day - rel.last, gist: rel.lastGist ?? '', helped: rel.helped, refused: rel.refused, youOwe: openOwes(w, rel) > 0, venue: v.id, met: rel.met }
+    : undefined;
   const said = converse(w, {
     me, who, venue: v.id, venueName: v.name, score, depth: rel.depth, covered: rel.covered, recog: rel.recog, first: first || rel.depth === 0,
-    salt: mix(who, rel.depth, w.day), word,
+    salt: mix(who, rel.depth, w.day), word, memory, regular: !t.scene && isRegular(w, who, t.venue),
   });
   rel.depth++;
   rel.last = w.day;
+  if (!said.gated && said.gist !== 'who they are' && said.gist !== 'small talk') rel.lastGist = said.gist;
   if (!rel.covered.includes(said.topic)) rel.covered.push(said.topic);
   t.tonight[who] = had + 1;
   const shareBoost = first ? 0 : 3 * shared(w, me, who, rel, t.venue);
@@ -468,11 +515,12 @@ export function approach(w: World, seat: string, n: number, topicArg = ''): Res 
   circleTouch(w, who, delta, said.gated ? `You asked about ${said.topic} too soon at ${v.name}` : `You talked about ${said.gist} at ${v.name}`, ev);
   const word2 = bondWord(circleRegard(w, who).score);
   const sp = spend(w, t, first ? 16 : 12);
-  const meetLine = first ? `You introduce yourself. This is ${name0}, who ${jobLine(w, who)}. ` : '';
-  const end = sp.closed ? ' The staff start stacking chairs and the evening ends.' : '';
+  const meetLine = first ? (t.scene && who !== t.scene.host ? `${P.name(t.scene.host).split(' ')[0]} introduces you: this is ${name0}, who ${jobLine(w, who)}. ` : `You introduce yourself. This is ${name0}, who ${jobLine(w, who)}. `) : '';
+  const end = sp.closed ? (t.scene ? ' The evening is winding down.' : ' The staff start stacking chairs and the evening ends.') : '';
+  const extra = t.scene ? sceneTalkExtra(w, seat, t, who, said.topic, ev) : '';
   return {
     ok: true, eventId: ev, minutes: sp.minutes,
-    text: `${meetLine}${said.text}`,
+    text: `${meetLine}${said.text}${extra ? ' ' + extra : ''}`,
     lines: [`With ${name0.split(' ')[0]}: ${word2} (${rel.depth} ${rel.depth === 1 ? 'exchange' : 'exchanges'}).${end}`],
   };
 }
@@ -483,8 +531,8 @@ export function buyRound(w: World, seat: string): Res {
   const t = liveTable(w, sb);
   if (!t) return noTable();
   if (t.rounds >= 3) return no('three rounds is plenty for one evening');
-  const v = VENUES[t.venue];
-  const cost = roundPrice(w, me, v);
+  const v = { ...VENUES[t.venue], name: roomOf(t).name };
+  const cost = roundPrice(w, me, VENUES[t.venue]);
   const id = P.id(me);
   if (Math.floor(w.ledger.balance(id, DEP)) < cost) return no(`a round here costs about ${usd(cost)} and you do not have it`);
   const ev = w.events.emit('venue.round', `A round at ${v.name} || ${usd(cost)}`, [w.genesis], id);
@@ -497,7 +545,7 @@ export function buyRound(w: World, seat: string): Res {
   const stranger = t.faces.find((i) => !t.asked.includes(i) && !relOf(sb, i));
   if (stranger !== undefined) {
     const nm = P.name(stranger);
-    const { first } = meet(w, seat, stranger, t.venue, `met at ${v.name} on ${dateText(w.day, false)}`, 12, 12, ev);
+    const { first } = meet(w, seat, stranger, t.scene ? -1 : t.venue, `met at ${v.name} on ${dateText(w.day, false)}`, t.scene ? 20 : 12, t.scene ? 20 : 12, ev);
     if (first) extra = ` ${nm}, who ${jobLine(w, stranger)}, raises a glass back. You have met.`;
   }
   const sp = spend(w, t, 10);
@@ -511,6 +559,7 @@ export function listen(w: World, seat: string): Res {
   if (!t) return noTable();
   if (t.listened) return no('you have already spent tonight with your ears open');
   t.listened = true;
+  if (t.scene) return sceneListen(w, seat, t, spend(w, t, 30).minutes);
   const v = VENUES[t.venue];
   const sp = spend(w, t, 30);
   const chance = [0.3, 0.7, 0.6, 0.5, 0.3, 0.2][t.venue];
@@ -530,7 +579,14 @@ export function listen(w: World, seat: string): Res {
       return { ok: true, eventId: ev, minutes: sp.minutes, text: `At the next table, someone ${jobLine(w, i).replace('is between jobs', 'out of work')}, says: ${f.msg} Overheard, not told: it is unconfirmed, and trading on it is your own risk.${read}` };
     }
   }
-  const scraps = t.faces.slice(0, 3).map((i) => overheardOf(w, i));
+  const scraps: string[] = [];
+  for (const i of t.faces) {
+    let shift = 0;
+    let line = overheardOf(w, i, t.venue, 0);
+    while (scraps.includes(line) && shift < 8) line = overheardOf(w, i, t.venue, ++shift);
+    if (!scraps.includes(line)) scraps.push(line);
+    if (scraps.length >= 3) break;
+  }
   return { ok: true, minutes: sp.minutes, text: `You listen for half an hour at ${v.name}. Mostly small things: ${scraps.join(' ')} Nothing worth trading on.` };
 }
 
@@ -802,4 +858,19 @@ export function yearly(w: World): Record<string, number> {
   const out = { outings: b.yOut, met: b.yMet, favours: b.yFav, refused: b.yNo, known: people };
   b.yOut = 0; b.yMet = 0; b.yFav = 0; b.yNo = 0;
   return out;
+}
+
+/** Who filled the six rooms tonight, for the evening paper: a head count, the crowd in words, and the faces a reader would know. */
+export function nightOut(w: World): { venue: string; where: string; count: number; words: string; names: string[] }[] {
+  const s = econ(w), P = s.P;
+  const sc = scanToday(w);
+  return VENUES.map((v, k) => {
+    const crowd = sc.crowd[k];
+    const known = crowd.filter((i) => sc.ceos.has(i)).sort((a, b) => s.firms[sc.ceos.get(b)!].workers - s.firms[sc.ceos.get(a)!].workers).slice(0, 2);
+    return {
+      venue: v.name, where: v.where, count: crowd.length,
+      words: crowd.length ? crowdWords(w, crowd) : 'nobody much',
+      names: known.map((i) => `${P.name(i)} of ${s.firms[sc.ceos.get(i)!].name}`),
+    };
+  });
 }
