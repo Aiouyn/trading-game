@@ -13,6 +13,7 @@ import { DockBadge } from "@/apps/messages/notices";
 import { onDesk } from "@/shell/desk";
 import { useSimSnap } from "@/shell/simSession";
 import { useShell, useShellStore } from "./ShellContext";
+import { openHelp, setAllApps } from "./AllApps";
 
 export function Shelf() {
   const store = useShellStore();
@@ -81,12 +82,15 @@ export function Shelf() {
       })}
         <span className="shelf-slot">
           <span className="shelf-divider" aria-hidden="true" />
-          <button className="tile" data-testid="tile-all" aria-label={S.allApps} title={S.allApps} onClick={() => store.getState().setLauncher(true)}>
+          <button className="tile" data-testid="tile-all" aria-label={S.allApps} title={S.allApps} onClick={() => setAllApps(true)}>
             <Glyph name="apps" size={20} />
           </button>
         </span>
       </div>
       <div className="shelf-tools" data-testid="shelf-tools">
+        <button className="tool" data-testid="help-btn" title="What each part of the game is for" onClick={() => openHelp()}>
+          <Glyph name="help" size={15} />Help
+        </button>
         {desktop && layouts.length > 0 && (
           <div className="layouts-wrap">
             <button className="tool" aria-expanded={layoutsOpen} data-testid="layout-btn" onClick={() => setLayoutsOpen((o) => !o)}>

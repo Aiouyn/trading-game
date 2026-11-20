@@ -25,6 +25,9 @@ export function TimeControls() {
         </button>
       ))}
       {why ? <span className="sim-pause" data-testid="sim-pause" title={why}>{why}</span> : null}
+      {!why && speed === "pause" && view ? (
+        <span className="sim-paused-line" data-testid="sim-paused-line" role="status">Paused. Pick a speed to let the day run.</span>
+      ) : null}
     </div>
   );
 }

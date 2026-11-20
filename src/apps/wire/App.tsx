@@ -1,5 +1,6 @@
 "use client";
-// The city's papers: outlet, voice, byline and beat. Rumours are marked. A correction names the story it corrects.
+// The city's papers: the Daily Herald each morning and the Evening Gazette each evening lead; the wire follows, with
+// outlet, voice, byline and beat. Rumours are marked. A correction names the story it corrects. Coin launches are one line.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
@@ -53,10 +54,11 @@ interface Ask {
 }
 interface Answer { stance: string; text: string }
 
-const FILTERS = ["papers", "you", "contacts", "holdings", "city", "markets"] as const;
+const FILTERS = ["papers", "all", "you", "contacts", "holdings", "city", "markets"] as const;
 type Filter = (typeof FILTERS)[number];
 const LABEL: Record<Filter, string> = {
-  papers: "Papers",
+  papers: "Today's papers",
+  all: "The wire",
   you: "You",
   contacts: "Contacts",
   holdings: "Holdings",
@@ -113,12 +115,91 @@ function saidLine(ask: Ask, local: Answer | undefined): string {
   return `You told ${ask.outlet}: ${words}`;
 }
 
+interface EditionStory { id: number; section: string; kicker: string; headline: string; body: string; eventId: number; you?: boolean }
+interface Edition {
+  id: number; day: number; date: string; outlet: string; edition: string; time: string; headline: string;
+  stories: EditionStory[]; column: { title: string; lines: string[] } | null;
+}
+
+/** A coin launch line from the wire: one person, one coin, one pool. */
+const LAUNCH = /^(.+?) launched (.+?) \(([A-Z0-9]{2,8})\) and seeded the pool with (\$[\d,.]+)\.?$/;
+
+type Item =
+  | { kind: "paper"; paper: Paper }
+  | { kind: "launches"; day: number; coins: { name: string; symbol: string }[]; key: string };
+
+/** The wire's stories, with every coin launch of a day gathered into one Launchpad line. */
+function gather(papers: Paper[]): Item[] {
+  const out: Item[] = [];
+  const byDay = new Map<number, Extract<Item, { kind: "launches" }>>();
+  for (const paper of papers) {
+    const m = LAUNCH.exec(paper.text.trim());
+    if (!m || paper.outlet) { out.push({ kind: "paper", paper }); continue; }
+    let row = byDay.get(paper.day);
+    if (!row) {
+      row = { kind: "launches", day: paper.day, coins: [], key: `launch-${paper.day}-${paper.eventId}` };
+      byDay.set(paper.day, row);
+      out.push(row);
+    }
+    if (!row.coins.some((c) => c.symbol === m[3])) row.coins.push({ name: m[2], symbol: m[3] });
+  }
+  return out;
+}
+
+/** "Wednesday 17 January": the year only once there is more than one. */
+function dayText(day: number, today: number): string {
+  const label = gameDate(day);
+  const year = Math.floor(day / 360) + 1;
+  const now = Math.floor(today / 360) + 1;
+  return year === now ? label.replace(/, year \d+$/, "") : label;
+}
+
+/** Story text without the first year's number in it ("17 January, year 1" reads "17 January"). */
+function noYear(text: string, today: number): string {
+  const now = Math.floor(today / 360) + 1;
+  return text.replace(new RegExp(`,? year ${now}\\b`, "g"), "");
+}
+
+function EditionView({ ed, today, open, why, onWhy }: { ed: Edition; today: number; open: number | null; why: ExplainLine[]; onWhy: (id: number) => void }) {
+  const [lead, ...rest] = ed.stories;
+  const story = (st: EditionStory, isLead: boolean) => (
+    <section key={st.id} className={isLead ? "edition-lead" : "edition-story"} data-you={st.you ? "1" : "0"}>
+      {st.kicker ? <p className="edition-kicker">{st.kicker}</p> : null}
+      {isLead ? <h3>{noYear(presentNote(st.headline), today)}</h3> : <h4>{noYear(presentNote(st.headline), today)}</h4>}
+      {st.body ? <p className="edition-body">{noYear(presentNote(st.body), today)}</p> : null}
+      {st.eventId > 0 ? <button type="button" className="name-link" onClick={() => onWhy(st.eventId)}>Why?</button> : null}
+      {open === st.eventId && st.eventId > 0 ? (
+        <div className="sim-wire-why" data-testid="wire-why">
+          {why.length ? <CauseLines lines={why} /> : <p className="quay-state">Reading the cause…</p>}
+        </div>
+      ) : null}
+    </section>
+  );
+  return (
+    <article className="edition" data-testid="wire-edition" data-outlet={ed.outlet}>
+      <header className="edition-mast">
+        <span className="edition-outlet">{ed.outlet}</span>
+        <span className="edition-date">{ed.edition === "evening" ? "Evening" : "Morning"} · {ed.date || dayText(ed.day, today)} · {ed.time}</span>
+      </header>
+      {lead ? story(lead, true) : null}
+      {rest.map((st) => story(st, false))}
+      {ed.column && ed.column.lines.length ? (
+        <p className="edition-column" data-testid="wire-launchpad">
+          <span className="edition-kicker">{ed.column.title || "The Launchpad"}</span> {ed.column.lines.join(" ")}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
 export default function WireApp() {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const tick = useSimSnap().view?.date.abs;
+  const today = tick ?? 0;
   const { note, busy, go } = useAct();
   const [filter, setFilter] = useState<Filter>("papers");
   const [papers, setPapers] = useState<Paper[]>([]);
+  const [editions, setEditions] = useState<Edition[]>([]);
   const [asks, setAsks] = useState<Ask[]>([]);
   const [saidLocal, setSaidLocal] = useState<Record<number, Answer>>({});
   const [ready, setReady] = useState(false);
@@ -127,22 +208,25 @@ export default function WireApp() {
   const [open, setOpen] = useState<number | null>(null);
   const [why, setWhy] = useState<ExplainLine[]>([]);
   const req = useRef(0);
+  const clock = useSimSnap().view?.live?.min;
+  // A new edition lands at 07:00 and 18:00: read the panel each day and when the hour of an edition passes.
+  const hourMark = typeof clock === "number" ? (clock >= 1080 ? 2 : clock >= 420 ? 1 : 0) : 0;
 
   useEffect(() => {
     const ac = new AbortController();
     void fetch("/api/sim/panel?name=wire", { cache: "no-store", signal: ac.signal })
-      .then((r) => (r.ok ? r.json() as Promise<{ papers?: Paper[]; asks?: Ask[] }> : null))
+      .then((r) => (r.ok ? r.json() as Promise<{ papers?: Paper[]; asks?: Ask[]; editions?: Edition[] }> : null))
       .then((j) => {
-        if (j?.papers) { setPapers(j.papers); setAsks(j.asks ?? []); setFailed(false); }
+        if (j?.papers) { setPapers(j.papers); setAsks(j.asks ?? []); setEditions(Array.isArray(j.editions) ? j.editions : []); setFailed(false); }
         else setFailed(true);
         setReady(true);
       })
       .catch(() => { if (!ac.signal.aborted) { setFailed(true); setReady(true); } });
     return () => ac.abort();
-  }, [tick, attempt]);
+  }, [tick, attempt, hourMark]);
 
   const shown = useMemo(
-    () => papers.filter((p) => filter === "papers" || p.tags.includes(filter)),
+    () => gather(papers.filter((p) => filter === "papers" || filter === "all" || p.tags.includes(filter))),
     [papers, filter],
   );
   const byId = useMemo(() => new Map(papers.map((p) => [p.eventId, p])), [papers]);
@@ -157,6 +241,7 @@ export default function WireApp() {
     const result = await go({ kind: "press", request: ask.request, stance, text });
     if (result.ok) setSaidLocal((cur) => ({ ...cur, [ask.eventId]: { stance, text } }));
   };
+  const onPapers = filter === "papers";
 
   return (
     <div className={`sim-wire${phone ? " q-phone" : ""}`} data-testid="wire">
@@ -178,12 +263,27 @@ export default function WireApp() {
         return line ? <p className="paper-said" id={askId(ask.request)} key={`said-${ask.eventId}`} data-testid="press-said">{line}</p> : null;
       })}
       {!ready ? <p className="quay-state" role="status">Reading the papers…</p> : null}
-      {ready && failed && !shown.length ? (
+      {ready && failed && !papers.length ? (
         <p className="quay-state" data-kind="error" role="alert">
           The wire did not answer. <button type="button" className="name-link" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </p>
       ) : null}
-      {shown.length ? shown.map((paper) => {
+      {onPapers && ready && !failed ? (
+        editions.length ? editions.map((ed) => <EditionView key={ed.id} ed={ed} today={today} open={open} why={why} onWhy={onOpen} />)
+          : <p className="quay-empty" data-testid="wire-no-edition">The Daily Herald comes out at 07:00 and the Evening Gazette at 18:00. Until then, the wire.</p>
+      ) : null}
+      {onPapers && editions.length ? null : shown.length ? shown.map((item) => {
+        if (item.kind === "launches") {
+          const names = item.coins.slice(0, 4).map((c) => `${c.name} (${c.symbol})`).join(", ");
+          const more = item.coins.length > 4 ? ` and ${item.coins.length - 4} more` : "";
+          return (
+            <article key={item.key} className="paper paper-launches" data-testid="wire-launchpad">
+              <p className="paper-marks"><span className="paper-mark">Launchpad</span><span className="num">{dayText(item.day, today)}</span></p>
+              <p className="paper-body">{item.coins.length === 1 ? `A new coin: ${names}.` : `${item.coins.length} new coins: ${names}${more}.`}</p>
+            </article>
+          );
+        }
+        const paper = item.paper;
         const corrected = paper.corrects >= 0 ? byId.get(paper.corrects) : undefined;
         return (
           <article key={paper.eventId} className="paper" data-testid="wire-item" data-rumour={paper.rumour ? "1" : "0"} data-correction={paper.correction ? "1" : "0"} data-roundup={paper.roundup ? "1" : "0"}>
@@ -198,15 +298,15 @@ export default function WireApp() {
               {paper.correction ? <span className="paper-mark" data-kind="correction">Correction</span> : null}
               {paper.roundup ? <span className="paper-mark" data-kind="roundup">Roundup</span> : null}
               {paper.beat ? <span>{beatWord(paper.beat)}</span> : null}
-              <span className="num">{gameDate(paper.day)}</span>
+              <span className="num">{dayText(paper.day, today)}</span>
             </p>
             {paper.roundup ? (
               <details className="paper-fold" data-testid="wire-roundup">
-                <summary>{presentNote(paper.text).slice(0, 80)}{presentNote(paper.text).length > 80 ? "…" : ""}</summary>
-                <p className="paper-body">{presentNote(paper.text)}</p>
+                <summary>{noYear(presentNote(paper.text), today).slice(0, 80)}{presentNote(paper.text).length > 80 ? "…" : ""}</summary>
+                <p className="paper-body">{noYear(presentNote(paper.text), today)}</p>
               </details>
             ) : (
-              <p className="paper-body">{presentNote(paper.text)}</p>
+              <p className="paper-body">{noYear(presentNote(paper.text), today)}</p>
             )}
             {paper.journalist ? (
               <p className="paper-byline">
@@ -232,7 +332,7 @@ export default function WireApp() {
             ) : null}
           </article>
         );
-      }) : ready && !failed ? <p className="quay-empty">Nothing in the papers on {LABEL[filter].toLowerCase()} yet.</p> : null}
+      }) : ready && !failed && !(onPapers && editions.length) ? <p className="quay-empty">Nothing in the papers on {LABEL[filter].toLowerCase()} yet.</p> : null}
     </div>
   );
 }

@@ -115,7 +115,19 @@ export const createShellStore = (channels: Channels) =>
           && next.sticky.size === prev.sticky.size && [...next.sticky].every((id) => prev.sticky.has(id));
         if (same) set({ liveNw: nw }); else reevaluate(prev.channels, nw);
       },
-      setViewport(vw, vh) { set({ vw, vh }); },
+      setViewport(vw, vh) {
+        const s = get();
+        // A desk resized from one desktop size to another keeps its arrangement: every window scales with the work area,
+        // so a tiled desk stays tiled instead of piling up against the right edge.
+        if (s.booted && (vw !== s.vw || vh !== s.vh) && wm.viewportOf(vw) === "desktop" && wm.viewportOf(s.vw) === "desktop" && s.local.windows.length) {
+          const from = wm.workArea(s.vw, s.vh, s.local.focusMode);
+          const to = wm.workArea(vw, vh, s.local.focusMode);
+          set({ vw, vh });
+          setWindows(wm.scaleWindows(s.local.windows, from, to));
+          return;
+        }
+        set({ vw, vh });
+      },
       bannerH: 0,
       setBannerH(h) { if (get().bannerH !== h) set({ bannerH: h }); },
       consentH: 0,
@@ -130,7 +142,11 @@ export const createShellStore = (channels: Channels) =>
         setWindows(r.windows, { activeWorkspace: 1 });
       },
       // TODO(17A T4): ask before closing a window with unsent ticket input (trigger: ticket input exists).
-      close(w) { setWindows(wm.closeWin(get().local.windows, w)); },
+      close(w) {
+        // On the desktop the neighbours of a closed window grow back into its room.
+        const desk = wm.viewportOf(get().vw) === "desktop";
+        setWindows(desk ? wm.closeAndReflow(get().local.windows, w, area()) : wm.closeWin(get().local.windows, w));
+      },
       focus(w) { setWindows(wm.bringToFront(get().local.windows, w)); },
       snap(w, slot) { setWindows(wm.snapWin(get().local.windows, w, slot, area())); },
       resize(w, width, height) { const s = get(); setWindows(wm.resizeWin(s.local.windows, w, width, height, wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH, s.consentH))); },

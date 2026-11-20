@@ -33,7 +33,7 @@ const SCENARIO_APPS: Record<string, AppId[]> = {
   "property-developer": ["property", "portfolio", "bank"],
   activist: ["broker", "markets", "businesses"],
   sandbox: ["portfolio", "broker", "wire"],
-  arrival: ["city", "portfolio", "broker"],
+  arrival: ["broker", "wire", "portfolio"],
 };
 
 /** The new life is not a challenge: it has no card of its own on the Challenges page. */
@@ -61,6 +61,11 @@ export function arrangeScenario(store: ShellStore, id?: string): void {
   let guard = 0;
   while (store.getState().local.windows.length && guard++ < 12) {
     store.getState().close(store.getState().local.windows[0]);
+  }
+  // A new life opens on the trading desk: the Broker wide on the left, the Wire above the Portfolio on the right.
+  if (id === "arrival") {
+    store.getState().layout("trade");
+    if (store.getState().local.windows.length) return;
   }
   const primary = open[0];
   const rest = open.slice(1);
@@ -139,8 +144,39 @@ function Lines({ lines }: { lines: DriftLine[] }) {
   );
 }
 
+type LiveQuote = { name?: string; px: number; prev: number };
+const SHARE_LINE = /^(.+?) (?:trades at|is (?:up|down) [\d.]+% at) \$[\d,]+\.\d{2} a share\.$/;
+
+/**
+ * The title's exchange lines quote the same prices as the desk: each is rewritten from the open world's quotes, and a
+ * line whose price the desk cannot confirm (an older world's portrait) is left out.
+ */
+const NO_LINES: DriftLine[] = [];
+function useLiveLines(given: DriftLine[] | undefined): DriftLine[] {
+  const lines = given ?? NO_LINES;
+  const [quotes, setQuotes] = useState<LiveQuote[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void fetch("/api/sim/view", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() as Promise<{ quotes?: LiveQuote[] }> : null))
+      .then((v) => { if (live) setQuotes(Array.isArray(v?.quotes) ? v.quotes : []); })
+      .catch(() => { if (live) setQuotes([]); });
+    return () => { live = false; };
+  }, []);
+  return useMemo(() => lines.flatMap((line) => {
+    const m = line.k === "exchange" ? SHARE_LINE.exec(line.text) : null;
+    if (!m) return [line];
+    const q = quotes?.find((x) => x.name === m[1]);
+    if (!q || !(q.px > 0)) return [];
+    const ch = q.prev > 0 ? (q.px / q.prev - 1) * 100 : 0;
+    const move = Math.abs(ch) < 0.05 ? "trades at" : ch > 0 ? `is up ${ch.toFixed(1)}% at` : `is down ${Math.abs(ch).toFixed(1)}% at`;
+    return [{ ...line, text: `${m[1]} ${move} ${money(q.px)} a share.` }];
+  }), [lines, quotes]);
+}
+
 function Night({ title, onPage }: { title: TitleData | null; onPage: (p: Page) => void }) {
   const last = title?.last ?? null;
+  const live = useLiveLines(title?.lines);
   return (
     <div className="qy-night">
       <div className="qy-copy">
@@ -163,7 +199,7 @@ function Night({ title, onPage }: { title: TitleData | null; onPage: (p: Page) =
           <button type="button" data-testid="sim-challenges" onClick={() => onPage("challenges")}>Challenges</button>
         </p>
       </div>
-      {title?.scene ? <NightScene scene={title.scene} lines={title.lines ?? []} /> : <Lines lines={title?.lines ?? []} />}
+      {title?.scene ? <NightScene scene={title.scene} lines={live} /> : <Lines lines={live} />}
     </div>
   );
 }

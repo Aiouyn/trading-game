@@ -21,6 +21,7 @@ import { isSectionId, settingsNav } from "@/apps/settings/sections";
 import { Arrival, FirstStep, TitleScreen, applySound, arrangeScenario, useArrivalPending, useSavedClock } from "./TitleScreen";
 import { KeySheet } from "./KeySheet";
 import { Launcher } from "./Launcher";
+import { AllApps } from "./AllApps";
 import { PhoneHome } from "./PhoneHome";
 import { Recent } from "./Recent";
 import { ShellCtx, useShell, useShellStore } from "./ShellContext";
@@ -106,6 +107,7 @@ function Surface({ query }: { query: string }) {
       {!phone && <LoadState />}
       <SystemOverlays />
       {launcherOpen && <Launcher />}
+      <AllApps />
       {recentOpen && <Recent />}
       {keySheetOpen && <KeySheet />}
       {sheet && (
@@ -195,8 +197,11 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
         }
         // A new account, or a desk saved with every window closed, starts in the Trade layout (17 §3.2.5), desktop only.
         const empty = !saved || !(saved.windows?.length);
-        if (empty && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
+        // A deep link (the address bar keeps the last app) still opens over the Trade layout, never on a bare desk.
+        if (empty && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
         store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
+        // What the desk holds now is saved at once: a layout made before the subscription must survive a reload.
+        void queueSave(ACCOUNT, store.getState().local).catch(() => {});
       }, () => {});
     })();
     void docBoot.then(() => { if (live) deepLink(); });

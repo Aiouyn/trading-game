@@ -50,7 +50,7 @@ export function WindowFrame({ win, z, active, rect, movable, background }: Props
       <div className="titlebar" onDoubleClick={(e) => { if (movable && !(e.target as HTMLElement).closest("button")) store.getState().snap(win, "FILL"); }} onPointerDown={(e) => start(e, "move")} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}>
         <span className="tb-glyph"><Glyph name={win.app} size={15} /></span>
         <span className="tb-name" id={titleId}>{APP_NAMES[win.app]}</span>
-        {win.context && <span className="tb-context">{win.context}</span>}
+        {contextLabel(win.context) && <span className="tb-context">{contextLabel(win.context)}</span>}
         <span className="tb-controls">
           <button aria-label={S.collapse} onClick={() => store.getState().toggleCollapse(win)}><Glyph name="collapse" size={14} /></button>
           <button aria-label={win.snap === "FILL" ? "Restore" : S.fill} title={win.snap === "FILL" ? "Restore" : S.fill} onClick={() => store.getState().snap(win, "FILL")}><Glyph name="fill" size={14} /></button>
@@ -67,4 +67,10 @@ export function WindowFrame({ win, z, active, rect, movable, background }: Props
       ))}
     </div>
   );
+}
+
+/** A window's context in its title only when a player can read it (a ticker, "Journal"); internal ids never show. */
+function contextLabel(context?: string): string | null {
+  if (!context) return null;
+  return /^[A-Z][A-Za-z0-9 ._&'-]{0,30}$/.test(context) && !/^(EQ|FRM|COIN)[_:]/i.test(context) ? context : null;
 }

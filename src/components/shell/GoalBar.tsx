@@ -42,7 +42,8 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
   }, [pin, store, stepKey, gone, sc?.goal, sc?.timeLeft, prose, result?.text]);
   if (!sc) return null;
   // A new life has no goal, no clock and no score to show. Only a family request can still reach the desk here.
-  if (sc.id === ARRIVAL) return <div className="goal-quiet" ref={bar}><FamilyInterrupt float={pin} /></div>;
+  // On the desktop, invitations and loans wait in the requests panel opened from the strip; the phone lists them here.
+  if (sc.id === ARRIVAL) return <div className="goal-quiet" ref={bar}>{pin ? null : <FamilyInterrupt />}</div>;
   const ended = sc.outcome === "win" || sc.outcome === "loss";
   const progress = Math.max(0, sc.progress ?? 0);
   const width = Math.max(0, Math.min(1, progress));
@@ -109,7 +110,7 @@ export function GoalBar({ pin = false }: { pin?: boolean }) {
         </div>
       ) : null}
       {result ? <p className="goal-result" data-ok={result.ok ? "1" : "0"} data-testid="lesson-result">{presentNote(result.text)}</p> : null}
-      <FamilyInterrupt float={pin} />
+      {pin ? null : <FamilyInterrupt />}
     </div>
   );
 }

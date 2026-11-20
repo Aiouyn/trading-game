@@ -1,15 +1,18 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/Button";
 import { MoneyText } from "./MoneyText";
 import {
-  actLine, clearNote, dollars, explain, leaveGame, setSpeed, startScenario, useSimSnap,
+  actLine, clearNote, dollars, explain, leaveGame, startScenario, useSimSnap,
   type ActNote, type ExplainLine, type PauseAction,
 } from "@/shell/simSession";
-import { presentNote, seedDebug } from "@/components/ui/format";
-import { closeNotes, useNotesOpen } from "./flowState";
+import { gameDate, presentNote, seedDebug } from "@/components/ui/format";
+import { closeNotes, toggleNotes, useNotesOpen } from "./flowState";
+import { bellRows, markBellSeen, worldKey } from "./bell";
+import { useLife } from "@/apps/profile/data";
+import "./desk.css";
 import { ResultPanel, isResult } from "./ResultPanel";
-import { CircleChrome, RequestInterrupt } from "@/apps/messages/notices";
+import { CircleChrome, RequestsPanel } from "@/apps/messages/notices";
 
 const QUARTER = ["", "A quarter of the way", "Halfway", "Three quarters of the way", "The goal is met"];
 
@@ -44,9 +47,9 @@ function QuarterToasts() {
   }, [sc]);
   if (!toasts.length) return null;
   return (
-    <div className="goal-toasts" aria-live="polite">
+    <div className="toast-group" aria-live="polite">
       {toasts.map((t) => (
-        <p key={t.id} className="goal-toast" data-testid="goal-toast" title={t.meter}>{QUARTER[t.q]}</p>
+        <p key={t.id} className="toast" data-testid="goal-toast" title={t.meter}>{QUARTER[t.q]}</p>
       ))}
     </div>
   );
@@ -79,7 +82,31 @@ function WhyChain({ eventId }: { eventId: number }) {
   );
 }
 
-function Interrupt({ why, text, eventId, actions }: { why: string; text?: string; eventId: number; actions?: PauseAction[] }) {
+// A card the player has closed never comes back for the same event, across reloads.
+const SEEN_KEY = "quay.seenPause";
+let seenPause: Set<string> | null = null;
+const seenSubs = new Set<() => void>();
+function seenSet(): Set<string> {
+  if (seenPause) return seenPause;
+  try { seenPause = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) ?? "[]") as string[]); } catch { seenPause = new Set(); }
+  return seenPause;
+}
+function markPauseSeen(key: string) {
+  const next = new Set(seenSet());
+  next.add(key);
+  seenPause = next;
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...next].slice(-200))); } catch { /* this sitting only */ }
+  seenSubs.forEach((f) => f());
+}
+function usePauseSeen(key: string): boolean {
+  return useSyncExternalStore(
+    (f) => { seenSubs.add(f); return () => seenSubs.delete(f); },
+    () => (key ? seenSet().has(key) : false),
+    () => false,
+  );
+}
+
+function Interrupt({ why, text, eventId, actions, onClose }: { why: string; text?: string; eventId: number; actions?: PauseAction[]; onClose: () => void }) {
   const [result, setResult] = useState<ActNote | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
@@ -96,13 +123,10 @@ function Interrupt({ why, text, eventId, actions }: { why: string; text?: string
     setBusy(false);
     setPending(null);
   };
-  const carry = async () => {
-    setBusy(true);
-    setPending("carry");
+  // Closing the card leaves the clock as it is: the strip says it is paused and the player picks the speed.
+  const carry = () => {
     clearNote();
-    await setSpeed("x1");
-    setBusy(false);
-    setPending(null);
+    onClose();
   };
   return (
     <div className="flow-modal" role="presentation">
@@ -122,7 +146,7 @@ function Interrupt({ why, text, eventId, actions }: { why: string; text?: string
           {list.map((a, i) => (
             <Button key={a.line} variant={i === 0 ? "primary" : "secondary"} disabled={busy} onClick={() => void run(a.line)}>{busy && pending === a.line ? "Sending…" : a.label}</Button>
           ))}
-          <Button variant={list.length === 0 ? "primary" : "secondary"} disabled={busy} onClick={() => void carry()}>{busy && pending === "carry" ? "Sending…" : "Carry on"}</Button>
+          <Button variant={list.length === 0 ? "primary" : "secondary"} disabled={busy} data-testid="interrupt-close" onClick={carry}>Close</Button>
         </div>
       </div>
     </div>
@@ -192,29 +216,49 @@ function EndScreen({ id, name, outcome, reason, score, code, lines }: {
 
 function Notes() {
   const open = useNotesOpen();
-  const feed = useSimSnap().view?.feed ?? [];
+  const view = useSimSnap().view;
+  const { life } = useLife();
+  const rows = useMemo(() => bellRows(view, life), [view, life]);
+  const world = worldKey(view);
   const [why, setWhy] = useState<{ id: number; lines: ExplainLine[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const newest = rows[0]?.at ?? -1;
+  useEffect(() => { if (open && world && newest >= 0) markBellSeen(world, newest); }, [open, world, newest]);
   if (!open) return null;
-  const rows = [...feed].reverse();
+  const run = (line: string) => {
+    if (busy) return;
+    setBusy(true);
+    void actLine(line).finally(() => setBusy(false));
+  };
   return (
     <aside className="notes-panel" data-testid="notes-panel" role="dialog" aria-label="Notices">
       <header>
-        <span className="label">Notices</span>
+        <span className="label">What happened to you</span>
         <button type="button" className="goal-dismiss" onClick={() => closeNotes()}>Close</button>
       </header>
-      {rows.length === 0 ? <p className="muted">Nothing has reached you yet.</p> : null}
+      {rows.length === 0 ? <p className="muted" data-testid="notes-empty">Nothing has happened to you yet. Answers, letters, invitations, fills and rent will show here.</p> : null}
       <ul>
-        {rows.map((line, i) => (
-          <li key={`${line.eventId}-${i}`}>
-            <p>{line.text}</p>
-            <button type="button" className="goal-dismiss" onClick={() => {
-              void explain(line.eventId).then((lines) => setWhy({ id: line.eventId, lines }));
-            }}>Why</button>
-            {why && why.id === line.eventId ? (
+        {rows.map((row) => (
+          <li key={row.key} data-testid="notes-row">
+            <p className="notes-when muted">{dayWord(row.day, view?.date.abs ?? row.day)}</p>
+            <p className="notes-title">{presentNote(row.title)}</p>
+            {row.body ? <p className="notes-body">{presentNote(row.body)}</p> : null}
+            {row.reason ? <p className="notes-reason muted">Why: {presentNote(row.reason)}</p> : null}
+            <div className="notes-acts">
+              {row.actions.map((a) => (
+                <button key={a.line} type="button" className="goal-dismiss" disabled={busy} onClick={() => run(a.line)}>{a.label}</button>
+              ))}
+              {row.eventId >= 0 ? (
+                <button type="button" className="goal-dismiss" onClick={() => {
+                  void explain(row.eventId).then((lines) => setWhy({ id: row.eventId, lines }));
+                }}>What led to this</button>
+              ) : null}
+            </div>
+            {why && why.id === row.eventId ? (
               <div className="notes-why">
                 {why.lines.length === 0 ? <p className="muted">The book has no earlier cause.</p> : null}
-                {why.lines.map((l, n) => (
-                  <p key={`${l.id}-${n}`} style={{ paddingLeft: l.depth * 12 }}>{l.name ? `${l.name}. ` : ""}{l.msg}</p>
+                {why.lines.filter((l) => !seedDebug(l.msg)).map((l, n) => (
+                  <p key={`${l.id}-${n}`} style={{ paddingLeft: l.depth * 12 }}>{l.name ? `${l.name}. ` : ""}{presentNote(l.msg)}</p>
                 ))}
               </div>
             ) : null}
@@ -225,42 +269,110 @@ function Notes() {
   );
 }
 
-function NoteToast() {
+function dayWord(day: number, today: number): string {
+  if (day === today) return "Today";
+  if (day === today - 1) return "Yesterday";
+  return gameDate(day).replace(/, year \d+$/, "");
+}
+
+/** New notices (an answer, a letter, an offer, rent due) raise a short toast; the bell keeps them. */
+function BellToasts() {
+  const view = useSimSnap().view;
+  const { life } = useLife();
+  const rows = useMemo(() => bellRows(view, life), [view, life]);
+  const world = worldKey(view);
+  const known = useRef<{ world: string; keys: Set<string> } | null>(null);
+  const [toasts, setToasts] = useState<{ key: string; text: string }[]>([]);
+  useEffect(() => {
+    if (!world) return;
+    if (!known.current || known.current.world !== world) {
+      known.current = { world, keys: new Set(rows.map((r) => r.key)) };
+      return;
+    }
+    const fresh = rows.filter((r) => !known.current!.keys.has(r.key) && r.key.startsWith("n:"));
+    for (const r of rows) known.current.keys.add(r.key);
+    if (!fresh.length) return;
+    const add = fresh.slice(0, 2).map((r) => ({ key: r.key, text: presentNote(r.title) }));
+    setToasts((cur) => [...cur, ...add].slice(-3));
+    const keys = new Set(add.map((a) => a.key));
+    window.setTimeout(() => setToasts((cur) => cur.filter((t) => !keys.has(t.key))), 6000);
+  }, [rows, world]);
+  if (!toasts.length) return null;
+  return (
+    <div className="toast-group" aria-live="polite">
+      {toasts.map((t) => (
+        <button key={t.key} type="button" className="toast" data-testid="bell-toast" title={t.text} onClick={() => { setToasts((cur) => cur.filter((x) => x.key !== t.key)); toggleNotes(); }}>
+          {t.text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NoteToast({ blocked }: { blocked: boolean }) {
   const note = useSimSnap().note;
-  const paused = !!useSimSnap().view?.pause;
   const [shown, setShown] = useState<ActNote | null>(null);
   useEffect(() => {
-    if (!note || paused) return;
+    // An app shows its own answer in its window; only a typed command or the shell itself speaks here.
+    if (!note || blocked || note.app) return;
     setShown(note);
     if (isResult(note)) return;
-    const t = window.setTimeout(() => setShown((cur) => (cur === note ? null : cur)), 6000);
+    const t = window.setTimeout(() => setShown((cur) => (cur === note ? null : cur)), 5000);
     return () => window.clearTimeout(t);
-  }, [note, paused]);
-  if (!shown || paused) return null;
+  }, [note, blocked]);
+  if (!shown || blocked) return null;
   const close = () => { setShown(null); clearNote(); };
   if (isResult(shown)) return <ResultPanel note={shown} onClose={close} />;
   const text = presentNote(shown.text);
   if (!text) return null;
   return (
-    <div className="note-toast" role="status" data-testid="note-toast">
-      <p className="note-toast-text">{text}</p>
-      <button type="button" className="note-toast-close" aria-label="Close" onClick={close}>Close</button>
+    <div className="toast-group">
+      <div className="toast note-toast" role="status" data-testid="note-toast" title={text}>
+        <p className="note-toast-text">{text}</p>
+        <button type="button" className="note-toast-close" aria-label="Close" onClick={close}>Close</button>
+      </div>
     </div>
   );
 }
 
-/** Interrupts, the end of a run, quarter toasts, and the notices list. */
+/** Keeps the toast corner clear of the dock's tools. */
+function useToastCorner() {
+  useEffect(() => {
+    const place = () => {
+      const tools = document.querySelector<HTMLElement>("[data-testid=shelf-tools]");
+      const right = tools ? Math.round(window.innerWidth - tools.getBoundingClientRect().left + 12) : 16;
+      document.documentElement.style.setProperty("--toast-right", `${right}px`);
+    };
+    place();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    const tools = document.querySelector<HTMLElement>("[data-testid=shelf-tools]");
+    if (tools && ro) ro.observe(tools);
+    window.addEventListener("resize", place);
+    const t = window.setInterval(place, 3000);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", place); window.clearInterval(t); };
+  }, []);
+}
+
+/** Interrupts, the end of a run, the toasts, and the notices list. */
 export function GameFlow() {
   const view = useSimSnap().view;
   const sc = view?.scenario;
   const pause = view?.pause;
   const ended = sc?.outcome === "win" || sc?.outcome === "loss";
+  const pauseKey = pause ? `${worldKey(view)}:${pause.eventId}` : "";
+  const seen = usePauseSeen(pauseKey);
+  const showPause = !!pause && !seen;
+  useToastCorner();
   return (
     <>
-      <QuarterToasts />
-      <CircleChrome />
+      <div className="toast-stack" data-testid="toast-stack">
+        <QuarterToasts />
+        <CircleChrome />
+        <BellToasts />
+        {showPause ? null : <NoteToast blocked={false} />}
+      </div>
       <Notes />
-      <NoteToast />
+      <RequestsPanel />
       {ended && sc ? (
         <EndScreen
           id={sc.id}
@@ -271,11 +383,9 @@ export function GameFlow() {
           code={sc.code}
           lines={sc.lines}
         />
-      ) : pause ? (
-        <Interrupt key={pause.eventId} why={pause.why} text={pause.text} eventId={pause.eventId} actions={pause.actions} />
-      ) : (
-        <RequestInterrupt />
-      )}
+      ) : pause && showPause ? (
+        <Interrupt key={pause.eventId} why={pause.why} text={pause.text} eventId={pause.eventId} actions={pause.actions} onClose={() => markPauseSeen(pauseKey)} />
+      ) : null}
     </>
   );
 }

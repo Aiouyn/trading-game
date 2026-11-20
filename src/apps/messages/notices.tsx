@@ -1,15 +1,15 @@
 "use client";
-// New letters: a toast and a dock count. A family loan is the only ask that interrupts the top bar.
+// New letters: a toast and a dock count. Invitations and loans wait in their own panel, opened from the strip.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useShellStore } from "@/components/shell/ShellContext";
 import { useLife } from "@/apps/profile/data";
 import { Button } from "@/components/ui/Button";
 import {
-  askButtons, askTitle, commandFor, deadlineWord, familyTrouble, isClose, isRivalMove, moneyLabel, pausesClock, readCircle, slotOf, waitingOn,
+  askButtons, askTitle, commandFor, deadlineWord, familyTrouble, isClose, isRivalMove, moneyLabel, readCircle, slotOf, waitingOn,
   type CircleAsk, type CircleSnap,
 } from "./circle";
-import { setSpeed, useSimSnap } from "@/shell/simSession";
-import { clipWords } from "@/apps/diary/read";
+import { clipWords, kindWord, parsePlans, type DiaryPlan } from "@/apps/diary/read";
+import { gameDate } from "@/components/ui/format";
 import { LaunchBadge } from "@/apps/launchpad/notes";
 import "./messages.css";
 
@@ -160,13 +160,14 @@ export function CircleChrome() {
   useEffect(() => { ingestCircle(life); }, [life]);
   if (!toasts.length) return null;
   return (
-    <div className="goal-toasts circle-toasts" aria-live="polite">
+    <div className="toast-group" aria-live="polite">
       {toasts.map((t) => (
         <button
           key={t.id}
           type="button"
-          className="goal-toast"
+          className="toast"
           data-testid="circle-toast"
+          title={t.text}
           onClick={() => store.getState().open("messages", t.who >= 0 ? `who:${t.who}` : undefined)}
         >
           {t.text}
@@ -174,18 +175,6 @@ export function CircleChrome() {
       ))}
     </div>
   );
-}
-
-const released = new Set<number>();
-let wePaused = 0;
-let sawAbs = -1;
-
-function noteDay(abs: number) {
-  if (sawAbs >= 0 && abs + 1 < sawAbs) {
-    released.clear();
-    wePaused = 0;
-  }
-  sawAbs = abs;
 }
 
 function lineOf(snap: CircleSnap, ask: CircleAsk): string {
@@ -200,42 +189,38 @@ function fullLine(snap: CircleSnap, ask: CircleAsk): string {
   return (letter?.text || ask.note || `${ask.name} is waiting on an answer`).replace(/\s+/g, " ");
 }
 
-/** Invitations and loan requests, with the day they lapse, over the desk (phone: on the top bar). */
-export function WaitingRequests({ float = false }: { float?: boolean }) {
+/** Invitations and loan requests with the day they lapse, as a bar (the phone's top bar). */
+export function WaitingRequests() {
   const { life, run } = useLife();
   const store = useShellStore();
   const [busy, setBusy] = useState<string | null>(null);
-  const [later, setLater] = useState<ReadonlySet<number>>(new Set());
   const snap = readCircle(life);
   if (!snap) return null;
-  // Floating on the desk, a request sits over the windows and never moves them. "Later" hides it until the page reloads.
-  const asks = waitingOn(snap).filter((a) => !float || !later.has(a.id));
+  const asks = waitingOn(snap);
   if (!asks.length) return null;
   const go = (ask: CircleAsk, yes: boolean) => {
     if (busy) return;
-    const key = `${ask.id}:${yes ? "yes" : "no"}`;
-    setBusy(key);
+    setBusy(`${ask.id}:${yes ? "yes" : "no"}`);
     const buttons = askButtons(ask);
     const button = buttons.find((b) => (yes ? b.kind !== "decline" : b.kind === "decline")) ?? buttons[buttons.length - 1];
     const slot = slotOf(snap.contacts, ask.from);
     void run(commandFor(ask, button, slot, ask.cents)).finally(() => setBusy(null));
   };
   return (
-    <div className={`waiting${float ? " waiting-float" : ""}`} data-testid="waiting-requests">
+    <div className="waiting" data-testid="waiting-requests">
       {asks.map((ask) => {
         const loan = ask.kind === "loan";
         return (
           <div className="goal-interrupt" key={ask.id} data-testid={loan && ask.role === "family" ? "family-interrupt" : "waiting-request"}>
             <button type="button" className="goal-interrupt-text" onClick={() => store.getState().open("messages", `who:${ask.from}`)}>
               <span className="label">{askTitle(ask)} · {deadlineWord(snap.abs, ask.due)}</span>
-              <span>{ask.name ? `${ask.name}. ` : ""}{float ? fullLine(snap, ask) : lineOf(snap, ask)}</span>
+              <span>{ask.name ? `${ask.name}. ` : ""}{lineOf(snap, ask)}</span>
             </button>
             <span className="goal-interrupt-acts">
               <Button variant="secondary" disabled={!!busy} data-testid={loan ? "interrupt-lend" : "interrupt-accept"} onClick={() => go(ask, true)}>
                 {loan ? `Lend ${moneyLabel(ask.cents)}` : "Accept"}
               </Button>
               <Button variant="secondary" disabled={!!busy} data-testid="interrupt-decline" onClick={() => go(ask, false)}>Decline</Button>
-              {float ? <Button variant="secondary" disabled={!!busy} data-testid="interrupt-later" onClick={() => setLater((cur) => new Set(cur).add(ask.id))}>Later</Button> : null}
             </span>
           </div>
         );
@@ -247,62 +232,105 @@ export function WaitingRequests({ float = false }: { float?: boolean }) {
 /** FamilyInterrupt was the family-loan bar. The bar now lists every invitation and loan. */
 export const FamilyInterrupt = WaitingRequests;
 
-/**
- * A family or close-friend request pauses the clock the way a margin call does.
- * Carry on resumes. Answering the request does too.
- */
-export function RequestInterrupt() {
-  const { life, run } = useLife();
-  const mode = useSimSnap().mode;
-  const view = useSimSnap().view;
-  const [busy, setBusy] = useState(false);
-  const [tick, setTick] = useState(0);
+// The requests panel is opened from the strip; a tiny store keeps the button and the panel apart.
+let reqOpen = false;
+const reqSubs = new Set<() => void>();
+export function toggleRequests(v?: boolean): void {
+  const next = v ?? !reqOpen;
+  if (next === reqOpen) return;
+  reqOpen = next;
+  reqSubs.forEach((f) => f());
+}
+function useRequestsOpen(): boolean {
+  return useSyncExternalStore((f) => { reqSubs.add(f); return () => reqSubs.delete(f); }, () => reqOpen, () => false);
+}
+
+/** Who else will be there, from the plan behind an invitation. */
+function guests(plan: DiaryPlan | undefined, ask: CircleAsk): string[] {
+  const names = (plan?.who ?? []).filter((w) => !w.self && w.name).map((w) => w.name);
+  if (ask.name && !names.includes(ask.name)) names.unshift(ask.name);
+  if (ask.otherName && !names.includes(ask.otherName)) names.push(ask.otherName);
+  return names;
+}
+
+function whatItIs(ask: CircleAsk, plan: DiaryPlan | undefined): string {
+  if (ask.kind === "loan") return `${ask.name || "Someone"} asks to borrow ${moneyLabel(ask.cents)}`;
+  const kind = plan ? kindWord(plan.kind) : askTitle(ask).replace(/^A /, "");
+  const where = plan?.place || ask.place;
+  const host = ask.name ? `${ask.name} invites you` : "An invitation";
+  return `${host}: ${kind.toLowerCase()}${where && !/^(dinner|gala|club)$/i.test(where) ? ` at ${where}` : ""}`;
+}
+
+function costLine(ask: CircleAsk, plan: DiaryPlan | undefined): string {
+  if (ask.kind === "loan") return `You lend ${moneyLabel(ask.cents)}`;
+  if (plan?.cost) return plan.cost;
+  return ask.cents > 0 ? `Your share is ${moneyLabel(ask.cents)}` : "It costs you nothing";
+}
+
+/** The count of waiting requests on the strip; it opens the requests panel. Nothing shows when nothing waits. */
+export function RequestsButton() {
+  const { life } = useLife();
   const snap = readCircle(life);
+  const n = snap ? waitingOn(snap).length : 0;
+  if (!n) return null;
+  return (
+    <button type="button" className="strip-requests" data-testid="requests-btn" onClick={() => toggleRequests()}>
+      {n === 1 ? "1 request" : `${n} requests`}
+    </button>
+  );
+}
+
+/** Invitations and loans, each saying what it is, who is there, what it costs and when it lapses. Opened by the player. */
+export function RequestsPanel() {
+  const open = useRequestsOpen();
+  const { life, run } = useLife();
+  const store = useShellStore();
+  const [busy, setBusy] = useState<string | null>(null);
+  const snap = readCircle(life);
+  const plans = parsePlans((life as { plans?: unknown } | null)?.plans);
   const asks = snap ? waitingOn(snap) : [];
-  if (snap) noteDay(snap.abs);
-  const hot = snap ? asks.find((a) => pausesClock(a, snap) && !released.has(a.id)) ?? null : null;
-  const hotId = hot?.id ?? 0;
-  const openIds = asks.map((a) => a.id).join(",");
-  useEffect(() => {
-    if (mode !== "play" || !hotId || view?.pause) return;
-    if (view?.speed === "pause") return;
-    wePaused = hotId;
-    void setSpeed("pause");
-  }, [hotId, mode, view?.pause, view?.speed]);
-  useEffect(() => {
-    if (!wePaused || openIds.split(",").includes(String(wePaused))) return;
-    const id = wePaused;
-    wePaused = 0;
-    released.add(id);
-    if (view?.speed === "pause" && !view.pause) void setSpeed("x1");
-  }, [openIds, view?.pause, view?.speed]);
-  if (mode !== "play" || view?.pause || !snap || !hot) return null;
-  const answer = (yes: boolean) => {
+  useEffect(() => { if (open && snap && !asks.length) toggleRequests(false); }, [open, snap, asks.length]);
+  if (!open || !snap) return null;
+  const go = (ask: CircleAsk, yes: boolean) => {
     if (busy) return;
-    setBusy(true);
-    const buttons = askButtons(hot);
+    setBusy(`${ask.id}:${yes ? "yes" : "no"}`);
+    const buttons = askButtons(ask);
     const button = buttons.find((b) => (yes ? b.kind !== "decline" : b.kind === "decline")) ?? buttons[buttons.length - 1];
-    const slot = slotOf(snap.contacts, hot.from);
-    void run(commandFor(hot, button, slot, hot.cents)).finally(() => setBusy(false));
-  };
-  const carry = () => {
-    released.add(hot.id);
-    if (wePaused === hot.id) wePaused = 0;
-    setTick((n) => n + 1);
-    void setSpeed("x1");
+    const slot = slotOf(snap.contacts, ask.from);
+    void run(commandFor(ask, button, slot, ask.cents)).finally(() => setBusy(null));
   };
   return (
-    <div className="flow-modal" role="presentation">
-      <div className="flow-card" role="dialog" aria-modal="true" aria-labelledby="request-title" data-testid="request-interrupt" data-rev={tick}>
-        <p className="label">{askTitle(hot)} · {deadlineWord(snap.abs, hot.due)}</p>
-        <h2 id="request-title">{hot.name || "Someone"} is waiting</h2>
-        <p className="flow-body">{lineOf(snap, hot)}</p>
-        <div className="flow-actions">
-          <Button variant="primary" disabled={busy} onClick={() => answer(true)}>{hot.kind === "loan" ? `Lend ${moneyLabel(hot.cents)}` : "Accept"}</Button>
-          <Button variant="secondary" disabled={busy} onClick={() => answer(false)}>Decline</Button>
-          <Button variant="secondary" disabled={busy} onClick={carry}>Carry on</Button>
-        </div>
-      </div>
-    </div>
+    <aside className="requests-panel" data-testid="requests-panel" role="dialog" aria-label="Requests">
+      <header>
+        <span className="label">Waiting on your answer</span>
+        <button type="button" className="goal-dismiss" onClick={() => toggleRequests(false)}>Close</button>
+      </header>
+      <ul>
+        {asks.map((ask) => {
+          const plan = plans.find((p) => (ask.id >= 0 && p.ask === ask.id) || (ask.msg >= 0 && p.msg === ask.msg));
+          const people = guests(plan, ask);
+          const loan = ask.kind === "loan";
+          return (
+            <li key={ask.id} data-testid="request-card">
+              <p className="label">{loan ? "A loan" : plan ? kindWord(plan.kind) : askTitle(ask)} · {deadlineWord(snap.abs, ask.due)}</p>
+              <h3>{whatItIs(ask, plan)}</h3>
+              <dl>
+                {plan && plan.day >= 0 ? <><dt>When</dt><dd>{gameDate(plan.day).replace(/, year \d+$/, "")}</dd></> : null}
+                {people.length ? <><dt>{loan ? "Who" : "Who is there"}</dt><dd>{people.join(", ")}</dd></> : null}
+                <dt>Cost</dt><dd>{costLine(ask, plan)}</dd>
+              </dl>
+              <p className="requests-letter">{clipWords(fullLine(snap, ask), 420)}</p>
+              <div className="requests-acts">
+                <Button variant="primary" size="sm" disabled={!!busy} data-testid={loan ? "request-lend" : "request-accept"} onClick={() => go(ask, true)}>
+                  {loan ? `Lend ${moneyLabel(ask.cents)}` : "Accept"}
+                </Button>
+                <Button variant="secondary" size="sm" disabled={!!busy} data-testid="request-decline" onClick={() => go(ask, false)}>Decline</Button>
+                <button type="button" className="goal-dismiss" onClick={() => { toggleRequests(false); store.getState().open("messages", `who:${ask.from}`); }}>Open the letter</button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </aside>
   );
 }

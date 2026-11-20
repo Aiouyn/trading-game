@@ -165,7 +165,9 @@ export function placeNew(windows: WindowRect[], fresh: WindowRect, a: Area): { w
       const r = { x, y, w: s.w, h: s.h };
       if (x + s.w > a.x + a.w || y + s.h > a.y + a.h) continue;
       if (taken.some((t) => overlaps(r, t))) continue;
-      const rect: WindowRect = { ...fresh, x: r.x, y: r.y, w: r.w, h: r.h };
+      // A smaller fit grows into the free room around it (up to its opening size), so it never opens narrow beside a gap.
+      const g = s === want ? r : growRect(r, taken, a, want);
+      const rect: WindowRect = { ...fresh, x: g.x, y: g.y, w: g.w, h: g.h };
       return { windows: [...windows, rect], focused: rect };
     }
   }
@@ -199,6 +201,45 @@ export function placeNew(windows: WindowRect[], fresh: WindowRect, a: Area): { w
   }
   const rect: WindowRect = { ...fresh, x: a.x, y: a.y, w: Math.min(a.w, want.w), h: Math.min(a.h, want.h) };
   return { windows: [...windows, rect], focused: rect };
+}
+
+/** Grow `r` right, then down, into free room (no overlap with `taken`, inside `a`), up to `max`. */
+function growRect(r: Area, taken: Area[], a: Area, max: { w: number; h: number }): Area {
+  const free = (q: Area) => q.x + q.w <= a.x + a.w && q.y + q.h <= a.y + a.h && !taken.some((t) => overlaps(q, t));
+  let out = { ...r };
+  const step = 8;
+  while (out.w + step <= max.w && free({ ...out, w: out.w + step })) out = { ...out, w: out.w + step };
+  while (out.h + step <= max.h && free({ ...out, h: out.h + step })) out = { ...out, h: out.h + step };
+  return out;
+}
+
+/**
+ * Close a window and let its neighbours grow back into the room it leaves. A window whose side touches the closed one,
+ * and whose span along that side lies within it, stretches across the gap; the others keep their place.
+ */
+export function closeAndReflow(windows: WindowRect[], closed: WindowRect, a: Area): WindowRect[] {
+  const rest = closeWin(windows, closed);
+  if (closed.workspace !== 1 || closed.collapsed) return rest;
+  const c = fitRect(closed, a);
+  const near = (p: number, q: number) => Math.abs(p - q) <= GUTTER + 4;
+  const within = (lo: number, hi: number, clo: number, chi: number) => lo >= clo - 4 && hi <= chi + 4;
+  let out = rest;
+  for (const w of rest) {
+    if (w.workspace !== 1 || w.collapsed || w.snap === "FILL") continue;
+    const cur = out.find((x) => sameWin(x, w));
+    if (!cur) continue;
+    const r = fitRect(cur, a);
+    let next: Area | null = null;
+    if (near(r.x + r.w + GUTTER, c.x) && within(r.y, r.y + r.h, c.y, c.y + c.h)) next = { ...r, w: c.x + c.w - r.x };
+    else if (near(c.x + c.w + GUTTER, r.x) && within(r.y, r.y + r.h, c.y, c.y + c.h)) next = { ...r, x: c.x, w: r.x + r.w - c.x };
+    else if (near(r.y + r.h + GUTTER, c.y) && within(r.x, r.x + r.w, c.x, c.x + c.w)) next = { ...r, h: c.y + c.h - r.y };
+    else if (near(c.y + c.h + GUTTER, r.y) && within(r.x, r.x + r.w, c.x, c.x + c.w)) next = { ...r, y: c.y, h: r.y + r.h - c.y };
+    if (!next) continue;
+    const others = out.filter((x) => !sameWin(x, w) && x.workspace === 1).map((x) => fitRect(x, a));
+    if (others.some((t) => overlaps(next!, t))) continue;
+    out = updateWin(out, w, { ...next, snap: null });
+  }
+  return out;
 }
 
 /** A grid of rows and columns over the work area for the open windows and the new one, or null when a minimum does not fit. */
@@ -357,4 +398,19 @@ export function fitRect(w: WindowRect, a: Area, full: Area = a, vw = a.x * 2 + a
   }
   r.y = Math.max(a.y, Math.min(r.y, a.y + a.h - r.h));
   return r;
+}
+
+/** Every window's rect moved and sized in proportion from work area `from` to `to`, never below its minimum. */
+export function scaleWindows(windows: WindowRect[], from: Area, to: Area): WindowRect[] {
+  if (from.w <= 0 || from.h <= 0) return windows;
+  const kx = to.w / from.w, ky = to.h / from.h;
+  return windows.map((w) => {
+    if (w.snap === "FILL") return w;
+    const m = minSize(w.app, to.w);
+    const x = Math.round(to.x + (w.x - from.x) * kx);
+    const y = Math.round(to.y + (w.y - from.y) * ky);
+    const width = Math.max(m.w, Math.round((w.x + w.w - from.x) * kx) - (x - to.x));
+    const height = Math.max(m.h, Math.round((w.y + w.h - from.y) * ky) - (y - to.y));
+    return { ...w, x, y, w: width, h: height };
+  });
 }

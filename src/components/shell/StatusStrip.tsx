@@ -17,6 +17,11 @@ import { FeedbackButton } from "./FeedbackButton";
 import { TimeControls } from "@/shell/TimeControls";
 import { CalendarChip } from "@/apps/society/chip";
 import { toggleNotes } from "./flowState";
+import { useMemo } from "react";
+import { useSimSnap } from "@/shell/simSession";
+import { useLife } from "@/apps/profile/data";
+import { RequestsButton } from "@/apps/messages/notices";
+import { bellRows, useBellSeen, worldKey } from "./bell";
 
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
@@ -36,8 +41,9 @@ export function StatusStrip() {
   const simDate = clock.sim;
   const { day, hhmm } = clockLabel(clock);
   const clockText = simDate ? (simDate.label ?? `Y${simDate.year} M${simDate.month} D${simDate.day}`) : clockStrings(locale).strip(day, hhmm);
+  // The simulation has no release number or rank code a player would read: the strip shows neither.
   const release = sim
-    ? `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`
+    ? null
     : signedIn
       ? `${S.quay} · ${auth.account.handle}`
       : pending
@@ -71,7 +77,8 @@ export function StatusStrip() {
         {sim ? <TimeControls /> : <TickRing tick={clock.tick} />}
         <HaltChip halted={sys.halted} />
         {nwChip}
-        {sim ? <button className="icon-btn" aria-label={S.bell} data-testid="notes-bell" onClick={() => toggleNotes()}><Glyph name="bell" size={17} /></button> : null}
+        {sim ? <RequestsButton /> : null}
+        {sim ? <BellButton /> : null}
         <Button data-testid="leave-focus" title="Focus mode hides the dock. Esc or Ctrl . also leaves it." onClick={() => store.getState().toggleFocusMode()}>Leave focus</Button>
       </header>
     );
@@ -101,9 +108,7 @@ export function StatusStrip() {
       <div className="strip-right">
         <HaltChip halted={sys.halted} />
         {me.protectionEndsRealMs !== null && <Chip data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</Chip>}
-        {sim ? (
-          <Chip tone="acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</Chip>
-        ) : pending ? (
+        {sim ? null : pending ? (
           <span className="auth-skel-chrome" data-testid="auth-skel-chrome" aria-hidden="true" />
         ) : signedIn ? (
           <button
@@ -134,8 +139,24 @@ export function StatusStrip() {
           <span className="muted" data-testid="strip-demo-tag">{HOME_EXAMPLE.en.tag}</span>
         ) : null}
         {!sim && <FeedbackButton />}
-        <button className="icon-btn" aria-label={S.bell} data-testid="notes-bell" onClick={sim ? () => toggleNotes() : undefined}><Glyph name="bell" size={17} /></button>
+        {sim ? <RequestsButton /> : null}
+        {sim ? <BellButton /> : <button className="icon-btn" aria-label={S.bell} data-testid="notes-bell"><Glyph name="bell" size={17} /></button>}
       </div>
     </header>
+  );
+}
+
+/** The bell, with the count of what happened to the player since they last opened it. */
+function BellButton() {
+  const view = useSimSnap().view;
+  const { life } = useLife();
+  const rows = useMemo(() => bellRows(view, life), [view, life]);
+  const seen = useBellSeen(worldKey(view));
+  const fresh = rows.filter((r) => r.at > seen).length;
+  return (
+    <button className="icon-btn strip-bell" aria-label={fresh ? `${S.bell}: ${fresh} new` : S.bell} data-testid="notes-bell" onClick={() => toggleNotes()}>
+      <Glyph name="bell" size={17} />
+      {fresh ? <span className="dock-badge strip-bell-count" data-testid="bell-count">{fresh > 9 ? "9+" : fresh}</span> : null}
+    </button>
   );
 }

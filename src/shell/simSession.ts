@@ -25,7 +25,7 @@ export interface Quote {
 }
 export interface Holding { instr: string; qty: number; px: number; eventId: number }
 export interface OrderRow { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; /** A stop (or the price of a standing limit) the desk holds: cents. */ stop?: number; mode?: "stop" | "limit"; /** a future's delivery month, as an absolute month number */ month?: number; eventId: number }
-export interface FeedLine { eventId: number; day: number; tag: string; text: string }
+export interface FeedLine { eventId: number; day: number; tag: string; text: string; min?: number }
 export interface PauseAction { label: string; line: string }
 export interface StoryBeat { title: string; text: string; cause: string }
 export interface ScenarioView {
@@ -177,7 +177,7 @@ export interface TitleData {
 }
 export type GateMode = "boot" | "menu" | "new" | "load" | "challenge" | "progress" | "play";
 export interface GenState { text: string; lines: string[]; error: string }
-export interface ActNote { ok: boolean; text: string; lines?: string[]; title?: string }
+export interface ActNote { ok: boolean; text: string; lines?: string[]; title?: string; /** Raised by an app, which shows it in its own window. */ app?: boolean }
 export interface SimCompany {
   id: string; name: string; good: string; sector: string; role: string;
   listed: boolean; workers: number; price: number; cash: number;
@@ -809,8 +809,7 @@ export function openGate(mode: GateMode) {
 export async function setSpeed(speed: SimView["speed"]): Promise<void> {
   if (!takeLock()) return;
   try {
-    const word = speed === "pause" ? "Paused." : speed === "month" ? "A month is passing." : speed === "week" ? "A week is passing." : speed === "day" ? "A day is passing." : `Time runs at ${speed}.`;
-    publish({ ...pending, note: { ok: true, text: word } });
+    // The strip shows the speed and the paused line; a change of speed raises no toast of its own.
     const { ok, data } = await post("speed", { speed });
     if (!ok) {
       publish({ ...pending, note: { ok: false, text: typeof data.error === "string" ? data.error : "The clock did not change, so try again." } });
@@ -819,7 +818,7 @@ export async function setSpeed(speed: SimView["speed"]): Promise<void> {
     const next = typeof data.speed === "string" && ["pause", "x1", "x2", "x5", "x10", "x25", "day", "week", "month"].includes(data.speed) ? (data.speed as SimView["speed"]) : speed;
     if (pending.view) {
       const view = adopt({ ...pending.view, speed: next, pause: next === "pause" ? pending.view.pause : null });
-      publish({ ...pending, view, note: next === "pause" && speed !== "pause" ? null : pending.note });
+      publish({ ...pending, view });
     }
   } finally { dropLock(); }
 }
@@ -844,21 +843,22 @@ function noteOf(ok: boolean, data: Record<string, unknown>): ActNote {
   return { ok: ok && data.status !== "rejected", text, lines };
 }
 
-async function commitAct(body: unknown): Promise<ActNote> {
+async function commitAct(body: unknown, app = false): Promise<ActNote> {
   const { ok, data } = await post("act", body);
   const loaded = asView(data.view);
   if (loaded) {
     const view = adopt(loaded);
     pending = { ...pending, view };
   }
-  const note = { ...noteOf(ok, data), title: titleOf(body) };
-  publish({ ...pending, note });
+  const note: ActNote = { ...noteOf(ok, data), title: titleOf(body) };
+  publish({ ...pending, note: app ? { ...note, app: true } : note });
   return note;
 }
 
+/** An app's own action: its window shows the answer, so the shell raises no toast for it. */
 export async function act(cmd: unknown): Promise<ActNote> {
   if (!takeLock()) return { ok: false, text: BUSY_NOTE };
-  try { return await commitAct(cmd); }
+  try { return await commitAct(cmd, true); }
   finally { dropLock(); }
 }
 

@@ -73,6 +73,7 @@
 .sim-time button[data-on="1"] { color: var(--on-acc); background: var(--acc); border-color: var(--acc); }
 .strip .sim-pause { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .sim-pause { color: var(--warn); font-size: 12px; white-space: nowrap; }
+.sim-paused-line { margin-left: 6px; color: var(--fg-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sim-time-phone { display: flex; justify-content: center; padding: 6px 12px 0; }
 @media (max-width: 767px) {
   .sim-time button { min-height: 44px; padding: 0 12px; }
