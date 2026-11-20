@@ -78,6 +78,8 @@ interface Social {
   free: number;
   personOf: Int32Array;
   firmById: Map<string, number>;
+  /** A seated player's regard when the circle is still too small for an average to move. */
+  repMark?: { who: number; delta: number; eventId: number; line: string };
   paper: number;
   insiderFact: Int32Array;
   facts: Fact[];
@@ -1021,9 +1023,15 @@ export function standingOf(w: World, person: number): Standing {
     n++;
     if (hit.score > bestScore) { bestScore = hit.score; best = who; }
   }
-  const score = Math.max(0, Math.min(100, Math.round(n ? sum / n : 40)));
-  const eventId = P.lastEv[person] >= 0 ? P.lastEv[person] : root;
-  const line = n && best >= 0 ? `${P.name(best)} keeps you in mind` : 'Few people have taken your measure';
+  let score = Math.max(0, Math.min(100, Math.round(n ? sum / n : 40)));
+  let eventId = P.lastEv[person] >= 0 ? P.lastEv[person] : root;
+  let line = n && best >= 0 ? `${P.name(best)} keeps you in mind` : 'Few people have taken your measure';
+  const mark = st.repMark;
+  if (mark && mark.who === person) {
+    if (mark.delta) score = Math.max(0, Math.min(100, score + mark.delta));
+    if (mark.eventId >= 0) eventId = mark.eventId;
+    if (mark.line) line = mark.line;
+  }
   return { score, eventId, line };
 }
 
@@ -1081,6 +1089,20 @@ export function nudgeStanding(w: World, person: number, delta: number): number {
     st.bond[q + B_RESPECT] = Math.max(0, Math.min(100, st.bond[q + B_RESPECT] + delta));
     st.bond[q + B_FRIEND] = Math.max(0, Math.min(100, st.bond[q + B_FRIEND] + delta));
     n++;
+  }
+  // A newcomer may have nobody in the circle yet. Reputation still moves, and Why? names why.
+  const seat = (w.state.player as { ids?: string[]; seat?: Record<string, { who?: number }> } | undefined);
+  const key = seat?.ids?.[0];
+  const seated = key ? seat?.seat?.[key]?.who : undefined;
+  if (seated === person) {
+    const prev = st.repMark?.who === person ? st.repMark.delta : 0;
+    const line = delta < 0
+      ? `Regard fell by ${-delta}: people saw what you did`
+      : `Regard rose by ${delta}: people saw what you did`;
+    const cause = w.events.count > 0 ? w.events.count - 1 : w.genesis;
+    const ev = w.events.emit('social.regard', `${P.name(person)} ${delta < 0 ? 'falls' : 'rises'} in regard by ${Math.abs(delta)}`, [cause], P.id(person));
+    // The number on the Reputation stat always moves, even when the people who keep you in mind are already at the floor.
+    st.repMark = { who: person, delta: prev + delta, eventId: ev, line };
   }
   return n;
 }

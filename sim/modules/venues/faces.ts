@@ -7,6 +7,7 @@ import type { World } from '../../kernel/index.ts';
 import { DEP, type EconState } from '../economy/index.ts';
 import { facetOf, profileOf } from './talk.ts';
 import { usd } from '../player/gamedate.ts';
+import { handleOf } from '../crypto/index.ts';
 
 const econ = (w: World): EconState => w.state.economy as EconState;
 function mix(a: number, b: number, c: number): number {
@@ -168,6 +169,25 @@ function roomTalk(w: World, venue: number, salt: number): string[] {
 }
 function usdShort(cents: number): string { return usd(cents); }
 
+/** The player's own record as a coin dev, as the room repeats it: the crypto crowd names the handle, others only hear of it. */
+function devGossip(w: World, venue: number, salt: number): string {
+  const st = w.state.player as { ids?: string[]; seat?: Record<string, { who?: number }> } | undefined;
+  const me = st?.ids?.[0] ? st.seat?.[st.ids[0]]?.who ?? -1 : -1;
+  if (me < 0) return '';
+  const row = (w.state.crypto as { dev?: Record<string, { dumps: number; good: number; last: number; launches: number }> } | undefined)?.dev?.[String(me)];
+  if (!row || (!row.dumps && !row.good) || w.day - row.last > 30) return '';
+  const P = econ(w).P;
+  const handle = handleOf(me);
+  const crowd = venue === 5 || venue === 3;
+  if (row.dumps) {
+    const lines = crowd
+      ? [`"...${handle} dumped the founder bag on us${row.dumps > 1 ? ` again, that is ${row.dumps} now` : ''}. Never touching a ${handle} launch..."`, `"...if ${handle} launches, you sell. That is the whole strategy..."`, `"...I was in ${handle}'s coin. I am not any more. Nobody is..."`]
+      : [`"...some coin dev sold out from under the people who bought in. ${P.name(me)}, I think the name was..."`, `"...my nephew lost his wages on a coin. The one who made it sold the lot, ${P.name(me).split(' ')[0]} something..."`];
+    return pick(lines, salt >>> 9);
+  }
+  return crowd ? pick([`"...${handle} is the only dev on that board who has never sold on his holders. I buy whatever he launches..."`, `"...watch ${handle}'s next coin. The last one ran and he held..."`], salt >>> 9) : '';
+}
+
 /** A scrap of what you can hear from the next table, drawn from what is true of that person and of the room. */
 export function overheardOf(w: World, i: number, venue = -1, shift = 0): string {
   const p = profileOf(w, i);
@@ -190,10 +210,17 @@ export function overheardOf(w: World, i: number, venue = -1, shift = 0): string 
   if (p.spouse && p.stress > 100) lines.push('"...I have told her we can manage, and we cannot, quite..."');
   if (p.hold) lines.push(`"...I should never have put so much into ${p.hold.name}..."`);
   if (p.wd > 600) lines.push('"...the trouble with money is finding somewhere decent to put it..."');
-  if (p.district) lines.push(`"...rents in ${p.district} are going one way, and it is not down..."`, `"...the bus from ${p.district} has not been on time since the spring..."`);
   const news = headlines(w);
-  if (news.length) lines.push(`"...did you read it? ${pick(news, salt)}..."`);
-  if (venue >= 0) lines.push(...roomTalk(w, venue, salt));
+  if (news.length) {
+    const h = pick(news, salt);
+    lines.push(pick([`"...did you read it? ${h}..."`, `"...${h}, and they wonder why nobody trusts the paper..."`, `"...my brother-in-law says ${h.charAt(0).toLowerCase()}${h.slice(1)}, and he is never wrong about that sort of thing..."`, `"...${h}. I give it a week before it is something else..."`], salt >>> 3));
+    if (news.length > 1) lines.push(`"...${pick(news, salt >>> 5)}? You heard it here first..."`);
+  }
+  const dev = devGossip(w, venue, salt);
+  if (dev) lines.push(dev, dev);
+  if (venue >= 0) { const room = roomTalk(w, venue, salt); lines.push(...room, ...room.slice(0, 2)); }
+  // Home and the commute only fill in when the day has given people nothing else to talk about.
+  if (p.district && lines.length < 3) lines.push(pick([`"...rents in ${p.district} are going one way, and it is not down..."`, `"...the bus from ${p.district} has not been on time since the spring..."`, `"...they are building again in ${p.district}, flats nobody I know can afford..."`, `"...${p.district} was a nice place once, my mother says, and she is right..."`], salt >>> 7));
   if (!lines.length) lines.push(f === 'warm' ? '"...and that is why I never go back on that ferry, whatever they say..."' : f === 'blunt' ? '"...no, it is the weather that is wrong, not me..."' : '"...it is only a matter of time, one way or the other..."');
   return pick(lines, salt);
 }

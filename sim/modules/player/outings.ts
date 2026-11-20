@@ -54,7 +54,7 @@ export function handleOuting(w: World, playerId: string, cmd: OutCmd): ActResult
     case 'courses': {
       const b = courseBoard(w, seat);
       const lines = b.rows.map((r) => `${r.name}: ${r.weeks} weekly evenings, ${usd(r.fee)}${r.done ? ' (finished)' : ''}. ${r.blurb}`);
-      if (b.now) lines.unshift(`now: ${b.now.name}, class ${b.now.sessions} of ${b.now.weeks}`);
+      if (b.now) lines.unshift(`now: ${b.now.line}`, ...b.now.notes.slice(-2).map((x) => `  ${x.text}`));
       return { status: 'accepted', lines, text: b.now ? `you are in ${b.now.name}` : 'courses: enrol NAME' };
     }
     case 'enrol': return done(enrol(w, seat, arg));

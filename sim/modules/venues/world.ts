@@ -3,8 +3,8 @@
 // random stream: the evening is a pure function of the day and the people.
 import type { World } from '../../kernel/index.ts';
 import { borrowMargin } from '../banking/index.ts';
-import { firmGap, roleTitle } from '../careers/jobs.ts';
-import { bondWord, circleAct, circleMeet, circleRegard, circleTouch, circleWhoAt } from '../circle/index.ts';
+import { firmGap, roleTitle, seatsOpen } from '../careers/jobs.ts';
+import { bondWord, circleAct, circleMeet, circleRegard, circleTouch, circleWhoAt, talkWord, talksWith } from '../circle/index.ts';
 import { controls } from '../corporate/index.ts';
 import { buyIn } from '../corporate/owner.ts';
 import { DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
@@ -13,6 +13,7 @@ import { contactsOf, quietFact } from '../social/index.ts';
 import { knowledgeIn } from '../courses/know.ts';
 import { findPast, lifeOf } from '../player/arrival.ts';
 import { clockText, dateText, usd } from '../player/gamedate.ts';
+import { officeLine } from '../politics/index.ts';
 import { standingMult } from '../player/standing.ts';
 import { lookKey, lookOf, overheardOf } from './faces.ts';
 import { converse, profileOf, TOPIC_WORDS, workTalk } from './talk.ts';
@@ -183,6 +184,8 @@ function headline(w: World, ev: number): string {
 }
 
 export function jobLine(w: World, i: number): string {
+  const office = officeLine(w, i);
+  if (office) return office;
   const s = econ(w), P = s.P;
   const e = P.employer[i];
   if (e < 0) return 'is between jobs';
@@ -259,12 +262,19 @@ function faceView(w: World, seat: string, n: number, i: number, tries: number, v
   const recog = life?.recog.find((r) => r.who === i);
   const heard = overheardOf(w, i, venue);
   if (rel) {
-    const word = bondWord(circleRegard(w, i).score);
+    const word = talkWord(circleRegard(w, i).score, talksWith(w, i, rel.depth));
     const work = rel.depth >= 2 ? `, who ${jobLine(w, i)}` : '';
     const ago = w.day - rel.last;
     const when = ago <= 0 ? 'tonight' : ago === 1 ? 'yesterday' : ago < 14 ? `${ago} days ago` : 'a while back';
     return { n, who: i, name: P.name(i), look: '', heard, news: '', known: word, word, recognises: false, exchanges: rel.depth, regular,
       text: `${P.name(i)}${work}${regular ? ', a regular here' : ''}. You have talked ${rel.depth <= 1 ? 'once' : `${rel.depth} times`}, last ${when}. ${word}` };
+  }
+  const known = circleRegard(w, i);
+  if (known.slot >= 0 && known.score > 0) {
+    // Someone you already know from work, letters or a past life: named, and never a stranger to introduce yourself to.
+    const word = talkWord(known.score, talksWith(w, i, 1));
+    return { n, who: i, name: P.name(i), look: '', heard, news: '', known: word, word, recognises: false, exchanges: 1, regular,
+      text: `${P.name(i)}, who ${jobLine(w, i)}${regular ? ', a regular here' : ''}. You know each other, though not from this room. ${word}` };
   }
   if (seen || pub) {
     const f = seen ? econ(w).firms[seen.firm] : undefined;
@@ -450,7 +460,7 @@ export function chatWith(w: World, seat: string, who: number): { text: string; l
   if (!rel.covered.includes(said.topic)) rel.covered.push(said.topic);
   const ev = w.events.emit('venue.talk', `A word with ${P.name(who)} || ${said.gist}`, [c], P.id(me));
   circleTouch(w, who, said.delta, said.gated ? 'You asked too soon' : `You talked about ${said.gist}`, ev);
-  return { text: said.text, lines: [`With ${P.name(who).split(' ')[0]}: ${bondWord(circleRegard(w, who).score)} (${rel.depth} ${rel.depth === 1 ? 'exchange' : 'exchanges'}).`], eventId: ev };
+  return { text: said.text, lines: [`With ${P.name(who).split(' ')[0]}: ${talkWord(circleRegard(w, who).score, talksWith(w, who, rel.depth))} (${rel.depth} ${rel.depth === 1 ? 'exchange' : 'exchanges'}).`], eventId: ev };
 }
 
 /** What a contact says about the firm they work at when nothing private is known: seats, mood, who decides. */
@@ -515,7 +525,7 @@ export function approach(w: World, seat: string, n: number, topicArg = ''): Res 
   const delta = Math.max(1, said.delta + (said.gated ? 0 : Math.min(4, shareBoost)));
   const ev = w.events.emit('venue.talk', `${first ? 'First' : 'Another'} talk with ${name0} at ${v.name} || ${said.gist}`, [c], P.id(me));
   circleTouch(w, who, delta, said.gated ? `You asked about ${said.topic} too soon at ${v.name}` : `You talked about ${said.gist} at ${v.name}`, ev);
-  const word2 = bondWord(circleRegard(w, who).score);
+  const word2 = talkWord(circleRegard(w, who).score, talksWith(w, who, rel.depth));
   const sp = spend(w, t, first ? 16 : 12);
   const meetLine = first ? (t.scene && who !== t.scene.host ? `${P.name(t.scene.host).split(' ')[0]} introduces you: this is ${name0}, who ${jobLine(w, who)}. ` : `You introduce yourself. This is ${name0}, who ${jobLine(w, who)}. `) : '';
   const end = sp.closed ? (t.scene ? ' The evening is winding down.' : ' The staff start stacking chairs and the evening ends.') : '';
@@ -640,15 +650,17 @@ export function businessTalk(w: World, seat: string, k: number): Res {
   }
   const chief = firm.ceo === who;
   const gap = firmGap(w, firm);
+  const seats = seatsOpen(w, firm);
+  const staffWord = seats > 0 ? `short of staff, ${seats} ${seats === 1 ? 'seat' : 'seats'} open` : gap < -1 ? 'overstaffed' : 'staffed about right';
   const trend = firm.lastProfit > 0 ? 'in profit' : firm.lastProfit < 0 ? 'losing money' : 'about level';
-  const ev = w.events.emit('venue.shop', `${name} talks shop about ${firm.name}: ${trend}, ${gap > 1 ? 'short of staff' : gap < -1 ? 'overstaffed' : 'staffed about right'}`, [firm.profitEv !== undefined && w.events.get(firm.profitEv) ? firm.profitEv : c], P.id(who));
+  const ev = w.events.emit('venue.shop', `${name} talks shop about ${firm.name}: ${trend}, ${staffWord}`, [firm.profitEv !== undefined && w.events.get(firm.profitEv) ? firm.profitEv : c], P.id(who));
   circleTouch(w, who, 1, 'You talked shop', ev);
   if (chief && reg.score >= 40) {
     const month = firm.lastProfit;
-    return { ok: true, eventId: ev, text: `${name} lowers their voice about ${firm.name}: last month it made ${usd(month)}, and it is ${gap > 1 ? 'short of staff' : gap < -1 ? 'carrying more people than it needs' : 'staffed about right'}. Legal line: they sit where the books are added up. This is inside information, and trading on it is insider dealing.` };
+    return { ok: true, eventId: ev, text: `${name} lowers their voice about ${firm.name}: last month it made ${usd(month)}, and it is ${staffWord}. Legal line: they sit where the books are added up. This is inside information, and trading on it is insider dealing.` };
   }
   const floor = firm.lastProfit < 0 ? 'orders have been thin' : firm.lastProfit > 0 ? 'orders are decent' : 'orders are flat';
-  return { ok: true, eventId: ev, text: `${name} says on the floor at ${firm.name} ${floor}, and the firm is ${gap > 1 ? 'taking people on' : gap < -1 ? 'cutting back' : 'holding its headcount'}. Legal line: fair game, a worker passing on what the floor looks like, not the books.` };
+  return { ok: true, eventId: ev, text: `${name} says on the floor at ${firm.name} ${floor}, and the firm is ${seats > 0 ? `taking people on, ${seats} ${seats === 1 ? 'seat' : 'seats'} open` : gap < -1 ? 'cutting back' : 'holding its headcount'}. Legal line: fair game, a worker passing on what the floor looks like, not the books.` };
 }
 
 function playerFirm(w: World, me: number): Firm | undefined {
@@ -711,7 +723,7 @@ export function favour(w: World, seat: string, k: number, what: string, cents: n
   const cannot = ((): string => {
     if (kind === 'interview') {
       if (!theirFirm) return `${name} has no firm to speak for`;
-      if (firmGap(w, theirFirm) <= 1) return `${theirFirm.name} is not hiring, so a word would mean nothing`;
+      if (seatsOpen(w, theirFirm) < 1) return `${theirFirm.name} is not hiring, so a word would mean nothing`;
     }
     if (kind === 'lender' && !(theirFirm?.sector === 'FINANCE' || theirFirm?.ceo === who || wd > 300)) return `${name} knows no one at a bank`;
     if (kind === 'loan' && Math.floor(L.balance(P.id(who), DEP) * 0.25) < 20000) return `${name} cannot spare that kind of money`;

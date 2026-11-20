@@ -20,8 +20,8 @@ import { navOf, type Fund } from './modules/funds/book.ts';
 import { careBill, epidemicNow, illnessName } from './modules/health/index.ts';
 import { optionChain } from './modules/options/index.ts';
 import { careerCard } from './modules/careers/index.ts';
-import { openingRows } from './modules/careers/jobs.ts';
-import { cityBook } from './modules/venues/world.ts';
+import { openingRows, workView } from './modules/careers/jobs.ts';
+import { cityBook, jobLine } from './modules/venues/world.ts';
 import { sceneClock, sceneView } from './modules/venues/scene.ts';
 import { circleLinks } from './modules/circle/network.ts';
 import { profileOf } from './modules/venues/talk.ts';
@@ -39,7 +39,7 @@ import { noticeRows } from './modules/circle/notices.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
 import { attentionOf } from './modules/law/index.ts';
 import { districts, homeBoard, lateRent, parcelView, rentBoard, residenceOf } from './modules/property/index.ts';
-import { circleBoard, circlePerson } from './modules/circle/index.ts';
+import { circleBoard, circleHostedRows, circlePerson } from './modules/circle/index.ts';
 import { calendarOf, marketsOpen, societyView } from './modules/society/index.ts';
 import { listScenarios, liveCard, openScenario } from './modules/player/scenarios.ts';
 import { findOrigin, findPast, lifeOf, ORIGINS, PASTS, splitName } from './modules/player/arrival.ts';
@@ -521,9 +521,17 @@ function commandOf(body: unknown): Command | string {
     }
     case 'invite': {
       const place = typeof b.place === 'string' && b.place.trim() ? b.place.trim() : 'dinner';
-      const slot = b.slot === undefined ? -1 : whole(b.slot, 0);
+      // slot -1 means the guest is named by who, not by a contact slot.
+      const slot = b.slot === undefined || b.slot === -1 ? -1 : whole(b.slot, 0);
       if (slot === undefined) return 'slot is a contact number';
-      return { kind: 'invite', slot, place };
+      // A hosted dinner or gala: who (a person), guests (more people), day and minute to book for, and confirm to pay and send.
+      const cmd: Extract<Command, { kind: 'invite' }> = { kind: 'invite', slot, place };
+      if (b.who !== undefined) { const who = whole(b.who, 0); if (who === undefined) return 'who is a person number'; cmd.who = who; }
+      if (Array.isArray(b.guests)) { const g = b.guests.map((x) => whole(x, 0)); if (g.some((x) => x === undefined)) return 'guests are person numbers'; cmd.guests = (g as number[]).slice(0, 8); }
+      if (b.day !== undefined) { const d = whole(b.day, 0); if (d === undefined) return 'day is a game day number'; cmd.day = d; }
+      if (b.minute !== undefined) { const m = whole(b.minute, 0); if (m === undefined || m > 1439) return 'minute is 0 to 1439'; cmd.minute = m; }
+      if (b.confirm === true) cmd.confirm = true;
+      return cmd;
     }
     case 'introduce': {
       const slot = b.slot === undefined ? -1 : whole(b.slot, 0);
@@ -550,6 +558,13 @@ function commandOf(body: unknown): Command | string {
       const n = b.n === undefined ? undefined : whole(b.n, 1);
       if (b.n !== undefined && n === undefined) return 'n is a number from 1';
       return { kind: 'out', op: b.op as Extract<Command, { kind: 'out' }>['op'], arg: typeof b.arg === 'string' ? b.arg : undefined, n, cents: typeof b.cents === 'number' && b.cents > 0 ? Math.round(b.cents) : undefined };
+    }
+    case 'job': {
+      const answer = b.answer === 'decline' || b.answer === 'no' ? 'decline' : b.answer === 'accept' || b.answer === 'yes' ? 'accept' : '';
+      if (!answer) return 'job needs answer accept or decline';
+      const id = b.id === undefined ? 0 : whole(b.id, 1);
+      if (id === undefined) return 'job id is a number from 1';
+      return { kind: 'job', id, answer };
     }
     case 'quit': return { kind: 'quit' };
     case 'raise': return { kind: 'raise' };
@@ -636,16 +651,11 @@ function firstWhy(person: { bond?: { why?: { text: string }[] } } | undefined): 
   return person?.bond?.why?.[0]?.text ?? '';
 }
 
-/** What a person does, in words: "a dispatch clerk at Metrolink Transit", or "between jobs". */
+/** What a person does, in words. An office is the one public role; a chief who holds none runs the firm. */
 function jobOf(w: World, i: number): string {
-  const s = econ(w), P = s.P;
+  const P = econ(w).P;
   if (i < 0 || i >= P.n) return '';
-  const e = P.employer[i];
-  if (e < 0) return 'between jobs';
-  const f = s.firms[e];
-  if (!f) return '';
-  if (f.ceo === i) return `runs ${f.name}`;
-  return `works at ${f.name}`;
+  return jobLine(w, i);
 }
 
 /** The life the player chose at the start, in words. */
@@ -3589,6 +3599,7 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
       decider: fi && fi.ceo >= 0 && fi.ceo < P.n ? P.name(fi.ceo) : '',
       contacts: at,
       applied: (st?.apps ?? []).some((a) => a.person === person && a.firm === o.firm),
+      unlock: o.unlock ?? null,
     };
   }) : [];
   return {
@@ -3603,6 +3614,7 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
       daysLeft: Math.max(0, course.due - w.day),
     } : null,
     letters,
+    work: person >= 0 ? workView(w, person) : null,
   };
 }
 
@@ -4003,6 +4015,7 @@ function screen(w: World): Record<string, unknown> {
       how: firstWhy(person),
       job: jobOf(w, r.who),
       stance: person?.stance ?? '',
+      talks: person?.talks ?? 0,
       bond: person?.bond ?? { word: g.word, score: 0, why: [] as { day: number; delta: number; text: string; eventId: number }[] },
       together: person?.together ?? [],
     };
@@ -4021,6 +4034,7 @@ function screen(w: World): Record<string, unknown> {
       how: extra.why[0]?.text ?? '',
       job: jobOf(w, extra.who),
       stance: extra.stance,
+      talks: extra.talks ?? 0,
       bond: { word: extra.word, score: extra.score, why: extra.why },
       together: extra.together,
     });
@@ -4096,6 +4110,7 @@ function screen(w: World): Record<string, unknown> {
     life: lifeSummary(w),
     cashbook: cashbookOf(w),
     inbox: withDue(w, board.inbox),
+    hosted: circleHostedRows(w),
     news,
     private: priv,
     nwChange: v.netWorth - closeWorth,

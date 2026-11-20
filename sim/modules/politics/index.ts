@@ -170,6 +170,24 @@ function treasury(w: World, to: string, cents: number, reason: string, cause: nu
   return pay(w, GOV, to, a, reason, cause);
 }
 
+function isChief(w: World, i: number): boolean {
+  const s = econ(w), P = s.P;
+  if (i < 0 || i >= P.n) return false;
+  const emp = P.employer[i];
+  return emp >= 0 && s.firms[emp]?.ceo === i;
+}
+
+/** The one public role, if this person holds office. A chief does not also wear this title. */
+export function officeLine(w: World, i: number): string {
+  const st = w.state.politics as { leader?: number; finance?: number; governor?: number; regulator?: number } | undefined;
+  if (!st || i < 0) return '';
+  if (st.governor === i) return 'is governor of the central bank';
+  if (st.leader === i) return 'leads the government';
+  if (st.finance === i) return 'is the finance minister';
+  if (st.regulator === i) return 'heads the regulator';
+  return '';
+}
+
 function pick(w: World, avoid: Set<number>, regulator: boolean): number {
   const s = econ(w), P = s.P;
   let best = -1, score = -1;
@@ -177,14 +195,16 @@ function pick(w: World, avoid: Set<number>, regulator: boolean): number {
     if (avoid.has(i) || !P.adult(w, i) || (P.flags[i] & PRISON) !== 0) continue;
     const age = P.age(w, i);
     if (age < 30 || age > 70) continue;
-    const emp = P.employer[i];
-    const ceo = emp >= 0 && s.firms[emp]?.ceo === i;
-    if (regulator && (ceo || age > 58)) continue;
+    // One public life per person: a chief executive does not also hold office.
+    if (isChief(w, i) || (regulator && age > 58)) continue;
     const sc = P.skill[i];
     if (sc > score || (sc === score && (best < 0 || i < best))) { score = sc; best = i; }
   }
   if (best >= 0) return best;
-  for (let i = 0; i < P.n; i++) if (!avoid.has(i) && P.adult(w, i)) return i;
+  for (let i = 0; i < P.n; i++) {
+    if (avoid.has(i) || !P.adult(w, i) || isChief(w, i)) continue;
+    return i;
+  }
   return 0;
 }
 
@@ -205,7 +225,8 @@ function fillOffices(w: World, replace: boolean): void {
   const dead = (i: number): boolean => i < 0 || i >= P.n || !P.alive(i) || (P.flags[i] & PRISON) !== 0;
   const avoid = new Set<number>();
   const take = (cur: number, regulator: boolean): number => {
-    if (!replace && !dead(cur)) { avoid.add(cur); return cur; }
+    // A living holder who has become a chief gives the office up the same day. One role, everywhere.
+    if (!replace && !dead(cur) && !isChief(w, cur)) { avoid.add(cur); return cur; }
     const n = pick(w, avoid, regulator);
     avoid.add(n);
     return n;
@@ -688,6 +709,13 @@ export const politics: Module = {
   },
 
   dayClose(w) {
+    const st = pol(w), P = econ(w).P;
+    const before = st.leader + ':' + st.finance + ':' + st.governor + ':' + st.regulator;
+    fillOffices(w, false);
+    const after = st.leader + ':' + st.finance + ':' + st.governor + ':' + st.regulator;
+    if (after !== before) {
+      w.events.emit('politics.office', `${P.name(st.leader)}'s ministry replaces a seat whose holder took another public life`, causes(w, st, []), P.id(st.leader));
+    }
     if ((w.day + 1) % 30 !== 0) return;
     bailout(w);
   },

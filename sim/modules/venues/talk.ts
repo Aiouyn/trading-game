@@ -5,22 +5,24 @@
 // say the same things, in their own words, and a docker does not answer like a bank clerk.
 import type { World } from '../../kernel/index.ts';
 import { DEP, type EconState, type Firm } from '../economy/index.ts';
-import { firmGap, roleTitle } from '../careers/jobs.ts';
+import { firmGap, roleTitle, seatsOpen } from '../careers/jobs.ts';
 import { parcelView } from '../property/index.ts';
 import { quietFact } from '../social/index.ts';
 import { usd } from '../player/gamedate.ts';
+import { handleOf } from '../crypto/index.ts';
 import { findPast, lifeOf } from '../player/arrival.ts';
 
-export type Topic = 'hello' | 'work' | 'home' | 'money' | 'city' | 'inside' | 'chat';
+export type Topic = 'hello' | 'work' | 'home' | 'money' | 'city' | 'inside' | 'chat' | 'coins';
 export const LADDER: Topic[] = ['hello', 'work', 'home', 'money', 'city', 'inside'];
 /** The bond a rung needs before people open up about it. */
-const NEED: Record<Topic, number> = { hello: 0, work: 12, home: 22, money: 30, city: 14, inside: 45, chat: 0 };
+const NEED: Record<Topic, number> = { hello: 0, work: 12, home: 22, money: 30, city: 14, inside: 45, chat: 0, coins: 8 };
 /** How much an exchange on a rung warms the bond. */
-const WARM: Record<Topic, number> = { hello: 6, work: 4, home: 5, money: 4, city: 3, inside: 7, chat: 2 };
+const WARM: Record<Topic, number> = { hello: 6, work: 4, home: 5, money: 4, city: 3, inside: 7, chat: 2, coins: 3 };
 
 export const TOPIC_WORDS: Record<string, Topic> = {
   hello: 'hello', work: 'work', job: 'work', jobs: 'work', firm: 'work', home: 'home', family: 'home', life: 'home',
   money: 'money', cash: 'money', shares: 'money', city: 'city', news: 'city', inside: 'inside', private: 'inside', secret: 'inside', chat: 'chat',
+  coins: 'coins', coin: 'coins', crypto: 'coins', launchpad: 'coins', memecoins: 'coins', tokens: 'coins',
 };
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -153,7 +155,7 @@ export function profileOf(w: World, i: number): Profile {
     spouse: P.spouse[i] >= 0 && P.alive(P.spouse[i]), kids: P.nkids[i],
     district: pv?.neighbourhood ?? '', ownsHome: pv ? pv.owner === i : false,
     wd, health: P.health[i], stress: P.stress[i], mood: P.mood[i],
-    gap, seats: gap > 1 ? Math.floor(gap) : 0, profit: firm?.lastProfit ?? 0,
+    gap, seats: firm ? seatsOpen(w, firm) : 0, profit: firm?.lastProfit ?? 0,
     decider, hold, recent, facet: facetOf(w, i),
     trade: owner ? 'owner' : firm ? TRADE_OF[firm.sector] ?? 'plant' : 'none',
     rank: firm ? rankOf(role, chief) : 'none',
@@ -165,7 +167,7 @@ export function profileOf(w: World, i: number): Profile {
 
 /** A firm somewhere else that really is short of hands, so a jobless person can point to it. */
 export function aFirmHiring(w: World, salt: number, not: number): Firm | undefined {
-  const open = econ(w).firms.filter((f) => !f.closed && f.idx !== not && firmGap(w, f) > 1);
+  const open = econ(w).firms.filter((f) => !f.closed && f.idx !== not && seatsOpen(w, f) >= 1);
   return open.length ? pick(open, salt) : undefined;
 }
 
@@ -349,7 +351,7 @@ export function workTalk(w: World, p: Profile, c: Ctx): string {
     const hiring = aFirmHiring(w, c.salt, -1);
     const weeks = Math.max(1, Math.round(p.jobless / 7));
     const state = p.jobless > 6 ? `${weeks} ${weeks === 1 ? 'week' : 'weeks'} without work.` : 'Between jobs.';
-    const tip = hiring ? ` ${hiring.name} is taking people on, ${Math.max(1, Math.floor(firmGap(w, hiring)))} seats at least. Go in early.` : ' Nobody is taking anyone on, not this week.';
+    const tip = hiring ? ` ${hiring.name} is taking people on, ${seatsOpen(w, hiring)} ${seatsOpen(w, hiring) === 1 ? 'seat' : 'seats'} open. Go in early.` : ' Nobody is taking anyone on, not this week.';
     const mood = p.mood < 40 ? ' I am running out of patience.' : p.wd < 40 ? ' The savings are nearly gone.' : ' I am not panicking yet.';
     return `${p.first} turns the glass in their hands. "${state}${mood}${tip}"`;
   }
@@ -394,14 +396,29 @@ export function workTalk(w: World, p: Profile, c: Ctx): string {
 function homeTalk(p: Profile, c: Ctx): string {
   const s = mix(p.i, 13, c.salt);
   const bits: string[] = [];
-  if (p.district) bits.push(`${p.ownsHome ? 'We own a place in' : 'We rent in'} ${p.district}`);
+  const we = p.spouse || p.kids > 0;
+  if (p.chief && p.firm) {
+    const where = p.district ? ` in ${p.district}` : '';
+    const lines = p.wd > 400
+      ? [`The house${where} is too big for ${we ? 'us' : 'one person'}, and I am hardly in it. ${p.firm.name} has the rest of me.`, `I keep a house${where} and a car that waits outside ${p.firm.name} more than it waits outside the house.`, `${we ? 'My family sees' : 'I see'} the house${where} on Sundays. The board sees me the other six days.`]
+      : [`People think a chief lives on the hill. I live${where}, ${p.ownsHome ? 'in a house the bank still half owns' : 'in rooms I rent like anyone'}, and ${p.firm.name} pays me less than you would guess.`, `Home is${where}, and it is quiet, which is what I need after a day at ${p.firm.name}.`];
+    const tail = p.stress > 100 ? ' I have not had an evening off in a month.' : p.kids > 0 ? ` The ${p.kids === 1 ? 'child thinks' : 'children think'} I work in a car.` : '';
+    return `${p.first} turns the glass slowly. "${pick(lines, s)}${tail}"`;
+  }
+  if (p.district) {
+    const own = p.ownsHome;
+    const opts = we
+      ? [own ? `We own a place in ${p.district}` : `We rent in ${p.district}`, own ? `Our house is in ${p.district}, and the mortgage is in every room of it` : `We have a flat in ${p.district}, two rooms and a view of the next wall`, own ? `We bought in ${p.district} before the prices went silly` : `We are renting in ${p.district} until something better comes up`]
+      : [own ? `I own a little place in ${p.district}` : `I rent a room in ${p.district}`, own ? `My place is in ${p.district}, and it is mine, which still surprises me` : `I have rooms in ${p.district}, above a shop that opens too early`, own ? `I bought in ${p.district} on my own, which my mother still thinks was brave` : `I live in ${p.district}, on my own, and I like the quiet`];
+    bits.push(p.wd > 500 && !own ? `I could buy, but I rent in ${p.district} and keep the money working` : pick(opts, s >>> 2));
+  }
   if (p.kids > 0) bits.push(pick([`${p.kids === 1 ? 'one child' : `${p.kids} children`} at home`, `${p.kids === 1 ? 'a child who eats' : `${p.kids} kids who eat`} everything`], s));
   else if (p.spouse) bits.push(pick(['a quiet house with just the two of us', 'a partner who still laughs at my jokes'], s));
   const worry = p.health < 45 ? pick(['My back is not what it was.', 'The doctor says I should slow down, and I say the doctor can pay my rent.'], s)
     : p.stress > 120 ? pick(['I have not slept properly in a month.', 'I lie awake doing sums.'], s)
     : p.mood > 75 ? pick(['Honestly, life is good right now.', 'I am happier than I have a right to be.'], s)
     : p.wd < 60 ? pick(['The rent eats most of it, if you must know.', 'Every month the landlord arrives before the wage does.'], s)
-    : pick(['We get by.', 'Nothing to report, and I like it that way.', 'It is a small life, but it is mine.'], s);
+    : pick(we ? ['We get by.', 'We manage, most months.', 'Nothing much to report, and we like it that way.', 'Sunday is ours, and that is enough.'] : ['I get by.', 'Nothing to report, and I like it that way.', 'It is a small life, but it is mine.', 'I keep it simple: work, a meal, a book.'], s);
   const trade = p.trade === 'quay' ? 'Evenings I am home by eight if a ship behaves.' : p.trade === 'money' ? 'I take the paperwork home, and the paperwork takes me.' : p.trade === 'clinic' ? 'My shifts mean the family eats without me, half the week.' : p.trade === 'shop' ? 'The weekends are not mine to plan.' : p.trade === 'owner' ? 'The firm comes home with me, whether I like it or not.' : '';
   const tail = [worry, trade].filter(Boolean).join(' ');
   if (!bits.length) return `${p.first} shrugs. "Not much to tell. Home is a room and a kettle. ${tail}"`;
@@ -459,7 +476,46 @@ function insideTalk(w: World, p: Profile, c: Ctx): { text: string; gist: string 
   }
   if (p.firm && p.seats > 0 && p.decider) return { text: `${p.first} leans in. "Honestly? ${p.decider} will see someone this week about the open seats. Be there early."`, gist: 'who decides on hiring' };
   if (p.firm && p.gap < -1) return { text: `${p.first} leans in. "I have heard they are looking at the payroll at ${p.firm.name}. Newest first. Keep your head down."`, gist: 'cuts at their firm' };
-  return { text: `${p.first} hesitates, then smiles. "There is nothing I'd call a secret. I like talking to you. That is rare enough."`, gist: 'their trust' };
+  const s = mix(p.i, 29, c.salt);
+  const own = p.chief && p.firm ? [`I run ${p.firm.name}, so everything I know is either public or a crime to repeat. I will tell you this much: the board is nervous, and boards are always nervous.`, `The truth about running ${p.firm.name}? Nobody tells me anything until it is too late to fix.`]
+    : p.trade === 'money' ? ['If I knew anything worth trading, I would not be drinking here.', 'Half my desk is guessing and the other half is pretending not to.']
+    : p.trade === 'quay' ? ['The only secret on the quay is which crane driver is sleeping with which foreman, and you do not want that.', 'Ships come in late because the paperwork does, not the weather. That is the whole secret.']
+    : p.trade === 'clinic' ? ['We are short on the wards and nobody will say so in public. That is all I have.', 'The secret is that the night shift runs the hospital.']
+    : p.trade === 'tech' ? ['We are behind on the project, as everyone always is. Do not tell the investors.', 'The demo works. The product does not, yet.']
+    : p.trade === 'shop' ? ['The shrinkage numbers are terrible, and it is not the customers.', 'We are told to push the dear brand. That is the only secret in retail.']
+    : p.jobless > 0 ? ['I have not told my family how long I have been looking. That is my secret.', 'I spend the mornings in the library so it looks like I go somewhere.']
+    : p.mood < 40 ? ['I am thinking of leaving the city. Do not repeat it.', 'Some weeks I do not know why I bother. That stays here.']
+    : ['Nothing worth a price. I just like that you listen.', 'I have no secrets worth the name, only a few opinions I keep to myself.', 'If I had a secret, you would be the one I told.'];
+  return { text: `${p.first} ${pick(['hesitates, then smiles.', 'looks into the glass.', 'lowers their voice anyway.', 'shrugs.'], s >>> 4)} "${pick(own, s)}"`, gist: 'their trust' };
+}
+
+/** Coins: the crypto crowd talks launches and devs, the well off are polite and sceptical, a hand on a wage is wary, a chief keeps away. */
+function coinTalk(w: World, p: Profile, c: Ctx): { text: string; delta: number } {
+  const s = mix(p.i, 31, c.salt);
+  const P = econ(w).P;
+  const dev = (w.state.crypto as { dev?: Record<string, { dumps: number; good: number; launches: number }> } | undefined)?.dev?.[String(c.me)];
+  const handle = c.me >= 0 ? handleOf(c.me) : '';
+  const crowd = c.venue === 'neon' || c.venue === 'beaker' || P.age(w, p.i) < 30;
+  const memes = (w.state.crypto as { memes?: { ticker: string; live: boolean; peak?: number; bornPx: number; rugged?: boolean }[] } | undefined)?.memes ?? [];
+  const live = memes.filter((m) => m.live);
+  const hot = live.slice().sort((a, b) => (b.peak ?? 0) / Math.max(1e-9, b.bornPx) - (a.peak ?? 0) / Math.max(1e-9, a.bornPx))[0];
+  const rugged = memes.filter((m) => m.rugged).length;
+  const mine = dev && dev.dumps ? ` ${crowd ? `Wait, you are ${handle}? You sold on your own holders. People here remember that.` : 'And I have heard about your coins, so do not try to sell me one.'}`
+    : dev && dev.good ? ` ${crowd ? `You are ${handle}? Your last coin ran and you held. That is rarer than you think.` : 'I hear your coin did well. Good for you.'}` : '';
+  let text: string;
+  let delta = WARM.coins;
+  if (p.chief) { text = pick([`${p.first} keeps off that board. A chief of ${p.firm?.name ?? 'a firm'} who is seen there loses the board.`, `Shareholders of ${p.firm?.name ?? 'the firm'} would have ${p.first}'s head for a dog coin.`], s); delta = 1; }
+  else if (crowd) {
+    text = pick([
+      `${p.first} counts ${live.length} live coins tonight${hot ? `, and ${hot.ticker} is the one this room is in` : ''}. Three in the wallet, and ${p.first} believes in none of them.`,
+      `${p.first} says it is the dev. If the dev holds, you hold. If the dev sells, you are the exit.${rugged ? ` ${rugged} pools pulled so far; ${p.first} was in two.` : ''}`,
+      `${hot ? `${hot.ticker} ran ${Math.max(1, (hot.peak ?? hot.bornPx) / Math.max(1e-9, hot.bornPx)).toFixed(1)} times off the launch. ` : ''}${p.first} bought late, as always. That is the whole story.`,
+    ], s);
+    delta = WARM.coins + 2;
+  } else if (p.wd > 400) text = pick([`${p.first} let a nephew explain them once. Someone was getting rich, and it was not the nephew.`, `${p.first} keeps money where a court can find it. Coins are for people who enjoy losing.`], s);
+  else text = pick([`On ${p.first}'s wage at ${p.firm?.name ?? 'work'}? Gambling, and that is all a coin is.`, `Someone ${p.firm ? `at ${p.firm.name}` : 'at work'} lost a month's pay on a coin with a dog on it. ${p.first} does not need a second lesson.`, `${p.first} hears the young ones at ${p.firm?.name ?? 'the bar'} talk about it, and is not sure they understand it either.`], s);
+  if (dev?.dumps && crowd) delta = -2;
+  return { text: `${p.first} ${crowd ? 'lights up' : 'raises an eyebrow'}. "${text}${mine}"`, delta };
 }
 
 function chatTalk(p: Profile, c: Ctx): string {
@@ -476,7 +532,8 @@ function chatTalk(p: Profile, c: Ctx): string {
 /** One exchange. `c.covered` are the rungs already climbed with this person; the next unclimbed rung is chosen unless a topic is asked for. */
 export function converse(w: World, c: Ctx): Said {
   const p = profileOf(w, c.who);
-  let topic: Topic = c.word ?? (c.first ? 'hello' : LADDER.find((t) => !c.covered.includes(t)) ?? 'chat');
+  // "Keep talking" moves on to the next rung they are ready for. Only a topic you ask for can be one they are not ready for.
+  let topic: Topic = c.word ?? (c.first ? 'hello' : LADDER.find((t) => !c.covered.includes(t) && c.score >= NEED[t]) ?? 'chat');
   if (c.first) topic = 'hello';
   const gated = c.score < NEED[topic] && topic !== 'hello';
   const remembered = !c.first && c.memory && c.memory.met >= 1 && c.depth > 0 && !c.word ? recall(p, c) : '';
@@ -494,6 +551,7 @@ export function converse(w: World, c: Ctx): Said {
     case 'money': text = moneyTalk(w, p, c); gist = 'money'; break;
     case 'city': text = cityTalk(w, p, c); gist = 'the city'; break;
     case 'inside': { const r = insideTalk(w, p, c); text = r.text; gist = r.gist; break; }
+    case 'coins': { const r = coinTalk(w, p, c); text = r.text; gist = 'coins'; if (remembered) text = `${remembered} ${text}`; return { topic, text, delta: r.delta, gated: false, gist }; }
     default: text = chatTalk(p, c); gist = 'small talk';
   }
   if (remembered) text = `${remembered} ${text}`;

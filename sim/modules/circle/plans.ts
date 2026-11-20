@@ -10,6 +10,7 @@ import { bidHome, homeBoard, parcelView } from '../property/index.ts';
 import { contactsOf, nudgeLink, quietFact } from '../social/index.ts';
 import { chooseShape, money, renderLetter, type Voice } from '../social/words.ts';
 import { dateText } from '../player/gamedate.ts';
+import { firstDays } from '../careers/jobs.ts';
 
 const SKIP_STOP = 3;
 const INVITE_KINDS = ['dinner', 'drinks', 'deal', 'birthday', 'leaving'];
@@ -878,6 +879,15 @@ function holdMove(w: World, who: number, parcel: number, cause: number): string 
   return `${P.name(who)} moves.`;
 }
 
+function satScene(w: World, key: string): boolean {
+  const seats = (w.state.venues as { seats?: Record<string, { played?: Record<string, number> }> } | undefined)?.seats;
+  if (!seats) return false;
+  for (const sb of Object.values(seats)) if (sb.played && sb.played[key] !== undefined) return true;
+  return false;
+}
+function clockLive(w: World): boolean {
+  return typeof (w.state.clock as { min?: number } | undefined)?.min === 'number';
+}
 function resolveOne(w: World, st: Box, me: number, p: LifePlan): void {
   const P = econ(w).P;
   if (p.kind === 'wedding' && (!alive(w, p.host) || !alive(w, p.other))) {
@@ -896,23 +906,39 @@ function resolveOne(w: World, st: Box, me: number, p: LifePlan): void {
   if (p.invite && p.status === 'yes' && me >= 0) {
     const treated = p.pay === 'treat';
     const to = p.pay === 'gov' ? GOV : (alive(w, p.host) ? P.id(p.host) : GOV);
-    const paid = treated
-      ? Math.round(p.cover ?? 0) >= 1 && sparePay(w, p.host, GOV, p.cover ?? 0, p.eventId)
-      : playerPay(w, me, to, p.cents, p.eventId);
-    if (paid) {
+    const sat = satScene(w, 'c' + p.id);
+    // A live clock already played the evening, or the player walked past it. A headless day has no clock and settles as before.
+    if (sat) {
+      const paid = treated
+        ? Math.round(p.cover ?? 0) >= 1 && sparePay(w, p.host, GOV, p.cover ?? 0, p.eventId)
+        : playerPay(w, me, to, p.cents, p.eventId);
       went = true;
-      touch(w, st, me, p.host, 7, `You went to the ${p.kind} in ${p.place}`, p.eventId);
-      forgive(bondOf(st, p.host));
-      const b = bondOf(st, p.host);
-      if (b) {
-        b.together.push({ day: w.day, text: `You went to the ${p.kind}`, eventId: p.eventId });
-        if (b.together.length > 5) b.together.splice(0, b.together.length - 5);
-      }
-    } else {
+      if (!paid) missed = true;
+      closeAsk(st, p.ask, 'yes');
+    } else if (clockLive(w)) {
       missed = true;
-      touch(w, st, me, p.host, -3, `You could not pay for the ${p.kind}`, p.eventId);
+      touch(w, st, me, p.host, -6, `You missed the ${p.kind} at ${p.place}`, p.eventId);
+      snub(bondOf(st, p.host));
+      closeAsk(st, p.ask, 'lapsed');
+    } else {
+      const paid = treated
+        ? Math.round(p.cover ?? 0) >= 1 && sparePay(w, p.host, GOV, p.cover ?? 0, p.eventId)
+        : playerPay(w, me, to, p.cents, p.eventId);
+      if (paid) {
+        went = true;
+        touch(w, st, me, p.host, 7, `You went to the ${p.kind} in ${p.place}`, p.eventId);
+        forgive(bondOf(st, p.host));
+        const b = bondOf(st, p.host);
+        if (b) {
+          b.together.push({ day: w.day, text: `You went to the ${p.kind}`, eventId: p.eventId });
+          if (b.together.length > 5) b.together.splice(0, b.together.length - 5);
+        }
+      } else {
+        missed = true;
+        touch(w, st, me, p.host, -3, `You could not pay for the ${p.kind}`, p.eventId);
+      }
+      closeAsk(st, p.ask, 'yes');
     }
-    closeAsk(st, p.ask, 'yes');
   } else if (p.invite && p.status === 'no') {
     missed = true;
     closeAsk(st, p.ask, 'no');
@@ -1043,13 +1069,25 @@ export function declineFuturePlan(w: World, askId: number): void {
   if (d && d.status === 'set') d.status = 'no';
 }
 
-export function circlePlansOn(w: World, day: number): { kind: string; title: string; eventId: number }[] {
+export function circlePlansOn(w: World, day: number): { kind: string; title: string; eventId: number; place: string; minute: number; time: string; host: number; hostName: string; guests: { who: number; name: string }[]; youIn: boolean; canJoin: string }[] {
   const st = w.state.circle as Box | undefined;
   if (!st?.plans) return [];
-  const out: { kind: string; title: string; eventId: number }[] = [];
+  const P = econ(w).P;
+  const me = playerOf(w);
+  const out: ReturnType<typeof circlePlansOn> = [];
   for (const p of st.plans) {
     if (p.day !== day || p.status === 'gone') continue;
-    out.push({ kind: 'circle.' + p.kind, title: p.title, eventId: p.eventId >= 0 ? p.eventId : w.genesis });
+    const minute = START[p.kind] ?? 1140;
+    const youIn = !!p.invite && (p.status === 'yes' || p.status === 'pending' || p.status === 'held');
+    const hostName = p.host >= 0 && p.host < P.n ? P.name(p.host) : '';
+    out.push({
+      kind: 'circle.' + p.kind, title: p.title, eventId: p.eventId >= 0 ? p.eventId : w.genesis,
+      place: p.place, minute, time: `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`,
+      host: p.host, hostName,
+      guests: [p.host, ...p.who].filter((g, k, a) => g >= 0 && g < P.n && g !== me && a.indexOf(g) === k).slice(0, 8).map((g) => ({ who: g, name: P.name(g) })),
+      youIn,
+      canJoin: youIn ? (p.status === 'yes' ? `You said yes. It opens as a scene at ${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}.` : 'You are invited: answer in your messages.') : `${hostName.split(' ')[0] || 'The host'}'s evening. You are not on the list.`,
+    });
   }
   return out;
 }
@@ -1120,8 +1158,8 @@ export function tendCirclePlans(w: World): void {
 }
 
 /** An accepted invitation, as the evening it becomes: when it starts, where, who is there. */
-export interface DueScene { key: string; kind: string; place: string; title: string; host: number; who: number[]; eventId: number; day: number; minute: number; treat: boolean }
-const START: Record<string, number> = { deal: 750, dinner: 1170, drinks: 1110, birthday: 1140, leaving: 1050, wedding: 840, party: 1200, gala: 1170 };
+export interface DueScene { key: string; kind: string; place: string; title: string; host: number; who: number[]; eventId: number; day: number; minute: number; treat: boolean; hosted?: boolean }
+const START: Record<string, number> = { firstday: 540, hill: 1230, deal: 750, dinner: 1170, drinks: 1110, birthday: 1140, leaving: 1050, wedding: 840, party: 1200, gala: 1170 };
 function cleanTitle(t: string): string { return t.replace(/\s*You are invited\.?/g, '').replace(/\s*I'll get this one\.?/g, '').replace(/\s*You (went|stayed away)\.?/g, '').replace(/\s+/g, ' ').trim(); }
 /** Every invitation the player said yes to, from `from` to `to` (inclusive). */
 export function acceptedPlans(w: World, from: number, to: number): DueScene[] {
@@ -1135,6 +1173,12 @@ export function acceptedPlans(w: World, from: number, to: number): DueScene[] {
   for (const d of societyDates(w)) {
     if (!d.invite || d.day < from || d.day > to || d.status !== 'yes') continue;
     out.push({ key: 's' + d.id, kind: d.kind, place: d.place, title: cleanTitle(d.title), host: d.host, who: d.who.slice(), eventId: d.eventId, day: d.day, minute: START[d.kind] ?? 1170, treat: d.cents < 1 });
+  }
+  for (const d of firstDays(w, from, to)) out.push(d);
+  const me = playerOf(w);
+  for (const h of (st as { hosted?: { id: number; kind: string; day: number; minute: number; place: string; who: number[]; status: string; eventId: number }[] } | undefined)?.hosted ?? []) {
+    if (h.day < from || h.day > to || (h.status !== 'booked' && !(h.status === 'held' && h.day === w.day))) continue;
+    out.push({ key: 'h' + h.id, kind: h.kind, place: h.place, title: `Your ${h.kind === 'gala' ? 'gala' : 'dinner'} at ${h.place}`, host: me, who: h.who.slice(), eventId: h.eventId, day: h.day, minute: h.minute, treat: false, hosted: true });
   }
   out.sort((a, b) => a.day - b.day || a.minute - b.minute);
   return out;

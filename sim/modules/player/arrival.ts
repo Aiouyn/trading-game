@@ -163,7 +163,7 @@ function pickRecog(w: World, me: number, past: Past | undefined, origin: Origin 
   }
   if (origin) {
     const list = pool((k) => !taken.has(k) && (P.migrant[k] === 1 || sectorOf(k) === origin.sector) && s.firms[P.employer[k]]?.ceo !== k);
-    for (const k of list.slice(0, 1)) out.push({ who: k, how: `comes from ${origin.name.charAt(0).toLowerCase()}${origin.name.slice(1)}`, from: 'origin', day: w.day });
+    for (const k of list.slice(0, 1)) out.push({ who: k, how: `both came from ${origin.name.charAt(0).toLowerCase()}${origin.name.slice(1)}`, from: 'origin', day: w.day });
   }
   return out;
 }

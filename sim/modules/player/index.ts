@@ -183,7 +183,7 @@ export type Command =
   | { kind: 'sheet' }
   | { kind: 'reply'; msg: number; text: string }
   | { kind: 'lend'; slot: number; cents: number }
-  | { kind: 'invite'; slot: number; place: string }
+  | { kind: 'invite'; slot: number; place: string; who?: number; day?: number; minute?: number; guests?: number[]; confirm?: boolean }
   | { kind: 'gift'; slot: number; cents: number }
   | { kind: 'introduce'; slot: number }
   | { kind: 'mail' }
@@ -193,6 +193,7 @@ export type Command =
   | { kind: 'quit' }
   | { kind: 'raise' }
   | { kind: 'study'; field: string }
+  | { kind: 'job'; id: number; answer: 'accept' | 'decline' }
   | { kind: 'out'; op: 'places' | 'go' | 'approach' | 'talk' | 'round' | 'listen' | 'leave' | 'known' | 'business' | 'offer' | 'favour' | 'courses' | 'enrol' | 'attend' | 'deal'; arg?: string; n?: number; cents?: number }
   | { kind: 'signals' }
   | { kind: 'stake'; firm: string; cents: number; how: 'cash' | 'margin' | 'line' | 'partners' | 'buyout' }
@@ -2495,7 +2496,8 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     case 'apply':
     case 'quit':
     case 'raise':
-    case 'study': {
+    case 'study':
+    case 'job': {
       if (!careerAct) return rejected('the labour market is not open');
       return careerAct(w, playerId, cmd);
     }

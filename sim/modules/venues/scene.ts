@@ -6,11 +6,13 @@
 import type { World } from '../../kernel/index.ts';
 import { DEP, pay, type EconState } from '../economy/index.ts';
 import { acceptedPlans, type DueScene } from '../circle/plans.ts';
-import { bondWord, circleRegard, circleTouch } from '../circle/index.ts';
+import { bondWord, circleHosted, circleMeet, circleMinute, circleRegard, circleTouch } from '../circle/index.ts';
+import { nudgeLink, nudgeStanding } from '../social/index.ts';
 import { notify } from '../circle/notices.ts';
 import { seatOffer, takeSeat } from '../careers/jobs.ts';
 import { quietFact } from '../social/index.ts';
 import { clockText, dateText, usd } from '../player/gamedate.ts';
+import { officeLine } from '../politics/index.ts';
 import { lookOf, overheardOf } from './faces.ts';
 import {
   absNow, CLOSE_AT, jobLine, leaveVenue, liveTable, relOf, seatBook, whoOf,
@@ -24,7 +26,7 @@ export interface Deal {
 }
 export interface Scene {
   key: string; kind: string; what: string; place: string; title: string; host: number; start: number;
-  eventId: number; deal?: Deal; ended?: boolean; notes: string[]; summary?: string;
+  eventId: number; deal?: Deal; ended?: boolean; notes: string[]; summary?: string; hosted?: boolean;
 }
 
 const econ = (w: World): EconState => w.state.economy as EconState;
@@ -39,10 +41,10 @@ const first = (w: World, i: number): string => econ(w).P.name(i).split(' ')[0];
 
 const WHAT: Record<string, string> = {
   dinner: 'dinner', drinks: 'drinks', deal: 'a business lunch', birthday: 'a birthday', leaving: 'leaving drinks',
-  wedding: 'a wedding', party: 'a party', gala: 'the charity gala',
+  wedding: 'a wedding', party: 'a party', gala: 'the charity gala', firstday: 'your first day',
 };
 /** Which of the six rooms prices a round at this kind of evening. */
-const PRICE_ROOM: Record<string, number> = { dinner: 2, wedding: 2, gala: 2, party: 2, deal: 1, drinks: 0, birthday: 0, leaving: 0 };
+const PRICE_ROOM: Record<string, number> = { firstday: 1, dinner: 2, wedding: 2, gala: 2, party: 2, deal: 1, drinks: 0, birthday: 0, leaving: 0 };
 
 function clockNow(w: World): number { return absNow(w) % 1440; }
 function played(w: World, seat: string): Record<string, number> { return (seatBook(w, seat).played ??= {}); }
@@ -55,6 +57,22 @@ export function dueScenes(w: World, seat: string): DueScene[] {
 
 function arrival(w: World, sc: Scene, host: number): string {
   const s = econ(w), P = s.P;
+  if (sc.hosted) {
+    return sc.kind === 'gala'
+      ? 'The room you booked is lit and the band is tuning. Your guests come up the stairs in twos, and every one of them looks for you first.'
+      : 'The table you booked is laid for your guests, and the first of them is already shaking off the rain at the door.';
+  }
+  if (sc.kind === 'firstday') {
+    const fi = host >= 0 ? P.employer[host] : -1;
+    const name = fi >= 0 ? s.firms[fi].name : sc.place;
+    const office = officeLine(w, host);
+    return office
+      ? `${first(w, host)} ${office} and still meets new people at the door. A pass with your name on it is waiting, and so is a desk.`
+      : fi >= 0 && s.firms[fi].ceo === host
+        ? `${first(w, host)} runs ${name} and still meets new people at the door. A pass with your name on it is waiting, and so is a desk.`
+        : `${first(w, host)}, your manager, meets you at the front of ${name} with a pass that already has your name on it.`;
+  }
+  if (sc.kind === 'party' && /hill/.test(sc.place)) return `The drive up to ${sc.place} is lined with cars. ${first(w, host)} is on the terrace, receiving people as if it were a small court.`;
   const h = first(w, host);
   const e = host >= 0 && host < P.n ? P.employer[host] : -1;
   const firm = e >= 0 ? s.firms[e].name : '';
@@ -134,7 +152,7 @@ export function attend(w: World, seat: string, arg = ''): Res {
   const n = Number(arg);
   const pick = Number.isInteger(n) && n >= 1 && n <= list.length ? list[n - 1] : list[0];
   const now = clockNow(w);
-  const what = WHAT[pick.kind] ?? pick.kind;
+  const what = pick.hosted ? `your ${pick.kind === 'gala' ? 'gala' : 'dinner'}` : WHAT[pick.kind] ?? pick.kind;
   if (now < pick.minute - 90) return no(`${what} at ${pick.place} starts at ${clockText(pick.minute)}. It is ${clockText(now)} now; you can go from an hour and a half before`);
   if (now > pick.minute + 240) return no(`${what} at ${pick.place} is over: it started at ${clockText(pick.minute)}`);
   const sb = seatBook(w, seat);
@@ -144,7 +162,7 @@ export function attend(w: World, seat: string, arg = ''): Res {
     before = r.ok ? ` ${r.text}` : '';
   }
   const faces: number[] = [];
-  for (const i of [pick.host, ...pick.who]) {
+  for (const i of pick.hosted ? pick.who : [pick.host, ...pick.who]) {
     if (i === me || i < 0 || i >= P.n || !P.alive(i) || faces.includes(i)) continue;
     faces.push(i);
     if (faces.length >= 7) break;
@@ -153,7 +171,7 @@ export function attend(w: World, seat: string, arg = ''): Res {
   const open = absNow(w);
   const nextClose = (Math.floor(open / 1440) + (open % 1440 >= CLOSE_AT ? 1 : 0)) * 1440 + CLOSE_AT;
   const closeAbs = Math.min(nextClose, open + 210);
-  const sc: Scene = { key: pick.key, kind: pick.kind, what, place: pick.place, title: pick.title, host: pick.host, start: pick.minute, eventId: pick.eventId, notes: [] };
+  const sc: Scene = { key: pick.key, kind: pick.kind, what, place: pick.place, title: pick.title, host: pick.host, start: pick.minute, eventId: pick.eventId, notes: [], hosted: !!pick.hosted };
   const t: Table = {
     day: w.day, venue: PRICE_ROOM[pick.kind] ?? 2, faces, asked: [], rounds: 0, listened: false, spent: 0,
     open: true, openAbs: open, closeAbs, tonight: {}, minutes: 0, scene: sc,
@@ -163,7 +181,7 @@ export function attend(w: World, seat: string, arg = ''): Res {
   sb.lastOut = w.day;
   if (pick.kind === 'deal') sc.deal = makeDeal(w, me, pick.host);
   const guests = faces.filter((i) => i !== pick.host).map((i) => P.name(i));
-  const ev = w.events.emit('scene.open', `${P.name(me)} arrives at ${pick.place} for ${what} with ${P.name(pick.host)}${guests.length ? `, ${guests.slice(0, 3).join(', ')}${guests.length > 3 ? ` and ${guests.length - 3} more` : ''}` : ''}`, [pick.eventId >= 0 ? pick.eventId : w.genesis], P.id(me));
+  const ev = pick.hosted ? w.events.emit('scene.open', `${P.name(me)} hosts ${what.replace(/^your /, 'a ')} at ${pick.place} for ${guests.join(', ')}`, [pick.eventId >= 0 ? pick.eventId : w.genesis], P.id(me)) : w.events.emit('scene.open', `${P.name(me)} arrives at ${pick.place} for ${what} with ${P.name(pick.host)}${guests.length ? `, ${guests.slice(0, 3).join(', ')}${guests.length > 3 ? ` and ${guests.length - 3} more` : ''}` : ''}`, [pick.eventId >= 0 ? pick.eventId : w.genesis], P.id(me));
   sc.eventId = ev;
   const views = sceneFaces(w, seat, t);
   const lines = [
@@ -171,13 +189,13 @@ export function attend(w: World, seat: string, arg = ''): Res {
     sc.deal ? `On the table: ${sc.deal.text} Say deal yes or deal no.` : '',
     'Talk to someone by number, listen to the table, or leave when you are ready. The clock waits while you are here.',
   ].filter(Boolean);
-  const text = `${dateText(w.day)}, ${clockText(open % 1440)}.${before} You arrive at ${pick.place} for ${what}${pick.treat ? `, on ${first(w, pick.host)}` : ''}. ${arrival(w, sc, pick.host)}`;
+  const text = `${dateText(w.day)}, ${clockText(open % 1440)}.${before} You arrive at ${pick.place} for ${what}${pick.treat && pick.kind !== 'firstday' && !pick.hosted ? `, on ${first(w, pick.host)}` : ''}. ${arrival(w, sc, pick.host)}`;
   notify(w, {
     kind: 'scene', title: `${what.charAt(0).toUpperCase()}${what.slice(1)} at ${pick.place} has begun`,
     text: `${arrival(w, sc, pick.host)} At the table: ${faces.map((i) => P.name(i)).join(', ')}.${sc.deal ? ` ${sc.deal.text}` : ''}`,
-    reason: `You said yes to ${P.name(pick.host)}'s invitation for ${dateText(pick.day)} at ${clockText(pick.minute)}.`,
-    cause: ev, from: pick.host, urgent: true,
-    actions: [{ label: `Talk to ${first(w, pick.host)}`, line: 'talk 1' }, ...(sc.deal ? [{ label: 'Take the deal', line: 'deal yes' }] : []), { label: 'Listen to the table', line: 'listen' }, { label: 'Leave', line: 'leave' }],
+    reason: pick.hosted ? `You booked it for ${dateText(pick.day)} at ${clockText(pick.minute)}, and ${faces.length} said they would come.` : pick.kind === 'firstday' ? 'You accepted the seat, and today is the start date.' : `You said yes to ${P.name(pick.host)}'s invitation for ${dateText(pick.day)} at ${clockText(pick.minute)}.`,
+    cause: ev, from: pick.hosted ? faces[0] : pick.host, urgent: true,
+    actions: [{ label: `Talk to ${first(w, pick.hosted ? faces[0] : pick.host)}`, line: 'talk 1' }, ...(sc.deal ? [{ label: 'Take the deal', line: 'deal yes' }] : []), { label: 'Listen to the table', line: 'listen' }, { label: 'Leave', line: 'leave' }],
   });
   return { ok: true, pause: true, eventId: ev, minutes: 5, text, lines };
 }
@@ -196,7 +214,7 @@ export function sceneFaces(w: World, seat: string, t: Table): FaceView[] {
     const heard = overheardOf(w, i, -1, k);
     const known = rel ? `you have talked ${rel.depth <= 1 ? 'once' : `${rel.depth} times`}` : host ? 'your host' : `${first(w, sc.host)} introduces you`;
     const text = `${P.name(i)}, who ${jobLine(w, i)}${host ? ': your host' : ''}. ${rel || host ? (word ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : known) : `${look}. ${known}`}`;
-    return { n: k + 1, who: i, name: P.name(i), text, look: rel || host ? '' : look, heard, news: '', known, word, recognises: false, exchanges: rel?.depth ?? 0, regular: false };
+    return { n: k + 1, who: i, name: P.name(i), text, look: rel || host ? '' : look, heard, news: '', known, word, recognises: false, exchanges: rel?.depth ?? (reg.slot >= 0 && reg.score > 0 ? 1 : 0), regular: false };
   });
 }
 
@@ -335,6 +353,8 @@ export function finishScene(w: World, seat: string, t: Table): { text: string; l
   const talkedHost = t.asked.includes(host);
   const guests = t.asked.filter((i) => i !== host);
   const fresh = guests.filter((i) => relOf(sb, i)?.first === w.day);
+  if (sc.hosted) return finishHosted(w, t, sc, me);
+  if (sc.kind === 'firstday') return finishFirstDay(w, t, sc, me);
   const ev = w.events.emit('scene.held', `${P.name(me)} spends ${sc.what} at ${sc.place} with ${P.name(host)} || ${talkedHost ? 'talked with the host' : 'hardly spoke to the host'}, ${guests.length} guests, ${sc.deal?.answer ?? 'no deal'}`, [sc.eventId], P.id(me));
   if (P.alive(host)) circleTouch(w, host, talkedHost ? 3 : -3, talkedHost ? `A good evening at ${sc.place}` : `You hardly spoke to them at their own table`, ev);
   for (const i of guests) if ((t.tonight[i] ?? 0) >= 2) circleTouch(w, i, 2, `You hit it off at ${sc.place}`, ev);
@@ -354,12 +374,63 @@ export function finishScene(w: World, seat: string, t: Table): { text: string; l
   return { text, lines: [], eventId: ev };
 }
 
+/** The first day: everyone at the table is now a colleague in your book, and the manager is your boss. */
+function finishFirstDay(w: World, t: Table, sc: Scene, me: number): { text: string; lines: string[]; eventId?: number } {
+  const P = econ(w).P;
+  const host = sc.host;
+  const ev = w.events.emit('scene.held', `${P.name(me)} spends a first day at ${sc.place} || met ${t.faces.length} people, talked to ${t.asked.length}`, [sc.eventId], P.id(me));
+  const met: string[] = [];
+  for (const i of t.faces) {
+    if (!P.alive(i)) continue;
+    const boss = i === host;
+    circleMeet(w, i, 'colleague', boss ? 'boss' : '', boss ? 30 : 22, boss ? 14 : 18, boss ? `Your manager at ${sc.place}, met on your first day` : `Met on your first day at ${sc.place}`);
+    if (t.asked.includes(i)) circleTouch(w, i, 3, boss ? 'You made a good start on the first day' : 'You got talking on the first day', ev);
+    met.push(`${P.name(i)}${boss ? ' (your manager)' : ''}`);
+  }
+  const out = [`You met ${met.join(', ')}. They are in your book as colleagues now.`];
+  if (!t.asked.includes(host)) out.push(`You never quite caught ${first(w, host)} for a word; there is always tomorrow.`);
+  out.push(...sc.notes);
+  const text = `You leave ${sc.place} at ${clockText(absNow(w) % 1440)}. ${out.join(' ')}`;
+  sc.summary = text;
+  notify(w, { kind: 'scene', title: `After your first day at ${sc.place}`, text: out.join(' '), reason: `Your first day at ${sc.place}.`, cause: ev, from: host, actions: [{ label: 'See your job', line: 'jobs' }] });
+  return { text, lines: [], eventId: ev };
+}
+
+/** Your own evening: guests you talked to think more of you, they meet each other, and the city talks about it. */
+function finishHosted(w: World, t: Table, sc: Scene, me: number): { text: string; lines: string[]; eventId?: number } {
+  const P = econ(w).P;
+  const talked = t.faces.filter((i) => t.asked.includes(i));
+  const left = t.faces.filter((i) => !t.asked.includes(i));
+  const good = talked.length * 2 >= t.faces.length;
+  const kindWord = sc.kind === 'gala' ? 'gala' : 'dinner';
+  const ev = w.events.emit('scene.hosted', `${P.name(me)} hosts a ${kindWord} at ${sc.place} || ${t.faces.length} guests, talked with ${talked.length}`, [sc.eventId], P.id(me));
+  for (const i of talked) circleTouch(w, i, 5, `A good evening at your ${kindWord} at ${sc.place}`, ev);
+  for (const i of left) circleTouch(w, i, -1, 'You hardly spoke to them at your own table', ev);
+  let intros = 0;
+  for (let a = 0; a < t.faces.length; a++) for (let b = a + 1; b < t.faces.length; b++) { nudgeLink(w, t.faces[a], t.faces[b], 6); intros++; }
+  if (good) nudgeStanding(w, me, sc.kind === 'gala' ? 4 : 2);
+  const gossip = circleHosted(w, sc.key, good, talked, ev);
+  const out: string[] = [];
+  out.push(talked.length ? `You talked with ${talked.map((i) => P.name(i)).join(', ')}.` : 'You spent the evening seeing to the bill and the coats.');
+  if (left.length) out.push(`${left.map((i) => first(w, i)).join(' and ')} went home without a real word from you.`);
+  if (intros) out.push(`Your guests met each other across your table: ${intros === 1 ? 'one introduction' : `${intros} introductions`} made at your expense.`);
+  out.push(good ? 'People will talk about it, and kindly. Hosting counts toward your standing.' : 'It was a quiet evening, and people will say so.');
+  if (gossip) out.push(gossip);
+  out.push(...sc.notes);
+  const text = `You see the last guest out of ${sc.place} at ${clockText(absNow(w) % 1440)}. ${out.join(' ')}`;
+  sc.summary = text;
+  notify(w, { kind: 'scene', title: `After your ${kindWord} at ${sc.place}`, text: out.join(' '), reason: `You hosted it on ${dateText(w.day)}.`, cause: ev, from: talked[0] ?? -1, actions: [{ label: 'See your standing', line: 'standing' }] });
+  return { text, lines: [], eventId: ev };
+}
+
 /**
  * Called each minute by the clock: an invitation that has reached its hour opens by itself (you said yes), and an
  * evening that ran out of time is closed and summed up. Returns what happened, if anything.
  */
 export function sceneClock(w: World, seat: string): Res | null {
   if (!seat) return null;
+  // Answers promised for a minute of the day are written at that minute.
+  circleMinute(w, absNow(w));
   const me = whoOf(w, seat);
   if (me < 0 || !econ(w).P.alive(me)) return null;
   const sb = seatBook(w, seat);
@@ -393,6 +464,7 @@ export function sceneView(w: World, seat: string): { now: Record<string, unknown
   const now = sc ? {
     key: sc.key, kind: sc.kind, what: sc.what, place: sc.place, title: sc.title, host: sc.host, hostName: P.name(sc.host),
     open: !sc.ended && t!.open, summary: sc.summary ?? '', notes: sc.notes.slice(),
+    faces: (t?.faces ?? []).map((i) => ({ who: i, name: P.name(i) })),
     deal: sc.deal ? { kind: sc.deal.kind, text: sc.deal.text, from: sc.deal.from, fromName: P.name(sc.deal.from), answer: sc.deal.answer ?? '', result: sc.deal.result ?? '' } : null,
   } : null;
   const done = played(w, seat);

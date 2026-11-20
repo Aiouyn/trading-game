@@ -337,6 +337,19 @@ function ingest(w: World): void {
         factId: -1, factEvent: e.id, tradeEvent: e.id, solid: true,
         text: `${alive(w, person) ? s.P.name(person) : 'a creator'} pulled a coin pool and kept ${usd(gain)}`,
       });
+    } else if (e.kind === 'crypto.devdump') {
+      // A creator selling their own coin into its buyers once is a bad trade; twice is a pattern the regulator files; three times it acts on.
+      const person = personOf(e.actor);
+      const n = Number(/dump (\d+)/.exec(e.msg)?.[1] ?? '1');
+      // Every dump puts the creator on the coin desk's watch list; Attention shows it before any file is opened.
+      if (person >= 0) { const wl = ((st as Law & { watch?: Record<string, { day: number; ev: number; n: number }> }).watch ??= {}); wl[String(person)] = { day: w.day, ev: e.id, n }; }
+      if (n < 2) continue;
+      const gain = centsIn(e.msg) || Math.round(s.wage * 10);
+      file(w, {
+        kind: 'manipulation', person, firm: -1, bank: '', gain, qty: 0, vol: n, knowers: n >= 3 ? 12 : 4,
+        factId: -1, factEvent: e.id, tradeEvent: e.id, solid: n >= 3,
+        text: `${alive(w, person) ? s.P.name(person) : 'a creator'} sold their own coin into its buyers ${n} times`,
+      });
     } else if (e.kind === 'firm.default' || e.kind === 'loan.default') {
       const gain = centsIn(e.msg);
       if (gain < s.wage * (e.kind === 'firm.default' ? 80 : 600)) continue;
@@ -940,10 +953,13 @@ export function attentionOf(w: World, person: number): Attention {
     }
   }
   for (const p of st.pends) if (p.person === person) flagged++;
+  const wl = (st as Law & { watch?: Record<string, { day: number; ev: number; n: number }> }).watch?.[String(person)];
+  const watched = wl && w.day - wl.day < 180 ? Math.min(40, 12 * wl.n) : 0;
+  if (watched && wl!.ev > latest) { latest = wl!.ev; eventId = wl!.ev; }
   let heat = 0;
   if (person < st.heat.length && st.heat[person] >= 0 && w.day - st.heat[person] < 500) heat = 20;
-  const score = Math.max(0, Math.min(100, open * 35 + Math.min(45, flagged * 15) + heat));
-  const line = open ? 'An investigator has a file open' : flagged ? 'A trade is flagged and not yet charged' : heat ? 'The desk still remembers a case' : 'No open file';
+  const score = Math.max(0, Math.min(100, open * 35 + Math.min(45, flagged * 15) + heat + watched));
+  const line = open ? 'An investigator has a file open' : flagged ? 'A trade is flagged and not yet charged' : watched ? `The coin desk is watching you: ${wl!.n === 1 ? 'you sold your own coin into its buyers' : `${wl!.n} dumps on your own buyers`}` : heat ? 'The desk still remembers a case' : 'No open file';
   return { score, open, flagged, eventId, line };
 }
 

@@ -168,10 +168,16 @@ export function parseCommand(line: string, employer: string): Command | { error:
   }
   if (head === 'talk') {
     const slot = Number(t[1]);
-    if (!Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: talk SLOT' };
+    const topic = (t[2] ?? '').toLowerCase();
+    if (topic && /^(hello|work|home|money|city|inside|coins|chat)$/.test(topic)) {
+      if (!Number.isSafeInteger(slot) || slot < 1) return { error: 'usage: talk N [hello|work|home|money|city|inside|coins|chat]' };
+      return { kind: 'out', op: 'talk', n: slot, arg: topic };
+    }
+    if (!Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: talk SLOT | talk N [hello|work|home|money|city|inside|coins|chat]' };
     return { kind: 'talk', slot };
   }
   if (head === 'jobs') return { kind: 'jobs' };
+  if (head === 'job' && (t[1] === 'accept' || t[1] === 'decline')) return { kind: 'job', id: Number(t[2] ?? 0) || 0, answer: t[1] };
   if (head === 'apply') {
     const n = Number(t[1]);
     if (!Number.isSafeInteger(n) || n < 1) return { error: 'usage: apply N' };
@@ -443,8 +449,8 @@ export function parseCommand(line: string, employer: string): Command | { error:
       place = t[2].toLowerCase();
       if (!Number.isSafeInteger(slot) || slot < 0) return { error: 'usage: invite [SLOT] dinner|club|gala' };
     }
-    if (!places.has(place)) return { error: 'usage: invite [SLOT] dinner|club|gala' };
-    return { kind: 'invite', slot, place };
+    if (!places.has(place)) return { error: 'usage: invite [SLOT] dinner|club|gala [confirm]' };
+    return t.slice(3).some((x) => x.toLowerCase() === 'confirm') ? { kind: 'invite', slot, place, confirm: true } : { kind: 'invite', slot, place };
   }
   if (head === 'introduce') {
     if (!t[1]) return { kind: 'introduce', slot: -1 };

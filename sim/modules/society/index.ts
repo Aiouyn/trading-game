@@ -673,8 +673,10 @@ export interface CalDay {
   month: number;
   date: number;
   closed: boolean;
-  items: { kind: string; title: string; eventId: number }[];
+  items: CalItem[];
 }
+/** A calendar line. Dated evenings also carry where, when, who is going, and whether you are on the list. */
+export interface CalItem { kind: string; title: string; eventId: number; place?: string; minute?: number; time?: string; guests?: { who: number; name: string }[]; youIn?: boolean; canJoin?: string }
 
 function mix(a: number, b: number, c: number): number {
   let x = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b ^ 0xc2b2ae35, 0x27d4eb2f) ^ Math.imul(c, 0x165667b1);
@@ -758,11 +760,15 @@ function scheduleDate(w: World, st: Soc): void {
   const P = econ(w).P;
   const names: string[] = [];
   for (const i of guests) if (i >= 0 && i < P.n) names.push(P.name(i));
-  const invite = playerInvited(w, st, me) ? 1 : 0;
+  // A close friend with standing who is on the list can put your name down beside theirs.
+  const bonds = (w.state.circle as { bonds?: { who: number; score: number }[] } | undefined)?.bonds ?? [];
+  const sponsor = me >= 0 && st.snubs < 3 ? guests.find((g) => bonds.some((b) => b.who === g && b.score >= 55)) ?? -1 : -1;
+  const invite = playerInvited(w, st, me) || sponsor >= 0 ? 1 : 0;
   const who = invite && me >= 0 ? guests.concat(me) : guests.slice();
+  const via = invite && sponsor >= 0 && !playerInvited(w, st, me) ? ` ${P.name(sponsor)} put your name on the list.` : '';
   const title = kind === 'gala'
-    ? `Charity gala at ${place}. ${attendLine(names)}.${invite ? ' You are invited.' : ''}`
-    : `A society party at ${place}. ${attendLine(names)}.${invite ? ' You are invited.' : ''}`;
+    ? `Charity gala at ${place}. ${attendLine(names)}.${invite ? ` You are invited.${via}` : ''}`
+    : `A society party at ${place}. ${attendLine(names)}.${invite ? ` You are invited.${via}` : ''}`;
   const cents = invite ? (kind === 'gala' ? Math.max(100, wageOf(w) * 12) : Math.max(100, wageOf(w) * 6)) : 0;
   const cause = st.root || w.genesis;
   const ev = w.events.emit('society.plan', title, [cause], P.id(host));
@@ -770,6 +776,15 @@ function scheduleDate(w: World, st: Soc): void {
     id: st.dateNext++, day, kind, place, who, title, invite, ask: -1, status: 'set', cents, eventId: ev, host,
   });
   st.marker.dated = w.day;
+}
+function satScene(w: World, key: string): boolean {
+  const seats = (w.state.venues as { seats?: Record<string, { played?: Record<string, number> }> } | undefined)?.seats;
+  if (!seats) return false;
+  for (const sb of Object.values(seats)) if (sb.played && sb.played[key] !== undefined) return true;
+  return false;
+}
+function clockLive(w: World): boolean {
+  return typeof (w.state.clock as { min?: number } | undefined)?.min === 'number';
 }
 function resolveDate(w: World, st: Soc, d: SocDate): void {
   const P = econ(w).P;
@@ -784,7 +799,17 @@ function resolveDate(w: World, st: Soc, d: SocDate): void {
   let went = false;
   const cause = d.eventId >= 0 ? d.eventId : (st.root || w.genesis);
   if (d.invite && me >= 0 && d.status === 'yes') {
-    if (d.cents < 1 || societyPay(w, me, d.cents, cause, false)) {
+    const sat = satScene(w, 's' + d.id);
+    if (sat) {
+      // The scene already moved standing. Charge once, and do not count the evening again.
+      const paid = d.cents < 1 || societyPay(w, me, d.cents, cause, false);
+      went = true;
+      if (paid) st.snubs = Math.max(0, st.snubs - 1);
+      else { st.snubs++; bump(w, st, me, -2, 'party', 'You could not pay for the party', cause); }
+    } else if (clockLive(w)) {
+      st.snubs++;
+      bump(w, st, me, -2, 'party', 'You stayed away from the party', cause);
+    } else if (d.cents < 1 || societyPay(w, me, d.cents, cause, false)) {
       went = true;
       st.snubs = Math.max(0, st.snubs - 1);
       bump(w, st, me, 6, 'party', 'You went to the party', cause);
@@ -820,12 +845,23 @@ function tendDates(w: World, st: Soc): void {
   scheduleDate(w, st);
   settleSocietyAsks(w);
 }
-function datedItems(w: World, st: Soc | undefined, day: number): { kind: string; title: string; eventId: number }[] {
-  const out: { kind: string; title: string; eventId: number }[] = [];
+function datedItems(w: World, st: Soc | undefined, day: number): CalItem[] {
+  const out: CalItem[] = [];
   if (st?.dates) {
+    const P = econ(w).P;
+    const me = playerOf(w);
+    const bonds = (w.state.circle as { bonds?: { who: number; score: number }[] } | undefined)?.bonds ?? [];
     for (const d of st.dates) {
       if (d.day !== day || d.status === 'gone') continue;
-      out.push({ kind: d.kind === 'gala' ? 'society.gala' : 'society.party', title: d.title, eventId: d.eventId >= 0 ? d.eventId : w.genesis });
+      const minute = d.kind === 'gala' ? 1170 : 1200;
+      const youIn = d.invite === 1 && me >= 0 && d.who.includes(me);
+      const friend = d.who.find((g) => bonds.some((b) => b.who === g && b.score >= 55));
+      out.push({
+        kind: d.kind === 'gala' ? 'society.gala' : 'society.party', title: d.title, eventId: d.eventId >= 0 ? d.eventId : w.genesis,
+        place: d.place, minute, time: `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`,
+        guests: d.who.filter((g) => g !== me && g >= 0 && g < P.n).slice(0, 8).map((g) => ({ who: g, name: P.name(g) })),
+        youIn, canJoin: youIn ? (d.status === 'yes' ? 'You said yes.' : 'You are invited: answer in your messages.') : friend !== undefined ? `${P.name(friend)} is going and is a close friend: ask them to put your name down.` : `Not on the list. Standing of 30 with money of your own, or a close friend who is going would get you in.`,
+      });
     }
   }
   for (const item of circlePlansOn(w, day)) out.push(item);
@@ -864,6 +900,8 @@ export function societyView(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const name = (i: number): string => (i >= 0 && i < P.n ? P.name(i) : '');
   const me = playerOf(w);
+  // The screen reads standing now, not as it stood at last midnight.
+  refreshRep(w, st);
   return {
     rich: st.rich.map((r, i) => ({ rank: i + 1, person: r.person, name: name(r.person), worth: r.worth, change: r.change, why: r.why, eventId: r.eventId })),
     rank: {
@@ -871,7 +909,7 @@ export function societyView(w: World): Record<string, unknown> {
       gap: st.gap, ahead: st.ahead, rank: st.rank, households: st.households, eventId: st.rankEvent,
     },
     powerful: st.powerful.map((r) => ({ person: r.person, name: name(r.person), role: r.role, standing: r.score, word: r.word, eventId: r.eventId })),
-    standing: { score: st.rep, word: wordOf(st.rep), line: st.repLine, whys: st.whys, eventId: st.repEvent },
+    standing: { score: st.rep, word: wordOf(st.rep), line: st.repLine, whys: st.whys, eventId: st.repEvent, ...standingParts(w, st) },
     stories: st.stories.map((s) => ({ day: s.day, person: s.person, name: name(s.person), dir: s.dir, change: s.change, worth: s.worth, text: s.text, eventId: s.eventId })),
     marketsOpen: open,
   };
@@ -913,13 +951,90 @@ function bump(w: World, st: Soc, who: number, delta: number, kind: string, text:
   if (delta < 0 && st.rep <= 0) return;
   const next = Math.max(0, Math.min(100, st.rep + delta));
   if (next === st.rep) return;
+  st.marker['in:' + kind] = (st.marker['in:' + kind] ?? 0) + (next - st.rep);
   st.rep = next;
-  st.repLine = text;
+  const why = standingSentence(w, st, text);
+  st.repLine = why;
   const P = econ(w).P;
-  const ev = w.events.emit('society.standing', `${P.name(who)} is ${wordOf(next)}: ${text}`, [cause >= 0 ? cause : (st.root || w.genesis)], P.id(who));
+  const ev = w.events.emit('society.standing', `${P.name(who)} is ${wordOf(next)}: ${why}`, [cause >= 0 ? cause : (st.root || w.genesis)], P.id(who));
   st.repEvent = ev;
   st.whys.push({ day: w.day, kind, delta, text, eventId: ev });
   if (st.whys.length > 16) st.whys.splice(0, st.whys.length - 16);
+}
+
+/** What the player's own life adds to their standing: the seat they hold, the evenings they host and go to, the coins they dump. */
+function lifeHit(w: World, e: Ev, who: number): { delta: number; kind: string; text: string } | null {
+  const s = econ(w), P = s.P;
+  switch (e.kind) {
+    case 'career.hired': {
+      const f = P.employer[who] >= 0 ? s.firms[P.employer[who]] : undefined;
+      if (!f) return null;
+      const chief = f.ceo === who;
+      const occ = P.occ[who];
+      const d = chief ? 12 : occ >= 5 ? 8 : occ >= 3 ? 5 : 2;
+      return { delta: d, kind: 'job', text: chief ? `You run ${f.name}` : `A seat at ${f.name}` };
+    }
+    case 'scene.hosted': return e.msg.includes('talked with 0') ? { delta: 1, kind: 'hosting', text: 'You hosted an evening' } : { delta: /gala/.test(e.msg) ? 9 : 6, kind: 'hosting', text: /gala/.test(e.msg) ? 'You hosted a gala' : 'You hosted a dinner' };
+    case 'scene.held': return /hill|society|gala|assembly|quay hall|charity/i.test(e.msg) ? { delta: 4, kind: 'evening', text: 'Seen at a society evening' } : { delta: 1, kind: 'evening', text: 'Seen out at an evening' };
+    case 'crypto.devdump': return { delta: -6, kind: 'scandal', text: 'Sold your own coin into its buyers' };
+    default: return null;
+  }
+}
+
+/** Close friends who have standing of their own lift yours; money of your own does too. Called each day. */
+function circleBump(w: World, st: Soc): void {
+  const who = playerOf(w);
+  if (who < 0) return;
+  const s = econ(w), P = s.P;
+  const bonds = (w.state.circle as { bonds?: { who: number; score: number }[] } | undefined)?.bonds ?? [];
+  let n = 0;
+  let name = '';
+  for (const b of bonds) {
+    if (b.score < 55 || !usable(w, b.who)) continue;
+    const e = P.employer[b.who];
+    const chief = e >= 0 && s.firms[e]?.ceo === b.who;
+    const rich = st.rich.some((r) => r.person === b.who);
+    if (chief || rich || (b.who < st.bar.length && st.bar[b.who] >= 58)) { n++; if (!name) name = P.name(b.who); }
+  }
+  const had = st.marker.closeStand ?? 0;
+  if (n > had) bump(w, st, who, 4 * (n - had), 'bonds', `A close friend with standing: ${name}`, w.events.last('circle.letter') ?? st.root);
+  st.marker.closeStand = n;
+  const tier = tierOf(w, who);
+  const t0 = st.marker.tier ?? -1;
+  if (t0 >= 0 && tier > t0) bump(w, st, who, 5 * (tier - t0), 'wealth', 'Money of your own', st.root);
+  st.marker.tier = tier;
+}
+
+const INPUTS: [string, string][] = [
+  ['start', 'Where you started'], ['job', 'Your job and title'], ['bonds', 'Close friends with standing'], ['hosting', 'Evenings you hosted'],
+  ['evening', 'Evenings you went to'], ['wealth', 'Money of your own'], ['office', 'Office'], ['charity', 'Gifts to the city'],
+  ['scandal', 'Scandal'], ['court', 'The courts'], ['bankruptcy', 'Bankruptcy'], ['trade', 'Your trades'],
+];
+/** Standing as its inputs, with the next step that would move it. */
+/** The line Why? opens on: what moved, the inputs that make the number, and the next step. */
+function standingSentence(w: World, st: Soc, text: string): string {
+  const parts = standingParts(w, st);
+  const bits = parts.inputs.filter((r) => r.kind !== 'start' && r.points !== 0).map((r) => `${r.name} ${r.points > 0 ? '+' : ''}${r.points}`);
+  const list = bits.length ? ` Standing is ${st.rep}: ${bits.join('; ')}.` : '';
+  const next = parts.next ? ` Next: ${parts.next}` : '';
+  return `${text}.${list}${next}`.replace(/\.\./g, '.').replace(/\s+/g, ' ').trim();
+}
+
+function standingParts(w: World, st: Soc): { inputs: { kind: string; name: string; points: number }[]; next: string; guestList: string } {
+  const inputs = INPUTS.map(([kind, name]) => ({ kind, name, points: kind === 'start' ? 42 : Math.round(st.marker['in:' + kind] ?? 0) })).filter((r) => r.kind === 'start' || r.points !== 0);
+  const who = playerOf(w);
+  const P = econ(w).P;
+  let next = '';
+  if (!(st.marker['in:hosting'] ?? 0)) next = 'Host a dinner: book it with invite, place dinner, and confirm. A good evening adds about 6.';
+  else if (!(st.marker['in:bonds'] ?? 0)) next = 'Make a close friend of someone with standing, a chief or a name on the rich list: about 4 each.';
+  else if (who >= 0 && P.employer[who] < 0) next = 'A seat at a firm adds 2 to 12, by the title.';
+  else if (!(st.marker['in:evening'] ?? 0)) next = 'Go to the evenings you are invited to: a society evening adds 4.';
+  else if (st.rep < 55) next = 'Host again, a gala this time (about 9), and keep your name out of the courts.';
+  else next = 'You are known. A gift to the city or an office would carry you further.';
+  const bonds = (w.state.circle as { bonds?: { who: number; score: number }[] } | undefined)?.bonds ?? [];
+  const friend = bonds.find((b) => b.score >= 55 && usable(w, b.who) && b.who < st.bar.length && st.bar[b.who] >= 58);
+  const guestList = friend ? `${P.name(friend.who)} is a close friend with standing and can put your name on a guest list.` : 'A close friend with standing can put your name on a society guest list.';
+  return { inputs, next, guestList };
 }
 
 function refreshRep(w: World, st: Soc): void {
@@ -938,7 +1053,7 @@ function refreshRep(w: World, st: Soc): void {
   st.repCursor = end;
   if (who < 0) return;
   for (const e of batch) {
-    const hit = repHit(e);
+    const hit = repHit(e) ?? lifeHit(w, e, who);
     if (!hit) continue;
     bump(w, st, who, hit.delta, hit.kind, hit.text, e.id);
   }
@@ -1106,6 +1221,15 @@ function refused(st: Soc, why: string): { status: 'rejected'; why: string; event
 }
 
 /** The one call circle makes. Null means the circle goes on and takes the money itself. */
+/** What standing this person expects before they sit at your table, against what you have. */
+export function societyBar(w: World, person: number, who: number): { need: number; rep: number; word: string; line: string; kin: boolean } {
+  const st = box(w);
+  if (!st) return { need: 0, rep: 50, word: '', line: '', kin: false };
+  refreshRep(w, st);
+  const need = who >= 0 && who < st.bar.length ? st.bar[who] : 0;
+  return { need, rep: st.rep, word: wordOf(st.rep), line: st.repLine, kin: closeKin(w, person, who) };
+}
+
 export function societyGate(w: World, person: number, cmd: GateCmd): { status: 'rejected'; why: string; eventId: number } | null {
   const st = box(w);
   if (!st) return null;
@@ -1122,8 +1246,18 @@ export function societyGate(w: World, person: number, cmd: GateCmd): { status: '
   const hostName = P.name(host);
   const kin = closeKin(w, person, host);
   const need = host >= 0 && host < st.bar.length ? st.bar[host] : 0;
-  if (!kin && (st.rep < 18 || st.rep < need)) {
-    const why = st.rep < 18 ? `${hostName} will not come. ${st.repLine}` : `${hostName} will not sit with you. ${st.repLine}`;
+  const bond = ((w.state.circle as { bonds?: { who: number; score: number }[] } | undefined)?.bonds ?? []).find((b) => b.who === host)?.score ?? 0;
+  const close = bond >= 55;
+  const first = hostName.split(' ')[0];
+  const e = P.employer[host];
+  const chief = e >= 0 && econ(w).firms[e]?.ceo === host;
+  // A close friend comes, whatever the city says of you. Anyone else says why, in their own words.
+  if (!kin && !close && (st.rep < 18 || st.rep < need)) {
+    const why = st.rep < 18
+      ? `${first} writes back: "Forgive me, but people would ask who you are, and I would have no answer yet. ${st.repLine}. Give it a few weeks."`
+      : chief
+        ? `${first} writes back: "I run ${econ(w).firms[e].name}, and where I dine is noticed. Your standing is ${st.rep} and I keep to tables of ${need} or so. When the city knows you better, ask me again."`
+        : `${first} writes back: "It is kind of you. But I am careful about whose table I am seen at, and we are not there yet: your standing is ${st.rep}, and I keep to about ${need}."`;
     return refused(st, why);
   }
   if (cmd.kind !== 'introduce') return null;
@@ -1136,7 +1270,10 @@ export function societyGate(w: World, person: number, cmd: GateCmd): { status: '
   if (other < 0) return null;
   const bar = other < st.bar.length ? st.bar[other] : 0;
   if (st.rep < 18 || st.rep < bar) {
-    return refused(st, `${hostName} will not make the introduction. ${P.name(other)} expects a better name: ${st.repLine}`);
+    const on = P.name(other).split(' ')[0];
+    return refused(st, close
+      ? `${first} writes back: "I would, gladly, but ${P.name(other)} is particular about new names, and yours (standing ${st.rep}) is not where ${on} expects (${bar}) yet. Host an evening or two and I will bring ${on} to the next one myself."`
+      : `${first} writes back: "${P.name(other)} only meets people with a name in the city, and yours is ${st.rep} against the ${bar} ${on} expects. Not yet."`);
   }
   return null;
 }
@@ -1161,6 +1298,7 @@ export const society: Module = {
     if (!st) return;
     postCalendar(w, st);
     refreshRep(w, st);
+    circleBump(w, st);
     tendDates(w, st);
   },
 
