@@ -15,6 +15,7 @@ import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../econ
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
 import { bookLevels, markHolding, markPlayerTrading, midPrice, saleProceeds } from '../markets/index.ts';
+import { futKey, sayFill, syncBasis, type BasisBook } from './basis.ts';
 import { cancelAny, placeShareOrder, placeStop, runStops, settleCovers, shortMark, shortSell, shortsDay, stopRows, type StockLoan, type Stop } from './trading.ts';
 import { matchOption, optionChain, optionWhy, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, rentHome, sellHome, type HomeRow } from '../property/index.ts';
@@ -58,6 +59,8 @@ export interface PlayerSeat {
   loans: StockLoan[];
   /** Stop and stop-limit orders, held here and checked every tick. */
   stops?: Stop[];
+  /** What the desk paid for each position, and the fills the chart marks. */
+  basis?: BasisBook;
   line: number[];
   generation: number;
   founded: number;
@@ -122,7 +125,7 @@ export type Command =
   | { kind: 'order'; side: 'buy' | 'sell' | 'short'; instr: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
   | { kind: 'cancel'; orderId: number }
   | { kind: 'bond'; side: 'buy' | 'sell'; tenor: string; bonds: number; limit?: number }
-  | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop'; stop?: number }
+  | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop' | 'limit'; stop?: number }
   | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
   | { kind: 'fx'; side: 'buy' | 'sell'; code: string; units: number }
   | { kind: 'launch'; name?: string; ticker?: string; buy?: number; seed?: number }
@@ -230,8 +233,13 @@ export interface PlayerView {
   coins: { id: string; name: string; qty: number; px: number; eventId: number }[];
   bonds: { instr: string; face: number; eventId: number }[];
   marginPosted: number;
-  stockLoans: { instr: string; qty: number; face: number; eventId: number }[];
-  orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; stop?: number; eventId: number }[];
+  /** Short sales: shares borrowed and sold, with the entry price, the live mark, the fee so far and the open profit or loss (cents). */
+  stockLoans: { instr: string; qty: number; face: number; entry: number; px: number; fees: number; feeRate: number; since: number; pnl: number; eventId: number }[];
+  /** What the desk paid for each position it holds: average entry price in cents a unit, and what closing trades have made. A future is one row per delivery month. */
+  positions: { key: string; instr: string; kind: 'share' | 'coin' | 'future' | 'fx'; month?: number; qty: number; entry: number; gain: number }[];
+  /** The player's fills, for the chart: abs is game minutes since day 0, px is cents a unit. */
+  marks: { abs: number; instr: string; side: 'buy' | 'sell'; qty: number; px: number }[];
+  orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; stop?: number; mode?: 'stop' | 'limit'; month?: number; eventId: number }[];
   contacts: { slot: number; name: string; kind: string; word: string; line: string }[];
   stats: StatView[];
   choices: ChoiceView[];
@@ -1723,15 +1731,15 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
     }
     case 'fut': {
       const good = FUTURES[cmd.good.toUpperCase()] ?? cmd.good.toUpperCase();
-      if (cmd.type === 'stop' || cmd.stop !== undefined) {
-        if (cmd.stop === undefined) return rejected('a stop order needs a stop price');
-        return placeStop(w, st, { kind: 'fut', side: cmd.side, instr: good, qty: cmd.qty, stop: cmd.stop, months: cmd.months, label: `${good} m+${cmd.months}` });
+      if (cmd.type === 'stop' || cmd.type === 'limit' || cmd.stop !== undefined) {
+        if (cmd.stop === undefined) return rejected(cmd.type === 'limit' ? 'a limit order needs a price' : 'a stop order needs a stop price');
+        return placeStop(w, st, { kind: 'fut', side: cmd.side, instr: good, qty: cmd.qty, stop: cmd.stop, months: cmd.months, label: `${good} m+${cmd.months}`, mode: cmd.type === 'limit' ? 'limit' : 'stop' });
       }
       const r = tradeFuture(w, id, good, cmd.months, cmd.qty, cmd.side);
       if (r.why) return rejected(r.why);
       const root = (w.state.commodities as { root?: number } | undefined)?.root ?? st.arrived;
       const word = cmd.side === 'flat' ? 'closed' : cmd.side;
-      return { status: 'accepted', fill: r.qty, eventId: root, text: `${word} ${r.qty} ${good} m+${cmd.months} @ ${(r.px / 100).toFixed(2)}, position ${r.net}` };
+      return { status: 'accepted', fill: r.qty, avg: r.px, eventId: root, text: `${word} ${r.qty} ${good} m+${cmd.months} @ ${(r.px / 100).toFixed(2)}, position ${r.net}` };
     }
     case 'coin': {
       if (cmd.type === 'stop' || cmd.type === 'stop-limit' || cmd.stop !== undefined) {
@@ -1743,6 +1751,11 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
         }
         const lim = cmd.type === 'stop' ? undefined : cmd.limit;
         return placeStop(w, st, { kind: 'coin', side: cmd.side, instr: q.id, qty: cmd.qty, stop: cmd.stop, limit: lim, label: q.name });
+      }
+      // A memecoin has a pool, not a book: a limit order on one is held here and fills at the pool when the price comes.
+      if (cmd.limit !== undefined && cmd.type !== 'market') {
+        const q = coinPrice(w, cmd.coin);
+        if (q && q.id.startsWith('coin:me:')) return placeStop(w, st, { kind: 'coin', side: cmd.side, instr: q.id, qty: cmd.qty, stop: cmd.limit, label: q.name, mode: 'limit' });
       }
       const r = orderCoin(w, id, cmd.coin, cmd.side, cmd.qty, cmd.type === 'market' ? undefined : cmd.limit);
       if (r.why) {
@@ -2315,10 +2328,23 @@ export function act(w: World, playerIdOrCmd: string | Command, cmd?: Command): A
   const command = typeof playerIdOrCmd === 'string' ? cmd : playerIdOrCmd;
   if (!command) return rejected('missing command');
   const day = w.day;
+  const trades = command.kind === 'order' || command.kind === 'coin' || command.kind === 'fut' || command.kind === 'fx' || command.kind === 'cancel';
+  const tradeSeat = trades ? roster(w).seat[playerId] : undefined;
+  const tradeAt = tradeSeat ? playerIndex(w, playerId) : -1;
+  if (tradeSeat && tradeAt >= 0) syncBasis(w, tradeSeat, econ(w).P.id(tradeAt));
   const result = actSeat(w, playerId, command);
   const row: CommandRecord = { day, playerId, cmd: command, status: result.status };
   if (result.why) row.why = result.why;
   roster(w).log.push(row);
+  if (tradeSeat && tradeAt >= 0) {
+    if (result.status === 'accepted' && result.avg && result.fill) {
+      if (command.kind === 'order') { const k = stockInstr(w, command.instr); if (k) sayFill(tradeSeat, k, result.avg); }
+      else if (command.kind === 'coin') { const k = coinPrice(w, command.coin)?.id; if (k) sayFill(tradeSeat, k, result.avg); }
+      else if (command.kind === 'fx') sayFill(tradeSeat, 'fx:' + command.code.toUpperCase(), result.avg);
+      else if (command.kind === 'fut') sayFill(tradeSeat, futKey(FUTURES[command.good.toUpperCase()] ?? command.good.toUpperCase(), w.month + command.months), result.avg);
+    }
+    syncBasis(w, tradeSeat, econ(w).P.id(tradeAt));
+  }
   if (result.status === 'accepted') {
     const seat = roster(w).seat[playerId];
     const i = playerIndex(w, playerId);
@@ -2468,7 +2494,31 @@ export function view(w: World, playerId?: string): PlayerView {
     cash: i >= 0 ? Math.floor(w.ledger.balance(id, DEP)) : 0,
     deposits, loans, shares, futures, coins,
     marginPosted: i >= 0 ? Math.round(w.ledger.balance(id, 'cmdty:margin')) : 0,
-    stockLoans: st.loans.map((l) => ({ instr: l.instr, qty: l.qty, face: l.face, eventId: arrived })),
+    stockLoans: st.loans.map((l) => {
+      const mark = midPrice(w, l.instr);
+      const asSold = l.entry && l.qty > 0 && Math.abs(l.entry * l.qty - l.face) <= l.face * 0.5 ? l.entry : (l.qty > 0 ? l.face / l.qty : 0);
+      const fees = l.fees ?? 0;
+      const out = Math.max(1, w.ledger.issued.get(l.instr) ?? 1);
+      return {
+        instr: l.instr, qty: l.qty, face: l.face, entry: asSold, px: mark, fees, feeRate: Math.min(0.6, 0.02 + 0.5 * l.qty / out), since: l.since ?? -1,
+        pnl: mark > 0 ? Math.round(l.qty * (asSold - mark) - fees) : -fees, eventId: arrived,
+      };
+    }),
+    ...(() => {
+      const b = st.basis;
+      const positions: PlayerView['positions'] = [];
+      if (b) for (const [key, lot] of Object.entries(b.pos)) {
+        if (!lot.q) continue;
+        const f = /^fut:(.+):(\d+)$/.exec(key);
+        const instr = f ? `fut:${f[1]}` : key;
+        positions.push({ key, instr, kind: f ? 'future' : key.startsWith('eq:') ? 'share' : key.startsWith('fx:') ? 'fx' : 'coin', ...(f ? { month: Number(f[2]) } : {}), qty: lot.q, entry: lot.c / Math.abs(lot.q), gain: b.gain[key] ?? 0 });
+      }
+      const marks: PlayerView['marks'] = (b?.marks ?? []).map((m) => {
+        const f = /^fut:(.+):(\d+)$/.exec(m.key);
+        return { abs: m.abs, instr: f ? `fut:${f[1]}` : m.key, side: m.side, qty: m.qty, px: m.px };
+      });
+      return { positions, marks };
+    })(),
     orders, contacts, prices, news, private: priv, bonds, score: st.score,
     ...(() => {
       const board = lifeBoard(w, i, st, i >= 0 ? Math.round(worth(w, i)) : 0);
@@ -2602,8 +2652,9 @@ export const player: Module = {
     for (const id of players.ids) {
       const st = players.seat[id];
       if (!st || st.who < 0 || st.who >= P.n || !P.alive(st.who)) continue;
-      if (!st.stops?.length && !st.loans.length) continue;
       const pid = P.id(st.who);
+      syncBasis(w, st, pid);
+      if (!st.stops?.length && !st.loans.length) continue;
       runStops(w, st, pid, (instr, qty, limit, label) => shortSell(w, st, pid, instr, qty, limit, label));
       if (st.loans.length) settleCovers(w, st, pid, st.arrived >= 0 ? st.arrived : w.genesis);
     }

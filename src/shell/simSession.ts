@@ -24,7 +24,7 @@ export interface Quote {
   book?: { bids: BookLevel[]; asks: BookLevel[] };
 }
 export interface Holding { instr: string; qty: number; px: number; eventId: number }
-export interface OrderRow { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }
+export interface OrderRow { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; /** A stop (or the price of a standing limit) the desk holds: cents. */ stop?: number; mode?: "stop" | "limit"; /** a future's delivery month, as an absolute month number */ month?: number; eventId: number }
 export interface FeedLine { eventId: number; day: number; tag: string; text: string }
 export interface PauseAction { label: string; line: string }
 export interface StoryBeat { title: string; text: string; cause: string }
@@ -104,7 +104,7 @@ export interface SimView {
   futuresBoard?: { good: string; name: string; lot: number; eventId: number; tenors: { monthsAhead: number; px: number; prev: number }[] }[];
   coinBoard?: { id: string; name: string; px: number; prev: number; live: boolean; eventId: number }[];
   tape?: { fx: number; fxName: string; currency: string; policy: number; foreignRate: number; index: number; indexChg: number; events: { fx: number; rate: number; index: number } };
-  fx?: { name: string; currency: string; mid: number; bid: number; ask: number; held: number; bonds: number; eventId: number; homeRate: number; foreignRate: number };
+  fx?: { name: string; currency: string; mid: number; bid: number; ask: number; held: number; bonds: number; eventId: number; homeRate: number; foreignRate: number; pairs?: { id: string; code: string; name: string; main: boolean; mid: number; bid: number; ask: number; held: number; value: number }[] };
   risk?: {
     open: boolean; word: string; cash: number; limit: number; loanOwed: number; loanRate: number; sale: number;
     futPosted: number; futInit: number; futMaint: number; futNote: number;
@@ -120,7 +120,12 @@ export interface SimView {
   feed: FeedLine[];
   deposits?: { bank: string; cents: number; eventId: number }[];
   marginPosted?: number;
-  stockLoans?: { instr: string; qty: number; face: number; eventId: number }[];
+  /** Short sales: entry, live mark, borrow fee so far and the open profit or loss, in cents. */
+  stockLoans?: { instr: string; qty: number; face: number; entry?: number; px?: number; fees?: number; feeRate?: number; since?: number; pnl?: number; eventId: number }[];
+  /** What the desk paid for each position: average entry in cents a unit. A future has one row per delivery month. */
+  positions?: { key: string; instr: string; kind: "share" | "coin" | "future" | "fx"; month?: number; qty: number; entry: number; gain: number }[];
+  /** Your fills for the chart: abs is game minutes since day 0, px is cents a unit. */
+  marks?: { abs: number; instr: string; side: "buy" | "sell"; qty: number; px: number }[];
   alive?: boolean;
   over?: boolean;
   arrival?: string[];

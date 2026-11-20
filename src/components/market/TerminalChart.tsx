@@ -13,7 +13,9 @@ import {
   type Bar, type Drawing, type Pt, type RangeId, type Series, type Tool,
 } from "./terminalApi";
 
-export interface ChartLine { id: string; kind: "order" | "stop" | "pos" | "margin"; side?: "buy" | "sell"; price: number; label: string; drag?: boolean }
+export interface ChartLine { id: string; kind: "order" | "stop" | "pos" | "short" | "margin"; side?: "buy" | "sell"; price: number; label: string; drag?: boolean; /** pos and short: the line is drawn green or red by the open profit or loss */ gain?: boolean }
+/** One of your fills: t is game days (a fraction inside a day), price is in the chart's units. */
+export interface ChartMark { t: number; price: number; side: "buy" | "sell"; qty: number }
 export interface Studies { sma: boolean; ema: boolean; bb: boolean; vwap: boolean; vol: boolean; rsi: boolean; macd: boolean; cmp: boolean }
 
 interface Props {
@@ -35,6 +37,7 @@ interface Props {
   drawings: Drawing[];
   onDrawings: (next: Drawing[]) => void;
   lines: ChartLine[];
+  marks?: ChartMark[];
   onMoveLine: (id: string, price: number) => void;
   onPickPrice: (price: number) => void;
 }
@@ -69,6 +72,8 @@ function dedupe<T extends { time: UTCTimestamp }>(rows: T[]): T[] {
 
 /** The empty candles kept to the right of the newest one (room to draw past the live candle). */
 const RIGHT_OFFSET = 18;
+/** Pixels a candle gets at the least when an intraday window opens: room for a body and a wick. */
+const MIN_CANDLE_PX = 5;
 /** The narrowest price range the plot shows, as a share of the price: a 0.1% wiggle never fills the plot. */
 const MIN_SPAN_SHARE = 0.005;
 const spanFloor: AutoscaleInfoProvider = (base) => {
@@ -130,7 +135,8 @@ export default function TerminalChart(props: Props) {
       },
       localization: { timeFormatter: (time: unknown) => stampLabel(Number(time), isIntraday(live.current.series.tf)) },
       // the mouse on the axes as TradingView has it: drag an axis to scale it, double-click it to reset
-      handleScale: { axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
+      handleScale: { mouseWheel: false, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
     const candle = chart.addSeries(CandlestickSeries, {
       upColor: tk.up, downColor: tk.down, borderVisible: false, wickUpColor: tk.up, wickDownColor: tk.down,
@@ -288,7 +294,7 @@ export default function TerminalChart(props: Props) {
     const n = ohlc.length;
     if (!same || !range) {
       if (!same) chart.priceScale("right", 0).applyOptions({ autoScale: true });
-      applyRange(chart, ohlc.map((r) => r.time as number), props.range);
+      applyRange(chart, ohlc.map((r) => r.time as number), props.range, isIntraday(series.tf));
     } else {
       const atEdge = range.to >= prevN - 1 + 2;
       const shift = atEdge ? n - prevN : 0;
@@ -303,7 +309,7 @@ export default function TerminalChart(props: Props) {
   useEffect(() => {
     const a = api.current;
     if (!a || !times.current.length) return;
-    applyRange(a.chart, times.current, props.range);
+    applyRange(a.chart, times.current, props.range, isIntraday(live.current.series.tf));
     dirty.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.rangeKey]);
@@ -358,7 +364,13 @@ export default function TerminalChart(props: Props) {
       const a = api.current;
       const l = toLogical(gt * DAY_S);
       if (!a || l === null) return null;
-      return a.chart.timeScale().logicalToCoordinate(l as never);
+      // the library places whole logical indexes only (a fraction comes back as 0): place the two around it and go between
+      const ts = a.chart.timeScale();
+      const f = Math.floor(l);
+      const x0 = ts.logicalToCoordinate(f as never);
+      if (x0 === null || l === f) return x0;
+      const x1 = ts.logicalToCoordinate((f + 1) as never);
+      return x1 === null ? x0 : x0 + (l - f) * (x1 - x0);
     };
     const Y = (p: number): number | null => api.current?.candle.priceToCoordinate(p) ?? null;
     const gtAt = (x: number): number | null => {
@@ -407,9 +419,9 @@ export default function TerminalChart(props: Props) {
         const price = dragging ? (ix.current.drag as { price: number }).price : l.price;
         const y = Y(price);
         if (y === null || y < 0 || y > ph) continue;
-        const color = l.kind === "margin" ? tk.signal : l.kind === "pos" ? tk.acc : l.kind === "stop" ? tk.warn : l.side === "sell" ? tk.down : tk.up;
-        g.strokeStyle = color; g.lineWidth = 1;
-        g.setLineDash(l.kind === "pos" ? [] : l.kind === "margin" ? [2, 3] : [6, 4]);
+        const color = l.kind === "margin" ? tk.signal : l.kind === "pos" || l.kind === "short" ? (l.gain === undefined ? tk.acc : l.gain ? tk.up : tk.down) : l.kind === "stop" ? tk.warn : l.side === "sell" ? tk.down : tk.up;
+        g.strokeStyle = color; g.lineWidth = l.kind === "pos" || l.kind === "short" ? 1.5 : 1;
+        g.setLineDash(l.kind === "pos" || l.kind === "short" ? [] : l.kind === "margin" ? [2, 3] : [6, 4]);
         g.beginPath(); g.moveTo(0, Math.round(y) + 0.5); g.lineTo(pw, Math.round(y) + 0.5); g.stroke();
         g.setLineDash([]);
         const text = `${l.label}${dragging ? " " + fmtP(price) : ""}`;
@@ -418,6 +430,30 @@ export default function TerminalChart(props: Props) {
         g.fillRect(pw - tw - 6, y - 9, tw, 18);
         g.fillStyle = tk.bg;
         g.fillText(text, pw - tw, y + 4);
+      }
+      // your fills: a triangle at the price of each, pointing the way you traded
+      const ms = live.current.marks ?? [];
+      if (ms.length) {
+        g.save();
+        g.beginPath(); g.rect(0, 0, pw, ph); g.clip();
+        const seen: { x: number; y: number }[] = [];
+        for (const m of ms) {
+          const x = X(m.t), y = Y(m.price);
+          if (x === null || y === null || x < -10 || x > pw + 10 || y < -10 || y > ph + 10) continue;
+          const buy = m.side === "buy";
+          const col = buy ? tk.up : tk.down;
+          g.fillStyle = col; g.strokeStyle = tk.bg; g.lineWidth = 1.5;
+          g.beginPath();
+          if (buy) { g.moveTo(x, y + 1); g.lineTo(x - 6, y + 12); g.lineTo(x + 6, y + 12); }
+          else { g.moveTo(x, y - 1); g.lineTo(x - 6, y - 12); g.lineTo(x + 6, y - 12); }
+          g.closePath(); g.stroke(); g.fill();
+          seen.push({ x, y });
+          if (ms.length <= 14) {
+            g.fillStyle = tk.fg;
+            g.fillText(`${buy ? "B" : "S"} ${m.qty.toLocaleString("en-US")}`, x + 8, buy ? y + 11 : y - 5);
+          }
+        }
+        g.restore();
       }
       // the draft's first click, so the player sees it landed
       if (first && tool !== "cursor") {
@@ -545,6 +581,14 @@ export default function TerminalChart(props: Props) {
     };
     const dbl = (e: MouseEvent) => {
       const { x, y } = local(e);
+      const a = api.current;
+      if (a && x < plot().w && y > box.clientHeight - 30 && times.current.length) {
+        // the time axis: back to the window the range button opened, on the auto price scale
+        applyRange(a.chart, times.current, live.current.range, isIntraday(live.current.series.tf));
+        a.chart.priceScale("right", 0).applyOptions({ autoScale: true });
+        dirty.current = true;
+        return;
+      }
       if (live.current.tool !== "cursor" || !inPlot(x, y) || hitLine(x, y) || hitDrawing(x, y)) return;
       const p = priceAt(y);
       if (p !== null) live.current.onPickPrice(p);
@@ -560,7 +604,35 @@ export default function TerminalChart(props: Props) {
     // a wheel step over the price axis zooms the price scale, as TradingView's does (the library would zoom time)
     const wheel = (e: WheelEvent) => {
       const a = api.current;
-      if (!a || e.clientX - box.getBoundingClientRect().left < plot().w) return;
+      if (!a) return;
+      const rect = box.getBoundingClientRect();
+      const lx = e.clientX - rect.left, ly = e.clientY - rect.top;
+      if (lx < plot().w) {
+        // over the plot or the time axis: the wheel zooms the time scale about the pointer (a notch is about a sixth), and
+        // a sideways wheel or shift-wheel pans. The library's own wheel is off so the two never fight.
+        e.preventDefault(); e.stopPropagation();
+        const ts = a.chart.timeScale();
+        const vr = ts.getVisibleLogicalRange();
+        if (!vr) return;
+        const span = vr.to - vr.from;
+        if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+          const d = (e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX) / Math.max(1, plot().w) * span;
+          ts.setVisibleLogicalRange({ from: vr.from + d, to: vr.to + d } as LogicalRange);
+          return;
+        }
+        if (e.deltaY === 0) return;
+        const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
+        const f = Math.exp(Math.max(-400, Math.min(400, e.deltaY * unit)) * 0.0016);
+        const at = ts.coordinateToLogical(Math.max(0, Math.min(plot().w, lx)));
+        const c = at === null ? (vr.from + vr.to) / 2 : (at as number);
+        const total = times.current.length + RIGHT_OFFSET;
+        const width = Math.min(Math.max(span * f, 8), Math.max(total * 1.2, 40));
+        const k = (c - vr.from) / span;
+        const from = c - width * k;
+        ts.setVisibleLogicalRange({ from, to: from + width } as LogicalRange);
+        void ly;
+        return;
+      }
       e.preventDefault(); e.stopPropagation();
       const sc = a.chart.priceScale("right", 0);
       const vr = sc.getVisibleRange();
@@ -588,7 +660,7 @@ export default function TerminalChart(props: Props) {
     };
   }, []);
 
-  useEffect(() => { dirty.current = true; }, [props.drawings, props.lines, props.tool]);
+  useEffect(() => { dirty.current = true; }, [props.drawings, props.lines, props.marks, props.tool]);
   useEffect(() => { ix.current.first = null; ix.current.draft = null; if (props.tool !== "cursor") ix.current.sel = ""; }, [props.tool]);
   useEffect(() => { ix.current.sel = ""; setEditing(null); }, [series.id]);
 
@@ -657,7 +729,7 @@ function dedupeBars(bars: Bar[]): Bar[] {
 
 /** The window a range preset shows: from the first candle within its game days of the newest one (all of them for ALL), and
  *  never fewer than MIN_VIEW_CANDLES when the data has that many. */
-function applyRange(chart: IChartApi, times: number[], range: RangeId): void {
+function applyRange(chart: IChartApi, times: number[], range: RangeId, intraday = false): void {
   const n = times.length;
   if (!n) return;
   const days = RANGES.find((r) => r.id === range)?.days ?? 0;
@@ -668,6 +740,13 @@ function applyRange(chart: IChartApi, times: number[], range: RangeId): void {
     if (start < 0) start = n - 1;
   }
   start = Math.min(start, Math.max(0, n - MIN_VIEW_CANDLES));
+  // An intraday window that would squeeze its candles under a few pixels each (a month of 15-minute candles in one screen)
+  // shows the newest ones at a width where each has a body and a colour. The scroll wheel and the range buttons reach the rest.
+  if (intraday) {
+    const width = chart.timeScale().width();
+    const room = Math.max(MIN_VIEW_CANDLES, Math.floor((width > 0 ? width : 900) / MIN_CANDLE_PX));
+    start = Math.max(start, n - room);
+  }
   chart.timeScale().setVisibleLogicalRange({ from: start - 0.5, to: n - 1 + RIGHT_OFFSET } as LogicalRange);
 }
 

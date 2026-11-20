@@ -30,7 +30,7 @@ import { clockText, dateText } from './modules/player/gamedate.ts';
 import { seatId } from './modules/venues/world.ts';
 import { courseBoard } from './modules/courses/index.ts';
 import { bookLevels, saleProceeds, saleValue } from './modules/markets/index.ts';
-import { marginLimit, productHaircuts } from './modules/banking/index.ts';
+import { callNeed, marginLimit, productHaircuts } from './modules/banking/index.ts';
 import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
 import { answerAsk, STANCES } from './modules/media/index.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
@@ -123,13 +123,19 @@ function whole(n: unknown, min: number): number | undefined {
 }
 
 /** type "stop" (or "stop-limit" when a limit comes with it) and a stop price in cents. Returns undefined for a plain order. */
-function stopOf(b: Record<string, unknown>, hasLimit: boolean): { type: 'stop' | 'stop-limit'; stop: number } | string | undefined {
+/** A price in cents: whole, except for a memecoin, which trades at fractions of a cent. */
+function priceCents(n: unknown, fractional: boolean): number | undefined {
+  if (fractional) return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : undefined;
+  return whole(n, 1);
+}
+
+function stopOf(b: Record<string, unknown>, hasLimit: boolean, fractional = false): { type: 'stop' | 'stop-limit'; stop: number } | string | undefined {
   const t = b.type;
   if (t === undefined && b.stop === undefined) return undefined;
   if (t !== undefined && t !== 'market' && t !== 'limit' && t !== 'stop' && t !== 'stop-limit') return 'type must be market, limit, stop or stop-limit';
   if (t === 'market' || t === 'limit') return b.stop !== undefined ? 'a stop price needs type stop or stop-limit' : undefined;
-  const stop = whole(b.stop, 1);
-  if (stop === undefined) return 'stop must be a positive integer price in cents';
+  const stop = priceCents(b.stop, fractional);
+  if (stop === undefined) return 'stop must be a positive price in cents';
   if (t === 'stop-limit' && !hasLimit) return 'a stop-limit order needs a limit price in cents';
   return { type: t === 'stop-limit' || (t === undefined && hasLimit) ? 'stop-limit' : 'stop', stop };
 }
@@ -180,6 +186,12 @@ function commandOf(body: unknown): Command | string {
       if (qty === undefined) return 'qty is a number of contracts';
       const months = whole(b.months, 0);
       if (months === undefined) return 'month must be 0 to 5';
+      if (b.type === 'limit') {
+        if (b.side === 'flat') return 'a limit order buys or sells: use a market order to go flat';
+        const px = whole(b.limit, 1);
+        if (px === undefined) return 'a limit order needs a price in cents';
+        return { kind: 'fut', side: b.side, good: b.good, qty, months, type: 'limit', stop: px };
+      }
       const stop = stopOf(b, false);
       if (typeof stop === 'string') return stop;
       if (stop && stop.type === 'stop-limit') return 'a future has no limit price: use a plain stop';
@@ -192,11 +204,11 @@ function commandOf(body: unknown): Command | string {
       if (qty === undefined) return 'qty must be a positive integer';
       const cmd: Command = { kind: 'coin', side: b.side, coin: b.coin, qty };
       if (b.limit !== undefined) {
-        const limit = whole(b.limit, 1);
-        if (limit === undefined) return 'limit must be a positive integer price in cents';
+        const limit = priceCents(b.limit, true);
+        if (limit === undefined) return 'limit must be a positive price in cents';
         cmd.limit = limit;
       }
-      const stop = stopOf(b, cmd.limit !== undefined);
+      const stop = stopOf(b, cmd.limit !== undefined, true);
       if (typeof stop === 'string') return stop;
       if (stop) { cmd.type = stop.type; cmd.stop = stop.stop; }
       return cmd;
@@ -1846,15 +1858,22 @@ function pauseActions(w: World, hit: PauseHit): PauseAction[] {
     case 'sale':
     case 'bankruptcy': {
       const owed = v.loans.reduce((a, l) => a + l.owed, 0);
-      const pay = Math.min(v.cash, owed);
+      const call = hit.kind === 'margin' ? callNeed(w, playerIndex(w)) : undefined;
+      const want = call?.open && call.need > 0 ? Math.ceil(call.need) : owed;
+      const pay = Math.min(v.cash, want);
       const actions: PauseAction[] = [];
-      if (hit.kind === 'margin' && pay >= 1) actions.push({ label: `Repay ${moneyLabel(pay)}`, line: `repay ${(pay / 100).toFixed(2)}` });
+      if (hit.kind === 'margin' && pay >= 1) {
+        const meets = call?.open && v.cash >= want;
+        actions.push({ label: meets ? `Repay ${moneyLabel(pay)} to meet the call` : `Repay ${moneyLabel(pay)}, all your cash`, line: `repay ${(pay / 100).toFixed(2)}` });
+      }
       if (hit.kind === 'margin') {
-        const sh = v.shares.find((s) => s.qty >= 2);
+        const sh = [...v.shares].sort((a, b) => b.saleValue - a.saleValue).find((x) => x.qty >= 1);
         if (sh) {
           const sym = tradeSym(sh.instr);
-          const half = Math.max(1, Math.floor(sh.qty / 2));
-          actions.push({ label: `Sell half of ${sym}`, line: `sell ${sym} ${half}` });
+          const per = sh.sale > 0 ? sh.sale : sh.px;
+          const n = call?.open && per > 0 ? Math.min(sh.qty, Math.max(1, Math.ceil(call.sell / per))) : Math.max(1, Math.floor(sh.qty / 2));
+          const all = n >= sh.qty;
+          actions.push({ label: all ? `Sell all ${sh.qty} ${sym.toUpperCase()}` : `Sell ${n} ${sym.toUpperCase()}${call?.open ? ` (about ${moneyLabel(Math.round(n * per))})` : ''}`, line: `sell ${sym} ${n}` });
         }
       }
       actions.push({ label: 'Read the sheet', line: 'sheet' });
@@ -1927,8 +1946,10 @@ function composeRuin(w: World, hits: PauseHit[], extra: string[], before: LotSna
     const t = speakIds(w, line);
     if (t && !lines.includes(t)) lines.push(t);
   }
-  const parts: string[] = [lines.join(' ')];
-  let brief = lines.join(' ');
+  // each notice is a sentence of its own, so two never run together
+  const said = lines.map((l) => (/[.!?:)]$/.test(l) ? l : l + '.')).join(' ');
+  const parts: string[] = [said];
+  let brief = said;
   const told = lines.some((l) => /sold at \$/.test(l));
   if (told) {
     // The sale event already names the price and quantity each lot fetched.
@@ -1973,6 +1994,22 @@ function composeRuin(w: World, hits: PauseHit[], extra: string[], before: LotSna
   const why = kind === 'bankruptcy' ? 'The court declares you bankrupt' : kind === 'sale' ? 'The bank sold your shares' : 'A margin call';
   lastRuin = { why, brief };
   return { why, eventId: worst.eventId, kind, text: parts.filter(Boolean).join('\n\n') };
+}
+
+/** A margin call that the player has met (repaid, or sold down to the line) closes its screen: the lender has nothing more to say. */
+function clearCuredMargin(w: World): void {
+  if (!pauseNote && !pauseQueue.length) return;
+  if (!(pauseNote?.kind === 'margin') && !pauseQueue.some((p) => p.kind === 'margin')) return;
+  const who = playerIndex(w);
+  if (who >= 0 && callNeed(w, who).open) return;
+  if ((riskOf(w) as { word?: string }).word === 'Called') return;
+  pauseQueue = pauseQueue.filter((p) => p.kind !== 'margin');
+  if (pauseNote?.kind === 'margin') {
+    pauseNote = pauseQueue.shift() ?? null;
+    touchView();
+    if (pauseNote) broadcast('speed', { speed: 'pause', ...pauseNote });
+    else broadcast('speed', { speed, quiet: true });
+  }
 }
 
 function enqueuePause(w: World, hit: PauseHit): void {
@@ -4496,6 +4533,7 @@ function advanceMinute(): string | undefined {
   if (ticked) {
     const heldBefore = pauseNote;
     collect(w);
+    clearCuredMargin(w);
     if (pauseNote && pauseNote !== heldBefore) broadcast('speed', { speed: 'pause', ...pauseNote });
     try {
       const frame = tickFrame(w);
@@ -5596,6 +5634,7 @@ const server = http.createServer(async (req, res) => {
         }
         const held = pauseNote;
         collect(w);
+        clearCuredMargin(w);
         if (pauseNote && pauseNote !== held) broadcast('speed', { speed: 'pause', ...pauseNote });
         const seat = soleSeat(w);
         const who = playerIndex(w);

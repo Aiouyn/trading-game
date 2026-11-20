@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { useShellStore } from "@/components/shell/ShellContext";
-import { dollars, explain, symbolOf, useSimSnap, type ExplainLine, type SimView } from "@/shell/simSession";
+import { act, dollars, explain, symbolOf, useSimSnap, type ExplainLine, type SimView } from "@/shell/simSession";
 import { gameDate, moneyFromCents, presentNote } from "@/components/ui/format";
 import { LiveNum } from "@/components/ui/LiveNum";
 import { LineChart, tone } from "@/apps/markets/why";
@@ -74,31 +74,43 @@ const liveOf = (view: SimView, instr: string, fallback: number): number => {
 const sign = (cents: number): string => (cents > 0 ? "+" : "") + moneyFromCents(cents);
 const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 
+/** Open profit or loss in words: "+$12.00 (+3.4%)". */
+const openWord = (pnl: number, pct: number): string => `${pnl >= 0 ? "+" : "-"}${moneyFromCents(Math.abs(pnl))} (${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(1)}%)`;
+
 export default function PortfolioApp() {
   const { view } = useSimSnap();
+  const [coverNote, setCoverNote] = useState("");
   const { why, open: ask, close } = usePfWhy();
   const store = useShellStore();
   if (!view) return <div className="pf" data-testid="portfolio"><p className="muted">The books are not open.</p></div>;
   const open = (ctx: string) => store.getState().open("broker", ctx);
-  const shorts = view.quotes.filter((q) => (q.pos ?? 0) < 0 && !view.shares.some((s) => s.instr === q.instr));
   const points = netPoints(view);
   const up = points.length > 1 ? points[points.length - 1].worth >= points[0].worth : (view.nwChange ?? 0) >= 0;
   const stat = (id: string) => view.stats?.find((x) => x.id === id)?.eventId;
 
+  const entryOf = (instr: string): number => view.positions?.find((p) => p.instr === instr && p.kind !== "future" && p.qty > 0)?.entry ?? 0;
   const shareRows = view.shares.map((h) => {
     const q = view.quotes.find((x) => x.instr === h.instr);
     const px = liveOf(view, h.instr, h.px);
     const prev = q?.prev ?? h.px;
-    return { h, px, prev, value: px * h.qty, day: (px - prev) * h.qty };
+    const entry = entryOf(h.instr);
+    const open = entry > 0 ? Math.round(h.qty * (px - entry)) : null;
+    return { h, px, prev, entry, open, value: px * h.qty, day: (px - prev) * h.qty };
   });
-  const shortRows = shorts.map((q) => {
-    const px = liveOf(view, q.instr, q.px);
-    return { q, px, value: (q.pos ?? 0) * px, day: (q.pos ?? 0) * (px - q.prev) };
+  // A short is a position of its own: the shares you owe back, marked live, with what you sold them at and what the loan has cost.
+  const shortRows = (view.stockLoans ?? []).map((l) => {
+    const px = liveOf(view, l.instr, l.px ?? 0);
+    const q = view.quotes.find((x) => x.instr === l.instr);
+    const prev = q?.prev ?? px;
+    const entry = l.entry ?? (l.qty > 0 ? l.face / l.qty : 0);
+    const fees = l.fees ?? 0;
+    return { l, px, entry, fees, pnl: Math.round(l.qty * (entry - px) - fees), value: -l.qty * px, day: -l.qty * (px - prev) };
   });
   const coinRows = view.coins.map((c) => {
     const board = view.coinBoard?.find((x) => x.id === c.id);
     const prev = board?.prev ?? c.px;
-    return { c, value: Math.round(c.px * c.qty), day: Math.round((c.px - prev) * c.qty) };
+    const entry = entryOf(c.id);
+    return { c, entry, open: entry > 0 ? Math.round(c.qty * (c.px - entry)) : null, value: Math.round(c.px * c.qty), day: Math.round((c.px - prev) * c.qty) };
   });
   const bondRows = view.bonds.map((b) => {
     const px = b.px ?? 0;
@@ -182,16 +194,25 @@ export default function PortfolioApp() {
         <h2 className="label">Shares</h2>
         {shareRows.length || shortRows.length ? (
           <>
-            {shareRows.map(({ h, px, prev, value, day }) => (
+            {shareRows.map(({ h, px, prev, entry, open: openPnl, value, day }) => (
               <Pos key={h.instr} testid="pf-share" name={`${symbolOf(h.instr)} · ${h.qty}`} onOpen={() => open(h.instr)}
+                sub={entry > 0 && openPnl !== null ? <span data-testid="pf-share-cost">avg cost {moneyFromCents(Math.round(entry))} · open <span className={tone(openPnl)}>{openWord(openPnl, entry > 0 ? (px - entry) / entry : 0)}</span></span> : null}
                 value={value} day={day} id={h.eventId} ask={ask}
                 says={`You hold ${h.qty.toLocaleString("en-US")} ${symbolOf(h.instr)}. The price is ${moneyFromCents(px)} now and was ${moneyFromCents(prev)} at the last close, so the holding is worth ${moneyFromCents(value)} and moved ${sign(Math.round(day))} today.`} />
             ))}
-            {shortRows.map(({ q, px, value, day }) => (
-              <Pos key={q.instr} testid="pf-share" name={`${symbolOf(q.instr)} · ${q.pos}`} onOpen={() => open(q.instr)}
-                value={value} day={day} id={q.eventId} ask={ask}
-                says={`You are short ${Math.abs(q.pos ?? 0).toLocaleString("en-US")} ${symbolOf(q.instr)}: you owe those shares back. At ${moneyFromCents(px)} that debt is ${moneyFromCents(Math.abs(value))}, and it moved ${sign(Math.round(day))} today.`} />
+            {shortRows.map(({ l, px, entry, fees, pnl, value, day }) => (
+              <Pos key={`short-${l.instr}`} testid="pf-short" name={`${symbolOf(l.instr)} · short ${l.qty}`} onOpen={() => open(l.instr)}
+                sub={(
+                  <span data-testid="pf-short-detail">
+                    sold at {moneyFromCents(Math.round(entry))} · now {moneyFromCents(Math.round(px))} · open <span className={tone(pnl)} data-testid="pf-short-pnl">{openWord(pnl, entry > 0 ? (entry - px) / entry : 0)}</span>
+                    {" "}· borrow fee so far {moneyFromCents(fees)}{l.feeRate ? ` (${(l.feeRate * 100).toFixed(1)}% a year)` : ""}
+                  </span>
+                )}
+                action={<button type="button" className="pf-link" data-testid="pf-cover" onClick={() => void act({ kind: "order", side: "buy", instr: l.instr, qty: l.qty }).then((n) => setCoverNote(n.text))}>Cover at market</button>}
+                value={value} day={day} id={l.eventId} ask={ask}
+                says={`You are short ${l.qty.toLocaleString("en-US")} ${symbolOf(l.instr)}: you borrowed the shares and sold them at ${moneyFromCents(Math.round(entry))} and owe them back. At ${moneyFromCents(Math.round(px))} buying them back costs ${moneyFromCents(Math.abs(Math.round(value)))}. Open profit or loss is ${sign(pnl)}, after ${moneyFromCents(fees)} of borrow fees so far.`} />
             ))}
+            {coverNote ? <p className="muted" data-testid="pf-cover-note">{presentNote(coverNote)}</p> : null}
           </>
         ) : <p className="muted">No shares yet. <button type="button" className="pf-link" onClick={() => open("")}>Open the broker</button> and buy one.</p>}
       </section>
@@ -208,8 +229,11 @@ export default function PortfolioApp() {
           const prev = board?.tenors.find((t) => t.monthsAhead === f.monthsAhead)?.prev;
           const lot = board?.lot ?? 1;
           const day = prev == null ? undefined : f.net * (f.px - prev) * lot;
+          const lotRow = view.positions?.find((p) => p.kind === "future" && p.instr === `fut:${f.good}` && p.month === Math.floor(view.date.abs / 30) + f.monthsAhead);
+          const openPnl = lotRow ? Math.round(f.net * (f.px - lotRow.entry) * lot) : null;
           return (
             <Pos key={`${f.good}-${f.monthsAhead}`} name={`${board?.name || f.good} · ${f.monthsAhead}m · ${f.net}`} onOpen={() => open(`fut:${f.good}`)}
+              sub={lotRow && openPnl !== null ? <span>entry {moneyFromCents(Math.round(lotRow.entry))} · open <span className={tone(openPnl)}>{openWord(openPnl, lotRow.entry > 0 ? (f.net > 0 ? 1 : -1) * (f.px - lotRow.entry) / lotRow.entry : 0)}</span></span> : null}
               value={f.net * f.px * lot} day={day} id={f.eventId} ask={ask}
               says={`${f.net > 0 ? "Long" : "Short"} ${Math.abs(f.net)} ${board?.name || f.good} contract${Math.abs(f.net) === 1 ? "" : "s"}, ${f.monthsAhead} months out. The position is marked at ${moneyFromCents(f.net * f.px * lot)}${day == null ? "." : `, and moved ${sign(Math.round(day))} today.`}`} />
           );
@@ -225,8 +249,9 @@ export default function PortfolioApp() {
         })}
       </Block>
       <Block title="Coins" empty="" show={view.coins.length > 0}>
-        {coinRows.map(({ c, value, day }) => (
-          <Pos key={c.id} name={`${c.name} · ${c.qty.toLocaleString("en-US")}`} onOpen={() => open(c.id.startsWith("coin:") ? c.id : `coin:${c.id}`)}
+        {coinRows.map(({ c, entry, open: openPnl, value, day }) => (
+          <Pos key={c.id} name={`${c.name} · ${c.qty.toLocaleString("en-US")}`}
+            sub={entry > 0 && openPnl !== null ? <span>avg cost {c.id.startsWith("coin:me:") ? `$${(entry / 100).toFixed(6)}` : moneyFromCents(Math.round(entry))} · open <span className={tone(openPnl)}>{openWord(openPnl, c.px > 0 && entry > 0 ? (c.px - entry) / entry : 0)}</span></span> : null} onOpen={() => open(c.id.startsWith("coin:") ? c.id : `coin:${c.id}`)}
             value={value} day={day} id={c.eventId} ask={ask}
             says={`You hold ${c.qty.toLocaleString("en-US")} ${c.name}. At the price now that is ${moneyFromCents(value)}, and it moved ${sign(day)} today.`} />
         ))}
@@ -268,9 +293,6 @@ export default function PortfolioApp() {
             <Pos name="Option margin posted" value={view.risk.optPosted ?? 0} id={view.risk.eventId} ask={ask} />
           </>
         ) : view.marginPosted ? <Pos name="Margin posted" value={view.marginPosted} id={view.risk?.eventId} ask={ask} /> : <p className="muted">No margin account.</p>}
-        {(view.stockLoans ?? []).map((s) => (
-          <Pos key={`${s.instr}-${s.eventId}`} name={`Stock loan ${symbolOf(s.instr)} · ${s.qty}`} value={-s.face} id={s.eventId} ask={ask} />
-        ))}
       </section>
       <section>
         <h2 className="label">Fills</h2>
@@ -299,7 +321,11 @@ function Block({ title, empty, show, children }: { title: string; empty: string;
   return <section><h2 className="label">{title}</h2>{children}</section>;
 }
 
-function Pos({ name, value, day, id, ask, onOpen, testid, says }: {
+function Pos({ name, value, day, id, ask, onOpen, testid, says, sub, action }: {
+  /** A second line under the name: what you paid and the open profit or loss. */
+  sub?: ReactNode;
+  /** A button on that line, such as covering a short. */
+  action?: ReactNode;
   name: string;
   value: number;
   day?: number | null;
@@ -315,7 +341,11 @@ function Pos({ name, value, day, id, ask, onOpen, testid, says }: {
   if (day != null && !says) plain.push(`It moved ${sign(Math.round(day))} today.`);
   return (
     <div className="sim-pf-row" data-testid={testid}>
-      {onOpen ? <button type="button" className="pf-link" onClick={onOpen}>{name}</button> : <span>{name}</span>}
+      <span className="pf-name">
+        {onOpen ? <button type="button" className="pf-link" onClick={onOpen}>{name}</button> : <span>{name}</span>}
+        {sub ? <small className="pf-sub muted">{sub}</small> : null}
+        {action}
+      </span>
       <span className="pf-nums">
         <Num w={{ title: name, plain, id }} ask={ask}><MoneyText amount={dollars(worth)} ctx="table" /></Num>
         {day == null ? null : (

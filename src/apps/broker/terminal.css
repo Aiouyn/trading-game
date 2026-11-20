@@ -114,3 +114,7 @@
   .tm-main { order: -1; }
   .tm[data-list="off"] .tm-list { display: none; }
 }
+.tm-posbar { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: var(--sp-4) var(--sp-12); list-style: none; border-bottom: 1px solid var(--line); }
+.tm-posbar li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-12); font-family: var(--font-num); font-size: var(--fs-12_5, 12.5px); color: var(--fg-muted); }
+.tm-posbar b { color: var(--fg); font-weight: 600; }
+.tm-posbar button { margin-left: auto; }

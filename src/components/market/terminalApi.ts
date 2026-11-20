@@ -213,7 +213,7 @@ export async function fetchList(): Promise<MarketList | null> {
 /** The instrument id the sim charts for a broker context (a ticker, a coin id, a future, a bond). */
 export function instrOf(context: string | undefined): string {
   if (!context) return "index";
-  if (/^(eq:|coin:|fut:|bond:)/.test(context) || context === "index" || context === "fx") return context;
+  if (/^(eq:|coin:|fut:|bond:|fx:)/.test(context) || context === "index" || context === "fx") return context;
   if (context === "BANK") return "eq:bank_1";
   return "eq:frm_" + context.toLowerCase();
 }

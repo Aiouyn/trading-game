@@ -7,7 +7,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { GOODS } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, type EconState, type Firm, noteBankMargin, pay } from '../economy/index.ts';
 import { thought } from '../economy/people.ts';
-import { markHolding, saleProceeds, saleValue, sellToBook } from '../markets/index.ts';
+import { markHolding, midPrice, saleProceeds, saleValue, sellToBook } from '../markets/index.ts';
 import { noteBuiltHome } from '../property/index.ts';
 import { usd as moneyText } from '../player/gamedate.ts';
 
@@ -62,6 +62,7 @@ interface Book {
   tight?: number;       // credit tightness 0..1: lenders' appetite is the opposite
   tightEv?: number;     // the event that last moved it
   pledged?: Record<number, number>; // person -> what their shares fetched when they last borrowed against them
+  pledgedMark?: Record<number, { hair: number; holds: Record<string, { q: number; px: number }> }>; // person -> the shares and prices they borrowed against, so a call can say what really moved
   rateEv?: Record<number, number>; // loan slot -> the event that last repriced it
   woEma?: number;       // annualised write-off rate, smoothed
   woSeen?: number;      // yWriteoff at the last month end
@@ -1095,7 +1096,7 @@ function repriceLoan(w: World, s: EconState, b: Book, k: number, i: number): voi
 const money = (c: number): string => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** What one person's lender has a right to call today: due lines, margin loans the shares no longer carry, lines the shares no longer cover at all. */
-function callSet(w: World, b: Book, i: number): { ks: number[]; owed: number; due: number; why: 'due' | 'slip' | 'under'; fell: number } {
+function callSet(w: World, b: Book, i: number): { ks: number[]; owed: number; due: number; why: 'due' | 'slip' | 'under'; fell: number; fetch: number; keep: number; need: number } {
   const ks = callable(b, i);
   let margin = 0, line = 0, due = 0;
   for (const n of ks) {
@@ -1117,7 +1118,51 @@ function callSet(w: World, b: Book, i: number): { ks: number[]; owed: number; du
   }
   let owed = 0;
   for (const n of out) owed += Math.floor(w.ledger.issued.get(plInstr(n)) ?? 0);
-  return { ks: out, owed, due, why: under ? 'under' : slip ? 'slip' : 'due', fell };
+  // What must be repaid from cash for the bank to carry the rest: the loans over the line it keeps (the full fetch when only a credit line is out).
+  const need = Math.max(0, margin + line - (margin > 0 ? keep : fetch));
+  return { ks: out, owed, due, why: under ? 'under' : slip ? 'slip' : 'due', fell, fetch, keep, need };
+}
+
+/** The honest cause of a call: what the shares did since the loan was taken, the lender's haircut, or the loan itself. */
+function callReason(w: World, b: Book, i: number, cs: { why: 'due' | 'slip' | 'under'; fetch: number; keep: number }): string {
+  if (cs.why === 'due') return 'the line came due and the bank did not roll it';
+  const id = econ(w).P.id(i);
+  const pm = b.pledgedMark?.[i];
+  let then = 0, now = 0, thenAll = 0;
+  if (pm) for (const [instr, h] of Object.entries(pm.holds)) {
+    const q = Math.floor(w.ledger.balance(id, instr));
+    const kept = Math.min(q, h.q);
+    thenAll += h.q * h.px;
+    if (kept > 0) { then += kept * h.px; now += kept * midPrice(w, instr); }
+  }
+  const moved = then > 0 ? now / then - 1 : 0;
+  const gone = thenAll > 0 ? 1 - then / thenAll : 0;
+  const tail = `the bank will carry ${money(cs.keep)} against shares it could sell for ${money(cs.fetch)}`;
+  if (moved <= -0.01 && gone < 0.05) return `your shares fell ${(-moved * 100).toFixed(moved > -0.1 ? 1 : 0)}% since you borrowed and the loan sat near the line (${tail})`;
+  if (gone >= 0.05) return `you hold ${(gone * 100).toFixed(0)}% less stock than when you borrowed${moved <= -0.01 ? ` and what is left fell ${(-moved * 100).toFixed(1)}%` : ''} (${tail})`;
+  const hair = lendHaircut(w);
+  if (pm && hair - pm.hair >= 0.02) return `lenders pulled back: they now lend ${((1 - hair) * 100).toFixed(0)}% of what your shares would fetch, down from ${((1 - pm.hair) * 100).toFixed(0)}% when you borrowed (${tail})`;
+  return `the loan, with interest, is more than the bank will carry (${tail}); the prices are within ${Math.abs(moved * 100).toFixed(1)}% of when you borrowed`;
+}
+
+/** Shares worth this much, sold and repaid, bring the loan back to what the bank keeps carrying (each dollar sold lowers the line by 0.75 of the haircut). */
+function sellOf(w: World, need: number): number {
+  return Math.ceil(need / Math.max(0.05, 0.75 * lendHaircut(w)));
+}
+
+/** An open call on a person's margin loans or credit lines: what is owed under it, and what they must repay (or sell) to meet it. */
+export function callNeed(w: World, person: number): { open: boolean; owed: number; need: number; sell: number; keep: number; fetch: number; opened: number } {
+  const b = w.state.banking as Book | undefined;
+  const none = { open: false, owed: 0, need: 0, sell: 0, keep: 0, fetch: 0, opened: -1 };
+  if (!b || person < 0) return none;
+  let opened = -1;
+  for (const k of callable(b, person)) if (b.lnCall[k] >= 0 && (opened < 0 || b.lnCall[k] < opened)) opened = b.lnCall[k];
+  if (opened < 0) return none;
+  const cs = callSet(w, b, person);
+  if (cs.owed <= 0) return none;
+  // Selling a share raises its price and takes it out of the collateral: each dollar sold repays a dollar and lowers the line by 1 - 0.75 * haircut of it.
+  const sell = sellOf(w, cs.need);
+  return { open: true, owed: cs.owed, need: cs.need, sell, keep: cs.keep, fetch: cs.fetch, opened };
 }
 
 /** Daily maintenance. A call waits three trading days, then the book is hit and any gap is still owed. */
@@ -1144,12 +1189,8 @@ function maintainMargins(w: World, s: EconState, b: Book): void {
     let call = -1;
     if (opened < 0) {
       const called = hasLine && hasMargin ? 'a margin loan and a credit line' : hasLine ? 'a credit line' : 'a margin loan';
-      const reason = cs.why === 'due'
-        ? 'the line came due and the bank did not roll it'
-        : cs.fell >= 0.01
-          ? `shares fell ${(cs.fell * 100).toFixed(0)}% since you borrowed`
-          : `lenders pulled back: they now lend ${((1 - lendHaircut(w)) * 100).toFixed(0)}% of what your shares would fetch`;
-      const head = `${P.name(i)} is called on ${called} of ${money(cs.owed)}: ${reason}; three trading days to pay it down`;
+      const reason = callReason(w, b, i, cs);
+      const head = `${P.name(i)} is called on ${called} of ${money(cs.owed)}: ${reason}; repay ${money(cs.need)} within three trading days${sellOf(w, cs.need) <= cs.fetch ? `, or sell about ${money(sellOf(w, cs.need))} of shares` : '; selling every share would not be enough'}`;
       call = cs.why === 'due'
         ? w.events.emit('loan.line', head, because(s, [b.tightEv]), id)
         : w.events.emit('loan.margin', head, tie(s, [...falls, ...(b.tightEv !== undefined && b.tightEv >= 0 && (b.tight ?? 0) > 0.2 ? [b.tightEv] : [])]), id);
@@ -1494,6 +1535,15 @@ export function borrowMargin(w: World, person: number, cents: number, cause: num
   // The line is cheaper than margin; the term loan pays for the lender's certainty.
   // Margin and line price off the same floating formula the monthly reprice uses, so the first month does not move the rate on a hidden term.
   (b.pledged ??= {})[person] = collateralFetch(w, person);
+  {
+    const holds: Record<string, { q: number; px: number }> = {};
+    const pid = P.id(person);
+    for (const st of (w.state.markets as { stocks?: { instr: string }[] } | undefined)?.stocks ?? []) {
+      const q = Math.floor(w.ledger.balance(pid, st.instr));
+      if (q > 0) holds[st.instr] = { q, px: midPrice(w, st.instr) };
+    }
+    (b.pledgedMark ??= {})[person] = { hair: lendHaircut(w), holds };
+  }
   if (kind === LINE || kind === MARGIN) b.lnRate[slot] = floatRate(w, s, person, kind);
   else if (kind === TERM) b.lnRate[slot] += 0.01;
   return { taken, rate: b.lnRate[slot] };

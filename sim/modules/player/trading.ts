@@ -8,6 +8,7 @@ import { DEP, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, cancelOrder, midPrice, nextOrderId, returnShares, trade, type Execution } from '../markets/index.ts';
 import type { ActResult } from './index.ts';
 import { dollars } from './life.ts';
+import { futKey, sayFill, type BasisBook } from './basis.ts';
 
 export interface StockLoan {
   instr: string;
@@ -21,6 +22,8 @@ export interface StockLoan {
   /** Shares of the same name the player held before borrowing. Anything held above that covers the loan. */
   base?: number;
   since?: number;
+  /** Borrow fees paid so far, in cents. */
+  fees?: number;
 }
 
 export interface Stop {
@@ -40,15 +43,18 @@ export interface Stop {
   month?: number;
   label: string;
   day: number;
+  /** 'limit' is a standing limit order the desk holds for a market with no book of its own (a future, a memecoin): it fires when the price comes down to a buy limit or up to a sell limit. Absent means a stop. */
+  mode?: 'stop' | 'limit';
 }
 
-export interface TradeSeat { loans: StockLoan[]; stops?: Stop[]; margin: boolean; arrived: number }
+export interface TradeSeat { loans: StockLoan[]; stops?: Stop[]; margin: boolean; arrived: number; basis?: BasisBook }
 
 const econ = (w: World): EconState => w.state.economy as EconState;
 const rejected = (why: string): ActResult => ({ status: 'rejected', why });
 const whyOf = (e: unknown): string => e instanceof Error ? e.message : String(e);
 const cashOf = (w: World, id: string): number => Math.floor(w.ledger.balance(id, DEP));
-const cents = (n: number): string => dollars(Math.round(n));
+const centsOf = (n: number): string => dollars(Math.round(n));
+const cents = centsOf;
 
 function causeOf(w: World, seat: TradeSeat): number {
   return seat.arrived >= 0 ? seat.arrived : econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis;
@@ -203,7 +209,10 @@ export function shortsDay(w: World, seat: TradeSeat, id: string): void {
     if (!(mid > 0)) continue;
     const lender = l.lender ?? 'fund_mm';
     const fee = Math.round(l.qty * mid * borrowRate(w, l.instr, l.qty) / 360);
-    if (fee > 0) pay(w, id, lender, Math.min(fee, cashOf(w, id)), 'mkt.borrowfee', cause);
+    if (fee > 0) {
+      const paid = Math.min(fee, cashOf(w, id));
+      if (pay(w, id, lender, paid, 'mkt.borrowfee', cause)) l.fees = (l.fees ?? 0) + paid;
+    }
     const notional = l.qty * mid;
     const entry = l.entry ?? mid;
     const lenderIdx = lender.startsWith('p_') ? +lender.slice(2) : -1;
@@ -231,29 +240,43 @@ export interface StopSpec {
   limit?: number;
   months?: number;
   label: string;
+  mode?: 'stop' | 'limit';
 }
 
 /** Hold a stop (or stop-limit) order. A buy stop sits above the market, a sell stop below it. */
 export function placeStop(w: World, seat: TradeSeat, spec: StopSpec): ActResult {
-  if (!Number.isSafeInteger(spec.stop) || spec.stop < 1) return rejected('the stop price must be a positive number');
+  // a memecoin trades at fractions of a cent, so its price may be one; every other market quotes whole cents
+  if (!(spec.stop > 0) || !Number.isFinite(spec.stop) || (spec.kind !== 'coin' && !Number.isSafeInteger(spec.stop))) return rejected('the stop price must be a positive number');
+  const cents = (n: number): string => (spec.kind === 'coin' && n < 100 ? '$' + (n / 100).toFixed(6) : centsOf(n));
   if (spec.limit !== undefined && spec.kind === 'fut') return rejected('a future has no limit price: use a plain stop');
   const px = stopPrice(w, { kind: spec.kind, instr: spec.instr, month: spec.months !== undefined ? w.month + spec.months : undefined } as Stop);
   if (!(px > 0)) return rejected(`${spec.label} has no price to watch right now`);
   const buying = spec.side === 'buy' || spec.side === 'long';
   const selling = spec.side === 'sell' || spec.side === 'short';
+  const limitOrder = spec.mode === 'limit';
   let above: boolean;
-  if (buying) above = true;
-  else if (selling) above = false;
-  else above = spec.stop > px;
-  if (above && spec.stop <= px) return rejected(`a buy stop sits above the market: ${spec.label} is ${cents(px)} now and a stop at ${cents(spec.stop)} would fire at once`);
-  if (!above && spec.stop >= px) return rejected(`a sell stop sits below the market: ${spec.label} is ${cents(px)} now and a stop at ${cents(spec.stop)} would fire at once`);
+  if (limitOrder) {
+    // A buy limit waits for the price to come down to it, a sell limit for the price to rise to it.
+    if (!buying && !selling) return rejected('a limit order buys or sells');
+    above = selling;
+    if (!above && spec.stop >= px) return rejected(`a buy limit sits below the market: ${spec.label} is ${cents(px)} now, so a buy at ${cents(spec.stop)} or less would fill at once. Use a market order, or name a lower price`);
+    if (above && spec.stop <= px) return rejected(`a sell limit sits above the market: ${spec.label} is ${cents(px)} now, so a sale at ${cents(spec.stop)} or more would fill at once. Use a market order, or name a higher price`);
+  } else {
+    if (buying) above = true;
+    else if (selling) above = false;
+    else above = spec.stop > px;
+    if (above && spec.stop <= px) return rejected(`a buy stop sits above the market: ${spec.label} is ${cents(px)} now and a stop at ${cents(spec.stop)} would fire at once`);
+    if (!above && spec.stop >= px) return rejected(`a sell stop sits below the market: ${spec.label} is ${cents(px)} now and a stop at ${cents(spec.stop)} would fire at once`);
+  }
   const stops = seat.stops ?? (seat.stops = []);
   if (stops.length >= 40) return rejected('forty stops are standing: cancel one first');
   const id = nextOrderId(w);
   stops.push({
     id, kind: spec.kind, side: spec.side, instr: spec.instr, qty: spec.qty, stop: spec.stop, limit: spec.limit,
     above, month: spec.months !== undefined ? w.month + spec.months : undefined, label: spec.label, day: w.day,
+    ...(limitOrder ? { mode: 'limit' as const } : {}),
   });
+  if (limitOrder) return { status: 'accepted', orderId: id, text: `limit ${spec.side} ${spec.qty} ${spec.label} at ${cents(spec.stop)}: it fills at the market when the price ${above ? 'rises to' : 'falls to'} that, whether or not you are looking.` };
   const how = spec.limit !== undefined ? `, then a limit order at ${cents(spec.limit)}` : ', then a market order';
   return { status: 'accepted', orderId: id, text: `stop ${spec.side} ${spec.qty} ${spec.label}: fires when the price ${above ? 'rises to' : 'falls to'} ${cents(spec.stop)}${how}. It stands in the market whether or not you are looking.` };
 }
@@ -288,18 +311,21 @@ export function runStops(w: World, seat: TradeSeat, id: string, shortFn: (instr:
     if (s.kind === 'share') {
       const r = s.side === 'short' ? shortFn(s.instr, s.qty, s.limit, s.label) : placeShareOrder(w, seat, id, s.instr, s.side as 'buy' | 'sell', s.qty, s.limit, s.label);
       said = r.status === 'accepted' ? (r.text ?? 'sent') : `could not fill: ${r.why}`;
+      if (r.status === 'accepted' && r.avg) sayFill(seat, s.instr, r.avg);
     } else if (s.kind === 'coin') {
       const r = orderCoin(w, id, s.instr, s.side as 'buy' | 'sell', s.qty, s.limit);
       said = r.why ? `could not fill: ${r.why}` : `${s.side === 'buy' ? 'bought' : 'sold'} ${r.filled} ${r.name} for ${cents(r.cents)}`;
+      if (!r.why && r.avg) sayFill(seat, s.instr, r.avg);
     } else {
       const months = (s.month ?? w.month) - w.month;
       const r = tradeFuture(w, id, s.instr, months, s.qty, s.side as 'long' | 'short' | 'flat');
       said = r.why ? `could not fill: ${r.why}` : `${s.side} ${r.qty} ${s.label} at ${cents(r.px)}, position ${r.net}`;
+      if (!r.why) sayFill(seat, futKey(s.instr, s.month ?? w.month), r.px);
     }
-    w.events.emit('player.stop', `your stop on ${s.label} fired at ${cents(px)} (stop ${cents(s.stop)}): ${said}`, [cause], id);
+    w.events.emit('player.stop', s.mode === 'limit' ? `your limit order on ${s.label} filled at ${cents(px)} (limit ${cents(s.stop)}): ${said}` : `your stop on ${s.label} fired at ${cents(px)} (stop ${cents(s.stop)}): ${said}`, [cause], id);
   }
 }
 
-export function stopRows(seat: TradeSeat): { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; stop: number; eventId: number }[] {
-  return (seat.stops ?? []).map((s) => ({ id: s.id, book: 'stops', instr: s.kind === 'fut' ? `fut:${s.instr}` : s.instr, side: s.side, qty: s.qty, limit: s.limit ?? null, stop: s.stop, eventId: seat.arrived }));
+export function stopRows(seat: TradeSeat): { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; stop: number; mode: 'stop' | 'limit'; month?: number; eventId: number }[] {
+  return (seat.stops ?? []).map((s) => ({ id: s.id, book: 'stops', instr: s.kind === 'fut' ? `fut:${s.instr}` : s.instr, side: s.side, qty: s.qty, limit: s.limit ?? null, stop: s.stop, mode: s.mode ?? 'stop', ...(s.kind === 'fut' && s.month !== undefined ? { month: s.month } : {}), eventId: seat.arrived }));
 }
