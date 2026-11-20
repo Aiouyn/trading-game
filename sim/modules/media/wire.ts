@@ -41,6 +41,8 @@ interface Item {
   subject: string; detail: string; heat: string; gossip: string; weekly: string;
   player: boolean; person: number; standing: number; link: number; linkDelta: number;
   issuer: string; side: number; weight: number; discount: boolean;
+  /** Confirmed news on a name: the weight its shares are marked by (a fraction, negative for bad news). */
+  priced?: number;
   outletId: string; force: boolean; tabloid: boolean; causes: number[];
 }
 interface Wire {
@@ -55,7 +57,7 @@ interface Firm {
   id: string; idx: number; name: string; sector: string; workers: number; bornWorkers: number; ceo: number;
   closed: boolean; listed: boolean; lastProfit: number;
 }
-interface Cut { id: string; name: string; cut: number }
+interface Cut { id: string; name: string; cut: number; ev: number }
 interface Cluster { week: number; kind: string; cuts: Cut[]; cause: number; published: boolean }
 interface People {
   n: number; spouse: Int32Array; employer: Int32Array; slot: Int32Array;
@@ -350,10 +352,12 @@ function emitItem(w: World, wire: Wire, it: Item, fan: Fan): number {
   } else if (it.person >= 0 && it.standing) {
     nudgeStanding(w, it.person, it.standing);
   }
-  if (it.issuer && it.discount && (wire.pricedDay < 0 || w.day - wire.pricedDay >= 360) && w.state.markets) {
-    discountForNews(w, it.issuer, ev);
+  // A rumour is priced as a rumour: a few percent, in the direction it points. Its confirmation or correction is priced when it lands.
+  if (it.issuer && it.discount && w.state.markets) {
+    discountForNews(w, it.issuer, ev, (it.side || -1) * Math.min(0.12, 0.04 * Math.max(0.5, it.weight)));
     wire.pricedDay = w.day;
   }
+  if (it.issuer && it.priced && w.state.markets) discountForNews(w, it.issuer, ev, it.priced, it.cause);
   if (it.issuer && it.side && it.weight) fan(it.issuer, it.side, o.trust, outlet, it.weight);
   return ev;
 }
@@ -446,10 +450,32 @@ function resolveAsks(w: World, wire: Wire, fan: Fan): void {
   }
   if (wire.asks.length > 12) wire.asks = wire.asks.filter((a) => a.open || w.day - a.day < 20);
 }
+/** What the market expected of the meeting this decision came from, in words. */
+function expectWords(w: World, e: Ev): string {
+  const last = econ(w).cbLast;
+  if (!last || last.ev !== e.id) return '';
+  const pct = (r: number): string => (r * 100).toFixed(2);
+  const bp = Math.round((last.to - last.expect) * 10000);
+  const want = Math.abs(last.expect - last.from) < 1e-6 ? `a hold at ${pct(last.from)}%` : `a move to ${pct(last.expect)}%`;
+  return bp === 0 ? `The market expected exactly that (${want}).` : `The market expected ${want}: a surprise of ${bp > 0 ? '+' : ''}${bp} basis points.`;
+}
+function holdItem(w: World, e: Ev): Item | null {
+  const m = /policy rate held at ([\d.]+)%/.exec(e.msg);
+  if (!m) return null;
+  const a = Number(m[1]);
+  return item({
+    key: 'rate:' + e.id, gap: 8, score: 78, cause: e.id, beat: 'rates', outletId: 'HERALD', force: true,
+    subject: `The central bank holds the policy rate at ${a.toFixed(2)}%`,
+    detail: `${expectWords(w, e)} ${curveFull(w)}`.trim(), heat: 'The bank holds',
+    gossip: `The bank sat on its hands at ${a.toFixed(2)}%. ${curveShort(w)}`,
+    weekly: `A hold at ${a.toFixed(2)}%. ${curveFull(w)}`,
+  });
+}
 function rateItem(w: World, e: Ev): Item | null {
   const m = /policy rate ([\d.]+)% -> ([\d.]+)%/.exec(e.msg);
   if (!m) return null;
   const a = Number(m[1]), b = Number(m[2]);
+  const expected = expectWords(w, e);
   const verb = b > a + 0.001 ? 'raised' : b < a - 0.001 ? 'cut' : 'held';
   const heat = b > a ? 'Rate shock' : b < a ? 'Rate cut' : 'The bank holds';
   const curve = curveFull(w);
@@ -459,7 +485,7 @@ function rateItem(w: World, e: Ev): Item | null {
   return item({
     key: 'rate:' + e.id, gap: 8, score: 80, cause: e.id, beat: 'rates',
     subject: `The central bank ${verb} the policy rate from ${a.toFixed(2)}% to ${b.toFixed(2)}%`,
-    detail: curve, heat,
+    detail: `${expected} ${curve}`.trim(), heat, outletId: 'HERALD', force: true,
     gossip: named ? `${named} moves the rate to ${b.toFixed(2)}%. ${short}` : `The bank ${verb} the rate to ${b.toFixed(2)}%. ${short}`,
     weekly: `A ${verb === 'held' ? 'hold' : verb === 'raised' ? 'hike' : 'cut'} to ${b.toFixed(2)}%. ${curve}`,
   });
@@ -538,6 +564,9 @@ function firmNews(w: World, e: Ev): Item | null {
     // A slow trim is the weekly roundup. The tabloid only gets a shutdown or a named person.
     const tabloid = closed || !!human;
     const who = human ? `${human} is out at ${name}` : closed ? `${name} shuts and sends the staff home` : `${name} is cutting staff`;
+    const born = f && f.bornWorkers > 0 ? f.bornWorkers : Math.max(1, (f?.workers ?? 0) + cut);
+    const frac = cut / born;
+    const weight = closed ? -Math.min(0.4, 0.16 + 0.5 * frac) : -Math.min(0.22, 0.05 + 0.65 * frac);
     return item({
       key: (closed ? 'shut:' : 'layoff:') + (f?.id ?? e.id), gap: 36,
       score: closed ? 86 : 54 + Math.min(18, Math.floor(cut / 4)) + (human ? 12 : 0),
@@ -546,6 +575,7 @@ function firmNews(w: World, e: Ev): Item | null {
       detail: where, heat: closed ? 'Shutdown' : 'Layoffs',
       gossip: who,
       weekly: `${where} cuts the payroll.`,
+      issuer: f?.id ?? '', priced: f?.id ? weight : undefined,
     });
   }
   if (e.kind === 'firm.default' || e.kind === 'bond.default') {
@@ -555,7 +585,7 @@ function firmNews(w: World, e: Ev): Item | null {
       detail: clip(e.msg, 140), heat: 'Default',
       gossip: `${name} cannot pay what it owes`,
       weekly: `${where} defaults. ${curveShort(w)}`,
-      issuer: f?.id ?? '', side: -1, weight: 1.2,
+      issuer: f?.id ?? '', side: -1, weight: 1.2, priced: f?.id ? -0.32 : undefined,
     });
   }
   if (e.kind === 'firm.cashCrunch') {
@@ -565,6 +595,7 @@ function firmNews(w: World, e: Ev): Item | null {
       detail: clip(e.msg, 120), heat: 'Wages unpaid',
       gossip: `Wages went short at ${name}`,
       weekly: `${where} paid only part of the wage.`,
+      issuer: f?.id ?? '', priced: f?.id ? -0.1 : undefined,
     });
   }
   if (e.kind === 'firm.ceoFired' || e.kind === 'firm.succession') {
@@ -743,11 +774,12 @@ function fromEvent(w: World, e: Ev, notable: Set<number>): Item | null {
   if (e.kind === 'society.meeting') {
     return item({
       key: 'cbmeet', gap: 25, score: 58, cause: e.id, beat: 'rates',
-      subject: 'The central bank meets', detail: curveFull(w), heat: 'The bank meets',
+      subject: 'The central bank meets today: the decision is at 14:00', detail: curveFull(w), heat: 'The bank meets',
       gossip: `The bank meets. ${curveShort(w)}`, weekly: `The central bank meets. ${curveFull(w)}`,
     });
   }
   if (e.kind === 'cb.rate') return rateItem(w, e);
+  if (e.kind === 'cb.hold') return holdItem(w, e);
   if (e.kind === 'bond.yield') return yieldItem(w, e);
   if (e.kind === 'bond.spread') return spreadItem(w, e);
   if (e.kind === 'earnings.report') return earnItem(w, e);
@@ -786,7 +818,19 @@ function noteCut(w: World, wire: Wire, it: Item): void {
   const week = Math.floor(w.day / 7);
   const c = clusterOf(wire, week, 'layoff', it.cause);
   if (c.cuts.some((x) => x.id === id)) return;
-  c.cuts.push({ id, name: f?.name ?? 'A firm', cut: cutOf(f) });
+  c.cuts.push({ id, name: f?.name ?? 'A firm', cut: cutOf(f), ev: it.cause });
+}
+/** A weekly roundup is the confirmed story. Price any name the cut itself has not already marked. */
+function priceCuts(w: World, c: Cluster): void {
+  if (!w.state.markets) return;
+  for (const x of c.cuts) {
+    if (!x.id) continue;
+    const f = firmById(w, x.id);
+    const born = f && f.bornWorkers > 0 ? f.bornWorkers : Math.max(1, (f?.workers ?? 0) + x.cut);
+    const frac = x.cut / Math.max(1, born);
+    const weight = -Math.min(0.22, 0.04 + 0.65 * frac);
+    if (weight < -0.02) discountForNews(w, x.id, x.ev >= 0 ? x.ev : c.cause, weight);
+  }
 }
 function roundup(w: World, c: Cluster, first: boolean): Item {
   const cuts = c.cuts.slice().sort((a, b) => b.cut - a.cut || (a.id < b.id ? -1 : 1));
@@ -831,6 +875,7 @@ function dueRoundups(w: World, wire: Wire): Item[] {
     if (c.published || c.kind !== 'layoff') continue;
     if (c.week > week || (c.week === week && w.day % 7 !== 6)) continue;
     c.published = true;
+    priceCuts(w, c);
     const bar = c.week === 0 ? 3 : 8;
     if (c.cuts.length >= bar) out.push(roundup(w, c, !prior && c.week === 0));
   }
@@ -1127,18 +1172,19 @@ function judge(w: World, wire: Wire, fan: Fan): void {
         heat: 'Correction',
         gossip: `Correction. The rate story was wrong. The rate is ${(rate * 100).toFixed(2)}%`,
         weekly: `Correction. ${tabloid} said the bank would ${said}. It did not. ${curveFull(w)}`,
-        issuer: r.issuer, side: hike ? 1 : -1, weight: 1.1,
+        issuer: r.issuer, side: hike ? 1 : -1, weight: 1.1, priced: hike ? 0.05 : -0.04,
       });
       emitItem(w, wire, it, fan);
       wire.yCorrect++;
     } else {
       if (o) o.trust = Math.min(o.serious ? 90 : 70, o.trust + 2);
       emitItem(w, wire, item({
-        key: 'confirm:' + r.story, gap: 1, score: 70, cause: r.story, beat: 'rates', force: true, outletId: 'HERALD',
+        key: 'confirm:' + r.story, gap: 1, score: 70, cause: r.story, causes: [r.story, econ(w).rateEv].filter((x) => x >= 0), beat: 'rates', force: true, outletId: 'HERALD',
         subject: `${tabloid}'s rumour was right. The bank did ${said}. The policy rate is ${(rate * 100).toFixed(2)}%`,
         detail: curveFull(w), heat: 'Confirmed',
         gossip: `The whisper was right. The bank moved`,
         weekly: `The rumour stood. The rate is ${(rate * 100).toFixed(2)}%. ${curveFull(w)}`,
+        issuer: r.issuer, priced: hike ? -0.1 : 0.08,
       }), fan);
     }
     if (!wire.released) {
@@ -1184,6 +1230,34 @@ function publish(w: World, wire: Wire, items: Item[], fan: Fan, cap: number): vo
   }
 }
 
+/** The bank's decision goes on the wire the minute it lands, not at the day's close. */
+export function wireFlash(w: World, fan: Fan): void {
+  const last = econ(w).cbLast;
+  if (!last || last.day !== w.day) return;
+  const wire = wireOf(w);
+  if ((wire as { flashed?: number }).flashed === last.ev || wire.cursor < 0) return;
+  (wire as { flashed?: number }).flashed = last.ev;
+  const e = w.events.get(last.ev);
+  if (!e) return;
+  const it = e.kind === 'cb.rate' ? rateItem(w, e) : holdItem(w, e);
+  if (it && fresh(wire, it.key, w.day, it.gap)) emitItem(w, wire, it, fan);
+}
+
+/** Tomorrow's meeting, for the evening wire: what the market expects. */
+function previewItem(w: World): Item | null {
+  const next = econ(w).cbNext;
+  if (!next || next.day !== w.day + 1) return null;
+  const pct = (r: number): string => (r * 100).toFixed(2);
+  const move = Math.round((next.expect - next.from) * 10000);
+  const want = move === 0 ? `a hold at ${pct(next.from)}%` : `a ${Math.abs(move)} basis point ${move > 0 ? 'hike' : 'cut'} to ${pct(next.expect)}%`;
+  return item({
+    key: 'cbpreview:' + next.day, gap: 20, score: 76, cause: next.causes[0] ?? econ(w).rateEv, beat: 'rates', outletId: 'HERALD', force: true,
+    subject: `The central bank decides tomorrow at 14:00. The market expects ${want}`,
+    detail: `Inflation and jobs set the rule: unemployment is ${(econ(w).unemployment * 100).toFixed(1)}%. Shares that live on credit (builders, furniture, cars) move most on a surprise; the bank's own shares the other way. ${curveShort(w)}`,
+    heat: 'Rate day', gossip: `Tomorrow the bank meets. They expect ${want}`, weekly: `The bank meets tomorrow: ${want} expected.`,
+  });
+}
+
 export function wireDay(w: World, fan: Fan): void {
   if (!w.state.media) return;
   const wire = wireOf(w);
@@ -1217,6 +1291,8 @@ export function wireDay(w: World, fan: Fan): void {
   for (const it of weddings(w, wire, notable)) items.push(it);
   const rum = rumourItem(w, wire);
   if (rum) items.push(rum);
+  const pre = previewItem(w);
+  if (pre) items.push(pre);
   // A journalist asks for comment as soon as a story names the player, whether or not the paper runs it.
   for (const it of items) askFor(w, wire, it);
   const rich = rankItem(w);

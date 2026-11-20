@@ -122,6 +122,8 @@ interface BondState {
   corpDefN: number;
   corpDefDays: number[];
   spreadMark: number;
+  /** The central-bank decision whose curve has already been printed. */
+  rateSeen?: number;
 }
 
 const FUNDS: FundDef[] = [
@@ -1063,6 +1065,29 @@ function reprice(w: World): void {
   remember(w);
 }
 
+/** The decision is in. The on-the-run prices move now; yesterday's close stays, so the day's candle shows it. */
+function curveOnRate(w: World): void {
+  const last = econ(w).cbLast;
+  if (!last || last.day !== w.day) return;
+  const st = book(w);
+  if (st.rateSeen === last.ev) return;
+  st.rateSeen = last.ev;
+  const before = st.y['10y'];
+  for (const t of TENORS) {
+    const b = onRun(w, t);
+    if (!b) continue;
+    b.last = pricePerLot(b, modelYield(w, t), w.day);
+  }
+  remember(w);
+  const now = st.y['10y'];
+  if (st.haveMark && Math.abs(now - before) >= 0.0004) {
+    w.events.emit('bond.yield', `10-year yield ${(before * 100).toFixed(2)}% -> ${(now * 100).toFixed(2)}%`, [last.ev], GOV);
+  }
+  st.markY10 = now;
+  st.haveMark = true;
+  st.policyMark = econ(w).policyRate;
+}
+
 function seedFunds(w: World): void {
   const s = econ(w), st = book(w), L = w.ledger;
   const investors = s.investors;
@@ -1386,6 +1411,7 @@ export const bonds: Module = {
   },
 
   tick(w, t) {
+    curveOnRate(w);
     if (t !== 0) return;
     omo(w);
     reinvestCb(w, policyCause(w));

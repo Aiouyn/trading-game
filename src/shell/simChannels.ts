@@ -15,6 +15,8 @@ export interface ChannelView {
   live?: { label?: string; min?: number; session?: "open" | "closed" | "pre" | "after" };
   netWorth?: number;
   nwChange?: number;
+  /** Net-worth change with school, rent and other life spending taken out, for the day's percent. */
+  markChange?: number;
   stats?: SimStat[];
   speed?: SimSpeed;
   pause?: SimPause | null;
@@ -76,6 +78,7 @@ function todayPct(change: number, now: number): string {
 export function channelsFromView(prev: Channels, view: ChannelView): Channels {
   const cents = Math.round(view.netWorth ?? 0);
   const change = Math.round(view.nwChange ?? 0);
+  const marked = Math.round(view.markChange ?? change);
   const ranked = rankForCents(cents);
   const date = view.date ?? { year: 1, month: 1, day: 1, abs: 0 };
   const speed: SimSpeed = view.speed ?? "pause";
@@ -110,7 +113,7 @@ export function channelsFromView(prev: Channels, view: ChannelView): Channels {
     ...prev.me,
     nw: money(cents, false),
     todayChg: money(change, true),
-    todayPct: todayPct(change, cents),
+    todayPct: todayPct(marked, cents - change + marked),
     guest: false,
     source: "sim",
     life,

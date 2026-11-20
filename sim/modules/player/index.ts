@@ -14,9 +14,10 @@ import { CEO_POSITION, GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
-import { bookLevels, markHolding, markPlayerTrading, midPrice, saleProceeds } from '../markets/index.ts';
+import { bookLevels, markHolding, markPlayerTrading, midPrice, saleProceeds, submitOrder } from '../markets/index.ts';
 import { futKey, sayFill, syncBasis, type BasisBook } from './basis.ts';
-import { cancelAny, placeShareOrder, placeStop, runStops, settleCovers, shortMark, shortSell, shortsDay, stopRows, type StockLoan, type Stop } from './trading.ts';
+import { amendOrder, attachLegs, cancelAny, nextOpenText, placeShareOrder, placeStop, runStops, settleCovers, shareSession, shortMark, shortSell, shortsDay, stopRows, tendBrackets, tendProtect, type Bracket, type DeskNote, type StockLoan, type Stop } from './trading.ts';
+import { speak } from './desk.ts';
 import { matchOption, optionChain, optionWhy, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, rentHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
@@ -62,6 +63,8 @@ export interface PlayerSeat {
   loans: StockLoan[];
   /** Stop and stop-limit orders, held here and checked every tick. */
   stops?: Stop[];
+  /** Brackets waiting on an entry that rests in the book. */
+  brackets?: Bracket[];
   /** What the desk paid for each position, and the fills the chart marks. */
   basis?: BasisBook;
   line: number[];
@@ -125,8 +128,9 @@ export interface PlayerState {
 export const DEFAULT_PLAYER = '1';
 
 export type Command =
-  | { kind: 'order'; side: 'buy' | 'sell' | 'short'; instr: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
+  | { kind: 'order'; side: 'buy' | 'sell' | 'short'; instr: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number; bracket?: { stop?: number; target?: number } }
   | { kind: 'cancel'; orderId: number }
+  | { kind: 'amend'; orderId: number; price?: number; qty?: number }
   | { kind: 'bond'; side: 'buy' | 'sell'; tenor: string; bonds: number; limit?: number }
   | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop' | 'limit'; stop?: number }
   | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
@@ -203,6 +207,8 @@ export interface ActResult {
   cents?: number;
   avg?: number;
   fills?: { px: number; qty: number }[];
+  /** The mid the order was measured against, in cents. */
+  ref?: number;
   eventId?: number;
   text?: string;
   days?: number;
@@ -243,7 +249,7 @@ export interface PlayerView {
   positions: { key: string; instr: string; kind: 'share' | 'coin' | 'future' | 'fx'; month?: number; qty: number; entry: number; gain: number }[];
   /** The player's fills, for the chart: abs is game minutes since day 0, px is cents a unit. */
   marks: { abs: number; instr: string; side: 'buy' | 'sell'; qty: number; px: number }[];
-  orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; stop?: number; mode?: 'stop' | 'limit'; month?: number; eventId: number }[];
+  orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; stop?: number; mode?: 'stop' | 'limit' | 'open'; month?: number; protect?: boolean; oco?: number; bracket?: { stop?: number; target?: number }; eventId: number }[];
   contacts: { slot: number; name: string; kind: string; word: string; line: string }[];
   stats: StatView[];
   choices: ChoiceView[];
@@ -321,7 +327,7 @@ const COMMANDS: { topic: string; name: string; use: string; about: string }[] = 
   { topic: 'bank', name: 'deposit', use: 'deposit 500', about: 'Place cash in a time deposit.\nThe amount is in dollars.' },
   { topic: 'bank', name: 'withdraw', use: 'withdraw 500', about: 'Take cash back from a time deposit.\nThe amount is in dollars.' },
   { topic: 'bank', name: 'sheet', use: 'sheet', about: 'Print the balance sheet.\nCash, deposits, shares, loans, futures and bonds.' },
-  { topic: 'bank', name: 'borrow', use: 'borrow 500 line', about: 'Borrow against shares: borrow AMOUNT margin|line|term (margin if you name none).\nA line is cheap but the bank may not roll it in a crunch; a term loan is fixed for three years. A refusal says why.' },
+  { topic: 'bank', name: 'borrow', use: 'borrow 500 line', about: 'Borrow against shares: borrow 500 margin, borrow 500 line, or borrow 500 term. Margin is the one you get if you name none.\nA line is cheap but the bank may not roll it in a crunch; a term loan is fixed for three years. A refusal says why.' },
   { topic: 'bank', name: 'repay', use: 'repay 500', about: 'Repay your loans, margin first, then lines and term loans.\nThe amount is in dollars.' },
   { topic: 'property', name: 'homes', use: 'homes', about: 'List homes by neighbourhood, with price and rent.\nHomes you own are marked, and so is the one you live in.' },
   { topic: 'property', name: 'bid', use: 'bid 12', about: 'Bid for home 12 at the asking price, or bid 12 150000 to name dollars.\nA bank lends the shortfall on the same terms as for anyone. bid FIRM 2x cash is still a takeover bid.' },
@@ -1843,15 +1849,53 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       markPlayerTrading(w);
       const label = shareName(w, instr) || 'the shares';
       const stopped = cmd.type === 'stop' || cmd.type === 'stop-limit' || cmd.stop !== undefined;
+      const limit = stopped ? (cmd.type === 'stop' ? undefined : cmd.limit) : cmd.type === 'market' ? undefined : cmd.limit;
+      // A bracket rides on an entry, a buy or a short: a stop on the losing side and a target on the winning side.
+      let kids: { stop?: number; target?: number } | undefined;
+      if (cmd.bracket && (cmd.bracket.stop || cmd.bracket.target)) {
+        if (cmd.side === 'sell') return rejected('a bracket protects a new position: put it on a buy or a short, and use a stop to protect shares you hold');
+        const ref = stopped ? (cmd.limit ?? cmd.stop ?? 0) : limit ?? midPrice(w, instr);
+        const b = cmd.bracket;
+        const long = cmd.side === 'buy';
+        if (b.stop && (long ? b.stop >= ref : b.stop <= ref)) return rejected(`the bracket stop belongs ${long ? 'below' : 'above'} the entry (${dollars(Math.round(ref))}): it is where you are wrong`);
+        if (b.target && (long ? b.target <= ref : b.target >= ref)) return rejected(`the bracket target belongs ${long ? 'above' : 'below'} the entry (${dollars(Math.round(ref))}): it is where you take the profit`);
+        kids = { ...(b.stop ? { stop: b.stop } : {}), ...(b.target ? { target: b.target } : {}) };
+      }
       if (stopped) {
         if (cmd.stop === undefined) return rejected('a stop order needs a stop price');
         if (cmd.type === 'stop-limit' && cmd.limit === undefined) return rejected('a stop-limit order needs a limit price');
-        const lim = cmd.type === 'stop' ? undefined : cmd.limit;
-        return placeStop(w, st, { kind: 'share', side: cmd.side, instr, qty: cmd.qty, stop: cmd.stop, limit: lim, label });
+        return placeStop(w, st, { kind: 'share', side: cmd.side, instr, qty: cmd.qty, stop: cmd.stop, limit, label, kids }, id);
       }
-      const limit = cmd.type === 'market' ? undefined : cmd.limit;
-      if (cmd.side === 'short') return shortSell(w, st, id, instr, cmd.qty, limit, label);
-      return placeShareOrder(w, st, id, instr, cmd.side, cmd.qty, limit, label);
+      // One set of session rules: shares trade 09:30 to 16:00 on a trading day. Outside it a market order waits for
+      // the open, a limit rests and can fill from the open, and nothing fills at once.
+      const sess = shareSession(w);
+      const legsOn = (r: ActResult, entry: 'buy' | 'short'): ActResult => {
+        if (!kids || r.status !== 'accepted') return r;
+        if ((r.fill ?? 0) > 0) attachLegs(w, st, entry, instr, r.fill ?? 0, kids, label);
+        if (r.orderId !== undefined && entry === 'buy') (st.brackets ?? (st.brackets = [])).push({ parent: r.orderId, instr, side: 'buy', qty: cmd.qty - (r.fill ?? 0), done: 0, ...kids, label });
+        const words = [kids.stop ? `a stop at ${dollars(kids.stop)}` : '', kids.target ? `a target at ${dollars(kids.target)}` : ''].filter(Boolean).join(' and ');
+        return { ...r, text: `${r.text ?? ''} ${(r.fill ?? 0) > 0 ? 'Bracket on' : 'Bracket set'}: ${words}${kids.stop && kids.target ? ', one cancelling the other' : ''}${(r.fill ?? 0) > 0 ? '' : ', placed as the entry fills'}.` };
+      };
+      if (cmd.side === 'short') {
+        if (!st.margin) return shortSell(w, st, id, instr, cmd.qty, limit, label);
+        if (sess !== 'open') return placeStop(w, st, { kind: 'share', side: 'short', instr, qty: cmd.qty, stop: limit ?? 0, label, mode: limit === undefined ? 'open' : 'limit', kids }, id);
+        // a short limit above the best bid waits at the desk and sells when the bids come up to it
+        const bid = bookLevels(w, instr, 1).bids[0]?.px ?? 0;
+        if (limit !== undefined && limit > bid) return placeStop(w, st, { kind: 'share', side: 'short', instr, qty: cmd.qty, stop: limit, label, mode: 'limit', kids }, id);
+        return legsOn(shortSell(w, st, id, instr, cmd.qty, limit, label), 'short');
+      }
+      if (sess !== 'open') {
+        if (limit === undefined) return placeStop(w, st, { kind: 'share', side: cmd.side, instr, qty: cmd.qty, stop: 0, label, mode: 'open', kids }, id);
+        if (cmd.side === 'sell' && Math.floor(w.ledger.balance(id, instr)) < 1) return rejected(`you hold no ${label}`);
+        let restId: number;
+        try { restId = submitOrder(w, id, { instr, side: cmd.side, qty: cmd.qty, limit }); } catch (e) { return rejected(whyOf(e)); }
+        return legsOn({ status: 'accepted', orderId: restId, fill: 0, text: `limit ${cmd.side} ${cmd.qty} ${label} at ${dollars(limit)}: the exchange is shut, so it rests in the book and can fill from ${nextOpenText(w)}, at that price or better.` }, 'buy');
+      }
+      return legsOn(placeShareOrder(w, st, id, instr, cmd.side, cmd.qty, limit, label), 'buy');
+    }
+    case 'amend': {
+      markPlayerTrading(w);
+      return amendOrder(w, st, id, cmd.orderId, cmd.price, cmd.qty);
     }
     case 'cancel': {
       const what = cancelAny(w, st, id, cmd.orderId);
@@ -2466,27 +2510,59 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
   }
 }
 
+/**
+ * The desk's round: see what filled and say it, fire the orders it holds that were hit, put bracket legs on entries that
+ * filled, and take off protective orders whose position has closed. Runs every tick, after every trade, and every game
+ * minute on the live server, so a stop fires on the minute's price and every fill is told as it happens.
+ */
+function tendDesk(w: World, st: PlayerSeat, pid: string, fire: boolean): void {
+  const cause = causeOf(w, st);
+  const notes: DeskNote[] = [];
+  speak(w, cause, syncBasis(w, st, pid));
+  if (fire && st.stops?.length) runStops(w, st, pid, (instr, qty, limit, label) => shortSell(w, st, pid, instr, qty, limit, label), notes);
+  if (st.loans.length) settleCovers(w, st, pid, st.arrived >= 0 ? st.arrived : w.genesis);
+  tendBrackets(w, st);
+  tendProtect(w, st, pid, notes);
+  speak(w, cause, syncBasis(w, st, pid), notes);
+}
+
+/** The live server's minute: the desk watches the minute's prices. Cheap when nothing is working. */
+export function deskMinute(w: World): void {
+  const players = roster(w);
+  const P = econ(w).P;
+  for (const id of players.ids) {
+    const st = players.seat[id];
+    if (!st || st.who < 0 || st.who >= P.n || !P.alive(st.who) || st.over) continue;
+    const pid = P.id(st.who);
+    const working = (st.stops?.length ?? 0) > 0 || (st.brackets?.length ?? 0) > 0 || Object.keys(st.basis?.rest ?? {}).length > 0;
+    const min = (w.state.clock as { min?: number } | undefined)?.min ?? 0;
+    if (!working && min % 10 !== 0) continue;
+    tendDesk(w, st, pid, true);
+  }
+}
+
 export function act(w: World, playerIdOrCmd: string | Command, cmd?: Command): ActResult {
   const playerId = typeof playerIdOrCmd === 'string' ? playerIdOrCmd : (roster(w).ids[0] ?? DEFAULT_PLAYER);
   const command = typeof playerIdOrCmd === 'string' ? cmd : playerIdOrCmd;
   if (!command) return rejected('missing command');
   const day = w.day;
-  const trades = command.kind === 'order' || command.kind === 'coin' || command.kind === 'fut' || command.kind === 'fx' || command.kind === 'cancel';
+  const trades = command.kind === 'order' || command.kind === 'coin' || command.kind === 'fut' || command.kind === 'fx' || command.kind === 'cancel' || command.kind === 'amend';
   const tradeSeat = trades ? roster(w).seat[playerId] : undefined;
   const tradeAt = tradeSeat ? playerIndex(w, playerId) : -1;
-  if (tradeSeat && tradeAt >= 0) syncBasis(w, tradeSeat, econ(w).P.id(tradeAt));
+  if (tradeSeat && tradeAt >= 0) speak(w, causeOf(w, tradeSeat), syncBasis(w, tradeSeat, econ(w).P.id(tradeAt)));
   const result = actSeat(w, playerId, command);
   const row: CommandRecord = { day, playerId, cmd: command, status: result.status };
   if (result.why) row.why = result.why;
   roster(w).log.push(row);
   if (tradeSeat && tradeAt >= 0) {
     if (result.status === 'accepted' && result.avg && result.fill) {
-      if (command.kind === 'order') { const k = stockInstr(w, command.instr); if (k) sayFill(tradeSeat, k, result.avg); }
-      else if (command.kind === 'coin') { const k = coinPrice(w, command.coin)?.id; if (k) sayFill(tradeSeat, k, result.avg); }
-      else if (command.kind === 'fx') sayFill(tradeSeat, 'fx:' + command.code.toUpperCase(), result.avg);
-      else if (command.kind === 'fut') sayFill(tradeSeat, futKey(FUTURES[command.good.toUpperCase()] ?? command.good.toUpperCase(), w.month + command.months), result.avg);
+      const how = { ref: result.ref, how: command.kind === 'order' && command.limit !== undefined && command.type !== 'market' ? 'limit' as const : 'market' as const };
+      if (command.kind === 'order') { const k = stockInstr(w, command.instr); if (k) sayFill(tradeSeat, k, result.avg, how); }
+      else if (command.kind === 'coin') { const k = coinPrice(w, command.coin)?.id; if (k) sayFill(tradeSeat, k, result.avg, how); }
+      else if (command.kind === 'fx') sayFill(tradeSeat, 'fx:' + command.code.toUpperCase(), result.avg, how);
+      else if (command.kind === 'fut') sayFill(tradeSeat, futKey(FUTURES[command.good.toUpperCase()] ?? command.good.toUpperCase(), w.month + command.months), result.avg, how);
     }
-    syncBasis(w, tradeSeat, econ(w).P.id(tradeAt));
+    tendDesk(w, tradeSeat, econ(w).P.id(tradeAt), false);
   }
   if (result.status === 'accepted') {
     const seat = roster(w).seat[playerId];
@@ -2794,11 +2870,7 @@ export const player: Module = {
     for (const id of players.ids) {
       const st = players.seat[id];
       if (!st || st.who < 0 || st.who >= P.n || !P.alive(st.who)) continue;
-      const pid = P.id(st.who);
-      syncBasis(w, st, pid);
-      if (!st.stops?.length && !st.loans.length) continue;
-      runStops(w, st, pid, (instr, qty, limit, label) => shortSell(w, st, pid, instr, qty, limit, label));
-      if (st.loans.length) settleCovers(w, st, pid, st.arrived >= 0 ? st.arrived : w.genesis);
+      tendDesk(w, st, P.id(st.who), true);
     }
   },
   dayClose(w) {

@@ -7,11 +7,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { act, symbolOf, useSimSnap, type ActNote, type SimView } from "@/shell/simSession";
 import { moneyFromCents, presentNote } from "@/components/ui/format";
 import { plainCopy } from "@/components/market/copy";
-import type { ChartLine, ChartMark, Studies } from "@/components/market/TerminalChart";
+import type { ChartFlag, ChartLine, ChartMark, Studies } from "@/components/market/TerminalChart";
 import {
-  RANGES, TFS, TOOLS, candleRealSeconds, fetchList, instrOf, isIntraday, isTf, loadDrawings, loadPref, priceText, realText, saveDrawings, savePref, volText,
-  type Drawing, type ListRow, type RangeId, type Series, type Tf, type Tool,
+  RANGES, TFS, TOOLS, candleRealSeconds, fetchFlags, fetchList, instrOf, isIntraday, isTf, loadDrawings, loadPref, priceText, realText, saveDrawings, savePref, volText,
+  type Drawing, type ListRow, type NewsFlag, type RangeId, type Series, type Tf, type Tool,
 } from "@/components/market/terminalApi";
+import { PositionsPanel, sessionRules, type DeskOrder } from "./DeskPanel";
 import { useBars } from "@/components/market/useBars";
 import "./terminal.css";
 
@@ -85,8 +86,11 @@ function heldOf(view: SimView, instr: string, last: number): Held[] {
 
 export default function Terminal({ context, onDesks }: { context?: string; onDesks: () => void }) {
   const { view } = useSimSnap();
-  const [instr, setInstr] = useState(() => instrOf(context));
-  const [tf, setTf] = useState<Tf>(() => { const v = loadPref<unknown>("tf2", "1D"); return isTf(v) ? v : "1D"; });
+  // the Broker reopens on the name it was left on; a link to a name opens that name
+  const [instr, setInstr] = useState(() => (context ? instrOf(context) : loadPref<string>("last", "index") || "index"));
+  // each name keeps its own candle size; a name never seen opens at the size last used
+  const tfBy = useRef<Record<string, string>>(loadPref<Record<string, string>>("tfBy", {}));
+  const [tf, setTfRaw] = useState<Tf>(() => { const own = tfBy.current[context ? instrOf(context) : loadPref<string>("last", "index")]; const v = own ?? loadPref<unknown>("tf2", "1D"); return isTf(v) ? v : "1D"; });
   const [range, setRange] = useState<RangeId>(() => { const v = loadPref<string>("range", "1Y"); return RANGES.some((r) => r.id === v) ? (v as RangeId) : "1Y"; });
   const [rangeKey, setRangeKey] = useState(0);
   const [pct, setPct] = useState(() => loadPref("pct", false));
@@ -108,6 +112,10 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   const [qty, setQty] = useState("1");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [brk, setBrk] = useState(false);
+  const [bStop, setBStop] = useState("");
+  const [bTgt, setBTgt] = useState("");
+  const [rawFlags, setRawFlags] = useState<NewsFlag[]>([]);
   const [note, setNote] = useState<ActNote | null>(null);
   const [review, setReview] = useState<string>("");
   const root = useRef<HTMLDivElement>(null);
@@ -115,7 +123,9 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   const abs = view?.date.abs ?? 0;
   const pxNow = view ? livePx(view, instr) : null;
 
-  useEffect(() => { setInstr(instrOf(context)); }, [context]);
+  useEffect(() => { if (context) setInstr(instrOf(context)); }, [context]);
+  useEffect(() => { savePref("last", instr); const own = tfBy.current[instr]; if (isTf(own)) setTfRaw(own); }, [instr]);
+  const setTf = useCallback((t: Tf) => { setTfRaw(t); tfBy.current = { ...tfBy.current, [instr]: t }; savePref("tfBy", tfBy.current); }, [instr]);
   // "fx" alone (the old Currency desk link) is the main pair: the ticket trades a pair, not the desk
   useEffect(() => { if (instr === "fx") { const p = view?.fx?.pairs?.find((x) => x.main) ?? view?.fx?.pairs?.[0]; if (p) setInstr(p.id); } }, [instr, view?.fx?.pairs]);
   useEffect(() => { savePref("tf2", tf); }, [tf]);
@@ -130,7 +140,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   useEffect(() => {
     setDrawings(loadDrawings(instr)); setTool("cursor"); setReview(""); setNote(null); setPast([]); setFuture([]);
     // the ticket starts clean on each instrument: a stop price typed for a share must not wait in a coin's form
-    setQty("1"); setPrice(""); setOtype("market"); setSide(kindOf(instr) === "future" ? "long" : "buy");
+    setQty("1"); setPrice(""); setOtype("market"); setSide(kindOf(instr) === "future" ? "long" : "buy"); setBStop(""); setBTgt(""); setBrk(false);
   }, [instr]);
   const pickSide = useCallback((s: Side) => { setSide(s); setNote(null); setReview(""); }, []);
   const pickType = useCallback((t: OType) => { setOtype(t); setPrice(""); setNote(null); setReview(""); }, []);
@@ -183,9 +193,12 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     for (const o of view.orders ?? []) {
       const at = o.stop ?? o.limit;
       if (o.instr !== instr || !at) continue;
-      const isStop = o.book === "stops" && o.mode !== "limit";
+      const mode = (o as DeskOrder).mode;
+      if (mode === "open") continue;
+      const isStop = o.book === "stops" && mode !== "limit";
+      const target = o.book === "stops" && mode === "limit" && (o as DeskOrder).protect;
       const qtyWord = instr.startsWith("coin:me:") && o.side === "buy" ? moneyFromCents(o.qty) : o.qty.toLocaleString("en-US");
-      out.push({ id: `o${o.id}`, kind: isStop ? "stop" : "order", side: o.side === "buy" || o.side === "long" ? "buy" : "sell", price: disp(at), label: `${isStop ? "stop " : ""}${o.side} ${qtyWord}`, drag: o.book !== "bonds" });
+      out.push({ id: `o${o.id}`, kind: isStop ? "stop" : "order", side: o.side === "buy" || o.side === "long" ? "buy" : "sell", price: disp(at), label: `${isStop ? "stop " : target ? "target " : ""}${o.side} ${qtyWord}`, drag: o.book !== "bonds" });
     }
     const monthNow = Math.floor((view.date?.abs ?? 0) / 30);
     for (const h of heldRows) {
@@ -213,6 +226,19 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     const daily = !isIntraday(tf);
     return view.marks.filter((m) => m.instr === instr).map((m) => ({ t: daily ? Math.floor(m.abs / 1440) : m.abs / 1440, price: unit === "cents" ? m.px / 100 : m.px, side: m.side, qty: m.qty }));
   }, [view?.marks, series?.unit, instr, tf]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // news flags: the stories about this name (the bank's decisions on the index), read again each half game hour
+  const flagKey = `${instr}:${view?.live?.day ?? abs}:${Math.floor((view?.live?.min ?? 0) / 30)}`;
+  useEffect(() => {
+    let live = true;
+    void fetchFlags(instr).then((f) => { if (live) setRawFlags(f); });
+    return () => { live = false; };
+  }, [flagKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setRawFlags([]); }, [instr]);
+  const flags = useMemo<ChartFlag[]>(() => {
+    const daily = !isIntraday(tf);
+    return rawFlags.map((f) => ({ t: daily ? Math.floor(f.abs / 1440) : f.abs / 1440, kind: f.kind, text: f.text, id: f.eventId }));
+  }, [rawFlags, tf]);
 
   // ---- orders ----
   const tradable = kind !== "none";
@@ -247,13 +273,26 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     const at = otype === "market" ? "at market" : otype === "limit" ? `limit ${dollarText(series?.unit ?? "cents", unitCents ? cents : p)}` : `stop ${dollarText(series?.unit ?? "cents", unitCents ? cents : p)}`;
     const word = spend ? `buy ${moneyFromCents(n)} of ${sym}` : `${side} ${flat ? "everything" : n.toLocaleString("en-US")} ${sym}`;
     const typeBits = otype === "limit" ? { type: "limit", limit: cents } : otype === "stop" ? { type: "stop", stop: cents } : {};
-    if (kind === "share") return { cmd: { kind: "order", side, instr, qty: n, ...(otype === "limit" ? { limit: cents } : typeBits) }, text: `${word}, ${at}` };
+    if (kind === "share") {
+      // a bracket: a protective stop on the losing side and a target on the winning side, one cancelling the other
+      let bracket: { stop?: number; target?: number } | undefined;
+      let bText = "";
+      if (brk && (side === "buy" || side === "short")) {
+        const bs = Number(bStop), bt = Number(bTgt);
+        if (bStop && !(bs > 0)) return { text: "", error: "The bracket stop is a price, like 41.20." };
+        if (bTgt && !(bt > 0)) return { text: "", error: "The bracket target is a price, like 48.00." };
+        if (!(bs > 0) && !(bt > 0)) return { text: "", error: "Name a stop, a target, or both, or untick the bracket." };
+        bracket = { ...(bs > 0 ? { stop: Math.round(bs * 100) } : {}), ...(bt > 0 ? { target: Math.round(bt * 100) } : {}) };
+        bText = `, with ${[bs > 0 ? `a stop at $${bs.toFixed(2)}` : "", bt > 0 ? `a target at $${bt.toFixed(2)}` : ""].filter(Boolean).join(" and ")}${bs > 0 && bt > 0 ? " (one cancels the other)" : ""}`;
+      }
+      return { cmd: { kind: "order", side, instr, qty: n, ...(otype === "limit" ? { type: "limit", limit: cents } : otype === "market" ? { type: "market" } : typeBits), ...(bracket ? { bracket } : {}) }, text: `${word}, ${at}${bText}` };
+    }
     if (kind === "coin") return { cmd: { kind: "coin", side: side === "sell" ? "sell" : "buy", coin: instr, qty: n, ...typeBits }, text: `${word}, ${at}` };
     if (kind === "future") return { cmd: { kind: "fut", side, good: instr.slice(4), qty: flat ? 0 : n, months: 0, ...(flat ? {} : typeBits) }, text: flat ? word : `${word}, ${at}` };
     if (kind === "fx") return { cmd: { kind: "fx", side: side === "sell" ? "sell" : "buy", code: instr.slice(3), units: n }, text: `${side === "sell" ? "sell" : "buy"} ${n.toLocaleString("en-US")} ${sym} at the dealer's quote` };
     if (kind === "bond") return { cmd: { kind: "bond", side: side === "sell" ? "sell" : "buy", tenor: instr.slice(5), bonds: n, ...(otype === "limit" ? { limit: cents } : {}) }, text: `${word}, ${at}` };
     return { text: "", error: "This is a reading, not a market." };
-  }, [kind, side, otype, qty, price, instr, sym, series, unitCents, spend, memeCoin]);
+  }, [kind, side, otype, qty, price, instr, sym, series, unitCents, spend, memeCoin, brk, bStop, bTgt]);
 
   const ask = () => {
     if (!tradable || busy) return;
@@ -268,36 +307,30 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
     void send(b.cmd, b.text);
   };
 
-  // Drag a standing order's line to a new price: the sim has no "amend", so the old order comes off and the same one goes on
-  // at the new price. When the new one is refused the old one goes back, so a bad drag never loses an order.
+  // Change an order's price: the sim amends a desk order or a share limit in place (keeping its bracket); a coin or bond
+  // order comes off and the same one goes on at the new price, and when that is refused the old one goes back.
+  const modify = useCallback(async (o: DeskOrder, cents: number, size?: number): Promise<void> => {
+    if (!(cents > 0)) return;
+    setBusy(true);
+    try {
+      if (o.book === "stops" || o.book === "shares") {
+        const r = await act({ kind: "amend", orderId: o.id, price: o.book === "shares" ? Math.round(cents) : cents, ...(size ? { qty: size } : {}) });
+        setNote(r);
+        return;
+      }
+      const place = (at: number): unknown => (o.book === "crypto" ? { kind: "coin", side: o.side, coin: o.instr, qty: size ?? o.qty, limit: at } : { kind: "bond", side: o.side, tenor: o.instr.replace(/^bond:/, ""), bonds: size ?? o.qty, limit: at });
+      const gone = await act({ kind: "cancel", orderId: o.id });
+      if (!gone.ok) { setNote(gone); return; }
+      const again = await act(place(cents));
+      if (!again.ok && o.limit) await act(place(o.limit));
+      setNote(again);
+    } finally { setBusy(false); refresh(); }
+  }, [refresh]);
   const moveLine = useCallback((id: string, p: number) => {
     const cents = unitCents ? (memeCoin ? p * 100 : Math.round(p * 100)) : p;
-    const oid = Number(id.slice(1));
-    const o = view?.orders.find((x) => x.id === oid);
-    if (!o || !(cents > 0)) return;
-    const monthNow = Math.floor((view?.date?.abs ?? 0) / 30);
-    const place = (at: number): unknown => {
-      if (o.book === "stops") {
-        const type = o.mode === "limit" ? "limit" : o.limit != null ? "stop-limit" : "stop";
-        if (o.instr.startsWith("fut:")) return { kind: "fut", side: o.side, good: o.instr.slice(4), qty: o.qty, months: Math.max(0, (o.month ?? monthNow) - monthNow), type, ...(o.mode === "limit" ? { limit: at } : { stop: at }) };
-        const body = o.mode === "limit" ? { limit: at } : { stop: at, ...(o.limit != null ? { limit: o.limit } : {}) };
-        if (o.instr.startsWith("coin:")) return { kind: "coin", side: o.side, coin: o.instr, qty: o.qty, type, ...body };
-        return { kind: "order", side: o.side, instr: o.instr, qty: o.qty, type, ...body };
-      }
-      if (o.book === "crypto") return { kind: "coin", side: o.side, coin: o.instr, qty: o.qty, limit: at };
-      return { kind: "order", side: o.side, instr: o.instr, qty: o.qty, limit: at };
-    };
-    void (async () => {
-      setBusy(true);
-      const gone = await act({ kind: "cancel", orderId: oid });
-      if (!gone.ok) { setNote(gone); setBusy(false); return; }
-      const again = await act(place(cents));
-      if (!again.ok) await act(place(o.stop ?? o.limit ?? cents));
-      setNote(again);
-      setBusy(false);
-      refresh();
-    })();
-  }, [view, unitCents, refresh, memeCoin]);
+    const o = view?.orders.find((x) => x.id === Number(id.slice(1)));
+    if (o) void modify(o as DeskOrder, cents);
+  }, [view, unitCents, memeCoin, modify]);
 
   const pickPrice = useCallback((p: number) => { setOtype((t) => (t === "market" ? "limit" : t)); setPrice(p >= 1000 ? p.toFixed(2) : p >= 1 ? p.toFixed(2) : p.toFixed(4)); }, []);
 
@@ -438,10 +471,12 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
               <Chart series={series} compare={compare} studies={studies} log={log} pct={pct} look={look} range={range} rangeKey={rangeKey}
                 onScale={(m) => (m === "pct" ? setPct((v) => !v) : setLog((v) => !v))}
                 onStudy={(k) => setStudies((x) => ({ ...x, [k]: false }))}
-                tool={tool} onTool={setTool} drawings={drawings} onDrawings={changeDrawings} lines={lines} marks={marks} onMoveLine={moveLine} onPickPrice={pickPrice} />
+                tool={tool} onTool={setTool} drawings={drawings} onDrawings={changeDrawings} lines={lines} marks={marks} flags={flags} onMoveLine={moveLine} onPickPrice={pickPrice} />
             ) : <div className="tm-chart-wait">{bars.missing ? (isIntraday(tf) ? "This market has no minute candles. Try 1D." : "Nothing has traded here yet.") : series ? "Nothing has traded here yet. Let a day pass." : "Loading the chart…"}</div>}
           </div>
         </div>
+        <PositionsPanel view={view} instr={instr} busy={busy} onPick={setInstr} onModify={modify}
+          onSend={(cmd) => void send(cmd, "")} onCancel={(id) => void act({ kind: "cancel", orderId: id }).then((n) => { setNote(n); refresh(); })} />
         {tool !== "cursor" ? <p className="tm-hint">{TOOLS.find((t) => t.id === tool)?.hint}. Esc cancels.</p> : <p className="tm-hint muted">Scroll to zoom, drag to pan. Double-click the chart to set a price. Drag an order line to move it. Drag an axis to scale it, double-click it to reset.</p>}
       </section>
 
@@ -464,6 +499,22 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
                 <input data-tm="field" inputMode="decimal" value={price} placeholder={last > 0 ? priceText(series?.unit ?? "cents", last).replace(/,/g, "") : ""} onChange={(e) => { setPrice(e.target.value); setReview(""); setNote(null); }} data-testid="tm-price-in" />
               </label>
             ) : null}
+            {kind === "share" && (side === "buy" || side === "short") ? (
+              <div className="tm-brk" data-testid="tm-bracket">
+                <label className="tm-check"><input type="checkbox" checked={brk} onChange={(e) => { setBrk(e.target.checked); setReview(""); }} data-testid="tm-bracket-on" />Bracket: a stop and a target</label>
+                {brk ? (
+                  <div className="tm-row2">
+                    <label className="tm-field">Stop {side === "short" ? "above" : "below"}
+                      <input data-tm="field" inputMode="decimal" value={bStop} onChange={(e) => { setBStop(e.target.value); setReview(""); }} placeholder={last > 0 ? (last * (side === "short" ? 1.05 : 0.95) / 100).toFixed(2) : ""} data-testid="tm-bracket-stop" />
+                    </label>
+                    <label className="tm-field">Target {side === "short" ? "below" : "above"}
+                      <input data-tm="field" inputMode="decimal" value={bTgt} onChange={(e) => { setBTgt(e.target.value); setReview(""); }} placeholder={last > 0 ? (last * (side === "short" ? 0.9 : 1.1) / 100).toFixed(2) : ""} data-testid="tm-bracket-target" />
+                    </label>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {kind === "share" ? <p className="tm-rules" data-testid="tm-rules">{sessionRules(view.live?.session, otype, side)}</p> : null}
             <p className="tm-est">
               {cost > 0 ? <>About <b>{moneyFromCents(cost)}</b> of your <b>{moneyFromCents(cash)}</b>. </> : <>You have <b>{moneyFromCents(cash)}</b>. </>}
               {held ? <>You hold {held.toLocaleString("en-US")}.</> : null}
@@ -486,7 +537,8 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
           <ul className="tm-orders" data-testid="tm-orders">
             {mine.map((o) => {
               const at = o.stop ?? o.limit;
-              const what = o.book === "stops" ? (o.mode === "limit" ? "limit " : "stop ") : "";
+              const m = (o as DeskOrder).mode;
+              const what = o.book === "stops" ? (m === "limit" ? ((o as DeskOrder).protect ? "target " : "limit ") : m === "open" ? "at the open " : "stop ") : "";
               return (
                 <li key={o.id}><span>{what}{o.side} {memeCoin && o.side === "buy" ? moneyFromCents(o.qty) : o.qty.toLocaleString("en-US")}{at ? ` @ ${dollarText(series?.unit ?? "cents", at)}` : ""}</span>
                   {o.book !== "bonds" ? <button type="button" onClick={() => void act({ kind: "cancel", orderId: o.id }).then((n) => { setNote(n); refresh(); })}>Cancel</button> : <small className="muted">rests</small>}</li>

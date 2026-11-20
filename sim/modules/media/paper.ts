@@ -139,16 +139,34 @@ function marketMove(w: World, e: Ev): Story | null {
 }
 
 function rateMove(w: World, e: Ev): Story | null {
-  const m = /policy rate ([\d.]+)% -> ([\d.]+)%/.exec(e.msg);
+  const m = /policy rate ([\d.]+)% -> ([\d.]+)%/.exec(e.msg) ?? /policy rate held at ([\d.]+)%/.exec(e.msg);
   if (!m) return null;
-  const a = Number(m[1]), b = Number(m[2]);
+  const a = Number(m[1]), b = Number(m[2] ?? m[1]);
   const who = personName(w, e.actor);
   const s = econ(w);
   const verb = b > a ? 'raises' : b < a ? 'cuts' : 'holds';
+  const last = s.cbLast && s.cbLast.ev === e.id ? s.cbLast : undefined;
+  const exp = last ? (Math.abs(last.expect - last.to) < 1e-6 ? ' The market had expected it.' : ` The market had expected ${(last.expect * 100).toFixed(2)}%, so the decision was a surprise.`) : '';
+  const idx = (w.state.markets as { index?: number; stocks?: unknown[] } | undefined)?.index;
   return story({
-    section: 'bank', kicker: 'The bank', headline: `The central bank ${verb} its rate to ${b.toFixed(2)}%`,
-    body: `The policy rate was ${a.toFixed(2)}%. Unemployment stands at ${(s.unemployment * 100).toFixed(1)}%${who ? `, and ${who} signed the decision` : ''}.`,
-    eventIds: [e.id], names: who ? [who] : [], score: 82,
+    section: 'bank', kicker: 'The bank', headline: verb === 'holds' ? `The central bank holds its rate at ${b.toFixed(2)}%` : `The central bank ${verb} its rate to ${b.toFixed(2)}%`,
+    body: `${verb === 'holds' ? `The policy rate stays at ${a.toFixed(2)}%.` : `The policy rate was ${a.toFixed(2)}%.`} The decision came at 14:00.${exp} Unemployment stands at ${(s.unemployment * 100).toFixed(1)}%${who ? `, and ${who} signed the decision` : ''}.${idx ? ` The index closed at ${idx.toFixed(1)}.` : ''}`,
+    eventIds: [e.id], names: who ? [who] : [], score: 86,
+  });
+}
+
+/** The morning of a meeting: what the bank is expected to do, and when. */
+function ratePreview(w: World): Story | null {
+  const next = econ(w).cbNext;
+  if (!next || next.day !== w.day + 1) return null;
+  const pct = (r: number): string => (r * 100).toFixed(2);
+  const move = Math.round((next.expect - next.from) * 10000);
+  const want = move === 0 ? `to hold at ${pct(next.from)}%` : `a ${Math.abs(move)} basis point ${move > 0 ? 'hike' : 'cut'}, to ${pct(next.expect)}%`;
+  const ids = next.causes.length ? next.causes.slice(0, 2) : [econ(w).rateEv];
+  return story({
+    section: 'bank', kicker: 'Rate day', headline: `The central bank decides at 14:00 today; the market expects ${want}`,
+    body: `The policy rate is ${pct(next.from)}%. Unemployment is ${(econ(w).unemployment * 100).toFixed(1)}%. A surprise moves shares that live on credit most: builders, furniture, cars. The decision goes on the wire at 14:00.`,
+    eventIds: ids, names: [], score: 95,
   });
 }
 
@@ -869,7 +887,7 @@ export function paperDay(w: World): void {
     let st: Story | null = null;
     if (e.kind === 'earnings.report') { st = earnings(w, e); if (st) biz.push(st); continue; }
     if (e.kind === 'mkt.move') { st = marketMove(w, e); if (st) biz.push(st); continue; }
-    if (e.kind === 'cb.rate') { st = rateMove(w, e); if (st) biz.push(st); continue; }
+    if (e.kind === 'cb.rate' || e.kind === 'cb.hold') { st = rateMove(w, e); if (st) biz.push(st); continue; }
     if (e.kind === 'bond.spread') { st = spreadMove(e); if (st) biz.push(st); continue; }
     if (e.kind === 'career.promotion') { st = peopleMoves(w, e); if (st) people.push(st); continue; }
     if (e.kind.startsWith('firm.') || e.kind === 'bond.default') {
@@ -884,6 +902,8 @@ export function paperDay(w: World): void {
     st = trouble(w, e);
     if (st) (st.section === 'markets' || st.section === 'industry' ? biz : both).push(st);
   }
+  const preview = ratePreview(w);
+  if (preview) biz.unshift(preview);
   const jobs = jobsStories(w, d, evs);
   biz.push(...jobs, ...movers(w), ...monthly(w, evs));
   const street = streets(w, evs);

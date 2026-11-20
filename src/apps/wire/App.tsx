@@ -5,10 +5,11 @@ import { calDate } from "@/shell/calendar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
-import { explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
-import { gameDate, presentNote, seedDebug } from "@/components/ui/format";
+import { useSimSnap } from "@/shell/simSession";
+import { gameDate, presentNote } from "@/components/ui/format";
 import { Button } from "@/components/ui/Button";
-import { CauseLines, useAct } from "@/apps/profile/data";
+import { useAct } from "@/apps/profile/data";
+import { StoryWhy } from "./StoryWhy";
 import { CityTicker } from "@/apps/society/ticker";
 import "./wire.css";
 
@@ -161,8 +162,9 @@ function noYear(text: string, today: number): string {
   return text.replace(new RegExp(`,? year ${now}\\b`, "g"), "");
 }
 
-function EditionView({ ed, today, open, why, onWhy }: { ed: Edition; today: number; open: number | null; why: ExplainLine[]; onWhy: (id: number) => void }) {
-  const [lead, ...rest] = ed.stories;
+function EditionView({ ed, today, open, onWhy, match }: { ed: Edition; today: number; open: number | null; onWhy: (id: number) => void; match: (text: string, beat: string) => boolean }) {
+  const [lead, ...rest] = ed.stories.filter((st) => match(`${st.kicker} ${st.headline} ${st.body}`, st.section));
+  if (!lead) return null;
   const story = (st: EditionStory, isLead: boolean) => (
     <section key={st.id} className={isLead ? "edition-lead" : "edition-story"} data-you={st.you ? "1" : "0"}>
       {st.kicker ? <p className="edition-kicker">{st.kicker}</p> : null}
@@ -171,7 +173,7 @@ function EditionView({ ed, today, open, why, onWhy }: { ed: Edition; today: numb
       {st.eventId > 0 ? <button type="button" className="name-link" onClick={() => onWhy(st.eventId)}>Why?</button> : null}
       {open === st.eventId && st.eventId > 0 ? (
         <div className="sim-wire-why" data-testid="wire-why">
-          {why.length ? <CauseLines lines={why} /> : <p className="quay-state">Reading the cause…</p>}
+          <StoryWhy id={st.eventId} text={st.headline} />
         </div>
       ) : null}
     </section>
@@ -193,7 +195,29 @@ function EditionView({ ed, today, open, why, onWhy }: { ed: Edition; today: numb
   );
 }
 
-export default function WireApp() {
+/** What a story is about, for the kind filter: the beat the wire gave it, or the section of the paper. */
+const KINDS = [
+  { id: "", label: "Every kind" },
+  { id: "rates", label: "Rates and the bank" },
+  { id: "companies", label: "Companies" },
+  { id: "markets", label: "Markets" },
+  { id: "rumours", label: "Rumours" },
+  { id: "jobs", label: "Jobs" },
+  { id: "courts", label: "Courts" },
+  { id: "city", label: "City and people" },
+] as const;
+function kindOfBeat(beat: string, text: string): string {
+  const b = beat.toLowerCase();
+  if (b === "rumours" || /^(rumour|sources say)\b/i.test(text)) return "rumours";
+  if (b === "rates" || b === "bank" || /\b(central bank|policy rate|rate day|yield)\b/i.test(text)) return "rates";
+  if (b === "companies" || b === "industry" || b === "earnings" || b === "business") return "companies";
+  if (b === "markets" || b === "crypto") return "markets";
+  if (b === "jobs" || b === "labour" || b === "work") return "jobs";
+  if (b === "courts" || b === "law" || b === "crime") return "courts";
+  return "city";
+}
+
+export default function WireApp({ context }: { context?: string }) {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const tick = useSimSnap().view?.date.abs;
   const today = tick ?? 0;
@@ -207,11 +231,28 @@ export default function WireApp() {
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState<number | null>(null);
-  const [why, setWhy] = useState<ExplainLine[]>([]);
-  const req = useRef(0);
+  const [kind, setKind] = useState<string>(context === "rates" ? "rates" : "");
+  const [query, setQuery] = useState("");
   const clock = useSimSnap().view?.live?.min;
-  // A new edition lands at 07:00 and 18:00: read the panel each day and when the hour of an edition passes.
-  const hourMark = typeof clock === "number" ? (clock >= 1080 ? 2 : clock >= 420 ? 1 : 0) : 0;
+  // The wire updates while it is open: every quarter of a game hour, and at most every two real seconds.
+  // The timer is not reset when the quarter changes. At x25 a quarter is shorter than two seconds, and
+  // resetting it would leave the open wire stuck on the morning paper through the decision.
+  const quarter = typeof clock === "number" ? Math.floor(clock / 15) : 0;
+  const [pulse, setPulse] = useState(0);
+  const lastRead = useRef(0);
+  const pending = useRef(0);
+  useEffect(() => {
+    if (pending.current) return;
+    const wait = Math.max(0, 2000 - (Date.now() - lastRead.current));
+    pending.current = window.setTimeout(() => {
+      pending.current = 0;
+      lastRead.current = Date.now();
+      setPulse((n) => n + 1);
+    }, wait);
+  }, [quarter, tick]);
+  useEffect(() => () => { if (pending.current) window.clearTimeout(pending.current); }, []);
+  // the bank's meeting chip opens the wire on the rates
+  useEffect(() => { if (context === "rates") { setKind("rates"); setFilter("all"); } }, [context]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -224,20 +265,17 @@ export default function WireApp() {
       })
       .catch(() => { if (!ac.signal.aborted) { setFailed(true); setReady(true); } });
     return () => ac.abort();
-  }, [tick, attempt, hourMark]);
+  }, [pulse, attempt]);
 
+  const q = query.trim().toLowerCase();
+  const match = (text: string, beat: string): boolean => (!kind || kindOfBeat(beat, text) === kind) && (!q || text.toLowerCase().includes(q));
   const shown = useMemo(
-    () => gather(papers.filter((p) => filter === "papers" || filter === "all" || p.tags.includes(filter))),
-    [papers, filter],
+    () => gather(papers.filter((p) => (filter === "papers" || filter === "all" || p.tags.includes(filter)) && (!kind || kindOfBeat(p.beat, p.text) === kind) && (!q || `${p.outlet} ${p.text} ${p.journalist}`.toLowerCase().includes(q)))),
+    [papers, filter, kind, q],
   );
   const byId = useMemo(() => new Map(papers.map((p) => [p.eventId, p])), [papers]);
 
-  const onOpen = (id: number) => {
-    const n = ++req.current;
-    setOpen(id);
-    setWhy([]);
-    void explain(id).then((lines) => { if (req.current === n) setWhy(lines.filter((l) => !seedDebug(l.msg))); });
-  };
+  const onOpen = (id: number) => setOpen((cur) => (cur === id ? null : id));
   const send = async (ask: Ask, stance: string, text: string) => {
     const result = await go({ kind: "press", request: ask.request, stance, text });
     if (result.ok) setSaidLocal((cur) => ({ ...cur, [ask.eventId]: { stance, text } }));
@@ -255,6 +293,12 @@ export default function WireApp() {
           <button key={f} type="button" data-on={filter === f ? "1" : "0"} onClick={() => setFilter(f)}>{LABEL[f]}</button>
         ))}
       </div>
+      <div className="sim-wire-find" role="search">
+        <input type="search" value={query} placeholder="Search the papers: a name, a firm, a word" aria-label="Search the papers" data-testid="wire-search" onChange={(e) => setQuery(e.target.value)} />
+        <select value={kind} aria-label="Kind of story" data-testid="wire-kind" onChange={(e) => setKind(e.target.value)}>
+          {KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+        </select>
+      </div>
       {note ? <p className="paper-note" data-ok={note.ok ? "1" : "0"}>{presentNote(note.text)}</p> : null}
       {asks.filter((a) => a.open && !saidLocal[a.eventId]).map((ask) => (
         <CommentBox key={ask.eventId} ask={ask} busy={busy} onSend={(stance, text) => { void send(ask, stance, text); }} />
@@ -270,7 +314,7 @@ export default function WireApp() {
         </p>
       ) : null}
       {onPapers && ready && !failed ? (
-        editions.length ? editions.map((ed) => <EditionView key={ed.id} ed={ed} today={today} open={open} why={why} onWhy={onOpen} />)
+        editions.length ? editions.map((ed) => <EditionView key={ed.id} ed={ed} today={today} open={open} onWhy={onOpen} match={match} />)
           : <p className="quay-empty" data-testid="wire-no-edition">The Daily Herald comes out at 07:00 and the Evening Gazette at 18:00. Until then, the wire.</p>
       ) : null}
       {onPapers && editions.length ? null : shown.length ? shown.map((item) => {
@@ -328,12 +372,12 @@ export default function WireApp() {
             <button type="button" className="name-link" onClick={() => onOpen(paper.eventId)}>Why?</button>
             {open === paper.eventId || open === paper.corrects ? (
               <div className="sim-wire-why" data-testid="wire-why">
-                {why.length ? <CauseLines lines={why} /> : <p className="quay-state">Reading the cause…</p>}
+                <StoryWhy id={open} text={open === paper.eventId ? paper.text : corrected?.text ?? paper.correctsText} />
               </div>
             ) : null}
           </article>
         );
-      }) : ready && !failed && !(onPapers && editions.length) ? <p className="quay-empty">Nothing in the papers on {LABEL[filter].toLowerCase()} yet.</p> : null}
+      }) : ready && !failed && !(onPapers && editions.length) ? <p className="quay-empty">{q || kind ? "Nothing in the papers matches that." : `Nothing in the papers on ${LABEL[filter].toLowerCase()} yet.`}</p> : null}
     </div>
   );
 }

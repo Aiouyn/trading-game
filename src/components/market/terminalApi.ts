@@ -206,6 +206,18 @@ export async function fetchList(): Promise<MarketList | null> {
   } catch { return null; }
 }
 
+/** A story that touched this instrument, at the game minute it reached the reader: abs is game minutes since day 0. */
+export interface NewsFlag { abs: number; day: number; kind: string; text: string; eventId: number }
+
+export async function fetchFlags(instr: string): Promise<NewsFlag[]> {
+  try {
+    const res = await fetch(`/api/sim/newsflags?instr=${encodeURIComponent(instr)}`, { cache: "no-store" });
+    if (!res.ok) return [];
+    const j = await res.json() as { flags?: NewsFlag[] };
+    return Array.isArray(j.flags) ? j.flags : [];
+  } catch { return []; }
+}
+
 /** The instrument id the sim charts for a broker context (a ticker, a coin id, a future, a bond). */
 export function instrOf(context: string | undefined): string {
   if (!context) return "index";

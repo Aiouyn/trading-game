@@ -317,3 +317,15 @@
 .edition-column { margin: 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--fg-muted); font-size: var(--fs-13); }
 .edition-column .edition-kicker { display: inline; margin-right: 6px; }
 .paper-launches .paper-body { color: var(--fg-muted); }
+
+/* search and kind filter */
+.sim-wire-find { display: flex; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; }
+.sim-wire-find input { flex: 1 1 180px; min-width: 0; padding: 4px 8px; background: var(--surface-2, transparent); color: inherit; border: 1px solid var(--line, #444); border-radius: 4px; font: inherit; }
+.sim-wire-find select { padding: 4px 6px; background: var(--surface-2, transparent); color: inherit; border: 1px solid var(--line, #444); border-radius: 4px; font: inherit; }
+/* Why?: the causes in order, then what followed */
+.wire-why-steps { list-style: none; margin: 6px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--line, #444); display: grid; gap: 4px; }
+.wire-why-steps > li { position: relative; line-height: 1.4; }
+.wire-why-word { display: inline-block; min-width: 72px; margin-right: 6px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #999); }
+.wire-why-this .wire-why-word { color: var(--acc, var(--accent, inherit)); }
+.wire-why-deep { list-style: none; margin: 2px 0 0 78px; padding: 0; font-size: 0.9em; color: var(--muted, #999); }
+.wire-why-none { color: var(--muted, #999); }

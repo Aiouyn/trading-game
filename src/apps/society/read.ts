@@ -188,6 +188,17 @@ export function parseCalendar(raw: unknown): CalDay[] | null {
   });
 }
 
+/** The central bank meets on the first trading day after the first of each month (the sim's markets/calendar.ts). */
+function cbMeetingDay(month: number): number {
+  let d = month * 30 + 1;
+  while (d < month * 30 + 29) {
+    const c = calDate(d);
+    if (c.weekday < 5 && HOLIDAY[c.month * 100 + c.day] === undefined) break;
+    d++;
+  }
+  return d;
+}
+
 function planDay(day: number): { closed: boolean; items: { kind: string; title: string }[] } {
   const doy = ((day % 360) + 360) % 360;
   const dom = doy % 30;
@@ -197,7 +208,7 @@ function planDay(day: number): { closed: boolean; items: { kind: string; title: 
   const ck = calKey(day);
   const closed = HOLIDAY[ck] !== undefined;
   if (closed) items.push({ kind: "society.holiday", title: HOLIDAY[ck] });
-  if (dom === 29) items.push({ kind: "society.meeting", title: "The central bank meets" });
+  if (absM > 0 && cbMeetingDay(absM) === day) items.push({ kind: "society.meeting", title: "The central bank meets: the decision is at 14:00" });
   if (moy % 3 === 0 && dom <= 6) items.push({ kind: "society.earnings", title: dom === 0 ? "Earnings season opens" : "Earnings season" });
   if (ck === 415) items.push({ kind: "society.tax", title: "Tax returns are due" });
   if (ck === 715) items.push({ kind: "society.festival", title: "The harbour festival opens on the quay" });
@@ -260,19 +271,37 @@ function phraseOf(title: string): string {
 
 const FILLER = new Set(["Earnings season"]);
 
-export function chipText(abs: number, calendar: CalDay[] | null): string {
+function coming(abs: number, calendar: CalDay[] | null): CalDay[] {
   const fromServer = calendar?.some((d) => d.day >= abs) ? calendar.filter((d) => d.day >= abs) : null;
-  const days = (fromServer && fromServer.length ? fromServer : ahead(abs, 60)).slice().sort((a, b) => a.day - b.day);
+  return (fromServer && fromServer.length ? fromServer : ahead(abs, 60)).slice().sort((a, b) => a.day - b.day);
+}
+
+/** The next thing the chip names. A rate decision today or tomorrow wins over a dinner listed first. */
+export function chipItem(abs: number, calendar: CalDay[] | null): { day: number; kind: string; title: string } | null {
+  const days = coming(abs, calendar);
+  for (const d of days) {
+    if (d.day - abs > 1) break;
+    const meet = d.items.find((it) => it.kind === "society.meeting");
+    if (meet) return { day: d.day, kind: meet.kind, title: meet.title };
+  }
   for (const d of days) {
     const item = d.items.find((it) => it.title && !FILLER.has(it.title));
-    if (!item) continue;
-    const phrase = phraseOf(item.title);
-    const n = d.day - abs;
-    if (n <= 0) return `${phrase} today`;
-    if (n === 1) return `${phrase} in 1 day`;
-    return `${phrase} in ${n} days`;
+    if (item) return { day: d.day, kind: item.kind, title: item.title };
   }
-  return "";
+  return null;
+}
+
+export function chipText(abs: number, calendar: CalDay[] | null): string {
+  const item = chipItem(abs, calendar);
+  if (!item) return "";
+  const n = item.day - abs;
+  if (item.kind === "society.meeting") {
+    return n <= 0 ? "Central bank decides at 14:00 today" : n === 1 ? "Central bank decides tomorrow at 14:00" : `Central bank decides in ${n} days`;
+  }
+  const phrase = phraseOf(item.title);
+  if (n <= 0) return `${phrase} today`;
+  if (n === 1) return `${phrase} in 1 day`;
+  return `${phrase} in ${n} days`;
 }
 
 export function holidayReason(abs: number, calendar: CalDay[] | null): string {

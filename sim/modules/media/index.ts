@@ -12,7 +12,7 @@ import { addFirm, DEP, pay, type EconState, type Firm } from '../economy/index.t
 import { askFirm, contactsOf, knows, publish, seatPerson } from '../social/index.ts';
 import { CITY, money, sectorWord, signedPct } from '../social/words.ts';
 import { cancelOrder, submitOrder } from '../markets/index.ts';
-import { wireDay, wireMonth, wireStats } from './wire.ts';
+import { wireDay, wireFlash, wireMonth, wireStats } from './wire.ts';
 import { paperDay, paperStats } from './paper.ts';
 export { answerAsk, STANCES } from './wire.ts';
 export { editionsFor } from './paper.ts';
@@ -496,6 +496,12 @@ export const media: Module = {
       yScoopSe: 0, yScoopSn: 0, yRetractSe: 0, yRetractSn: 0, root,
     } satisfies Book;
     desks(w);
+  },
+  // A central bank decision goes on the wire as it lands, during the session.
+  tick(w) {
+    if (!w.state.media || !soc(w)) return;
+    const last = (w.state.economy as EconState).cbLast;
+    if (last && last.day === w.day) wireFlash(w, (issuer, side, trust, outlet, weight) => trade(w, issuer, side, trust, outlet, weight));
   },
   dayClose(w) {
     if (!w.state.media || !soc(w)) return;

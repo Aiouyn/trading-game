@@ -8,6 +8,7 @@ export function tradingDay(day: number): boolean {
   return ((((day % 7) + 7) % 7) < 5) && marketsOpen({ day } as never);
 }
 
+
 export function fnv(s: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }

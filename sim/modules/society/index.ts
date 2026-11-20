@@ -11,6 +11,7 @@ import { PRISON } from '../economy/people.ts';
 import { contactsOf } from '../social/index.ts';
 import { money } from '../social/words.ts';
 import { calDate } from '../../kernel/calendar.ts';
+import { cbMeetingDay } from '../markets/calendar.ts';
 
 const DEG = 16;
 const HOME = 1;
@@ -600,7 +601,7 @@ function planDay(day: number): { closed: boolean; items: Item[] } {
   const ck = calKey(day);
   const closed = HOLIDAY[ck] !== undefined;
   if (closed) items.push({ kind: 'society.holiday', title: HOLIDAY[ck], key: 'holiday:' + ck, emit: true, cause: 'root', causeKey: '', meet: false });
-  if (dom === 29) items.push({ kind: 'society.meeting', title: 'The central bank meets', key: 'meeting', emit: true, cause: 'rate', causeKey: '', meet: false });
+  if (absM > 0 && cbMeetingDay(absM) === day) items.push({ kind: 'society.meeting', title: 'The central bank meets: the decision is at 14:00', key: 'meeting', emit: true, cause: 'rate', causeKey: '', meet: false });
   if (moy % 3 === 0 && dom <= 6) {
     const open = dom === 0;
     items.push({ kind: 'society.earnings', title: open ? 'Earnings season opens' : 'Earnings season', key: 'earnings', emit: open, cause: 'macro', causeKey: '', meet: false });

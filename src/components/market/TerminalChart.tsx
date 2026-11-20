@@ -16,6 +16,8 @@ import {
 export interface ChartLine { id: string; kind: "order" | "stop" | "pos" | "short" | "margin"; side?: "buy" | "sell"; price: number; label: string; drag?: boolean; /** pos and short: the line is drawn green or red by the open profit or loss */ gain?: boolean }
 /** One of your fills: t is game days (a fraction inside a day), price is in the chart's units. */
 export interface ChartMark { t: number; price: number; side: "buy" | "sell"; qty: number }
+/** A story about this name, at the time it reached the reader (t in game days, like a mark). */
+export interface ChartFlag { t: number; kind: string; text: string; id: number }
 export interface Studies { sma: boolean; ema: boolean; bb: boolean; vwap: boolean; vol: boolean; rsi: boolean; macd: boolean; cmp: boolean }
 
 interface Props {
@@ -38,6 +40,7 @@ interface Props {
   onDrawings: (next: Drawing[]) => void;
   lines: ChartLine[];
   marks?: ChartMark[];
+  flags?: ChartFlag[];
   onMoveLine: (id: string, price: number) => void;
   onPickPrice: (price: number) => void;
 }
@@ -89,6 +92,14 @@ const spanFloor: AutoscaleInfoProvider = (base) => {
 let seq = 0;
 const newId = () => `d${Date.now().toString(36)}${(seq++).toString(36)}`;
 
+/** The window the player last looked at, per instrument and candle size, by time: it comes back when they return to it. */
+const VIEWS = new Map<string, { from: number; to: number; edge: number | null }>();
+function lowerBound(arr: number[], t: number): number {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m]! < t) lo = m + 1; else hi = m; }
+  return lo;
+}
+
 export default function TerminalChart(props: Props) {
   const host = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -107,6 +118,7 @@ export default function TerminalChart(props: Props) {
   const [theme, setTheme] = useState(0);
   const [editing, setEditing] = useState<{ id: string; x: number; y: number } | null>(null);
   const [ready, setReady] = useState(0);
+  const [flagTip, setFlagTip] = useState<{ x: number; y: number; text: string } | null>(null);
 
   const { series, studies } = props;
   const layoutKey = `${studies.rsi ? 1 : 0}${studies.macd ? 1 : 0}`;
@@ -213,6 +225,7 @@ export default function TerminalChart(props: Props) {
       dirty.current = true;
       return;
     }
+    const oldTimes = times.current;
     candle.setData(ohlc);
     closeLine.setData(ohlc.map((r) => ({ time: r.time, value: r.close })));
     times.current = ohlc.map((r) => r.time as number);
@@ -292,13 +305,26 @@ export default function TerminalChart(props: Props) {
     setChips((old) => (old.length === rows.length && old.every((o, i) => o.k === rows[i]!.k && o.value === rows[i]!.value) ? old : rows));
     // a new instrument or size opens on the auto scale, with the range preset's window; the same one keeps the player's view
     const n = ohlc.length;
+    const arr = times.current;
+    const saved = VIEWS.get(`${series.id}|${series.tf}`);
     if (!same || !range) {
       if (!same) chart.priceScale("right", 0).applyOptions({ autoScale: true });
-      applyRange(chart, ohlc.map((r) => r.time as number), props.range, isIntraday(series.tf));
+      if (!same && saved && n > 1) {
+        // back to the window this name was left at: pinned to the newest candle if it was, else the same stretch of time
+        const width = Math.max(5, lowerBound(arr, saved.to) - lowerBound(arr, saved.from));
+        if (saved.edge !== null) chart.timeScale().setVisibleLogicalRange({ from: n - 1 + saved.edge - width, to: n - 1 + saved.edge } as LogicalRange);
+        else chart.timeScale().setVisibleLogicalRange({ from: lowerBound(arr, saved.from), to: lowerBound(arr, saved.to) } as LogicalRange);
+      } else applyRange(chart, arr, props.range, isIntraday(series.tf));
     } else {
+      // The same name and size reloaded: keep the window on the same candles by time, so trimming old minutes or adding
+      // a day never moves the view by itself. At the newest candle it stays there.
       const atEdge = range.to >= prevN - 1 + 2;
-      const shift = atEdge ? n - prevN : 0;
-      chart.timeScale().setVisibleLogicalRange({ from: range.from + shift, to: range.to + shift } as LogicalRange);
+      let front = 0;
+      if (oldTimes.length && arr.length) front = arr[0]! <= oldTimes[0]! ? lowerBound(arr, oldTimes[0]!) : -lowerBound(oldTimes, arr[0]!);
+      if (atEdge) {
+        const over = range.to - (prevN - 1);
+        chart.timeScale().setVisibleLogicalRange({ from: n - 1 + over - (range.to - range.from), to: n - 1 + over } as LogicalRange);
+      } else chart.timeScale().setVisibleLogicalRange({ from: range.from + front, to: range.to + front } as LogicalRange);
     }
     prevShape.current = { id: series.id, tf: series.tf, n, first: times.current[0] ?? 0 };
     dirty.current = true;
@@ -324,6 +350,12 @@ export default function TerminalChart(props: Props) {
       setAxisW(Math.round(sc.width()));
       // what the chart shows now, for a check from the page: the candle count and the visible window (logical indexes)
       const vr = a.chart.timeScale().getVisibleLogicalRange(), pr = sc.getVisibleRange();
+      const arr = times.current;
+      if (vr && arr.length > 1) {
+        const at = (l: number) => arr[Math.max(0, Math.min(arr.length - 1, Math.round(l)))]!;
+        const edge = vr.to >= arr.length - 1 ? vr.to - (arr.length - 1) : null;
+        VIEWS.set(`${live.current.series.id}|${live.current.series.tf}`, { from: at(vr.from), to: at(vr.to), edge });
+      }
       if (host.current) {
         host.current.dataset.candles = String(times.current.length);
         host.current.dataset.view = vr ? `${Math.round(vr.from)},${Math.round(vr.to)}` : "";
@@ -417,14 +449,30 @@ export default function TerminalChart(props: Props) {
       for (const l of live.current.lines) {
         const dragging = ix.current.drag?.kind === "line" && ix.current.drag.id === l.id;
         const price = dragging ? (ix.current.drag as { price: number }).price : l.price;
-        const y = Y(price);
-        if (y === null || y < 0 || y > ph) continue;
+        const y0 = Y(price);
+        if (y0 === null) continue;
         const color = l.kind === "margin" ? tk.signal : l.kind === "pos" || l.kind === "short" ? (l.gain === undefined ? tk.acc : l.gain ? tk.up : tk.down) : l.kind === "stop" ? tk.warn : l.side === "sell" ? tk.down : tk.up;
+        if (y0 < 0 || y0 > ph) {
+          // off the scale: the tag sits at the edge with an arrow and its price, so an order is never out of sight
+          const topEdge = y0 < 0;
+          const yy = topEdge ? 11 : ph - 11;
+          const text = `${topEdge ? "▲" : "▼"} ${l.label}${l.kind === "pos" || l.kind === "short" ? "" : ` ${fmtP(price)}`}`;
+          const tw = g.measureText(text).width + 12;
+          g.globalAlpha = 0.92;
+          g.fillStyle = color;
+          g.fillRect(pw - tw - 6, yy - 9, tw, 18);
+          g.globalAlpha = 1;
+          g.fillStyle = tk.bg;
+          g.fillText(text, pw - tw, yy + 4);
+          continue;
+        }
+        const y = y0;
         g.strokeStyle = color; g.lineWidth = l.kind === "pos" || l.kind === "short" ? 1.5 : 1;
         g.setLineDash(l.kind === "pos" || l.kind === "short" ? [] : l.kind === "margin" ? [2, 3] : [6, 4]);
         g.beginPath(); g.moveTo(0, Math.round(y) + 0.5); g.lineTo(pw, Math.round(y) + 0.5); g.stroke();
         g.setLineDash([]);
-        const text = `${l.label}${dragging ? " " + fmtP(price) : ""}`;
+        // a position's tag already names its price; an order's tag shows where it stands
+        const text = l.kind === "pos" || l.kind === "short" ? `${l.label}${dragging ? " " + fmtP(price) : ""}` : `${l.label} ${fmtP(price)}`;
         const tw = g.measureText(text).width + 12;
         g.fillStyle = color;
         g.fillRect(pw - tw - 6, y - 9, tw, 18);
@@ -452,6 +500,23 @@ export default function TerminalChart(props: Props) {
             g.fillStyle = tk.fg;
             g.fillText(`${buy ? "B" : "S"} ${m.qty.toLocaleString("en-US")}`, x + 8, buy ? y + 11 : y - 5);
           }
+        }
+        g.restore();
+      }
+      // news flags: a story about this name, at the bottom of the plot where it reached the reader
+      const fl = live.current.flags ?? [];
+      if (fl.length) {
+        g.save();
+        g.beginPath(); g.rect(0, 0, pw, ph); g.clip();
+        for (const f of fl) {
+          const x = X(f.t);
+          if (x === null || x < -6 || x > pw + 6) continue;
+          const col = f.kind === "rate" ? tk.info : f.kind === "rumour" ? tk.warn : f.kind === "correction" ? tk.signal : tk.acc;
+          const yb = ph - 4;
+          g.strokeStyle = col; g.lineWidth = 1;
+          g.beginPath(); g.moveTo(Math.round(x) + 0.5, yb); g.lineTo(Math.round(x) + 0.5, yb - 16); g.stroke();
+          g.fillStyle = col;
+          g.beginPath(); g.moveTo(x, yb - 16); g.lineTo(x + 9, yb - 12.5); g.lineTo(x, yb - 9); g.closePath(); g.fill();
         }
         g.restore();
       }
@@ -570,7 +635,11 @@ export default function TerminalChart(props: Props) {
       if (inPlot(x, y)) {
         const over = cur.tool === "cursor" ? (hitLine(x, y) ?? hitDrawing(x, y)) : null;
         box.style.cursor = cur.tool !== "cursor" ? "crosshair" : over ? "pointer" : "";
-      }
+        const ph = plot().h;
+        let tip: { x: number; y: number; text: string } | null = null;
+        if (y >= ph - 26) for (const f of cur.flags ?? []) { const fx = X(f.t); if (fx !== null && Math.abs(fx + 3 - x) <= 7) { tip = { x: fx, y: ph - 24, text: f.text }; break; } }
+        setFlagTip((old) => (old?.text === tip?.text && old?.x === tip?.x ? old : tip));
+      } else setFlagTip(null);
     };
     const up = () => {
       const d = ix.current.drag;
@@ -660,7 +729,7 @@ export default function TerminalChart(props: Props) {
     };
   }, []);
 
-  useEffect(() => { dirty.current = true; }, [props.drawings, props.lines, props.marks, props.tool]);
+  useEffect(() => { dirty.current = true; }, [props.drawings, props.lines, props.marks, props.flags, props.tool]);
   useEffect(() => { ix.current.first = null; ix.current.draft = null; if (props.tool !== "cursor") ix.current.sel = ""; }, [props.tool]);
   useEffect(() => { ix.current.sel = ""; setEditing(null); }, [series.id]);
 
@@ -703,6 +772,7 @@ export default function TerminalChart(props: Props) {
       </div>
       <div className="tm-plot" ref={host} />
       <canvas className="tm-over" ref={cvs} />
+      {flagTip ? <p className="tm-flag-tip" role="tooltip" data-testid="tm-flag-tip" style={{ left: Math.max(4, flagTip.x - 12), top: flagTip.y - 6 }}>{flagTip.text}</p> : null}
       {editing && note ? (
         <input
           className="tm-note-input" autoFocus placeholder="Note, then Enter" style={{ left: editing.x, top: editing.y - 12 }} maxLength={80}

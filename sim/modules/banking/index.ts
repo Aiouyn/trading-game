@@ -1047,7 +1047,12 @@ export function rateWhy(w: World, person: number, product: 'margin' | 'line' | '
   const tenure = P.employer[person] >= 0 ? Math.max(0, Math.floor((w.day - P.born[person]) / DAYS_PER_YEAR) - 18) : 0;
   const young = tenure < 2 ? 0.02 : tenure < 5 ? 0.01 : 0;
   const crunch = (kind === LINE ? 0.04 : 0.05) * (b.tight ?? 0);
-  const parts = [`policy rate ${pct(s.policyRate)}`, `base spread 2.5%`, `${pct(loadPart)} for the ${(load * 100).toFixed(0)}% of a year's income you owe`];
+  // what you owe against a year's income, said the way a lender says it: a share of it, or a multiple when it is more
+  const owes = load < 0.005 ? 'for owing next to nothing against your income'
+    : load <= 2 ? `for owing ${(load * 100).toFixed(0)}% of a year's income`
+    : load <= 20 ? `for owing ${load.toFixed(1)} times a year's income`
+    : "for owing far more than your income could repay";
+  const parts = [`policy rate ${pct(s.policyRate)}`, `base spread 2.5%`, `${pct(loadPart)} ${owes}`];
   if (young > 0) parts.push(`${pct(young)} for a short work record`);
   parts.push(`lender margin ${pct(kind === LINE ? 0.006 : 0.012)}`);
   if (crunch > 0) parts.push(`${pct(crunch)} for tight credit`);
@@ -1135,10 +1140,12 @@ function callReason(w: World, b: Book, i: number, cs: { why: 'due' | 'slip' | 'u
     thenAll += h.q * h.px;
     if (kept > 0) { then += kept * h.px; now += kept * midPrice(w, instr); }
   }
-  const moved = then > 0 ? now / then - 1 : 0;
+  const moved = then > 0 && now > 0 ? now / then - 1 : 0;
   const gone = thenAll > 0 ? 1 - then / thenAll : 0;
   const tail = `the bank will carry ${money(cs.keep)} against shares it could sell for ${money(cs.fetch)}`;
-  if (moved <= -0.01 && gone < 0.05) return `your shares fell ${(-moved * 100).toFixed(moved > -0.1 ? 1 : 0)}% since you borrowed and the loan sat near the line (${tail})`;
+  if (then > 0 && now <= 0) return `the marks on your shares are not in, so the bank is using the last close (${tail})`;
+  if (moved <= -0.95) return `your shares are worth a fraction of what they were when you borrowed (${tail})`;
+  if (moved <= -0.01 && gone < 0.05) return `your shares fell ${(-moved * 100).toFixed(1)}% since you borrowed and the loan sat near the line (${tail})`;
   if (gone >= 0.05) return `you hold ${(gone * 100).toFixed(0)}% less stock than when you borrowed${moved <= -0.01 ? ` and what is left fell ${(-moved * 100).toFixed(1)}%` : ''} (${tail})`;
   const hair = lendHaircut(w);
   if (pm && hair - pm.hair >= 0.02) return `lenders pulled back: they now lend ${((1 - hair) * 100).toFixed(0)}% of what your shares would fetch, down from ${((1 - pm.hair) * 100).toFixed(0)}% when you borrowed (${tail})`;

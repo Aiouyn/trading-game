@@ -25,7 +25,7 @@ export interface Quote {
   book?: { bids: BookLevel[]; asks: BookLevel[] };
 }
 export interface Holding { instr: string; qty: number; px: number; eventId: number }
-export interface OrderRow { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; /** A stop (or the price of a standing limit) the desk holds: cents. */ stop?: number; mode?: "stop" | "limit"; /** a future's delivery month, as an absolute month number */ month?: number; eventId: number }
+export interface OrderRow { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; /** A stop (or the price of a standing limit) the desk holds: cents. */ stop?: number; mode?: "stop" | "limit" | "open"; /** it protects a position and comes off with it */ protect?: boolean; /** one-cancels-other group */ oco?: number; /** stop and target set once this entry fills (cents) */ bracket?: { stop?: number; target?: number }; /** a future's delivery month, as an absolute month number */ month?: number; eventId: number }
 export interface FeedLine { eventId: number; day: number; tag: string; text: string; min?: number }
 export interface PauseAction { label: string; line: string }
 export interface StoryBeat { title: string; text: string; cause: string }
@@ -85,6 +85,7 @@ export interface SimView {
   netWorth: number;
   cash: number;
   nwChange?: number;
+  markChange?: number;
   sinceOpen?: number;
   speed: "pause" | "x1" | "x2" | "x5" | "x10" | "x25" | "day" | "week" | "month";
   pause: { why: string; eventId: number; kind?: string; text?: string; actions?: PauseAction[] } | null;
@@ -492,6 +493,7 @@ function mergeDay(frame: SimView) {
     cash: frame.cash ?? cur.cash,
     netWorth: frame.netWorth ?? cur.netWorth,
     nwChange: frame.nwChange,
+    markChange: frame.markChange ?? cur.markChange,
     sinceOpen: frame.sinceOpen,
     speed: frame.speed ?? cur.speed,
     live: frame.live ?? cur.live,

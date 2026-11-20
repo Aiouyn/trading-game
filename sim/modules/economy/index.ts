@@ -13,6 +13,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { CEO_POSITION, FIRM_DEFS, GOODS, OPEN_TRADE, SECTOR_GROWTH, SHOCKS, type GoodDef, type ShockDef } from './content.ts';
 import { People, PRISON, joinFirm, leaveJob, seekCopy, seekCount, seekLive, seekPromote, seekRebuild, seekReset, setSimDay, succession, thought, yearlyLifePass } from './people.ts';
 import { usd as moneyText } from '../player/gamedate.ts';
+import { cbMeetingDay, CB_TICK } from '../markets/calendar.ts';
 
 export const DEP = 'dep';          // bank deposits: the money everyone pays with
 export const BANK = 'bank_1', GOV = 'gov', CB = 'cb', CLEAR = 'clearing';
@@ -50,6 +51,10 @@ export interface EconState {
   firms: Firm[]; P: People; shareIds: string[]; govSlot: number; bankSlot: number; clearSlot: number; investors: { id: string; target: number }[]; laborForce: number; hirePtr: number; breakdowns: number; successions: number;
   wage: number; policyRate: number; cpi: number; cpiBase: number; cpiHist: number[];
   unemployment: number; shockUntil: number; shockEv?: number; shocks: { def: ShockDef; until: number; ev: number }[]; macroEv: number; wageEv: number; rateEv: number; wageWho?: number; rateWho?: number; jobsWho?: number; cpiWho?: number;
+  /** The decision the bank will announce at its next meeting: the rate the rule reached on the month's numbers, what the market expects, the day it meets. */
+  cbNext?: CbNext;
+  /** The last meeting: when, from what to what, what was expected, and the event that said it. */
+  cbLast?: { day: number; from: number; to: number; expect: number; ev: number };
   yGdp: number; yGdpEma: number; yReal: number; mSpend: number; defaults: number; taxEma: number; taxToday: number; profitTaxDaily: number; dayGdp: number; taxRate: number; pensionEma: number; pensionToday: number; divTax: number; fiscal: number; uEma: number; taxTrend?: number; marginIn: number; prodTrend?: number; tfpIdx?: number; // prodTrend: labour-weighted monthly productivity growth, smoothed. fiscal: the government's accumulated stance, in workers' daily wages per member of the labour force. marginIn: loan interest the main bank redeemed this month, which is what deposit interest can be paid from
   taxAim?: number; profitTax?: number; divRate?: number; benefitRate?: number; inflTarget?: number;
   spendPri?: Record<string, number>; spendScale?: number;
@@ -338,8 +343,35 @@ function chargeOpening(f: Firm): void {
   f.basisQty = left - q;
 }
 
+export interface CbNext { rate: number; from: number; expect: number; causes: number[]; day: number }
+
+/** The meeting: the bank announces the decision the month's numbers led to, and the policy rate moves now. A hold is news too. */
+function decideRate(w: World, s: EconState): void {
+  const p = s.cbNext;
+  if (!p) return;
+  s.cbNext = undefined;
+  const E = w.events;
+  const pct = (r: number): string => (r * 100).toFixed(2);
+  const causes = p.causes.filter((id) => E.get(id) !== undefined);
+  if (!causes.length) causes.push(s.macroEv);
+  let ev: number;
+  if (p.rate !== s.policyRate) {
+    s.rateEv = ev = E.emit('cb.rate', `policy rate ${pct(s.policyRate)}% -> ${pct(p.rate)}%`, causes, CB);
+    const gov = deskPerson(w, s, 'governor');
+    if (gov >= 0) s.rateWho = E.emit('cb.desk', `${s.P.name(gov)} moves the policy rate to ${pct(p.rate)}%`, [s.rateEv], s.P.id(gov));
+  } else ev = E.emit('cb.hold', `policy rate held at ${pct(p.rate)}%${p.expect !== p.rate ? ` (${pct(p.expect)}% was expected)` : ''}`, causes, CB);
+  s.cbLast = { day: w.day, from: s.policyRate, to: p.rate, expect: p.expect, ev };
+  s.policyRate = p.rate;
+}
+
 export const economy: Module = {
   id: 'economy',
+
+  // The meeting's decision lands at 14:00 on the meeting day (the seventh of the session's eight ticks).
+  tick(w, t) {
+    const s = w.state.economy as EconState;
+    if (s.cbNext && w.day >= s.cbNext.day && t >= Math.min(CB_TICK, w.ticksPerDay - 1)) decideRate(w, s);
+  },
 
   init(w) {
     seekReset();
@@ -600,6 +632,7 @@ export const economy: Module = {
     firmLists = new Map();
     setSimDay(w.day);
     const s: EconState = w.state.economy, L = w.ledger;
+    if (s.cbNext && w.day >= s.cbNext.day) decideRate(w, s);
     if (w.day === 0) {
       for (const f of s.firms) {
         // Shelf stock and the machinery buffer are already on the ledger, created by genesis with nothing paid for them.
@@ -1082,12 +1115,11 @@ export const economy: Module = {
       : s.unemployment < 0.04 && target > s.policyRate && infl < 0.05 ? 0.45
       : 0.15;
     const next = Math.round(((1 - speed) * s.policyRate + speed * target) * 400) / 400; // quarter-point grid
-    if (next !== s.policyRate) {
-      s.rateEv = E.emit('cb.rate', `policy rate ${(s.policyRate * 100).toFixed(2)}% -> ${(next * 100).toFixed(2)}%`, [cpiEv, uEv], CB);
-      const gov = deskPerson(w, s, 'governor');
-      if (gov >= 0) s.rateWho = E.emit('cb.desk', `${s.P.name(gov)} moves the policy rate to ${(next * 100).toFixed(2)}%`, [s.rateEv], s.P.id(gov));
-      s.policyRate = next;
-    }
+    // The decision is announced at the next meeting, early next month at 14:00. The market expects the usual gradual step;
+    // the bank surprises it when it moves fast, in a slump or a boom.
+    if (s.cbNext) decideRate(w, s);
+    const expect = Math.round((0.85 * s.policyRate + 0.15 * target) * 400) / 400;
+    s.cbNext = { rate: next, from: s.policyRate, expect, causes: [cpiEv, uEv], day: cbMeetingDay(w.month + 1) };
     const loanRate = s.policyRate + 0.03;
 
     // The last day's sales, including deliveries booked after this morning, land in this month's profit.

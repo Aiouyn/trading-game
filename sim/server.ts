@@ -33,7 +33,7 @@ import { seatId, tonightFaces } from './modules/venues/world.ts';
 import { courseBoard } from './modules/courses/index.ts';
 import { bookLevels, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { callNeed, marginLimit, productHaircuts } from './modules/banking/index.ts';
-import { act, coinMark, ensurePlayer, netWorthOf, playerIndex, soleSeat, view, worthParts, type Command } from './modules/player/index.ts';
+import { act, coinMark, deskMinute, ensurePlayer, netWorthOf, playerIndex, soleSeat, view, worthParts, type Command } from './modules/player/index.ts';
 import { answerAsk, editionsFor, STANCES } from './modules/media/index.ts';
 import { noticeRows } from './modules/circle/notices.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
@@ -49,6 +49,7 @@ import { barsFor, listBars } from './modules/markets/bars.ts';
 import { coinClock, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
 import { fxMark, fxPairs } from './modules/abroad/index.ts';
 import { futureUnit } from './modules/commodities/index.ts';
+import { CB_MINUTE } from './modules/markets/calendar.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
 
 /** x1: one real hour is one game day. day, week and month are the old fast-forward speeds, kept for scripts. */
@@ -162,7 +163,25 @@ function commandOf(body: unknown): Command | string {
       const stop = stopOf(b, cmd.limit !== undefined);
       if (typeof stop === 'string') return stop;
       if (stop) { cmd.type = stop.type; cmd.stop = stop.stop; }
+      if (b.type === 'market' || b.type === 'limit') cmd.type = b.type;
+      if (b.bracket && typeof b.bracket === 'object') {
+        const br = b.bracket as Record<string, unknown>;
+        const bs = br.stop === undefined || br.stop === null ? undefined : whole(br.stop, 1);
+        const bt = br.target === undefined || br.target === null ? undefined : whole(br.target, 1);
+        if ((br.stop !== undefined && br.stop !== null && bs === undefined) || (br.target !== undefined && br.target !== null && bt === undefined)) return 'a bracket stop or target is a positive price in cents';
+        if (bs !== undefined || bt !== undefined) cmd.bracket = { ...(bs !== undefined ? { stop: bs } : {}), ...(bt !== undefined ? { target: bt } : {}) };
+      }
       return cmd;
+    }
+    case 'amend': {
+      const orderId = whole(b.orderId, 0);
+      if (orderId === undefined) return 'amend needs an order id';
+      const price = b.price === undefined ? undefined : typeof b.price === 'number' && Number.isFinite(b.price) && b.price > 0 ? b.price : NaN;
+      if (Number.isNaN(price)) return 'price must be a positive number of cents';
+      const qty = b.qty === undefined ? undefined : whole(b.qty, 1);
+      if (b.qty !== undefined && qty === undefined) return 'qty must be a positive integer';
+      if (price === undefined && qty === undefined) return 'amend needs a new price or a new size';
+      return { kind: 'amend', orderId, ...(price !== undefined ? { price } : {}), ...(qty !== undefined ? { qty } : {}) };
     }
     case 'cancel': {
       const orderId = whole(b.orderId, 0);
@@ -648,6 +667,18 @@ function lifeSummary(w: World): Record<string, unknown> | null {
   };
 }
 
+/** Life spending is not a market move. The strip's percent ignores it; the dollar change stays the true net worth. */
+const LIFE_OUT = new Set(['player.school', 'course.fee', 'career.study', 'venue.evening', 'venue.round', 'consumption', 'property.rent', 'society.pay', 'health.claim', 'media.subscription', 'circle.pay']);
+function lifeOutToday(w: World): number {
+  const day = cashDay(w, w.day);
+  let n = 0;
+  for (const r of day.rows) if (r.cents < 0 && r.reasons.some((x) => LIFE_OUT.has(x))) n += -r.cents;
+  return n;
+}
+function markChangeOf(w: World, nwChange: number): number {
+  return nwChange + lifeOutToday(w);
+}
+
 /** Where the money went, a day at a time: every posting to or from the player's cash, by what it was for. */
 function cashbookOf(w: World): Record<string, unknown> {
   const today = cashDay(w, w.day);
@@ -738,8 +769,10 @@ function chain(w: World, id: number, maxDepth = 8): ChainLine[] {
       const f = byId.get(e.actor);
       if (f) { firm = f.id; name = f.name; }
     }
+    const mine = person !== undefined && person === playerIndex(w);
+    const said = speakIds(w, e.msg).replace(' || ', ' because ').replace('because because ', 'because ');
     out.push({
-      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name, msg: (/^held off the page.?$/i.test(e.msg) ? 'A story the papers did not print' : speakIds(w, e.msg)).replace(' || ', ' because ').replace('because because ', 'because '), exo: e.exo, again,
+      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name: mine ? 'You' : name, msg: mine && name ? youSay(name, /^held off the page.?$/i.test(e.msg) ? 'A story the papers did not print' : said) : (/^held off the page.?$/i.test(e.msg) ? 'A story the papers did not print' : said), exo: e.exo, again,
     });
     if (again || d >= maxDepth) return;
     seen.add(i);
@@ -1754,14 +1787,25 @@ function runStory(w: World, live: { reason?: string; chronicle?: string; score?:
   return out.slice(0, 5);
 }
 
-function feedCtx(w: World): { id: string; family: Set<string>; firms: { id: string; name: string }[]; employer: string; employerId: string } {
+/** A line about the player, said to them: "Ana Fell is called on a margin loan" reads "You are called on a margin loan". */
+function youSay(name: string, msg: string): string {
+  if (!name || !msg.includes(name)) return msg;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return msg
+    .replace(new RegExp(`(^|[.:;!?]\\s+)${esc} (is|was|has|owes|holds|takes|pays) `, 'g'), (_m, lead: string, verb: string) => `${lead}You ${verb === 'is' ? 'are' : verb === 'was' ? 'were' : verb === 'has' ? 'have' : verb === 'owes' ? 'owe' : verb === 'holds' ? 'hold' : verb === 'takes' ? 'take' : 'pay'} `)
+    .replace(new RegExp(`(^|[.:;!?]\\s+)${esc}\\b`, 'g'), (_m, lead: string) => `${lead}You`)
+    .replace(new RegExp(`${esc}'s\\b`, 'g'), 'your')
+    .replace(new RegExp(`\\b${esc}\\b`, 'g'), 'you');
+}
+
+function feedCtx(w: World): { id: string; name: string; family: Set<string>; firms: { id: string; name: string }[]; employer: string; employerId: string } {
   const i = playerIndex(w);
   const P = econ(w).P;
   const id = i >= 0 ? P.id(i) : '';
   const family = new Set<string>();
   for (const h of houseIds(w)) if (h.role !== 'you' && h.index >= 0) family.add(P.id(h.index));
   const emp = i >= 0 && P.employer[i] >= 0 ? econ(w).firms[P.employer[i]] : undefined;
-  return { id, family, firms: i >= 0 ? playerFirms(w, i) : [], employer: emp?.name ?? '', employerId: emp?.id ?? '' };
+  return { id, name: i >= 0 ? P.name(i) : '', family, firms: i >= 0 ? playerFirms(w, i) : [], employer: emp?.name ?? '', employerId: emp?.id ?? '' };
 }
 
 function mentionsFirm(msg: string, actor: string | undefined, firms: { id: string; name: string }[]): boolean {
@@ -1780,7 +1824,8 @@ function classify(e: { id: number; day: number; kind: string; actor?: string; ms
   else if ((e.kind === 'news.story' || e.kind === 'media.story') && (news < 3 || (ctx.id && e.msg.includes(ctx.id)))) tag = 'wire';
   if (!tag) return null;
   if (/^held off the page.?$/i.test(e.msg.trim())) return null;
-  const text = e.msg.length > 280 ? e.msg.slice(0, 277) + '…' : e.msg;
+  const said = you ? youSay(ctx.name, e.msg) : e.msg;
+  const text = said.length > 280 ? said.slice(0, 277) + '…' : said;
   return { eventId: e.id, day: e.day, tag, text };
 }
 
@@ -1847,13 +1892,13 @@ function pauseHit(e: { id: number; kind: string; actor?: string; msg: string }, 
     return { why: 'The court declares you bankrupt', eventId: e.id, kind: 'bankruptcy', text: e.msg };
   }
   if (you && (e.kind === 'loan.sell' || e.kind === 'court.sale')) {
-    return { why: 'The bank sold your shares', eventId: e.id, kind: 'sale', text: e.msg };
+    return { why: 'The bank sold your shares', eventId: e.id, kind: 'sale', text: youSay(ctx.name, e.msg) };
   }
   if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall') && /closed out/i.test(e.msg)) {
     return { why: 'A forced close', eventId: e.id, kind: 'sale', text: e.msg };
   }
   if (you && (e.kind === 'opt.marginCall' || e.kind === 'futures.marginCall' || e.kind === 'loan.margin' || e.kind === 'loan.line')) {
-    return { why: e.kind === 'loan.line' ? 'A credit line is called' : 'A margin call', eventId: e.id, kind: 'margin', text: e.msg };
+    return { why: e.kind === 'loan.line' ? 'A credit line is called' : 'A margin call', eventId: e.id, kind: 'margin', text: youSay(ctx.name, e.msg) };
   }
   if (e.kind === 'firm.bid' && e.actor !== ctx.id && ctx.firms.some((f) => e.msg.includes('for ' + f.name))) {
     return { why: 'a takeover bid', eventId: e.id, kind: 'bid', text: e.msg };
@@ -3274,6 +3319,96 @@ function paperRows(w: World, n: number): Record<string, unknown>[] {
     })),
   }));
 }
+function priceLine(w: World, e: { kind: string; msg: string }, firms: { id: string; name: string }[]): string {
+  if (e.kind === 'bond.yield') return e.msg.replace(/^10-year/, 'The 10-year');
+  const m = /^eq:(\S+) (.*)$/.exec(e.msg);
+  const f = m ? firms.find((x) => x.id === m[1]) : undefined;
+  if (f && m) return `${f.name} ${m[2]}`;
+  if (e.msg.startsWith('index ')) return `The ${e.msg}`;
+  return speakIds(w, e.msg);
+}
+
+/** What an event led to: the price moves it caused and the later stories that confirm or correct it. For the Why? panel's last steps. */
+function effectsOf(w: World, id: number): { id: number; day: number; kind: string; msg: string }[] {
+  const out: { id: number; day: number; kind: string; msg: string }[] = [];
+  const seen = new Set<number>();
+  const end = Math.min(w.events.count, id + 60000);
+  const firms = econ(w).firms;
+  const push = (e: { id: number; day: number; kind: string; msg: string }): void => {
+    if (seen.has(e.id) || out.length >= 6) return;
+    seen.add(e.id);
+    if (e.kind === 'mkt.news' || e.kind === 'mkt.move' || e.kind === 'mkt.rerate' || e.kind === 'bond.yield') {
+      out.push({ id: e.id, day: e.day, kind: e.kind, msg: priceLine(w, e, firms) });
+    } else if (e.kind === 'media.column' || e.kind === 'media.retraction' || e.kind === 'cb.rate' || e.kind === 'cb.hold') {
+      out.push({ id: e.id, day: e.day, kind: e.kind, msg: e.msg });
+    }
+  };
+  for (let k = id + 1; k < end && out.length < 6; k++) {
+    const e = w.events.get(k);
+    if (!e || !e.causes.includes(id)) continue;
+    push(e);
+  }
+  // A rate story and the print share the decision as their cause. The curve and the closes are the price step.
+  const story = w.events.get(id);
+  if (story) {
+    let moves = out.filter((x) => x.kind === 'mkt.move').length;
+    for (const c of story.causes) {
+      const src = w.events.get(c);
+      if (!src || (src.kind !== 'cb.rate' && src.kind !== 'cb.hold')) continue;
+      const stop = Math.min(w.events.count, Math.max(end, c + 80000));
+      for (let k = c + 1; k < stop && out.length < 6; k++) {
+        const e = w.events.get(k);
+        if (!e || e.id === id || !e.causes.includes(c)) continue;
+        if (e.kind === 'mkt.move' && moves >= 2) continue;
+        if (e.kind !== 'bond.yield' && e.kind !== 'mkt.move' && e.kind !== 'mkt.news' && e.kind !== 'mkt.rerate') continue;
+        const before = out.length;
+        push(e);
+        if (out.length > before && e.kind === 'mkt.move') moves++;
+      }
+    }
+  }
+  return out;
+}
+
+/** News flags for a chart: each story that named this firm (or, for the index, each central bank decision and market story), with the game minute it reached the reader. */
+function newsFlags(w: World, instr: string): { abs: number; day: number; kind: string; text: string; eventId: number }[] {
+  const kinds = ['media.column', 'media.story', 'media.scoop', 'media.retraction', 'news.story', 'earnings.report', 'cb.rate', 'cb.hold'];
+  const issuer = instr.startsWith('eq:') ? instr.slice(3) : '';
+  const firm = issuer ? econ(w).firms.find((f) => f.id === issuer) : undefined;
+  const name = firm?.name ?? (issuer === 'bank_1' ? 'the bank' : '');
+  const outs = pressOutlets(w);
+  const out: { abs: number; day: number; kind: string; text: string; eventId: number }[] = [];
+  for (const e of w.events.recent(kinds, 600)) {
+    let kind = '';
+    let text = '';
+    if (e.kind === 'cb.rate' || e.kind === 'cb.hold') {
+      // The decision is a market story: it flags the index and the bank, not every name.
+      if (instr !== 'index' && issuer !== 'bank_1') continue;
+      kind = 'rate';
+      const m = /policy rate ([\d.]+)% -> ([\d.]+)%/.exec(e.msg);
+      text = m ? `The central bank moves the policy rate from ${m[1]}% to ${m[2]}%` : e.msg.replace(/^policy rate held at/, 'The central bank holds the policy rate at');
+      out.push({ abs: e.day * MIN_PER_DAY + CB_MINUTE, day: e.day, kind, text, eventId: e.id });
+      continue;
+    }
+    if (e.kind === 'earnings.report') {
+      if (!issuer || e.actor !== issuer) continue;
+      out.push({ abs: (e.day + 1) * MIN_PER_DAY + 450, day: e.day + 1, kind: 'report', text: speakIds(w, e.msg), eventId: e.id });
+      continue;
+    }
+    const body = pressSplit(e.msg, outs).body.replace(/\s+/g, ' ').trim();
+    if (!body) continue;
+    if (instr === 'index') { if (!/\b(index|market|rate|bank|shares)\b/i.test(body)) continue; }
+    else if (!name || !body.includes(name)) continue;
+    const rateFlash = e.causes.some((c) => { const k = w.events.get(c)?.kind; return k === 'cb.rate' || k === 'cb.hold'; }) && e.day === (econ(w).cbLast?.day ?? -1);
+    // a column written at the day's close reaches the reader in the morning paper; the bank's decision goes out at 14:00
+    const abs = rateFlash ? e.day * MIN_PER_DAY + CB_MINUTE : (e.day + 1) * MIN_PER_DAY + 450;
+    kind = /^(rumour|sources say)\b/i.test(body) || /\bunchecked\b/i.test(body) ? 'rumour' : /^correction\b/i.test(body) ? 'correction' : 'story';
+    text = body.length > 200 ? body.slice(0, 197) + '…' : body;
+    out.push({ abs, day: Math.floor(abs / MIN_PER_DAY), kind, text, eventId: e.id });
+  }
+  return out.sort((a, b) => a.abs - b.abs).slice(-120);
+}
+
 function wirePanel(w: World): Record<string, unknown> {
   const i = playerIndex(w);
   const P = econ(w).P;
@@ -3282,8 +3417,9 @@ function wirePanel(w: World): Record<string, unknown> {
   const contactNames: string[] = [];
   if (i >= 0) for (const r of relations(w, i)) if (r.who >= 0 && r.who < P.n) contactNames.push(P.name(r.who));
   const heldNames: string[] = [];
+  const shortInstrs = new Set((soleSeat(w)?.loans ?? []).map((l) => l.instr));
   for (const st of stocksOf(w)) {
-    if (!id || w.ledger.balance(id, st.instr) <= 0) continue;
+    if (!id || (w.ledger.balance(id, st.instr) <= 0 && !shortInstrs.has(st.instr))) continue;
     const f = econ(w).firms.find((x) => x.id === st.issuer);
     if (f?.name) heldNames.push(f.name);
   }
@@ -3963,6 +4099,7 @@ function screen(w: World): Record<string, unknown> {
     news,
     private: priv,
     nwChange: v.netWorth - closeWorth,
+    markChange: markChangeOf(w, v.netWorth - closeWorth),
     yesterday: yesterdayChange,
     sinceOpen: v.netWorth - openWorth,
     quotes: quotesOf(w),
@@ -4167,7 +4304,11 @@ function fillText(cmd: Record<string, unknown>, w?: World): string {
   if (k === 'launch') return 'launch a coin';
   if (k === 'optbuy' || k === 'write') return `${k === 'write' ? 'write' : 'buy'} ${cmd.right === 'P' ? 'put' : 'call'} ${cmd.qty} ${cmd.instr} m+${cmd.months}`;
   if (k === 'optclose') return `close ${cmd.id || cmd.instr}${cmd.qty ? ' ' + cmd.qty : ''}`;
-  if (k === 'cash') return `${cmd.op} ${(Number(cmd.cents) / 100).toFixed(2)}`;
+  if (k === 'cash') {
+    const amt = '$' + (Number(cmd.cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const what = cmd.product === 'line' ? 'on a credit line' : cmd.product === 'term' ? 'on a term loan' : 'on a margin loan';
+    return cmd.op === 'borrow' ? `You borrowed ${amt} ${what}` : cmd.op === 'repay' ? `You repaid ${amt} of your loans` : cmd.op === 'deposit' ? `You deposited ${amt}` : `You withdrew ${amt}`;
+  }
   return String(k ?? '');
 }
 
@@ -4586,6 +4727,7 @@ function stepDay(): string | undefined {
   closeWorth = before;
   nwChange = now - before;
   frame.nwChange = nwChange;
+  frame.markChange = 0;
   frame.yesterday = yesterdayChange;
   frame.sinceOpen = now - openWorth;
   frame.speed = speed;
@@ -4615,6 +4757,8 @@ function advanceMinute(): string | undefined {
     ticked = true;
   }
   minuteStep(w, w.day * MIN_PER_DAY + m, dayOpen);
+  // The desk watches every minute's price: a stop fires on the minute it is touched, and every fill is told as it happens.
+  try { deskMinute(w); } catch (err) { console.error('desk:', err instanceof Error ? err.message : err); }
   // An accepted invitation opens at its hour and holds the clock; an evening that ran out of time is summed up.
   let scene: ReturnType<typeof sceneClock> = null;
   try { scene = started ? sceneClock(w, seatId(w)) : null; } catch { scene = null; }
@@ -4636,6 +4780,7 @@ function advanceMinute(): string | undefined {
       const frame = tickFrame(w);
       const now = frame.netWorth as number;
       frame.nwChange = now - closeWorth;
+      frame.markChange = markChangeOf(w, now - closeWorth);
       frame.sinceOpen = now - openWorth;
       lastTick = frame;
       broadcast('day', frame);
@@ -5741,7 +5886,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname.startsWith('/explain/')) {
       const id = Number(pathname.slice('/explain/'.length));
       if (!Number.isSafeInteger(id) || id < 0) { send(res, 400, { error: 'bad event' }); return; }
-      send(res, 200, { id, lines: chain(w, id) });
+      send(res, 200, { id, lines: chain(w, id), effects: effectsOf(w, id) });
+      return;
+    }
+    if (req.method === 'GET' && pathname === '/newsflags') {
+      send(res, 200, { flags: newsFlags(w, url.searchParams.get('instr') || 'index') });
       return;
     }
     if (req.method === 'GET' && pathname.startsWith('/person/')) {

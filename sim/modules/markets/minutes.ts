@@ -302,7 +302,10 @@ export function minuteStep(w: World, abs: number, open: boolean): void {
       }
       // A share's quote is centred on the minute price, so a player's order walks the book from where the chart is.
       const opening = m === OPEN_MIN || s.S <= 0;
+      // A story or a rate decision prints in the candle it lands in, then the rest of the move follows.
+      const jump = news && s.S > 0 && Math.abs(T - s.S) > s.S * 0.004;
       if (opening) { s.S = T; s.N = 0; }
+      else if (jump) s.S += 0.62 * (T - s.S);
       else s.S += FOLLOW * (T - s.S);
       const z = kind === 'share' ? 0.55 * common + 0.835 * normal(s.seed ^ b.seed, abs, 3) : normal(s.seed ^ b.seed, abs, 3);
       s.N = Math.max(-0.05, Math.min(0.05, (1 - FORGET) * s.N + sigma * MINUTE_SIGMA * z));

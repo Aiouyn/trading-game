@@ -58,6 +58,8 @@ export function bellRows(view: SimView | null, life: unknown): BellRow[] {
   }
   for (const f of view?.fills ?? []) {
     if (seen.has(f.eventId)) continue;
+    // a share, coin, future or currency fill is told by its own notice, with its price: the command line would repeat it
+    if (f.kind === "order" || f.kind === "coin" || f.kind === "fut" || f.kind === "fx") continue;
     seen.add(f.eventId);
     rows.push({ key: `f:${f.eventId}`, at: f.day * DAY_MIN + DAY_MIN - 1, day: f.day, title: f.text, body: "", reason: "", eventId: f.eventId, actions: [] });
   }

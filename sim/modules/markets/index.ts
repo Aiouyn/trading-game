@@ -90,6 +90,19 @@ interface Stock {
   tgtSeq?: number;
   /** Day the closing mark was set by the last tick. */
   closedOn?: number;
+  /** The last layoff event of the issuer this name has priced, and the staff it had then. */
+  layoffSeen?: number;
+  staffSeen?: number;
+  /** News weights already applied today, so a second story does not price the same cut again. */
+  newsDay?: number;
+  newsW?: number;
+  /** Causes already priced, so a roundup a few days later does not gap the name a second time. */
+  priced?: number[];
+  /** What a rate move does to the bank's margin, on top of the discount rate. A hike lifts it. */
+  nim?: number;
+  /** A one-session print: the open (or the decision's candles) may reach this price, then the collar resumes. */
+  newsPx?: number;
+  newsUntil?: number;
 }
 
 interface Fund { id: string; style: Style; premium: number }
@@ -114,6 +127,8 @@ interface MktState {
   profRing?: number[];
   fadeDay: number;
   fadeIds: number[];
+  /** The central bank decision the market has priced. */
+  rateSeen?: number;
   price: (instr: string) => number;
 }
 
@@ -645,11 +660,13 @@ function fairValue(w: World, st: Stock, premium: number): number {
     const bookPx = Math.max(1, Math.round(per * (0.03 + premium) / r));
     // Book ignores a reported profit, so the bank's P/E sat below every firm and the
     // value rule held it for free. Once a profit is public, price that profit too.
+    let px = bookPx;
     if (st.profitEma > 0) {
       const earnPx = Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / r / sh));
-      return Math.max(bookPx, earnPx);
+      px = Math.max(bookPx, earnPx);
     }
-    return bookPx;
+    // A higher policy rate is a wider margin for the bank, not only a higher discount.
+    return Math.max(1, Math.round(px * (1 + (st.nim ?? 0))));
   }
   // A paper bid leaves the target inside the buyer. Earnings alone would walk that value back out.
   const hold = stakeValue(w, st.issuer);
@@ -714,6 +731,9 @@ function lookback(st: Stock): number {
  * which is the loss for anyone who bought the beat and held it.
  */
 function destination(w: World, st: Stock): number {
+  // News and a rate decision print their own price for the session. The collar then resumes, so a name
+  // that was already far from fair does not gap the whole distance, and the news is not a fixed step a day.
+  if (st.newsPx && (st.newsUntil ?? 0) >= w.day) return st.newsPx;
   // Lenders dumping collateral push the price below what the news justifies. The pressure decays
   // a few percent a day and the price walks back, which is the rebound a patient cash buyer collects.
   const squeeze = Math.min(FORCED_CAP, FORCED_IMPACT * (st.forced ?? 0));
@@ -733,13 +753,15 @@ function collar(w: World, st: Stock, to?: number): { hi: number; lo: number } {
   const gap = Math.abs(dest - prev);
   // A price stuck at a cent never clears a 2% band. A large fundamental gap moves
   // in cents, half of it a day, so it cannot sit there for months.
+  // How far the crowd lets it go today varies from day to day, so a long repricing is never a staircase of equal steps.
+  const j = 0.6 + 0.7 * hashUnit(st.instr + ':' + w.day);
   if (gap > prev * 0.4) {
-    const step = Math.max(1, Math.round(gap * 0.5));
+    const step = Math.max(1, Math.round(gap * 0.5 * j));
     return { hi: prev + step, lo: Math.max(1, prev - step) };
   }
   const wide = st.wide || gap > prev * 0.08;
   const step = wide
-    ? Math.max(1, Math.min(gap, Math.round(Math.max(prev, dest) * (st.wide ? 0.1 : 0.08))))
+    ? Math.max(1, Math.min(gap, Math.round(Math.max(prev, dest) * (st.wide ? 0.1 : 0.08) * j)))
     : Math.max(1, Math.round(prev * 0.06));
   return { hi: prev + step, lo: Math.max(1, prev - step) };
 }
@@ -846,14 +868,148 @@ export function cancelOrder(w: World, actor: string, orderId: number): boolean {
   return true;
 }
 
-/** A published scandal: buyers mark earnings down, and the next session's value orders sell into that. */
-export function discountForNews(w: World, issuer: string, cause: number): void {
+/**
+ * News moves a price the way a market does. The earnings the buyers count on move by the news's weight (a fraction:
+ * -0.3 marks them down by thirty percent), and the next print may reach the new value in one move: a gap at the open,
+ * not a fixed step a day. How much of it the open prices is the crowd's call, drawn as microstructure noise: an under-
+ * reaction leaves a mood above the new value that then reverts (follow-through), an over-reaction one below it that
+ * reverts back (a fade).
+ */
+function seenCause(st: Stock, cause: number): boolean {
+  return cause >= 0 && (st.priced?.includes(cause) ?? false);
+}
+function noteCause(st: Stock, cause: number, also?: number): void {
+  const list = st.priced ?? [];
+  if (cause >= 0 && !list.includes(cause)) list.push(cause);
+  if (also !== undefined && also >= 0 && also !== cause && !list.includes(also)) list.push(also);
+  if (list.length > 24) list.splice(0, list.length - 24);
+  st.priced = list;
+}
+
+export function discountForNews(w: World, issuer: string, cause: number, weight = -0.3, also?: number): void {
   const st = book(w).stocks.find((x) => x.issuer === issuer);
-  if (!st) return;
-  st.profitEma *= 0.7;
-  st.divEma = Math.max(0, st.divEma * 0.7);
+  if (!st || !Number.isFinite(weight) || weight === 0) return;
+  // The same story, priced once, does not gap the name again when the weekly roundup repeats it.
+  // A later story that cites it (a confirmation) is a new cause and still prices.
+  if (seenCause(st, cause)) {
+    noteCause(st, cause, also);
+    return;
+  }
+  let wgt = weight;
+  const same = st.newsDay === w.day;
+  const applied = same ? (st.newsW ?? 0) : 0;
+  if (same && applied !== 0 && wgt * applied > 0) {
+    if (Math.abs(wgt) <= Math.abs(applied) + 0.005) { noteCause(st, cause, also); return; }
+    wgt = wgt - applied;
+  }
+  if (!Number.isFinite(wgt) || wgt === 0) { noteCause(st, cause, also); return; }
+  const k = Math.max(0.2, Math.min(2, 1 + wgt));
+  st.profitEma *= k;
+  st.divEma = Math.max(0, st.divEma * k);
+  newsShock(w, st, wgt);
+  st.newsDay = w.day;
+  st.newsW = applied + wgt;
+  noteCause(st, cause, also);
+  const pct = Math.round(Math.abs(wgt) * 100);
+  const causes = also !== undefined && also >= 0 && also !== cause ? [cause, also] : [cause];
+  w.events.emit('mkt.news', `${st.instr} earnings marked ${wgt < 0 ? 'down' : 'up'} ${pct}% after the news`, causes, issuer);
+}
+
+/** The open prices part of the news (0.55 to 1.2 of it); the mood carries the rest and reverts by itself. */
+function newsShock(w: World, st: Stock, weight: number): void {
   st.newsAt = w.day;
-  w.events.emit('mkt.news', `${st.instr} earnings marked down after the news`, [cause], issuer);
+  const g = 0.55 + 0.65 * w.rng('mkt:news').next();
+  const px = Math.max(1, st.last || st.prev || 1);
+  const printed = weight * g;
+  st.newsPx = Math.max(1, Math.round(px * (1 + printed)));
+  // A story filed after the close gaps the next open. One filed while the session is ticking prints in the candles left today.
+  const intraday = w.tickDone > 0 && w.tickDone < w.ticksPerDay;
+  st.newsUntil = intraday ? w.day : w.day + 1;
+  st.printUntil = Math.max(st.printUntil ?? 0, st.newsUntil);
+  const residual = Math.max(-0.4, Math.min(0.4, weight * (1 - g)));
+  const now = Math.max(-0.4, Math.min(0.4, (st.sentNext ?? 0) * 0.5 + residual));
+  st.sent = now;
+  st.sentNext = now;
+  st.sentNow = now;
+}
+
+/** How a share moves with the policy rate: builders and durable goods most, banks the other way. */
+function rateSensitivity(s: EconState, st: Stock): number {
+  if (st.issuer === BANK) return -0.6;
+  const f = firmOf(s, st.issuer);
+  if (!f) return 1;
+  const good = GOODS[f.good]?.good ?? '';
+  if (f.sector === 'CONSTRUCTION') return 2.4;
+  if (good === 'FURNITURE' || good === 'VEHICLES' || good === 'APPLIANCES' || good === 'HOUSING') return 2.1;
+  if (f.sector === 'RETAIL') return 1.4;
+  if (f.sector === 'TECHNOLOGY') return 1.6;
+  if (f.sector === 'ENERGY' && good === 'ELECTRICITY') return 1.3;
+  if (f.sector === 'FINANCE') return 0.8;
+  return 1;
+}
+
+/** The bank has announced. Shares move on the decision, most on the part of it the market did not expect. */
+function rateShock(w: World, last: { from: number; to: number; expect: number; ev?: number }): void {
+  const s = econ(w);
+  const delta = last.to - last.from;
+  const surprise = last.to - last.expect;
+  if (Math.abs(delta) < 1e-6 && Math.abs(surprise) < 1e-6) return;
+  const rng = w.rng('mkt:rate');
+  for (const st of book(w).stocks) {
+    if (st.issuer === BANK) st.nim = Math.max(-0.35, Math.min(0.35, (st.nim ?? 0) + delta * 12));
+    const sens = rateSensitivity(s, st);
+    const noise = 0.78 + 0.44 * rng.next();
+    // A 50bp move is about two percent on an ordinary name and about twice that on builders and furniture.
+    // The part the market did not expect moves prices about twice as much again. The bank's own shares rise on a hike.
+    let pct = st.issuer === BANK
+      ? (delta * 5 + surprise * 8) * noise
+      : -(delta * 4 + surprise * 8) * sens * noise;
+    pct = Math.max(-0.12, Math.min(0.12, pct));
+    if (!Number.isFinite(pct) || Math.abs(pct) < 0.0015) continue;
+    const px = Math.max(1, st.last || st.prev || 1);
+    const g = 0.72 + 0.4 * rng.next();
+    st.newsPx = Math.max(1, Math.round(px * (1 + pct * g)));
+    st.newsUntil = w.day;
+    st.printUntil = Math.max(st.printUntil ?? 0, w.day);
+    st.newsAt = w.day;
+    const residual = Math.max(-0.25, Math.min(0.25, pct * (1 - g)));
+    const add = (v: number | undefined): number => Math.max(-0.4, Math.min(0.4, (v ?? 0) + residual));
+    st.sent = add(st.sent);
+    st.sentNext = add(st.sentNext);
+    st.sentNow = add(st.sentNow);
+  }
+  if (last.ev !== undefined) {
+    const bp = Math.round((last.to - last.from) * 10000);
+    w.events.emit('mkt.move', `shares reprice on the policy rate, ${bp >= 0 ? '+' : ''}${bp}bp to ${(last.to * 100).toFixed(2)}%`, [last.ev]);
+  }
+}
+
+/** A firm that cuts its staff on falling sales is news for its shares: the cut is weighed by how much of the payroll went. */
+function layoffNews(w: World): void {
+  const s = econ(w);
+  for (const st of book(w).stocks) {
+    const f = firmOf(s, st.issuer);
+    if (!f) continue;
+    const ev = (f as { layoffEv?: number }).layoffEv;
+    const staff = f.workers;
+    if (ev !== undefined && ev !== st.layoffSeen) {
+      const e = w.events.get(ev);
+      if (e && w.day - e.day <= 2) {
+        const base = st.staffSeen;
+        const closed = f.closed || staff <= 0 || /lays off its staff/i.test(e.msg);
+        let weight: number;
+        if (base !== undefined && base > 0) {
+          const cut = Math.max(0, (base - staff) / base);
+          weight = closed ? -Math.min(0.4, 0.16 + 0.55 * cut) : -Math.min(0.22, 0.04 + 0.65 * cut);
+        } else {
+          // No earlier headcount: price the confirmed cut, not years of drift.
+          weight = closed ? -0.28 : -0.08;
+        }
+        if (weight < -0.02) discountForNews(w, st.issuer, ev, weight);
+      }
+    }
+    if (ev !== st.layoffSeen || st.staffSeen === undefined || w.day % 30 === 0) { st.layoffSeen = ev ?? -1; st.staffSeen = staff; }
+  }
 }
 
 /** Lend shares from the market maker so a margin account can sell short. The caller owes them back. */
@@ -1483,8 +1639,10 @@ export const markets: Module = {
 
   tick(w, t) {
     if (t === 0) { updateEmas(w); markWide(w); }
-    rampMood(w, t);
     const m = book(w);
+    const cbLast = econ(w).cbLast;
+    if (cbLast && cbLast.day === w.day && m.rateSeen !== cbLast.ev) { m.rateSeen = cbLast.ev; rateShock(w, cbLast); }
+    rampMood(w, t);
     if (byActor.size === 0) for (let i = 0; i < m.orders.length; i++) if (m.orders[i].open) indexOrder(m.orders[i]);
     compactOrders(m);
     // On a repricing morning the value limits rest first, so a quote that crosses them prints at that limit.
@@ -1512,6 +1670,7 @@ export const markets: Module = {
 
   dayClose(w) {
     const m = book(w);
+    layoffNews(w);
     for (let i = 0; i < m.fadeIds.length; i++) {
       const o = m.orders.find((x) => x.id === m.fadeIds[i]);
       if (o && o.open) o.open = false;
