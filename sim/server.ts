@@ -43,7 +43,7 @@ import { findOrigin, findPast, lifeOf, ORIGINS, PASTS } from './modules/player/a
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
-import { launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
+import { coinClock, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeMark, memeTape } from './modules/crypto/index.ts';
 import { fxMark, fxPairs } from './modules/abroad/index.ts';
 import { futureUnit } from './modules/commodities/index.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
@@ -236,11 +236,23 @@ function commandOf(body: unknown): Command | string {
         if (buy === undefined) return 'the starting buy must be a whole number of cents';
         cmd.buy = buy;
       }
+      if (b.desc !== undefined) {
+        if (typeof b.desc !== 'string' || b.desc.trim().length > 160) return 'a coin description is up to 160 characters';
+        if (b.desc.trim()) cmd.desc = b.desc.trim();
+      }
       if (b.seed !== undefined) {
         const seed = whole(b.seed, 25_000);
         if (seed === undefined || seed > 150_000) return 'the pool seed is a whole number of cents from 25000 to 150000';
         cmd.seed = seed;
       }
+      return cmd;
+    }
+    case 'post': {
+      // A post on a coin's page, or an answer to one: the crowd replies in character a few game minutes later.
+      if (typeof b.coin !== 'string' || !b.coin) return 'a post needs a coin';
+      if (typeof b.text !== 'string' || b.text.trim().length < 2 || b.text.trim().length > 220) return 'a post is 2 to 220 characters';
+      const cmd: Command = { kind: 'post', coin: b.coin, text: b.text.trim() };
+      if (typeof b.parent === 'string' && b.parent) cmd.parent = b.parent;
       return cmd;
     }
     case 'cash': {
@@ -1419,7 +1431,7 @@ function recentBids(w: World): { eventId: number; day: number; kind: string; tex
   return out.reverse();
 }
 
-function markOf(w: World): (instr: string) => number {
+function markOf(w: World, actor?: string): (instr: string) => number {
   const map = new Map(stocksOf(w).map((s) => [s.instr, s.last]));
   const crypto = w.state.crypto as { majors?: { id: string; last: number }[]; memes?: { id: string; pool: string; rugged: boolean }[] } | undefined;
   return (instr: string): number => {
@@ -1428,10 +1440,8 @@ function markOf(w: World): (instr: string) => number {
     const major = crypto?.majors?.find((m) => m.id === instr);
     if (major) return major.last;
     const meme = crypto?.memes?.find((m) => m.id === instr);
-    if (meme && !meme.rugged) {
-      const tok = w.ledger.balance(meme.pool, meme.id);
-      if (tok > 0) return w.ledger.balance(meme.pool, DEP) / tok;
-    }
+    // A memecoin is worth what selling the holder's coins into its pool would bring: one value on the token page, the Portfolio and net worth.
+    if (meme) return memeMark(w, instr, actor ? Math.floor(w.ledger.balance(actor, instr)) : 0);
     return instr.startsWith('fxc:') ? fxMark(w, instr) : 0;
   };
 }
@@ -1439,10 +1449,9 @@ function markOf(w: World): (instr: string) => number {
 function lightDynasty(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const pst = soleSeat(w);
-  const price = markOf(w);
   const people = houseIds(w).map(({ index, role }) => ({
     index, name: P.name(index), role, alive: P.alive(index), age: P.age(w, index),
-    worth: P.alive(index) ? Math.round(w.ledger.netWorth(P.id(index), price)) : 0,
+    worth: P.alive(index) ? Math.round(w.ledger.netWorth(P.id(index), markOf(w, P.id(index)))) : 0,
   }));
   return {
     generation: pst?.generation ?? 1,
@@ -1553,7 +1562,7 @@ function progressOf(w: World): { progress: number; meter: string } {
   if (!g?.kind || g.kind === 'none') return { progress: 0, meter: 'no goal' };
   const i = playerIndex(w);
   const id = i >= 0 ? econ(w).P.id(i) : '';
-  const now = i >= 0 ? Math.round(w.ledger.netWorth(id, markOf(w))) : 0;
+  const now = i >= 0 ? Math.round(w.ledger.netWorth(id, markOf(w, id))) : 0;
   if (g.kind === 'worth') {
     const cents = g.cents ?? 0;
     return { progress: cents > 0 ? now / cents : 0, meter: `${moneyLabel(now)} of ${moneyLabel(cents)}` };
@@ -1688,7 +1697,7 @@ function playerDid(w: World): string {
     if (!row || row.status !== 'accepted' || !row.cmd || typeof row.cmd.kind !== 'string') continue;
     const kind = row.cmd.kind;
     if (kind === 'wait' || kind === 'sheet' || kind === 'help' || kind === 'hints' || kind === 'story') continue;
-    const t = fillText(row.cmd);
+    const t = fillText(row.cmd, w);
     if (!t || t === kind) continue;
     bits.push(t);
   }
@@ -2145,7 +2154,7 @@ function writeSave(id: string, label: string): SaveMeta {
     player: who >= 0 ? P.name(who) : '',
     day: w.day,
     date: dateLabel(w.day),
-    netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w))) : 0,
+    netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w, P.id(who)))) : 0,
     savedAt: Date.now(),
   };
   fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
@@ -2264,7 +2273,7 @@ function beginGeneration(job: GenJob): string | null {
             const meta: SaveMeta = {
               id: 'autosave', label: 'Autosave', scenario: sc?.name ?? '', scenarioId: sc?.id ?? '',
               player: who >= 0 ? P.name(who) : '', day: w.day, date: dateLabel(w.day),
-              netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w))) : 0,
+              netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w, P.id(who)))) : 0,
               savedAt: Date.now(),
             };
             fs.writeFileSync(path.join(SAVES, 'autosave', 'meta.json'), JSON.stringify(meta));
@@ -2324,7 +2333,7 @@ function tickFrame(w: World): Record<string, unknown> {
   const id = i >= 0 ? P.id(i) : '';
   const abs = w.day;
   const doy = abs % 360;
-  const price = markOf(w);
+  const price = markOf(w, id);
   const worth = i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0;
   const book = playerBook(w);
   const alive = i >= 0 && P.alive(i);
@@ -3016,7 +3025,7 @@ function civicPanel(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const s = econ(w);
   const seat = soleSeat(w);
-  const worth = i >= 0 ? Math.round(w.ledger.netWorth(P.id(i), markOf(w))) : 0;
+  const worth = i >= 0 ? Math.round(w.ledger.netWorth(P.id(i), markOf(w, P.id(i)))) : 0;
   const board = seat ? lifeBoard(w, i, seat, worth) : null;
   const donate = board?.choices.find((c) => c.id === 'donate');
   const person = (idx: number, role: string) => (
@@ -3100,7 +3109,7 @@ function legalPanel(w: World): Record<string, unknown> {
     return [{ index: idx, name: P.name(idx), role: idx === reg ? 'Regulator' : 'Investigator', files }];
   });
   const seat = soleSeat(w);
-  const worth = i >= 0 ? Math.round(w.ledger.netWorth(i >= 0 ? P.id(i) : '', markOf(w))) : 0;
+  const worth = i >= 0 ? Math.round(w.ledger.netWorth(i >= 0 ? P.id(i) : '', markOf(w, i >= 0 ? P.id(i) : undefined))) : 0;
   const board = seat ? lifeBoard(w, i, seat, worth) : null;
   const lawyer = board?.choices.find((c) => c.id === 'lawyer');
   const att = i >= 0 ? attentionOf(w, i) : null;
@@ -4090,12 +4099,17 @@ function fxOf(w: World): Record<string, unknown> {
   };
 }
 
-function fillText(cmd: Record<string, unknown>): string {
+function fillText(cmd: Record<string, unknown>, w?: World): string {
   const k = cmd.kind;
   if (k === 'order') return `${cmd.side} ${cmd.qty} ${cmd.instr}${cmd.limit ? ` @ ${(Number(cmd.limit) / 100).toFixed(2)}` : ''}`;
   if (k === 'bond') return `bond ${cmd.side} ${cmd.bonds} ${cmd.tenor}`;
   if (k === 'fut') return `fut ${cmd.side} ${cmd.side === 'flat' ? '' : cmd.qty + ' '}${cmd.good} m+${cmd.months}`;
-  if (k === 'coin') return `coin ${cmd.side} ${cmd.qty} ${cmd.coin}`;
+  if (k === 'coin') {
+    // A memecoin is named, never shown by its id; a buy of one is a dollar amount, a sale a number of tokens.
+    const meme = w ? (w.state.crypto as { memes?: { id: string; name: string }[] } | undefined)?.memes?.find((m) => m.id === cmd.coin) : undefined;
+    if (meme) return cmd.side === 'buy' ? `coin buy ${meme.name} for ${moneyLabel(Number(cmd.qty))}` : `coin sell ${Number(cmd.qty).toLocaleString('en-US')} ${meme.name}`;
+    return `coin ${cmd.side} ${cmd.qty} ${cmd.coin}`;
+  }
   if (k === 'fx') return `currency ${cmd.side} ${cmd.units} ${cmd.code}`;
   if (k === 'launch') return 'launch a coin';
   if (k === 'optbuy' || k === 'write') return `${k === 'write' ? 'write' : 'buy'} ${cmd.right === 'P' ? 'put' : 'call'} ${cmd.qty} ${cmd.instr} m+${cmd.months}`;
@@ -4113,7 +4127,7 @@ function fillsOf(w: World): { day: number; kind: string; text: string; eventId: 
     const row = log[i];
     const kind = row?.cmd && typeof row.cmd.kind === 'string' ? row.cmd.kind : '';
     if (!row || row.status !== 'accepted' || !keep.has(kind)) continue;
-    out.push({ day: row.day, kind, text: fillText(row.cmd as Record<string, unknown>), eventId: root });
+    out.push({ day: row.day, kind, text: fillText(row.cmd as Record<string, unknown>, w), eventId: root });
   }
   return out.reverse();
 }
@@ -4783,6 +4797,15 @@ function patchCached(): string {
     const me = playerIndex(w);
     base.coinBoard = coinRows(w, me, Array.isArray(base.coins) ? base.coins as { id: string }[] : []);
     base.coinTape = memeTape(w, 8, me);
+    // A held memecoin's figure is what selling it into its pool would bring now, the one value the Launchpad and net worth use.
+    if (Array.isArray(base.coins) && me >= 0) {
+      const mine = econ(w).P.id(me);
+      for (const c of base.coins as { id: string; qty: number; px: number }[]) {
+        if (!c || typeof c.id !== 'string' || !c.id.startsWith('coin:me:')) continue;
+        c.qty = Math.floor(w.ledger.balance(mine, c.id));
+        c.px = memeMark(w, c.id, c.qty);
+      }
+    }
     coinAt = Date.now();
   }
   const json = JSON.stringify(base);
@@ -5491,7 +5514,16 @@ const server = http.createServer(async (req, res) => {
         // 1d 1w 1M from the daily history (t is the day). The old i, d, w, m still answer as before.
         const real = (ALL_TFS as readonly string[]).includes(q) ? q as AnyTf : q === 'mo' ? '1M' : q === 'D' ? '1d' : q === 'W' ? '1w' : q === '1H' ? '1h' : q === '4H' ? '4h' : null;
         if (real) {
-          const out = historyFor(w, instr, real as AnyTf, limit, w.day);
+          let out = historyFor(w, instr, real as AnyTf, limit, w.day);
+          if (!out) {
+            // A coin launched a moment ago has no minute bars until the next minute: its chart opens on its price now, never on an error.
+            const seed = instr.startsWith('coin:me:') ? coinSeedBar(w, instr) : null;
+            if (seed) {
+              const day = (ALL_TFS as readonly string[]).indexOf(real) >= 0 && /^(1d|1w|1M)$/.test(real);
+              const t = day ? Math.floor(seed.t / MIN_PER_DAY) : seed.t;
+              out = { id: seed.id, name: seed.name, kind: 'coin', unit: 'cents', tf: real as AnyTf, tt: day ? 'day' : 'min', since: Math.floor(seed.t / MIN_PER_DAY), session: false, bars: [{ t, k: 0, o: seed.px, h: seed.px, l: seed.px, c: seed.px, v: 0 }] };
+            }
+          }
           if (!out) { send(res, 404, { error: 'no chart for ' + instr }); return; }
           send(res, 200, { ...out, day: w.day, now: w.day * MIN_PER_DAY + clockMin, live: livePrices(w).get(instr) ?? null, ticks: w.ticksPerDay });
           return;
@@ -5622,6 +5654,7 @@ const server = http.createServer(async (req, res) => {
           const bad = fastForward(cmd.days * MIN_PER_DAY);
           result = bad ? { status: 'rejected', why: bad } : { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
         } else {
+          coinClock(w, w.day * MIN_PER_DAY + clockMin);
           result = playerId ? act(w, playerId, cmd) : act(w, cmd);
           // An evening is played minute by minute: sitting down holds the clock, and each talk, round or listen lets its minutes run.
           if (result.status === 'accepted' && (result.pause || (result.minutes ?? 0) > 0)) {

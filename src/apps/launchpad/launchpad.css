@@ -229,3 +229,45 @@ p.lpad-sub { white-space: normal; overflow-wrap: anywhere; } /* paragraphs (fee,
 .lpad-tape li > span:first-child { display: inline-flex; align-items: center; gap: var(--sp-4); }
 .lpad-fact [data-flash], .lpad-king-main [data-flash] { align-self: flex-start; }
 .lpad-trades td.lpad-time { font-family: var(--font-num); color: var(--fg-muted); }
+
+/* Board first: the title and the figures share a row, and the king, the rugs and the trades are one line each, so the coin cards
+   start on the first screen. */
+.lpad-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-4) var(--sp-16); }
+.lpad-top .lpad-stats { flex: 1; justify-content: flex-end; gap: var(--sp-4) var(--sp-24); padding: var(--sp-4) var(--sp-12); border: 0; background: none; }
+.lpad-top .lpad-stats > div { flex-direction: row; align-items: baseline; gap: var(--sp-8); }
+.lpad-top .lpad-kicker { display: inline; }
+.lpad-boardwrap { gap: var(--sp-8); }
+.lpad-king { flex-wrap: nowrap; gap: var(--sp-8); padding: var(--sp-4) var(--sp-12); min-height: 0; overflow: hidden; white-space: nowrap; }
+.lpad-king b { overflow: hidden; text-overflow: ellipsis; }
+.lpad-king .lpad-sub, .lpad .lpad-king .lpad-sub { white-space: nowrap; }
+.lpad-king-age { margin-left: auto; }
+.lpad-rugs .lpad-rug { flex-wrap: nowrap; padding: var(--sp-4) var(--sp-12); overflow: hidden; white-space: nowrap; }
+.lpad-rug-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lpad-bar { flex-direction: row; align-items: center; gap: var(--sp-12); padding: var(--sp-4) var(--sp-12); overflow: hidden; }
+.lpad-bar .lpad-kicker { flex: none; }
+.lpad-bar ul { flex-direction: row; flex-wrap: nowrap; gap: var(--sp-16); overflow: hidden; min-width: 0; }
+.lpad-bar li { flex: none; }
+.lpad-bar-row { flex-wrap: nowrap; white-space: nowrap; }
+.lpad-tabbar { align-items: center; overflow: visible; flex-wrap: wrap; }
+.lpad-tabbar .lpad-filter { margin-left: auto; padding: 2px 0; flex-wrap: nowrap; }
+.lpad-tabbar .lpad-search { width: 150px; padding: 4px var(--sp-8); }
+.lpad-tabbar select { padding: 4px var(--sp-8); }
+.lpad-card-open { gap: var(--sp-8); padding: var(--sp-8) var(--sp-12); }
+.lpad-card-head { gap: var(--sp-8); }
+.lpad-how { font-size: var(--fs-12_5); }
+.lpad-how p { margin: var(--sp-4) 0 0; }
+.lpad textarea { font: inherit; color: var(--fg); background: var(--bg0, var(--win)); border: 1px solid var(--line); border-radius: var(--r-input); padding: var(--sp-8); min-width: 0; resize: vertical; }
+.lpad textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+/* The voices: the creator's note, a box to post, and threads with the answers nested under what they answer. */
+.lpad-desc { font-size: var(--fs-12_5); color: var(--fg); overflow-wrap: anywhere; }
+.lpad-from { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-8) var(--sp-12); border-left: 3px solid var(--acc); background: var(--win2); border-radius: var(--r-input); font-size: var(--fs-12_5); }
+.lpad-compose { display: flex; flex-direction: column; gap: var(--sp-4); }
+.lpad-replying { display: flex; gap: var(--sp-8); align-items: baseline; }
+.lpad-link { padding: 0; border: 0; background: none; color: var(--acc); font: inherit; font-size: var(--fs-12_5); cursor: pointer; align-self: flex-start; }
+.lpad-link:hover { text-decoration: underline; }
+.lpad-thread { padding: 0 !important; border-bottom: 1px solid var(--line); }
+.lpad-voices-in li { border-bottom: 0; }
+.lpad-voices-in li[data-child="true"] { margin-left: var(--sp-16); padding-left: var(--sp-12); border-left: 2px solid var(--line); }
+.lpad-quote { font-style: italic; overflow-wrap: anywhere; }
+.lpad-quote-box { display: flex; flex-direction: column; gap: 2px; min-height: 3.6em; }

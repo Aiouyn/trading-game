@@ -292,8 +292,9 @@ function applyLive(v: SimView, live: LiveClock | undefined): SimView {
     return p && p > 0 && p !== q.px ? { ...q, px: p, chg: q.prev > 0 ? p / q.prev - 1 : q.chg } : q;
   });
   const coins = v.coins.map((c) => {
+    // A held memecoin keeps the sim's own figure, what selling it into its pool would bring, not the pool's spot price.
     const p = px[c.id];
-    return p && p > 0 ? { ...c, px: p } : c;
+    return p && p > 0 && !c.id.startsWith("coin:me:") ? { ...c, px: p } : c;
   });
   const board = v.coinBoard?.map((c) => {
     const p = px[c.id];

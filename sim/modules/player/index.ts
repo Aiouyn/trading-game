@@ -9,7 +9,7 @@ import { tradeFx } from '../abroad/index.ts';
 import { blockOf, controls, sharesOf, appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { KIND, ROLES, VAL, borrowAll, buyIn, cutJobs, dealUnion, owner, payOut, promote, protectJobs, refinance, cityMemory, regard, sellAssets } from '../corporate/owner.ts';
 import { consensusAll, revealsOf, signalsFor } from '../signals/index.ts';
-import { coinPrice, launchCoin, orderCoin } from '../crypto/index.ts';
+import { coinPrice, launchCoin, memeMark, orderCoin, postVoice } from '../crypto/index.ts';
 import { CEO_POSITION, GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
@@ -128,7 +128,8 @@ export type Command =
   | { kind: 'fut'; side: 'long' | 'short' | 'flat'; good: string; qty: number; months: number; type?: 'market' | 'stop' | 'limit'; stop?: number }
   | { kind: 'coin'; side: 'buy' | 'sell'; coin: string; qty: number; limit?: number; type?: 'market' | 'limit' | 'stop' | 'stop-limit'; stop?: number }
   | { kind: 'fx'; side: 'buy' | 'sell'; code: string; units: number }
-  | { kind: 'launch'; name?: string; ticker?: string; buy?: number; seed?: number }
+  | { kind: 'launch'; name?: string; ticker?: string; buy?: number; seed?: number; desc?: string }
+  | { kind: 'post'; coin: string; text: string; parent?: string }
   | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number; product?: 'margin' | 'line' | 'term' }
   | { kind: 'talk'; slot: number }
   | { kind: 'ask'; slot: number; firm: string }
@@ -901,7 +902,7 @@ export function ensurePlayer(w: World, playerId = DEFAULT_PLAYER): number {
   return made;
 }
 
-function markPrice(w: World): (instr: string) => number {
+function markPrice(w: World, actor?: string): (instr: string) => number {
   const stocks = (w.state.markets as { stocks?: { instr: string; last: number }[]; price?: (instr: string) => number } | undefined);
   const crypto = w.state.crypto as { majors?: { id: string; last: number }[]; memes?: { id: string; pool: string; rugged: boolean }[] } | undefined;
   return (instr: string): number => {
@@ -914,10 +915,8 @@ function markPrice(w: World): (instr: string) => number {
     const major = crypto?.majors?.find((m) => m.id === instr);
     if (major) return major.last;
     const meme = crypto?.memes?.find((m) => m.id === instr);
-    if (meme && !meme.rugged) {
-      const tok = w.ledger.balance(meme.pool, meme.id);
-      if (tok > 0) return w.ledger.balance(meme.pool, DEP) / tok;
-    }
+    // A memecoin is worth what selling the holder's coins into its pool would bring, the same figure the Launchpad shows.
+    if (meme) return memeMark(w, instr, actor ? Math.floor(w.ledger.balance(actor, instr)) : 0);
     return 0;
   };
 }
@@ -964,7 +963,7 @@ function shortAdjust(w: World, i: number): number {
 
 function worth(w: World, i: number): number {
   const id = econ(w).P.id(i);
-  const tape = markPrice(w);
+  const tape = markPrice(w, id);
   return shortAdjust(w, i) + w.ledger.netWorth(id, (instr) => {
     const qty = Math.floor(w.ledger.balance(id, instr));
     const marked = markHolding(w, id, instr, qty);
@@ -1277,9 +1276,8 @@ function household(w: World, st: PlayerSeat): number[] {
 
 function houseWorth(w: World, ids: number[]): number {
   const P = econ(w).P;
-  const price = markPrice(w);
   let n = 0;
-  for (const i of ids) if (P.alive(i)) n += w.ledger.netWorth(P.id(i), price);
+  for (const i of ids) if (P.alive(i)) n += w.ledger.netWorth(P.id(i), markPrice(w, P.id(i)));
   return Math.round(n);
 }
 
@@ -1343,7 +1341,6 @@ function willText(w: World, st: PlayerSeat): string {
 function dynastyOf(w: World, st: PlayerSeat): PlayerView['dynasty'] {
   const P = econ(w).P;
   const ids = household(w, st);
-  const price = markPrice(w);
   const me = st.who;
   const people = ids.map((i) => {
     let role = 'kin';
@@ -1353,7 +1350,7 @@ function dynastyOf(w: World, st: PlayerSeat): PlayerView['dynasty'] {
     else if (me >= 0 && P.parent[me] === i) role = 'parent';
     return {
       index: i, name: P.name(i), role, alive: P.alive(i), age: P.age(w, i),
-      worth: P.alive(i) ? Math.round(w.ledger.netWorth(P.id(i), price)) : 0,
+      worth: P.alive(i) ? Math.round(w.ledger.netWorth(P.id(i), markPrice(w, P.id(i)))) : 0,
       eventId: P.lastEv[i] >= 0 ? P.lastEv[i] : (st.arrived >= 0 ? st.arrived : w.genesis),
     };
   });
@@ -1785,9 +1782,14 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', fill: r.units, cents: r.cents, avg: r.px, eventId: r.eventId, text: `${verb} ${r.units} ${r.code} at ${(r.px ?? 0).toFixed(4)} for ${dollars(r.cents ?? 0)}. You hold ${(r.held ?? 0).toFixed(2)} ${r.code}` };
     }
     case 'launch': {
-      const r = launchCoin(w, i, { name: cmd.name, ticker: cmd.ticker, buy: cmd.buy, seed: cmd.seed });
+      const r = launchCoin(w, i, { name: cmd.name, ticker: cmd.ticker, buy: cmd.buy, seed: cmd.seed, desc: cmd.desc });
       if (r.why || !r.id) return rejected(r.why ?? 'the launch did not clear');
-      return { status: 'accepted', eventId: w.events.last('crypto.launch'), text: `launched ${r.name} ($${r.ticker}, ${r.id})` };
+      return { status: 'accepted', eventId: w.events.last('crypto.launch'), text: `launched ${r.name} ($${r.ticker})` };
+    }
+    case 'post': {
+      const r = postVoice(w, i, cmd.coin, cmd.text, cmd.parent);
+      if (!r.ok) return rejected(r.why ?? 'the post did not go up');
+      return { status: 'accepted', text: 'posted' };
     }
     case 'cash': {
       const cause = st.moneyEv >= 0 ? st.moneyEv : (st.arrived >= 0 ? st.arrived : econ(w).macroEv);
@@ -2363,7 +2365,7 @@ export function view(w: World, playerId?: string): PlayerView {
   const s = econ(w), P = s.P;
   const i = playerIndex(w, playerId);
   const id = i >= 0 ? P.id(i) : '';
-  const price = markPrice(w);
+  const price = markPrice(w, id);
   const abs = w.day;
   const doy = abs % DAYS_PER_YEAR;
   const employer = i >= 0 && P.employer[i] >= 0 ? s.firms[P.employer[i]] : undefined;
@@ -2414,9 +2416,8 @@ export function view(w: World, playerId?: string): PlayerView {
   if (i >= 0 && crypto?.memes) for (const m of crypto.memes) {
     const qty = Math.floor(w.ledger.balance(id, m.id));
     if (qty > 0) {
-      const tok = w.ledger.balance(m.pool, m.id);
-      const px = !m.rugged && tok > 0 ? w.ledger.balance(m.pool, DEP) / tok : 0;
-      coins.push({ id: m.id, name: m.name, qty, px, eventId: m.launchEv });
+      // What selling all of it into the pool brings, per token: the figure the Launchpad and net worth use.
+      coins.push({ id: m.id, name: m.name, qty, px: memeMark(w, m.id, qty), eventId: m.launchEv });
     }
   }
   const orders: PlayerView['orders'] = [];

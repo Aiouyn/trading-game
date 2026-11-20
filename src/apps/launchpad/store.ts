@@ -63,3 +63,11 @@ export function useLaunchpad(coin: string | null): LpRead {
   const refresh = useCallback(() => { kick.current(); }, []);
   return { data, stale: fails >= 4, refresh };
 }
+
+/** One read of the pools right now, outside the poll: used to check a quote just before an order goes in, and to find a coin that was just launched. */
+export async function readCoinsOnce(coin?: string): Promise<LpData | null> {
+  try {
+    const res = await fetch(`/api/sim/coins${coin ? `?coin=${encodeURIComponent(coin)}` : ""}`, { cache: "no-store" });
+    return res.ok ? readLp(await res.json()) : null;
+  } catch { return null; }
+}

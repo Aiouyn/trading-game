@@ -50,7 +50,8 @@ export function useFlash(v: number): "up" | "down" | undefined {
 }
 
 /** The hour's change as a coloured figure. */
-export function Change({ ratio, testid, bare }: { ratio: number; testid?: string; bare?: boolean }) {
+export function Change({ ratio, testid, bare }: { ratio: number | null; testid?: string; bare?: boolean }) {
+  if (ratio === null) return <span className="num lpad-chg" data-dir="flat" data-testid={testid} title={LPS.newHint}>{LPS.newCoin}</span>;
   const dir = ratio > 1.0005 ? "up" : ratio < 0.9995 ? "down" : "flat";
   return <span className="num lpad-chg" data-dir={dir} data-testid={testid} title={LPS.hourTitle}>{bare ? pctText(ratio) : `${pctText(ratio)} ${LPS.hourShort}`}</span>;
 }
@@ -68,52 +69,49 @@ export function Status({ c, held }: { c: Coin; held: number }) {
   );
 }
 
-/** The King of the Hill: the live coin with the largest market cap, as a banner over the board. */
+/** The King of the Hill: the live coin with the largest market cap, as one line over the board. */
 export function KingBanner({ king, now, onOpen }: { king: Coin | null; now: number; onOpen: (id: string) => void }) {
   const dir = useFlash(king?.cap ?? 0);
   if (!king) return null;
   return (
     <button type="button" className="lpad-king" data-testid="lp-king" data-ticker={king.ticker} onClick={() => onOpen(king.id)}>
-      <TokenIcon ticker={king.ticker} size={44} />
-      <span className="lpad-king-main">
-        <span className="lpad-kicker">{LPS.king}</span>
-        <span className="lpad-name-row"><b data-testid="lp-king-name">{king.name}</b><span className="lpad-tick">{king.ticker}</span></span>
-        <span className="lpad-sub num" data-flash={dir}>{LPS.kingLine(usdWhole(king.cap))}</span>
-      </span>
-      <span className="lpad-king-side">
-        <Change ratio={king.h1} />
-        <span className="lpad-sub">{LPS.launchedAgo(agoText(king.bornAbs, now))}</span>
-      </span>
+      <TokenIcon ticker={king.ticker} size={26} />
+      <span className="lpad-kicker">{LPS.king}</span>
+      <b data-testid="lp-king-name">{king.name}</b>
+      <span className="lpad-tick">{king.ticker}</span>
+      <span className="lpad-sub num" data-flash={dir}>{LPS.kingLine(usdWhole(king.cap))}</span>
+      <Change ratio={king.h1} />
+      <span className="lpad-faint lpad-king-age">{LPS.launchedAgo(agoText(king.bornAbs, now))}</span>
     </button>
   );
 }
 
-/** A rug is visible the moment it happens: who pulled which pool, and what they kept. */
+/** A rug is visible the moment it happens: one line for the newest, and how many more there were. */
 export function RugAlert({ rugs, now, onOpen }: { rugs: Rug[]; now: number; onOpen: (id: string) => void }) {
   const recent = rugs.filter((r) => now - r.abs < 1440);
   if (recent.length === 0) return null;
+  const r = recent[0]!;
   return (
     <div className="lpad-rugs" data-testid="lp-rugs" role="status" aria-live="polite">
-      {recent.map((r) => (
-        <button key={r.id} type="button" className="lpad-rug" data-testid="lp-rug" data-ticker={r.ticker} onClick={() => onOpen(r.id)}>
-          <Chip tone="loss">{LPS.rugged}</Chip>
-          <span className="lpad-tick">{r.ticker}</span>
-          <span>{LPS.rugLine(r.mine ? LPS.barYou : r.creatorName, usd(r.cash))}</span>
-          <span className="lpad-faint">{agoText(r.abs, now)}</span>
-        </button>
-      ))}
+      <button type="button" className="lpad-rug" data-testid="lp-rug" data-ticker={r.ticker} onClick={() => onOpen(r.id)}>
+        <Chip tone="loss">{LPS.rugged}</Chip>
+        <span className="lpad-tick">{r.ticker}</span>
+        <span className="lpad-rug-text">{LPS.rugLine(r.mine ? LPS.barYou : r.creatorName, usd(r.cash))}</span>
+        <span className="lpad-faint">{agoText(r.abs, now)}</span>
+        {recent.length > 1 && <span className="lpad-faint">{`+${recent.length - 1} more`}</span>}
+      </button>
     </div>
   );
 }
 
-/** The latest trades across all coins, newest first, each with its game time. */
+/** The latest trades across all coins, newest first, as one scrolling line, each with its game time. */
 export function TradesBar({ rows, onOpen }: { rows: TapeRow[]; onOpen: (id: string) => void }) {
   if (rows.length === 0) return null;
   return (
     <div className="lpad-bar" data-testid="lp-bar" aria-label={LPS.bar}>
       <span className="lpad-kicker">{LPS.bar}</span>
       <ul>
-        {rows.slice(0, 8).map((r) => (
+        {rows.slice(0, 10).map((r) => (
           <li key={`${r.coin}-${r.seq}`}>
             <button type="button" className="lpad-bar-row" data-testid="lp-bar-row" onClick={() => onOpen(r.coin)}>
               <span className="lpad-faint num">{clockText(r.abs)}</span>
@@ -137,7 +135,7 @@ export function BoardCard({ c, held, now, onOpen }: { c: Coin; held: number; now
     <article className="lpad-card" data-testid={`lp-card-${c.ticker}`} data-ended={c.live ? undefined : c.ended || "faded"} data-king={c.king ? "true" : undefined}>
       <button type="button" className="lpad-card-open" data-testid="lp-coin" data-ticker={c.ticker} onClick={() => onOpen(c.id)} aria-label={`${c.name} ${c.ticker}`}>
         <span className="lpad-card-head">
-          <TokenIcon ticker={c.ticker} size={80} />
+          <TokenIcon ticker={c.ticker} size={48} />
           <span className="lpad-card-id">
             <span className="lpad-name-row"><b>{c.name}</b><span className="lpad-tick">{c.ticker}</span></span>
             <span className="lpad-sub">{LPS.by(c.creatorName)}</span>

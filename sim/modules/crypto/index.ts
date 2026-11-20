@@ -118,12 +118,24 @@ interface Meme {
   /** What the creator took when they pulled the pool, and the price it fell from. */
   rugCash?: number;
   rugPx?: number;
+  /** The creator's own words about the coin, shown on its page. */
+  desc?: string;
+  /** What people posted on the coin's page: the player's posts and the crowd's answers, with the answers still to come. */
+  said?: Said[];
+  queue?: Due[];
+  saidSeq?: number;
 }
+
+/** One post stored on a coin's page. A reply carries the parent's id and a copy of what it answered, so a thread survives its parent scrolling away. */
+interface Said { id: string; abs: number; who: number; mine?: boolean; text: string; parent?: string; quote?: string; quoteName?: string }
+/** An answer the crowd has yet to write: who answers, when, to which post, and how the post read. */
+interface Due { abs: number; who: number; parent: string; stance: Stance; creator: boolean }
+type Stance = 'ask' | 'hype' | 'doubt' | 'plain';
 
 const PRINTS_KEEP = 80;
 
 /** Options a launch can carry from the Launchpad: a name, a ticker and a starting buy in cents, all optional. */
-export interface LaunchOpts { name?: string; ticker?: string; buy?: number; seed?: number }
+export interface LaunchOpts { name?: string; ticker?: string; buy?: number; seed?: number; desc?: string }
 
 /** A memecoin as the Launchpad board reads it. Nothing here is stored: every figure is read from the pool and the ledger. */
 export interface MemeRow {
@@ -154,8 +166,8 @@ export interface MemeRow {
   vol: number;
   /** Game minute of the launch. */
   bornAbs: number;
-  /** Price change over the last hour (1 = unchanged). */
-  h1: number;
+  /** Price change over the last hour (1 = unchanged); null while the coin is younger than an hour. */
+  h1: number | null;
   /** The coin with the biggest market cap among the live ones. */
   king: boolean;
   lastDay: number;
@@ -289,6 +301,34 @@ function spot(w: World, m: Meme): number {
   const t = poolTokens(w, m);
   if (t <= 0 || m.rugged) return 0;
   return poolCash(w, m) / t;
+}
+
+/**
+ * What a coin is worth per token to someone holding `qty` of it: what selling them all into the pool would bring, divided by the
+ * tokens. One number for the token page, the Portfolio and net worth, so a buy never shows an instant gain and a thin pool is not
+ * flattered by its spot price. A pulled pool is worth nothing; a delisted one still takes sales until it is wound up.
+ */
+export function memeMark(w: World, instr: string, qty: number): number {
+  const m = book(w).memes.find((x) => x.id === instr);
+  if (!m || m.rugged) return 0;
+  const tokens = poolTokens(w, m), cash = poolCash(w, m);
+  if (tokens <= 0 || cash <= 0) return 0;
+  const q = Math.floor(qty);
+  if (q < 1) return cash / tokens;
+  return quoteSell(cash, tokens, q) / q;
+}
+
+/** The price an hour ago (or `mins` ago), from the trades; null while the coin is younger than that. */
+function priceAgo(m: Meme, abs: number, mins: number): number | null {
+  const t = abs - mins;
+  const born = m.bornAbs ?? m.born * MIN_DAY;
+  if (born > t) return null;
+  for (let k = m.prints.length - 1; k >= 0; k--) {
+    const pr = m.prints[k];
+    if (pr.abs <= t && pr.px && pr.px > 0) return pr.px;
+  }
+  if (m.prints.length >= (m.trades ?? 0)) return m.bornPx;
+  return priceAt(m.hist, t, m.bornPx);
 }
 
 /** Constant product. The pool keeps the rounding, so its cash always covers a sale of what it has sold. */
@@ -532,6 +572,7 @@ function launch(w: World, i: number, opts: LaunchOpts = {}, seedCents = SEED): M
   const who = persona(w, i);
   const nm = nameFor(w, i, who.kind, abs);
   const name = opts.name ?? nm.name;
+  const desc = (opts.desc ?? '').trim().slice(0, 160) || blurb(w, i, name, abs);
   let ticker = (opts.ticker ?? nm.ticker).toUpperCase();
   if (opts.ticker) {
     const taken = new Set<string>();
@@ -554,7 +595,7 @@ function launch(w: World, i: number, opts: LaunchOpts = {}, seedCents = SEED): M
     id: coinId, name, ticker, creator: i, pool, seed: seedCents, born: w.day,
     bornPx: px0, weekPx: px0, launchEv: ev,
     tells: [], cost: new Map([[i, seedCents]]), weekBuys: 0, bits: new Uint32Array(Math.ceil(P.capacity / 32)),
-    rugged: false, live: true, prints: [],
+    rugged: false, live: true, prints: [], desc, said: [], queue: [], saidSeq: 0,
     bornAbs: abs, lastAbs: abs, peak: px0, flow: 0, hist: [abs, px0], hold: [i], mVol: 0, mHi: px0, mLo: px0,
     appeal: (0.25 + 2.2 * Math.pow(unit(w, st.n, i, 71), 3)) * (0.7 + 0.3 * Math.min(1, contactsOf(w, i).length / 12)),
   };
@@ -674,10 +715,16 @@ function launchRate(w: World): number {
   return 4 * moodF * moodF * (1 + 2 * (st.mania ?? 0)) * (1 - 0.6 * (st.slump ?? 0));
 }
 
+/** Coins the city's own launchers have live: the cap applies to them, never to the player's coins. */
+function cityLive(w: World): number {
+  let n = 0;
+  for (const m of book(w).memes) if (m.live && !isSeatPerson(w, m.creator)) n++;
+  return n;
+}
+
 function launchStep(w: World, abs: number, span: number): void {
   const st = book(w), P = econ(w).P;
-  let live = 0;
-  for (const m of st.memes) if (m.live) live++;
+  let live = cityLive(w);
   if (live >= MAX_LIVE || P.n <= 0) return;
   const e = launchRate(w) * span / MIN_DAY;
   let n = Math.floor(e) + (unit(w, abs, 1, 1) < e - Math.floor(e) ? 1 : 0);
@@ -789,7 +836,8 @@ function coinWatch(w: World, m: Meme, abs: number, span: number): void {
   // A coin nobody wants any more drops off the board.
   const idle = abs - (m.lastAbs ?? abs);
   const lowFromPeak = m.peak ? px < m.peak * 0.3 : false;
-  if ((age > 180 && lowFromPeak && idle > 120) || (age > 720 && idle > 360) || age > 4320) {
+  // The rules are on the Launchpad's page. A player's own coin gets its first game day before they apply.
+  if (!(age < MIN_DAY && isSeatPerson(w, m.creator)) && ((age > 180 && lowFromPeak && idle > 120) || (age > 720 && idle > 360) || age > 4320)) {
     m.live = false;
     m.deadDay = w.day;
     releaseDead(m);
@@ -811,11 +859,24 @@ function majorRound(w: World, abs: number, span: number, cap: number): void {
     const draws = span <= 1 ? (unit(w, abs, mi, 51) < rate ? 1 : 0) : Math.min(cap, Math.round(rate * span));
     const size = span <= 1 ? 1 : Math.max(1, (rate * span) / Math.max(1, draws));
     for (let k = 0; k < draws; k++) {
-      const i = degens[Math.floor(unit(w, abs, mi * 64 + k, 52) * degens.length)];
+      let i = degens[Math.floor(unit(w, abs, mi * 64 + k, 52) * degens.length)];
       if (!P.alive(i) || isSeatPerson(w, i)) continue;
-      const id = P.id(i);
       const pBuy = Math.max(0.15, Math.min(0.85, 0.5 + 0.3 * mood + Math.max(-0.2, Math.min(0.2, mom * 4))));
-      const buy = unit(w, abs, i, 53) < pBuy;
+      let buy = unit(w, abs, i, 53) < pBuy;
+      // The market stays two-sided: with the dealers out of coins nobody can buy, and a seller is someone who holds some.
+      const stock = Math.floor(L.balance(MM, m.id)) + Math.floor(L.balance(MOM, m.id));
+      if (buy && stock < 1) buy = false;
+      if (!buy) {
+        let seller = -1;
+        for (let t = 0; t < 12 && seller < 0; t++) {
+          const j = degens[Math.floor(unit(w, abs, mi * 64 + k * 13 + t, 56) * degens.length)];
+          if (P.alive(j) && !isSeatPerson(w, j) && L.balance(P.id(j), m.id) >= 1) seller = j;
+        }
+        if (seller >= 0) i = seller;
+        else if (stock >= 1) buy = true;
+        else continue;
+      }
+      const id = P.id(i);
       const whale = unit(w, abs, i, 54) < 0.01;
       const base = 1 + Math.floor((P.greed[i] / 100) * 5 * unit(w, abs, i, 55));
       const qty = Math.max(1, Math.round((whale ? base * 6 : base) * size));
@@ -840,6 +901,7 @@ function majorRound(w: World, abs: number, span: number, cap: number): void {
 function coinRound(w: World, abs: number, span: number, cap: number): void {
   const st = book(w);
   st.abs = abs;
+  answerDue(w, abs);
   if (!st.degens || (st.degens.length < 200 && abs - (st.climAbs ?? -9999) > 30)) refreshDegens(w, 6000);
   climate(w, abs);
   launchStep(w, abs, span);
@@ -890,6 +952,12 @@ function coinRound(w: World, abs: number, span: number, cap: number): void {
   majorRound(w, abs, span, Math.max(2, cap / 2));
 }
 
+/** The live clock, as the player acts: a launch, a trade or a post is stamped with the game minute it happens at, even before the minute layer has run. */
+export function coinClock(w: World, abs: number): void {
+  const st = w.state.crypto as Book | undefined;
+  if (st && abs > (st.abs ?? 0)) st.abs = abs;
+}
+
 /** Called by the minute layer once per game minute. */
 export function coinMinuteStep(w: World, abs: number): void {
   const st = book(w);
@@ -917,6 +985,14 @@ export function coinMinute(w: World, id: string): { px: number; hi: number; lo: 
   const major = st.majors.find((x) => x.id === id);
   if (!major) return undefined;
   return take(major, majorMid(major));
+}
+
+/** The first bar of a coin the minute layer has not drawn yet (launched a moment ago): its price now, at its launch minute. */
+export function coinSeedBar(w: World, id: string): { id: string; name: string; t: number; px: number } | null {
+  const m = memeOf(w, id);
+  if (!m) return null;
+  const px = m.rugged ? (m.rugPx ?? m.bornPx) : spot(w, m) || m.bornPx;
+  return { id: m.id, name: m.name, t: Math.floor(m.bornAbs ?? m.born * MIN_DAY), px };
 }
 
 /** Coins that were rugged since the minute layer last asked: their last price, so the chart can show the fall. */
@@ -1267,9 +1343,6 @@ export function orderCoin(w: World, actor: string, coin: string, side: 'buy' | '
 export function launchCoin(w: World, person: number, opts: LaunchOpts = {}): { id?: string; name?: string; ticker?: string; why?: string } {
   const st = book(w), P = econ(w).P;
   if (person < 0 || person >= P.n || !P.alive(person)) return { why: 'dead' };
-  let live = 0;
-  for (const m of st.memes) if (m.live) live++;
-  if (live >= MAX_LIVE) return { why: `${MAX_LIVE} memecoins are already live` };
   const buy = opts.buy ?? 0;
   // The player seeds the pool from the same range every city launcher uses, and chooses where in it.
   const seat = isSeatPerson(w, person);
@@ -1295,9 +1368,10 @@ function memeOf(w: World, instr: string): Meme | undefined {
 }
 
 /** Every memecoin the exchange has listed, read from its pool and ledger. `me` is the player's person index. */
-export function memeBoard(w: World, me: number): MemeRow[] {
+export function memeBoard(w: World, me: number, now?: number): MemeRow[] {
   const P = econ(w).P;
   const st = book(w);
+  const clock = now ?? st.abs ?? 0;
   const out: MemeRow[] = [];
   for (const m of st.memes) {
     const live = m.live && !m.rugged;
@@ -1313,7 +1387,7 @@ export function memeBoard(w: World, me: number): MemeRow[] {
     out.push({
       id: m.id, name: m.name, ticker: m.ticker, creator: m.creator, creatorName: P.name(m.creator),
       mine: m.creator === me, live, rugged: m.rugged, born: m.born, eventId: m.launchEv,
-      bornAbs: m.bornAbs ?? m.born * MIN_DAY, h1: live && px > 0 ? px / priceAt(m.hist, (st.abs ?? 0) - 60, m.bornPx) : 1, king: live && st.king === m.id,
+      bornAbs: m.bornAbs ?? m.born * MIN_DAY, h1: live && px > 0 ? (() => { const a = priceAgo(m, clock, 60); return a && a > 0 ? px / a : null; })() : 1, king: live && st.king === m.id,
       px, prev: m.weekPx, supply, cap: Math.round(px * supply), sold: m.rugged ? 0 : Math.max(0, Math.min(1, 1 - tokens / POOL_TOKENS)),
       raised: m.rugged ? 0 : Math.max(0, cash - m.seed), cash, tokens, holders, vol: m.volTotal ?? 0,
       lastDay: last ? last.day : m.born, replies: m.tells.length,
@@ -1434,6 +1508,173 @@ const LINES: Record<Say, Record<Voice, string[]>> = {
   },
 };
 
+
+// ---- what the creator says about the coin, and how the crowd answers a post ----
+
+const BLURBS: Record<Voice, string[]> = {
+  degen: [
+    '{n} has no roadmap and no apology. Small pool, big appetite: get in while it is cheap.',
+    'I made {n} because the last one was not degenerate enough. Number go up.',
+    '{n}: the ticker is the whole pitch. If you need more than that, this is not for you.',
+    'Early holders eat first. {n} is a race and the pool is shallow, so move.',
+    'Everything about {n} is a bet, including this sentence. Size it like you can lose it.',
+  ],
+  young: [
+    'ok so {n} is a coin about vibes and the group chat. that is the whole thing',
+    'made {n} on a dare, the pool is real though so be nice',
+    '{n} because the timeline needed a new joke. no promises, lots of memes',
+    'we are building nothing, together. {n} for the people',
+    '{n}. it is funny to me, hopefully to you. dyor lol',
+  ],
+  jumpy: [
+    'This is {n}. I seeded the pool myself and I am nervous, so please be kind.',
+    '{n} is a small experiment. I do not know if anyone will care, but here it is.',
+    'I launched {n} with money I can afford to lose. I hope you only risk the same.',
+    '{n}: a modest coin from a modest person. Not financial advice, I am not qualified.',
+    'First coin I have made. {n} is open to anyone, and I will answer what I can.',
+  ],
+  steady: [
+    '{n} is a plain coin with a seeded pool. The price is whatever people pay, and nothing else holds it up.',
+    'Launched {n} to see who shows up. There is no team behind it: the pool is the whole story.',
+    '{n} has a fixed pool and no promises. Buy only what you are happy to lose.',
+    'A small, honest memecoin. {n} will be worth what the next buyer pays and no more.',
+    '{n} is for people who like watching a market form. The pool is public and the rules are on the page.',
+  ],
+};
+
+function blurb(w: World, i: number, name: string, abs: number): string {
+  const list = BLURBS[voiceOf(w, i)];
+  return list[Math.floor(unit(w, abs, i, 81) * list.length)].replace('{n}', name);
+}
+
+function stanceOf(text: string): Stance {
+  const t = text.toLowerCase();
+  if (t.includes('?')) return 'ask';
+  if (/\b(rug|rugged|scam|fraud|dump|dumping|exit|dead|sell|selling|worthless|fake|trash|crash|crashing|down|bad|avoid|ponzi)\b/.test(t)) return 'doubt';
+  if (/\b(moon|lfg|pump|bull|bullish|gem|buy|buying|hold|holding|early|up|ape|aped|diamond|rocket|great|love|good|nice|wagmi)\b/.test(t)) return 'hype';
+  return 'plain';
+}
+
+const ANSWERS: Record<Stance, Record<Voice, string[]>> = {
+  ask: {
+    degen: ['Honest answer: nobody knows. Read the pool, size it small, then ape.', 'Check the pool and the trades. Everything you need is on this page.', 'Good question. The answer is always the same: it is a coin, not a promise.'],
+    young: ['idk fr, i just watch the chart and vibe', 'good q, the trades tab is the best answer i have', 'no clue honestly, check the holders list'],
+    jumpy: ['I wish I knew. I would check the pool depth first.', 'I am not sure, sorry. Maybe someone braver can say.', 'Ask the creator, I am as lost as you are.'],
+    steady: ['The page shows the pool and the trades. The pool depth is what limits your size.', 'Short answer: nobody can promise a price. Look at who holds it and how deep the pool is.', 'Check the trades first. Thin pools move a lot per dollar.'],
+  },
+  hype: {
+    degen: ['Say it louder. Early is early.', 'Facts. This one has legs, I am not selling.', 'LFG. Diamond hands or nothing.'],
+    young: ['fr fr', 'ok this is the vibe', 'lets gooo'],
+    jumpy: ['I hope you are right. I am holding a little.', 'Nice to hear, I was getting nervous.', 'Fingers crossed for all of us.'],
+    steady: ['Reasonable. I would size it small anyway.', 'It can run, but a pool this size can also fall as fast.', 'Fine, as long as everyone knows the risk.'],
+  },
+  doubt: {
+    degen: ['Weak hands talk like this. Wait for the next green candle.', 'Every coin gets called a scam at the bottom. Then it runs.', 'Fear sells, hold or leave. Your call.'],
+    young: ['bro dont be like that', 'ok doomer', 'lol the pool is right there, check it yourself'],
+    jumpy: ['That scares me. Is the creator still around?', 'I was worried about that too, honestly.', 'Now I am nervous. Should I sell?'],
+    steady: ['The creator can pull the pool: that is the real risk here, and it is on the page.', 'A fair concern. Watch the creator and the trades, and do not hold more than you can lose.', 'Possibly. Pools like this do go to zero.'],
+  },
+  plain: {
+    degen: ['Noted. Now buy something.', 'Cool. See you on the chart.', 'Say what you mean: in or out?'],
+    young: ['haha ok', 'noted', 'same tbh'],
+    jumpy: ['Thanks for posting, it is quiet in here.', 'Hi. I am just watching for now.', 'Interesting, thank you.'],
+    steady: ['Thanks for the post.', 'Noted. The trades tell the rest of the story.', 'Fair enough.'],
+  },
+};
+
+/** The creator's answer to a post on their own coin: in their voice, with the real numbers when asked. */
+function creatorAnswer(w: World, m: Meme, stance: Stance, salt: number): string {
+  const v = voiceOf(w, m.creator);
+  const px = spot(w, m);
+  const facts = `The pool holds ${grouped(Math.round(poolCash(w, m)))} and the price is $${(px / 100).toFixed(px >= 100 ? 2 : 6)} a token.`;
+  if (stance === 'ask') return `${v === 'degen' ? 'Straight talk: ' : v === 'jumpy' ? 'Honestly, ' : ''}${facts} That is all I can tell you for sure.`;
+  const list = ANSWERS[stance][v];
+  return list[mix(m.creator, salt, 7) % list.length];
+}
+
+function listVoices(w: World, m: Meme, exclude: number): number[] {
+  const P = econ(w).P;
+  const seen = new Set<number>();
+  const out: number[] = [];
+  const add = (i: number): void => {
+    if (i < 0 || i === exclude || seen.has(i) || !P.alive(i) || isSeatPerson(w, i)) return;
+    seen.add(i);
+    out.push(i);
+  };
+  for (let k = m.prints.length - 1; k >= 0 && out.length < 24; k--) add(m.prints[k].who);
+  if (m.hold) for (let k = 0; k < m.hold.length && out.length < 40; k++) add(m.hold[k]);
+  return out;
+}
+
+export interface PostResult { ok: boolean; why?: string; id?: string }
+
+/**
+ * The player posts on a coin's page, or answers a post. The post is stored; the crowd answers it a few game minutes later, each in
+ * their own voice: the creator first when it is a question or their own post being answered, then whoever trades the coin.
+ */
+export function postVoice(w: World, me: number, coin: string, text: string, parentId?: string): PostResult {
+  const m = memeOf(w, coin);
+  if (!m) return { ok: false, why: 'That coin is no longer listed.' };
+  const t = text.replace(/\s+/g, ' ').trim().slice(0, 220);
+  if (t.length < 2) return { ok: false, why: 'Write something first.' };
+  const st = book(w);
+  const abs = st.abs ?? w.day * MIN_DAY;
+  const said = (m.said ??= []);
+  // Not a flood: the same player may post a few times a game hour.
+  let recent = 0;
+  for (const s of said) if (s.mine && abs - s.abs < 60) recent++;
+  if (recent >= 4) return { ok: false, why: 'Slow down: give the others a minute to answer.' };
+  const seq = (m.saidSeq = (m.saidSeq ?? 0) + 1);
+  const id = `${m.id}:s:${seq}`;
+  let quote: string | undefined, quoteName: string | undefined, to = -1;
+  if (parentId) {
+    const hit = memeTalk(w, m, me).find((x) => x.id === parentId);
+    if (hit) { quote = hit.text.slice(0, 120); quoteName = hit.mine ? 'you' : hit.name; to = hit.who; }
+  }
+  said.push({ id, abs, who: me, mine: true, text: t, parent: parentId, quote, quoteName });
+  if (said.length > 60) said.splice(0, said.length - 60);
+  const stance = stanceOf(t);
+  const q = (m.queue ??= []);
+  const cast = listVoices(w, m, me);
+  const who: { i: number; c: boolean }[] = [];
+  if (to >= 0 && to !== me) who.push({ i: to, c: to === m.creator });
+  if ((stance === 'ask' || parentId === undefined && unit(w, abs, seq, 95) < 0.5) && !who.some((x) => x.i === m.creator)) who.push({ i: m.creator, c: true });
+  const n = 2 + (unit(w, abs, seq, 91) < 0.6 ? 1 : 0) + (unit(w, abs, seq, 92) < 0.3 ? 1 : 0);
+  for (let k = 0; who.length < n && cast.length && k < 12; k++) {
+    const i = cast[Math.floor(unit(w, abs, seq * 17 + k, 93) * cast.length)];
+    if (!who.some((x) => x.i === i)) who.push({ i, c: i === m.creator });
+  }
+  if (!who.length) who.push({ i: m.creator, c: true });
+  let due = abs;
+  for (const x of who) {
+    due += 1 + Math.floor(unit(w, abs, seq * 31 + x.i, 94) * 4);
+    q.push({ abs: due, who: x.i, parent: id, stance, creator: x.c });
+  }
+  return { ok: true, id };
+}
+
+/** Write the crowd's answers that have come due. Runs every coin round; a headless day writes whatever is waiting. */
+function answerDue(w: World, abs: number): void {
+  for (const m of book(w).memes) {
+    const q = m.queue;
+    if (!q || !q.length) continue;
+    const keep: Due[] = [];
+    for (const d of q) {
+      if (d.abs > abs) { keep.push(d); continue; }
+      const said = (m.said ??= []);
+      const parent = said.find((x) => x.id === d.parent);
+      if (!parent) continue;
+      const seq = (m.saidSeq = (m.saidSeq ?? 0) + 1);
+      let text: string;
+      if (d.creator) text = creatorAnswer(w, m, d.stance, seq);
+      else { const l = ANSWERS[d.stance][voiceOf(w, d.who)]; text = l[mix(d.who, seq, 3) % l.length]; }
+      said.push({ id: `${m.id}:s:${seq}`, abs: Math.max(abs, d.abs), who: d.who, text, parent: d.parent, quote: parent.text.slice(0, 120), quoteName: parent.mine ? 'you' : handleOf(parent.who) });
+    }
+    m.queue = keep;
+    if ((m.said?.length ?? 0) > 60) m.said!.splice(0, m.said!.length - 60);
+  }
+}
+
 export interface Post {
   id: string;
   abs: number;
@@ -1441,7 +1682,11 @@ export interface Post {
   name: string;
   mine: boolean;
   creator: boolean;
-  act: 'launch' | 'buy' | 'sell' | 'pump' | 'dump' | 'rug';
+  act: 'launch' | 'buy' | 'sell' | 'pump' | 'dump' | 'rug' | 'post' | 'reply';
+  /** A reply names its parent post and quotes it, so a thread reads even when the parent has scrolled away. */
+  parent?: string;
+  quote?: string;
+  quoteName?: string;
   cents: number;
   /** A sale's profit as a fraction, for sells. */
   gain?: number;
@@ -1467,7 +1712,8 @@ function memeTalk(w: World, m: Meme, me: number): Post[] {
   for (let k = 0; k < m.prints.length; k++) {
     const p = m.prints[k];
     const px = p.px ?? prev;
-    if (k >= tail && p.who !== m.creator) {
+    // The player's own trades stay in the trades table: nothing is scripted in their mouth.
+    if (k >= tail && p.who !== m.creator && p.who !== me) {
       // Not every trade talks: the big ones and about one in three of the rest.
       const loud = p.cents >= 4000 || mix(p.seq, p.who, 9) % 3 === 0;
       if (loud) {
@@ -1487,16 +1733,19 @@ function memeTalk(w: World, m: Meme, me: number): Post[] {
   if (m.pumpAbs !== undefined) at(m.pumpAbs, m.creator, 'pump', 'pump', 2);
   if (m.dumpAbs !== undefined) at(m.dumpAbs, m.creator, 'dump', 'dump', 3);
   if (m.rugged) at(m.rugAbs ?? (m.deadDay ?? m.born) * MIN_DAY, m.creator, 'rug', 'rug', 4, m.rugCash ?? 0);
+  for (const x of m.said ?? []) {
+    out.push({ id: x.id, abs: x.abs, who: x.who, name: x.mine ? 'you' : handleOf(x.who), mine: !!x.mine, creator: x.who === m.creator, act: x.parent ? 'reply' : 'post', cents: 0, text: x.text, parent: x.parent, quote: x.quote, quoteName: x.quoteName });
+  }
   out.sort((a, b) => b.abs - a.abs || (a.id < b.id ? -1 : 1));
-  return out.slice(0, 40);
+  return out.slice(0, 100);
 }
 
 /** One coin's page: the curve, its holders, its tape and what people said about it. Null for an unknown coin. */
-export function memeDetail(w: World, instr: string, me: number): Record<string, unknown> | null {
+export function memeDetail(w: World, instr: string, me: number, now?: number): Record<string, unknown> | null {
   const m = memeOf(w, instr);
   if (!m) return null;
   const P = econ(w).P;
-  const row = memeBoard(w, me).find((r) => r.id === m.id);
+  const row = memeBoard(w, me, now).find((r) => r.id === m.id);
   if (!row) return null;
   const top: { index: number; name: string; qty: number; share: number; mine: boolean; creator: boolean }[] = [];
   if (!m.rugged) {
@@ -1514,13 +1763,13 @@ export function memeDetail(w: World, instr: string, me: number): Record<string, 
     const ev = w.events.get(id);
     if (ev) replies.push({ eventId: id, day: ev.day, text: ev.msg });
   }
-  return { ...row, creatorIndex: m.creator, creatorHandle: handleOf(m.creator), creatorName: P.name(m.creator), top, prints, talk: replies, posts: memeTalk(w, m, me) };
+  return { ...row, desc: m.desc ?? '', creatorIndex: m.creator, creatorHandle: handleOf(m.creator), creatorName: P.name(m.creator), top, prints, talk: replies, posts: memeTalk(w, m, me) };
 }
 
 /** What the Launchpad reads in one go: the board, the tape, the player's tokens, recent rugs and the launch rules. */
 export function launchpadRead(w: World, me: number, now: number, coin?: string): Record<string, unknown> {
   const st = book(w), P = econ(w).P, L = w.ledger;
-  const board = memeBoard(w, me);
+  const board = memeBoard(w, me, now);
   const held: Record<string, number> = {};
   if (me >= 0 && me < P.n) {
     const id = P.id(me);
@@ -1531,10 +1780,10 @@ export function launchpadRead(w: World, me: number, now: number, coin?: string):
   const rugs = board.filter((r) => r.rugged && now - r.endAbs < 4320).sort((a, b) => b.endAbs - a.endAbs).slice(0, 6)
     .map((r) => ({ id: r.id, ticker: r.ticker, name: r.name, creatorName: r.creatorName, mine: r.mine, cash: r.rugCash, abs: r.endAbs }));
   const out: Record<string, unknown> = {
-    now, day: w.day, live, max: MAX_LIVE, king, board, held, rugs, tape: memeTape(w, 12, me),
+    now, day: w.day, live, cityLive: cityLive(w), max: MAX_LIVE, king, board, held, rugs, tape: memeTape(w, 12, me),
     rules: { fee: FEE, seedMin: SEED_MIN, seedMax: SEED, pool: POOL_TOKENS, founder: FOUNDER },
   };
-  if (coin) { const d = memeDetail(w, coin, me); if (d) out.detail = d; }
+  if (coin) { const d = memeDetail(w, coin, me, now); if (d) out.detail = d; }
   return out;
 }
 

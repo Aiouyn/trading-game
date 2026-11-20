@@ -19,8 +19,8 @@ export interface Coin {
   eventId: number;
   px: number;
   prev: number;
-  /** Price change over the last game hour (1 = unchanged). */
-  h1: number;
+  /** Price change over the last game hour (1 = unchanged); null while the coin is younger than an hour. */
+  h1: number | null;
   king: boolean;
   supply: number;
   cap: number;
@@ -62,14 +62,18 @@ export interface TapeRow {
   mine: boolean;
 }
 
-/** What someone posted on a coin: the creator's own posts and the people whose trades said something. */
+/** What someone posted on a coin: the creator's own posts, the people whose trades said something, the player's posts and the
+ *  crowd's answers. An answer names its parent and quotes it. */
 export interface Post {
   id: string;
   abs: number;
   name: string;
   mine: boolean;
   creator: boolean;
-  act: "launch" | "buy" | "sell" | "pump" | "dump" | "rug";
+  act: "launch" | "buy" | "sell" | "pump" | "dump" | "rug" | "post" | "reply";
+  parent?: string;
+  quote?: string;
+  quoteName?: string;
   cents: number;
   gain?: number;
   text: string;
@@ -77,6 +81,8 @@ export interface Post {
 
 /** The coin page's read: this detail comes with /coins?coin=... */
 export interface CoinPage extends Coin {
+  /** The creator's own words about the coin. */
+  desc: string;
   creatorIndex: number;
   creatorHandle: string;
   top: { index: number; name: string; qty: number; share: number; mine: boolean; creator: boolean }[];
@@ -92,6 +98,8 @@ export interface LpData {
   now: number;
   day: number;
   live: number;
+  /** Coins the city's own launchers have live, against `max`: the cap never applies to the player. */
+  cityLive: number;
   max: number;
   king: string;
   board: Coin[];
@@ -116,6 +124,7 @@ export function readLp(j: unknown): LpData | null {
     now: o.now,
     day: o.day ?? Math.floor(o.now / 1440),
     live: o.live ?? 0,
+    cityLive: o.cityLive ?? o.live ?? 0,
     max: o.max ?? 12,
     king: o.king ?? "",
     board: o.board,
@@ -168,7 +177,8 @@ export function qty(n: number): string {
 }
 
 /** The change over a game hour as "+12.4%". */
-export function pctText(ratio: number): string {
+export function pctText(ratio: number | null): string {
+  if (ratio === null) return "new";
   if (!Number.isFinite(ratio)) return "0.0%";
   const p = (ratio - 1) * 100;
   return `${p >= 0 ? "+" : ""}${p.toFixed(Math.abs(p) >= 100 ? 0 : 1)}%`;
@@ -230,12 +240,32 @@ export function tokensForCents(cash: number, tokens: number, cents: number): num
 }
 
 /** What a launch costs and what the player's books read just after: the fee and the seed leave cash, the buy goes in the pool, and
- *  the tokens the player then holds (the founder's share plus the buy) are marked at the pool's price, as the sim marks every coin. */
+ *  the tokens the player then holds (the founder's share plus the buy) are valued at what selling them into the pool would bring,
+ *  as the sim values every coin. */
 export function launchPreview(rules: Rules, seed: number, buy: number): { cost: number; tokens: number; px: number; value: number; change: number } {
   const out = buy >= 1 ? quoteBuy(seed, rules.pool, buy) : 0;
   const tokens = rules.founder + out;
-  const px = (seed + (out > 0 ? buy : 0)) / Math.max(1, rules.pool - out);
-  const value = Math.round(tokens * px);
+  const cash = seed + (out > 0 ? buy : 0);
+  const left = Math.max(1, rules.pool - out);
+  const px = cash / left;
+  const value = quoteSell(cash, left, tokens);
   const cost = rules.fee + seed + (out > 0 ? buy : 0);
   return { cost, tokens, px, value, change: value - cost };
+}
+
+/** What a buy would do, from the pool as it stands: tokens, average price, what selling them straight back would bring, and the
+ *  move in the pool's price. Same arithmetic as the sim's pool, so the fill matches the preview made at the same moment. */
+export function buyDetail(cash: number, tokens: number, spend: number): { tokens: number; avg: number; back: number; impact: number } | null {
+  const out = quoteBuy(cash, tokens, spend);
+  if (out < 1) return null;
+  const nc = cash + spend, nt = tokens - out;
+  return { tokens: out, avg: spend / out, back: nt > 0 ? quoteSell(nc, nt, out) : 0, impact: nt > 0 ? (nc / nt) / (cash / tokens) - 1 : 0 };
+}
+
+/** What a sale would do: the proceeds, the average price and the move in the pool's price. */
+export function sellDetail(cash: number, tokens: number, n: number): { tokens: number; cents: number; avg: number; impact: number } | null {
+  const pay = quoteSell(cash, tokens, n);
+  if (pay < 1) return null;
+  const nc = cash - pay, nt = tokens + n;
+  return { tokens: n, cents: pay, avg: pay / n, impact: (nc / nt) / (cash / tokens) - 1 };
 }
