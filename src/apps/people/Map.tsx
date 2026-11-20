@@ -80,7 +80,7 @@ export function CircleMap({ you, people, pending, links, selected, onPick }: {
     <div className="peo-map-wrap">
       <svg className="peo-map" viewBox="0 0 320 210" data-testid="circle-map" aria-label="Who knows whom">
         {nodes.filter((n) => showLine(n.who)).map((n) => (
-          <line key={`you-${n.who}`} x1={160} y1={104} x2={n.x} y2={n.y} stroke="var(--line)" strokeWidth={1} />
+          <line key={`you-${n.who}`} x1={160} y1={104} x2={n.x} y2={n.y} stroke="var(--line)" strokeWidth={1} pointerEvents="none" />
         ))}
         {links.map((link) => {
           const a = byWho.get(link.a), b = byWho.get(link.b);
@@ -88,6 +88,7 @@ export function CircleMap({ you, people, pending, links, selected, onPick }: {
           return (
             <line key={`link-${link.a}-${link.b}`} data-testid="circle-link"
               x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+              pointerEvents="none"
               stroke={link.kind === "family" ? "var(--acc)" : "var(--info)"} strokeWidth={1.5}>
               <title>{a.name} and {b.name} · {link.why}</title>
             </line>
@@ -107,10 +108,11 @@ export function CircleMap({ you, people, pending, links, selected, onPick }: {
               stroke="var(--info)"
               strokeWidth={1}
               strokeDasharray="3 3"
+              pointerEvents="none"
             />
           );
         })}
-        <g>
+        <g pointerEvents="none">
           <circle cx={160} cy={104} r={16} fill="var(--win2)" stroke="var(--acc)" />
           <text x={160} y={108} textAnchor="middle" fill="var(--fg)" fontSize={11}>{initial(you || "You")}</text>
         </g>
@@ -126,16 +128,33 @@ export function CircleMap({ you, people, pending, links, selected, onPick }: {
             role="button"
             tabIndex={0}
             data-testid="map-person"
+            data-who={n.who}
             data-role={n.role}
-            onClick={() => onPick(n.who)}
+            onClick={(e) => {
+              e.stopPropagation();
+              const svg = e.currentTarget.ownerSVGElement;
+              const pt = svg?.createSVGPoint();
+              if (!svg || !pt) { onPick(n.who); return; }
+              pt.x = e.clientX; pt.y = e.clientY;
+              const ctm = svg.getScreenCTM();
+              if (!ctm) { onPick(n.who); return; }
+              const at = pt.matrixTransform(ctm.inverse());
+              let best = n.who, dist = Infinity;
+              for (const node of nodes) {
+                const d = (node.x - at.x) ** 2 + (node.y - at.y) ** 2;
+                if (d < dist) { dist = d; best = node.who; }
+              }
+              onPick(best);
+            }}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(n.who); } }}
             style={{ cursor: "pointer" }}
           >
             <title>{`${n.name}, ${n.role}${n.word ? `, ${n.word}` : ""}`}</title>
-            <circle cx={n.x} cy={n.y} r={n.who === selected ? dot + 3 : dot} fill="var(--win2)" stroke={n.who === selected ? "var(--acc)" : "var(--line)"} strokeWidth={n.who === selected ? 2 : 1} />
-            <text x={n.x} y={n.y + 3} textAnchor="middle" fill="var(--fg)" fontSize={crowded ? 8 : 11}>{initial(n.name)}</text>
+            <circle cx={n.x} cy={n.y} r={Math.max(18, n.who === selected ? dot + 6 : dot + 4)} fill="transparent" />
+            <circle cx={n.x} cy={n.y} r={n.who === selected ? dot + 3 : dot} fill="var(--win2)" stroke={n.who === selected ? "var(--acc)" : "var(--line)"} strokeWidth={n.who === selected ? 2 : 1} pointerEvents="none" />
+            <text x={n.x} y={n.y + 3} textAnchor="middle" fill="var(--fg)" fontSize={crowded ? 8 : 11} pointerEvents="none">{initial(n.name)}</text>
             {label ? (
-              <text x={n.x} y={n.y + 28} textAnchor="middle" fill="var(--fg-muted)" fontSize={9}>
+              <text x={n.x} y={n.y + 22} textAnchor="middle" fill="var(--fg-muted)" fontSize={9} pointerEvents="none">
                 {(n.name.split(/\s+/)[0] || "").slice(0, 8)}
               </text>
             ) : null}

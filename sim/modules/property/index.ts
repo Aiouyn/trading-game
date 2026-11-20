@@ -1608,7 +1608,10 @@ export const property: Module = {
     const extra = Math.round(heads.length * 0.06);
     for (let i = 0; i < extra; i++) {
       const nb = pickNb(0.35, 1000 + i);
-      const p = addParcel(st, nb, HOME, 3, 78, PERSON, lords[i % lords.length], 0, -1);
+      // Vacant stock is not one floor plan copied across a district: rooms and wear vary, and the rent follows.
+      const size = 1 + Math.floor(mix(i, 3) * 5);
+      const cond = 48 + Math.floor(mix(i, 11) * 48);
+      const p = addParcel(st, nb, HOME, size, cond, PERSON, lords[i % lords.length], 0, -1);
       const value = Math.max(1, Math.round(st.px[nb] * quality(st, p)));
       setMarked(w, p, value, w.genesis);
       st.lastPx[p] = value; st.rent[p] = Math.max(1, Math.round(value * yld / 12)); st.rentY[p] = st.rent[p];
@@ -1698,28 +1701,89 @@ export interface RentalRow {
   rent: number;
   size: number;
   condition: number;
+  light: string;
+  noise: string;
+  deposit: number;
+  moving: number;
+  landlord: string;
+  mover: string;
 }
 
-/** Empty homes you could rent today: the cheapest few in every district. */
+function streetOf(nb: number): { light: string; noise: string } {
+  const n = NBHDS[nb];
+  const desir = n?.desir ?? 1;
+  const dist = n?.dist ?? 2;
+  const light = desir >= 1.8 ? 'Bright' : desir >= 1.3 ? 'Clear light' : desir >= 0.9 ? 'Ordinary light' : 'Dim streets';
+  const noise = dist < 1.2 ? 'Loud, by the port' : dist < 2.2 ? 'Street noise' : dist < 3.5 ? 'Quiet enough' : 'Quiet';
+  return { light, noise };
+}
+
+export interface MoveTerms extends RentalRow {
+  landlordId: string;
+  moverId: string;
+  quote: string;
+}
+
+/** What taking this empty home costs: a month's rent as deposit to the landlord, and freight at the cheapest haulier's price. */
+export function moveTerms(w: World, parcel: number): MoveTerms | { why: string } {
+  const st = book(w);
+  if (!st || parcel < 0 || parcel >= st.n || st.kind[parcel] !== HOME) return { why: 'no such home' };
+  if (st.tenK[parcel] !== 0) return { why: 'somebody already lives there' };
+  const s = econ(w);
+  const rent = Math.round(st.rent[parcel]);
+  const nb = st.nb[parcel] ?? 0;
+  const street = streetOf(nb);
+  const me = (w.state.player as { who?: number } | undefined)?.who ?? -1;
+  const mine = st.ownK[parcel] === PERSON && st.own[parcel] === me;
+  const landlordId = ownerActor(w, parcel);
+  const self = me >= 0 ? s.P.id(me) : '';
+  const deposit = !mine && landlordId && landlordId !== self ? rent : 0;
+  const landlord = deposit ? whoName(w, st.ownK[parcel], st.own[parcel]) : '';
+  let moverId = '', mover = '', best = Infinity;
+  for (const f of s.firms) {
+    if (f.closed || (f.good !== 'FREIGHT' && f.sector !== 'TRANSPORT')) continue;
+    if (f.price > 0 && f.price < best && f.id) { best = f.price; moverId = f.id; mover = f.name; }
+  }
+  const rooms = Math.max(1, st.size[parcel] || 1);
+  const moving = moverId ? Math.max(1, Math.round(best * rooms)) : 0;
+  const quote = `${NBHDS[nb]?.name ?? 'This district'}, ${rooms} ${rooms === 1 ? 'room' : 'rooms'}, condition ${st.cond[parcel]}. ${street.light}. ${street.noise}. Rent ${moneyText(rent)} a month. Deposit ${deposit ? `${moneyText(deposit)} to ${landlord}` : 'none'}. Moving ${moving ? `${moneyText(moving)} to ${mover}` : 'no haulier quoted a price'}.`;
+  return {
+    id: parcel, neighbourhood: NBHDS[nb]?.name ?? '', rent, size: st.size[parcel], condition: st.cond[parcel],
+    ...street, deposit, moving, landlord, mover, landlordId, moverId, quote,
+  };
+}
+
+/** Empty homes you could rent today: the cheapest few in every district, each with its own street and its move. */
 export function rentBoard(w: World, person: number): RentalRow[] {
   const st = w.state.property as Book | undefined;
   if (!st) return [];
-  const perDistrict = new Map<number, RentalRow[]>();
+  const perDistrict = new Map<number, number[]>();
   for (let p = 0; p < st.n; p++) {
     if (st.kind[p] !== HOME || st.tenK[p] !== 0) continue;
     if (st.ownK[p] === PERSON && st.own[p] === person) continue;
     const nb = st.nb[p] ?? 0;
     const list = perDistrict.get(nb) ?? [];
-    list.push({
-      id: p, neighbourhood: NBHDS[nb]?.name ?? '', rent: Math.round(st.rent[p]), size: st.size[p],
-      condition: st.cond[p],
-    });
+    list.push(p);
     perDistrict.set(nb, list);
   }
   const out: RentalRow[] = [];
   for (const list of perDistrict.values()) {
-    list.sort((a, b) => a.rent - b.rent || b.size - a.size || a.id - b.id);
-    for (const r of list.slice(0, 3)) out.push(r);
+    // Cheapest, largest and most worn, so the board is not three copies of the same flat.
+    const byRent = [...list].sort((a, b) => st.rent[a] - st.rent[b] || a - b);
+    const largest = [...list].sort((a, b) => st.size[b] - st.size[a] || st.rent[a] - st.rent[b] || a - b)[0];
+    const worn = [...list].sort((a, b) => st.cond[a] - st.cond[b] || a - b)[0];
+    const pick: number[] = [];
+    for (const p of [byRent[0], largest, worn, byRent[1]]) {
+      if (p === undefined || pick.includes(p)) continue;
+      pick.push(p);
+    }
+    for (const p of pick) {
+      const terms = moveTerms(w, p);
+      if ('why' in terms) continue;
+      const { landlordId: _l, moverId: _m, quote: _q, ...row } = terms;
+      void _l; void _m; void _q;
+      out.push(row);
+    }
   }
   return out;
 }

@@ -7,6 +7,8 @@
 .qa-note[data-ok="0"] { color: var(--loss); }
 .qa-list { display: flex; flex-direction: column; min-width: 0; }
 .qa-row { display: flex; align-items: center; gap: var(--sp-8); min-width: 0; border-bottom: 1px solid var(--line); }
+.qa-rent { flex-wrap: wrap; align-items: flex-start; }
+.qa-rent > .qa-block { flex: 1 0 100%; padding: 0 0 var(--sp-8); }
 .qa-row[data-on="1"] { background: var(--win2); }
 .qa-row-main { flex: 1; min-width: 0; min-height: var(--hit-pointer); text-align: left; background: transparent; color: var(--fg); padding: var(--sp-4) 0; white-space: normal; overflow-wrap: anywhere; }
 .qa-row-main strong { font-weight: 600; }

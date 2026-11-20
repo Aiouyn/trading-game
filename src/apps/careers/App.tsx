@@ -1,12 +1,14 @@
 "use client";
 // Your job, the seats firms are short of, a raise, study, and the letters that come back.
 import { useState } from "react";
+import { useShellStore } from "@/components/shell/ShellContext";
 import { ChoiceButton, Closed, Result, WordNum, money, useAct, useLife } from "@/apps/profile/data";
 import { readCircle } from "@/apps/messages/circle";
 import { gameDate } from "@/components/ui/format";
 import "@/apps/profile/life.css";
 import "./careers.css";
 
+interface Unlock { need: string; text: string; course?: string; courseName?: string; line?: string }
 interface Opening {
   n: number;
   firm: string;
@@ -16,6 +18,28 @@ interface Opening {
   chance: string;
   canApply: boolean;
   vouched: boolean;
+  unlock?: Unlock | null;
+}
+interface Offer {
+  id: number;
+  firm: string;
+  role: string;
+  wage: number;
+  startDate: string;
+  expiresDate: string;
+  status: string;
+  why: string;
+  fromName: string;
+  note: string;
+}
+interface Colleague { who: number; name: string; role: string; boss: boolean }
+interface Shift { label: string; line: string; start: number; end: number }
+interface WorkCard {
+  offers?: Offer[];
+  shift?: Shift | null;
+  daysInSeat?: number;
+  startedDate?: string;
+  colleagues?: Colleague[];
 }
 interface PendingSeat { n: number; firm: string; role: string; due: number; daysLeft: number }
 interface StudyRow { field: string; name: string; days: number; cost: number }
@@ -31,6 +55,7 @@ export interface CareerCard {
   pending: PendingSeat[];
   course: { name: string; due: number; daysLeft: number } | null;
   letters: Letter[];
+  work?: WorkCard | null;
 }
 
 function perfWord(n: number): string {
@@ -40,11 +65,13 @@ function perfWord(n: number): string {
   return "Thin";
 }
 
-function tenureWord(years: number): string {
-  if (years < 1) return "New in the trade";
-  if (years < 2) return "A year in";
-  if (years < 5) return "Settled in";
-  return "Long in the trade";
+function seatWord(days: number): string {
+  if (days < 1) return "First day in the seat";
+  if (days < 14) return "Just started";
+  if (days < 90) return "A few weeks in the seat";
+  if (days < 360) return "Settled in this seat";
+  const years = Math.floor(days / 360);
+  return years === 1 ? "A year in this seat" : `${years} years in this seat`;
 }
 
 function daysWord(n: number): string {
@@ -58,29 +85,54 @@ function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function openUnlock(store: ReturnType<typeof useShellStore>, row: Opening, go: (cmd: unknown) => Promise<unknown>) {
+  const u = row.unlock;
+  if (!u) return;
+  if (u.need === "health" || u.line === "clinic") {
+    store.getState().open("health");
+    void go({ kind: "clinic" });
+    return;
+  }
+  if (u.course || (u.line ?? "").startsWith("enrol")) {
+    store.getState().open("academy");
+    if (u.line) void go({ line: u.line });
+    return;
+  }
+  if ((u.line ?? "").startsWith("study ")) {
+    void go({ kind: "study", field: u.line!.slice(6).trim() });
+  }
+}
+
 export default function CareersApp() {
+  const store = useShellStore();
   const { life } = useLife();
   const { note, busy, go } = useAct();
   const card = life?.career;
   const [quitOpen, setQuitOpen] = useState(false);
   const [studyField, setStudyField] = useState<string | null>(null);
+  const [q, setQ] = useState("");
   if (!life || !card) return <Closed title="Careers" />;
   const employed = card.job !== "no job" && card.wage > 0;
   const pending = card.pending[0];
   const study = card.study ?? [];
-  const openings = card.openingList ?? [];
+  const work = card.work ?? null;
+  const days = work?.daysInSeat ?? 0;
+  const offers = (work?.offers ?? []).filter((o) => o.status === "open");
+  const query = q.trim().toLowerCase();
+  const openings = [...(card.openingList ?? [])]
+    .sort((a, b) => Number(b.vouched) - Number(a.vouched) || a.firm.localeCompare(b.firm) || a.wage - b.wage || a.n - b.n)
+    .filter((row) => {
+      if (!query) return true;
+      const pay = money(row.wage).toLowerCase();
+      return row.firm.toLowerCase().includes(query) || row.role.toLowerCase().includes(query) || pay.includes(query) || String(row.wage).includes(query);
+    });
   const picked = study.find((s) => s.field === studyField) ?? null;
   const circle = readCircle(life);
   const fromWork = (circle?.threads ?? []).flatMap((t) => t.role === "work" ? t.messages.map((m) => ({ day: m.day, text: m.text, eventId: m.eventId })) : []);
   const letters = card.letters.length ? card.letters : fromWork.map((m) => ({ day: m.day, text: m.text }));
-  const groups = new Map<string, Opening[]>();
-  for (const row of openings) {
-    const list = groups.get(row.role) ?? [];
-    list.push(row);
-    groups.set(row.role, list);
-  }
   const firstApply = openings.find((o) => o.canApply);
-  const raisePrimary = employed && !quitOpen && !picked && !pending;
+  const raiseReady = employed && days >= 90;
+  const raisePrimary = raiseReady && !quitOpen && !picked && !pending;
 
   const apply = async (n: number) => {
     await go({ kind: "apply", n });
@@ -101,7 +153,7 @@ export default function CareersApp() {
     <div className="qy-life cr" data-testid="careers">
       <header className="qy-block">
         <h2>Careers</h2>
-        <p className="qy-kicker">{cap(card.job)}</p>
+        <p className="qy-kicker" data-testid="career-job">{employed ? cap(card.job) : "No job on the book"}</p>
       </header>
       <Result note={note} />
       <section className="qy-block" data-testid="career-now">
@@ -112,19 +164,33 @@ export default function CareersApp() {
         </div>
         <div className="qy-row">
           <span className="label">Tenure</span>
-          <WordNum word={tenureWord(card.tenure)} hover={card.tenure === 1 ? "1 year" : `${card.tenure} years`} eventId={card.eventId} />
+          <WordNum word={seatWord(days)} hover={work?.startedDate ? `In this seat since ${work.startedDate}` : `${days} days in this seat`} eventId={card.eventId} />
         </div>
+        {work?.shift ? (
+          <div className="qy-row" data-testid="career-shift">
+            <span className="label">Shift</span>
+            <span>{work.shift.label}{work.shift.line ? ` · ${work.shift.line}` : ""}</span>
+          </div>
+        ) : null}
+        {work?.colleagues?.length ? (
+          <div className="qy-row" data-testid="career-colleagues">
+            <span className="label">With you</span>
+            <span>{work.colleagues.map((c) => `${c.name}${c.boss ? ", your boss" : ""} (${c.role})`).join("; ")}</span>
+          </div>
+        ) : null}
         <div className="qy-row">
           <span className="label">Performance</span>
           <WordNum word={perfWord(card.performance)} hover={String(card.performance)} eventId={card.eventId} />
         </div>
           <div className="qy-actions">
-            <ChoiceButton primary={raisePrimary} disabled={busy} testId="ask-raise" onClick={() => void raise()}>
-              Ask for a raise
-            </ChoiceButton>
+            {raiseReady ? (
+              <ChoiceButton primary={raisePrimary} disabled={busy} testId="ask-raise" onClick={() => void raise()}>
+                Ask for a raise
+              </ChoiceButton>
+            ) : <p className="qy-muted">A raise waits until you have been in this seat a season.</p>}
             {quitOpen ? (
               <div className="qy-card" data-testid="quit-confirm">
-                <p>Leaving {card.job} gives up {money(card.wage)} a week. The {card.tenure < 1 ? "time you have just started" : tenureWord(card.tenure).toLowerCase()} no longer counts toward a raise here, and the firm can fill the seat.</p>
+                <p>Leaving {card.job} gives up {money(card.wage)} a week. {seatWord(days)} no longer counts toward a raise here, and the firm can fill the seat.</p>
                 <div className="cr-acts">
                   <ChoiceButton primary disabled={busy} testId="quit" onClick={() => void quit()}>Leave the job</ChoiceButton>
                   <ChoiceButton primary={false} disabled={busy} testId="quit-stay" onClick={() => setQuitOpen(false)}>Stay</ChoiceButton>
@@ -136,34 +202,58 @@ export default function CareersApp() {
           </div>
         </> : <p className="qy-muted">Your next job can start with an application below.</p>}
       </section>
+      {offers.length ? (
+        <section className="qy-block" data-testid="job-offers">
+          <h3>Offers</h3>
+          {offers.map((o) => (
+            <div className="qy-choice" key={o.id} data-testid={`offer-${o.id}`}>
+              <p>
+                <span>{o.firm} · {cap(o.role)}</span>
+                <span className="qy-num num">{money(o.wage)} a week · starts {o.startDate}</span>
+                <span className="cr-chance">{o.why}{o.fromName ? ` · from ${o.fromName}` : ""}{o.expiresDate ? ` · answer by ${o.expiresDate}` : ""}</span>
+              </p>
+              <div className="cr-acts">
+                <ChoiceButton primary disabled={busy} testId={`offer-accept-${o.id}`} onClick={() => void go({ kind: "job", id: o.id, answer: "accept" })}>Accept</ChoiceButton>
+                <ChoiceButton primary={false} disabled={busy} testId={`offer-decline-${o.id}`} onClick={() => void go({ kind: "job", id: o.id, answer: "decline" })}>Decline</ChoiceButton>
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
       <section className="qy-block" data-testid="openings">
         <h3>Open seats</h3>
+        <label className="qy-field">
+          Search by firm, role or pay
+          <input value={q} data-testid="career-search" placeholder="Firm, role or pay" onChange={(e) => setQ(e.target.value)} />
+        </label>
         {card.pending.map((application) => (
           <p className="qy-card qy-muted" key={application.n} data-testid="application-pending" style={{ fontSize: "var(--fs-14, 0.875rem)" }}>
             Waiting on {application.firm} for {application.role}. Decision expected {gameDate(application.due)}.
           </p>
         ))}
-        {!openings.length ? <p className="qy-muted">No open seats today.</p> : null}
-        {[...groups.entries()].map(([role, rows]) => (
-          <div key={role} className="qy-block" data-testid="role-group">
-            <p className="label">{cap(role)}</p>
-            {rows.map((row) => (
-              <div className="qy-choice" key={row.n} data-testid={`opening-${row.n}`}>
-                <p>
-                  <span>{row.firm}</span>
-                  <span className="qy-num num">{money(row.wage)} a week · {row.seats} {row.seats === 1 ? "seat" : "seats"}</span>
-                  <span className="cr-chance">{cap(row.chance)}{row.vouched ? " · You have a reference" : ""}</span>
-                </p>
-                <ChoiceButton
-                  primary={!raisePrimary && !quitOpen && !picked && !pending && firstApply?.n === row.n}
-                  disabled={busy || !!pending || !row.canApply}
-                  testId={`apply-${row.n}`}
-                  onClick={() => void apply(row.n)}
-                >
-                  Apply
-                </ChoiceButton>
-              </div>
-            ))}
+        {!openings.length ? <p className="qy-muted">{query ? "No seat matches that." : "No open seats today."}</p> : null}
+        {openings.map((row) => (
+          <div className="qy-choice" key={row.n} data-testid={`opening-${row.n}`} data-vouched={row.vouched ? "1" : "0"} data-open={row.canApply ? "1" : "0"}>
+            <p>
+              <span>{row.firm} · {cap(row.role)}</span>
+              <span className="qy-num num">{money(row.wage)} a week · {row.seats} {row.seats === 1 ? "seat" : "seats"}</span>
+              <span className="cr-chance">{cap(row.chance)}{row.vouched ? " · With a reference" : ""}</span>
+              {!row.canApply && row.unlock?.text ? <span className="cr-chance" data-testid={`unlock-${row.n}`}>{row.unlock.text}</span> : null}
+            </p>
+            {!row.canApply && row.unlock ? (
+              <ChoiceButton primary={false} disabled={busy} testId={`unlock-link-${row.n}`} onClick={() => openUnlock(store, row, go)}>
+                {row.unlock.courseName ? `Open ${row.unlock.courseName}` : row.unlock.need === "health" ? "Open the clinic" : "Open what unlocks it"}
+              </ChoiceButton>
+            ) : (
+              <ChoiceButton
+                primary={!raisePrimary && !quitOpen && !picked && !pending && firstApply?.n === row.n}
+                disabled={busy || !!pending || !row.canApply}
+                testId={`apply-${row.n}`}
+                onClick={() => void apply(row.n)}
+              >
+                Apply
+              </ChoiceButton>
+            )}
           </div>
         ))}
       </section>

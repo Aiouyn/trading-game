@@ -41,6 +41,7 @@ export interface CareerApi {
   schoolFromSkill(skill: number): number;
   setSkill(w: World, i: number, next: number): void;
   seatFor(w: World, f: Firm, person: number): number;
+  reachSeat?(w: World, f: Firm, person: number): number;
   place(w: World, person: number, f: Firm, occ: number, cause: number): void;
 }
 
@@ -317,13 +318,22 @@ function openings(w: World, person: number): Opening[] {
     const gap = Math.max(firmGap(w, f), seats);
     const occ = api.seatFor(w, f, person);
     const cmp = compare(w, person, f, occ, gap);
-    rows.push({
-      n: 0, firm: f.idx, name: f.name, sector: f.sector, occ, role: roleTitle(f.sector, occ), gap: seats,
-      wage: weekly(w, person, f.idx, occ),
-      askExp: cmp.askExp, askSchool: cmp.askSchool, askHealth: cmp.askHealth,
-      youExp: cmp.youExp, youSchool: cmp.youSchool, youHealth: cmp.youHealth,
-      taken: cmp.taken, note: cmp.note, better: cmp.better, pool: cmp.pool, score: cmp.score, unlock: cmp.unlock,
-    });
+    const push = (seat: number, row: typeof cmp): void => {
+      rows.push({
+        n: 0, firm: f.idx, name: f.name, sector: f.sector, occ: seat, role: roleTitle(f.sector, seat), gap: seats,
+        wage: weekly(w, person, f.idx, seat),
+        askExp: row.askExp, askSchool: row.askSchool, askHealth: row.askHealth,
+        youExp: row.youExp, youSchool: row.youSchool, youHealth: row.youHealth,
+        taken: row.taken, note: row.note, better: row.better, pool: row.pool, score: row.score, unlock: row.unlock,
+      });
+    };
+    push(occ, cmp);
+    // The seat the firm is actually short of, when that is above what you can walk into.
+    const reach = api.reachSeat ? api.reachSeat(w, f, person) : occ;
+    if (reach !== occ) {
+      const above = compare(w, person, f, reach, gap);
+      if (!above.taken && above.unlock) push(reach, above);
+    }
   }
   // A stable order: what you can take first, then by firm name, so the list does not reshuffle from one morning to the next.
   rows.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || a.firm - b.firm);
@@ -375,7 +385,7 @@ export function workView(w: World, person: number): Record<string, unknown> {
   const st = book(w);
   const offers = (st.offers ?? []).filter((o) => o.person === person && (o.status === 'open' || o.status === 'accepted' || w.day - o.day <= 14)).map((o) => ({
     id: o.id, firm: s.firms[o.firm]?.name ?? 'a firm', firmId: s.firms[o.firm]?.id ?? '', role: o.role, wage: o.wage,
-    start: o.start, startDate: dateText(o.start), startTime: hhmm(shiftStartMin(w, { firm: o.firm, occ: o.occ, person })), expires: o.expires, expiresDate: dateText(o.expires),
+    start: o.start, startDate: dateText(o.start), startTime: hhmm(shiftStartMin(w, { firm: o.firm, occ: o.occ })), expires: o.expires, expiresDate: dateText(o.expires),
     status: o.status, why: o.why, from: o.from, fromName: o.from >= 0 && o.from < P.n ? P.name(o.from) : '', via: o.via,
     viaName: o.via >= 0 && o.via < P.n ? P.name(o.via) : '', eventId: o.ev, note: o.note,
     actions: o.status === 'open' ? [{ label: 'Accept', kind: 'offer', id: o.id, answer: 'accept' }, { label: 'Decline', kind: 'offer', id: o.id, answer: 'decline' }] : [],

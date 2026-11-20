@@ -4,7 +4,7 @@
 // This view does not mount the WebGL city.
 import "@city-e2e-seam";
 import { useEffect, useRef, useState } from "react";
-import { useShell } from "@/components/shell/ShellContext";
+import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { dollars, explain, useSimSnap, type ExplainLine } from "@/shell/simSession";
 import { gameDate, presentNote } from "@/components/ui/format";
@@ -102,6 +102,7 @@ function placeWord(p: ParcelRow): string {
 
 export default function DistrictView() {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
+  const store = useShellStore();
   const tick = useSimSnap().view?.date.abs;
   const [sel, setSel] = useState(FIRST_DISTRICT);
   const [picked, setPicked] = useState(false);
@@ -237,8 +238,9 @@ export default function DistrictView() {
             </li>
           ))}
         </ul>
+        <button type="button" className="dv-more" data-testid="more-homes" onClick={() => store.getState().open("property")}>More homes</button>
         {homes.length > page ? (
-          <button type="button" className="dv-more" onClick={() => setPage((n) => n + PAGE)}>More homes</button>
+          <button type="button" className="dv-more" onClick={() => setPage((n) => n + PAGE)}>More parcels</button>
         ) : null}
         {!panel ? null : plants.length + homes.length === 0 ? <p className="muted">No parcel in this district.</p> : null}
 
@@ -246,6 +248,9 @@ export default function DistrictView() {
         {detail ? (
           <div className="dv-detail" data-testid="city-detail" aria-live="polite">
             <h3>{detail.firm?.name || (detail.kind === "plant" ? "Plant" : "Home")}</h3>
+            {detail.live ? (
+              <button type="button" className="dv-more" data-testid="home-card" onClick={() => store.getState().open("property")}>Home & property</button>
+            ) : null}
             <p>Owned by <b title={detail.price !== undefined ? dollars(detail.price) : undefined}><EntityText text={ownerOf(detail)} /></b></p>
             <p>{detail.live ? "You live here. " : ""}Lives here: <EntityText text={livesOf(detail)} /></p>
             {detail.firm?.name ? <p>The firm <EntityText text={detail.firm.name} /></p> : null}

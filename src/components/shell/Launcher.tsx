@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { prefersCommand, search, type LauncherItem, type SearchDir } from "@/shell/launcher";
 import { actLine, useSimSnap } from "@/shell/simSession";
 import { APP_NAMES, GROUP_LABELS, S } from "@/shell/strings";
@@ -17,13 +17,39 @@ export function Launcher() {
   const recent = useShell((s) => s.recent);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
+  const box = useRef<HTMLInputElement>(null);
   const view = useSimSnap().view;
   const dir = useMemo<SearchDir | undefined>(() => {
     if (!view) return undefined;
     const quotes = view.quotes ?? [];
+    type Contact = { name: string; word?: string; line?: string; who?: number; role?: string; job?: string };
+    const contacts = (view.contacts ?? []) as Contact[];
+    const powerful = ((view.society as { powerful?: { person?: number; name?: string; role?: string }[] } | undefined)?.powerful ?? []);
+    const people: SearchDir["people"] = [];
+    const seen = new Set<number>();
+    for (const c of contacts) {
+      if (!c.name) continue;
+      if (typeof c.who === "number") seen.add(c.who);
+      const job = c.job ?? "";
+      const firm = job.startsWith("runs ") ? job.slice(5) : job.startsWith("works at ") ? job.slice(9) : "";
+      people.push({ name: c.name, word: c.word, line: c.line, role: c.role, job, firm, who: c.who });
+    }
+    for (const p of powerful) {
+      if (!p.name || typeof p.person !== "number") continue;
+      const firm = / of (.+)$/.exec(p.role ?? "")?.[1] ?? "";
+      const hit = people.find((x) => x.who === p.person);
+      if (hit) {
+        if (p.role) hit.role = p.role;
+        if (firm && !hit.firm) hit.firm = firm;
+        continue;
+      }
+      if (seen.has(p.person)) continue;
+      seen.add(p.person);
+      people.push({ name: p.name, role: p.role, firm, line: p.role, who: p.person });
+    }
     return {
       tickers: quotes.filter((x) => x.symbol).slice(0, 80).map((x) => ({ symbol: x.symbol as string, name: x.name || x.symbol as string })),
-      people: (view.contacts ?? []).filter((c) => c.name).map((c) => ({ name: c.name, word: c.word, line: c.line })),
+      people,
       firms: (view.firms ?? []).map((f) => ({
         id: f.id,
         name: f.name,
@@ -45,6 +71,16 @@ export function Launcher() {
   useEffect(() => {
     return () => { if (prev && prev.isConnected && prev !== document.body) prev.focus(); };
   }, [prev]);
+  // The click that opens the box focuses that button after mount. Take the field back.
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const grab = () => { if (document.activeElement !== el) el.focus(); };
+    grab();
+    const frame = requestAnimationFrame(grab);
+    const soon = window.setTimeout(grab, 30);
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(soon); };
+  }, []);
 
   const choose = (it: LauncherItem | undefined) => {
     if (!it) return;
@@ -75,7 +111,9 @@ export function Launcher() {
           </div>
         )}
         <input
+          ref={box}
           autoFocus
+          data-testid="launcher-input"
           role="combobox"
           aria-expanded="true"
           aria-controls="launcher-list"
@@ -104,7 +142,7 @@ export function Launcher() {
                   className={items[sel] === it ? "sel" : ""}
                   onClick={() => choose(it)}
                 >
-                  {it.label}
+                  {it.label}{it.detail ? <span className="muted"> · {it.detail}</span> : null}
                 </div>
               ))}
             </div>

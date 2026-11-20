@@ -107,6 +107,7 @@ export function Person({ index, contact, firms, homes, knows, onPick, onBack }: 
   const [page, setPage] = useState<PersonPage | null>(null);
   const [miss, setMiss] = useState(false);
   const [place, setPlace] = useState("dinner");
+  const [quote, setQuote] = useState("");
   const [amount, setAmount] = useState("100.00");
   const [firm, setFirm] = useState(firms[0]?.id ?? "");
   const stamp = `${contact?.bond.word ?? ""}:${contact?.together.length ?? 0}:${contact?.slot ?? -1}`;
@@ -140,9 +141,12 @@ export function Person({ index, contact, firms, homes, knows, onPick, onBack }: 
   const cents = Math.round(Number(amount) * 100);
   const amountOk = Number.isFinite(cents) && cents >= 1;
   const reach = slot >= 0;
-  const work = page?.employer
-    ? `${page.title || "On the staff"} at ${page.employer.name}${page.good ? `, ${page.good}` : ""}`
-    : (page?.title || "The books do not say where they work.");
+  const job = contact?.job || "";
+  const oneRole = job
+    ? job.charAt(0).toUpperCase() + job.slice(1)
+    : page?.employer
+      ? `${page.title || "On the staff"} at ${page.employer.name}`
+      : (page?.title || roleWord(role, stance));
 
   return (
     <section className="peo-person" data-testid="person" aria-label={name}>
@@ -151,7 +155,7 @@ export function Person({ index, contact, firms, homes, knows, onPick, onBack }: 
         <span className="avatar" data-role={role}>{initial(name)}</span>
         <div className="peo-row-text">
           <h2>{name}</h2>
-          <p className="peo-muted">{roleWord(role, stance)}{word ? ` · ${word}` : ""}</p>
+          <p className="peo-muted" data-testid="person-role">{oneRole}{word ? ` · ${word}` : ""}</p>
         </div>
       </header>
       <div className="peo-scroll">
@@ -214,8 +218,8 @@ export function Person({ index, contact, firms, homes, knows, onPick, onBack }: 
           {page?.moodWord ? <p className="peo-muted">{page.moodWord}</p> : null}
         </div>
         <div className="peo-block">
-          <h3>Where they work</h3>
-          <p>{work}</p>
+          <h3>What you can do</h3>
+          <p className="peo-muted">{reach ? "You can write, invite, or ask." : "You cannot reach them yet."}</p>
         </div>
         <div className="peo-acts">
           <Button variant="primary" data-testid="person-message" disabled={!reach && !contact} onClick={() => store.getState().open("messages", `who:${index}`)}>
@@ -231,9 +235,20 @@ export function Person({ index, contact, firms, homes, knows, onPick, onBack }: 
             </select>
           </label>
           <div className="peo-act-row">
-            <Button variant="secondary" disabled={busy || !reach} data-testid="person-invite" onClick={() => void go({ kind: "invite", slot, place })}>
+            <Button variant="secondary" disabled={busy || !reach} data-testid="person-invite" onClick={() => {
+              setQuote("");
+              void go({ kind: "invite", slot, place, who: index }).then((n) => { if (n.ok) setQuote(n.text); });
+            }}>
               {busy ? "Sending…" : "Invite"}
             </Button>
+            {quote ? (
+              <div data-testid="invite-quote">
+                <p>{quote}</p>
+                <Button variant="primary" disabled={busy} data-testid="invite-confirm" onClick={() => {
+                  void go({ kind: "invite", slot, place, who: index, confirm: true }).then((n) => { if (n.ok) setQuote(""); });
+                }}>{busy ? "Booking…" : "Confirm and book"}</Button>
+              </div>
+            ) : null}
             <Button variant="secondary" disabled={busy || !reach} data-testid="person-introduce" onClick={() => void go({ kind: "introduce", slot })}>
               {busy ? "Sending…" : "Ask for an introduction"}
             </Button>

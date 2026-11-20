@@ -1,6 +1,6 @@
 "use client";
 // You, as a person: the six stats, the choices, and the chronicle.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ResidenceDetails } from "@/apps/property/App";
 import { useShellStore } from "@/components/shell/ShellContext";
 import { gameDate, presentNote } from "@/components/ui/format";
@@ -10,6 +10,33 @@ import {
 import "./life.css";
 
 const ORDER = ["holiday", "clinic", "overtime", "donate", "lawyer"];
+
+function CoinRecord() {
+  const [dev, setDev] = useState<{ word: string; line: string; following: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void fetch("/api/sim/coins", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: unknown) => {
+        if (!live || !j || typeof j !== "object") return;
+        const d = (j as { dev?: { word?: string; line?: string; following?: number } }).dev;
+        if (d && typeof d.word === "string" && typeof d.line === "string") {
+          setDev({ word: d.word, line: d.line, following: typeof d.following === "number" ? d.following : 0 });
+        }
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  if (!dev) return null;
+  return (
+    <section className="qy-block" data-testid="profile-dev">
+      <h3>Your coins</h3>
+      <p data-testid="lp-dev-word">{dev.word}</p>
+      <p>{dev.line}</p>
+      <p>{dev.following} {dev.following === 1 ? "person holds" : "people hold"} your live coins.</p>
+    </section>
+  );
+}
 
 export default function ProfileApp() {
   const store = useShellStore();
@@ -41,10 +68,13 @@ export default function ProfileApp() {
       </header>
       <Result note={note} />
       <section className="qy-block">
-        <h3>Your home</h3>
+        <h3>
+          <button type="button" className="name-link" data-testid="home-card" onClick={() => store.getState().open("property")}>Your home</button>
+        </h3>
         <ResidenceDetails home={life.residence} />
         <ChoiceButton primary={false} disabled={false} testId="browse-homes" onClick={() => store.getState().open("property")}>Browse homes</ChoiceButton>
       </section>
+      <CoinRecord />
       {background ? (
         <section className="qy-block" data-testid="profile-background">
           <h3>Background and skills</h3>

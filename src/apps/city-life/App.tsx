@@ -166,7 +166,7 @@ export default function CityLifeApp() {
                     <ChoiceButton primary={false} disabled={busy} testId={`approach-${f.n}`} onClick={() => {
                       if (transcript[f.n]?.length) setTalking(f.n);
                       else void talk(f.n);
-                    }}>{f.exchanges ? "Talk again" : "Introduce yourself"}</ChoiceButton>
+                    }}>{f.exchanges || transcript[f.n]?.length ? "Talk again" : "Introduce yourself"}</ChoiceButton>
                   </article>
                 ))}
               </div>
@@ -202,7 +202,7 @@ export default function CityLifeApp() {
                 <span>{p.name}</span>
                 <span className="cl-word">{p.word}</span>
               </button>
-              <p className="qy-muted">{p.name} {p.job}. {p.how.replace(/^met at/, "Met at")}, {p.met === 1 ? "once" : `${p.met} times`}.{p.line.includes(";") ? ` ${p.line.slice(p.line.indexOf(";") + 2)}.` : ""}</p>
+              <p className="qy-muted" data-testid="known-line">{p.job ? p.job.charAt(0).toUpperCase() + p.job.slice(1) : "No role on the book"}{p.word ? ` · ${p.word}` : ""}. {p.how ? `${p.how.charAt(0).toUpperCase()}${p.how.slice(1)}, ` : ""}{p.met === 1 ? "once" : `${p.met} times`}.</p>
               {open === p.n ? (
                 <div className="cl-acts">
                   <ChoiceButton primary={false} disabled={busy} testId={`shop-${p.n}`} onClick={() => void say(`business ${p.n}`)}>Talk shop</ChoiceButton>

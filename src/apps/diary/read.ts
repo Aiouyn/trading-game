@@ -62,6 +62,16 @@ export function kindWord(kind: string): string {
   return KIND[kind] ?? (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : "A plan");
 }
 
+/** What the chip is, and what you get from going. */
+export function chipLine(plan: DiaryPlan): string {
+  const what = plan.kind === "deal"
+    ? (plan.reason || plan.title || "A seat at the table, and what you hear there")
+    : (plan.title || plan.reason || kindWord(plan.kind));
+  const cost = costOnce(plan);
+  const head = plan.kind === "deal" ? "A deal" : kindWord(plan.kind);
+  return [head, what !== head ? what : "", cost].filter(Boolean).join(" · ");
+}
+
 export function cleanTitle(title: string): string {
   return title
     .replace(/\s*You are invited\.?/g, "")

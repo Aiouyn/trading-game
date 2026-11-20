@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Chip } from "@/components/ui/Chip";
 import { LPS } from "./strings";
-import { agoText, clockText, dateText, pctText, perToken, qty, tickerHash, usd, usdWhole, type Coin, type Rug, type TapeRow } from "./model";
+import { agoText, clockText, dateText, pctText, perToken, qty, tickerHash, usd, usdWhole, type Coin, type DevRecord, type Rug, type TapeRow } from "./model";
 
 const INKS = ["--gain", "--loss", "--info", "--warn", "--steel", "--acc"] as const;
 const SHAPES = ["circle", "square", "diamond", "hex"] as const;
@@ -83,6 +83,69 @@ export function KingBanner({ king, now, onOpen }: { king: Coin | null; now: numb
       <Change ratio={king.h1} />
       <span className="lpad-faint lpad-king-age">{LPS.launchedAgo(agoText(king.bornAbs, now))}</span>
     </button>
+  );
+}
+
+/** The player's own record as a launcher: what they shipped, what they dumped, who follows the next one. */
+export function DevCard({ dev }: { dev: DevRecord | undefined }) {
+  if (!dev) return null;
+  return (
+    <section className="lpad-dev" data-testid="lp-dev">
+      <span className="lpad-kicker">Your record</span>
+      <b data-testid="lp-dev-word">{dev.word}</b>
+      <p className="lpad-sub" data-testid="lp-dev-line">{dev.line}</p>
+      <p className="lpad-faint" data-testid="lp-dev-following">{`${dev.following} following · ${dev.launches} launched · ${dev.dumps} ${dev.dumps === 1 ? "dump" : "dumps"}`}</p>
+    </section>
+  );
+}
+
+export interface HeldNote { title: string; text: string; id?: string; ticker?: string; rug?: boolean }
+
+/** Notices the sim already wrote for coins this player holds: rugs, delistings, big moves. */
+export function heldNotes(view: { notices?: unknown }, held: Readonly<Record<string, number>>, board: readonly Coin[], rugs: readonly Rug[]): HeldNote[] {
+  const owned = new Set(board.filter((c) => (held[c.id] ?? 0) > 0).map((c) => c.ticker));
+  for (const r of rugs) if ((held[r.id] ?? 0) > 0) owned.add(r.ticker);
+  const out: HeldNote[] = [];
+  const raw = view.notices;
+  if (Array.isArray(raw)) {
+    for (const row of raw) {
+      if (!row || typeof row !== "object") continue;
+      const n = row as { kind?: string; title?: string; text?: string; reason?: string };
+      if (n.kind !== "coin" || !n.title) continue;
+      const blob = `${n.title} ${n.text ?? ""} ${n.reason ?? ""}`;
+      const coin = board.find((c) => blob.includes(c.ticker));
+      const holds = /you hold/i.test(n.reason ?? "") || (coin ? owned.has(coin.ticker) : false);
+      if (!holds) continue;
+      out.push({ title: n.title, text: n.text ?? "", id: coin?.id, ticker: coin?.ticker, rug: /rug/i.test(n.title) });
+    }
+  }
+  for (const r of rugs) {
+    if ((held[r.id] ?? 0) < 1) continue;
+    if (out.some((n) => n.ticker === r.ticker && n.rug)) continue;
+    out.push({ title: `${r.ticker} was rugged`, text: `${r.creatorName} pulled ${r.name}.`, id: r.id, ticker: r.ticker, rug: true });
+  }
+  return out.slice(0, 4);
+}
+
+/** Rugs, delistings and big moves of coins in hand. */
+export function HeldNotices({ notes, onOpen }: { notes: HeldNote[]; onOpen: (id: string) => void }) {
+  if (!notes.length) return null;
+  return (
+    <div className="lpad-rugs" data-testid="lp-held-notices">
+      {notes.map((n) => (
+        <button
+          key={`${n.ticker ?? ""}:${n.title}`}
+          type="button"
+          className="lpad-rug"
+          data-testid={n.rug ? "rug-notice" : "lp-held-notice"}
+          data-ticker={n.ticker}
+          onClick={() => { if (n.id) onOpen(n.id); }}
+        >
+          <Chip tone={n.rug ? "loss" : "warn"}>{n.rug ? "Rug" : "Your coin"}</Chip>
+          <span className="lpad-rug-text">{n.title}. {n.text}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 

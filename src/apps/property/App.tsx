@@ -29,9 +29,17 @@ function desire(d: District): string {
 }
 function fabric(h: { condition?: number }): string {
   const c = h.condition ?? 0;
+  if (c < 25) return "Worn through";
   if (c < 40) return "Worn";
-  if (c < 75) return "Fair";
-  return "Sound";
+  if (c < 55) return "Tired";
+  if (c < 70) return "Fair";
+  if (c < 85) return "Sound";
+  return "Fresh";
+}
+function rooms(size: number): string {
+  const n = size || 0;
+  if (n <= 1) return "1 room";
+  return `${n} rooms`;
 }
 
 export function ResidenceDetails({ home }: { home: Residence | null | undefined }) {
@@ -60,15 +68,9 @@ export default function PropertyApp() {
   const homes = panel.data?.homes ?? [];
   const districts = panel.data?.districts ?? [];
   const forSale = homes.filter((h) => !h.mine && !h.live);
-  const rentals = (() => {
-    const groups = new Map<string, RentalRow & { count: number }>();
-    for (const r of panel.data?.rentals ?? []) {
-      const key = [r.neighbourhood, r.rent, r.size, fabric(r)].join("|");
-      const seen = groups.get(key);
-      if (seen) seen.count += 1; else groups.set(key, { ...r, count: 1 });
-    }
-    return [...groups.values()].sort((a, b) => a.rent - b.rent || a.neighbourhood.localeCompare(b.neighbourhood));
-  })();
+  const rentals = [...(panel.data?.rentals ?? [])].sort((a, b) => a.rent - b.rent || b.size - a.size || a.id - b.id);
+  const [viewing, setViewing] = useState<number | null>(null);
+  const [confirmId, setConfirmId] = useState<number | null>(null);
   const nowRent = panel.data?.current?.rent ?? 0;
   const mine = homes.filter((h) => h.mine);
   const home = homes.find((h) => h.id === id) ?? null;
@@ -104,13 +106,34 @@ export default function PropertyApp() {
           <h2 className="qa-title">Homes to rent</h2>
           {rentals.length ? (
             <div className="qa-list">
-              {rentals.map((h) => (
-                <div className="qa-row" key={h.id} data-testid="rental-listing">
-                  <span className="qa-row-main"><strong>{h.neighbourhood}</strong> <span className="qa-muted">· {districts.find((d) => d.name === h.neighbourhood) ? place(districts.find((d) => d.name === h.neighbourhood)!) + " · " : ""}{fabric(h)} · {h.size <= 2 ? "Small" : h.size <= 4 ? "Mid-size" : "Large"}{h.count > 1 ? ` · ${h.count} available` : ""}</span></span>
-                  <span className="num">{moneyTitle(h.rent)} / month{nowRent && h.rent !== nowRent ? <span className="qa-muted"> · {moneyTitle(Math.abs(h.rent - nowRent))} {h.rent < nowRent ? "less" : "more"}</span> : null}</span>
-                  <Button size="sm" variant="secondary" disabled={busy} data-testid="rent-home" onClick={() => void send({ kind: "rentHome", id: h.id })}>Rent and move in</Button>
-                </div>
-              ))}
+              {rentals.map((h) => {
+                const district = districts.find((d) => d.name === h.neighbourhood);
+                const open = viewing === h.id;
+                return (
+                  <div className="qa-row qa-rent" key={h.id} data-testid="rental-listing" data-id={h.id}>
+                    <span className="qa-row-main">
+                      <strong>{h.neighbourhood}</strong>
+                      <span className="qa-muted"> · {district ? `${place(district)} · ` : ""}{rooms(h.size)} · {fabric(h)} · condition {h.condition}{h.light ? ` · ${h.light}` : ""}{h.noise ? ` · ${h.noise}` : ""}</span>
+                    </span>
+                    <span className="num">{moneyTitle(h.rent)} / month{nowRent && h.rent !== nowRent ? <span className="qa-muted"> · {moneyTitle(Math.abs(h.rent - nowRent))} {h.rent < nowRent ? "less" : "more"}</span> : null}</span>
+                    <Button size="sm" variant="secondary" disabled={busy} data-testid="rent-view" onClick={() => { setViewing(h.id); setConfirmId(null); }}>View</Button>
+                    {open ? (
+                      <div className="qa-block" data-testid="rent-viewing">
+                        <p>{h.neighbourhood}. {rooms(h.size)}. {fabric(h)}, condition {h.condition}.{h.light ? ` ${h.light}.` : ""}{h.noise ? ` ${h.noise}.` : ""}</p>
+                        <p>Rent {moneyTitle(h.rent)} a month. Deposit {h.deposit ? `${moneyTitle(h.deposit)}${h.landlord ? ` to ${h.landlord}` : ""}` : "none"}. Moving {h.moving ? `${moneyTitle(h.moving)}${h.mover ? ` to ${h.mover}` : ""}` : "no haulier quoted a price"}.</p>
+                        {confirmId === h.id ? (
+                          <div data-testid="rent-confirm">
+                            <p>Confirm the move. The deposit and the moving bill leave your cash, then you take the home.</p>
+                            <Button size="sm" variant="primary" disabled={busy} data-testid="rent-home" onClick={() => void send({ kind: "rentHome", id: h.id, confirm: true }).then(() => { setViewing(null); setConfirmId(null); })}>{busy ? "Moving…" : "Confirm and move"}</Button>
+                          </div>
+                        ) : (
+                          <Button size="sm" variant="primary" disabled={busy} data-testid="rent-ask" onClick={() => setConfirmId(h.id)}>Take these terms</Button>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : <p className="qa-empty">No vacant rentals today.</p>}
         </div>

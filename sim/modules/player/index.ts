@@ -19,7 +19,7 @@ import { futKey, sayFill, syncBasis, type BasisBook } from './basis.ts';
 import { amendOrder, attachLegs, cancelAny, nextOpenText, placeShareOrder, placeStop, runStops, settleCovers, shareSession, shortMark, shortSell, shortsDay, stopRows, tendBrackets, tendProtect, type Bracket, type DeskNote, type StockLoan, type Stop } from './trading.ts';
 import { speak } from './desk.ts';
 import { matchOption, optionChain, optionWhy, tradeOption, type OptRow } from '../options/index.ts';
-import { bidHome, homeBoard, letHome, mortgageHome, moveHome, rentHome, sellHome, type HomeRow } from '../property/index.ts';
+import { bidHome, homeBoard, letHome, mortgageHome, moveHome, moveTerms, rentHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
 import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
@@ -174,7 +174,7 @@ export type Command =
   | { kind: 'homesell'; id: number }
   | { kind: 'let'; id: number; cents: number }
   | { kind: 'move'; id: number }
-  | { kind: 'rentHome'; id: number }
+  | { kind: 'rentHome'; id: number; confirm?: boolean }
   | { kind: 'mortgage'; id: number; cents: number }
   | { kind: 'tip'; fact: number }
   | { kind: 'report'; slot: number; text: string }
@@ -2389,10 +2389,34 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', eventId: ev, text: articles(got.text) };
     }
     case 'rentHome': {
+      const terms = moveTerms(w, cmd.id);
+      if ('why' in terms) return rejected(terms.why);
+      if (!cmd.confirm) return { status: 'accepted', text: terms.quote };
+      const me = P.id(i);
+      const need = terms.deposit + terms.moving;
+      if (need > 0 && Math.floor(w.ledger.balance(me, DEP)) < need) return rejected(`the deposit and the move come to ${dollars(need)} and you do not hold that`);
+      const cause = causeOf(w, st);
+      const lines: string[] = [];
+      const refund = () => {
+        if (terms.deposit > 0 && terms.landlordId) pay(w, terms.landlordId, me, terms.deposit, 'rent.deposit', cause);
+        if (terms.moving > 0 && terms.moverId) pay(w, terms.moverId, me, terms.moving, 'rent.move', cause);
+      };
+      if (terms.deposit > 0 && terms.landlordId) {
+        if (!pay(w, me, terms.landlordId, terms.deposit, 'rent.deposit', cause)) return rejected('the deposit did not clear');
+        lines.push(`Deposit ${dollars(terms.deposit)} to ${terms.landlord}`);
+      }
+      if (terms.moving > 0 && terms.moverId) {
+        if (!pay(w, me, terms.moverId, terms.moving, 'rent.move', cause)) {
+          if (terms.deposit > 0 && terms.landlordId) pay(w, terms.landlordId, me, terms.deposit, 'rent.deposit', cause);
+          return rejected('the moving bill did not clear');
+        }
+        lines.push(`Moving ${dollars(terms.moving)} to ${terms.mover}`);
+      }
       const got = rentHome(w, i, cmd.id);
-      if ('why' in got) return rejected(got.why);
-      const ev = w.events.emit('player.home', `${P.name(i)} moves into a rental`, [causeOf(w, st)], id);
-      return { status: 'accepted', eventId: ev, text: got.text };
+      if ('why' in got) { refund(); return rejected(got.why); }
+      const ev = w.events.emit('player.home', `${P.name(i)} moves into a rental`, [cause], id);
+      lines.unshift(got.text);
+      return { status: 'accepted', eventId: ev, text: lines.join('. '), lines };
     }
     case 'move': {
       const got = moveHome(w, i, cmd.id);

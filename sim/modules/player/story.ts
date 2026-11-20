@@ -386,7 +386,7 @@ function effectOf(w: World, ev: Ev, c: Circle): string {
   const sub = hit?.phrase ?? '';
   if (ev.actor === c.pid || msg.startsWith(c.name)) {
     if (ev.kind === 'player.arrive') {
-      if (/holds no job/.test(msg)) return 'You hold no job';
+      if (/holds no job/.test(msg)) return c.employerName ? `You work at ${c.employerName}` : 'You hold no job';
       const at = /takes a job at (.+)$/.exec(msg);
       if (at) return `You take a job at ${at[1]}`;
       return `You take a job at ${c.employerName || 'a firm'}`;
@@ -456,7 +456,8 @@ function sentence(w: World, ev: Ev, c: Circle): string {
   const stated = statedCause(ev.msg);
   if (stated) return markBareDollars(`${effect}, because ${stated}.`);
   if (ev.kind === 'player.arrive') {
-    if (/holds no job/.test(ev.msg)) return `${effect}.`;
+    if (/holds no job/.test(ev.msg) && !c.employerName) return `${effect}.`;
+    if (/holds no job/.test(ev.msg) && c.employerName) return `You work at ${c.employerName}.`;
     const wage = dollars(econ(w).wage);
     return `${effect}, because the city wage is ${wage} a day and ${c.employerName || 'the firm'} had room on the line.`;
   }

@@ -1,16 +1,17 @@
 "use client";
 // The city's society: the rich list, the seats of power, this month's rises and falls, and the month.
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { AppBodyProps } from "@/shell/appModules";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { useSimSnap } from "@/shell/simSession";
 import { gameDate, moneyFromCents, MONTHS } from "@/components/ui/format";
 import { kindWord, parsePlans } from "@/apps/diary/read";
-import { Why } from "@/apps/profile/data";
+import { useAct, Why } from "@/apps/profile/data";
 import "@/apps/profile/life.css";
 import "@/components/ui/named.css";
 import {
-  chipText, doorsOf, linkFirms, monthDays, monthStories, opensLine, parseCalendar, parseSociety,
+  chipText, doorsOf, linkFirms, monthDays, monthStories, opensLine, parseCalendar, parseHosted, parseSociety, withHosted,
   powerGroups, rankWord, roleFirm,
   type CalDay, type FirmName, type PowerRow, type RichRow, type Story,
 } from "./read";
@@ -46,14 +47,19 @@ function changeOf(cents: number): { word: string; cls: string; money: string } {
   return { word: "Down", cls: "loss", money: moneyFromCents(cents) };
 }
 
-export default function SocietyApp() {
+export default function SocietyApp({ context }: AppBodyProps) {
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const view = useSimSnap().view;
   const store = useShellStore();
   const vis = useShell((s) => s.vis);
   const [pick, setPick] = useState<number | null>(null);
   const soc = parseSociety(view?.society);
-  const calendar = parseCalendar(view?.calendar);
+  const calendar = withHosted(parseCalendar(view?.calendar), parseHosted((view as { hosted?: unknown } | null)?.hosted));
+  useEffect(() => {
+    if (!context?.startsWith("day:")) return;
+    const n = Number(context.slice(4));
+    if (Number.isInteger(n)) setPick(n);
+  }, [context]);
   const firms = view?.firms ?? [];
 
   const openFirm = (id: string) => {
@@ -139,6 +145,8 @@ export default function SocietyApp() {
                   {w.text}{w.eventId >= 0 ? <> <Why id={w.eventId} /></> : null}
                 </p>
               ))}
+              <p data-testid="standing-next">{standing.next || opensLine(standing.score)}</p>
+              {standing.guestList ? <p>{standing.guestList}</p> : null}
               <p>{opensLine(standing.score)}</p>
               <DoorLine title="Will come" rows={doors.come} />
               <DoorLine title="Will not" rows={doors.stay} />
@@ -275,13 +283,26 @@ function StoryList({ title, rows }: { title: string; rows: Story[] }) {
 }
 
 function DayDetail({ day }: { day: CalDay }) {
+  const { note, busy, go } = useAct();
   if (!day.items.length && !day.closed) return null;
   return (
-    <div className="soc-pick">
+    <div className="soc-pick" data-testid="day-detail">
       {day.closed ? <p>The exchange is closed.</p> : null}
       {day.items.map((item, i) => (
-        <p key={`${item.kind}-${i}`}>{item.title}{item.eventId >= 0 ? <> <Why id={item.eventId} /></> : null}</p>
+        <article key={`${item.kind}-${i}`} data-testid="cal-event">
+          <p>{item.title}{item.eventId >= 0 ? <> <Why id={item.eventId} /></> : null}</p>
+          {item.place ? <p>Place · {item.place}{item.time ? ` at ${item.time}` : ""}</p> : null}
+          {item.guests?.length ? <p>Guests · {item.guests.map((g) => g.name).filter(Boolean).join(", ")}</p> : null}
+          {item.youIn !== undefined ? <p>{item.youIn ? "You are in." : "You are not in."}</p> : null}
+          {item.canJoin ? <p>{item.canJoin}</p> : null}
+          {item.youIn && item.kind.startsWith("hosted.") ? (
+            <button type="button" data-testid="open-scene" disabled={busy} onClick={() => void go({ kind: "out", op: "attend" })}>
+              {busy ? "Opening…" : "Open the evening"}
+            </button>
+          ) : null}
+        </article>
       ))}
+      {note ? <p>{note.text}</p> : null}
     </div>
   );
 }

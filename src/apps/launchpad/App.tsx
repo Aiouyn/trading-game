@@ -9,7 +9,7 @@ import { retryableLazy } from "@/components/shell/retryableLazy";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { act, useSimSnap, type SimView } from "@/shell/simSession";
-import { BoardCard, Change, KingBanner, RugAlert, Status, TokenIcon, TradesBar, useFlash } from "./Board";
+import { BoardCard, Change, DevCard, HeldNotices, heldNotes, KingBanner, RugAlert, Status, TokenIcon, TradesBar, useFlash } from "./Board";
 import type { CoinTf } from "./CoinCandles";
 import {
   DEFAULT_SORT, FEEDS, agoText, buyDetail, clockText, dateText, feedOf, kingOf, launchPreview, perToken, pctText, qty, quoteSell, sellDetail, tokensForCents, usd, usdWhole, whenText,
@@ -87,7 +87,27 @@ function Rules() {
   );
 }
 
+function useCoinNotices(): unknown {
+  const [notes, setNotes] = useState<unknown>(undefined);
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const beat = async () => {
+      try {
+        const res = await fetch("/api/sim/view", { cache: "no-store" });
+        const j: unknown = res.ok ? await res.json() : null;
+        if (live && j && typeof j === "object") setNotes((j as { notices?: unknown }).notices);
+      } catch { /* the next beat tries again */ }
+      if (live) timer = setTimeout(() => { void beat(); }, 2000);
+    };
+    void beat();
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, []);
+  return notes;
+}
+
 function Board({ view, lp, data, onOpen }: { view: SimView; lp: LpRead; data: LpData; onOpen: (id: string) => void }) {
+  const notices = useCoinNotices();
   const [tab, setTab] = useState<Feed | "create">("new");
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT.new);
   const [q, setQ] = useState("");
@@ -110,6 +130,8 @@ function Board({ view, lp, data, onOpen }: { view: SimView; lp: LpRead; data: Lp
           <div><span className="lpad-kicker">{LPS.gameClock}</span><span className="num" data-testid="lp-clock">{`${dateText(Math.floor(data.now / 1440))} ${clockText(data.now)}`}</span></div>
         </div>
       </div>
+      <DevCard dev={data.dev} />
+      <HeldNotices notes={heldNotes({ notices: notices ?? (view as { notices?: unknown }).notices }, held, coins, data.rugs)} onOpen={onOpen} />
       <RugAlert rugs={data.rugs} now={data.now} onOpen={onOpen} />
       <KingBanner king={kingOf(coins)} now={data.now} onOpen={onOpen} />
       <TradesBar rows={data.tape} onOpen={onOpen} />
@@ -254,6 +276,7 @@ function CoinPageView({ view, lp, data, id, onBack }: { view: SimView; lp: LpRea
             {page?.desc ? <p className="lpad-desc" data-testid="lp-desc-text">{page.desc}</p> : null}
           </div>
         </div>
+        {coin.mine ? <DevCard dev={data.dev} /> : null}
         {coin.rugged ? (
           <p className="lpad-banner" data-kind="rug" data-testid="lp-page-rug">{`${LPS.ruggedLine(coin.mine ? LPS.barYou : coin.creatorName, usd(coin.rugCash))} ${agoText(coin.endAbs, now)}. Holders cannot sell.`}</p>
         ) : !coin.live ? (

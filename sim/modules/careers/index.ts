@@ -260,6 +260,11 @@ function seatFor(w: World, f: Firm, person: number): number {
   return pickOcc(w, f, person, school);
 }
 
+/** The seat a fully schooled hire would be put in: the gap the firm is actually short of. */
+function reachSeat(w: World, f: Firm, person: number): number {
+  return pickOcc(w, f, person, 18);
+}
+
 /** Move the player onto a firm that is hiring, then give them the seat they applied for. */
 function place(w: World, person: number, f: Firm, occ: number, cause: number): void {
   const s = econ(w), P = s.P;
@@ -564,6 +569,7 @@ bindJobs({
   schoolFromSkill,
   setSkill,
   seatFor,
+  reachSeat,
   place,
 });
 setCareerCommands(handleCareer);

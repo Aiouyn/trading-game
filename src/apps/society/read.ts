@@ -39,6 +39,8 @@ export interface Standing {
   line: string;
   whys: StandingWhy[];
   eventId: number;
+  next: string;
+  guestList: string;
 }
 export interface Story {
   day: number;
@@ -58,7 +60,28 @@ export interface Society {
   stories: Story[];
   marketsOpen: boolean;
 }
-export interface CalItem { kind: string; title: string; eventId: number }
+export interface CalGuest { who: number; name: string }
+export interface CalItem {
+  kind: string;
+  title: string;
+  eventId: number;
+  place?: string;
+  time?: string;
+  guests?: CalGuest[];
+  youIn?: boolean;
+  canJoin?: string;
+}
+export interface HostedRow {
+  id: number;
+  kind: string;
+  place: string;
+  day: number;
+  time: string;
+  cents: number;
+  status: string;
+  eventId: number;
+  guests: CalGuest[];
+}
 export interface CalDay {
   day: number;
   year: number;
@@ -141,6 +164,8 @@ export function parseSociety(raw: unknown): Society | null {
     word: str(st.word) || "Thin",
     line: str(st.line),
     eventId: num(st.eventId, -1),
+    next: str(st.next),
+    guestList: str(st.guestList),
     whys: Array.isArray(st.whys) ? st.whys.flatMap((row) => {
       const w = rec(row);
       if (!w) return [];
@@ -180,7 +205,16 @@ export function parseCalendar(raw: unknown): CalDay[] | null {
       items: Array.isArray(r.items) ? r.items.flatMap((it) => {
         const x = rec(it);
         if (!x) return [];
-        const line: CalItem = { kind: str(x.kind), title: str(x.title), eventId: num(x.eventId, -1) };
+        const guests = Array.isArray(x.guests) ? x.guests.flatMap((g) => {
+          const row = rec(g);
+          if (!row || typeof row.who !== "number") return [];
+          return [{ who: row.who, name: str(row.name) }];
+        }) : undefined;
+        const line: CalItem = {
+          kind: str(x.kind), title: str(x.title), eventId: num(x.eventId, -1),
+          place: str(x.place) || undefined, time: str(x.time) || undefined, guests, youIn: x.youIn === true,
+          canJoin: str(x.canJoin) || undefined,
+        };
         return [line];
       }) : [],
     };
@@ -236,6 +270,45 @@ function stamp(day: number, plan: { closed: boolean; items: { kind: string; titl
   };
 }
 
+export function parseHosted(raw: unknown): HostedRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row) => {
+    const r = rec(row);
+    if (!r || typeof r.day !== "number") return [];
+    const guests = Array.isArray(r.guests) ? r.guests.flatMap((g) => {
+      const x = rec(g);
+      if (!x || typeof x.who !== "number") return [];
+      return [{ who: x.who, name: str(x.name) }];
+    }) : [];
+    return [{
+      id: num(r.id), kind: str(r.kind) || "dinner", place: str(r.place), day: r.day, time: str(r.time),
+      cents: num(r.cents), status: str(r.status), eventId: num(r.eventId, -1), guests,
+    }];
+  });
+}
+
+/** Booked evenings the server calendar does not already list. */
+export function withHosted(days: CalDay[] | null, hosted: HostedRow[]): CalDay[] | null {
+  if (!hosted.length) return days;
+  const out = (days ?? []).map((d) => ({ ...d, items: d.items.slice() }));
+  for (const h of hosted) {
+    if (h.status === "gone") continue;
+    const title = `Your ${h.kind === "gala" ? "gala" : "dinner"} at ${h.place}`;
+    let day = out.find((d) => d.day === h.day);
+    // The server calendar is the next 60 days of market events. A booking on a quiet day still belongs on the grid.
+    if (!day) {
+      day = { day: h.day, year: 0, month: 0, date: 0, closed: false, items: [] };
+      out.push(day);
+    }
+    if (day.items.some((it) => it.title === title)) continue;
+    day.items.push({
+      kind: `hosted.${h.kind}`, title, eventId: h.eventId, place: h.place, time: h.time,
+      guests: h.guests, youIn: true, canJoin: "You booked it. It opens as a scene at the hour.",
+    });
+  }
+  return out;
+}
+
 /** The calendar month the day falls in, one row a day: 28 to 31 of them. */
 export function monthDays(abs: number, calendar: CalDay[] | null): CalDay[] {
   const start = monthStartDay(abs);
@@ -248,7 +321,13 @@ export function monthDays(abs: number, calendar: CalDay[] | null): CalDay[] {
     const server = by.get(day);
     const ids = server ? server.items.map((it) => it.eventId) : [];
     const row = stamp(day, plan, ids);
-    if (server) row.closed = server.closed;
+    if (server) {
+      row.closed = server.closed;
+      for (const extra of server.items) {
+        if (!extra.title || row.items.some((it) => it.title === extra.title && it.kind === extra.kind)) continue;
+        row.items.push(extra);
+      }
+    }
     out.push(row);
   }
   return out;
@@ -283,6 +362,10 @@ export function chipItem(abs: number, calendar: CalDay[] | null): { day: number;
     if (d.day - abs > 1) break;
     const meet = d.items.find((it) => it.kind === "society.meeting");
     if (meet) return { day: d.day, kind: meet.kind, title: meet.title };
+  }
+  for (const d of days) {
+    const yours = d.items.find((it) => it.youIn && it.title && !FILLER.has(it.title));
+    if (yours) return { day: d.day, kind: yours.kind, title: yours.title };
   }
   for (const d of days) {
     const item = d.items.find((it) => it.title && !FILLER.has(it.title));

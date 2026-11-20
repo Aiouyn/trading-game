@@ -9,6 +9,7 @@ import {
   type CircleAsk, type CircleSnap,
 } from "./circle";
 import { clipWords, kindWord, parsePlans, type DiaryPlan } from "@/apps/diary/read";
+import { parseHosted, type HostedRow } from "@/apps/society/read";
 import { gameDate } from "@/components/ui/format";
 import { LaunchBadge } from "@/apps/launchpad/notes";
 import "./messages.css";
@@ -267,15 +268,25 @@ function costLine(ask: CircleAsk, plan: DiaryPlan | undefined): string {
   return ask.cents > 0 ? `Your share is ${moneyLabel(ask.cents)}` : "It costs you nothing";
 }
 
-/** The count of waiting requests on the strip; it opens the requests panel. Nothing shows when nothing waits. */
+function bookedEvenings(life: unknown): HostedRow[] {
+  return parseHosted((life as { hosted?: unknown } | null)?.hosted).filter((h) => h.status === "booked");
+}
+
+/** The count of waiting requests on the strip; it opens the requests panel. A booked evening keeps the button up. */
 export function RequestsButton() {
   const { life } = useLife();
   const snap = readCircle(life);
   const n = snap ? waitingOn(snap).length : 0;
-  if (!n) return null;
+  const evenings = bookedEvenings(life).length;
+  if (!n && !evenings) return null;
+  const label = n && evenings
+    ? `${n === 1 ? "1 request" : `${n} requests`} · ${evenings === 1 ? "1 evening" : `${evenings} evenings`}`
+    : n
+      ? (n === 1 ? "1 request" : `${n} requests`)
+      : (evenings === 1 ? "1 evening booked" : `${evenings} evenings booked`);
   return (
     <button type="button" className="strip-requests" data-testid="requests-btn" onClick={() => toggleRequests()}>
-      {n === 1 ? "1 request" : `${n} requests`}
+      {label}
     </button>
   );
 }
@@ -289,10 +300,11 @@ export function RequestsPanel() {
   const snap = readCircle(life);
   const plans = parsePlans((life as { plans?: unknown } | null)?.plans);
   const asks = snap ? waitingOn(snap) : [];
-  useEffect(() => { if (open && snap && !asks.length) toggleRequests(false); }, [open, snap, asks.length]);
-  if (!open || !snap) return null;
+  const evenings = bookedEvenings(life);
+  useEffect(() => { if (open && !asks.length && !evenings.length) toggleRequests(false); }, [open, asks.length, evenings.length]);
+  if (!open || (!snap && !evenings.length)) return null;
   const go = (ask: CircleAsk, yes: boolean) => {
-    if (busy) return;
+    if (busy || !snap) return;
     setBusy(`${ask.id}:${yes ? "yes" : "no"}`);
     const buttons = askButtons(ask);
     const button = buttons.find((b) => (yes ? b.kind !== "decline" : b.kind === "decline")) ?? buttons[buttons.length - 1];
@@ -302,10 +314,34 @@ export function RequestsPanel() {
   return (
     <aside className="requests-panel" data-testid="requests-panel" role="dialog" aria-label="Requests">
       <header>
-        <span className="label">Waiting on your answer</span>
+        <span className="label">{asks.length ? "Waiting on your answer" : "Evenings you booked"}</span>
         <button type="button" className="goal-dismiss" onClick={() => toggleRequests(false)}>Close</button>
       </header>
-      <ul>
+      {evenings.length ? (
+        <ul data-testid="hosted-bookings">
+          {evenings.map((h) => (
+            <li key={h.id} data-testid="hosted-booking">
+              <p className="label">Your {h.kind === "gala" ? "gala" : "dinner"}</p>
+              <h3>{h.place}{h.time ? ` · ${h.time}` : ""}</h3>
+              <dl>
+                <dt>When</dt><dd>{gameDate(h.day).replace(/, year \d+$/, "")}</dd>
+                {h.guests.length ? <><dt>Guests</dt><dd>{h.guests.map((g) => g.name).filter(Boolean).join(", ")}</dd></> : null}
+                <dt>Price</dt><dd>{h.cents > 0 ? moneyLabel(h.cents) : "Nothing more to pay"}</dd>
+                <dt>You</dt><dd>You booked it. You are in.</dd>
+              </dl>
+              <div className="requests-acts">
+                <Button variant="primary" size="sm" disabled={!!busy} data-testid="hosted-attend" onClick={() => {
+                  if (busy) return;
+                  setBusy(`hosted:${h.id}`);
+                  void run({ kind: "out", op: "attend" }).finally(() => setBusy(null));
+                }}>Open the evening</Button>
+                <button type="button" className="goal-dismiss" onClick={() => { toggleRequests(false); store.getState().open("society", `day:${h.day}`); }}>Open the day</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {snap ? <ul>
         {asks.map((ask) => {
           const plan = plans.find((p) => (ask.id >= 0 && p.ask === ask.id) || (ask.msg >= 0 && p.msg === ask.msg));
           const people = guests(plan, ask);
@@ -330,7 +366,7 @@ export function RequestsPanel() {
             </li>
           );
         })}
-      </ul>
+      </ul> : null}
     </aside>
   );
 }

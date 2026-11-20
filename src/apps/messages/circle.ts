@@ -51,6 +51,7 @@ export interface CircleContact {
   sentence?: string;
   role: string;
   stance: string;
+  job?: string;
   bond: { word: string; score: number; why: BondWhy[] };
   together: TogetherNote[];
 }
@@ -161,6 +162,7 @@ export function readCircle(life: unknown): CircleSnap | null {
       sentence: str(c.sentence) || undefined,
       role: str(c.role) || (str(c.kind) === "family" ? "family" : "colleague"),
       stance: str(c.stance),
+      job: str(c.job) || undefined,
       bond: { word: str(bond.word) || str(c.word), score: num(bond.score), why: whyList(bond.why) },
       together: notes(c.together),
     }];

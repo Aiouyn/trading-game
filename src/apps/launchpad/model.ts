@@ -91,6 +91,18 @@ export interface CoinPage extends Coin {
 }
 
 export interface Rug { id: string; ticker: string; name: string; creatorName: string; mine: boolean; cash: number; abs: number }
+
+/** The player's record as a coin creator, as the crowd keeps it. */
+export interface DevRecord {
+  handle: string;
+  launches: number;
+  dumps: number;
+  hurt: number;
+  good: number;
+  following: number;
+  word: string;
+  line: string;
+}
 export interface Rules { fee: number; seedMin: number; seedMax: number; pool: number; founder: number }
 
 /** Everything one read of /coins returns. */
@@ -108,6 +120,7 @@ export interface LpData {
   tape: TapeRow[];
   rules: Rules;
   detail?: CoinPage;
+  dev?: DevRecord;
 }
 
 export type Feed = "new" | "bumped" | "trending" | "holdings" | "gone";
@@ -133,6 +146,23 @@ export function readLp(j: unknown): LpData | null {
     tape: Array.isArray(o.tape) ? o.tape : [],
     rules: o.rules ?? { fee: 2_000, seedMin: 25_000, seedMax: 150_000, pool: 150_000, founder: 15_000 },
     detail: o.detail,
+    dev: readDev((o as { dev?: unknown }).dev),
+  };
+}
+
+function readDev(v: unknown): DevRecord | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const d = v as Partial<DevRecord>;
+  if (typeof d.line !== "string" || typeof d.word !== "string") return undefined;
+  return {
+    handle: typeof d.handle === "string" ? d.handle : "",
+    launches: typeof d.launches === "number" ? d.launches : 0,
+    dumps: typeof d.dumps === "number" ? d.dumps : 0,
+    hurt: typeof d.hurt === "number" ? d.hurt : 0,
+    good: typeof d.good === "number" ? d.good : 0,
+    following: typeof d.following === "number" ? d.following : 0,
+    word: d.word,
+    line: d.line,
   };
 }
 

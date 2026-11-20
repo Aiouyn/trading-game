@@ -475,7 +475,7 @@ function commandOf(body: unknown): Command | string {
     case 'rentHome': {
       const id = whole(b.id, 0);
       if (id === undefined) return 'renting needs a home';
-      return { kind: 'rentHome', id };
+      return { kind: 'rentHome', id, confirm: b.confirm === true };
     }
     case 'move': {
       const id = whole(b.id, 0);

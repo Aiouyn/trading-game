@@ -5,15 +5,18 @@
   flex-direction: column;
   padding: 0;
   overflow: hidden;
+  position: relative;
+  min-height: 0;
 }
 .msg {
   container-type: inline-size;
   container-name: msg;
   display: flex;
   flex-direction: column;
-  flex: 1;
+  position: absolute;
+  inset: 0;
   min-height: 0;
-  height: 100%;
+  overflow: hidden;
   color: var(--fg);
   background: var(--win);
 }
@@ -28,7 +31,7 @@
 .msg-talk { flex: 1; }
 .msg[data-pane="list"] .msg-talk { display: none; }
 .msg[data-pane="thread"] .msg-list { display: none; }
-.msg-scroll { flex: 1; min-height: 0; overflow: auto; }
+.msg-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .msg-head, .msg-row, .msg-compose {
   display: flex;
   align-items: center;

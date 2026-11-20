@@ -14,7 +14,7 @@ import {
 } from "./circle";
 import { markRead, useRead } from "./notices";
 import { InviteActions } from "@/apps/diary/Invite";
-import { kindWord, parsePlans, planForMessage, type DiaryPlan } from "@/apps/diary/read";
+import { chipLine, parsePlans, planForMessage, type DiaryPlan } from "@/apps/diary/read";
 import "./messages.css";
 
 function whoFrom(context?: string): number | null {
@@ -34,12 +34,12 @@ function EventCard({ eventId, source }: { eventId: number; source: number }) {
     return () => { live = false; };
   }, [id]);
   if (id < 0) return null;
-  const cause = lines?.find((l) => l.depth > 0 && !l.missing) ?? lines?.[0];
+  const cause = lines?.find((l) => l.depth > 0 && l.msg && !l.missing) ?? lines?.find((l) => l.msg && !l.missing);
+  if (!cause?.msg) return null;
   return (
     <div>
       <button type="button" className="msg-event" data-testid="event-card" onClick={() => setOpen((v) => !v)}>
-        <span className="label">The event</span>
-        <span>{cause ? presentNote(cause.msg) : "Reading the book…"}</span>
+        <span className="label">{presentNote(cause.msg)}</span>
       </button>
       {open ? (
         <div className="msg-chain" data-testid="event-chain">
@@ -100,9 +100,10 @@ function AskBox({ ask, slot, busy, onGo }: {
 function InviteCard({ plan, busy, onGo }: { plan: DiaryPlan; busy: boolean; onGo: (cmd: Record<string, unknown>) => void }) {
   return (
     <div className="dia-card" data-testid="invite-card">
-      <p className="label">{kindWord(plan.kind)} · {gameDate(plan.day)}</p>
+      <p className="label" data-testid="deal-chip">{chipLine(plan)} · {gameDate(plan.day)}</p>
       {plan.place ? <p>{plan.place}</p> : null}
       {plan.reason ? <p className="dia-reason">{plan.reason}</p> : null}
+      {plan.cost ? <p>{plan.cost}</p> : null}
       {plan.past ? (
         <div data-testid="aftermath">
           {plan.answer ? <p data-testid="invite-answer">{plan.answer}</p> : null}
@@ -122,6 +123,7 @@ export default function MessagesApp({ context }: AppBodyProps) {
   const { life } = useLife();
   const plans = parsePlans(useSimSnap().view?.plans);
   const { note, busy, go } = useAct();
+  const [noteWho, setNoteWho] = useState<number | null>(null);
   const snap = readCircle(life);
   const [who, setWho] = useState<number | null>(whoFrom(context));
   const [picking, setPicking] = useState(false);
@@ -151,8 +153,14 @@ export default function MessagesApp({ context }: AppBodyProps) {
     if (!said) return;
     if (!last || !(last.press && last.pressId !== undefined && last.pressId >= 0)) {
       setDraft("");
+      const key = `sent:${thread.who}:${said}:${mine.length}`;
+      setMine((cur) => [...cur, { key, who: thread.who, afterId: -1, text: said, day: snap.abs }]);
+      setNoteWho(thread.who);
       const result = await go({ kind: "message", who: thread.who, text: said });
-      if (!result.ok) setDraft(said);
+      if (!result.ok) {
+        setMine((cur) => cur.filter((r) => r.key !== key));
+        setDraft(said);
+      }
       return;
     }
     const key = `${thread.who}:${last.id}:${mine.length}:${said}`;
@@ -238,7 +246,7 @@ export default function MessagesApp({ context }: AppBodyProps) {
           mine={mine.filter((r) => r.who === open?.who)}
           draft={draft}
           busy={busy}
-          note={note}
+          note={noteWho === open?.who ? note : null}
           onDraft={setDraft}
           onBack={() => setWho(null)}
           onSend={(text) => { if (open) void send(open, text); }}
@@ -286,6 +294,12 @@ function Thread({ thread, anyone, plans, pending, contact, slot, mine, draft, bu
             {person.messages.length === 0 ? <p className="msg-empty">You have not written to {person.name.split(/\s+/)[0] || "them"} yet. Say hello below.</p> : null}
             {person.messages.slice(-30).map((m) => (
               <Letter key={m.id} message={m} ask={askForMessage(pending, m)} plan={planForMessage(plans, m)} slot={slot} busy={busy} mine={mine.filter((r) => r.afterId === m.id)} onAsk={onAsk} />
+            ))}
+            {mine.filter((r) => r.afterId < 0).map((r) => (
+              <article className="msg-item you" key={r.key} data-testid="my-letter">
+                <p className="msg-role">You · {when(r.day)}</p>
+                <p className="msg-bubble">{r.text}</p>
+              </article>
             ))}
           </div>
         ) : <p className="msg-empty">{anyone ? "Pick a person from the list. Their letters, and what each one is about, sit here." : "Letters from the people you meet sit here."}</p>}
