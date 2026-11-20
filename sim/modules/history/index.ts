@@ -1,6 +1,7 @@
 // What is worth remembering. The event log drops old events; these entries keep their own
 // text and the cause chain as it read on the day they were written.
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
+import { calYear } from '../../kernel/calendar.ts';
 import { bindStoryFold } from './fold.ts';
 import type { Ev } from '../../kernel/events.ts';
 import { GOODS } from '../economy/content.ts';
@@ -44,7 +45,7 @@ export interface HistState {
 const econ = (w: World): EconState => w.state.economy as EconState;
 export const historyOf = (w: World): HistState => w.state.history as HistState;
 
-const yearOf = (day: number): number => Math.floor(day / DAYS_PER_YEAR) + 1;
+const yearOf = (day: number): number => calYear(day);
 
 function money(cents: number): string {
   const sign = cents < 0 ? '-' : '';
@@ -367,9 +368,12 @@ function recordDecade(w: World, endYear: number): void {
   h.covered = endYear;
 }
 
+/** The banks as a reader knows them. */
+const BANK_NAMES: Record<string, string> = { bank_1: 'the city bank', bank_2: 'the second bank', bank_3: 'the third bank', bank_4: 'the fourth bank' };
+
 function openBooks(w: World): void {
   const s = econ(w), P = s.P, h = historyOf(w);
-  add(w, 'founding', [], [], `Port Avalon is founded. The books open on seed ${w.seed}.`, w.genesis, 1);
+  add(w, 'founding', [], [], 'Port Avalon is founded, and its books open.', w.genesis, 1);
   for (const f of s.firms) {
     if (f.ceo < 0) continue;
     const good = GOODS[f.good]?.name ?? f.good;
@@ -386,7 +390,8 @@ function openBooks(w: World): void {
   for (const b of banks) {
     const who = topPerson(w, 'eq:' + b.id);
     const name = who >= 0 ? P.name(who) : anchor(w).person;
-    add(w, 'founding', [name], [b.id], `${name} puts up capital for ${b.id}, and the bank opens.`, w.genesis, 1);
+    const bank = BANK_NAMES[b.id] ?? 'a bank';
+    add(w, 'founding', [name], [bank], `${name} puts up capital for ${bank}, and it opens its doors.`, w.genesis, 1);
   }
   noteLife(w, true);
   h.wealth = wealthNow(w);

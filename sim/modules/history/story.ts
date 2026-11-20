@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { World } from '../../kernel/index.ts';
 import type { Ev } from '../../kernel/events.ts';
+import { calYear } from '../../kernel/calendar.ts';
 import { GOODS } from '../economy/content.ts';
 import { DEP, type EconState, type Firm } from '../economy/index.ts';
 import { PRISON } from '../economy/people.ts';
@@ -468,7 +469,7 @@ function familyLines(w: World, ids: number[]): string[] {
     return lines;
   }
   for (const i of sorted) {
-    const born = P.born[i] < 0 ? 'before the founding' : `in ${when(P.born[i])}`;
+    const born = P.born[i] < 0 ? 'before the founding' : `on ${when(P.born[i])}`;
     const bits = [`${P.name(i)} is born ${born}`];
     if (P.parent[i] >= 0 && P.parent[i] < P.n) {
       const a = P.parent[i];
@@ -515,8 +516,8 @@ function firmLines(w: World, ids: number[]): string[] {
 function cityLines(w: World, fromDay: number): string[] {
   if (!w.state.history) return [];
   const h = historyOf(w);
-  const fromYear = Math.floor(Math.max(0, fromDay) / 360) + 1;
-  const toYear = Math.floor(w.day / 360) + 1;
+  const fromYear = calYear(Math.max(0, fromDay));
+  const toYear = calYear(w.day);
   const lines = ['## The city during this life', ''];
   const mine = h.entries.filter((e) => e.kind !== 'player' && e.year >= fromYear && e.year <= toYear);
   if (!mine.length) {

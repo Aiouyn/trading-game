@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Chip } from "@/components/ui/Chip";
 import { LPS } from "./strings";
-import { agoText, clockText, dateText, pctText, perToken, tickerHash, usd, usdWhole, type Coin, type Rug, type TapeRow } from "./model";
+import { agoText, clockText, dateText, pctText, perToken, qty, tickerHash, usd, usdWhole, type Coin, type Rug, type TapeRow } from "./model";
 
 const INKS = ["--gain", "--loss", "--info", "--warn", "--steel", "--acc"] as const;
 const SHAPES = ["circle", "square", "diamond", "hex"] as const;
@@ -166,6 +166,7 @@ export function BoardCard({ c, held, now, onOpen }: { c: Coin; held: number; now
           <span className="lpad-card-end" data-testid={`lp-end-${c.ticker}`}>
             <b>{LPS.fadedLine}</b>
             <span className="lpad-faint">{`${LPS.holders(c.holders)} · ${LPS.windLine(dateText(c.windDay))}`}</span>
+            {held > 0 ? <span className="lpad-faint" data-testid={`lp-held-dead-${c.ticker}`}>{LPS.holdLine(qty(held), c.ticker, usd(0))}</span> : null}
           </span>
         )}
         <span className="lpad-faint">{LPS.launchedAt(`${dateText(Math.floor(c.bornAbs / 1440))} ${clockText(c.bornAbs)}`)}</span>

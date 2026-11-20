@@ -95,7 +95,8 @@ function Board({ view, lp, data, onOpen }: { view: SimView; lp: LpRead; data: Lp
   const held = data.held;
   const pick = (f: Feed) => { setTab(f); setSort(DEFAULT_SORT[f]); };
   // What the coins in hand would bring if sold now: the one value the Portfolio and net worth use too.
-  const heldValue = coins.reduce((s, c) => (!c.rugged && held[c.id] ? s + quoteSell(c.cash, c.tokens, held[c.id]!) : s), 0);
+  // A dead or delisted coin counts as $0, the same rule as net worth. A live coin is what selling it into the pool would pay.
+  const heldValue = coins.reduce((s, c) => (c.live && !c.rugged && held[c.id] ? s + quoteSell(c.cash, c.tokens, held[c.id]!) : s), 0);
   const heldCount = Object.keys(held).length;
   const list = tab === "create" ? [] : feedOf(coins, tab, held, q, sort);
   return (
@@ -444,7 +445,7 @@ function Ticket({ coin, cash, held, onDone }: { coin: Coin; cash: number; held: 
   const sellable = !coin.rugged;
   const open = coin.live;
   const dollars = centsOf(amt);
-  const holdValue = sellable ? quoteSell(coin.cash, coin.tokens, held) : 0;
+  const holdValue = coin.live && !coin.rugged ? quoteSell(coin.cash, coin.tokens, held) : 0;
   let spend = 0, tokens = 0;
   if (side === "buy") spend = dollars ?? 0;
   else tokens = pct !== null ? (pct >= 100 ? held : Math.floor(held * pct / 100)) : dollars && dollars >= 1 ? Math.min(held, tokensForCents(coin.cash, coin.tokens, dollars)) : 0;

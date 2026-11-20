@@ -1,6 +1,7 @@
 "use client";
 // The city's papers: the Daily Herald each morning and the Evening Gazette each evening lead; the wire follows, with
 // outlet, voice, byline and beat. Rumours are marked. A correction names the story it corrects. Coin launches are one line.
+import { calDate } from "@/shell/calendar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
@@ -149,14 +150,14 @@ function gather(papers: Paper[]): Item[] {
 /** "Wednesday 17 January": the year only once there is more than one. */
 function dayText(day: number, today: number): string {
   const label = gameDate(day);
-  const year = Math.floor(day / 360) + 1;
-  const now = Math.floor(today / 360) + 1;
+  const year = calDate(day).year;
+  const now = calDate(today).year;
   return year === now ? label.replace(/, year \d+$/, "") : label;
 }
 
 /** Story text without the first year's number in it ("17 January, year 1" reads "17 January"). */
 function noYear(text: string, today: number): string {
-  const now = Math.floor(today / 360) + 1;
+  const now = calDate(today).year;
   return text.replace(new RegExp(`,? year ${now}\\b`, "g"), "");
 }
 

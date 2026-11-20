@@ -9,7 +9,7 @@ import type { World } from '../../kernel/index.ts';
 interface Book { days: Record<number, Record<string, number>>; counts: Record<number, Record<string, number>> }
 interface Watch { slot: number; overnight: boolean; world: World | null }
 
-const KEEP_DAYS = 21;
+const KEEP_DAYS = 40;
 const watches = new WeakMap<object, Watch>();
 
 const LABELS: Record<string, [string, string]> = {
@@ -53,7 +53,71 @@ const LABELS: Record<string, [string, string]> = {
   'health.claim': ['Health care', 'Clinic and hospital bills'],
   'player.draw': ['Owner draw', 'Money taken out of your own firm'],
   'player.school': ['School fees', 'Fees for your children'],
+  'mkt.borrowfee': ['Borrow fees', 'The daily fee for shares you borrowed to sell short'],
+  'crypto.fee': ['Coin fees', 'Fees on a coin launch or trade'],
+  'crypto.seed': ['Coin launch', 'The cash you put into a coin you launched'],
+  'crypto.windup': ['Coin wound up', "What a dead coin's pool paid out to its holders"],
+  'crypto.rug': ['Coin trades', 'Coins bought or sold'],
+  'fx.trade': ['Currency trades', 'Foreign currency bought or sold'],
+  'bond.trade': ['Bond trades', 'Bonds bought or sold'],
+  'bond.coupon': ['Bond interest', 'Interest a bond paid you'],
+  'bond.mature': ['Bond repaid', 'A bond you held came due'],
+  'opt.premium': ['Options', 'Options bought or sold'],
+  'opt.trade': ['Options', 'Options bought or sold'],
+  'opt.exercise': ['Options', 'An option exercised'],
+  'opt.margin': ['Options margin', 'Cash held against options you wrote'],
+  'futures.margin': ['Futures margin', 'Cash held against your futures'],
+  'futures.mtm': ['Futures gains and losses', 'The daily settling of your futures'],
+  'futures.trade': ['Futures', 'Futures bought or sold'],
+  'scene.deal': ['A deal', 'Money from a deal struck in person'],
+  'circle.repay': ['Repaying a friend', 'A loan paid back'],
+  'estate.inherit': ['Inheritance', 'What a relative left you'],
+  'player.inheritance': ['Inheritance', 'What a relative left you'],
+  'player.lawyer': ['Lawyer', "A lawyer's fee"],
+  'ins.premium': ['Insurance', 'An insurance premium'],
+  'ins.claim': ['Insurance claim', 'An insurer paid a claim'],
+  'law.fine': ['Fine', 'A fine from the regulator or a court'],
+  'tax.profit': ['Tax', 'Tax you paid'],
+  'fund.subscribe': ['Fund', 'Money put into a fund'],
+  'fund.redeem': ['Fund', 'Money taken out of a fund'],
+  'fund.payout': ['Fund payout', 'A fund paid out to you'],
+  'labour.dues': ['Union dues', 'Dues to your union'],
+  'politics.donation': ['Donation', 'A political donation'],
+  'property.transfer.rent': ['Rent', 'Rent for the room or home you live in'],
 };
+
+/** Money the player lives on week to week: what runway is measured against. Trades, transfers and one-off purchases are not. */
+const LIVING = new Set(['consumption', 'consumption.refund', 'media.subscription', 'loan.interest', 'health.claim', 'player.school', 'mkt.borrowfee', 'labour.dues', 'ins.premium']);
+/** Bills that come once a month: averaged over a month, not over a few days. */
+const MONTHLY = new Set(['media.subscription', 'loan.interest', 'ins.premium']);
+
+export interface Outgoings { weekly: number; everyday: number; rent: number; monthly: { label: string; cents: number }[]; days: number }
+
+/**
+ * What the player really spends in a week: everyday spending at the pace of the last few weeks, rent at the monthly
+ * rent, and the other monthly bills at their last month. `rentMonth` is the rent of the home lived in now (0 if none).
+ */
+export function outgoings(w: World, since: number, rentMonth: number): Outgoings {
+  const b = bookOf(w);
+  const first = Math.max(since, w.day - 27, w.day - KEEP_DAYS + 1);
+  const days = Math.max(1, w.day - first + 1);
+  let everyday = 0;
+  const month = new Map<string, number>();
+  for (let d = Math.max(since, w.day - 29); d <= w.day; d++) {
+    const raw = b.days[d];
+    if (!raw) continue;
+    for (const reason of Object.keys(raw)) {
+      if (!LIVING.has(reason)) continue;
+      const cents = -raw[reason];
+      if (MONTHLY.has(reason)) { const [label] = nice(reason); month.set(label, (month.get(label) ?? 0) + cents); }
+      else if (d >= first) everyday += cents;
+    }
+  }
+  const monthly = [...month.entries()].filter(([, c]) => c > 0).map(([label, cents]) => ({ label, cents }));
+  const perDay = Math.max(0, everyday) / days;
+  const weekly = Math.round(perDay * 7 + (rentMonth + monthly.reduce((t, m) => t + m.cents, 0)) * 7 / 30);
+  return { weekly, everyday: Math.round(perDay * 7), rent: rentMonth, monthly, days };
+}
 
 function nice(reason: string): [string, string] {
   const hit = LABELS[reason];

@@ -1,5 +1,6 @@
 // Plans as /view sends them. Pure: the diary, messages, people and society all read this.
 
+import { calDate, MONTHS_SHORT } from "@/shell/calendar";
 export interface PlanWho { person: number; name: string; self: boolean }
 export interface DiaryPlan {
   key: string;
@@ -44,14 +45,12 @@ function flag(v: unknown): boolean {
   return v === true;
 }
 
-const SHORT_MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** Quiet days as one line: "Jan 2–5: nothing planned". */
 export function quietLabel(start: number, end: number): string {
   const md = (abs: number) => {
-    const day = Math.floor(abs);
-    const doy = ((day % 360) + 360) % 360;
-    return { m: SHORT_MONTH[Math.floor(doy / 30)] ?? "Jan", d: (doy % 30) + 1 };
+    const c = calDate(abs);
+    return { m: MONTHS_SHORT[c.month - 1] ?? "Jan", d: c.day };
   };
   const a = md(start);
   const b = md(end);

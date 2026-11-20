@@ -518,7 +518,7 @@ function ChainCell({ row, on, onPick, ask }: { row: OptRow; on: boolean; onPick:
 
 function OpenContracts({ view, ask }: { view: SimView; ask: (id: number, title: string) => void }) {
   const open = (view.chain ?? []).filter((c) => c.net !== 0);
-  const day = view.date?.day ?? 1;
+  const day = (((view.date?.abs ?? 0) % 30) + 30) % 30 + 1; // the day of the 30-day contract month, not of the calendar
   return (
     <div data-testid="opt-open">
       <p className="label">Open contracts</p>

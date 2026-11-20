@@ -10,6 +10,7 @@ import { gameDate, presentNote, seedDebug } from "@/components/ui/format";
 import { closeNotes, toggleNotes, useNotesOpen } from "./flowState";
 import { bellRows, markBellSeen, worldKey } from "./bell";
 import { useLife } from "@/apps/profile/data";
+import { useShellStore } from "./ShellContext";
 import "./desk.css";
 import { ResultPanel, isResult } from "./ResultPanel";
 import { CircleChrome, RequestsPanel } from "@/apps/messages/notices";
@@ -222,10 +223,13 @@ function Notes() {
   const world = worldKey(view);
   const [why, setWhy] = useState<{ id: number; lines: ExplainLine[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  const store = useShellStore();
   const newest = rows[0]?.at ?? -1;
   useEffect(() => { if (open && world && newest >= 0) markBellSeen(world, newest); }, [open, world, newest]);
   if (!open) return null;
   const run = (line: string) => {
+    // "app:portfolio" opens a window rather than sending a command.
+    if (line.startsWith("app:")) { store.getState().open(line.slice(4) as Parameters<ReturnType<typeof store.getState>["open"]>[0]); closeNotes(); return; }
     if (busy) return;
     setBusy(true);
     void actLine(line).finally(() => setBusy(false));

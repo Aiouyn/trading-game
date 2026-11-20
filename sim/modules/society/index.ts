@@ -10,6 +10,7 @@ import { circlePlansOn, settleSocietyAsks } from '../circle/plans.ts';
 import { PRISON } from '../economy/people.ts';
 import { contactsOf } from '../social/index.ts';
 import { money } from '../social/words.ts';
+import { calDate } from '../../kernel/calendar.ts';
 
 const DEG = 16;
 const HOME = 1;
@@ -578,14 +579,17 @@ function paperOf(w: World): { name: string; actor?: string } {
   return actor ? { name: o.name, actor } : { name: o.name };
 }
 
+/** Holidays fall on calendar dates, keyed month * 100 + day. */
 const HOLIDAY: Record<number, string> = {
-  0: 'New Year. The exchange is closed',
-  120: 'Founding Day. The exchange is closed',
-  195: 'The harbour festival. The exchange is closed',
-  240: 'Harvest. The exchange is closed',
-  354: 'Christmas. The exchange is closed',
-  359: "The year's last day. The exchange is closed",
+  101: 'New Year. The exchange is closed',
+  501: 'Founding Day. The exchange is closed',
+  716: 'The harbour festival. The exchange is closed',
+  901: 'Harvest. The exchange is closed',
+  1225: 'Christmas. The exchange is closed',
+  1231: "The year's last day. The exchange is closed",
 };
+/** A sim day's calendar key: month * 100 + day of the month. */
+const calKey = (day: number): number => { const c = calDate(day); return c.month * 100 + c.day; };
 
 function planDay(day: number): { closed: boolean; items: Item[] } {
   const doy = ((day % 360) + 360) % 360;
@@ -593,18 +597,19 @@ function planDay(day: number): { closed: boolean; items: Item[] } {
   const moy = Math.floor(doy / 30);
   const absM = Math.floor(day / 30);
   const items: Item[] = [];
-  const closed = HOLIDAY[doy] !== undefined;
-  if (closed) items.push({ kind: 'society.holiday', title: HOLIDAY[doy], key: 'holiday:' + doy, emit: true, cause: 'root', causeKey: '', meet: false });
+  const ck = calKey(day);
+  const closed = HOLIDAY[ck] !== undefined;
+  if (closed) items.push({ kind: 'society.holiday', title: HOLIDAY[ck], key: 'holiday:' + ck, emit: true, cause: 'root', causeKey: '', meet: false });
   if (dom === 29) items.push({ kind: 'society.meeting', title: 'The central bank meets', key: 'meeting', emit: true, cause: 'rate', causeKey: '', meet: false });
   if (moy % 3 === 0 && dom <= 6) {
     const open = dom === 0;
     items.push({ kind: 'society.earnings', title: open ? 'Earnings season opens' : 'Earnings season', key: 'earnings', emit: open, cause: 'macro', causeKey: '', meet: false });
   }
-  if (moy === 3 && dom === 14) items.push({ kind: 'society.tax', title: 'Tax returns are due', key: 'tax', emit: true, cause: 'macro', causeKey: '', meet: false });
-  if (moy === 6 && dom === 14) items.push({ kind: 'society.festival', title: 'The harbour festival opens on the quay', key: 'festival', emit: true, cause: 'root', causeKey: '', meet: false });
-  if (moy === 6 && dom === 15) items.push({ kind: 'society.meet', title: 'Notable people meet at the harbour festival', key: 'meet:festival', emit: true, cause: 'root', causeKey: 'festival', meet: true });
-  if (moy === 6 && dom === 16) items.push({ kind: 'society.festival', title: 'The last day of the harbour festival', key: 'festival', emit: false, cause: 'root', causeKey: 'festival', meet: false });
-  if (moy === 11 && dom === 18) {
+  if (ck === 415) items.push({ kind: 'society.tax', title: 'Tax returns are due', key: 'tax', emit: true, cause: 'macro', causeKey: '', meet: false });
+  if (ck === 715) items.push({ kind: 'society.festival', title: 'The harbour festival opens on the quay', key: 'festival', emit: true, cause: 'root', causeKey: '', meet: false });
+  if (ck === 716) items.push({ kind: 'society.meet', title: 'Notable people meet at the harbour festival', key: 'meet:festival', emit: true, cause: 'root', causeKey: 'festival', meet: true });
+  if (ck === 717) items.push({ kind: 'society.festival', title: 'The last day of the harbour festival', key: 'festival', emit: false, cause: 'root', causeKey: 'festival', meet: false });
+  if (ck === 1219) {
     items.push({ kind: 'society.gala', title: 'The charity gala', key: 'gala', emit: true, cause: 'root', causeKey: '', meet: false });
     items.push({ kind: 'society.meet', title: 'Notable people meet at the charity gala', key: 'meet:gala', emit: true, cause: 'root', causeKey: 'gala', meet: true });
   }
@@ -658,8 +663,7 @@ function postCalendar(w: World, st: Soc): void {
 }
 
 export function marketsOpen(w: World): boolean {
-  const doy = ((w.day % 360) + 360) % 360;
-  return HOLIDAY[doy] === undefined;
+  return HOLIDAY[calKey(w.day)] === undefined;
 }
 
 export interface CalDay {
@@ -690,8 +694,8 @@ function attendLine(names: string[]): string {
 }
 function dayOk(st: Soc, day: number, today: number): boolean {
   if (day <= today) return false;
-  const doy = ((day % 360) + 360) % 360;
-  if (HOLIDAY[doy] !== undefined || doy === 348) return false;
+  const ck = calKey(day);
+  if (HOLIDAY[ck] !== undefined || ck === 1219) return false;
   for (const d of st.dates) if (d.day === day && d.status !== 'gone') return false;
   return true;
 }
@@ -833,7 +837,7 @@ export function calendarOf(w: World): CalDay[] {
   for (let i = 0; i < 60; i++) {
     const day = w.day + i;
     const plan = planDay(day);
-    const doy = ((day % 360) + 360) % 360;
+    const cal = calDate(day);
     const items = plan.items.map((item) => ({
       kind: item.kind,
       title: item.title,
@@ -842,9 +846,9 @@ export function calendarOf(w: World): CalDay[] {
     for (const extra of datedItems(w, st, day)) items.push(extra);
     out.push({
       day,
-      year: Math.floor(day / 360),
-      month: Math.floor(doy / 30) + 1,
-      date: (doy % 30) + 1,
+      year: cal.year,
+      month: cal.month,
+      date: cal.day,
       closed: plan.closed,
       items,
     });
@@ -1106,10 +1110,10 @@ export function societyGate(w: World, person: number, cmd: GateCmd): { status: '
   if (!st) return null;
   refreshRep(w, st);
   if (cmd.kind !== 'invite' && cmd.kind !== 'introduce') return null;
-  const doy = ((w.day % 360) + 360) % 360;
+  const ck = calKey(w.day);
   if (cmd.kind === 'invite') {
-    if (doy >= 174 && doy <= 196) cmd.place = 'festival';
-    else if (doy >= 327 && doy <= 348) cmd.place = 'gala';
+    if (ck >= 625 && ck <= 717) cmd.place = 'festival';
+    else if (ck >= 1128 && ck <= 1219) cmd.place = 'gala';
   }
   const host = hostOf(w, person, cmd.slot ?? -1);
   if (!usable(w, host)) return null;

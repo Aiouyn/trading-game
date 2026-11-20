@@ -1,5 +1,6 @@
 // Sentences for a chronicle. The event log explains a cause as indented lines;
 import { whole as grouped } from '../player/gamedate.ts';
+import { dateYear } from '../../kernel/calendar.ts';
 // a reader gets the same chain as prose, with the ids turned into names when we know them.
 
 export function money(cents: number): string {
@@ -10,13 +11,9 @@ export function money(cents: number): string {
   return `${sign}${grouped(a)}`;
 }
 
-/** Year, month and day on the 360-day calendar. */
+/** The calendar date: "15 January, year 1". */
 export function when(day: number): string {
-  const year = Math.floor(day / 360) + 1;
-  const doy = ((day % 360) + 360) % 360;
-  const month = Math.floor(doy / 30) + 1;
-  const d = (doy % 30) + 1;
-  return `Year ${year}, month ${month}, day ${d}`;
+  return dateYear(day, false);
 }
 
 export function joinAnd(parts: string[]): string {
@@ -70,8 +67,7 @@ export function explainParts(raw: string): string[] {
 
 function asCause(sentence: string): string {
   let t = sentence.replace(/[.!?]$/, '').trim();
-  const seed = /^world created from seed '([^']+)'$/.exec(t);
-  if (seed) return `the world being created from seed ${seed[1]}`;
+  if (/^world created from seed/.test(t) || /^held off the page$/i.test(t)) return '';
   t = t.replace(/^household spending /, 'households spending ');
   t = t.replace(/\s*\([^)]*\)/g, '');
   return t;
@@ -81,8 +77,7 @@ function asCause(sentence: string): string {
 export function causeParagraph(raw: string, story: string): string {
   const parts = explainParts(raw);
   if (parts.length < 2) {
-    const seed = parts[0] ? /^world created from seed '([^']+)'\.?$/.exec(parts[0]) : null;
-    if (seed) return `This followed from the world being created from seed ${seed[1]}.`;
+    if (parts[0] && /^world created from seed/.test(parts[0])) return '';
     return raw.includes('(outside shock)') ? 'This was an outside shock.' : '';
   }
   const causes: string[] = [];

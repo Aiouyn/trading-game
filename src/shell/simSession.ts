@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import type { Channels } from "./channels";
 import { channelsFromView } from "./simChannels";
+import { calDate, shortDate } from "./calendar";
 
 export interface BookLevel { px: number; qty: number }
 export interface Quote {
@@ -53,14 +54,30 @@ export interface ScenarioView {
 }
 export interface NewsLine { eventId: number; day: number; text: string; firms?: { id: string; name: string }[] }
 export interface PrivLine { eventId: number; day: number; from?: string; text: string }
-export interface StatRow { id: string; label: string; word: string; hover: string; trend: -1 | 0 | 1; note?: string; eventId: number }
+export interface StatRow { id: string; label: string; word: string; hover: string; trend: -1 | 0 | 1; note?: string; eventId: number; /** Sentences that explain the reading. */ why?: string[] }
+/** Net worth line by line, valued as the sim values it: the parts add up to the total. Cents. */
+export interface WorthParts {
+  total: number; cash: number; deposits: number; shares: number; shorts: number; coins: number; bonds: number;
+  business: number; owedToYou: number; goods: number; debts: number;
+}
 export interface LiveClock {
   abs: number; day: number; min: number; weekday: string; label: string;
   session: "open" | "closed" | "pre" | "after";
   open: number; close: number; speed: SimView["speed"]; rate: number; tick: number; ticks: number;
   /** Latest minute price of every instrument, by id. */
   px?: Record<string, number>;
+  /** The player's net worth this minute (cents): the one figure every screen shows. */
+  nw?: number;
+  cash?: number;
+  /** Net worth now less net worth at midnight. */
+  nwChange?: number;
+  worth?: WorthParts;
+  /** Today's and yesterday's cash, line by line, from the same books as `cash`. */
+  book?: { day: number; today: CashDay; yesterday: CashDay };
 }
+/** One line of a day's cash: what it was for and how much (cents, negative when it left). */
+export interface CashRow { label: string; why: string; cents: number; count: number; reasons: string[] }
+export interface CashDay { day: number; in: number; out: number; net: number; rows: CashRow[] }
 export interface SimView {
   date: { year: number; month: number; day: number; abs: number };
   live?: LiveClock;
@@ -222,6 +239,90 @@ const BUSY_NOTE = "That is already in, so wait a moment and try once more.";
 function emit() {
   for (const fn of listeners) fn();
 }
+
+// ---- the clock on screen ----
+// The sim pushes its clock a few times a second. Between pushes the screen counts on at the speed's rate and does not
+// stop when a push is late, so a slow day-close cannot freeze the digits and then jump them. It never steps backwards
+// while it runs. Paused, it shows the minute the sim stopped on.
+const RUN_SPEEDS = new Set(["x1", "x2", "x5", "x10", "x25"]);
+interface Shown { abs: number; label: string }
+let shown: Shown = { abs: -1, label: "" };
+let clockBase = { abs: -1, at: 0, rate: 0 };
+let clockTimer: ReturnType<typeof setInterval> | null = null;
+let lastStepAt = 0;
+let pausing = false;
+/** Set while a view is adopted whose clock is older than the last push (a speed change): its minute is not news. */
+let staleClock = false;
+const clockSubs = new Set<() => void>();
+
+function labelOf(abs: number): string {
+  const day = Math.floor(abs / 1440), m = ((abs % 1440) + 1440) % 1440;
+  return `${shortDate(day)}, ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+function setShown(abs: number) {
+  if (abs === shown.abs) return;
+  shown = { abs, label: labelOf(abs) };
+  clockSubs.forEach((f) => f());
+}
+function stepShown() {
+  lastStepAt = Date.now();
+  if (clockBase.rate <= 0 || clockBase.abs < 0) return;
+  const target = Math.floor(clockBase.abs + clockBase.rate * ((Date.now() - clockBase.at) / 1000));
+  if (target > shown.abs) setShown(target);
+}
+function armRunning(abs: number, rate: number) {
+  clockBase = { abs, at: Date.now(), rate };
+  if (!clockTimer && typeof window !== "undefined") clockTimer = setInterval(stepShown, 50);
+}
+function freezeClock() {
+  clockBase = { abs: shown.abs, at: Date.now(), rate: 0 };
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+}
+/** A clock from the sim: where it is, and how fast it runs. */
+function noteClock(live: LiveClock | undefined, speed: SimView["speed"] | undefined) {
+  if (!live || typeof live.abs !== "number") return;
+  if (pausing) return;
+  const rate = typeof live.rate === "number" ? live.rate : 0;
+  const running = RUN_SPEEDS.has(String(speed ?? live.speed)) && rate > 0;
+  if (!running) {
+    freezeClock();
+    if (!staleClock) setShown(live.abs);
+    return;
+  }
+  // A speed frame carries an older minute. Count on from what is already on screen, and do start the timer.
+  if (staleClock) {
+    const from = shown.abs >= 0 ? shown.abs : live.abs;
+    if (shown.abs < 0) setShown(from);
+    armRunning(from, rate);
+    return;
+  }
+  const fresh = shown.abs < 0 || Math.abs(live.abs - shown.abs) > 8 * 1440;
+  if (fresh) {
+    setShown(live.abs);
+    armRunning(live.abs, rate);
+    return;
+  }
+  const gap = live.abs - shown.abs;
+  const close = Math.max(2, rate * 2);
+  // The screen has been counting. A push a moment ahead is taken. A push hours ahead is a late frame: take it only
+  // if the screen itself had stopped, otherwise keep counting so the digits do not jump.
+  if (gap > close) {
+    const stalled = lastStepAt > 0 && Date.now() - lastStepAt > 2000;
+    if (stalled) setShown(live.abs);
+    armRunning(stalled ? live.abs : shown.abs, rate);
+    return;
+  }
+  if (gap > 0) {
+    setShown(live.abs);
+    armRunning(live.abs, rate);
+    return;
+  }
+  if (clockBase.rate !== rate || !clockTimer) armRunning(shown.abs, rate);
+}
+/** The clock as the strip shows it: a label that ticks every game minute. Empty before the first frame. */
+export function useShownClock(): Shown {
+  return useSyncExternalStore((fn) => { clockSubs.add(fn); return () => clockSubs.delete(fn); }, () => shown, () => shown);
+}
 function flush() {
   snap = pending;
   if (snap.view) pushChannels(snap.view);
@@ -285,6 +386,11 @@ function asView(raw: unknown): SimView | null {
 
 /** Put the latest minute prices on the quotes and coins, so what is on screen moves with the clock. */
 function applyLive(v: SimView, live: LiveClock | undefined): SimView {
+  noteClock(live, v.speed);
+  // Net worth and cash move with the clock: the sim sends them with every minute it pushes.
+  if (live && typeof live.nw === "number") {
+    v = { ...v, netWorth: live.nw, cash: typeof live.cash === "number" ? live.cash : v.cash, nwChange: typeof live.nwChange === "number" ? live.nwChange : v.nwChange };
+  }
   const px = live?.px;
   if (!px) return v;
   const quotes = v.quotes.map((q) => {
@@ -392,6 +498,7 @@ function mergeDay(frame: SimView) {
     pause: frame.pause ?? null,
     stats: frame.stats?.length ? frame.stats : cur.stats,
     shares: frame.shares ?? cur.shares,
+    coins: frame.coins ?? cur.coins,
     orders: frame.orders ?? cur.orders,
     news: frame.news ?? cur.news,
     feed: newerFeed(cur.feed, frame.feed),
@@ -430,12 +537,17 @@ async function readView(): Promise<SimView | null> {
 // from /view, so each tick re-reads it (one read in flight; a tick during a read queues one more). Order 106.
 let edgeInFlight = false;
 let edgeAgain = false;
-const EDGE_FIELDS = ["signals", "consensus", "reveals", "credit", "stake"] as const;
+const EDGE_FIELDS = ["signals", "consensus", "reveals", "credit", "stake", "coins", "coinBoard", "bonds", "homes", "loans", "deposits", "futures"] as const;
 function withEdge(cur: SimView, from: SimView): SimView {
   const out: SimView = { ...cur };
   const src = from as unknown as Record<string, unknown>;
   const dst = out as unknown as Record<string, unknown>;
   for (const k of EDGE_FIELDS) if (src[k] !== undefined) dst[k] = src[k];
+  if (from.live && (from.live.book || from.live.worth)) {
+    out.live = out.live
+      ? { ...out.live, book: from.live.book ?? out.live.book, worth: from.live.worth ?? out.live.worth }
+      : from.live;
+  }
   return out;
 }
 function refreshEdge() {
@@ -574,6 +686,8 @@ function startStream() {
     catch { return; }
     const cur = pending.view;
     if (!cur || typeof msg.min !== "number") return;
+    // A frame sent before a pause arrived still carries the old running speed. It must not start the clock again.
+    if ((pausing || cur.speed === "pause") && msg.speed && msg.speed !== "pause") return;
     const view = applyLive({ ...cur, live: msg, speed: msg.speed ?? cur.speed }, msg);
     publish({ ...pending, view: adopt(view) }, true);
   });
@@ -585,6 +699,7 @@ function startStream() {
     try { msg = JSON.parse((ev as MessageEvent).data); }
     catch { return; }
     if (!pending.view || !msg.speed) return;
+    staleClock = true;
     const view = adopt({
       ...pending.view,
       speed: msg.speed,
@@ -592,6 +707,7 @@ function startStream() {
         ? { why: msg.why, eventId: msg.eventId ?? 0, kind: msg.kind, text: msg.text, actions: msg.actions }
         : msg.quiet ? null : pending.view.pause,
     });
+    staleClock = false;
     publish({ ...pending, view });
     if (msg.speed === "pause") scheduleRefetch();
   });
@@ -807,6 +923,7 @@ export function openGate(mode: GateMode) {
 }
 
 export async function setSpeed(speed: SimView["speed"]): Promise<void> {
+  if (speed === "pause") return pauseNow();
   if (!takeLock()) return;
   try {
     // The strip shows the speed and the paused line; a change of speed raises no toast of its own.
@@ -817,10 +934,35 @@ export async function setSpeed(speed: SimView["speed"]): Promise<void> {
     }
     const next = typeof data.speed === "string" && ["pause", "x1", "x2", "x5", "x10", "x25", "day", "week", "month"].includes(data.speed) ? (data.speed as SimView["speed"]) : speed;
     if (pending.view) {
-      const view = adopt({ ...pending.view, speed: next, pause: next === "pause" ? pending.view.pause : null });
+      const live = data.live as LiveClock | undefined;
+      const view = adopt({ ...pending.view, speed: next, pause: next === "pause" ? pending.view.pause : null, ...(live ? { live: { ...live, px: live.px ?? pending.view.live?.px } } : {}) });
       publish({ ...pending, view });
     }
   } finally { dropLock(); }
+}
+
+/**
+ * Pause on the minute the player sees. The shown clock stops at once; the sim is told that minute and stops on it
+ * (living up to it if it is still a moment behind). Pause never waits for another action to finish.
+ */
+async function pauseNow(): Promise<void> {
+  const at = shown.abs;
+  pausing = true;
+  freezeClock();
+  if (pending.view) publish({ ...pending, view: { ...pending.view, speed: "pause" } });
+  try {
+    const { ok, data } = await post("speed", { speed: "pause", at: at >= 0 ? at : undefined });
+    pausing = false;
+    if (!ok) {
+      publish({ ...pending, note: { ok: false, text: typeof data.error === "string" ? data.error : "The clock did not stop, so press Pause again." } });
+      return;
+    }
+    const live = data.live as LiveClock | undefined;
+    if (pending.view) {
+      const view = adopt({ ...pending.view, speed: "pause", ...(live ? { live: { ...live, px: live.px ?? pending.view.live?.px } } : {}) });
+      publish({ ...pending, view });
+    }
+  } finally { pausing = false; }
 }
 
 const RESULT_TITLES: Record<string, string> = {
@@ -905,7 +1047,7 @@ export function symbolOf(instr: string): string {
   return instr;
 }
 
+/** A game day as "Mon 15 Jan, year 1": the one calendar. */
 export function dateLabel(abs: number): string {
-  const doy = ((abs % 360) + 360) % 360;
-  return `Y${Math.floor(abs / 360) + 1} M${Math.floor(doy / 30) + 1} D${(doy % 30) + 1}`;
+  return `${shortDate(abs)}, year ${calDate(abs).year}`;
 }

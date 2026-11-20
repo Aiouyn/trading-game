@@ -5,6 +5,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { borrowMargin } from '../banking/index.ts';
 import { profileOf } from '../venues/talk.ts';
 import { dateText } from '../player/gamedate.ts';
+import { monthName as calMonthName } from '../../kernel/calendar.ts';
 import { DEP, GOV, pay, type EconState } from '../economy/index.ts';
 import { borrowShares, returnShares, submitOrder } from '../markets/index.ts';
 import { bidHome, homeBoard, parcelView } from '../property/index.ts';
@@ -175,7 +176,7 @@ function blank(): Circle {
 }
 function clamp(n: number, lo: number, hi: number): number { return n < lo ? lo : n > hi ? hi : n; }
 function usd(cents: number): string { return money(cents); }
-function monthName(day: number): string { return MONTHS[Math.floor(((day % 360) + 360) % 360 / 30)] ?? 'January'; }
+function monthName(day: number): string { return calMonthName(day); }
 function alive(w: World, i: number): boolean {
   const P = econ(w).P;
   return i >= 0 && i < P.n && (P.flags[i] & 1) !== 0 && (P.flags[i] & 4) === 0;

@@ -5,6 +5,7 @@
 // session clock, and 1D 1W 1M from its daily bars. A bar's time is game seconds since day 0 (a game day is 86,400 s), so the
 // chart library's own spacing holds and a drawing's time is in game days.
 
+import { calDate, MONTHS_SHORT, shortDate } from "@/shell/calendar";
 export type Tf = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1D" | "1W" | "1M";
 export type Kind = "share" | "index" | "coin" | "future" | "bond" | "fx";
 export type Unit = "cents" | "pts" | "rate";
@@ -93,14 +94,9 @@ export function volText(v: number): string {
   return String(Math.round(v));
 }
 
-const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "Tue 2 Jan" for a game day (day 0 is a Monday; a year is twelve 30-day months). */
+/** "Tue 2 Jan" for a game day, on the one calendar (src/shell/calendar.ts). */
 export function dayLabel(day: number): string {
-  const d = Math.floor(day);
-  const doy = ((d % 360) + 360) % 360;
-  return `${WD[((d % 7) + 7) % 7]} ${(doy % 30) + 1} ${MON[Math.floor(doy / 30)]}`;
+  return shortDate(day);
 }
 export const hhmm = (min: number): string => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
@@ -116,13 +112,13 @@ export function axisLabel(ts: number, tf: Tf, session: boolean): string {
   const min = Math.floor(ts / 60);
   const day = Math.floor(min / 1440);
   const m = min - day * 1440;
-  const doy = ((day % 360) + 360) % 360;
+  const cal = calDate(day);
   if (isIntraday(tf)) {
     const first = tfMinutes(tf) > 0 && m < (session ? OPEN_MIN : 0) + tfMinutes(tf);
     return first ? dayLabel(day).slice(4) : hhmm(m);
   }
-  if (doy === 0) return day >= 0 ? `Year ${Math.floor(day / 360) + 1}` : "Jan";
-  return doy % 30 === 0 ? MON[Math.floor(doy / 30)]! : `${(doy % 30) + 1} ${MON[Math.floor(doy / 30)]}`;
+  if (cal.doy === 0) return day >= 0 ? `Year ${cal.year}` : "Jan";
+  return cal.day === 1 ? MONTHS_SHORT[cal.month - 1] : `${cal.day} ${MONTHS_SHORT[cal.month - 1]}`;
 }
 
 // ---- fetching and cutting ----

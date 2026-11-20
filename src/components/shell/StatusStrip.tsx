@@ -1,4 +1,5 @@
 "use client";
+import { shortDate } from "@/shell/calendar";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { clockLabel } from "@/shell/mockChannels";
@@ -18,7 +19,7 @@ import { TimeControls } from "@/shell/TimeControls";
 import { CalendarChip } from "@/apps/society/chip";
 import { toggleNotes } from "./flowState";
 import { useMemo } from "react";
-import { useSimSnap } from "@/shell/simSession";
+import { useShownClock, useSimSnap } from "@/shell/simSession";
 import { useLife } from "@/apps/profile/data";
 import { RequestsButton } from "@/apps/messages/notices";
 import { bellRows, useBellSeen, worldKey } from "./bell";
@@ -40,7 +41,8 @@ export function StatusStrip() {
   const sim = me.source === "sim";
   const simDate = clock.sim;
   const { day, hhmm } = clockLabel(clock);
-  const clockText = simDate ? (simDate.label ?? `Y${simDate.year} M${simDate.month} D${simDate.day}`) : clockStrings(locale).strip(day, hhmm);
+  const shownClock = useShownClock();
+  const clockText = simDate ? (shownClock.label || simDate.label || shortDate(simDate.abs)) : clockStrings(locale).strip(day, hhmm);
   // The simulation has no release number or rank code a player would read: the strip shows neither.
   const release = sim
     ? null

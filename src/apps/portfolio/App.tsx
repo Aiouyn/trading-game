@@ -48,7 +48,7 @@ function WhyPanel({ why, onClose }: { why: OpenWhy | null; onClose: () => void }
       {why.plain.map((t, i) => <p key={i} className="cause-line">{t}</p>)}
       {why.lines === null ? <p className="muted">Reading what the books recorded…</p> : reasons.length ? (
         <>
-          <p className="cause-line muted">What the books recorded: each line is the cause of the one above</p>
+          <p className="cause-line muted">What led to this, newest first: each line happened because of the line under it.</p>
           {reasons.map((r) => <p key={r.id} className="cause-line" style={{ paddingLeft: r.depth * 12 }}><span className="label">{gameDate(r.day)}</span> {r.text}</p>)}
         </>
       ) : null}
@@ -110,7 +110,8 @@ export default function PortfolioApp() {
     const board = view.coinBoard?.find((x) => x.id === c.id);
     const prev = board?.prev ?? c.px;
     const entry = entryOf(c.id);
-    return { c, entry, open: entry > 0 ? Math.round(c.qty * (c.px - entry)) : null, value: Math.round(c.px * c.qty), day: Math.round((c.px - prev) * c.qty) };
+    const dead = c.px <= 0;
+    return { c, entry, open: !dead && entry > 0 ? Math.round(c.qty * (c.px - entry)) : null, value: Math.round(c.px * c.qty), day: dead ? 0 : Math.round((c.px - prev) * c.qty) };
   });
   const bondRows = view.bonds.map((b) => {
     const px = b.px ?? 0;
@@ -127,34 +128,56 @@ export default function PortfolioApp() {
   const loansOwed = view.loans.reduce((t, l) => t + l.owed, 0);
   const deposits = (view.deposits ?? []).reduce((t, d) => t + d.cents, 0);
   const homesWorth = view.homes.filter((h) => h.mine).reduce((t, h) => t + h.price - (h.mortgage ?? 0), 0);
-  const listed = Math.round(view.cash + deposits + sum(shareRows) + sum(shortRows) + sum(coinRows) + sum(bondRows) + homesWorth - loansOwed);
-  const rest = Math.round(view.netWorth) - listed;
-  const bits = [`cash ${moneyFromCents(view.cash)}`];
-  if (deposits) bits.push(`deposits ${moneyFromCents(deposits)}`);
-  if (shareRows.length || shortRows.length) bits.push(`shares ${moneyFromCents(sum(shareRows) + sum(shortRows))}`);
-  if (coinRows.length) bits.push(`coins ${moneyFromCents(sum(coinRows))}`);
-  if (bondRows.length) bits.push(`bonds ${moneyFromCents(sum(bondRows))}`);
-  if (homesWorth) bits.push(`property ${moneyFromCents(homesWorth)}`);
-  if (loansOwed) bits.push(`less loans ${moneyFromCents(loansOwed)}`);
+  // The sim sends net worth line by line, valued exactly as the figure itself: the parts always add up to it.
+  const parts = view.live?.worth;
+  const bits: string[] = [];
+  if (parts) {
+    bits.push(`cash ${moneyFromCents(parts.cash)}`);
+    if (parts.deposits) bits.push(`deposits ${moneyFromCents(parts.deposits)}`);
+    if (parts.shares) bits.push(`shares ${moneyFromCents(parts.shares)}`);
+    if (parts.shorts) bits.push(`shorts ${moneyFromCents(parts.shorts)} (the shares you owe back, at today's price, less what you sold them for)`);
+    if (parts.coins || coinRows.length) bits.push(`coins ${moneyFromCents(parts.coins)}`);
+    if (parts.bonds) bits.push(`bonds ${moneyFromCents(parts.bonds)}`);
+    if (parts.business) bits.push(`your business ${moneyFromCents(parts.business)}`);
+    if (parts.goods) bits.push(`goods and property ${moneyFromCents(parts.goods)}`);
+    if (parts.owedToYou) bits.push(`money owed to you ${moneyFromCents(parts.owedToYou)}`);
+    if (parts.debts) bits.push(`less what you owe ${moneyFromCents(parts.debts)}`);
+  } else {
+    bits.push(`cash ${moneyFromCents(view.cash)}`);
+    if (deposits) bits.push(`deposits ${moneyFromCents(deposits)}`);
+    if (shareRows.length || shortRows.length) bits.push(`shares ${moneyFromCents(sum(shareRows) + sum(shortRows))}`);
+    if (coinRows.length) bits.push(`coins ${moneyFromCents(sum(coinRows))}`);
+    if (bondRows.length) bits.push(`bonds ${moneyFromCents(sum(bondRows))}`);
+    if (homesWorth) bits.push(`property ${moneyFromCents(homesWorth)}`);
+    if (loansOwed) bits.push(`less loans ${moneyFromCents(loansOwed)}`);
+  }
+  const deadCoins = coinRows.filter((r) => r.c.px <= 0).map((r) => r.c.name);
   const worthWhy: Why = {
     title: "Net worth",
     plain: [
-      `Your net worth is ${moneyFromCents(view.netWorth)}: everything you own, less everything you owe, at today's prices.`,
-      `${cap(bits.join(", "))}.`,
-      Math.abs(rest) >= 100
-        ? `The remaining ${moneyFromCents(rest)} is what the books count that this list does not show: a business, money owed to you, or the gap between a share's last trade and the price on the chart.`
-        : "Those add up to your net worth.",
+      `Your net worth is ${moneyFromCents(view.netWorth)}: your cash plus what everything you hold would bring if you sold it now, less what you owe.`,
+      `${cap(bits.join(", "))}. Those add up to ${moneyFromCents(view.netWorth)}.`,
+      ...(deadCoins.length ? [`${deadCoins.join(", ")} ${deadCoins.length === 1 ? "is a dead coin" : "are dead coins"}: nobody trades ${deadCoins.length === 1 ? "it" : "them"} any more, so ${deadCoins.length === 1 ? "it counts" : "they count"} as $0.`] : []),
       ...(points.length > 1 && points[0].worth > 0 ? [`You began at ${moneyFromCents(points[0].worth)}, so you are ${view.netWorth >= points[0].worth ? "up" : "down"} ${moneyFromCents(Math.abs(view.netWorth - points[0].worth))} since then.`] : []),
     ],
     id: stat("worth"),
   };
-  const other = today - moved;
+  const book = view.live?.book;
+  const cashToday = book && book.day === view.date.abs ? book.today.net : null;
+  const other = cashToday === null ? today - moved : today - cashToday;
   const todayWhy: Why = {
     title: "Today",
     plain: [
-      `Today is your net worth now (${moneyFromCents(view.netWorth)}) less what it was at the last close (${moneyFromCents(atClose)}): ${sign(today)}.`,
-      moved ? `Your holdings moved ${sign(moved)} since the close.` : "Your holdings have not moved since the close.",
-      Math.abs(other) >= 1 ? `The other ${sign(other)} is what you spent, paid in fees or interest, or earned since then.` : "Nothing else changed.",
+      `Today is your net worth now (${moneyFromCents(view.netWorth)}) less what it was at midnight (${moneyFromCents(atClose)}): ${sign(today)}.`,
+      ...(cashToday === null
+        ? [
+          moved ? `Your holdings moved ${sign(moved)} since midnight.` : "Your holdings have not moved since midnight.",
+          Math.abs(other) >= 1 ? `The other ${sign(other)} is what you spent, paid in fees or interest, or earned since then.` : "Nothing else changed.",
+        ]
+        : [
+          `Your cash changed ${sign(cashToday)} today, line by line in the statement below${book && book.today.rows.length ? ` (${book.today.rows.slice(0, 3).map((r) => `${r.label.toLowerCase()} ${sign(r.cents)}`).join(", ")})` : ""}.`,
+          Math.abs(other) >= 1 ? `The other ${sign(other)} is the change in what you hold and owe: prices moving, and what that cash bought or sold.` : "What you hold did not change in value.",
+        ]),
     ],
     id: stat("worth"),
   };
@@ -166,7 +189,7 @@ export default function PortfolioApp() {
         <div className="pf-hero-nw">
           <Num w={worthWhy} ask={ask}><LiveNum value={view.netWorth}><MoneyText amount={dollars(view.netWorth)} ctx="hero" /></LiveNum></Num>
         </div>
-        <span className="today" data-testid="pf-today">Today <Num w={todayWhy} ask={ask}><MoneyText amount={dollars(today)} ctx="delta" /></Num> <small className="muted">since the last close</small></span>
+        <span className="today" data-testid="pf-today">Today <Num w={todayWhy} ask={ask}><MoneyText amount={dollars(today)} ctx="delta" /></Num> <small className="muted">since midnight</small></span>
       </div>
       <WhyPanel why={why} onClose={close} />
       {view.stats?.length ? (
@@ -174,7 +197,7 @@ export default function PortfolioApp() {
           {view.stats.map((s) => (
             <li key={s.id} title={s.hover}>
               <span className="label">{s.label}</span>
-              <Num w={{ title: cap(s.label), plain: [`${cap(s.label)}: ${s.word}${s.hover && s.hover !== s.word ? ` (${s.hover})` : ""}.`], id: s.eventId }} ask={ask}>
+              <Num w={{ title: cap(s.label), plain: s.why?.length ? s.why : [`${cap(s.label)}: ${s.word}${s.hover && s.hover !== s.word ? ` (${s.hover})` : ""}.`], id: s.eventId }} ask={ask}>
                 <span>{s.word}</span>
                 {s.hover && s.hover !== s.word ? <span className="num">{s.hover}</span> : null}
               </Num>
@@ -182,6 +205,7 @@ export default function PortfolioApp() {
           ))}
         </ul>
       ) : null}
+      {book ? <Statement book={book} cash={view.cash} today={view.date.abs} /> : null}
       <section>
         <h2 className="label">Net worth</h2>
         {points.length < 2 ? (
@@ -251,9 +275,9 @@ export default function PortfolioApp() {
       <Block title="Coins" empty="" show={view.coins.length > 0}>
         {coinRows.map(({ c, entry, open: openPnl, value, day }) => (
           <Pos key={c.id} name={`${c.name} · ${c.qty.toLocaleString("en-US")}`}
-            sub={entry > 0 && openPnl !== null ? <span>avg cost {c.id.startsWith("coin:me:") ? `$${(entry / 100).toFixed(6)}` : moneyFromCents(Math.round(entry))} · open <span className={tone(openPnl)}>{openWord(openPnl, c.px > 0 && entry > 0 ? (c.px - entry) / entry : 0)}</span></span> : null} onOpen={() => open(c.id.startsWith("coin:") ? c.id : `coin:${c.id}`)}
+            sub={c.px <= 0 ? <span>dead coin, worth $0</span> : entry > 0 && openPnl !== null ? <span>avg cost {c.id.startsWith("coin:me:") ? `$${(entry / 100).toFixed(6)}` : moneyFromCents(Math.round(entry))} · open <span className={tone(openPnl)}>{openWord(openPnl, c.px > 0 && entry > 0 ? (c.px - entry) / entry : 0)}</span></span> : null} onOpen={() => open(c.id.startsWith("coin:") ? c.id : `coin:${c.id}`)}
             value={value} day={day} id={c.eventId} ask={ask}
-            says={`You hold ${c.qty.toLocaleString("en-US")} ${c.name}. At the price now that is ${moneyFromCents(value)}, and it moved ${sign(day)} today.`} />
+            says={c.px <= 0 ? `You hold ${c.qty.toLocaleString("en-US")} ${c.name}. It is a dead coin, so it counts as $0.` : `You hold ${c.qty.toLocaleString("en-US")} ${c.name}. At the price now that is ${moneyFromCents(value)}, and it moved ${sign(day)} today.`} />
         ))}
       </Block>
       {view.fx && (view.fx.held || view.fx.bonds) ? (
@@ -306,6 +330,40 @@ export default function PortfolioApp() {
         )) : <p className="muted">No fills yet.</p>}
       </section>
     </div>
+  );
+}
+
+/**
+ * The cash statement for yesterday and today: what the account held at the start of the day, every line in and out,
+ * and what it held at the end. Today ends at the cash in hand now, so the two columns always add up.
+ */
+function Statement({ book, cash, today }: { book: NonNullable<NonNullable<SimView["live"]>["book"]>; cash: number; today: number }) {
+  const fresh = book.day === today;
+  const todayDay = fresh ? book.today : { day: today, in: 0, out: 0, net: 0, rows: [] };
+  const yDay = fresh ? book.yesterday : book.today;
+  const todayOpen = cash - todayDay.net;
+  const yOpen = todayOpen - yDay.net;
+  const col = (title: string, day: typeof todayDay, open: number, close: number, closeWord: string, testid: string) => (
+    <div className="pf-stmt-day" data-testid={testid}>
+      <p className="label">{title} <small className="muted">{gameDate(day.day).split(", year ")[0]}</small></p>
+      <div className="sim-pf-row"><span>Cash at midnight</span><span className="num"><MoneyText amount={dollars(Math.round(open))} ctx="table" /></span></div>
+      {day.rows.length ? day.rows.map((r) => (
+        <div key={r.label} className="sim-pf-row pf-stmt-line" title={r.why} data-testid="pf-stmt-line">
+          <span>{r.label}{r.count > 1 ? <small className="muted"> ×{r.count}</small> : null}</span>
+          <span className={`num ${tone(r.cents)}`}><MoneyText amount={dollars(r.cents)} ctx="delta" /></span>
+        </div>
+      )) : <p className="muted">No money came in or went out.</p>}
+      <div className="sim-pf-row pf-stmt-total"><span>{closeWord}</span><span className="num"><MoneyText amount={dollars(Math.round(close))} ctx="table" /></span></div>
+    </div>
+  );
+  return (
+    <section className="pf-stmt" data-testid="pf-statement">
+      <h2 className="label">Statement</h2>
+      <div className="pf-stmt-cols">
+        {col("Yesterday", yDay, yOpen, todayOpen, "Cash at the end of the day", "pf-stmt-yesterday")}
+        {col("Today", todayDay, todayOpen, cash, "Cash now", "pf-stmt-today")}
+      </div>
+    </section>
   );
 }
 

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DAYS_PER_YEAR, type World } from '../../kernel/index.ts';
+import { calYear } from '../../kernel/calendar.ts';
 import type { EconState } from '../economy/index.ts';
 import { type Entry, historyOf } from './index.ts';
 import { causeParagraph, dollarsMentioned, joinAnd } from './prose.ts';
@@ -196,7 +197,7 @@ function families(w: World): string {
     const ids = [...members].sort((a, b) => P.born[a] - P.born[b] || a - b);
     lines.push(`## The ${P.families[fam]} family`, '', `Worth ${money(worth)} at the end of year ${w.year}. ${ids.length} people in the tree.`, '');
     for (const i of ids) {
-      const born = P.born[i] < 0 ? 'before the founding' : `in year ${Math.floor(P.born[i] / DAYS_PER_YEAR) + 1}`;
+      const born = P.born[i] < 0 ? 'before the founding' : `in year ${calYear(P.born[i])}`;
       const bits = [`${P.name(i)} is born ${born}`];
       if (P.parent[i] >= 0) bits.push(`child of ${P.name(P.parent[i])}`);
       for (const wed of weds.get(i) ?? []) bits.push(`marries ${P.name(wed.other)} in year ${wed.year}`);

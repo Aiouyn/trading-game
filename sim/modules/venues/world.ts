@@ -337,7 +337,9 @@ export function leaveVenue(w: World, seat: string): Res {
     const fin = finishScene(w, seat, t);
     return { ok: true, minutes: sp.minutes, eventId: fin.eventId, text: fin.text, lines: fin.lines };
   }
-  return { ok: true, minutes: sp.minutes, text: `You say your goodbyes and step out of ${v.name}. You spent ${usd(t.spent)} in about ${t.minutes} minutes${met ? ` and talked with ${met} ${met === 1 ? 'person' : 'people'}` : ''}.` };
+  // The time inside, by the clock: from stepping in (after the walk there) to stepping out.
+  const inside = Math.max(1, absNow(w) + sp.minutes - (t.openAbs + 10));
+  return { ok: true, minutes: sp.minutes, text: `You say your goodbyes and step out of ${v.name}. You spent ${usd(t.spent)} in about ${inside} minutes${met ? ` and talked with ${met} ${met === 1 ? 'person' : 'people'}` : ''}.` };
 }
 
 export function goOut(w: World, seat: string, venueKey: string, classTonight: string): Res {
@@ -359,7 +361,7 @@ export function goOut(w: World, seat: string, venueKey: string, classTonight: st
   let before = '';
   if (here) {
     leaveVenue(w, seat);
-    before = ` You leave ${roomOf(here).name} after ${here.minutes} minutes.`;
+    before = ` You leave ${roomOf(here).name} after ${Math.max(1, absNow(w) - here.openAbs - 10)} minutes.`;
   }
   const ev = w.events.emit('venue.go', `An evening at ${VENUES[v].name} || ${usd(cost)} on the door and a first drink`, [w.genesis], id);
   if (!pay(w, id, retailPayee(w), cost, 'venue.evening', ev)) return no('the bill did not leave your account');
@@ -405,7 +407,7 @@ export function goOut(w: World, seat: string, venueKey: string, classTonight: st
     ...(views.length ? views.map((f) => `  ${f.n}. ${f.text}.`) : ['  The place is empty tonight.']),
     views.length ? 'Pick a number to talk, buy a round, listen, or leave when you are ready. The clock waits while you are here.' : 'Nobody is in. You can leave when you like.',
   ];
-  return { ok: true, pause: true, minutes: sp.minutes, text: `${dateText(w.day)}, ${clockText(open % 1440)}.${before} You step into ${VENUES[v].name}, ${VENUES[v].where} (${usd(cost)} at the door). About ${crowd.length} people are in, ${crowdWords(w, crowd)}.`, lines, eventId: ev };
+  return { ok: true, pause: true, minutes: sp.minutes, text: `${dateText(Math.floor((open + sp.minutes) / 1440))}, ${clockText((open + sp.minutes) % 1440)}.${before} You step into ${VENUES[v].name}, ${VENUES[v].where} (${usd(cost)} at the door). About ${crowd.length} people are in, ${crowdWords(w, crowd)}.`, lines, eventId: ev };
 }
 
 function shared(w: World, me: number, who: number, rel: Rel | undefined, venue: number): number {

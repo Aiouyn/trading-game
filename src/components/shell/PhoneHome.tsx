@@ -1,11 +1,12 @@
 "use client";
+import { shortDate } from "@/shell/calendar";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { isBuiltApp } from "@/shell/appModules";
 import { onDesk } from "@/shell/desk";
-import { useSimSnap } from "@/shell/simSession";
+import { useShownClock, useSimSnap } from "@/shell/simSession";
 import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
@@ -188,7 +189,8 @@ function StatusBar() {
   const locale = useShell((s) => s.prefs.locale);
   const simDate = clock.sim;
   const { day, hhmm } = clockLabel(clock);
-  const clockText = simDate ? (simDate.label ?? `Y${simDate.year} M${simDate.month} D${simDate.day}`) : clockStrings(locale).phone(day, hhmm);
+  const shownClock = useShownClock();
+  const clockText = simDate ? (shownClock.label || simDate.label || shortDate(simDate.abs)) : clockStrings(locale).phone(day, hhmm);
   const down = () => { timer.current = window.setTimeout(() => { timer.current = null; store.getState().setRecent(true); }, LONG_PRESS_MS); };
   const up = () => {
     if (timer.current !== null) { window.clearTimeout(timer.current); timer.current = null; store.getState().phoneBack(); }
@@ -319,7 +321,7 @@ export function PhoneHome() {
           <div className="widget-top">
             <span className="label" data-testid="widget-nw-label">{reading.nw === null ? nwStateLabel(reading.state) : S.netWorth}</span>
             {sim ? (
-              <span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span>
+              <span className="chip chip-acc" data-testid="cash-word">{me.life?.find((s) => s.id === "cash")?.word ?? "Cash"}</span>
             ) : pending ? (
               <span className="auth-skel-chrome" data-testid="auth-skel-chrome" aria-hidden="true" />
             ) : signedIn ? (
@@ -377,7 +379,7 @@ export function PhoneHome() {
               <Button variant="secondary" size="md" className="phone-signin-cta" data-testid="phone-first-trade-guide" onClick={() => store.getState().open("portfolio")}>{S.firstTradeGuide}</Button>
             </>
           ) : null}
-          {next && reading.nw !== null && (
+          {next && reading.nw !== null && !sim && (
             <>
               <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
                 <span style={{ width: `${progress * 100}%` }} />

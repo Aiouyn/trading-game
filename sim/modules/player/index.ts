@@ -25,8 +25,11 @@ import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, life
 import { storyLines, tellWeek, type StoryLine } from './story.ts';
 import { noteAct, skipTutorial, tutorialOf, type TutorialState, type TutorialView } from './tutorial.ts';
 import { circleAct } from '../circle/index.ts';
+import { notify } from '../circle/notices.ts';
+import { residenceOf } from '../property/index.ts';
 import { cashDay, setOvernight, watchCash } from './cashbook.ts';
 import { dateText } from './gamedate.ts';
+import { calDate } from '../../kernel/calendar.ts';
 
 /** An explain line starts "[day 14]": the game says the date. */
 function tidyWhy(line: string): string {
@@ -902,6 +905,17 @@ export function ensurePlayer(w: World, playerId = DEFAULT_PLAYER): number {
   return made;
 }
 
+/**
+ * What one memecoin of a holding of qty brings per coin: what selling them all into the pool would pay. A coin that has
+ * died (dropped off the board or pulled) counts as nothing: the one rule the strip, the Portfolio and the Launchpad share.
+ */
+export function coinMark(w: World, instr: string, qty: number): number {
+  const memes = (w.state.crypto as { memes?: { id: string; live: boolean; rugged: boolean }[] } | undefined)?.memes;
+  const m = memes?.find((x) => x.id === instr);
+  if (!m || !m.live || m.rugged) return 0;
+  return memeMark(w, instr, qty);
+}
+
 function markPrice(w: World, actor?: string): (instr: string) => number {
   const stocks = (w.state.markets as { stocks?: { instr: string; last: number }[]; price?: (instr: string) => number } | undefined);
   const crypto = w.state.crypto as { majors?: { id: string; last: number }[]; memes?: { id: string; pool: string; rugged: boolean }[] } | undefined;
@@ -916,7 +930,7 @@ function markPrice(w: World, actor?: string): (instr: string) => number {
     if (major) return major.last;
     const meme = crypto?.memes?.find((m) => m.id === instr);
     // A memecoin is worth what selling the holder's coins into its pool would bring, the same figure the Launchpad shows.
-    if (meme) return memeMark(w, instr, actor ? Math.floor(w.ledger.balance(actor, instr)) : 0);
+    if (meme) return coinMark(w, instr, actor ? Math.floor(w.ledger.balance(actor, instr)) : 0);
     return 0;
   };
 }
@@ -961,10 +975,11 @@ function shortAdjust(w: World, i: number): number {
   return 0;
 }
 
-function worth(w: World, i: number): number {
+/** What one unit of each holding of person i is worth: what it would bring if sold now. A dead coin is worth nothing. */
+function holdingPrice(w: World, i: number): (instr: string) => number {
   const id = econ(w).P.id(i);
   const tape = markPrice(w, id);
-  return shortAdjust(w, i) + w.ledger.netWorth(id, (instr) => {
+  return (instr) => {
     const qty = Math.floor(w.ledger.balance(id, instr));
     const marked = markHolding(w, id, instr, qty);
     if (marked >= 0) return Math.max(marked, controlFloor(w, i, instr, qty));
@@ -976,7 +991,79 @@ function worth(w: World, i: number): number {
     pricingBook = true;
     try { return bookShare(w, f.id); }
     finally { pricingBook = false; }
-  });
+  };
+}
+
+function worth(w: World, i: number): number {
+  const id = econ(w).P.id(i);
+  return shortAdjust(w, i) + w.ledger.netWorth(id, holdingPrice(w, i));
+}
+
+/** Net worth: cash plus what every holding would bring if sold now, less what is owed. The one figure every screen shows. */
+export function netWorthOf(w: World, i: number): number {
+  const P = econ(w).P;
+  if (i < 0 || i >= P.n) return 0;
+  return Math.round(worth(w, i));
+}
+
+const moneyIds = { size: -1, ids: [] as string[] };
+
+export interface WorthParts {
+  total: number; cash: number; deposits: number; shares: number; shorts: number; coins: number; bonds: number;
+  business: number; owedToYou: number; goods: number; debts: number;
+}
+
+/** Net worth line by line, valued exactly as netWorthOf: the parts add up to the total. */
+export function worthParts(w: World, i: number): WorthParts {
+  const s = econ(w), P = s.P, L = w.ledger;
+  const out: WorthParts = { total: 0, cash: 0, deposits: 0, shares: 0, shorts: 0, coins: 0, bonds: 0, business: 0, owedToYou: 0, goods: 0, debts: 0 };
+  if (i < 0 || i >= P.n) return out;
+  const id = P.id(i);
+  const price = holdingPrice(w, i);
+  const total = Math.round(worth(w, i));
+  out.total = total;
+  let face = 0;
+  if (moneyIds.size !== L.instruments.size) { moneyIds.ids = [...L.instruments.values()].filter((d) => d.kind === 'money').map((d) => d.id); moneyIds.size = L.instruments.size; }
+  for (const instr of moneyIds.ids) {
+    const n = L.balance(id, instr);
+    if (!n) continue;
+    face += n;
+    if (instr === DEP) out.cash += n; else out.deposits += n;
+  }
+  const depos = new Set(((w.state.banking as { banks?: { depo: string }[] } | undefined)?.banks ?? []).map((b) => b.depo));
+  const bondIds = new Set(((w.state.bonds as { bonds?: { id: string }[] } | undefined)?.bonds ?? []).map((b) => b.id));
+  const listed = new Set(((w.state.markets as { stocks?: { instr: string }[] } | undefined)?.stocks ?? []).map((x) => x.instr));
+  for (const instr of L.heldInstrs(id) ?? []) {
+    const def = L.instruments.get(instr);
+    const n = L.balance(id, instr);
+    if (!def || !n) continue;
+    if (def.kind === 'money' || def.kind === 'claim') {
+      face += n;
+      if (depos.has(instr)) out.deposits += n;
+      else if (bondIds.has(instr)) out.bonds += n;
+      else out.owedToYou += n;
+      continue;
+    }
+    const v = n * price(instr);
+    if (instr.startsWith('coin:')) out.coins += v;
+    else if (listed.has(instr)) out.shares += v;
+    else if (instr.startsWith('eq:')) out.business += v;
+    else out.goods += v;
+  }
+  // What the ledger says is owed (loans, borrowed shares at what they were sold for), from the unpriced walk.
+  const owed = face - L.netWorth(id);
+  let lent = 0;
+  for (const k of roster(w).ids) {
+    const seat = roster(w).seat[k];
+    if (seat && seat.who === i) for (const l of seat.loans) lent += l.face;
+  }
+  // A short is the shares owed back at today's price; the rest of what is owed is debt.
+  out.shorts = shortAdjust(w, i) - lent;
+  out.debts = owed - lent;
+  for (const k of Object.keys(out) as (keyof WorthParts)[]) out[k] = Math.round(out[k]);
+  const sum = out.cash + out.deposits + out.shares + out.shorts + out.coins + out.bonds + out.business + out.owedToYou + out.goods - out.debts;
+  out.owedToYou += total - sum;
+  return out;
 }
 
 function chronicle(w: World, i: number, text: string, cause: number): void {
@@ -987,7 +1074,7 @@ function chronicle(w: World, i: number, text: string, cause: number): void {
   const firm = e >= 0 ? econ(w).firms[e]?.name : '';
   const sentence = /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
   h.entries.push({
-    year: Math.floor(w.day / DAYS_PER_YEAR) + 1,
+    year: calDate(w.day).year,
     day: w.day,
     kind: 'player',
     people: [P.name(i)],
@@ -1160,6 +1247,59 @@ function rememberWords(w: World, st: PlayerSeat, i: number): void {
   for (const s of board.stats) st.words[s.id] = s.word;
 }
 
+/**
+ * What the night paid in and took out, told the morning it lands: a payslip on payday, a line when rent leaves, a note
+ * when a benefit or pension arrives. The figures are the cash book's own rows for the day.
+ */
+function moneyNotices(w: World, st: PlayerSeat): void {
+  const s = econ(w), P = s.P;
+  const i = st.who;
+  if (i < 0 || i >= P.n || !P.alive(i)) return;
+  const day = cashDay(w, w.day);
+  if (!day.rows.length) return;
+  const id = P.id(i);
+  const cash = Math.floor(w.ledger.balance(id, DEP));
+  const row = (reason: string) => day.rows.find((r) => r.reasons.includes(reason));
+  const wages = row('wages');
+  if (wages && wages.cents > 0) {
+    const net = wages.cents;
+    const rate = Math.min(0.9, Math.max(0, s.taxRate || 0));
+    const gross = Math.round(net / (1 - rate));
+    const tax = gross - net;
+    const emp = P.employer[i];
+    const firm = emp >= 0 ? s.firms[emp] : undefined;
+    const from = firm?.name ?? 'your employer';
+    notify(w, {
+      kind: 'pay', title: `Payday: ${dollars(net)} from ${from}`,
+      text: `Payslip for the week to ${dateText(w.day - 1)}. Gross pay ${dollars(gross)}. Income tax (${Math.round(rate * 100)}%) −${dollars(tax)}. Paid into your account ${dollars(net)}. You now hold ${dollars(cash)}.`,
+      reason: `${from} pays its staff once a week, after income tax.`,
+      cause: firm?.staffEv ?? s.wageWho ?? s.wageEv ?? w.genesis,
+      actions: [{ label: 'See the statement', line: 'app:portfolio' }],
+    });
+    st.statEv.cash = w.events.last('player.notice') ?? st.statEv.cash;
+  }
+  const rent = row('property.rent');
+  if (rent && rent.cents < 0) {
+    const home = residenceOf(w, i);
+    notify(w, {
+      kind: 'rent', title: `Rent paid: ${dollars(-rent.cents)}`,
+      text: `The month's rent${home ? ` for your room in ${home.neighbourhood}` : ''} left your account overnight. You now hold ${dollars(cash)}.`,
+      reason: home?.due !== null && home?.due !== undefined ? `Rent comes out on its own at the end of each month. The next is due on ${dateText(home.due)}.` : 'Rent comes out on its own at the end of each month.',
+      cause: w.events.last('property.price') ?? s.macroEv ?? w.genesis,
+      actions: [{ label: 'See the statement', line: 'app:portfolio' }],
+    });
+  }
+  const benefit = row('gov.benefits') ?? row('gov.pensions');
+  if (benefit && benefit.cents > 0) {
+    notify(w, {
+      kind: 'pay', title: `${benefit.label}: ${dollars(benefit.cents)}`,
+      text: `${benefit.why}. Paid into your account overnight. You now hold ${dollars(cash)}.`,
+      reason: 'The city pays it once a week.',
+      cause: s.macroEv ?? w.genesis,
+    });
+  }
+}
+
 function stepDays(w: World, st: PlayerSeat, days: number): ActResult | undefined {
   const people = econ(w).P;
   watchPlayer(w);
@@ -1168,6 +1308,7 @@ function stepDays(w: World, st: PlayerSeat, days: number): ActResult | undefined
     try { w.step(); } finally { setOvernight(w, false); }
     afterDay?.(w);
     noteClosedDay(w);
+    try { moneyNotices(w, st); } catch { /* a notice is a courtesy; the books stand without it */ }
     const bad = w.ledger.check();
     if (bad.length) {
       const why = bad.slice(0, 8).join('; ');
@@ -2367,7 +2508,7 @@ export function view(w: World, playerId?: string): PlayerView {
   const id = i >= 0 ? P.id(i) : '';
   const price = markPrice(w, id);
   const abs = w.day;
-  const doy = abs % DAYS_PER_YEAR;
+  const cal = calDate(abs);
   const employer = i >= 0 && P.employer[i] >= 0 ? s.firms[P.employer[i]] : undefined;
   const mktRoot = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
   const futRoot = (w.state.commodities as { root?: number } | undefined)?.root ?? w.genesis;
@@ -2417,7 +2558,7 @@ export function view(w: World, playerId?: string): PlayerView {
     const qty = Math.floor(w.ledger.balance(id, m.id));
     if (qty > 0) {
       // What selling all of it into the pool brings, per token: the figure the Launchpad and net worth use.
-      coins.push({ id: m.id, name: m.name, qty, px: memeMark(w, m.id, qty), eventId: m.launchEv });
+      coins.push({ id: m.id, name: m.name, qty, px: coinMark(w, m.id, qty), eventId: m.launchEv });
     }
   }
   const orders: PlayerView['orders'] = [];
@@ -2484,7 +2625,7 @@ export function view(w: World, playerId?: string): PlayerView {
     }
   }
   return {
-    date: { year: Math.floor(abs / DAYS_PER_YEAR) + 1, month: Math.floor(doy / 30) + 1, day: (doy % 30) + 1, abs },
+    date: { year: cal.year, month: cal.month, day: cal.day, abs },
     name: i >= 0 ? P.name(i) : '',
     age: i >= 0 ? P.age(w, i) : 0,
     alive: i >= 0 && P.alive(i),

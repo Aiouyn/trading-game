@@ -28,11 +28,12 @@ import { profileOf } from './modules/venues/talk.ts';
 import { roleTitle } from './modules/careers/jobs.ts';
 import { cashDay } from './modules/player/cashbook.ts';
 import { clockText, dateText } from './modules/player/gamedate.ts';
-import { seatId } from './modules/venues/world.ts';
+import { calDate, dateYear, shortDate, weekdayShort } from './kernel/calendar.ts';
+import { seatId, tonightFaces } from './modules/venues/world.ts';
 import { courseBoard } from './modules/courses/index.ts';
 import { bookLevels, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { callNeed, marginLimit, productHaircuts } from './modules/banking/index.ts';
-import { act, ensurePlayer, playerIndex, soleSeat, view, type Command } from './modules/player/index.ts';
+import { act, coinMark, ensurePlayer, netWorthOf, playerIndex, soleSeat, view, worthParts, type Command } from './modules/player/index.ts';
 import { answerAsk, editionsFor, STANCES } from './modules/media/index.ts';
 import { noticeRows } from './modules/circle/notices.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
@@ -45,7 +46,7 @@ import { findOrigin, findPast, lifeOf, ORIGINS, PASTS, splitName } from './modul
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
-import { coinClock, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeMark, memeTape } from './modules/crypto/index.ts';
+import { coinClock, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
 import { fxMark, fxPairs } from './modules/abroad/index.ts';
 import { futureUnit } from './modules/commodities/index.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
@@ -718,7 +719,14 @@ function chain(w: World, id: number, maxDepth = 8): ChainLine[] {
       out.push({ depth: d, id: i, day: -1, kind: 'gone', msg: `event ${i} is older than the log keeps`, exo: false, missing: true });
       return;
     }
+    // The opening of the books is where every chain starts: it explains nothing to a player.
+    if (e.kind === 'genesis') return;
     const again = seen.has(i);
+    // A story the papers did not print is not a cause a player can read. Walk past it.
+    if (/^held off the page\.?$/i.test(e.msg.trim())) {
+      if (!again && d < maxDepth) { seen.add(i); for (const c of e.causes) walk(c, d); }
+      return;
+    }
     let person: number | undefined;
     let firm: string | undefined;
     let name: string | undefined;
@@ -731,7 +739,7 @@ function chain(w: World, id: number, maxDepth = 8): ChainLine[] {
       if (f) { firm = f.id; name = f.name; }
     }
     out.push({
-      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name, msg: speakIds(w, e.msg).replace(' || ', ' because ').replace('because because ', 'because '), exo: e.exo, again,
+      depth: d, id: e.id, day: e.day, kind: e.kind, actor: e.actor, person, firm, name, msg: (/^held off the page.?$/i.test(e.msg) ? 'A story the papers did not print' : speakIds(w, e.msg)).replace(' || ', ' because ').replace('because because ', 'because '), exo: e.exo, again,
     });
     if (again || d >= maxDepth) return;
     seen.add(i);
@@ -1443,7 +1451,7 @@ function markOf(w: World, actor?: string): (instr: string) => number {
     if (major) return major.last;
     const meme = crypto?.memes?.find((m) => m.id === instr);
     // A memecoin is worth what selling the holder's coins into its pool would bring: one value on the token page, the Portfolio and net worth.
-    if (meme) return memeMark(w, instr, actor ? Math.floor(w.ledger.balance(actor, instr)) : 0);
+    if (meme) return coinMark(w, instr, actor ? Math.floor(w.ledger.balance(actor, instr)) : 0);
     return instr.startsWith('fxc:') ? fxMark(w, instr) : 0;
   };
 }
@@ -1453,7 +1461,7 @@ function lightDynasty(w: World): Record<string, unknown> {
   const pst = soleSeat(w);
   const people = houseIds(w).map(({ index, role }) => ({
     index, name: P.name(index), role, alive: P.alive(index), age: P.age(w, index),
-    worth: P.alive(index) ? Math.round(w.ledger.netWorth(P.id(index), markOf(w, P.id(index)))) : 0,
+    worth: P.alive(index) ? netWorthOf(w, index) : 0,
   }));
   return {
     generation: pst?.generation ?? 1,
@@ -1483,6 +1491,20 @@ function headlines(w: World): { eventId: number; day: number; text: string; firm
   }
   news.reverse();
   return news;
+}
+
+/** Memecoins the player still holds, marked the same way as net worth. A dead coin is $0 a token and still listed. */
+function heldCoins(w: World): { id: string; name: string; qty: number; px: number; eventId: number }[] {
+  const i = playerIndex(w);
+  if (i < 0) return [];
+  const id = econ(w).P.id(i);
+  const memes = (w.state.crypto as { memes?: { id: string; name: string; launchEv: number }[] } | undefined)?.memes ?? [];
+  const out: { id: string; name: string; qty: number; px: number; eventId: number }[] = [];
+  for (const m of memes) {
+    const qty = Math.floor(w.ledger.balance(id, m.id));
+    if (qty > 0) out.push({ id: m.id, name: m.name, qty, px: coinMark(w, m.id, qty), eventId: m.launchEv });
+  }
+  return out;
 }
 
 function playerBook(w: World): { shares: { instr: string; qty: number; px: number; eventId: number }[]; orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }[] } {
@@ -1544,7 +1566,7 @@ let challengeBeat = 0;
 let generating = false;
 
 function dateLabel(day: number): string {
-  return `${dateText(day, false)}, year ${Math.floor(day / 360) + 1}`;
+  return dateYear(day, false);
 }
 
 function moneyLabel(cents: number): string {
@@ -1564,7 +1586,7 @@ function progressOf(w: World): { progress: number; meter: string } {
   if (!g?.kind || g.kind === 'none') return { progress: 0, meter: 'no goal' };
   const i = playerIndex(w);
   const id = i >= 0 ? econ(w).P.id(i) : '';
-  const now = i >= 0 ? Math.round(w.ledger.netWorth(id, markOf(w, id))) : 0;
+  const now = i >= 0 ? netWorthOf(w, i) : 0;
   if (g.kind === 'worth') {
     const cents = g.cents ?? 0;
     return { progress: cents > 0 ? now / cents : 0, meter: `${moneyLabel(now)} of ${moneyLabel(cents)}` };
@@ -1757,18 +1779,24 @@ function classify(e: { id: number; day: number; kind: string; actor?: string; ms
   else if (e.kind.startsWith('shock.')) tag = 'city';
   else if ((e.kind === 'news.story' || e.kind === 'media.story') && (news < 3 || (ctx.id && e.msg.includes(ctx.id)))) tag = 'wire';
   if (!tag) return null;
+  if (/^held off the page.?$/i.test(e.msg.trim())) return null;
   const text = e.msg.length > 280 ? e.msg.slice(0, 277) + '…' : e.msg;
   return { eventId: e.id, day: e.day, tag, text };
 }
 
+const BANK_WORDS: Record<string, string> = { bank_1: 'the city bank', bank_2: 'the second bank', bank_3: 'the third bank', bank_4: 'the fourth bank' };
+
 function speakIds(w: World, msg: string): string {
   const P = econ(w).P;
   return msg
+    .replace(/\b(?:eq:)?bank_[1-4]\b/g, (m) => BANK_WORDS[m.replace(/^eq:/, '')] ?? 'the bank')
     .replace(/\beq:frm_[a-z0-9_]+|\bfrm_[a-z0-9_]+/gi, (m) => findFirm(w, m.replace(/^eq:/i, ''))?.name ?? m)
     .replace(/\bp_\d+\b/g, (m) => {
       const n = Number(m.slice(2));
       return Number.isInteger(n) && n >= 0 && n < P.n ? P.name(n) : m;
-    });
+    })
+    .replace(/\s*\(slot\s*\d+\)/gi, '')
+    .replace(/\bwho:\d+\b/gi, '');
 }
 
 function holdingsNow(w: World): LotSnap[] {
@@ -2163,7 +2191,7 @@ function writeSave(id: string, label: string): SaveMeta {
     player: who >= 0 ? P.name(who) : '',
     day: w.day,
     date: dateLabel(w.day),
-    netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w, P.id(who)))) : 0,
+    netWorth: who >= 0 ? netWorthOf(w, who) : 0,
     savedAt: Date.now(),
   };
   fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
@@ -2236,6 +2264,7 @@ function beginGeneration(job: GenJob): string | null {
   if (!listScenarios().some((s) => s.id === job.id)) return `no scenario ${job.id}`;
   if (started) {
     speed = 'pause';
+    heldSpeed = null;
     pumping = false;
     started = false;
     over = false;
@@ -2260,7 +2289,7 @@ function beginGeneration(job: GenJob): string | null {
     broadcast('gen', { phase: 'error', error: playerLine(error) });
   };
   worker.on('message', (msg: { type?: string; year?: number; text?: string; error?: string; dir?: string }) => {
-    if (msg.type === 'line') broadcast('gen', { phase: 'line', year: msg.year, text: msg.text });
+    if (msg.type === 'line') broadcast('gen', { phase: 'line', year: msg.year, text: String(msg.text ?? '').replace(/\bbank_([1-4])\b/g, (m: string) => BANK_WORDS[m] ?? 'the bank') });
     else if (msg.type === 'phase') broadcast('gen', { phase: 'phase', text: msg.text });
     else if (msg.type === 'error') fail(msg.error || 'the city could not be written');
     else if (msg.type === 'done' && msg.dir) {
@@ -2282,7 +2311,7 @@ function beginGeneration(job: GenJob): string | null {
             const meta: SaveMeta = {
               id: 'autosave', label: 'Autosave', scenario: sc?.name ?? '', scenarioId: sc?.id ?? '',
               player: who >= 0 ? P.name(who) : '', day: w.day, date: dateLabel(w.day),
-              netWorth: who >= 0 ? Math.round(w.ledger.netWorth(P.id(who), markOf(w, P.id(who)))) : 0,
+              netWorth: who >= 0 ? netWorthOf(w, who) : 0,
               savedAt: Date.now(),
             };
             fs.writeFileSync(path.join(SAVES, 'autosave', 'meta.json'), JSON.stringify(meta));
@@ -2341,13 +2370,13 @@ function tickFrame(w: World): Record<string, unknown> {
   const pst = soleSeat(w);
   const id = i >= 0 ? P.id(i) : '';
   const abs = w.day;
-  const doy = abs % 360;
+  const cal = calDate(abs);
   const price = markOf(w, id);
-  const worth = i >= 0 ? Math.round(w.ledger.netWorth(id, price)) : 0;
+  const worth = i >= 0 ? netWorthOf(w, i) : 0;
   const book = playerBook(w);
   const alive = i >= 0 && P.alive(i);
   return {
-    date: { year: Math.floor(abs / 360) + 1, month: Math.floor(doy / 30) + 1, day: (doy % 30) + 1, abs },
+    date: { year: cal.year, month: cal.month, day: cal.day, abs },
     name: i >= 0 ? P.name(i) : '',
     alive,
     over: (pst?.over ?? false) || !alive,
@@ -2357,6 +2386,7 @@ function tickFrame(w: World): Record<string, unknown> {
     epoch: `${bootPid}:${worldEpoch}`,
     quotes: quoteTick(w),
     shares: book.shares,
+    coins: heldCoins(w),
     orders: book.orders,
     news: headlines(w),
     scenario: scenarioCard(w),
@@ -3034,7 +3064,7 @@ function civicPanel(w: World): Record<string, unknown> {
   const P = econ(w).P;
   const s = econ(w);
   const seat = soleSeat(w);
-  const worth = i >= 0 ? Math.round(w.ledger.netWorth(P.id(i), markOf(w, P.id(i)))) : 0;
+  const worth = i >= 0 ? netWorthOf(w, i) : 0;
   const board = seat ? lifeBoard(w, i, seat, worth) : null;
   const donate = board?.choices.find((c) => c.id === 'donate');
   const person = (idx: number, role: string) => (
@@ -3118,7 +3148,7 @@ function legalPanel(w: World): Record<string, unknown> {
     return [{ index: idx, name: P.name(idx), role: idx === reg ? 'Regulator' : 'Investigator', files }];
   });
   const seat = soleSeat(w);
-  const worth = i >= 0 ? Math.round(w.ledger.netWorth(i >= 0 ? P.id(i) : '', markOf(w, i >= 0 ? P.id(i) : undefined))) : 0;
+  const worth = i >= 0 ? netWorthOf(w, i) : 0;
   const board = seat ? lifeBoard(w, i, seat, worth) : null;
   const lawyer = board?.choices.find((c) => c.id === 'lawyer');
   const att = i >= 0 ? attentionOf(w, i) : null;
@@ -3706,7 +3736,7 @@ function plansOf(w: World): PlanCard[] {
         eventId: w.events.last('cb.rate') ?? econ(w).rateWho ?? econ(w).rateEv ?? w.genesis,
       });
     }
-    if (moy === 11 && dom === 18 && !seenSoc.has(day)) {
+    if (calDate(day).month === 12 && calDate(day).day === 19 && !seenSoc.has(day)) {
       push({
         key: `gala:${day}`, askId: -1, day, kind: 'gala', title: 'The charity gala', place: 'the charity rooms',
         who: [{ person: -1, name: 'The rich list', self: false }], host: -1, hostName: '', invite: false, status: 'set',
@@ -4361,6 +4391,10 @@ let lastActCode = 200;
 let lastActJson = '';
 let actPending = false;
 let speed: Speed = 'pause';
+/** The speed a scene or a venue took when it held the clock: leaving gives it back. Null when nothing holds it. */
+let heldSpeed: Speed | null = null;
+/** Where the running speed began, on the game clock and the wall clock. The clock never runs ahead of this. */
+let speedAnchor = { abs: 0, at: 0 };
 let clockMin = 540;
 let dayOpen = false;
 const held: FeedLine[] = [];
@@ -4439,8 +4473,6 @@ function broadcast(event: string, data: unknown): void {
 }
 
 /** The game clock. clockMin is the minute of the day about to be lived (0..1439); w.day is the date. */
-const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function initClock(world: World): void {
   const saved = world.state.clock as { min?: number; tickDone?: number } | undefined;
@@ -4467,17 +4499,30 @@ function sessionWord(): 'open' | 'closed' | 'pre' | 'after' {
 }
 
 function clockLabel(day: number, min: number): string {
-  const doy = ((day % 360) + 360) % 360;
   const hh = String(Math.floor(min / 60)).padStart(2, '0'), mm = String(min % 60).padStart(2, '0');
-  return `${WD[weekday(day)]} ${(doy % 30) + 1} ${MON[Math.floor(doy / 30)]}, ${hh}:${mm}`;
+  return `${shortDate(day)}, ${hh}:${mm}`;
+}
+
+/** The player's money this minute: the one net worth, its parts, cash, and the change since midnight. */
+function moneyBlock(): Record<string, unknown> {
+  if (!started || !w) return {};
+  try {
+    const i = playerIndex(w);
+    if (i < 0) return {};
+    const parts = worthParts(w, i);
+    // Today's and yesterday's cash book ride along, so the statement on screen always matches the cash beside it.
+    const book = { day: w.day, today: cashDay(w, w.day), yesterday: cashDay(w, w.day - 1) };
+    return { nw: parts.total, cash: parts.cash, nwChange: parts.total - closeWorth, worth: parts, book };
+  } catch { return {}; }
 }
 
 function liveBlock(): Record<string, unknown> {
   return {
+    ...moneyBlock(),
     abs: w.day * MIN_PER_DAY + clockMin,
     day: w.day,
     min: clockMin,
-    weekday: WD[weekday(w.day)],
+    weekday: weekdayShort(w.day),
     label: clockLabel(w.day, clockMin),
     session: sessionWord(),
     open: OPEN_MIN,
@@ -4502,6 +4547,9 @@ function withLive(json: string): string {
 
 /** The midnight step: the whole economy closes the day. Returns the first problem, if any. */
 function stepDay(): string | undefined {
+  // Today runs from midnight: what the night brings (wages, rent, the household's spending) counts in the new day.
+  let before = closeWorth;
+  try { const me = playerIndex(w); if (me >= 0) before = netWorthOf(w, me); } catch { /* keep the last close */ }
   let stepped: ReturnType<typeof act>;
   try { stepped = act(w, { kind: 'wait', days: 1 }); }
   catch (err) {
@@ -4534,10 +4582,10 @@ function stepDay(): string | undefined {
     return why;
   }
   const now = frame.netWorth as number;
-  yesterdayChange = now - closeWorth;
-  closeWorth = now;
-  nwChange = 0;
-  frame.nwChange = 0;
+  yesterdayChange = before - closeWorth;
+  closeWorth = before;
+  nwChange = now - before;
+  frame.nwChange = nwChange;
   frame.yesterday = yesterdayChange;
   frame.sinceOpen = now - openWorth;
   frame.speed = speed;
@@ -4572,7 +4620,7 @@ function advanceMinute(): string | undefined {
   try { scene = started ? sceneClock(w, seatId(w)) : null; } catch { scene = null; }
   if (scene?.ok && scene.pause) {
     sceneStop = true;
-    speed = 'pause';
+    holdClock();
     pumping = false;
     const heldBefore = pauseNote;
     collect(w);
@@ -4600,6 +4648,7 @@ function advanceMinute(): string | undefined {
   clockMin = m + 1;
   if (clockMin >= MIN_PER_DAY) {
     clockMin = 0;
+    saveClock();
     const bad = stepDay();
     dayOpen = isWeekday(w.day) && marketsOpen(w);
     saveClock();
@@ -4623,31 +4672,97 @@ function fastForward(minutes: number): string | undefined {
   return undefined;
 }
 
+/** A scene or a venue holds the clock: remember the speed so leaving can give it back. */
+function holdClock(): void {
+  if (speed !== 'pause') heldSpeed = speed;
+  speed = 'pause';
+  pumping = false;
+}
+
+/** True while the player sits at a table (a venue or a scene) that is still open. */
+function seated(): boolean {
+  try { return !!tonightFaces(w, seatId(w))?.open; } catch { return false; }
+}
+
+function clockAbs(): number {
+  return w.day * MIN_PER_DAY + clockMin;
+}
+
+/** The running speed starts from the minute just lived, on this wall-clock moment. Paused time is not replayed. */
+function anchorSpeed(): void {
+  speedAnchor = { abs: w ? clockAbs() : 0, at: Date.now() };
+  lastReal = speedAnchor.at;
+  acc = 0;
+}
+
+/** The minute the running speed should have reached by now. It never runs ahead of the wall clock. */
+function wallTarget(): number {
+  if (!w) return 0;
+  if (speed === 'pause') return clockAbs();
+  const rate = ratePerSecond(speed);
+  if (!(rate > 0)) return speedAnchor.abs;
+  return speedAnchor.abs + Math.floor(Math.max(0, Date.now() - speedAnchor.at) / 1000 * rate);
+}
+
+/** The player has left the table that held the clock: run again at the speed they had. */
+function releaseClock(): void {
+  if (!heldSpeed || seated()) return;
+  const back = heldSpeed;
+  heldSpeed = null;
+  if (speed !== 'pause' || pauseNote || !booksOk || over) return;
+  speed = back;
+  anchorSpeed();
+  broadcast('speed', { speed, quiet: true });
+  pump();
+}
+
+/** Pause on the minute the player saw. A clock that is still short of it lives the minutes up to it, and no further. */
+function pauseAt(at: number | undefined): void {
+  speed = 'pause';
+  pumping = false;
+  acc = 0;
+  heldSpeed = null;
+  if (typeof at === 'number' && Number.isFinite(at) && w) {
+    const ahead = Math.floor(at) - clockAbs();
+    // A stall can leave the screen a few hours ahead. Live those minutes, then stop. Never a week of catch-up from one click.
+    if (ahead > 0 && ahead <= 8 * MIN_PER_DAY) fastForward(ahead);
+  }
+  anchorSpeed();
+}
+
 function pushClock(): void {
   lastPush = Date.now();
   broadcast('clock', { ...liveBlock(), px: livePx() });
 }
 
+function clockHalted(): boolean {
+  return speed === 'pause';
+}
+
 function runClockTick(): void {
-  if (speed === 'pause' || !booksOk || over || !started) {
+  if (clockHalted() || !booksOk || over || !started) {
     if (timer) { clearInterval(timer); timer = null; }
     pumping = false;
     pushClock();
     return;
   }
   const now = Date.now();
-  const rate = ratePerSecond(speed);
-  acc += Math.min(1.5, (now - lastReal) / 1000) * rate;
-  lastReal = now;
+  const target = wallTarget();
   let moved = 0;
-  while (acc >= 1 && speed !== 'pause' && booksOk && !over) {
-    if (Date.now() - now > 70) break;
-    acc -= 1;
+  // Live every minute the wall clock has earned, and no minute past it. A slow day-close yields and continues next tick.
+  // advanceMinute can pause the world. The check lives outside this function so that pause is still visible here.
+  while (clockAbs() < target && booksOk && !over) {
+    if (clockHalted() || Date.now() - now > 70) break;
     moved++;
     if (advanceMinute()) break;
   }
-  if (acc > Math.max(5, rate)) acc = Math.max(5, rate);
-  if (moved && (Date.now() - lastPush >= 300 || rate < 1)) pushClock();
+  if (clockHalted()) {
+    if (timer) { clearInterval(timer); timer = null; }
+    pumping = false;
+    pushClock();
+    return;
+  }
+  if (moved && (Date.now() - lastPush >= 250 || ratePerSecond(speed) < 1)) pushClock();
 }
 
 /** Start the clock if a speed is set. The server runs it itself; Quay only asks for a speed. */
@@ -4842,7 +4957,7 @@ function patchCached(): string {
       for (const c of base.coins as { id: string; qty: number; px: number }[]) {
         if (!c || typeof c.id !== 'string' || !c.id.startsWith('coin:me:')) continue;
         c.qty = Math.floor(w.ledger.balance(mine, c.id));
-        c.px = memeMark(w, c.id, c.qty);
+        c.px = coinMark(w, c.id, c.qty);
       }
     }
     coinAt = Date.now();
@@ -5548,6 +5663,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/release') {
       if (guard(req, url, res)) return;
       speed = 'pause';
+      heldSpeed = null;
       pumping = false;
       started = false;
       over = false;
@@ -5657,7 +5773,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && pathname === '/speed') {
       if (guard(req, url, res)) return;
-      const body = await readBody(req) as { speed?: string };
+      const body = await readBody(req) as { speed?: string; at?: number };
       const next = body.speed;
       if (!SPEEDS.includes(next as Speed)) {
         send(res, 400, { error: 'speed must be pause, x1, x2, x5, x10 or x25' });
@@ -5678,9 +5794,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (next !== 'pause') pauseNote = null;
-      speed = next as Speed;
+      if (next === 'pause') pauseAt(body.at);
+      else { speed = next as Speed; heldSpeed = null; anchorSpeed(); }
       touchView();
-      send(res, 200, { speed, live: liveBlock() });
+      send(res, 200, { speed, live: { ...liveBlock(), px: livePx() } });
       broadcast('speed', { speed, quiet: true });
       pump();
       return;
@@ -5740,7 +5857,7 @@ const server = http.createServer(async (req, res) => {
           result = playerId ? act(w, playerId, cmd) : act(w, cmd);
           // An evening is played minute by minute: sitting down holds the clock, and each talk, round or listen lets its minutes run.
           if (result.status === 'accepted' && (result.pause || (result.minutes ?? 0) > 0)) {
-            if (result.pause && speed !== 'pause') { speed = 'pause'; pumping = false; broadcast('speed', { speed: 'pause', quiet: true }); }
+            if (result.pause && speed !== 'pause') { holdClock(); broadcast('speed', { speed: 'pause', quiet: true }); }
             if ((result.minutes ?? 0) > 0) {
               const bad = fastForward(Math.min(180, result.minutes ?? 0));
               if (bad) result = { status: 'rejected', why: bad };
@@ -5751,6 +5868,7 @@ const server = http.createServer(async (req, res) => {
         collect(w);
         clearCuredMargin(w);
         if (pauseNote && pauseNote !== held) broadcast('speed', { speed: 'pause', ...pauseNote });
+        else if (result.status === 'accepted') releaseClock();
         const seat = soleSeat(w);
         const who = playerIndex(w);
         if ((seat?.over ?? false) || who < 0 || !econ(w).P.alive(who)) { speed = 'pause'; over = true; }

@@ -1,7 +1,8 @@
 // Read the society view and mirror the calendar the simulation already keeps.
-// Months are 30 days, years 360. The server calendar is the next 60 days only,
+// Dates are the real calendar (src/shell/calendar.ts). The server calendar is the next 60 days only,
 // so a month grid also plans days that have already passed.
 
+import { calDate, daysInMonth, monthStartDay } from "@/shell/calendar";
 export interface RichRow {
   rank: number;
   person: number;
@@ -70,14 +71,16 @@ export interface Door { who: number; name: string; come: boolean; line: string }
 export interface TextBit { kind: "text" | "firm"; text: string; id?: string }
 export interface FirmName { id: string; name: string }
 
+/** Holidays fall on calendar dates, keyed month * 100 + day, as the sim keeps them. */
 const HOLIDAY: Record<number, string> = {
-  0: "New Year. The exchange is closed",
-  120: "Founding Day. The exchange is closed",
-  195: "The harbour festival. The exchange is closed",
-  240: "Harvest. The exchange is closed",
-  354: "Christmas. The exchange is closed",
-  359: "The year's last day. The exchange is closed",
+  101: "New Year. The exchange is closed",
+  501: "Founding Day. The exchange is closed",
+  716: "The harbour festival. The exchange is closed",
+  901: "Harvest. The exchange is closed",
+  1225: "Christmas. The exchange is closed",
+  1231: "The year's last day. The exchange is closed",
 };
+const calKey = (day: number): number => { const c = calDate(day); return c.month * 100 + c.day; };
 
 function num(v: unknown, d = 0): number {
   return typeof v === "number" && Number.isFinite(v) ? v : d;
@@ -191,15 +194,16 @@ function planDay(day: number): { closed: boolean; items: { kind: string; title: 
   const moy = Math.floor(doy / 30);
   const absM = Math.floor(day / 30);
   const items: { kind: string; title: string }[] = [];
-  const closed = HOLIDAY[doy] !== undefined;
-  if (closed) items.push({ kind: "society.holiday", title: HOLIDAY[doy] });
+  const ck = calKey(day);
+  const closed = HOLIDAY[ck] !== undefined;
+  if (closed) items.push({ kind: "society.holiday", title: HOLIDAY[ck] });
   if (dom === 29) items.push({ kind: "society.meeting", title: "The central bank meets" });
   if (moy % 3 === 0 && dom <= 6) items.push({ kind: "society.earnings", title: dom === 0 ? "Earnings season opens" : "Earnings season" });
-  if (moy === 3 && dom === 14) items.push({ kind: "society.tax", title: "Tax returns are due" });
-  if (moy === 6 && dom === 14) items.push({ kind: "society.festival", title: "The harbour festival opens on the quay" });
-  if (moy === 6 && dom === 15) items.push({ kind: "society.meet", title: "Notable people meet at the harbour festival" });
-  if (moy === 6 && dom === 16) items.push({ kind: "society.festival", title: "The last day of the harbour festival" });
-  if (moy === 11 && dom === 18) {
+  if (ck === 415) items.push({ kind: "society.tax", title: "Tax returns are due" });
+  if (ck === 715) items.push({ kind: "society.festival", title: "The harbour festival opens on the quay" });
+  if (ck === 716) items.push({ kind: "society.meet", title: "Notable people meet at the harbour festival" });
+  if (ck === 717) items.push({ kind: "society.festival", title: "The last day of the harbour festival" });
+  if (ck === 1219) {
     items.push({ kind: "society.gala", title: "The charity gala" });
     items.push({ kind: "society.meet", title: "Notable people meet at the charity gala" });
   }
@@ -210,22 +214,24 @@ function planDay(day: number): { closed: boolean; items: { kind: string; title: 
 }
 
 function stamp(day: number, plan: { closed: boolean; items: { kind: string; title: string }[] }, eventIds: number[]): CalDay {
-  const doy = ((day % 360) + 360) % 360;
+  const cal = calDate(day);
   return {
     day,
-    year: Math.floor(day / 360),
-    month: Math.floor(doy / 30) + 1,
-    date: (doy % 30) + 1,
+    year: cal.year,
+    month: cal.month,
+    date: cal.day,
     closed: plan.closed,
     items: plan.items.map((item, i) => ({ kind: item.kind, title: item.title, eventId: eventIds[i] ?? -1 })),
   };
 }
 
+/** The calendar month the day falls in, one row a day: 28 to 31 of them. */
 export function monthDays(abs: number, calendar: CalDay[] | null): CalDay[] {
-  const start = abs - ((abs % 30) + 30) % 30;
+  const start = monthStartDay(abs);
+  const c = calDate(abs);
   const by = new Map((calendar ?? []).map((d) => [d.day, d]));
   const out: CalDay[] = [];
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < daysInMonth(c.year, c.month); i++) {
     const day = start + i;
     const plan = planDay(day);
     const server = by.get(day);
@@ -276,8 +282,7 @@ export function holidayReason(abs: number, calendar: CalDay[] | null): string {
     if (!known.closed) return "";
     return known.items.find((i) => i.kind === "society.holiday")?.title || "The exchange is closed";
   }
-  const doy = ((day % 360) + 360) % 360;
-  return HOLIDAY[doy] ?? "";
+  return HOLIDAY[calKey(day)] ?? "";
 }
 
 export function rankWord(rank: number, households: number): string {

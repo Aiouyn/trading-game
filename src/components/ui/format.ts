@@ -1,18 +1,12 @@
 // Player-facing figures. Presentation only: the digits stay the simulation's.
+import { dateYear, MONTHS } from "@/shell/calendar";
 
-export const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] as const;
+export { MONTHS };
 
-const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-/** Game day (day 0 is a Monday; 360-day years, 30-day months) as "Thursday 14 March, year 2". */
+/** A game day as its calendar date, "Thursday 14 March, year 2" (src/shell/calendar.ts). */
 export function gameDate(abs: number): string {
   if (!Number.isFinite(abs)) return "";
-  const day = Math.floor(abs);
-  const doy = ((day % 360) + 360) % 360;
-  const year = Math.floor(day / 360) + 1;
-  const month = MONTHS[Math.floor(doy / 30)] ?? "January";
-  const weekday = WEEKDAYS[((day % 7) + 7) % 7];
-  return `${weekday} ${(doy % 30) + 1} ${month}, year ${year}`;
+  return dateYear(abs);
 }
 
 /** Integer cents as "$1,394.45". A loss uses U+2212. Zero has no sign. */
@@ -56,6 +50,8 @@ export function scrubIds(text: string): string {
     })
     .replace(/\bbank_\d+\b/g, "the bank")
     .replace(/\bp_\d+\b/g, "someone")
+    .replace(/\s*\(slot\s*\d+\)/gi, "")
+    .replace(/\bwho:\d+\b/gi, "")
     .replace(/\s{2,}/g, " ")
     .replace(/\s+([,.;])/g, "$1")
     .trim();

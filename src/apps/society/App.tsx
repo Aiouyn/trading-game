@@ -108,6 +108,8 @@ export default function SocietyApp() {
         <h2>{monthName} · Year {view.date.year}</h2>
         <p className="soc-kicker">{chipText(abs, calendar)}</p>
         <div className="soc-cal">
+          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((wd) => <span key={wd} className="soc-wd label">{wd}</span>)}
+          {days.length ? Array.from({ length: ((days[0].day % 7) + 7) % 7 }, (_, k) => <span key={`pad-${k}`} aria-hidden="true" />) : null}
           {days.map((d) => (
             <button
               key={d.day}

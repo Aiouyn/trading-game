@@ -69,7 +69,8 @@
 .soc-story { grid-template-columns: 1fr; }
 .soc-doors { display: flex; flex-direction: column; gap: 4px; }
 .soc-door { color: var(--fg-muted); font-size: var(--fs-12_5); }
-.soc-cal { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.soc-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.soc-wd { text-align: center; font-size: 11px; }
 .soc-day {
   min-height: 28px;
   line-height: 1.15;

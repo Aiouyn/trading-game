@@ -5,6 +5,9 @@ import { DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { attentionOf } from '../law/index.ts';
 import { nudgeStanding, regardOf, standingOf } from '../social/index.ts';
 import { standingMult } from './standing.ts';
+import { outgoings, type Outgoings } from './cashbook.ts';
+import { residenceOf } from '../property/index.ts';
+import { usd } from './gamedate.ts';
 
 export type StatId = 'worth' | 'cash' | 'stress' | 'health' | 'reputation' | 'attention';
 export type ChoiceId = 'holiday' | 'donate' | 'lawyer' | 'clinic' | 'overtime';
@@ -17,6 +20,8 @@ export interface StatView {
   hover: string;
   note: string;
   eventId: number;
+  /** Sentences that explain the reading, for its Why?. */
+  why?: string[];
 }
 
 export interface ChoiceView {
@@ -80,20 +85,22 @@ export function healthWord(n: number): string {
   if (n >= 45) return 'Worn';
   return 'Failing';
 }
-export function worthWord(cents: number, wage: number): string {
-  const year = Math.max(1, wage * 360);
-  if (cents < 0) return 'Ruined';
-  if (cents < year * 0.5) return 'Thin';
-  if (cents < year * 4) return 'Modest';
-  if (cents < year * 20) return 'Comfortable';
+/**
+ * The one word for an amount of money, cash or net worth alike. Every screen uses this scale (the screens mirror it in
+ * src/components/ui/format.ts), so the same wallet always reads the same: five thousand dollars is getting by, not broke.
+ */
+export function moneyWord(cents: number): string {
+  if (cents < 0) return 'In debt';
+  if (cents < 25_000) return 'Broke';
+  if (cents < 150_000) return 'Short';
+  if (cents < 1_500_000) return 'Getting by';
+  if (cents < 10_000_000) return 'Comfortable';
+  if (cents < 100_000_000) return 'Well off';
+  if (cents < 1_000_000_000) return 'Rich';
   return 'Wealthy';
 }
-export function cashWord(weeks: number): string {
-  if (weeks < 2) return 'Broke';
-  if (weeks < 8) return 'Tight';
-  if (weeks < 26) return 'Holding';
-  return 'Flush';
-}
+export function worthWord(cents: number, _wage?: number): string { return moneyWord(cents); }
+export function cashWord(cents: number): string { return moneyWord(cents); }
 export function repWord(n: number): string {
   if (n >= 70) return 'Admired';
   if (n >= 45) return 'Known';
@@ -158,12 +165,28 @@ export function memoryOf(st: Partial<LifeMemory> | undefined): LifeMemory {
   return m;
 }
 
-interface Raw { worth: number; cash: number; stress: number; health: number; reputation: number; attention: number; weekly: number; weeks: number }
+interface Raw { worth: number; cash: number; stress: number; health: number; reputation: number; attention: number; weekly: number; weeks: number; out: Outgoings | null }
 
-function rawOf(w: World, i: number, counsel: number): Raw {
+/** The player's real week of outgoings: the cash book's everyday spending, rent and monthly bills. A newcomer with a short book leans on the city's usual spending until two weeks have passed. */
+export function weeklyOut(w: World, i: number, since: number): Outgoings {
+  const home = i >= 0 ? residenceOf(w, i) : null;
+  const rent = home && home.tenure === 'rented' && home.rent > 0 ? home.rent : 0;
+  const out = outgoings(w, Math.max(0, since), rent);
+  if (out.days < 14) {
+    const model = weeklySpend(w, i);
+    const everyday = Math.round((out.everyday * out.days + model * (14 - out.days)) / 14);
+    out.weekly += everyday - out.everyday;
+    out.everyday = everyday;
+  }
+  out.weekly = Math.max(1, out.weekly);
+  return out;
+}
+
+function rawOf(w: World, i: number, counsel: number, since = -1): Raw {
   const s = econ(w), P = s.P;
   const cash = i >= 0 ? Math.floor(w.ledger.balance(P.id(i), DEP)) : 0;
-  const weekly = weeklySpend(w, i);
+  const out = i >= 0 && since >= 0 ? weeklyOut(w, i, since) : null;
+  const weekly = out ? out.weekly : weeklySpend(w, i);
   const weeks = cash <= 0 ? 0 : cash / weekly;
   const standing = i >= 0 ? standingOf(w, i) : { score: 0, eventId: w.genesis, line: '' };
   const heat = i >= 0 ? attentionOf(w, i) : { score: 0, open: 0, flagged: 0, eventId: w.genesis, line: '' };
@@ -173,14 +196,14 @@ function rawOf(w: World, i: number, counsel: number): Raw {
     health: i >= 0 ? P.health[i] : 0,
     reputation: standing.score,
     attention: Math.max(0, Math.min(100, heat.score - counsel)),
-    weekly, weeks,
+    weekly, weeks, out,
   };
 }
 
 function wordOf(id: StatId, raw: Raw, wage: number): string {
   switch (id) {
-    case 'worth': return worthWord(raw.worth, wage);
-    case 'cash': return cashWord(raw.weeks);
+    case 'worth': return moneyWord(raw.worth);
+    case 'cash': return moneyWord(raw.cash);
     case 'stress': return stressWord(raw.stress);
     case 'health': return healthWord(raw.health);
     case 'reputation': return repWord(raw.reputation);
@@ -199,6 +222,23 @@ function hoverOf(id: StatId, raw: Raw): string {
     case 'attention': return raw.attention.toFixed(0);
     default: { const n: never = id; return n; }
   }
+}
+
+/** The runway, in sentences: cash over a real week of outgoings, and what that week is made of. */
+function runwayWhy(raw: Raw): string[] {
+  const o = raw.out;
+  const parts: string[] = [];
+  if (o) {
+    if (o.everyday > 0) parts.push(`everyday spending of about ${usd(o.everyday)} a week${o.days >= 14 ? ` (the last ${Math.min(o.days, 28)} days)` : ''}`);
+    if (o.rent > 0) parts.push(`rent of ${usd(o.rent)} a month`);
+    for (const m of o.monthly) parts.push(`${m.label.toLowerCase()} of ${usd(m.cents)} a month`);
+  }
+  const weeks = raw.weeks >= 99.5 ? 'more than 99' : raw.weeks.toFixed(1);
+  return [
+    `Cash is ${usd(raw.cash)}: ${moneyWord(raw.cash).toLowerCase()}.`,
+    `You really spend about ${usd(raw.weekly)} a week${parts.length ? `: ${parts.join(', ')}` : ''}.`,
+    `Runway is cash divided by that week: ${usd(raw.cash)} / ${usd(raw.weekly)} = ${weeks} weeks before the cash runs out with no money coming in.`,
+  ];
 }
 
 function weeksOf(weeks: number): string {
@@ -307,8 +347,7 @@ export function explainNumber(w: World, n: number, mem: LifeMemory, person?: num
 }
 
 export function lifeBoard(w: World, i: number, mem: LifeMemory, worth?: number): LifeBoard {
-  const s = econ(w);
-  const raw = rawOf(w, i, mem.counsel);
+  const raw = rawOf(w, i, mem.counsel, mem.arrived >= 0 ? (w.events.get(mem.arrived)?.day ?? 0) : 0);
   if (worth !== undefined) raw.worth = worth;
   const levels: Record<StatId, number> = {
     worth: raw.worth, cash: raw.cash, stress: raw.stress, health: raw.health, reputation: raw.reputation, attention: raw.attention,
@@ -316,11 +355,12 @@ export function lifeBoard(w: World, i: number, mem: LifeMemory, worth?: number):
   const stats: StatView[] = STATS.map(({ id, label }) => ({
     id,
     label,
-    word: wordOf(id, raw, s.wage),
+    word: wordOf(id, raw, 0),
     trend: mem.trend[id] ?? 0,
     hover: hoverOf(id, raw),
     note: noteOf(id, raw),
     eventId: mem.statEv[id] ?? causeFor(w, i, id, mem),
+    ...(id === 'cash' ? { why: runwayWhy(raw) } : id === 'worth' ? { why: [`Net worth is ${usd(raw.worth)}: ${moneyWord(raw.worth).toLowerCase()}. It is your cash plus what everything you hold would bring if sold now, less what you owe.`] } : {}),
   }));
   const choices: ChoiceView[] = CHOICES.map((c) => {
     const until = mem.cool[c.id] ?? -1;
