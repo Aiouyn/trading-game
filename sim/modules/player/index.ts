@@ -9,7 +9,7 @@ import { fxQuote, tradeFx } from '../abroad/index.ts';
 import { blockOf, controls, sharesOf, appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { KIND, ROLES, VAL, borrowAll, buyIn, cutJobs, dealUnion, owner, payOut, promote, protectJobs, refinance, cityMemory, regard, sellAssets } from '../corporate/owner.ts';
 import { consensusAll, revealsOf, signalsFor } from '../signals/index.ts';
-import { coinPrice, launchCoin, memeMark, orderCoin, postVoice } from '../crypto/index.ts';
+import { coinPrice, launchCoin, memeMark, orderCoin, postVoice, pullCoin } from '../crypto/index.ts';
 import { CEO_POSITION, GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
@@ -137,6 +137,7 @@ export type Command =
   | { kind: 'fx'; side: 'buy' | 'sell'; code: string; units: number }
   | { kind: 'launch'; name?: string; ticker?: string; buy?: number; seed?: number; desc?: string }
   | { kind: 'post'; coin: string; text: string; parent?: string }
+  | { kind: 'pull'; coin: string }
   | { kind: 'cash'; op: 'deposit' | 'withdraw' | 'borrow' | 'repay'; cents: number; product?: 'margin' | 'line' | 'term' }
   | { kind: 'talk'; slot: number }
   | { kind: 'ask'; slot: number; firm: string }
@@ -2054,6 +2055,11 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const r = postVoice(w, i, cmd.coin, cmd.text, cmd.parent);
       if (!r.ok) return rejected(r.why ?? 'the post did not go up');
       return { status: 'accepted', text: 'posted' };
+    }
+    case 'pull': {
+      const r = pullCoin(w, i, cmd.coin);
+      if (!r.ok) return rejected(r.why ?? 'the pool did not pull');
+      return { status: 'accepted', eventId: w.events.last('crypto.rug'), text: r.text ?? 'pulled the pool' };
     }
     case 'cash': {
       const cause = st.moneyEv >= 0 ? st.moneyEv : (st.arrived >= 0 ? st.arrived : econ(w).macroEv);

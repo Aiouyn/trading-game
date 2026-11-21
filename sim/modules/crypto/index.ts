@@ -55,7 +55,7 @@ interface Order {
   open: boolean;
 }
 
-/** One executed trade against a memecoin's pool: who, which side, the tokens and the cents. Kept for the Launchpad's tape. */
+/** One executed trade against a memecoin's pool: the fill, not the quote after it. Kept for the Launchpad's tape. */
 interface Print {
   seq: number;
   day: number;
@@ -65,10 +65,51 @@ interface Print {
   tokens: number;
   cents: number;
   who: number;
-  /** Cents per token in the pool just after this trade. */
+  /** Average fill, cents per token (cents / tokens). The tape shows this, not the pool's price after the trade. */
   px?: number;
+  /** Same as px: the average fill. */
+  avg?: number;
+  /** Pool spot, cents per token, just before this trade. */
+  before?: number;
+  /** Pool spot, cents per token, just after this trade. */
+  after?: number;
   /** A sale's profit over what the seller paid for those tokens, as a fraction (0.4 is up 40%). */
   gain?: number;
+}
+
+/** Why a coin left the board. The page says this, and the minute is never earlier than the launch. */
+type EndWhy = '' | 'inactivity' | 'drawdown' | 'age' | 'rug';
+
+/** One holder line in a settlement. */
+interface PayLine { who: number; tokens: number; cents: number }
+
+/** What the pool held when the coin ended, and who was paid. Shown on the page. */
+interface Payout {
+  pool: number;
+  /** Cash the creator kept by pulling the pool. 0 on a delisting. */
+  taken: number;
+  /** Cash paid to holders. */
+  paid: number;
+  /** Cents that did not divide, paid to the treasury. */
+  dust: number;
+  holders: number;
+  /** The largest lines, the player always included when they held any. */
+  lines: PayLine[];
+  yoursTokens: number;
+  yoursCents: number;
+  note: string;
+}
+
+/** Someone who heard a post: who, when, from whom, what they held, and what they did. */
+interface Hear {
+  abs: number;
+  who: number;
+  from: number;
+  holding: number;
+  kind: string;
+  did: 'buy' | 'sell' | 'hold' | 'none';
+  cents: number;
+  text: string;
 }
 
 interface Meme {
@@ -126,10 +167,30 @@ interface Meme {
   said?: Said[];
   queue?: Due[];
   saidSeq?: number;
+  /** Cents the creator spent buying their own coin, cents everyone else spent buying, and cents taken back out by sales. */
+  founderBuy?: number;
+  outsideBuy?: number;
+  withdrawn?: number;
+  /** Distinct people, other than the creator, who have bought. */
+  buyers?: number;
+  /** Terminal minute and why, set once and never earlier than the launch. */
+  endAbs?: number;
+  endWhy?: EndWhy;
+  /** Holders have been paid and their tokens redeemed. */
+  settled?: boolean;
+  payout?: Payout;
+  /** Who heard a post, and what they did. Capped. */
+  hears?: Hear[];
+  /** How a post shifted the crowd, fading over a few hours. Hype only moves the gullible. */
+  belief?: number;
+  beliefAbs?: number;
+  beliefKind?: string;
+  /** Game minute the creator disclosed an orderly wind-down. */
+  windDown?: number;
 }
 
 /** One post stored on a coin's page. A reply carries the parent's id and a copy of what it answered, so a thread survives its parent scrolling away. */
-interface Said { id: string; abs: number; who: number; mine?: boolean; text: string; parent?: string; quote?: string; quoteName?: string }
+interface Said { id: string; abs: number; who: number; mine?: boolean; text: string; parent?: string; quote?: string; quoteName?: string; label?: string }
 /** An answer the crowd has yet to write: who answers, when, to which post, and how the post read. */
 interface Due { abs: number; who: number; parent: string; stance: Stance; creator: boolean }
 type Stance = 'ask' | 'hype' | 'doubt' | 'plain';
@@ -159,8 +220,13 @@ export interface MemeRow {
   cap: number;
   /** Share of the pool's tokens bought out, 0..1. */
   sold: number;
-  /** Cents the buyers have paid into the pool, above the creator's seed. */
+  /** Cents the buyers have paid into the pool, above the creator's seed. Kept so older readers still see a number; the split below is what the page shows. */
   raised: number;
+  /** The split of cash: the creator's seed, the creator's own buys, everyone else's buys, and sales taken back out. */
+  seed: number;
+  founderBuy: number;
+  outsideBuy: number;
+  withdrawn: number;
   cash: number;
   tokens: number;
   holders: number;
@@ -183,10 +249,15 @@ export interface MemeRow {
   peak: number;
   /** Set once the coin is gone: how it ended ('rugged' or 'faded'), when, and what the creator took. */
   ended: '' | 'rugged' | 'faded';
+  /** inactivity, drawdown, age or rug. Empty while it trades. */
+  endWhy: EndWhy;
   endAbs: number;
   rugCash: number;
-  /** Game day the pool of a faded coin pays out to whoever still holds it. */
+  /** Game day the pool of a faded coin pays out. 0 once it already has. */
   windDay: number;
+  /** The settlement, once holders have been paid or told they cannot sell. */
+  payout?: Payout;
+  kingRule?: string;
 }
 
 interface Soc {
@@ -223,7 +294,13 @@ interface Book {
   mood?: number;
   rugs?: number[];
   king?: string;
+  kingAbs?: number;
+  kingRule?: string;
+  /** How many rugs each person has actually been in. Sparse: only people who held a pulled coin. */
+  rugSeen?: Record<string, number>;
   launched?: number;
+  /** Lifetime endings, not reset by the yearly stats line. Retired coins leave the book after 30 days. */
+  tally?: { launches: number; rugs: number; mania: number; age: number; inactivity: number; drawdown: number; before: number };
   trades?: number;
   rugBars?: { id: string; last: number }[];
   /** Pool accounts of wound-up coins, empty and ready to be used again. */
@@ -375,13 +452,14 @@ function stillHolds(w: World, i: number): boolean {
   return false;
 }
 
-function printTrade(w: World, m: Meme, side: 'buy' | 'sell', tokens: number, cents: number, who: number, gain?: number): void {
+function printTrade(w: World, m: Meme, side: 'buy' | 'sell', tokens: number, cents: number, who: number, before: number, gain?: number): void {
   const st = book(w);
   const seq = st.printSeq ?? 1; // a save from before the tape existed has no counter yet
   st.printSeq = seq + 1;
   const abs = st.abs ?? w.day * MIN_DAY;
-  const px = spot(w, m);
-  const pr: Print = { seq, day: w.day, abs, side, tokens, cents, who, px };
+  const after = spot(w, m);
+  const avg = tokens > 0 ? cents / tokens : after;
+  const pr: Print = { seq, day: w.day, abs, side, tokens, cents, who, px: avg, avg, before, after };
   if (gain !== undefined) pr.gain = Math.round(gain * 100) / 100;
   m.prints.push(pr);
   if (m.prints.length > PRINTS_KEEP) m.prints.splice(0, m.prints.length - PRINTS_KEEP);
@@ -389,9 +467,11 @@ function printTrade(w: World, m: Meme, side: 'buy' | 'sell', tokens: number, cen
   m.volTotal = (m.volTotal ?? 0) + cents;
   m.heat = (m.heat ?? 0) * Math.pow(0.5, Math.max(0, abs - (m.heatAbs ?? abs)) / 120) + cents;
   m.heatAbs = abs;
-  // The chart's minute bar: tokens traded and the price extremes the pool visited.
+  // The chart's minute bar counts the fill even while the clock is paused: the minute layer has not sampled it yet.
   m.mVol = (m.mVol ?? 0) + tokens;
-  if (px > 0) { m.mHi = Math.max(m.mHi ?? 0, px); m.mLo = Math.min(m.mLo ?? Infinity, px); if (px > (m.peak ?? 0)) m.peak = px; }
+  const hi = Math.max(before, after, avg);
+  const lo = Math.min(before > 0 ? before : hi, after > 0 ? after : hi, avg > 0 ? avg : hi);
+  if (hi > 0) { m.mHi = Math.max(m.mHi ?? 0, hi); m.mLo = Math.min(m.mLo ?? Infinity, lo); if (after > (m.peak ?? 0)) m.peak = after; }
   m.lastAbs = abs;
   st.trades = (st.trades ?? 0) + 1;
 }
@@ -402,13 +482,21 @@ function buyMeme(w: World, m: Meme, i: number, spend: number, cause: number, sea
   const cash = poolCash(w, m), tokens = poolTokens(w, m);
   const out = quoteBuy(cash, tokens, spend);
   if (out < 1 || cashOf(w, id) < spend) return 0;
+  const before = cash / tokens;
   if (!pay(w, id, m.pool, spend, 'crypto.buy', cause)) return 0;
   if (!w.ledger.move(m.id, m.pool, id, out, 'crypto.buy', cause)) throw new Error(`pool delivery ${m.id}`);
-  if (!m.cost.has(i)) (m.hold ??= []).push(i);
+  const fresh = !m.cost.has(i);
+  if (fresh) (m.hold ??= []).push(i);
   m.cost.set(i, (m.cost.get(i) ?? 0) + spend);
+  if (i === m.creator) m.founderBuy = (m.founderBuy ?? 0) + spend;
+  else {
+    m.outsideBuy = (m.outsideBuy ?? 0) + spend;
+    if (fresh) m.buyers = (m.buyers ?? 0) + 1;
+  }
   noteHold(book(w), i, true);
   m.flow = (m.flow ?? 0) + spend;
-  printTrade(w, m, 'buy', out, spend, i);
+  printTrade(w, m, 'buy', out, spend, i, before);
+  if (seat) refreshKing(w);
   return out;
 }
 
@@ -417,8 +505,12 @@ function sellMeme(w: World, m: Meme, i: number, qty: number, cause: number): num
   const id = P.id(i);
   const held = Math.floor(w.ledger.balance(id, m.id));
   const q = Math.min(qty, held);
-  const payC = quoteSell(poolCash(w, m), poolTokens(w, m), q);
+  const cash = poolCash(w, m), tokens = poolTokens(w, m);
+  let payC = quoteSell(cash, tokens, q);
+  // A sale the curve prices under a cent is not a dead end: the whole holding clears for 1¢ when the pool can pay it.
+  if (q >= 1 && payC < 1 && q === held && cash >= 2) payC = 1;
   if (q < 1 || payC < 1) return 0;
+  const before = tokens > 0 ? cash / tokens : 0;
   if (!pay(w, m.pool, id, payC, 'crypto.sell', cause)) return 0;
   if (!w.ledger.move(m.id, id, m.pool, q, 'crypto.sell', cause)) throw new Error(`sell delivery ${m.id}`);
   const cost = m.cost.get(i) ?? 0;
@@ -429,8 +521,10 @@ function sellMeme(w: World, m: Meme, i: number, qty: number, cause: number): num
     if (m.hold) { const at = m.hold.indexOf(i); if (at >= 0) { m.hold[at] = m.hold[m.hold.length - 1]; m.hold.pop(); } }
     noteHold(book(w), i, stillHolds(w, i));
   } else m.cost.set(i, Math.floor(cost * left / held));
+  m.withdrawn = (m.withdrawn ?? 0) + payC;
   m.flow = (m.flow ?? 0) - payC;
-  printTrade(w, m, 'sell', q, payC, i, basis > 0 ? payC / basis - 1 : undefined);
+  printTrade(w, m, 'sell', q, payC, i, before, basis > 0 ? payC / basis - 1 : undefined);
+  if (isSeatPerson(w, i)) refreshKing(w);
   return payC;
 }
 
@@ -565,8 +659,8 @@ function nameFor(w: World, i: number, kind: string, abs: number): { name: string
 /** The pool a city launcher seeds: a slice of what they can spare, never more than the standard pool. */
 function seedFor(w: World, i: number): number {
   const P = econ(w).P;
-  const spare = cashOf(w, P.id(i)) - P.incEma[i] * 60 - FEE;
-  return Math.max(SEED_MIN, Math.min(SEED, Math.floor(spare * 0.2 / 5000) * 5000));
+  const spare = cashOf(w, P.id(i)) - FEE - 5_000;
+  return Math.max(SEED_MIN, Math.min(SEED, Math.floor(Math.max(0, spare) * 0.25 / 5000) * 5000));
 }
 
 function launch(w: World, i: number, opts: LaunchOpts = {}, seedCents = SEED): Meme | undefined {
@@ -609,15 +703,17 @@ function launch(w: World, i: number, opts: LaunchOpts = {}, seedCents = SEED): M
     const row = devRow(w, i);
     row.launches++;
     // The crowd remembers a dev: a good record brings followers to the next launch, dumps keep them away.
-    m.appeal = (m.appeal ?? 1) * Math.max(0.15, 1 + 0.35 * Math.min(4, row.good) - 0.3 * Math.min(3, row.dumps));
+    m.appeal = (m.appeal ?? 1) * Math.max(0.08, 1 + 0.35 * Math.min(4, row.good) - 0.45 * Math.min(4, row.dumps));
   }
   hear(m, i);
   noteHold(st, i, true);
   st.memes.push(m);
   st.launched = (st.launched ?? 0) + 1;
+  (st.tally ??= { launches: 0, rugs: 0, mania: 0, age: 0, inactivity: 0, drawdown: 0, before: 0 }).launches++;
   // The starting buy is the creator's first trade on their own curve: it goes through the same pool as anyone's.
   if (opts.buy && opts.buy >= 1) buyMeme(w, m, i, opts.buy, ev, true);
   tell(w, m, i, true);
+  refreshKing(w);
   return m;
 }
 
@@ -649,12 +745,13 @@ function devRow(w: World, person: number): DevRow {
 }
 
 /** Tell the player about a coin they hold: a rug, a delisting, a big move. */
-function holderNotice(w: World, m: Meme, title: string, text: string, cause: number, urgent: boolean): void {
+function holderNotice(w: World, m: Meme, title: string, text: string, cause: number, urgent: boolean, force = false): void {
   const me = seatWho(w);
   if (me < 0) return;
   const held = Math.floor(w.ledger.balance(econ(w).P.id(me), m.id));
-  if (held < 1 && !(m.hold ?? []).includes(me)) return;
-  notify(w, { kind: 'coin', title, text, reason: `You hold ${held.toLocaleString('en-US')} ${m.ticker}.`, cause, urgent, actions: [{ label: `Open ${m.ticker}`, line: `coin ${m.ticker}` }] });
+  if (!force && held < 1 && !(m.hold ?? []).includes(me)) return;
+  const reason = held > 0 ? `You hold ${held.toLocaleString('en-US')} ${m.ticker}.` : `Your ${m.ticker} was settled. The payout is on the coin's page.`;
+  notify(w, { kind: 'coin', title, text, reason, cause, urgent, actions: [{ label: `Open ${m.ticker}`, line: `coin ${m.ticker}` }] });
 }
 
 /**
@@ -684,6 +781,22 @@ function devDump(w: World, m: Meme, i: number, sold: number, cents: number): voi
   const holding = coinHolders(w, m).filter((x) => x !== i);
   const others = holding.length;
   if (sold < FOUNDER * 0.2 || others < 1) return;
+  const abs = book(w).abs ?? w.day * MIN_DAY;
+  const heldBefore = sold + Math.floor(w.ledger.balance(P.id(i), m.id));
+  // A disclosed sale of part of the bag is a wind-down. Smashing the whole bag, or selling with no word, is a dump.
+  const disclosed = m.windDown !== undefined && abs - m.windDown < 1440;
+  const orderly = disclosed && sold <= Math.max(1, Math.floor(heldBefore * 0.45));
+  if (orderly) {
+    const ev = w.events.emit('crypto.winddown', `${P.name(i)} sold ${sold.toLocaleString('en-US')} of their own ${m.ticker} after saying they were winding down`, [m.launchEv], P.id(i));
+    nudgeStanding(w, i, -1);
+    notify(w, {
+      kind: 'coin', title: `You wound ${m.ticker} down in the open`, urgent: false, cause: ev,
+      text: `You had said you were selling, and this sale was part of the bag, not the whole exit. The page says so. Reputation barely moved.`,
+      reason: 'A disclosed, orderly wind-down is not a dump. Selling the founder bag in one print, or doing it again without a word, is.',
+      actions: [{ label: `Open ${m.ticker}`, line: `coin ${m.ticker}` }],
+    });
+    return;
+  }
   const row = devRow(w, i);
   if (row.dumpIds.includes(m.id) && w.day - row.last < 1) return;
   row.dumps++;
@@ -692,8 +805,8 @@ function devDump(w: World, m: Meme, i: number, sold: number, cents: number): voi
   row.last = w.day;
   if (!row.dumpIds.includes(m.id)) row.dumpIds.push(m.id);
   const ev = w.events.emit('crypto.devdump', `${P.name(i)} sold ${sold.toLocaleString('en-US')} of their own ${m.ticker} into ${others} buyers for $${Math.round(cents / 100)} || dev dump ${row.dumps}`, [m.launchEv], P.id(i));
-  nudgeStanding(w, i, -(4 + 3 * Math.min(4, row.dumps)));
-  const abs = book(w).abs ?? w.day * MIN_DAY;
+  const repeat = row.dumps >= 2;
+  nudgeStanding(w, i, -(repeat ? 8 + 6 * Math.min(4, row.dumps) : 4));
   const handle = handleOf(i);
   const named = P.name(i);
   const lines = row.dumps >= 2
@@ -708,7 +821,7 @@ function devDump(w: World, m: Meme, i: number, sold: number, cents: number): voi
   notify(w, {
     kind: 'coin', title: `The ${m.ticker} buyers saw you sell`, urgent: true, cause: ev,
     text: `You sold ${sold.toLocaleString('en-US')} ${m.ticker} while ${others} ${others === 1 ? 'person' : 'people'} held it. The coin's page names your handle, ${handle}.`,
-    reason: row.dumps >= 2 ? `This is your ${row.dumps === 2 ? 'second' : `${row.dumps}th`} dump on your own buyers; the regulator keeps count, and so does your Reputation.` : 'A dev selling the founder bag is the first thing a coin crowd watches for. Reputation fell.',
+    reason: repeat ? `This is your ${row.dumps === 2 ? 'second' : `${row.dumps}th`} dump on your own buyers. A repeat is punished harder: Reputation fell further, and the next launch starts colder.` : 'A dev selling the founder bag is the first thing a coin crowd watches for. Reputation fell. A disclosed wind-down of part of the bag would not have.',
     actions: [{ label: `Open ${m.ticker}`, line: `coin ${m.ticker}` }],
   });
 }
@@ -726,36 +839,157 @@ function maniaCauses(m: Meme): number[] {
   return c.slice(0, 5);
 }
 
+const KING_RULE = 'King of the hill is the live coin with the largest market cap after the latest trades. A tie goes to the earlier coin.';
+
+/** One rule, run after the round's trades and after a player's own trade, so the hero and the badge name the same coin. */
+export function refreshKing(w: World): string | undefined {
+  const st = book(w);
+  let king: Meme | undefined, kcap = -1;
+  for (const m of st.memes) {
+    if (!m.live || m.rugged) continue;
+    const c = spot(w, m) * (w.ledger.issued.get(m.id) ?? 0);
+    if (c > kcap || (c === kcap && (!king || m.id < king.id))) { kcap = c; king = m; }
+  }
+  st.king = king?.id;
+  st.kingAbs = st.abs ?? w.day * MIN_DAY;
+  st.kingRule = KING_RULE;
+  return st.king;
+}
+
+function holderRows(w: World, m: Meme): [number, number][] {
+  const L = w.ledger;
+  const rows: [number, number][] = [];
+  for (const [slot, v] of L.holdersS(m.id)) {
+    const id = L.ids[slot];
+    if (!id || !id.startsWith('p_') || v <= 0) continue;
+    rows.push([+id.slice(2), Math.floor(v)]);
+  }
+  return rows;
+}
+
+function endWord(why: EndWhy): string {
+  if (why === 'age') return 'it reached the 3-day age limit';
+  if (why === 'inactivity') return 'nobody traded it for 18 hours after it was a day old';
+  if (why === 'drawdown') return 'it fell below 30% of its peak and nobody traded it for 8 hours';
+  if (why === 'rug') return 'its creator pulled the pool';
+  return 'it ended';
+}
+
+/**
+ * Pay holders and take their tokens off the book. A rug pays them nothing: the creator already has the pool.
+ * A delisting pays each holder their share of what the pool held, at least 1¢ when a cent is left, and says so.
+ */
+function settle(w: World, m: Meme, why: EndWhy, cause: number): Payout {
+  const st = book(w), P = econ(w).P, L = w.ledger;
+  const abs = Math.max(st.abs ?? w.day * MIN_DAY, m.bornAbs ?? m.born * MIN_DAY);
+  const rows = holderRows(w, m);
+  const pool = why === 'rug' ? (m.rugCash ?? poolCash(w, m)) : poolCash(w, m);
+  const me = seatWho(w);
+  let paid = 0, dust = 0, back = 0;
+  const yoursTokens = me >= 0 ? (rows.find((r) => r[0] === me)?.[1] ?? 0) : 0;
+  const lines: PayLine[] = rows.map(([who, tokens]) => ({ who, tokens, cents: 0 }));
+  if (why !== 'rug' && pool > 0 && rows.length) {
+    let total = 0;
+    for (const [, v] of rows) total += v;
+    const out = total + poolTokens(w, m);
+    let left = pool;
+    for (const line of lines) {
+      const part = out > 0 ? Math.floor(pool * line.tokens / out) : 0;
+      line.cents = Math.min(left, part);
+      left -= line.cents;
+    }
+    // No sub-cent dead end: a holder whose share rounded to nothing still gets 1¢ while a cent remains.
+    for (const line of lines) {
+      if (line.cents >= 1 || line.tokens < 1 || left < 1) continue;
+      line.cents = 1;
+      left--;
+    }
+    for (const line of lines) {
+      if (line.cents > 0 && pay(w, m.pool, P.id(line.who), line.cents, 'crypto.windup', cause)) paid += line.cents;
+      else line.cents = 0;
+    }
+    // What the unsold pool tokens stand for goes back to the creator who seeded the pool. If they are gone, to the treasury.
+    const rest = Math.floor(poolCash(w, m));
+    if (rest > 0) {
+      if (P.alive(m.creator) && pay(w, m.pool, P.id(m.creator), rest, 'crypto.windup', cause)) back = rest;
+      else if (pay(w, m.pool, GOV, rest, 'crypto.windup', cause)) dust = rest;
+    }
+  }
+  for (const line of lines) {
+    const have = Math.floor(L.balance(P.id(line.who), m.id));
+    if (have > 0) L.redeem(m.id, P.id(line.who), have, why === 'rug' ? 'crypto.rug' : 'crypto.windup', cause);
+    if (why === 'rug' && line.who !== m.creator) {
+      const seen = (st.rugSeen ??= {});
+      seen[String(line.who)] = (seen[String(line.who)] ?? 0) + 1;
+    }
+    noteHold(st, line.who, stillHolds(w, line.who));
+  }
+  const poolLeft = poolTokens(w, m);
+  if (poolLeft > 0) L.redeem(m.id, m.pool, poolLeft, why === 'rug' ? 'crypto.rug' : 'crypto.windup', cause);
+  const yoursCents = me >= 0 ? (lines.find((l) => l.who === me)?.cents ?? 0) : 0;
+  const note = why === 'rug'
+    ? `The pool held ${grouped(pool)}. ${P.name(m.creator)} kept all of it. Holders were paid nothing, and the tokens cannot be sold.`
+    : `The pool held ${grouped(pool)}. Holders were paid ${grouped(paid)} for their share of the supply. ${back > 0 ? `${grouped(back)}, the share that belonged to tokens nobody had bought, went back to ${P.name(m.creator)}, who seeded the pool.` : dust > 0 ? `${grouped(dust)} went to the treasury.` : 'Nothing was left over.'}`;
+  const top = lines.slice().sort((a, b) => b.tokens - a.tokens || a.who - b.who).slice(0, 8);
+  if (me >= 0 && yoursTokens > 0 && !top.some((l) => l.who === me)) {
+    const mine = lines.find((l) => l.who === me);
+    if (mine) top.push(mine);
+  }
+  const payout: Payout = { pool, taken: why === 'rug' ? pool : back, paid, dust, holders: lines.length, lines: top, yoursTokens, yoursCents, note };
+  m.settled = true;
+  m.live = false;
+  m.endWhy = why;
+  m.endAbs = abs;
+  m.deadDay = w.day;
+  const tally = (st.tally ??= { launches: 0, rugs: 0, mania: 0, age: 0, inactivity: 0, drawdown: 0, before: 0 });
+  if (why === 'rug') tally.rugs++;
+  else if (why === 'age' || why === 'inactivity' || why === 'drawdown') tally[why]++;
+  if (abs < (m.bornAbs ?? m.born * MIN_DAY)) tally.before++;
+  m.payout = payout;
+  m.cost.clear();
+  releaseDead(m);
+  return payout;
+}
+
 function rug(w: World, m: Meme): void {
+  if (m.rugged || m.settled) return;
   const st = book(w);
   const P = econ(w).P, L = w.ledger;
   const cash = poolCash(w, m);
   const last = spot(w, m);
-  const ev = w.events.emit('crypto.rug', `${P.name(m.creator)} pulled the ${m.name} pool and kept ${grouped(cash)}. The coins still out have nowhere to sell`, maniaCauses(m), P.id(m.creator));
+  const holders = holderRows(w, m).map((r) => r[0]);
+  const ev = w.events.emit('crypto.rug', `${P.name(m.creator)} pulled the ${m.name} pool and kept ${grouped(cash)}. Holders were paid nothing`, maniaCauses(m), P.id(m.creator));
   if (cash > 0 && !pay(w, m.pool, P.id(m.creator), cash, 'crypto.rug', ev)) throw new Error(`rug cash ${m.id}`);
   const left = poolTokens(w, m);
   if (left > 0 && !L.redeem(m.id, m.pool, left, 'crypto.rug', ev)) throw new Error(`rug tokens ${m.id}`);
   m.rugged = true;
-  m.live = false;
   m.rugCash = cash;
   m.rugPx = last;
-  m.deadDay = w.day;
-  m.rugAbs = st.abs ?? w.day * MIN_DAY;
+  m.rugAbs = Math.max(st.abs ?? w.day * MIN_DAY, m.bornAbs ?? 0);
+  m.withdrawn = (m.withdrawn ?? 0) + cash;
   (st.rugBars ??= []).push({ id: m.id, last });
   if (st.rugBars.length > 40) st.rugBars.splice(0, st.rugBars.length - 40);
-  const holders = m.hold ? m.hold.slice() : [];
-  holderNotice(w, m, `${m.ticker} was rugged`, `${P.name(m.creator)} pulled the ${m.name} pool and kept ${grouped(cash)}. Your coins have nowhere to sell: the last trade was ${last.toFixed(2)}¢.`, ev, true);
-  releaseDead(m);
-  m.cost.clear();
-  (st.rugs ??= []).push(m.rugAbs);
+  const payout = settle(w, m, 'rug', ev);
+  const mine = payout.yoursTokens;
+  if (mine > 0) holderNotice(w, m, `${m.ticker} was rugged`, `${payout.note} You held ${mine.toLocaleString('en-US')} ${m.ticker}, now worth nothing. They have left your holdings.`, ev, true, true);
+  (st.rugs ??= []).push(m.rugAbs ?? 0);
   if (st.rugs.length > 12) st.rugs.shift();
   st.rugLoss += cash;
   dropTrust(w, m.creator);
+  if (isSeatPerson(w, m.creator) && holders.some((i) => i !== m.creator)) {
+    const row = devRow(w, m.creator);
+    row.dumps++;
+    row.hurt += holders.filter((i) => i !== m.creator).length;
+    row.cents += cash;
+    row.last = w.day;
+    if (!row.dumpIds.includes(m.id)) row.dumpIds.push(m.id);
+    nudgeStanding(w, m.creator, -(8 + 6 * Math.min(4, row.dumps)));
+  }
   for (const i of holders) {
     if (i === m.creator || !P.alive(i)) continue;
     thought(w, econ(w), i, 300, `lost money in the ${m.name} rug`, ev);
-    noteHold(st, i, stillHolds(w, i));
   }
+  refreshKing(w);
 }
 
 // ---- the minute engine ----
@@ -813,11 +1047,12 @@ function climate(w: World, abs: number): void {
   st.mood = k ? mood / k : 67;
 }
 
-/** Launches a game day at this moment, more in a mania and fewer in a slump. */
-function launchRate(w: World): number {
+/** Launches a game day at this moment. About one a day, and the day itself varies: some days none, a hot day a few. */
+function launchRate(w: World, abs: number): number {
   const st = book(w);
-  const moodF = Math.max(0.6, Math.min(1.3, (st.mood ?? 67) / 67));
-  return 4 * moodF * moodF * (1 + 2 * (st.mania ?? 0)) * (1 - 0.6 * (st.slump ?? 0));
+  const moodF = Math.max(0.55, Math.min(1.25, (st.mood ?? 67) / 67));
+  const dayVar = 0.25 + 1.5 * unit(w, Math.floor(abs / MIN_DAY), 9, 3);
+  return 1.05 * dayVar * moodF * (1 + 0.6 * (st.mania ?? 0)) * (1 - 0.8 * (st.slump ?? 0));
 }
 
 /** Coins the city's own launchers have live: the cap applies to them, never to the player's coins. */
@@ -831,7 +1066,7 @@ function launchStep(w: World, abs: number, span: number): void {
   const st = book(w), P = econ(w).P;
   let live = cityLive(w);
   if (live >= MAX_LIVE || P.n <= 0) return;
-  const e = launchRate(w) * span / MIN_DAY;
+  const e = launchRate(w, abs) * span / MIN_DAY;
   let n = Math.floor(e) + (unit(w, abs, 1, 1) < e - Math.floor(e) ? 1 : 0);
   while (n-- > 0 && live < MAX_LIVE) {
     let made = false;
@@ -841,10 +1076,10 @@ function launchStep(w: World, abs: number, span: number): void {
       // A chief or an officeholder has one public life already: they do not launch coins.
       if (publicFigure(w, i)) continue;
       const cash = cashOf(w, P.id(i));
-      if (cash - P.incEma[i] * 60 < FEE + SEED_MIN) continue;
+      if (cash < FEE + SEED_MIN + 1_000) continue;
       const who = persona(w, i);
       if (unit(w, abs, i, 2) * 6 > who.score) continue;
-      if (contactsOf(w, i).length < 4) continue;
+      if (contactsOf(w, i).length < 2) continue;
       st.cursor = (i + 1) % P.n;
       made = !!launch(w, i, {}, seedFor(w, i));
     }
@@ -879,7 +1114,13 @@ function crowdBuy(w: World, m: Meme, i: number, abs: number, px: number, att: nu
   const nerve = P.resil[i] / 100;
   const age = abs - (m.bornAbs ?? abs);
   const mom = px / priceAt(m.hist, abs - 30, m.bornPx);
+  const gullible = P.greed[i] >= 62 || (ageOf(w, i) < 26 && P.resil[i] < 48);
+  const beliefAge = abs - (m.beliefAbs ?? abs);
+  const belief = (m.belief ?? 0) * Math.pow(0.5, Math.max(0, beliefAge) / 240);
+  const heardPost = m.beliefKind === 'hype' ? gullible : m.beliefKind === 'disclosure' || heard(m, i);
   let want = 0.1 + 0.45 * chase + (age < 240 ? 0.2 : 0) + 0.3 * Math.min(1, Math.max(0, mom - 1) * 4) - (mom < 0.85 ? 0.4 : 0) - 0.15 * nerve;
+  if (mom > 1.4 && age < 2000) want += 0.18;
+  if (heardPost && belief !== 0) want += belief * (m.beliefKind === 'hype' ? (gullible ? 0.45 : 0) : 0.4);
   // Buyers tire as the price runs away from where it started.
   want = Math.max(0, Math.min(0.9, want)) / (1 + 0.2 * Math.max(0, px / m.bornPx - 1));
   if (unit(w, abs, i, 22) > want) return;
@@ -917,7 +1158,16 @@ function crowdSell(w: World, m: Meme, i: number, abs: number, px: number, lot: n
 function rugProne(w: World, m: Meme): boolean {
   const P = econ(w).P;
   const i = m.creator;
-  return loyalty(w, i) < 55 || (P.greed[i] > 75 && P.resil[i] < 45);
+  // Both a cold circle and a greedy nerve, or a very greedy shaky launcher. Most creators are neither.
+  const cold = loyalty(w, i) < 55 && P.greed[i] > 52;
+  const shaky = P.greed[i] > 66 && P.resil[i] < 50;
+  return cold || shaky;
+}
+
+/** Chance a prone creator pulls a fat pool over `span` minutes. A thin or quiet pool is not an opportunity. */
+function rugHazard(span: number): number {
+  const daily = 0.45;
+  return 1 - Math.pow(1 - daily, span / MIN_DAY);
 }
 
 function coinWatch(w: World, m: Meme, abs: number, span: number): void {
@@ -926,9 +1176,12 @@ function coinWatch(w: World, m: Meme, abs: number, span: number): void {
   if (!(px > 0)) return;
   if (px > (m.peak ?? 0)) m.peak = px;
   const age = abs - (m.bornAbs ?? abs);
-  if (!m.pumpEv && px >= m.bornPx * 6 && age <= 4320) {
+  // A 6× print on a thin pool is one buyer. Mania is the price and a crowd that actually paid in.
+  const earned = px >= m.bornPx * 6 && (m.buyers ?? 0) >= 5 && (m.outsideBuy ?? 0) >= m.seed * 1.5;
+  if (!m.pumpEv && earned && age <= 4320) {
+    (book(w).tally ??= { launches: 0, rugs: 0, mania: 0, age: 0, inactivity: 0, drawdown: 0, before: 0 }).mania++;
     m.pumpAbs = abs;
-    m.pumpEv = w.events.emit('crypto.mania', `${m.name} is up ${(px / m.bornPx).toFixed(1)}× since launch, from ${m.bornPx.toFixed(2)}¢ to ${px.toFixed(2)}¢ a coin`, maniaCauses(m), P.id(m.creator));
+    m.pumpEv = w.events.emit('crypto.mania', `${m.name} is up ${(px / m.bornPx).toFixed(1)}× since launch, from ${m.bornPx.toFixed(2)}¢ to ${px.toFixed(2)}¢ a coin, on ${m.buyers} buyers`, maniaCauses(m), P.id(m.creator));
     holderNotice(w, m, `${m.ticker} is up ${(px / m.bornPx).toFixed(1)}×`, `${m.name} has run from ${m.bornPx.toFixed(2)}¢ to ${px.toFixed(2)}¢ since launch.`, m.pumpEv, false);
     if (isSeatPerson(w, m.creator)) { const row = devRow(w, m.creator); if (!row.goodIds.includes(m.id) && !row.dumpIds.includes(m.id)) { row.good++; row.goodIds.push(m.id); nudgeStanding(w, m.creator, 3); } }
   }
@@ -937,22 +1190,35 @@ function coinWatch(w: World, m: Meme, abs: number, span: number): void {
     m.dumpEv = w.events.emit('crypto.crash', `${m.name} fell ${((1 - px / m.peak) * 100).toFixed(0)}% from its peak as holders took their money out`, [m.launchEv, m.pumpEv], P.id(m.creator));
     holderNotice(w, m, `${m.ticker} fell ${((1 - px / m.peak) * 100).toFixed(0)}% from its peak`, `${m.name} is at ${px.toFixed(2)}¢, down from ${m.peak.toFixed(2)}¢, as holders take their money out.`, m.dumpEv, true);
   }
-  // The creator who does not trust their own contacts pulls the pool near the top.
-  if (!isSeatPerson(w, m.creator) && age > 20 && m.peak && poolCash(w, m) >= m.seed * 2 && rugProne(w, m)) {
-    // Near the top they take it while it is fat; once it turns they take what is left before everyone else does.
-    const hazard = Math.min(0.9, span / (px >= m.peak * 0.8 ? 90 : 40));
-    if (unit(w, abs, m.creator, 41) < hazard) { rug(w, m); return; }
+  // A prone creator pulls a fat pool. A thin pool, or a steady creator, does not rug.
+  const fat = !!m.peak && poolCash(w, m) >= m.seed * 1.25 && px >= m.peak * 0.55;
+  if (!isSeatPerson(w, m.creator) && age > 360 && fat && rugProne(w, m)) {
+    if (unit(w, abs, m.creator, 41) < rugHazard(span)) { rug(w, m); return; }
   }
-  // A coin nobody wants any more drops off the board.
+  // Three different endings, each named. A player's own coin gets its first game day before they apply.
   const idle = abs - (m.lastAbs ?? abs);
   const lowFromPeak = m.peak ? px < m.peak * 0.3 : false;
-  // The rules are on the Launchpad's page. A player's own coin gets its first game day before they apply.
-  if (!(age < MIN_DAY && isSeatPerson(w, m.creator)) && ((age > 180 && lowFromPeak && idle > 120) || (age > 720 && idle > 360) || age > 4320)) {
-    m.live = false;
-    m.deadDay = w.day;
-    holderNotice(w, m, `${m.ticker} is off the board`, `${m.name} has been delisted: nobody traded it and it sat far below its peak. The pool is still there, so the coins sell back for what it holds.`, m.launchEv, false);
-    releaseDead(m);
+  let why: EndWhy = '';
+  if (!(age < MIN_DAY && isSeatPerson(w, m.creator))) {
+    if (age > 4320) why = 'age';
+    else if (age > 1440 && idle > 1080) why = 'inactivity';
+    else if (age > 480 && lowFromPeak && idle > 480) why = 'drawdown';
   }
+  if (why) delist(w, m, why, abs);
+}
+
+function delist(w: World, m: Meme, why: EndWhy, abs: number): void {
+  if (!m.live || m.rugged || m.settled) return;
+  const P = econ(w).P;
+  const pool = poolCash(w, m);
+  const ev = w.events.emit('crypto.delist', `${m.name} was delisted: ${endWord(why)}. The pool held ${grouped(pool)}`, maniaCauses(m), P.id(m.creator));
+  const payout = settle(w, m, why, ev);
+  const mine = payout.yoursTokens;
+  const whyLine = why === 'age'
+    ? `${m.name} reached the 3-day age limit and was delisted. It can have traded minutes before: age took it off, not silence.`
+    : `${m.name} was delisted because ${endWord(why)}.`;
+  if (mine > 0) holderNotice(w, m, `${m.ticker} is off the board`, `${whyLine} ${payout.note} You held ${mine.toLocaleString('en-US')} ${m.ticker} and were paid ${grouped(payout.yoursCents)}. The tokens have left your holdings.`, ev, why === 'age', true);
+  refreshKing(w);
 }
 
 function majorRound(w: World, abs: number, span: number, cap: number): void {
@@ -1016,14 +1282,6 @@ function coinRound(w: World, abs: number, span: number, cap: number): void {
   if (!st.degens || (st.degens.length < 200 && abs - (st.climAbs ?? -9999) > 30)) refreshDegens(w, 6000);
   climate(w, abs);
   launchStep(w, abs, span);
-  // The king of the hill is the live coin with the biggest market cap.
-  let king: Meme | undefined, kcap = 0;
-  for (const m of st.memes) {
-    if (!m.live) continue;
-    const c = spot(w, m) * (w.ledger.issued.get(m.id) ?? 0);
-    if (c > kcap) { kcap = c; king = m; }
-  }
-  st.king = king?.id;
   const degens = st.degens ?? [];
   const live = st.memes.filter((m) => m.live);
   for (const m of live) {
@@ -1060,6 +1318,8 @@ function coinRound(w: World, abs: number, span: number, cap: number): void {
     }
     if (m.live) coinWatch(w, m, abs, span);
   }
+  // After this round's trades and delistings, so the hero and the badge name the same coin.
+  refreshKing(w);
   majorRound(w, abs, span, Math.max(2, cap / 2));
 }
 
@@ -1099,11 +1359,23 @@ export function coinMinute(w: World, id: string): { px: number; hi: number; lo: 
 }
 
 /** The first bar of a coin the minute layer has not drawn yet (launched a moment ago): its price now, at its launch minute. */
-export function coinSeedBar(w: World, id: string): { id: string; name: string; t: number; px: number } | null {
+export function coinSeedBar(w: World, id: string): { id: string; name: string; t: number; px: number; v: number; hi: number; lo: number } | null {
   const m = memeOf(w, id);
   if (!m) return null;
   const px = m.rugged ? (m.rugPx ?? m.bornPx) : spot(w, m) || m.bornPx;
-  return { id: m.id, name: m.name, t: Math.floor(m.bornAbs ?? m.born * MIN_DAY), px };
+  const hi = m.mHi && m.mHi > 0 ? Math.max(px, m.mHi) : px;
+  const lo = m.mLo !== undefined && m.mLo < Infinity ? Math.min(px, m.mLo) : px;
+  return { id: m.id, name: m.name, t: Math.floor(m.lastAbs ?? m.bornAbs ?? m.born * MIN_DAY), px, v: m.mVol ?? 0, hi, lo };
+}
+
+/** Fills the minute layer has not sampled yet, so a paused chart still shows the first trade's volume. */
+export function coinPendingBar(w: World, id: string): { t: number; o: number; h: number; l: number; c: number; v: number } | null {
+  const m = memeOf(w, id);
+  if (!m || !(m.mVol && m.mVol > 0)) return null;
+  const px = m.rugged ? (m.rugPx ?? m.bornPx) : spot(w, m) || m.bornPx;
+  const hi = m.mHi && m.mHi > 0 ? Math.max(px, m.mHi) : px;
+  const lo = m.mLo !== undefined && m.mLo < Infinity ? Math.min(px, m.mLo) : px;
+  return { t: Math.floor(m.lastAbs ?? m.bornAbs ?? 0), o: lo, h: hi, l: lo, c: px, v: m.mVol };
 }
 
 /** Coins that were rugged since the minute layer last asked: their last price, so the chart can show the fall. */
@@ -1127,6 +1399,14 @@ function retireDead(w: World): void {
   const keep: Meme[] = [];
   for (const m of st.memes) {
     if (m.live || w.day - (m.deadDay ?? m.born) < 30) { keep.push(m); continue; }
+    if (m.settled) {
+      const rest = Math.floor(poolCash(w, m));
+      if (rest > 0) pay(w, m.pool, GOV, rest, 'crypto.windup', m.launchEv);
+      const left = poolTokens(w, m);
+      if (left > 0) L.redeem(m.id, m.pool, left, 'crypto.windup', m.launchEv);
+      if (poolCash(w, m) < 1 && poolTokens(w, m) < 1) (st.free ??= []).push(m.pool);
+      continue;
+    }
     const cause = m.launchEv;
     const cash = poolCash(w, m);
     const rows: [number, number][] = [];
@@ -1441,7 +1721,13 @@ export function orderCoin(w: World, actor: string, coin: string, side: 'buy' | '
     return { ...r, fill: r.filled };
   }
   const meme = memeOf(w, coin);
-  if (!meme || meme.rugged || (!meme.live && side === 'buy')) return { ...none, why: `no coin ${coin}` };
+  if (!meme) return { ...none, why: `no coin ${coin}` };
+  if (meme.rugged || meme.settled || (!meme.live && side === 'buy')) {
+    const gone = meme.payout
+      ? `${meme.ticker} has ended (${endWord(meme.endWhy || 'rug')}). ${meme.payout.note} You held ${meme.payout.yoursTokens.toLocaleString('en-US')} and were paid ${grouped(meme.payout.yoursCents)}. Those tokens cannot be sold.`
+      : meme.rugged ? `${meme.ticker} was rugged. The tokens cannot be sold.` : `no coin ${coin}`;
+    return { ...none, id: meme.id, name: meme.name, why: gone };
+  }
   if (!actor.startsWith('p_')) return { ...none, id: meme.id, name: meme.name, why: 'a memecoin trades from a person' };
   const i = +actor.slice(2);
   const base: CoinTrade = { ...none, id: meme.id, name: meme.name };
@@ -1451,8 +1737,10 @@ export function orderCoin(w: World, actor: string, coin: string, side: 'buy' | '
     return { ...base, filled: got, cents: qty, avg: qty / got, fills: [{ px: qty / got, qty: got }], fill: got };
   }
   const held = Math.floor(w.ledger.balance(actor, meme.id));
+  const quoted = quoteSell(poolCash(w, meme), poolTokens(w, meme), Math.min(qty, held));
+  if (held >= 1 && quoted < 1 && Math.min(qty, held) < held) return { ...base, why: 'that sale is under 1¢. Sell more tokens, or sell the whole holding: a whole holding under 1¢ clears for 1¢ when the pool can pay it' };
   const got = sellMeme(w, meme, i, qty, meme.launchEv);
-  if (got < 1) return { ...base, why: 'the pool did not take that sale: you hold none, or the pool is empty' };
+  if (got < 1) return { ...base, why: held < 1 ? 'you hold none of that coin' : 'the pool cannot pay 1¢ for that sale' };
   const sold = Math.min(qty, held);
   if (i === meme.creator && isSeatPerson(w, i)) devDump(w, meme, i, sold, got);
   return { ...base, filled: sold, cents: got, avg: got / sold, fills: [{ px: got / sold, qty: sold }], fill: sold };
@@ -1474,9 +1762,8 @@ export function launchCoin(w: World, person: number, opts: LaunchOpts = {}): { i
   } else {
     if (w.day < P.fearUntil[person]) return { why: 'too shaken to launch a coin' };
     if (P.resil[person] < 55) return { why: 'not the temperament to launch a coin' };
-    if (contactsOf(w, person).length < 4) return { why: 'a launch needs four contacts to tell' };
-    const surplus = cashOf(w, P.id(person)) - P.incEma[person] * 60;
-    if (surplus < FEE + SEED_MIN) return { why: 'needs spare cash for the fee and the seed' };
+    if (contactsOf(w, person).length < 2) return { why: 'a launch needs two contacts to tell' };
+    if (cashOf(w, P.id(person)) < FEE + SEED_MIN + 1_000) return { why: 'needs spare cash for the fee and the seed' };
   }
   const n0 = st.memes.length;
   const m = launch(w, person, opts, seed);
@@ -1512,12 +1799,15 @@ export function memeBoard(w: World, me: number, now?: number): MemeRow[] {
       mine: m.creator === me, live, rugged: m.rugged, born: m.born, eventId: m.launchEv,
       bornAbs: m.bornAbs ?? m.born * MIN_DAY, h1: live && px > 0 ? (() => { const a = priceAgo(m, clock, 60); return a && a > 0 ? px / a : null; })() : 1, king: live && st.king === m.id,
       px, prev: m.weekPx, supply, cap: Math.round(px * supply), sold: m.rugged ? 0 : Math.max(0, Math.min(1, 1 - tokens / POOL_TOKENS)),
-      raised: m.rugged ? 0 : Math.max(0, cash - m.seed), cash, tokens, holders, vol: m.volTotal ?? 0,
+      raised: Math.max(0, (m.outsideBuy ?? 0)), seed: m.seed, founderBuy: m.founderBuy ?? 0, outsideBuy: m.outsideBuy ?? 0, withdrawn: m.withdrawn ?? 0,
+      cash, tokens, holders, vol: m.volTotal ?? 0,
       lastDay: last ? last.day : m.born, replies: m.tells.length,
       lastAbs, trades: m.trades ?? m.prints.length, volTotal: m.volTotal ?? 0, heat: Math.round(heat), peak: m.peak ?? px,
       ended: m.rugged ? 'rugged' : m.live ? '' : 'faded',
-      endAbs: m.rugged ? (m.rugAbs ?? (m.deadDay ?? m.born) * MIN_DAY) : m.live ? 0 : (m.deadDay ?? m.born) * MIN_DAY,
-      rugCash: m.rugCash ?? 0, windDay: m.live || m.rugged ? 0 : (m.deadDay ?? m.born) + 30,
+      endWhy: m.endWhy ?? (m.rugged ? 'rug' : ''),
+      endAbs: m.live ? 0 : Math.max(m.endAbs ?? m.rugAbs ?? (m.deadDay ?? m.born) * MIN_DAY, m.bornAbs ?? m.born * MIN_DAY),
+      rugCash: m.rugCash ?? 0, windDay: m.live || m.settled ? 0 : (m.deadDay ?? m.born) + 30,
+      payout: m.payout, kingRule: st.kingRule ?? KING_RULE,
     });
   }
   return out;
@@ -1673,9 +1963,35 @@ function blurb(w: World, i: number, name: string, abs: number): string {
 function stanceOf(text: string): Stance {
   const t = text.toLowerCase();
   if (t.includes('?')) return 'ask';
-  if (/\b(rug|rugged|scam|fraud|dump|dumping|exit|dead|sell|selling|worthless|fake|trash|crash|crashing|down|bad|avoid|ponzi)\b/.test(t)) return 'doubt';
+  if (/\b(rug|rugged|scam|fraud|dump|dumping|exit|dead|sell|selling|worthless|fake|trash|crash|crashing|down|bad|avoid|ponzi|wind)\b/.test(t)) return 'doubt';
   if (/\b(moon|lfg|pump|bull|bullish|gem|buy|buying|hold|holding|early|up|ape|aped|diamond|rocket|great|love|good|nice|wagmi)\b/.test(t)) return 'hype';
   return 'plain';
+}
+
+/** What a post is, for the label on the page and for who it can move. */
+function postKind(text: string): 'question' | 'disclosure' | 'marketing' | 'opinion' {
+  const t = text.toLowerCase();
+  if (t.includes('?')) return 'question';
+  const disclosure = /\b(i (am |'m )?(holding|selling|sold|winding|pulling)|wind(ing)? down|orderly|founder bag|i hold|i still hold|not selling|disclos)\b/.test(t);
+  if (disclosure) return 'disclosure';
+  if (/\b(moon|lfg|pump|gem|ape|wagmi|rocket|bullish|buy now|don't miss)\b/.test(t)) return 'marketing';
+  return 'opinion';
+}
+
+function asksHolders(text: string): boolean {
+  const t = text.toLowerCase();
+  return /\b(who|which|largest|biggest|most|top)\b/.test(t) && /\b(hold|holder|holds|holding|bag|position|wallet)\b/.test(t);
+}
+
+/** The holder table, for anyone who can see the coin's page. */
+function holderFact(w: World, m: Meme): string {
+  const rows = holderRows(w, m).sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  if (!rows.length) return 'Nobody holds it outside the pool.';
+  const supply = w.ledger.issued.get(m.id) ?? 0;
+  const [who, n] = rows[0];
+  const share = supply > 0 ? (n / supply * 100).toFixed(1) : '0';
+  const name = handleOf(who);
+  return `${name} holds the most: ${n.toLocaleString('en-US')} tokens, ${share}% of the supply.`;
 }
 
 const ANSWERS: Record<Stance, Record<Voice, string[]>> = {
@@ -1706,11 +2022,12 @@ const ANSWERS: Record<Stance, Record<Voice, string[]>> = {
 };
 
 /** The creator's answer to a post on their own coin: in their voice, with the real numbers when asked. */
-function creatorAnswer(w: World, m: Meme, stance: Stance, salt: number): string {
+function creatorAnswer(w: World, m: Meme, stance: Stance, salt: number, asked: string): string {
   const v = voiceOf(w, m.creator);
+  if (asksHolders(asked)) return holderFact(w, m);
   const px = spot(w, m);
   const facts = `The pool holds ${grouped(Math.round(poolCash(w, m)))} and the price is $${(px / 100).toFixed(px >= 100 ? 2 : 6)} a token.`;
-  if (stance === 'ask') return `${v === 'degen' ? 'Straight talk: ' : v === 'jumpy' ? 'Honestly, ' : ''}${facts} That is all I can tell you for sure.`;
+  if (stance === 'ask') return `${v === 'degen' ? 'Straight talk: ' : v === 'jumpy' ? 'Honestly, ' : ''}${facts} ${holderFact(w, m)}`;
   const list = ANSWERS[stance][v];
   return list[mix(m.creator, salt, 7) % list.length];
 }
@@ -1735,6 +2052,66 @@ export interface PostResult { ok: boolean; why?: string; id?: string }
  * The player posts on a coin's page, or answers a post. The post is stored; the crowd answers it a few game minutes later, each in
  * their own voice: the creator first when it is a question or their own post being answered, then whoever trades the coin.
  */
+function gullible(w: World, i: number): boolean {
+  const P = econ(w).P;
+  return P.greed[i] >= 62 || (ageOf(w, i) < 26 && P.resil[i] < 48);
+}
+
+/**
+ * A post walks the same path as tell: named readers hear it, revise what they believe, and may trade.
+ * A credible disclosure moves most of them. Empty hype moves only the gullible. The hear list is the record.
+ */
+function spreadPost(w: World, m: Meme, speaker: number, text: string, kind: string, abs: number): Hear[] {
+  const P = econ(w).P;
+  const readers: number[] = [];
+  const add = (i: number): void => {
+    if (readers.length >= 12 || i === speaker || i < 0 || !P.alive(i) || isSeatPerson(w, i)) return;
+    if (!readers.includes(i)) readers.push(i);
+  };
+  for (const c of contactsOf(w, speaker)) add(c.who);
+  for (const h of m.hold ?? []) add(h);
+  const negated = /\b(not|never|won't|wont|no)\s+(be\s+)?(sell|selling|sold|exit|exiting|pull|pulling|dump|dumping)/i.test(text);
+  const bearish = kind === 'disclosure' && !negated && /\b(wind|sell|sold|exit|pull|dump)\w*/i.test(text);
+  const bullish = kind === 'disclosure' && !bearish;
+  const hears: Hear[] = [];
+  for (const who of readers) {
+    hear(m, who);
+    const holding = Math.floor(w.ledger.balance(P.id(who), m.id));
+    const easy = gullible(w, who);
+    const moves = kind === 'disclosure' || (kind === 'marketing' && easy) || (kind === 'opinion' && easy && unit(w, abs, who, 88) < 0.2);
+    let did: Hear['did'] = 'none';
+    let cents = 0;
+    if (moves && bearish && holding > 1) {
+      const q = Math.max(1, Math.floor(holding * 0.35));
+      const payC = sellMeme(w, m, who, q, m.launchEv);
+      if (payC > 0) { did = 'sell'; cents = payC; }
+      else did = 'hold';
+    } else if (moves && (bullish || (kind === 'marketing' && easy))) {
+      const cushion = cashOf(w, P.id(who)) - P.incEma[who] * 14;
+      const spend = Math.min(6_000, Math.floor(cushion * (bullish ? 0.06 : 0.025)), Math.floor(poolCash(w, m) * 0.06));
+      if (spend >= 400) {
+        const got = buyMeme(w, m, who, spend, m.launchEv, false);
+        if (got > 0) { did = 'buy'; cents = spend; }
+        else did = 'hold';
+      } else did = 'hold';
+    } else if (moves) did = 'hold';
+    hears.push({ abs, who, from: speaker, holding, kind, did, cents, text: text.slice(0, 80) });
+  }
+  m.hears = [...(m.hears ?? []), ...hears].slice(-40);
+  const shift = bearish ? -0.55 : bullish ? 0.5 : kind === 'marketing' ? 0.15 : kind === 'opinion' ? 0.05 : 0;
+  m.belief = Math.max(-1, Math.min(1, (m.belief ?? 0) * 0.4 + shift));
+  m.beliefAbs = abs;
+  m.beliefKind = kind === 'marketing' ? 'hype' : kind;
+  if (speaker === m.creator && bearish && /\bwind/.test(text.toLowerCase())) m.windDown = abs;
+  const bought = hears.filter((h) => h.did === 'buy').length;
+  const sold = hears.filter((h) => h.did === 'sell').length;
+  if (hears.length) {
+    w.events.emit('crypto.post', `${P.name(speaker)} posted on ${m.name} (${kind}). ${hears.length} heard it; ${bought} bought and ${sold} sold`, [m.launchEv], P.id(speaker));
+  }
+  refreshKing(w);
+  return hears;
+}
+
 export function postVoice(w: World, me: number, coin: string, text: string, parentId?: string): PostResult {
   const m = memeOf(w, coin);
   if (!m) return { ok: false, why: 'That coin is no longer listed.' };
@@ -1754,8 +2131,11 @@ export function postVoice(w: World, me: number, coin: string, text: string, pare
     const hit = memeTalk(w, m, me).find((x) => x.id === parentId);
     if (hit) { quote = hit.text.slice(0, 120); quoteName = hit.mine ? 'you' : hit.name; to = hit.who; }
   }
-  said.push({ id, abs, who: me, mine: true, text: t, parent: parentId, quote, quoteName });
+  const kind = postKind(t);
+  const label = kind === 'marketing' ? 'marketing' : kind === 'disclosure' ? 'disclosure' : kind === 'question' ? 'question' : 'opinion';
+  said.push({ id, abs, who: me, mine: true, text: t, parent: parentId, quote, quoteName, label });
   if (said.length > 60) said.splice(0, said.length - 60);
+  if (!parentId) spreadPost(w, m, me, t, kind, abs);
   const stance = stanceOf(t);
   const q = (m.queue ??= []);
   const cast = listVoices(w, m, me);
@@ -1789,9 +2169,10 @@ function answerDue(w: World, abs: number): void {
       if (!parent) continue;
       const seq = (m.saidSeq = (m.saidSeq ?? 0) + 1);
       let text: string;
-      if (d.creator) text = creatorAnswer(w, m, d.stance, seq);
+      if (d.creator) text = creatorAnswer(w, m, d.stance, seq, parent.text);
+      else if (asksHolders(parent.text)) text = holderFact(w, m);
       else { const l = ANSWERS[d.stance][voiceOf(w, d.who)]; text = l[mix(d.who, seq, 3) % l.length]; }
-      said.push({ id: `${m.id}:s:${seq}`, abs: Math.max(abs, d.abs), who: d.who, text, parent: d.parent, quote: parent.text.slice(0, 120), quoteName: parent.mine ? 'you' : handleOf(parent.who) });
+      said.push({ id: `${m.id}:s:${seq}`, abs: Math.max(abs, d.abs), who: d.who, text, parent: d.parent, quote: parent.text.slice(0, 120), quoteName: parent.mine ? 'you' : handleOf(parent.who), label: asksHolders(parent.text) ? 'disclosure' : 'opinion' });
     }
     m.queue = keep;
     if ((m.said?.length ?? 0) > 60) m.said!.splice(0, m.said!.length - 60);
@@ -1814,6 +2195,33 @@ export interface Post {
   /** A sale's profit as a fraction, for sells. */
   gain?: number;
   text: string;
+  /** opinion, marketing, disclosure or question. Trade lines leave it empty. */
+  label?: string;
+}
+
+/** How many coins this person actually holds, and how many rugs they were in. First person claims use these, never a template. */
+export function speakerCoinFacts(w: World, i: number): { holding: number; rugs: number } {
+  const st = w.state.crypto as Book | undefined;
+  if (!st || i < 0) return { holding: 0, rugs: 0 };
+  const id = econ(w).P.id(i);
+  let holding = 0;
+  for (const m of st.memes) if (Math.floor(w.ledger.balance(id, m.id)) > 0) holding++;
+  return { holding, rugs: st.rugSeen?.[String(i)] ?? 0 };
+}
+
+function groundLine(w: World, who: number, m: Meme): string {
+  const id = econ(w).P.id(who);
+  const held = Math.floor(w.ledger.balance(id, m.id));
+  const cost = m.cost.get(who) ?? 0;
+  const facts = speakerCoinFacts(w, who);
+  const bits: string[] = [];
+  if (held > 0) {
+    const entry = cost > 0 ? ` in at about $${(cost / held / 100).toFixed(6)}` : '';
+    bits.push(`I hold ${held.toLocaleString('en-US')} ${m.ticker}${entry}`);
+  }
+  if (facts.holding > 0) bits.push(`${facts.holding} ${facts.holding === 1 ? 'coin' : 'coins'} in the wallet`);
+  if (facts.rugs > 0) bits.push(`I have been in ${facts.rugs} ${facts.rugs === 1 ? 'rug' : 'rugs'}`);
+  return bits.length ? ` ${bits.slice(0, 2).join('. ')}.` : '';
 }
 
 function say(w: World, who: number, ctx: Say, salt: number): string {
@@ -1825,7 +2233,7 @@ function say(w: World, who: number, ctx: Say, salt: number): string {
 function memeTalk(w: World, m: Meme, me: number): Post[] {
   const out: Post[] = [];
   const at = (abs: number, who: number, act: Post['act'], ctx: Say, salt: number, cents = 0, gain?: number): void => {
-    out.push({ id: `${m.id}:${act}:${salt}`, abs, who, name: who === me ? 'you' : handleOf(who), mine: who === me, creator: who === m.creator, act, cents, gain, text: say(w, who, ctx, salt) });
+    out.push({ id: `${m.id}:${act}:${salt}`, abs, who, name: who === me ? 'you' : handleOf(who), mine: who === me, creator: who === m.creator, act, cents, gain, text: say(w, who, ctx, salt) + groundLine(w, who, m) });
   };
   const born = m.bornAbs ?? m.born * MIN_DAY;
   // Nothing is posted in the player's name: a seat's own coin has no scripted creator lines.
@@ -1859,7 +2267,7 @@ function memeTalk(w: World, m: Meme, me: number): Post[] {
   if (m.dumpAbs !== undefined && !seatDev) at(m.dumpAbs, m.creator, 'dump', 'dump', 3);
   if (m.rugged && !seatDev) at(m.rugAbs ?? (m.deadDay ?? m.born) * MIN_DAY, m.creator, 'rug', 'rug', 4, m.rugCash ?? 0);
   for (const x of m.said ?? []) {
-    out.push({ id: x.id, abs: x.abs, who: x.who, name: x.mine ? 'you' : handleOf(x.who), mine: !!x.mine, creator: x.who === m.creator, act: x.parent ? 'reply' : 'post', cents: 0, text: x.text, parent: x.parent, quote: x.quote, quoteName: x.quoteName });
+    out.push({ id: x.id, abs: x.abs, who: x.who, name: x.mine ? 'you' : handleOf(x.who), mine: !!x.mine, creator: x.who === m.creator, act: x.parent ? 'reply' : 'post', cents: 0, text: x.text, parent: x.parent, quote: x.quote, quoteName: x.quoteName, label: x.label });
   }
   out.sort((a, b) => b.abs - a.abs || (a.id < b.id ? -1 : 1));
   return out.slice(0, 100);
@@ -1882,13 +2290,32 @@ export function memeDetail(w: World, instr: string, me: number, now?: number): R
       top.push({ index, name: index === me ? 'you' : handleOf(index), qty: Math.floor(n), share: row.supply > 0 ? n / row.supply : 0, mine: index === me, creator: index === m.creator });
     }
   }
-  const prints = m.prints.slice().reverse().map((p) => ({ seq: p.seq, day: p.day, abs: p.abs ?? p.day * MIN_DAY, side: p.side, tokens: p.tokens, cents: p.cents, px: p.px ?? 0, index: p.who, name: p.who === me ? 'you' : handleOf(p.who), mine: p.who === me }));
+  const prints = m.prints.slice().reverse().map((p) => ({
+    seq: p.seq, day: p.day, abs: p.abs ?? p.day * MIN_DAY, side: p.side, tokens: p.tokens, cents: p.cents,
+    px: p.avg ?? p.px ?? 0, avg: p.avg ?? p.px ?? 0, before: p.before ?? 0, after: p.after ?? 0,
+    index: p.who, name: p.who === me ? 'you' : handleOf(p.who), mine: p.who === me,
+  }));
   const replies: { eventId: number; day: number; text: string }[] = [];
   for (const id of m.tells.slice().reverse()) {
     const ev = w.events.get(id);
     if (ev) replies.push({ eventId: id, day: ev.day, text: ev.msg });
   }
-  return { ...row, desc: m.desc ?? '', creatorIndex: m.creator, creatorHandle: handleOf(m.creator), creatorName: P.name(m.creator), top, prints, talk: replies, posts: memeTalk(w, m, me) };
+  const hears = (m.hears ?? []).slice(-24).map((h) => ({
+    abs: h.abs, who: h.who, name: h.who === me ? 'you' : handleOf(h.who), from: h.from, fromName: h.from === me ? 'you' : handleOf(h.from),
+    holding: h.holding, kind: h.kind, did: h.did, cents: h.cents,
+  }));
+  return { ...row, desc: m.desc ?? '', creatorIndex: m.creator, creatorHandle: handleOf(m.creator), creatorName: P.name(m.creator), top, prints, talk: replies, posts: memeTalk(w, m, me), hears };
+}
+
+/** The creator pulls their own pool. Same settlement as any rug: holders are paid nothing and the tokens leave. */
+export function pullCoin(w: World, person: number, coin: string): { ok: boolean; why?: string; text?: string } {
+  const m = memeOf(w, coin);
+  if (!m) return { ok: false, why: 'no coin' };
+  if (m.creator !== person) return { ok: false, why: 'only the creator can pull the pool' };
+  if (!m.live || m.rugged || m.settled) return { ok: false, why: 'that pool is already gone' };
+  rug(w, m);
+  const p = m.payout;
+  return { ok: true, text: p ? p.note : `${m.ticker} pool pulled` };
 }
 
 /** What the Launchpad reads in one go: the board, the tape, the player's tokens, recent rugs and the launch rules. */
@@ -1900,12 +2327,13 @@ export function launchpadRead(w: World, me: number, now: number, coin?: string):
     const id = P.id(me);
     for (const m of st.memes) { const n = Math.floor(L.balance(id, m.id)); if (n > 0) held[m.id] = n; }
   }
-  let live = 0, king = '', kcap = 0;
-  for (const r of board) if (r.live) { live++; if (r.cap > kcap) { kcap = r.cap; king = r.id; } }
+  let live = 0;
+  for (const r of board) if (r.live) live++;
+  const king = st.king && board.some((r) => r.live && r.id === st.king) ? st.king : (refreshKing(w) ?? '');
   const rugs = board.filter((r) => r.rugged && now - r.endAbs < 4320).sort((a, b) => b.endAbs - a.endAbs).slice(0, 6)
     .map((r) => ({ id: r.id, ticker: r.ticker, name: r.name, creatorName: r.creatorName, mine: r.mine, cash: r.rugCash, abs: r.endAbs }));
   const out: Record<string, unknown> = {
-    now, day: w.day, live, cityLive: cityLive(w), max: MAX_LIVE, king, board, held, rugs, tape: memeTape(w, 12, me),
+    now, day: w.day, live, cityLive: cityLive(w), max: MAX_LIVE, king, kingRule: st.kingRule ?? KING_RULE, board, held, rugs, tape: memeTape(w, 12, me),
     rules: { fee: FEE, seedMin: SEED_MIN, seedMax: SEED, pool: POOL_TOKENS, founder: FOUNDER },
   };
   if (coin) { const d = memeDetail(w, coin, me, now); if (d) out.detail = d; }
@@ -1990,6 +2418,13 @@ export const crypto: Module = {
       trades: st.trades ?? 0,
       holders: Math.max(0, st.holders),
       rugLoss: Math.round(st.rugLoss / 100),
+      launchedAll: st.tally?.launches ?? 0,
+      rugsAll: st.tally?.rugs ?? 0,
+      maniaAll: st.tally?.mania ?? 0,
+      ageAll: st.tally?.age ?? 0,
+      idleAll: st.tally?.inactivity ?? 0,
+      drawdownAll: st.tally?.drawdown ?? 0,
+      endBeforeLaunch: st.tally?.before ?? 0,
     };
     st.rugLoss = 0;
     st.launched = 0;

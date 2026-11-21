@@ -46,13 +46,24 @@ import { findOrigin, findPast, lifeOf, ORIGINS, PASTS, splitName } from './modul
 import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
-import { coinClock, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
+import { coinClock, coinPendingBar, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
 import { fxMark, fxPairs, fxQuote } from './modules/abroad/index.ts';
 import { futureQuote, futureUnit } from './modules/commodities/index.ts';
 import { CB_MINUTE, cbMeetingDay } from './modules/markets/calendar.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
 import { tradingDay } from './modules/markets/noise.ts';
 import { curveShape } from './modules/bonds/index.ts';
+
+/** Fills the minute layer has not written yet, added onto the coin's chart so a paused clock still shows volume. */
+function mergeCoinVolume<T extends { bars: { t: number; k: number; o: number; h: number; l: number; c: number; v: number }[] }>(w: World, instr: string, out: T): T {
+  const p = coinPendingBar(w, instr);
+  if (!p || p.v < 1) return out;
+  const bars = out.bars.map((b) => ({ ...b }));
+  const last = bars[bars.length - 1];
+  if (last && last.t === p.t) bars[bars.length - 1] = { ...last, h: Math.max(last.h, p.h), l: Math.min(last.l, p.l), c: p.c, v: last.v + p.v };
+  else if (!last || p.t > last.t) bars.push({ t: p.t, k: 0, o: p.o, h: p.h, l: p.l, c: p.c, v: p.v });
+  return { ...out, bars };
+}
 
 /** x1: one real hour is one game day. day, week and month are the old fast-forward speeds, kept for scripts. */
 type Speed = 'pause' | 'x1' | 'x2' | 'x5' | 'x10' | 'x25' | 'day' | 'week' | 'month';
@@ -278,6 +289,10 @@ function commandOf(body: unknown): Command | string {
       const cmd: Command = { kind: 'post', coin: b.coin, text: b.text.trim() };
       if (typeof b.parent === 'string' && b.parent) cmd.parent = b.parent;
       return cmd;
+    }
+    case 'pull': {
+      if (typeof b.coin !== 'string' || !b.coin) return 'pull needs a coin';
+      return { kind: 'pull', coin: b.coin };
     }
     case 'cash': {
       if (b.op !== 'deposit' && b.op !== 'withdraw' && b.op !== 'borrow' && b.op !== 'repay') return 'cash op must be deposit, withdraw, borrow or repay';
@@ -4377,6 +4392,7 @@ function fillText(cmd: Record<string, unknown>, w?: World): string {
   }
   if (k === 'fx') return `currency ${cmd.side} ${cmd.units} ${cmd.code}`;
   if (k === 'launch') return 'launch a coin';
+  if (k === 'pull') return `pull the ${cmd.coin} pool`;
   if (k === 'optbuy' || k === 'write') return `${k === 'write' ? 'write' : 'buy'} ${cmd.right === 'P' ? 'put' : 'call'} ${cmd.qty} ${cmd.instr} m+${cmd.months}`;
   if (k === 'optclose') return `close ${cmd.id || cmd.instr}${cmd.qty ? ' ' + cmd.qty : ''}`;
   if (k === 'cash') {
@@ -5956,16 +5972,19 @@ const server = http.createServer(async (req, res) => {
         const real = (ALL_TFS as readonly string[]).includes(q) ? q as AnyTf : q === 'mo' ? '1M' : q === 'D' ? '1d' : q === 'W' ? '1w' : q === '1H' ? '1h' : q === '4H' ? '4h' : null;
         if (real) {
           let out = historyFor(w, instr, real as AnyTf, limit, w.day);
+          let seeded = false;
           if (!out) {
             // A coin launched a moment ago has no minute bars until the next minute: its chart opens on its price now, never on an error.
             const seed = instr.startsWith('coin:me:') ? coinSeedBar(w, instr) : null;
             if (seed) {
               const day = (ALL_TFS as readonly string[]).indexOf(real) >= 0 && /^(1d|1w|1M)$/.test(real);
               const t = day ? Math.floor(seed.t / MIN_PER_DAY) : seed.t;
-              out = { id: seed.id, name: seed.name, kind: 'coin', unit: 'cents', tf: real as AnyTf, tt: day ? 'day' : 'min', since: Math.floor(seed.t / MIN_PER_DAY), session: false, bars: [{ t, k: 0, o: seed.px, h: seed.px, l: seed.px, c: seed.px, v: 0 }] };
+              out = { id: seed.id, name: seed.name, kind: 'coin', unit: 'cents', tf: real as AnyTf, tt: day ? 'day' : 'min', since: Math.floor(seed.t / MIN_PER_DAY), session: false, bars: [{ t, k: 0, o: seed.lo || seed.px, h: seed.hi || seed.px, l: seed.lo || seed.px, c: seed.px, v: seed.v }] };
+              seeded = true;
             }
           }
           if (!out) { send(res, 404, { error: 'no chart for ' + instr }); return; }
+          if (!seeded && instr.startsWith('coin:me:')) out = mergeCoinVolume(w, instr, out);
           send(res, 200, { ...out, day: w.day, now: w.day * MIN_PER_DAY + clockMin, live: livePrices(w).get(instr) ?? null, ticks: w.ticksPerDay });
           return;
         }

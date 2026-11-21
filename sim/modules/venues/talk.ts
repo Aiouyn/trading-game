@@ -9,7 +9,7 @@ import { firmGap, roleTitle, seatsOpen } from '../careers/jobs.ts';
 import { parcelView } from '../property/index.ts';
 import { quietFact } from '../social/index.ts';
 import { usd } from '../player/gamedate.ts';
-import { handleOf } from '../crypto/index.ts';
+import { handleOf, speakerCoinFacts } from '../crypto/index.ts';
 import { findPast, lifeOf } from '../player/arrival.ts';
 
 export type Topic = 'hello' | 'work' | 'home' | 'money' | 'city' | 'inside' | 'chat' | 'coins';
@@ -499,7 +499,9 @@ function coinTalk(w: World, p: Profile, c: Ctx): { text: string; delta: number }
   const memes = (w.state.crypto as { memes?: { ticker: string; live: boolean; peak?: number; bornPx: number; rugged?: boolean }[] } | undefined)?.memes ?? [];
   const live = memes.filter((m) => m.live);
   const hot = live.slice().sort((a, b) => (b.peak ?? 0) / Math.max(1e-9, b.bornPx) - (a.peak ?? 0) / Math.max(1e-9, a.bornPx))[0];
-  const rugged = memes.filter((m) => m.rugged).length;
+  const facts = speakerCoinFacts(w, p.i);
+  const holdLine = facts.holding === 0 ? `${p.first} holds none of them` : `${p.first} holds ${facts.holding} ${facts.holding === 1 ? 'coin' : 'coins'}`;
+  const rugLine = facts.rugs > 0 ? ` ${p.first} has been in ${facts.rugs} ${facts.rugs === 1 ? 'rug' : 'rugs'}.` : '';
   const mine = dev && dev.dumps ? ` ${crowd ? `Wait, you are ${handle}? You sold on your own holders. People here remember that.` : 'And I have heard about your coins, so do not try to sell me one.'}`
     : dev && dev.good ? ` ${crowd ? `You are ${handle}? Your last coin ran and you held. That is rarer than you think.` : 'I hear your coin did well. Good for you.'}` : '';
   let text: string;
@@ -507,8 +509,8 @@ function coinTalk(w: World, p: Profile, c: Ctx): { text: string; delta: number }
   if (p.chief) { text = pick([`${p.first} keeps off that board. A chief of ${p.firm?.name ?? 'a firm'} who is seen there loses the board.`, `Shareholders of ${p.firm?.name ?? 'the firm'} would have ${p.first}'s head for a dog coin.`], s); delta = 1; }
   else if (crowd) {
     text = pick([
-      `${p.first} counts ${live.length} live coins tonight${hot ? `, and ${hot.ticker} is the one this room is in` : ''}. Three in the wallet, and ${p.first} believes in none of them.`,
-      `${p.first} says it is the dev. If the dev holds, you hold. If the dev sells, you are the exit.${rugged ? ` ${rugged} pools pulled so far; ${p.first} was in two.` : ''}`,
+      `${p.first} counts ${live.length} live coins tonight${hot ? `, and ${hot.ticker} is the one this room is in` : ''}. ${holdLine}, and believes in none of them.`,
+      `${p.first} says it is the dev. If the dev holds, you hold. If the dev sells, you are the exit.${rugLine}`,
       `${hot ? `${hot.ticker} ran ${Math.max(1, (hot.peak ?? hot.bornPx) / Math.max(1e-9, hot.bornPx)).toFixed(1)} times off the launch. ` : ''}${p.first} bought late, as always. That is the whole story.`,
     ], s);
     delta = WARM.coins + 2;

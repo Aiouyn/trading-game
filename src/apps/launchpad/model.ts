@@ -40,10 +40,31 @@ export interface Coin {
   peak: number;
   /** How the coin ended: pulled by its creator, or faded and delisted. Empty while it trades. */
   ended: "" | "rugged" | "faded";
+  /** inactivity, drawdown, age or rug. Empty while it trades. */
+  endWhy?: "" | "inactivity" | "drawdown" | "age" | "rug";
   endAbs: number;
   rugCash: number;
-  /** The game day a faded coin's pool pays out to whoever still holds it. */
+  /** The game day a faded coin's pool pays out. 0 once holders have already been paid. */
   windDay: number;
+  seed?: number;
+  founderBuy?: number;
+  outsideBuy?: number;
+  withdrawn?: number;
+  payout?: Payout;
+  kingRule?: string;
+}
+
+/** The settlement shown on a coin that has ended. */
+export interface Payout {
+  pool: number;
+  taken: number;
+  paid: number;
+  dust: number;
+  holders: number;
+  lines: { who: number; tokens: number; cents: number }[];
+  yoursTokens: number;
+  yoursCents: number;
+  note: string;
 }
 
 /** One executed trade on the trades bar. */
@@ -77,6 +98,8 @@ export interface Post {
   cents: number;
   gain?: number;
   text: string;
+  /** opinion, marketing, disclosure or question. */
+  label?: string;
 }
 
 /** The coin page's read: this detail comes with /coins?coin=... */
@@ -86,8 +109,9 @@ export interface CoinPage extends Coin {
   creatorIndex: number;
   creatorHandle: string;
   top: { index: number; name: string; qty: number; share: number; mine: boolean; creator: boolean }[];
-  prints: { seq: number; day: number; abs: number; side: "buy" | "sell"; tokens: number; cents: number; px: number; name: string; mine: boolean }[];
+  prints: { seq: number; day: number; abs: number; side: "buy" | "sell"; tokens: number; cents: number; px: number; before?: number; after?: number; name: string; mine: boolean }[];
   posts: Post[];
+  hears?: { abs: number; name: string; fromName: string; holding: number; kind: string; did: string; cents: number }[];
 }
 
 export interface Rug { id: string; ticker: string; name: string; creatorName: string; mine: boolean; cash: number; abs: number }
@@ -114,6 +138,7 @@ export interface LpData {
   cityLive: number;
   max: number;
   king: string;
+  kingRule?: string;
   board: Coin[];
   held: Record<string, number>;
   rugs: Rug[];
@@ -140,6 +165,7 @@ export function readLp(j: unknown): LpData | null {
     cityLive: o.cityLive ?? o.live ?? 0,
     max: o.max ?? 12,
     king: o.king ?? "",
+    kingRule: typeof (o as { kingRule?: unknown }).kingRule === "string" ? (o as { kingRule: string }).kingRule : "",
     board: o.board,
     held: o.held ?? {},
     rugs: Array.isArray(o.rugs) ? o.rugs : [],
@@ -166,8 +192,10 @@ function readDev(v: unknown): DevRecord | undefined {
   };
 }
 
-/** The king of the hill: the live coin with the largest market cap. Null when no coin is live. */
+/** The king of the hill: the coin the sim marked after the latest trades. The same coin wears the badge. */
 export function kingOf(coins: readonly Coin[]): Coin | null {
+  const flagged = coins.find((c) => c.live && c.king);
+  if (flagged) return flagged;
   let king: Coin | null = null;
   for (const c of coins) if (c.live && (!king || c.cap > king.cap || (c.cap === king.cap && c.id < king.id))) king = c;
   return king;

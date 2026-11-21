@@ -153,10 +153,17 @@ function Board({ view, lp, data, onOpen }: { view: SimView; lp: LpRead; data: Lp
           </span>
         )}
       </div>
+      {tab !== "create" && (
+        <p className="lpad-faint" data-testid="lp-windows">{`${tab === "new" ? LPS.windowNew : tab === "bumped" ? LPS.windowBumped : tab === "trending" ? LPS.windowTrending : tab === "holdings" ? LPS.windowHoldings : LPS.windowGone} ${LPS.windowSort[sort] ?? ""}`}</p>
+      )}
       {tab === "create" ? (
         <Create view={view} data={data} onDone={(id) => { lp.refresh(); if (id) onOpen(id); else pick("new"); }} />
       ) : list.length === 0 ? (
-        <p className="lpad-empty lpad-sub" data-testid="lp-empty">{tab === "holdings" ? LPS.emptyHoldings : tab === "gone" ? LPS.emptyGone : LPS.empty}</p>
+        q.trim() ? (
+          <p className="lpad-empty lpad-sub" data-testid="lp-empty">{LPS.noMatch} <button type="button" className="lpad-link" data-testid="lp-search-clear" onClick={() => setQ("")}>{LPS.clearSearch}</button></p>
+        ) : (
+          <p className="lpad-empty lpad-sub" data-testid="lp-empty">{tab === "holdings" ? LPS.emptyHoldings : tab === "gone" ? LPS.emptyGone : LPS.empty}</p>
+        )
       ) : (
         <div className="lpad-grid" data-testid="lp-coins">
           {list.map((c) => <BoardCard key={c.id} c={c} held={held[c.id] ?? 0} now={data.now} onOpen={onOpen} />)}
@@ -278,16 +285,17 @@ function CoinPageView({ view, lp, data, id, onBack }: { view: SimView; lp: LpRea
         </div>
         {coin.mine ? <DevCard dev={data.dev} /> : null}
         {coin.rugged ? (
-          <p className="lpad-banner" data-kind="rug" data-testid="lp-page-rug">{`${LPS.ruggedLine(coin.mine ? LPS.barYou : coin.creatorName, usd(coin.rugCash))} ${agoText(coin.endAbs, now)}. Holders cannot sell.`}</p>
+          <p className="lpad-banner" data-kind="rug" data-testid="lp-page-rug">{`${LPS.ruggedLine(coin.mine ? LPS.barYou : coin.creatorName, usd(coin.rugCash))} ${agoText(coin.endAbs, now)}. ${LPS.endWhy.rug}`}</p>
         ) : !coin.live ? (
-          <p className="lpad-banner" data-kind="faded" data-testid="lp-page-faded">{`${LPS.fadedLine}. ${LPS.fadedSell} ${LPS.windLine(dateText(coin.windDay))}.`}</p>
+          <p className="lpad-banner" data-kind="faded" data-testid="lp-page-faded" data-why={coin.endWhy || "faded"}>{`${LPS.endWhy[coin.endWhy || ""] || LPS.fadedLine} ${coin.windDay ? LPS.windLine(dateText(coin.windDay)) : LPS.fadedSell}`}</p>
         ) : null}
+        {coin.payout ? <Waterfall coin={coin} /> : null}
         <div className="lpad-facts">
           <div className="lpad-fact"><span className="lpad-kicker">{LPS.mcap}</span><span className="num" data-flash={dir} data-testid="lp-page-cap">{usdWhole(coin.cap)}</span></div>
           <div className="lpad-fact"><span className="lpad-kicker">{LPS.price}</span><span className="num" data-testid="lp-page-px">{perToken(coin.px)}</span></div>
           <div className="lpad-fact"><span className="lpad-kicker">{LPS.facts.hour}</span><Change ratio={coin.h1} testid="lp-page-h1" bare /></div>
           <div className="lpad-fact"><span className="lpad-kicker">{LPS.facts.bought}</span><span className="num" data-testid="lp-page-bought">{`${(coin.sold * 100).toFixed(1)}%`}</span></div>
-          <div className="lpad-fact"><span className="lpad-kicker">{LPS.facts.raised}</span><span className="num" data-testid="lp-page-raised">{usd(coin.raised)}</span></div>
+          <div className="lpad-fact"><span className="lpad-kicker">{LPS.facts.raised}</span><span className="num" data-testid="lp-page-raised">{usd(coin.outsideBuy ?? coin.raised)}</span><span className="lpad-faint" data-testid="lp-raised-split">{LPS.raisedSplit(usd(coin.seed ?? 0), usd(coin.founderBuy ?? 0), usd(coin.outsideBuy ?? 0), usd(coin.withdrawn ?? 0))}</span></div>
           <div className="lpad-fact"><span className="lpad-kicker">{LPS.facts.holders}</span><span className="num" data-testid="lp-page-holders">{coin.holders}</span></div>
           <div className="lpad-fact"><span className="lpad-kicker">{LPS.facts.trades}</span><span className="num" data-testid="lp-page-trades">{coin.trades}</span></div>
         </div>
@@ -300,7 +308,7 @@ function CoinPageView({ view, lp, data, id, onBack }: { view: SimView; lp: LpRea
               {TFS.map((t) => <button key={t} type="button" className="lpad-segbtn" aria-pressed={tf === t} data-testid={`lp-tf-${t}`} onClick={() => setTf(t)}>{t}</button>)}
             </div>
           </div>
-          <RetryableCandles instr={coin.id} tf={tf} stamp={`${data.now}:${coin.cash}`} ended={!coin.live} fallback={candleFallback} errorMessage={LPS.chartCouldnt} retryLabel={LPS.retry} errorTestId="lp-chart-error" retryTestId="lp-chart-retry" />
+          <RetryableCandles instr={coin.id} tf={tf} stamp={`${data.now}:${coin.cash}:${coin.vol}`} ended={!coin.live} fallback={candleFallback} errorMessage={LPS.chartCouldnt} retryLabel={LPS.retry} errorTestId="lp-chart-error" retryTestId="lp-chart-retry" />
         </section>
         <section className="lpad-area-ticket lpad-panel" data-testid="lp-ticket">
           <Ticket key={coin.id} coin={coin} cash={view.cash} held={held} onDone={lp.refresh} />
@@ -331,7 +339,7 @@ function CoinPageView({ view, lp, data, id, onBack }: { view: SimView; lp: LpRea
                     <td>{p.mine ? LPS.barYou : p.name}</td>
                     <td className="num">{usd(p.cents)}</td>
                     <td className="num lpad-wide">{qty(p.tokens)}</td>
-                    <td className="num lpad-wide">{p.px > 0 ? perToken(p.px) : ""}</td>
+                    <td className="num lpad-wide" data-testid="lp-fill">{p.px > 0 ? LPS.fillPx(perToken(p.px), p.before && p.after ? `${perToken(p.before)} to ${perToken(p.after)}` : "") : ""}</td>
                   </tr>
                 ))}
               </tbody>
@@ -392,6 +400,7 @@ function Voices({ coin, page, now, onDone }: { coin: Coin; page: CoinPage | null
       <span className="lpad-voice-head">
         <b className={r.mine ? "lpad-creator" : undefined}>{r.mine ? LPS.barYou : r.name}</b>
         {r.creator && <Chip outline>{LPS.creatorTag}</Chip>}
+        {r.label ? <Chip outline data-testid="lp-voice-label">{r.label}</Chip> : null}
         <span className="lpad-faint">{voiceAct(r)}</span>
         <span className="lpad-faint num">{whenText(r.abs, now)}</span>
       </span>
@@ -423,6 +432,9 @@ function Voices({ coin, page, now, onDone }: { coin: Coin; page: CoinPage | null
         </div>
         {err && <p className="lpad-msg" role="alert" data-kind="refused" data-testid="lp-post-error">{err}</p>}
       </div>
+      {page?.hears && page.hears.length > 0 ? (
+        <p className="lpad-faint" data-testid="lp-hears">{LPS.heard(page.hears.length, page.hears.filter((h) => h.did === "buy").length)} {page.hears.slice(0, 4).map((h) => `${h.name} held ${qty(h.holding)} and ${h.did}`).join("; ")}</p>
+      ) : null}
       {!page || posts.length === 0 ? <p className="lpad-sub">{LPS.noVoices}</p> : (
         <ul className="lpad-voices" data-testid="lp-voices">
           {shown.map((r) => (
@@ -451,6 +463,42 @@ function voiceAct(r: Post): string {
     case "reply": return "replied";
     default: return LPS.postRug(usd(r.cents));
   }
+}
+
+function Waterfall({ coin }: { coin: Coin }) {
+  const p = coin.payout;
+  if (!p) return null;
+  return (
+    <div className="lpad-preview" data-testid="lp-waterfall">
+      <b>Payout</b>
+      <p className="lpad-sub" data-testid="lp-waterfall-note">{p.note}</p>
+      <p className="lpad-faint">{`Pool held ${usd(p.pool)}. Paid to holders ${usd(p.paid)}. ${p.taken > 0 ? `${coin.rugged ? "Creator kept" : "Returned to the creator"} ${usd(p.taken)}. ` : ""}${p.dust > 0 ? `${usd(p.dust)} went to the treasury.` : ""}`}</p>
+      <ul className="lpad-tape">
+        {p.lines.slice(0, 8).map((l) => (
+          <li key={l.who}><span>{`${qty(l.tokens)} tokens`}</span><span className="num">{usd(l.cents)}</span></li>
+        ))}
+      </ul>
+      <p className="lpad-sub" data-testid="lp-yours">{`You held ${qty(p.yoursTokens)}. Paid ${usd(p.yoursCents)}. Worth now ${usd(p.yoursCents)}. ${p.yoursTokens > 0 ? "The tokens have left your holdings and cannot be sold." : ""}`}</p>
+    </div>
+  );
+}
+
+function PullPool({ coin, onDone }: { coin: Coin; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const go = async () => {
+    setBusy(true);
+    const r = await act({ kind: "pull", coin: coin.id, n: Date.now() % 1000 });
+    setBusy(false);
+    setNote(r.text);
+    if (r.ok) onDone();
+  };
+  return (
+    <div className="lpad-row2">
+      <Button size="sm" variant="ghost" disabled={busy} data-testid="lp-pull" onClick={() => void go()}>{busy ? LPS.pulling : LPS.pull}</Button>
+      {note ? <p className="lpad-faint" data-testid="lp-pull-note">{note}</p> : null}
+    </div>
+  );
 }
 
 /** Buy with dollars or sell for dollars. The preview comes from the pool now and says what the order will do: tokens, average
@@ -558,8 +606,9 @@ function Ticket({ coin, cash, held, onDone }: { coin: Coin; cash: number; held: 
       {!open && sellable && <p className="lpad-faint">{LPS.fadedSell}</p>}
       <p className="lpad-faint" data-testid="lp-holding">{LPS.holdLine(qty(held), coin.ticker, usd(holdValue))}</p>
       <Button variant="primary" disabled={!can} data-testid="lp-trade" onClick={() => void submit()}>
-        {busy ? LPS.launching : side === "buy" ? LPS.buy : LPS.sell}
+        {busy ? (side === "buy" ? LPS.buying : LPS.selling) : side === "buy" ? LPS.buy : LPS.sell}
       </Button>
+      {coin.mine && coin.live && !coin.rugged ? <PullPool coin={coin} onDone={onDone} /> : null}
       {note && <p className="lpad-msg" role="status" data-testid="lp-trade-note" data-kind={note.ok ? "done" : "refused"}>{note.text}</p>}
     </div>
   );

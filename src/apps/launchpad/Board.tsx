@@ -62,7 +62,7 @@ export function Status({ c, held }: { c: Coin; held: number }) {
     <span className="lpad-chips">
       {c.mine && <Chip outline>{LPS.yours}</Chip>}
       {held > 0 && <Chip tone="info" outline>{LPS.holding}</Chip>}
-      {c.king && <Chip tone="acc" outline>{LPS.kingChip}</Chip>}
+      {c.king && <Chip tone="acc" outline data-testid="lp-king-badge" data-ticker={c.ticker}>{LPS.kingChip}</Chip>}
       {c.rugged && <Chip tone="loss" data-testid="lp-chip-rugged">{LPS.rugged}</Chip>}
       {!c.live && !c.rugged && <Chip tone="warn" outline data-testid="lp-chip-faded">{LPS.faded}</Chip>}
     </span>
@@ -80,6 +80,7 @@ export function KingBanner({ king, now, onOpen }: { king: Coin | null; now: numb
       <b data-testid="lp-king-name">{king.name}</b>
       <span className="lpad-tick">{king.ticker}</span>
       <span className="lpad-sub num" data-flash={dir}>{LPS.kingLine(usdWhole(king.cap))}</span>
+      <span className="lpad-faint" data-testid="lp-king-rule">{king.kingRule || LPS.kingRule}</span>
       <Change ratio={king.h1} />
       <span className="lpad-faint lpad-king-age">{LPS.launchedAgo(agoText(king.bornAbs, now))}</span>
     </button>
@@ -227,7 +228,7 @@ export function BoardCard({ c, held, now, onOpen }: { c: Coin; held: number; now
           </span>
         ) : (
           <span className="lpad-card-end" data-testid={`lp-end-${c.ticker}`}>
-            <b>{LPS.fadedLine}</b>
+            <b data-why={c.endWhy || "faded"}>{LPS.endWhy[c.endWhy || ""] || LPS.fadedLine}</b>
             <span className="lpad-faint">{`${LPS.holders(c.holders)} · ${LPS.windLine(dateText(c.windDay))}`}</span>
             {held > 0 ? <span className="lpad-faint" data-testid={`lp-held-dead-${c.ticker}`}>{LPS.holdLine(qty(held), c.ticker, usd(0))}</span> : null}
           </span>
