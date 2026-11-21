@@ -65,6 +65,12 @@ You own the clock and pause in `sim/server.ts` and the Quay shell, `sim/modules/
    - Headings follow the hour.
    - Why? links are at least 24 px targets.
 
+8. **Leftovers from orders 132 and 134.**
+   - Order records for Treasury and market-at-open orders stay "queued" after they fill. Close them in the sim (`sim/modules/markets/` and the order-lifecycle code in `sim/server.ts`).
+   - `accountSnapshot` counts the starting endowment as an inflow, so on day 0 "Investment return" shows a large negative.
+   - The dev-dump modal after a Sell Max of your own coin covers the page; make it a dismissible notice.
+   - Treasury orders cannot be cancelled while queued; allow it.
+
 ## Done
 
 On a fresh start, through the commands:
