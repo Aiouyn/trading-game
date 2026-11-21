@@ -1,6 +1,7 @@
 "use client";
 // Broker: one ticket for every asset the text game can trade, plus the foreign-currency quote.
 import { useEffect, useState } from "react";
+import { OptionPreview, optionName, resolveOption, optionGuide, useChain } from "./Options";
 import { Button } from "@/components/ui/Button";
 import { MoneyText } from "@/components/shell/MoneyText";
 import { act, dollars, symbolOf, useSimSnap, type ActNote, type Quote, type SimView } from "@/shell/simSession";
@@ -110,6 +111,10 @@ export default function BrokerApp({ context }: { context?: string }) {
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState<ActNote | null>(null);
   const [terminal, setTerminal] = useState(() => !context || !/^(opt:|fx)/.test(context));
+  const chain = useChain(desk === "options", view?.date.abs ?? 0);
+  // A status belongs to the ticket it was sent from: a new desk, name, side or contract starts clean.
+  const [stale, setStale] = useState<ActNote | null>(note);
+  useEffect(() => { setLocal(null); setStale(note); }, [desk, key, side, right, months, strike]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const next = readContext(context);
@@ -123,6 +128,7 @@ export default function BrokerApp({ context }: { context?: string }) {
 
   if (!view) return <div className="br" data-testid="broker"><p className="muted">The desk is not open.</p></div>;
   if (terminal) return <Terminal context={context} onDesks={() => setTerminal(false)} />;
+  const full: SimView = chain ? { ...view, chain } : view;
 
   const place = async () => {
     if (busy || desk === "fx" || !view) return;
@@ -150,16 +156,16 @@ export default function BrokerApp({ context }: { context?: string }) {
         const futSide = side === "short" || side === "flat" ? side : "long";
         if (good && (futSide === "flat" || n)) { sent = true; setLocal(await act({ kind: "fut", side: futSide, good, qty: futSide === "flat" ? 0 : n ?? 0, months })); }
       } else if (desk === "options") {
-        const instr = optInstr(view, key);
-        const listed = listedMonths(view, instr);
-        const useMonths = listed.includes(months) ? months : listed[0];
+        const pick = resolveOption(full, key, right, months, strike);
+        const instr = pick.instr;
+        const useMonths = pick.month;
         if (!instr || useMonths === undefined) {
           setLocal({ ok: false, text: "No listed contract for this name. Pick another, or let a day pass." });
           sent = true;
         } else if (n) {
           sent = true;
           if (side === "close") {
-            const row = contract(view, instr, right, useMonths, strike);
+            const row = pick.row;
             setLocal(await act(row ? { kind: "optclose", id: row.id, instr: "", qty: n } : { kind: "optclose", id: "", instr, qty: n }));
           } else if (side === "write") {
             setLocal(await act({ kind: "write", right, instr, qty: n, months: useMonths, strike }));
@@ -178,7 +184,9 @@ export default function BrokerApp({ context }: { context?: string }) {
     setBusy(false);
   };
 
-  const state = orderWord(local ?? note);
+  const state = orderWord(local ?? (note && note !== stale ? note : null));
+  const optPick = desk === "options" ? resolveOption(full, key, right, months, strike) : null;
+  const optReady = desk !== "options" || (!!optPick?.row && (side === "close" ? optPick.row.net !== 0 : side === "write" ? optPick.row.bid >= 1 : optPick.row.ask >= 1));
   const exchange = desk === "stocks" || desk === "bonds" || desk === "futures" || desk === "options";
   const closed = exchange ? holidayReason(view.date.abs, parseCalendar(view.calendar)) : "";
 
@@ -192,7 +200,7 @@ export default function BrokerApp({ context }: { context?: string }) {
       </div>
       <div className="br-grid">
         <div className="br-col br-col-head">
-          <Market desk={desk} view={view} picked={key} onPick={setKey} months={months} right={right} strike={strike} onRight={setRight} onStrike={(k) => { setStrike(k); }} onMonths={setMonths} ask={ask} />
+          <Market desk={desk} view={full} picked={key} onPick={setKey} months={months} right={right} strike={strike} onRight={setRight} onStrike={(k) => { setStrike(k); }} onMonths={setMonths} ask={ask} />
         </div>
         <div className="br-col br-col-ticket">
           {desk !== "fx" ? (
@@ -227,10 +235,11 @@ export default function BrokerApp({ context }: { context?: string }) {
               <input className="br-qty" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} data-testid="br-limit" />
             </label>
           ) : null}
-          <Preview desk={desk} view={view} picked={key} side={side} qty={qty} right={right} months={months} strike={strike} ask={ask} />
-          {desk === "fx" ? <p className="br-note">The city dealer does not take a player order in foreign currency.</p> : (
-            <Button variant="primary" data-testid="br-buy" disabled={busy || !!closed} onClick={() => void place()}>{busy ? "Sending…" : "Place"}</Button>
+          {desk === "options" ? <OptionPreview view={full} picked={key} side={side} qty={whole(qty) ?? 0} right={right} months={months} strike={strike} /> : <Preview desk={desk} view={view} picked={key} side={side} qty={qty} right={right} months={months} strike={strike} ask={ask} />}
+          {desk === "fx" ? <p className="br-note">Currency trades from the chart: go back to the chart and pick a pair in the market list. The ticket there shows the dealer's bid, ask and fee before you send.</p> : (
+            <Button variant="primary" data-testid="br-buy" disabled={busy || !!closed || !optReady} onClick={() => void place()}>{busy ? "Sending…" : "Place"}</Button>
           )}
+          {desk === "options" && !optReady ? <p className="br-note" data-testid="br-place-why">Place stays off until a contract can be previewed. Pick an expiry and a strike in the chain.</p> : null}
           {closed ? <p className="br-note" data-testid="br-closed">{closed}</p> : null}
           {desk === "coins" ? (
             <Button variant="secondary" data-testid="br-launch" disabled={busy} onClick={() => {
@@ -240,7 +249,7 @@ export default function BrokerApp({ context }: { context?: string }) {
             }}>{busy ? "Sending…" : "Launch a coin"}</Button>
           ) : null}
           {desk === "stocks" ? <p className="br-note">A market order rests until the next day, then the market matches it.</p> : null}
-          {desk === "options" ? <Payoff view={view} picked={key} right={right} months={months} strike={strike} /> : null}
+          {desk === "options" ? <Payoff view={full} picked={key} right={right} months={months} strike={strike} /> : null}
           {desk === "options" ? <p className="br-note">The diagram is one contract, bought at the ask, held to expiry. A strike of 0 is at the money.</p> : null}
           {desk === "coins" ? <p className="br-note">A major rests on the book. A memecoin fills against its pool now. A launch needs the day, eight contacts, the nerve, and spare cash. The reply says why if it refuses.</p> : null}
           {state ? (
@@ -494,10 +503,24 @@ function OptionMarket({ view, picked: key, months, right, strike, onPick, onMont
             })}
           </tbody>
         </table>
-        {strikes.length ? null : <p className="muted">No listed contracts.</p>}
+        {strikes.length ? null : <OptionGuide view={view} instr={instr} onPick={onPick} />}
       </div>
       <OpenContracts view={view} ask={ask} />
     </>
+  );
+}
+
+function OptionGuide({ view, instr, onPick }: { view: SimView; instr: string; onPick: (id: string) => void }) {
+  const g = optionGuide(view, instr);
+  return (
+    <div data-testid="opt-guide">
+      <p className="muted">{g.text}</p>
+      {g.names.length ? (
+        <div className="br-desks" role="group" aria-label="Names with listed options">
+          {g.names.map((n) => <button key={n.instr} type="button" onClick={() => onPick(n.instr)}>{n.label}: {n.expiries}</button>)}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -634,6 +657,7 @@ function FxMarket({ view, ask }: { view: SimView; ask: (id: number, title: strin
       <p className="muted">Ask <NumBtn id={fx.eventId} title="Dealer ask" ask={ask}><span className="num">{fx.ask.toFixed(4)}</span></NumBtn></p>
       <p className="muted">You hold <NumBtn id={fx.eventId} title="Foreign cash" ask={ask}><span className="num">{dollars(fx.held)} {fx.currency}</span></NumBtn></p>
       <p className="muted">Foreign bonds <NumBtn id={fx.eventId} title="Foreign bonds" ask={ask}><span className="num">{dollars(fx.bonds)}</span></NumBtn></p>
+      {(() => { const p = fx.pairs?.find((x) => x.main) as unknown as { fee?: number; roundTripCost?: number; executableSize?: number } | undefined; return p ? <p className="muted">Fee for {(p.executableSize ?? 100).toLocaleString("en-US")} units {moneyFromCents(p.fee ?? 0)}; a round trip of that size costs {moneyFromCents(p.roundTripCost ?? 0)}. Bigger sizes and a stressed market widen it.</p> : null; })()}
       <p className="muted">Home rate <NumBtn id={fx.eventId} title="Home policy rate" ask={ask}><span className="num">{(fx.homeRate * 100).toFixed(2)}%</span></NumBtn> · foreign <NumBtn id={fx.eventId} title="Foreign policy rate" ask={ask}><span className="num">{(fx.foreignRate * 100).toFixed(2)}%</span></NumBtn></p>
     </div>
   );
@@ -675,8 +699,11 @@ function previewLines(desk: Desk, view: SimView, key: string, side: string, qty:
     const row = view.curve?.find((c) => c.tenor === tenor);
     if (!row || qty < 1) return [];
     return [
-      { label: "Invoice", cents: qty * row.px, eventId: row.eventId },
+      { label: "Invoice at the reference price", cents: qty * row.px, eventId: row.eventId },
       { label: "Face", cents: qty * LOT, eventId: row.eventId },
+      { label: "Executes", text: "at the next open, at that day's price; there is no price until then", eventId: row.eventId },
+      { label: "Cash after, at the reference price", cents: view.cash - qty * row.px, eventId: row.eventId },
+      { label: "Executable size", text: "any size, matched once a day at the open; the order cannot be cancelled", eventId: row.eventId },
     ];
   }
   if (desk === "futures") {
@@ -687,10 +714,18 @@ function previewLines(desk: Desk, view: SimView, key: string, side: string, qty:
     if (side === "flat") return [{ label: "Flat", text: "Closes that month. Posted margin comes back if the book accepts.", eventId: book.eventId }];
     if (qty < 1) return [];
     const note = qty * tenor.px * book.lot;
-    return [
+    const fq = (book as unknown as { quote?: { roundTripCost: number; fee: number; bid: number; ask: number } | null }).quote;
+    const lines: { label: string; cents?: number; text?: string; eventId?: number }[] = [
       { label: "Notional", cents: note, eventId: book.eventId },
       { label: "Initial margin", cents: Math.round(note * 0.12), eventId: book.eventId },
     ];
+    if (fq) {
+      lines.push({ label: "Cost to open (spread and fee, about)", cents: Math.round(fq.roundTripCost / 2) * qty, eventId: book.eventId });
+      lines.push({ label: "Round trip, open and flatten", cents: fq.roundTripCost * qty, eventId: book.eventId });
+    }
+    lines.push({ label: "Cash after margin", cents: view.cash - Math.round(note * 0.12) - (fq ? Math.round(fq.roundTripCost / 2) * qty : 0), eventId: book.eventId });
+    lines.push({ label: "Executable size", text: "any size at the dealer's quote; a larger order widens the spread", eventId: book.eventId });
+    return lines;
   }
   if (desk === "options") {
     const instr = optInstr(view, key);
@@ -716,9 +751,16 @@ function previewLines(desk: Desk, view: SimView, key: string, side: string, qty:
     const coin = view.coinBoard?.find((c) => c.id === id);
     if (!coin || qty < 1) return [];
     if (id.startsWith("coin:me:")) {
-      return [{ label: side === "sell" ? "Coins into the pool" : "Dollars into the pool", text: side === "sell" ? `${qty} coins` : `${dollars(qty)}`, eventId: coin.eventId }];
+      return [
+      { label: side === "sell" ? "Coins into the pool" : "Dollars into the pool", text: side === "sell" ? `${qty} coins` : `${dollars(qty)}`, eventId: coin.eventId },
+      { label: "Executable size", text: "the whole order, against the pool now; the price moves as you trade", eventId: coin.eventId },
+    ];
     }
-    return [{ label: side === "sell" ? "Proceeds if it prints" : "Cost if it prints", cents: qty * Math.round(coin.px), eventId: coin.eventId }];
+    return [
+      { label: side === "sell" ? "Proceeds if it prints" : "Cost if it prints", cents: qty * Math.round(coin.px), eventId: coin.eventId },
+      ...(side === "sell" ? [] : [{ label: "Cash after", cents: view.cash - qty * Math.round(coin.px), eventId: coin.eventId }]),
+      { label: "Executable size", text: "what the book holds at your price; a market order takes what is there and the rest of a limit rests", eventId: coin.eventId },
+    ];
   }
   const fx = view.fx;
   if (!fx) return [];
@@ -732,7 +774,7 @@ function Orders({ view, ask }: { view: SimView; ask: (id: number, title: string)
     <div data-testid="br-orders">
       <p className="label">Your orders</p>
       {orders.length ? orders.map((o) => (
-        <div key={o.id} className="sim-book-row">
+        <div key={`${o.book}:${o.id}`} className="sim-book-row">
           <NumBtn id={o.eventId} title={`Order ${o.id}`} ask={ask}>
             <span>{o.side.charAt(0).toUpperCase() + o.side.slice(1)} {o.qty.toLocaleString("en-US")} {bookName(view, o.instr)}{o.limit ? ` @ ${moneyFromCents(o.limit)}` : ""}</span>
           </NumBtn>

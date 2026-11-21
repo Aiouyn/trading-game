@@ -260,3 +260,20 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
   .strip .launch-field { flex-basis: 160px; }
   .strip .wordmark { display: none; }
 }
+
+/* Narrow windows: the pause sentence, the search words and the calendar chip give way, so the speed buttons and the net-worth strip never cover each other. */
+@media (max-width: 1100px) {
+  header.strip .sim-paused-line, header.strip .sim-pause { display: none; }
+  header.strip .launch-field kbd { display: none; }
+  header.strip .launch-field { flex: 0 1 120px; min-width: 40px; width: auto; }
+  header.strip .strip-mid .soc-chip { max-width: 120px; }
+}
+@media (max-width: 960px) {
+  header.strip { gap: 6px; }
+  header.strip .launch-field { flex: none; min-width: 0; width: auto; padding: 0 10px; }
+  header.strip .launch-field span { display: none; }
+  header.strip .strip-mid { gap: 6px; }
+  header.strip .strip-mid .soc-chip { max-width: 44px; }
+  header.strip .strip-mid .clock { font-size: 12px; }
+  header.strip .sim-time button { padding: 0 5px; }
+}

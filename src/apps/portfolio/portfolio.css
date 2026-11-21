@@ -87,3 +87,9 @@
 .pf-stmt-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .pf-stmt-day { border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 6px; padding: 8px 10px; }
 .pf-stmt-total { border-top: 1px solid var(--line, rgba(127,127,127,.25)); margin-top: 4px; padding-top: 4px; font-weight: 600; }
+
+.pf-recon { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-8) 0; border-top: 1px solid var(--line); }
+.pf-recon dl { margin: 0; display: grid; gap: 1px; }
+.pf-recon dt { color: var(--fg-muted); }
+.pf-recon dd { margin: 0; }
+.pf-recon p { margin: 0; }

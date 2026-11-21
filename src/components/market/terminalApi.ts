@@ -11,7 +11,11 @@ export type Kind = "share" | "index" | "coin" | "future" | "bond" | "fx";
 export type Unit = "cents" | "pts" | "rate";
 
 /** ts: game seconds since day 0. */
-export interface Bar { ts: number; o: number; h: number; l: number; c: number; v: number }
+/** Where a bar came from (order 131): traded is a real fill, indicative a mark with no print, backfilled the year drawn before day one. */
+export type BarSrc = "traded" | "indicative" | "backfilled";
+/** Where its volume came from: real fills, an estimate, or none. */
+export type VolSrc = "real" | "estimated" | "none";
+export interface Bar { ts: number; o: number; h: number; l: number; c: number; v: number; src?: BarSrc; vsrc?: VolSrc }
 export interface Series { id: string; name: string; kind: Kind; unit: Unit; tf: Tf; session: boolean; since: number; day: number; bars: Bar[] }
 export interface ListRow { id: string; name: string; kind: Kind; unit: Unit; px: number; prev: number; chg: number; since: number; live: boolean }
 export interface MarketList { day: number; ticks: number; rows: ListRow[] }
@@ -123,7 +127,7 @@ export function axisLabel(ts: number, tf: Tf, session: boolean): string {
 
 // ---- fetching and cutting ----
 
-interface Wire { live?: number | null; id: string; name: string; kind: Kind; unit: Unit; tf: string; tt?: "min" | "day"; session?: boolean; since: number; day: number; now?: number; bars: { t: number; k?: number; o: number; h: number; l: number; c: number; v: number }[] }
+interface Wire { live?: number | null; id: string; name: string; kind: Kind; unit: Unit; tf: string; tt?: "min" | "day"; session?: boolean; since: number; day: number; now?: number; bars: { t: number; k?: number; o: number; h: number; l: number; c: number; v: number; barSource?: BarSrc; volSource?: VolSrc }[] }
 
 /** live: the sim's live price for the instrument when these bars were read, in the sim's own unit. */
 export interface Raw { meta: Omit<Series, "bars" | "tf">; bars: Bar[]; now: number; live: number | null }
@@ -156,11 +160,50 @@ export async function fetchRaw(instr: string, api: ApiTf, limit: number): Promis
     void api;
     return {
       meta: { id: w.id, name: w.name, kind: w.kind, unit: w.unit, session: !!w.session, since: w.since, day: w.day },
-      bars: w.bars.map((b) => ({ ts: b.t * mul, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v })),
+      bars: w.bars.map((b) => ({ ts: b.t * mul, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, src: b.barSource, vsrc: b.volSource })),
       now: typeof w.now === "number" ? w.now : w.day * 1440,
       live: typeof w.live === "number" && w.live > 0 ? w.live : null,
     };
   } catch { return null; }
+}
+
+/** A candle cut from several bars is traded when any of them traded, else backfilled when any was, else indicative. */
+function joinSrc(a: BarSrc | undefined, b: BarSrc | undefined): BarSrc | undefined {
+  if (!a || !b) return a ?? b;
+  if (a === "traded" || b === "traded") return "traded";
+  if (a === "backfilled" || b === "backfilled") return "backfilled";
+  return "indicative";
+}
+function joinVsrc(a: VolSrc | undefined, b: VolSrc | undefined): VolSrc | undefined {
+  if (!a || !b) return a ?? b;
+  if (a === "real" || b === "real") return "real";
+  if (a === "estimated" || b === "estimated") return "estimated";
+  return "none";
+}
+
+/** What a bar's source means, in words for a tooltip. */
+export function srcWords(b: Pick<Bar, "src" | "vsrc" | "v">): { bar: string; vol: string } {
+  const bar = b.src === "traded" ? "Traded: built from real fills"
+    : b.src === "backfilled" ? "Backfilled: drawn from history before day one, not from fills"
+    : b.src === "indicative" ? "Indicative: the official mark, no trade printed" : "Source not stated";
+  const vol = b.vsrc === "real" ? "real fills" : b.vsrc === "estimated" ? "estimated, not a tape" : b.v > 0 ? "source not stated" : "none printed";
+  return { bar, vol };
+}
+
+/** The coverage of one candle in words: its size and the span of game time it spans. */
+export function coverText(ts: number, tf: Tf, session: boolean): string {
+  const min = Math.floor(ts / 60);
+  const day = Math.floor(min / 1440);
+  const m = tfMinutes(tf);
+  if (m > 0) {
+    const from = min - day * 1440;
+    const to = Math.min(session ? 960 : 1440, from + m);
+    return `${dayLabel(day)} ${hhmm(from)} to ${hhmm(to)}`;
+  }
+  if (tf === "1D") return `${dayLabel(day)}, one session`;
+  if (tf === "1W") return `the week from ${dayLabel(day)}`;
+  const c = calDate(day);
+  return `the month from ${dayLabel(day)}, year ${c.year}`;
 }
 
 /** Cut one-minute bars into candles of `minutes`, on the session clock from 09:30 for shares and from midnight for coins. */
@@ -180,8 +223,10 @@ export function cut(raw: readonly Bar[], minutes: number, session: boolean): Bar
       if (b.l < cur.l) cur.l = b.l;
       cur.c = b.c;
       cur.v += b.v;
+      cur.src = joinSrc(cur.src, b.src);
+      cur.vsrc = joinVsrc(cur.vsrc, b.vsrc);
     } else {
-      out.push({ ts: (day * 1440 + anchor + slot * minutes) * 60, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
+      out.push({ ts: (day * 1440 + anchor + slot * minutes) * 60, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, src: b.src, vsrc: b.vsrc });
       key = k;
     }
   }

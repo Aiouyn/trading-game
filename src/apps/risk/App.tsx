@@ -7,6 +7,8 @@ import { useShellStore } from "@/components/shell/ShellContext";
 import { act, dollars, useSimSnap } from "@/shell/simSession";
 import { Cause, NumBtn, tone, useCause } from "@/apps/markets/why";
 import "./risk.css";
+import { LoanPreview } from "@/apps/bank/LoanPreview";
+import "@/apps/bank/bank.css";
 
 const WORD: Record<string, string> = {
   Closed: "No margin account is open.",
@@ -39,10 +41,11 @@ export default function RiskApp() {
     return (
       <div className="rk" data-testid="risk">
         <p className="rk-word" title={WORD.Closed}>Closed</p>
-        <p className="muted">{WORD.Closed} Borrowing opens it. The bank names the limit in its reply, including when it lends nothing.</p>
+        <p className="muted">{WORD.Closed} Borrowing opens it. What it would lend against your shares is shown below, before you ask.</p>
         <label className="rk-field">Amount, in dollars
           <input className="rk-qty" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1,000.00" data-testid="rk-amount" />
         </label>
+        <LoanPreview view={view} product="margin" cents={Math.round(Number(amount) * 100) || null} />
         <Button variant="primary" data-testid="rk-open" disabled={busy} onClick={() => void openAccount()}>Open a margin account</Button>
         <Taken taken={risk.taken} />
         {note ? <p className={note.ok ? "muted" : "rk-warn"} data-testid="rk-note">{note.text}</p> : null}
@@ -80,6 +83,7 @@ export default function RiskApp() {
       {(risk.loanRate ?? 0) > 0 ? (
         <p className="muted">Loan rate <NumBtn id={id} title="Margin rate" ask={ask}><span className="num">{((risk.loanRate ?? 0) * 100).toFixed(2)}%</span></NumBtn></p>
       ) : null}
+      <LoanPreview view={view} product="margin" cents={null} />
       <Taken taken={risk.taken} />
       <section>
         <h2 className="label">Sold first</h2>

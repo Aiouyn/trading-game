@@ -9,6 +9,7 @@ import { LiveNum } from "@/components/ui/LiveNum";
 import { LineChart, tone } from "@/apps/markets/why";
 import "@/apps/markets/why.css";
 import "./portfolio.css";
+import { accountOf, type Account } from "@/components/market/facts";
 
 const LOT = 16000;
 
@@ -77,13 +78,35 @@ const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 /** Open profit or loss in words: "+$12.00 (+3.4%)". */
 const openWord = (pnl: number, pct: number): string => `${pnl >= 0 ? "+" : "-"}${moneyFromCents(Math.abs(pnl))} (${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(1)}%)`;
 
-export default function PortfolioApp() {
+export default function PortfolioApp({ context }: { context?: string }) {
   const { view } = useSimSnap();
   const [coverNote, setCoverNote] = useState("");
   const { why, open: ask, close } = usePfWhy();
   const store = useShellStore();
   if (!view) return <div className="pf" data-testid="portfolio"><p className="muted">The books are not open.</p></div>;
   const open = (ctx: string) => store.getState().open("broker", ctx);
+  const acct = accountOf(view);
+  if (context === "Journal") {
+    // The second window of the Review layout is the journal: the cash statement and every fill, not a copy of the portfolio.
+    return (
+      <div className="pf sim-pf" data-testid="portfolio-journal">
+        <h2 className="label">Journal: your cash statement and every fill</h2>
+        <WhyPanel why={why} onClose={close} />
+        {view.live?.book ? <Statement book={view.live.book} cash={acct?.cash ?? view.cash} today={view.date.abs} /> : null}
+        <section>
+          <h2 className="label">Fills</h2>
+          <p className="muted">Choose a fill to see what the books recorded about it.</p>
+          {(view.fills ?? []).length ? [...(view.fills ?? [])].reverse().map((f, i) => (
+            <div key={`${f.day}-${i}`} className="sim-pf-row" data-testid="pf-fill">
+              <button type="button" className="pf-link" onClick={() => ask({ title: "That trade", plain: [cap(presentNote(f.text))], id: f.eventId })}>
+                <span className="label">{gameDate(f.day)} · {f.kind}</span> {f.text}
+              </button>
+            </div>
+          )) : <p className="muted">No fills yet.</p>}
+        </section>
+      </div>
+    );
+  }
   const points = netPoints(view);
   const up = points.length > 1 ? points[points.length - 1].worth >= points[0].worth : (view.nwChange ?? 0) >= 0;
   const stat = (id: string) => view.stats?.find((x) => x.id === id)?.eventId;
@@ -121,8 +144,9 @@ export default function PortfolioApp() {
   });
 
   // Today is one figure with one meaning: net worth now less net worth at the last close, both from the same books.
-  const today = Math.round(view.nwChange ?? 0);
-  const atClose = Math.round(view.netWorth) - today;
+  const nw = acct?.netWorth ?? view.netWorth;
+  const today = Math.round(acct?.today.dollars ?? view.nwChange ?? 0);
+  const atClose = acct?.today.base ?? Math.round(nw) - today;
   const sum = (a: { value: number }[]) => a.reduce((t, r) => t + r.value, 0);
   const moved = Math.round([...shareRows, ...shortRows, ...coinRows, ...bondRows].reduce((t, r) => t + r.day, 0));
   const loansOwed = view.loans.reduce((t, l) => t + l.owed, 0);
@@ -155,8 +179,8 @@ export default function PortfolioApp() {
   const worthWhy: Why = {
     title: "Net worth",
     plain: [
-      `Your net worth is ${moneyFromCents(view.netWorth)}: your cash plus what everything you hold would bring if you sold it now, less what you owe.`,
-      `${cap(bits.join(", "))}. Those add up to ${moneyFromCents(view.netWorth)}.`,
+      `Your net worth is ${moneyFromCents(nw)}: your cash plus what everything you hold would bring if you sold it now, less what you owe.`,
+      `${cap(bits.join(", "))}. Those add up to ${moneyFromCents(nw)}.`,
       ...(deadCoins.length ? [`${deadCoins.join(", ")} ${deadCoins.length === 1 ? "is a dead coin" : "are dead coins"}: nobody trades ${deadCoins.length === 1 ? "it" : "them"} any more, so ${deadCoins.length === 1 ? "it counts" : "they count"} as $0.`] : []),
       ...(points.length > 1 && points[0].worth > 0 ? [`You began at ${moneyFromCents(points[0].worth)}, so you are ${view.netWorth >= points[0].worth ? "up" : "down"} ${moneyFromCents(Math.abs(view.netWorth - points[0].worth))} since then.`] : []),
     ],
@@ -187,11 +211,12 @@ export default function PortfolioApp() {
       <div className="pf-hero">
         <span className="pf-label">Net worth</span>
         <div className="pf-hero-nw">
-          <Num w={worthWhy} ask={ask}><LiveNum value={view.netWorth}><MoneyText amount={dollars(view.netWorth)} ctx="hero" /></LiveNum></Num>
+          <Num w={worthWhy} ask={ask}><LiveNum value={nw}><MoneyText amount={dollars(nw)} ctx="hero" /></LiveNum></Num>
         </div>
-        <span className="today" data-testid="pf-today">Today <Num w={todayWhy} ask={ask}><MoneyText amount={dollars(today)} ctx="delta" /></Num> <small className="muted">since midnight</small></span>
+        <span className="today" data-testid="pf-today">Today <Num w={todayWhy} ask={ask}><MoneyText amount={dollars(today)} ctx="delta" /></Num> <small className="muted" data-testid="pf-today-base">{acct ? `${today >= 0 ? "+" : ""}${(acct.today.pct * 100).toFixed(2)}% of ${moneyFromCents(acct.today.base)}, ${acct.today.baseLabel}` : "since midnight"}</small></span>
       </div>
       <WhyPanel why={why} onClose={close} />
+      {acct ? <Reconcile a={acct} /> : null}
       {view.stats?.length ? (
         <ul className="sim-life" data-testid="pf-life">
           {view.stats.map((s) => (
@@ -411,5 +436,32 @@ function Pos({ name, value, day, id, ask, onOpen, testid, says, sub, action }: {
         )}
       </span>
     </div>
+  );
+}
+
+/** One revision of the books: the parts that make net worth, to the cent, and what changed since the last close and why. */
+function Reconcile({ a }: { a: Account }) {
+  const rows: [string, number][] = [
+    ["Cash", a.cash], ["Deposits", a.deposits], ["Shares", a.shares], ["Shorts, at today's price less what you sold them for", a.shorts],
+    ["Coins", a.coins], ["Bonds", a.bonds], ["Your business", a.business], ["Goods and property", a.goods], ["Owed to you", a.owed], ["Less what you owe", -a.debts],
+  ];
+  const shown = rows.filter(([, v]) => v !== 0 || false);
+  const sum = rows.reduce((t, [, v]) => t + v, 0);
+  const signed = (c: number) => `${c > 0 ? "+" : c < 0 ? "-" : ""}${moneyFromCents(Math.abs(c))}`;
+  return (
+    <section className="pf-recon" data-testid="pf-reconcile" aria-label="What your net worth is made of">
+      <dl>
+        {shown.map(([k, v]) => <div key={k} className="sim-pf-row"><dt>{k}</dt><dd className="num">{moneyFromCents(v)}</dd></div>)}
+        <div className="sim-pf-row pf-stmt-total"><dt>Net worth, from these parts</dt><dd className="num" data-testid="pf-recon-sum">{moneyFromCents(sum)}</dd></div>
+      </dl>
+      <p className="muted" data-testid="pf-recon-note">{a.residual === 0 && sum === a.netWorth ? "These parts add to your net worth to the cent, from one reading of the books." : `The parts differ from net worth by ${moneyFromCents(Math.abs(sum - a.netWorth))}.`}</p>
+      <p className="label">Since {a.today.baseLabel}: {signed(a.today.dollars)}</p>
+      <dl>
+        <div className="sim-pf-row"><dt>Investment return: prices and fills</dt><dd className={`num ${tone(a.investment)}`} data-testid="pf-recon-invest">{signed(a.investment)}</dd></div>
+        <div className="sim-pf-row"><dt>Money in: wages, gifts, inheritance</dt><dd className="num">{signed(a.flows)}</dd></div>
+        <div className="sim-pf-row"><dt>Spending: living costs and fees to others</dt><dd className="num">{signed(-a.spending)}</dd></div>
+      </dl>
+      <p className="muted">{a.basis > 0 ? `What you hold cost ${moneyFromCents(a.basis)}. ` : ""}{a.fees > 0 ? `Fees and taxes so far today: ${moneyFromCents(a.fees)}.` : ""}</p>
+    </section>
   );
 }

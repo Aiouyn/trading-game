@@ -20,6 +20,8 @@ interface Inst {
   fx: Series & { name: string; currency: string };
   power: Series & { wholesale: number; marginal: string };
   curve: { tenor: string; v: number; eventId: number }[];
+  curveShape?: string;
+  curveSlopeBp?: number;
   bank: {
     text: string;
     eventId: number;
@@ -65,13 +67,25 @@ function powerWord(tariff: number, wholesale: number): string {
   if (wholesale > 0 && tariff < wholesale * 0.98) return "Capped";
   return "Set";
 }
-function curveWord(curve: Inst["curve"]): string {
-  const y2 = curve.find((c) => c.tenor === "2y")?.v ?? 0;
-  const y10 = curve.find((c) => c.tenor === "10y")?.v ?? 0;
-  const gap = y10 - y2;
+/** The curve's shape is the sim's own reading (the 10-year against the 3-month); the words follow it, so the screen and the paper agree. */
+function curveWord(data: Inst): string {
+  if (data.curveShape) return data.curveShape.charAt(0).toUpperCase() + data.curveShape.slice(1);
+  const y3 = data.curve.find((c) => c.tenor === "3m")?.v ?? 0;
+  const y10 = data.curve.find((c) => c.tenor === "10y")?.v ?? 0;
+  const gap = y10 - y3;
   if (gap < -0.2) return "Inverted";
-  if (gap < 0.4) return "Flat";
+  if (gap < 0.2) return "Flat";
   return "Upward";
+}
+/** Tenor spreads in basis points, and the front and the long end when they disagree. */
+function curveNote(data: Inst): string {
+  const y = (t: string) => data.curve.find((c) => c.tenor === t)?.v;
+  const y3 = y("3m"), y2 = y("2y"), y10 = y("10y"), y30 = y("30y");
+  if (y3 === undefined || y10 === undefined) return "";
+  const bp = data.curveSlopeBp ?? Math.round((y10 - y3) * 100);
+  const front = y2 !== undefined && y3 > y2 + 0.2;
+  const long = y30 !== undefined && y30 > y10 + 0.2;
+  return `10-year minus 3-month: ${bp >= 0 ? "+" : "-"}${Math.abs(bp)} basis points${front && long ? ". The front end is inverted while the long end rises." : "."}`;
 }
 function signOf(word: string): "up" | "down" | "flat" {
   if (word === "Growing" || word === "Stronger" || word === "Tight" || word === "Cool") return "up";
@@ -135,14 +149,14 @@ export default function InstitutionsApp() {
     );
   }
 
-  const cards: { key: string; label: string; word: string; title: string; eventId: number; chart: ReactNode }[] = [
+  const cards: { key: string; label: string; word: string; title: string; eventId: number; chart: ReactNode; note?: string }[] = [
     { key: "jobs", label: "Unemployment", word: jobsWord(data.unemployment.v), title: levelPct(data.unemployment.v, 1), eventId: data.unemployment.eventId, chart: seriesOf(data.unemployment.points, (v) => levelPct(v, 1), "Unemployment") },
     { key: "cpi", label: "Inflation", word: inflWord(data.inflation.v), title: levelPct(data.inflation.v, 1), eventId: data.inflation.eventId, chart: seriesOf(data.inflation.points, (v) => levelPct(v, 1), "Inflation") },
     { key: "rate", label: "Policy rate", word: rateWord(data.policy.v), title: levelPct(data.policy.v, 2), eventId: data.policy.eventId, chart: seriesOf(data.policy.points, (v) => levelPct(v, 2), "Policy rate") },
     { key: "gdp", label: "GDP", word: gdpWord(data.gdp), title: data.gdp.counted ? `${moneyYear(data.gdp.v)} a year` : "Not counted", eventId: data.gdp.eventId, chart: seriesOf(data.gdp.points, moneyYear, "GDP") },
     { key: "fx", label: data.fx.name || "Exchange rate", word: fxWord(data.fx.points), title: `${data.fx.v.toFixed(4)} home per ${data.fx.currency || "foreign"}`, eventId: data.fx.eventId, chart: seriesOf(data.fx.points, (v) => v.toFixed(4), data.fx.name || "Exchange rate") },
     { key: "power", label: "Power", word: powerWord(data.power.v, data.power.wholesale), title: `${data.power.v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a unit${data.power.marginal ? ` · ${data.power.marginal}` : ""}`, eventId: data.power.eventId, chart: seriesOf(data.power.points, (v) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), "Power") },
-    { key: "curve", label: "Yield curve", word: curveWord(data.curve), title: data.curve.map((c) => `${c.tenor} ${levelPct(c.v, 2)}`).join(" · "), eventId: data.curve[0]?.eventId ?? data.policy.eventId, chart: <SeriesChart neutral points={data.curve.map((c) => ({ v: c.v, label: c.tenor }))} label="Yield curve" format={(v) => levelPct(v, 2)} height={72} /> },
+    { key: "curve", label: "Yield curve", word: curveWord(data), note: curveNote(data), title: data.curve.map((c) => `${c.tenor} ${levelPct(c.v, 2)}`).join(" · "), eventId: data.curve[0]?.eventId ?? data.policy.eventId, chart: <SeriesChart neutral points={data.curve.map((c) => ({ v: c.v, label: c.tenor }))} label="Yield curve" format={(v) => levelPct(v, 2)} height={72} /> },
   ];
 
   return (
@@ -154,6 +168,7 @@ export default function InstitutionsApp() {
             <span className="label">{c.label}</span>
             <span className="inst-word" title={c.title}>{c.word}</span>
             <span className="num inst-figure">{c.title}</span>
+            {c.note ? <span className="muted inst-note" data-testid={`inst-note-${c.key}`}>{c.note}</span> : null}
             {c.chart}
             <button type="button" className="q-why" data-testid="inst-why" onClick={() => ask(c.key, c.eventId)}>Why?</button>
             {open === c.key ? chain : null}

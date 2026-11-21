@@ -5,7 +5,12 @@ import { titleWord } from "@/components/ui/format";
 import type { Quote } from "@/shell/simSession";
 import { signedPct, tone } from "./why";
 
-export type QuoteX = Quote & { ret1y?: number | null; prod?: number | null };
+export type QuoteX = Quote & { ret1y?: number | null; ret?: number | null; retWindow?: string; retSessions?: number; prod?: number | null; prodWindow?: string };
+/** "1 year" once a year of sessions exists, else "since listing, N sessions": the window a return was measured over. */
+export function windowWord(w: string | undefined): string {
+  if (!w) return "window not stated";
+  return w === "1y" ? "over the last year" : w.replace("since listing, ", "since listing, ");
+}
 export interface TapeX {
   index: number;
   indexChg: number;
@@ -25,24 +30,24 @@ function plain(v: number | null | undefined, digits = 1): string {
   return v == null || !Number.isFinite(v) ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(digits)}%`;
 }
 
-export function IndexStrip({ tape }: { tape: TapeX | undefined }) {
+export function IndexStrip({ tape, today, monthEnd }: { tape: TapeX | undefined; today?: string; monthEnd?: string }) {
   if (!tape || !tape.index) return null;
   const tr = tape.indexTR;
   return (
     <div className="mk-index" data-testid="mk-index">
       <div>
-        <span className="label">Port Avalon index</span>
+        <span className="label">Port Avalon index, price</span>
         <p className="mk-index-fig num">{tape.index.toFixed(1)}</p>
-        <p className="muted">Price. {plain(tape.indexYr)} on the year</p>
+        <p className="muted">As of {today ?? "now"}, each session. {tape.indexYr == null ? "Less than a year of history, so no yearly change yet" : `${plain(tape.indexYr)} over the last year`}</p>
       </div>
       {tr != null ? (
         <div>
-          <span className="label">Total return</span>
+          <span className="label">Total return, price plus payouts</span>
           <p className="mk-index-fig num">{tr.toFixed(1)}</p>
-          <p className="muted">Price and payouts. {plain(tape.indexTRYr)} on the year</p>
+          <p className="muted">As of {monthEnd ?? "the last month-end"}: it updates monthly. {tape.indexTRYr == null ? "No yearly change yet" : `${plain(tape.indexTRYr)} over the last year`}</p>
         </div>
       ) : null}
-      <p className="muted mk-index-note">Both start at 100 when the city opens.</p>
+      <p className="muted mk-index-note" data-testid="mk-index-method">Both start at 100 on the opening day. The price index follows the exchange's total value of shares, linked day to day so that a split, a listing or a delisting moves the divisor and never the index. Total return adds the dividends paid, on a monthly clock, so the two can sit apart until the month closes.</p>
     </div>
   );
 }
@@ -59,10 +64,12 @@ export function SectorTable({ quotes, onPick }: { quotes: QuoteX[]; onPick: (sec
   const rows: SectorRow[] = [...by.entries()].map(([sector, list]) => ({
     sector,
     prod: list.find((q) => q.prod != null)?.prod ?? null,
-    ret: median(list.flatMap((q) => (q.ret1y != null && Number.isFinite(q.ret1y) ? [q.ret1y] : []))),
+    ret: median(list.flatMap((q) => (q.ret != null && Number.isFinite(q.ret) ? [q.ret] : q.ret1y != null && Number.isFinite(q.ret1y) ? [q.ret1y] : []))),
     pe: median(list.flatMap((q) => (q.pe != null && Number.isFinite(q.pe) ? [q.pe] : []))),
     names: list.length,
   }));
+  const win = quotes.find((q) => q.retWindow)?.retWindow;
+  const retHead = win === "1y" || !win ? "Return, last year" : "Return " + win.replace("since listing, ", "since listing, ");
   rows.sort((a, b) => (b.prod ?? -1) - (a.prod ?? -1) || a.sector.localeCompare(b.sector));
   if (!rows.length) return null;
   return (
@@ -74,7 +81,7 @@ export function SectorTable({ quotes, onPick }: { quotes: QuoteX[]; onPick: (sec
             <tr>
               <th scope="col">Sector</th>
               <th scope="col">Productivity a year</th>
-              <th scope="col">Return a year</th>
+              <th scope="col" title="The window each return was measured over">{retHead}</th>
               <th scope="col">P/E</th>
             </tr>
           </thead>
@@ -87,14 +94,14 @@ export function SectorTable({ quotes, onPick }: { quotes: QuoteX[]; onPick: (sec
                   </button>
                 </td>
                 <td data-label="Productivity a year"><span className={`num ${tone(r.prod ?? 0)}`}>{plain(r.prod, 2)}</span></td>
-                <td data-label="Return a year"><span className={`num ${tone(r.ret ?? 0)}`}>{r.ret == null ? "—" : signedPct(r.ret)}</span></td>
+                <td data-label={retHead}><span className={`num ${tone(r.ret ?? 0)}`}>{r.ret == null ? "—" : signedPct(r.ret)}</span></td>
                 <td data-label="P/E"><span className="num">{r.pe == null ? "—" : r.pe.toFixed(1)}</span></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="muted mk-sector-note">Productivity is output per worker, compounded from the opening (the plan rate before a year has passed). Return and P/E are medians of the sector&apos;s names.</p>
+      <p className="muted mk-sector-note">Productivity is output per worker over a year; before a year has passed it shows a dash. Return is the median of the sector&apos;s names over the window in its heading: a full year only once a year of sessions exists, otherwise since listing. P/E is the median too.</p>
     </section>
   );
 }

@@ -85,6 +85,14 @@ export interface SimView {
   netWorth: number;
   cash: number;
   nwChange?: number;
+  /** Today's change as a share of yesterday's close (order 131). */
+  todayPct?: number;
+  /** One revision of the books: the parts add to net worth to the cent (order 131). */
+  account?: import("@/components/market/facts").Account | null;
+  /** Every order's record: status, reserved cash, fills, fees and the rejected remainder (order 131). */
+  orderRecords?: import("@/components/market/facts").OrderLife[];
+  curveShape?: string;
+  curveSlopeBp?: number;
   markChange?: number;
   sinceOpen?: number;
   speed: "pause" | "x1" | "x2" | "x5" | "x10" | "x25" | "day" | "week" | "month";
@@ -493,6 +501,9 @@ function mergeDay(frame: SimView) {
     cash: frame.cash ?? cur.cash,
     netWorth: frame.netWorth ?? cur.netWorth,
     nwChange: frame.nwChange,
+    todayPct: frame.todayPct ?? cur.todayPct,
+    account: frame.account ?? cur.account,
+    orderRecords: frame.orderRecords ?? cur.orderRecords,
     markChange: frame.markChange ?? cur.markChange,
     sinceOpen: frame.sinceOpen,
     speed: frame.speed ?? cur.speed,

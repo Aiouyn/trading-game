@@ -13,6 +13,9 @@ import {
   type Drawing, type ListRow, type NewsFlag, type RangeId, type Series, type Tf, type Tool,
 } from "@/components/market/terminalApi";
 import { PositionsPanel, sessionRules, type DeskOrder } from "./DeskPanel";
+import { QuotePanel } from "./QuotePanel";
+import { BarTable } from "@/components/market/BarTable";
+import { quoteFacts } from "@/components/market/facts";
 import { useBars } from "@/components/market/useBars";
 import "./terminal.css";
 
@@ -118,6 +121,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   const [rawFlags, setRawFlags] = useState<NewsFlag[]>([]);
   const [note, setNote] = useState<ActNote | null>(null);
   const [review, setReview] = useState<string>("");
+  const [asTable, setAsTable] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const abs = view?.date.abs ?? 0;
@@ -163,6 +167,9 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   const kept = useRef<{ id: string; series: Series } | null>(null);
   if (bars.series) kept.current = { id: instr, series: bars.series };
   const series = bars.series ?? (kept.current?.id === instr ? kept.current.series : null);
+  // The header's session summary is always the day's candle, whatever candle size the chart shows: a monthly candle is not "today".
+  const daily = useBars(tf === "1D" ? null : instr, "1D", stamp);
+  const session = tf === "1D" ? bars.today : daily.today;
   const compare = useBars(studies.cmp && instr !== "index" ? "index" : null, tf, stamp).series;
   const refresh = useCallback(() => { void fetchList().then((l) => { if (l) setList(l.rows); }); }, []);
   const listAt = useRef(0);
@@ -375,7 +382,43 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
   const cost = spend ? n : kind === "share" || kind === "coin" || kind === "bond" ? n * refPx : kind === "fx" && side !== "sell" ? Math.round(n * 100 * (fxPair?.ask ?? last)) : 0;
   const held = view.shares.find((h) => h.instr === instr)?.qty ?? view.coins.find((c) => c.id === instr)?.qty ?? (kind === "fx" ? fxPair?.held ?? 0 : 0) ?? 0;
   const chg = row && row.prev > 0 && last > 0 ? last / row.prev - 1 : row?.chg ?? 0;
+  const qf = instr.startsWith("eq:") ? quoteFacts(view, instr) : null;
+  const shut = qf?.asOf === "last session";
   const mine = (view.orders ?? []).filter((o) => o.instr === instr);
+  // What the order would do before it is sent: cost, what the book can execute at the touch, and the cash left.
+  const prevLines: [string, string][] = [];
+  if (tradable && n > 0 && !(kind === "future" && side === "flat")) {
+    const money = moneyFromCents;
+    if (kind === "share") {
+      const sell = side === "sell";
+      const touch = (sell ? qf?.bid : qf?.ask) || last;
+      const depth = (sell ? qf?.bidQty : qf?.askQty) ?? 0;
+      const px = otype === "limit" && refPx > 0 ? refPx : touch;
+      prevLines.push([sell ? "Proceeds at the bid" : side === "short" ? "Value shorted at the bid" : "Cost at the ask", money(n * px)]);
+      if (depth > 0) prevLines.push([sell ? "Bid size at the touch" : "Ask size at the touch", `${depth.toLocaleString("en-US")} shares${n > depth ? ": the rest takes the next prices or waits" : ""}`]);
+      else prevLines.push(["Executable now", "no one is quoting: a market order waits for the open"]);
+      if (!sell && side !== "short") prevLines.push(["Cash after", money(cash - n * px)]);
+    } else if (kind === "coin") {
+      if (side !== "sell") prevLines.push(["Cash after", money(cash - cost)]);
+      prevLines.push(["Executable", memeCoin ? "all of it, against the pool now; the price moves as you trade" : "what the book holds; the rest of a limit rests"]);
+    } else if (kind === "future") {
+      const good = instr.slice(4);
+      const board = view.futuresBoard?.find((b) => b.good === good);
+      const fq = (board as unknown as { quote?: { roundTripCost: number } | null } | undefined)?.quote;
+      const px = board?.tenors[0]?.px ?? last;
+      const note = n * px * (board?.lot ?? 1);
+      prevLines.push(["Notional", money(note)], ["Initial margin held", money(Math.round(note * 0.12))]);
+      if (fq) prevLines.push(["Cost to open, about", money(Math.round(fq.roundTripCost / 2) * n)], ["Round trip", money(fq.roundTripCost * n)]);
+      prevLines.push(["Cash after margin", money(cash - Math.round(note * 0.12))], ["Executable", "any size at the dealer's quote; a larger order widens the spread"]);
+    } else if (kind === "fx") {
+      const fee = Math.round(((fxPair as unknown as { fee?: number } | undefined)?.fee ?? 0) * n / 100);
+      prevLines.push(["Cost at the dealer's ask", money(cost)], ["Fee, scaled to this size", money(fee)], ["Cash after", money(cash - cost - fee)], ["Quoted size", "100 units; bigger orders widen the spread"]);
+    } else if (kind === "bond") {
+      const row = view.curve?.find((c) => instr.startsWith(`bond:${c.tenor}`));
+      if (row) prevLines.push(["Invoice at the reference price", money(n * row.px)], ["Face", money(n * 16000)], ["Cash after, at that price", money(cash - n * row.px)]);
+      prevLines.push(["Executes", "at the next open, at that day's price; no price until then, and no cancel"]);
+    }
+  }
   const asideTitle = spend ? "Dollars to spend" : kind === "coin" ? (side === "sell" ? "Coins to sell" : "Coins to buy") : kind === "future" ? "Contracts" : kind === "bond" ? "Bonds" : kind === "fx" ? `Units of ${sym}` : side === "sell" ? "Shares to sell" : side === "short" ? "Shares to short" : "Shares";
 
   return (
@@ -405,16 +448,19 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
         <header className="tm-head">
           <button type="button" className="tm-ghost tm-listbtn" onClick={() => setShowList((v) => !v)} aria-pressed={showList}>Markets</button>
           <h2 className="tm-title">{sym}{instr.startsWith("eq:") ? <small>{title}</small> : null}</h2>
-          <span className="tm-price" data-testid="tm-price">{series ? priceText(series.unit, last) : "…"}<small className={chg >= 0 ? "gain" : "loss"}>{chg >= 0 ? "+" : ""}{(chg * 100).toFixed(2)}%</small><small className="tm-today">today</small></span>
+          <span className="tm-price" data-testid="tm-price">{series ? priceText(series.unit, last) : "…"}<small className={chg >= 0 ? "gain" : "loss"}>{chg >= 0 ? "+" : ""}{(chg * 100).toFixed(2)}%</small><small className="tm-today" title={qf?.chgBase ? `Change from the ${qf.chgBase}` : "Change from the previous close"}>{shut ? `last session, ${qf?.sessionDate ?? ""}` : "today"}</small></span>
           <span className="tm-grow" />
           {view.live ? <span className="tm-clock" data-testid="tm-clock">{view.live.label}<small>{view.live.session === "open" ? "open" : view.live.session === "pre" ? "pre-market" : view.live.session === "after" ? "after hours" : "closed"}</small></span> : null}
         </header>
-        {bars.today && !instr.startsWith("fx") ? (
-          <p className="tm-ohlc" data-testid="tm-ohlc">
-            <span>Open <b>{priceText(series?.unit ?? "cents", bars.today.o)}</b></span>
-            <span>High <b>{priceText(series?.unit ?? "cents", bars.today.h)}</b></span>
-            <span>Low <b>{priceText(series?.unit ?? "cents", bars.today.l)}</b></span>
-            {bars.today.v > 0 ? <span>Volume <b>{volText(bars.today.v)}</b></span> : null}
+        {session && !instr.startsWith("fx") ? (
+          <p className="tm-ohlc" data-testid="tm-ohlc" title="The day's candle, whatever candle size the chart shows. The chart's own legend reads the candle under the pointer.">
+            <b className="tm-asof">{instr.startsWith("eq:") && shut ? `Last session, ${qf?.sessionDate ?? ""}` : "Today's session"}</b>
+            <span>Open <b>{priceText(series?.unit ?? "cents", session.o)}</b></span>
+            <span>High <b>{priceText(series?.unit ?? "cents", session.h)}</b></span>
+            <span>Low <b>{priceText(series?.unit ?? "cents", session.l)}</b></span>
+            <span>Close <b>{priceText(series?.unit ?? "cents", session.c)}</b></span>
+            {session.v > 0 ? <span>Volume <b>{volText(session.v)}</b><small> {session.vsrc === "estimated" ? "estimated" : "real fills"}</small></span> : <span className="muted">No trades printed</span>}
+            {session.src === "indicative" ? <span className="tm-src" data-src="indicative">indicative</span> : null}
           </p>
         ) : null}
         {heldRows.length ? (
@@ -443,6 +489,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
           <div className="tm-seg" role="group" aria-label="Style">
             <button type="button" aria-pressed={look === "candles"} onClick={() => setLook("candles")}>Candles</button>
             <button type="button" aria-pressed={look === "line"} onClick={() => setLook("line")}>Line</button>
+            <button type="button" aria-pressed={asTable} onClick={() => setAsTable((v) => !v)} title="The same candles as a table, with each one's source" data-testid="tm-astable">Table</button>
           </div>
           <div className="tm-menu">
             <button type="button" className="tm-ghost" aria-expanded={menu === "studies"} onClick={() => setMenu(menu === "studies" ? "" : "studies")} data-testid="tm-studies">Indicators{Object.values(studies).filter(Boolean).length - (studies.vol ? 1 : 0) > 0 ? ` (${Object.values(studies).filter(Boolean).length - (studies.vol ? 1 : 0)})` : ""}</button>
@@ -455,7 +502,7 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
             ) : null}
           </div>
         </div>
-        <div className="tm-stage" onClick={() => { if (menu) setMenu(""); }}>
+        <div className="tm-stage" data-panes={(studies.rsi ? 1 : 0) + (studies.macd ? 1 : 0)} onClick={() => { if (menu) setMenu(""); }}>
           <div className="tm-rail" role="toolbar" aria-label="Drawing tools" data-testid="tm-rail">
             {TOOLS.map((t) => (
               <button key={t.id} type="button" aria-pressed={tool === t.id} title={`${t.label}: ${t.hint}`} aria-label={t.label} data-testid={`tm-tool-${t.id}`}
@@ -467,8 +514,8 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
             <button type="button" title={`Remove all ${drawings.length} drawings`} aria-label="Remove all drawings" disabled={!drawings.length} className="tm-danger" onClick={() => changeDrawings([])} data-testid="tm-clear">✕</button>
           </div>
           <div className="tm-chartbox">
-            {series && series.bars.length ? (
-              <Chart series={series} compare={compare} studies={studies} log={log} pct={pct} look={look} range={range} rangeKey={rangeKey}
+            {series && series.bars.length && asTable ? <BarTable series={series} /> : series && series.bars.length ? (
+              <Chart title={tradable ? `${sym} · ${tf} · ${side[0]!.toUpperCase()}${side.slice(1)} ${otype[0]!.toUpperCase()}${otype.slice(1)}` : `${sym} · ${tf} · a reading, not for sale`} proposeWord={tradable && types.includes("limit") && side !== "flat" ? `Set a limit ${side === "sell" || side === "short" ? "sell" : "buy"}` : ""} series={series} compare={compare} studies={studies} log={log} pct={pct} look={look} range={range} rangeKey={rangeKey}
                 onScale={(m) => (m === "pct" ? setPct((v) => !v) : setLog((v) => !v))}
                 onStudy={(k) => setStudies((x) => ({ ...x, [k]: false }))}
                 tool={tool} onTool={setTool} drawings={drawings} onDrawings={changeDrawings} lines={lines} marks={marks} flags={flags} onMoveLine={moveLine} onPickPrice={pickPrice} />
@@ -477,18 +524,23 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
         </div>
         <PositionsPanel view={view} instr={instr} busy={busy} onPick={setInstr} onModify={modify}
           onSend={(cmd) => void send(cmd, "")} onCancel={(id) => void act({ kind: "cancel", orderId: id }).then((n) => { setNote(n); refresh(); })} />
-        {tool !== "cursor" ? <p className="tm-hint">{TOOLS.find((t) => t.id === tool)?.hint}. Esc cancels.</p> : <p className="tm-hint muted">Scroll to zoom, drag to pan. Double-click the chart to set a price. Drag an order line to move it. Drag an axis to scale it, double-click it to reset.</p>}
+        {tool !== "cursor" ? <p className="tm-hint">{TOOLS.find((t) => t.id === tool)?.hint}. Esc cancels.</p> : <p className="tm-hint muted">Scroll to zoom, drag to pan. Double-click the chart to propose a limit price. Click the chart, then arrow keys step candles and P proposes the price. Drag an order line to move it. Drag an axis to scale it, double-click it to reset.</p>}
       </section>
 
       <aside className="tm-ticket" aria-label="Order ticket">
-        <div className="tm-seg tm-seg-side" role="group" aria-label="Side">
-          {sides.map((s) => <button key={s.id} type="button" aria-pressed={side === s.id} data-side={s.id} onClick={() => pickSide(s.id)}>{s.label}</button>)}
-        </div>
-        {tradable ? (
-          <>
+        <div className="tm-sticky">
+          <div className="tm-seg tm-seg-side" role="group" aria-label="Side">
+            {sides.map((s) => <button key={s.id} type="button" aria-pressed={side === s.id} data-side={s.id} onClick={() => pickSide(s.id)}>{s.label}</button>)}
+          </div>
+          {tradable ? (
             <div className="tm-seg" role="group" aria-label="Order type">
               {types.map((t) => <button key={t} type="button" aria-pressed={otype === t} onClick={() => pickType(t)}>{t[0]!.toUpperCase() + t.slice(1)}</button>)}
             </div>
+          ) : null}
+        </div>
+        <QuotePanel view={view} instr={instr} last={last} />
+        {tradable ? (
+          <>
             {!(kind === "future" && side === "flat") ? (
               <label className="tm-field">{asideTitle}
                 <input data-tm="field" inputMode={spend ? "decimal" : "numeric"} value={qty} onChange={(e) => { setQty(e.target.value); setReview(""); setNote(null); }} data-testid="tm-qty" />
@@ -519,6 +571,11 @@ export default function Terminal({ context, onDesks }: { context?: string; onDes
               {cost > 0 ? <>About <b>{moneyFromCents(cost)}</b> of your <b>{moneyFromCents(cash)}</b>. </> : <>You have <b>{moneyFromCents(cash)}</b>. </>}
               {held ? <>You hold {held.toLocaleString("en-US")}.</> : null}
             </p>
+            {prevLines.length ? (
+              <dl className="tm-quote tm-prev" data-testid="tm-prev" aria-label="Before you send">
+                {prevLines.map(([k, v]) => <div className="tm-q-row" key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+              </dl>
+            ) : null}
             {review ? (
               <div className="tm-review" data-testid="tm-review">
                 <p>{review}</p>

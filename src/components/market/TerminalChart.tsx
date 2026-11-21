@@ -10,6 +10,7 @@ import {
 import { bollinger, ema, rsi, sma } from "./movingAverages";
 import {
   DAY_S, FIB, MIN_VIEW_CANDLES, RANGES, axisLabel, axisText, isIntraday, macd, minMoveFor, priceText, shown, sigText, stampLabel, volText, vwapOf,
+  coverText, srcWords, loadPref, savePref,
   type Bar, type Drawing, type Pt, type RangeId, type Series, type Tool,
 } from "./terminalApi";
 
@@ -42,7 +43,12 @@ interface Props {
   marks?: ChartMark[];
   flags?: ChartFlag[];
   onMoveLine: (id: string, price: number) => void;
+  /** the player accepted a proposed limit price (double-click or the keyboard); nothing is sent by this */
   onPickPrice: (price: number) => void;
+  /** symbol, candle size and ticket type, kept in view on the chart itself */
+  title: string;
+  /** what a proposed price would become on the ticket, e.g. "limit buy" */
+  proposeWord: string;
 }
 
 interface Tokens { bg: string; text: string; grid: string; line: string; fg: string; muted: string; up: string; down: string; acc: string; warn: string; info: string; steel: string; signal: string }
@@ -113,7 +119,13 @@ export default function TerminalChart(props: Props) {
   const [axisW, setAxisW] = useState(64);
   const ix = useRef<{ sel: string; draft: Pt | null; first: Pt | null; hover: { x: number; y: number } | null; drag: null | { kind: "line"; id: string; price: number } | { kind: "pt"; id: string; which: "a" | "b" } | { kind: "body"; id: string; from: Pt; orig: Drawing } }>({ sel: "", draft: null, first: null, hover: null, drag: null });
   const dirty = useRef(true);
-  const [legend, setLegend] = useState<{ ts: number; bar: Bar | null; prev: number | null } | null>(null);
+  const [legend, setLegend] = useState<{ ts: number; bar: Bar | null; prev: number | null; x: number; y: number } | null>(null);
+  const [proposal, setProposal] = useState<{ x: number; y: number; price: number } | null>(null);
+  const [legendOpen, setLegendOpen] = useState(() => loadPref("legendOpen", false));
+  const [dock, setDock] = useState<"top" | "bottom">(() => (loadPref<string>("legendDock", "top") === "bottom" ? "bottom" : "top"));
+  const [kbNote, setKbNote] = useState("");
+  const hintEl = useRef<HTMLParagraphElement>(null);
+  const kb = useRef(-1);
   const [chips, setChips] = useState<{ k: keyof Studies; label: string; value: string }[]>([]);
   const [theme, setTheme] = useState(0);
   const [editing, setEditing] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -151,7 +163,7 @@ export default function TerminalChart(props: Props) {
       handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
     const candle = chart.addSeries(CandlestickSeries, {
-      upColor: tk.up, downColor: tk.down, borderVisible: false, wickUpColor: tk.up, wickDownColor: tk.down,
+      upColor: tk.up, downColor: tk.down, borderVisible: true, borderUpColor: tk.up, borderDownColor: tk.down, wickUpColor: tk.up, wickDownColor: tk.down,
       priceLineColor: tk.acc, priceLineStyle: LineStyle.Dotted, lastValueVisible: true, autoscaleInfoProvider: spanFloor,
       priceFormat: { type: "custom", formatter: (p: number) => priceText("pts", p), minMove: 0.0001 },
     }, 0);
@@ -174,7 +186,7 @@ export default function TerminalChart(props: Props) {
         if (bt === t) { at = mid; break; }
         if (bt < t) lo = mid + 1; else hi = mid - 1;
       }
-      setLegend({ ts: t, bar: at >= 0 ? bars[at]! : null, prev: at > 0 ? bars[at - 1]!.c : null });
+      setLegend({ ts: t, bar: at >= 0 ? bars[at]! : null, prev: at > 0 ? bars[at - 1]!.c : null, x: p.point.x, y: p.point.y });
       ix.current.hover = { x: p.point.x, y: p.point.y };
       dirty.current = true;
     });
@@ -209,7 +221,14 @@ export default function TerminalChart(props: Props) {
     const same = prevShape.current.id === series.id && prevShape.current.tf === series.tf;
     const prevN = prevShape.current.n;
 
-    const ohlc = dedupe(bars.map((b) => ({ time: tv(b), open: shown(u, b.o), high: shown(u, b.h), low: shown(u, b.l), close: shown(u, b.c) })));
+    // A traded candle is solid; an indicative one (a mark, no print) is hollow; a backfilled one is faded. The tooltip says which.
+    const body = (b: Bar) => {
+      const col = b.c >= b.o ? tk.up : tk.down;
+      if (b.src === "indicative") return { color: tk.bg, borderColor: col, wickColor: col };
+      if (b.src === "backfilled") return { color: alpha(col, 0.38), borderColor: alpha(col, 0.38), wickColor: alpha(col, 0.38) };
+      return { color: col, borderColor: col, wickColor: col };
+    };
+    const ohlc = dedupe(bars.map((b) => ({ time: tv(b), open: shown(u, b.o), high: shown(u, b.h), low: shown(u, b.l), close: shown(u, b.c), ...body(b) })));
     // The clock running only moves the newest candle or adds one: update those and leave the rest of the chart alone.
     const lined = studies.sma || studies.ema || studies.bb || studies.vwap || studies.cmp || studies.rsi || studies.macd;
     const vs = layers.get("vol") as ISeriesApi<"Histogram"> | undefined;
@@ -218,7 +237,7 @@ export default function TerminalChart(props: Props) {
         const r = ohlc[i]!, b = bars[i];
         candle.update(r);
         closeLine.update({ time: r.time, value: r.close });
-        if (vs && b && b.v > 0) vs.update({ time: r.time, value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, 0.55) });
+        if (vs && b && b.v > 0) vs.update({ time: r.time, value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, b.vsrc === "estimated" ? 0.22 : 0.55) });
       }
       times.current = ohlc.map((r) => r.time as number);
       prevShape.current = { id: series.id, tf: series.tf, n: ohlc.length, first: times.current[0] ?? 0 };
@@ -246,7 +265,7 @@ export default function TerminalChart(props: Props) {
     // volume bars under the price
     if (studies.vol && bars.some((b) => b.v > 0)) {
       // a short band at the foot of the chart, scaled to the bars in view, each bar coloured by its candle's direction
-      const vol = dedupe(bars.filter((b) => b.v > 0).map((b) => ({ time: tv(b), value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, 0.55) })));
+      const vol = dedupe(bars.filter((b) => b.v > 0).map((b) => ({ time: tv(b), value: b.v, color: alpha(b.c >= b.o ? tk.up : tk.down, b.vsrc === "estimated" ? 0.22 : 0.55) })));
       setLayer("vol", () => {
         const s = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false }, 0);
         chart.priceScale("vol", 0).applyOptions({ scaleMargins: { top: 0.84, bottom: 0 }, visible: false });
@@ -445,6 +464,22 @@ export default function TerminalChart(props: Props) {
       if (first && draft && (tool === "trend" || tool === "ray" || tool === "rect" || tool === "fib")) all.push({ id: "_draft", kind: tool, a: first, b: draft });
       for (const d of all) paintDrawing(g, d, d.id === sel, pw, ph, tk, X, Y);
       g.restore();
+      // Each indicator pane says what it is and that its scale is its own, whatever the price pane's scale is doing.
+      {
+        const panes = a.chart.panes();
+        const top = box.getBoundingClientRect().top;
+        const lab = (i: number, text: string) => {
+          const r = panes[i]?.getHTMLElement()?.getBoundingClientRect();
+          if (!r) return;
+          const tw = g.measureText(text).width + 8;
+          g.fillStyle = alpha(tk.bg, 0.85);
+          g.fillRect(3, r.top - top + 3, tw, 15);
+          g.fillStyle = tk.muted;
+          g.fillText(text, 6, r.top - top + 14);
+        };
+        if (a.rsiPane > 0) lab(a.rsiPane, "RSI 14: 0 to 100, always its own scale");
+        if (a.macdPane > 0) lab(a.macdPane, "MACD 12/26/9: its own scale, in price units");
+      }
       // order, stop, position and margin lines run into the price scale with a tag
       for (const l of live.current.lines) {
         const dragging = ix.current.drag?.kind === "line" && ix.current.drag.id === l.id;
@@ -617,6 +652,7 @@ export default function TerminalChart(props: Props) {
       dirty.current = true;
     };
     const move = (e: MouseEvent) => {
+      if (kb.current >= 0 && e.type === "mousemove") kb.current = -1;
       const { x, y } = local(e);
       const cur = live.current;
       const d = ix.current.drag;
@@ -632,6 +668,16 @@ export default function TerminalChart(props: Props) {
         return;
       }
       if (ix.current.first && gt !== null && pr !== null) { ix.current.draft = { t: gt, p: pr }; dirty.current = true; }
+      const hint = hintEl.current;
+      if (hint) {
+        if (cur.tool !== "cursor" && inPlot(x, y)) {
+          const two = cur.tool === "trend" || cur.tool === "ray" || cur.tool === "rect" || cur.tool === "fib";
+          const word = two ? (ix.current.first ? "Choose the end point" : cur.tool === "fib" ? "Choose the swing low" : "Choose the start point") : cur.tool === "note" ? "Click where the note goes, then type" : "Click a price";
+          hint.textContent = `${word}. Esc cancels.`;
+          hint.style.display = "block";
+          hint.style.transform = `translate(${Math.min(x + 14, Math.max(0, box.clientWidth - 210))}px, ${y + 16}px)`;
+        } else hint.style.display = "none";
+      }
       if (inPlot(x, y)) {
         const over = cur.tool === "cursor" ? (hitLine(x, y) ?? hitDrawing(x, y)) : null;
         box.style.cursor = cur.tool !== "cursor" ? "crosshair" : over ? "pointer" : "";
@@ -658,12 +704,49 @@ export default function TerminalChart(props: Props) {
         dirty.current = true;
         return;
       }
-      if (live.current.tool !== "cursor" || !inPlot(x, y) || hitLine(x, y) || hitDrawing(x, y)) return;
+      if (live.current.tool !== "cursor" || !inPlot(x, y) || hitLine(x, y) || hitDrawing(x, y) || !live.current.proposeWord) return;
       const p = priceAt(y);
-      if (p !== null) live.current.onPickPrice(p);
+      // a proposal, never a silent change: the ticket is touched only when the player accepts it in the prompt
+      if (p !== null) setProposal({ x: Math.min(x, Math.max(0, plot().w - 250)), y: Math.min(y, Math.max(0, plot().h - 96)), price: p });
+    };
+    const stepTo = (i: number) => {
+      const a = api.current;
+      const ser = live.current.series;
+      const bars = ser.bars;
+      if (!a || !bars.length) return;
+      const k = Math.max(0, Math.min(bars.length - 1, i));
+      kb.current = k;
+      const b = bars[k]!;
+      const un = ser.unit;
+      const li = lowerBound(times.current, b.ts);
+      const ts = a.chart.timeScale();
+      const vr = ts.getVisibleLogicalRange();
+      if (vr && (li < vr.from + 1 || li > vr.to - RIGHT_OFFSET + 2)) {
+        const w = vr.to - vr.from;
+        const from = li < vr.from + 1 ? li - 2 : li - w + RIGHT_OFFSET + 2;
+        ts.setVisibleLogicalRange({ from, to: from + w } as LogicalRange);
+      }
+      try { a.chart.setCrosshairPosition(shown(un, b.c), b.ts as UTCTimestamp, a.candle); } catch { /* the legend still reads it */ }
+      setLegend({ ts: b.ts, bar: b, prev: k > 0 ? bars[k - 1]!.c : null, x: 60, y: 60 });
+      setKbNote(`${stampLabel(b.ts, isIntraday(ser.tf))}: open ${priceText(un, b.o)}, high ${priceText(un, b.h)}, low ${priceText(un, b.l)}, close ${priceText(un, b.c)}, volume ${volText(b.v)}. ${srcWords(b).bar}.`);
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { ix.current.first = null; ix.current.draft = null; ix.current.sel = ""; live.current.onTool("cursor"); dirty.current = true; }
+      if (e.key === "Escape") { ix.current.first = null; ix.current.draft = null; ix.current.sel = ""; live.current.onTool("cursor"); dirty.current = true; setProposal(null); if (hintEl.current) hintEl.current.style.display = "none"; }
+      // the keyboard walks the candles: arrows step, Home and End jump, P proposes the stepped candle's close as the order price
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.target as HTMLElement).tagName !== "INPUT") {
+        const n = live.current.series.bars.length;
+        const at = kb.current < 0 ? n - 1 : kb.current;
+        if (e.key === "ArrowLeft") { stepTo(kb.current < 0 ? n - 1 : at - (e.shiftKey ? 10 : 1)); e.preventDefault(); e.stopPropagation(); return; }
+        if (e.key === "ArrowRight") { stepTo(kb.current < 0 ? n - 1 : at + (e.shiftKey ? 10 : 1)); e.preventDefault(); e.stopPropagation(); return; }
+        if (e.key === "Home") { stepTo(0); e.preventDefault(); e.stopPropagation(); return; }
+        if (e.key === "End") { stepTo(n - 1); e.preventDefault(); e.stopPropagation(); return; }
+        if ((e.key === "p" || e.key === "P") && n && live.current.proposeWord) {
+          const b = live.current.series.bars[at]!;
+          setProposal({ x: 56, y: 56, price: shown(live.current.series.unit, b.c) });
+          e.preventDefault(); e.stopPropagation();
+          return;
+        }
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && ix.current.sel) {
         const id = ix.current.sel; ix.current.sel = "";
         live.current.onDrawings(live.current.drawings.filter((d) => d.id !== id));
@@ -717,7 +800,10 @@ export default function TerminalChart(props: Props) {
     window.addEventListener("mousemove", winMove);
     box.addEventListener("dblclick", dbl);
     box.addEventListener("keydown", key);
+    const leave = () => { if (hintEl.current) hintEl.current.style.display = "none"; };
+    box.addEventListener("mouseleave", leave);
     return () => {
+      box.removeEventListener("mouseleave", leave);
       cancelAnimationFrame(raf);
       box.removeEventListener("wheel", wheel, { capture: true });
       box.removeEventListener("mousedown", down, true);
@@ -732,6 +818,7 @@ export default function TerminalChart(props: Props) {
   useEffect(() => { dirty.current = true; }, [props.drawings, props.lines, props.marks, props.flags, props.tool]);
   useEffect(() => { ix.current.first = null; ix.current.draft = null; if (props.tool !== "cursor") ix.current.sel = ""; }, [props.tool]);
   useEffect(() => { ix.current.sel = ""; setEditing(null); }, [series.id]);
+  useEffect(() => { kb.current = -1; setKbNote(""); setProposal(null); }, [series.id, series.tf]);
 
   const note = editing ? props.drawings.find((d) => d.id === editing.id) : undefined;
   const bar = legend?.bar ?? series.bars[series.bars.length - 1] ?? null;
@@ -744,7 +831,8 @@ export default function TerminalChart(props: Props) {
   return (
     <div className="tm-chart" ref={wrap} tabIndex={0} aria-label={`${series.name} chart`} data-testid="tm-chart">
       <p className="tm-legend" data-testid="tm-legend">
-        <span className="tm-legend-t">{stampLabel(t, isIntraday(series.tf))}</span>
+        <span className="tm-legend-title" data-testid="tm-chart-title"><b>{props.title}</b>{props.pct ? <small> % scale on the price pane only</small> : null}</span>
+        <span className="tm-legend-t">{stampLabel(t, isIntraday(series.tf))}<small> {series.tf} bar</small></span>
         {bar ? (
           <>
             <span>O <b>{priceText(u, bar.o)}</b></span>
@@ -752,18 +840,32 @@ export default function TerminalChart(props: Props) {
             <span>L <b>{priceText(u, bar.l)}</b></span>
             <span className={up ? "gain" : "loss"}>C <b>{priceText(u, bar.c)}</b></span>
             {move !== null ? <span className={move >= 0 ? "gain" : "loss"} data-testid="tm-legend-chg">{move >= 0 ? "+" : ""}{(move * 100).toFixed(2)}%</span> : null}
-            {bar.v > 0 ? <span>Vol <b>{volText(bar.v)}</b></span> : null}
+            {bar.v > 0 ? <span>Vol <b>{volText(bar.v)}</b><small> {bar.vsrc === "estimated" ? "estimated" : bar.vsrc === "real" ? "real fills" : ""}</small></span> : null}
+            {bar.src ? <span className="tm-src" data-src={bar.src} data-testid="tm-legend-src">{bar.src}</span> : null}
           </>
         ) : null}
+        <span className="tm-key" aria-hidden="true"><i data-k="traded" /> traded <i data-k="indicative" /> indicative <i data-k="backfilled" /> backfilled</span>
       </p>
       {chips.length ? (
-        <ul className="tm-chips" data-testid="tm-chips" aria-label="Indicators">
-          {chips.map((c) => (
-            <li key={c.k}><span>{c.label}</span><b>{c.value}</b>
-              <button type="button" aria-label={`Remove ${c.label}`} onClick={() => props.onStudy(c.k)} data-testid={`tm-chip-${c.k}`}>×</button></li>
-          ))}
-        </ul>
+        <div className="tm-chips" data-testid="tm-chips" data-dock={dock} data-open={legendOpen ? "1" : "0"} aria-label="Indicators">
+          <div className="tm-chips-bar">
+            <button type="button" aria-expanded={legendOpen} data-testid="tm-chips-toggle" title="Show or hide the indicator values"
+              onClick={() => setLegendOpen((v) => { savePref("legendOpen", !v); return !v; })}>Indicators {chips.length} {legendOpen ? "▾" : "▸"}</button>
+            <button type="button" aria-label="Move the indicator legend to the other edge" title="Move the legend up or down" data-testid="tm-chips-move"
+              onClick={() => setDock((d) => { const n = d === "top" ? "bottom" : "top"; savePref("legendDock", n); return n; })}>{dock === "top" ? "↓" : "↑"}</button>
+            {!legendOpen ? <span className="tm-chips-sum">{chips.map((c) => `${c.label} ${c.value}`).join("  ·  ")}</span> : null}
+          </div>
+          {legendOpen ? (
+            <ul>
+              {chips.map((c) => (
+                <li key={c.k}><span>{c.label}</span><b>{c.value}</b>
+                  <button type="button" aria-label={`Remove ${c.label}`} onClick={() => props.onStudy(c.k)} data-testid={`tm-chip-${c.k}`}>×</button></li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
+      <p className="tm-sr" role="status" aria-live="polite" data-testid="tm-kb-note">{kbNote}</p>
       <div className="tm-scales" style={{ right: axisW + 4 }} data-testid="tm-scales">
         <button type="button" aria-pressed={auto} title="Fit the price scale to the candles" data-testid="tm-auto"
           onClick={() => { api.current?.chart.priceScale("right", 0).applyOptions({ autoScale: true }); setAuto(true); }}>auto</button>
@@ -772,6 +874,25 @@ export default function TerminalChart(props: Props) {
       </div>
       <div className="tm-plot" ref={host} />
       <canvas className="tm-over" ref={cvs} />
+      {legend && legend.bar && kb.current < 0 && props.tool === "cursor" ? (
+        <div className="tm-bar-tip" role="tooltip" data-testid="tm-bar-tip" style={{ left: Math.max(4, Math.min(legend.x + 16, (wrap.current?.clientWidth ?? 700) - 270)), top: Math.max(30, Math.min(legend.y + 22, (wrap.current?.clientHeight ?? 400) - 150)) }}>
+          <b>{series.tf} bar</b> <span>{coverText(legend.bar.ts, series.tf, series.session)}</span>
+          <span>O {priceText(u, legend.bar.o)} H {priceText(u, legend.bar.h)} L {priceText(u, legend.bar.l)} C {priceText(u, legend.bar.c)}</span>
+          <span>Volume {legend.bar.v > 0 ? volText(legend.bar.v) : "none"}: {srcWords(legend.bar).vol}</span>
+          <span data-src={legend.bar.src}>{srcWords(legend.bar).bar}</span>
+        </div>
+      ) : null}
+      <p className="tm-cursor-hint" ref={hintEl} data-testid="tm-draw-hint" style={{ display: "none" }} />
+      {proposal ? (
+        <div className="tm-propose" role="dialog" aria-label="Propose an order price" data-testid="tm-propose" style={{ left: proposal.x + 8, top: proposal.y + 8 }}>
+          <p><b>{props.proposeWord} at {priceText("pts", proposal.price)}?</b></p>
+          <p className="muted">This only fills in the ticket. Nothing is sent until you press the buy or sell button and confirm.</p>
+          <div>
+            <button type="button" data-testid="tm-propose-use" onClick={() => { props.onPickPrice(proposal.price); setProposal(null); }}>Use this price</button>
+            <button type="button" data-testid="tm-propose-no" onClick={() => setProposal(null)}>Not now</button>
+          </div>
+        </div>
+      ) : null}
       {flagTip ? <p className="tm-flag-tip" role="tooltip" data-testid="tm-flag-tip" style={{ left: Math.max(4, flagTip.x - 12), top: flagTip.y - 6 }}>{flagTip.text}</p> : null}
       {editing && note ? (
         <input

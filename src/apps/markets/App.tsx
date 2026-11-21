@@ -10,6 +10,8 @@ import { gameDate, moneyFromCents, signedQty, titleWord } from "@/components/ui/
 import { Named } from "@/components/ui/Named";
 import { holidayReason, parseCalendar } from "@/apps/society/read";
 import { edgeOf } from "@/apps/research/edge";
+import { QuotePanel } from "@/apps/broker/QuotePanel";
+import { shortDate } from "@/shell/calendar";
 import "@/apps/research/research.css";
 import { Cause, LineChart, NumBtn, signedPct, tone, useCause } from "./why";
 import { IndexStrip, SectorTable, type QuoteX, type TapeX } from "./Sectors";
@@ -65,7 +67,7 @@ export default function MarketsApp({ context }: { context?: string }) {
   if (quote) {
     return (
       <div className="mk" data-testid="markets">
-        <Stock quote={quote} day={view.date.abs} news={view.news} ask={ask} closed={holidayReason(view.date.abs, parseCalendar(view.calendar))} inside={!!quote.issuer && insideIssuers.has(quote.issuer)} onBack={() => setSel(null)} />
+        <Stock view={view} quote={quote} day={view.date.abs} news={view.news} ask={ask} closed={holidayReason(view.date.abs, parseCalendar(view.calendar))} inside={!!quote.issuer && insideIssuers.has(quote.issuer)} onBack={() => setSel(null)} />
         <Cause cause={cause} onClose={close} />
       </div>
     );
@@ -83,7 +85,7 @@ export default function MarketsApp({ context }: { context?: string }) {
 
   return (
     <div className="mk" data-testid="markets">
-      <IndexStrip tape={view.tape as TapeX | undefined} />
+      <IndexStrip tape={view.tape as TapeX | undefined} today={shortDate(view.date.abs)} monthEnd={shortDate(Math.floor(view.date.abs / 30) * 30)} />
       {sector === "All" ? <SectorTable quotes={quotes as QuoteX[]} onPick={setSector} /> : null}
       <div className="mk-chips" role="group" aria-label="Sector">
         {sectors.map((s) => (
@@ -97,7 +99,7 @@ export default function MarketsApp({ context }: { context?: string }) {
               {head("name", "Name")}
               {head("px", "Last")}
               {head("chg", "Change")}
-              {head("vol", "Volume")}
+              {head("vol", "Volume (real fills)")}
               {head("pe", "P/E")}
               <th> </th>
               {head("pos", "Position")}
@@ -111,7 +113,7 @@ export default function MarketsApp({ context }: { context?: string }) {
                 </td>
                 <td data-label="Last"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} last`} ask={ask}><MoneyText amount={dollars(q.px)} ctx="table" /></NumBtn></td>
                 <td data-label="Change"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} change`} ask={ask}><span className={tone(q.chg)}>{signedPct(q.chg)}</span></NumBtn></td>
-                <td data-label="Volume"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} volume`} ask={ask}><span className="num">{q.vol.toLocaleString("en-US")}</span></NumBtn></td>
+                <td data-label="Volume"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} volume`} ask={ask}><span className="num">{q.vol > 0 ? q.vol.toLocaleString("en-US") : <span className="muted">none</span>}</span></NumBtn></td>
                 <td data-label="P/E"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} P/E`} ask={ask}><span className="num">{q.pe == null ? "—" : q.pe.toFixed(1)}</span></NumBtn></td>
                 <td data-label=""><Sparkline points={q.spark} /></td>
                 <td data-label="Position"><NumBtn id={q.eventId} title={`${q.symbol || symbolOf(q.instr)} position`} ask={ask}><span className={`num ${tone(q.pos ?? 0)}`}>{signedQty(q.pos ?? 0)}</span></NumBtn></td>
@@ -140,7 +142,8 @@ function cmp(a: Quote, b: Quote, key: SortKey): number {
   return (a.pos ?? 0) - (b.pos ?? 0);
 }
 
-function Stock({ quote, day, news, ask, closed, inside, onBack }: {
+function Stock({ view, quote, day, news, ask, closed, inside, onBack }: {
+  view: NonNullable<ReturnType<typeof useSimSnap>["view"]>;
   quote: Quote;
   day: number;
   news: NewsLine[];
@@ -210,6 +213,7 @@ function Stock({ quote, day, news, ask, closed, inside, onBack }: {
         <span className="muted">Bid <NumBtn id={quote.eventId} title={`${sym} bid`} ask={ask}><MoneyText amount={dollars(quote.bid ?? 0)} ctx="table" /></NumBtn></span>
         <span className="muted">Ask <NumBtn id={quote.eventId} title={`${sym} ask`} ask={ask}><MoneyText amount={dollars(quote.ask ?? 0)} ctx="table" /></NumBtn></span>
       </div>
+      <QuotePanel view={view} instr={quote.instr} last={quote.px} />
       <LineChart points={closes.map((c) => c.px)} days={closes.map((c) => c.day)} up={up} label={`${sym} daily closes`} format={moneyFromCents} />
       <div className="mk-facts">
         {firm?.kind === "bank" ? (

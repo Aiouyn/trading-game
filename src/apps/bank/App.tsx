@@ -7,6 +7,8 @@ import "@/apps/businesses/sheet.css";
 import { plainCopy } from "@/components/market/copy";
 import { creditSentence, edgeOf, haircutOf } from "@/apps/research/edge";
 import "@/apps/research/research.css";
+import { LoanPreview } from "./LoanPreview";
+import "./bank.css";
 
 type Product = "margin" | "line" | "term";
 const PRODUCTS: { id: Product; name: string; terms: string }[] = [
@@ -38,6 +40,8 @@ export default function BankApp() {
   const why = useWhy();
   const panel = usePanel<Book>("name=bank", `${view?.date.abs ?? 0}:${view?.cash ?? 0}:${view?.loans?.length ?? 0}`);
   const [amount, setAmount] = useState("");
+  const [moveAmt, setMoveAmt] = useState("");
+  const [repayAmt, setRepayAmt] = useState("");
   const [product, setProduct] = useState<Product>("margin");
   const [note, setNote] = useState<ActNote | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,7 +55,7 @@ export default function BankApp() {
   const haircut = haircutOf(product, tight, open?.haircut);
 
   const go = async (op: "deposit" | "withdraw" | "borrow" | "repay") => {
-    const cents = centsOf(amount);
+    const cents = centsOf(op === "borrow" ? amount : op === "repay" ? repayAmt : moveAmt);
     if (cents === null || cents < 1) { setNote({ ok: false, text: "Name an amount in dollars." }); return; }
     setBusy(true);
     setNote({ ok: true, text: "Sending…" });
@@ -105,6 +109,12 @@ export default function BankApp() {
         {loans.map((l, i) => (
           <p key={`${l.kind}-${i}`}><Fig word={loanWord(l.kind)} title={`${moneyTitle(l.owed)} at ${(l.rate * 100).toFixed(1)}%`} eventId={l.eventId} onWhy={why.open} /></p>
         ))}
+        {loans.length ? (
+          <div className="qa-form" data-testid="bank-repay">
+            <Field label="Repay, in dollars"><input className="qa-input" inputMode="decimal" placeholder="500.00" value={repayAmt} onChange={(e) => { setRepayAmt(e.target.value); setNote(null); }} data-testid="bank-repay-amount" /></Field>
+            <Button variant="secondary" disabled={busy} data-testid="bank-repay-go" onClick={() => void go("repay")}>{busy ? "Sending…" : "Repay this much"}</Button>
+          </div>
+        ) : null}
       </div>
       <div className="qa-block" data-testid="bank-products">
         <h2 className="qa-title">Borrow against your shares</h2>
@@ -120,15 +130,20 @@ export default function BankApp() {
         {open && !open.open ? <p className="rs-warn" data-testid="bank-not-offered">Lenders are not writing {chosen.name.toLowerCase()} now, so a request will be refused.</p> : null}
         {open && open.loans > 0 ? (
           <p data-testid="bank-open-rate">Your open {chosen.name.toLowerCase()}: {moneyTitle(open.owed)} at {(open.rate * 100).toFixed(2)}%.</p>
-        ) : <p className="qa-muted">You have none of these open. The rate is set when you borrow, and the reply says what it was.</p>}
+        ) : <p className="qa-muted">You have none of these open.</p>}
+        <Field label="Amount to borrow, in dollars"><input className="qa-input" inputMode="decimal" placeholder="1,000.00" value={amount} onChange={(e) => { setAmount(e.target.value); setNote(null); }} data-testid="bank-amount" /></Field>
+        {view ? <LoanPreview view={view} product={product} cents={centsOf(amount)} /> : null}
+        <div className="qa-actions">
+          <Button variant="primary" disabled={busy || !(centsOf(amount) && centsOf(amount)! > 0)} data-testid="bank-borrow" onClick={() => void go("borrow")}>{busy ? "Sending…" : `Borrow on ${chosen.name.toLowerCase()}`}</Button>
+        </div>
       </div>
-      <Field label="Amount, in dollars"><input className="qa-input" inputMode="decimal" placeholder="1,000.00" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="bank-amount" /></Field>
-      <p className="qa-muted">Name an amount, then borrow, deposit, withdraw, or repay. The reply says what the bank did.</p>
-      <div className="qa-actions">
-        <Button variant="primary" disabled={busy} data-testid="bank-borrow" onClick={() => void go("borrow")}>{busy ? "Sending…" : `Borrow on ${chosen.name.toLowerCase()}`}</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void go("deposit")}>{busy ? "Sending…" : "Deposit"}</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void go("withdraw")}>{busy ? "Sending…" : "Withdraw"}</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void go("repay")}>{busy ? "Sending…" : "Repay"}</Button>
+      <div className="qa-block" data-testid="bank-move">
+        <h2 className="qa-title">Move cash to or from a deposit</h2>
+        <Field label="Amount, in dollars"><input className="qa-input" inputMode="decimal" placeholder="1,000.00" value={moveAmt} onChange={(e) => { setMoveAmt(e.target.value); setNote(null); }} data-testid="bank-move-amount" /></Field>
+        <div className="qa-actions">
+          <Button variant="secondary" disabled={busy} data-testid="bank-deposit" onClick={() => void go("deposit")}>{busy ? "Sending…" : "Deposit"}</Button>
+          <Button variant="secondary" disabled={busy} data-testid="bank-withdraw" onClick={() => void go("withdraw")}>{busy ? "Sending…" : "Withdraw"}</Button>
+        </div>
       </div>
       <div className="qa-block">
         <h2 className="qa-title">The banks</h2>
