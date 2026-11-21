@@ -170,7 +170,7 @@ function EditionView({ ed, today, open, onWhy, match }: { ed: Edition; today: nu
       {st.kicker ? <p className="edition-kicker">{st.kicker}</p> : null}
       {isLead ? <h3>{noYear(presentNote(st.headline), today)}</h3> : <h4>{noYear(presentNote(st.headline), today)}</h4>}
       {st.body ? <p className="edition-body">{noYear(presentNote(st.body), today)}</p> : null}
-      {st.eventId > 0 ? <button type="button" className="name-link" onClick={() => onWhy(st.eventId)}>Why?</button> : null}
+      {st.eventId > 0 ? <button type="button" className="name-link why-link" onClick={() => onWhy(st.eventId)}>Why?</button> : null}
       {open === st.eventId && st.eventId > 0 ? (
         <div className="sim-wire-why" data-testid="wire-why">
           <StoryWhy id={st.eventId} text={st.headline} />
@@ -369,7 +369,7 @@ export default function WireApp({ context }: { context?: string }) {
                 Corrects: {presentNote(corrected?.text || paper.correctsText) || "the earlier story"}
               </button>
             ) : null}
-            <button type="button" className="name-link" onClick={() => onOpen(paper.eventId)}>Why?</button>
+            <button type="button" className="name-link why-link" onClick={() => onOpen(paper.eventId)}>Why?</button>
             {open === paper.eventId || open === paper.corrects ? (
               <div className="sim-wire-why" data-testid="wire-why">
                 <StoryWhy id={open} text={open === paper.eventId ? paper.text : corrected?.text ?? paper.correctsText} />

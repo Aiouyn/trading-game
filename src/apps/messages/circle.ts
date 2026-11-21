@@ -308,6 +308,11 @@ export function isClose(role: string, word: string): boolean {
   return CLOSE.has(word);
 }
 
+/** The bond tier as the player reads it. The sim keeps "Close" as its key; the screen says "Close friend" so it is not the Close button. */
+export function tierWord(word: string): string {
+  return word === "Close" ? "Close friend" : word;
+}
+
 export function isRivalMove(role: string, text: string): boolean {
   if (role === "rival") return true;
   return /short|your name is the one falling|bid for a /i.test(text);

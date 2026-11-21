@@ -693,7 +693,7 @@ function lifeSummary(w: World): Record<string, unknown> | null {
   const me = playerIndex(w);
   const P = econ(w).P;
   const seat = seatId(w);
-  const know = seat ? courseBoard(w, seat).finished : [];
+  const know = seat ? courseBoard(w, seat).knows : [];
   return {
     knows: know,
     skills: me >= 0 ? { school: P.school[me], years: P.occYrs[me], trade: P.occ[me] > 0 ? (occTable()[P.occ[me]]?.name ?? '') : '' } : null,

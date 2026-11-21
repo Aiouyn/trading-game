@@ -1,6 +1,6 @@
 "use client";
 // A small map of who knows whom. You in the middle. Family linked. An introduction still waiting is a dashed line.
-import { initial, type CircleAsk, type CircleContact } from "@/apps/messages/circle";
+import { initial, tierWord, type CircleAsk, type CircleContact } from "@/apps/messages/circle";
 
 const ROLE_ORDER = ["family", "friend", "mentor", "colleague", "rival"];
 
@@ -35,7 +35,7 @@ function place(people: CircleContact[]): Node[] {
       who: p.who,
       name: p.name,
       role: p.role,
-      word: p.bond.word || p.word,
+      word: tierWord(p.bond.word || p.word),
       x: 160 + Math.cos(angle) * radius,
       y: 104 + Math.sin(angle) * radius,
       ghost: false,

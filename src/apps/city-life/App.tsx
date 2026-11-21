@@ -16,7 +16,7 @@ const TOPICS = [
   { id: "money", label: "Money" },
 ];
 interface Known { n: number; name: string; job: string; how: string; word: string; met: number; line: string }
-interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; done: boolean }
+interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; done: boolean; known: boolean }
 interface Board {
   venues: VenueRow[];
   tonight: { venue: string; venueId: string; faces: Face[]; open: boolean; rounds: number; listened: boolean; spent: number } | null;
@@ -33,6 +33,15 @@ const FAVOURS: { what: string; label: string }[] = [
   { what: "loan 500", label: "Lend me $500" },
   { what: "lender 1000", label: "A word with their bank" },
 ];
+
+/** The part of the day the city is in, so the heading at noon does not say evening. */
+function partOfDay(clock: string | undefined): string {
+  const h = Number(/(d{1,2}):d{2}/.exec(clock ?? "")?.[1] ?? 19);
+  if (h >= 5 && h < 12) return "morning";
+  if (h >= 12 && h < 17) return "afternoon";
+  if (h >= 17 && h < 21) return "evening";
+  return "night";
+}
 
 export default function CityLifeApp() {
   const { life } = useLife();
@@ -109,7 +118,7 @@ export default function CityLifeApp() {
     <div className="qy-life cl" data-testid="citylife">
       <header className="qy-block">
         <h2>City life</h2>
-        <p className="qy-kicker">{t ? `${t.venue} · The clock waits while you’re here` : "Find somewhere to spend the evening"}</p>
+        <p className="qy-kicker">{t ? `${t.venue} · The clock waits while you’re here` : `Find somewhere to spend the ${partOfDay(clock)}`}</p>
       </header>
       <div className="cl-tabs" role="tablist">
         {tabs.map((x) => (
@@ -233,7 +242,7 @@ export default function CityLifeApp() {
                 <span>{c.name}</span>
                 <span className="cl-line">{c.blurb}. {c.weeks} weekly evenings, {money(c.fee)}.</span>
               </p>
-              <ChoiceButton primary={false} disabled={busy || c.done || !!board.courses.now || board.cash < c.fee} testId={`enrol-${c.id}`} onClick={() => void say(`enrol ${c.id}`)}>{c.done ? "Finished" : "Enrol"}</ChoiceButton>
+              <ChoiceButton primary={false} disabled={busy || c.done || c.known || !!board.courses.now || board.cash < c.fee} testId={`enrol-${c.id}`} onClick={() => void say(`enrol ${c.id}`)}>{c.done ? "Finished" : c.known ? "Known from work" : "Enrol"}</ChoiceButton>
             </div>
           ))}
         </section>

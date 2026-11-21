@@ -66,12 +66,15 @@ export function findCourse(key: string): CourseDef | undefined {
   return COURSES.find((c) => c.id === k || c.name.toLowerCase() === k) ?? COURSES.find((c) => c.name.toLowerCase().startsWith(k) || c.id.startsWith(k)) ?? COURSES.find((c) => c.name.toLowerCase().includes(k));
 }
 
-export interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; sectors: string[]; done: boolean }
+export interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; sectors: string[]; done: boolean; known: boolean }
 export interface CourseBoard {
   now: { id: string; name: string; sessions: number; weeks: number; nextIn: number; nextDay: number; nextDate: string; nextTime: string; nextLesson: string; line: string; classmates: string[]; eventId: number; notes: { day: number; n: number; text: string }[] } | null;
   rows: CourseRow[];
   finished: string[];
+  knows: string[];
 }
+/** A course is finished only when it was taken in this game; -1 marks what the life before taught (arrival.ts). */
+const taken = (known: Record<string, number>, id: string): boolean => (known[id] ?? -1) >= 0;
 export function courseBoard(w: World, seat: string): CourseBoard {
   const b = book(w), P = econ(w).P;
   const c = b.class[seat];
@@ -89,8 +92,9 @@ export function courseBoard(w: World, seat: string): CourseBoard {
         classmates: c.sessions > 0 ? c.mates.filter((m) => P.alive(m)).map((m) => P.name(m)) : [], eventId: c.ev, notes: (c.notes ?? []).slice(-8),
       };
     })() : null,
-    rows: COURSES.map((d) => ({ id: d.id, name: d.name, weeks: d.weeks, fee: courseFee(w, d, seat), blurb: d.blurb, sectors: d.sectors, done: known[d.id] !== undefined })),
-    finished: COURSES.filter((d) => known[d.id] !== undefined).map((d) => d.name),
+    rows: COURSES.map((d) => ({ id: d.id, name: d.name, weeks: d.weeks, fee: courseFee(w, d, seat), blurb: d.blurb, sectors: d.sectors, done: taken(known, d.id), known: known[d.id] !== undefined && !taken(known, d.id) })),
+    finished: COURSES.filter((d) => taken(known, d.id)).map((d) => d.name),
+    knows: COURSES.filter((d) => known[d.id] !== undefined).map((d) => d.name),
   };
 }
 
@@ -111,7 +115,7 @@ export function enrol(w: World, seat: string, key: string): { ok: boolean; text:
   const def = findCourse(key);
   if (!def) return { ok: false, text: `no such course. Try one of: ${COURSES.map((c) => c.name.toLowerCase()).join(', ')}` };
   if (b.class[seat]) return { ok: false, text: `you are already in ${COURSES.find((c) => c.id === b.class[seat].course)?.name ?? 'a course'}. Finish it first` };
-  if (b.know[seat]?.[def.id] !== undefined) return { ok: false, text: `you have already finished ${def.name}` };
+  if (b.know[seat]?.[def.id] !== undefined) return { ok: false, text: taken(b.know[seat], def.id) ? `you have already finished ${def.name}` : `you already know ${def.name} from your work before this life` };
   const fee = courseFee(w, def, seat);
   const id = P.id(me);
   if (Math.floor(w.ledger.balance(id, DEP)) < fee) return { ok: false, text: `${def.name} costs ${usd(fee)} and you do not have it` };

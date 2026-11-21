@@ -171,6 +171,8 @@
   right: 16px;
   bottom: 68px;
   z-index: 175;
+  /* Mounted inside .toast-stack, which is pointer-events: none; the panel must take its own clicks. */
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   width: min(560px, calc(100vw - 32px));

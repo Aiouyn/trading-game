@@ -330,7 +330,7 @@ export function Why({ id }: { id: number }) {
   };
   return (
     <span className="qy-why">
-      <button type="button" className="qy-why-btn" onClick={on} data-testid="why">Why?</button>
+      <button type="button" className="qy-why-btn why-link" onClick={on} data-testid="why">Why?</button>
       {open ? (
         <span className="qy-why-chain" data-testid="why-chain">
           {lines ? <CauseLines lines={lines} /> : <p>Reading the cause…</p>}

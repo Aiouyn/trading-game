@@ -24,4 +24,9 @@
 .cl-faces .btn { align-self: flex-start; margin-top: auto; }
 .cl-dialogue { display: grid; gap: var(--sp-8); margin: 0; padding: 0; list-style: none; }
 .cl-dialogue li { display: grid; gap: var(--sp-4); padding: var(--sp-8) 0; border-top: 1px solid var(--line); }
+/* The conversation card: the transcript scrolls, and the topic buttons stay pinned at its foot. */
+.cl-conversation { display: flex; flex-direction: column; min-height: 0; max-height: min(70vh, 560px); }
+.cl-conversation > h3 { flex: none; margin: 0; }
+.cl-conversation .cl-dialogue { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.cl-conversation > .cl-acts { position: sticky; bottom: 0; flex: none; padding-top: var(--sp-8); background: var(--win); border-top: 1px solid var(--line); }
 @container (max-width: 460px) { .cl-faces { grid-template-columns: minmax(0, 1fr); } }

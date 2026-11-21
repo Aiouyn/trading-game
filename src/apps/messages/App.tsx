@@ -9,7 +9,7 @@ import { Named } from "@/components/ui/Named";
 import { Closed, Result, useAct, useLife, when } from "@/apps/profile/data";
 import "@/apps/profile/life.css";
 import {
-  askButtons, askForMessage, commandFor, contactOf, initial, moneyLabel, readCircle, readPress, roleWord, slotOf, withPress,
+  askButtons, askForMessage, commandFor, contactOf, initial, moneyLabel, readCircle, readPress, roleWord, slotOf, tierWord, withPress,
   type CircleAsk, type CircleContact, type CircleMsg, type CircleThread, type LocalReply,
 } from "./circle";
 import { markRead, useRead } from "./notices";
@@ -208,7 +208,7 @@ export default function MessagesApp({ context }: AppBodyProps) {
                 <span className="avatar" data-role={c.role}>{initial(c.name)}</span>
                 <span className="msg-row-text">
                   <strong className="msg-who">{c.name || "Someone"}</strong>
-                  <span className="msg-role">{roleWord(c.role, c.stance)}{c.bond.word ? ` · ${c.bond.word}` : ""}</span>
+                  <span className="msg-role">{roleWord(c.role, c.stance)}{c.bond.word ? ` · ${tierWord(c.bond.word)}` : ""}</span>
                   <span className="msg-preview">{c.line || c.sentence || ""}</span>
                 </span>
               </button>
@@ -284,7 +284,7 @@ function Thread({ thread, anyone, plans, pending, contact, slot, mine, draft, bu
         ) : null}
         <div className="msg-row-text">
           <h2>{person?.name ? <Named name={person.name} /> : "Choose someone"}</h2>
-          {person ? <p>{roleWord(person.role, person.stance)}{contact?.bond.word ? ` · ${contact.bond.word}` : ""}</p> : <p>Pick someone from the list, or start a new message.</p>}
+          {person ? <p>{roleWord(person.role, person.stance)}{contact?.bond.word ? ` · ${tierWord(contact.bond.word)}` : ""}</p> : <p>Pick someone from the list, or start a new message.</p>}
         </div>
       </header>
       <div className="msg-scroll">

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { AppBodyProps } from "@/shell/appModules";
 import { Closed, useLife } from "@/apps/profile/data";
 import "@/apps/profile/life.css";
-import { initial, readCircle, roleWord, type CircleContact } from "@/apps/messages/circle";
+import { initial, readCircle, roleWord, tierWord, type CircleContact } from "@/apps/messages/circle";
 import { CircleMap } from "./Map";
 import { Person } from "./Person";
 import "./people.css";
@@ -72,7 +72,7 @@ export default function PeopleApp({ context }: AppBodyProps) {
                 <span className="avatar" data-role={c.role}>{initial(c.name)}</span>
                 <span className="peo-row-text">
                   <strong>{c.name}</strong>
-                  <span>{roleWord(c.role, c.stance)}{c.bond.word ? ` · ${c.bond.word}` : ""}</span>
+                  <span>{roleWord(c.role, c.stance)}{c.bond.word ? ` · ${tierWord(c.bond.word)}` : ""}</span>
                   <span>{preview(c)}</span>
                 </span>
               </button>

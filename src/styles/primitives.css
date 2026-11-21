@@ -93,3 +93,6 @@
 .quay-empty { margin: 0; font-family: var(--font-display); font-size: var(--fs-20); font-weight: 400; color: var(--fg); }
 .quay-state { margin: 0; color: var(--fg-muted); }
 .quay-state[data-kind="error"] { color: var(--loss); }
+
+/* A Why? link is a click target: at least 24 px tall and wide, the text itself unchanged. */
+button.why-link { display: inline-flex; align-items: center; min-height: 24px; min-width: 24px; padding: 3px 4px; box-sizing: border-box; }

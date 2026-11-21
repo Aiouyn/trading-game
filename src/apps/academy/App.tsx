@@ -6,7 +6,7 @@ import { lessonDo } from "@/shell/lessonDo";
 import { Button } from "@/components/ui/Button";
 import "@/apps/profile/life.css";
 
-interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; done: boolean }
+interface CourseRow { id: string; name: string; weeks: number; fee: number; blurb: string; done: boolean; known: boolean }
 interface Courses { now: { name: string; sessions: number; weeks: number; nextIn: number } | null; rows: CourseRow[]; finished: string[] }
 
 export default function AcademyApp() {
@@ -60,8 +60,8 @@ export default function AcademyApp() {
               <strong>{c.name}</strong>
               <span className="qy-muted" style={{ display: "block" }}>{c.blurb}. {c.weeks} weekly evenings, {money(c.fee)}.</span>
             </p>
-            <ChoiceButton primary={false} disabled={busy || c.done || !!courses.now || cash < c.fee} testId={`academy-enrol-${c.id}`} onClick={() => void go({ line: `enrol ${c.id}` }).then(() => setRev((n) => n + 1))}>
-              {c.done ? "Finished" : "Enrol"}
+            <ChoiceButton primary={false} disabled={busy || c.done || c.known || !!courses.now || cash < c.fee} testId={`academy-enrol-${c.id}`} onClick={() => void go({ line: `enrol ${c.id}` }).then(() => setRev((n) => n + 1))}>
+              {c.done ? "Finished" : c.known ? "Known from work" : "Enrol"}
             </ChoiceButton>
           </div>
         ))}

@@ -185,7 +185,8 @@ function shapeLife(w: World, i: number, choice: { past?: string; origin?: string
   if (courses && seat) {
     courses.know ??= {};
     const know = (courses.know[seat] ??= {});
-    for (const id of [past?.know, origin?.know]) if (id && know[id] === undefined) know[id] = w.day;
+    // -1: taught before this life began. Counts as knowledge, but it is not a course finished in this game.
+    for (const id of [past?.know, origin?.know]) if (id && know[id] === undefined) know[id] = -1;
   }
   const life: Life = { past: past?.id ?? '', origin: origin?.id ?? '', day: w.day, hour: 8, recog: pickRecog(w, i, past, origin, key) };
   w.state.life = life;
