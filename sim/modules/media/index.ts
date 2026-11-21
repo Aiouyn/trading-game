@@ -14,6 +14,7 @@ import { CITY, money, sectorWord, signedPct } from '../social/words.ts';
 import { cancelOrder, submitOrder } from '../markets/index.ts';
 import { wireDay, wireFlash, wireMonth, wireStats } from './wire.ts';
 import { paperDay, paperStats } from './paper.ts';
+import { exposureDay } from './exposure.ts';
 export { answerAsk, STANCES } from './wire.ts';
 export { editionsFor } from './paper.ts';
 export type { Edition, Story } from './paper.ts';
@@ -510,6 +511,7 @@ export const media: Module = {
     watch(w);
     wireDay(w, (issuer, side, trust, outlet, weight) => trade(w, issuer, side, trust, outlet, weight));
     paperDay(w);
+    exposureDay(w);
     consider(w);
     spread(w);
     plant(w);

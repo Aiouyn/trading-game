@@ -2,6 +2,7 @@
 // comes out each evening with people, society and the courts. Each edition is built from what really happened since the
 // last one: results, hires and cuts (by firm, with the pay), the markets, the bank, deals, promotions, scandals, the port.
 // Coin launches are a column, never a story. Every story keeps the ids of the events behind it.
+import { moveReason } from '../markets/index.ts';
 import type { World } from '../../kernel/index.ts';
 import { curveShape } from '../bonds/index.ts';
 import { tradingDay } from '../markets/noise.ts';
@@ -496,9 +497,17 @@ function townFiller(w: World): Story | null {
   });
 }
 
+/** The events behind one stock's own close, never the latest move of some other name. */
+function ownMove(w: World, x: { issuer: string; moveEv?: number }): number[] {
+  const ev = x.moveEv !== undefined && x.moveEv >= 0 ? w.events.get(x.moveEv) : undefined;
+  if (ev && w.day - ev.day <= 1 && (ev.actor === x.issuer || ev.causes.length)) return [ev.id];
+  const why = moveReason(w, x.issuer);
+  return why.length ? why : [w.genesis];
+}
+
 function movers(w: World): Story[] {
   if (!tradingDay(w.day)) return [];
-  const stocks = (w.state.markets as { stocks?: { instr: string; issuer: string; last: number; prev: number; hist?: { c: number; v: number; src?: string }[] }[] } | undefined)?.stocks ?? [];
+  const stocks = (w.state.markets as { stocks?: { instr: string; issuer: string; last: number; prev: number; moveEv?: number; hist?: { c: number; v: number; src?: string }[] }[] } | undefined)?.stocks ?? [];
   const rows = stocks.filter((x) => {
     const bar = x.hist?.[x.hist.length - 1];
     return x.prev > 0 && x.last > 0 && x.issuer !== 'bank_1' && bar && bar.v > 0 && bar.src !== 'indicative';
@@ -506,8 +515,8 @@ function movers(w: World): Story[] {
   rows.sort((a, b) => b.pct - a.pct);
   const out: Story[] = [];
   const up = rows[0], down = rows[rows.length - 1];
-  if (up && up.pct >= 1.5) out.push(story({ section: 'markets', kicker: 'Markets', headline: `${up.f!.name} leads the board, up ${up.pct.toFixed(1)}%`, body: `The shares closed at ${money(up.x.last)}. ${up.f!.name} is the ${sectorWord(up.f!.sector)} firm with ${up.f!.staff.length} on the payroll.`, firms: [up.f!.name], eventIds: [w.events.last('mkt.move') ?? w.genesis], score: 42 }));
-  if (down && down.pct <= -1.5) out.push(story({ section: 'markets', kicker: 'Markets', headline: `${down.f!.name} trails, down ${Math.abs(down.pct).toFixed(1)}%`, body: `The shares closed at ${money(down.x.last)}, ${money(down.x.prev - down.x.last)} lower on the day.`, firms: [down.f!.name], eventIds: [w.events.last('mkt.move') ?? w.genesis], score: 41 }));
+  if (up && up.pct >= 1.5) out.push(story({ section: 'markets', kicker: 'Markets', headline: `${up.f!.name} leads the board, up ${up.pct.toFixed(1)}%`, body: `The shares closed at ${money(up.x.last)}. ${up.f!.name} is the ${sectorWord(up.f!.sector)} firm with ${up.f!.staff.length} on the payroll.`, firms: [up.f!.name], eventIds: ownMove(w, up.x), score: 42 }));
+  if (down && down.pct <= -1.5) out.push(story({ section: 'markets', kicker: 'Markets', headline: `${down.f!.name} trails, down ${Math.abs(down.pct).toFixed(1)}%`, body: `The shares closed at ${money(down.x.last)}, ${money(down.x.prev - down.x.last)} lower on the day.`, firms: [down.f!.name], eventIds: ownMove(w, down.x), score: 41 }));
   return out;
 }
 
@@ -597,6 +606,14 @@ function chiefLine(w: World, i: number): string {
 }
 
 /** The share index on the day, and how many names rose. */
+/** The index is the sum of its names: cite the biggest movers' own events. */
+function indexCauses(w: World): number[] {
+  const rows = (w.state.markets as { stocks?: { issuer: string; last: number; prev: number; moveEv?: number }[] } | undefined)?.stocks ?? [];
+  const big = rows.filter((x) => x.prev > 0 && x.moveEv !== undefined && x.moveEv >= 0 && (w.events.get(x.moveEv)?.day ?? -9) >= w.day - 1)
+    .sort((a, b) => Math.abs(b.last / b.prev - 1) - Math.abs(a.last / a.prev - 1)).slice(0, 3).map((x) => x.moveEv as number);
+  return big.length ? big : [w.genesis];
+}
+
 function indexStory(w: World, d: Desk): Story | null {
   const m = w.state.markets as { index?: number; stocks?: { last: number; prev: number; issuer: string }[] } | undefined;
   if (!m?.index || !m.stocks?.length) return null;
@@ -610,7 +627,7 @@ function indexStory(w: World, d: Desk): Story | null {
     section: 'markets', kicker: 'The board',
     headline: was && Math.abs(pct) >= 0.05 ? `The index ${pct > 0 ? 'gains' : 'loses'} ${Math.abs(pct).toFixed(1)}% to ${(now / 100).toFixed(1)}` : `The index holds at ${(now / 100).toFixed(1)}`,
     body: `${up + down > 0 ? `${up} shares rose and ${down} fell at the last close. ` : ''}The index started the city's year at 100${now >= 10000 ? `, so it stands ${((now / 100) - 100).toFixed(1)} points up on the year` : `, so it stands ${(100 - now / 100).toFixed(1)} points down on the year`}.`,
-    eventIds: [w.events.last('mkt.move') ?? w.genesis], score: 37,
+    eventIds: indexCauses(w), score: 37,
   });
 }
 

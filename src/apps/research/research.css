@@ -14,3 +14,22 @@
 .rs-said { padding-left: var(--sp-12); border-left: 2px solid var(--line); }
 .rs[data-phone="1"] .qa-select,
 .rs[data-phone="1"] .qa-fig { min-height: var(--hit-touch); }
+
+.rs-sub { margin: 0; font-family: var(--font-ui); font-size: var(--fs-13); font-weight: 600; letter-spacing: 0.02em; color: var(--fg-muted); }
+.rs-dossier section { display: flex; flex-direction: column; gap: var(--sp-4); }
+.rs-dossier p { margin: 0; }
+.rs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--sp-12) var(--sp-16); }
+.rs-stmt { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.rs-table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
+.rs-table th, .rs-table td { text-align: left; padding: 3px var(--sp-8) 3px 0; border-bottom: 1px solid var(--line); font-weight: 400; vertical-align: top; }
+.rs-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rs-table tr[data-total="1"] th, .rs-table tr[data-total="1"] td { font-weight: 600; }
+.rs-table tr[data-self="1"] { background: var(--win2); font-weight: 600; }
+.rs-wide { display: block; overflow-x: auto; }
+.rs-wide thead th { color: var(--fg-muted); font-size: var(--fs-12_5); }
+.rs-note { font-size: var(--fs-12_5); }
+.rs-foot { margin: 0; font-size: var(--fs-12_5); }
+.rs-drivers { margin: 0 0 var(--sp-4); padding-left: var(--sp-16); display: flex; flex-direction: column; gap: 2px; }
+.rs-dossier section.rs-grid { display: grid; }
+.rs-stmt .rs-table td { white-space: nowrap; }
+.rs-table td.num { text-align: right; }

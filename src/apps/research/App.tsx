@@ -7,7 +7,8 @@ import { Sparkline } from "@/components/shell/Sparkline";
 import { useShellStore } from "@/components/shell/ShellContext";
 import { useSimSnap, type Quote } from "@/shell/simSession";
 import { presentNote } from "@/components/ui/format";
-import { Because, Field, Fig, moneyTitle, titleCase, usePhone, useWhy } from "@/apps/businesses/sheet";
+import { Field, Fig, moneyTitle, titleCase, usePhone, useWhy } from "@/apps/businesses/sheet";
+import { Dossier, WhyList } from "./Dossier";
 import "@/apps/businesses/sheet.css";
 import { ageWord, edgeOf, kindWord, legalWord, outcomeWord, signedFraction, type RevealRow, type SignalRow } from "./edge";
 import "./research.css";
@@ -86,6 +87,8 @@ export default function ResearchApp({ context }: { context?: string }) {
         </div>
       ) : <p className="qa-muted">{name} is not listed, so there is no price.</p>}
 
+      <Dossier firm={key} day={view?.date?.abs ?? 0} />
+
       <div className="qa-block" data-testid="research-street">
         <h2 className="qa-title">The street&apos;s number</h2>
         {cons && cons.due ? (
@@ -146,7 +149,7 @@ export default function ResearchApp({ context }: { context?: string }) {
         )) : <p className="qa-empty">No print has settled your readings on {name} yet.</p>}
       </div>
 
-      <Because id={why.id} lines={why.lines} />
+      <WhyList id={why.id} lines={why.lines} />
     </div>
   );
 }

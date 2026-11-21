@@ -214,7 +214,7 @@ export function overheardOf(w: World, i: number, venue = -1, shift = 0): string 
   if (news.length) {
     const h = pick(news, salt);
     lines.push(pick([`"...did you read it? ${h}..."`, `"...${h}, and they wonder why nobody trusts the paper..."`, `"...my brother-in-law says ${h.charAt(0).toLowerCase()}${h.slice(1)}, and he is never wrong about that sort of thing..."`, `"...${h}. I give it a week before it is something else..."`], salt >>> 3));
-    if (news.length > 1) lines.push(`"...${pick(news, salt >>> 5)}? You heard it here first..."`);
+    if (news.length > 1) lines.push(`"...${pick(news, salt >>> 5)}? It is in the paper, so you can read it for yourself..."`);
   }
   const dev = devGossip(w, venue, salt);
   if (dev) lines.push(dev, dev);

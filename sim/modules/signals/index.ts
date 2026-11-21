@@ -10,6 +10,7 @@ import { dueThisMonth, deskOf, previewEvent, quarterView, reportsAfter, type Qua
 import { dockWatch } from '../port/index.ts';
 import { knowledgeBonus } from '../courses/know.ts';
 import { whole as grouped } from '../player/gamedate.ts';
+import { readOperations } from './operations.ts';
 
 export type Kind = 'work' | 'contact' | 'street';
 export interface Signal {
@@ -300,6 +301,7 @@ export const signals: Module = {
   },
 
   dayClose(w) {
+    readOperations(w);
     const st = stOf(w);
     if (!st) return;
     // The close prices come in over the days after a print.

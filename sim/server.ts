@@ -53,6 +53,7 @@ import { CB_MINUTE, cbMeetingDay } from './modules/markets/calendar.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
 import { tradingDay } from './modules/markets/noise.ts';
 import { curveShape } from './modules/bonds/index.ts';
+import { dossierOf } from './modules/signals/dossier.ts';
 
 /** Fills the minute layer has not written yet, added onto the coin's chart so a paused clock still shows volume. */
 function mergeCoinVolume<T extends { bars: { t: number; k: number; o: number; h: number; l: number; c: number; v: number }[] }>(w: World, instr: string, out: T): T {
@@ -6014,6 +6015,14 @@ const server = http.createServer(async (req, res) => {
       const index = Number(pathname.slice('/person/'.length));
       const page = personPage(w, index);
       if (!page) { send(res, 404, { error: 'no such person' }); return; }
+      send(res, 200, page);
+      return;
+    }
+    if (req.method === 'GET' && pathname.startsWith('/dossier/')) {
+      let key = pathname.slice('/dossier/'.length);
+      try { key = decodeURIComponent(key); } catch { /* keep the raw segment */ }
+      const page = dossierOf(w, key, (id) => accountName(w, id));
+      if (!page) { send(res, 404, { error: 'no dossier for that firm' }); return; }
       send(res, 200, page);
       return;
     }

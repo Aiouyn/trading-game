@@ -120,6 +120,19 @@ interface Stock {
   lastExecTick?: number;
   lastExecQty?: number;
   barSrc?: 'traded' | 'indicative';
+  /** The day's order flow, by who crossed the spread: shares bought, shares sold, and fills. Cleared at the close. */
+  flowBuy?: number;
+  flowSell?: number;
+  flowN?: number;
+  /** The last news mark (a mkt.news event), the day it was priced and what it said, so a move can cite it. */
+  newsEv?: number;
+  /** The earnings anchor before and after the last report, in cents a month. */
+  printFrom?: number;
+  printTo?: number;
+  newsEvDay?: number;
+  /** What the operating data say about this firm today, and the sentence that says so. */
+  opTilt?: number;
+  opRead?: string;
 }
 
 interface Fund { id: string; style: Style; premium: number }
@@ -527,6 +540,8 @@ function walkLadder(w: World, actor: string, st: Stock, side: Side, qty: number,
   if (ex.filled > 0) {
     ex.avg = ex.cents / ex.filled;
     st.vol += ex.filled;
+    if (side === 'buy') st.flowBuy = (st.flowBuy ?? 0) + ex.filled; else st.flowSell = (st.flowSell ?? 0) + ex.filled;
+    st.flowN = (st.flowN ?? 0) + 1;
     if (top > st.high) st.high = top;
     if (top < st.low || st.low <= 0) st.low = top;
     m.yTurn += ex.cents;
@@ -800,7 +815,7 @@ function destination(w: World, st: Stock): number {
   const squeeze = Math.min(FORCED_CAP, FORCED_IMPACT * (st.forced ?? 0));
   // The crowd's mood sits on top of what the earnings support. It is order flow, and it reverts.
   const mood = 1 + (st.sentNow ?? 0);
-  const fair = Math.max(1, Math.round(fairValue(w, st, 0.04) * (1 - squeeze) * mood));
+  const fair = Math.max(1, Math.round(fairValue(w, st, 0.04) * (1 - squeeze) * mood * (1 + (st.opTilt ?? 0))));
   if ((st.chaseUntil ?? 0) < w.day || (st.printDir ?? 0) <= 0) return fair;
   return Math.max(fair + 1, Math.round(fair * 1.04));
 }
@@ -836,6 +851,20 @@ function collar(w: World, st: Stock, _to?: number): { hi: number; lo: number } {
   return { hi, lo };
 }
 
+/** Days a live shock still has to run for a firm that news already revised (the longest, if several). 0 when none applies. */
+function shockDaysLeft(w: World, issuer: string): number {
+  const log = (w.state.media as { exposure?: { log: { firm: string; event: number }[] } } | undefined)?.exposure?.log;
+  if (!log) return 0;
+  let left = 0;
+  for (let i = log.length - 1; i >= 0 && i >= log.length - 60; i--) {
+    const r = log[i];
+    if (r.firm !== issuer) continue;
+    const live = econ(w).shocks.find((x) => x.ev === r.event && x.until > w.day);
+    if (live) left = Math.max(left, live.until - w.day);
+  }
+  return left;
+}
+
 /**
  * The quarterly number is public. The earnings anchor moves to it now, not over
  * the following months, and the book's quote is allowed to print that price.
@@ -844,6 +873,10 @@ export function repriceOnReport(w: World, issuer: string, monthly: number, cause
   const st = book(w).stocks.find((s) => s.issuer === issuer);
   if (!st || !Number.isFinite(monthly)) return;
   const prev = st.profitEma;
+  // A quarter that a live shock is bending is not a perpetuity. Buyers who already revised the forecast for the shock
+  // (media/exposure.ts) carry only the part of next year the shock still covers into the earnings anchor.
+  const left = shockDaysLeft(w, issuer);
+  if (left > 0 && prev > 0) monthly = prev + (monthly - prev) * Math.min(1, left / 360);
   // A loss does not cut the anchor. The value rule keeps its last positive EPS
   // and would treat the cut as a cheap stock. A profit below half the last
   // anchor cuts it in half rather than marking a live firm at a cent: that
@@ -855,13 +888,15 @@ export function repriceOnReport(w: World, issuer: string, monthly: number, cause
   else st.profitEma = prev * 0.5;
   const f = firmOf(econ(w), st.issuer);
   if (f) { st.seenProfit = f.lastProfit; st.seenDiv = f.lastDividend; }
+  st.printFrom = prev;
+  st.printTo = st.profitEma;
   st.printUntil = w.day + 6;
   st.newsAt = w.day;
   st.printEv = cause;
   st.printDir = monthly > prev * 1.03 ? 1 : monthly < prev * 0.97 ? -1 : 0;
   // A beat stays rich for about six weeks, long enough for the buyers to get filled, then fades.
   st.chaseUntil = st.printDir > 0 ? w.day + 45 : w.day;
-  w.events.emit('mkt.rerate', `${st.instr} is marked to the earnings just reported`, [cause], issuer);
+  w.events.emit('mkt.rerate', `${st.instr} is marked to the earnings just reported${left > 0 ? `, counting only ${Math.min(100, Math.round(left / 3.6))}% of the quarter's change because the shock behind it has ${left} days left` : ''}`, [cause], issuer);
 }
 
 function band(st: Stock): number { return st.wide ? 0.10 : 0.02; }
@@ -956,7 +991,7 @@ function noteCause(st: Stock, cause: number, also?: number): void {
   st.priced = list;
 }
 
-export function discountForNews(w: World, issuer: string, cause: number, weight = -0.3, also?: number): void {
+export function discountForNews(w: World, issuer: string, cause: number, weight = -0.3, also?: number, note?: string): number | undefined {
   const st = book(w).stocks.find((x) => x.issuer === issuer);
   if (!st || !Number.isFinite(weight) || weight === 0) return;
   // The same story, priced once, does not gap the name again when the weekly roundup repeats it.
@@ -982,7 +1017,10 @@ export function discountForNews(w: World, issuer: string, cause: number, weight 
   noteCause(st, cause, also);
   const pct = Math.round(Math.abs(wgt) * 100);
   const causes = also !== undefined && also >= 0 && also !== cause ? [cause, also] : [cause];
-  w.events.emit('mkt.news', `${st.instr} earnings marked ${wgt < 0 ? 'down' : 'up'} ${pct}% after the news`, causes, issuer);
+  const id = w.events.emit('mkt.news', `${st.instr} earnings marked ${wgt < 0 ? 'down' : 'up'} ${pct}% after the news${note ? `: ${note}` : ''}`, causes, issuer);
+  st.newsEv = id;
+  st.newsEvDay = w.day;
+  return id;
 }
 
 /** The open prices part of the news (0.55 to 1.2 of it); the mood carries the rest and reverts by itself. */
@@ -1171,6 +1209,9 @@ function matchBook(w: World, st: Stock, mine: Order[]): void {
     if (bid.qty < 1) bid.open = false;
     if (ask.qty < 1) ask.open = false;
     note(st, px, qty);
+    // The side that arrived second crossed the spread. That is the pressure on the price.
+    if (bid.seq > ask.seq) st.flowBuy = (st.flowBuy ?? 0) + qty; else st.flowSell = (st.flowSell ?? 0) + qty;
+    st.flowN = (st.flowN ?? 0) + 1;
     m.yTurn += qty * px;
   }
   // Once the player has chosen to trade, their market order stands for the session and can lift
@@ -1413,21 +1454,60 @@ function householdOrders(w: World): void {
   }
 }
 
-function causesFor(w: World, st: Stock): number[] {
-  const s = econ(w);
-  const out: number[] = [];
-  if ((st.printEv ?? -1) >= 0 && (st.printUntil ?? 0) >= w.day - 1) out.push(st.printEv ?? 0);
-  if (shockLinked(w) && s.shockEv !== undefined) out.push(s.shockEv);
-  const f = firmOf(s, st.issuer);
-  if (f?.priceEv !== undefined) out.push(f.priceEv);
-  if (f?.stockoutEv !== undefined) out.push(f.stockoutEv);
-  const def = w.events.last('firm.default');
-  if (def !== undefined && w.events.get(def)?.actor === st.issuer) out.push(def);
-  if (s.rateEv !== undefined) out.push(s.rateEv);
-  const cpi = w.events.last('macro.cpi');
-  if (cpi !== undefined) out.push(cpi);
-  if (!out.length) out.push(w.genesis);
-  return [...new Set(out)];
+function cents(c: number): string {
+  const a = Math.abs(Math.round(c)), sign = c < 0 ? '-' : '';
+  if (a >= 1e8) return `${sign}$${(a / 1e8).toFixed(2)}M`;
+  if (a >= 1e5) return `${sign}$${(a / 1e5).toFixed(1)}k`;
+  return `${sign}$${(a / 100).toFixed(2)}`;
+}
+
+interface WhyRow { issuer: string; event: number; profit: number; consensus: number; surprise: number }
+
+/**
+ * What changed this quote today, from the inputs the pricing rules actually read: an earnings print and how far it was
+ * from the street, a news mark and the story behind it, the bank's decision, the day's order flow, the crowd's mood, the
+ * operating read and the valuation rule. A global macro or shock event the rule did not use is not evidence, so it is not listed.
+ */
+function driversFor(w: World, st: Stock): { causes: number[]; text: string } {
+  const m = book(w);
+  const causes: number[] = [];
+  const parts: string[] = [];
+  const printAt = (st.printEv ?? -1) >= 0 ? w.events.get(st.printEv ?? -1)?.day : undefined;
+  if (printAt !== undefined && w.day - printAt <= 10) {
+    const rows = (w.state.earnings as { reports?: WhyRow[] } | undefined)?.reports;
+    const r = rows ? rows.find((x) => x.event === st.printEv && x.issuer === st.issuer) : undefined;
+    causes.push(st.printEv ?? 0);
+    const anchor = st.printFrom !== undefined && st.printTo !== undefined
+      ? `; the earnings anchor went from ${cents(st.printFrom)} to ${cents(st.printTo)} a month`
+      : '';
+    const walk = w.day - printAt > 1
+      ? `, and the price is still walking to that value inside the report band (the print was ${w.day - printAt} days ago)`
+      : ', and the earnings anchor moved to it';
+    parts.push(r
+      ? `earnings surprise: the quarter's profit was ${cents(r.profit)} against the street's ${cents(r.consensus)} (${r.surprise >= 0 ? '+' : ''}${(r.surprise * 100).toFixed(1)}%)${anchor}${walk}`
+      : `earnings report: the earnings anchor moved to the reported figure${walk}`);
+  }
+  if ((st.newsEv ?? -1) >= 0 && (st.newsEvDay ?? -9) >= w.day - 1) {
+    const e = w.events.get(st.newsEv ?? -1);
+    causes.push(st.newsEv ?? 0);
+    const body = e ? e.msg.replace(/^eq:\S+ earnings /, 'forecast earnings ') : 'forecast earnings revised on published news';
+    const src = e ? e.causes.map((c) => w.events.get(c)).find((x) => x && !x.kind.startsWith('media.')) : undefined;
+    parts.push(`news: ${body}${src ? ` (event of day ${src.day})` : ''}`);
+  }
+  const cb = econ(w).cbLast;
+  if (cb && cb.day >= w.day - 1 && cb.day <= w.day && (Math.abs(cb.to - cb.from) > 1e-9 || Math.abs(cb.to - cb.expect) > 1e-9)) {
+    causes.push(cb.ev);
+    parts.push(`the bank's decision (${(cb.from * 100).toFixed(2)}% to ${(cb.to * 100).toFixed(2)}%, the market expected ${(cb.expect * 100).toFixed(2)}%) changed the discount rate`);
+  }
+  const buy = st.flowBuy ?? 0, sell = st.flowSell ?? 0;
+  if (buy + sell > 0) parts.push(`order flow: ${buy.toLocaleString('en-US')} shares bought against ${sell.toLocaleString('en-US')} sold across ${st.flowN ?? 0} crossings`);
+  const mood = st.sentNow ?? 0;
+  if (Math.abs(mood) >= 0.01) parts.push(`crowd mood ${mood > 0 ? 'above' : 'below'} fair value by ${(Math.abs(mood) * 100).toFixed(1)}%`);
+  if (Math.abs(st.opTilt ?? 0) >= 0.003 && st.opRead) parts.push(`operations: ${st.opRead}`);
+  if ((st.forced ?? 0) > 0.05) parts.push('lenders selling pledged shares');
+  parts.push(`valuation rule: ${st.markRule ?? markRuleOf(st, w.day)}, ${st.markInputs ?? markInputsOf(w, st)}`);
+  if (!causes.length) causes.push(m.root);
+  return { causes: [...new Set(causes)], text: parts.join('; ') };
 }
 
 function seedInventory(w: World, mm: string): void {
@@ -1982,16 +2062,19 @@ export const markets: Module = {
       if (open && Math.abs(ch) > 0.05 && traded) {
         const pct = (ch * 100).toFixed(1);
         const when = dateText(w.day);
-        const id = w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%) session ${when}`, causesFor(w, st), st.issuer);
+        const why = driversFor(w, st);
+        const id = w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%) session ${when} | because: ${why.text}`, why.causes, st.issuer);
         const s = econ(w);
         const f = firmOf(s, st.issuer);
         const ceo = f && f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo) ? f.ceo : -1;
         st.moveEv = f && ceo >= 0
-          ? w.events.emit('mkt.who', `${s.P.name(ceo)} marks ${f.name} at ${st.last}`, [id], s.P.id(ceo))
+          ? w.events.emit('mkt.who', `${f.name} closed at ${st.last}: the order book and the valuation rule set that price, not ${s.P.name(ceo)}, its chief executive`, [id], s.P.id(ceo))
           : id;
       } else if (open && Math.abs(ch) >= 0.08 && !traded) {
-        st.moveEv = w.events.emit('mkt.mark', `${st.instr} indicative mark ${st.prev} -> ${st.last} (${(ch * 100).toFixed(1)}%), no execution. ${st.markRule ?? markRuleOf(st, w.day)}. ${st.markInputs ?? ''}`, causesFor(w, st), st.issuer);
+        const why = driversFor(w, st);
+        st.moveEv = w.events.emit('mkt.mark', `${st.instr} indicative mark ${st.prev} -> ${st.last} (${(ch * 100).toFixed(1)}%), no execution | because: ${why.text}`, why.causes, st.issuer);
       }
+      st.flowBuy = 0; st.flowSell = 0; st.flowN = 0;
       const vol = open ? st.vol : 0;
       st.hist.push({
         o: traded ? st.open : st.prev || st.last,
@@ -2128,3 +2211,15 @@ export const markets: Module = {
     return out;
   },
 };
+
+/** How strongly this name price follows the policy rate (1 is the market; banks run the other way), for a research page. */
+export function rateBeta(w: World, issuer: string): number {
+  const st = book(w).stocks.find((x) => x.issuer === issuer);
+  return st ? rateSensitivity(econ(w), st) : 1;
+}
+
+/** The events that explain this name's close today (a print, a news mark, the bank), or the exchange opening when nothing but the book and the rule did. */
+export function moveReason(w: World, issuer: string): number[] {
+  const st = book(w).stocks.find((x) => x.issuer === issuer);
+  return st ? driversFor(w, st).causes : [];
+}
