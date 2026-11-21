@@ -1078,6 +1078,45 @@ export function optionWhy(w: World, instr: string): string {
   return `${label} has no listed contracts this month.`;
 }
 
+export interface OptionPreview {
+  perShare: number;
+  perContract: number;
+  multiplier: 100;
+  qty: number;
+  totalCash: number;
+  breakEven: number;
+  maxLoss: number;
+  maxLossText: string;
+  delta: number;
+  bid: number;
+  ask: number;
+  strike: number;
+  right: string;
+}
+
+/** The quote a command shows before it charges. Prices are cents. A contract is 100 shares. */
+export function previewOption(w: World, contractId: string, side: 'buy' | 'write' | 'close', qty: number): OptionPreview | { why: string } {
+  const st = w.state.options as OptState | undefined;
+  if (!st || st.off) return { why: 'no options market' };
+  const c = st.contracts.find((x) => x.longId === contractId || x.shortId === contractId);
+  if (!c || !c.live) return { why: 'that contract is not listed' };
+  const q = Math.max(1, Math.round(qty));
+  const perShare = side === 'write' || side === 'close' ? c.bid : c.ask;
+  if (perShare < 1) return { why: side === 'buy' ? 'no ask' : 'no bid' };
+  const perContract = perShare * MULT;
+  const totalCash = perContract * q;
+  const spot = spotOf(w, c.instr);
+  const t = Math.max(1 / 360, (c.expMonth - w.month) / 12);
+  const delta = bs(spot, c.strike, t, econ(w).policyRate, 0.22, c.right === 'C').delta;
+  const breakEven = c.right === 'C' ? c.strike + perShare : Math.max(0, c.strike - perShare);
+  const maxLoss = side === 'buy' || side === 'close' ? totalCash : c.right === 'P' ? Math.max(0, c.strike * MULT * q - totalCash) : -1;
+  return {
+    perShare, perContract, multiplier: 100, qty: q, totalCash, breakEven, maxLoss,
+    maxLossText: maxLoss < 0 ? 'unlimited' : `$${(maxLoss / 100).toFixed(2)}`,
+    delta, bid: c.bid, ask: c.ask, strike: c.strike, right: c.right,
+  };
+}
+
 /** Hit the market maker. Buy pays the ask, write sells the bid and posts margin, close flattens the net. */
 export function tradeOption(w: World, actor: string, contractId: string, side: 'buy' | 'write' | 'close', qty: number, cause: number): { qty: number; px: number; why?: string } {
   const st = w.state.options as OptState | undefined;

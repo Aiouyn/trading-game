@@ -5,7 +5,7 @@ import type { World } from '../../kernel/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
 import { cancelCoinOrder, coinPrice, orderCoin } from '../crypto/index.ts';
 import { DEP, pay, type EconState } from '../economy/index.ts';
-import { bookLevels, borrowShares, cancelOrder, midPrice, nextOrderId, returnShares, submitOrder, trade, type Execution } from '../markets/index.ts';
+import { bookLevels, borrowShares, cancelOrder, executableTouch, midPrice, nextOrderId, noteLife, returnShares, submitOrder, trade, type Execution } from '../markets/index.ts';
 import type { ActResult } from './index.ts';
 import { dollars } from './life.ts';
 import { futKey, sayFill, type BasisBook } from './basis.ts';
@@ -249,7 +249,9 @@ export function shortsDay(w: World, seat: TradeSeat, id: string): void {
   settleCovers(w, seat, id, cause);
   for (const l of [...seat.loans]) {
     if (!seat.loans.includes(l)) continue;
-    const mid = midPrice(w, l.instr);
+    const touch = executableTouch(w, l.instr, 'buy');
+    if (touch.basis !== 'executable') continue;
+    const mid = touch.px;
     if (!(mid > 0)) continue;
     const lender = l.lender ?? 'fund_mm';
     const fee = Math.round(l.qty * mid * borrowRate(w, l.instr, l.qty) / 360);
@@ -262,7 +264,7 @@ export function shortsDay(w: World, seat: TradeSeat, id: string): void {
     const lenderIdx = lender.startsWith('p_') ? +lender.slice(2) : -1;
     if (lenderIdx >= 0 && lenderIdx < P.n && !P.alive(lenderIdx)) { buyIn(w, seat, id, l, 'the lender died and the estate wants the shares back: recalled', cause); continue; }
     if (lenderIdx >= 0 && w.rng('mkt:recall').chance(0.004)) { buyIn(w, seat, id, l, 'the lender wants the shares back: recalled', cause); continue; }
-    if (mid >= entry * 1.35 || cashOf(w, id) < notional * 1.1) buyIn(w, seat, id, l, 'the price ran against the short and the lender called it: squeezed', cause);
+    if (mid >= entry * 1.35 || cashOf(w, id) < notional * 1.1) buyIn(w, seat, id, l, 'buy-in at executable depth: the price ran against the short and the lender called it', cause);
   }
 }
 
@@ -275,12 +277,13 @@ function stopPrice(w: World, s: Pick<Stop, 'kind' | 'instr' | 'month'>): number 
   return books?.find((b) => b.good === s.instr)?.tenors.find((t) => t.month === s.month)?.px ?? 0;
 }
 
-/** Where a desk-held limit on a share is measured: a sale against the best bid, a purchase against the best offer, so it never fills worse than its price. */
+/** Where a desk-held share order is measured: the executable bid or ask. A mark with no depth does not fire. */
 function touchPrice(w: World, s: Stop): number {
-  if (s.kind !== 'share' || s.mode !== 'limit') return stopPrice(w, s);
-  const lv = bookLevels(w, s.instr, 1);
+  if (s.kind !== 'share') return stopPrice(w, s);
+  if (s.mode === 'open') return stopPrice(w, s);
   const sells = s.side === 'sell' || s.side === 'short';
-  return (sells ? lv.bids[0]?.px : lv.asks[0]?.px) ?? stopPrice(w, s);
+  const touch = executableTouch(w, s.instr, sells ? 'sell' : 'buy');
+  return touch.basis === 'executable' ? touch.px : 0;
 }
 
 export interface StopSpec {
@@ -350,7 +353,7 @@ export function placeStop(w: World, seat: TradeSeat, spec: StopSpec, id?: string
   const oid = nextOrderId(w);
   const kids = spec.kids && (spec.kids.stop || spec.kids.target) ? spec.kids : undefined;
   stops.push({
-    id: oid, kind: spec.kind, side: spec.side, instr: spec.instr, qty: spec.qty, stop: atOpen ? px : spec.stop, limit: spec.limit,
+    id: oid, kind: spec.kind, side: spec.side, instr: spec.instr, qty: spec.qty, stop: atOpen ? 0 : spec.stop, limit: spec.limit,
     above, month: spec.months !== undefined ? w.month + spec.months : undefined, label: spec.label, day: w.day,
     ...(limitOrder ? { mode: 'limit' as const } : atOpen ? { mode: 'open' as const } : {}),
     ...(protect ? { protect: true } : {}),
@@ -359,7 +362,13 @@ export function placeStop(w: World, seat: TradeSeat, spec: StopSpec, id?: string
   const shut = share && sess !== 'open' ? ` The exchange is ${SESSION_WORD[sess]}, so nothing fills before ${nextOpenText(w)}.` : '';
   const legs = kids ? ` Once it fills, ${[kids.stop ? `a stop at ${cents(kids.stop)}` : '', kids.target ? `a target at ${cents(kids.target)}` : ''].filter(Boolean).join(' and ')} go${kids.stop && kids.target ? '' : 'es'} on${kids.stop && kids.target ? ', one cancelling the other' : ''}.` : '';
   const guard = protect ? ' It protects your position: it only closes it, and it comes off if the position closes first.' : '';
-  if (atOpen) return { status: 'accepted', orderId: oid, text: `market ${sideWord(spec.side)} ${spec.qty} ${spec.label}: the exchange is ${SESSION_WORD[sess]}, so it goes in at ${nextOpenText(w)}, at the price the open brings (last ${cents(px)}). Cancel it before then if you change your mind.${legs}` };
+  if (atOpen) {
+    noteLife(w, {
+      id: oid, book: 'desk', instr: spec.instr, side: sideWord(spec.side), qty: spec.qty, status: 'queued', type: 'market-at-open',
+      reserved: 0, limit: null, next: nextOpenText(w), reason: '', fills: [], rejectedQty: 0, fee: 0,
+    });
+    return { status: 'accepted', orderId: oid, text: `market-at-open ${sideWord(spec.side)} ${spec.qty} ${spec.label}: queued, no price. Status queued. It goes in at ${nextOpenText(w)}. Cancel it before then if you change your mind.${legs}` };
+  }
   if (limitOrder) return { status: 'accepted', orderId: oid, text: `limit ${sideWord(spec.side)} ${spec.qty} ${spec.label} at ${cents(spec.stop)}: it fills at that price or better when the market ${above ? 'rises to' : 'falls to'} it, whether or not you are looking.${shut}${legs}${guard}` };
   const how = spec.limit !== undefined ? `, then a limit order at ${cents(spec.limit)}` : ', then a market order';
   return { status: 'accepted', orderId: oid, text: `stop ${sideWord(spec.side)} ${spec.qty} ${spec.label}: fires when the price ${above ? 'rises to' : 'falls to'} ${cents(spec.stop)}${how}. It stands in the market whether or not you are looking.${shut}${legs}${guard}` };
@@ -486,8 +495,9 @@ export function runStops(w: World, seat: TradeSeat, id: string, shortFn: (instr:
     if (!stops.includes(s)) continue;
     if (s.kind === 'fut' && s.month !== undefined && s.month < w.month) { stops.splice(stops.indexOf(s), 1); continue; }
     if (s.kind === 'share' && sess !== 'open') continue;
-    const px = touchPrice(w, s);
-    if (!(px > 0)) continue;
+    // An order for the open fires when the session is open. It does not need a mark, and it has no price of its own.
+    const px = s.mode === 'open' ? 1 : touchPrice(w, s);
+    if (s.mode !== 'open' && !(px > 0)) continue;
     if (s.mode !== 'open' && (s.above ? px < s.stop : px > s.stop)) continue;
     let qty = s.qty;
     if (s.protect && s.kind === 'share') {

@@ -3,6 +3,8 @@
 // last one: results, hires and cuts (by firm, with the pay), the markets, the bank, deals, promotions, scandals, the port.
 // Coin launches are a column, never a story. Every story keeps the ids of the events behind it.
 import type { World } from '../../kernel/index.ts';
+import { curveShape } from '../bonds/index.ts';
+import { tradingDay } from '../markets/noise.ts';
 import type { EconState, Firm } from '../economy/index.ts';
 import { CITY, money, sectorWord } from '../social/words.ts';
 import { firmGap } from '../careers/jobs.ts';
@@ -495,8 +497,12 @@ function townFiller(w: World): Story | null {
 }
 
 function movers(w: World): Story[] {
-  const stocks = (w.state.markets as { stocks?: { instr: string; issuer: string; last: number; prev: number }[] } | undefined)?.stocks ?? [];
-  const rows = stocks.filter((x) => x.prev > 0 && x.last > 0 && x.issuer !== 'bank_1').map((x) => ({ x, pct: (x.last / x.prev - 1) * 100, f: firmOf(w, x.issuer) })).filter((r) => r.f);
+  if (!tradingDay(w.day)) return [];
+  const stocks = (w.state.markets as { stocks?: { instr: string; issuer: string; last: number; prev: number; hist?: { c: number; v: number; src?: string }[] }[] } | undefined)?.stocks ?? [];
+  const rows = stocks.filter((x) => {
+    const bar = x.hist?.[x.hist.length - 1];
+    return x.prev > 0 && x.last > 0 && x.issuer !== 'bank_1' && bar && bar.v > 0 && bar.src !== 'indicative';
+  }).map((x) => ({ x, pct: (x.last / x.prev - 1) * 100, f: firmOf(w, x.issuer) })).filter((r) => r.f);
   rows.sort((a, b) => b.pct - a.pct);
   const out: Story[] = [];
   const up = rows[0], down = rows[rows.length - 1];
@@ -671,8 +677,7 @@ function rateFiller(w: World): Story | null {
   const y = b?.y;
   if (!y || !(y['10y'] > 0)) return null;
   const s = econ(w);
-  const slope = Math.round(((y['10y'] ?? 0) - (y['3m'] ?? 0)) * 10000);
-  const shape = slope > 20 ? 'rising' : slope < -20 ? 'inverted' : 'flat';
+  const shape = curveShape(y).shape;
   return story({
     section: 'bank', kicker: 'Rates', headline: `Ten-year at ${(y['10y'] * 100).toFixed(2)}%, the curve ${shape}`,
     body: `Three-month bills pay ${((y['3m'] ?? 0) * 100).toFixed(2)}% and the thirty-year ${((y['30y'] ?? y['10y']) * 100).toFixed(2)}%. The central bank's rate is ${(s.policyRate * 100).toFixed(2)}%.${b?.spread?.BBB !== undefined ? ` A middling borrower pays ${Math.round(b.spread.BBB * 10000)}bp over.` : ''}`,

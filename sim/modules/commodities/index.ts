@@ -11,6 +11,8 @@
 import { GOODS } from '../economy/content.ts';
 import { DEP, pay, setFirmCloseHook, type EconState, type Firm } from '../economy/index.ts';
 import { type Module, type World } from '../../kernel/index.ts';
+import { isSeatActor } from '../../kernel/seat.ts';
+import { nextSessionText } from '../markets/index.ts';
 
 const LISTED = ['CRUDE_OIL', 'NATURAL_GAS', 'COAL', 'IRON_ORE', 'COPPER', 'LITHIUM', 'GRAIN', 'LIVESTOCK'] as const;
 const MONTHS = 6;
@@ -746,8 +748,57 @@ function capitalise(w: World, s: EconState, id: string, slice: number): void {
   }
 }
 
-/** Open, add to, or flatten a futures position. The market maker takes the other side. Margin is posted in cash. */
-export function tradeFuture(w: World, actor: string, good: string, monthsAhead: number, qty: number, side: 'long' | 'short' | 'flat'): { qty: number; px: number; net: number; why?: string } {
+export interface FutureQuote {
+  good: string;
+  curve: { monthsAhead: number; px: number }[];
+  spot: number;
+  front: number;
+  roll: number;
+  bid: number;
+  ask: number;
+  fee: number;
+  spread: number;
+  /** Cash this side: half the spread plus the fee, in cents. */
+  cost: number;
+  roundTripCost: number;
+  next: string;
+}
+
+/** The pit's quote before a seat trades. Spread and fee grow with size and with today's move. NPC books are not charged. */
+export function futureQuote(w: World, good: string, monthsAhead: number, qty: number): FutureQuote | { why: string } {
+  const st = bookOf(w);
+  const b = st.books.find((x) => x.good === good);
+  if (!b) return { why: `no futures listed for ${good}` };
+  const t = b.tenors.find((x) => x.month === w.month + monthsAhead);
+  const front = b.tenors.find((x) => x.month === w.month) ?? b.tenors[0];
+  if (!t || !front) return { why: 'that delivery month is not listed' };
+  const n = Math.max(1, Math.abs(qty));
+  const move = front.prev > 0 ? Math.abs(front.px / front.prev - 1) : 0;
+  const stress = Math.min(2, move / 0.01);
+  const size = Math.min(3, n / 10);
+  const notional = n * t.px * b.lot;
+  const halfFrac = 0.0004 * (1 + stress) * (1 + size * 0.25);
+  const spread = Math.max(1, Math.round(notional * halfFrac));
+  const fee = Math.max(1, Math.round(notional * 0.00015 * (1 + size * 0.2)));
+  const spot = Math.max(1, Math.round(spotOf(w, econ(w), good)));
+  return {
+    good,
+    curve: b.tenors.map((x) => ({ monthsAhead: x.month - w.month, px: x.px })),
+    spot,
+    front: front.px,
+    roll: t.px - front.px,
+    bid: Math.max(1, t.px - Math.max(1, Math.round(t.px * halfFrac))),
+    ask: t.px + Math.max(1, Math.round(t.px * halfFrac)),
+    fee,
+    spread,
+    cost: spread + fee,
+    roundTripCost: (spread + fee) * 2,
+    next: nextSessionText(w),
+  };
+}
+
+/** Open, add to, or flatten a futures position. The market maker takes the other side. Margin is posted in cash. A seat pays the spread and the fee; a firm's book does not, so the city's books stay balanced. */
+export function tradeFuture(w: World, actor: string, good: string, monthsAhead: number, qty: number, side: 'long' | 'short' | 'flat'): { qty: number; px: number; net: number; why?: string; bid?: number; ask?: number; fee?: number; spread?: number; cost?: number; spot?: number; front?: number; roll?: number; curve?: { monthsAhead: number; px: number }[] } {
   const st = bookOf(w);
   const b = st.books.find((x) => x.good === good);
   if (!b) return { qty: 0, px: 0, net: 0, why: `no futures listed for ${good}` };
@@ -761,6 +812,15 @@ export function tradeFuture(w: World, actor: string, good: string, monthsAhead: 
   if (delta === 0) return { qty: 0, px: t.px, net: cur, why: side === 'flat' ? 'no position in that month' : 'nothing to trade' };
   if (!st.roster.includes(actor)) st.roster.push(actor);
   const cause = st.root;
+  const quote = futureQuote(w, good, monthsAhead, Math.abs(delta));
+  const q = 'why' in quote ? undefined : quote;
+  let paid = 0;
+  if (q && isSeatActor(w, actor)) {
+    paid = q.cost;
+    if (paid > 0 && !pay(w, actor, MM, paid, 'futures.fee', cause)) {
+      return { qty: 0, px: t.px, net: cur, why: 'too little cash for the spread and fee', bid: q.bid, ask: q.ask, fee: q.fee, spread: q.spread, cost: q.cost, spot: q.spot, front: q.front, roll: q.roll, curve: q.curve };
+    }
+  }
   applyDelta(w, actor, t, delta, cause);
   applyDelta(w, MM, t, -delta, cause);
   const net = Math.round(w.ledger.balance(actor, t.longId) - w.ledger.balance(actor, t.shortId));
@@ -770,7 +830,8 @@ export function tradeFuture(w: World, actor: string, good: string, monthsAhead: 
     if (!postMargin(w, actor, need - have, cause)) {
       applyDelta(w, actor, t, -delta, cause);
       applyDelta(w, MM, t, delta, cause);
-      return { qty: 0, px: t.px, net: cur, why: 'not enough cash to post margin' };
+      if (paid > 0) pay(w, MM, actor, paid, 'futures.fee', cause);
+      return { qty: 0, px: t.px, net: cur, why: 'not enough cash to post margin', ...(q ? { bid: q.bid, ask: q.ask, fee: q.fee, spread: q.spread, cost: q.cost, spot: q.spot, front: q.front, roll: q.roll, curve: q.curve } : {}) };
     }
   } else if (have > need) releaseMargin(w, actor, have - need, cause);
   // Filled at the price of the moment: the day's settlement is measured from there, not from the last settlement.
@@ -781,7 +842,7 @@ export function tradeFuture(w: World, actor: string, good: string, monthsAhead: 
     adj[MM] = (adj[MM] ?? 0) - off;
   }
   assertBook(w, t);
-  return { qty: Math.abs(delta), px: t.px, net };
+  return { qty: Math.abs(delta), px: t.px, net, ...(q ? { bid: q.bid, ask: q.ask, fee: q.fee, spread: q.spread, cost: paid, spot: q.spot, front: q.front, roll: q.roll, curve: q.curve } : {}) };
 }
 
 export const commodities: Module = {

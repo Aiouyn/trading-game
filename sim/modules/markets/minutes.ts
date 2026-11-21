@@ -19,7 +19,7 @@ import { coinMinute, coinMinuteStep, coinRugs } from '../crypto/index.ts';
 import { fxStep } from '../abroad/index.ts';
 import { chartSeries, dailyFlat, barsFor, eachPrice, setDayProvider, type BarOut, type DayBar, type Kind, type Unit } from './bars.ts';
 import { flowSigma, pulseOf, setQuote } from './index.ts';
-import { CUM, PROFILE, SESSION_MIN, dayVolume, fnv, normal, tradingDay, unit01 } from './noise.ts';
+import { CUM, SESSION_MIN, fnv, normal, tradingDay, unit01 } from './noise.ts';
 
 export const MIN_PER_DAY = 1440;
 export const OPEN_MIN = 570;   // 09:30
@@ -283,9 +283,8 @@ export function minuteStep(w: World, abs: number, open: boolean): void {
     let news = false;
     let out = 0;
     if (kind === 'index') {
-      let cap = 0;
-      for (const [sid, p] of shares) cap += p * (w.ledger.issued.get(sid) ?? 1_000_000);
-      px = baseCap > 0 && shares.size > 0 ? 100 * cap / baseCap : base;
+      const published = (w.state.markets as { index?: number } | undefined)?.index;
+      px = published && published > 0 ? published : base;
     } else if (kind === 'coin' && coinTrade) {
       px = coinTrade.px;
     } else if (kind === 'fx') {
@@ -336,14 +335,8 @@ export function minuteStep(w: World, abs: number, open: boolean): void {
     const open1 = sessionKind(kind) && m === OPEN_MIN ? px : o;
     const hh = rnd(s, Math.max(open1, px) * (1 + wickUp));
     const ll = rnd(s, Math.min(open1, px) * (1 - wickDn));
-    let v = 0;
-    if (kind === 'share' && out > 0) {
-      // The session's volume by the minute: the time of day, news, and the size of the move itself.
-      const move = Math.abs(Math.log(px / Math.max(1e-9, open1))) / Math.max(1e-9, sigma * MINUTE_SIGMA);
-      const vDay = dayVolume(id, out, sigma * 0.9, news);
-      const prof = i >= 0 && i < SESSION_MIN ? PROFILE[i] : 1;
-      v = Math.max(1, Math.round(vDay / SESSION_MIN * prof * Math.exp(0.35 * normal(s.seed ^ b.seed, abs, 11) - 0.06) * (0.5 + 0.6 * Math.min(4, move))));
-    }
+    // Share and index volume is real fills only. This walk is the mark, not a tape, so the minute bar carries no invented volume.
+    const v = 0;
     feed(s, abs, open1, Math.max(hh, open1, px), Math.min(ll, open1, px), px, v, true, true);
   });
   rugBars(w, b, abs);
@@ -440,6 +433,10 @@ export function historyFor(w: World, id: string, tf: AnyTf, limit: number, today
     else if (tfMin === 60) bars = withOpen(ringTail(s.h1, limit), s.ah);
     else bars = aggregate(withOpen(ringTail(s.h1, limit * 4 + 8), s.ah), tfMin, s.sess);
     if (bars.length > limit) bars = bars.slice(bars.length - limit);
+    for (const b of bars) {
+      if (s.kind === 'coin' && b.v > 0) { b.barSource = 'traded'; b.volSource = 'real'; }
+      else { b.barSource = 'indicative'; b.volSource = b.v > 0 ? 'estimated' : 'none'; }
+    }
     return { id, name: s.name, kind: s.kind, unit: s.unit, tf, tt: 'min', since: bars.length ? Math.floor(bars[0].t / MIN_PER_DAY) : today, session: s.sess, bars };
   }
   const base = tf === '1d' ? 'd' : tf === '1w' ? 'w' : 'm';

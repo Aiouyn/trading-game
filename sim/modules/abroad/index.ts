@@ -482,7 +482,43 @@ export function fxStep(w: World, abs: number): void {
   for (const x of st.sats) x.qn = Math.max(-0.03, Math.min(0.03, (1 - QUOTE_FORGET) * x.qn + step * z(x.code)));
 }
 
-export interface FxFill { ok: boolean; why?: string; code?: string; units?: number; cents?: number; px?: number; held?: number; eventId?: number }
+export interface FxFill { ok: boolean; why?: string; code?: string; units?: number; cents?: number; px?: number; held?: number; eventId?: number; fee?: number; bid?: number; ask?: number; stress?: number }
+
+export interface FxQuote {
+  code: string;
+  bid: number;
+  ask: number;
+  mid: number;
+  fee: number;
+  /** Whole units the dealer will do at this quote. */
+  size: number;
+  stress: number;
+  /** Cash to cross and come back, in cents, including both fees. */
+  roundTripCost: number;
+}
+
+/**
+ * The player's quote. The spread and the fee widen with size and with stress.
+ * The economy's own bid and ask stay on `bidAsk` and `fxPairs`; this is only the desk a person hits.
+ */
+export function fxQuote(w: World, code: string, units: number): FxQuote | { why: string } {
+  const st = w.state.abroad as Book | undefined;
+  if (!st) return { why: 'there is no foreign exchange desk' };
+  const pair = fxPairs(w).find((p) => p.code === code.toUpperCase());
+  if (!pair) return { why: `no currency ${code}` };
+  const n = Math.max(1, Math.abs(Math.round(units)));
+  const stress = st.crisis ? 1 : Math.min(1, Math.abs(st.pressure) / 5e8);
+  const size = Math.min(0.02, n / 10000);
+  const half = st.cfg.spread / 2 * (1 + 2 * stress) + size;
+  const mid = pair.q;
+  const notional = Math.round(n * 100 * mid);
+  const fee = Math.max(1, Math.round(notional * (0.0002 + size)));
+  const bid = mid * (1 - half);
+  const ask = mid * (1 + half);
+  const buy = Math.round(n * 100 * ask) + fee;
+  const sell = Math.max(0, Math.round(n * 100 * bid) - fee);
+  return { code: pair.code, bid, ask, mid, fee, size: n, stress, roundTripCost: Math.max(0, buy - sell) };
+}
 
 /**
  * Buy or sell a currency from the dealers at their quote. `units` are whole units of the foreign currency (a hundred foreign cents each).
@@ -497,12 +533,14 @@ export function tradeFx(w: World, actor: string, code: string, side: 'buy' | 'se
   if (!Number.isSafeInteger(units) || units < 1) return { ok: false, why: 'the amount is a whole number of currency units' };
   const cause = st.rateEv;
   const sat = st.sats.find((x) => x.code === pair.code);
+  const quoted = fxQuote(w, pair.code, units);
+  if ('why' in quoted) return { ok: false, why: quoted.why };
   const cents = units * 100;
   if (side === 'buy') {
-    const home = Math.round(cents * pair.ask);
+    const home = Math.round(cents * quoted.ask) + quoted.fee;
     const cash = Math.floor(w.ledger.balance(actor, DEP));
     if (home < 1) return { ok: false, why: 'too small to quote' };
-    if (cash < home) return { ok: false, why: `not enough cash: ${units} ${pair.code} cost $${(home / 100).toFixed(2)}` };
+    if (cash < home) return { ok: false, why: `too little cash: ${units} ${pair.code} cost $${(home / 100).toFixed(2)} including a $${(quoted.fee / 100).toFixed(2)} fee` };
     const have = Math.floor(w.ledger.balance(DEALER, pair.fx));
     if (have < cents) w.ledger.issue(pair.fx, DEALER, cents - have, 'fx.restock', cause);
     if (!pay(w, actor, DEALER, home, 'fx.trade', cause)) return { ok: false, why: 'the payment did not clear' };
@@ -511,14 +549,14 @@ export function tradeFx(w: World, actor: string, code: string, side: 'buy' | 'se
       return { ok: false, why: 'the dealer could not deliver' };
     }
     if (sat) sat.pressure += cents; else st.pressure += cents;
-    const ev = w.events.emit('fx.fill', `bought ${units} ${pair.code} at ${pair.ask.toFixed(4)} for $${(home / 100).toFixed(2)}`, [cause], actor);
-    return { ok: true, code: pair.code, units, cents: home, px: pair.ask, held: Math.floor(w.ledger.balance(actor, pair.fx)) / 100, eventId: ev };
+    const ev = w.events.emit('fx.fill', `bought ${units} ${pair.code} at ${quoted.ask.toFixed(4)} for $${(home / 100).toFixed(2)}, fee $${(quoted.fee / 100).toFixed(2)}`, [cause], actor);
+    return { ok: true, code: pair.code, units, cents: home, px: quoted.ask, fee: quoted.fee, bid: quoted.bid, ask: quoted.ask, stress: quoted.stress, held: Math.floor(w.ledger.balance(actor, pair.fx)) / 100, eventId: ev };
   }
   const held = Math.floor(w.ledger.balance(actor, pair.fx));
   const whole = Math.floor(Math.min(cents, held) / 100);
   if (whole < 1) return { ok: false, why: `you hold ${(held / 100).toFixed(2)} ${pair.code}` };
   const fxCents = whole * 100;
-  const home = Math.round(fxCents * pair.bid);
+  const home = Math.round(fxCents * quoted.bid) - quoted.fee;
   if (home < 1) return { ok: false, why: 'too small to quote' };
   if (!w.ledger.move(pair.fx, actor, DEALER, fxCents, 'fx.trade', cause)) return { ok: false, why: 'the delivery did not clear' };
   if (!dealerPayDep(w, actor, home, 'fx.trade', cause)) {
@@ -526,8 +564,8 @@ export function tradeFx(w: World, actor: string, code: string, side: 'buy' | 'se
     return { ok: false, why: 'the dealer could not pay' };
   }
   if (sat) sat.pressure -= fxCents; else st.pressure -= fxCents;
-  const ev = w.events.emit('fx.fill', `sold ${whole} ${pair.code} at ${pair.bid.toFixed(4)} for $${(home / 100).toFixed(2)}`, [cause], actor);
-  return { ok: true, code: pair.code, units: whole, cents: home, px: pair.bid, held: Math.floor(w.ledger.balance(actor, pair.fx)) / 100, eventId: ev };
+  const ev = w.events.emit('fx.fill', `sold ${whole} ${pair.code} at ${quoted.bid.toFixed(4)} for $${(home / 100).toFixed(2)}, fee $${(quoted.fee / 100).toFixed(2)}`, [cause], actor);
+  return { ok: true, code: pair.code, units: whole, cents: home, px: quoted.bid, fee: quoted.fee, bid: quoted.bid, ask: quoted.ask, stress: quoted.stress, held: Math.floor(w.ledger.balance(actor, pair.fx)) / 100, eventId: ev };
 }
 
 export const abroad: Module = {

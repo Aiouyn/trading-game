@@ -7,6 +7,7 @@ import { type EconState } from '../economy/index.ts';
 import { contactsOf, nudgeLink, nudgeStanding } from '../social/index.ts';
 import { CITY, money, sectorWord } from '../social/words.ts';
 import { discountForNews } from '../markets/index.ts';
+import { curveShape } from '../bonds/index.ts';
 import { firmGap } from '../careers/jobs.ts';
 
 export type Fan = (issuer: string, side: number, trust: number, outlet: number, weight: number) => void;
@@ -163,8 +164,7 @@ function curveFull(w: World): string {
   const y = b?.y;
   if (!y || !(y['10y'] > 0)) return '';
   const y3 = y['3m'] ?? 0, y10 = y['10y'], y30 = y['30y'] ?? y10;
-  const slope = Math.round((y10 - y3) * 10000);
-  const shape = slope > 20 ? 'upward' : slope < -20 ? 'inverted' : 'flat';
+  const shape = curveShape(y).shape;
   const bbb = b?.spread?.BBB;
   const credit = bbb !== undefined ? ` BBB sits ${Math.round(bbb * 10000)}bp over the five-year.` : '';
   return `The curve is ${shape}: three-month ${(y3 * 100).toFixed(2)}%, ten-year ${(y10 * 100).toFixed(2)}%, thirty-year ${(y30 * 100).toFixed(2)}%.${credit}`;
@@ -173,15 +173,13 @@ function curveTight(w: World): string {
   const y = (w.state.bonds as { y?: Record<string, number> } | undefined)?.y;
   if (!y || !(y['10y'] > 0)) return '';
   const y3 = y['3m'] ?? 0, y10 = y['10y'], y30 = y['30y'] ?? y10;
-  const slope = Math.round((y10 - y3) * 10000);
-  const shape = slope > 20 ? 'upward' : slope < -20 ? 'inverted' : 'flat';
+  const shape = curveShape(y).shape;
   return `The curve is ${shape}: 3-month ${(y3 * 100).toFixed(2)}%, 10-year ${(y10 * 100).toFixed(2)}%, 30-year ${(y30 * 100).toFixed(2)}%.`;
 }
 function curveShort(w: World): string {
   const y = (w.state.bonds as { y?: Record<string, number> } | undefined)?.y;
   if (!y || !(y['10y'] > 0)) return '';
-  const slope = Math.round((y['10y'] - (y['3m'] ?? 0)) * 10000);
-  const shape = slope > 20 ? 'steep' : slope < -20 ? 'inverted' : 'flat';
+  const shape = curveShape(y).shape;
   return `Ten-year ${(y['10y'] * 100).toFixed(2)}%, the curve ${shape}.`;
 }
 function notables(w: World): Set<number> {

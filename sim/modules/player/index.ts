@@ -5,7 +5,7 @@ import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
 import { borrowBar, borrowMargin, creditTightness, depositSight, marginLimit, productHaircuts, rateWhy, repayPerson, withdrawSight } from '../banking/index.ts';
 import { LOT, submitBondOrder } from '../bonds/index.ts';
 import { tradeFuture } from '../commodities/index.ts';
-import { tradeFx } from '../abroad/index.ts';
+import { fxQuote, tradeFx } from '../abroad/index.ts';
 import { blockOf, controls, sharesOf, appointChief, companyPosts, foldFirm, foundCompany, sellDivision, steerCompany, takePublic, tenderOffer, type CompanyPost } from '../corporate/index.ts';
 import { KIND, ROLES, VAL, borrowAll, buyIn, cutJobs, dealUnion, owner, payOut, promote, protectJobs, refinance, cityMemory, regard, sellAssets } from '../corporate/owner.ts';
 import { consensusAll, revealsOf, signalsFor } from '../signals/index.ts';
@@ -14,11 +14,11 @@ import { CEO_POSITION, GOODS, SECTOR_NAMES } from '../economy/content.ts';
 import { BANK, CAPITAL, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, RETIRED, joinFirm, labourOf, leaveJob, retargetLabour, setSimDay, succession, thought } from '../economy/people.ts';
 import { reportOffence } from '../law/index.ts';
-import { bookLevels, markHolding, markPlayerTrading, midPrice, saleProceeds, submitOrder } from '../markets/index.ts';
+import { bookLevels, markHolding, markPlayerTrading, midPrice, noteLife, orderLives, saleProceeds, submitOrder, nextSessionText } from '../markets/index.ts';
 import { futKey, sayFill, syncBasis, type BasisBook } from './basis.ts';
 import { amendOrder, attachLegs, cancelAny, nextOpenText, placeShareOrder, placeStop, runStops, settleCovers, shareSession, shortMark, shortSell, shortsDay, stopRows, tendBrackets, tendProtect, type Bracket, type DeskNote, type StockLoan, type Stop } from './trading.ts';
 import { speak } from './desk.ts';
-import { matchOption, optionChain, optionWhy, tradeOption, type OptRow } from '../options/index.ts';
+import { matchOption, optionChain, optionWhy, previewOption, tradeOption, type OptRow } from '../options/index.ts';
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, moveTerms, rentHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
@@ -1073,6 +1073,63 @@ export function worthParts(w: World, i: number): WorthParts {
   return out;
 }
 
+export interface AccountSnap {
+  rev: number;
+  cash: number;
+  deposits: number;
+  shares: number;
+  coins: number;
+  bonds: number;
+  business: number;
+  goods: number;
+  debts: number;
+  shorts: number;
+  owed: number;
+  basis: number;
+  fees: number;
+  netWorth: number;
+  residual: number;
+  today: { dollars: number; pct: number; base: number; baseLabel: string };
+  investment: number;
+  spending: number;
+  flows: number;
+}
+
+const LIFE_SPEND = new Set(['player.school', 'course.fee', 'career.study', 'venue.evening', 'venue.round', 'consumption', 'property.rent', 'society.pay', 'health.claim', 'media.subscription', 'circle.pay']);
+
+/** One revision of the player's books. The parts add to net worth to the cent. Today's percent uses today's dollars. */
+export function accountSnapshot(w: World, i: number, base: number, baseLabel = 'yesterday close'): AccountSnap {
+  const parts = worthParts(w, i);
+  const sum = parts.cash + parts.deposits + parts.shares + parts.shorts + parts.coins + parts.bonds + parts.business + parts.owedToYou + parts.goods - parts.debts;
+  const dollars = parts.total - Math.round(base);
+  let spending = 0, flows = 0, fees = 0;
+  if (i >= 0) {
+    const day = cashDay(w, w.day);
+    for (const r of day.rows) {
+      if (r.cents < 0 && r.reasons.some((x) => LIFE_SPEND.has(x))) spending += -r.cents;
+      if (r.cents < 0 && r.reasons.some((x) => x.includes('fee') || x.startsWith('tax.'))) fees += -r.cents;
+      if (r.cents > 0 && r.reasons.some((x) => /wage|endowment|inherit|gift|bonus/.test(x))) flows += r.cents;
+    }
+  }
+  let basis = 0;
+  const seats = (w.state.player as { seat?: Record<string, { who?: number; basis?: { pos?: Record<string, { c: number }> } }> } | undefined)?.seat;
+  if (seats) for (const seat of Object.values(seats)) {
+    if (seat.who !== i || !seat.basis?.pos) continue;
+    for (const lot of Object.values(seat.basis.pos)) basis += Math.round(lot.c);
+  }
+  const b = Math.round(base);
+  return {
+    rev: w.day * 100 + (w.tickDone ?? 0),
+    cash: parts.cash, deposits: parts.deposits, shares: parts.shares, coins: parts.coins, bonds: parts.bonds,
+    business: parts.business, goods: parts.goods, debts: parts.debts, shorts: parts.shorts, owed: parts.owedToYou,
+    basis, fees, netWorth: parts.total, residual: parts.total - sum,
+    today: { dollars, pct: b > 0 ? dollars / b : 0, base: b, baseLabel },
+    investment: dollars - flows + spending,
+    spending,
+    flows,
+  };
+}
+
 function chronicle(w: World, i: number, text: string, cause: number): void {
   const h = w.state.history as { entries?: { year: number; day: number; kind: string; people: string[]; firms: string[]; text: string; cause: string }[] } | undefined;
   if (!h?.entries || cause < 0) return;
@@ -1909,7 +1966,8 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (!Number.isSafeInteger(cmd.bonds) || cmd.bonds < 1) return rejected('qty is a number of bonds');
       try {
         const orderId = submitBondOrder(w, id, b.id, cmd.side, cmd.bonds * LOT, cmd.limit);
-        return { status: 'accepted', orderId, eventId: b.issueEv, text: `${cmd.side} ${cmd.bonds} ${b.id}` };
+        const next = nextSessionText(w);
+        return { status: 'accepted', orderId, eventId: b.issueEv, text: `queued ${cmd.side} ${cmd.bonds} ${b.id} for the next session, ${next}. Treasury orders match at the open. No price until then. Status queued.` };
       } catch (e) { return rejected(whyOf(e)); }
     }
     case 'fut': {
@@ -1922,7 +1980,14 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       if (r.why) return rejected(r.why);
       const root = (w.state.commodities as { root?: number } | undefined)?.root ?? st.arrived;
       const word = cmd.side === 'flat' ? 'closed' : cmd.side;
-      return { status: 'accepted', fill: r.qty, avg: r.px, eventId: root, text: `${word} ${r.qty} ${good} m+${cmd.months} @ ${(r.px / 100).toFixed(2)}, position ${r.net}` };
+      const cost = r.cost ?? 0;
+      const curve = (r.curve ?? []).map((t) => `m+${t.monthsAhead} ${(t.px / 100).toFixed(2)}`).join(', ');
+      noteLife(w, {
+        id: orderLives(w).length + 1, book: 'futures', instr: `fut:${good}`, side: cmd.side, qty: r.qty, status: 'filled', type: 'market',
+        reserved: 0, limit: null, next: 'filled now', reason: '', fee: r.fee ?? 0, rejectedQty: 0,
+        fills: [{ day: w.day, tick: w.tickDone ?? 0, qty: r.qty, px: r.px, fee: r.fee ?? 0 }],
+      });
+      return { status: 'accepted', fill: r.qty, avg: r.px, eventId: root, text: `${word} ${r.qty} ${good} m+${cmd.months} @ ${(r.px / 100).toFixed(2)}, position ${r.net}. Quote before the fill: spot $${((r.spot ?? 0) / 100).toFixed(2)}, front $${((r.front ?? 0) / 100).toFixed(2)}, roll $${((r.roll ?? 0) / 100).toFixed(2)}, bid $${((r.bid ?? 0) / 100).toFixed(2)}, ask $${((r.ask ?? 0) / 100).toFixed(2)}, fee $${((r.fee ?? 0) / 100).toFixed(2)}, this side $${(cost / 100).toFixed(2)}. Curve: ${curve}` };
     }
     case 'coin': {
       if (cmd.type === 'stop' || cmd.type === 'stop-limit' || cmd.stop !== undefined) {
@@ -1962,10 +2027,17 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       return { status: 'accepted', orderId: r.orderId, fill: r.filled, cents: Math.round(r.cents), avg: r.avg, fills: r.fills, text };
     }
     case 'fx': {
+      const preview = fxQuote(w, cmd.code, cmd.units);
       const r = tradeFx(w, id, cmd.code, cmd.side, cmd.units);
       if (!r.ok) return rejected(r.why ?? 'the currency desk did not fill that');
       const verb = cmd.side === 'buy' ? 'bought' : 'sold';
-      return { status: 'accepted', fill: r.units, cents: r.cents, avg: r.px, eventId: r.eventId, text: `${verb} ${r.units} ${r.code} at ${(r.px ?? 0).toFixed(4)} for ${dollars(r.cents ?? 0)}. You hold ${(r.held ?? 0).toFixed(2)} ${r.code}` };
+      const shown = 'fee' in preview ? preview : undefined;
+      noteLife(w, {
+        id: orderLives(w).length + 1, book: 'fx', instr: `fx:${r.code}`, side: cmd.side, qty: r.units ?? 0, status: 'filled', type: 'market',
+        reserved: 0, limit: null, next: 'the dealers quote now', reason: '', fee: r.fee ?? 0, rejectedQty: 0,
+        fills: [{ day: w.day, tick: w.tickDone ?? 0, qty: r.units ?? 0, px: Math.round((r.px ?? 0) * 10000), fee: r.fee ?? 0 }],
+      });
+      return { status: 'accepted', fill: r.units, cents: r.cents, avg: r.px, eventId: r.eventId, text: `${verb} ${r.units} ${r.code} at ${(r.px ?? 0).toFixed(4)} for ${dollars(r.cents ?? 0)}. Shown before the fill: bid ${(shown?.bid ?? r.bid ?? 0).toFixed(4)}, ask ${(shown?.ask ?? r.ask ?? 0).toFixed(4)}, fee ${dollars(shown?.fee ?? r.fee ?? 0)}, round trip ${dollars(shown?.roundTripCost ?? 0)}, stress ${(shown?.stress ?? r.stress ?? 0).toFixed(2)}. You hold ${(r.held ?? 0).toFixed(2)} ${r.code}` };
     }
     case 'launch': {
       const r = launchCoin(w, i, { name: cmd.name, ticker: cmd.ticker, buy: cmd.buy, seed: cmd.seed, desc: cmd.desc });
@@ -2330,6 +2402,7 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const row = matchOption(w, instr, cmd.right, cmd.strike, cmd.months);
       if (!row) return rejected(optionWhy(w, instr) || 'no listed contract');
       const cause = causeOf(w, st);
+      const preview = previewOption(w, row.id, cmd.kind === 'write' ? 'write' : 'buy', cmd.qty);
       const got = tradeOption(w, id, row.id, cmd.kind === 'write' ? 'write' : 'buy', cmd.qty, cause);
       if (got.qty < 1) return rejected(got.why || 'no fill');
       const side = cmd.right === 'C' ? 'call' : 'put';
@@ -2338,7 +2411,11 @@ function actSeat(w: World, playerId: string, cmd: Command): ActResult {
       const because = cmd.kind === 'write' ? 'you wrote it yourself' : 'you bought it yourself';
       const ev = w.events.emit('player.option', `${P.name(i)} ${word} a ${side} on ${name} shares || ${because}`, [cause], id);
       const verb = cmd.kind === 'write' ? 'wrote' : 'bought';
-      return { status: 'accepted', eventId: ev, fill: got.qty, text: `${verb} ${got.qty} ${side} on ${name} at $${(got.px / 100).toFixed(2)}` };
+      const pv = 'perShare' in preview ? preview : undefined;
+      const line = pv
+        ? ` Preview: $${(pv.perShare / 100).toFixed(2)} a share, $${(pv.perContract / 100).toFixed(2)} a contract (×${pv.multiplier}), total cash $${(pv.totalCash / 100).toFixed(2)}, break-even $${(pv.breakEven / 100).toFixed(2)}, maximum loss ${pv.maxLossText}.`
+        : '';
+      return { status: 'accepted', eventId: ev, fill: got.qty, text: `${verb} ${got.qty} ${side} on ${name} at $${(got.px / 100).toFixed(2)} a share.${line}` };
     }
     case 'optclose': {
       const cause = causeOf(w, st);

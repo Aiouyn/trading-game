@@ -8,6 +8,7 @@ import { GOODS } from '../economy/content.ts';
 import { type Module, type World } from '../../kernel/index.ts';
 import { isSeatActor } from '../../kernel/seat.ts';
 import { fxMark } from '../abroad/index.ts';
+import { dateText } from '../../kernel/calendar.ts';
 import { tradingDay } from './noise.ts';
 
 const SHARES = 1_000_000;
@@ -42,7 +43,7 @@ interface Order {
   src: Src;
 }
 
-interface Bar { o: number; h: number; l: number; c: number; v: number }
+interface Bar { o: number; h: number; l: number; c: number; v: number; src?: 'traded' | 'indicative' }
 
 interface Stock {
   instr: string;
@@ -103,6 +104,22 @@ interface Stock {
   /** A one-session print: the open (or the decision's candles) may reach this price, then the collar resumes. */
   newsPx?: number;
   newsUntil?: number;
+  /** Official mark, and the rule that set it. Distinct from the last execution. */
+  mark?: number;
+  markRule?: string;
+  markInputs?: string;
+  /** Book value of listed stakes, per share. Refreshed once a day so the tick does not walk every book. */
+  stakePx?: number;
+  /** Shares outstanding at the previous index link, so an issue or a split does not move the index. */
+  shY?: number;
+  /** Open sessions lived, and how many of them had a real fill. */
+  sessN?: number;
+  fillN?: number;
+  lastExecPx?: number;
+  lastExecDay?: number;
+  lastExecTick?: number;
+  lastExecQty?: number;
+  barSrc?: 'traded' | 'indicative';
 }
 
 interface Fund { id: string; style: Style; premium: number }
@@ -114,6 +131,8 @@ interface MktState {
   nextId: number;
   seq: number;
   index: number;
+  /** Yesterday's chain-linked close, so today's change is not recomputed from share counts. */
+  indexPrev?: number;
   tr: number;
   /** Capitalisation at the previous total-return point, so the index includes the price move. */
   trCap: number;
@@ -129,7 +148,41 @@ interface MktState {
   fadeIds: number[];
   /** The central bank decision the market has priced. */
   rateSeen?: number;
+  /** Open sessions since the listing, for the fill share. */
+  sessions?: number;
+  /** Largest one-day move seen in each sector. */
+  sectorMax?: Record<string, SectorMove>;
+  /** Largest daily index moves, each decomposed into the names that made it. */
+  bigMoves?: IndexMove[];
+  /** Session closes or index components that moved more than 40% in one day. */
+  breaches?: number;
   price: (instr: string) => number;
+}
+
+export interface SectorMove {
+  sector: string;
+  instr: string;
+  day: number;
+  pct: number;
+  vol: number;
+  cause: string;
+  traded: boolean;
+}
+export interface IndexPart {
+  instr: string;
+  sector: string;
+  weight: number;
+  pxChg: number;
+  contrib: number;
+  vol: number;
+  cause: string;
+}
+export interface IndexMove {
+  day: number;
+  index: number;
+  prev: number;
+  pct: number;
+  parts: IndexPart[];
 }
 
 export interface OrderRequest { instr: string; side: Side; qty: number; limit?: number }
@@ -427,11 +480,13 @@ function walkLadder(w: World, actor: string, st: Stock, side: Side, qty: number,
   const mid = quoteMid(st);
   const ex: Execution = { side, asked: qty, filled: 0, cents: 0, avg: 0, mid, fills: [] };
   const levels = ladder(w, st, side);
+  const { hi, lo } = collar(w, st);
   const makers = side === 'buy' ? sellers(w, st, actor) : buyers(w, actor);
   let left = qty;
   let top = 0;
   for (const lv of levels) {
     if (left < 1) break;
+    if (lv.px > hi || lv.px < lo) continue;
     if (limit !== null && (side === 'buy' ? lv.px > limit : lv.px < limit)) break;
     const target = Math.min(left, lv.qty);
     let want = target;
@@ -557,7 +612,8 @@ export function sellToBook(w: World, actor: string, instr: string, qty: number, 
   if (!st || qty < 1) return 0;
   if (forced) st.forced = (st.forced ?? 0) + Math.min(qty, Math.floor(w.ledger.balance(actor, instr))) / advOf(st);
   const m = book(w);
-  const orders = m.orders.filter((o) => o.open && !o.skip && o.instr === instr && o.side === 'buy' && o.qty >= 1 && o.limit !== null && o.actor !== actor);
+  const { hi, lo } = collar(w, st);
+  const orders = m.orders.filter((o) => o.open && !o.skip && o.instr === instr && o.side === 'buy' && o.qty >= 1 && o.limit !== null && o.actor !== actor && o.limit <= hi && o.limit >= lo);
   orders.sort((a, b) => (b.limit ?? 0) - (a.limit ?? 0) || a.seq - b.seq);
   let left = Math.min(qty, Math.floor(w.ledger.balance(actor, instr)));
   let sold = 0;
@@ -656,21 +712,26 @@ function fairValue(w: World, st: Stock, premium: number): number {
   const rg = capRate(s, s.policyRate, premium, book(w).gHat);
   const sh = sharesOut(w, st.instr);
   if (st.issuer === BANK) {
-    const per = Math.max(1, Math.round(bookEquity(w, st.issuer) / sh));
-    const bookPx = Math.max(1, Math.round(per * (0.03 + premium) / r));
-    // Book ignores a reported profit, so the bank's P/E sat below every firm and the
-    // value rule held it for free. Once a profit is public, price that profit too.
+    const bookEq = bookEquity(w, st.issuer);
+    const per = sh > 0 ? bookEq / sh : 1;
+    const bookPx = Math.max(1, Math.round(Math.max(1, per) * (0.03 + premium) / r));
+    // A quarter's change in the bank's equity is not a perpetuity. The report counts
+    // every mark on the book as profit, and capitalising that at 1/r was the untraded
+    // cliff (a $17 share marked at $300 the day the number printed). Only the spread
+    // a bank can earn again, at most 18% of book a year, is a price.
+    const annual = annualCash(st.divEma, st.profitEma);
+    const sustain = Math.max(0, Math.min(annual, Math.max(0, bookEq) * 0.18));
     let px = bookPx;
-    if (st.profitEma > 0) {
-      const earnPx = Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / r / sh));
-      px = Math.max(bookPx, earnPx);
+    if (sustain > 0 && sh > 0) {
+      const earnPx = Math.max(1, Math.round(sustain / r / sh));
+      px = Math.round(bookPx * 0.45 + earnPx * 0.55);
     }
-    // A higher policy rate is a wider margin for the bank, not only a higher discount.
-    return Math.max(1, Math.round(px * (1 + (st.nim ?? 0))));
+    const nim = Math.max(-0.2, Math.min(0.2, st.nim ?? 0));
+    return Math.max(1, Math.round(px * (1 + nim)));
   }
-  // A paper bid leaves the target inside the buyer. Earnings alone would walk that value back out.
-  const hold = stakeValue(w, st.issuer);
-  return Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / rg / sh + hold / sh));
+  // Stakes are the book of what is held, refreshed once a day, not the other name's last
+  // print. Marking a cross-holding at a jumped quote capitalised the jump into this name.
+  return Math.max(1, Math.round(annualCash(st.divEma, st.profitEma) / rg / sh + (st.stakePx ?? 0)));
 }
 
 function blend(ema: number, obs: number): number {
@@ -744,26 +805,35 @@ function destination(w: World, st: Stock): number {
   return Math.max(fair + 1, Math.round(fair * 1.04));
 }
 
-/** Cents the print may travel today. A report can close the gap; an ordinary day cannot. */
-function collar(w: World, st: Stock, to?: number): { hi: number; lo: number } {
+/** How far an official mark may walk in one session. A report is disclosed; it still does not close an 18× gap in a day with no print. */
+const DAY_BAND = 0.06;
+const REPORT_BAND = 0.12;
+
+/**
+ * One cent is at most a third of this price, so a tick never prints as a day over 40%.
+ * A name does not fall through it: below here the only whole-cent step is a cliff.
+ */
+const MIN_PX = 3;
+
+/** Cents the mark may travel today. A large gap walks through later sessions. It never jumps the whole way because a report was filed. */
+function collar(w: World, st: Stock, _to?: number): { hi: number; lo: number } {
   const prev = Math.max(1, st.prev || st.last);
-  const dest = to ?? destination(w, st);
-  const printing = (st.printUntil ?? 0) >= w.day;
-  if (printing) return { hi: Math.max(prev, dest), lo: Math.max(1, Math.min(prev, dest)) };
-  const gap = Math.abs(dest - prev);
-  // A price stuck at a cent never clears a 2% band. A large fundamental gap moves
-  // in cents, half of it a day, so it cannot sit there for months.
-  // How far the crowd lets it go today varies from day to day, so a long repricing is never a staircase of equal steps.
-  const j = 0.6 + 0.7 * hashUnit(st.instr + ':' + w.day);
-  if (gap > prev * 0.4) {
-    const step = Math.max(1, Math.round(gap * 0.5 * j));
-    return { hi: prev + step, lo: Math.max(1, prev - step) };
+  const disclosed = (st.printUntil ?? 0) >= w.day || ((st.newsUntil ?? 0) >= w.day && (st.newsPx ?? 0) > 0);
+  const band = disclosed ? REPORT_BAND : (st.wide ? 0.08 : DAY_BAND);
+  const j = 0.85 + 0.3 * hashUnit(st.instr + ':' + w.day);
+  const maxStep = Math.floor(prev * 0.4);
+  let step = Math.round(prev * band * j);
+  if (maxStep < 1) step = 0;
+  else step = Math.max(1, Math.min(step, maxStep));
+  let hi = prev + step;
+  let lo = Math.max(1, prev - step);
+  if (prev >= MIN_PX) lo = Math.max(MIN_PX, lo);
+  else {
+    const up = prev + 1;
+    if (up / prev - 1 <= 0.4) hi = Math.max(hi, Math.min(MIN_PX, up));
   }
-  const wide = st.wide || gap > prev * 0.08;
-  const step = wide
-    ? Math.max(1, Math.min(gap, Math.round(Math.max(prev, dest) * (st.wide ? 0.1 : 0.08) * j)))
-    : Math.max(1, Math.round(prev * 0.06));
-  return { hi: prev + step, lo: Math.max(1, prev - step) };
+  if (hi < lo) hi = lo;
+  return { hi, lo };
 }
 
 /**
@@ -1055,6 +1125,9 @@ function note(st: Stock, px: number, qty: number): void {
   else { if (px > st.high) st.high = px; if (px < st.low) st.low = px; }
   st.last = px;
   st.vol += qty;
+  st.lastExecPx = px;
+  st.lastExecQty = qty;
+  st.barSrc = 'traded';
 }
 
 function matchBook(w: World, st: Stock, mine: Order[]): void {
@@ -1456,18 +1529,75 @@ function rampMood(w: World, t: number): void {
   }
 }
 
-/** After the book has traded, the tick's price is where the quote has walked to: the earnings value plus the mood so far. The last tick's price is the close. */
+function markRuleOf(st: Stock, day: number): string {
+  if ((st.newsUntil ?? 0) >= day && (st.newsPx ?? 0) > 0) return 'news print, walked inside the session band';
+  if ((st.printUntil ?? 0) >= day) return 'earnings mark, walked inside the report band';
+  if (st.issuer === 'bank_1') return 'bank book and a capped earnings spread';
+  return 'discounted reported earnings, plus stakes at book';
+}
+
+function markInputsOf(w: World, st: Stock): string {
+  const sh = sharesOut(w, st.instr);
+  if (st.issuer === 'bank_1') {
+    const book = bookEquity(w, st.issuer);
+    return `book ${book} cents, shares ${sh}, earnings anchor ${Math.round(st.profitEma)} cents a month, capped at 18% of book`;
+  }
+  return `earnings anchor ${Math.round(st.profitEma)} cents a month, dividend anchor ${Math.round(st.divEma)}, stakes ${Math.round(st.stakePx ?? 0)} cents a share, shares ${sh}`;
+}
+
+/** Book value of listed stakes this issuer holds, per own share. Not the other name's last print. */
+function stakePerShare(w: World, issuer: string): number {
+  const held = w.ledger.heldInstrs(issuer);
+  if (!held) return 0;
+  const mine = 'eq:' + issuer;
+  const sh = sharesOut(w, mine);
+  if (sh < 1) return 0;
+  let v = 0;
+  for (const instr of held) {
+    if (instr.charCodeAt(0) !== 101 || instr.charCodeAt(2) !== 58 || instr === mine) continue;
+    const out = sharesOut(w, instr);
+    if (out < 1) continue;
+    const eq = bookEquity(w, instr.slice(3));
+    if (!(eq > 0)) continue;
+    const q = Math.floor(w.ledger.balance(issuer, instr));
+    if (q > 0) v += q * (eq / out);
+  }
+  return v / sh;
+}
+
+function refreshStakes(w: World): void {
+  for (const st of book(w).stocks) st.stakePx = stakePerShare(w, st.issuer);
+}
+
+/** After the book has traded, the official mark walks toward earnings inside the day's band. A fill is the only thing that sets the last execution. A session with no fill is an indicative mark, not a trade. */
 function settleTick(w: World, t: number): void {
+  if (!tradingDay(w.day)) return;
   const last = t >= w.ticksPerDay - 1;
   for (const st of book(w).stocks) {
     const dest = destination(w, st);
     const { hi, lo } = collar(w, st, dest);
-    st.last = Math.max(lo, Math.min(hi, dest));
+    const mark = Math.max(lo, Math.min(hi, dest));
+    st.mark = mark;
+    st.markRule = markRuleOf(st, w.day);
+    if (last) st.markInputs = markInputsOf(w, st);
+    // The quote the city trades against is the mark. The tape only moves in note().
+    if (!st.traded) st.last = mark;
+    else if (st.last < lo || st.last > hi) st.last = mark;
+    // A mark with no print cannot gap more than 40% from yesterday. A larger move needs a fill and a disclosed event.
+    if (!st.traded && st.prev > 0) {
+      const capHi = Math.round(st.prev * 1.4);
+      const capLo = Math.max(1, Math.round(st.prev * 0.6));
+      if (st.last > capHi) { st.last = capHi; st.mark = capHi; }
+      else if (st.last < capLo) { st.last = capLo; st.mark = capLo; }
+    }
     if (last) { fadeCorner(w, st); st.imp = 0; st.closedOn = w.day; }
-    if (!st.traded) { st.open = st.prev; st.high = Math.max(st.prev, st.last); st.low = Math.min(st.prev, st.last); st.traded = true; }
-    else { if (st.last > st.high) st.high = st.last; if (st.last < st.low) st.low = st.last; }
     st.tgt = st.last;
     st.tgtSeq = (st.tgtSeq ?? 0) + 1;
+    if (st.traded && st.lastExecDay !== w.day) {
+      st.lastExecDay = w.day;
+      st.lastExecTick = t;
+      st.lastExecPx = st.lastExecPx ?? st.last;
+    }
   }
 }
 
@@ -1482,6 +1612,134 @@ export function pulseOf(w: World, instr: string): Pulse | undefined {
 export function setQuote(w: World, instr: string, px: number): void {
   const st = book(w)?.stocks.find((x) => x.instr === instr);
   if (st) st.last = Math.max(1, Math.round(px));
+}
+
+/** Best executable price and size. A mark with an empty book is not a market. */
+export function executableTouch(w: World, instr: string, side: 'buy' | 'sell'): { px: number; qty: number; basis: 'executable' | 'none' } {
+  const book = bookLevels(w, instr, 1);
+  const lv = side === 'buy' ? book.asks[0] : book.bids[0];
+  if (!lv || lv.qty < 1 || lv.px < 1) return { px: 0, qty: 0, basis: 'none' };
+  return { px: lv.px, qty: lv.qty, basis: 'executable' };
+}
+
+export interface QuoteFact {
+  instr: string;
+  mark: number;
+  markRule: string;
+  markInputs: string;
+  bid: number;
+  ask: number;
+  bidQty: number;
+  askQty: number;
+  lastExecPx: number;
+  lastExecDay: number;
+  lastExecTick: number;
+  lastExecQty: number;
+  sessionVol: number;
+  volSource: 'real' | 'none';
+  barSource: 'traded' | 'indicative';
+  sessionDay: number;
+  sessionDate: string;
+  sessionLabel: string;
+  liq: string;
+}
+
+/** One instrument's facts. Session volume is fills only. */
+export function quoteFact(w: World, instr: string): QuoteFact | null {
+  const st = book(w)?.stocks.find((x) => x.instr === instr);
+  if (!st) return null;
+  const bids = bookLevels(w, instr, 1);
+  const open = tradingDay(w.day);
+  const asOf = open ? w.day : lastSessionDay(w.day);
+  return {
+    instr,
+    mark: st.mark ?? st.last,
+    markRule: st.markRule ?? markRuleOf(st, w.day),
+    markInputs: st.markInputs ?? markInputsOf(w, st),
+    bid: bids.bids[0]?.px ?? 0,
+    ask: bids.asks[0]?.px ?? 0,
+    bidQty: bids.bids[0]?.qty ?? 0,
+    askQty: bids.asks[0]?.qty ?? 0,
+    lastExecPx: st.lastExecPx ?? 0,
+    lastExecDay: st.lastExecDay ?? -1,
+    lastExecTick: st.lastExecTick ?? -1,
+    lastExecQty: st.lastExecQty ?? 0,
+    sessionVol: st.vol,
+    volSource: st.vol > 0 ? 'real' : 'none',
+    barSource: st.barSrc ?? (st.vol > 0 ? 'traded' : 'indicative'),
+    sessionDay: asOf,
+    sessionDate: dateText(asOf),
+    sessionLabel: open ? 'today' : `last session, ${dateText(asOf)}`,
+    liq: 'stops, buy-ins and margin use executable depth; a mark with no bid or ask does not fire',
+  };
+}
+
+function lastSessionDay(day: number): number {
+  let d = day - 1;
+  while (d > 0 && !tradingDay(d)) d--;
+  return Math.max(0, d);
+}
+
+export interface OrderLife {
+  id: number;
+  book: string;
+  instr: string;
+  side: string;
+  qty: number;
+  status: 'queued' | 'working' | 'filled' | 'partial' | 'rejected' | 'cancelled';
+  type: string;
+  reserved: number;
+  limit: number | null;
+  next: string;
+  reason: string;
+  fills: { day: number; tick: number; qty: number; px: number; fee: number }[];
+  rejectedQty: number;
+  fee: number;
+}
+const lives = new WeakMap<World, OrderLife[]>();
+export function orderLives(w: World): OrderLife[] {
+  let list = lives.get(w);
+  if (!list) { list = []; lives.set(w, list); }
+  return list;
+}
+export function noteLife(w: World, row: OrderLife): OrderLife {
+  const list = orderLives(w);
+  const at = list.findIndex((x) => x.id === row.id && x.book === row.book);
+  if (at >= 0) list[at] = row; else list.push(row);
+  if (list.length > 80) list.splice(0, list.length - 80);
+  return row;
+}
+
+/** The next weekday the exchange is open, and the words a queued order should show. */
+export function nextSessionText(w: World): string {
+  let d = w.day;
+  if (w.tickDone > 0 || !tradingDay(d)) d++;
+  while (d < w.day + 12 && !tradingDay(d)) d++;
+  return `${dateText(d)} at the open`;
+}
+
+export function marketAudit(w: World): {
+  sectors: SectorMove[];
+  indexMoves: IndexMove[];
+  fillShare: number;
+  sessions: number;
+  index: number;
+  tr: number;
+  breaches: number;
+} {
+  const m = book(w);
+  const rates = m.stocks.map((st) => (st.fillN ?? 0) / Math.max(1, st.sessN ?? 0)).filter((x) => Number.isFinite(x));
+  rates.sort((a, b) => a - b);
+  const mid = rates.length ? rates[Math.floor(rates.length / 2)] : 0;
+  return {
+    sectors: Object.values(m.sectorMax ?? {}).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)),
+    indexMoves: m.bigMoves ?? [],
+    fillShare: mid,
+    sessions: m.sessions ?? 0,
+    index: m.index,
+    tr: m.tr,
+    breaches: m.breaches ?? 0,
+  };
 }
 
 export const markets: Module = {
@@ -1588,7 +1846,9 @@ export const markets: Module = {
     const ranked = [...pre].sort((a, b) => a.last * a.sh - b.last * b.sh);
     const rankOf = new Map(ranked.map((r, i) => [r.st.instr, ranked.length > 1 ? i / (ranked.length - 1) : 0.5]));
     for (const { st, sh, last: last0 } of pre) {
-      let last = last0;
+      const stakePer = sh > 0 ? stakePerShare(w, st.issuer) : 0;
+      const earnLast = last0;
+      let last = Math.max(1, Math.round(earnLast + stakePer));
       const u = hashUnit(st.instr);
       const frac = 0.55 * u + 0.45 * (rankOf.get(st.instr) ?? 0.5);
       const target = Math.exp(Math.log(OPEN_LOW) + frac * (Math.log(OPEN_HIGH) - Math.log(OPEN_LOW)));
@@ -1603,7 +1863,12 @@ export const markets: Module = {
         last = Math.max(1, Math.round(last / ratio));
       }
       st.last = last; st.prev = last; st.open = last; st.high = last; st.low = last;
-      const x = impliedEma(s, last, s.policyRate, 0.04, shOut);
+      st.mark = last;
+      st.shY = shOut;
+      st.stakePx = ratio > 0 ? stakePer / ratio : 0;
+      // The earnings anchor is the earnings portion only. Folding the stake into it
+      // and then adding the stake again was a second, untraded reprice.
+      const x = impliedEma(s, Math.max(1, Math.round(earnLast / ratio)), s.policyRate, 0.04, shOut);
       st.divEma = x;
       st.profitEma = x;
     }
@@ -1638,7 +1903,7 @@ export const markets: Module = {
   },
 
   tick(w, t) {
-    if (t === 0) { updateEmas(w); markWide(w); }
+    if (t === 0) { updateEmas(w); markWide(w); refreshStakes(w); }
     const m = book(w);
     const cbLast = econ(w).cbLast;
     if (cbLast && cbLast.day === w.day && m.rateSeen !== cbLast.ev) { m.rateSeen = cbLast.ev; rateShock(w, cbLast); }
@@ -1681,42 +1946,87 @@ export const markets: Module = {
       o.skip = false;
       if (self && o.open && o.limit === null && o.actor === self) o.open = false;
     }
-    let cap = 0;
-    // The close is the earnings quote, inside the day's band. A thin print used to set the mark
-    // and then sit there, so a cheap earnings yield survived for months.
-    for (const st of m.stocks) {
-      if (st.forced) st.forced = st.forced < 0.01 ? 0 : st.forced * FORCED_DECAY;
-      // The last tick of the session set the close. A world that ran no ticks marks it here.
-      if (st.closedOn === w.day) continue;
-      const { hi, lo } = collar(w, st);
-      st.last = Math.max(lo, Math.min(hi, destination(w, st)));
-      fadeCorner(w, st);
+    const open = tradingDay(w.day);
+    // A closed day does not revalue, and it does not print. The Sunday mark used to
+    // become Monday's "close" in the paper.
+    if (open) {
+      for (const st of m.stocks) {
+        if (st.forced) st.forced = st.forced < 0.01 ? 0 : st.forced * FORCED_DECAY;
+        if (st.closedOn === w.day) continue;
+        const { hi, lo } = collar(w, st);
+        const mark = Math.max(lo, Math.min(hi, destination(w, st)));
+        st.mark = mark;
+        if (!st.traded) st.last = mark;
+        fadeCorner(w, st);
+      }
     }
+    const sectorMax = m.sectorMax ?? (m.sectorMax = {});
+    let num = 0, den = 0;
+    const parts: IndexPart[] = [];
+    if (open) m.sessions = (m.sessions ?? 0) + 1;
     for (const st of m.stocks) {
-      const ch = st.prev > 0 ? st.last / st.prev - 1 : 0;
-      // A small print already has its earnings story. A move line for every name
-      // fills the page and the EPS scrolls off before a reader acts. A large
-      // print still makes the paper: that is the crash people spend less after.
-      const onPrint = (st.printUntil ?? 0) >= w.day && (st.printEv ?? -1) >= 0;
-      if (Math.abs(ch) > 0.05 && (!onPrint || Math.abs(ch) >= 0.10)) {
+      // A fill, a paper bid, or a split can write last after the last tick. The close the
+      // tape and the index use is still inside today's band. A closed session keeps yesterday.
+      if (open) {
+        const { hi, lo } = collar(w, st);
+        if (st.last > hi) st.last = hi;
+        else if (st.last < lo) st.last = lo;
+      } else if (st.prev > 0 && st.last > 0) {
+        const ratio = st.last / st.prev;
+        if (ratio > 1.4 || ratio < 0.6) st.last = st.prev;
+      }
+      const ch = open && st.prev > 0 ? st.last / st.prev - 1 : 0;
+      if (open && Math.abs(ch) > 0.4) m.breaches = (m.breaches ?? 0) + 1;
+      const traded = open && st.vol > 0;
+      st.barSrc = traded ? 'traded' : 'indicative';
+      if (open && Math.abs(ch) > 0.05 && traded) {
         const pct = (ch * 100).toFixed(1);
-        const id = w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%)`, causesFor(w, st), st.issuer);
+        const when = dateText(w.day);
+        const id = w.events.emit('mkt.move', `${st.instr} close ${st.prev} -> ${st.last} (${ch >= 0 ? '+' : ''}${pct}%) session ${when}`, causesFor(w, st), st.issuer);
         const s = econ(w);
         const f = firmOf(s, st.issuer);
         const ceo = f && f.ceo >= 0 && f.ceo < s.P.n && s.P.alive(f.ceo) ? f.ceo : -1;
         st.moveEv = f && ceo >= 0
           ? w.events.emit('mkt.who', `${s.P.name(ceo)} marks ${f.name} at ${st.last}`, [id], s.P.id(ceo))
           : id;
+      } else if (open && Math.abs(ch) >= 0.08 && !traded) {
+        st.moveEv = w.events.emit('mkt.mark', `${st.instr} indicative mark ${st.prev} -> ${st.last} (${(ch * 100).toFixed(1)}%), no execution. ${st.markRule ?? markRuleOf(st, w.day)}. ${st.markInputs ?? ''}`, causesFor(w, st), st.issuer);
       }
+      const vol = open ? st.vol : 0;
       st.hist.push({
-        o: st.traded ? st.open : st.last,
-        h: st.traded ? st.high : st.last,
-        l: st.traded ? st.low : st.last,
+        o: traded ? st.open : st.prev || st.last,
+        h: traded ? st.high : st.last,
+        l: traded ? st.low : st.last,
         c: st.last,
-        v: st.vol,
+        v: vol,
+        src: traded ? 'traded' : 'indicative',
       });
-      st.rets.push(ch);
-      if (st.rets.length > 16) st.rets.shift();
+      if (open) {
+        st.rets.push(ch);
+        if (st.rets.length > 16) st.rets.shift();
+        st.sessN = (st.sessN ?? 0) + 1;
+        if (traded) st.fillN = (st.fillN ?? 0) + 1;
+        const sector = st.issuer === BANK ? 'Bank' : (firmOf(econ(w), st.issuer)?.sector ?? 'Other');
+        const cause = traded ? `traded, ${st.markRule ?? 'book'}` : `indicative, no execution, ${st.markRule ?? 'model mark'}`;
+        const prev = sectorMax[sector];
+        if (!prev || Math.abs(ch) > Math.abs(prev.pct)) sectorMax[sector] = { sector, instr: st.instr, day: w.day, pct: ch, vol, cause, traded };
+        const sh0 = st.shY;
+        const sh1 = sharesOut(w, st.instr);
+        // Divisor: yesterday's share count on both legs. A split or a listing changes the count
+        // and the price together; scaling the price again was an 9× "move" with no trade.
+        if (sh0 && sh0 > 0 && sh1 > 0 && st.prev > 0) {
+          const ratio = sh1 / sh0;
+          const pxChg = st.last / st.prev - 1;
+          const shareNote = ratio >= 1.5 || ratio <= 0.67 ? `, share count ${sh0} -> ${sh1}, divisor unchanged` : '';
+          num += st.last * sh0;
+          den += st.prev * sh0;
+          parts.push({
+            instr: st.instr, sector, weight: st.prev * sh0, pxChg,
+            contrib: 0, vol, cause: cause + shareNote,
+          });
+        }
+        st.shY = sh1;
+      }
       st.prev = st.last;
       st.open = st.last;
       st.high = st.last;
@@ -1724,9 +2034,26 @@ export const markets: Module = {
       st.vol = 0;
       st.traded = false;
       st.wide = false;
-      cap += st.last * sharesOut(w, st.instr);
     }
-    m.index = 100 * cap / m.baseCap;
+    if (open && den > 0) {
+      const prevIdx = m.index > 0 ? m.index : 100;
+      for (const p of parts) {
+        p.contrib = (p.pxChg * p.weight / den) * prevIdx;
+        p.weight = p.weight / den;
+      }
+      parts.sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib) || (a.instr < b.instr ? -1 : 1));
+      m.indexPrev = prevIdx;
+      m.index = prevIdx * num / den;
+      m.tr *= num / den;
+      const pct = m.index / prevIdx - 1;
+      const row: IndexMove = { day: w.day, index: m.index, prev: prevIdx, pct, parts: parts.slice(0, 6) };
+      const big = m.bigMoves ?? (m.bigMoves = []);
+      if (big.length < 8 || Math.abs(pct) > Math.abs(big[big.length - 1].pct)) {
+        big.push(row);
+        big.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+        if (big.length > 8) big.length = 8;
+      }
+    }
     drawMood(w, w.day + 1);
   },
 
@@ -1737,19 +2064,17 @@ export const markets: Module = {
     // the way a published total-return index is built. A holder who pays tax earns less than this series.
     {
       const s = econ(w);
-      // Chain-linked over the names that were listed at both dates, so a new listing does not
-      // count its whole capitalisation as a return, and a split changes nothing.
-      let cap = 0, num = 0, den = 0;
+      // Price return is chained every session. This adds the month's payout on the same names,
+      // so the total-return index and the price index share a date.
+      let den = 0, div = 0;
       for (const st of m.stocks) {
-        const c = st.last * sharesOut(w, st.instr);
-        cap += c;
+        const sh = st.shY ?? sharesOut(w, st.instr);
+        den += st.last * sh;
         const f = firmOf(s, st.issuer);
-        const div = f ? Math.max(0, f.lastDividend) : 0;
-        if (st.trPrev && st.trPrev > 0) { num += c + div; den += st.trPrev; }
-        st.trPrev = c;
+        if (f) div += Math.max(0, f.lastDividend);
       }
-      if (den > 0) m.tr *= num / den;
-      m.trCap = Math.max(1, cap);
+      if (den > 0 && div > 0) m.tr *= (den + div) / den;
+      m.trCap = Math.max(1, den);
       // Learn the growth rate once a year from the trailing twelve months of listed profit against the twelve before.
       let prof = 0;
       for (const st of m.stocks) { const f = firmOf(s, st.issuer); if (f && f.lastProfit > 0) prof += f.lastProfit; }

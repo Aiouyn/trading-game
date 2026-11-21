@@ -1427,7 +1427,17 @@ export function orderCoin(w: World, actor: string, coin: string, side: 'buy' | '
       st.orders.push({ id, actor, instr: major.id, side, qty: left, limit: cap, seq: st.seq++, open: true });
       r.orderId = id;
     }
-    if (r.filled < 1 && r.orderId === undefined) r.why = side === 'buy' ? 'no dealer will sell any at that price, or you cannot pay for one' : 'no dealer will buy any at that price, or you hold none';
+    if (r.filled < 1 && r.orderId === undefined) {
+      const ladder = majorLadder(w, major, side);
+      const px = ladder[0]?.px ?? 0;
+      if (side === 'buy') {
+        if (cap !== null && px > 0 && px > cap) r.why = 'limit';
+        else if (px > 0 && Math.floor(cashOf(w, actor) / px) < 1) r.why = 'too little cash';
+        else r.why = 'no willing seller';
+      } else if (Math.floor(w.ledger.balance(actor, major.id)) < 1) r.why = 'you hold none';
+      else if (cap !== null && px > 0 && px < cap) r.why = 'limit';
+      else r.why = 'no willing buyer';
+    }
     return { ...r, fill: r.filled };
   }
   const meme = memeOf(w, coin);

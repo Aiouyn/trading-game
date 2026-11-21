@@ -31,9 +31,9 @@ import { clockText, dateText } from './modules/player/gamedate.ts';
 import { calDate, dateYear, shortDate, weekdayShort } from './kernel/calendar.ts';
 import { seatId, tonightFaces } from './modules/venues/world.ts';
 import { courseBoard } from './modules/courses/index.ts';
-import { bookLevels, saleProceeds, saleValue } from './modules/markets/index.ts';
+import { bookLevels, orderLives, quoteFact, saleProceeds, saleValue } from './modules/markets/index.ts';
 import { callNeed, marginLimit, productHaircuts } from './modules/banking/index.ts';
-import { act, coinMark, deskMinute, ensurePlayer, netWorthOf, playerIndex, soleSeat, view, worthParts, type Command } from './modules/player/index.ts';
+import { accountSnapshot, act, coinMark, deskMinute, ensurePlayer, netWorthOf, playerIndex, soleSeat, view, worthParts, type Command } from './modules/player/index.ts';
 import { answerAsk, editionsFor, STANCES } from './modules/media/index.ts';
 import { noticeRows } from './modules/circle/notices.ts';
 import { civicSnapshot } from './modules/politics/index.ts';
@@ -47,10 +47,12 @@ import { tutorialOf } from './modules/player/tutorial.ts';
 import { parseCommand } from './play.ts';
 import { barsFor, listBars } from './modules/markets/bars.ts';
 import { coinClock, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
-import { fxMark, fxPairs } from './modules/abroad/index.ts';
-import { futureUnit } from './modules/commodities/index.ts';
+import { fxMark, fxPairs, fxQuote } from './modules/abroad/index.ts';
+import { futureQuote, futureUnit } from './modules/commodities/index.ts';
 import { CB_MINUTE } from './modules/markets/calendar.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
+import { tradingDay } from './modules/markets/noise.ts';
+import { curveShape } from './modules/bonds/index.ts';
 
 /** x1: one real hour is one game day. day, week and month are the old fast-forward speeds, kept for scripts. */
 type Speed = 'pause' | 'x1' | 'x2' | 'x5' | 'x10' | 'x25' | 'day' | 'week' | 'month';
@@ -617,16 +619,25 @@ function issuerName(w: World, issuer: string): string {
   return findFirm(w, issuer)?.name ?? issuer;
 }
 
-function session(st: Stock): { px: number; prev: number; vol: number } {
-  const moved = st.vol > 0 || st.last !== st.prev;
-  if (moved) return { px: st.last, prev: st.prev > 0 ? st.prev : st.last, vol: st.vol };
-  const h = st.hist;
-  if (h.length >= 2) {
-    const c = h[h.length - 1].c;
-    const p = h[h.length - 2].c;
-    return { px: c, prev: p > 0 ? p : c, vol: h[h.length - 1].v };
+function session(w: World, st: Stock): { px: number; prev: number; vol: number; asOf: 'today' | 'last session'; sessionDay: number; sessionDate: string; volSource: 'real' | 'none'; barSource: 'traded' | 'indicative' } {
+  const open = tradingDay(w.day);
+  const prev = st.prev > 0 ? st.prev : st.last;
+  if (open) {
+    return {
+      px: st.last, prev, vol: st.vol, asOf: 'today', sessionDay: w.day, sessionDate: dateText(w.day),
+      volSource: st.vol > 0 ? 'real' : 'none', barSource: st.vol > 0 ? 'traded' : 'indicative',
+    };
   }
-  return { px: st.last, prev: st.prev > 0 ? st.prev : st.last, vol: st.vol };
+  let d = w.day - 1;
+  while (d > 0 && !tradingDay(d)) d--;
+  const h = st.hist;
+  const bar = h.length ? h[h.length - 1] : undefined;
+  return {
+    px: st.last, prev: bar && h.length >= 2 ? h[h.length - 2].c : prev, vol: bar?.v ?? 0,
+    asOf: 'last session', sessionDay: Math.max(0, d), sessionDate: dateText(Math.max(0, d)),
+    volSource: (bar?.v ?? 0) > 0 ? 'real' : 'none',
+    barSource: (bar as { src?: string } | undefined)?.src === 'traded' ? 'traded' : 'indicative',
+  };
 }
 
 function yoyOf(s: EconState): number {
@@ -1071,7 +1082,7 @@ function booksOf(w: World): Map<string, BookSide> {
   return out;
 }
 
-function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; sector: string; px: number; prev: number; chg: number; vol: number; pe: number | null; pos: number; eventId: number; spark: number[]; bid: number; ask: number; book: BookSide; ret1y: number | null; prod: number | null }[] {
+function quotesOf(w: World): { instr: string; symbol: string; name: string; issuer: string; sector: string; px: number; prev: number; chg: number; chgBase: string; chgWindow: string; vol: number; volSource: string; barSource: string; asOf: string; sessionDay: number; sessionDate: string; pe: number | null; pos: number; eventId: number; spark: number[]; bid: number; ask: number; bidQty: number; askQty: number; book: BookSide; ret: number | null; ret1y: number | null; retWindow: string; retSessions: number; prod: number | null; prodWindow: string; mark: number; markRule: string; markInputs: string; lastExecPx: number; lastExecDay: number; lastExecTick: number; liqBasis: string }[] {
   const root = (w.state.markets as { root?: number } | undefined)?.root ?? w.genesis;
   const books = booksOf(w);
   const who = playerIndex(w);
@@ -1079,7 +1090,8 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
   const firms = econ(w).firms;
   const prodBy = sectorProductivity(w);
   return stocksOf(w).map((st) => {
-    const ses = session(st);
+    const ses = session(w, st);
+    const fact = quoteFact(w, st.instr);
     const book = books.get(st.instr) ?? { bids: [], asks: [] };
     const f = firms.find((x) => x.id === st.issuer);
     const shares = Math.floor(w.ledger.issued.get(st.instr) ?? 0);
@@ -1090,8 +1102,12 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
     }
     // Return over the last year of trading (or since listing, if younger), from the daily closes.
     const h = st.hist;
-    const base = h.length ? h[Math.max(0, h.length - 360)].c : 0;
+    const sessions = h.length;
+    const year = sessions >= 360;
+    const base = h.length ? h[Math.max(0, h.length - (year ? 360 : sessions))].c : 0;
+    const ret = base > 0 && ses.px > 0 ? ses.px / base - 1 : null;
     const sector = st.issuer === 'bank_1' ? 'Bank' : (f?.sector ?? '');
+    const years = w.day >= 360;
     return {
       instr: st.instr,
       symbol: symbolOf(st.instr),
@@ -1101,14 +1117,34 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
       px: ses.px,
       prev: ses.prev,
       chg: ses.prev > 0 ? ses.px / ses.prev - 1 : 0,
+      chgBase: 'previous close',
+      chgWindow: ses.asOf === 'today' ? 'today' : ses.sessionDate,
       vol: ses.vol,
+      volSource: fact?.volSource ?? ses.volSource,
+      barSource: fact?.barSource ?? ses.barSource,
+      asOf: ses.asOf,
+      sessionDay: ses.sessionDay,
+      sessionDate: ses.sessionDate,
       pe,
       pos: id ? Math.floor(w.ledger.balance(id, st.instr)) : 0,
-      ret1y: base > 0 && ses.px > 0 ? ses.px / base - 1 : null,
-      prod: prodBy.get(sector) ?? null,
+      ret,
+      ret1y: year && ret !== null ? ret : null,
+      retWindow: year ? '1y' : `since listing, ${sessions} sessions`,
+      retSessions: sessions,
+      prod: years ? (prodBy.get(sector) ?? null) : null,
+      prodWindow: years ? '1y' : 'not yet a year',
       spark: sparkOf(st),
-      bid: book.bids[0]?.px ?? 0,
-      ask: book.asks[0]?.px ?? 0,
+      bid: fact?.bid ?? book.bids[0]?.px ?? 0,
+      ask: fact?.ask ?? book.asks[0]?.px ?? 0,
+      bidQty: fact?.bidQty ?? book.bids[0]?.qty ?? 0,
+      askQty: fact?.askQty ?? book.asks[0]?.qty ?? 0,
+      mark: fact?.mark ?? ses.px,
+      markRule: fact?.markRule ?? '',
+      markInputs: fact?.markInputs ?? '',
+      lastExecPx: fact?.lastExecPx ?? 0,
+      lastExecDay: fact?.lastExecDay ?? -1,
+      lastExecTick: fact?.lastExecTick ?? -1,
+      liqBasis: 'executable',
       book,
       eventId: (() => {
         if (st.issuer === 'bank_1') return st.moveEv ?? econ(w).rateWho ?? econ(w).cpiWho ?? root;
@@ -1119,19 +1155,11 @@ function quotesOf(w: World): { instr: string; symbol: string; name: string; issu
 }
 
 function indexPair(w: World): { index: number; prev: number; eventId: number } {
-  const mkt = w.state.markets as { index?: number; baseCap?: number; root?: number } | undefined;
-  const list = stocksOf(w);
-  const base = mkt?.baseCap || 1;
-  let now = 0, prev = 0;
-  for (const st of list) {
-    const sh = w.ledger.issued.get(st.instr) ?? 1_000_000;
-    const ses = session(st);
-    now += ses.px * sh;
-    prev += ses.prev * sh;
-  }
+  const mkt = w.state.markets as { index?: number; indexPrev?: number; root?: number } | undefined;
+  const index = mkt?.index ?? 0;
   return {
-    index: list.length ? 100 * now / base : (mkt?.index ?? 0),
-    prev: list.length ? 100 * prev / base : (mkt?.index ?? 0),
+    index,
+    prev: mkt?.indexPrev && mkt.indexPrev > 0 ? mkt.indexPrev : index,
     eventId: w.events.last('mkt.who') ?? w.events.last('mkt.move') ?? econ(w).cpiWho ?? mkt?.root ?? w.genesis,
   };
 }
@@ -1558,7 +1586,7 @@ function playerBook(w: World): { shares: { instr: string; qty: number; px: numbe
   const shares: { instr: string; qty: number; px: number; eventId: number }[] = [];
   if (i >= 0) for (const st of stocksOf(w)) {
     const qty = Math.floor(w.ledger.balance(id, st.instr));
-    if (qty > 0) shares.push({ instr: st.instr, qty, px: session(st).px, eventId: root });
+    if (qty > 0) shares.push({ instr: st.instr, qty, px: session(w, st).px, eventId: root });
   }
   const orders: { id: number; book: string; instr: string; side: string; qty: number; limit: number | null; eventId: number }[] = [];
   const mOrders = (w.state.markets as { orders?: { id: number; actor: string; instr: string; side: string; qty: number; limit: number | null; open: boolean }[] } | undefined)?.orders ?? [];
@@ -2400,7 +2428,7 @@ function quoteTick(w: World): { instr: string; px: number; prev: number; chg: nu
   const who = playerIndex(w);
   const id = who >= 0 ? econ(w).P.id(who) : '';
   return stocksOf(w).map((st) => {
-    const ses = session(st);
+    const ses = session(w, st);
     return {
       instr: st.instr,
       px: ses.px,
@@ -2427,7 +2455,8 @@ function tickFrame(w: World): Record<string, unknown> {
   const abs = w.day;
   const cal = calDate(abs);
   const price = markOf(w, id);
-  const worth = i >= 0 ? netWorthOf(w, i) : 0;
+  const account = i >= 0 ? accountSnapshot(w, i, closeWorth) : null;
+  const worth = account?.netWorth ?? 0;
   const book = playerBook(w);
   const alive = i >= 0 && P.alive(i);
   return {
@@ -2436,13 +2465,20 @@ function tickFrame(w: World): Record<string, unknown> {
     alive,
     over: (pst?.over ?? false) || !alive,
     final: pst?.final ?? '',
-    cash: i >= 0 ? Math.floor(w.ledger.balance(id, DEP)) : 0,
-    netWorth: worth,
+    cash: account?.cash ?? 0,
+    netWorth: account?.netWorth ?? worth,
+    account,
+    nwChange: account?.today.dollars ?? 0,
+    todayPct: account?.today.pct ?? 0,
+    investment: account?.investment ?? 0,
+    spending: account?.spending ?? 0,
+    flows: account?.flows ?? 0,
     epoch: `${bootPid}:${worldEpoch}`,
     quotes: quoteTick(w),
     shares: book.shares,
     coins: heldCoins(w),
     orders: book.orders,
+    orderRecords: orderLives(w),
     news: headlines(w),
     scenario: scenarioCard(w),
     society: societyTick(w),
@@ -3104,6 +3140,8 @@ function institutionsPanel(w: World): Record<string, unknown> {
       points: tailPts(macro.power, finite(grid?.wholesale) ? { day, v: grid.wholesale, eventId: powerEv } : null),
     },
     curve,
+    curveShape: curveShape(bonds?.y).shape,
+    curveSlopeBp: curveShape(bonds?.y).slopeBp,
     bank: {
       text: decision?.msg ?? `The opening rate stands at ${(s.policyRate * 100).toFixed(2)}%`,
       eventId: decision ? deskId! : (reading[0]?.id ?? rateId),
@@ -4085,12 +4123,17 @@ function screen(w: World): Record<string, unknown> {
     lot: b.lot,
     eventId: cmd?.root ?? w.genesis,
     tenors: b.tenors.map((t) => ({ monthsAhead: t.month - w.month, px: t.px, prev: t.prev })),
+    quote: (() => {
+      const q = futureQuote(w, b.good, 0, 1);
+      return 'why' in q ? null : { spot: q.spot, front: q.front, roll: q.roll, bid: q.bid, ask: q.ask, fee: q.fee, roundTripCost: q.roundTripCost, curve: q.curve };
+    })(),
   }));
   const coins = coinRows(w, me, v.coins);
   const idx = indexPair(w);
   const firmsDir = firms.map((f) => ({ id: f.id, name: f.name }));
   const job = me >= 0 && P.employer[me] >= 0 ? firms[P.employer[me]] : undefined;
   if (contacts.length > 48) contacts.length = 48;
+  const account = me >= 0 ? accountSnapshot(w, me, closeWorth) : null;
   return {
     ...v,
     bonds: markedBonds(w, v.bonds),
@@ -4113,11 +4156,19 @@ function screen(w: World): Record<string, unknown> {
     hosted: circleHostedRows(w),
     news,
     private: priv,
-    nwChange: v.netWorth - closeWorth,
-    markChange: markChangeOf(w, v.netWorth - closeWorth),
+    account,
+    netWorth: account?.netWorth ?? v.netWorth,
+    cash: account?.cash ?? v.cash,
+    nwChange: account ? account.today.dollars : v.netWorth - closeWorth,
+    todayPct: account?.today.pct ?? 0,
+    investment: account?.investment ?? 0,
+    spending: account?.spending ?? 0,
+    flows: account?.flows ?? 0,
+    markChange: account ? account.today.dollars : v.netWorth - closeWorth,
     yesterday: yesterdayChange,
     sinceOpen: v.netWorth - openWorth,
     quotes: quotesOf(w),
+    orderRecords: orderLives(w),
     firms: firmsDir,
     tape: {
       unemployment: s.unemployment,
@@ -4143,6 +4194,8 @@ function screen(w: World): Record<string, unknown> {
       },
     },
     curve,
+    curveShape: curveShape(bonds?.y).shape,
+    curveSlopeBp: curveShape(bonds?.y).slopeBp,
     chain: heldChain(w),
     chainPartial: true,
     epoch: `${bootPid}:${worldEpoch}`,
@@ -4279,11 +4332,14 @@ function fxOf(w: World): Record<string, unknown> {
   const live = livePrices(w);
   const pairs = fxPairs(w).map((p) => {
     const q = live.get(p.id) ?? p.q;
-    const half = (abroad?.cfg?.spread ?? 0) / 2;
+    const desk = fxQuote(w, p.code, 100);
     const held = id ? Math.floor(w.ledger.balance(id, p.fx)) : 0;
+    const quoted = 'fee' in desk ? desk : undefined;
     return {
       id: p.id, code: p.code, name: p.name, main: p.main,
-      mid: q, bid: q * (1 - half), ask: q * (1 + half),
+      mid: q, bid: quoted?.bid ?? p.bid, ask: quoted?.ask ?? p.ask,
+      fee: quoted?.fee ?? 0, stress: quoted?.stress ?? 0, roundTripCost: quoted?.roundTripCost ?? 0,
+      executableSize: quoted?.size ?? 0,
       held: held / 100, value: Math.round(held * q), foreignRate: p.policy,
     };
   });
@@ -4359,7 +4415,7 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
       deposits: Math.round(w.ledger.issued.get(DEP) ?? 0),
       equity: Math.round(w.ledger.netWorth('bank_1')),
       eventId: econ(w).rateWho ?? st?.moveEv ?? econ(w).macroEv,
-      share: st ? { instr: st.instr, ...session(st) } : undefined,
+      share: st ? { instr: st.instr, ...session(w, st) } : undefined,
       daily: st ? closes(st, w.day, false) : [],
       span: st ? closes(st, w.day, true) : [],
       holders: topHolders(w, 'eq:bank_1'),
@@ -4397,7 +4453,7 @@ function firmPage(w: World, key: string): Record<string, unknown> | undefined {
       debt: econ(w).rateWho ?? econ(w).rateEv,
       share: stocksOf(w).find((s) => s.issuer === f.id)?.moveEv ?? f.priceWho ?? econ(w).macroEv,
     },
-    share: st ? { instr: st.instr, symbol: symbolOf(st.instr), ...session(st) } : undefined,
+    share: st ? { instr: st.instr, symbol: symbolOf(st.instr), ...session(w, st) } : undefined,
     daily: st ? closes(st, w.day, false) : [],
     span: st ? closes(st, w.day, true) : [],
     holders: st ? topHolders(w, st.instr) : topHolders(w, 'eq:' + f.id),
@@ -4660,15 +4716,23 @@ function clockLabel(day: number, min: number): string {
 }
 
 /** The player's money this minute: the one net worth, its parts, cash, and the change since midnight. */
+function accountNow(): ReturnType<typeof accountSnapshot> | null {
+  if (!started || !w) return null;
+  const i = playerIndex(w);
+  if (i < 0) return null;
+  return accountSnapshot(w, i, closeWorth);
+}
+
 function moneyBlock(): Record<string, unknown> {
   if (!started || !w) return {};
   try {
     const i = playerIndex(w);
     if (i < 0) return {};
+    const account = accountSnapshot(w, i, closeWorth);
     const parts = worthParts(w, i);
     // Today's and yesterday's cash book ride along, so the statement on screen always matches the cash beside it.
     const book = { day: w.day, today: cashDay(w, w.day), yesterday: cashDay(w, w.day - 1) };
-    return { nw: parts.total, cash: parts.cash, nwChange: parts.total - closeWorth, worth: parts, book };
+    return { nw: account.netWorth, cash: account.cash, nwChange: account.today.dollars, todayPct: account.today.pct, account, worth: parts, book };
   } catch { return {}; }
 }
 
@@ -4737,12 +4801,18 @@ function stepDay(): string | undefined {
     broadcast('books', { ok: false, lines: [playerLine(why)] });
     return why;
   }
-  const now = frame.netWorth as number;
   yesterdayChange = before - closeWorth;
   closeWorth = before;
-  nwChange = now - before;
+  const whoNow = playerIndex(w);
+  const account = whoNow >= 0 ? accountSnapshot(w, whoNow, closeWorth) : null;
+  const now = account?.netWorth ?? (frame.netWorth as number);
+  frame.netWorth = now;
+  frame.cash = account?.cash ?? frame.cash;
+  frame.account = account;
+  nwChange = account?.today.dollars ?? now - before;
   frame.nwChange = nwChange;
-  frame.markChange = 0;
+  frame.todayPct = account?.today.pct ?? 0;
+  frame.markChange = nwChange;
   frame.yesterday = yesterdayChange;
   frame.sinceOpen = now - openWorth;
   frame.speed = speed;
@@ -4794,8 +4864,9 @@ function advanceMinute(): string | undefined {
     try {
       const frame = tickFrame(w);
       const now = frame.netWorth as number;
-      frame.nwChange = now - closeWorth;
-      frame.markChange = markChangeOf(w, now - closeWorth);
+      frame.nwChange = (frame.account as { today?: { dollars?: number; pct?: number } } | null)?.today?.dollars ?? now - closeWorth;
+      frame.todayPct = (frame.account as { today?: { pct?: number } } | null)?.today?.pct ?? 0;
+      frame.markChange = frame.nwChange;
       frame.sinceOpen = now - openWorth;
       lastTick = frame;
       broadcast('day', frame);
@@ -5073,8 +5144,13 @@ function patchCached(): string {
   if (frame) {
     base.date = frame.date;
     base.cash = frame.cash;
-    base.netWorth = frame.netWorth;
-    base.nwChange = frame.nwChange;
+    const live = accountNow();
+    base.account = live;
+    base.netWorth = live?.netWorth ?? frame.netWorth;
+    base.cash = live?.cash ?? frame.cash;
+    base.nwChange = live?.today.dollars ?? frame.nwChange;
+    base.todayPct = live?.today.pct ?? 0;
+    base.markChange = live?.today.dollars ?? frame.nwChange;
     base.sinceOpen = frame.sinceOpen;
     base.speed = frame.speed;
     base.live = frame.live;
@@ -5386,7 +5462,7 @@ function portraitLines(world: World | null): DriftLine[] {
   if (Number.isFinite(idx.index)) lines.push({ k: 'exchange', text: `The exchange stands at ${idx.index.toFixed(1)}.` });
   const firms = econ(world).firms;
   for (const st of stocksOf(world).slice(0, 4)) {
-    const px = Math.round(session(st).px);
+    const px = Math.round(session(w, st).px);
     if (!Number.isFinite(px)) continue;
     const name = firms.find((f) => f.id === st.issuer)?.name ?? st.issuer;
     lines.push({ k: 'exchange', text: `${name} ${moneyLabel(px)}` });
@@ -5437,7 +5513,7 @@ function titleScene(world: World | null): SceneData {
   for (const st of stocksOf(world)) {
     const f = s.firms.find((x) => x.id === st.issuer);
     if (!f || f.closed) continue;
-    const px = session(st).px;
+    const px = session(w, st).px;
     const shares = world.ledger.issued.get(st.instr) ?? 0;
     firms.push({ name: f.name, cap: Math.max(0, Math.round(px * shares)), staff: f.staff.length, sector: f.sector ?? '' });
   }
@@ -5458,7 +5534,7 @@ function sceneLines(world: World): DriftLine[] {
   const P = s.P;
   const out: DriftLine[] = [];
   const stocks = stocksOf(world)
-    .map((st) => ({ st, px: session(st).px, prev: session(st).prev }))
+    .map((st) => ({ st, px: session(w, st).px, prev: session(w, st).prev }))
     .filter((x) => Number.isFinite(x.px) && x.px > 0);
   stocks.sort((a, b) => Math.abs(b.px / (b.prev || b.px) - 1) - Math.abs(a.px / (a.prev || a.px) - 1));
   for (const x of stocks.slice(0, 3)) {

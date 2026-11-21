@@ -66,7 +66,9 @@ function sample(st: BarsState, w: World, t: number, id: string, name: string, ki
 }
 
 function indexLevel(w: World): number {
-  const m = w.state.markets as { stocks?: { instr: string; last: number }[]; baseCap?: number } | undefined;
+  const m = w.state.markets as { index?: number; stocks?: { instr: string; last: number }[]; baseCap?: number } | undefined;
+  // The published index is chain-linked. Rebuilding it from today's share count reintroduces issuance and a mark jump.
+  if (m?.index && m.index > 0) return m.index;
   if (!m?.stocks?.length) return 0;
   let now = 0;
   for (const st of m.stocks) now += st.last * (w.ledger.issued.get(st.instr) ?? 1_000_000);
@@ -226,19 +228,17 @@ function preRoll(w: World, st: BarsState): void {
 function textured(w: World, s: Series, o: number, h: number, l: number, c: number, volume: number): [number, number, number, number, number] {
   const shut = (s.kind === 'share' || s.kind === 'future' || s.kind === 'bond' || s.kind === 'index') && !tradingDay(w.day);
   if (shut) return [c, c, c, c, 0];
+  // A share or the index with no fills is an indicative mark. Do not invent a wick or a volume.
+  if ((s.kind === 'share' || s.kind === 'index') && volume < 1) return [c, c, c, c, 0];
+  if (s.kind === 'share' || s.kind === 'index') return [o, Math.max(h, o, c), Math.min(l, o, c), c, volume];
   let hi = Math.max(h, o, c), lo = Math.min(l, o, c);
-  if (s.kind !== 'index') {
-    const sig = sigmaOf(w, s);
-    const seed = fnv(s.id);
-    const whole = s.unit === 'cents';
-    hi = Math.max(hi, Math.max(o, c) * (1 + 0.55 * sig * Math.abs(normal(seed, w.day, 31))));
-    lo = Math.min(lo, Math.min(o, c) * (1 - 0.55 * sig * Math.abs(normal(seed, w.day, 32))));
-    if (whole) { hi = Math.round(hi); lo = Math.max(1, Math.round(lo)); }
-  }
-  const v = s.kind === 'share'
-    ? dayVolume(s.id, w.ledger.issued.get(s.id) ?? 0, c / Math.max(1e-9, o) - 1, false)
-    : volume;
-  return [o, hi, lo, c, v];
+  const sig = sigmaOf(w, s);
+  const seed = fnv(s.id);
+  const whole = s.unit === 'cents';
+  hi = Math.max(hi, Math.max(o, c) * (1 + 0.55 * sig * Math.abs(normal(seed, w.day, 31))));
+  lo = Math.min(lo, Math.min(o, c) * (1 - 0.55 * sig * Math.abs(normal(seed, w.day, 32))));
+  if (whole) { hi = Math.round(hi); lo = Math.max(1, Math.round(lo)); }
+  return [o, hi, lo, c, volume];
 }
 
 export const bars: Module = {
@@ -262,7 +262,12 @@ export const bars: Module = {
       if (a[5] === 0) continue;
       const lived = dayProvider ? dayProvider(w, s.id, w.day) : null;
       const own = lived ? undefined : hist.get(s.id);
-      if (lived) s.d.push(w.day, 0, lived.o, lived.h, lived.l, lived.c, lived.v);
+      if (lived) {
+        // Minute volume on a share is not a tape. The exchange hist bar is the real fill count.
+        const v = s.kind === 'share' || s.kind === 'index' ? (own?.v ?? 0) : lived.v;
+        if ((s.kind === 'share' || s.kind === 'index') && v < 1) s.d.push(w.day, 0, lived.c, lived.c, lived.c, lived.c, 0);
+        else s.d.push(w.day, 0, lived.o, lived.h, lived.l, lived.c, v);
+      }
       else if (own) s.d.push(w.day, 0, ...textured(w, s, own.o, own.h, own.l, own.c, own.v));
       else s.d.push(w.day, 0, ...textured(w, s, a[0], a[1], a[2], a[3], a[4]));
       if (s.d.length > (DAILY_KEEP + 90) * W) s.d.splice(0, s.d.length - DAILY_KEEP * W);
@@ -280,7 +285,12 @@ export const bars: Module = {
   },
 };
 
-export interface BarOut { t: number; k: number; o: number; h: number; l: number; c: number; v: number }
+export interface BarOut {
+  t: number; k: number; o: number; h: number; l: number; c: number; v: number;
+  /** traded: a real fill. indicative: a mark with no print. backfilled: the year drawn before day one. */
+  barSource?: 'traded' | 'indicative' | 'backfilled';
+  volSource?: 'real' | 'estimated' | 'none';
+}
 
 function fold(flat: number[], key: (day: number) => number): BarOut[] {
   const out: BarOut[] = [];
@@ -320,6 +330,12 @@ export function barsFor(w: World, id: string, tf: Tf, limit: number, today?: Day
     out = tf === 'd' ? fold(flat, (d) => d) : tf === 'w' ? fold(flat, (d) => Math.floor(d / 7)) : fold(flat, (d) => Math.floor(d / 30));
   }
   if (out.length > limit) out = out.slice(out.length - limit);
+  for (const b of out) {
+    if (b.barSource) continue;
+    if (b.t < 0 || b.t < s.since) { b.barSource = 'backfilled'; b.volSource = b.v > 0 ? 'estimated' : 'none'; }
+    else if (s.kind === 'share' || s.kind === 'index') { b.barSource = b.v > 0 ? 'traded' : 'indicative'; b.volSource = b.v > 0 ? 'real' : 'none'; }
+    else { b.barSource = b.v > 0 ? 'traded' : 'indicative'; b.volSource = b.v > 0 ? 'real' : 'none'; }
+  }
   return { id: s.id, name: s.name, kind: s.kind, unit: s.unit, tf, ticks: w.ticksPerDay, since: s.since, bars: out };
 }
 

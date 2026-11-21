@@ -5,6 +5,7 @@
 // Corporate notes are claims on firms, a spread over the five-year: wider in a downturn and for a
 // weaker rating, and written off when that firm defaults.
 import { type Module, type World } from '../../kernel/index.ts';
+import { noteLife, nextSessionText } from '../markets/index.ts';
 import { isSeatPerson } from '../../kernel/seat.ts';
 import { BANK, BOND, CB, DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { usd as moneyText } from '../player/gamedate.ts';
@@ -1357,6 +1358,18 @@ function creditMonth(w: World): void {
   markCorp(w);
 }
 
+/** Shape from the 10-year minus the 3-month, in basis points. The same word in the paper, the wire and the screen. */
+export function curveShape(y: Record<string, number> | undefined): { shape: 'upward' | 'inverted' | 'flat'; slopeBp: number; note: string } {
+  const y3 = y?.['3m'] ?? 0;
+  const y10 = y?.['10y'] ?? 0;
+  const slopeBp = Math.round((y10 - y3) * 10000);
+  const shape = slopeBp > 20 ? 'upward' : slopeBp < -20 ? 'inverted' : 'flat';
+  const y2 = y?.['2y'] ?? y3;
+  const y30 = y?.['30y'] ?? y10;
+  const note = y3 > y2 + 0.002 && y30 > y10 + 0.002 ? 'inverted at the front, rising at the long end' : shape;
+  return { shape, slopeBp, note };
+}
+
 export function submitBondOrder(w: World, actor: string, instr: string, side: Side, qty: number, limit?: number): number {
   if (!w.ledger.actors.has(actor)) throw new Error(`unknown actor ${actor}`);
   const b = book(w).bonds.find((x) => x.id === instr);
@@ -1364,7 +1377,13 @@ export function submitBondOrder(w: World, actor: string, instr: string, side: Si
   if (side !== 'buy' && side !== 'sell') throw new Error('side must be buy or sell');
   if (!Number.isSafeInteger(qty) || qty < LOT) throw new Error('qty must be a whole number of bonds');
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0)) throw new Error('limit must be a positive price in cents');
-  return place(w, actor, instr, side, qty, limit ?? null, 'player');
+  const id = place(w, actor, instr, side, qty, limit ?? null, 'player');
+  const next = nextSessionText(w);
+  noteLife(w, {
+    id, book: 'bonds', instr, side, qty, status: 'queued', type: limit ? 'limit' : 'market',
+    reserved: 0, limit: limit ?? null, next, reason: '', fills: [], rejectedQty: 0, fee: 0,
+  });
+  return id;
 }
 
 export const bonds: Module = {
