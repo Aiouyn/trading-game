@@ -5,7 +5,7 @@
 import type { World } from '../../kernel/index.ts';
 import { DEP, type EconState } from '../economy/index.ts';
 import { residenceOf } from '../property/index.ts';
-import { openingRows } from '../careers/jobs.ts';
+import { careerLoss, openingRows } from '../careers/jobs.ts';
 import { clockText, dateText, usd } from '../player/gamedate.ts';
 
 export interface NoticeAction { label: string; line: string }
@@ -82,6 +82,11 @@ function reasonOfLoss(w: World, me: number, firmIdx: number): { reason: string; 
   const last = P.lastEv[me] >= 0 ? w.events.get(P.lastEv[me]) : undefined;
   const fresh = last && w.day - last.day <= 2 ? last : undefined;
   if (f?.closed) return { reason: `${f.name} shut its doors and sent everyone home`, cause: fresh?.id ?? f.profitEv ?? s.macroEv, kind: 'closed' };
+  const named = careerLoss(w, me);
+  if (named) {
+    const cut = w.events.last('career.layoff');
+    return { reason: named, cause: cut ?? fresh?.id ?? f?.layoffEv ?? s.macroEv, kind: 'layoff' };
+  }
   if (fresh?.kind === 'firm.layoffs') {
     const why = fresh.msg.replace(/: laying off staff.*$/, '').replace(/^sales of (.+) below plan$/, 'sales of $1 ran below plan');
     const cut = f ? Math.max(0, (f.bornWorkers || f.workers) - f.workers) : 0;

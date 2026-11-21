@@ -128,6 +128,21 @@ function nice(reason: string): [string, string] {
   return [word, `Booked as ${reason}`];
 }
 
+/** Signed cash-book flow for these reasons since `sinceDay` (inflows positive). `days` is the span the pace is measured over. */
+export function ledgerFlow(w: World, reasons: string[], sinceDay: number): { cents: number; days: number } {
+  const b = bookOf(w);
+  const first = Math.max(sinceDay, w.day - 27, w.day - KEEP_DAYS + 1);
+  const days = Math.max(1, w.day - first + 1);
+  const want = new Set(reasons);
+  let cents = 0;
+  for (let d = first; d <= w.day; d++) {
+    const raw = b.days[d];
+    if (!raw) continue;
+    for (const reason of Object.keys(raw)) if (want.has(reason)) cents += raw[reason];
+  }
+  return { cents, days };
+}
+
 function bookOf(w: World): Book {
   let b = w.state.cashbook as Book | undefined;
   if (!b || !b.days) { b = { days: {}, counts: {} }; w.state.cashbook = b; }

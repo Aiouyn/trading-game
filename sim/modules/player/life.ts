@@ -2,10 +2,11 @@
 // Relationship bytes, facets, memories and habit timers stay off this surface.
 import type { World } from '../../kernel/index.ts';
 import { DEP, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
+import { GOODS } from '../economy/content.ts';
 import { attentionOf } from '../law/index.ts';
 import { nudgeStanding, regardOf, standingOf } from '../social/index.ts';
 import { standingMult } from './standing.ts';
-import { outgoings, type Outgoings } from './cashbook.ts';
+import { ledgerFlow, outgoings, type Outgoings } from './cashbook.ts';
 import { residenceOf } from '../property/index.ts';
 import { usd } from './gamedate.ts';
 
@@ -48,12 +49,26 @@ export interface LifeMemory {
   spendCents?: number;
 }
 
+export interface BudgetLine { id: string; label: string; cents: number; note: string }
+export interface HouseholdBudget {
+  weekly: number;
+  lines: BudgetLine[];
+  gross: number;
+  tax: number;
+  takeHome: number;
+  benefit: number;
+  benefitEnd: string;
+  runwayWeeks: number;
+  cash: number;
+  why: string[];
+}
 export interface LifeBoard {
   stats: StatView[];
   choices: ChoiceView[];
   runwayWeeks: number;
   weekly: number;
   levels: Record<StatId, number>;
+  budget: HouseholdBudget;
 }
 
 const STATS: { id: StatId; label: string }[] = [
@@ -119,15 +134,154 @@ export function dollars(cents: number): string {
   return sign + '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** A week of spending on the same rule the city uses for a shopper. */
+/** The city's shopper thrift. Copied from the economy so a short cash book uses the same week the city will spend. */
+function shopThrift(s: EconState): number {
+  const n = s.cpiHist.length;
+  const prev = n < 2 ? 0 : s.cpiHist[Math.max(0, n - 13)];
+  const yoy = n < 2 ? 0.02 : prev > 0 ? s.cpi / prev - 1 : 0;
+  const real = s.policyRate - Math.max(-0.02, Math.min(0.12, yoy));
+  const cut = 0.8 * Math.max(0, s.policyRate - 0.02) + 1.4 * Math.max(0, real - 0.012);
+  const scarce = Math.max(0, 0.04 - s.unemployment);
+  return Math.max(0.74, Math.min(1.02, 1 - cut - 5 * scarce));
+}
+
+function wageMul(w: World, firmIdx: number): number {
+  const prem = (w.state.labour as { prem?: ArrayLike<number> } | undefined)?.prem;
+  if (!prem || firmIdx < 0 || firmIdx >= prem.length) return 1;
+  const m = prem[firmIdx];
+  if (!(m > 0)) return 1;
+  return m < 3 ? m : 3;
+}
+
+/** A week of spending on the same rule the city uses for a shopper. Income is the stored average only: a wage is not invented when none has been earned. */
 export function weeklySpend(w: World, i: number): number {
   const s = econ(w), P = s.P;
-  if (i < 0 || i >= P.n) return 1;
-  const cash = Math.floor(w.ledger.balance(P.id(i), DEP));
-  const thrift = Math.max(0.88, 1 - 0.8 * Math.max(0, s.policyRate - 0.02));
+  if (i < 0 || i >= P.n) return 0;
+  const cash = Math.max(0, Math.floor(w.ledger.balance(P.id(i), DEP)));
   const fear = w.day < P.fearUntil[i] ? 0.8 : 1;
-  const inc = P.incEma[i] > 1 ? P.incEma[i] : s.wage * Math.max(0.4, P.skill[i]) * (1 - (s.taxRate || 0));
-  return Math.max(1, Math.floor(7 * (P.cY[i] * fear * thrift * inc + 0.001 * Math.max(0, cash))));
+  const inc = P.incEma[i] > 0 ? P.incEma[i] : 0;
+  const raw = 7 * (P.cY[i] * fear * shopThrift(s) * inc + 0.001 * cash);
+  return Math.max(0, Math.floor(Math.min(cash, raw)));
+}
+
+const FOOD = ['GROCERIES'];
+const TRANSPORT = ['TRANSIT', 'AIR_TRAVEL'];
+const UTILITIES = ['ELECTRICITY', 'NATURAL_GAS', 'TELECOM'];
+
+function basketShare(ids: string[]): number {
+  let t = 0;
+  for (const id of ids) t += GOODS[id]?.share ?? 0;
+  return t;
+}
+
+function contractualDebt(w: World, i: number): number {
+  const book = w.state.banking as { ln: number; lnOpen: Uint8Array; lnPerson: Int32Array; lnRate: Float64Array } | undefined;
+  if (!book || i < 0) return 0;
+  let week = 0;
+  for (let k = 0; k < book.ln; k++) {
+    if (!book.lnOpen[k] || book.lnPerson[k] !== i) continue;
+    const owed = Math.floor(w.ledger.issued.get('pl_' + k) ?? 0);
+    if (owed <= 0) continue;
+    week += owed * book.lnRate[k] / 52;
+  }
+  return Math.max(0, Math.round(week));
+}
+
+/** Rent, food, transport, utilities, debt, tax and the benefit, each from the lease or the cash book. The outgoing lines add up to `weekly`. */
+export function householdBudget(w: World, i: number): HouseholdBudget {
+  const s = econ(w), P = s.P;
+  const empty: HouseholdBudget = {
+    weekly: 0, lines: [], gross: 0, tax: 0, takeHome: 0, benefit: 0,
+    benefitEnd: 'No benefit on this week.', runwayWeeks: 0, cash: 0,
+    why: ['No household is on the book.'],
+  };
+  if (i < 0 || i >= P.n) return empty;
+  const cash = Math.max(0, Math.floor(w.ledger.balance(P.id(i), DEP)));
+  const since = 0;
+  const home = residenceOf(w, i);
+  const rentMonth = home && home.tenure === 'rented' && home.rent > 0 ? home.rent : 0;
+  const rentWeek = Math.round(rentMonth * 7 / 30);
+  const consBook = ledgerFlow(w, ['consumption', 'consumption.refund'], since);
+  const consSpent = Math.max(0, -consBook.cents);
+  const useBook = consBook.days >= 14 && consSpent > 0;
+  const consWeek = useBook ? Math.round(consSpent / consBook.days * 7) : weeklySpend(w, i);
+  const housing = GOODS.HOUSING?.share ?? 0;
+  const foodS = basketShare(FOOD);
+  const tranS = basketShare(TRANSPORT);
+  const utilS = basketShare(UTILITIES);
+  const denom = Math.max(0.01, 1 - housing);
+  const split = (share: number): number => Math.round(consWeek * (share / denom));
+  let food = split(foodS);
+  let transport = split(tranS);
+  let utilities = split(utilS);
+  let other = consWeek - food - transport - utilities;
+  if (other < 0) {
+    const over = -other;
+    const cut = Math.min(food, over);
+    food -= cut;
+    other = consWeek - food - transport - utilities;
+  }
+  const debtBook = ledgerFlow(w, ['loan.interest', 'loan.repay'], since);
+  const debtSpent = Math.max(0, -debtBook.cents);
+  const debt = debtBook.days >= 14 && debtSpent > 0 ? Math.round(debtSpent / debtBook.days * 7) : contractualDebt(w, i);
+  const lines: BudgetLine[] = [
+    { id: 'rent', label: 'Rent', cents: rentWeek, note: rentMonth > 0 ? `${usd(rentMonth)} a month on the lease, ${usd(rentWeek)} of it in a week.` : 'No lease rent on the book.' },
+    { id: 'food', label: 'Food', cents: food, note: useBook ? 'The groceries share of everyday spending on the cash book, with housing taken out so rent is not counted twice.' : 'The groceries share of the week the city will spend from the income already on the book. No wage is assumed.' },
+    { id: 'transport', label: 'Transport', cents: transport, note: 'Public transport and air travel, from the same basket.' },
+    { id: 'utilities', label: 'Utilities', cents: utilities, note: 'Electricity, gas and telecoms, from the same basket.' },
+    { id: 'other', label: 'Other household', cents: other, note: 'The rest of everyday spending once rent, food, transport and utilities are taken out.' },
+    { id: 'debt', label: 'Debt service', cents: debt, note: debtBook.days >= 14 && debtSpent > 0 ? 'Interest and repayments on the cash book, as a week.' : debt > 0 ? 'Contractual interest on open loans, a week of the annual rate. Nothing has been posted yet.' : 'No debt service on the book.' },
+  ];
+  const weekly = lines.reduce((t, l) => t + l.cents, 0);
+  const taxRate = s.taxRate || 0;
+  const employed = P.employer[i] >= 0;
+  const wageBook = ledgerFlow(w, ['wages'], since);
+  let gross = 0, tax = 0, takeHome = 0, benefit = 0, benefitEnd = '';
+  if (employed) {
+    const paid = Math.max(0, wageBook.cents);
+    if (wageBook.days >= 7 && paid > 0) {
+      takeHome = Math.round(paid / wageBook.days * 7);
+      gross = taxRate < 0.95 ? Math.round(takeHome / (1 - taxRate)) : takeHome;
+      tax = gross - takeHome;
+    } else {
+      const m = wageMul(w, P.employer[i]);
+      gross = Math.round(P.skill[i] * s.wage * 7 * m);
+      tax = Math.round(gross * taxRate);
+      takeHome = gross - tax;
+    }
+    benefitEnd = 'Not drawing. The benefit stops the week a job starts, and pays again only while you are out of work with a work record.';
+  } else {
+    const paid = Math.max(0, wageBook.cents);
+    if (wageBook.days >= 7 && paid > 0) {
+      takeHome = Math.round(paid / wageBook.days * 7);
+      gross = taxRate < 0.95 ? Math.round(takeHome / (1 - taxRate)) : takeHome;
+      tax = gross - takeHome;
+    }
+    const retired = (P.flags[i] & 2) !== 0;
+    const record = P.migrant[i] !== 3;
+    if (!retired && record && P.adult(w, i)) {
+      benefit = Math.round(s.wage * (s.benefitRate ?? 0.4) * 7 * Math.min(1, P.skill[i]));
+      benefitEnd = 'No statutory end date. It pays each week while you are out of work with a work record, and stops the week a job starts.';
+    } else if (!record) {
+      benefitEnd = 'No benefit: a newcomer with no work record here draws none. It would stop the week a job starts.';
+    } else {
+      benefitEnd = 'No benefit on this week.';
+    }
+  }
+  const weeks = weekly > 0 ? cash / weekly : cash > 0 ? 99 : 0;
+  const shown = weeks >= 99.5 ? 'more than 99' : weeks.toFixed(1);
+  const parts = lines.map((l) => `${l.label.toLowerCase()} ${usd(l.cents)}`);
+  const why = [
+    `A week of outgoings is ${parts.join(' + ')} = ${usd(weekly)}.`,
+    `Runway is cash divided by that week: ${usd(cash)} / ${usd(weekly)} = ${shown} weeks before the cash runs out with no money coming in.`,
+    employed
+      ? `Gross pay is ${usd(gross)} and tax is ${usd(tax)}, so take-home is ${usd(takeHome)}. Tax is already out of pay, so it is not added to the week again.`
+      : gross > 0
+        ? `Last pay was gross ${usd(gross)}, tax ${usd(tax)}, take-home ${usd(takeHome)}. The job has ended, so that pay is not in this week. Tax was already out of it, and it is not added again.`
+        : `Gross pay is ${usd(gross)} and tax is ${usd(tax)}, so take-home is ${usd(takeHome)}. No wage has been posted.`,
+    benefit > 0 ? `Benefit is ${usd(benefit)} a week. ${benefitEnd}` : benefitEnd,
+  ];
+  return { weekly, lines, gross, tax, takeHome, benefit, benefitEnd, runwayWeeks: weeks, cash, why };
 }
 
 /** What a choice costs: days of the city's wage, halved for a newcomer's purse and following the player's standing up from there. */
@@ -165,7 +319,7 @@ export function memoryOf(st: Partial<LifeMemory> | undefined): LifeMemory {
   return m;
 }
 
-interface Raw { worth: number; cash: number; stress: number; health: number; reputation: number; attention: number; weekly: number; weeks: number; out: Outgoings | null }
+interface Raw { worth: number; cash: number; stress: number; health: number; reputation: number; attention: number; weekly: number; weeks: number; out: Outgoings | null; budget: HouseholdBudget | null }
 
 /** The player's real week of outgoings: the cash book's everyday spending, rent and monthly bills. A newcomer with a short book leans on the city's usual spending until two weeks have passed. */
 export function weeklyOut(w: World, i: number, since: number): Outgoings {
@@ -184,10 +338,11 @@ export function weeklyOut(w: World, i: number, since: number): Outgoings {
 
 function rawOf(w: World, i: number, counsel: number, since = -1): Raw {
   const s = econ(w), P = s.P;
-  const cash = i >= 0 ? Math.floor(w.ledger.balance(P.id(i), DEP)) : 0;
+  const budget = i >= 0 ? householdBudget(w, i) : null;
+  const cash = budget ? budget.cash : 0;
   const out = i >= 0 && since >= 0 ? weeklyOut(w, i, since) : null;
-  const weekly = out ? out.weekly : weeklySpend(w, i);
-  const weeks = cash <= 0 ? 0 : cash / weekly;
+  const weekly = budget ? budget.weekly : 0;
+  const weeks = budget ? budget.runwayWeeks : 0;
   const standing = i >= 0 ? standingOf(w, i) : { score: 0, eventId: w.genesis, line: '' };
   const heat = i >= 0 ? attentionOf(w, i) : { score: 0, open: 0, flagged: 0, eventId: w.genesis, line: '' };
   return {
@@ -196,7 +351,7 @@ function rawOf(w: World, i: number, counsel: number, since = -1): Raw {
     health: i >= 0 ? P.health[i] : 0,
     reputation: standing.score,
     attention: Math.max(0, Math.min(100, heat.score - counsel)),
-    weekly, weeks, out,
+    weekly, weeks, out, budget,
   };
 }
 
@@ -224,19 +379,12 @@ function hoverOf(id: StatId, raw: Raw): string {
   }
 }
 
-/** The runway, in sentences: cash over a real week of outgoings, and what that week is made of. */
+/** The runway, in sentences: cash over a real week of outgoings, and the sum that week is made of. */
 function runwayWhy(raw: Raw): string[] {
-  const o = raw.out;
-  const parts: string[] = [];
-  if (o) {
-    if (o.everyday > 0) parts.push(`everyday spending of about ${usd(o.everyday)} a week${o.days >= 14 ? ` (the last ${Math.min(o.days, 28)} days)` : ''}`);
-    if (o.rent > 0) parts.push(`rent of ${usd(o.rent)} a month`);
-    for (const m of o.monthly) parts.push(`${m.label.toLowerCase()} of ${usd(m.cents)} a month`);
-  }
+  if (raw.budget) return [`Cash is ${usd(raw.cash)}: ${moneyWord(raw.cash).toLowerCase()}.`, ...raw.budget.why];
   const weeks = raw.weeks >= 99.5 ? 'more than 99' : raw.weeks.toFixed(1);
   return [
     `Cash is ${usd(raw.cash)}: ${moneyWord(raw.cash).toLowerCase()}.`,
-    `You really spend about ${usd(raw.weekly)} a week${parts.length ? `: ${parts.join(', ')}` : ''}.`,
     `Runway is cash divided by that week: ${usd(raw.cash)} / ${usd(raw.weekly)} = ${weeks} weeks before the cash runs out with no money coming in.`,
   ];
 }
@@ -367,7 +515,7 @@ export function lifeBoard(w: World, i: number, mem: LifeMemory, worth?: number):
     const left = until > w.day ? until - w.day : 0;
     return { id: c.id, label: c.label, cost: feeOf(w, c.days), left, line: c.line };
   });
-  return { stats, choices, runwayWeeks: raw.weeks, weekly: raw.weekly, levels };
+  return { stats, choices, runwayWeeks: raw.weeks, weekly: raw.weekly, levels, budget: raw.budget ?? householdBudget(w, -1) };
 }
 
 /** Remember yesterday's levels and, when a word changes, name the player on a new event. */
@@ -528,7 +676,7 @@ export function explainThing(w: World, thing: string, mem: LifeMemory, worth?: n
       return { id: (ev?.lastSaleEv !== undefined && ev.lastSaleEv >= 0 ? ev.lastSaleEv : ev?.priceEv) ?? w.genesis };
     }
   }
-  const known = board.stats.map((x) => x.id).concat(['wage', 'rate', 'jobs', 'inflation', 'fx', 'index', 'price <name>', 'staff <firm>', 'profit <firm>']);
+  const known = [...board.stats.map((x) => x.id), 'wage', 'rate', 'jobs', 'inflation', 'fx', 'index', 'price <name>', 'staff <firm>', 'profit <firm>'];
   return { error: `no number called ${thing}. try ${known.slice(0, 8).join(', ')}` };
 }
 

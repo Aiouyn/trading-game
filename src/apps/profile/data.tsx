@@ -136,6 +136,18 @@ export interface LifeView {
   companies?: LifeCompany[];
   firms?: { id: string; name: string }[];
   tape?: { events?: { wage?: number } };
+  budget?: {
+    weekly: number;
+    cash: number;
+    runwayWeeks: number;
+    gross: number;
+    tax: number;
+    takeHome: number;
+    benefit: number;
+    benefitEnd: string;
+    why: string[];
+    lines: { id: string; label: string; cents: number; note: string }[];
+  };
 }
 
 function isLife(v: unknown): v is LifeView {

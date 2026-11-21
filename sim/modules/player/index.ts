@@ -22,7 +22,7 @@ import { matchOption, optionChain, optionWhy, previewOption, tradeOption, type O
 import { bidHome, homeBoard, letHome, mortgageHome, moveHome, moveTerms, rentHome, sellHome, type HomeRow } from '../property/index.ts';
 import { playerChronicle } from '../history/story.ts';
 import { B_FRIEND, askFirm, contactsOf, knows, nudgeStanding, publish, regardOf, seatPerson, talk } from '../social/index.ts';
-import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type LifeMemory, type StatId, type StatView } from './life.ts';
+import { choiceSpec, coolLeft, dollars, explainNumber, explainThing, feeOf, lifeBoard, memoryOf, noteBoard, payGov, type ChoiceId, type ChoiceView, type HouseholdBudget, type LifeMemory, type StatId, type StatView } from './life.ts';
 import { storyLines, tellWeek, type StoryLine } from './story.ts';
 import { noteAct, skipTutorial, tutorialOf, type TutorialState, type TutorialView } from './tutorial.ts';
 import { circleAct } from '../circle/index.ts';
@@ -254,6 +254,8 @@ export interface PlayerView {
   contacts: { slot: number; name: string; kind: string; word: string; line: string }[];
   stats: StatView[];
   choices: ChoiceView[];
+  /** Household budget: the week's outgoings, each line, and cash divided by their sum. */
+  budget: HouseholdBudget;
   prices: Quote[];
   news: Line[];
   private: Priv[];
@@ -825,6 +827,10 @@ function noteJobSeat(w: World, st: PlayerSeat): void {
       why = 'layoff';
       cause = old.layoffEv;
       text = `${name} is laid off by ${old.name}`;
+    } else if (causeToday(w, 'career.layoff', P.id(i)) >= 0) {
+      why = 'layoff';
+      cause = causeToday(w, 'career.layoff', P.id(i));
+      text = `${name} is laid off by ${named(prev)}`;
     } else if (retired >= 0) {
       why = 'retire';
       cause = retired;
@@ -2843,7 +2849,7 @@ export function view(w: World, playerId?: string): PlayerView {
     orders, contacts, prices, news, private: priv, bonds, score: st.score,
     ...(() => {
       const board = lifeBoard(w, i, st, i >= 0 ? Math.round(worth(w, i)) : 0);
-      return { stats: board.stats, choices: board.choices };
+      return { stats: board.stats, choices: board.choices, budget: board.budget };
     })(),
     companies,
     health: i >= 0 ? P.health[i] : 0,

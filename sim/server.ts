@@ -49,7 +49,7 @@ import { barsFor, listBars } from './modules/markets/bars.ts';
 import { coinClock, coinSeedBar, launchpadRead, memeBoard, memeDetail, memeTape } from './modules/crypto/index.ts';
 import { fxMark, fxPairs, fxQuote } from './modules/abroad/index.ts';
 import { futureQuote, futureUnit } from './modules/commodities/index.ts';
-import { CB_MINUTE } from './modules/markets/calendar.ts';
+import { CB_MINUTE, cbMeetingDay } from './modules/markets/calendar.ts';
 import { ALL_TFS, CLOSE_MIN, MIN_PER_DAY, OPEN_MIN, historyFor, isWeekday, livePrices, minuteStep, minutesInit, minuteStats, weekday, type AnyTf } from './modules/markets/minutes.ts';
 import { tradingDay } from './modules/markets/noise.ts';
 import { curveShape } from './modules/bonds/index.ts';
@@ -3601,7 +3601,7 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
   const firms = w.state.economy ? econ(w).firms : [];
   const wage = w.state.economy ? econ(w).wage : 0;
   const st = w.state.careers as {
-    apps?: { person: number; firm: number; occ: number; due: number; n: number }[];
+    apps?: { person: number; firm: number; occ: number; due: number; dueMin?: number; n: number; role?: string }[];
     study?: { person: number; occ: number; due: number }[];
     notices?: { person: number; day: number; text: string }[];
   } | undefined;
@@ -3614,8 +3614,12 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
   const pending = (st?.apps ?? []).filter((a) => a.person === person).map((a) => ({
     n: a.n,
     firm: firms[a.firm]?.name ?? 'a firm',
-    role: firms[a.firm] ? roleTitle(firms[a.firm].sector, a.occ) : (occ[a.occ]?.name ?? 'a seat'),
+    firmIdx: a.firm,
+    occ: a.occ,
+    role: a.role || (firms[a.firm] ? roleTitle(firms[a.firm].sector, a.occ) : (occ[a.occ]?.name ?? 'a seat')),
     due: a.due,
+    dueMin: a.dueMin ?? 11 * 60,
+    dueTime: clockText(a.dueMin ?? 11 * 60),
     daysLeft: Math.max(0, a.due - w.day),
   }));
   const course = (st?.study ?? []).find((row) => row.person === person);
@@ -3636,7 +3640,7 @@ function careerView(w: World, person: number, eventId: number): Record<string, u
       chance: o.note, canApply: o.taken, why: o.taken ? '' : o.note, vouched: o.vouched,
       decider: fi && fi.ceo >= 0 && fi.ceo < P.n ? P.name(fi.ceo) : '',
       contacts: at,
-      applied: (st?.apps ?? []).some((a) => a.person === person && a.firm === o.firm),
+      applied: (st?.apps ?? []).some((a) => a.person === person && a.firm === o.firm && a.occ === o.occ),
       unlock: o.unlock ?? null,
     };
   }) : [];
@@ -3914,11 +3918,11 @@ function plansOf(w: World): PlanCard[] {
         eventId: econ(w).macroEv >= 0 ? econ(w).macroEv : w.genesis,
       });
     }
-    if (dom === 29) {
+    if (Math.floor(day / 30) > 0 && cbMeetingDay(Math.floor(day / 30)) === day) {
       push({
-        key: `meet:${day}`, askId: -1, day, kind: 'meeting', title: 'The central bank meets', place: 'the bank',
+        key: `meet:${day}`, askId: -1, day, kind: 'meeting', title: 'The central bank meets: the decision is at 14:00', place: 'the bank',
         who: [{ person: -1, name: 'The central bank', self: false }], host: -1, hostName: '', invite: false, status: 'set',
-        cents: 0, reason: 'The central bank meets. The rate moves borrowing and the shares.',
+        cents: 0, reason: 'The central bank decides at 14:00. The rate moves borrowing and the shares.',
         eventId: w.events.last('cb.rate') ?? econ(w).rateWho ?? econ(w).rateEv ?? w.genesis,
       });
     }
@@ -4893,12 +4897,15 @@ function advanceMinute(): string | undefined {
 let sceneStop = false;
 function fastForward(minutes: number): string | undefined {
   sceneStop = false;
+  const held = pauseNote;
   for (let i = 0; i < minutes; i++) {
     if (!booksOk || over) break;
     const bad = advanceMinute();
     if (bad) return bad;
     // An invitation starting holds the clock: a wait or an errand stops at the door.
     if (sceneStop) { sceneStop = false; break; }
+    // A layoff, an offer, or any other pause stops the wait on the minute it lands.
+    if (pauseNote && pauseNote !== held) break;
   }
   return undefined;
 }
@@ -6090,8 +6097,14 @@ const server = http.createServer(async (req, res) => {
         let result: ReturnType<typeof act>;
         if (cmd.kind === 'wait' && Number.isSafeInteger(cmd.days) && cmd.days >= 1) {
           // A wait lives the minutes, so the clock, the minute bars and the day close all stay in step.
+          const heldPause = pauseNote;
+          const startDay = w.day;
           const bad = fastForward(cmd.days * MIN_PER_DAY);
-          result = bad ? { status: 'rejected', why: bad } : { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
+          if (bad) result = { status: 'rejected', why: bad };
+          else if (pauseNote && pauseNote !== heldPause) {
+            const lived = Math.max(0, w.day - startDay);
+            result = { status: 'accepted', days: lived, text: `The wait stopped after ${lived} ${lived === 1 ? 'day' : 'days'}: ${pauseNote.why}. ${pauseNote.text}` };
+          } else result = { status: 'accepted', days: cmd.days, text: `wait ${cmd.days}d` };
         } else {
           coinClock(w, w.day * MIN_PER_DAY + clockMin);
           result = playerId ? act(w, playerId, cmd) : act(w, cmd);

@@ -40,8 +40,9 @@ interface WorkCard {
   daysInSeat?: number;
   startedDate?: string;
   colleagues?: Colleague[];
+  returnLine?: string;
 }
-interface PendingSeat { n: number; firm: string; role: string; due: number; daysLeft: number }
+interface PendingSeat { n: number; firm: string; role: string; due: number; dueTime?: string; daysLeft: number }
 interface StudyRow { field: string; name: string; days: number; cost: number }
 interface Letter { day: number; text: string }
 export interface CareerCard {
@@ -117,7 +118,8 @@ export default function CareersApp() {
   const study = card.study ?? [];
   const work = card.work ?? null;
   const days = work?.daysInSeat ?? 0;
-  const offers = (work?.offers ?? []).filter((o) => o.status === "open");
+  const offers = (work?.offers ?? []).filter((o) => o.status === "open" || o.status === "accepted" || o.status === "declined");
+  const waiting = new Set(card.pending.map((a) => `${a.firm}|${a.role}`));
   const query = q.trim().toLowerCase();
   const openings = [...(card.openingList ?? [])]
     .sort((a, b) => Number(b.vouched) - Number(a.vouched) || a.firm.localeCompare(b.firm) || a.wage - b.wage || a.n - b.n)
@@ -201,6 +203,7 @@ export default function CareersApp() {
             )}
           </div>
         </> : <p className="qy-muted">Your next job can start with an application below.</p>}
+        {work?.returnLine ? <p data-testid="career-return">{work.returnLine}</p> : null}
       </section>
       {offers.length ? (
         <section className="qy-block" data-testid="job-offers">
@@ -212,10 +215,14 @@ export default function CareersApp() {
                 <span className="qy-num num">{money(o.wage)} a week · starts {o.startDate}</span>
                 <span className="cr-chance">{o.why}{o.fromName ? ` · from ${o.fromName}` : ""}{o.expiresDate ? ` · answer by ${o.expiresDate}` : ""}</span>
               </p>
-              <div className="cr-acts">
-                <ChoiceButton primary disabled={busy} testId={`offer-accept-${o.id}`} onClick={() => void go({ kind: "job", id: o.id, answer: "accept" })}>Accept</ChoiceButton>
-                <ChoiceButton primary={false} disabled={busy} testId={`offer-decline-${o.id}`} onClick={() => void go({ kind: "job", id: o.id, answer: "decline" })}>Decline</ChoiceButton>
-              </div>
+              {o.status === "open" ? (
+                <div className="cr-acts">
+                  <ChoiceButton primary disabled={busy} testId={`offer-accept-${o.id}`} onClick={() => void go({ kind: "job", id: o.id, answer: "accept" })}>Accept</ChoiceButton>
+                  <ChoiceButton primary={false} disabled={busy} testId={`offer-decline-${o.id}`} onClick={() => void go({ kind: "job", id: o.id, answer: "decline" })}>Decline</ChoiceButton>
+                </div>
+              ) : (
+                <p data-testid={`offer-state-${o.id}`}>{o.status === "accepted" ? "Accepted" : o.status === "declined" ? "Declined" : "Closed"}</p>
+              )}
             </div>
           ))}
         </section>
@@ -228,12 +235,12 @@ export default function CareersApp() {
         </label>
         {card.pending.map((application) => (
           <p className="qy-card qy-muted" key={application.n} data-testid="application-pending" style={{ fontSize: "var(--fs-14, 0.875rem)" }}>
-            Waiting on {application.firm} for {application.role}. Decision expected {gameDate(application.due)}.
+            Waiting on {application.firm} for {application.role}. Decision expected {gameDate(application.due)}{application.dueTime ? ` at ${application.dueTime}` : ""}.
           </p>
         ))}
         {!openings.length ? <p className="qy-muted">{query ? "No seat matches that." : "No open seats today."}</p> : null}
         {openings.map((row) => (
-          <div className="qy-choice" key={row.n} data-testid={`opening-${row.n}`} data-vouched={row.vouched ? "1" : "0"} data-open={row.canApply ? "1" : "0"}>
+          <div className="qy-choice" key={`${row.firm}-${row.role}-${row.n}`} data-testid={`opening-${row.n}`} data-firm={row.firm} data-role={row.role} data-seats={row.seats} data-vouched={row.vouched ? "1" : "0"} data-open={row.canApply ? "1" : "0"}>
             <p>
               <span>{row.firm} · {cap(row.role)}</span>
               <span className="qy-num num">{money(row.wage)} a week · {row.seats} {row.seats === 1 ? "seat" : "seats"}</span>
@@ -246,8 +253,8 @@ export default function CareersApp() {
               </ChoiceButton>
             ) : (
               <ChoiceButton
-                primary={!raisePrimary && !quitOpen && !picked && !pending && firstApply?.n === row.n}
-                disabled={busy || !!pending || !row.canApply}
+                primary={!raisePrimary && !quitOpen && !picked && !waiting.has(`${row.firm}|${row.role}`) && firstApply?.n === row.n}
+                disabled={busy || waiting.has(`${row.firm}|${row.role}`) || !row.canApply}
                 testId={`apply-${row.n}`}
                 onClick={() => void apply(row.n)}
               >

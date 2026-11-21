@@ -4,12 +4,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DAYS_PER_YEAR, type Module, type World } from '../../kernel/index.ts';
+import { CLOSE_MIN, OPEN_MIN } from '../markets/minutes.ts';
 import { parseRaws, RawReader } from '../../kernel/content.ts';
 import { GOV, pay, setHireHook, type EconState, type Firm } from '../economy/index.ts';
 import { ALIVE, joinFirm, labourOf, leaveJob, retargetLabour, seekRefresh, setSimDay, setStaffHook, succession, thought } from '../economy/people.ts';
 import { PLAYER, setCareerCommands } from '../player/index.ts';
 import { knows } from '../social/index.ts';
-import { bindJobs, handleCareer, resolveJobs } from './jobs.ts';
+import { bindJobs, handleCareer, hiringGap, noteMorning, planGap, resolveAt, resolveJobs, tendRole } from './jobs.ts';
 export { careerCard } from './jobs.ts';
 
 interface Occ { id: string; name: string; pay: number; school: number; rank: number; share: Record<string, number> }
@@ -252,6 +253,34 @@ function onHire(w: World, person: number, f: Firm): void {
   }
   P.occ[person] = occ;
   setSkill(w, person, paySkill(person, occ, P.occYrs[person], P));
+}
+
+function wageOpen(w: World, firmIdx: number): boolean {
+  const prem = (w.state.labour as { prem?: ArrayLike<number> } | undefined)?.prem;
+  if (!prem || firmIdx < 0 || firmIdx >= prem.length) return true;
+  return prem[firmIdx] > 0;
+}
+
+/**
+ * Seats this role is short of, at the headcount the firm's own sales will support.
+ * The extra hands (or the hands a cut removes) are shared out by the occupation mix,
+ * so two roles at one firm do not both quote the firm's whole gap.
+ */
+function seatsAt(w: World, f: Firm, occ: number): number {
+  if (!f || f.closed || occ <= 0 || !wageOpen(w, f.idx)) return 0;
+  // A seat is this role's own shortfall at the headcount the firm's sales will support. Never the firm's whole gap copied onto every row.
+  // The board quotes the morning gap, so a shelf emptied by lunch does not close a seat that was open at dawn.
+  if (!(hiringGap(w, f) > 1)) return 0;
+  const need = roleNeed(w, f, occ);
+  return Math.max(0, need.want - need.have);
+}
+
+function roleNeed(w: World, f: Firm, occ: number, basis: 'hire' | 'close' | 'plan' = 'hire'): { have: number; want: number } {
+  const have = occ > 0 ? (haveOcc(f, econ(w).P)[occ] ?? 0) : 0;
+  const gap = basis === 'plan' ? planGap(w, f) : hiringGap(w, f);
+  const head = Math.max(1, f.staff.length + (gap > 1 ? Math.floor(gap) : gap < -1 ? Math.floor(gap) : 0));
+  const want = occ > 0 ? (targets(f.sector, head)[occ] ?? 0) : 0;
+  return { have, want };
 }
 
 function seatFor(w: World, f: Firm, person: number): number {
@@ -509,9 +538,17 @@ export const careers: Module = {
     st.openEv = w.events.emit('career.open', `${n} workers placed in ${OCC.length - 1} occupations across ${s.firms.length} firms`, [w.genesis]);
   },
 
+  tick(w, t) {
+    const n = Math.max(1, w.ticksPerDay);
+    const minute = OPEN_MIN + Math.round(t * (CLOSE_MIN - OPEN_MIN - 30) / n);
+    resolveAt(w, minute);
+  },
+
   dayClose(w) {
     schoolNew(w);
+    tendRole(w);
     resolveJobs(w);
+    noteMorning(w);
     if (w.day > 0 && w.day % DAYS_PER_YEAR === 0) {
       book(w).poorLine = cashLine(w);
       grow(w);
@@ -570,6 +607,8 @@ bindJobs({
   setSkill,
   seatFor,
   reachSeat,
+  seatsAt,
+  roleNeed,
   place,
 });
 setCareerCommands(handleCareer);

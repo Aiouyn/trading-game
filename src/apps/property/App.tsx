@@ -41,6 +41,23 @@ function rooms(size: number): string {
   if (n <= 1) return "1 room";
   return `${n} rooms`;
 }
+function commuteOf(distance: number): string {
+  if (distance < 1) return "A short walk from the quay";
+  if (distance < 2.5) return "A tram ride from the quay";
+  return "A long ride from the quay";
+}
+function qualityOf(condition: number, desirability: number): string {
+  const street = desirability >= 2 ? "the best streets" : desirability >= 1.5 ? "a desired street" : desirability >= 1 ? "an ordinary street" : "a plain street";
+  return `${fabric({ condition })} fabric on ${street}`;
+}
+function hazardOf(distance: number, condition: number): string {
+  const port = distance < 1.2;
+  const worn = condition < 40;
+  if (port && worn) return "Port flood and noise, and the fabric is poor";
+  if (port) return "Port flood and noise";
+  if (worn) return "Poor fabric: damp and repair risk";
+  return "No particular hazard on the register";
+}
 
 export function ResidenceDetails({ home }: { home: Residence | null | undefined }) {
   if (!home) return <p className="qa-muted">You have no home recorded.</p>;
@@ -116,11 +133,45 @@ export default function PropertyApp() {
                       <span className="qa-muted"> · {district ? `${place(district)} · ` : ""}{rooms(h.size)} · {fabric(h)} · condition {h.condition}{h.light ? ` · ${h.light}` : ""}{h.noise ? ` · ${h.noise}` : ""}</span>
                     </span>
                     <span className="num">{moneyTitle(h.rent)} / month{nowRent && h.rent !== nowRent ? <span className="qa-muted"> · {moneyTitle(Math.abs(h.rent - nowRent))} {h.rent < nowRent ? "less" : "more"}</span> : null}</span>
+                    <div data-testid="lease-compare">
+                      {(() => {
+                        const dist = district?.distance ?? 2;
+                        const desir = district?.desirability ?? 1;
+                        const util = life?.budget?.lines.find((line) => line.id === "utilities");
+                        const cur = panel.data?.current?.size ?? 0;
+                        const utilities = util && util.cents > 0 && cur > 0
+                          ? `${moneyTitle(Math.round(util.cents * (h.size || 1) / cur))} a week, scaled from the present bill by rooms`
+                          : "Utilities are not metered yet";
+                        return (
+                          <span className="qa-muted">Deposit {h.deposit ? moneyTitle(h.deposit) : "none"}. Utilities: {utilities}. Commute: {commuteOf(dist)}. Quality: {qualityOf(h.condition, desir)}. Hazard: {hazardOf(dist, h.condition)}.</span>
+                        );
+                      })()}
+                    </div>
                     <Button size="sm" variant="secondary" disabled={busy} data-testid="rent-view" onClick={() => { setViewing(h.id); setConfirmId(null); }}>View</Button>
                     {open ? (
                       <div className="qa-block" data-testid="rent-viewing">
                         <p>{h.neighbourhood}. {rooms(h.size)}. {fabric(h)}, condition {h.condition}.{h.light ? ` ${h.light}.` : ""}{h.noise ? ` ${h.noise}.` : ""}</p>
                         <p>Rent {moneyTitle(h.rent)} a month. Deposit {h.deposit ? `${moneyTitle(h.deposit)}${h.landlord ? ` to ${h.landlord}` : ""}` : "none"}. Moving {h.moving ? `${moneyTitle(h.moving)}${h.mover ? ` to ${h.mover}` : ""}` : "no haulier quoted a price"}.</p>
+                        <div data-testid="lease-compare">
+                          {(() => {
+                            const dist = district?.distance ?? 2;
+                            const desir = district?.desirability ?? 1;
+                            const util = life?.budget?.lines.find((line) => line.id === "utilities");
+                            const cur = panel.data?.current?.size ?? 0;
+                            const utilities = util && util.cents > 0 && cur > 0
+                              ? `${moneyTitle(Math.round(util.cents * (h.size || 1) / cur))} a week, scaled from the present bill by rooms`
+                              : "Utilities are not metered yet";
+                            return (
+                              <>
+                                <p>Deposit {h.deposit ? moneyTitle(h.deposit) : "none"}.</p>
+                                <p>Utilities: {utilities}.</p>
+                                <p>Commute: {commuteOf(dist)}.</p>
+                                <p>Quality: {qualityOf(h.condition, desir)}.</p>
+                                <p>Hazard: {hazardOf(dist, h.condition)}.</p>
+                              </>
+                            );
+                          })()}
+                        </div>
                         {confirmId === h.id ? (
                           <div data-testid="rent-confirm">
                             <p>Confirm the move. The deposit and the moving bill leave your cash, then you take the home.</p>

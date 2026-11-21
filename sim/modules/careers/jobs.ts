@@ -7,7 +7,7 @@ import { GOODS } from '../economy/content.ts';
 import { CAPITAL, GOV, pay, type EconState, type Firm } from '../economy/index.ts';
 import { labourOf, leaveJob, setSimDay, succession, thought } from '../economy/people.ts';
 import { playerIndex, type ActResult, type Command } from '../player/index.ts';
-import { dateText } from '../player/gamedate.ts';
+import { clockText, dateText } from '../player/gamedate.ts';
 import { notify } from '../circle/notices.ts';
 import { COURSES, knowledgeIn } from '../courses/know.ts';
 import { attendanceWarning, noteAttendance, performanceOf, shiftOf } from './work.ts';
@@ -20,8 +20,9 @@ export function setJobBoost(fn: (w: World, person: number, f: Firm) => JobBoost)
 export interface OccRow { id: string; name: string; pay: number; school: number; rank: number }
 
 interface App {
-  person: number; firm: number; occ: number; due: number; n: number;
+  person: number; firm: number; occ: number; due: number; dueMin?: number; n: number;
   wage: number; day: number; better: number; pool: number; role: string; note: string;
+  appEv?: number; vacEv?: number;
 }
 interface Refusal { person: number; firm: number; day: number }
 interface StudyRow { person: number; occ: number; due: number }
@@ -32,7 +33,17 @@ export interface Offer {
   day: number; start: number; expires: number; status: 'open' | 'accepted' | 'declined' | 'lapsed' | 'started' | 'fell';
   why: string; ev: number; from: number; via: number; note: string;
 }
-interface JobBook { apps: App[]; refused: Refusal[]; study: StudyRow[]; notices: Notice[]; offers?: Offer[]; offerSeq?: number; seatDay?: number; seatN?: number[] }
+interface Hold { firm: number; occ: number; haveAtCut: number; wantAtCut: number; day: number; why: string; ev: number }
+interface Cut { person: number; firm: number; occ: number; role: string; day: number; why: string; ev: number; canReturn: boolean }
+interface RolePrev { exp: number; sold: number; have: number[] }
+interface JobBook {
+  apps: App[]; refused: Refusal[]; study: StudyRow[]; notices: Notice[];
+  offers?: Offer[]; offerSeq?: number; seatDay?: number; seatN?: number[];
+  holds?: Hold[]; cuts?: Cut[]; prev?: RolePrev[]; vacSeq?: number;
+  seat?: { firm: number; occ: number };
+  /** Gap at the end of yesterday's close: the shelf the morning board and the 11:00 decision both read. */
+  morn?: number[]; mornDay?: number;
+}
 
 export interface CareerApi {
   occ: OccRow[];
@@ -42,6 +53,10 @@ export interface CareerApi {
   setSkill(w: World, i: number, next: number): void;
   seatFor(w: World, f: Firm, person: number): number;
   reachSeat?(w: World, f: Firm, person: number): number;
+  /** Open seats for one role, from that role's own shortfall. Never the firm's whole gap. */
+  seatsAt(w: World, f: Firm, occ: number): number;
+  /** What the firm wants in this role, and what it has. `plan` ignores the shelf, so a restock is not a rise in demand. */
+  roleNeed(w: World, f: Firm, occ: number, basis?: 'hire' | 'close' | 'plan'): { have: number; want: number };
   place(w: World, person: number, f: Firm, occ: number, cause: number): void;
 }
 
@@ -163,6 +178,9 @@ function outlook(better: number, pool: number, gap: number, fit: number): { note
   return { note, score: rank * 1000 + left * 10 - ahead };
 }
 
+/** A hiring decision is read at 11:00 on the day the letter named. The clock and the letter use this minute. */
+export const DECISION_MIN = 11 * 60;
+
 /** The labour module's wage multiple. Zero means the plant is struck and hires nobody. */
 function wagePrem(w: World, firmIdx: number): number {
   const prem = (w.state.labour as { prem?: ArrayLike<number> } | undefined)?.prem;
@@ -176,6 +194,41 @@ function prodMult(s: EconState, good: string): number {
   let m = 1;
   for (const x of s.shocks) m *= (x.def.prod[good] ?? 1) * (x.def.prod.ALL ?? 1);
   return m;
+}
+
+function snapGaps(w: World): number[] {
+  const firms = econ(w).firms;
+  const gaps = new Array<number>(firms.length);
+  for (let i = 0; i < firms.length; i++) gaps[i] = firms[i] && !firms[i].closed ? firmGap(w, firms[i]) : 0;
+  return gaps;
+}
+
+/** End of the close: this reading is the shelf the next morning opens with, before the day's sales. */
+export function noteMorning(w: World): void {
+  const st = book(w);
+  st.morn = snapGaps(w);
+  st.mornDay = w.day + 1;
+}
+
+/** Labour the sales plan supports, with the shelf correction taken out. A restock is not a change in demand. */
+export function planGap(w: World, f: Firm): number {
+  if (f.closed) return 0;
+  const s = econ(w);
+  const d = GOODS[f.good];
+  if (!d || !(d.prod > 0)) return 0;
+  const mult = prodMult(s, f.good);
+  const prodEff = d.prod * mult;
+  const target = d.perishable ? f.expSales * 1.03 : Math.max(0, f.expSales);
+  const ceiling = w.ledger.instruments.has(CAPITAL) ? w.ledger.balance(f.id, CAPITAL) * mult : Infinity;
+  return Math.min(Math.max(0, target), ceiling) / prodEff - f.eff;
+}
+
+/** The gap the jobs board showed at dawn. A noon shelf is not a staffing decision. */
+export function hiringGap(w: World, f: Firm): number {
+  const st = book(w);
+  const g = st.morn;
+  if (g && st.mornDay === w.day && f.idx >= 0 && f.idx < g.length) return g[f.idx];
+  return firmGap(w, f);
 }
 
 /** Same labour gap the morning hiring round uses. Positive means the firm is short of staff. */
@@ -197,9 +250,10 @@ export function firmGap(w: World, f: Firm): number {
 
 /** Whole seats open at a firm right now: the one number letters, talk and Careers all quote. */
 export function seatsOpen(w: World, f: Firm): number {
-  if (!f || f.closed) return 0;
-  const g = firmGap(w, f);
-  return g > 1 && wagePrem(w, f.idx) > 0 ? Math.floor(g) : 0;
+  if (!f || f.closed || !api) return 0;
+  let n = 0;
+  for (let occ = 1; occ < api.occ.length; occ++) if (api.occ[occ]?.id) n += api.seatsAt(w, f, occ);
+  return n;
 }
 
 function playerSeat(w: World): string { return (w.state.player as { ids?: string[] } | undefined)?.ids?.[0] ?? ''; }
@@ -271,7 +325,7 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
   if (!api || !row) return { ...blank, taken: false, note: 'that seat is not hired' };
   if (f.closed) return { ...blank, taken: false, note: 'the firm is closed' };
   if (!(wagePrem(w, f.idx) > 0)) return { ...blank, taken: false, note: 'the plant is struck and is not hiring' };
-  if (!(gap > 1)) return { ...blank, taken: false, note: 'the firm is not short of staff' };
+  if (!(gap >= 1)) return { ...blank, taken: false, note: 'that role has no open seat' };
   const block = canWork(w, person);
   if (block) return { ...blank, taken: false, note: block, unlock: block.includes('health') || block.includes('sick') ? { need: 'health', text: 'Rest, or a clinic visit, brings your health back up to what a shift needs.', line: 'clinic' } : undefined };
   if (!api.qualifies(youSchool, occ, false)) {
@@ -306,38 +360,58 @@ function compare(w: World, person: number, f: Firm, occ: number, gap: number): {
   return { ...blank, taken: true, better, pool, note: odds.note, score: odds.score };
 }
 
+const listed = new WeakMap<World, { day: number; person: number; rows: Opening[] }>();
+
+function heldRole(w: World, firm: number, occ: number): Hold | undefined {
+  return book(w).holds?.find((h) => h.firm === firm && h.occ === occ);
+}
+
+/** A cut role stays off the board until planned demand for it rises past the want recorded at the cut. A restocked shelf is not that rise, and the same day never is. */
+function roleBlocked(w: World, f: Firm, occ: number): string {
+  const hold = heldRole(w, f.idx, occ);
+  if (!hold || !api) return '';
+  if (w.day <= hold.day) return hold.why;
+  const need = api.roleNeed(w, f, occ, 'plan');
+  if (need.want > hold.wantAtCut) {
+    const st = book(w);
+    st.holds = (st.holds ?? []).filter((h) => h !== hold);
+    const role = roleTitle(f.sector, occ);
+    return `Demand for this ${role} seat rose from ${hold.wantAtCut} to ${need.want}, so ${f.name} is advertising it again.`;
+  }
+  return hold.why;
+}
+
 function openings(w: World, person: number): Opening[] {
   if (!api) return [];
+  const hit = listed.get(w);
+  if (hit && hit.day === w.day && hit.person === person) return hit.rows;
   const s = econ(w), P = s.P;
   const rows: Opening[] = [];
   const here = person >= 0 && person < P.n ? P.employer[person] : -1;
   for (const f of s.firms) {
     if (f.closed || f.idx === here) continue;
-    const seats = seatsOpen(w, f);
-    if (seats < 1) continue;
-    const gap = Math.max(firmGap(w, f), seats);
-    const occ = api.seatFor(w, f, person);
-    const cmp = compare(w, person, f, occ, gap);
-    const push = (seat: number, row: typeof cmp): void => {
+    for (let occ = 1; occ < api.occ.length; occ++) {
+      if (!api.occ[occ]?.id) continue;
+      const seats = api.seatsAt(w, f, occ);
+      if (seats < 1) continue;
+      const blocked = roleBlocked(w, f, occ);
+      if (blocked && !blocked.startsWith('Demand for this role rose')) continue;
+      const cmp = compare(w, person, f, occ, seats);
+      const rose = blocked.startsWith('Demand for this role rose') ? blocked : '';
       rows.push({
-        n: 0, firm: f.idx, name: f.name, sector: f.sector, occ: seat, role: roleTitle(f.sector, seat), gap: seats,
-        wage: weekly(w, person, f.idx, seat),
-        askExp: row.askExp, askSchool: row.askSchool, askHealth: row.askHealth,
-        youExp: row.youExp, youSchool: row.youSchool, youHealth: row.youHealth,
-        taken: row.taken, note: row.note, better: row.better, pool: row.pool, score: row.score, unlock: row.unlock,
+        n: 0, firm: f.idx, name: f.name, sector: f.sector, occ, role: roleTitle(f.sector, occ), gap: seats,
+        wage: weekly(w, person, f.idx, occ),
+        askExp: cmp.askExp, askSchool: cmp.askSchool, askHealth: cmp.askHealth,
+        youExp: cmp.youExp, youSchool: cmp.youSchool, youHealth: cmp.youHealth,
+        taken: cmp.taken, note: rose ? `${rose}. ${cmp.note}` : cmp.note,
+        better: cmp.better, pool: cmp.pool, score: cmp.score, unlock: cmp.unlock,
       });
-    };
-    push(occ, cmp);
-    // The seat the firm is actually short of, when that is above what you can walk into.
-    const reach = api.reachSeat ? api.reachSeat(w, f, person) : occ;
-    if (reach !== occ) {
-      const above = compare(w, person, f, reach, gap);
-      if (!above.taken && above.unlock) push(reach, above);
     }
   }
   // A stable order: what you can take first, then by firm name, so the list does not reshuffle from one morning to the next.
-  rows.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || a.firm - b.firm);
+  rows.sort((a, b) => (b.taken ? 1 : 0) - (a.taken ? 1 : 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || a.firm - b.firm || a.occ - b.occ);
   for (let i = 0; i < rows.length; i++) rows[i].n = i + 1;
+  listed.set(w, { day: w.day, person, rows });
   return rows;
 }
 
@@ -415,7 +489,19 @@ export function workView(w: World, person: number): Record<string, unknown> {
     shift: sh ? { start: sh.start, end: sh.end, days: sh.days, label: sh.label, line: sh.line, overlapsMarket: sh.overlapsMarket, hours: sh.hours } : null,
     started: since, startedDate: since >= 0 ? dateText(since) : '', daysInSeat: since >= 0 ? w.day - since : 0,
     colleagues,
+    returnLine: returnLine(w, person),
   };
+}
+
+function returnLine(w: World, person: number): string {
+  const cut = (book(w).cuts ?? []).filter((c) => c.person === person).pop();
+  if (!cut) return '';
+  const f = econ(w).firms[cut.firm];
+  const name = f?.name ?? 'the firm';
+  if (!cut.canReturn || f?.closed) return `You cannot return to ${name}.`;
+  const hold = heldRole(w, cut.firm, cut.occ);
+  if (hold) return `You cannot return to the ${cut.role} seat at ${name} yet. ${hold.why}`;
+  return `You can return to ${name} as ${aan(cut.role)}: demand for the role has risen.`;
 }
 
 export function careerCard(w: World, person: number): { job: string; wage: number; tenure: number; performance: number; openings: string } {
@@ -481,11 +567,11 @@ function listJobs(w: World, person: number): ActResult {
   const lines = [`You are ${currentJob(w, person) === 'no job' ? 'out of work' : currentJob(w, person)}. ${card.openings.charAt(0).toUpperCase()}${card.openings.slice(1)}.`];
   for (const o of show) lines.push(openingLine(o));
   if (rows.length > show.length) lines.push(`and ${counted(rows.length - show.length, 'more firm', 'more firms')}.`);
-  const pending = book(w).apps.find((a) => a.person === person);
-  if (pending) {
+  for (const pending of book(w).apps.filter((a) => a.person === person)) {
     const f = econ(w).firms[pending.firm];
     const seat = pending.role || roleTitle(f?.sector ?? '', pending.occ);
-    lines.push(`Waiting on ${f?.name ?? 'a firm'} for ${aan(seat)}. They answer on ${dateText(pending.due)}.`);
+    const at = clockText(pending.dueMin ?? DECISION_MIN);
+    lines.push(`Waiting on ${f?.name ?? 'a firm'} for ${aan(seat)}. They answer on ${dateText(pending.due)} at ${at}.`);
   }
   for (const n of book(w).notices) if (n.person === person && w.day - n.day <= 12) lines.push(n.text);
   return { status: 'accepted', lines };
@@ -496,19 +582,26 @@ function applyJob(w: World, person: number, n: number): ActResult {
   const o = rows.find((r) => r.n === n);
   if (!o) return rejected(rows.length ? `jobs are numbered 1 to ${rows.length}` : 'no firm is short of hands right now');
   const st = book(w);
-  const pending = st.apps.find((a) => a.person === person);
-  if (pending) {
-    const f = econ(w).firms[pending.firm];
-    return rejected(`you are already waiting on ${f?.name ?? 'a firm'}`);
-  }
+  const same = st.apps.find((a) => a.person === person && a.firm === o.firm && a.occ === o.occ);
+  if (same) return rejected(`you are already waiting on ${o.name} for ${aan(o.role)}`);
   if (!o.taken) return rejected(`${o.name} will not see you for ${aan(o.role)}: ${o.note}`);
   const due = w.day + 3;
+  const dueMin = DECISION_MIN;
+  const f = econ(w).firms[o.firm];
+  const vacEv = f ? vacancyEv(w, f, o.occ, o.gap, `the role is short ${counted(Math.floor(o.gap), 'seat', 'seats')}`) : w.genesis;
+  const appEv = w.events.emit(
+    'career.application',
+    `${econ(w).P.name(person)} applies to ${o.name} for ${aan(o.role)}. They answer on ${dateText(due)} at ${clockText(dueMin)} || you applied`,
+    [vacEv],
+    econ(w).P.id(person),
+  );
   st.apps.push({
-    person, firm: o.firm, occ: o.occ, due, n: o.n, wage: o.wage, day: w.day,
-    better: o.better, pool: o.pool, role: o.role, note: o.note,
+    person, firm: o.firm, occ: o.occ, due, dueMin, n: o.n, wage: o.wage, day: w.day,
+    better: o.better, pool: o.pool, role: o.role, note: o.note, appEv, vacEv,
   });
+  listed.delete(w);
   const wait = due - w.day;
-  return { status: 'accepted', text: `You apply to ${o.name} for ${aan(o.role)} at ${usd(o.wage)} a week. They answer in ${counted(wait, 'day', 'days')}, on ${dateText(due)}.` };
+  return { status: 'accepted', eventId: appEv, text: `You apply to ${o.name} for ${aan(o.role)} at ${usd(o.wage)} a week. They answer in ${counted(wait, 'day', 'days')}, on ${dateText(due)} at ${clockText(dueMin)}.` };
 }
 
 function quitJob(w: World, person: number): ActResult {
@@ -632,6 +725,29 @@ function pinOffer(w: World, person: number, firmIdx: number, offer: number): num
   return Math.round(P.skill[person] * s.wage * 7 * m);
 }
 
+function vacancyEv(w: World, f: Firm, occ: number, seats: number, why: string): number {
+  const role = roleTitle(f.sector, occ);
+  const cause = f.staffEv ?? f.priceEv ?? f.ceoEv ?? econ(w).jobsWho ?? w.genesis;
+  const n = Math.max(1, Math.floor(seats));
+  return w.events.emit('career.vacancy', `${f.name} has ${n} ${role} ${n === 1 ? 'seat' : 'seats'} open || ${why}`, [cause], f.id);
+}
+
+function makerEv(w: World, f: Firm, from: number): number {
+  if (from >= 0 && from === f.ceo && f.ceoEv !== undefined && f.ceoEv >= 0) return f.ceoEv;
+  if (f.staffEv !== undefined && f.staffEv >= 0) return f.staffEv;
+  if (f.ceoEv !== undefined && f.ceoEv >= 0) return f.ceoEv;
+  return f.priceEv ?? econ(w).jobsWho ?? w.genesis;
+}
+
+function clearOfferActs(w: World, id: number): void {
+  const rows = (w.state.circle as { notices?: { rows?: { kind: string; actions?: { line?: string; act?: { id?: number } }[] }[] } } | undefined)?.notices?.rows;
+  if (!rows) return;
+  for (const r of rows) {
+    if (r.kind !== 'offer' || !r.actions?.length) continue;
+    if (r.actions.some((a) => a.act?.id === id || a.line === `job accept ${id}` || a.line === `job decline ${id}`)) r.actions = [];
+  }
+}
+
 function hireBecause(app: App): string {
   const n = Math.max(1, (app.pool || 0) + 1);
   const day = app.day ?? 0;
@@ -667,14 +783,19 @@ function resolveApp(w: World, app: App): void {
     drop(`${f.name} has stopped hiring.`, 'the firm stopped hiring');
     return;
   }
-  const gap = firmGap(w, f);
+  const gap = hiringGap(w, f);
   const lab = labourOf(P, app.person, w.day) || P.skill[app.person];
-  if (gap - lab < -2) {
+  // The vacancy recorded at application holds the seat. It is filled only if the firm can no longer take the person, or the vacancy was never opened.
+  // The test is this morning's gap, not the shelf sales have drained by 11:00.
+  const held = (app.vacEv ?? -1) >= 0;
+  if ((!held && api.seatsAt(w, f, app.occ) < 1) || gap - lab < -2) {
     drop(`${f.name} filled the ${role} seat before your letter arrived.`, 'the seat was filled before your letter arrived');
     return;
   }
   const why = hireBecause(app);
-  const ev = w.events.emit('career.offer', `${f.name} offers ${P.name(app.person)} ${aan(role)} seat || ${why}`, [w.genesis], P.id(app.person));
+  const from0 = boss(w, f, app.person);
+  const causes = [app.appEv ?? -1, makerEv(w, f, from0), app.vacEv ?? -1].filter((id, i, all) => id >= 0 && all.indexOf(id) === i);
+  const ev = w.events.emit('career.offer', `${f.name} offers ${P.name(app.person)} ${aan(role)} seat on ${dateText(w.day)} || ${why}`, causes.length ? causes : [w.genesis], P.id(app.person));
   const wage = app.wage > 0 ? app.wage : weekly(w, app.person, f.idx, app.occ);
   const ref = (w.state.venues as { seats?: Record<string, { refs?: { firm: number; who: number; until: number }[] }> } | undefined)?.seats?.[playerSeat(w)]?.refs?.find((r) => r.firm === f.idx && r.until >= app.day);
   const o = makeOffer(w, app.person, f, app.occ, role, wage, why, ev, ref ? ref.who : -1, false);
@@ -715,10 +836,21 @@ function makeOffer(w: World, person: number, f: Firm, occ: number, role: string,
     why, ev, from: boss(w, f, person), via, note: '',
   };
   const list = offerBook(w);
-  for (const x of list) if (x.person === person && (x.status === 'open' || (accepted && x.status === 'accepted'))) { x.status = 'lapsed'; x.note = `superseded by the ${f.name} offer`; }
   list.push(o);
   if (list.length > 30) list.splice(0, list.length - 30);
+  // A seat taken on the spot closes the other letters. Two open applications stay open until the player answers one.
+  if (accepted) closeOtherOffers(w, person, o.id, `superseded by the ${f.name} offer`);
   return o;
+}
+
+function closeOtherOffers(w: World, person: number, keep: number, note: string): void {
+  for (const x of offerBook(w)) {
+    if (x.person !== person || x.id === keep) continue;
+    if (x.status !== 'open' && x.status !== 'accepted') continue;
+    x.status = 'lapsed';
+    x.note = note;
+    clearOfferActs(w, x.id);
+  }
 }
 
 function offerActions(o: Offer): { label: string; line: string; act: Record<string, unknown> }[] {
@@ -758,11 +890,14 @@ function answerOffer(w: World, person: number, id: number, answer: string): ActR
   const who = o.from >= 0 && o.from < P.n ? P.name(o.from).split(' ')[0] : '';
   if (!yes) {
     o.status = 'declined';
+    clearOfferActs(w, o.id);
     const ev = w.events.emit('career.declined', `${P.name(person)} declines ${aan(o.role)} seat at ${name} || you said no`, [o.ev], P.id(person));
     if (o.from >= 0) postLetter(w, o.from, `Understood. I am sorry you will not be joining ${name}, but I would rather hear it now than in a month. If things change, write to me.`, ev);
     return { status: 'accepted', eventId: ev, text: `You turn down the ${o.role} seat at ${name}.${who ? ` ${who} writes back to say the door is not shut.` : ''}` };
   }
   o.status = 'accepted';
+  clearOfferActs(w, o.id);
+  closeOtherOffers(w, person, o.id, `you took the ${name} seat`);
   const ev = w.events.emit('career.accepted', `${P.name(person)} accepts ${aan(o.role)} seat at ${name} from ${dateText(o.start)} || you said yes`, [o.ev], P.id(person));
   const sh = hhmm(shiftStartMin(w, o));
   if (o.from >= 0) postLetter(w, o.from, `Good. We will see you on ${dateText(o.start)} at ${sh}. Ask for me at the front; I will walk you round and you can meet the people you will be working with.`, ev);
@@ -795,21 +930,22 @@ export function firstDays(w: World, from: number, to: number): FirstDay[] {
   return out;
 }
 
-/** Offers come due: a lapsed offer closes, and an accepted one starts on its morning. */
-function tendOffers(w: World): void {
+/** Offers come due: a lapsed offer closes once its deadline minute has passed, and an accepted one starts at the midnight before its morning. */
+function tendOffers(w: World, minute: number): void {
   const list = (w.state.careers as Partial<JobBook>).offers;
   if (!api || !list?.length) return;
   const s = econ(w), P = s.P;
-  // dayClose runs at midnight: an offer starting tomorrow is placed now, so the first morning is already yours.
-  const day = w.day + 1;
+  // Only the day close places someone in the seat. A daytime tick must not start tomorrow's job today.
+  const closing = minute >= 24 * 60;
+  const day = closing ? w.day + 1 : w.day;
   for (const o of list) {
-    if (o.status === 'open' && day > o.expires) {
+    if (o.status === 'open' && (w.day > o.expires || (w.day === o.expires && minute >= 17 * 60))) {
       o.status = 'lapsed';
       const f = s.firms[o.firm];
       notify(w, { kind: 'answer', title: `The ${f?.name ?? 'firm'} offer lapsed`, text: `You did not answer ${f?.name ?? 'the firm'} by ${dateText(o.expires)}, so the ${o.role} seat has gone to someone else.`, cause: o.ev, from: o.from, actions: [{ label: 'See who is hiring', line: 'jobs' }] });
       continue;
     }
-    if (o.status !== 'accepted' || day < o.start) continue;
+    if (!closing || o.status !== 'accepted' || day < o.start) continue;
     const f = s.firms[o.firm];
     if (!f || f.closed || o.person < 0 || o.person >= P.n || !P.alive(o.person)) { o.status = 'fell'; o.note = 'the firm closed before you started'; continue; }
     if (P.employer[o.person] === f.idx) { o.status = 'started'; continue; }
@@ -840,18 +976,29 @@ function tendOffers(w: World): void {
   }
 }
 
+/** Resolve applications whose stated minute has arrived, and tend offers. Study and attendance stay on the day close. */
+export function resolveAt(w: World, minute: number): void {
+  const st = w.state.careers as Partial<JobBook> | undefined;
+  if (!st) return;
+  const apps = st.apps ?? [];
+  if (apps.length) {
+    const later: App[] = [];
+    for (const app of apps) {
+      const dueMin = app.dueMin ?? DECISION_MIN;
+      if (w.day < app.due || (w.day === app.due && minute < dueMin)) later.push(app);
+      else resolveApp(w, app);
+    }
+    st.apps = later;
+  }
+  tendOffers(w, minute);
+}
+
 /** Applications and courses come due on this morning, after the firms have hired. */
 export function resolveJobs(w: World): void {
   const st = w.state.careers as Partial<JobBook> | undefined;
   if (!st) return;
   if (st.refused) st.refused = st.refused.filter((r) => w.day - r.day < 400);
-  const apps = st.apps ?? [];
-  const later: App[] = [];
-  for (const app of apps) {
-    if (w.day < app.due) later.push(app);
-    else resolveApp(w, app);
-  }
-  st.apps = later;
+  resolveAt(w, 24 * 60);
   const study = st.study ?? [];
   const studyLater: StudyRow[] = [];
   for (const row of study) {
@@ -877,7 +1024,92 @@ export function resolveJobs(w: World): void {
       notify(w, { kind: 'answer', title: `A word from ${f.name}`, text, reason: `Missed shifts: ${seen.why}.`, cause: ev, from, urgent: true, actions: [{ label: 'See your job', line: 'jobs' }] });
     }
   }
-  tendOffers(w);
+}
+
+function salesLine(f: Firm): string {
+  const good = GOODS[f.good]?.name ?? 'its goods';
+  const plan = Math.round(f.expSales);
+  const sold = Math.round(f.sold);
+  if (plan > 0 && sold < plan * 0.98) return `sales of ${good} ran below plan (${sold} sold against a plan of ${plan})`;
+  if (plan > 0 && sold > plan * 1.02) return `sales of ${good} ran above plan (${sold} sold against a plan of ${plan})`;
+  return `sales of ${good} are at the plan the firm was staffed for (${sold} sold, plan ${plan})`;
+}
+
+function lossSkip(w: World, person: number): boolean {
+  const P = econ(w).P;
+  const id = P.id(person);
+  const last = P.lastEv[person] >= 0 ? w.events.get(P.lastEv[person]) : undefined;
+  if (last && w.day - last.day <= 1) {
+    if (last.kind === 'career.quit' || last.kind === 'player.retire' || last.kind === 'person.breakdown') return true;
+    if (last.kind === 'firm.failed' || last.kind.startsWith('law.') || last.kind.startsWith('court.')) return true;
+  }
+  for (let e = w.events.count - 1; e >= 0; e--) {
+    const ev = w.events.get(e);
+    if (!ev || ev.day < w.day) break;
+    if (ev.actor === id && (ev.kind === 'career.quit' || ev.kind === 'player.retire')) return true;
+  }
+  return false;
+}
+
+function recordLoss(w: World, person: number, firmIdx: number, occ: number, alreadyGone: boolean): void {
+  if (!api) return;
+  const s = econ(w), P = s.P;
+  const f = s.firms[firmIdx];
+  if (!f || f.closed || person < 0) return;
+  const role = roleTitle(f.sector, occ);
+  const need = api.roleNeed(w, f, occ, 'plan');
+  const have = need.have;
+  const want = need.want;
+  const why = have > want
+    ? `${salesLine(f)}. ${f.name} had ${have} ${role}${have === 1 ? '' : 's'} against a plan of ${want}, and the newest went first`
+    : `${salesLine(f)}. ${f.name} cut staff, and the newest went first`;
+  const cause = f.layoffEv ?? f.profitEv ?? f.priceEv ?? w.genesis;
+  const ev = w.events.emit('career.layoff', `${P.name(person)} is laid off as ${aan(role)} at ${f.name} || ${why}`, [cause], P.id(person));
+  P.lastEv[person] = ev;
+  const st = book(w);
+  const canReturn = true;
+  st.cuts = (st.cuts ?? []).filter((c) => c.person !== person);
+  st.cuts.push({ person, firm: firmIdx, occ, role, day: w.day, why, ev, canReturn });
+  // Keep the role off the board until planned demand rises past the want this cut recorded. The shelf refilling is not that rise.
+  st.holds = (st.holds ?? []).filter((h) => !(h.firm === firmIdx && h.occ === occ));
+  st.holds.push({
+    firm: firmIdx, occ, haveAtCut: have, wantAtCut: want, day: w.day, ev,
+    why: `Laid off on ${dateText(w.day)}: ${why}. ${f.name} will not advertise this ${role} seat again until demand for it rises past ${want}.`,
+  });
+  listed.delete(w);
+  void alreadyGone;
+}
+
+/** After the economy has hired and cut: name a layoff by the demand change, and hold that role off the board. */
+export function tendRole(w: World): void {
+  if (!api) return;
+  const s = econ(w), P = s.P;
+  const person = playerIndex(w);
+  const st = book(w);
+  if (person >= 0 && person < P.n && P.alive(person)) {
+    const prev = st.seat;
+    const now = P.employer[person];
+    if (prev && prev.firm >= 0 && now !== prev.firm && !lossSkip(w, person)) {
+      recordLoss(w, person, prev.firm, prev.occ, true);
+    }
+    st.seat = { firm: P.employer[person], occ: P.occ[person] };
+  }
+  listed.delete(w);
+}
+
+/** The sentence a layoff notice should use, naming the demand change and whether the player can return. */
+export function careerLoss(w: World, person: number): string {
+  const cut = (book(w).cuts ?? []).filter((c) => c.person === person).pop();
+  if (!cut || w.day - cut.day > 3) return '';
+  const f = econ(w).firms[cut.firm];
+  const name = f?.name ?? 'the firm';
+  const hold = heldRole(w, cut.firm, cut.occ);
+  const back = !cut.canReturn || f?.closed
+    ? `You cannot return to ${name}.`
+    : hold
+      ? `You cannot return to the ${cut.role} seat at ${name} until a recorded rise in demand for it. ${hold.why}`
+      : `You can return: demand for ${cut.role} at ${name} has risen, and the seat is on the board again.`;
+  return `${cut.why}. ${back}`;
 }
 
 /** A seat someone at a table can offer the player outright: the firm is short of hands and the player can take the shift. */
@@ -886,8 +1118,9 @@ export function seatOffer(w: World, person: number, firmIdx: number): { occ: num
   const s = econ(w), P = s.P;
   const f = firmIdx >= 0 ? s.firms[firmIdx] : undefined;
   if (!f || f.closed || person < 0 || person >= P.n || P.employer[person] === f.idx) return null;
-  if (!(firmGap(w, f) > 1) || !(wagePrem(w, f.idx) > 0) || canWork(w, person)) return null;
+  if (!(wagePrem(w, f.idx) > 0) || canWork(w, person)) return null;
   const occ = api.seatFor(w, f, person);
+  if (api.seatsAt(w, f, occ) < 1) return null;
   if (!api.qualifies(schoolOf(P, person), occ, false)) return null;
   return { occ, role: roleTitle(f.sector, occ), wage: weekly(w, person, f.idx, occ) };
 }
@@ -898,7 +1131,7 @@ export function takeSeat(w: World, person: number, firmIdx: number, occ: number,
   const s = econ(w), P = s.P;
   const f = s.firms[firmIdx];
   if (!f || f.closed) return { why: 'the firm has closed' };
-  if (!(firmGap(w, f) > 0.5)) return { why: `${f.name} filled the seat in the meantime` };
+  if (api.seatsAt(w, f, occ) < 1) return { why: `${f.name} filled the seat in the meantime` };
   const block = canWork(w, person);
   if (block) return { why: block };
   const role = roleTitle(f.sector, occ);

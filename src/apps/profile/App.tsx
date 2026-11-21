@@ -86,6 +86,25 @@ export default function ProfileApp() {
           {background.knows.length ? <p>Knowledge · {background.knows.join(", ")}</p> : null}
         </section>
       ) : null}
+      <section className="qy-block" data-testid="household-budget">
+        <h3>Household budget</h3>
+        {life.budget ? (
+          <>
+            <p>Gross {money(life.budget.gross)} a week · tax {money(life.budget.tax)} · take-home {money(life.budget.takeHome)}.</p>
+            <p>Benefit {money(life.budget.benefit)} a week. {life.budget.benefitEnd}</p>
+            {life.budget.lines.map((line) => (
+              <div className="qy-row" key={line.id} data-testid={`budget-${line.id}`}>
+                <span className="label">{line.label}</span>
+                <span className="num">{money(line.cents)} a week</span>
+                <span className="qy-muted">{line.note}</span>
+              </div>
+            ))}
+            <p data-testid="budget-runway">
+              A week out is {money(life.budget.weekly)}: {life.budget.lines.map((line) => `${line.label.toLowerCase()} ${money(line.cents)}`).join(" + ")} = {money(life.budget.weekly)}. Runway is {money(life.budget.cash)} / {money(life.budget.weekly)} = {life.budget.runwayWeeks >= 99.5 ? "more than 99" : life.budget.runwayWeeks.toFixed(1)} weeks.
+            </p>
+          </>
+        ) : <p className="qy-muted">The household book is not open yet.</p>}
+      </section>
       <section className="qy-block">
         <h3>How you are</h3>
         <div className="qy-stats">
